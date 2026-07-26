@@ -86,7 +86,7 @@ func TestRefreshRefusesDistinctRequiredObservationFailures(t *testing.T) {
 	})
 }
 
-func TestRefreshStartedCancellationIsFailedPersistedAndNotRetried(t *testing.T) {
+func TestRefreshStartedCancellationIsPartialPersistedAndNotRetried(t *testing.T) {
 	manifestPath := writeNoObserverRefreshFixture(t)
 	prepared, err := PlanWrite(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -115,12 +115,50 @@ func TestRefreshStartedCancellationIsFailedPersistedAndNotRetried(t *testing.T) 
 	})
 	if err == nil ||
 		calls != 1 ||
-		result.ResultClass != ResultFailed ||
+		result.ResultClass != ResultPartial ||
 		result.ReasonCode != ReasonCommandFailed ||
 		!result.Attempted ||
 		result.ProcessOutcome == nil ||
 		!result.ProcessOutcome.Cancelled ||
 		!result.AttemptHistory.Persisted {
+		t.Fatalf("result=%#v calls=%d err=%v", result, calls, err)
+	}
+}
+
+func TestRefreshUnstartedCancellationIsCancelledAndNotPersisted(t *testing.T) {
+	manifestPath := writeNoObserverRefreshFixture(t)
+	prepared, err := PlanWrite(context.Background(), CommandInput{
+		ManifestPath: manifestPath,
+		ExtensionID:  "formatter",
+	}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = prepared.Close() })
+
+	calls := 0
+	result, err := Execute(context.Background(), prepared, ExecuteOptions{
+		CommandOptions: subprocess.CommandOptions{
+			Runner: func(
+				_ context.Context,
+				_ subprocess.CommandRequest,
+			) subprocess.CommandResult {
+				calls++
+				return subprocess.CommandResult{
+					Canceled: true,
+					Err:      context.Canceled,
+				}
+			},
+		},
+	})
+	if err == nil ||
+		calls != 1 ||
+		result.ResultClass != ResultCancelled ||
+		result.ReasonCode != ReasonCancelled ||
+		result.Attempted ||
+		result.ProcessOutcome == nil ||
+		!result.ProcessOutcome.Cancelled ||
+		result.AttemptHistory.Persisted {
 		t.Fatalf("result=%#v calls=%d err=%v", result, calls, err)
 	}
 }

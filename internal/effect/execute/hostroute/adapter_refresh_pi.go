@@ -7,8 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const piPackageRefreshTimeoutSeconds = 30
-
 var piPackageCarrierRefreshCommandAdapter = commandAdapter{
 	label:     "Pi package carrier refresh",
 	operation: lock.OperationRefresh,
@@ -61,7 +59,6 @@ func disclosePiPackageCarrierRefresh(
 		ExecutionSubject: input.subject.String(),
 		InvocationKind:   InvocationKindCommand,
 		CWDPolicy:        CWDPolicySelectedRoot,
-		TimeoutSeconds:   piPackageRefreshTimeoutSeconds,
 		EffectClasses: []string{
 			"cross_scope_identity_update",
 			"dependency_install",

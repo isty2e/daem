@@ -134,6 +134,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 	tests := []struct {
 		name          string
 		result        subprocess.CommandResult
+		wantClass     string
 		wantReason    string
 		wantAttempted bool
 		wantPersisted bool
@@ -141,6 +142,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 		{
 			name:       "missing executable",
 			result:     subprocess.CommandResult{MissingRunner: true, Err: os.ErrNotExist},
+			wantClass:  "failed",
 			wantReason: "missing_runner",
 		},
 		{
@@ -151,6 +153,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 				HasExitCode: true,
 				Err:         errors.New("plugin.json is malformed"),
 			},
+			wantClass:     "failed",
 			wantReason:    "nonzero_exit",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -163,6 +166,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 				HasExitCode: true,
 				Err:         errors.New("plugin source not found"),
 			},
+			wantClass:     "failed",
 			wantReason:    "nonzero_exit",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -174,6 +178,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 				Canceled: true,
 				Err:      context.Canceled,
 			},
+			wantClass:     "partial",
 			wantReason:    "canceled",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -208,7 +213,7 @@ func TestAntigravityCLIRefreshReportsHostFailuresAndPermitsExplicitRetry(t *test
 				}
 			}
 			failed := runAntigravityCLIRefresh(t, manifestPath, false, runner, 1)
-			if failed.Result.Class != "failed" ||
+			if failed.Result.Class != test.wantClass ||
 				failed.Result.Attempted != test.wantAttempted ||
 				failed.Result.ProcessOutcome == nil ||
 				failed.Result.ProcessOutcome.Reason != test.wantReason ||

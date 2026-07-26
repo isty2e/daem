@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -54,6 +55,7 @@ const (
 	ReasonStalePlan              ReasonCode = "stale_plan"
 	ReasonMutationAuthority      ReasonCode = "mutation_authority"
 	ReasonCommandFailed          ReasonCode = "command_failed"
+	ReasonInvalidTimeout         ReasonCode = "invalid_timeout"
 	ReasonPostObservationFailed  ReasonCode = "post_observation_failed"
 	ReasonAttemptPersistence     ReasonCode = "attempt_persistence_failed"
 	ReasonCancelled              ReasonCode = "cancelled"
@@ -72,6 +74,7 @@ type CommandInput struct {
 	ExtensionID  string
 	TargetValue  string
 	ScopeValue   string
+	Timeout      time.Duration
 }
 
 // Selection is the selected user-facing relation identity.
@@ -102,7 +105,8 @@ type Invocation struct {
 	TimeoutSeconds int
 }
 
-// Disclosure contains the complete adapter-owned effect disclosure.
+// Disclosure contains the complete command invocation and adapter-owned effect
+// disclosure selected for one refresh attempt.
 type Disclosure struct {
 	Invocation            Invocation
 	EffectClasses         []string
@@ -254,7 +258,10 @@ func (spec CommandSpec) attemptRequest() subprocess.CommandAttemptRequest {
 	return attempt
 }
 
-func commandResultDisclosure(spec CommandSpec) Disclosure {
+func commandResultDisclosure(
+	spec CommandSpec,
+	timeout HostCommandTimeout,
+) Disclosure {
 	envNames := make([]string, 0, len(spec.attempt.EnvRefs))
 	for _, reference := range spec.attempt.EnvRefs {
 		name := reference.Name
@@ -271,7 +278,7 @@ func commandResultDisclosure(spec CommandSpec) Disclosure {
 			Args:           append([]string(nil), spec.attempt.Args...),
 			EnvNames:       envNames,
 			CWDPolicy:      spec.disclosure.CWDPolicy(),
-			TimeoutSeconds: spec.disclosure.TimeoutSeconds(),
+			TimeoutSeconds: timeout.Seconds(),
 		},
 		EffectClasses:         spec.disclosure.EffectClasses(),
 		RetainedEffectClasses: spec.disclosure.RetainedEffectClasses(),
@@ -291,6 +298,7 @@ type plan struct {
 	preObservation    *observerelation.CorrelationResult
 	authorityPaths    []observerelation.AuthorityPath
 	currentState      durable.Snapshot
+	timeout           HostCommandTimeout
 	fingerprint       mutation.OperationFingerprint
 	authority         authorityEvidence
 	revisions         mutation.RevisionSet

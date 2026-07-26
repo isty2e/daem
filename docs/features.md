@@ -258,6 +258,13 @@ timeout, cleanup, and redaction rules. Ordinary `lock`, `status`, `doctor`, and
 `apply` do not probe. Endpoint health is not applicable to the current stdio
 slice; authentication and tool inventory are unsupported.
 
+Explicit extension refresh uses one host-agnostic child-process timeout:
+`10m` by default and configurable with `--timeout` from `1s` through `1h` in
+whole seconds. The selected value is disclosed and fingerprinted before
+authorization. It does not bound planning, confirmation, observation,
+history persistence, or cleanup. A timeout after process start is potentially
+partial host state and never proves rollback or absence of effects.
+
 ### External Carrier Adoption
 
 `apply --manage-existing` can acquire one state-only claim for an already

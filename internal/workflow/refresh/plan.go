@@ -27,6 +27,16 @@ func PlanDryRun(
 	input CommandInput,
 	options PlanOptions,
 ) (result CommandResult, returnErr error) {
+	timeout, err := normalizeHostCommandTimeout(input.Timeout)
+	if err != nil {
+		return refusedResult(
+			CommandResult{Mode: ModeDryRun},
+			ReasonInvalidTimeout,
+			err,
+			"select a whole-second timeout between 1s and 1h",
+		)
+	}
+	input.Timeout = timeout.Duration()
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return refusedResult(CommandResult{Mode: ModeDryRun}, ReasonManifestUnavailable, err, "check the selected manifest path")
@@ -53,7 +63,14 @@ func PlanDryRun(
 			)
 		}
 	}()
-	planned, err := planAtPaths(ctx, input, withPlanDefaults(options), paths, ModeDryRun)
+	planned, err := planAtPaths(
+		ctx,
+		input,
+		timeout,
+		withPlanDefaults(options),
+		paths,
+		ModeDryRun,
+	)
 	result = cloneCommandResult(planned.result)
 	if err != nil {
 		return result, err
@@ -84,6 +101,17 @@ func PlanWrite(
 	input CommandInput,
 	options PlanOptions,
 ) (*PreparedCommand, error) {
+	timeout, err := normalizeHostCommandTimeout(input.Timeout)
+	if err != nil {
+		result, refusal := refusedResult(
+			CommandResult{Mode: ModeExecute},
+			ReasonInvalidTimeout,
+			err,
+			"select a whole-second timeout between 1s and 1h",
+		)
+		return unavailablePreparedCommand(result), refusal
+	}
+	input.Timeout = timeout.Duration()
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		result, refusal := refusedResult(CommandResult{Mode: ModeExecute}, ReasonManifestUnavailable, err, "check the selected manifest path")
@@ -99,7 +127,14 @@ func PlanWrite(
 		)
 		return unavailablePreparedCommand(result), refusal
 	}
-	planned, planErr := planAtPaths(ctx, input, withPlanDefaults(options), paths, ModeExecute)
+	planned, planErr := planAtPaths(
+		ctx,
+		input,
+		timeout,
+		withPlanDefaults(options),
+		paths,
+		ModeExecute,
+	)
 	if planErr != nil {
 		closeErr := root.Close()
 		return unavailablePreparedCommand(planned.result), errors.Join(planErr, closeErr)
@@ -121,7 +156,12 @@ func PlanWrite(
 		)
 		return unavailablePreparedCommand(result), errors.Join(refusal, closeErr)
 	}
-	return newPreparedCommand(planned, input, withPlanDefaults(options), root), nil
+	return newPreparedCommand(
+		planned,
+		input,
+		withPlanDefaults(options),
+		root,
+	), nil
 }
 
 func stabilizePlan(
@@ -142,6 +182,7 @@ func stabilizePlan(
 	current, err := planAtPaths(
 		ctx,
 		input,
+		initial.timeout,
 		options,
 		initial.paths,
 		initial.result.Mode,
@@ -172,6 +213,7 @@ func stabilizePlan(
 func planAtPaths(
 	ctx context.Context,
 	input CommandInput,
+	timeout HostCommandTimeout,
 	options PlanOptions,
 	paths daempaths.Paths,
 	mode Mode,
@@ -301,7 +343,7 @@ func planAtPaths(
 	if command.attempt.WorkDir != paths.ManifestRoot {
 		return refusedPlan(result, ReasonRefreshUnsupported, fmt.Errorf("refresh adapter changed the selected working directory"), "report the incompatible refresh adapter")
 	}
-	result.Disclosure = commandResultDisclosure(command)
+	result.Disclosure = commandResultDisclosure(command, timeout)
 	result.Route.ExecutionSubject = command.disclosure.ExecutionSubject()
 	result.ResultClass = ResultPlanned
 	planned := plan{
@@ -316,6 +358,7 @@ func planAtPaths(
 		preObservation:    preObservation,
 		authorityPaths:    authorityPaths,
 		currentState:      currentState,
+		timeout:           timeout,
 	}
 	fingerprint, err := refreshFingerprint(planned)
 	if err != nil {

@@ -41,3 +41,15 @@ func newApplyProgressRenderer(jsonOutput bool, stderr io.Writer, options command
 
 	return cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: stderr})
 }
+
+func newRefreshProgressRenderer(
+	jsonOutput bool,
+	stderr io.Writer,
+	options commandOptions,
+) *cliprogress.RefreshProgressRenderer {
+	if jsonOutput || !options.stderrIsTerminal || stderr == nil {
+		return nil
+	}
+
+	return cliprogress.NewRefreshProgressRenderer(stderr)
+}

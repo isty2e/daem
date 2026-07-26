@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"time"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
@@ -44,6 +45,11 @@ func runRefresh(
 	var targetValues targetFlagValues
 	var scopeValues scopeFlagValues
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
+	timeout := flags.Duration(
+		"timeout",
+		refreshworkflow.DefaultHostCommandTimeout,
+		"delegated host command timeout",
+	)
 	dryRun := flags.Bool(
 		"dry-run",
 		false,
@@ -80,6 +86,15 @@ func runRefresh(
 			stderr,
 			"refresh failed: unexpected argument %q\n",
 			flags.Arg(0),
+		)
+		return 2
+	}
+	hostCommandTimeout, err := refreshworkflow.NewHostCommandTimeout(*timeout)
+	if err != nil {
+		fmt.Fprintf(
+			stderr,
+			"refresh failed: --timeout: %s\n",
+			humanDiagnosticError(err),
 		)
 		return 2
 	}
@@ -132,6 +147,7 @@ func runRefresh(
 		ExtensionID:  extensionID,
 		TargetValue:  targetValue,
 		ScopeValue:   scopeValue,
+		Timeout:      hostCommandTimeout.Duration(),
 	}
 	interactiveConfirmation := !*dryRun && !*yes
 	if interactiveConfirmation &&
@@ -262,11 +278,17 @@ func runRefresh(
 		}
 	}
 
+	progress := newRefreshProgressRenderer(*jsonOutput, stderr, options)
+	progress.Start(
+		disclosed.Selection.ID,
+		time.Duration(disclosed.Disclosure.TimeoutSeconds)*time.Second,
+	)
 	result, executeErr := refreshworkflow.Execute(
 		options.context,
 		prepared,
 		options.refreshExecuteOptions,
 	)
+	progress.Close()
 	report := clipresent.RefreshReportFrom(result)
 	if renderErr := printRefreshResult(
 		stdout,

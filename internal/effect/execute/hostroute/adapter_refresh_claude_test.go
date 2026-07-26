@@ -63,7 +63,6 @@ func TestBuildClaudePluginRefreshCommandUsesExactScopeAndRoute(t *testing.T) {
 				t.Fatal("Claude refresh command has no disclosure")
 			}
 			if disclosure.ExecutionSubject() != record.SubjectID().String() ||
-				disclosure.TimeoutSeconds() != claudePluginRefreshTimeoutSeconds ||
 				!slices.Contains(disclosure.EffectClasses(), "restart_required") ||
 				!slices.Contains(disclosure.RetainedEffectClasses(), "old_plugin_cache") ||
 				!slices.Contains(disclosure.NonClaims(), "exact_artifact_convergence") {

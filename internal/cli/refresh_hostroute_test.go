@@ -24,6 +24,7 @@ type hostRouteRefreshReport struct {
 	Disclosure struct {
 		Command               string   `json:"command"`
 		Args                  []string `json:"args"`
+		TimeoutSeconds        int      `json:"timeout_seconds"`
 		EffectClasses         []string `json:"effect_classes"`
 		RetainedEffectClasses []string `json:"retained_effect_classes"`
 		NonClaims             []string `json:"non_claims"`

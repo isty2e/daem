@@ -7,8 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const codexPluginMarketplaceRefreshTimeoutSeconds = 30
-
 var codexPluginCarrierRefreshCommandAdapter = commandAdapter{
 	label:     "Codex plugin marketplace refresh",
 	operation: lock.OperationRefresh,
@@ -78,7 +76,6 @@ func discloseCodexPluginCarrierRefresh(
 		ExecutionSubject: "codex-plugin-marketplace:" + selector.Marketplace(),
 		InvocationKind:   InvocationKindCommand,
 		CWDPolicy:        CWDPolicySelectedRoot,
-		TimeoutSeconds:   codexPluginMarketplaceRefreshTimeoutSeconds,
 		EffectClasses: []string{
 			"installed_sibling_cache_refresh",
 			"marketplace_network_access",

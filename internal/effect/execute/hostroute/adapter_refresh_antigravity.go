@@ -7,8 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const antigravityCLIPluginRefreshTimeoutSeconds = 30
-
 var antigravityCLIPluginCarrierRefreshCommandAdapter = commandAdapter{
 	label:     "Antigravity CLI plugin repeat-install refresh",
 	operation: lock.OperationRefresh,
@@ -60,7 +58,6 @@ func discloseAntigravityCLIPluginCarrierRefresh(
 		ExecutionSubject: input.subject.String(),
 		InvocationKind:   InvocationKindCommand,
 		CWDPolicy:        CWDPolicySelectedRoot,
-		TimeoutSeconds:   antigravityCLIPluginRefreshTimeoutSeconds,
 		EffectClasses: []string{
 			"bundled_contribution_changes",
 			"host_source_access",

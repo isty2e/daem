@@ -7,8 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const claudePluginRefreshTimeoutSeconds = 30
-
 var claudePluginCarrierRefreshCommandAdapter = commandAdapter{
 	label:     "Claude plugin carrier refresh",
 	operation: lock.OperationRefresh,
@@ -65,7 +63,6 @@ func discloseClaudePluginCarrierRefresh(
 		ExecutionSubject: input.subject.String(),
 		InvocationKind:   InvocationKindCommand,
 		CWDPolicy:        CWDPolicySelectedRoot,
-		TimeoutSeconds:   claudePluginRefreshTimeoutSeconds,
 		EffectClasses: []string{
 			"dependency_resolution",
 			"marketplace_source_access",

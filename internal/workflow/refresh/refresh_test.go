@@ -402,7 +402,6 @@ func syntheticRefreshCommandBuilder(t *testing.T) CommandBuilder {
 		ExecutionSubject:      "synthetic package formatter",
 		InvocationKind:        executehostroute.InvocationKindCommand,
 		CWDPolicy:             executehostroute.CWDPolicySelectedRoot,
-		TimeoutSeconds:        5,
 		EffectClasses:         []string{"host_package_refresh"},
 		RetainedEffectClasses: []string{"host_cache"},
 		NonClaims:             []string{"no_rollback"},

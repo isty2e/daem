@@ -197,7 +197,7 @@ flags.
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
 | `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `recover` | `--dry-run`, `--json`, `--manifest`, `--verbose`, `--yes` |
-| `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose`, `--yes` |
+| `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
 | `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
 | `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
@@ -770,7 +770,8 @@ disclosure uses ordered `env_bindings` entries with `child_name` and
 
 ```bash
 daem refresh extension <id> [--manifest <path>] [--target <target>]
-  [--scope <scope>] [--dry-run|--yes] [--json|--verbose]
+  [--scope <scope>] [--timeout <duration>] [--dry-run|--yes]
+  [--json|--verbose]
 ```
 
 Refresh selects exactly one declared extension id and its matching locked
@@ -783,6 +784,13 @@ effect envelope, retained effects, observation posture, and non-claims used by
 execution. Bare execution uses the shared three-stream terminal confirmation
 contract. Non-interactive and JSON execution require `--yes`; `--dry-run` and
 `--yes` are mutually exclusive.
+
+`--timeout` bounds only the one delegated host CLI child-process attempt. Its
+default is `10m`; accepted values are whole-second durations from `1s` through
+`1h`, inclusive. Planning, disclosure, confirmation, passive observation,
+attempt-history persistence, and cleanup are outside that child-process
+timeout. The selected value is part of the immutable disclosure and refresh
+fingerprint, so execution cannot use a different duration after confirmation.
 
 Refresh never rewrites the manifest, lockfile, or managed-relation ownership.
 It refuses a missing or stale lock, an active recovery journal, an unsupported
@@ -869,11 +877,13 @@ The result classes are:
 | `cancelled` | The operator declined or cancellation occurred before launch. |
 | `attempted_unverified` | The host request succeeded through a supported route without an outcome observer. |
 | `observed_relation` | The host request succeeded and fresh passive evidence proves the exact relation present. |
-| `failed` | Launch or host execution failed; `attempted` distinguishes pre-launch from started-process failure. |
-| `partial` | A started request succeeded or may have produced effects, but required post-observation, history persistence, or cleanup failed. |
+| `failed` | Launch or host execution failed without a timeout, cancellation, or signal after process start; `attempted` distinguishes pre-launch failures. |
+| `partial` | A started request timed out, was cancelled or signaled, succeeded without required post-observation, or could not persist history or complete cleanup; host effects may remain. |
 
 Once a process starts, refresh never retries, rolls back, invokes a separate
 install fallback, updates the lock, or claims absence of host effects.
+Timeout, cancellation, and signal termination after process start are
+therefore `partial`, not proof of an effect-free failure.
 Antigravity's disclosed refresh route itself is the host's repeat-install
 operation. A sanitized,
 operation-indexed attempt row is persisted only for a started process and is
@@ -898,10 +908,13 @@ Progress is automatic only for human output when stderr is a TTY and the
 workflow exposes a meaningful long-running phase. It is suppressed for JSON,
 non-TTY stderr, help, CLI misuse, and before interactive confirmation.
 
-Current progress-capable workflows are lock/outdated source resolution and
-apply execution. They render at most one ephemeral stderr line, escape
-untrusted labels, and clear the line before stable output or diagnostics.
-Duplicate completion events do not advance counts twice.
+Current progress-capable workflows are lock/outdated source resolution, apply
+execution, and the delegated host-process phase of `refresh extension`. They
+render at most one ephemeral stderr line, escape untrusted labels, and clear
+the line before stable output or diagnostics. Refresh reports only the selected
+extension and authorized timeout; it does not invent percentages or host
+progress that the child process does not expose. Duplicate completion events
+do not advance counts twice.
 
 A progress write failure disables later progress but does not fail an otherwise
 valid operation. A stable disclosure or confirmation-prompt write failure

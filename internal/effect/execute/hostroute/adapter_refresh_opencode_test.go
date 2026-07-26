@@ -61,7 +61,6 @@ func TestBuildOpenCodePluginRefreshCommandUsesExactScopeAndRoute(t *testing.T) {
 				t.Fatal("OpenCode refresh command has no disclosure")
 			}
 			if disclosure.ExecutionSubject() != fixture.record.SubjectID().String() ||
-				disclosure.TimeoutSeconds() != openCodePluginRefreshTimeoutSeconds ||
 				!slices.Contains(disclosure.EffectClasses(), "same_family_config_replacement") ||
 				!slices.Contains(disclosure.RetainedEffectClasses(), "package_cache") ||
 				!slices.Contains(disclosure.NonClaims(), "relation_observation") {

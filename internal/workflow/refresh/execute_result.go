@@ -30,6 +30,19 @@ func applyClassification(
 	attempt subprocess.CommandAttemptResult,
 ) CommandResult {
 	switch {
+	case attempt.Started() &&
+		(attempt.TimedOut() || attempt.Canceled() || attempt.Signaled()):
+		result.ResultClass = ResultPartial
+		result.ReasonCode = ReasonCommandFailed
+		result.Remediation = []string{
+			"inspect current host state before retrying the explicit refresh",
+		}
+	case !attempt.Started() && attempt.Canceled():
+		result.ResultClass = ResultCancelled
+		result.ReasonCode = ReasonCancelled
+		result.Remediation = []string{
+			"retry the explicit refresh when ready",
+		}
 	case attempt.Failed():
 		result.ResultClass = ResultFailed
 		result.ReasonCode = ReasonCommandFailed
@@ -55,7 +68,11 @@ func applyClassification(
 func resultClassAfterClassificationFailure(
 	attempt subprocess.CommandAttemptResult,
 ) ResultClass {
-	if attempt.Started() && attempt.Succeeded() {
+	if attempt.Started() &&
+		(attempt.Succeeded() ||
+			attempt.TimedOut() ||
+			attempt.Canceled() ||
+			attempt.Signaled()) {
 		return ResultPartial
 	}
 	return ResultFailed

@@ -174,6 +174,7 @@ func TestOpenCodeRefreshCLIReportsHostFailuresWithoutFallback(t *testing.T) {
 	tests := []struct {
 		name          string
 		result        subprocess.CommandResult
+		wantClass     string
 		wantReason    string
 		wantAttempted bool
 		wantPersisted bool
@@ -181,6 +182,7 @@ func TestOpenCodeRefreshCLIReportsHostFailuresWithoutFallback(t *testing.T) {
 		{
 			name:       "missing executable",
 			result:     subprocess.CommandResult{MissingRunner: true, Err: os.ErrNotExist},
+			wantClass:  "failed",
 			wantReason: "missing_runner",
 		},
 		{
@@ -191,6 +193,7 @@ func TestOpenCodeRefreshCLIReportsHostFailuresWithoutFallback(t *testing.T) {
 				HasExitCode: true,
 				Err:         errors.New("exit status 19"),
 			},
+			wantClass:     "failed",
 			wantReason:    "nonzero_exit",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -202,6 +205,7 @@ func TestOpenCodeRefreshCLIReportsHostFailuresWithoutFallback(t *testing.T) {
 				Canceled: true,
 				Err:      context.Canceled,
 			},
+			wantClass:     "partial",
 			wantReason:    "canceled",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -226,7 +230,7 @@ func TestOpenCodeRefreshCLIReportsHostFailuresWithoutFallback(t *testing.T) {
 				},
 				1,
 			)
-			if report.Result.Class != "failed" ||
+			if report.Result.Class != test.wantClass ||
 				report.Result.Attempted != test.wantAttempted ||
 				report.Result.ProcessOutcome == nil ||
 				report.Result.ProcessOutcome.Reason != test.wantReason ||

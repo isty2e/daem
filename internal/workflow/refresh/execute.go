@@ -121,6 +121,7 @@ func Execute(
 	current, err := planAtPaths(
 		ctx,
 		execution.input,
+		execution.planned.timeout,
 		execution.options,
 		effectPaths,
 		ModeExecute,

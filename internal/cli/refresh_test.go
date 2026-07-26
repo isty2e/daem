@@ -427,7 +427,6 @@ func injectCLIRefreshDependencies(
 			ExecutionSubject:      "synthetic formatter package",
 			InvocationKind:        executehostroute.InvocationKindCommand,
 			CWDPolicy:             executehostroute.CWDPolicySelectedRoot,
-			TimeoutSeconds:        5,
 			EffectClasses:         []string{"host_package_refresh"},
 			RetainedEffectClasses: []string{"host_cache"},
 			NonClaims:             []string{"no_rollback"},

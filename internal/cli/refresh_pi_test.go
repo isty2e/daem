@@ -136,6 +136,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 	tests := []struct {
 		name          string
 		result        subprocess.CommandResult
+		wantClass     string
 		wantReason    string
 		wantAttempted bool
 		wantPersisted bool
@@ -143,6 +144,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 		{
 			name:       "missing executable",
 			result:     subprocess.CommandResult{MissingRunner: true, Err: os.ErrNotExist},
+			wantClass:  "failed",
 			wantReason: "missing_runner",
 		},
 		{
@@ -153,6 +155,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 				HasExitCode: true,
 				Err:         errors.New("project is not trusted"),
 			},
+			wantClass:     "failed",
 			wantReason:    "nonzero_exit",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -165,6 +168,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 				HasExitCode: true,
 				Err:         errors.New("no matching extension"),
 			},
+			wantClass:     "failed",
 			wantReason:    "nonzero_exit",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -176,6 +180,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 				Canceled: true,
 				Err:      context.Canceled,
 			},
+			wantClass:     "partial",
 			wantReason:    "canceled",
 			wantAttempted: true,
 			wantPersisted: true,
@@ -204,7 +209,7 @@ func TestPiRefreshCLIReportsHostFailuresWithoutInstallFallback(t *testing.T) {
 				},
 				1,
 			)
-			if report.Result.Class != "failed" ||
+			if report.Result.Class != test.wantClass ||
 				report.Result.Attempted != test.wantAttempted ||
 				report.Result.ProcessOutcome == nil ||
 				report.Result.ProcessOutcome.Reason != test.wantReason ||

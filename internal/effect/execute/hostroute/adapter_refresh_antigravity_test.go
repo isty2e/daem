@@ -44,7 +44,6 @@ func TestBuildAntigravityCLIPluginRefreshCommandRepeatsExactGlobalSource(t *test
 		t.Fatal("Antigravity CLI refresh command has no disclosure")
 	}
 	if disclosure.ExecutionSubject() != fixture.record.SubjectID().String() ||
-		disclosure.TimeoutSeconds() != antigravityCLIPluginRefreshTimeoutSeconds ||
 		!slices.Contains(disclosure.EffectClasses(), "plugin_bundle_replacement") ||
 		!slices.Contains(disclosure.EffectClasses(), "import_registry_maintenance") ||
 		!slices.Contains(disclosure.RetainedEffectClasses(), "partial_host_source_state") ||

@@ -203,7 +203,7 @@ func TestRefreshExitCodePreservesOnlyObservedSignalIdentity(t *testing.T) {
 		{
 			name: "signaled 130",
 			result: refreshworkflow.CommandResult{
-				ResultClass: refreshworkflow.ResultFailed,
+				ResultClass: refreshworkflow.ResultPartial,
 				ProcessOutcome: &refreshworkflow.ProcessOutcome{
 					ExitCode: &exit130,
 					Signaled: true,
@@ -214,7 +214,7 @@ func TestRefreshExitCodePreservesOnlyObservedSignalIdentity(t *testing.T) {
 		{
 			name: "cancelled 143",
 			result: refreshworkflow.CommandResult{
-				ResultClass: refreshworkflow.ResultFailed,
+				ResultClass: refreshworkflow.ResultPartial,
 				ProcessOutcome: &refreshworkflow.ProcessOutcome{
 					ExitCode:  &exit143,
 					Cancelled: true,

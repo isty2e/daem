@@ -7,8 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const openCodePluginRefreshTimeoutSeconds = 30
-
 var openCodePluginCarrierRefreshCommandAdapter = commandAdapter{
 	label:     "OpenCode plugin carrier refresh",
 	operation: lock.OperationRefresh,
@@ -61,7 +59,6 @@ func discloseOpenCodePluginCarrierRefresh(
 		ExecutionSubject: input.subject.String(),
 		InvocationKind:   InvocationKindCommand,
 		CWDPolicy:        CWDPolicySelectedRoot,
-		TimeoutSeconds:   openCodePluginRefreshTimeoutSeconds,
 		EffectClasses: []string{
 			"multi_target_config_write",
 			"package_resolution",

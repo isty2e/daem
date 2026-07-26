@@ -17,7 +17,6 @@ type DisclosureInput struct {
 	ExecutionSubject      string
 	InvocationKind        string
 	CWDPolicy             string
-	TimeoutSeconds        int
 	EffectClasses         []string
 	RetainedEffectClasses []string
 	NonClaims             []string
@@ -30,7 +29,6 @@ type Disclosure struct {
 	executionSubject      string
 	invocationKind        string
 	cwdPolicy             string
-	timeoutSeconds        int
 	effectClasses         []string
 	retainedEffectClasses []string
 	nonClaims             []string
@@ -42,7 +40,6 @@ func NewDisclosure(input DisclosureInput) (Disclosure, error) {
 		executionSubject:      strings.TrimSpace(input.ExecutionSubject),
 		invocationKind:        strings.TrimSpace(input.InvocationKind),
 		cwdPolicy:             strings.TrimSpace(input.CWDPolicy),
-		timeoutSeconds:        input.TimeoutSeconds,
 		effectClasses:         canonicalDisclosureValues(input.EffectClasses),
 		retainedEffectClasses: canonicalDisclosureValues(input.RetainedEffectClasses),
 		nonClaims:             canonicalDisclosureValues(input.NonClaims),
@@ -71,9 +68,6 @@ func (disclosure Disclosure) validate() error {
 	}
 	if disclosure.cwdPolicy != CWDPolicySelectedRoot {
 		return fmt.Errorf("host route cwd policy %q is unsupported", disclosure.cwdPolicy)
-	}
-	if disclosure.timeoutSeconds <= 0 {
-		return fmt.Errorf("host route timeout must be positive")
 	}
 	for _, set := range []struct {
 		label  string
@@ -127,7 +121,6 @@ func canonicalDisclosureValues(values []string) []string {
 func (disclosure Disclosure) ExecutionSubject() string { return disclosure.executionSubject }
 func (disclosure Disclosure) InvocationKind() string   { return disclosure.invocationKind }
 func (disclosure Disclosure) CWDPolicy() string        { return disclosure.cwdPolicy }
-func (disclosure Disclosure) TimeoutSeconds() int      { return disclosure.timeoutSeconds }
 func (disclosure Disclosure) EffectClasses() []string {
 	return append([]string(nil), disclosure.effectClasses...)
 }

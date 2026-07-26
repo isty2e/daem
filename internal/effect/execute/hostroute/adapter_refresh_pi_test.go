@@ -52,7 +52,6 @@ func TestBuildPiPackageRefreshCommandPreservesCrossScopeHostRoute(t *testing.T) 
 				t.Fatal("Pi refresh command has no disclosure")
 			}
 			if disclosure.ExecutionSubject() != fixture.record.SubjectID().String() ||
-				disclosure.TimeoutSeconds() != piPackageRefreshTimeoutSeconds ||
 				!slices.Contains(disclosure.EffectClasses(), "cross_scope_identity_update") ||
 				!slices.Contains(disclosure.RetainedEffectClasses(), "partial_scope_updates") ||
 				!slices.Contains(disclosure.NonClaims(), "scope_locality") {
