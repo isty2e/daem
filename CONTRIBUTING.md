@@ -29,17 +29,21 @@ responsible public document together.
 
 ## Verify
 
-Run focused tests while editing, then use the repository gates appropriate to
-the claim:
+Install pre-commit 4.6.0 or newer once per development environment, then enable
+the repository hook:
 
 ```bash
-go run mvdan.cc/gofumpt@v0.10.0 -w .
-go run mvdan.cc/gofumpt@v0.10.0 -w .
-test -z "$(go run mvdan.cc/gofumpt@v0.10.0 -l .)"
+pre-commit install
+pre-commit run --all-files
+```
+
+Pre-commit owns repository hygiene, canonical Go formatting, module tidiness,
+vet, and architecture/documentation guards. Run focused tests while editing,
+then use the remaining repository gates appropriate to the claim:
+
+```bash
 go test -count=1 ./...
 go test -race -count=1 ./...
-go vet ./...
-go mod tidy -diff
 go mod verify
 git diff --check
 ```

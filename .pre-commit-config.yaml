@@ -1,0 +1,50 @@
+minimum_pre_commit_version: "4.6.0"
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-case-conflict
+      - id: check-illegal-windows-names
+      - id: check-merge-conflict
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=no]
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint v1.7.12
+        entry: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        language: system
+        files: '^\.github/workflows/.*\.ya?ml$'
+      - id: gofumpt
+        name: gofumpt v0.10.0
+        entry: go run mvdan.cc/gofumpt@v0.10.0 -w
+        language: system
+        types: [go]
+      - id: go-mod-tidy
+        name: go mod tidy
+        entry: go mod tidy -diff
+        language: system
+        pass_filenames: false
+        files: '(^|/)([^/]+\.go|go\.(mod|sum))$'
+      - id: go-vet
+        name: go vet
+        entry: go vet ./...
+        language: system
+        pass_filenames: false
+        files: '(^|/)([^/]+\.go|go\.(mod|sum))$'
+      - id: archguard
+        name: architecture and documentation guards
+        entry: go test ./internal/archguard -count=1
+        language: system
+        pass_filenames: false
+        files: '(^|/)([^/]+\.go|go\.(mod|sum)|README\.md|CONTRIBUTING\.md|docs/.*\.md|\.github/.*\.ya?ml)$'
