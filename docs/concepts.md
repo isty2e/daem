@@ -55,9 +55,9 @@ Scopes decide whether a target-visible resource is project-local or global:
 - `project`: written under the selected project manifest root.
 - `global`: written under the target's user-level root.
 
-Current support is summarized in the
-[Product Feature Matrix](features.md). That matrix is a derived user-facing
-view of typed target/resource surface contracts. Future target support must
+Current support is summarized in
+[Feature Support](features.md). That page is a derived user-facing view of
+typed target/resource surface contracts. Future target support must
 extend the typed registry and its invariant-bearing tests rather than adding ad
 hoc target/product booleans here.
 
@@ -279,8 +279,8 @@ packages, caches, credentials, trust state, logs, or other runtime residue.
 `daem probe mcp-server` can perform an explicit bounded runtime check for an
 supported locked row. A prior successful probe or delegated attempt is historical
 evidence, never authority to skip fresh observation or claim current readiness.
-Current target and scope rows are listed in the
-[Product Feature Matrix](features.md).
+Current target and scope rows are listed in
+[Feature Support](features.md).
 
 ### Extension Carriers
 
@@ -298,7 +298,8 @@ removal row, confirmed apply may invoke the host-native or direct-config route
 only with durable exact management authority, fresh route evidence, and no
 remaining daem-known shared consumer. `unmanage extension` retains host state,
 and external-store prune remains a separate unsupported operation. See the
-[Product Feature Matrix](features.md) for the currently executable host routes.
+[Host Integration Contract](host-integrations.md) for the currently executable
+host routes.
 
 ## Safety Model
 

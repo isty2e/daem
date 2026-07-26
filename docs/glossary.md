@@ -9,7 +9,7 @@ reference when exact behavior or schema matters.
 An admitted platform or route has a reviewed contract shape that daem may
 reason about. Admission is not the same as product support: an admitted row may
 still be diagnostic, deferred, unsupported, or blocked. See
-[Platform Support](platforms.md) and the [Product Feature Matrix](features.md).
+[Platform Support](platforms.md) and [Feature Support](features.md).
 
 ## Apply And Reconciliation
 
@@ -36,7 +36,7 @@ associated with its carrier; visibility does not turn it into a standalone
 A host-owned command that daem locks, discloses, and invokes for an admitted
 route. Command success is attempt evidence, not proof of package identity,
 runtime readiness, cleanup, or future convergence. See the target route
-summaries in the [Product Feature Matrix](features.md).
+summaries in the [Host Integration Contract](host-integrations.md).
 
 ## Desired State
 

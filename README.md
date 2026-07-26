@@ -17,10 +17,11 @@ The current product manages:
 - the lockfile, managed-state file, cache, and recovery journal needed for
   guarded reconciliation.
 
-Support varies by target and resource. See the
-[Product Feature Matrix](docs/features.md) for exact current coverage and
-non-claims. Product operating-system and architecture support is independent;
-see [Platform Support](docs/platforms.md).
+Support varies by target and resource. See
+[Feature Support](docs/features.md) for the current user-facing overview and
+the [Host Integration Contract](docs/host-integrations.md) for exact native
+routes and safety limits. Product operating-system and architecture support is
+independent; see [Platform Support](docs/platforms.md).
 
 ## How It Works
 
@@ -122,16 +123,17 @@ the manifest rather than an expanding flag surface.
   `--dry-run` and cannot be combined with `--json`.
 - `doctor` is passive. `probe` is an explicit, non-persistent runtime check and
   does not establish future apply authority.
-- Removing desired state does not by itself uninstall shared carriers, erase
-  package caches, or delete credentials. Exact behavior is reported by the
-  apply plan and feature matrix.
+- Removing desired state does not by itself erase shared plugin data, package
+  caches, or credentials. Exact behavior is reported by the apply plan and
+  host integration contract.
 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md)
 - [CLI Reference](docs/cli.md)
 - [Manifest Reference](docs/manifest.md)
-- [Product Feature Matrix](docs/features.md)
+- [Feature Support](docs/features.md)
+- [Host Integration Contract](docs/host-integrations.md)
 - [Platform Support](docs/platforms.md)
 - [Concepts](docs/concepts.md)
 - [Glossary](docs/glossary.md)

@@ -16,8 +16,10 @@ the responsible user documentation to move together.
 
 - Canonical Go models and invariant-bearing tests own executable semantics.
 - [Manifest](docs/manifest.md), [CLI](docs/cli.md),
-  [features](docs/features.md), and [platforms](docs/platforms.md) own their
-  respective user-visible contracts.
+  [host integrations](docs/host-integrations.md), and
+  [platforms](docs/platforms.md) own their respective user-visible contracts.
+  [Feature support](docs/features.md) is the user-facing summary of those
+  contracts.
 - [Examples](examples/) are copyable inputs subordinate to the manifest and CLI
   references; examples do not introduce syntax or support.
 - CI and repository guards enforce these artifacts but do not create a second

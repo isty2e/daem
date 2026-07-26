@@ -1,8 +1,8 @@
 # Platform Support
 
 This page is the public authority for operating-system and architecture support
-in `daem`. Agent and resource coverage is a separate axis documented in the
-[Product Feature Matrix](features.md).
+in `daem`. Agent and resource coverage is a separate axis documented in
+[Feature Support](features.md).
 
 ## Current Matrix
 

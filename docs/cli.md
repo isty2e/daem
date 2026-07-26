@@ -2,9 +2,9 @@
 
 This document is the public command, flag, output, stream, and exit contract for
 `daem`. Resource schema and target-specific fields belong in the
-[Manifest Reference](manifest.md); current support claims belong in the
-[Product Feature Matrix](features.md), while operating-system and architecture
-support belongs in [Platform Support](platforms.md).
+[Manifest Reference](manifest.md); current user-facing coverage belongs in
+[Feature Support](features.md), while operating-system and architecture support
+belongs in [Platform Support](platforms.md).
 
 ## Command Lifecycle
 

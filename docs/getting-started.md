@@ -133,11 +133,11 @@ daem apply --manage-existing --yes
 `--manage-existing` does not import content. It records exact matching output as
 managed, which gives later reconciliation deletion authority for that output.
 
-The same flow can claim a supported extension carrier that is already installed
+The same flow can manage a supported plugin or package that is already installed
 outside daem. First declare it with `daem add extension` or edit the manifest
 and run `daem lock`, then inspect `daem status`. Continue only when status
 reports `carrier adoption available` and the dry-run says it would record the
-exact source/target/scope claim:
+exact source, target, and scope:
 
 ```bash
 daem apply --manage-existing --dry-run
@@ -186,6 +186,7 @@ schema-versioned execution result when automation needs the final status.
   behavior.
 - [Manifest Reference](manifest.md): advanced fields and target-specific
   resource configuration.
-- [Product Feature Matrix](features.md): current target/resource support and
-  explicit non-claims.
+- [Feature Support](features.md): current target and resource support.
+- [Host Integration Contract](host-integrations.md): exact host operations and
+  safety limits.
 - [Concepts](concepts.md): manifest, lock, state ownership, and recovery model.

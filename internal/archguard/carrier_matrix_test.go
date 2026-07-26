@@ -8,10 +8,10 @@ import (
 )
 
 func TestCarrierFeatureMatrixKeepsSplitCarrierRows(t *testing.T) {
-	content := readRepoText(t, "docs/features.md")
+	content := readRepoText(t, "docs/host-integrations.md")
 
 	if markdownTableRowExists(content, "Plugin or extension carriers") {
-		t.Fatalf("docs/features.md reintroduced the overloaded Plugin or extension carriers row")
+		t.Fatalf("docs/host-integrations.md reintroduced the overloaded Plugin or extension carriers row")
 	}
 
 	for _, row := range []string{
@@ -22,13 +22,52 @@ func TestCarrierFeatureMatrixKeepsSplitCarrierRows(t *testing.T) {
 		"Carrier destructive cleanup and prune",
 	} {
 		if !strings.Contains(content, "| "+row+" |") {
-			t.Fatalf("docs/features.md is missing split carrier matrix row %q", row)
+			t.Fatalf("docs/host-integrations.md is missing split carrier matrix row %q", row)
+		}
+	}
+}
+
+func TestFeatureSupportKeepsUserFacingVocabularyAndCompactCells(t *testing.T) {
+	content := readRepoText(t, "docs/features.md")
+	lowerContent := strings.ToLower(content)
+
+	for _, forbidden := range []string{
+		"carrier",
+		"host-delegated",
+		"provider-scoped",
+		"passive observation",
+		"admitted route",
+	} {
+		if strings.Contains(lowerContent, forbidden) {
+			t.Fatalf("docs/features.md exposes internal term %q", forbidden)
+		}
+	}
+
+	for _, header := range [][]string{
+		{"Feature", "Codex", "Claude Code", "OpenCode", "Pi", "Antigravity CLI"},
+		{"Action", "Codex", "Claude Code", "OpenCode", "Pi", "Antigravity CLI"},
+	} {
+		tables := featureMatrixTablesWithHeader(content, header)
+		if len(tables) != 1 {
+			t.Fatalf("docs/features.md has %d tables with header %q, want 1", len(tables), header)
+		}
+		for _, row := range tables[0].rows {
+			for column := 1; column < len(row); column++ {
+				if words := len(strings.Fields(row[column])); words > 3 {
+					t.Fatalf(
+						"docs/features.md row %q column %q has %d words, want at most 3",
+						row[0],
+						header[column],
+						words,
+					)
+				}
+			}
 		}
 	}
 }
 
 func TestCarrierFeatureMatrixPreservesProviderContributionGuards(t *testing.T) {
-	content := readRepoText(t, "docs/features.md")
+	content := readRepoText(t, "docs/host-integrations.md")
 	section := requireMarkdownSubsection(t, content, "Provider-Scoped Contribution Diagnostics")
 
 	for _, want := range []string{
@@ -46,7 +85,7 @@ func TestCarrierFeatureMatrixPreservesProviderContributionGuards(t *testing.T) {
 }
 
 func TestCodexPluginRemovalContractKeepsPinnedSourceAndPublicGuarantee(t *testing.T) {
-	features := readRepoText(t, "docs/features.md")
+	features := readRepoText(t, "docs/host-integrations.md")
 	section := requireMarkdownSection(t, features, "Codex Plugin Carrier Route Summary")
 	for _, want := range []string{
 		"`supported` for the explicit global marketplace selector row",
@@ -62,7 +101,7 @@ func TestCodexPluginRemovalContractKeepsPinnedSourceAndPublicGuarantee(t *testin
 }
 
 func TestCarrierRemovalMatrixKeepsCurrentCrossHostGuarantees(t *testing.T) {
-	features := readRepoText(t, "docs/features.md")
+	features := readRepoText(t, "docs/host-integrations.md")
 	passiveRow := requireMarkdownTableRow(t, features, "Passive carrier observation")
 	for _, want := range []string{
 		"`supported` global config",

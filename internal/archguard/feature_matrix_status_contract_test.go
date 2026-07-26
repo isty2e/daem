@@ -6,7 +6,7 @@ import (
 )
 
 func TestFeatureMatrixUsesOneProductStatusAlgebra(t *testing.T) {
-	publicMatrix := readRepoText(t, "docs/features.md")
+	publicMatrix := readRepoText(t, "docs/host-integrations.md")
 
 	if findings := analyzeFeatureMatrixStatuses(publicMatrix); len(findings) != 0 {
 		t.Fatalf("feature matrix status guard found drift:\n- %s", strings.Join(findings, "\n- "))

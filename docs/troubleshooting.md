@@ -159,8 +159,9 @@ daem refresh extension <id> --dry-run --verbose
   disclosure.
 
 Refresh never removes, disables, uninstalls, prunes, or repairs plugin-bundled
-contributions. See the [Feature Matrix](features.md#explicit-carrier-refresh)
-for each host's native command and verification strength.
+contributions. See the
+[Host Integration Contract](host-integrations.md#explicit-carrier-refresh) for
+each host's native command and verification strength.
 
 ## Pi Package Removal Did Not Converge
 

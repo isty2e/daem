@@ -81,13 +81,13 @@ plugin-bundled MCP, plugin rows outside the explicit-global host-source carrier
 slice, rules/workflows as separate surfaces, settings, runtime readiness, and
 Antigravity IDE remain outside current product support. See
 [Instructions](#instructions), [MCP Servers](#mcp-servers), and the
-[Product Feature Matrix](features.md) for the supported slices.
+[Feature Support](features.md) for the supported slices.
 
-For the current supported, explicit, diagnostic, deferred, and unsupported
-surfaces, see the [Product Feature Matrix](features.md). That matrix is a
-derived view of the current typed target/resource surface registry. Future
-target support must extend that registry and its invariant-bearing tests rather
-than adding a separate boolean support matrix.
+For current target and resource coverage, see
+[Feature Support](features.md). That page is a derived view of the current typed
+target/resource surface registry. Future target support must extend that
+registry and its invariant-bearing tests rather than adding a separate boolean
+support matrix.
 
 OpenCode, Pi, and Antigravity CLI are valid target identifiers. Their skill
 resources reconcile through the shared Agent Skills directory surface.
@@ -901,14 +901,15 @@ and rejects same-layer inline `[hooks]` in `config.toml` as unmanaged hook
 content. Codex hooks written by `daem` are still non-managed Codex hooks,
 so Codex may require the user to review and trust them through `/hooks` before
 they run. The current support row is summarized under
-[Command Hooks](features.md#command-hooks).
+[Command Hooks](host-integrations.md#command-hooks).
 
 OpenCode and Pi hook targets also remain lock-only, but for a different reason:
 their hook-like workflows are plugin or extension event bridges, not
 declarative command hook files. Their product row is `diagnostic`; the reason
 is `bridge-required`, and doctor exposes it through the detail `command hook
 reconciliation requires an extension bridge surface`. The current support rows
-are summarized under [Command Hooks](features.md#command-hooks).
+are summarized under
+[Command Hooks](host-integrations.md#command-hooks).
 
 Antigravity CLI direct hook declarations remain lock-only because direct CLI
 hook schema, merge, precedence, removal, and trust evidence are missing. `add
@@ -1212,7 +1213,7 @@ Refresh is an operation over this declaration and its exact current lock
 contract, not another manifest field. `daem refresh extension <id>` selects one
 supported row explicitly and never rewrites manifest or lock bytes. Host,
 scope, evidence strength, and broader-effect details are listed in the
-[Feature Matrix](features.md#explicit-carrier-refresh) and
+[Host Integration Contract](host-integrations.md#explicit-carrier-refresh) and
 [CLI Reference](cli.md#refresh-extension).
 
 ```toml
@@ -1447,9 +1448,9 @@ and locked relation, fresh source-exact passive correlation independent of
 pending/claim state, no claim conflict, and fully supported install and removal
 lifecycle contracts. It invokes no host route. Current support is limited to
 the source-exact Claude Code, Codex, OpenCode, and exact-spelling Pi rows in the
-[Feature Matrix](features.md#external-carrier-adoption); Antigravity CLI remains
-source-inexact. Carrier relation visibility alone is still not adoption
-authority.
+[Host Integration Contract](host-integrations.md#external-carrier-adoption);
+Antigravity CLI remains source-inexact. Carrier relation visibility alone is
+still not adoption authority.
 
 Directly authored and CLI-authored extension rows lower to identical lock,
 status, and apply facts. Authoring support alone does not admit a host removal
