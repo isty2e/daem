@@ -1,5 +1,7 @@
 # daem
 
+[![CI](https://github.com/isty2e/daem/actions/workflows/ci.yml/badge.svg)](https://github.com/isty2e/daem/actions/workflows/ci.yml)
+
 `daem` is a Declarative Agent Environment Manager. It reads one manifest,
 resolves and locks source-backed resources, and reconciles selected agent hosts.
 
