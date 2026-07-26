@@ -35,6 +35,42 @@ same transaction. Host effects remain behind `apply`: preview with
 `apply --dry-run`, confirm interactively, or use `apply --yes` in
 non-interactive environments.
 
+## Manifest At A Glance
+
+`daem.toml` can be edited directly or through `daem add` and `daem remove`.
+This example manages global instructions and a Git-backed skill for Codex and
+Claude Code, plus one global Claude Code MCP entry:
+
+```toml
+version = 1
+targets = ["codex", "claude-code"]
+
+[defaults]
+scope = "global"
+install_mode = "copy"
+
+[instructions.personal]
+source = "instructions/personal.md"
+
+[[skill]]
+name = "humanizer"
+source = { git = "https://github.com/blader/humanizer.git", ref = "main" }
+targets = ["codex", "claude-code"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["claude-code"]
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]
+```
+
+Global declarations affect every project using the selected agent profile.
+Review `daem apply --dry-run --diff` before applying them. See the
+[Manifest Reference](docs/manifest.md) for all fields and the
+[Representative Project](examples/representative-project.toml) for hooks,
+managed hook assets, and project-scoped resources.
+
 ## Install From Source
 
 No public release artifacts are published yet. Install from a source checkout
