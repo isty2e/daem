@@ -1,0 +1,156 @@
+package pipackage_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	observepipackage "github.com/isty2e/daem/internal/assurance/observe/pipackage"
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/target"
+)
+
+func TestReadSettingsKeepsProjectAndGlobalLayersIndependent(t *testing.T) {
+	root := t.TempDir()
+	agentRoot := filepath.Join(root, "agent")
+	projectRoot := filepath.Join(root, "project")
+	writeSettings(t, filepath.Join(agentRoot, "settings.json"), `{"packages":["npm:global-only"]}`)
+	writeSettings(t, filepath.Join(projectRoot, ".pi", "settings.json"), `{"packages":["npm:project-only"]}`)
+
+	global := mustReadSettings(t, observepipackage.SettingsInput{
+		ConfigRoot: agentRoot, WorkDir: projectRoot, ProjectRoot: projectRoot, Scope: target.ScopeGlobal,
+	})
+	project := mustReadSettings(t, observepipackage.SettingsInput{
+		ConfigRoot: agentRoot, WorkDir: projectRoot, ProjectRoot: projectRoot, Scope: target.ScopeProject,
+	})
+	assertCorrelationState(
+		t,
+		mustCorrelate(t, "npm:project-only", projectRoot, target.ScopeGlobal, global),
+		observerelation.StateMissing,
+	)
+	assertCorrelationState(
+		t,
+		mustCorrelate(t, "npm:global-only", projectRoot, target.ScopeProject, project),
+		observerelation.StateMissing,
+	)
+}
+
+func TestMissingSettingsIsFreshScopedAbsence(t *testing.T) {
+	root := t.TempDir()
+	inventory := mustReadSettings(t, observepipackage.SettingsInput{
+		ConfigRoot:  filepath.Join(root, "agent"),
+		WorkDir:     filepath.Join(root, "project"),
+		ProjectRoot: filepath.Join(root, "project"),
+		Scope:       target.ScopeGlobal,
+	})
+	result := mustCorrelate(t, "npm:missing", filepath.Join(root, "project"), target.ScopeGlobal, inventory)
+	assertCorrelationState(t, result, observerelation.StateMissing)
+	if inventory.SettingsPath() != filepath.Join(root, "agent", "settings.json") {
+		t.Fatalf("SettingsPath() = %q", inventory.SettingsPath())
+	}
+}
+
+func TestReadSettingsRejectsAmbiguousOrUnsafeEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		content []byte
+		want    string
+	}{
+		{name: "duplicate key", content: []byte(`{"packages":[],"packages":[]}`), want: "duplicate object key"},
+		{name: "null packages", content: []byte(`{"packages":null}`), want: "must be an array"},
+		{name: "scalar packages", content: []byte(`{"packages":1}`), want: "cannot unmarshal"},
+		{name: "missing object source", content: []byte(`{"packages":[{"skills":[]}]}`), want: "source is required"},
+		{name: "non-string object source", content: []byte(`{"packages":[{"source":1}]}`), want: "must be a string"},
+		{name: "untrimmed source", content: []byte(`{"packages":[" npm:tools"]}`), want: "non-empty and trimmed"},
+		{name: "invalid utf8", content: []byte{0xff}, want: "not valid UTF-8"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent", "settings.json")
+			writeSettingsBytes(t, path, test.content)
+			_, err := observepipackage.ReadSettings(observepipackage.SettingsInput{
+				ConfigRoot: root + string(os.PathSeparator) + "agent",
+				WorkDir:    root,
+				Scope:      target.ScopeGlobal,
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ReadSettings error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestReadSettingsRejectsSymlinkAndNonRegularPath(t *testing.T) {
+	root := t.TempDir()
+	realPath := filepath.Join(root, "real.json")
+	writeSettings(t, realPath, `{"packages":[]}`)
+	agentRoot := filepath.Join(root, "agent")
+	if err := os.MkdirAll(agentRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(agentRoot, "settings.json")
+	if err := os.Symlink(realPath, settingsPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, err := observepipackage.ReadSettings(observepipackage.SettingsInput{
+		ConfigRoot: agentRoot,
+		WorkDir:    root,
+		Scope:      target.ScopeGlobal,
+	})
+	if err == nil || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("symlink ReadSettings error = %v", err)
+	}
+
+	if err := os.Remove(settingsPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(settingsPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err = observepipackage.ReadSettings(observepipackage.SettingsInput{
+		ConfigRoot: agentRoot,
+		WorkDir:    root,
+		Scope:      target.ScopeGlobal,
+	})
+	if err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("directory ReadSettings error = %v", err)
+	}
+}
+
+func mustReadSettings(t *testing.T, input observepipackage.SettingsInput) observepipackage.Inventory {
+	t.Helper()
+	inventory, err := observepipackage.ReadSettings(input)
+	if err != nil {
+		t.Fatalf("ReadSettings returned error: %v", err)
+	}
+	return inventory
+}
+
+func assertCorrelationState(
+	t *testing.T,
+	result observerelation.CorrelationResult,
+	want observerelation.CorrelationState,
+) {
+	t.Helper()
+	if result.State() != want {
+		t.Fatalf("correlation state = %q, want %q (reason %q)", result.State(), want, result.Reason())
+	}
+}
+
+func writeSettings(t *testing.T, path string, content string) {
+	t.Helper()
+	writeSettingsBytes(t, path, []byte(content))
+}
+
+func writeSettingsBytes(t *testing.T, path string, content []byte) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}

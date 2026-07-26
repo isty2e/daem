@@ -1,0 +1,212 @@
+//go:build darwin || linux
+
+package access
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"path"
+
+	"github.com/isty2e/daem/internal/supply/artifact"
+	"golang.org/x/sys/unix"
+)
+
+func walkNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	sink TreeSink,
+	budget *traversalBudget,
+) (result artifact.ContentHash, resultErr error) {
+	handle, err := openNativeRoot(root, expectedKind)
+	if err != nil {
+		return "", err
+	}
+	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
+
+	rootSize := int64(0)
+	if handle.entry.kind == nativeKindFile {
+		rootSize = handle.entry.size
+	}
+	if err := budget.consume(".", rootSize); err != nil {
+		return "", err
+	}
+	var contentHash artifact.ContentHash
+	switch handle.entry.kind {
+	case nativeKindFile:
+		contentHash, err = hashNativeFile(ctx, handle.entry, ".", sink)
+	case nativeKindDirectory:
+		contentHash, err = hashNativeDirectory(ctx, handle.entry, sink, budget)
+	default:
+		err = fmt.Errorf("artifact access root has unsupported kind")
+	}
+	if err != nil {
+		return "", err
+	}
+	if err := handle.verify(); err != nil {
+		return "", err
+	}
+	return contentHash, nil
+}
+
+func hashNativeFile(
+	ctx context.Context,
+	entry nativeEntry,
+	relativePath string,
+	sink TreeSink,
+) (artifact.ContentHash, error) {
+	reader := &nativeFileReader{ctx: ctx, fd: entry.fd}
+	var writer io.WriteCloser
+	var content io.Reader = reader
+	if sink != nil {
+		opened, err := openSinkFile(sink, relativePath, entry.mode, entry.size)
+		if err != nil {
+			return "", err
+		}
+		writer = opened
+		content = io.TeeReader(reader, io.MultiWriter(writer))
+	}
+	contentHash, hashErr := artifact.HashFileReader(
+		ctx,
+		content,
+		entry.size,
+		entry.mode.Perm()&0o111 != 0,
+	)
+	if writer != nil {
+		hashErr = errors.Join(hashErr, writer.Close())
+	}
+	if hashErr != nil {
+		return "", hashErr
+	}
+	return contentHash, nil
+}
+
+func hashNativeDirectory(
+	ctx context.Context,
+	root nativeEntry,
+	sink TreeSink,
+	budget *traversalBudget,
+) (artifact.ContentHash, error) {
+	if sink != nil {
+		if err := sink.BeginDirectory(".", root.mode); err != nil {
+			return "", err
+		}
+	}
+	builder := artifact.NewDirectoryHashBuilder()
+	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", builder, sink, budget); err != nil {
+		return "", err
+	}
+	if sink != nil {
+		if err := sink.EndDirectory(".", root.mode); err != nil {
+			return "", err
+		}
+	}
+	return builder.Sum()
+}
+
+func hashNativeDirectoryEntries(
+	ctx context.Context,
+	directoryFD int,
+	relativeRoot string,
+	builder *artifact.DirectoryHashBuilder,
+	sink TreeSink,
+	budget *traversalBudget,
+) error {
+	names, err := readNativeDirectoryNames(directoryFD)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		relativePath := name
+		if relativeRoot != "." {
+			relativePath = path.Join(relativeRoot, name)
+		}
+		entry, err := openNativeChild(directoryFD, name)
+		if err != nil {
+			return err
+		}
+
+		var operationErr error
+		entrySize := int64(0)
+		if entry.kind == nativeKindFile {
+			entrySize = entry.size
+		}
+		if operationErr = budget.consume(relativePath, entrySize); operationErr != nil {
+			closeErr := unix.Close(entry.fd)
+			return errors.Join(operationErr, closeErr)
+		}
+		switch entry.kind {
+		case nativeKindDirectory:
+			operationErr = builder.AddDirectory(relativePath)
+			if operationErr == nil && sink != nil {
+				operationErr = sink.BeginDirectory(relativePath, entry.mode)
+			}
+			if operationErr == nil {
+				operationErr = hashNativeDirectoryEntries(ctx, entry.fd, relativePath, builder, sink, budget)
+			}
+			if operationErr == nil {
+				operationErr = verifyNativeEntryBinding(directoryFD, name, entry)
+			}
+			if operationErr == nil && sink != nil {
+				operationErr = sink.EndDirectory(relativePath, entry.mode)
+			}
+		case nativeKindFile:
+			reader := &nativeFileReader{ctx: ctx, fd: entry.fd}
+			var writer io.WriteCloser
+			var content io.Reader = reader
+			if sink != nil {
+				writer, operationErr = openSinkFile(sink, relativePath, entry.mode, entry.size)
+				if operationErr == nil {
+					content = io.TeeReader(reader, io.MultiWriter(writer))
+				}
+			}
+			if operationErr == nil {
+				operationErr = builder.AddFile(
+					ctx,
+					relativePath,
+					entry.mode.Perm()&0o111 != 0,
+					entry.size,
+					content,
+				)
+			}
+			if writer != nil {
+				operationErr = errors.Join(operationErr, writer.Close())
+			}
+			if operationErr == nil {
+				operationErr = verifyNativeEntryBinding(directoryFD, name, entry)
+			}
+		default:
+			operationErr = fmt.Errorf("artifact access path %q has unsupported kind", relativePath)
+		}
+		closeErr := unix.Close(entry.fd)
+		if operationErr != nil {
+			return errors.Join(operationErr, closeErr)
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return verifyNativeDirectoryNames(directoryFD, names)
+}
+
+func openSinkFile(
+	sink TreeSink,
+	relativePath string,
+	mode fs.FileMode,
+	size int64,
+) (io.WriteCloser, error) {
+	writer, err := sink.OpenFile(relativePath, mode, size)
+	if err != nil {
+		return nil, err
+	}
+	if writer == nil {
+		return nil, fmt.Errorf("artifact access tree sink returned no writer for %q", relativePath)
+	}
+	return writer, nil
+}

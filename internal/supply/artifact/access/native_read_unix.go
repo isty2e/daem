@@ -1,0 +1,171 @@
+//go:build darwin || linux
+
+package access
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
+	"math"
+
+	"github.com/isty2e/daem/internal/supply/artifact"
+	"golang.org/x/sys/unix"
+)
+
+func inspectNative(root string) (result artifact.ArtifactKind, resultErr error) {
+	handle, err := openNativeRoot(root, "")
+	if err != nil {
+		return "", err
+	}
+	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
+	switch handle.entry.kind {
+	case nativeKindFile:
+		return artifact.ArtifactKindFile, nil
+	case nativeKindDirectory:
+		return artifact.ArtifactKindDirectory, nil
+	default:
+		return "", fmt.Errorf("artifact access root has unsupported kind")
+	}
+}
+
+func readDirectoryNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+) (result []Entry, resultErr error) {
+	handle, err := openNativeRoot(root, expectedKind)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
+
+	target, err := handle.openRelative(relativePath)
+	if err != nil {
+		return nil, err
+	}
+	if target != nil {
+		defer func() { resultErr = errors.Join(resultErr, target.close()) }()
+	}
+	entry := handle.entry
+	if target != nil {
+		entry = target.entry
+	}
+	if entry.kind != nativeKindDirectory {
+		return nil, fmt.Errorf("artifact access path %q is not a directory", relativePath)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	names, err := readNativeDirectoryNames(entry.fd)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]Entry, 0, len(names))
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		observed, stat, err := observeNativeEntry(entry.fd, name)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, Entry{
+			name: name,
+			kind: publicEntryKind(observed.kind),
+			mode: fs.FileMode(stat.Mode & 0o777),
+		})
+	}
+	if target != nil {
+		if err := target.verify(); err != nil {
+			return nil, err
+		}
+	}
+	if err := handle.verify(); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+func readFileNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+	maxBytes int64,
+) (result []byte, resultMode fs.FileMode, resultErr error) {
+	handle, err := openNativeRoot(root, expectedKind)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
+
+	target, err := handle.openRelative(relativePath)
+	if err != nil {
+		return nil, 0, err
+	}
+	if target != nil {
+		defer func() { resultErr = errors.Join(resultErr, target.close()) }()
+	}
+	entry := handle.entry
+	if target != nil {
+		entry = target.entry
+	}
+	if entry.kind != nativeKindFile {
+		return nil, 0, fmt.Errorf("artifact access path %q is not a regular file", relativePath)
+	}
+	if entry.size > maxBytes {
+		return nil, 0, newLimitError("read", relativePath, maxBytes, entry.size)
+	}
+	reader := &nativeFileReader{ctx: ctx, fd: entry.fd}
+	readLimit := maxBytes
+	if maxBytes < math.MaxInt64 {
+		readLimit++
+	}
+	content, err := io.ReadAll(io.LimitReader(reader, readLimit))
+	if err != nil {
+		return nil, 0, err
+	}
+	if int64(len(content)) > maxBytes {
+		return nil, 0, newLimitError("read", relativePath, maxBytes, int64(len(content)))
+	}
+	if int64(len(content)) != entry.size {
+		return nil, 0, fmt.Errorf("artifact access file %q changed size while reading", relativePath)
+	}
+	if target != nil {
+		if err := target.verify(); err != nil {
+			return nil, 0, err
+		}
+	}
+	if err := handle.verify(); err != nil {
+		return nil, 0, err
+	}
+	return content, entry.mode, nil
+}
+
+type nativeFileReader struct {
+	ctx context.Context
+	fd  int
+}
+
+func (reader *nativeFileReader) Read(payload []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(payload) == 0 {
+		return 0, nil
+	}
+	for {
+		count, err := unix.Read(reader.fd, payload)
+		if errors.Is(err, unix.EINTR) {
+			continue
+		}
+		if count == 0 && err == nil {
+			return 0, io.EOF
+		}
+		return count, err
+	}
+}

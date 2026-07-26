@@ -1,0 +1,200 @@
+//go:build darwin || linux
+
+package commit
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+)
+
+func TestMissingRootedEntryPreservesNotExistCause(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	capability := rootedCapabilityForCommitTest(t, captureRootForCommitTest(t, root), ".agents/config")
+	defer capability.Close()
+
+	_, err := CaptureRootedEntryIdentity(context.Background(), capability)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CaptureRootedEntryIdentity error = %T %v, want errors.Is(os.ErrNotExist)", err, err)
+	}
+}
+
+func TestRootedFileCommitCreateReplaceAndRemoveStayRooted(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	destination := ".agents/skills/review/SKILL.md"
+	hostPath := filepath.Join(root, filepath.FromSlash(destination))
+
+	createCapability := rootedCapabilityForCommitTest(t, captured, destination)
+	create, err := NewRootedFileCreate(createCapability, []byte("first"), 0o600)
+	if err != nil {
+		t.Fatalf("NewRootedFileCreate returned error: %v", err)
+	}
+	if err := CommitFile(context.Background(), create); err != nil {
+		t.Fatalf("CommitFile(create) returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, createCapability)
+	assertFileContent(t, hostPath, "first")
+
+	replaceCapability := rootedCapabilityForCommitTest(t, captured, destination)
+	expected, err := CaptureRootedEntryIdentity(context.Background(), replaceCapability)
+	if err != nil {
+		t.Fatalf("CaptureRootedEntryIdentity returned error: %v", err)
+	}
+	replace, err := NewRootedFileReplacement(replaceCapability, []byte("second"), 0o640, expected)
+	if err != nil {
+		t.Fatalf("NewRootedFileReplacement returned error: %v", err)
+	}
+	if err := CommitFile(context.Background(), replace); err != nil {
+		t.Fatalf("CommitFile(replace) returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, replaceCapability)
+	assertFileContent(t, hostPath, "second")
+
+	removeCapability := rootedCapabilityForCommitTest(t, captured, destination)
+	expected, err = CaptureRootedEntryIdentity(context.Background(), removeCapability)
+	if err != nil {
+		t.Fatalf("CaptureRootedEntryIdentity(remove) returned error: %v", err)
+	}
+	removal, err := NewRootedLogicalRemoval(removeCapability, expected)
+	if err != nil {
+		t.Fatalf("NewRootedLogicalRemoval returned error: %v", err)
+	}
+	if err := CommitLogicalRemoval(context.Background(), removal); err != nil {
+		t.Fatalf("CommitLogicalRemoval returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, removeCapability)
+	if _, err := os.Lstat(hostPath); !os.IsNotExist(err) {
+		t.Fatalf("removed path Lstat error = %v, want not exist", err)
+	}
+}
+
+func TestReadRootedRegularFileSuppliesReplacementIdentity(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	writeTestFile(t, filepath.Join(root, ".agents", "config"), "before", 0o640)
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	content, mode, expected, err := ReadRootedRegularFile(context.Background(), capability)
+	if err != nil {
+		t.Fatalf("ReadRootedRegularFile returned error: %v", err)
+	}
+	if string(content) != "before" || mode != 0o640 {
+		t.Fatalf("ReadRootedRegularFile = %q mode %o, want before mode 640", content, mode)
+	}
+	request, err := NewRootedFileReplacement(capability, []byte("after"), 0o600, expected)
+	if err != nil {
+		t.Fatalf("NewRootedFileReplacement returned error: %v", err)
+	}
+	if err := CommitFile(context.Background(), request); err != nil {
+		t.Fatalf("CommitFile returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	assertFileContent(t, filepath.Join(root, ".agents", "config"), "after")
+}
+
+func TestReadRootedRegularFileUpToEnforcesPayloadBound(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	writeTestFile(t, filepath.Join(root, ".agents", "config"), "12345", 0o640)
+	captured := captureRootForCommitTest(t, root)
+
+	exact := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	content, mode, _, err := ReadRootedRegularFileUpTo(t.Context(), exact, 5)
+	if err != nil {
+		t.Fatalf("ReadRootedRegularFileUpTo exact bound returned error: %v", err)
+	}
+	if string(content) != "12345" || mode != 0o640 {
+		t.Fatalf("bounded rooted read = %q mode %o, want 12345 mode 640", content, mode)
+	}
+	if err := exact.Close(); err != nil {
+		t.Fatalf("close exact-bound capability: %v", err)
+	}
+
+	oversized := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	if _, _, _, err := ReadRootedRegularFileUpTo(t.Context(), oversized, 4); err == nil {
+		t.Fatal("ReadRootedRegularFileUpTo oversized file returned nil error")
+	}
+	if err := oversized.Close(); err != nil {
+		t.Fatalf("close oversized capability: %v", err)
+	}
+
+	invalid := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	if _, _, _, err := ReadRootedRegularFileUpTo(t.Context(), invalid, 0); err == nil {
+		t.Fatal("ReadRootedRegularFileUpTo zero bound returned nil error")
+	}
+	if err := invalid.Close(); err != nil {
+		t.Fatalf("close invalid-bound capability: %v", err)
+	}
+}
+
+func captureRootForCommitTest(t *testing.T, root string) *rootedpath.CapturedRoot {
+	t.Helper()
+	captured, err := rootedpath.CaptureRoot(root)
+	if err != nil {
+		t.Fatalf("CaptureRoot(%q) returned error: %v", root, err)
+	}
+	t.Cleanup(func() {
+		if err := captured.Close(); err != nil {
+			t.Errorf("close captured captured root: %v", err)
+		}
+	})
+	return captured
+}
+
+func rootedCapabilityForCommitTest(
+	t *testing.T,
+	captured *rootedpath.CapturedRoot,
+	relativePath string,
+) rootedpath.CommitCapability {
+	t.Helper()
+	authority, err := captured.Authority()
+	if err != nil {
+		t.Fatalf("CapturedRoot.Authority returned error: %v", err)
+	}
+	relative, err := rootedpath.NewRelativeDestination(relativePath)
+	if err != nil {
+		t.Fatalf("NewRelativeDestination(%q) returned error: %v", relativePath, err)
+	}
+	destination, err := authority.Bind(relative)
+	if err != nil {
+		t.Fatalf("Authority.Bind returned error: %v", err)
+	}
+	capability, err := captured.Acquire(destination)
+	if err != nil {
+		t.Fatalf("CapturedRoot.Acquire returned error: %v", err)
+	}
+	return capability
+}
+
+func assertClosedRootedCapability(t *testing.T, capability rootedpath.CommitCapability) {
+	t.Helper()
+	if err := capability.Validate(); !hasRootedPathFailureKind(err, rootedpath.FailureRootUnavailable) {
+		t.Fatalf("consumed capability Validate error = %v, want %s", err, rootedpath.FailureRootUnavailable)
+	}
+}
+
+func assertFileContent(t *testing.T, path string, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) returned error: %v", path, err)
+	}
+	if string(content) != want {
+		t.Fatalf("ReadFile(%q) = %q, want %q", path, content, want)
+	}
+}

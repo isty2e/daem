@@ -1,0 +1,312 @@
+//go:build darwin || linux
+
+package mcp
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
+)
+
+func TestDefaultCommandRunnerTimeoutTerminatesGrandchild(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx := newTriggeredDeadlineContext()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "parent-hang", readyPath))
+	}()
+	if err := waitForMCPProbeFile(readyPath, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	ctx.expire()
+
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for expired MCP process tree")
+	}
+
+	if !result.Started || !result.TimedOut || result.InitializeSucceeded {
+		t.Fatalf("result = %#v, want started timeout", result)
+	}
+	assertMCPProbeProcessesGone(t, pids)
+}
+
+func TestDefaultCommandRunnerCancellationTerminatesGrandchild(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx, cancel := context.WithCancel(context.Background())
+	request := mcpProcessTreeRequest(t, "parent-hang", readyPath)
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, request)
+	}()
+	if err := waitForMCPProbeFile(readyPath, 5*time.Second); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	cancel()
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for canceled MCP process tree")
+	}
+
+	if !result.Started || !result.Canceled || result.InitializeSucceeded {
+		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	assertMCPProbeProcessesGone(t, pids)
+}
+
+func TestDefaultCommandRunnerSuccessCleansServerGrandchild(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result := defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "parent-initialize", readyPath))
+
+	if !result.Started || !result.InitializeSucceeded || result.Err != nil {
+		t.Fatalf("result = %#v, want successful initialize and cleanup", result)
+	}
+	assertMCPProbeProcessesGone(t, readMCPProbePIDs(t, readyPath))
+}
+
+func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
+	markerPath := t.TempDir() + "/initialized"
+	ctx := newTriggeredDeadlineContext()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, commandRequestWithNativeWorkDir(t, commandRequest{
+			Command: os.Args[0],
+			Args: []string{
+				"-test.run=^TestMCPProbeHelperProcess$",
+			},
+			Env: append(
+				os.Environ(),
+				"DAEM_MCPPROBE_HELPER=success-hang",
+				"DAEM_MCPPROBE_MARKER="+markerPath,
+			),
+			OutputLimit:     defaultOutputLimit,
+			ProtocolVersion: defaultProtocolVersion,
+		}))
+	}()
+	if err := waitForMCPProbeFile(markerPath, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	ctx.expire()
+
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for initialized MCP process cleanup")
+	}
+	if !result.Started || !result.InitializeSucceeded || result.TimedOut || result.Canceled || result.Err != nil {
+		t.Fatalf("result = %#v, want completed initialize preserved through cleanup deadline", result)
+	}
+}
+
+func TestMCPProbeProcessTreeHelper(t *testing.T) {
+	mode := os.Getenv("DAEM_MCPPROBE_TREE_MODE")
+	if mode == "" {
+		return
+	}
+	readyPath := os.Getenv("DAEM_MCPPROBE_TREE_READY")
+	if mode == "child" {
+		if err := writeMCPProbeHelperFile(readyPath+".child", []byte(strconv.Itoa(os.Getpid()))); err != nil {
+			os.Exit(71)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	}
+
+	executable, err := os.Executable()
+	if err != nil {
+		os.Exit(72)
+	}
+	child := exec.Command(executable, "-test.run=TestMCPProbeProcessTreeHelper")
+	child.Env = append(
+		os.Environ(),
+		"DAEM_MCPPROBE_TREE_MODE=child",
+		"DAEM_MCPPROBE_TREE_READY="+readyPath,
+	)
+	if err := child.Start(); err != nil {
+		os.Exit(73)
+	}
+	if err := waitForMCPProbeFile(readyPath+".child", 5*time.Second); err != nil {
+		_ = child.Process.Kill()
+		os.Exit(74)
+	}
+	content := fmt.Sprintf("%d,%d", os.Getpid(), child.Process.Pid)
+	if err := writeMCPProbeHelperFile(readyPath, []byte(content)); err != nil {
+		_ = child.Process.Kill()
+		os.Exit(75)
+	}
+
+	switch mode {
+	case "parent-hang":
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "parent-initialize":
+		reader := bufio.NewReader(os.Stdin)
+		readInitializeRequestFromReaderOrExit(reader)
+		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"tree-test","version":"1"}}}`)
+		notification, err := reader.ReadString('\n')
+		if err != nil || !strings.Contains(notification, "notifications/initialized") {
+			os.Exit(76)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	default:
+		os.Exit(77)
+	}
+}
+
+func mcpProcessTreeRequest(t *testing.T, mode string, readyPath string) commandRequest {
+	t.Helper()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commandRequestWithNativeWorkDir(t, commandRequest{
+		Command: executable,
+		Args:    []string{"-test.run=TestMCPProbeProcessTreeHelper"},
+		Env: append(
+			os.Environ(),
+			"DAEM_MCPPROBE_TREE_MODE="+mode,
+			"DAEM_MCPPROBE_TREE_READY="+readyPath,
+		),
+		OutputLimit:     defaultOutputLimit,
+		ProtocolVersion: defaultProtocolVersion,
+	})
+}
+
+type triggeredDeadlineContext struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func newTriggeredDeadlineContext() *triggeredDeadlineContext {
+	return &triggeredDeadlineContext{done: make(chan struct{})}
+}
+
+func (ctx *triggeredDeadlineContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *triggeredDeadlineContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *triggeredDeadlineContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (ctx *triggeredDeadlineContext) Value(any) any {
+	return nil
+}
+
+func (ctx *triggeredDeadlineContext) expire() {
+	ctx.once.Do(func() {
+		close(ctx.done)
+	})
+}
+
+func readMCPProbePIDs(t *testing.T, path string) []int {
+	t.Helper()
+	if err := waitForMCPProbeFile(path, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := strings.Split(strings.TrimSpace(string(content)), ",")
+	if len(parts) != 2 {
+		t.Fatalf("pid evidence = %q", content)
+	}
+	pids := make([]int, 0, len(parts))
+	for _, part := range parts {
+		pid, err := strconv.Atoi(part)
+		if err != nil || pid <= 0 {
+			t.Fatalf("pid evidence = %q", content)
+		}
+		pids = append(pids, pid)
+	}
+	return pids
+}
+
+func waitForMCPProbeFile(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out waiting for %s", path)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func writeMCPProbeHelperFile(path string, content []byte) error {
+	temporaryPath := path + ".tmp-" + strconv.Itoa(os.Getpid())
+	if err := os.WriteFile(temporaryPath, content, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporaryPath, path)
+}
+
+func assertMCPProbeProcessesGone(t *testing.T, pids []int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		allGone := true
+		for _, pid := range pids {
+			if err := unix.Kill(pid, 0); err == nil || err == unix.EPERM {
+				allGone = false
+				break
+			} else if err != unix.ESRCH {
+				t.Fatalf("probe pid %d: %v", pid, err)
+			}
+		}
+		if allGone {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("processes still alive: %v", pids)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

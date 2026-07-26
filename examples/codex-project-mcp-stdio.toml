@@ -1,0 +1,13 @@
+version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

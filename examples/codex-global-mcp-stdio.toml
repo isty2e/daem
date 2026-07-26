@@ -1,0 +1,17 @@
+# Minimal Codex global MCP projection example.
+#
+# This example manages exactly one command/args-only mcp_servers entry inside
+# ~/.codex/config.toml. It does not run codex mcp, install packages, probe MCP
+# runtime readiness, manage auth/session state, support custom config roots, or
+# cover plugin-provided MCP.
+
+version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

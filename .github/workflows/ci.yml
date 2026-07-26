@@ -1,0 +1,280 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  integrity:
+    name: Integrity (Go 1.26.5, Linux amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Record environment
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "linux"
+          test "$(go env GOARCH)" = "amd64"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+          uname -a
+      - name: Verify module graph
+        run: |
+          go mod tidy -diff
+          go mod verify
+      - name: Verify canonical Go formatting
+        run: |
+          unformatted="$(go run mvdan.cc/gofumpt@v0.10.0 -l .)"
+          if test -n "${unformatted}"; then
+            echo "Files requiring gofumpt v0.10.0:"
+            printf '%s\n' "${unformatted}"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Verify architecture and documentation guards
+        run: go test ./internal/archguard -count=1
+      - name: Verify productive exported API reachability
+        run: |
+          set -euo pipefail
+          evidence_dir=$(mktemp -d)
+          go run golang.org/x/tools/cmd/deadcode@v0.48.0 -json ./... \
+            > "${evidence_dir}/main.json"
+          go run golang.org/x/tools/cmd/deadcode@v0.48.0 -test -json ./... \
+            > "${evidence_dir}/test.json"
+          for roots in main test; do
+            jq -r '
+              .[] as $package |
+              $package.Funcs[] |
+              select((.Name | split(".")[-1]) | test("^[A-Z]")) |
+              [$package.Path, .Position.File, (.Position.Line | tostring), .Name] |
+              @tsv
+            ' "${evidence_dir}/${roots}.json" |
+              sort -u > "${evidence_dir}/${roots}.tsv"
+          done
+          comm -23 "${evidence_dir}/main.tsv" "${evidence_dir}/test.tsv" \
+            > "${evidence_dir}/test-only.tsv"
+          go list -json ./... |
+            jq -r 'select((((.GoFiles // []) + (.CgoFiles // [])) | length) > 0) | .ImportPath' |
+            sort -u > "${evidence_dir}/production-packages.tsv"
+          go list -f '{{if eq .Name "main"}}{{.ImportPath}}{{end}}' ./... |
+            sed '/^$/d' |
+            sort -u > "${evidence_dir}/main-packages.tsv"
+          test -s "${evidence_dir}/main-packages.tsv"
+          xargs go list -deps < "${evidence_dir}/main-packages.tsv" |
+            sort -u > "${evidence_dir}/main-dependencies.tsv"
+          comm -23 \
+            "${evidence_dir}/production-packages.tsv" \
+            "${evidence_dir}/main-dependencies.tsv" \
+            > "${evidence_dir}/test-tool-packages.tsv"
+          awk -F '\t' '
+            FILENAME == ARGV[1] { test_tools[$1] = 1; next }
+            !($1 in test_tools) { print }
+          ' "${evidence_dir}/test-tool-packages.tsv" \
+            "${evidence_dir}/test-only.tsv" \
+            > "${evidence_dir}/unadmitted.tsv"
+          if test -s "${evidence_dir}/unadmitted.tsv"; then
+            echo "Exported production callables reachable only from tests:"
+            cat "${evidence_dir}/unadmitted.tsv"
+            exit 1
+          fi
+          echo "No unadmitted exported production callable is reachable only from tests."
+
+  compatibility:
+    name: Minimum line (Go 1.25.12, Linux amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up minimum supported Go line
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.25.12"
+          cache-dependency-path: go.sum
+      - name: Prove toolchain selection
+        run: |
+          test "$(go env GOVERSION)" = "go1.25.12"
+          test "$(go list -m -f '{{.GoVersion}}')" = "1.25.0"
+          test "$(go env GOOS)" = "linux"
+          test "$(go env GOARCH)" = "amd64"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+      - name: Verify and test minimum line
+        run: |
+          go mod verify
+          go test -mod=readonly ./... -count=1
+          go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem
+
+  native:
+    name: Native (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: darwin-arm64
+            os: macos-26
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Record native environment
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "${{ matrix.goos }}"
+          test "$(go env GOARCH)" = "${{ matrix.goarch }}"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+          uname -a
+      - name: Run full native tests
+        run: go test -mod=readonly ./... -count=1
+      - name: Build and smoke-test CLI identity and help
+        run: |
+          go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem
+          "${RUNNER_TEMP}/daem" --help
+          "${RUNNER_TEMP}/daem" help doctor
+          "${RUNNER_TEMP}/daem" version
+          "${RUNNER_TEMP}/daem" --version
+          "${RUNNER_TEMP}/daem" version --json
+
+  race:
+    name: Race (Go 1.26.5, Linux amd64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Run full race suite
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "linux"
+          test "$(go env GOARCH)" = "amd64"
+          go test -mod=readonly -race ./... -count=1
+
+  vulnerability:
+    name: Vulnerability (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: darwin-arm64
+            os: macos-26
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Record scanner environment
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "${{ matrix.goos }}"
+          test "$(go env GOARCH)" = "${{ matrix.goarch }}"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version
+      - name: Scan module, package, and symbol precision
+        run: |
+          scan_status=0
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -C cmd/daem -scan=module -show verbose || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=package -show verbose ./... || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=symbol -show verbose ./... || scan_status=1
+          exit "$scan_status"
+
+  compile_only:
+    name: Compile only (${{ matrix.goos }}/${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: arm64
+            suffix: ""
+          - goos: linux
+            goarch: "386"
+            suffix: ""
+          - goos: darwin
+            goarch: amd64
+            suffix: ""
+          - goos: windows
+            goarch: amd64
+            suffix: .exe
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Cross-build without runtime claims
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.5"
+          go build -mod=readonly -trimpath \
+            -o "${RUNNER_TEMP}/daem-${GOOS}-${GOARCH}${{ matrix.suffix }}" \
+            ./cmd/daem

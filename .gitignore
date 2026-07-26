@@ -1,0 +1,8 @@
+.codegraph/
+.daem/
+.local/
+.kata.local.toml
+.pi-subagents/
+
+# Default output of `go build ./cmd/daem`.
+/daem

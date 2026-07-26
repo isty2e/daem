@@ -1,0 +1,195 @@
+name: Release artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact canonical release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-artifact-${{ inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  GOENV: "off"
+  GOEXPERIMENT: ""
+  GOFIPS140: "off"
+  GOFLAGS: ""
+  GOTOOLCHAIN: local
+  GOWORK: "off"
+
+jobs:
+  artifact:
+    name: Artifact (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: darwin-arm64
+            os: macos-26
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_GOOS: ${{ matrix.goos }}
+      RELEASE_GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Check out selected tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up exact default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.5"
+          cache-dependency-path: go.sum
+      - name: Validate tag, revision, toolchain, and native target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/${RELEASE_TAG}"
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          revision="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          test "$(git rev-parse --verify HEAD)" = "${revision}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOOS)" = "${RELEASE_GOOS}"
+          test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
+          printf 'RELEASE_REVISION=%s\n' "${revision}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_GO_VERSION=%s\n' "$(go env GOVERSION)" >> "${GITHUB_ENV}"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+          uname -a
+      - name: Run full native tests before artifact construction
+        run: |
+          go mod verify
+          go test -mod=readonly ./... -count=1
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Build twice from frozen inputs
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOAMD64: v1
+          GOARM64: v8.0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2; do
+            mkdir "${RUNNER_TEMP}/build-${attempt}"
+            GOCACHE="${RUNNER_TEMP}/build-cache-${attempt}" \
+              go build -mod=readonly -buildvcs=true -trimpath \
+              -o "${RUNNER_TEMP}/build-${attempt}/daem" ./cmd/daem
+          done
+          cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/build-2/daem"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Verify embedded version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${RUNNER_TEMP}/build-1/daem"
+          version_json="$("${binary}" version --json)"
+          assert_string_field() {
+            printf '%s\n' "${version_json}" | grep -F -x \
+              "  \"$1\": \"$2\"$3"
+          }
+          printf '%s\n' "${version_json}" | grep -F -x '  "schema_version": 1,'
+          assert_string_field version "${RELEASE_TAG}" ','
+          assert_string_field revision "${RELEASE_REVISION}" ','
+          assert_string_field source_state clean ','
+          assert_string_field vcs git ','
+          assert_string_field go_version "${RELEASE_GO_VERSION}" ','
+          assert_string_field goos "${RELEASE_GOOS}" ','
+          assert_string_field goarch "${RELEASE_GOARCH}" ''
+          printf '%s\n' "${version_json}" | grep -E -x \
+            '  "revision_time": "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",'
+      - name: Smoke-test native CLI artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${RUNNER_TEMP}/build-1/daem"
+          smoke="${RUNNER_TEMP}/smoke"
+          mkdir "${smoke}"
+
+          if "${binary}" >"${smoke}/no-args.out" 2>"${smoke}/no-args.err"; then
+            echo "no-argument invocation unexpectedly succeeded" >&2
+            exit 1
+          fi
+          test ! -s "${smoke}/no-args.out"
+          grep -F 'Usage: daem <command> [options]' "${smoke}/no-args.err"
+          "${binary}" --help >"${smoke}/help.out"
+          "${binary}" version >"${smoke}/version.out"
+          "${binary}" --version >"${smoke}/version-alias.out"
+          cmp "${smoke}/version.out" "${smoke}/version-alias.out"
+          "${binary}" version --json >"${smoke}/version.json"
+
+          mkdir "${smoke}/workspace"
+          (
+            cd "${smoke}/workspace"
+            "${binary}" init --dry-run --json >"${smoke}/init.json"
+            test ! -e daem.toml
+            test ! -e daem.lock.toml
+            if "${binary}" lock --manifest missing.toml >"${smoke}/lock.out" 2>"${smoke}/lock.err"; then
+              echo "missing-manifest lock unexpectedly succeeded" >&2
+              exit 1
+            fi
+            test ! -s "${smoke}/lock.out"
+            grep -F 'missing.toml' "${smoke}/lock.err"
+            test ! -e missing.toml
+            test ! -e daem.lock.toml
+          )
+      - name: Assemble and verify archive twice
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="daem_${RELEASE_TAG#v}_${RELEASE_GOOS}_${RELEASE_GOARCH}.tar.gz"
+          checksum_name="${archive_name}.sha256"
+          go build -mod=readonly -buildvcs=true -trimpath \
+            -o "${RUNNER_TEMP}/releasepack" \
+            ./internal/releaseartifact/cmd/releasepack
+          for attempt in 1 2; do
+            "${RUNNER_TEMP}/releasepack" \
+              --binary "${RUNNER_TEMP}/build-${attempt}/daem" \
+              --output-dir "${RUNNER_TEMP}/artifact-${attempt}" \
+              --version "${RELEASE_TAG}" \
+              --revision "${RELEASE_REVISION}" \
+              --go-version "${RELEASE_GO_VERSION}" \
+              --goos "${RELEASE_GOOS}" \
+              --goarch "${RELEASE_GOARCH}"
+          done
+          cmp "${RUNNER_TEMP}/artifact-1/${archive_name}" \
+            "${RUNNER_TEMP}/artifact-2/${archive_name}"
+          cmp "${RUNNER_TEMP}/artifact-1/${checksum_name}" \
+            "${RUNNER_TEMP}/artifact-2/${checksum_name}"
+          (
+            cd "${RUNNER_TEMP}/artifact-1"
+            shasum -a 256 -c "${checksum_name}"
+          )
+
+          mkdir "${RUNNER_TEMP}/extracted"
+          tar -xzf "${RUNNER_TEMP}/artifact-1/${archive_name}" \
+            -C "${RUNNER_TEMP}/extracted"
+          test -x "${RUNNER_TEMP}/extracted/daem"
+          cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/extracted/daem"
+          "${RUNNER_TEMP}/extracted/daem" --version
+      - name: Upload private workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: daem-${{ inputs.tag }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ runner.temp }}/artifact-1/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7

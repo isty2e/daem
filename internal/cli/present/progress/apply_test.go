@@ -1,0 +1,155 @@
+package progress_test
+
+import (
+	"bytes"
+	"errors"
+	"strings"
+	"sync"
+	"testing"
+
+	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
+	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/execute"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/target"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+)
+
+func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	sink := renderer.Sink()
+	sink(execute.Event{Kind: execute.EventJournalCaptureStarted, TotalActions: 2})
+	sink(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts()})
+	sink(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()})
+	renderer.Close()
+
+	got := output.String()
+	for _, want := range []string{"\r\x1b[2KApplying 0/2: hook/project -> .codex/hooks.json", "\r\x1b[2KApplying 1/2", "\r\x1b[2K"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output = %q, want %q", got, want)
+		}
+	}
+	for _, forbidden := range []string{"journal", "stage=", "action_index", "reason=", "write destination failed"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("output = %q, did not want %q", got, forbidden)
+		}
+	}
+}
+
+func TestApplyProgressRendererEscapesUntrustedLabels(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	facts := applyProgressActionFacts()
+	facts.Destination = "bad\n\x1b[31m"
+	renderer.Sink()(execute.Event{Kind: execute.EventActionFailed, TotalActions: 1, Action: facts, Err: errors.New("secret\nerror")})
+
+	got := output.String()
+	if strings.Contains(got, "bad\n") || strings.Contains(got, "\x1b[31m") || strings.Contains(got, "secret") {
+		t.Fatalf("output leaked control/error text: %q", got)
+	}
+	if !strings.Contains(got, `bad\n\x1b[31m`) || !strings.Contains(got, ": failed") {
+		t.Fatalf("output = %q, want escaped label and failure state", got)
+	}
+}
+
+func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
+	entityID, err := entity.New(entity.KindSkill, "oracle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := topologyprojection.Subject(entityID, "skill.project.agents")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	renderer.Sink()(execute.Event{
+		Kind: execute.EventActionStarted, TotalActions: 1,
+		Action: &execute.ActionEventFacts{
+			Index: 0, ManagedPathKind: execute.ManagedPathEffectCreate, Subject: subject,
+			ConsumerTargets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject,
+			Destination: ".agents/skills/oracle",
+		},
+	})
+	if !strings.Contains(output.String(), "skill/oracle -> .agents/skills/oracle") {
+		t.Fatalf("managed path progress = %q, want resource attribution", output.String())
+	}
+}
+
+func TestApplyProgressRendererSuppressesAfterWriteError(t *testing.T) {
+	writer := &applyFailAfterFirstWrite{}
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: writer})
+	renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts()})
+	renderer.Sink()(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()})
+	renderer.Close()
+	if writer.writes != 2 {
+		t.Fatalf("writes = %d, want 2", writer.writes)
+	}
+}
+
+func TestApplyProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	event := execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()}
+	renderer.Sink()(event)
+	renderer.Sink()(event)
+	if strings.Contains(output.String(), "Applying 2/2") || strings.Count(output.String(), "Applying 1/2") != 1 {
+		t.Fatalf("output = %q, want one idempotent completion", output.String())
+	}
+}
+
+func TestApplyProgressRendererAcceptsConcurrentEvents(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
+	var waitGroup sync.WaitGroup
+	for range 32 {
+		waitGroup.Go(func() {
+			renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 32, Action: applyProgressActionFacts()})
+		})
+	}
+	waitGroup.Wait()
+	if !strings.Contains(output.String(), "Applying 0/32") {
+		t.Fatalf("output = %q, want progress", output.String())
+	}
+}
+
+func TestApplyProgressRendererNilReceiverIsNoop(t *testing.T) {
+	var renderer *cliprogress.ApplyProgressRenderer
+	if sink := renderer.Sink(); sink != nil {
+		t.Fatalf("nil renderer Sink returned non-nil sink")
+	}
+	renderer.Close()
+}
+
+func applyProgressActionFacts() *execute.ActionEventFacts {
+	entityID, err := entity.New(entity.KindHook, "project")
+	if err != nil {
+		panic(err)
+	}
+	subject, err := topologyprojection.Subject(entityID, "hook.project.codex")
+	if err != nil {
+		panic(err)
+	}
+	return &execute.ActionEventFacts{
+		Index:           1,
+		ManagedPathKind: execute.ManagedPathEffectCreate,
+		Subject:         subject,
+		Target:          target.TargetCodex,
+		Scope:           target.ScopeProject,
+		Destination:     output.Destination(".codex/hooks.json"),
+	}
+}
+
+type applyFailAfterFirstWrite struct {
+	buffer bytes.Buffer
+	writes int
+}
+
+func (writer *applyFailAfterFirstWrite) Write(content []byte) (int, error) {
+	writer.writes++
+	if writer.writes > 1 {
+		return 0, errors.New("stderr closed")
+	}
+	return writer.buffer.Write(content)
+}

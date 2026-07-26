@@ -1,0 +1,17 @@
+# Minimal OpenCode project MCP projection example.
+#
+# This example manages exactly one type = "local" command/args-only entry under
+# /mcp/<name> in strict project opencode.json. It does not install packages,
+# probe runtime MCP health, manage auth/session state, support global/custom/
+# JSONC/remote OpenCode config layers, or cover plugin-bundled MCP.
+
+version = 1
+targets = ["opencode"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["opencode"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

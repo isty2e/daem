@@ -1,0 +1,17 @@
+# Minimal Claude Code project MCP projection example.
+# This manages the project .mcp.json binding for one standalone stdio server
+# and locks the delegated executable plan identity. Ordinary status and doctor
+# keep config convergence, passive runner/env readiness, delegate execution
+# evidence, and runtime health/trust/tool state separate.
+
+version = 1
+targets = ["claude-code"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["claude-code"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }

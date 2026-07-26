@@ -1,0 +1,17 @@
+# Minimal Claude Code global MCP projection example.
+#
+# This manages exactly one command/args-only mcpServers entry inside the
+# top-level ~/.claude.json user config. It does not run claude mcp, accept env,
+# manage project/local Claude MCP scopes, install packages, probe runtime MCP
+# health, or own OAuth/session/trust/cache state.
+
+version = 1
+targets = ["claude-code"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["claude-code"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

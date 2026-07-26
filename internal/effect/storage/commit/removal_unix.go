@@ -1,0 +1,293 @@
+//go:build darwin || linux
+
+package commit
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+
+	"golang.org/x/sys/unix"
+)
+
+// CommitLogicalRemoval durably retires the active name, then removes its
+// private tombstone.
+func CommitLogicalRemoval(ctx context.Context, request LogicalRemoval) error {
+	return commitLogicalRemovalWithFaults(ctx, request, faultPlan{})
+}
+
+func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval, faults faultPlan) error {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	if err := validateRemovalRequest(request); err != nil {
+		return newFailure(failureUncommitted, phaseValidate, request.path, err)
+	}
+	if err := faults.check(ctx, phaseValidate); err != nil {
+		return newFailure(failureUncommitted, phaseValidate, request.path, err)
+	}
+	anchor, err := openCommitParent(request.path, request.capability, false)
+	if anchor != nil {
+		defer anchor.close()
+	}
+	if err != nil {
+		return failureBeforeVisibility(phaseValidate, request.path, err)
+	}
+	if err := validateRemovalEntry(anchor, request); err != nil {
+		return failureBeforeVisibility(phaseValidate, request.path, err)
+	}
+	if err := anchor.verifyChain(); err != nil {
+		return failureBeforeVisibility(phaseValidate, request.path, err)
+	}
+
+	tombstoneName, err := unusedSiblingName(anchor.parentFD(), tombstonePrefix)
+	if err != nil {
+		return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+	}
+	tombstonePath := filepath.Join(filepath.Dir(request.path), tombstoneName)
+	var tombstoneIdentity EntryIdentity
+	err = faults.run(ctx, phaseRevalidateEntry, func() error {
+		_, _, err := anchor.requireExpected(anchor.base, request.path, request.expected)
+		return err
+	})
+	if err != nil {
+		return failureBeforeVisibility(phaseRevalidateEntry, request.path, err)
+	}
+	if err := anchor.verifyChain(); err != nil {
+		return failureBeforeVisibility(phaseValidate, request.path, err)
+	}
+	err = faults.run(ctx, phaseCommitTombstone, func() error {
+		return renameNoReplace(anchor.parentFD(), anchor.base, anchor.parentFD(), tombstoneName)
+	})
+	if err != nil {
+		return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+	}
+	err = faults.run(ctx, phaseVerifyEntry, func() error {
+		if err := anchor.verifyChain(); err != nil {
+			return err
+		}
+		var moved EntryIdentity
+		moved, _, observeErr := anchor.observe(tombstoneName, tombstonePath)
+		if observeErr != nil {
+			return observeErr
+		}
+		if !request.expected.sameObject(moved) {
+			return fmt.Errorf("tombstone identity does not match removed entry")
+		}
+		tombstoneIdentity = moved
+		return nil
+	})
+	if err != nil {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, tombstonePath)
+	}
+	err = faults.run(ctx, phaseSyncParent, func() error { return syncDirectory(anchor.parentFD()) })
+	if err != nil {
+		return newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err, tombstonePath)
+	}
+	if err := anchor.verifyChain(); err != nil {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, tombstonePath)
+	}
+
+	err = faults.run(ctx, phaseCleanupTombstone, func() error {
+		return removeEntryAt(ctx, anchor.parentFD(), tombstoneName, tombstonePath, tombstoneIdentity)
+	})
+	if err != nil {
+		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, tombstonePath)
+	}
+	err = faults.run(ctx, phaseSyncCleanupParent, func() error { return syncDirectory(anchor.parentFD()) })
+	if err != nil {
+		return newFailure(failureRetainedResidue, phaseSyncCleanupParent, request.path, err, tombstonePath)
+	}
+	if err := anchor.verifyChain(); err != nil {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	return nil
+}
+
+func validateRemovalRequest(request LogicalRemoval) error {
+	if err := validateCommitPath(request.path); err != nil {
+		return err
+	}
+	if !request.expected.valid() || request.expected.path != request.path {
+		return fmt.Errorf("logical removal requires matching expected identity")
+	}
+	if err := validateRootedCapability(request.path, request.capability); err != nil {
+		return err
+	}
+	if request.capability != nil && request.expected.kind == entryKindSymlink {
+		return rootedFinalSymlinkFailure(request.path)
+	}
+	switch request.expected.kind {
+	case entryKindRegular, entryKindDirectory, entryKindSymlink:
+		return nil
+	default:
+		return fmt.Errorf("logical removal has unsupported entry kind")
+	}
+}
+
+func validateRemovalEntry(anchor *anchoredParent, request LogicalRemoval) error {
+	_, stat, err := anchor.requireExpected(anchor.base, request.path, request.expected)
+	if err != nil {
+		return err
+	}
+	if err := validateOwnedStat(request.path, &stat); err != nil {
+		return err
+	}
+	if request.expected.kind == entryKindSymlink {
+		return nil
+	}
+	fd, _, err := anchor.openExpected(anchor.base, request.path, request.expected)
+	if fd >= 0 {
+		_ = unix.Close(fd)
+	}
+	return err
+}
+
+func unusedSiblingName(parentFD int, prefix string) (string, error) {
+	for range 64 {
+		name, err := randomSiblingName(prefix)
+		if err != nil {
+			return "", err
+		}
+		exists, err := entryExists(parentFD, name)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("could not allocate a collision-free tombstone name")
+}
+
+func removeEntryAt(ctx context.Context, parentFD int, name string, path string, expected EntryIdentity) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	observed, stat, err := observeAt(parentFD, name, path)
+	if err != nil {
+		return err
+	}
+	if !expected.sameEntry(observed) {
+		return fmt.Errorf("entry identity changed before cleanup at %q", path)
+	}
+	if err := validateOwnedStat(path, &stat); err != nil {
+		return err
+	}
+	if observed.kind == entryKindDirectory {
+		observed, err = prepareRemovalDirectory(parentFD, name, path, observed, stat)
+		if err != nil {
+			return err
+		}
+		fd, err := openExpectedAt(parentFD, name, path, observed)
+		if err != nil {
+			return err
+		}
+		err = removeDirectoryContents(ctx, fd, path)
+		_ = unix.Close(fd)
+		if err != nil {
+			return err
+		}
+		current, _, err := observeAt(parentFD, name, path)
+		if err != nil {
+			return err
+		}
+		if !observed.sameObject(current) {
+			return fmt.Errorf("directory identity changed before cleanup at %q", path)
+		}
+	}
+	return unix.Unlinkat(parentFD, name, removalFlags(observed.kind))
+}
+
+func removeDirectoryContents(ctx context.Context, directoryFD int, path string) error {
+	names, err := readDirectoryNames(directoryFD, path)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entryPath := filepath.Join(path, name)
+		identity, stat, err := observeAt(directoryFD, name, entryPath)
+		if err != nil {
+			return err
+		}
+		if err := validateOwnedStat(entryPath, &stat); err != nil {
+			return err
+		}
+		switch identity.kind {
+		case entryKindDirectory:
+			identity, err = prepareRemovalDirectory(directoryFD, name, entryPath, identity, stat)
+			if err != nil {
+				return err
+			}
+			fd, err := openExpectedAt(directoryFD, name, entryPath, identity)
+			if err != nil {
+				return err
+			}
+			err = removeDirectoryContents(ctx, fd, entryPath)
+			_ = unix.Close(fd)
+			if err != nil {
+				return err
+			}
+			current, _, err := observeAt(directoryFD, name, entryPath)
+			if err != nil {
+				return err
+			}
+			if !identity.sameObject(current) {
+				return fmt.Errorf("directory identity changed before cleanup at %q", entryPath)
+			}
+			if err := unix.Unlinkat(directoryFD, name, unix.AT_REMOVEDIR); err != nil {
+				return err
+			}
+		case entryKindRegular, entryKindSymlink:
+			current, _, err := observeAt(directoryFD, name, entryPath)
+			if err != nil {
+				return err
+			}
+			if !identity.sameEntry(current) {
+				return fmt.Errorf("entry identity changed before cleanup at %q", entryPath)
+			}
+			if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
+				return err
+			}
+		default:
+			return unsupported(fmt.Sprintf("cannot safely remove special entry %q", entryPath), nil)
+		}
+	}
+	return nil
+}
+
+func prepareRemovalDirectory(
+	parentFD int,
+	name string,
+	path string,
+	expected EntryIdentity,
+	stat unix.Stat_t,
+) (EntryIdentity, error) {
+	if expected.kind != entryKindDirectory {
+		return EntryIdentity{}, fmt.Errorf("removal entry %q is not a directory", path)
+	}
+	if stat.Mode&0o700 == 0o700 {
+		return expected, nil
+	}
+	mode := uint32(stat.Mode&0o777) | 0o700
+	if err := unix.Fchmodat(parentFD, name, mode, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return EntryIdentity{}, fmt.Errorf("make retired directory removable at %q: %w", path, err)
+	}
+	current, currentStat, err := observeAt(parentFD, name, path)
+	if err != nil {
+		return EntryIdentity{}, err
+	}
+	if current.kind != entryKindDirectory || !expected.sameObject(current) {
+		return EntryIdentity{}, fmt.Errorf("retired directory identity changed while preparing cleanup at %q", path)
+	}
+	if err := validateOwnedStat(path, &currentStat); err != nil {
+		return EntryIdentity{}, err
+	}
+	if currentStat.Mode&0o700 != 0o700 {
+		return EntryIdentity{}, unsupported(fmt.Sprintf("retired directory %q did not retain private cleanup mode", path), nil)
+	}
+	return current, nil
+}

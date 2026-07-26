@@ -1,0 +1,48 @@
+# Representative project manifest for the major local managed surfaces.
+#
+# `lock --dry-run` validates this file without writing host configuration.
+# Confirmed apply would write project instruction, skill, hook, and MCP config
+# outputs. The MCP command is a launch vector; daem does not own npm packages.
+# Host-native extension installation is intentionally omitted because applying
+# an extension row may invoke the host's installer. See docs/manifest.md.
+
+version = 1
+targets = ["codex", "claude-code"]
+
+[defaults]
+scope = "project"
+install_mode = "copy"
+
+[instructions.project]
+source = "instructions/project.md"
+targets = ["codex", "claude-code"]
+
+[instructions.project.target.claude-code]
+render_to = "CLAUDE.md"
+mode = "copy"
+
+[[skill]]
+name = "local-review"
+source = { path = "skills/local-review", mode = "vendor" }
+targets = ["codex", "claude-code"]
+
+[hook_asset.guard]
+source = "hooks/guard.sh"
+kind = "file"
+scope = "project"
+executable = true
+
+[[hook]]
+name = "guard"
+event = "PreToolUse"
+command = "{hook_file:guard} --check"
+timeout = 10
+targets = ["codex", "claude-code"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["claude-code"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

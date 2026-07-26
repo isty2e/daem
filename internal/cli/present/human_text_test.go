@@ -1,0 +1,23 @@
+package clipresent
+
+import (
+	"errors"
+	"testing"
+)
+
+func TestEscapePreservesPrintableTextAndEscapesTerminalControls(t *testing.T) {
+	input := "plain path/한글 \\ quote\"\n\t\x1b[2J\u202e" + string([]byte{0xff})
+	want := `plain path/한글 \\ quote"\n\t\x1b[2J\u202e\xff`
+	if got := Escape(input); got != want {
+		t.Fatalf("Escape = %q, want %q", got, want)
+	}
+}
+
+func TestErrorHandlesNilAndEscapesDynamicDetail(t *testing.T) {
+	if got := Error(nil); got != "" {
+		t.Fatalf("Error(nil) = %q, want empty", got)
+	}
+	if got, want := Error(errors.New("failure\nnext: run injected")), `failure\nnext: run injected`; got != want {
+		t.Fatalf("Error = %q, want %q", got, want)
+	}
+}

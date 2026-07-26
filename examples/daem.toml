@@ -1,0 +1,34 @@
+# Minimal first-run manifest for Codex and Claude Code project instructions.
+# The referenced instruction source is included at examples/instructions/project.md.
+
+version = 1
+targets = ["codex", "claude-code"]
+
+[instructions.project]
+source = "instructions/project.md"
+targets = ["codex", "claude-code"]
+
+[instructions.project.target.claude-code]
+render_to = "CLAUDE.md"
+mode = "copy"
+
+# Optional local skill pattern once you have a skill directory with SKILL.md:
+#
+# [[skill]]
+# name = "local-review"
+# source = { path = "skills/local-review", mode = "vendor" }
+# targets = ["codex", "claude-code"]
+#
+# Optional S3-backed skill archive:
+#
+# [[skill]]
+# name = "remote-review"
+# source = { s3 = "s3://daem/skills/remote-review.tar.gz", format = "tar.gz", region = "us-east-1" }
+# targets = ["codex", "claude-code"]
+#
+# Optional shared source root pattern for explicitly named sibling skills:
+#
+# [[skill_group]]
+# names = ["review", "debug"]
+# source = { git = "https://github.com/example/skills.git", path = "skills", ref = "main" }
+# targets = ["codex", "claude-code"]

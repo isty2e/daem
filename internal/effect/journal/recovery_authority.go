@@ -1,0 +1,144 @@
+package journal
+
+import (
+	"fmt"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/target"
+)
+
+func canonicalRecoveryAuthority(
+	journal recoveryJournal,
+	operationDir string,
+	claimTransitions []ownershipmutation.ClaimTransition,
+	fingerprint string,
+) (recovery.Authority, error) {
+	entries := make([]recovery.Entry, 0, len(journal.Entries))
+	for index, persisted := range journal.Entries {
+		entry, err := canonicalRecoveryEntry(persisted)
+		if err != nil {
+			return recovery.Authority{}, fmt.Errorf("recovery entries[%d]: %w", index, err)
+		}
+		entries = append(entries, entry)
+	}
+
+	projectProvenance, err := canonicalRecoveryProjectProvenance(journal.ProjectRootProvenance)
+	if err != nil {
+		return recovery.Authority{}, err
+	}
+	return recovery.NewAuthority(
+		journal.OperationID,
+		operationDir,
+		entries,
+		journal.StatefileBefore,
+		journal.StatefileAfter,
+		claimTransitions,
+		projectProvenance,
+		fingerprint,
+	)
+}
+
+func canonicalRecoveryEntry(persisted recoveryEntry) (recovery.Entry, error) {
+	subject, err := persisted.Subject.canonical()
+	if err != nil {
+		return recovery.Entry{}, fmt.Errorf("subject: %w", err)
+	}
+	var agentTarget target.Target
+	if persisted.Target != "" {
+		agentTarget, err = target.ParseTarget(persisted.Target)
+		if err != nil {
+			return recovery.Entry{}, fmt.Errorf("target: %w", err)
+		}
+	}
+	consumerTargets, err := parseRecoveryTargets(persisted.Targets)
+	if err != nil {
+		return recovery.Entry{}, fmt.Errorf("targets: %w", err)
+	}
+	scope, err := target.ParseScope(persisted.Scope)
+	if err != nil {
+		return recovery.Entry{}, fmt.Errorf("scope: %w", err)
+	}
+	aggregateContract, err := canonicalRecoveryAggregateContract(persisted)
+	if err != nil {
+		return recovery.Entry{}, err
+	}
+	return recovery.NewEntry(
+		subject,
+		agentTarget,
+		consumerTargets,
+		scope,
+		persisted.Path,
+		persisted.ContentPath,
+		realization.PathProjectionContentKind(persisted.ContentKind),
+		persisted.Before.canonical(),
+		persisted.ExpectedAfter.canonical(),
+		aggregateContract,
+	)
+}
+
+func parseRecoveryTargets(values []string) ([]target.Target, error) {
+	result := make([]target.Target, 0, len(values))
+	for _, value := range values {
+		parsed, err := target.ParseTarget(value)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, parsed)
+	}
+	return result, nil
+}
+
+func canonicalRecoveryProjectProvenance(
+	persisted *recoveryProjectRootProvenance,
+) (*recovery.ProjectRootProvenance, error) {
+	if persisted == nil {
+		return nil, nil
+	}
+	validated, err := persisted.canonical()
+	if err != nil {
+		return nil, fmt.Errorf("recovery project_root_provenance: %w", err)
+	}
+	canonical, err := recovery.NewProjectRootProvenance(
+		validated.PhysicalRoot(),
+		validated.ObjectFingerprint(),
+		validated.MountFingerprint(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &canonical, nil
+}
+
+func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.PathEvidence {
+	result := make([]recovery.PathEvidence, len(values))
+	for index, value := range values {
+		result[index] = recovery.PathEvidence{
+			Path:        value.Path,
+			ContentPath: value.ContentPath,
+			Exists:      value.Exists,
+			PathExisted: value.PathExisted,
+			PathMode:    clonePermissionMode(value.PathMode),
+			Kind:        value.Kind,
+			ContentHash: value.ContentHash,
+			LinkTarget:  value.LinkTarget,
+			Error:       value.Error,
+		}
+	}
+	return result
+}
+
+func canonicalRecoveryBackupEvidence(values []recoveryBackupObservation) []recovery.BackupEvidence {
+	result := make([]recovery.BackupEvidence, len(values))
+	for index, value := range values {
+		result[index] = recovery.BackupEvidence{
+			BackupPath:  value.BackupPath,
+			Exists:      value.Exists,
+			Kind:        value.Kind,
+			ContentHash: value.ContentHash,
+			Error:       value.Error,
+		}
+	}
+	return result
+}

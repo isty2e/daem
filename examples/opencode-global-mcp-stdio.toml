@@ -1,0 +1,18 @@
+# Minimal OpenCode global MCP projection example.
+#
+# This example manages exactly one type = "local" command/args-only entry under
+# /mcp/<name> in strict default-user ~/.config/opencode/opencode.json. It does
+# not mutate opencode.jsonc, custom config layers, remote MCP rows, env/cwd/
+# enabled/timeout/tool-policy fields, package installation, runtime MCP health,
+# auth/session state, or plugin-bundled MCP.
+
+version = 1
+targets = ["opencode"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["opencode"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]

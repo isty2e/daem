@@ -1,0 +1,1 @@
+{"ImportPath":"example.com/project/internal/cli","Imports":["example.com/project/internal/paths"],"GoFiles":["cli.go"]}

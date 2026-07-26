@@ -1,0 +1,961 @@
+# CLI Reference
+
+This document is the public command, flag, output, stream, and exit contract for
+`daem`. Resource schema and target-specific fields belong in the
+[Manifest Reference](manifest.md); current support claims belong in the
+[Product Feature Matrix](features.md), while operating-system and architecture
+support belongs in [Platform Support](platforms.md).
+
+## Command Lifecycle
+
+| Stage | Command | Responsibility |
+| --- | --- | --- |
+| Start | `init` | Create a starter manifest. |
+| Start | `import` | Build desired state from existing host configuration. |
+| Author | `add` | Add or extend one desired resource and refresh its lock result. |
+| Author | `remove` | Narrow or remove one desired resource and refresh its lock result. |
+| Resolve | `lock` | Resolve the manifest into the exact adjacent lockfile. |
+| Resolve | `outdated` | Check whether locked source identities can advance. |
+| Inspect | `list` | Enumerate declarations or managed-output ownership. |
+| Inspect | `status` | Compare desired, locked, managed, and live state. |
+| Inspect | `version` | Show the running executable's embedded build identity. |
+| Diagnose | `doctor` | Check passive environment prerequisites. |
+| Diagnose | `probe` | Run one explicitly authorized active runtime check. |
+| Operate | `refresh` | Refresh one exact declared and locked host extension relation. |
+| Reconcile | `apply` | Reconcile the locked environment. |
+| Reconcile | `recover` | Resolve one interrupted operation. |
+
+`help`, `-h`, `--help`, and `--version` are meta surfaces. Use
+`daem help <command>` and `daem help <group> <resource>` for progressively
+scoped help. `daem --version` is the human alias for `daem version`; it rejects
+additional arguments and there is no `-v` alias.
+
+## Platform Support
+
+The exact supported platforms and their verification requirements are
+authoritative in [Platform Support](platforms.md).
+
+On an unsupported platform, all help and version routes remain available and
+`doctor` reports the platform error in human or JSON form. `add`, `apply`,
+`import`, `init`, `lock`, `outdated`, `recover`, `refresh`, and `remove` fail
+before path resolution or effects, including in dry-run mode. Their normal
+command errors use stderr; `doctor --json` is the structured platform
+diagnostic.
+
+## Workspace Selection
+
+`--manifest <path>` is the only public workspace-path selector. Relative paths
+resolve from the current working directory. Valid filesystem whitespace and
+control-bearing bytes are preserved as path identity; NUL is not a valid path
+or argv byte. Human output escapes unusual bytes without changing the path used
+by filesystem operations.
+
+When omitted, manifest-backed commands check only:
+
+1. `./daem.toml` in the current directory;
+2. the OS user manifest when no cwd manifest exists.
+
+On supported platforms the user manifest path is
+`${XDG_CONFIG_HOME:-~/.config}/daem/daem.toml`. Parent directories are never
+searched. Path-resolution code may describe a Windows root for diagnostics and
+cross-builds, but Windows is not a supported product platform.
+
+`init` and non-merge `import` are creation operations. Without an explicit
+manifest they create `./daem.toml` rather than falling back to a user manifest.
+`import --merge` uses normal existing-workspace selection.
+
+The lockfile is always `daem.lock.toml` beside the selected manifest. State,
+cache, recovery, and project-installation paths derive from that same selected
+workspace. There is no independent public lockfile selector.
+
+A user manifest is not a project root. Project-scoped resources selected from
+the user manifest are rejected with guidance to select a project manifest or
+declare global scope.
+
+### Daem Storage Roots
+
+On supported Unix platforms, daem observes four XDG variables. A non-empty value
+must be an absolute path. The `daem` directory is appended to the configured
+root:
+
+| Variable | Default daem path | When it applies | Owned content |
+| --- | --- | --- | --- |
+| `XDG_CONFIG_HOME` | `~/.config/daem` | Implicit user workspace only | User manifest and adjacent lockfile |
+| `XDG_STATE_HOME` | `~/.local/state/daem` | Implicit user workspace only | Statefile and recovery journals |
+| `XDG_CACHE_HOME` | `~/.cache/daem` | Implicit user workspace only | Resolved source cache |
+| `XDG_DATA_HOME` | `~/.local/share/daem` | Every selected workspace | Shared output-ownership and carrier-claim registries |
+
+An explicit or cwd-selected project manifest keeps its state and recovery data
+under `<manifest-root>/.daem` and its source cache under
+`<manifest-root>/.daem/cache`; changing `XDG_STATE_HOME` or `XDG_CACHE_HOME`
+does not relocate those project-local paths. `XDG_DATA_HOME` remains shared
+across project and user workspaces because its registries coordinate global
+ownership and carrier claims.
+
+Changing an applicable root selects a different storage namespace. In
+particular, changing `XDG_CONFIG_HOME` selects a different implicit user
+manifest and lockfile, while changing `XDG_STATE_HOME` can make prior
+user-workspace managed state and recovery journals unavailable to the selected
+operation. Changing `XDG_DATA_HOME` selects different shared ownership and
+carrier-claim records; the root itself does not grant authority.
+`XDG_CACHE_HOME` changes reuse only; cache contents never grant ownership or
+current-state authority.
+
+These variables select daem-owned storage. Host-specific variables such as
+`CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `OPENCODE_CONFIG`,
+`OPENCODE_CONFIG_DIR`, and `PI_CODING_AGENT_DIR` select host-owned observation
+or placement surfaces. They do not relocate daem's manifest, state, cache, or
+data roots.
+
+## Shared Selection
+
+Accepted targets are `codex`, `claude-code`, `opencode`, `pi`, and
+`antigravity-cli`. A target flag consumes one token and may be repeated:
+
+```bash
+daem status --target codex --target claude-code
+```
+
+Comma lists are rejected. Duplicate target, scope, and skill-group member
+values collapse after validation. Ordered MCP `--arg` values are the exception:
+order and duplicates are semantic and remain unchanged.
+
+An execution selector never broadens desired state. It filters resources whose
+normalized effective target set already includes the selected target.
+
+## Execution Modes
+
+Commands use effect-tiered modes:
+
+| Effect class | Commands | Bare invocation | `--dry-run` | `--yes` |
+| --- | --- | --- | --- | --- |
+| Read-only | `list`, `outdated`, `status`, `doctor`, `version` | query | rejected | rejected |
+| Desired/derived state | `init`, `import`, `add`, `remove`, `lock` | write | preview | rejected |
+| Host/runtime effect | `apply`, `recover`, `probe mcp-server`, `refresh extension` | three-stream TTY confirmation | preview | non-interactive execution |
+
+An empty host/runtime plan does not prompt. JSON cannot share an interactive
+prompt, so host/runtime JSON requires `--dry-run` or `--yes`.
+
+Interactive authorization uses three distinct process streams: stdin accepts
+the answer, stdout carries the stable effect disclosure, and stderr carries the
+prompt and cancellation diagnostic. All three streams must be terminals. The
+complete stdout disclosure must also have been written successfully before the
+stderr prompt appears. Redirecting either output, piping or closing stdin, or
+omitting any stream makes the invocation non-interactive and therefore requires
+`--yes` for effects; daem never copies the plan to stderr or auto-confirms as a
+fallback. The one explicit exception is non-interactive
+`refresh extension --yes --json`: its complete authorization document is
+written to stderr before execution so stdout can remain one final JSON result.
+EOF and every answer other than `y` or `yes` decline. Context cancellation
+interrupts a blocked terminal read and cannot authorize effects.
+
+## Presentation Flags
+
+- Default human output is concise and always retains blockers, selected
+  effects, failures, destructive implications, uncertainty, and the nearest
+  corrective action.
+- On POSIX platforms, concrete next commands are rendered from an argument
+  vector so dynamic paths remain one shell argument. Control-bearing arguments
+  use a terminal-safe POSIX reconstruction and still round-trip to the exact
+  argv; arguments containing NUL cannot be represented and produce no concrete
+  command. Commands containing placeholders such as `<target>` are templates,
+  not concrete argv claims.
+- Human-readable dynamic paths and errors escape backslashes, controls, format
+  characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
+  the presenter, so dynamic values cannot forge another diagnostic or hint.
+- `--verbose` adds bounded causal, provenance, path, and identity evidence. It
+  never changes selection, planning, authority, or mutation.
+- `--json` emits exactly one schema-versioned JSON document to stdout.
+- `--json` and `--verbose` are mutually exclusive.
+- `--diff` is accepted by `import`, every add/remove leaf, and `apply`. It
+  requires `--dry-run` and is mutually exclusive with `--json`.
+- `--verbose --diff` is allowed.
+- `--check` exists only on `outdated` and `status`. It preserves normal output
+  but returns non-zero when that command's clean predicate is false.
+
+### Command Flag Inventory
+
+This table is the exhaustive long-form flag inventory for leaf commands.
+Operands, `help`/`-h`/`--help`, and the root `--version` alias are not command
+flags.
+
+| Command | Accepted flags |
+| --- | --- |
+| `add extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `add hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--matcher`, `--scope`, `--target`, `--timeout`, `--verbose` |
+| `add instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `add mcp-server` | `--arg`, `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `add skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--name`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
+| `add skill-group` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--member`, `--path`, `--ref`, `--scope`, `--target`, `--verbose` |
+| `apply` | `--diff`, `--dry-run`, `--json`, `--manage-existing`, `--manifest`, `--target`, `--verbose`, `--yes` |
+| `doctor` | `--all-targets`, `--json`, `--manifest`, `--target`, `--verbose` |
+| `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
+| `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
+| `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
+| `list resources` | `--json`, `--manifest`, `--target`, `--verbose` |
+| `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
+| `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
+| `probe mcp-server` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--timeout`, `--verbose`, `--yes` |
+| `recover` | `--dry-run`, `--json`, `--manifest`, `--verbose`, `--yes` |
+| `refresh extension` | `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose`, `--yes` |
+| `remove extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `remove hook` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `remove instruction` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `remove mcp-server` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `remove skill` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `status` | `--check`, `--json`, `--manifest`, `--target`, `--verbose` |
+| `unmanage extension` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--scope`, `--target`, `--verbose` |
+| `version` | `--json` |
+
+### JSON Schema Contract
+
+`schema_version` belongs to one command envelope. Versions from different rows
+are unrelated and must not be compared as a product-wide sequence:
+
+| Command surface | Envelope owner | Current version |
+| --- | --- | ---: |
+| `version` | Executable identity | `1` |
+| `init` | Manifest initialization | `1` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `2` |
+| `lock`, `outdated` | Lock comparison | `2` |
+| `list resources` | Resource inventory | `1` |
+| `list outputs` | Output inventory | `3` |
+| `status`, `apply --dry-run` | Reconciliation plan | `9` |
+| confirmed `apply` | Apply result | `13` |
+| `recover` | Recovery plan/result | `3` |
+| `doctor` | Passive diagnostics | `1` |
+| `probe mcp-server` | Runtime probe | `1` |
+| `refresh extension` | Extension refresh | `1` |
+
+Consumers must select the expected command envelope, inspect
+`schema_version`, and reject unsupported versions before interpreting any
+other field. A consumer must not infer compatibility from a version used by
+another command.
+
+Every consumer-visible field addition, removal, rename, type or nullability
+change, or semantic reinterpretation requires a version increment before
+release. A same-version correction may only restore the documented shape and
+meaning. Each daem binary emits one current version per envelope; it does not
+negotiate or emit legacy variants. Until a command explicitly documents a
+multi-version policy, consumers must update for a new version rather than
+silently accepting it. Released version changes belong in release notes.
+
+## `version`
+
+`daem version` is an offline executable-identity query. It does not select a
+manifest, inspect the environment, access the network, invoke a host CLI, or
+require platform admission. `daem --version` emits the same one-line human
+form. `daem version` accepts only `--json`, `--help`, or `-h`; the alias accepts
+no arguments.
+
+Human output is one stable line containing the embedded module version, full
+revision, source state, Go toolchain, and `GOOS/GOARCH`. Missing build facts are
+printed as `unknown`; a development or pseudo-version is preserved rather than
+promoted to an official release version.
+
+Version JSON schema version is `1` and has exactly these fields:
+
+```text
+schema_version version revision revision_time source_state vcs
+go_version goos goarch
+```
+
+`revision_time` is source revision provenance, not a wall-clock build time.
+Embedded facts identify the executable but do not prove that CI passed, that an
+artifact came from a trusted publisher, or that a checksum or signature was
+verified.
+
+## `init`
+
+```bash
+daem init [--manifest <path>] [--force] [--dry-run] [--json|--verbose]
+```
+
+`init` creates a minimal manifest and writes by default. `--force` authorizes
+replacement of an existing regular file after its directory-entry identity is
+revalidated;
+it does not require the old content to be a valid manifest. It never creates a
+lockfile, statefile, cache, recovery journal, or host file.
+
+Default human output names the action, destination, and nearest next command.
+`--verbose` adds the exact starter content. Init JSON schema version is `1` and
+contains `command`, `mode`, `action`, `manifest_path`, and `content`.
+
+## `import`
+
+```bash
+daem import --target <target> [--target <target> ...] [--manifest <path>]
+  [--scope <scope> ...] [--source-dir <path>] [--merge]
+  [--dry-run] [--diff] [--json|--verbose]
+```
+
+At least one target is required. Import observes supported live instruction,
+skill, hook, and standalone MCP forms and writes a new or explicitly merged
+manifest plus copied source material. It never writes the lockfile, statefile,
+managed host outputs, cache, or recovery journal.
+
+`--source-dir` defaults to `<manifest-basename>.d` beside the selected manifest.
+A relative source directory must stay within the manifest directory and may not
+be `.daem`, contain the manifest, or overlap daem-managed metadata.
+
+Without `--merge`, the selected manifest must not exist. With `--merge`, it
+must exist. Conflicts fail before mutation. Unsupported or lossy live forms are
+reported as skipped instead of being imported approximately.
+
+Import refuses preview and write modes while an interrupted apply journal is
+active, before scanning live agent files. Run `daem recover --dry-run` first.
+
+Default human output contains target/scope totals, resource and skip counts,
+the destination, and nearest next commands. `--verbose` adds individual clean
+scan, resource, and merge rows. JSON retains every typed row. After a successful
+write with imported resources, human output points to lock preview and then to
+`apply --manage-existing --dry-run` after the lockfile is written. The latter
+only previews registration of eligible exact matching live outputs; import does
+not register them and never recommends `--yes`. Import does not author extension
+carrier declarations. An already authored and locked source-exact carrier may
+instead use the separate manage-existing apply flow described below.
+
+## `add`
+
+```bash
+daem add extension <id> <source> [options]
+daem add instruction <name> <source> [options]
+daem add hook <name> <event> <command> [--matcher <matcher>]
+  [--timeout <duration>] [options]
+daem add mcp-server <name> <command> [--arg <value> ...] [options]
+daem add skill <source> [--path <repo-path>] [--ref <git-ref>]
+  [--name <installed-name>] [options]
+daem add skill-group <source-root> --member <name>
+  [--member <name> ...] [--path <repo-path>] [--ref <git-ref>] [options]
+```
+
+Every leaf accepts `--manifest`, repeated `--target`, applicable `--scope`,
+`--dry-run`, `--diff`, `--json`, and `--verbose`. Add writes by default. It
+builds and validates a prospective manifest and lockfile, then commits both
+together. On failure, neither file advances.
+
+Common authoring is intentionally curated:
+
+| Resource | CLI owns | Manifest owns |
+| --- | --- | --- |
+| Extension | id, one opaque carrier-native source, target, scope | carrier spelling and lifecycle/contribution policy |
+| Instruction | name, local source, target, scope | remote source and target-specific placement |
+| Hook | name, event, command, matcher, timeout, target, scope | status text, target overrides, assets, non-command handlers |
+| MCP server | name, portable command, ordered args, target, scope | env refs, remote transport, auth, cwd, tool policy |
+| Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
+| Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
+
+Hook `<command>` is one opaque shell-command string. Hook timeout is a positive
+duration such as `30s` or `2m` and must be exactly representable as whole
+seconds. MCP `<command>` is one portable executable token, not a shell command;
+`--arg` preserves argv order and duplicates.
+
+Extension source is one opaque operand validated against the selected target's
+supported carrier row. Registry and host-source spelling are not separate CLI
+ontologies. Global carrier mutation always requires explicit global scope.
+
+Skill Git refs accept a strict branch, tag, or full 40/64-hex object id. Root
+skills may omit `--path` or use `.`. Skill groups list exact direct children
+with repeated `--member`; discovery selectors and regex/glob behavior remain
+manifest-only.
+
+Default output names the semantic resource change plus manifest and lock
+outcomes. It omits the full prospective TOML, unchanged lock rows, and source
+internals. `--verbose` adds bounded normalized and lock evidence; `--diff` owns
+the exact manifest delta.
+
+## `remove`
+
+```bash
+daem remove extension <id> [options]
+daem remove instruction <name> [options]
+daem remove hook <name> [options]
+daem remove mcp-server <name> [options]
+daem remove skill <resource-key> [options]
+```
+
+Every leaf accepts the same shared authoring options as add. Remove writes by
+default and transactionally refreshes the lockfile. Use keys from
+`daem list resources`.
+
+Omitted target and scope selectors remove one unambiguous whole resource.
+Selectors narrow or disambiguate; they do not inherit add defaults. Removing
+the last selected target removes the declaration. A partial target removal from
+a multi-member skill group is rejected because its target set is shared; split
+the group in the manifest first.
+
+Remove changes desired and locked state only. Host file deletion, config
+binding removal, and supported route effects are later apply work. It never
+means unconditional carrier uninstall, package/cache cleanup, credential
+deletion, trust reset, or contribution-level mutation.
+
+For extension rows, removal expresses desired relation absence. Manual deletion
+of the same row followed by `lock` produces the same later status/apply
+semantics. If durable state proves that daem manages the exact relation, a
+later supported apply plan may remove it through the disclosed host-native or
+direct-config route. If that authority is absent, ambiguous, stale, or
+unsupported, apply blocks without mutating visible host state.
+
+Pi package rows currently admit this later apply step for project and explicit
+global scope. Project removal invokes `pi remove <source> -l`; global removal
+invokes `pi remove <source>`. Daem retires the exact claim only after fresh
+settings-row absence plus scoped npm/Git artifact absence or unchanged local
+source content. Partial removal retains recovery state for a later fresh
+verification and does not authorize unrelated package, cache, trust, session,
+or local-source deletion.
+
+## `unmanage extension`
+
+Use `unmanage extension` to release daem's exact management authority while
+retaining the host relation and host-owned state:
+
+```bash
+daem unmanage extension <id> [--manifest <path>] [--target <target>]
+  [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]
+```
+
+Unmanage is a desired/derived-state write, not a host/runtime effect. It accepts
+the same selection and presentation rules as `remove extension`, does not
+accept `--yes`, and never invokes a host removal route. It removes the selected
+declaration when present, its current lock entry, and the exact daem managed
+claim or pending management fact while retaining host state. It may release
+those retained facts after manual manifest omission. A subject with neither a
+declaration nor a management fact is not found; ambiguous or stale identity
+fails without partial writes.
+
+The default human result must always include `host: retained` plus manifest,
+lockfile, and management-state outcomes. Verbose output may add the exact
+claim and route identities but may not imply current host usability.
+
+Structured output extends authoring schema `2` without changing existing
+add/remove rows:
+
+- `command` and `operation` are `unmanage`;
+- the single change has manifest `change_kind =
+  "would_remove"|"removed"|"unchanged"` and management `status =
+  "would_release"|"released"|"not_present"`;
+- top-level `management` contains the same status plus exact `statefile` and
+  shared `registry` path/status objects;
+- top-level `host.state` is always `retained`; global rows additionally report
+  `host.ambient_consumers = "unobservable"`.
+
+Dry-run emits `would_release` when a claim exists. Write emits `released` only
+after every affected manifest/lock/state/registry owner commits. `not_present`
+is a successful claim no-op only when a selected declaration was removed in
+the same transaction; if both declaration and claim are absent, no result
+envelope is created and the command exits `1`.
+
+An interrupted write leaves a recoverable metadata transaction marker. Other
+manifest/lock/state consumers fail closed while it exists; rerunning the exact
+`unmanage extension` write recovers under the same complete authority set
+before revalidating and committing. `daem recover` is reserved for apply
+recovery journals and does not consume this marker.
+
+## Authoring JSON
+
+Init uses schema `1`. Add, remove, and import use schema `2` with these common
+fields:
+
+| Field | Meaning |
+| --- | --- |
+| `command`, `mode`, `operation` | operation identity and dry-run/write mode |
+| `manifest_path`, optional `source_dir` | selected durable destinations |
+| optional `lockfile` | adjacent lock path and would-write/written/unchanged status |
+| `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
+| `has_errors`, optional `warnings` | result classification |
+| import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
+
+Human next-command prose is deliberately absent from schema `2`. CLI misuse or
+a failure before a result envelope exists goes to stderr and produces no JSON.
+An import conflict has a valid result envelope, so it emits JSON with
+`has_errors: true` and exits `1`.
+
+## `lock`
+
+```bash
+daem lock [--manifest <path>] [--dry-run] [--json|--verbose]
+```
+
+Lock parses and normalizes the whole manifest, resolves and validates lockable
+sources, expands skill-group selectors, computes replayable skill repairs when
+authorized, and writes `daem.lock.toml` beside the selected manifest. It writes
+by default.
+
+`--dry-run` follows the same resolution path but does not write the lockfile or
+persistent cache. Temporary resolution data is removed before exit. The same
+floating manifest can legitimately resolve to a different exact lock over time.
+
+Default output reports counts plus every added, changed, or removed identity.
+It omits unchanged identities, source ids, hashes, resolved refs, and full
+repair recipes. `--verbose` adds unchanged identities and bounded resolution
+evidence.
+
+Regenerating the lockfile removes entries no longer represented by the
+manifest. It does not inspect or delete host outputs; that belongs to status
+and apply under managed-state authority.
+
+## `outdated`
+
+```bash
+daem outdated [--manifest <path>] [--check] [--json|--verbose]
+```
+
+Outdated runs the same lockable-source resolution and validation path as lock,
+compares the candidate exact identities with the current lockfile, and writes
+nothing persistent. Default current output is count-only; stale output lists
+every added, changed, or removed identity and the lock next step. `--verbose`
+adds checked current identities and bounded refs. `--check` exits `1` when any
+lock identity would change.
+
+Lock and outdated JSON schema version is `2`. It includes command/mode,
+manifest and derived lockfile paths, prior-lock presence, entry/change counts,
+`has_changes`, and typed subject changes over the generic locked-subject
+collection. Managed-path realizations include `exact_permission_mode` when and
+only when their permission policy is `exact`; the optional field representation
+preserves an explicit mode `0`. Full safe source ids and hashes are automation
+evidence and remain in JSON.
+
+## `list`
+
+```bash
+daem list resources [--manifest <path>] [--target <target> ...]
+  [--json|--verbose]
+daem list outputs [--manifest <path>] [--target <target> ...]
+  [--json|--verbose]
+```
+
+Bare `list` is navigation only. `list resources` reads and normalizes the
+manifest without requiring a lockfile. It prints every selected kind, stable
+remove key, install name, target set, and scope. `--verbose` adds source and
+declaration provenance.
+
+`list outputs` prints every selected managed output, relevant unmanaged live
+destination, and ownership-blocked output. Blocked rows include the typed
+reason and bounded owner/conflict detail so they agree with `status` without
+being mislabeled as unmanaged. It is an ownership inventory, not a convergence
+report; use status for the complete plan. List commands never truncate rows.
+
+`list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
+version `3`, with separate `managed`, `unmanaged`, and `blocked` arrays and
+counts. Resource-owned rows use singular `target`. Subject-owned managed paths
+also retain their canonical `subject` and complete `targets` consumer set while
+reporting the correlated resource identity when one exists. Both commands
+include every selected row.
+
+## `status`
+
+```bash
+daem status [--manifest <path>] [--target <target> ...] [--check]
+  [--json|--verbose]
+```
+
+Status is read-only. It reports convergence across desired resources, exact
+lock identity, managed-state ownership, current host observations, modeled
+relation observations, and retained historical attempt diagnostics.
+
+Default output prints totals, every planned mutation, blocker, drift,
+unsupported/ambiguous class, binding-removal result, and uncertain host-route
+class. It omits routine no-ops, state/content paths, internal reason fields,
+hashes, route ids, and exhaustive evidence arrays. `--verbose` adds those
+bounded causal fields and every ordinary row.
+
+The table below describes exit codes for valid status results. Command failures
+still return `1` before or while emitting their applicable result contract.
+
+| Invocation | Exit `0` | Exit `1` |
+| --- | --- | --- |
+| `status` | any valid report | never because of reported state |
+| `status --check` | lockfile present, no pending output action, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, blocked carrier-relation action, or carrier-adoption claim conflict |
+
+Warning-only diagnostics, selected missing carrier relations, and observe-only
+relation rows do not make `--check` fail. JSON and human modes use the same exit
+predicate.
+
+## `apply`
+
+```bash
+daem apply [--manifest <path>] [--target <target> ...]
+  [--manage-existing] [--dry-run|--yes] [--diff] [--json|--verbose]
+```
+
+`apply --dry-run` reports every selected mutation, blocker, delegated/host
+route, destructive implication, and uncertain postcondition without executing.
+Bare apply under the three-stream terminal contract discloses the same effect
+plan and asks once. Non-interactive apply requires `--yes`. Every selected
+supported config action and delegated route is ordinary apply work; there is no
+separate route-attempt mode.
+
+`--manage-existing` records exact-match unmanaged outputs as managed without
+rewriting them. This changes future deletion authority, so it is never implicit
+and never imports source material. It cannot transfer a path already owned by a
+different managed subject, even when the current bytes match exactly.
+
+The same flag can acquire one state-only claim for an already declared, locked,
+source-exact external carrier relation. Current support covers Claude Code
+project/global, Codex global, OpenCode project/global, and exact stored-source
+Pi project/global rows. Dry-run discloses the selected owner and claim store,
+`explicitly_adopted_observed` provenance, later omission/removal meaning,
+route-coupled removed and retained effects, non-claims, and the fact that
+ambient consumers are not proven. Adoption itself invokes no host command.
+
+Plain status/apply suggests the manage-existing dry-run only for
+`present_unclaimed`. `present_unclaimed_ineligible` reports the first lifecycle
+blocker without a success hint. Name-only, normalized-only, source-inexact,
+shadowed, stale, unavailable, ambiguous, or conflicting rows cannot acquire a
+claim. Antigravity CLI external rows remain source-inexact because current host
+state does not retain their declared marketplace source.
+
+`apply --dry-run --diff` emits one diff per physical managed file. A file with
+one consumer reports singular `target`; a shared file reports the complete
+canonical `targets` set and never invents a primary consumer.
+
+Apply also rejects any host mutation path that equals, contains, or is contained
+by a local source consumed by the same manifest. Such an operation would mutate
+its own locked input and could not remain reproducible on the next run.
+
+Successful default output contains counts, up to three executed-subject
+examples per successful action kind, every attempted-but-unverified or retained
+residue class, failures, and a next action only when more work is needed.
+`--verbose` adds state/content paths, reason codes, selected source/ref, and
+bounded evidence. Raw subprocess output and secret values are never printed.
+
+Status and apply-dry-run JSON use plan schema version `9`. The document contains
+the derived lockfile status, lock-only resources, typed actions, delegated
+actions, relation actions, carrier-adoption actions, carrier-absence actions,
+host-route attempt history, diagnostics, MCP status dimensions, and
+`has_errors`.
+
+Carrier-adoption rows expose the exact relation evidence, lifecycle blocker or
+eligibility, selected claim store, install/removal route identities, bounded
+effects and non-claims, and `claim_transition`. An eligible dry-run uses
+`would_record`. A successful explicit adoption uses `recorded`. When an exact
+pending install already owns the same transition, success instead uses
+`completed_by_install_recovery`; `final_claim_provenance` then reports
+`installed_observed_transition` rather than implying explicit adoption. A
+failure before execution uses `not_recorded`. Once execution was attempted, a
+later error preserves `recorded` or `completed_by_install_recovery` for each
+exact durable result returned by the commit boundary; only actions without such
+a result use `unknown_after_error`. Run `daem status` to resolve any remaining
+unknown action instead of inferring it from the error alone.
+
+Carrier-absence rows expose `execution = "host_route"` for delegated removal,
+`execution = "direct_config"` for an exact host-config edit,
+`execution = "observation_only"` for pending settlement, and
+`execution = "state_only"` for already-absent claim retirement.
+
+`apply --yes --json` uses result schema version `13`. It adds executed action
+count, statefile path, bounded delegated and host-route attempt results, typed
+errors, carrier-adoption transitions and final claim provenance,
+carrier-absence outcomes, and final `has_errors`. Known mutation codes include
+`stale_snapshot`, `stale_plan`, `mutation_contended`, and
+`mutation_cancelled`.
+
+Host-route attempt rows include the exact operation and bounded
+`effect_postconditions` requirement/state summaries when the locked route
+couples additional removal effects. They contain no raw host output, secret,
+machine-local path, or current authority.
+
+Attempt records are historical diagnostics only. Process success does not prove
+exact artifact identity, package/cache convergence, runtime readiness, trust,
+contribution ownership, cleanup authority, or future skip authority.
+For project-selected host routes, `workdir_authority` means the selected path no
+longer named the retained physical project root around the attempt. The route
+is never redirected to the replacement cwd, but it may already have started
+from the captured root; apply therefore reports failure, makes no convergence
+claim, and refuses to write the final attempt record through the replacement
+root. This cwd binding is not a sandbox for other host-command effects.
+
+## `recover`
+
+```bash
+daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]
+```
+
+Recovery classifies and resolves one active interrupted operation. Bare recover
+uses the shared three-stream terminal contract and asks after disclosing the
+current recovery plan; non-interactive execution requires `--yes`. It does not
+read desired resources from the manifest or lockfile: the manifest selects the
+derived state/recovery paths. It handles apply recovery journals only; an
+interrupted manifest metadata file-set transaction is recovered by retrying the
+exact authoring or `unmanage` write.
+
+| Classification | Meaning |
+| --- | --- |
+| `clean_before` | Host paths, state, and ownership are all at the pre-operation state; only journal cleanup remains. |
+| `clean_after` | Host paths, state, and ownership all match the committed post-operation state; only journal cleanup remains. |
+| `needs_rollback` | The interrupted operation can be restored to its pre-operation state from verified journal evidence. |
+| `needs_finalize` | Host paths and state are committed, but prepared ownership claims still need finalization. |
+| `blocked` | Current evidence cannot be safely reconciled with either legal operation state. |
+
+Recovery validates guarded host and statefile observations, backup identity,
+candidate fingerprint, and the full lease set again before writing. A prior
+dry-run grants no execution authority. Blocked or stale recovery keeps the
+journal and writes nothing.
+
+Default output shows classification, operation identity, every action,
+destination/content subject, blocker, and recovery limitation. It omits backup
+paths/hashes and journal layout. `--verbose` adds operation directory, backup
+facts, reasons, and action detail.
+
+Recovery JSON schema version is `3` for both `--dry-run --json` and
+`--yes --json`. It contains command/mode, operation id/directory,
+classification, action count, typed actions, `has_errors`, and optional errors.
+Each action preserves its canonical identity: resource-owned actions report
+`resource` and singular `target`, while subject-owned managed paths report
+`subject`, the complete `targets` consumer set, and `content_kind` without
+inventing a primary target. Entity-backed projection subjects also report the
+correlated resource identity for user-facing attribution.
+
+## `doctor`
+
+```bash
+daem doctor [--manifest <path>]
+  [--target <target> ...|--all-targets] [--json|--verbose]
+```
+
+With a manifest and no target selector, doctor checks only effective targets
+and declared resource capabilities. Without a manifest, it can run general
+diagnostics. `--all-targets` is mutually exclusive with `--target`.
+
+Doctor is passive. It never launches host CLIs, package managers, plugins, MCP
+servers, credential helpers, or network probes. It checks modeled paths,
+permissions, executable discovery, capability support, local skill
+compatibility, and available passive readiness facts.
+
+Doctor refuses human and JSON diagnostics while an interrupted apply journal is
+active, before reading live host or target configuration. Run
+`daem recover --dry-run` first.
+
+Default output prints ok/warn/error totals plus every warning and error.
+Successful checks are count-only. `--verbose` prints every check and bounded
+detail. Warnings do not fail doctor; errors do. Doctor JSON schema version is
+`1` and contains manifest context, selected targets, all typed checks, and
+`has_errors`.
+
+## `probe mcp-server`
+
+```bash
+daem probe mcp-server <name> [--manifest <path>] [--target <target>]
+  [--scope <scope>] [--timeout <duration>] [--dry-run|--yes]
+  [--json|--verbose]
+```
+
+Target and scope are needed only when the locked server name is ambiguous. Bare
+probe uses the shared three-stream terminal contract and asks after disclosing
+the exact probe effects; non-interactive execution requires `--yes`. The current
+supported rows are documented in the feature matrix.
+
+Dry-run discloses the exact command/args, child-to-host env reference bindings,
+inherited process environment policy without values, descriptor-backed selected
+project work-directory policy, timeout,
+process/package/cache/network/auth/trust effects, cancellation and cleanup
+expectations, and non-claims. Execution launches the exact locked stdio command
+and attempts MCP initialize for supported rows. Interactive execution consumes
+the same immutable request that was disclosed; manifest or lockfile edits while
+confirmation is pending cannot substitute a different command. It never mutates
+the manifest, lockfile, state ownership, or host config.
+
+Output remains dimensional: runtime launcher, protocol initialize,
+authentication, endpoint health, and tool inventory. No surface emits an
+aggregate `ready=true` or `healthy=true`. Probe evidence is current best-effort
+runtime evidence, not config convergence, package/cache convergence, host trust,
+future apply-skip authority, or persistent status evidence.
+
+Probe JSON schema version is `1` and contains the selected subject, timeout,
+exact side-effect disclosure, every dimension, and `has_errors`. Environment
+disclosure uses ordered `env_bindings` entries with `child_name` and
+`host_source_name`; it never emits the resolved value.
+
+## `refresh extension`
+
+```bash
+daem refresh extension <id> [--manifest <path>] [--target <target>]
+  [--scope <scope>] [--dry-run|--yes] [--json|--verbose]
+```
+
+Refresh selects exactly one declared extension id and its matching locked
+`refresh` operation. Optional target and scope are exact safety filters, not
+alternate destinations. There is no bulk, wildcard, per-host flag, bare
+`update`, or apply-refresh mode.
+
+Dry-run passively builds and discloses the same operation identity, argv shape,
+effect envelope, retained effects, observation posture, and non-claims used by
+execution. Bare execution uses the shared three-stream terminal confirmation
+contract. Non-interactive and JSON execution require `--yes`; `--dry-run` and
+`--yes` are mutually exclusive.
+
+Refresh never rewrites the manifest, lockfile, or managed-relation ownership.
+It refuses a missing or stale lock, an active recovery journal, an unsupported
+refresh route, or changed manifest/lock/observation/authority evidence after
+disclosure. A route requiring passive evidence must prove the exact relation
+present before execution and observe it again afterward. A route whose locked
+contract explicitly has no observer may run only as best effort.
+
+Claude Code currently supports project and explicit-global marketplace
+relations. The command maps public global scope to host `--scope user`; project
+scope uses `--scope project`. It may refresh an exact externally installed
+declared relation without acquiring daem ownership. A successful result proves
+only that the exact relation remains observable after the host update; the
+host-selected version, cache, dependencies, restart, activation, and runtime
+readiness remain outside the claim.
+
+Codex supports only explicit-global marketplace relations. The selected
+`PLUGIN@MARKETPLACE` relation authorizes
+`codex plugin marketplace upgrade <marketplace> --json`, but the execution
+subject is the marketplace, not the one plugin: the host may replace the Git
+marketplace snapshot and refresh every configured installed sibling cache
+sourced from it. The exact config-relation observer does not prove marketplace
+snapshot or cache refresh convergence, so no-new-revision and changed-revision
+successes are both `attempted_unverified`. Snapshot replacement and per-plugin
+cache refresh may partially diverge; daem does not append `codex plugin add`,
+substitute another marketplace, parse host JSON as convergence evidence, or
+claim rollback. The host upgrade route applies only when the named marketplace
+is upgrade-capable; for example, a local non-Git marketplace may produce a
+started failed attempt. Daem reports that host refusal and does not reinterpret
+it as another route.
+
+OpenCode supports project and explicit-global host-source relations. It invokes
+`opencode plugin <host-source> --force` from the selected project and appends
+`--global` only for explicit global scope. The selected-config relation
+observer does not prove package, version, or refresh convergence, so success is
+only `attempted_unverified`. Package resolution, package/cache writes,
+same-family config replacement and deduplication, multi-target config writes,
+dependencies, activation, and runtime readiness remain host-owned. Ordinary
+`apply` continues to use install/create without `--force`.
+
+Pi supports project and explicit-global package relations, but both selections
+invoke the same `pi update --extension <host-source>` command from the selected
+project. Pi has no update scope flag: the host may inspect and update matching
+user and trusted-project package rows with the same identity, so the selected
+daem scope does not narrow the host mutation envelope. The selected-scope
+relation observer does not prove package, version, or refresh convergence, so
+success is `attempted_unverified`. Pinned npm sources may remain fixed,
+local-path sources are live references with no scheduled updater, and Git
+updates may reset and clean their checkout and install dependencies. Trust
+refusal or no match remains a host failure. Daem never adds Pi approval,
+self-update, model-update, or bulk update flags.
+
+Antigravity CLI supports explicit-global plugin host-source relations by
+repeating the exact locked `agy plugin install <host-source>` route. This is an
+explicit repeat-install refresh, not a dedicated host update command. Bounded
+local-source evidence shows bundle replacement without duplicate import rows
+and rejection of malformed `plugin.json` before replacing the prior valid
+bundle; remote and marketplace source resolution remains host-owned. There is
+a passive global relation observer for safe `PLUGIN@MARKETPLACE` sources, but
+it proves only the selected import row and matching installed bundle identity,
+not version or bundle freshness. Explicit refresh success therefore remains
+`attempted_unverified`. Other source forms retain unsupported observation.
+Daem does not add import, link, enable, disable, project-scope, or Antigravity
+IDE behavior, and it does not claim exact artifact freshness, rollback,
+contribution inventory, or runtime readiness.
+
+Ordinary confirmed apply can remove a daem-managed selector-shaped
+Antigravity relation after fresh residual-state correlation and the
+last-daem-known-consumer check. It invokes
+`agy plugin uninstall <plugin>`, never the marketplace selector, and settles
+only when both the selected import row and plugin directory are freshly absent.
+Exit zero and success prose are not evidence. Partial or uncertain outcomes
+retain claim and pending state for retry; already-absent state retires without
+invocation. Opaque/local sources, marketplace/source setup, sibling plugins,
+credentials, trust/session state, unrelated stores, IDE state, and ambient
+non-daem consumers remain outside this guarantee.
+
+The result classes are:
+
+| Class | Meaning |
+| --- | --- |
+| `planned` | Dry-run built one valid immutable plan; no host attempt started. |
+| `refused` | Selection, lock, evidence, authority, or stale revalidation blocked before launch. |
+| `cancelled` | The operator declined or cancellation occurred before launch. |
+| `attempted_unverified` | The host request succeeded through a supported route without an outcome observer. |
+| `observed_relation` | The host request succeeded and fresh passive evidence proves the exact relation present. |
+| `failed` | Launch or host execution failed; `attempted` distinguishes pre-launch from started-process failure. |
+| `partial` | A started request succeeded or may have produced effects, but required post-observation, history persistence, or cleanup failed. |
+
+Once a process starts, refresh never retries, rolls back, invokes a separate
+install fallback, updates the lock, or claims absence of host effects.
+Antigravity's disclosed refresh route itself is the host's repeat-install
+operation. A sanitized,
+operation-indexed attempt row is persisted only for a started process and is
+history, not future skip or removal authority.
+
+Refresh JSON schema version is `1` and has exactly these top-level fields:
+
+```text
+schema_version command mode selection route disclosure result has_errors
+```
+
+The nested disclosure contains deterministic command/args, environment names
+without values, selected-root cwd policy, timeout, effect and retained-effect
+classes, and non-claims. Process and observation summaries contain no
+subprocess output, raw errors, secret values, protocol payloads, or
+machine-local paths. Current target-specific route availability remains
+authoritative in the feature matrix.
+
+## Progress
+
+Progress is automatic only for human output when stderr is a TTY and the
+workflow exposes a meaningful long-running phase. It is suppressed for JSON,
+non-TTY stderr, help, CLI misuse, and before interactive confirmation.
+
+Current progress-capable workflows are lock/outdated source resolution and
+apply execution. They render at most one ephemeral stderr line, escape
+untrusted labels, and clear the line before stable output or diagnostics.
+Duplicate completion events do not advance counts twice.
+
+A progress write failure disables later progress but does not fail an otherwise
+valid operation. A stable disclosure or confirmation-prompt write failure
+blocks interactive execution. Any stable human or JSON output write failure
+fails the command.
+
+## Streams And Exit Codes
+
+| Situation | Stdout | Stderr | Exit |
+| --- | --- | --- | ---: |
+| Help or successful human result | stable help/result | ephemeral progress or prompt only | `0` |
+| Successful JSON result | exactly one JSON document | empty | `0` |
+| Blocking result for a command whose result contract is failure | stable human or one JSON result | no duplicate prose | `1` |
+| Report-only `status`, including pending or blocked rows | normal result | empty | `0` |
+| Clean `status --check` | normal result | empty | `0` |
+| Non-clean `status --check` | normal result | empty | `1` |
+| Non-current `outdated --check` | normal result | empty | `1` |
+| Warning-only result | stable result | empty | `0` |
+| CLI misuse | empty | problem plus nearest correction | `2` |
+| Failure before result envelope | empty | concise error and remediation | `1` |
+| Failure after JSON envelope exists | one typed JSON result | empty unless write fails | `1` |
+| Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
+| Stable output write failure | possibly partial | bounded write diagnostic | `1`, unless preserving an existing nonzero command identity |
+| Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
+| Interrupted by `SIGTERM` | completed or partial stable output | bounded interruption diagnostic | `143` |
+
+Stable confirmation disclosures are written to stdout; prompts and bounded
+cancellation diagnostics are written to stderr. Human warnings that belong to
+a valid result stay on stdout. Raw subprocess/protocol output, auth material,
+headers, secret values, and unredacted credentials are prohibited from every
+output mode.
+
+The first `SIGINT` or `SIGTERM` records the process exit identity and cancels
+the root operation. A subsequent signal arms a bounded emergency-exit deadline
+while preserving the first signal's exit code; it does not bypass the
+TERM-to-KILL window already cleaning daem-owned process groups. If normal
+cancellation finishes first, daem returns immediately. Internal composition or
+tests that cancel `RunWithOptions` through a context do not acquire an OS-signal
+exit identity. To enable interactive authorization, those internal callers must
+supply stdin, stdout, stderr, all three terminal facts, and a context-aware
+`ReadConfirmationLine` capability. An invocation without those capabilities is
+non-interactive.
+
+## Deferred Command Names
+
+There is no top-level `update`, `plan`, `diff`, `install`, `uninstall`,
+`prune`, `snapshot`, `restore`, or `run` command. Use:
+
+- `lock` to resolve current exact source identities and `outdated` to compare
+  them without writing;
+- `refresh extension` for one explicitly selected supported host-carrier
+  refresh;
+- `apply --dry-run` for a reconciliation plan and optional diff;
+- manifest/add/remove desired presence plus supported apply effects for
+  lifecycle work;
+- `recover` for interrupted-operation cleanup; and
+- native target locations reconciled by apply rather than a runtime wrapper.

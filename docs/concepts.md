@@ -1,0 +1,338 @@
+# Concepts
+
+`daem` is built around one flow:
+
+```text
+manifest -> normalized desired resources -> lockfile -> plan -> host files
+```
+
+The manifest is the desired-state boundary. The lockfile captures resolved
+source identity. The statefile records which live host outputs `daem` owns.
+`status` and `apply --dry-run` compare all three against the current filesystem
+before any host mutation happens.
+
+## Manifest
+
+`daem.toml` declares the resources you want managed:
+
+- instruction files
+- skills
+- skill groups
+- command hooks
+- hook assets
+- standalone MCP server bindings
+- extension carriers
+
+The parser is strict. Unknown keys, duplicate resource names, invalid target
+values, unsafe paths, and unsupported source shapes are rejected before the
+planner runs.
+
+Manifest selection is shared by all resource families. If `--manifest` is
+omitted, `daem` checks only `./daem.toml` in the current working directory.
+When that file exists, its directory is the selected project root. Otherwise,
+on a supported platform, `daem` uses
+`${XDG_CONFIG_HOME:-~/.config}/daem/daem.toml` as the user manifest. Platform
+admission is documented separately in [Platform Support](platforms.md); a path
+that can be calculated for another OS is not a product-support claim.
+
+The CLI does not search parent directories for `daem.toml`. The OS user config
+manifest is not a project root; project-scoped target-visible resources from
+that manifest are rejected. Use an explicit project manifest such as
+`--manifest ./daem.toml`, or declare those resources with `scope = "global"`.
+
+## Targets and Scopes
+
+Targets name agent hosts:
+
+- `codex`
+- `claude-code`
+- `opencode`
+- `pi`
+- `antigravity-cli`
+
+Scopes decide whether a target-visible resource is project-local or global:
+
+- `project`: written under the selected project manifest root.
+- `global`: written under the target's user-level root.
+
+Current support is summarized in the
+[Product Feature Matrix](features.md). That matrix is a derived user-facing
+view of typed target/resource surface contracts. Future target support must
+extend the typed registry and its invariant-bearing tests rather than adding ad
+hoc target/product booleans here.
+
+Unsupported instruction target/scope combinations are rejected for `lock`,
+`status`, and `apply`; for example, Antigravity CLI project instructions render
+to `AGENTS.md` by default and Antigravity CLI global instructions render to
+`~/.gemini/GEMINI.md`. Unsupported hook targets are treated as lock-only
+diagnostics when command hook rendering is not implemented for those hosts.
+Antigravity CLI direct hooks are not supported as a native command-hook surface,
+so `add hook` rejects that target even though a manually authored declaration
+can still be reported as lock-only.
+
+## Sources
+
+Lockable sources can come from:
+
+- local filesystem paths
+- Git repositories
+- S3 objects
+
+Local paths are resolved relative to the manifest directory unless absolute.
+Git accepts only credential-free HTTPS, SSH/scp-like, absolute file URL, and
+native absolute repository locators. A Git ref is one unqualified branch-or-tag
+name, qualified branch/tag, or full 40/64-hex commit id; unqualified
+branch/tag collisions and revision/refspec syntax are rejected. `lock` records
+the canonical declaration identity separately from the resolved immutable
+commit. S3 sources use the AWS SDK default configuration chain unless a
+source-level region is provided.
+
+Hook commands are not lockable source payloads. They are rendered as host
+configuration strings and must already be executable in the host environment.
+
+## Lockfile
+
+`daem.lock.toml` records source identity, content hashes, declaration
+provenance, and locked operation identities for lockable resources and
+supported delegated relations. It is exact with respect to the manifest: when a
+lockable resource is removed from `daem.toml`, the next successful `daem lock`
+removes the stale lockfile entry.
+
+The lockfile does not delete host files. Host cleanup is a guarded
+reconciliation action planned by `status` and executed by `apply`.
+
+## Statefile
+
+The statefile records which live host outputs one selected manifest previously
+wrote or registered, plus project-scoped carrier claims and write-ahead carrier
+transitions. For global outputs and carrier relations, durable authority also
+uses the matching subject-specific registry in daem's shared data root. The
+statefile may record a separate bounded last delegated-attempt record tied to a
+locked plan identity. It is separate from the lockfile because resolved source
+identity, live host authority, and historical attempt diagnostics answer
+different questions:
+
+- the lockfile says what content was resolved from declared sources
+- the statefile says which host outputs were previously written or registered,
+  and which project carrier claims or pending transitions remain authoritative
+- last delegate attempt records say what happened during the last relevant
+  bounded attempt, without claiming current package-manager cache convergence,
+  runtime server health, tool inventory, credential validity, or trust state
+
+Host-route diagnostics likewise retain only the latest request for each
+subject, target, scope, and route id. A changed request hash replaces the prior
+diagnostic for that route; the statefile is not an append-only operation log.
+
+The statefile is private authority data. Daem writes and accepts it only as an
+invoking-user-owned regular file with exact mode `0600`; final symlinks,
+special files, replacement during a read, oversized content, and other
+permission modes are rejected.
+
+When a managed output changes outside `daem`, future apply operations report
+drift instead of overwriting it. When an output exists but is not state-owned,
+`apply` reports `unmanaged_output_exists` unless `--manage-existing` is used and
+the live subject exactly matches the desired output, including required file
+metadata for mode-sensitive outputs.
+
+Managed-path state records the projection's permission policy. Exact-mode file
+projections retain the last verified permission bits; executable-class files
+retain no read/write-bit baseline because executable class is already part of
+their content identity. The retained exact mode is historical authority, not a
+claim about the file's current mode. Recovery therefore keeps it separate from
+the freshly captured physical mode used to guard and restore an interrupted
+operation.
+
+Visibility, import, state ownership, convergence, removal, and destructive
+cleanup are separate claims. `import` records declarations but does not by
+itself claim host state. `apply --manage-existing` may adopt an existing output
+only when the live subject exactly matches the desired output and the applicable
+route supports adoption.
+For supported external carriers, explicit manage-existing commits a
+source-exact state-only claim after full lifecycle admission and fresh
+revalidation, without invoking the host route. The claim records future bounded
+managed-relation removal authority, not package/cache ownership, runtime
+readiness, or ambient exclusivity.
+
+### Shared Global Ownership
+
+Project statefiles are independent, but explicit-global declarations from
+different projects can resolve to the same host path. Daem therefore keeps a
+shared managed-output registry under its OS data root. One canonical whole path
+or overlapping config projection has one statefile authority. Equal bytes do
+not allow co-ownership. Losslessly disjoint projections, such as two different
+MCP server entries in one aggregate config, may have different owners.
+
+Global carrier relations use a separate carrier-claim registry. Several daem
+manifests may be known consumers of one structural carrier, while each exact
+relation claim still retains its own target, scope, source/provenance, route,
+and owner identity. Neither registry proves ambient non-daem consumers or
+exclusive host ownership.
+
+`status` and `apply --dry-run` report `ownership_conflict` with the owning
+manifest path before mutation. Removing the owning declaration and applying
+that removal releases the claim only after the host and statefile changes
+commit. Interrupted acquisition or release remains reserved or owned until
+`daem recover` finishes the journaled transition; neither ordinary apply nor
+`--manage-existing` steals it.
+
+## Recovery Journal
+
+Mutating `apply` commits a complete recovery journal before it reserves a new
+global claim or mutates host files or state. Under ordinary local-filesystem
+process failures, `recover` can classify the journal and clean it up, roll back
+guarded changes, or finish claim finalization after host and state commit.
+Stable-storage guarantees across an OS crash or power loss are platform-scoped.
+They are current only for operation and local-filesystem rows with native
+evidence; compile-only and unsupported rows are not promoted into a guarantee.
+See [Platform Support](platforms.md).
+Daem refuses input statefiles larger than 16 MiB before planning and refuses
+recovery journals larger than 64 MiB. Individual regular-file recovery backups
+larger than 128 MiB are refused before the covered host mutation; produced
+state and journal documents are also size-checked before publication. Directory
+backup is streamed, but its required recovery-storage space remains
+proportional to the managed directory.
+
+Recovery is intentionally narrow. It handles one interrupted operation for the
+selected manifest path set; it is not a snapshot, profile, or historical restore
+surface.
+
+## Managed Resource Types
+
+### Instructions
+
+Instruction resources render source files into target instruction files. The
+default project outputs are:
+
+- Codex: `AGENTS.md`
+- Claude Code: `CLAUDE.md`
+- OpenCode: `AGENTS.md`
+- Pi: `AGENTS.md`
+- Antigravity CLI: `AGENTS.md`
+
+Global instruction outputs go under the target's global config root when the
+target admits a global instruction placement row. Antigravity CLI global
+instructions render to `~/.gemini/GEMINI.md`. Copy mode is executable today;
+symlink mode is parsed but not yet executable.
+
+Each instruction source locks one exact Supply subject and one managed-file
+projection per distinct physical placement. Targets selecting the same file,
+such as Codex and OpenCode project `AGENTS.md`, share one projection and one
+managed-state row with the complete canonical consumer set. No consumer is
+promoted to a primary target. Copy publication writes a private,
+non-executable file; a source executable bit remains part of source identity
+but does not leak into the managed instruction file.
+
+### Skills
+
+Skill resources install a full skill directory containing `SKILL.md`. The
+default write roots are target-specific, for example `.agents/skills/<install-name>`
+for Codex project skills and `.claude/skills/<install-name>` for Claude Code
+project skills. `name` is the agent-visible directory and frontmatter name.
+Copy placement is executable today. Skill `symlink` and `hardlink` placement
+can be represented in desired state and lockfiles but `apply` rejects them
+before host, state, or journal mutation.
+When a separate daem resource key is needed, `id` supplies the lockfile/status
+identity; otherwise the resource id defaults to `name`.
+
+This distinction matters when two agents expose different skills with the same
+directory name. They can use distinct `id` values while both install under the
+agent-visible `name` that each host expects.
+
+Targets whose profiles select the same placement share one physical skill
+directory and one managed-state row. That row records the complete canonical
+consumer set; no consumer is promoted to a primary target. Targets selecting
+different placements produce independent paths and state rows, so applying or
+removing one projection does not mutate its siblings.
+
+Skill groups keep one source root and shared placement settings for several
+child skills. Explicit `names` groups expand into ordinary per-skill resources
+before lock, status, or apply. Selector-backed groups use explicit `glob:` or
+`regex:` include selectors and optional excludes; they expand during `lock` into
+ordinary per-skill lockfile entries with skill-group provenance. `status` and
+`apply` use those locked entries instead of rediscovering upstream source roots.
+
+### Hooks
+
+Hook resources manage native Codex and Claude Code command hook configuration
+aggregates. They do not fetch or install hook scripts. The configured command
+must already be available to the target host.
+
+For supported hook config files, `daem` owns only the `hooks` subtree and
+preserves unrelated top-level settings.
+
+### Hook Assets
+
+Hook assets are explicitly declared, source-backed executable files referenced
+from supported command hooks through `{hook_file:<name>}` placeholders. A hook
+asset locks exact source identity and creates its own managed-file projection;
+it does not turn arbitrary command strings into installable executables or infer
+files from the host's `PATH`. Hook and asset scope must agree.
+
+### Standalone MCP Servers
+
+Standalone MCP server declarations manage one supported host config binding for a
+stdio launch vector. The locked command and arguments describe how the host
+launches the server; they are not an executable provisioning plan. Removing the
+declaration and applying the result removes only the managed config relation, not
+packages, caches, credentials, trust state, logs, or other runtime residue.
+
+`daem probe mcp-server` can perform an explicit bounded runtime check for an
+supported locked row. A prior successful probe or delegated attempt is historical
+evidence, never authority to skip fresh observation or claim current readiness.
+Current target and scope rows are listed in the
+[Product Feature Matrix](features.md).
+
+### Extension Carriers
+
+Extension declarations model a host-native plugin or package carrier relation,
+not a cross-host artifact type. `add extension` and `remove extension` update the
+manifest and lockfile only. For a supported lifecycle row, a later mutating
+`apply` may delegate the locked install/create command to the host and record a
+bounded attempt result.
+
+Delegation does not make `daem` the owner of the host's package store and does
+not prove exact installed version, enablement, trust, bundled contributions, or
+runtime readiness. Explicit refresh is a separate operation. Removing a
+declaration requests exact managed relation absence. For a currently supported
+removal row, confirmed apply may invoke the host-native or direct-config route
+only with durable exact management authority, fresh route evidence, and no
+remaining daem-known shared consumer. `unmanage extension` retains host state,
+and external-store prune remains a separate unsupported operation. See the
+[Product Feature Matrix](features.md) for the currently executable host routes.
+
+## Safety Model
+
+The normal safe loop is:
+
+```bash
+daem lock --manifest daem.toml --dry-run
+daem lock --manifest daem.toml
+daem status --manifest daem.toml
+daem apply --manifest daem.toml --dry-run
+daem apply --manifest daem.toml --yes
+```
+
+When desired state is changed with `daem add` or `daem remove`, the
+manifest and lockfile are updated together, so the loop can continue at
+`status` or `apply --dry-run`. When `daem.toml` is edited directly or produced
+by import, keep the explicit `lock --dry-run` and `lock` steps.
+
+`lock --dry-run`, `status`, `apply --dry-run`, `doctor`, and `recover --dry-run`
+are read-only with respect to host files. Mutating `apply` refuses unsafe plans
+before writing, and mutating `recover` refuses blocked recovery plans.
+
+### NFS-Backed Homes
+
+`daem` is expected to work in ordinary single-host use when the home directory,
+manifest, or source files are stored on NFS. NFS server, client, mount, locking,
+cache, and failure semantics vary, however, so this is a best-effort environment
+rather than a guarantee across every NFS deployment.
+
+Do not rely on `daem` leases for cross-node mutual exclusion. A file changed
+from another node is treated as a non-`daem` write: revalidation detects changes
+visible before an effect starts, but cannot exclude a concurrent write after the
+final check. Stable-storage durability and behavior during NFS outages or
+reconnects are also outside the current guarantee. See the
+[Safety Model](#safety-model), [Platform Support](platforms.md), and
+[NFS troubleshooting guidance](troubleshooting.md#nfs-backed-home-or-workspace)
+for the public boundaries.
