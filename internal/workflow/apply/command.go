@@ -31,7 +31,6 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -62,7 +61,7 @@ type CommandResult struct {
 	HostRouteAttempts      []durableattempt.HostRouteAttempt
 	CarrierAdoptionResults []durablecarrier.ManagedCarrierClaim
 	Diagnostics            []findings.Diagnostic
-	LockOnly               []targetavailability.UnsupportedProjection
+	LockOnly               []readiness.UnsupportedProjection
 	MCPProjections         []mcpobserve.LockedProjectionObservation
 	ActionCount            int
 }
@@ -356,7 +355,7 @@ func loadCommandInputsAtPaths(
 	}
 	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
-	availableTargets, err := targetavailability.FromManifestLockAndState(
+	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
 		locked,
 		currentState,
@@ -417,7 +416,7 @@ func loadCommandInputsAtPaths(
 		diagnose.HookCommandDiagnostics(environment.Hooks(), selection),
 		skillDiagnostics...,
 	)
-	result.LockOnly = targetavailability.SelectedUnsupportedProjections(runtimeEnvironment, selection)
+	result.LockOnly = readiness.SelectedUnsupportedProjections(runtimeEnvironment, selection)
 
 	return context, result, nil
 }

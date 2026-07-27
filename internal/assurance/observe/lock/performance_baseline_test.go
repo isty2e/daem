@@ -17,7 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
+	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -165,7 +165,7 @@ func newReadPathBaselineFixture(
 		tb.Fatalf("lockbuild.BuildWithOptions returned error: %v", err)
 	}
 	selection, err := targetselection.ForAvailableTargets(
-		targetavailability.FromEnvironment(environment),
+		[]target.Target{target.TargetCodex},
 		nil,
 	)
 	if err != nil {

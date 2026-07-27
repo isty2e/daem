@@ -33,7 +33,6 @@ import (
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	targetpkg "github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
@@ -230,11 +229,13 @@ func applyInstructionLockfile(
 	return snapshottest.File(t, append([]lock.LockedSubjectContract{contract}, projections...)...)
 }
 
-func applySelection(t *testing.T, environment desired.Environment, requested []string) targetselection.Selection {
+func applySelection(t *testing.T, requested []string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := targetavailability.FromEnvironment(environment)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
+	selection, err := targetselection.ForAvailableTargets(
+		[]targetpkg.Target{targetpkg.TargetCodex},
+		requested,
+	)
 	if err != nil {
 		t.Fatalf("build selection: %v", err)
 	}

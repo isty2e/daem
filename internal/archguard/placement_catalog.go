@@ -346,7 +346,6 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/cli",
 			"internal/diagnose",
 			"internal/effect/payload/build",
-			"internal/target/availability",
 			"internal/target/selection",
 			"internal/workflow/adopt",
 			"internal/workflow/apply",

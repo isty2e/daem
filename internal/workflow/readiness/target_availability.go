@@ -1,4 +1,4 @@
-package targetavailability
+package readiness
 
 import (
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -15,7 +15,7 @@ func FromManifestLockAndState(
 	state durable.Snapshot,
 	globalClaims durablecarrier.GlobalCarrierClaims,
 ) ([]target.Target, error) {
-	available := FromEnvironment(environment)
+	available := fromEnvironment(environment)
 
 	targets := make(map[target.Target]struct{}, len(available)+locked.Locked.Len())
 	for _, selected := range available {
@@ -49,10 +49,10 @@ func FromManifestLockAndState(
 	return orderedTargets(targets), nil
 }
 
-// FromEnvironment returns the exact target availability contributed by
+// fromEnvironment returns the exact target availability contributed by
 // authored desired families. Top-level targets and extension relations are
 // intentionally not part of this command-selection algebra.
-func FromEnvironment(environment desired.Environment) []target.Target {
+func fromEnvironment(environment desired.Environment) []target.Target {
 	targets := make(map[target.Target]struct{})
 	add := func(values []target.Target) {
 		for _, selected := range values {

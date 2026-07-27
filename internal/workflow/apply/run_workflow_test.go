@@ -42,7 +42,7 @@ func TestRunWritesSelectedInstructionOutputAndStatefile(t *testing.T) {
 		t, "project", "local:instructions/AGENTS.md?mode=vendor", instructionHash,
 		targetpkg.TargetCodex, targetpkg.TargetClaudeCode,
 	)
-	selection := applySelection(t, resources, []string{"codex"})
+	selection := applySelection(t, []string{"codex"})
 
 	result, err := run(t, context.Background(), paths, resources, locked, selection, buildManagedApplyAssessment(t, paths, resources, locked, selection, false))
 	if err != nil {
@@ -71,7 +71,7 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 	instructionHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
 	resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
 	locked := applyInstructionLockfile(t, "project", "local:instructions/AGENTS.md?mode=vendor", instructionHash)
-	selection := applySelection(t, resources, []string{"codex"})
+	selection := applySelection(t, []string{"codex"})
 
 	var events []execute.Event
 	result, err := runWithOptions(
@@ -101,7 +101,7 @@ func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {
 	contentHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
 	resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
 	locked := applyInstructionLockfile(t, "project", "local:instructions/AGENTS.md?mode=vendor", contentHash)
-	selection := applySelection(t, resources, []string{"codex"})
+	selection := applySelection(t, []string{"codex"})
 	wantErr := errors.New("final validation failed")
 	validationCalls := 0
 	_, err := runWithOptions(
@@ -147,7 +147,7 @@ func TestRunWritesHookProjectionThroughWorkflowComposition(t *testing.T) {
 			}),
 		},
 	})
-	selection := applySelection(t, resources, []string{"codex"})
+	selection := applySelection(t, []string{"codex"})
 	lowered, err := topologyhook.Lower(nil, resources.Hooks())
 	if err != nil {
 		t.Fatalf("lower Hook topology: %v", err)

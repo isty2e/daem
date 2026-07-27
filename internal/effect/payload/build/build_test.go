@@ -40,7 +40,7 @@ func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
@@ -123,7 +123,7 @@ func TestBuildManagedPathPayloadSetRejectsInstructionLockProblems(t *testing.T) 
 	input := Input{
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{validLocked[1].SubjectID()},
 	}
 	validIdentity, ok := validLocked[0].ExactSupply()
@@ -198,7 +198,7 @@ func TestBuildPayloadSetSkipsSkillsWithoutRequiredProjectionEffects(t *testing.T
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 	})
 	if err != nil {
 		t.Fatalf("PayloadSet materialized a Skill with no required effect: %v", err)
@@ -231,7 +231,7 @@ func TestBuildPayloadSetCleansUpRepairedSkillPayload(t *testing.T) {
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
@@ -293,7 +293,7 @@ func TestBuildPayloadSetCleansRepairedSkillWhenLaterPayloadValidationFails(t *te
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t, locked...),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{
 			locked[1].SubjectID(),
 			assetSubject,
@@ -339,7 +339,7 @@ func TestBuildPayloadSetCleansRepairedSkillWhenLaterSkillLockIsMissing(t *testin
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t, locked...),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{
 			locked[1].SubjectID(),
 			skillProjectionSubject(t, "missing", target.TargetCodex),
@@ -401,7 +401,7 @@ func TestBuildManagedPathPayloadSetSkipsUnselectedInstructionTargets(t *testing.
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {

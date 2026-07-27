@@ -26,7 +26,6 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -360,7 +359,7 @@ func parseTestManifest(t *testing.T, content string) desired.Environment {
 func testSelection(t *testing.T, environment desired.Environment, requested ...string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := targetavailability.FromEnvironment(environment)
+	availableTargets := fromEnvironment(environment)
 	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
 	if err != nil {
 		t.Fatalf("ForAvailableTargets returned error: %v", err)

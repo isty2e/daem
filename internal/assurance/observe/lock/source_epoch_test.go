@@ -196,7 +196,7 @@ targets = ["codex"]
 scope = "project"
 `)
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
