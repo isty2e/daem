@@ -46,7 +46,15 @@ func applyImportSkillTargetMerge(content []byte, skill declarationcodec.Skill) (
 		if sameImportStringTargets(block.Skill.Targets, mergedTargets) {
 			return nil, "", fmt.Errorf("skill %q already has the selected targets", incomingID)
 		}
-		updatedBlock := declarationcodec.ReplaceSkillTargets(string(content[block.Start:block.End]), mergedTargets)
+		updatedBlock, err := declarationcodec.UpdateSkillTargets(
+			string(content[block.Start:block.End]),
+			block.Skill,
+			skill,
+			mergedTargets,
+		)
+		if err != nil {
+			return nil, "", err
+		}
 		return declaration.ReplaceDocumentRange(content, declaration.DocumentRange{Start: block.Start, End: block.End}, []byte(updatedBlock)), "update skill targets", nil
 	}
 	return declaration.AppendDocumentBlock(content, declarationcodec.RenderSkillBlock(skill)), "append skill resource", nil

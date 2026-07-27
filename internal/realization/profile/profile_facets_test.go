@@ -16,6 +16,9 @@ func TestHookAssetPlacementRequiresCorrelatedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if placement.Root().String() != ".daem/hook-assets" {
+		t.Fatalf("hook asset root = %q, want .daem/hook-assets", placement.Root())
+	}
 	route, ok := Profile(target.TargetCodex).OperationRoute(entity.KindHookAsset, placement.ID(), OperationWrite)
 	if !ok {
 		t.Fatal("hook asset write route missing")
@@ -36,16 +39,28 @@ func TestHookAssetPlacementRequiresCorrelatedRoute(t *testing.T) {
 }
 
 func TestManagedPathRouteResolutionRejectsIncompatibleConsumersAndOperations(t *testing.T) {
-	placement := mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.project.agents", ConsumerTargets: []target.Target{target.TargetClaudeCode, target.TargetCodex},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".agents/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+	staticPlacement := mustManagedPathPlacement(ManagedPathPlacementInput{
+		ID: "skill.project.agents", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".agents/skills", ContentKind: realization.PathProjectionDirectory,
 	})
+	placement, err := newSelectedManagedPathPlacement(
+		staticPlacement,
+		[]target.Target{target.TargetClaudeCode, target.TargetCodex},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := ManagedPathOperationRoute(placement, OperationWrite); err == nil || !strings.Contains(err.Error(), "has no unique write route") {
 		t.Fatalf("incompatible-consumer route error = %v", err)
 	}
 
-	placement = Profile(target.TargetCodex).Placements(entity.KindSkill, target.ScopeProject)[0]
+	placement, err = newSelectedManagedPathPlacement(
+		Profile(target.TargetCodex).Placements(entity.KindSkill, target.ScopeProject)[0],
+		[]target.Target{target.TargetCodex},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	removeRoute, ok := Profile(target.TargetCodex).OperationRoute(entity.KindSkill, placement.ID(), OperationRemove)
 	if !ok {
 		t.Fatal("remove route is missing")
@@ -79,29 +94,108 @@ func TestFacetConstructorsRejectImpossibleAxisStates(t *testing.T) {
 
 func TestFacetCatalogRejectsDuplicateDefaultsAndMissingRoutes(t *testing.T) {
 	first := mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "test.skill.primary", ConsumerTargets: []target.Target{target.TargetCodex},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".agents/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "test.skill.primary", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".agents/skills", ContentKind: realization.PathProjectionDirectory,
 	})
 	second := mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "test.skill.alternate", ConsumerTargets: []target.Target{target.TargetCodex},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".codex/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "test.skill.alternate", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".codex/skills", ContentKind: realization.PathProjectionDirectory,
 	})
-	if err := validateProfileFacetCatalogs([]ManagedPathPlacement{first, second}, nil, nil, nil); err == nil || !strings.Contains(err.Error(), "default placements") {
+	admissions := []PlacementAdmission{
+		mustPlacementAdmission(target.TargetCodex, first.ID(), true),
+		mustPlacementAdmission(target.TargetCodex, second.ID(), true),
+	}
+	if err := validateProfileFacetCatalogs(
+		[]ManagedPathPlacement{first, second},
+		admissions,
+		nil,
+		nil,
+		nil,
+	); err == nil || !strings.Contains(err.Error(), "default placements") {
 		t.Fatalf("duplicate-default validation error = %v", err)
 	}
 
 	discovery := mustDiscoveryLocation(target.TargetCodex, entity.KindSkill, target.ScopeProject, first.Root().String(), 0)
 	write := mustOperationRoute(entity.KindSkill, OperationWrite, first.ID(), "test.write", "test-v1")
-	if err := validateProfileFacetCatalogs([]ManagedPathPlacement{first}, []DiscoveryLocation{discovery}, nil, []OperationRoute{write}); err == nil || !strings.Contains(err.Error(), "no remove route") {
+	if err := validateProfileFacetCatalogs(
+		[]ManagedPathPlacement{first},
+		[]PlacementAdmission{mustPlacementAdmission(target.TargetCodex, first.ID(), true)},
+		[]DiscoveryLocation{discovery},
+		nil,
+		[]OperationRoute{write},
+	); err == nil || !strings.Contains(err.Error(), "no remove route") {
 		t.Fatalf("missing-route validation error = %v", err)
+	}
+}
+
+func TestFacetCatalogRejectsInvalidAdmissionShapes(t *testing.T) {
+	placement := mustManagedPathPlacement(ManagedPathPlacementInput{
+		ID: "test.skill.primary", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".agents/skills", ContentKind: realization.PathProjectionDirectory,
+	})
+	discovery := mustDiscoveryLocation(
+		target.TargetCodex,
+		entity.KindSkill,
+		target.ScopeProject,
+		placement.Root().String(),
+		0,
+	)
+	routes := []OperationRoute{
+		mustOperationRoute(entity.KindSkill, OperationWrite, placement.ID(), "test.write", "test-v1"),
+		mustOperationRoute(entity.KindSkill, OperationRemove, placement.ID(), "test.remove", "test-v1"),
+	}
+	tests := []struct {
+		name       string
+		admissions []PlacementAdmission
+		want       string
+	}{
+		{
+			name: "missing default",
+			admissions: []PlacementAdmission{
+				mustPlacementAdmission(target.TargetCodex, placement.ID(), false),
+			},
+			want: "has no default placement",
+		},
+		{
+			name: "duplicate admission",
+			admissions: []PlacementAdmission{
+				mustPlacementAdmission(target.TargetCodex, placement.ID(), true),
+				mustPlacementAdmission(target.TargetCodex, placement.ID(), false),
+			},
+			want: "duplicate placement admission",
+		},
+		{
+			name: "unknown placement",
+			admissions: []PlacementAdmission{
+				mustPlacementAdmission(target.TargetCodex, "test.skill.missing", true),
+			},
+			want: "admits unknown placement",
+		},
+		{
+			name:       "orphan placement",
+			admissions: nil,
+			want:       "has no target admission",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateProfileFacetCatalogs(
+				[]ManagedPathPlacement{placement},
+				test.admissions,
+				[]DiscoveryLocation{discovery},
+				nil,
+				routes,
+			)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validation error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
 func TestFacetCatalogRejectsDuplicateOperationRoutes(t *testing.T) {
 	route := mustOperationRoute(entity.KindSkill, OperationWrite, "test.skill", "test.write", "test-v1")
-	if err := validateProfileFacetCatalogs(nil, nil, nil, []OperationRoute{route, route}); err == nil || !strings.Contains(err.Error(), "duplicate write route") {
+	if err := validateProfileFacetCatalogs(nil, nil, nil, nil, []OperationRoute{route, route}); err == nil || !strings.Contains(err.Error(), "duplicate write route") {
 		t.Fatalf("duplicate-route validation error = %v", err)
 	}
 }

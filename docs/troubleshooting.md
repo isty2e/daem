@@ -31,6 +31,26 @@ projection. Matching content does not permit co-ownership.
 `--manage-existing` does not steal a claim. Do not delete daem state or shared
 ownership files to bypass this check.
 
+## Same Skill Name At Multiple Agent Paths
+
+`doctor`, `status`, or `apply` may report
+`skill_discovery_duplicate_retained` when the selected skill destination and
+another same-name directory both exist in modeled discovery roots for the same
+target and scope.
+
+1. Run `daem list paths --target <target>` to compare the selected write root
+   with the target's other discovery roots.
+2. Check the reported directories and the target's own loading behavior.
+3. If the selected root is wrong, set a supported target-specific `install_to`
+   in the manifest, then run `daem lock` and preview apply again.
+4. If the retained copy is obsolete, remove it manually only after confirming
+   that no other workspace or target needs it.
+
+The warning is passive and does not block apply by itself. Daem does not infer
+host precedence, adopt the retained copy, or delete it. The check examines
+only exact cataloged same-name paths and is a point-in-time preflight:
+filesystem state can still change after the warning is produced.
+
 ## `unmanaged_output_exists`
 
 The desired destination exists but the selected manifest does not own it.

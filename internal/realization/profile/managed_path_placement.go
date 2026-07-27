@@ -3,7 +3,6 @@ package profile
 import (
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -12,47 +11,37 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// ManagedPathPlacement is one static physical placement shared by one or more
-// target consumers. It contains no desired entity, current path, or effect fact.
+// ManagedPathPlacement is one static physical placement. It owns no target
+// admission, default-selection, desired entity, current path, or effect fact.
 type ManagedPathPlacement struct {
 	id               string
-	consumerTargets  []target.Target
 	resourceKind     entity.Kind
 	scope            target.Scope
 	root             output.Destination
-	defaultPlacement bool
 	contentKind      realization.PathProjectionContentKind
 	permissionPolicy realization.PathPermissionPolicy
 }
 
 // ManagedPathPlacementInput carries one placement-axis fact and no operation route.
 type ManagedPathPlacementInput struct {
-	ID               string
-	ConsumerTargets  []target.Target
-	ResourceKind     entity.Kind
-	Scope            target.Scope
-	Root             string
-	DefaultPlacement bool
-	ContentKind      realization.PathProjectionContentKind
+	ID           string
+	ResourceKind entity.Kind
+	Scope        target.Scope
+	Root         string
+	ContentKind  realization.PathProjectionContentKind
 }
 
 // NewManagedPathPlacement constructs one canonical placement fact.
 func NewManagedPathPlacement(input ManagedPathPlacementInput) (ManagedPathPlacement, error) {
-	consumerTargets, err := target.CanonicalSet(input.ConsumerTargets)
-	if err != nil {
-		return ManagedPathPlacement{}, fmt.Errorf("managed path placement consumer targets: %w", err)
-	}
 	root, err := output.Parse(strings.TrimSpace(input.Root))
 	if err != nil {
 		return ManagedPathPlacement{}, fmt.Errorf("managed path placement root: %w", err)
 	}
 	placement := ManagedPathPlacement{
 		id:               strings.TrimSpace(input.ID),
-		consumerTargets:  consumerTargets,
 		resourceKind:     input.ResourceKind,
 		scope:            input.Scope,
 		root:             root,
-		defaultPlacement: input.DefaultPlacement,
 		contentKind:      input.ContentKind,
 		permissionPolicy: managedPathPermissionPolicy(input.ContentKind),
 	}
@@ -62,119 +51,54 @@ func NewManagedPathPlacement(input ManagedPathPlacementInput) (ManagedPathPlacem
 	return placement, nil
 }
 
-// ManagedPathPlacementsFor selects and coalesces default path placements for
-// one resource kind, scope, and target set.
-func ManagedPathPlacementsFor(
-	resourceKind entity.Kind,
-	scope target.Scope,
-	targets []target.Target,
-) ([]ManagedPathPlacement, error) {
-	if _, err := target.ParseScope(string(scope)); err != nil {
-		return nil, err
-	}
-	canonicalTargets, err := target.CanonicalSet(targets)
+// PlacementAdmission states that one target may select one static placement.
+// Default selection belongs to this target-relative fact, not to the placement.
+type PlacementAdmission struct {
+	selectedTarget target.Target
+	placementID    string
+	defaultChoice  bool
+}
+
+// NewPlacementAdmission constructs one canonical target-placement admission.
+func NewPlacementAdmission(
+	selectedTarget target.Target,
+	placementID string,
+	defaultChoice bool,
+) (PlacementAdmission, error) {
+	parsedTarget, err := target.ParseTarget(string(selectedTarget))
 	if err != nil {
-		return nil, fmt.Errorf("managed path placement targets: %w", err)
+		return PlacementAdmission{}, err
 	}
-	if len(canonicalTargets) == 0 {
-		return nil, fmt.Errorf("managed path placement requires at least one target")
+	admission := PlacementAdmission{
+		selectedTarget: parsedTarget,
+		placementID:    strings.TrimSpace(placementID),
+		defaultChoice:  defaultChoice,
 	}
-
-	placements := make(map[string]ManagedPathPlacement, len(canonicalTargets))
-	placementIDsByAddress := make(map[managedPathPlacementAddress]string, len(canonicalTargets))
-	for _, selectedTarget := range canonicalTargets {
-		candidate, err := Profile(selectedTarget).DefaultPlacement(resourceKind, scope)
-		if err != nil {
-			return nil, err
-		}
-		if err := candidate.validate(); err != nil {
-			return nil, fmt.Errorf("target %q %s placement: %w", selectedTarget, resourceKind, err)
-		}
-
-		if err := addManagedPathPlacement(placements, placementIDsByAddress, candidate); err != nil {
-			return nil, err
-		}
+	if err := admission.Validate(); err != nil {
+		return PlacementAdmission{}, err
 	}
-
-	result := make([]ManagedPathPlacement, 0, len(placements))
-	for _, placement := range placements {
-		result = append(result, placement)
-	}
-	sort.Slice(result, func(left int, right int) bool { return result[left].id < result[right].id })
-	return result, nil
+	return admission, nil
 }
 
-// MergeManagedPathPlacements coalesces consumers only when both values name
-// the same physical placement.
-func MergeManagedPathPlacements(
-	left ManagedPathPlacement,
-	right ManagedPathPlacement,
-) (ManagedPathPlacement, error) {
-	if err := left.validate(); err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	if err := right.validate(); err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	if !left.sameStaticPlacement(right) {
-		return ManagedPathPlacement{}, fmt.Errorf("managed path placement id %q has conflicting static facts", left.id)
-	}
-	consumerTargets, err := target.CanonicalSet(append(left.consumerTargets, right.consumerTargets...))
-	if err != nil {
-		return ManagedPathPlacement{}, fmt.Errorf("merge managed path placement consumer targets: %w", err)
-	}
-	left.consumerTargets = consumerTargets
-	return left, nil
-}
+// Target returns the target that admits the placement.
+func (admission PlacementAdmission) Target() target.Target { return admission.selectedTarget }
 
-type managedPathPlacementAddress struct {
-	scope target.Scope
-	root  output.Destination
-}
+// PlacementID returns the admitted static placement identity.
+func (admission PlacementAdmission) PlacementID() string { return admission.placementID }
 
-func addManagedPathPlacement(
-	placements map[string]ManagedPathPlacement,
-	placementIDsByAddress map[managedPathPlacementAddress]string,
-	candidate ManagedPathPlacement,
-) error {
-	address := managedPathPlacementAddress{scope: candidate.scope, root: candidate.root}
-	if existingID, occupied := placementIDsByAddress[address]; occupied && existingID != candidate.id {
-		return fmt.Errorf(
-			"managed path placement ids %q and %q claim the same %s root %q",
-			existingID,
-			candidate.id,
-			candidate.scope,
-			candidate.root,
-		)
+// Default reports whether omission selects this placement for the target.
+func (admission PlacementAdmission) Default() bool { return admission.defaultChoice }
+
+// Validate rejects forged or partially initialized admissions.
+func (admission PlacementAdmission) Validate() error {
+	if _, err := target.ParseTarget(string(admission.selectedTarget)); err != nil {
+		return err
 	}
-
-	existing, shared := placements[candidate.id]
-	if shared {
-		if !existing.sameStaticPlacement(candidate) {
-			return fmt.Errorf("managed path placement id %q has conflicting static facts", candidate.id)
-		}
-		consumerTargets, err := target.CanonicalSet(append(existing.consumerTargets, candidate.consumerTargets...))
-		if err != nil {
-			return fmt.Errorf("coalesce managed path placement consumer targets: %w", err)
-		}
-		existing.consumerTargets = consumerTargets
-		placements[candidate.id] = existing
-		placementIDsByAddress[address] = candidate.id
-		return nil
-	}
-
-	placements[candidate.id] = candidate
-	placementIDsByAddress[address] = candidate.id
-	return nil
+	return validateProfileToken("placement admission id", admission.placementID)
 }
 
 // ID returns the stable physical placement identity.
 func (placement ManagedPathPlacement) ID() string { return placement.id }
-
-// ConsumerTargets returns the canonical target set sharing this placement.
-func (placement ManagedPathPlacement) ConsumerTargets() []target.Target {
-	return append([]target.Target(nil), placement.consumerTargets...)
-}
 
 // Scope returns the placement locality.
 func (placement ManagedPathPlacement) Scope() target.Scope { return placement.scope }
@@ -189,9 +113,6 @@ func (placement ManagedPathPlacement) ContentKind() realization.PathProjectionCo
 
 // Root returns the portable placement root.
 func (placement ManagedPathPlacement) Root() output.Destination { return placement.root }
-
-// Default reports whether this placement is selected when no destination is authored.
-func (placement ManagedPathPlacement) Default() bool { return placement.defaultPlacement }
 
 // ChildDestination returns the canonical child path below this placement root.
 func (placement ManagedPathPlacement) ChildDestination(component string) (output.Destination, error) {
@@ -240,45 +161,6 @@ func (placement ManagedPathPlacement) ChildName(destination output.Destination) 
 	return child, nil
 }
 
-// Realize constructs one exact occupancy for this placement.
-func (placement ManagedPathPlacement) Realize(
-	destination output.Destination,
-	mode realization.PathProjectionMode,
-	writeRoute OperationRoute,
-) (realization.RealizationSpec, error) {
-	if err := placement.validate(); err != nil {
-		return realization.RealizationSpec{}, err
-	}
-	if err := validatePlacementRoute(placement, writeRoute, OperationWrite); err != nil {
-		return realization.RealizationSpec{}, err
-	}
-	switch placement.contentKind {
-	case realization.PathProjectionFile:
-		if destination != placement.root {
-			return realization.RealizationSpec{}, fmt.Errorf(
-				"managed file destination %q does not match placement %q path %q",
-				destination,
-				placement.id,
-				placement.root,
-			)
-		}
-	case realization.PathProjectionDirectory:
-		if _, err := placement.ChildName(destination); err != nil {
-			return realization.RealizationSpec{}, err
-		}
-	}
-	return realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
-		PlacementID:            placement.id,
-		ConsumerTargets:        placement.consumerTargets,
-		Scope:                  placement.scope,
-		Destination:            destination,
-		ContentKind:            placement.contentKind,
-		PlacementMode:          mode,
-		PermissionPolicy:       placement.permissionPolicyFor(mode),
-		AdapterContractVersion: writeRoute.AdapterContractVersion(),
-	})
-}
-
 func managedPathPermissionPolicy(contentKind realization.PathProjectionContentKind) realization.PathPermissionPolicy {
 	if contentKind == realization.PathProjectionFile {
 		return realization.PathPermissionsExecutableClass
@@ -295,9 +177,6 @@ func (placement ManagedPathPlacement) permissionPolicyFor(mode realization.PathP
 
 func (placement ManagedPathPlacement) validate() error {
 	if err := validateProfileToken("placement id", placement.id); err != nil {
-		return err
-	}
-	if err := validateTargetSet(placement.consumerTargets); err != nil {
 		return err
 	}
 	if _, err := entity.ParseKind(string(placement.resourceKind)); err != nil {
@@ -323,116 +202,8 @@ func (placement ManagedPathPlacement) sameStaticPlacement(other ManagedPathPlace
 		placement.resourceKind == other.resourceKind &&
 		placement.scope == other.scope &&
 		placement.root == other.root &&
-		placement.defaultPlacement == other.defaultPlacement &&
 		placement.contentKind == other.contentKind &&
 		placement.permissionPolicy == other.permissionPolicy
-}
-
-// ManagedFilePlacementFor selects one exact admitted file placement for a
-// target. Discovery and runtime rows are never write authority.
-func ManagedFilePlacementFor(
-	resourceKind entity.Kind,
-	selectedTarget target.Target,
-	scope target.Scope,
-	destination output.Destination,
-) (ManagedPathPlacement, error) {
-	if _, err := target.ParseTarget(string(selectedTarget)); err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	if _, err := target.ParseScope(string(scope)); err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	if err := destination.Validate(); err != nil {
-		return ManagedPathPlacement{}, fmt.Errorf(
-			"%s target %q scope %q destination %q is not an admitted file placement: %w",
-			resourceKind,
-			selectedTarget,
-			scope,
-			destination,
-			err,
-		)
-	}
-	if err := destination.ValidateScope(scope); err != nil {
-		return ManagedPathPlacement{}, fmt.Errorf(
-			"%s target %q scope %q destination %q is not an admitted file placement: %w",
-			resourceKind,
-			selectedTarget,
-			scope,
-			destination,
-			err,
-		)
-	}
-
-	var selected ManagedPathPlacement
-	matches := 0
-	for _, placement := range Profile(selectedTarget).Placements(resourceKind, scope) {
-		if placement.root != destination || placement.contentKind != realization.PathProjectionFile {
-			continue
-		}
-		selected = placement
-		matches++
-	}
-	if matches == 0 {
-		return ManagedPathPlacement{}, fmt.Errorf(
-			"%s target %q scope %q destination %q is not an admitted file placement",
-			resourceKind,
-			selectedTarget,
-			scope,
-			destination,
-		)
-	}
-	if matches != 1 {
-		return ManagedPathPlacement{}, fmt.Errorf(
-			"%s target %q scope %q destination %q has multiple admitted file placements",
-			resourceKind,
-			selectedTarget,
-			scope,
-			destination,
-		)
-	}
-
-	placement := selected
-	if err := placement.validate(); err != nil {
-		return ManagedPathPlacement{}, fmt.Errorf("target %q %s file placement: %w", selectedTarget, resourceKind, err)
-	}
-	return placement, nil
-}
-
-// ManagedFilePlacementForRelativePath resolves one authored scope-relative
-// file path and selects its exact admitted placement.
-func ManagedFilePlacementForRelativePath(
-	resourceKind entity.Kind,
-	selectedTarget target.Target,
-	scope target.Scope,
-	relativePath string,
-) (ManagedPathPlacement, error) {
-	defaultPlacement, err := Profile(selectedTarget).DefaultPlacement(resourceKind, scope)
-	if err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	if relativePath == "" {
-		return defaultPlacement, nil
-	}
-	trimmed := strings.TrimSpace(relativePath)
-	if trimmed == "" || trimmed != relativePath {
-		return ManagedPathPlacement{}, fmt.Errorf("relative file path must be non-empty and trimmed")
-	}
-	if strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || path.IsAbs(trimmed) {
-		return ManagedPathPlacement{}, fmt.Errorf("relative file path %q must be slash-separated and relative to the target scope root", relativePath)
-	}
-	cleaned := path.Clean(trimmed)
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != trimmed {
-		return ManagedPathPlacement{}, fmt.Errorf("relative file path %q must be canonical and stay inside the target scope root", relativePath)
-	}
-	value := cleaned
-	if scope == target.ScopeGlobal {
-		value = path.Join(path.Dir(defaultPlacement.root.String()), cleaned)
-	}
-	destination, err := output.Parse(value)
-	if err != nil {
-		return ManagedPathPlacement{}, err
-	}
-	return ManagedFilePlacementFor(resourceKind, selectedTarget, scope, destination)
 }
 
 func validatePlacementRoute(

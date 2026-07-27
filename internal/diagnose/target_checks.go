@@ -165,7 +165,11 @@ func skillRootSpecs(targetProfile profile.TargetProfile, scope targetpkg.Scope) 
 	}
 	compatibleIndex := 0
 	for _, location := range targetProfile.DiscoveryLocations(entity.KindSkill, scope) {
-		if _, placement := targetProfile.PlacementAt(entity.KindSkill, scope, location.Path()); placement {
+		if admission, admitted := targetProfile.PlacementAdmissionAt(
+			entity.KindSkill,
+			scope,
+			location.Path(),
+		); admitted && admission.Default() {
 			continue
 		}
 		result = append(result, doctorSkillRootSpec{

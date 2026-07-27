@@ -84,9 +84,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "variant packages would require reverse imports or export aggregate-private construction rules",
 	},
 	"internal/cli/present": {
-		reviewedValue:       31,
+		reviewedValue:       32,
 		owner:               "CLI human, JSON, diff, and exit projection",
-		reason:              "at 31 production files, all command and carrier-lifecycle projections share stable cross-format output and error-shaping contracts",
+		reason:              "at 32 production files, command, inventory, and carrier-lifecycle projections share stable cross-format output and error-shaping contracts",
 		naturalSplit:        "create one presentation child package per command",
 		alternativeRejected: "command packages would duplicate transport policy and make cross-command output consistency implicit",
 	},

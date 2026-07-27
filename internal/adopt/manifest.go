@@ -80,7 +80,10 @@ func importManifestTables(
 			}
 		}
 		if skill.GroupRoot != "" {
-			groupKey := filepath.ToSlash(skill.GroupRoot) + "\x00" + string(skill.Scope) + "\x00" + importTargetSetKey(skillTargets)
+			groupKey := filepath.ToSlash(skill.GroupRoot) + "\x00" +
+				string(skill.Scope) + "\x00" +
+				importTargetSetKey(skillTargets) + "\x00" +
+				importPlacementSetKey(skill.Placements)
 			if index, ok := manifestSkillGroupIndexes[groupKey]; ok {
 				existing := manifestSkillGroups[index]
 				existing.Names = append(existing.Names, skill.InstallName)
@@ -98,6 +101,7 @@ func importManifestTables(
 				Targets:     importTargetStrings(orderedImportTargets(skillTargets)),
 				Scope:       string(skill.Scope),
 				InstallMode: declarationInstallModeCopy,
+				Target:      importSkillTargetPlacements(skill.Placements),
 			})
 			continue
 		}
@@ -108,6 +112,7 @@ func importManifestTables(
 				return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf("duplicate imported skill resource %q has incompatible source or skill name", skill.ResourceName)
 			}
 			existing.Targets = mergeImportTargetStrings(existing.Targets, skillTargets)
+			existing.Target = mergeImportSkillTargetPlacements(existing.Target, skill.Placements)
 			manifestSkills[index] = existing
 			continue
 		}
@@ -122,6 +127,7 @@ func importManifestTables(
 			Targets:     importTargetStrings(skillTargets),
 			Scope:       string(skill.Scope),
 			InstallMode: declarationInstallModeCopy,
+			Target:      importSkillTargetPlacements(skill.Placements),
 		})
 	}
 	manifestHooks := make([]declarationcodec.ImportManifestHook, 0, len(hooks))
@@ -177,6 +183,44 @@ func importManifestTables(
 		Hooks:        manifestHooks,
 		MCPServers:   manifestMCPServers,
 	}, targets, nil
+}
+
+func importSkillTargetPlacements(values map[targetpkg.Target]string) map[string]declaration.SkillTarget {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]declaration.SkillTarget, len(values))
+	for selectedTarget, installTo := range values {
+		result[string(selectedTarget)] = declaration.SkillTarget{InstallTo: installTo}
+	}
+	return result
+}
+
+func mergeImportSkillTargetPlacements(
+	existing map[string]declaration.SkillTarget,
+	additions map[targetpkg.Target]string,
+) map[string]declaration.SkillTarget {
+	result := make(map[string]declaration.SkillTarget, len(existing)+len(additions))
+	for selectedTarget, placement := range existing {
+		result[selectedTarget] = placement
+	}
+	for selectedTarget, installTo := range additions {
+		result[string(selectedTarget)] = declaration.SkillTarget{InstallTo: installTo}
+	}
+	return result
+}
+
+func importPlacementSetKey(values map[targetpkg.Target]string) string {
+	targets := make([]targetpkg.Target, 0, len(values))
+	for selectedTarget := range values {
+		targets = append(targets, selectedTarget)
+	}
+	targets = orderedImportTargets(targets)
+	parts := make([]string, 0, len(targets))
+	for _, selectedTarget := range targets {
+		parts = append(parts, string(selectedTarget)+"="+values[selectedTarget])
+	}
+	return strings.Join(parts, "\x00")
 }
 
 func mcpServerEnvReferences(env map[string]string) map[string]declarationcodec.MCPEnvReference {

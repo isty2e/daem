@@ -87,7 +87,23 @@ func Candidates(
 			continue
 		}
 
-		rootSkills, rootScan, rootSkipped, err := importSkillsFromRoot(ctx, sourceDirectory, target, scope, liveRoot, importedDestinations)
+		installTo := ""
+		if admission, admitted := profile.Profile(target).PlacementAdmissionAt(
+			entity.KindSkill,
+			scope,
+			location.Path(),
+		); admitted && !admission.Default() {
+			installTo = location.Path()
+		}
+		rootSkills, rootScan, rootSkipped, err := importSkillsFromRoot(
+			ctx,
+			sourceDirectory,
+			target,
+			scope,
+			installTo,
+			liveRoot,
+			importedDestinations,
+		)
 		if err != nil {
 			return nil, nil, nil, err
 		}

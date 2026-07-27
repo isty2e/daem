@@ -318,6 +318,40 @@ portable = false
 | `install_mode` | string | no | `defaults.install_mode` | Placement mode. |
 | `portable` | boolean | no | `true` | Whether the declaration is expected to be portable across machines. |
 | `compat_repair` | boolean | no | `false` | Opt in to daem-defined mechanical skill compatibility repair during lock. |
+| `target` | table of tables | no | target defaults | Target-specific skill-root selection. Each selected target may set `install_to`. |
+
+Target-specific skill placement uses a nested table:
+
+```toml
+[[skill]]
+name = "review"
+source = { path = "skills/review", mode = "vendor" }
+targets = ["codex", "opencode", "pi"]
+
+[skill.target.opencode]
+install_to = ".agents/skills"
+
+[skill.target.pi]
+install_to = ".agents/skills"
+```
+
+`install_to` selects the skill root; daem appends the skill `name` as one
+direct child. In this example Codex uses its default `.agents/skills/review`,
+while OpenCode and Pi explicitly select the same supported compatible root.
+The table key must name a target declared by that skill.
+
+Codex also supports its modeled global compatible root:
+
+```toml
+[[skill]]
+name = "humanizer"
+source = { git = "https://github.com/blader/humanizer.git", ref = "main" }
+targets = ["codex"]
+scope = "global"
+
+[skill.target.codex]
+install_to = "~/.codex/skills"
+```
 
 Validation rules:
 
@@ -332,6 +366,11 @@ Validation rules:
 - `compat_repair = true` permits only the replayable mechanical repairs
   defined in [Skill Compatibility](compatibility.md#repair-scope). Omitted or
   false means repair is not permitted.
+- `target.<target>.install_to`, when present, must exactly match a supported
+  skill root for that target and scope. Project values are canonical
+  project-relative slash paths. Global values begin with `~/` and remain
+  inside the home directory. Absolute paths, parent traversal, backslashes,
+  unrecognized roots, and overrides for undeclared targets are rejected.
 - During lock generation, resolved skill sources must be directories containing
   a regular `SKILL.md`.
 - During lock generation, target-specific skill metadata policy is enforced
@@ -355,22 +394,26 @@ member, or removes selected targets from a skill declaration, then refreshes the
 lockfile from the prospective manifest. Host deletion still requires explicit
 `apply`.
 
-Current skill reconciliation paths:
+Current skill-root catalog:
 
-| Target | Project scope | Global scope |
-| --- | --- | --- |
-| `codex` | `.agents/skills/<name>` | `~/.agents/skills/<name>` |
-| `claude-code` | `.claude/skills/<name>` | `~/.claude/skills/<name>` |
-| `opencode` | `.opencode/skills/<name>` | `~/.config/opencode/skills/<name>` |
-| `pi` | `.pi/skills/<name>` | `~/.pi/agent/skills/<name>` |
+| Target | Project default | Project alternatives | Global default | Global alternatives |
+| --- | --- | --- | --- | --- |
+| `codex` | `.agents/skills` | none | `~/.agents/skills` | `~/.codex/skills` |
+| `claude-code` | `.claude/skills` | none | `~/.claude/skills` | none |
+| `opencode` | `.opencode/skills` | `.agents/skills`, `.claude/skills` | `~/.config/opencode/skills` | `~/.agents/skills`, `~/.claude/skills` |
+| `pi` | `.pi/skills` | `.agents/skills` | `~/.pi/agent/skills` | `~/.agents/skills` |
+| `antigravity-cli` | `.agents/skills` | none | `~/.gemini/config/skills` | none |
 
-These are preferred install roots, not a complete discovery list. Import and
-doctor do not infer write destinations from every directory a target can read.
+The catalog contains write roots, not every location a target may discover or
+use at runtime. Omission selects the target default. An explicit `install_to`
+may select only an alternative in the same row and scope; it cannot register
+an arbitrary directory. Use `daem list paths` to inspect write, discovery, and
+runtime locations separately.
+
 Codex's documented Agent Skills authoring roots are `.agents/skills` and
-`~/.agents/skills`; `CODEX_HOME` state may contain runtime skill material, but
-that does not make `~/.codex/skills` the default `daem` write destination.
-OpenCode and Pi also load compatible `.agents` or `.claude` skill roots, while
-their native placement roots remain the paths shown above.
+`~/.agents/skills`; `~/.codex/skills` is a modeled compatible global
+alternative, not the default. OpenCode and Pi also load the compatible roots
+listed above while retaining their native defaults.
 
 During `daem import`, modeled placement and discovery roots may both be
 scanned, but only imported content becomes manifest-owned. Direct `.agent/skills`
@@ -456,6 +499,7 @@ targets = ["codex"]
 | `install_mode` | string | no | `defaults.install_mode` | Placement mode for each expanded skill. |
 | `portable` | boolean | no | `true` | Whether each expanded declaration is expected to be portable across machines. |
 | `compat_repair` | boolean | no | `false` | Opt each expanded child skill into daem-defined mechanical compatibility repair during lock. |
+| `target` | table of tables | no | target defaults | Target-specific `install_to` inherited by every expanded child. |
 
 Validation rules:
 
@@ -469,6 +513,9 @@ Validation rules:
 - `compat_repair = true` is inherited by every expanded skill. Selector-backed
   groups record repair data on the expanded child lock entries, not on the
   selector itself.
+- `target.<target>.install_to` follows the same target, scope, and catalog
+  validation as an ordinary skill. Every expanded child inherits the selected
+  root, and its own skill name is appended as the direct child.
 - Selector-backed child lock entries record
   `skill_set_member.declaration_identity`. Together with the row's canonical
   `entity_id`, `subject_id`, and `exact_supply`, this is sufficient to

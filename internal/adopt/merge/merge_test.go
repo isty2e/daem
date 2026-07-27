@@ -205,6 +205,7 @@ mode = "vendor"
 			Targets:      []target.Target{target.TargetClaudeCode},
 			Scope:        target.ScopeProject,
 			SourcePath:   "daem.d/skills/review",
+			Placements:   map[target.Target]string{target.TargetClaudeCode: ".claude/skills"},
 		}},
 	}
 
@@ -220,6 +221,84 @@ mode = "vendor"
 	}
 	requireContains(t, string(merged.ManifestContent()), `targets = ["codex", "claude-code"]`)
 	requireContains(t, string(merged.ManifestContent()), `[skill.source]`)
+	requireContains(t, string(merged.ManifestContent()), `[skill.target."claude-code"]`)
+	requireContains(t, string(merged.ManifestContent()), `install_to = ".claude/skills"`)
+}
+
+func TestIntoManifestRejectsSameTargetAtDifferentSkillPlacement(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["opencode"]
+
+[[skill]]
+name = "review"
+source = { path = "daem.d/skills/review", mode = "vendor" }
+targets = ["opencode"]
+scope = "project"
+`),
+		Skills: []adopt.Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       target.TargetOpenCode,
+			Targets:      []target.Target{target.TargetOpenCode},
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/skills/review",
+			Placements:   map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !merged.HasMergeConflicts() {
+		t.Fatalf("merge results = %#v, want placement conflict", merged.MergeResults())
+	}
+	if got := merged.MergeResults()[0].Detail; !strings.Contains(got, "placement differs") {
+		t.Fatalf("detail = %q, want placement conflict", got)
+	}
+	if string(merged.ManifestContent()) != string(plan.OriginalContent) {
+		t.Fatal("manifest content changed on placement conflict")
+	}
+}
+
+func TestIntoManifestAcceptsSameTargetAtMatchingSkillPlacement(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["opencode"]
+
+[[skill]]
+name = "review"
+source = { path = "daem.d/skills/review", mode = "vendor" }
+targets = ["opencode"]
+scope = "project"
+
+[skill.target.opencode]
+install_to = ".agents/skills"
+`),
+		Skills: []adopt.Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       target.TargetOpenCode,
+			Targets:      []target.Target{target.TargetOpenCode},
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/skills/review",
+			Placements:   map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.HasMergeConflicts() {
+		t.Fatalf("merge results = %#v, want matching placement noop", merged.MergeResults())
+	}
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
+		t.Fatalf("status = %q, want noop", got)
+	}
 }
 
 func TestIntoManifestMergesHookTargetWithoutReencodingExistingBlock(t *testing.T) {

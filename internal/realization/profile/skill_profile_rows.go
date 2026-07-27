@@ -14,50 +14,65 @@ const (
 
 var skillPlacements = []ManagedPathPlacement{
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.project.agents", ConsumerTargets: []target.Target{target.TargetCodex, target.TargetAntigravityCLI},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".agents/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.project.agents", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".agents/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.project.claude", ConsumerTargets: []target.Target{target.TargetClaudeCode},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".claude/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.project.claude", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".claude/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.project.opencode", ConsumerTargets: []target.Target{target.TargetOpenCode},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".opencode/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.project.opencode", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".opencode/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.project.pi", ConsumerTargets: []target.Target{target.TargetPi},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeProject, Root: ".pi/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.project.pi", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeProject, Root: ".pi/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.global.agents", ConsumerTargets: []target.Target{target.TargetCodex},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeGlobal, Root: "~/.agents/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.global.agents", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.agents/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.global.claude", ConsumerTargets: []target.Target{target.TargetClaudeCode},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeGlobal, Root: "~/.claude/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.global.codex", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.codex/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.global.opencode", ConsumerTargets: []target.Target{target.TargetOpenCode},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeGlobal, Root: "~/.config/opencode/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.global.claude", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.claude/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.global.pi", ConsumerTargets: []target.Target{target.TargetPi},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeGlobal, Root: "~/.pi/agent/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.global.opencode", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.config/opencode/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "skill.global.antigravity", ConsumerTargets: []target.Target{target.TargetAntigravityCLI},
-		ResourceKind: entity.KindSkill, Scope: target.ScopeGlobal, Root: "~/.gemini/config/skills",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionDirectory,
+		ID: "skill.global.pi", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.pi/agent/skills", ContentKind: realization.PathProjectionDirectory,
 	}),
+	mustManagedPathPlacement(ManagedPathPlacementInput{
+		ID: "skill.global.antigravity", ResourceKind: entity.KindSkill,
+		Scope: target.ScopeGlobal, Root: "~/.gemini/config/skills", ContentKind: realization.PathProjectionDirectory,
+	}),
+}
+
+var skillPlacementAdmissions = []PlacementAdmission{
+	mustPlacementAdmission(target.TargetCodex, "skill.project.agents", true),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.project.agents", false),
+	mustPlacementAdmission(target.TargetPi, "skill.project.agents", false),
+	mustPlacementAdmission(target.TargetAntigravityCLI, "skill.project.agents", true),
+	mustPlacementAdmission(target.TargetClaudeCode, "skill.project.claude", true),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.project.claude", false),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.project.opencode", true),
+	mustPlacementAdmission(target.TargetPi, "skill.project.pi", true),
+	mustPlacementAdmission(target.TargetCodex, "skill.global.agents", true),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.global.agents", false),
+	mustPlacementAdmission(target.TargetPi, "skill.global.agents", false),
+	mustPlacementAdmission(target.TargetCodex, "skill.global.codex", false),
+	mustPlacementAdmission(target.TargetClaudeCode, "skill.global.claude", true),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.global.claude", false),
+	mustPlacementAdmission(target.TargetOpenCode, "skill.global.opencode", true),
+	mustPlacementAdmission(target.TargetPi, "skill.global.pi", true),
+	mustPlacementAdmission(target.TargetAntigravityCLI, "skill.global.antigravity", true),
 }
 
 var skillDiscoveries = []DiscoveryLocation{

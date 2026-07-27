@@ -102,7 +102,7 @@ targets = ["codex"]
 }
 
 func TestPublicExampleManifestsLockDryRun(t *testing.T) {
-	for _, name := range []string{"daem.toml", "representative-project.toml"} {
+	for _, name := range []string{"daem.toml", "representative-project.toml", "skill-placement.toml"} {
 		t.Run(name, func(t *testing.T) {
 			manifestPath := filepath.Join(testkit.RepositoryRoot(t), "examples", name)
 
@@ -117,6 +117,29 @@ func TestPublicExampleManifestsLockDryRun(t *testing.T) {
 				t.Fatalf("stdout = %q, want dry-run lockfile summary", stdout.String())
 			}
 		})
+	}
+}
+
+func TestPublicSkillPlacementExampleListsSelectedRoots(t *testing.T) {
+	manifestPath := filepath.Join(testkit.RepositoryRoot(t), "examples", "skill-placement.toml")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"list", "paths", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
+	}
+
+	output := stdout.String()
+	if !strings.Contains(output, "write: .agents/skills [selected, default]") {
+		t.Fatalf("list paths output = %q, want selected Codex default", output)
+	}
+	if count := strings.Count(output, "write: .agents/skills [selected]"); count != 2 {
+		t.Fatalf("list paths selected compatible root count = %d, want 2\n%s", count, output)
 	}
 }
 

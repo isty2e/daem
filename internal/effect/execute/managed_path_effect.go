@@ -3,6 +3,7 @@ package execute
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // ManagedPathEffectKind is the closed set of authorized managed-path effects.
@@ -163,7 +165,16 @@ func (effect ManagedPathEffect) validate() error {
 		}
 	}
 	if facts.previous != nil && facts.previous.Subject() != facts.subject {
-		return fmt.Errorf("previous managed state subject does not match effect subject")
+		currentEntity, currentEntityBacked := topologyprojection.EntityID(facts.subject)
+		previousEntity, previousEntityBacked := topologyprojection.EntityID(facts.previous.Subject())
+		if effect.Kind() != ManagedPathEffectReplace ||
+			!currentEntityBacked || !previousEntityBacked ||
+			currentEntity != previousEntity ||
+			(facts.previous.Scope() == facts.scope && facts.previous.Destination() == facts.destination) ||
+			facts.previous.ContentKind() != facts.contentKind ||
+			!slices.Equal(facts.previous.ConsumerTargets(), facts.consumerTargets) {
+			return fmt.Errorf("previous managed state subject does not match effect relocation")
+		}
 	}
 	if effect.Kind() == ManagedPathEffectRemove {
 		if len(facts.consumerTargets) != 0 {

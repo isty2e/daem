@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -159,6 +160,20 @@ func TestApplyOperationFingerprintBindsPlanAndDelegateMode(t *testing.T) {
 	}
 	if base.Equal(changedFingerprint) {
 		t.Fatal("fingerprint ignored executable plan change")
+	}
+
+	diagnosticChanged := planned
+	diagnosticChanged.result.Diagnostics = []findings.Diagnostic{{
+		Severity: findings.SeverityWarn,
+		Code:     "skill_discovery_duplicate_retained",
+		Detail:   "new pre-mutation observation",
+	}}
+	diagnosticFingerprint, err := applyOperationFingerprint(diagnosticChanged, reconcile.ContextApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.Equal(diagnosticFingerprint) {
+		t.Fatal("fingerprint ignored changed pre-mutation diagnostics")
 	}
 }
 
@@ -524,10 +539,11 @@ func applyAuthorityManagedPathPlan(
 		ArtifactKind: artifact.ArtifactKindDirectory,
 		ContentHash:  artifact.HashFileContent([]byte(hashSeed)),
 	})
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		scope,
 		[]target.Target{selectedTarget},
+		nil,
 	)
 	if err != nil || len(placements) != 1 {
 		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)

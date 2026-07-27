@@ -3,6 +3,8 @@ package codec
 import (
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 func TestSkillApplyAddMergesTargetsWithoutOwningWorkflowPolicy(t *testing.T) {
@@ -221,6 +223,85 @@ targets = ["codex", "claude-code"]
 
 	requireSkillContains(t, updated, `targets = ["claude-code"]`)
 	requireSkillContains(t, updated, `name = "alpha"`)
+}
+
+func TestSkillReplaceTargetsInsertsBeforeTargetLocalTable(t *testing.T) {
+	block := `[[skill]]
+name = "alpha"
+source = { path = "skills/alpha", mode = "vendor" }
+
+[skill.target.codex]
+install_to = ".agents/skills"
+`
+
+	updated := ReplaceSkillTargets(block, []string{"codex"})
+
+	targetsIndex := strings.Index(updated, `targets = ["codex"]`)
+	targetTableIndex := strings.Index(updated, `[skill.target.codex]`)
+	if targetsIndex < 0 || targetTableIndex < 0 || targetsIndex > targetTableIndex {
+		t.Fatalf("root targets were not inserted before target-local table:\n%s", updated)
+	}
+}
+
+func TestSkillTargetPlacementTablesRenderScanMergeAndRemoveDeterministically(t *testing.T) {
+	existing := Skill{
+		Name:    "review",
+		Source:  SkillSource{Path: "skills/review", Mode: "vendor"},
+		Targets: []string{"opencode"},
+		Scope:   "project",
+		Target: map[string]declaration.SkillTarget{
+			"opencode": {InstallTo: ".opencode/skills"},
+		},
+	}
+	rendered := RenderSkillBlock(existing)
+	if strings.Index(rendered, "targets =") > strings.Index(rendered, "[skill.target.") {
+		t.Fatalf("root targets rendered inside target table:\n%s", rendered)
+	}
+
+	blocks, err := ScanSkillBlocks([]byte(rendered))
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("ScanSkillBlocks = %#v, %v", blocks, err)
+	}
+	if got := blocks[0].Skill.Target["opencode"].InstallTo; got != ".opencode/skills" {
+		t.Fatalf("scanned install_to = %q", got)
+	}
+
+	incoming := existing
+	incoming.Targets = []string{"codex"}
+	incoming.Target = map[string]declaration.SkillTarget{
+		"codex": {InstallTo: ".agents/skills"},
+	}
+	updated, err := UpdateSkillTargets(rendered, existing, incoming, []string{"opencode", "codex"})
+	if err != nil {
+		t.Fatalf("UpdateSkillTargets returned error: %v", err)
+	}
+	for _, fragment := range []string{
+		`[skill.target."opencode"]`,
+		`install_to = ".opencode/skills"`,
+		`[skill.target."codex"]`,
+		`install_to = ".agents/skills"`,
+	} {
+		requireSkillContains(t, updated, fragment)
+	}
+
+	removed := RemoveSkillTargetTables(updated, "skill", []string{"opencode"})
+	requireSkillContains(t, removed, `[skill.target."codex"]`)
+	if strings.Contains(removed, `[skill.target."opencode"]`) {
+		t.Fatalf("selected target table remains:\n%s", removed)
+	}
+}
+
+func TestSkillTargetPlacementMergeRejectsConflictingMetadata(t *testing.T) {
+	existing := Skill{
+		ID: "review", Name: "review", Source: SkillSource{Path: "skills/review", Mode: "vendor"},
+		Targets: []string{"codex"}, Scope: "project",
+		Target: map[string]declaration.SkillTarget{"codex": {InstallTo: ".agents/skills"}},
+	}
+	incoming := existing
+	incoming.Target = map[string]declaration.SkillTarget{"codex": {InstallTo: ".codex/skills"}}
+	if _, err := UpdateSkillTargets(RenderSkillBlock(existing), existing, incoming, existing.Targets); err == nil {
+		t.Fatal("UpdateSkillTargets accepted conflicting target metadata")
+	}
 }
 
 func requireSkillContains(t *testing.T, content string, fragment string) {

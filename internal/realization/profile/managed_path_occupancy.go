@@ -53,7 +53,7 @@ func ValidateManagedPathOccupancy(
 
 	resourceKind := entityID.Kind()
 	if contentKind == realization.PathProjectionFile {
-		var selected ManagedPathPlacement
+		var selected SelectedManagedPathPlacement
 		for index, consumer := range consumerTargets {
 			candidate, err := ManagedFilePlacementFor(resourceKind, consumer, scope, parsedDestination)
 			if err != nil {
@@ -77,38 +77,37 @@ func ValidateManagedPathOccupancy(
 		return nil
 	}
 
-	placements, err := ManagedPathPlacementsFor(resourceKind, scope, consumerTargets)
+	selected, err := ManagedPathPlacementForConsumers(
+		resourceKind,
+		scope,
+		placementID,
+		consumerTargets,
+	)
 	if err != nil {
 		return err
 	}
-	for _, placement := range placements {
-		if placement.ID() != placementID {
-			continue
-		}
-		if _, err := placement.ChildName(parsedDestination); err != nil {
-			return err
-		}
-		writeRoute, ok := Profile(consumerTargets[0]).OperationRoute(resourceKind, placement.ID(), OperationWrite)
-		if !ok {
-			return fmt.Errorf("managed path placement %q has no write route", placement.ID())
-		}
-		spec, err := placement.Realize(parsedDestination, realization.PathProjectionCopy, writeRoute)
-		if err != nil {
-			return err
-		}
-		projection, _ := spec.ManagedPathProjection()
-		if projection.ContentKind() != contentKind {
-			return fmt.Errorf(
-				"managed path placement %q content kind %q does not match %q",
-				placementID,
-				projection.ContentKind(),
-				contentKind,
-			)
-		}
-		if !slices.Equal(projection.ConsumerTargets(), consumerTargets) {
-			return fmt.Errorf("managed path placement %q consumer set is not canonical", placementID)
-		}
-		return nil
+	if _, err := selected.ChildName(parsedDestination); err != nil {
+		return err
 	}
-	return fmt.Errorf("managed path placement %q is not selected by its consumers", placementID)
+	writeRoute, err := ManagedPathOperationRoute(selected, OperationWrite)
+	if err != nil {
+		return err
+	}
+	spec, err := selected.Realize(parsedDestination, realization.PathProjectionCopy, writeRoute)
+	if err != nil {
+		return err
+	}
+	projection, _ := spec.ManagedPathProjection()
+	if projection.ContentKind() != contentKind {
+		return fmt.Errorf(
+			"managed path placement %q content kind %q does not match %q",
+			placementID,
+			projection.ContentKind(),
+			contentKind,
+		)
+	}
+	if !slices.Equal(projection.ConsumerTargets(), consumerTargets) {
+		return fmt.Errorf("managed path placement %q consumer set is not canonical", placementID)
+	}
+	return nil
 }

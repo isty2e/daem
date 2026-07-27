@@ -200,6 +200,10 @@ func (placement HookAssetPlacement) Realize(
 
 func (placement HookAssetPlacement) ID() string          { return placement.id }
 func (placement HookAssetPlacement) Scope() target.Scope { return placement.scope }
+func (placement HookAssetPlacement) Root() output.Destination {
+	return placement.root
+}
+
 func (placement HookAssetPlacement) ConsumerTargets() []target.Target {
 	return append([]target.Target(nil), placement.consumerTargets...)
 }

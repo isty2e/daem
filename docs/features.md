@@ -30,6 +30,13 @@ native commands and safety limits, see the
 `Report only` means that `doctor` can explain the available host feature or why
 daem cannot manage it. It does not write host configuration.
 
+Skill declarations use each target's default root unless a supported
+target-specific `install_to` selects a compatible alternative. Run
+`daem list paths` to see every modeled write, discovery, runtime, config,
+private-store, and delegated-route location together with the manifest
+selection. If the same skill name still exists at another modeled discovery
+root, `doctor`, `status`, and `apply` warn without deleting it.
+
 MCP configuration support manages the host's command and argument entry. It
 does not install the executable or package named by that entry. Claude Code
 project MCP is the only current row where confirmed `apply` may run the locked

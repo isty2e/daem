@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -79,6 +80,27 @@ func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
 	}
 }
 
+func TestFinalizeMergesTargetPlacementRequestsWithoutChangingTargetOrder(t *testing.T) {
+	contentHash := artifact.HashFileContent([]byte("same"))
+	finalized := Finalize([]adopt.Skill{
+		{
+			InstallName: "alpha", Target: targetpkg.TargetOpenCode,
+			Scope: targetpkg.ScopeProject, ContentHash: contentHash,
+			Placements: map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".agents/skills"},
+		},
+		{
+			InstallName: "alpha", Target: targetpkg.TargetCodex,
+			Scope: targetpkg.ScopeProject, ContentHash: contentHash,
+		},
+	})
+	if len(finalized) != 1 {
+		t.Fatalf("Finalize returned %#v, want one skill", finalized)
+	}
+	if got := finalized[0].Placements[targetpkg.TargetOpenCode]; got != ".agents/skills" {
+		t.Fatalf("placement = %q, want .agents/skills", got)
+	}
+}
+
 func TestAssignGroupSourcesTreatsTargetOrderAsSetIdentity(t *testing.T) {
 	sourceDir := filepath.Join(t.TempDir(), "daem.d")
 	sourceDirectory, err := adopt.NewSourceDirectory(filepath.Join(filepath.Dir(sourceDir), "daem.toml"), sourceDir)
@@ -108,6 +130,84 @@ func TestAssignGroupSourcesTreatsTargetOrderAsSetIdentity(t *testing.T) {
 	}
 	if grouped[0].GroupRoot == "" || grouped[0].GroupRoot != grouped[1].GroupRoot {
 		t.Fatalf("group roots = %q and %q, want one order-independent target-set group", grouped[0].GroupRoot, grouped[1].GroupRoot)
+	}
+}
+
+func TestAssignGroupSourcesDoesNotGroupDifferentPlacementPolicies(t *testing.T) {
+	sourceDir := filepath.Join(t.TempDir(), "daem.d")
+	sourceDirectory, err := adopt.NewSourceDirectory(filepath.Join(filepath.Dir(sourceDir), "daem.toml"), sourceDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills := []adopt.Skill{
+		{
+			ResourceName: "alpha", InstallName: "alpha",
+			Targets: []targetpkg.Target{targetpkg.TargetOpenCode}, Scope: targetpkg.ScopeProject,
+			Placements:  map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".agents/skills"},
+			ContentHash: artifact.HashFileContent([]byte("alpha")),
+		},
+		{
+			ResourceName: "beta", InstallName: "beta",
+			Targets: []targetpkg.Target{targetpkg.TargetOpenCode}, Scope: targetpkg.ScopeProject,
+			Placements:  map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".claude/skills"},
+			ContentHash: artifact.HashFileContent([]byte("beta")),
+		},
+	}
+
+	grouped, err := AssignGroupSources(sourceDirectory, skills)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grouped[0].GroupRoot != "" || grouped[1].GroupRoot != "" {
+		t.Fatalf("different placement policies were grouped: %#v", grouped)
+	}
+}
+
+func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	oldWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWorkingDirectory); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+
+	skillRoot := filepath.Join(".agents", "skills", "review")
+	if err := os.MkdirAll(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("---\nname: review\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(projectRoot, "daem.toml"),
+		filepath.Join(projectRoot, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, _, _, err := Candidates(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetOpenCode,
+		targetpkg.ScopeProject,
+		NewDestinationClaims(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("Candidates = %#v, want one imported skill", candidates)
+	}
+	if got := candidates[0].Placements[targetpkg.TargetOpenCode]; got != ".agents/skills" {
+		t.Fatalf("placement = %q, want .agents/skills", got)
 	}
 }
 

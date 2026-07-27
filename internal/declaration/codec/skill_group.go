@@ -10,14 +10,15 @@ import (
 )
 
 type SkillGroup struct {
-	Names       []string    `toml:"names"`
-	Include     []string    `toml:"include"`
-	Exclude     []string    `toml:"exclude"`
-	Source      SkillSource `toml:"source"`
-	Targets     []string    `toml:"targets"`
-	Scope       string      `toml:"scope"`
-	InstallMode string      `toml:"install_mode"`
-	Portable    *bool       `toml:"portable"`
+	Names       []string                           `toml:"names"`
+	Include     []string                           `toml:"include"`
+	Exclude     []string                           `toml:"exclude"`
+	Source      SkillSource                        `toml:"source"`
+	Targets     []string                           `toml:"targets"`
+	Scope       string                             `toml:"scope"`
+	InstallMode string                             `toml:"install_mode"`
+	Portable    *bool                              `toml:"portable"`
+	Target      map[string]declaration.SkillTarget `toml:"target"`
 }
 
 type SkillGroupBlock struct {
@@ -88,6 +89,12 @@ func ReplaceSkillGroupNames(block string, names []string) string {
 	return block
 }
 
+// ReplaceSkillGroupTargets rewrites or inserts the root target assignment
+// before any target-local placement tables.
+func ReplaceSkillGroupTargets(block string, targets []string) string {
+	return replaceSkillTargets(block, "skill_group", targets)
+}
+
 func RenderSkillGroupBlock(group SkillGroup) string {
 	var builder strings.Builder
 	builder.WriteString("[[skill_group]]\n")
@@ -123,5 +130,6 @@ func RenderSkillGroupBlock(group SkillGroup) string {
 		builder.WriteString(strconv.FormatBool(*group.Portable))
 		builder.WriteByte('\n')
 	}
+	renderSkillTargetTables(&builder, "skill_group", group.Target)
 	return builder.String()
 }

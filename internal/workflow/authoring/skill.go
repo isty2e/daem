@@ -302,7 +302,17 @@ func applyRemoveSkillCandidate(original []byte, candidate removeSkillCandidate, 
 		NoSelectedTargetsError: func() error {
 			return fmt.Errorf("skill resource %q does not include selected targets", candidate.resourceID)
 		},
+		BeforeTargetReplace: func(originalBlock string) string {
+			return declarationcodec.RemoveSkillTargetTables(
+				originalBlock,
+				skillCandidateTableRoot(candidate),
+				selectedTargets,
+			)
+		},
 		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
+			if candidate.kind == "skill_group" {
+				return declarationcodec.ReplaceSkillGroupTargets(originalBlock, remainingTargets.Values()), nil
+			}
 			return declarationcodec.ReplaceSkillTargets(originalBlock, remainingTargets.Values()), nil
 		},
 	})
@@ -314,6 +324,13 @@ func applyRemoveSkillCandidate(original []byte, candidate removeSkillCandidate, 
 		return nil, "", err
 	}
 	return change.Content, changeKind, nil
+}
+
+func skillCandidateTableRoot(candidate removeSkillCandidate) string {
+	if candidate.kind == "skill_group" {
+		return "skill_group"
+	}
+	return "skill"
 }
 
 func removeSkillCandidateCompletely(original []byte, candidate removeSkillCandidate) ([]byte, string, error) {

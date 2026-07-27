@@ -48,6 +48,39 @@ func TestMarshalAndLoadManagedPathProjection(t *testing.T) {
 	assertLockedSubjectsEqual(t, loaded.Locked.Subjects(), file.Locked.Subjects())
 }
 
+func TestMarshalAndLoadAlternateManagedPathProjectionWithoutDefaultSubstitution(t *testing.T) {
+	supply := directSkillSubjectContract(t, "oracle")
+	projection := managedPathSkillSubjectContractAt(
+		t,
+		"oracle",
+		[]target.Target{target.TargetOpenCode},
+		map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+	)
+	file := lockfileWithSubjects(t, supply, projection)
+
+	content, err := Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(content)
+	for _, fragment := range []string{
+		`subject_id = "projection/skill.project.agents/skill:oracle"`,
+		`placement_id = "skill.project.agents"`,
+		`destination = ".agents/skills/oracle"`,
+		`consumer_targets = ["opencode"]`,
+	} {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("alternate managed path lockfile is missing %q:\n%s", fragment, rendered)
+		}
+	}
+
+	loaded, err := Load(writeLockfileText(t, rendered))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	assertLockedSubjectsEqual(t, loaded.Locked.Subjects(), file.Locked.Subjects())
+}
+
 func TestLoadRejectsNonCanonicalManagedPathConsumers(t *testing.T) {
 	file := lockfileWithSubjects(
 		t,
@@ -212,14 +245,24 @@ func managedPathSkillSubjectContract(
 	name string,
 	consumers []target.Target,
 ) lock.LockedSubjectContract {
+	return managedPathSkillSubjectContractAt(t, name, consumers, nil)
+}
+
+func managedPathSkillSubjectContractAt(
+	t *testing.T,
+	name string,
+	consumers []target.Target,
+	requestedRoots map[target.Target]string,
+) lock.LockedSubjectContract {
 	t.Helper()
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		consumers,
+		requestedRoots,
 	)
 	if err != nil {
-		t.Fatalf("ManagedPathPlacementsFor returned error: %v", err)
+		t.Fatalf("ManagedPathPlacementsForSelections returned error: %v", err)
 	}
 	if len(placements) != 1 {
 		t.Fatalf("managed path placements = %d, want one shared occupancy", len(placements))

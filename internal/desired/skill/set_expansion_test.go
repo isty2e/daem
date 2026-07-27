@@ -13,11 +13,16 @@ import (
 
 func TestSkillSetExpandConsumesMatchingCanonicalListing(t *testing.T) {
 	root := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
+	placement, err := NewTargetPlacement(target.ScopeProject, ".agents/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
 	set := mustExpansionSkillSet(t, SkillSetSpec{
 		Source:       root,
 		Include:      []Selector{mustSelector(t, "glob:*")},
 		Exclude:      []Selector{mustSelector(t, "glob:draft-*")},
 		Targets:      []target.Target{target.TargetCodex},
+		Placements:   map[target.Target]TargetPlacement{target.TargetCodex: placement},
 		Scope:        target.ScopeProject,
 		InstallMode:  InstallModeCopy,
 		Portable:     true,
@@ -47,6 +52,9 @@ func TestSkillSetExpandConsumesMatchingCanonicalListing(t *testing.T) {
 		}
 		if !child.Portable() || !child.CompatRepair() || child.InstallName() != child.ID().Name() {
 			t.Fatalf("child policy = %#v", child)
+		}
+		if child.TargetPlacements()[target.TargetCodex].InstallTo() != ".agents/skills" {
+			t.Fatalf("child target placements = %#v", child.TargetPlacements())
 		}
 	}
 }

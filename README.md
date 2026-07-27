@@ -177,6 +177,7 @@ the manifest rather than an expanding flag surface.
 - [Skill Compatibility](docs/compatibility.md)
 - [Minimal Example](examples/daem.toml)
 - [Representative Project Example](examples/representative-project.toml)
+- [Skill Placement Example](examples/skill-placement.toml)
 
 For development and verification guidance, see
 [Contributing](CONTRIBUTING.md).

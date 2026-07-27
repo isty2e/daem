@@ -163,6 +163,53 @@ func TestBuildManagedPathDecisionsRequiresFreshTruthForDriftAndRelocation(t *tes
 	}
 }
 
+func TestBuildManagedPathDecisionsCorrelatesExactCrossPlacementRelocation(t *testing.T) {
+	_, _, previousProjection := managedPathLockAt(
+		t,
+		"oracle",
+		"oracle",
+		[]target.Target{target.TargetOpenCode},
+		nil,
+		"same",
+	)
+	locked, supply, desiredProjection := managedPathLockAt(
+		t,
+		"oracle",
+		"oracle",
+		[]target.Target{target.TargetOpenCode},
+		map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+		"same",
+	)
+	state := managedPathState(
+		t,
+		previousProjection,
+		[]target.Target{target.TargetOpenCode},
+		".opencode/skills/oracle",
+		"same",
+	)
+	decisions, err := BuildManagedPathDecisions(ManagedPathInput{
+		Locked: locked, Expectations: []ManagedPathExpectation{managedPathExpectation(t, desiredProjection)},
+		SelectedTargets:    planSelectedTargets(t, target.TargetOpenCode),
+		SupplyObservations: []observe.ExactSupplyObservation{exactSupplyObservation(t, supply, false)},
+		States:             []durable.ManagedPathState{state},
+		Evidence: []observe.ManagedPathEvidence{
+			managedPathEvidence(t, previousProjection, ".opencode/skills/oracle", true, "same"),
+			managedPathEvidence(t, desiredProjection, ".agents/skills/oracle", false, ""),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(decisions) != 1 || decisions[0].Kind() != reconcile.ManagedPathReplace {
+		t.Fatalf("decisions = %#v, want one relocation replace", decisions)
+	}
+	previous, ok := decisions[0].PreviousState()
+	if !ok || previous.Subject() != previousProjection.SubjectID() ||
+		decisions[0].Subject() != desiredProjection.SubjectID() {
+		t.Fatalf("cross-placement relocation = %#v previous=%#v", decisions[0], previous)
+	}
+}
+
 func TestReconcileManagedPathDesiredKeepsUnsupportedPlacementModePending(t *testing.T) {
 	_, _, projection := managedPathLock(t, "oracle", "oracle", []target.Target{target.TargetCodex}, "desired")
 	state := managedPathState(t, projection, []target.Target{target.TargetCodex}, ".agents/skills/oracle", "desired")
@@ -332,6 +379,17 @@ func managedPathLock(
 	consumers []target.Target,
 	hashSeed string,
 ) (lock.LockedSection, lock.LockedSubjectContract, lock.LockedSubjectContract) {
+	return managedPathLockAt(t, name, installName, consumers, nil, hashSeed)
+}
+
+func managedPathLockAt(
+	t *testing.T,
+	name string,
+	installName string,
+	consumers []target.Target,
+	requestedRoots map[target.Target]string,
+	hashSeed string,
+) (lock.LockedSection, lock.LockedSubjectContract, lock.LockedSubjectContract) {
 	t.Helper()
 	supply := snapshottest.ExactSupply(t, snapshottest.ExactSupplyInput{
 		Kind: entity.KindSkill, Name: name,
@@ -339,9 +397,14 @@ func managedPathLock(
 		ArtifactKind: artifact.ArtifactKindDirectory,
 		ContentHash:  artifact.HashFileContent([]byte(hashSeed)),
 	})
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, target.ScopeProject, consumers)
+	placements, err := profile.ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		consumers,
+		requestedRoots,
+	)
 	if err != nil || len(placements) != 1 {
-		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)
+		t.Fatalf("ManagedPathPlacementsForSelections = %#v, %v", placements, err)
 	}
 	placement := placements[0]
 	destination, err := placement.ChildDestination(installName)

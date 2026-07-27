@@ -10,15 +10,21 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // SkillPathProjections refines one Skill through the static placement profile.
 func SkillPathProjections(value skill.Skill) ([]lock.LockedSubjectContract, error) {
-	placements, err := profile.ManagedPathPlacementsFor(
+	requestedRoots := make(map[target.Target]string)
+	for selectedTarget, placement := range value.TargetPlacements() {
+		requestedRoots[selectedTarget] = placement.InstallTo()
+	}
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		value.Scope(),
 		value.Targets(),
+		requestedRoots,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("select skill %q placements: %w", value.ID().Name(), err)

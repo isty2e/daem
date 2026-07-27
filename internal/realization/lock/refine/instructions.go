@@ -13,7 +13,7 @@ import (
 )
 
 type instructionPlacement struct {
-	placement profile.ManagedPathPlacement
+	placement profile.SelectedManagedPathPlacement
 	mode      realization.PathProjectionMode
 }
 

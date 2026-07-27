@@ -14,6 +14,7 @@ type SkillSetSpec struct {
 	Include      []Selector
 	Exclude      []Selector
 	Targets      []target.Target
+	Placements   map[target.Target]TargetPlacement
 	Scope        target.Scope
 	InstallMode  InstallMode
 	Portable     bool
@@ -27,6 +28,7 @@ type SkillSet struct {
 	include      []Selector
 	exclude      []Selector
 	targets      target.Set
+	placements   map[target.Target]TargetPlacement
 	scope        target.Scope
 	installMode  InstallMode
 	portable     bool
@@ -70,12 +72,17 @@ func NewSkillSet(spec SkillSetSpec) (SkillSet, error) {
 			return SkillSet{}, fmt.Errorf("skill set source: project local link sources must set portable = false")
 		}
 	}
+	placements, err := validateTargetPlacements("skill set", targets, scope, spec.Placements)
+	if err != nil {
+		return SkillSet{}, err
+	}
 
 	return SkillSet{
 		source:       spec.Source,
 		include:      append([]Selector(nil), spec.Include...),
 		exclude:      append([]Selector(nil), spec.Exclude...),
 		targets:      targets,
+		placements:   placements,
 		scope:        scope,
 		installMode:  installMode,
 		portable:     spec.Portable,
@@ -90,6 +97,7 @@ func (set SkillSet) Validate() error {
 		Include:      set.include,
 		Exclude:      set.exclude,
 		Targets:      set.targets.Values(),
+		Placements:   set.placements,
 		Scope:        set.scope,
 		InstallMode:  set.installMode,
 		Portable:     set.portable,
@@ -147,6 +155,7 @@ func (set SkillSet) Child(name string, childSource source.Source) (Skill, error)
 		InstallName:  name,
 		Source:       childSource,
 		Targets:      set.targets.Values(),
+		Placements:   set.placements,
 		Scope:        set.scope,
 		InstallMode:  set.installMode,
 		Portable:     set.portable,
@@ -165,6 +174,11 @@ func (set SkillSet) Exclude() []Selector { return append([]Selector(nil), set.ex
 
 // Targets returns a defensive copy in authored order.
 func (set SkillSet) Targets() []target.Target { return set.targets.Values() }
+
+// TargetPlacements returns a defensive copy of inherited target root requests.
+func (set SkillSet) TargetPlacements() map[target.Target]TargetPlacement {
+	return cloneTargetPlacements(set.placements)
+}
 
 // Scope returns the inherited child scope.
 func (set SkillSet) Scope() target.Scope { return set.scope }

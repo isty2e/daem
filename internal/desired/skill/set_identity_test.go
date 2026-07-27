@@ -36,7 +36,7 @@ func TestSkillSetDeclarationIdentityUsesSemanticSelectorAndTargetSets(t *testing
 		t.Fatalf("semantic exclude reorder changed identity: %q != %q", withExcludeIdentity.String(), got.String())
 	}
 
-	if !strings.HasPrefix(baseIdentity.String(), "skill-set-declaration:v1:sha256:") {
+	if !strings.HasPrefix(baseIdentity.String(), "skill-set-declaration:v2:sha256:") {
 		t.Fatalf("identity = %q", baseIdentity.String())
 	}
 	parsed, err := ParseSkillSetDeclarationIdentity(baseIdentity.String())
@@ -67,7 +67,7 @@ func TestParseSkillSetDeclarationIdentityRejectsNonCanonicalValues(t *testing.T)
 		"",
 		" " + valid,
 		valid + " ",
-		strings.Replace(valid, ":v1:", ":v2:", 1),
+		strings.Replace(valid, ":v2:", ":v1:", 1),
 		valid[:len(valid)-1],
 		valid + "0",
 		strings.ToUpper(valid),
@@ -107,6 +107,13 @@ func TestSkillSetDeclarationIdentityCoversEveryCurrentDeclarationAxis(t *testing
 		}},
 		{name: "target set", edit: func(spec *SkillSetSpec) {
 			spec.Targets = []target.Target{target.TargetCodex}
+		}},
+		{name: "target placement", edit: func(spec *SkillSetSpec) {
+			placement, err := NewTargetPlacement(target.ScopeProject, ".agents/skills")
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec.Placements = map[target.Target]TargetPlacement{target.TargetCodex: placement}
 		}},
 		{name: "scope", edit: func(spec *SkillSetSpec) { spec.Scope = target.ScopeGlobal }},
 		{name: "install mode", edit: func(spec *SkillSetSpec) { spec.InstallMode = InstallModeSymlink }},
@@ -148,6 +155,7 @@ func cloneSkillSetSpec(spec SkillSetSpec) SkillSetSpec {
 	clone.Include = append([]Selector(nil), spec.Include...)
 	clone.Exclude = append([]Selector(nil), spec.Exclude...)
 	clone.Targets = append([]target.Target(nil), spec.Targets...)
+	clone.Placements = cloneTargetPlacements(spec.Placements)
 	return clone
 }
 

@@ -146,7 +146,7 @@ func commandPathsForFlagSet(function *ast.FuncDecl) ([]string, bool, error) {
 				inspectErr = fmt.Errorf("unsupported dynamic flag set path")
 				return false
 			}
-			paths = []string{"list outputs", "list resources"}
+			paths = []string{"list outputs", "list paths", "list resources"}
 			return false
 		}
 		paths = []string{strings.Join(parts, " ")}

@@ -26,7 +26,7 @@ func validateAdmittedInstructionsPathProjection(contract LockedSubjectContract) 
 		return true, fmt.Errorf("Instructions path projection mode %q is unsupported", projection.PlacementMode())
 	}
 
-	var selected profile.ManagedPathPlacement
+	var selected profile.SelectedManagedPathPlacement
 	for index, consumer := range projection.ConsumerTargets() {
 		candidate, err := profile.ManagedFilePlacementFor(
 			entity.KindInstructions,

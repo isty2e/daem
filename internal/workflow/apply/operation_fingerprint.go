@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/findings"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
@@ -31,6 +32,7 @@ type applyFingerprintFacts struct {
 	Owner               ownershipOwnerFingerprintFacts
 	Ownership           []ownershipObservationFingerprintFacts
 	GlobalCarrierClaims []carrierClaimFingerprintFacts
+	Diagnostics         []diagnosticFingerprintFacts
 	ProjectRoot         *projectRootFingerprintFacts
 }
 
@@ -124,6 +126,22 @@ type delegatePackageFingerprintFacts struct {
 	Selector  string
 }
 
+type diagnosticFingerprintFacts struct {
+	Severity      findings.Severity
+	Code          string
+	EntityKind    string
+	EntityName    string
+	Target        string
+	Scope         string
+	Event         string
+	Command       string
+	Detail        string
+	Repairability string
+	RepairActions []string
+	ManualReasons []string
+	NextStep      string
+}
+
 func applyOperationFingerprint(
 	planned commandPlan,
 	operationContext reconcile.OperationContext,
@@ -200,6 +218,7 @@ func applyOperationFingerprint(
 	carrierClaims := carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims)
 	managedPaths := managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths())
 	aggregates := aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates())
+	diagnostics := diagnosticFingerprintRows(result.Diagnostics)
 	canonical, err := json.Marshal(applyFingerprintFacts{
 		ManifestPath:     result.ManifestPath,
 		LockfilePath:     result.LockfilePath,
@@ -219,12 +238,40 @@ func applyOperationFingerprint(
 		},
 		Ownership:           ownershipFacts,
 		GlobalCarrierClaims: carrierClaims,
+		Diagnostics:         diagnostics,
 		ProjectRoot:         projectRoot,
 	})
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
 	}
 	return mutation.NewOperationFingerprint(canonical), nil
+}
+
+func diagnosticFingerprintRows(values []findings.Diagnostic) []diagnosticFingerprintFacts {
+	rows := make([]diagnosticFingerprintFacts, 0, len(values))
+	for _, diagnostic := range values {
+		rows = append(rows, diagnosticFingerprintFacts{
+			Severity:      diagnostic.Severity,
+			Code:          diagnostic.Code,
+			EntityKind:    string(diagnostic.EntityID.Kind()),
+			EntityName:    diagnostic.EntityID.Name(),
+			Target:        string(diagnostic.Target),
+			Scope:         string(diagnostic.Scope),
+			Event:         diagnostic.Event,
+			Command:       diagnostic.Command,
+			Detail:        diagnostic.Detail,
+			Repairability: diagnostic.Repairability,
+			RepairActions: append([]string(nil), diagnostic.RepairActions...),
+			ManualReasons: append([]string(nil), diagnostic.ManualReasons...),
+			NextStep:      diagnostic.NextStep,
+		})
+	}
+	sort.Slice(rows, func(left int, right int) bool {
+		leftBytes, _ := json.Marshal(rows[left])
+		rightBytes, _ := json.Marshal(rows[right])
+		return string(leftBytes) < string(rightBytes)
+	})
+	return rows
 }
 
 func delegatePlanFingerprint(plan realizationdelegate.DelegatePlan) delegatePlanFingerprintFacts {

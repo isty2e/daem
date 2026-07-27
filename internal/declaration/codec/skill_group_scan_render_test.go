@@ -3,6 +3,8 @@ package codec
 import (
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 func TestSkillGroupScanBlocksFindsSkillGroupTables(t *testing.T) {
@@ -139,6 +141,46 @@ source = { path = "skills", mode = "vendor" }
 
 	requireSkillGroupContains(t, updated, `names = ["beta"]`)
 	requireSkillGroupContains(t, updated, `source = { path = "skills", mode = "vendor" }`)
+}
+
+func TestSkillGroupReplaceTargetsInsertsBeforeTargetLocalTable(t *testing.T) {
+	block := `[[skill_group]]
+names = ["alpha"]
+source = { path = "skills", mode = "vendor" }
+
+[skill_group.target.codex]
+install_to = ".agents/skills"
+`
+
+	updated := ReplaceSkillGroupTargets(block, []string{"codex"})
+
+	targetsIndex := strings.Index(updated, `targets = ["codex"]`)
+	targetTableIndex := strings.Index(updated, `[skill_group.target.codex]`)
+	if targetsIndex < 0 || targetTableIndex < 0 || targetsIndex > targetTableIndex {
+		t.Fatalf("root targets were not inserted before target-local table:\n%s", updated)
+	}
+}
+
+func TestSkillGroupTargetPlacementTableRendersAndScans(t *testing.T) {
+	rendered := RenderSkillGroupBlock(SkillGroup{
+		Names:   []string{"alpha"},
+		Source:  SkillSource{Path: "skills", Mode: "vendor"},
+		Targets: []string{"opencode"},
+		Scope:   "project",
+		Target: map[string]declaration.SkillTarget{
+			"opencode": {InstallTo: ".agents/skills"},
+		},
+	})
+	requireSkillGroupContains(t, rendered, `[skill_group.target."opencode"]`)
+	requireSkillGroupContains(t, rendered, `install_to = ".agents/skills"`)
+
+	blocks, err := ScanSkillGroupBlocks([]byte(rendered))
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("ScanSkillGroupBlocks = %#v, %v", blocks, err)
+	}
+	if got := blocks[0].Group.Target["opencode"].InstallTo; got != ".agents/skills" {
+		t.Fatalf("scanned install_to = %q", got)
+	}
 }
 
 func TestSkillGroupMembershipUsesDeclarationIndicesAndLaterDuplicates(t *testing.T) {

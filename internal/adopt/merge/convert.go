@@ -38,7 +38,19 @@ func manifestSkillFromImportSkill(skill adoptmodel.Skill, targets []targetpkg.Ta
 		},
 		Targets: targetStrings(targets),
 		Scope:   string(skill.Scope),
+		Target:  importSkillTargetPlacements(skill.Placements),
 	}
+}
+
+func importSkillTargetPlacements(values map[targetpkg.Target]string) map[string]declaration.SkillTarget {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make(map[string]declaration.SkillTarget, len(values))
+	for selectedTarget, installTo := range values {
+		result[string(selectedTarget)] = declaration.SkillTarget{InstallTo: installTo}
+	}
+	return result
 }
 
 func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target) declaration.Hook {

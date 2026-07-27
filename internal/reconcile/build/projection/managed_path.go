@@ -56,6 +56,15 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 	if err != nil {
 		return nil, err
 	}
+	relocationStates, relocatedStateSubjects, err := managedPathRelocationStates(
+		canonicalExpectations,
+		expectations,
+		states,
+		selection,
+	)
+	if err != nil {
+		return nil, err
+	}
 	addressConflicts := managedPathAddressConflicts(canonicalExpectations, states)
 	desiredSubjects := make(map[topology.SubjectID]struct{}, len(expectations))
 	decisions := make([]managedPathDecision, 0, len(expectations)+input.Locked.Len()+len(states))
@@ -76,6 +85,9 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 			continue
 		}
 		state, hasState := states[facts.Subject]
+		if !hasState {
+			state, hasState = relocationStates[facts.Subject]
+		}
 		consumers := selectedConsumers
 		if hasState {
 			consumers = mergeManagedPathConsumers(consumers, unselectedManagedPathConsumers(state.ConsumerTargets(), selection))
@@ -182,6 +194,9 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 	}
 
 	for subject, state := range states {
+		if _, relocating := relocatedStateSubjects[subject]; relocating {
+			continue
+		}
 		if _, desired := desiredSubjects[subject]; desired {
 			continue
 		}

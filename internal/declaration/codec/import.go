@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 // ImportManifestSource is the local source form emitted by adoption.
@@ -16,21 +17,23 @@ type ImportManifestSource struct {
 
 // ImportManifestSkill is the omission-sensitive skill row emitted by adoption.
 type ImportManifestSkill struct {
-	ID          string               `toml:"id,omitempty"`
-	Name        string               `toml:"name"`
-	Source      ImportManifestSource `toml:"source"`
-	Targets     []string             `toml:"targets"`
-	Scope       string               `toml:"scope"`
-	InstallMode string               `toml:"install_mode"`
+	ID          string                             `toml:"id,omitempty"`
+	Name        string                             `toml:"name"`
+	Source      ImportManifestSource               `toml:"source"`
+	Targets     []string                           `toml:"targets"`
+	Scope       string                             `toml:"scope"`
+	InstallMode string                             `toml:"install_mode"`
+	Target      map[string]declaration.SkillTarget `toml:"target,omitempty"`
 }
 
 // ImportManifestSkillGroup is the omission-sensitive skill-group row emitted by adoption.
 type ImportManifestSkillGroup struct {
-	Names       []string             `toml:"names"`
-	Source      ImportManifestSource `toml:"source"`
-	Targets     []string             `toml:"targets"`
-	Scope       string               `toml:"scope"`
-	InstallMode string               `toml:"install_mode"`
+	Names       []string                           `toml:"names"`
+	Source      ImportManifestSource               `toml:"source"`
+	Targets     []string                           `toml:"targets"`
+	Scope       string                             `toml:"scope"`
+	InstallMode string                             `toml:"install_mode"`
+	Target      map[string]declaration.SkillTarget `toml:"target,omitempty"`
 }
 
 // ImportManifestInstruction is the path-source instruction row emitted by adoption.

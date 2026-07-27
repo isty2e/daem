@@ -24,6 +24,7 @@ func TestTargetSyntaxFailsAtCLIIngressAcrossCommandFamilies(t *testing.T) {
 		{name: "import", args: []string{"import", "--target", "unknown", "--dry-run", "--json"}},
 		{name: "list resources", args: []string{"list", "resources", "--target", "unknown", "--json"}},
 		{name: "list outputs", args: []string{"list", "outputs", "--target", "unknown", "--json"}},
+		{name: "list paths", args: []string{"list", "paths", "--target", "unknown", "--json"}},
 		{name: "add", args: []string{"add", "skill", "owner/repo", "--target", "unknown", "--dry-run", "--json"}},
 		{name: "remove", args: []string{"remove", "skill", "example", "--target", "unknown", "--dry-run", "--json"}},
 	} {
@@ -189,6 +190,20 @@ render_to = "AGENTS.md"
 		}
 		if strings.Contains(stderr.String(), "invalid value") {
 			t.Fatalf("stderr = %q, supported target was misclassified as syntax", stderr.String())
+		}
+	})
+
+	t.Run("list paths supported but unavailable target", func(t *testing.T) {
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		exitCode := testkit.RunVerboseCLI([]string{
+			"list", "paths", "--manifest", manifestPath, "--target", "claude-code", "--json",
+		}, &stdout, &stderr)
+		if exitCode != 1 || stdout.Len() != 0 {
+			t.Fatalf("exitCode = %d, stdout = %q, stderr = %q; want operational failure", exitCode, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stderr.String(), `target "claude-code" does not match any manifest resource`) {
+			t.Fatalf("stderr = %q, want availability diagnostic", stderr.String())
 		}
 	})
 }

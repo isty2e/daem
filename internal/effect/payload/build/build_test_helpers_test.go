@@ -204,10 +204,11 @@ func lockedSkillResourceFromRecipe(
 	if err != nil {
 		t.Fatalf("NewExactSupplySubjectContract returned error: %v", err)
 	}
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		[]target.Target{target.TargetCodex},
+		nil,
 	)
 	if err != nil || len(placements) != 1 {
 		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)
@@ -249,10 +250,11 @@ func skillProjectionSubject(t *testing.T, name string, selected target.Target) t
 	if err != nil {
 		t.Fatalf("entity.New returned error: %v", err)
 	}
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		[]target.Target{selected},
+		nil,
 	)
 	if err != nil || len(placements) != 1 {
 		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)

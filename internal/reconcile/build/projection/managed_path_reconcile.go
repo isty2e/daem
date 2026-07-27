@@ -34,7 +34,10 @@ func reconcileManagedPathDesired(
 	}
 
 	if state.Scope() != input.Scope || state.Destination() != input.Destination {
-		previousEvidence, observed := evidence[managedPathEvidenceKey{subject: input.Subject, destination: state.Destination()}]
+		previousEvidence, observed := evidence[managedPathEvidenceKey{
+			subject:     state.Subject(),
+			destination: state.Destination(),
+		}]
 		if !observed {
 			return newManagedPathBlocked(input, reconcile.ReasonMissingLiveObservation, "fresh evidence for the previous managed destination is required")
 		}

@@ -118,6 +118,7 @@ type Skill struct {
 	InstallName  string
 	Target       targetpkg.Target
 	Targets      []targetpkg.Target
+	Placements   map[targetpkg.Target]string
 	Scope        targetpkg.Scope
 	LivePath     string
 	ReadPath     string

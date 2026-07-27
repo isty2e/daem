@@ -102,9 +102,9 @@ func newManagedPathPlanFixture(
 		ArtifactKind: artifact.ArtifactKindDirectory,
 		ContentHash:  artifact.HashFileContent([]byte(hashSeed)),
 	})
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, scope, consumers)
+	placements, err := profile.ManagedPathPlacementsForSelections(entity.KindSkill, scope, consumers, nil)
 	if err != nil || len(placements) != 1 {
-		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)
+		t.Fatalf("ManagedPathPlacementsForSelections = %#v, %v", placements, err)
 	}
 	destination, err := placements[0].ChildDestination(installName)
 	if err != nil {

@@ -375,7 +375,7 @@ func applyInstructionPathState(
 		t.Fatalf("parse Instructions state scope: %v", err)
 	}
 	destinationValue := outputtest.Parse(t, destination)
-	var placement profile.ManagedPathPlacement
+	var placement profile.SelectedManagedPathPlacement
 	for index, consumer := range consumers {
 		candidate, err := profile.ManagedFilePlacementFor(entity.KindInstructions, consumer, scope, destinationValue)
 		if err != nil {

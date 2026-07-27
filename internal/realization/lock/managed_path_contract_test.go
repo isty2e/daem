@@ -83,9 +83,14 @@ func TestLockedSectionRejectsOrphanAndProfileDriftedSkillProjection(t *testing.T
 	}
 }
 
-func mustSkillPathPlacement(t *testing.T, selected target.Target) profile.ManagedPathPlacement {
+func mustSkillPathPlacement(t *testing.T, selected target.Target) profile.SelectedManagedPathPlacement {
 	t.Helper()
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, target.ScopeProject, []target.Target{selected})
+	placements, err := profile.ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{selected},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +100,7 @@ func mustSkillPathPlacement(t *testing.T, selected target.Target) profile.Manage
 	return placements[0]
 }
 
-func mustSkillPathRealization(t *testing.T, placement profile.ManagedPathPlacement, name string) realization.RealizationSpec {
+func mustSkillPathRealization(t *testing.T, placement profile.SelectedManagedPathPlacement, name string) realization.RealizationSpec {
 	t.Helper()
 	destination, err := placement.ChildDestination(name)
 	if err != nil {
@@ -111,7 +116,7 @@ func mustSkillPathRealization(t *testing.T, placement profile.ManagedPathPlaceme
 
 func mustManagedPathRoutes(
 	t *testing.T,
-	placement profile.ManagedPathPlacement,
+	placement profile.SelectedManagedPathPlacement,
 ) (profile.OperationRoute, profile.OperationRoute) {
 	t.Helper()
 	writeRoute, err := profile.ManagedPathOperationRoute(placement, profile.OperationWrite)
