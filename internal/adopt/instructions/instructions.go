@@ -66,8 +66,12 @@ func Candidates(
 			if err != nil {
 				return nil, nil, err
 			}
-			placement, isPlacement := profile.Profile(target).PlacementAt(entity.KindInstructions, scope, location.Path())
-			if isPlacement && !placement.Default() {
+			admission, isPlacement := profile.Profile(target).PlacementAdmissionAt(
+				entity.KindInstructions,
+				scope,
+				location.Path(),
+			)
+			if isPlacement && !admission.Default() {
 				alternatePlacementSpecs = append(alternatePlacementSpecs, spec)
 				continue
 			}
@@ -206,8 +210,12 @@ func instructionImportSpecForLocation(
 		ResourceName: defaultInstructionResourceName(target, scope),
 		SourcePath:   defaultInstructionSourcePath(target, scope),
 	}
-	placement, isPlacement := profile.Profile(target).PlacementAt(entity.KindInstructions, scope, location.Path())
-	if !isPlacement || placement.Default() {
+	admission, isPlacement := profile.Profile(target).PlacementAdmissionAt(
+		entity.KindInstructions,
+		scope,
+		location.Path(),
+	)
+	if !isPlacement || admission.Default() {
 		return spec, nil
 	}
 

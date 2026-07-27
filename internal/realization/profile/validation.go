@@ -35,13 +35,12 @@ type operationRouteKey struct {
 
 func validateProfileFacetCatalogs(
 	placements []ManagedPathPlacement,
+	admissions []PlacementAdmission,
 	discoveries []DiscoveryLocation,
 	runtime []RuntimeLocation,
 	routes []OperationRoute,
 ) error {
 	placementIDs := make(map[string]ManagedPathPlacement, len(placements))
-	placementsByTarget := make(map[placementKey]string)
-	defaultPlacements := make(map[defaultPlacementKey]string)
 	for _, placement := range placements {
 		if err := placement.validate(); err != nil {
 			return err
@@ -55,37 +54,91 @@ func validateProfileFacetCatalogs(
 			)
 		}
 		placementIDs[placement.ID()] = placement
-		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := placementKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
-			if previousID, exists := placementsByTarget[key]; exists {
+	}
+
+	placementsByTarget := make(map[placementKey]string)
+	defaultPlacements := make(map[defaultPlacementKey]string)
+	admittedPlacementIDs := make(map[string]struct{}, len(placements))
+	admissionKeys := make(map[[2]string]struct{}, len(admissions))
+	admissionGroups := make(map[defaultPlacementKey]struct{})
+	for _, admission := range admissions {
+		if err := admission.Validate(); err != nil {
+			return err
+		}
+		placement, ok := placementIDs[admission.PlacementID()]
+		if !ok {
+			return fmt.Errorf(
+				"target %q admits unknown placement %q",
+				admission.Target(),
+				admission.PlacementID(),
+			)
+		}
+		admissionKey := [2]string{string(admission.Target()), admission.PlacementID()}
+		if _, exists := admissionKeys[admissionKey]; exists {
+			return fmt.Errorf(
+				"duplicate placement admission for target %q placement %q",
+				admission.Target(),
+				admission.PlacementID(),
+			)
+		}
+		admissionKeys[admissionKey] = struct{}{}
+		admittedPlacementIDs[admission.PlacementID()] = struct{}{}
+
+		key := placementKey{
+			admission.Target(),
+			placement.ResourceKind(),
+			placement.Scope(),
+			placement.Root().String(),
+		}
+		if previousID, exists := placementsByTarget[key]; exists {
+			return fmt.Errorf(
+				"target %q %s %s path %q is claimed by placements %q and %q",
+				admission.Target(),
+				placement.ResourceKind(),
+				placement.Scope(),
+				placement.Root(),
+				previousID,
+				placement.ID(),
+			)
+		}
+		placementsByTarget[key] = placement.ID()
+		if !supportCatalog[admission.Target()][placement.ResourceKind()].Supported() {
+			return fmt.Errorf(
+				"placement %q targets unsupported %q/%q",
+				placement.ID(),
+				admission.Target(),
+				placement.ResourceKind(),
+			)
+		}
+		groupKey := defaultPlacementKey{admission.Target(), placement.ResourceKind(), placement.Scope()}
+		admissionGroups[groupKey] = struct{}{}
+		if admission.Default() {
+			if previousID, exists := defaultPlacements[groupKey]; exists {
 				return fmt.Errorf(
-					"target %q %s %s path %q is claimed by placements %q and %q",
-					selectedTarget,
+					"target %q %s %s has default placements %q and %q",
+					admission.Target(),
 					placement.ResourceKind(),
 					placement.Scope(),
-					placement.Root(),
 					previousID,
 					placement.ID(),
 				)
 			}
-			placementsByTarget[key] = placement.ID()
-			if !supportCatalog[selectedTarget][placement.ResourceKind()].Supported() {
-				return fmt.Errorf("placement %q targets unsupported %q/%q", placement.ID(), selectedTarget, placement.ResourceKind())
-			}
-			if placement.Default() {
-				defaultKey := defaultPlacementKey{selectedTarget, placement.ResourceKind(), placement.Scope()}
-				if previousID, exists := defaultPlacements[defaultKey]; exists {
-					return fmt.Errorf(
-						"target %q %s %s has default placements %q and %q",
-						selectedTarget,
-						placement.ResourceKind(),
-						placement.Scope(),
-						previousID,
-						placement.ID(),
-					)
-				}
-				defaultPlacements[defaultKey] = placement.ID()
-			}
+			defaultPlacements[groupKey] = placement.ID()
+		}
+	}
+	for groupKey := range admissionGroups {
+		if _, ok := defaultPlacements[groupKey]; !ok {
+			return fmt.Errorf(
+				"target %q %s %s has no default placement",
+				groupKey.selectedTarget,
+				groupKey.resourceKind,
+				groupKey.scope,
+			)
+		}
+	}
+	for placementID := range placementIDs {
+		if _, admitted := admittedPlacementIDs[placementID]; !admitted {
+			return fmt.Errorf("placement %q has no target admission", placementID)
 		}
 	}
 
@@ -143,11 +196,21 @@ func validateProfileFacetCatalogs(
 				return fmt.Errorf("placement %q has no %s route", placement.ID(), operation)
 			}
 		}
-		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := locationKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
-			if _, exists := discoveryKeys[key]; !exists {
-				return fmt.Errorf("placement %q has no corresponding discovery location for target %q", placement.ID(), selectedTarget)
-			}
+	}
+	for _, admission := range admissions {
+		placement := placementIDs[admission.PlacementID()]
+		key := locationKey{
+			admission.Target(),
+			placement.ResourceKind(),
+			placement.Scope(),
+			placement.Root().String(),
+		}
+		if _, exists := discoveryKeys[key]; !exists {
+			return fmt.Errorf(
+				"placement %q has no corresponding discovery location for target %q",
+				placement.ID(),
+				admission.Target(),
+			)
 		}
 	}
 	return nil
@@ -170,8 +233,19 @@ func (profile TargetProfile) validate() error {
 		}
 	}
 	for _, placement := range profile.placements {
-		if !targetSetContains(placement.consumerTargets, profile.selectedTarget) {
-			return fmt.Errorf("placement %q does not include profile target %q", placement.ID(), profile.selectedTarget)
+		admitted := false
+		for _, admission := range profile.admissions {
+			if admission.Target() == profile.selectedTarget && admission.PlacementID() == placement.ID() {
+				admitted = true
+				break
+			}
+		}
+		if !admitted {
+			return fmt.Errorf(
+				"placement %q has no admission for profile target %q",
+				placement.ID(),
+				profile.selectedTarget,
+			)
 		}
 		if !profile.Supports(placement.ResourceKind()) {
 			return fmt.Errorf("placement %q belongs to unsupported resource %q", placement.ID(), placement.ResourceKind())
@@ -180,6 +254,22 @@ func (profile TargetProfile) validate() error {
 			if _, ok := profile.OperationRoute(placement.ResourceKind(), placement.ID(), operation); !ok {
 				return fmt.Errorf("placement %q has no unique %s route in target profile", placement.ID(), operation)
 			}
+		}
+	}
+	for _, admission := range profile.admissions {
+		if admission.Target() != profile.selectedTarget {
+			return fmt.Errorf(
+				"placement admission %q belongs to target %q, not profile %q",
+				admission.PlacementID(),
+				admission.Target(),
+				profile.selectedTarget,
+			)
+		}
+		if _, ok := profile.placement(admission.PlacementID()); !ok {
+			return fmt.Errorf(
+				"placement admission %q has no placement in target profile",
+				admission.PlacementID(),
+			)
 		}
 	}
 	for _, location := range profile.discoveries {

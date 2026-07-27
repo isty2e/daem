@@ -176,7 +176,10 @@ func validateAggregateOperationRouteCatalog() error {
 
 // ManagedPathOperationRoute resolves one route independently from placement
 // data and verifies that every consumer profile selects the same contract.
-func ManagedPathOperationRoute(placement ManagedPathPlacement, operation Operation) (OperationRoute, error) {
+func ManagedPathOperationRoute(
+	placement SelectedManagedPathPlacement,
+	operation Operation,
+) (OperationRoute, error) {
 	if err := placement.validate(); err != nil {
 		return OperationRoute{}, err
 	}

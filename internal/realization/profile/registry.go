@@ -70,6 +70,18 @@ func mustManagedPathPlacement(input ManagedPathPlacementInput) ManagedPathPlacem
 	return placement
 }
 
+func mustPlacementAdmission(
+	selectedTarget target.Target,
+	placementID string,
+	defaultChoice bool,
+) PlacementAdmission {
+	admission, err := NewPlacementAdmission(selectedTarget, placementID, defaultChoice)
+	if err != nil {
+		panic(err)
+	}
+	return admission
+}
+
 func mustDiscoveryLocation(
 	selectedTarget target.Target,
 	resourceKind entity.Kind,
@@ -183,6 +195,7 @@ func validateStaticCatalog() error {
 	}
 	return validateProfileFacetCatalogs(
 		append(append([]ManagedPathPlacement(nil), instructionPlacements...), skillPlacements...),
+		append(append([]PlacementAdmission(nil), instructionPlacementAdmissions...), skillPlacementAdmissions...),
 		append(append([]DiscoveryLocation(nil), instructionDiscoveries...), skillDiscoveries...),
 		append(append([]RuntimeLocation(nil), instructionRuntimeLocations...), skillRuntimeLocations...),
 		profileOperationRoutes(),

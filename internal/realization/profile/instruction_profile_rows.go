@@ -14,46 +14,51 @@ const (
 
 var instructionPlacements = []ManagedPathPlacement{
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.project.agents", ConsumerTargets: []target.Target{
-			target.TargetCodex, target.TargetOpenCode, target.TargetPi, target.TargetAntigravityCLI,
-		}, ResourceKind: entity.KindInstructions, Scope: target.ScopeProject, Root: "AGENTS.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.project.agents", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeProject, Root: "AGENTS.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.project.claude", ConsumerTargets: []target.Target{target.TargetClaudeCode},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeProject, Root: "CLAUDE.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.project.claude", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeProject, Root: "CLAUDE.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.project.gemini", ConsumerTargets: []target.Target{target.TargetAntigravityCLI},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeProject, Root: "GEMINI.md",
-		ContentKind: realization.PathProjectionFile,
+		ID: "instructions.project.gemini", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeProject, Root: "GEMINI.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.global.codex", ConsumerTargets: []target.Target{target.TargetCodex},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeGlobal, Root: "~/.codex/AGENTS.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.global.codex", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeGlobal, Root: "~/.codex/AGENTS.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.global.claude", ConsumerTargets: []target.Target{target.TargetClaudeCode},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeGlobal, Root: "~/.claude/CLAUDE.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.global.claude", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeGlobal, Root: "~/.claude/CLAUDE.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.global.opencode", ConsumerTargets: []target.Target{target.TargetOpenCode},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeGlobal, Root: "~/.config/opencode/AGENTS.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.global.opencode", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeGlobal, Root: "~/.config/opencode/AGENTS.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.global.pi", ConsumerTargets: []target.Target{target.TargetPi},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeGlobal, Root: "~/.pi/agent/AGENTS.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.global.pi", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeGlobal, Root: "~/.pi/agent/AGENTS.md", ContentKind: realization.PathProjectionFile,
 	}),
 	mustManagedPathPlacement(ManagedPathPlacementInput{
-		ID: "instructions.global.antigravity", ConsumerTargets: []target.Target{target.TargetAntigravityCLI},
-		ResourceKind: entity.KindInstructions, Scope: target.ScopeGlobal, Root: "~/.gemini/GEMINI.md",
-		DefaultPlacement: true, ContentKind: realization.PathProjectionFile,
+		ID: "instructions.global.antigravity", ResourceKind: entity.KindInstructions,
+		Scope: target.ScopeGlobal, Root: "~/.gemini/GEMINI.md", ContentKind: realization.PathProjectionFile,
 	}),
+}
+
+var instructionPlacementAdmissions = []PlacementAdmission{
+	mustPlacementAdmission(target.TargetCodex, "instructions.project.agents", true),
+	mustPlacementAdmission(target.TargetOpenCode, "instructions.project.agents", true),
+	mustPlacementAdmission(target.TargetPi, "instructions.project.agents", true),
+	mustPlacementAdmission(target.TargetAntigravityCLI, "instructions.project.agents", true),
+	mustPlacementAdmission(target.TargetClaudeCode, "instructions.project.claude", true),
+	mustPlacementAdmission(target.TargetAntigravityCLI, "instructions.project.gemini", false),
+	mustPlacementAdmission(target.TargetCodex, "instructions.global.codex", true),
+	mustPlacementAdmission(target.TargetClaudeCode, "instructions.global.claude", true),
+	mustPlacementAdmission(target.TargetOpenCode, "instructions.global.opencode", true),
+	mustPlacementAdmission(target.TargetPi, "instructions.global.pi", true),
+	mustPlacementAdmission(target.TargetAntigravityCLI, "instructions.global.antigravity", true),
 }
 
 var instructionDiscoveries = []DiscoveryLocation{

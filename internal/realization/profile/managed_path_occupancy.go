@@ -53,7 +53,7 @@ func ValidateManagedPathOccupancy(
 
 	resourceKind := entityID.Kind()
 	if contentKind == realization.PathProjectionFile {
-		var selected ManagedPathPlacement
+		var selected SelectedManagedPathPlacement
 		for index, consumer := range consumerTargets {
 			candidate, err := ManagedFilePlacementFor(resourceKind, consumer, scope, parsedDestination)
 			if err != nil {

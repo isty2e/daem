@@ -67,7 +67,7 @@ func InstructionPathState(
 	t.Helper()
 	consumers := parseTargets(t, consumerValues)
 	scope := parseScope(t, scopeValue)
-	var placement profile.ManagedPathPlacement
+	var placement profile.SelectedManagedPathPlacement
 	for index, consumer := range consumers {
 		candidate, err := profile.ManagedFilePlacementFor(
 			entity.KindInstructions,

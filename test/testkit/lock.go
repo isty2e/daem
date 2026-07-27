@@ -299,9 +299,9 @@ func exactSupplyInstructionProjections(
 	if mode == "" {
 		mode = realization.PathProjectionCopy
 	}
-	placementsByID := make(map[string]profile.ManagedPathPlacement, len(targets))
+	placementsByID := make(map[string]profile.SelectedManagedPathPlacement, len(targets))
 	for _, consumer := range targets {
-		var placement profile.ManagedPathPlacement
+		var placement profile.SelectedManagedPathPlacement
 		destination, selected := fixture.Destinations[consumer]
 		if selected {
 			var err error

@@ -3,7 +3,6 @@ package profile
 import (
 	"fmt"
 	"maps"
-	"slices"
 	"sort"
 
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -20,6 +19,7 @@ type TargetProfile struct {
 	supports         map[entity.Kind]Support
 	realizations     map[entity.Kind]realization.RealizationKind
 	placements       []ManagedPathPlacement
+	admissions       []PlacementAdmission
 	discoveries      []DiscoveryLocation
 	runtime          []RuntimeLocation
 	operationRoutes  []OperationRoute
@@ -38,6 +38,7 @@ func Profile(selectedTarget target.Target) TargetProfile {
 		selectedTarget:   selectedTarget,
 		supports:         supports,
 		placements:       profilePlacements(selectedTarget),
+		admissions:       profilePlacementAdmissions(selectedTarget),
 		discoveries:      profileDiscoveries(selectedTarget),
 		runtime:          profileRuntimeLocations(selectedTarget),
 		operationRoutes:  profileRoutes(selectedTarget, delegatedRoutes),
@@ -88,19 +89,22 @@ func (profile TargetProfile) Placements(resourceKind entity.Kind, scope target.S
 	result := make([]ManagedPathPlacement, 0)
 	for _, placement := range profile.placements {
 		if placement.ResourceKind() == resourceKind && placement.Scope() == scope {
-			result = append(result, cloneManagedPathPlacement(placement))
+			result = append(result, placement)
 		}
 	}
 	return result
 }
 
 // DefaultPlacement returns the single default write placement for one resource and scope.
-func (profile TargetProfile) DefaultPlacement(resourceKind entity.Kind, scope target.Scope) (ManagedPathPlacement, error) {
-	placements := profile.Placements(resourceKind, scope)
+func (profile TargetProfile) DefaultPlacement(
+	resourceKind entity.Kind,
+	scope target.Scope,
+) (SelectedManagedPathPlacement, error) {
 	var selected ManagedPathPlacement
 	count := 0
-	for _, placement := range placements {
-		if !placement.Default() {
+	for _, admission := range profile.admissions {
+		placement, ok := profile.placement(admission.PlacementID())
+		if !ok || placement.ResourceKind() != resourceKind || placement.Scope() != scope || !admission.Default() {
 			continue
 		}
 		selected = placement
@@ -108,16 +112,20 @@ func (profile TargetProfile) DefaultPlacement(resourceKind entity.Kind, scope ta
 	}
 	switch count {
 	case 1:
-		return selected, nil
+		result, err := newSelectedManagedPathPlacement(selected, []target.Target{profile.selectedTarget})
+		if err != nil {
+			return SelectedManagedPathPlacement{}, err
+		}
+		return result, nil
 	case 0:
-		return ManagedPathPlacement{}, fmt.Errorf(
+		return SelectedManagedPathPlacement{}, fmt.Errorf(
 			"%s target %q scope %q has no default placement",
 			resourceKind,
 			profile.selectedTarget,
 			scope,
 		)
 	default:
-		return ManagedPathPlacement{}, fmt.Errorf(
+		return SelectedManagedPathPlacement{}, fmt.Errorf(
 			"%s target %q scope %q has multiple default placements",
 			resourceKind,
 			profile.selectedTarget,
@@ -131,7 +139,7 @@ func (profile TargetProfile) PlacementAt(
 	resourceKind entity.Kind,
 	scope target.Scope,
 	path string,
-) (ManagedPathPlacement, bool) {
+) (SelectedManagedPathPlacement, bool) {
 	var selected ManagedPathPlacement
 	count := 0
 	for _, placement := range profile.Placements(resourceKind, scope) {
@@ -140,7 +148,52 @@ func (profile TargetProfile) PlacementAt(
 			count++
 		}
 	}
-	return selected, count == 1
+	if count != 1 {
+		return SelectedManagedPathPlacement{}, false
+	}
+	result, err := newSelectedManagedPathPlacement(selected, []target.Target{profile.selectedTarget})
+	return result, err == nil
+}
+
+// PlacementAdmissions returns the target-relative placement admissions for one
+// resource and scope in stable catalog order.
+func (profile TargetProfile) PlacementAdmissions(
+	resourceKind entity.Kind,
+	scope target.Scope,
+) []PlacementAdmission {
+	result := make([]PlacementAdmission, 0)
+	for _, admission := range profile.admissions {
+		placement, ok := profile.placement(admission.PlacementID())
+		if ok && placement.ResourceKind() == resourceKind && placement.Scope() == scope {
+			result = append(result, admission)
+		}
+	}
+	return result
+}
+
+// PlacementAdmissionAt returns the target-relative admission for the exact
+// write placement at path.
+func (profile TargetProfile) PlacementAdmissionAt(
+	resourceKind entity.Kind,
+	scope target.Scope,
+	path string,
+) (PlacementAdmission, bool) {
+	for _, admission := range profile.PlacementAdmissions(resourceKind, scope) {
+		placement, ok := profile.placement(admission.PlacementID())
+		if ok && placement.Root().String() == path {
+			return admission, true
+		}
+	}
+	return PlacementAdmission{}, false
+}
+
+func (profile TargetProfile) placement(placementID string) (ManagedPathPlacement, bool) {
+	for _, placement := range profile.placements {
+		if placement.ID() == placementID {
+			return placement, true
+		}
+	}
+	return ManagedPathPlacement{}, false
 }
 
 // DiscoveryLocations returns host-visible import candidates in stable priority order.
@@ -253,12 +306,28 @@ func profileSupports(selectedTarget target.Target) map[entity.Kind]Support {
 
 func profilePlacements(selectedTarget target.Target) []ManagedPathPlacement {
 	all := append(append([]ManagedPathPlacement(nil), instructionPlacements...), skillPlacements...)
+	admitted := make(map[string]struct{})
+	for _, admission := range profilePlacementAdmissions(selectedTarget) {
+		admitted[admission.PlacementID()] = struct{}{}
+	}
 	result := make([]ManagedPathPlacement, 0)
 	for _, placement := range all {
-		if targetSetContains(placement.consumerTargets, selectedTarget) {
-			selected := cloneManagedPathPlacement(placement)
-			selected.consumerTargets = []target.Target{selectedTarget}
-			result = append(result, selected)
+		if _, ok := admitted[placement.ID()]; ok {
+			result = append(result, placement)
+		}
+	}
+	return result
+}
+
+func profilePlacementAdmissions(selectedTarget target.Target) []PlacementAdmission {
+	all := append(
+		append([]PlacementAdmission(nil), instructionPlacementAdmissions...),
+		skillPlacementAdmissions...,
+	)
+	result := make([]PlacementAdmission, 0)
+	for _, admission := range all {
+		if admission.Target() == selectedTarget {
+			result = append(result, admission)
 		}
 	}
 	return result
@@ -312,8 +381,9 @@ func profileRoutes(selectedTarget target.Target, delegated []DelegatedRouteProfi
 }
 
 func profileHasPlacement(selectedTarget target.Target, resourceKind entity.Kind, placementID string) bool {
-	for _, placement := range profilePlacements(selectedTarget) {
-		if placement.ResourceKind() == resourceKind && placement.ID() == placementID {
+	for _, admission := range profilePlacementAdmissions(selectedTarget) {
+		placement, ok := placementByID(placementID)
+		if ok && admission.PlacementID() == placementID && placement.ResourceKind() == resourceKind {
 			return true
 		}
 	}
@@ -330,11 +400,11 @@ func profileMCPPlacements(selectedTarget target.Target) []aggregate.MCPPlacement
 	return placements
 }
 
-func targetSetContains(values []target.Target, selectedTarget target.Target) bool {
-	return slices.Contains(values, selectedTarget)
-}
-
-func cloneManagedPathPlacement(placement ManagedPathPlacement) ManagedPathPlacement {
-	placement.consumerTargets = append([]target.Target(nil), placement.consumerTargets...)
-	return placement
+func placementByID(placementID string) (ManagedPathPlacement, bool) {
+	for _, placement := range append(append([]ManagedPathPlacement(nil), instructionPlacements...), skillPlacements...) {
+		if placement.ID() == placementID {
+			return placement, true
+		}
+	}
+	return ManagedPathPlacement{}, false
 }

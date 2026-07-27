@@ -26,7 +26,7 @@ func validateAdmittedSkillPathProjection(contract LockedSubjectContract) (bool, 
 	if err != nil {
 		return true, err
 	}
-	var selected profile.ManagedPathPlacement
+	var selected profile.SelectedManagedPathPlacement
 	found := false
 	for _, placement := range placements {
 		if placement.ID() == projection.PlacementID() {

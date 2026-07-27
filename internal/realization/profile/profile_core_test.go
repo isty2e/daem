@@ -26,7 +26,7 @@ func TestProfilesPreserveCurrentSupportAndRealizationMatrix(t *testing.T) {
 			}
 			for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
 				placement, err := profile.DefaultPlacement(resourceKind, scope)
-				if err != nil || !placement.Default() {
+				if err != nil || placement.ID() == "" {
 					t.Fatalf("Profile(%q).DefaultPlacement(%q, %q) = %#v, %v", selectedTarget, resourceKind, scope, placement, err)
 				}
 			}
@@ -166,6 +166,73 @@ func TestSharedPlacementsRemainOnePhysicalIdentity(t *testing.T) {
 	}
 }
 
+func TestSkillPlacementAdmissionsExposeDefaultsAndAlternatesWithoutChangingDefaults(t *testing.T) {
+	tests := []struct {
+		selectedTarget target.Target
+		scope          target.Scope
+		defaultRoot    string
+		alternateRoots []string
+	}{
+		{
+			selectedTarget: target.TargetCodex,
+			scope:          target.ScopeGlobal,
+			defaultRoot:    "~/.agents/skills",
+			alternateRoots: []string{"~/.codex/skills"},
+		},
+		{
+			selectedTarget: target.TargetOpenCode,
+			scope:          target.ScopeProject,
+			defaultRoot:    ".opencode/skills",
+			alternateRoots: []string{".agents/skills", ".claude/skills"},
+		},
+		{
+			selectedTarget: target.TargetOpenCode,
+			scope:          target.ScopeGlobal,
+			defaultRoot:    "~/.config/opencode/skills",
+			alternateRoots: []string{"~/.agents/skills", "~/.claude/skills"},
+		},
+		{
+			selectedTarget: target.TargetPi,
+			scope:          target.ScopeProject,
+			defaultRoot:    ".pi/skills",
+			alternateRoots: []string{".agents/skills"},
+		},
+		{
+			selectedTarget: target.TargetPi,
+			scope:          target.ScopeGlobal,
+			defaultRoot:    "~/.pi/agent/skills",
+			alternateRoots: []string{"~/.agents/skills"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(string(test.selectedTarget)+"/"+string(test.scope), func(t *testing.T) {
+			selectedProfile := Profile(test.selectedTarget)
+			defaultPlacement, err := selectedProfile.DefaultPlacement(entity.KindSkill, test.scope)
+			if err != nil || defaultPlacement.Root().String() != test.defaultRoot {
+				t.Fatalf("default placement = %#v, %v", defaultPlacement, err)
+			}
+			defaultAdmission, ok := selectedProfile.PlacementAdmissionAt(
+				entity.KindSkill,
+				test.scope,
+				test.defaultRoot,
+			)
+			if !ok || !defaultAdmission.Default() {
+				t.Fatalf("default admission = %#v, %t", defaultAdmission, ok)
+			}
+			for _, root := range test.alternateRoots {
+				placement, ok := selectedProfile.PlacementAt(entity.KindSkill, test.scope, root)
+				if !ok || placement.Root().String() != root {
+					t.Fatalf("alternate root %q = %#v, %t", root, placement, ok)
+				}
+				admission, ok := selectedProfile.PlacementAdmissionAt(entity.KindSkill, test.scope, root)
+				if !ok || admission.Default() {
+					t.Fatalf("alternate admission %q = %#v, %t", root, admission, ok)
+				}
+			}
+		})
+	}
+}
+
 func mustTestDiscoveryLocation(
 	t *testing.T,
 	selectedTarget target.Target,
@@ -187,9 +254,9 @@ func TestCanonicalTargetCallersRejectInvalidConsumers(t *testing.T) {
 		!strings.Contains(err.Error(), `target[0]: unknown target "future"`) {
 		t.Fatalf("ManagedPathPlacementsFor error = %v", err)
 	}
-	if _, err := NewManagedPathPlacement(ManagedPathPlacementInput{ConsumerTargets: invalid}); err == nil ||
-		!strings.Contains(err.Error(), `target[0]: unknown target "future"`) {
-		t.Fatalf("NewManagedPathPlacement error = %v", err)
+	if _, err := NewPlacementAdmission(invalid[0], "skill.project.agents", true); err == nil ||
+		!strings.Contains(err.Error(), `unknown target "future"`) {
+		t.Fatalf("NewPlacementAdmission error = %v", err)
 	}
 	if _, err := HookAssetPlacementFor(target.ScopeProject, invalid); err == nil ||
 		!strings.Contains(err.Error(), `target[0]: unknown target "future"`) {
@@ -213,10 +280,9 @@ func TestUnknownTargetProfileFailsClosed(t *testing.T) {
 func TestProfileQueriesReturnDefensiveValues(t *testing.T) {
 	profile := Profile(target.TargetOpenCode)
 	placements := profile.Placements(entity.KindSkill, target.ScopeProject)
-	targets := placements[0].ConsumerTargets()
-	targets[0] = target.TargetCodex
+	placements[0] = ManagedPathPlacement{}
 	again := profile.Placements(entity.KindSkill, target.ScopeProject)
-	if reflect.DeepEqual(targets, again[0].ConsumerTargets()) {
+	if reflect.DeepEqual(placements, again) {
 		t.Fatal("caller mutation changed profile placement")
 	}
 	route, ok := profile.DelegatedRoute("opencode-plugin")
