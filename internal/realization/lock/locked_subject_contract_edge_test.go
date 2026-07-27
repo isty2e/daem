@@ -283,6 +283,7 @@ func TestLockedSubjectContractRejectsRepairRecipeCorrelationDrift(t *testing.T) 
 		mutate func(*LockedSubjectContractInput)
 		want   string
 	}{
+		{name: "missing recipe", mutate: func(input *LockedSubjectContractInput) { input.RepairRecipe = nil }, want: "Skill deterministic derivation requires repair recipe"},
 		{name: "missing derivation", mutate: func(input *LockedSubjectContractInput) { input.Derivation = nil }, want: "requires exact Supply and deterministic derivation"},
 		{name: "direct derivation", mutate: func(input *LockedSubjectContractInput) { input.Derivation = &direct }, want: "requires deterministic derivation"},
 		{name: "recipe hash mismatch", mutate: func(input *LockedSubjectContractInput) { input.Derivation = &staleHashDerivation }, want: "does not match deterministic derivation"},

@@ -56,6 +56,13 @@ compat_repair = true
 	if skills[0].ContentHash != sourceHash {
 		t.Fatalf("locked hash = %q, want original hash %q", skills[0].ContentHash, sourceHash)
 	}
+	derivation, ok := skills[0].Contract.Derivation()
+	if !ok || derivation.Kind() != lock.DerivationDirectResolution {
+		t.Fatalf("locked derivation = %#v, present=%t, want direct resolution", derivation, ok)
+	}
+	if replay := skills[0].Contract.ReplayCoverage().Derivation(); replay != lock.ReplayNotApplicable {
+		t.Fatalf("locked derivation replay = %q, want %q", replay, lock.ReplayNotApplicable)
+	}
 
 	stdout.Reset()
 	stderr.Reset()
