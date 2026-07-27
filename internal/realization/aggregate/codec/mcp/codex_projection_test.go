@@ -36,7 +36,7 @@ func TestCodexProjectMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 }
 
 func TestCodexGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
-	projection := CodexGlobalMCPServerProjection{
+	projection := MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
@@ -114,7 +114,7 @@ model = "gpt-5-codex"
 command = "node"
 args = ["manual.js"]
 `)
-	projection := CodexGlobalMCPServerProjection{
+	projection := MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstash/context7-mcp"},
@@ -250,12 +250,12 @@ args = []`), want: MCPProjectionReasonConfigMalformed},
 func TestCodexGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 	cases := []struct {
 		name       string
-		projection CodexGlobalMCPServerProjection
+		projection MCPNoEnvServerProjection
 		want       MCPProjectionReasonCode
 	}{
 		{
 			name: "stale adapter",
-			projection: CodexGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx",
 				AdapterContract: "codex-global-mcp-stdio-command-v0",
@@ -264,7 +264,7 @@ func TestCodexGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 		},
 		{
 			name: "absolute command",
-			projection: CodexGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "/usr/bin/node",
 				AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
@@ -273,7 +273,7 @@ func TestCodexGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 		},
 		{
 			name: "invalid server id",
-			projection: CodexGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "bad/server",
 				Command:         "npx",
 				AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
@@ -282,7 +282,7 @@ func TestCodexGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 		},
 		{
 			name: "shell command",
-			projection: CodexGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx --yes",
 				AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,

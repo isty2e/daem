@@ -107,12 +107,12 @@ func ExtractCodexGlobalMCPServerProjection(existing []byte, serverID string) (Co
 	return entry, present, err
 }
 
-func ExtractCodexProjectMCPServerProjections(existing []byte) ([]CodexProjectMCPServerProjection, []MCPProjectionRejection, error) {
+func ExtractCodexProjectMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]CodexProjectMCPServerProjection, 0, len(config.servers))
+	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
 	for _, serverID := range sortedCodexMCPServerIDs(config.servers) {
 		contentPath := CodexProjectMCPContentPath(serverID)
@@ -125,7 +125,7 @@ func ExtractCodexProjectMCPServerProjections(existing []byte) ([]CodexProjectMCP
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		projections = append(projections, CodexProjectMCPServerProjection{
+		projections = append(projections, MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         entry.Command,
 			Args:            append([]string(nil), entry.Args...),
@@ -135,12 +135,12 @@ func ExtractCodexProjectMCPServerProjections(existing []byte) ([]CodexProjectMCP
 	return projections, rejections, nil
 }
 
-func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]CodexGlobalMCPServerProjection, []MCPProjectionRejection, error) {
+func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]CodexGlobalMCPServerProjection, 0, len(config.servers))
+	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
 	for _, serverID := range sortedCodexMCPServerIDs(config.servers) {
 		contentPath := CodexGlobalMCPContentPath(serverID)
@@ -153,7 +153,7 @@ func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]CodexGlobalMCPSe
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		projections = append(projections, CodexGlobalMCPServerProjection{
+		projections = append(projections, MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         entry.Command,
 			Args:            append([]string(nil), entry.Args...),

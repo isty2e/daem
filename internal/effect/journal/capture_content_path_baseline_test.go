@@ -18,7 +18,7 @@ import (
 func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "config.json")
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstream/context7"},
@@ -95,7 +95,7 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 	mutations := make([]pathMutation, 0, memberCount)
 	for index := range memberCount {
 		serverID := fmt.Sprintf("server-%03d", index)
-		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         "npx",
 			Args:            []string{"-y", "@upstream/" + serverID},

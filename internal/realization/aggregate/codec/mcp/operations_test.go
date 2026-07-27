@@ -457,7 +457,7 @@ func mustCanonicalClaudeProjectMCPServerEntry(t *testing.T, projection ClaudePro
 	return canonical
 }
 
-func mustCanonicalCodexProjectMCPServerEntry(t *testing.T, projection CodexProjectMCPServerProjection) []byte {
+func mustCanonicalCodexProjectMCPServerEntry(t *testing.T, projection MCPNoEnvServerProjection) []byte {
 	t.Helper()
 	canonical, err := CanonicalCodexProjectMCPServerEntry(projection)
 	if err != nil {

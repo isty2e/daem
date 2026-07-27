@@ -307,7 +307,7 @@ func globalClaudeRecoveryBaselineMutation(t *testing.T) pathMutation {
 
 func claudeGlobalCanonicalEntry(t *testing.T, command string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         command,
 		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,

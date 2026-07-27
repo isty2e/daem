@@ -696,7 +696,7 @@ func canonicalStatusMCPEntry(t *testing.T, serverID string, command string) []by
 
 func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -710,7 +710,7 @@ func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.OpenCodeProjectMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -724,7 +724,7 @@ func canonicalStatusOpenCodeMCPEntryWithArgs(t *testing.T, serverID string, comm
 
 func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.CodexProjectMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -738,7 +738,7 @@ func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command
 
 func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -752,7 +752,7 @@ func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),

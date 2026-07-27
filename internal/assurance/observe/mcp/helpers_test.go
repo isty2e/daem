@@ -55,7 +55,7 @@ func antigravityMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
-	projection := mcpcodec.AntigravityGlobalMCPServerProjection{
+	projection := mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstash/context7-mcp"},
@@ -75,7 +75,7 @@ func openCodeMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
-	projection := mcpcodec.OpenCodeProjectMCPServerProjection{
+	projection := mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstash/context7-mcp"},

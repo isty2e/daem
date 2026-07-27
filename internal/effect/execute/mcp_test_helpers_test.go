@@ -87,7 +87,7 @@ func (fixture mcpProjectionApplyFixture) claudeGlobalCanonicalEntry(
 ) []byte {
 	t.Helper()
 	content, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(
-		mcpcodec.ClaudeGlobalMCPServerProjection{
+		mcpcodec.MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         command,
 			Args:            []string{"-y", "@upstream/" + serverID},

@@ -55,7 +55,7 @@ func AssertClaudeGlobalMCPConfigEquivalent(
 ) {
 	t.Helper()
 	content := ReadFile(t, hostConfigPath)
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),

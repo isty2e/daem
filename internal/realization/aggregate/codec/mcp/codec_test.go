@@ -65,7 +65,7 @@ func TestValidatePersistedContributionUsesMCPCodecContract(t *testing.T) {
 	if !ok {
 		t.Fatalf("For(%q) did not return MCP codec", placement.CodecContractID())
 	}
-	canonical := mustCanonicalCodexProjectMCPServerEntry(t, CodexProjectMCPServerProjection{
+	canonical := mustCanonicalCodexProjectMCPServerEntry(t, MCPNoEnvServerProjection{
 		ServerID: "context7", Command: "npx", Args: []string{"-y", "@upstash/context7-mcp"},
 		AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 	})
@@ -186,15 +186,15 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementCodexProject)
 	placement := operations.Placement()
-	alphaCanonical := mustCanonicalCodexProjectMCPServerEntry(t, CodexProjectMCPServerProjection{
+	alphaCanonical := mustCanonicalCodexProjectMCPServerEntry(t, MCPNoEnvServerProjection{
 		ServerID: "alpha", Command: "node", Args: []string{"alpha.js"},
 		AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 	})
-	betaCanonical := mustCanonicalCodexProjectMCPServerEntry(t, CodexProjectMCPServerProjection{
+	betaCanonical := mustCanonicalCodexProjectMCPServerEntry(t, MCPNoEnvServerProjection{
 		ServerID: "beta", Command: "node", Args: []string{"beta.js"},
 		AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 	})
-	concurrentCanonical := mustCanonicalCodexProjectMCPServerEntry(t, CodexProjectMCPServerProjection{
+	concurrentCanonical := mustCanonicalCodexProjectMCPServerEntry(t, MCPNoEnvServerProjection{
 		ServerID: "concurrent", Command: "node", Args: []string{"manual.js"},
 		AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 	})

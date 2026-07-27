@@ -17,8 +17,8 @@ func validMCPProjection(serverID string) ClaudeProjectMCPServerProjection {
 	}
 }
 
-func validClaudeGlobalMCPProjection(serverID string) ClaudeGlobalMCPServerProjection {
-	return ClaudeGlobalMCPServerProjection{
+func validClaudeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
@@ -26,8 +26,8 @@ func validClaudeGlobalMCPProjection(serverID string) ClaudeGlobalMCPServerProjec
 	}
 }
 
-func validAntigravityMCPProjection(serverID string) AntigravityGlobalMCPServerProjection {
-	return AntigravityGlobalMCPServerProjection{
+func validAntigravityMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
@@ -35,8 +35,8 @@ func validAntigravityMCPProjection(serverID string) AntigravityGlobalMCPServerPr
 	}
 }
 
-func validOpenCodeMCPProjection(serverID string) OpenCodeProjectMCPServerProjection {
-	return OpenCodeProjectMCPServerProjection{
+func validOpenCodeMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
@@ -44,8 +44,8 @@ func validOpenCodeMCPProjection(serverID string) OpenCodeProjectMCPServerProject
 	}
 }
 
-func validOpenCodeGlobalMCPProjection(serverID string) OpenCodeGlobalMCPServerProjection {
-	return OpenCodeGlobalMCPServerProjection{
+func validOpenCodeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
@@ -53,8 +53,8 @@ func validOpenCodeGlobalMCPProjection(serverID string) OpenCodeGlobalMCPServerPr
 	}
 }
 
-func validCodexMCPProjection(serverID string) CodexProjectMCPServerProjection {
-	return CodexProjectMCPServerProjection{
+func validCodexMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
@@ -62,8 +62,8 @@ func validCodexMCPProjection(serverID string) CodexProjectMCPServerProjection {
 	}
 }
 
-func validCodexGlobalMCPProjection(serverID string) CodexGlobalMCPServerProjection {
-	return CodexGlobalMCPServerProjection{
+func validCodexGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
+	return MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},

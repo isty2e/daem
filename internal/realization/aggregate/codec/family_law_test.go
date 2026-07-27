@@ -259,27 +259,27 @@ func aggregateLawMCPCanonical(
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
-		canonical, err = mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
 		})
 	case aggregate.MCPPlacementAntigravityGlobal:
-		canonical, err = mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
 		})
 	case aggregate.MCPPlacementOpenCodeProject:
-		canonical, err = mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.OpenCodeProjectMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
 		})
 	case aggregate.MCPPlacementOpenCodeGlobal:
-		canonical, err = mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
 		})
 	case aggregate.MCPPlacementCodexProject:
-		canonical, err = mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.CodexProjectMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 		})
 	case aggregate.MCPPlacementCodexGlobal:
-		canonical, err = mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
+		canonical, err = mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
 		})
 	default:

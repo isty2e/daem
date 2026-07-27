@@ -121,6 +121,23 @@ func TestMCPRuntimeProbeAdmissionIsProfileOwned(t *testing.T) {
 	}
 }
 
+func TestMCPNoEnvProjectionInputsHaveOneConcreteRepresentation(t *testing.T) {
+	root := findRepoRoot(t)
+	assertProductionPackageOmits(
+		t,
+		root,
+		"internal/realization/aggregate/codec/mcp",
+		[]string{
+			"type ClaudeGlobalMCPServerProjection ",
+			"type AntigravityGlobalMCPServerProjection ",
+			"type OpenCodeProjectMCPServerProjection ",
+			"type OpenCodeGlobalMCPServerProjection ",
+			"type CodexProjectMCPServerProjection ",
+			"type CodexGlobalMCPServerProjection ",
+		},
+	)
+}
+
 func assertProductionPackageOmits(t *testing.T, root string, packagePath string, forbidden []string) {
 	t.Helper()
 	directory := filepath.Join(root, filepath.FromSlash(packagePath))

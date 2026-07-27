@@ -38,6 +38,12 @@ func CanonicalMCPBindingContribution(
 	command := stdio.Command().Name()
 	args := stdio.Args()
 	adapterContract := string(placement.CodecContractID())
+	noEnvProjection := MCPNoEnvServerProjection{
+		ServerID:        serverID,
+		Command:         command,
+		Args:            args,
+		AdapterContract: adapterContract,
+	}
 	switch placement.ID() {
 	case aggregate.MCPPlacementClaudeProject:
 		env, err := canonicalMCPBindingEnv(stdio.Env())
@@ -52,47 +58,17 @@ func CanonicalMCPBindingContribution(
 			AdapterContract: adapterContract,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
-		return CanonicalClaudeGlobalMCPServerEntry(ClaudeGlobalMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalClaudeGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementAntigravityGlobal:
-		return CanonicalAntigravityGlobalMCPServerEntry(AntigravityGlobalMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalAntigravityGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeProject:
-		return CanonicalOpenCodeProjectMCPServerEntry(OpenCodeProjectMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalOpenCodeProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeGlobal:
-		return CanonicalOpenCodeGlobalMCPServerEntry(OpenCodeGlobalMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalOpenCodeGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementCodexProject:
-		return CanonicalCodexProjectMCPServerEntry(CodexProjectMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalCodexProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementCodexGlobal:
-		return CanonicalCodexGlobalMCPServerEntry(CodexGlobalMCPServerProjection{
-			ServerID:        serverID,
-			Command:         command,
-			Args:            args,
-			AdapterContract: adapterContract,
-		})
+		return CanonicalCodexGlobalMCPServerEntry(noEnvProjection)
 	default:
 		return nil, fmt.Errorf("unsupported MCP placement %q", placement.ID())
 	}
@@ -120,7 +96,7 @@ func CanonicalClaudeProjectMCPServerEntry(projection ClaudeProjectMCPServerProje
 }
 
 // CanonicalClaudeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) ([]byte, error) {
+func CanonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalClaudeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -129,7 +105,7 @@ func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProject
 }
 
 // CanonicalAntigravityGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) ([]byte, error) {
+func CanonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -138,7 +114,7 @@ func CanonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPSer
 }
 
 // CanonicalOpenCodeProjectMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalOpenCodeProjectMCPServerEntry(projection OpenCodeProjectMCPServerProjection) ([]byte, error) {
+func CanonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalOpenCodeProjectMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -147,7 +123,7 @@ func CanonicalOpenCodeProjectMCPServerEntry(projection OpenCodeProjectMCPServerP
 }
 
 // CanonicalOpenCodeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) ([]byte, error) {
+func CanonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -156,7 +132,7 @@ func CanonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerPro
 }
 
 // CanonicalCodexProjectMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalCodexProjectMCPServerEntry(projection CodexProjectMCPServerProjection) ([]byte, error) {
+func CanonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalCodexProjectMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -165,7 +141,7 @@ func CanonicalCodexProjectMCPServerEntry(projection CodexProjectMCPServerProject
 }
 
 // CanonicalCodexGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjection) ([]byte, error) {
+func CanonicalCodexGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
 	entry, err := canonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -200,18 +176,12 @@ func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudePr
 	}, nil
 }
 
-func canonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) (ClaudeGlobalMCPServerEntry, error) {
-	if projection.AdapterContract != aggregate.ClaudeGlobalMCPStdioAdapterV1 {
-		return ClaudeGlobalMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonStaleAdapterContract,
-			projection.AdapterContract,
-			"unsupported Claude Code user/global MCP adapter contract",
-		)
-	}
-	if err := validateServerID(projection.ServerID); err != nil {
-		return ClaudeGlobalMCPServerEntry{}, err
-	}
-	if err := validatePortableMCPCommand(projection.Command); err != nil {
+func canonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (ClaudeGlobalMCPServerEntry, error) {
+	if err := validateNoEnvMCPServerProjection(
+		projection,
+		aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		"unsupported Claude Code user/global MCP adapter contract",
+	); err != nil {
 		return ClaudeGlobalMCPServerEntry{}, err
 	}
 	return ClaudeGlobalMCPServerEntry{
@@ -222,18 +192,12 @@ func canonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProject
 	}, nil
 }
 
-func canonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) (AntigravityGlobalMCPServerEntry, error) {
-	if projection.AdapterContract != aggregate.AntigravityGlobalMCPCommandAdapterV1 {
-		return AntigravityGlobalMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonStaleAdapterContract,
-			projection.AdapterContract,
-			"unsupported Antigravity CLI global MCP adapter contract",
-		)
-	}
-	if err := validateServerID(projection.ServerID); err != nil {
-		return AntigravityGlobalMCPServerEntry{}, err
-	}
-	if err := validatePortableMCPCommand(projection.Command); err != nil {
+func canonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (AntigravityGlobalMCPServerEntry, error) {
+	if err := validateNoEnvMCPServerProjection(
+		projection,
+		aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		"unsupported Antigravity CLI global MCP adapter contract",
+	); err != nil {
 		return AntigravityGlobalMCPServerEntry{}, err
 	}
 	return AntigravityGlobalMCPServerEntry{
@@ -242,70 +206,49 @@ func canonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPSer
 	}, nil
 }
 
-func canonicalOpenCodeProjectMCPServerEntry(projection OpenCodeProjectMCPServerProjection) (OpenCodeMCPServerEntry, error) {
+func canonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
 	return canonicalOpenCodeMCPServerEntry(
-		projection.ServerID,
-		projection.Command,
-		projection.Args,
-		projection.AdapterContract,
+		projection,
 		aggregate.OpenCodeProjectMCPLocalCommandV1,
 		"unsupported OpenCode project MCP adapter contract",
 	)
 }
 
-func canonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) (OpenCodeMCPServerEntry, error) {
+func canonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
 	return canonicalOpenCodeMCPServerEntry(
-		projection.ServerID,
-		projection.Command,
-		projection.Args,
-		projection.AdapterContract,
+		projection,
 		aggregate.OpenCodeGlobalMCPLocalCommandV1,
 		"unsupported OpenCode global MCP adapter contract",
 	)
 }
 
 func canonicalOpenCodeMCPServerEntry(
-	serverID string,
-	commandName string,
-	args []string,
-	adapterContract string,
+	projection MCPNoEnvServerProjection,
 	expectedAdapterContract string,
 	staleAdapterMessage string,
 ) (OpenCodeMCPServerEntry, error) {
-	if adapterContract != expectedAdapterContract {
-		return OpenCodeMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonStaleAdapterContract,
-			adapterContract,
-			staleAdapterMessage,
-		)
-	}
-	if err := validateServerID(serverID); err != nil {
+	if err := validateNoEnvMCPServerProjection(
+		projection,
+		expectedAdapterContract,
+		staleAdapterMessage,
+	); err != nil {
 		return OpenCodeMCPServerEntry{}, err
 	}
-	if err := validatePortableMCPCommand(commandName); err != nil {
-		return OpenCodeMCPServerEntry{}, err
-	}
-	command := make([]string, 0, 1+len(args))
-	command = append(command, commandName)
-	command = append(command, args...)
+	command := make([]string, 0, 1+len(projection.Args))
+	command = append(command, projection.Command)
+	command = append(command, projection.Args...)
 	return OpenCodeMCPServerEntry{
 		Type:    openCodeProjectMCPTypeLocal,
 		Command: command,
 	}, nil
 }
 
-func canonicalCodexProjectMCPServerEntry(projection CodexProjectMCPServerProjection) (CodexMCPServerEntry, error) {
-	if projection.AdapterContract != aggregate.CodexProjectMCPStdioCommandV1 {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonStaleAdapterContract,
-			projection.AdapterContract,
-			"unsupported Codex project MCP adapter contract",
-		)
-	}
-	if err := validateServerID(projection.ServerID); err != nil {
-		return CodexMCPServerEntry{}, err
-	}
-	if err := validatePortableMCPCommand(projection.Command); err != nil {
+func canonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) (CodexMCPServerEntry, error) {
+	if err := validateNoEnvMCPServerProjection(
+		projection,
+		aggregate.CodexProjectMCPStdioCommandV1,
+		"unsupported Codex project MCP adapter contract",
+	); err != nil {
 		return CodexMCPServerEntry{}, err
 	}
 	return CodexMCPServerEntry{
@@ -314,24 +257,36 @@ func canonicalCodexProjectMCPServerEntry(projection CodexProjectMCPServerProject
 	}, nil
 }
 
-func canonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjection) (CodexMCPServerEntry, error) {
-	if projection.AdapterContract != aggregate.CodexGlobalMCPStdioCommandV1 {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonStaleAdapterContract,
-			projection.AdapterContract,
-			"unsupported Codex global MCP adapter contract",
-		)
-	}
-	if err := validateServerID(projection.ServerID); err != nil {
-		return CodexMCPServerEntry{}, err
-	}
-	if err := validatePortableMCPCommand(projection.Command); err != nil {
+func canonicalCodexGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (CodexMCPServerEntry, error) {
+	if err := validateNoEnvMCPServerProjection(
+		projection,
+		aggregate.CodexGlobalMCPStdioCommandV1,
+		"unsupported Codex global MCP adapter contract",
+	); err != nil {
 		return CodexMCPServerEntry{}, err
 	}
 	return CodexMCPServerEntry{
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
 	}, nil
+}
+
+func validateNoEnvMCPServerProjection(
+	projection MCPNoEnvServerProjection,
+	expectedAdapterContract string,
+	staleAdapterMessage string,
+) error {
+	if projection.AdapterContract != expectedAdapterContract {
+		return newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			staleAdapterMessage,
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return err
+	}
+	return validatePortableMCPCommand(projection.Command)
 }
 
 func canonicalMCPEnv(values map[string]string) (map[string]string, error) {

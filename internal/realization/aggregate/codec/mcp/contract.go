@@ -98,8 +98,9 @@ type ClaudeProjectMCPServerEntry struct {
 	Env     map[string]string `json:"env"`
 }
 
-// ClaudeGlobalMCPServerProjection is the surface-owned canonical host projection input.
-type ClaudeGlobalMCPServerProjection struct {
+// MCPNoEnvServerProjection is the normalized input shared by MCP host surfaces
+// whose wire entry cannot carry environment bindings.
+type MCPNoEnvServerProjection struct {
 	ServerID        string
 	Command         string
 	Args            []string
@@ -114,56 +115,16 @@ type ClaudeGlobalMCPServerEntry struct {
 	Env     map[string]string `json:"env,omitempty"`
 }
 
-// AntigravityGlobalMCPServerProjection is the surface-owned canonical host projection input.
-type AntigravityGlobalMCPServerProjection struct {
-	ServerID        string
-	Command         string
-	Args            []string
-	AdapterContract string
-}
-
 // AntigravityGlobalMCPServerEntry is the canonical managed server entry inside ~/.gemini/config/mcp_config.json.
 type AntigravityGlobalMCPServerEntry struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
 }
 
-// OpenCodeProjectMCPServerProjection is the surface-owned canonical host projection input.
-type OpenCodeProjectMCPServerProjection struct {
-	ServerID        string
-	Command         string
-	Args            []string
-	AdapterContract string
-}
-
 // OpenCodeMCPServerEntry is the canonical managed server entry inside OpenCode config JSON.
 type OpenCodeMCPServerEntry struct {
 	Type    string   `json:"type"`
 	Command []string `json:"command"`
-}
-
-// OpenCodeGlobalMCPServerProjection is the surface-owned canonical host projection input.
-type OpenCodeGlobalMCPServerProjection struct {
-	ServerID        string
-	Command         string
-	Args            []string
-	AdapterContract string
-}
-
-// CodexProjectMCPServerProjection is the surface-owned canonical host projection input.
-type CodexProjectMCPServerProjection struct {
-	ServerID        string
-	Command         string
-	Args            []string
-	AdapterContract string
-}
-
-// CodexGlobalMCPServerProjection is the surface-owned canonical host projection input.
-type CodexGlobalMCPServerProjection struct {
-	ServerID        string
-	Command         string
-	Args            []string
-	AdapterContract string
 }
 
 // CodexMCPServerEntry is the canonical managed server entry inside Codex config TOML.

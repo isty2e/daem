@@ -293,12 +293,12 @@ func TestOpenCodeProjectMCPProjectionMergeBlocksUnsupportedSameNameEntry(t *test
 func TestOpenCodeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 	cases := []struct {
 		name       string
-		projection OpenCodeProjectMCPServerProjection
+		projection MCPNoEnvServerProjection
 		want       MCPProjectionReasonCode
 	}{
 		{
 			name: "stale adapter",
-			projection: OpenCodeProjectMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx",
 				AdapterContract: "opencode-project-mcp-local-command-v0",
@@ -307,7 +307,7 @@ func TestOpenCodeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.
 		},
 		{
 			name: "absolute command",
-			projection: OpenCodeProjectMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "/usr/bin/node",
 				AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
@@ -316,7 +316,7 @@ func TestOpenCodeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.
 		},
 		{
 			name: "invalid server id",
-			projection: OpenCodeProjectMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "bad/server",
 				Command:         "npx",
 				AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
@@ -325,7 +325,7 @@ func TestOpenCodeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.
 		},
 		{
 			name: "shell command",
-			projection: OpenCodeProjectMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx --yes",
 				AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,

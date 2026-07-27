@@ -348,7 +348,7 @@ func applyCodexMCPSelection(t *testing.T) targetselection.Selection {
 
 func applyOpenCodeMCPLockfile(t *testing.T, serverID string, command string, args []string) (lock.File, []byte) {
 	t.Helper()
-	projection := mcpcodec.OpenCodeProjectMCPServerProjection{
+	projection := mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            args,
@@ -385,7 +385,7 @@ func applyOpenCodeMCPLockfile(t *testing.T, serverID string, command string, arg
 
 func applyCodexMCPLockfile(t *testing.T, serverID string, command string, args []string) (lock.File, []byte) {
 	t.Helper()
-	projection := mcpcodec.CodexProjectMCPServerProjection{
+	projection := mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            args,

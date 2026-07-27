@@ -589,7 +589,7 @@ func aggregateMCPContract(
 ) lock.LockedSubjectContract {
 	t.Helper()
 	canonical, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(
-		mcpcodec.CodexProjectMCPServerProjection{
+		mcpcodec.MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         command,
 			Args:            append([]string(nil), args...),
