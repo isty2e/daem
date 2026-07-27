@@ -240,7 +240,7 @@ func delegatePlanFingerprint(plan realizationdelegate.DelegatePlan) delegatePlan
 	facts := delegatePlanFingerprintFacts{
 		IdentityKey: plan.IdentityKey(),
 		RunnerKind:  plan.Runner().Kind(),
-		Command:     command.Name(),
+		Command:     command.Executable(),
 		Args:        command.Args(),
 		Env:         env,
 		PinPolicy:   plan.PinPolicy(),

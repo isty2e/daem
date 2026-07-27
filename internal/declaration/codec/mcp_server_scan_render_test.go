@@ -1,6 +1,8 @@
 package codec
 
 import (
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,7 +33,9 @@ name = "later"
 		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
 	}
 	server := blocks[0].Server
-	if server.Name != "context7" || server.Command != "npx" || len(server.Args) != 2 {
+	if server.Name != "context7" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
+		len(server.Args) != 2 {
 		t.Fatalf("server = %#v, want context7 npx argv", server)
 	}
 	if server.Env["API_TOKEN"].FromEnv != "CONTEXT7_API_TOKEN" {
@@ -46,7 +50,7 @@ name = "later"
 		Targets:   []string{"claude-code"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "npx",
+		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 		Env: map[string]MCPEnvReference{
 			"ZZZ":       {FromEnv: "ZZZ_ENV"},
@@ -158,6 +162,39 @@ args = ["--stdio"]
 	}
 }
 
+func TestMCPServerScanAndRenderPreservesAbsoluteCommandPathForm(t *testing.T) {
+	absolutePath := filepath.Join(t.TempDir(), "bin with spaces", "codegraph")
+	content := []byte(`[[mcp_server]]
+name = "codegraph"
+targets = ["antigravity-cli"]
+scope = "global"
+transport = "stdio"
+command = { path = ` + strconv.Quote(absolutePath) + ` }
+args = ["serve", "--mcp"]
+`)
+
+	blocks, err := ScanMCPServerBlocks(content)
+	if err != nil {
+		t.Fatalf("ScanMCPServerBlocks returned error: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("len(blocks) = %d, want 1", len(blocks))
+	}
+	command := blocks[0].Server.Command
+	if command.Kind() != declaration.MCPCommandKindAbsolutePath ||
+		command.Value() != absolutePath {
+		t.Fatalf("command = (%d, %q), want exact absolute path", command.Kind(), command.Value())
+	}
+	rendered := RenderMCPServerBlock(blocks[0].Server)
+	want := `command = { path = ` + strconv.Quote(absolutePath) + ` }`
+	if !strings.Contains(rendered, want) {
+		t.Fatalf("rendered = %q, want %q", rendered, want)
+	}
+	if strings.Contains(rendered, `command = "`+absolutePath+`"`) {
+		t.Fatalf("rendered = %q, absolute path collapsed into portable string form", rendered)
+	}
+}
+
 func TestMCPServerEnvModelsRemainDistinctAcrossStrictAndPartialDecode(t *testing.T) {
 	content := []byte(`version = 1
 targets = ["codex"]
@@ -184,8 +221,9 @@ env = { TOKEN = { from_env = "TOKEN", future = "preserve" } }
 
 func TestMCPServerSameProjectionPayloadExcludesRelationIdentity(t *testing.T) {
 	left := MCPServer{
-		Name: "one", Targets: []string{"codex"}, Scope: "project", Transport: "stdio", Command: "npx",
-		Args: []string{"-y", "server"}, Env: map[string]MCPEnvReference{"TOKEN": {FromEnv: "TOKEN"}},
+		Name: "one", Targets: []string{"codex"}, Scope: "project", Transport: "stdio",
+		Command: declaration.NewMCPAmbientCommand("npx"),
+		Args:    []string{"-y", "server"}, Env: map[string]MCPEnvReference{"TOKEN": {FromEnv: "TOKEN"}},
 	}
 	right := left
 	right.Name = "two"

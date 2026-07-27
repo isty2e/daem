@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 func TestRenderImportManifestGolden(t *testing.T) {
@@ -53,7 +55,7 @@ func TestRenderImportManifestGolden(t *testing.T) {
 			Targets:   []string{"codex"},
 			Scope:     "global",
 			Transport: "stdio",
-			Command:   "npx",
+			Command:   declaration.NewMCPAmbientCommand("npx"),
 			Args:      []string{"-y", "@upstash/context7-mcp"},
 			Env: map[string]MCPEnvReference{
 				"TOKEN": {FromEnv: "CONTEXT7_TOKEN"},
@@ -176,7 +178,7 @@ func TestRenderImportManifestOrdersMapKeysDeterministically(t *testing.T) {
 			Targets:   []string{"codex"},
 			Scope:     "global",
 			Transport: "stdio",
-			Command:   "node",
+			Command:   declaration.NewMCPAmbientCommand("node"),
 			Env: map[string]MCPEnvReference{
 				"Z_TOKEN": {FromEnv: "Z_TOKEN"},
 				"A_TOKEN": {FromEnv: "A_TOKEN"},

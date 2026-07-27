@@ -1,10 +1,12 @@
 package delegate
 
 import (
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // RunnerKind identifies how a delegated executable request reaches code.
@@ -71,13 +73,13 @@ func (runner Runner) packageEcosystem() (PackageEcosystem, bool) {
 
 // CommandSpec is the argv command identity for a delegated executable plan.
 type CommandSpec struct {
-	name string
-	args []string
+	executable string
+	args       []string
 }
 
 // NewCommandSpec validates and constructs a command specification.
-func NewCommandSpec(name string, args []string) (CommandSpec, error) {
-	if err := validateCommandName(name); err != nil {
+func NewCommandSpec(executable string, args []string) (CommandSpec, error) {
+	if err := validateCommandExecutable(executable); err != nil {
 		return CommandSpec{}, err
 	}
 	clonedArgs := append([]string(nil), args...)
@@ -86,11 +88,11 @@ func NewCommandSpec(name string, args []string) (CommandSpec, error) {
 			return CommandSpec{}, validationError(ReasonInvalidArgument, argumentSubject(index), err.Error())
 		}
 	}
-	return CommandSpec{name: name, args: clonedArgs}, nil
+	return CommandSpec{executable: executable, args: clonedArgs}, nil
 }
 
-// Name returns the portable executable token.
-func (command CommandSpec) Name() string { return command.name }
+// Executable returns the exact delegated argv[0] value.
+func (command CommandSpec) Executable() string { return command.executable }
 
 // Args returns the delegated argv tail.
 func (command CommandSpec) Args() []string { return append([]string(nil), command.args...) }
@@ -214,24 +216,38 @@ func (ref PackageRef) Name() string { return ref.name }
 // Selector returns the optional version, tag, digest, or range selector.
 func (ref PackageRef) Selector() string { return ref.selector }
 
-func validateCommandName(name string) error {
-	if name == "" {
+func validateCommandExecutable(executable string) error {
+	if executable == "" {
 		return validationError(ReasonInvalidCommand, "command", "command name is required")
 	}
-	if strings.TrimSpace(name) != name {
-		return validationError(ReasonInvalidCommand, name, "command name must not contain leading or trailing whitespace")
+	if !utf8.ValidString(executable) {
+		return validationError(ReasonInvalidCommand, executable, "command must be valid UTF-8")
 	}
-	if strings.ContainsAny(name, `/\`) {
-		return validationError(ReasonInvalidCommand, name, "command name must be a portable token, not a path")
+	if strings.TrimSpace(executable) != executable {
+		return validationError(ReasonInvalidCommand, executable, "command must not contain leading or trailing whitespace")
 	}
-	if strings.Contains(name, ":") {
-		return validationError(ReasonInvalidCommand, name, "command name must not encode a drive, URL, or route")
+	if strings.IndexFunc(executable, func(character rune) bool {
+		return unicode.IsControl(character) || unicode.Is(unicode.Bidi_Control, character)
+	}) >= 0 {
+		return validationError(ReasonInvalidCommand, executable, "command must not contain control or bidirectional formatting characters")
 	}
-	if hasSpaceControlOrShell(name) {
-		return validationError(ReasonInvalidCommand, name, "command name contains whitespace, control, or shell metacharacters")
+	if filepath.IsAbs(executable) {
+		if filepath.Clean(executable) != executable {
+			return validationError(ReasonInvalidCommand, executable, "absolute command path must be canonical")
+		}
+		return nil
 	}
-	if strings.HasPrefix(name, ".") {
-		return validationError(ReasonInvalidCommand, name, "command name must not be relative-path-like")
+	if strings.ContainsAny(executable, `/\`) {
+		return validationError(ReasonInvalidCommand, executable, "command name must be a portable token, not a relative path")
+	}
+	if strings.Contains(executable, ":") {
+		return validationError(ReasonInvalidCommand, executable, "command name must not encode a drive, URL, or route")
+	}
+	if hasSpaceControlOrShell(executable) {
+		return validationError(ReasonInvalidCommand, executable, "command name contains whitespace, control, or shell metacharacters")
+	}
+	if strings.HasPrefix(executable, ".") {
+		return validationError(ReasonInvalidCommand, executable, "command name must not be relative-path-like")
 	}
 	return nil
 }

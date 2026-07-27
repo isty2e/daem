@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func TestServerOwnsBindingLocalTransportAndDefensiveState(t *testing.T) {
 		t.Fatalf("stdio state = %#v", stdioState)
 	}
 	otherStdioState, ok := got[1].Transport().Stdio()
-	if !ok || otherStdioState.Command().Name() != "node" || !slices.Equal(otherStdioState.Args(), []string{"server.js"}) {
+	if !ok || otherStdioState.Command().Executable() != "node" || !slices.Equal(otherStdioState.Args(), []string{"server.js"}) {
 		t.Fatalf("second stdio state = %#v", otherStdioState)
 	}
 	got[0] = Binding{}
@@ -113,6 +114,67 @@ func TestStdioTransportPreservesEmptyArgument(t *testing.T) {
 	}
 	if !slices.Equal(stdio.Args(), []string{"--label", ""}) {
 		t.Fatalf("Args = %#v, want empty argument preserved", stdio.Args())
+	}
+}
+
+func TestMCPCommandPreservesResolutionAndExactArgvZero(t *testing.T) {
+	ambient, err := NewAmbientCommand("codegraph")
+	if err != nil {
+		t.Fatalf("NewAmbientCommand returned error: %v", err)
+	}
+	if ambient.Resolution() != CommandResolutionAmbient || ambient.Executable() != "codegraph" {
+		t.Fatalf("ambient command = (%q, %q)", ambient.Resolution(), ambient.Executable())
+	}
+
+	absolutePath := filepath.Join(t.TempDir(), "bin with spaces", "codegraph;literal")
+	absolute, err := NewAbsolutePathCommand(absolutePath)
+	if err != nil {
+		t.Fatalf("NewAbsolutePathCommand returned error: %v", err)
+	}
+	if absolute.Resolution() != CommandResolutionAbsolutePath || absolute.Executable() != absolutePath {
+		t.Fatalf("absolute command = (%q, %q)", absolute.Resolution(), absolute.Executable())
+	}
+	transport, err := NewStdioTransport(absolute, []string{"serve", "--mcp"}, nil)
+	if err != nil {
+		t.Fatalf("NewStdioTransport returned error: %v", err)
+	}
+	stdio, ok := transport.Stdio()
+	if !ok || stdio.Command() != absolute {
+		t.Fatalf("stdio command = %#v, want exact absolute command", stdio.Command())
+	}
+}
+
+func TestAbsoluteMCPCommandRejectsNonCanonicalOrUnsafePaths(t *testing.T) {
+	base := t.TempDir()
+	separator := string(filepath.Separator)
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "empty", value: "", want: "required"},
+		{name: "relative", value: "bin/codegraph", want: "absolute"},
+		{name: "traversal", value: base + separator + ".." + separator + "codegraph", want: "canonical"},
+		{name: "surrounding whitespace", value: " " + filepath.Join(base, "codegraph"), want: "surrounding whitespace"},
+		{name: "control", value: filepath.Join(base, "code\ngraph"), want: "control"},
+		{name: "bidi", value: filepath.Join(base, "codegraph") + "\u202e", want: "bidirectional"},
+		{name: "invalid UTF-8", value: filepath.Join(base, string([]byte{0xff})), want: "valid UTF-8"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewAbsolutePathCommand(test.value); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("NewAbsolutePathCommand(%q) error = %v, want containing %q", test.value, err, test.want)
+			}
+		})
+	}
+
+	_, err := NewStdioTransport(Command{
+		resolution: "future",
+		executable: filepath.Join(base, "codegraph"),
+	}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown MCP command resolution") {
+		t.Fatalf("NewStdioTransport forged command error = %v", err)
 	}
 }
 

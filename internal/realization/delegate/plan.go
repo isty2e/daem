@@ -39,14 +39,14 @@ func NewDelegatePlan(spec DelegatePlanSpec) (DelegatePlan, error) {
 	if err := validateRunnerKind(spec.Runner.Kind()); err != nil {
 		return DelegatePlan{}, err
 	}
-	if err := validateCommandName(spec.Command.Name()); err != nil {
+	if err := validateCommandExecutable(spec.Command.Executable()); err != nil {
 		return DelegatePlan{}, err
 	}
 	if err := validatePinPolicy(spec.PinPolicy); err != nil {
 		return DelegatePlan{}, err
 	}
-	if expected, ok := spec.Runner.fixedCommand(); ok && spec.Command.Name() != expected {
-		return DelegatePlan{}, validationError(ReasonInvalidDelegatePlan, spec.Command.Name(), "runner requires command "+expected)
+	if expected, ok := spec.Runner.fixedCommand(); ok && spec.Command.Executable() != expected {
+		return DelegatePlan{}, validationError(ReasonInvalidDelegatePlan, spec.Command.Executable(), "runner requires command "+expected)
 	}
 
 	var packageRef PackageRef
@@ -98,7 +98,7 @@ func (plan DelegatePlan) Validate() error {
 		return err
 	}
 	if !sameDelegatePlanFacts(plan, canonical) {
-		return validationError(ReasonInvalidDelegatePlan, plan.command.Name(), "delegate plan is not canonical")
+		return validationError(ReasonInvalidDelegatePlan, plan.command.Executable(), "delegate plan is not canonical")
 	}
 	return nil
 }
@@ -116,7 +116,7 @@ func (plan DelegatePlan) CorrelatesInvocation(command CommandSpec, env EnvBindin
 	if plan.Validate() != nil {
 		return false
 	}
-	canonicalCommand, err := NewCommandSpec(command.Name(), command.Args())
+	canonicalCommand, err := NewCommandSpec(command.Executable(), command.Args())
 	if err != nil || !sameCommandFacts(command, canonicalCommand) {
 		return false
 	}
@@ -132,7 +132,7 @@ func (plan DelegatePlan) CorrelatesInvocation(command CommandSpec, env EnvBindin
 func (plan DelegatePlan) IdentityKey() string {
 	payload := identityPayload{
 		RunnerKind: plan.runner.Kind(),
-		Command:    plan.command.Name(),
+		Command:    plan.command.Executable(),
 		Args:       plan.command.Args(),
 		Env:        identityEnvBindings(plan.env.Bindings()),
 		PinPolicy:  plan.pinPolicy,
@@ -156,7 +156,7 @@ func canonicalDelegatePlan(plan DelegatePlan) (DelegatePlan, error) {
 	if err != nil {
 		return DelegatePlan{}, err
 	}
-	command, err := NewCommandSpec(plan.command.Name(), plan.command.Args())
+	command, err := NewCommandSpec(plan.command.Executable(), plan.command.Args())
 	if err != nil {
 		return DelegatePlan{}, err
 	}
@@ -198,7 +198,7 @@ func sameDelegatePlanFacts(left DelegatePlan, right DelegatePlan) bool {
 }
 
 func sameCommandFacts(left CommandSpec, right CommandSpec) bool {
-	return left.name == right.name && slices.Equal(left.args, right.args)
+	return left.executable == right.executable && slices.Equal(left.args, right.args)
 }
 
 func sameEnvBindingFacts(left EnvBindingSet, right EnvBindingSet) bool {
@@ -260,7 +260,7 @@ func validatePlanPackage(runner Runner, packageRef PackageRef, hasPackage bool, 
 	switch policy {
 	case PinNotApplicable:
 		if hasPackage || runner.Kind() == RunnerHostNative {
-			return validationError(ReasonInvalidDelegatePlan, string(policy), "pin policy is not applicable only for plain ambient executables")
+			return validationError(ReasonInvalidDelegatePlan, string(policy), "pin policy is not applicable only for plain executables")
 		}
 	case PinPinned:
 		if !hasPackage {

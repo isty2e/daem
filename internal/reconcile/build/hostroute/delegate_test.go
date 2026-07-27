@@ -42,8 +42,8 @@ func TestBuildCreatesScheduledApplyActionWithProjectionDependency(t *testing.T) 
 	assertDependency(t, action, reconciliation.DelegateDependencyProjection, record.SubjectID())
 	assertRisk(t, action, reconciliation.DelegateRiskExternalStore)
 	assertRisk(t, action, reconciliation.DelegateRiskFloatingPackage)
-	if action.Plan().Command().Name() != "npx" {
-		t.Fatalf("delegate plan command = %q, want npx", action.Plan().Command().Name())
+	if action.Plan().Command().Executable() != "npx" {
+		t.Fatalf("delegate plan command = %q, want npx", action.Plan().Command().Executable())
 	}
 }
 

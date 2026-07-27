@@ -14,7 +14,7 @@ import (
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
-// MCPExecutableRequirementChecks reports ambient executable prerequisites for selected MCP servers.
+// MCPExecutableRequirementChecks reports executable prerequisites for selected MCP servers.
 func MCPExecutableRequirementChecks(servers []desiredmcp.Server, selection targetselection.Selection) []findings.Check {
 	return mcpExecutableRequirementChecks(servers, selection, mcpExecutableEnvironment{
 		lookPath:  exec.LookPath,
@@ -53,7 +53,7 @@ func mcpExecutableRequirementChecks(
 }
 
 type mcpExecutableRequirementFacts struct {
-	command string
+	command desiredmcp.Command
 	envRefs []string
 }
 
@@ -73,10 +73,10 @@ func mcpExecutableRequirementFactsForGraph(graph topology.Graph) (mcpExecutableR
 
 	launchers := graph.LauncherDependenciesOf(projection)
 	if len(launchers) != 1 {
-		return facts, fmt.Errorf("MCP structural projection requires exactly one ambient executable launcher")
+		return facts, fmt.Errorf("MCP structural projection requires exactly one executable launcher")
 	}
 	for _, dependency := range launchers {
-		command, ok := topologymcp.ExecutableCommand(dependency)
+		command, ok := topologymcp.ExecutableReference(dependency)
 		if !ok {
 			return facts, fmt.Errorf("MCP structural projection has unsupported launcher dependency %q", dependency)
 		}
@@ -114,19 +114,32 @@ func mcpExecutableProjectionCheck(server desiredmcp.Server, binding desiredmcp.B
 func mcpExecutableCommandCheck(
 	server desiredmcp.Server,
 	binding desiredmcp.Binding,
-	command string,
+	command desiredmcp.Command,
 	lookPath func(string) (string, error),
 ) findings.Check {
-	if _, err := lookPath(command); err != nil {
+	executable := command.Executable()
+	if _, err := lookPath(executable); err != nil {
+		if command.Resolution() == desiredmcp.CommandResolutionAbsolutePath {
+			return warnCheck(
+				mcpExecutableRequirementCheckName(server, binding, "command"),
+				fmt.Sprintf("MCP executable prerequisite exact path %q is not currently executable; explicit MCP execution may fail until this path is available", executable),
+			)
+		}
 		return warnCheck(
 			mcpExecutableRequirementCheckName(server, binding, "command"),
-			fmt.Sprintf("MCP executable prerequisite command %q is not discoverable on PATH; explicit MCP execution may fail until this command is available", command),
+			fmt.Sprintf("MCP executable prerequisite command %q is not discoverable on PATH; explicit MCP execution may fail until this command is available", executable),
 		)
 	}
 
+	if command.Resolution() == desiredmcp.CommandResolutionAbsolutePath {
+		return okCheck(
+			mcpExecutableRequirementCheckName(server, binding, "command"),
+			fmt.Sprintf("MCP executable prerequisite exact path %q is currently executable", executable),
+		)
+	}
 	return okCheck(
 		mcpExecutableRequirementCheckName(server, binding, "command"),
-		fmt.Sprintf("MCP executable prerequisite command %q is discoverable on PATH", command),
+		fmt.Sprintf("MCP executable prerequisite command %q is discoverable on PATH", executable),
 	)
 }
 

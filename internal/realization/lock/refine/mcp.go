@@ -110,7 +110,7 @@ func mcpLockedSubjectContract(
 		PlacementID:          placement.ID(),
 		ServerID:             server.ID().Name(),
 		RequestedOnAbsent:    binding.OnAbsent(),
-		LauncherCommand:      stdio.Command().Name(),
+		LauncherCommand:      stdio.Command().Executable(),
 		LauncherArgs:         stdio.Args(),
 		CanonicalProjection:  string(canonical),
 		DelegatePlan:         lockedDelegatePlan,

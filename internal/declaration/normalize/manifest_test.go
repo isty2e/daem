@@ -73,8 +73,8 @@ func TestManifestBuildsHookAndInstructionAggregates(t *testing.T) {
 func TestManifestAggregatesMCPBindingsByServerIdentity(t *testing.T) {
 	raw := baseManifest(target.TargetClaudeCode, target.TargetCodex)
 	raw.MCPServers = []declaration.MCPServer{
-		{Name: "repo-tools", Targets: []string{"codex"}, Transport: "stdio", Command: "npx", Args: []string{"codex-package"}},
-		{Name: "repo-tools", Targets: []string{"claude-code"}, Transport: "stdio", Command: "uvx", Args: []string{"claude-package"}},
+		{Name: "repo-tools", Targets: []string{"codex"}, Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"), Args: []string{"codex-package"}},
+		{Name: "repo-tools", Targets: []string{"claude-code"}, Transport: "stdio", Command: declaration.NewMCPAmbientCommand("uvx"), Args: []string{"claude-package"}},
 	}
 
 	environment, err := Manifest(raw)
@@ -90,7 +90,7 @@ func TestManifestAggregatesMCPBindingsByServerIdentity(t *testing.T) {
 		t.Fatalf("bindings = %#v, want authored codex then claude-code order", bindings)
 	}
 	firstStdio, ok := bindings[0].Transport().Stdio()
-	if !ok || firstStdio.Command().Name() != "npx" || firstStdio.Args()[0] != "codex-package" {
+	if !ok || firstStdio.Command().Executable() != "npx" || firstStdio.Args()[0] != "codex-package" {
 		t.Fatalf("first transport = %#v, want ambient stdio command", bindings[0].Transport())
 	}
 }
@@ -100,7 +100,7 @@ func TestManifestRejectsNonStdioMCPTransport(t *testing.T) {
 		t.Run(transport, func(t *testing.T) {
 			raw := baseManifest(target.TargetCodex)
 			raw.MCPServers = []declaration.MCPServer{{
-				Name: "remote", Transport: transport, Command: "npx",
+				Name: "remote", Transport: transport, Command: declaration.NewMCPAmbientCommand("npx"),
 			}}
 
 			_, err := Manifest(raw)
@@ -115,7 +115,7 @@ func TestManifestMCPNormalizationDoesNotOwnPlacementAdmission(t *testing.T) {
 	raw := baseManifest(target.TargetPi)
 	raw.MCPServers = []declaration.MCPServer{{
 		Name: "portable-intent", Targets: []string{string(target.TargetPi)},
-		Scope: "project", Transport: "stdio", Command: "npx",
+		Scope: "project", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"),
 		Env: map[string]declaration.MCPEnvReference{
 			"TOKEN": {FromEnv: "UPSTREAM_TOKEN"},
 		},
@@ -137,7 +137,7 @@ func TestManifestMCPNormalizationRequiresExplicitGlobalScope(t *testing.T) {
 	raw := baseManifest(target.TargetCodex)
 	raw.Defaults.Scope = string(target.ScopeGlobal)
 	raw.MCPServers = []declaration.MCPServer{{
-		Name: "implicit-global", Transport: "stdio", Command: "npx",
+		Name: "implicit-global", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"),
 	}}
 
 	_, err := Manifest(raw)
@@ -191,7 +191,7 @@ func TestManifestRejectsMalformedCanonicalDeclarations(t *testing.T) {
 			name: "duplicate mcp binding",
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetClaudeCode)
-				server := declaration.MCPServer{Name: "same", Transport: "stdio", Command: "npx"}
+				server := declaration.MCPServer{Name: "same", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")}
 				raw.MCPServers = []declaration.MCPServer{server, server}
 				return raw
 			}(),

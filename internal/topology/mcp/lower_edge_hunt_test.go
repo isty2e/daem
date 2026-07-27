@@ -175,7 +175,7 @@ func TestDependencyIdentityEdgeHuntRejectsCrossNamespaceClassification(t *testin
 		{
 			name:       "runtime dependency with foreign namespace",
 			subject:    edgeHuntSubject(t, topology.SubjectRuntimeDependency, "env", "npx"),
-			classifier: topologymcp.ExecutableCommand,
+			classifier: executableValue,
 		},
 		{
 			name:       "credential with executable namespace",

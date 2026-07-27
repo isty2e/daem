@@ -2,7 +2,6 @@ package mcpcodec
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -35,7 +34,7 @@ func CanonicalMCPBindingContribution(
 		return nil, fmt.Errorf("unsupported MCP transport %q", binding.Transport().Kind())
 	}
 	serverID := server.ID().Name()
-	command := stdio.Command().Name()
+	command := stdio.Command().Executable()
 	args := stdio.Args()
 	adapterContract := string(placement.CodecContractID())
 	noEnvProjection := MCPNoEnvServerProjection{
@@ -160,7 +159,7 @@ func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudePr
 	if err := validateServerID(projection.ServerID); err != nil {
 		return ClaudeProjectMCPServerEntry{}, err
 	}
-	if err := validatePortableMCPCommand(projection.Command); err != nil {
+	if err := validateMCPCommand(projection.Command); err != nil {
 		return ClaudeProjectMCPServerEntry{}, err
 	}
 	args := append([]string{}, projection.Args...)
@@ -286,7 +285,7 @@ func validateNoEnvMCPServerProjection(
 	if err := validateServerID(projection.ServerID); err != nil {
 		return err
 	}
-	return validatePortableMCPCommand(projection.Command)
+	return validateMCPCommand(projection.Command)
 }
 
 func canonicalMCPEnv(values map[string]string) (map[string]string, error) {
@@ -320,22 +319,18 @@ func validateServerID(serverID string) error {
 	return nil
 }
 
-func validatePortableMCPCommand(command string) error {
-	if strings.TrimSpace(command) == "" || strings.TrimSpace(command) != command {
-		return newMCPProjectionError(
-			MCPProjectionReasonProjectionEquivalenceUndefined,
-			command,
-			"command is required and must not contain surrounding whitespace",
-		)
+func validateMCPCommand(command string) error {
+	if _, err := desiredmcp.NewAmbientCommand(command); err == nil {
+		return nil
 	}
-	if filepath.IsAbs(command) || strings.ContainsAny(command, "/\\ \t\n\r;&|$`") || !isStableMCPToken(command) {
-		return newMCPProjectionError(
-			MCPProjectionReasonProjectionEquivalenceUndefined,
-			command,
-			"command must be a portable command token",
-		)
+	if _, err := desiredmcp.NewAbsolutePathCommand(command); err == nil {
+		return nil
 	}
-	return nil
+	return newMCPProjectionError(
+		MCPProjectionReasonProjectionEquivalenceUndefined,
+		command,
+		"command must be a portable command token or canonical absolute path",
+	)
 }
 
 func validateEnvName(value string, subject string) error {

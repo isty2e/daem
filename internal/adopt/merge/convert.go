@@ -75,7 +75,7 @@ func manifestMCPServerFromImportMCPServer(server adoptmodel.MCPServer) declarati
 		Targets:   []string{string(server.Target)},
 		Scope:     string(server.Scope),
 		Transport: "stdio",
-		Command:   server.Command,
+		Command:   declaration.MCPCommandFromExecutable(server.Command),
 		Args:      append([]string(nil), server.Args...),
 		Env:       mcpServerEnvReferences(server.Env),
 	}

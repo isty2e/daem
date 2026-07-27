@@ -33,8 +33,10 @@ func TestServerLowersClaudeProjectStdioToStructuralTopology(t *testing.T) {
 		projection.String(),
 		executable.String(),
 	})
-	if command, ok := topologymcp.ExecutableCommand(executable); !ok || command != "npx" {
-		t.Fatalf("ExecutableCommand(%s) = (%q, %t)", executable, command, ok)
+	if command, ok := topologymcp.ExecutableReference(executable); !ok ||
+		command.Resolution() != desiredmcp.CommandResolutionAmbient ||
+		command.Executable() != "npx" {
+		t.Fatalf("ExecutableReference(%s) = (%#v, %t)", executable, command, ok)
 	}
 	if got := graph.DependenciesOf(projection); !reflect.DeepEqual(got, []topology.SubjectID{credential}) {
 		t.Fatalf("DependenciesOf() = %v, want credential", got)

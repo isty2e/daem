@@ -74,7 +74,7 @@ func decodeClaudeProjectMCPServerEntry(raw json.RawMessage, serverID string) (Cl
 	if err := decodeRequiredString(fields, "command", subject, &entry.Command); err != nil {
 		return ClaudeProjectMCPServerEntry{}, err
 	}
-	if err := validatePortableMCPCommand(entry.Command); err != nil {
+	if err := validateMCPCommand(entry.Command); err != nil {
 		return ClaudeProjectMCPServerEntry{}, err
 	}
 	if rawArgs, ok := fields["args"]; ok {
@@ -146,7 +146,7 @@ func decodeClaudeGlobalMCPServerEntry(raw json.RawMessage, serverID string) (Cla
 	if err := decodeRequiredString(fields, "command", subject, &entry.Command); err != nil {
 		return ClaudeGlobalMCPServerEntry{}, err
 	}
-	if err := validatePortableMCPCommand(entry.Command); err != nil {
+	if err := validateMCPCommand(entry.Command); err != nil {
 		return ClaudeGlobalMCPServerEntry{}, err
 	}
 	if rawArgs, ok := fields["args"]; ok {
@@ -207,7 +207,7 @@ func decodeAntigravityGlobalMCPServerEntry(raw json.RawMessage, serverID string)
 	if err := decodeRequiredString(fields, "command", subject, &entry.Command); err != nil {
 		return AntigravityGlobalMCPServerEntry{}, err
 	}
-	if err := validatePortableMCPCommand(entry.Command); err != nil {
+	if err := validateMCPCommand(entry.Command); err != nil {
 		return AntigravityGlobalMCPServerEntry{}, err
 	}
 	if rawArgs, ok := fields["args"]; ok {
@@ -274,7 +274,7 @@ func decodeOpenCodeProjectMCPServerEntry(raw json.RawMessage, serverID string) (
 			"command must be a non-empty JSON string array",
 		)
 	}
-	if err := validatePortableMCPCommand(entry.Command[0]); err != nil {
+	if err := validateMCPCommand(entry.Command[0]); err != nil {
 		return OpenCodeMCPServerEntry{}, err
 	}
 	return entry, nil

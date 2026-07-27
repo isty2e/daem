@@ -193,7 +193,7 @@ func PrintListResourcesJSON(output io.Writer, manifestPath string, rows []ListRo
 
 func listMCPTransportSummary(transport desiredmcp.Transport) string {
 	if stdio, ok := transport.Stdio(); ok {
-		return stdio.Command().Name()
+		return stdio.Command().Executable()
 	}
 	return ""
 }

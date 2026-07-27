@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
 )
@@ -76,6 +78,70 @@ func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
 	envRef, ok := env["CONTEXT7_API_TOKEN"]
 	if !ok || envRef.FromEnv() != "CONTEXT7_API_TOKEN" {
 		t.Fatalf("env = %#v, want CONTEXT7_API_TOKEN from_env reference", env)
+	}
+}
+
+func TestRunImportPreservesAbsoluteMCPCommandPathAndRelocksIt(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+	absolutePath := filepath.Join(tempDir, "missing executable with spaces", "codegraph")
+	testkit.WriteFile(t, tempDir, aggregate.ClaudeProjectMCPConfigPath, `{
+  "mcpServers": {
+    "codegraph": {
+      "type": "stdio",
+      "command": `+strconv.Quote(absolutePath)+`,
+      "args": ["serve", "--mcp"]
+    }
+  }
+}`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"import", "--target", "claude-code", "--manifest", outputPath},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("import exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	imported := string(testkit.ReadFile(t, outputPath))
+	wantCommand := `command = { path = ` + strconv.Quote(absolutePath) + ` }`
+	if !strings.Contains(imported, wantCommand) {
+		t.Fatalf("imported manifest = %q, want %q", imported, wantCommand)
+	}
+	server := readImportedMCPServer(t, outputPath, "codegraph")
+	stdio := testkit.AssertSingleMCPStdioBinding(
+		t,
+		server,
+		"codegraph",
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		absolutePath,
+		[]string{"serve", "--mcp"},
+	)
+	if stdio.Command().Resolution() != desiredmcp.CommandResolutionAbsolutePath {
+		t.Fatalf("imported command resolution = %q, want absolute_path", stdio.Command().Resolution())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI([]string{"lock", "--manifest", outputPath}, &stdout, &stderr)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("lock exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	if err != nil {
+		t.Fatalf("Load imported lockfile returned error: %v", err)
+	}
+	subjects := locked.Locked.Subjects()
+	if len(subjects) != 1 {
+		t.Fatalf("locked subjects = %#v, want one", subjects)
+	}
+	plan, present := subjects[0].DelegatePlan()
+	if !present || plan.Command().Executable() != absolutePath {
+		t.Fatalf("delegate plan = %#v, present=%t, want exact path %q", plan, present, absolutePath)
 	}
 }
 
@@ -334,9 +400,10 @@ func TestRunImportYesWritesAntigravityGlobalMCPManifestOnly(t *testing.T) {
 	testkit.WithWorkingDirectory(t, tempDir)
 	outputPath := filepath.Join(tempDir, "daem.imported.toml")
 	livePath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
+	absolutePath := filepath.Join(tempDir, "missing executable with spaces", "codegraph")
 	testkit.WriteFile(t, filepath.Dir(livePath), filepath.Base(livePath), `{
   "mcpServers": {
-    "context7": {"command": "npx", "args": ["-y", "@upstash/context7-mcp"]},
+    "context7": {"command": `+strconv.Quote(absolutePath)+`, "args": ["serve", "--mcp"]},
     "withHeaders": {"command": "npx", "headers": {"Authorization": "Bearer secret"}}
   }
 }
@@ -353,6 +420,7 @@ func TestRunImportYesWritesAntigravityGlobalMCPManifestOnly(t *testing.T) {
 		`target=antigravity-cli`,
 		`scope=global`,
 		`live="` + livePath + `#/mcpServers/context7"`,
+		`command=` + strconv.Quote(absolutePath),
 		`skip live="` + livePath + `#/mcpServers/withHeaders" reason=unsupported_mcp_managed_field`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
@@ -360,8 +428,25 @@ func TestRunImportYesWritesAntigravityGlobalMCPManifestOnly(t *testing.T) {
 		}
 	}
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
+	if imported := string(testkit.ReadFile(t, outputPath)); !strings.Contains(
+		imported,
+		`command = { path = `+strconv.Quote(absolutePath)+` }`,
+	) {
+		t.Fatalf("imported manifest = %q, want exact path object", imported)
+	}
 	server := readImportedMCPServer(t, outputPath, "context7")
-	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetAntigravityCLI, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
+	stdio := testkit.AssertSingleMCPStdioBinding(
+		t,
+		server,
+		"context7",
+		target.TargetAntigravityCLI,
+		target.ScopeGlobal,
+		absolutePath,
+		[]string{"serve", "--mcp"},
+	)
+	if stdio.Command().Resolution() != desiredmcp.CommandResolutionAbsolutePath {
+		t.Fatalf("command resolution = %q, want absolute_path", stdio.Command().Resolution())
+	}
 	if env := stdio.Env(); len(env) != 0 {
 		t.Fatalf("env = %#v, want none for Antigravity import", env)
 	}

@@ -333,7 +333,7 @@ func decodeCodexProjectMCPServerEntryValue(value any, serverID string) (CodexMCP
 			"command is required and must be a string",
 		)
 	}
-	if err := validatePortableMCPCommand(command); err != nil {
+	if err := validateMCPCommand(command); err != nil {
 		return CodexMCPServerEntry{}, err
 	}
 

@@ -266,7 +266,7 @@ func TestCodexGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 			name: "absolute command",
 			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
-				Command:         "/usr/bin/node",
+				Command:         "/usr/bin/../bin/node",
 				AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,

@@ -138,7 +138,7 @@ func TestClaudeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.T)
 			name: "absolute command",
 			projection: ClaudeProjectMCPServerProjection{
 				ServerID:        "context7",
-				Command:         "/usr/bin/node",
+				Command:         "/usr/bin/../bin/node",
 				AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,

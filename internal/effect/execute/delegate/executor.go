@@ -60,7 +60,7 @@ func (executor Executor) Execute(
 		LookupEnv:   executor.lookupEnv,
 		Runner:      executor.runner,
 	}).ExecuteInWorkingDirectory(ctx, subprocess.CommandAttemptRequest{
-		Command:     command.Name(),
+		Command:     command.Executable(),
 		Args:        command.Args(),
 		EnvRefs:     commandEnvRefs(plan.Env().Bindings()),
 		OutputLimit: executor.outputLimit,

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -163,7 +164,7 @@ func importManifestTables(
 			Targets:   []string{string(server.Target)},
 			Scope:     string(server.Scope),
 			Transport: "stdio",
-			Command:   server.Command,
+			Command:   declaration.MCPCommandFromExecutable(server.Command),
 			Args:      append([]string(nil), server.Args...),
 			Env:       mcpServerEnvReferences(server.Env),
 		})

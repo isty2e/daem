@@ -1,6 +1,7 @@
 package authoring
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,6 +118,23 @@ func TestMCPServerAddBehaviorDoesNotWarnForPinnedOrPlainDelegate(t *testing.T) {
 	}
 }
 
+func TestMCPServerAddBehaviorKeepsAbsolutePathSyntaxManifestOnly(t *testing.T) {
+	_, err := MCPServerFromAddRequest(
+		AddMCPServerRequest{
+			Name:    "codegraph",
+			Command: filepath.Join(t.TempDir(), "bin", "codegraph"),
+			Args:    []string{"serve", "--mcp"},
+			Targets: []string{"antigravity-cli"},
+			Scope:   "global",
+		},
+		declaration.ManifestHeader{Targets: []string{"antigravity-cli"}},
+		daempaths.ManifestOriginExplicit,
+	)
+	if err == nil || !strings.Contains(err.Error(), "portable command token") {
+		t.Fatalf("MCPServerFromAddRequest error = %v, want portable command diagnostic", err)
+	}
+}
+
 func TestMCPServerAddBehaviorRejectsDuplicateConflict(t *testing.T) {
 	original := []byte(`version = 1
 targets = ["claude-code"]
@@ -135,7 +153,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		Targets:   []string{"claude-code"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "node",
+		Command:   declaration.NewMCPAmbientCommand("node"),
 		Args:      []string{"server.js"},
 		Env:       map[string]declarationcodec.MCPEnvReference{},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
@@ -148,7 +166,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		Targets:   []string{"claude-code"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "npx",
+		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 		Env:       map[string]declarationcodec.MCPEnvReference{},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
@@ -175,7 +193,7 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		Targets:   []string{"opencode"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "node",
+		Command:   declaration.NewMCPAmbientCommand("node"),
 		Args:      []string{"server.js"},
 	}, declaration.ManifestHeader{Targets: []string{"opencode"}})
 	if err == nil || !strings.Contains(err.Error(), `duplicate mcp_server subject "opencode.project.mcp-server.context7"`) {
@@ -187,7 +205,7 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 		Targets:   []string{"opencode"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "npx",
+		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp@1.2.3"},
 	}, declaration.ManifestHeader{Targets: []string{"opencode"}})
 	if err == nil || !strings.Contains(err.Error(), `already has the selected targets`) {
@@ -213,7 +231,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		Targets:   []string{"opencode"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "npx",
+		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err != nil {
@@ -247,7 +265,7 @@ args = ["-y", "@upstash/context7-mcp"]
 		Targets:   []string{"claude-code"},
 		Scope:     "project",
 		Transport: "stdio",
-		Command:   "npx",
+		Command:   declaration.NewMCPAmbientCommand("npx"),
 		Args:      []string{"-y", "@upstash/context7-mcp"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err == nil || !strings.Contains(err.Error(), `inherits manifest targets`) {

@@ -7,9 +7,18 @@ import (
 	"strings"
 )
 
-// Command is one immutable, secret-free stdio command reference.
+// CommandResolution identifies how argv[0] is resolved.
+type CommandResolution string
+
+const (
+	CommandResolutionAmbient      CommandResolution = "ambient"
+	CommandResolutionAbsolutePath CommandResolution = "absolute_path"
+)
+
+// Command is one immutable, secret-free stdio executable reference.
 type Command struct {
-	name string
+	resolution CommandResolution
+	executable string
 }
 
 // NewAmbientCommand constructs a portable executable command reference.
@@ -17,14 +26,38 @@ func NewAmbientCommand(name string) (Command, error) {
 	if err := validatePortableCommand(name); err != nil {
 		return Command{}, err
 	}
-	return Command{name: name}, nil
+	return Command{
+		resolution: CommandResolutionAmbient,
+		executable: name,
+	}, nil
 }
 
-// Name returns the ambient executable name.
-func (command Command) Name() string { return command.name }
+// NewAbsolutePathCommand constructs an exact, machine-local executable reference.
+func NewAbsolutePathCommand(path string) (Command, error) {
+	if err := validateAbsoluteCommandPath(path); err != nil {
+		return Command{}, err
+	}
+	return Command{
+		resolution: CommandResolutionAbsolutePath,
+		executable: path,
+	}, nil
+}
+
+// Resolution returns how argv[0] is resolved.
+func (command Command) Resolution() CommandResolution { return command.resolution }
+
+// Executable returns the exact argv[0] value.
+func (command Command) Executable() string { return command.executable }
 
 func (command Command) validate() error {
-	return validatePortableCommand(command.name)
+	switch command.resolution {
+	case CommandResolutionAmbient:
+		return validatePortableCommand(command.executable)
+	case CommandResolutionAbsolutePath:
+		return validateAbsoluteCommandPath(command.executable)
+	default:
+		return fmt.Errorf("unknown MCP command resolution %q", command.resolution)
+	}
 }
 
 // EnvReference identifies an environment variable without carrying its value.

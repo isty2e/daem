@@ -116,7 +116,7 @@ func MCPServerFromAddRequest(request AddMCPServerRequest, header declaration.Man
 		Targets:   targets,
 		Scope:     scope,
 		Transport: firstSliceMCPTransport,
-		Command:   command,
+		Command:   declaration.NewMCPAmbientCommand(command),
 		Args:      append([]string(nil), request.Args...),
 		Env:       env,
 	}

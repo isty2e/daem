@@ -140,8 +140,8 @@ func validateMCPDelegatePlanCorrelation(
 		return err
 	}
 	planCommand := plan.Command()
-	if planCommand.Name() != command {
-		return fmt.Errorf("MCP delegate command %q does not match launcher command %q", planCommand.Name(), command)
+	if planCommand.Executable() != command {
+		return fmt.Errorf("MCP delegate command %q does not match launcher command %q", planCommand.Executable(), command)
 	}
 	if !slices.Equal(planCommand.Args(), args) {
 		return fmt.Errorf("MCP delegate args do not match launcher args")

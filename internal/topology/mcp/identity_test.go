@@ -3,6 +3,7 @@ package mcp_test
 import (
 	"testing"
 
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -16,7 +17,8 @@ func TestDependencyIdentityRoundTripsOnlyItsCanonicalNamespace(t *testing.T) {
 		kind      topology.SubjectKind
 		namespace string
 	}{
-		{name: "executable", construct: topologymcp.ExecutableSubject, extract: topologymcp.ExecutableCommand, value: "npx", kind: topology.SubjectRuntimeDependency, namespace: "executable"},
+		{name: "executable", construct: topologymcp.ExecutableSubject, extract: executableValue, value: "npx", kind: topology.SubjectRuntimeDependency, namespace: "executable"},
+		{name: "absolute executable", construct: topologymcp.ExecutableSubject, extract: executableValue, value: "/opt/example/bin/codegraph", kind: topology.SubjectRuntimeDependency, namespace: "executable.path"},
 		{name: "environment", construct: topologymcp.EnvironmentReferenceSubject, extract: topologymcp.EnvironmentReferenceName, value: "HOST_TOKEN", kind: topology.SubjectCredentialReference, namespace: "env"},
 	}
 
@@ -43,13 +45,35 @@ func TestDependencyIdentityRoundTripsOnlyItsCanonicalNamespace(t *testing.T) {
 	}
 }
 
+func executableValue(subject topology.SubjectID) (string, bool) {
+	command, ok := topologymcp.ExecutableReference(subject)
+	if !ok {
+		return "", false
+	}
+	return command.Executable(), true
+}
+
+func TestAbsoluteExecutableIdentityPreservesResolution(t *testing.T) {
+	const absolutePath = "/opt/example/bin/codegraph"
+	subject, err := topologymcp.ExecutableSubject(absolutePath)
+	if err != nil {
+		t.Fatalf("ExecutableSubject returned error: %v", err)
+	}
+	command, ok := topologymcp.ExecutableReference(subject)
+	if !ok ||
+		command.Resolution() != desiredmcp.CommandResolutionAbsolutePath ||
+		command.Executable() != absolutePath {
+		t.Fatalf("ExecutableReference(%s) = (%#v, %t)", subject, command, ok)
+	}
+}
+
 func TestDependencyIdentityRejectsUnsafeValues(t *testing.T) {
 	tests := []struct {
 		name      string
 		construct func(string) (topology.SubjectID, error)
 		values    []string
 	}{
-		{name: "executable", construct: topologymcp.ExecutableSubject, values: []string{"", "/bin/node", "node --flag", "node;rm"}},
+		{name: "executable", construct: topologymcp.ExecutableSubject, values: []string{"", "./bin/node", "/bin/../bin/node", "node --flag", "node;rm"}},
 		{name: "environment", construct: topologymcp.EnvironmentReferenceSubject, values: []string{"", "9TOKEN", "BAD-NAME", "TOKEN\n"}},
 	}
 

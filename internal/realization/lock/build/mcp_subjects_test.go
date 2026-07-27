@@ -64,7 +64,7 @@ func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *test
 	}
 	delegatePackage, hasDelegatePackage := delegatePlan.PackageRef()
 	if delegatePlan.Runner().Kind() != delegate.RunnerNPX ||
-		delegatePlan.Command().Name() != "npx" ||
+		delegatePlan.Command().Executable() != "npx" ||
 		delegatePlan.PinPolicy() != delegate.PinFloating ||
 		!hasDelegatePackage ||
 		delegatePackage.Ecosystem() != delegate.EcosystemNPM ||

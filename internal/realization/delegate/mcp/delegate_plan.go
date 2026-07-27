@@ -89,15 +89,15 @@ func MCPBindingDelegatePlan(server desiredmcp.Server, binding desiredmcp.Binding
 	return MCPStdioDelegatePlan(stdio)
 }
 
-// MCPStdioDelegatePlan derives portable invocation identity without deciding
+// MCPStdioDelegatePlan derives exact invocation identity without deciding
 // whether any target/scope binding admits delegated execution.
 func MCPStdioDelegatePlan(stdio desiredmcp.Stdio) (delegate.DelegatePlan, error) {
 	commandReference := stdio.Command()
-	command, err := delegate.NewCommandSpec(commandReference.Name(), stdio.Args())
+	command, err := delegate.NewCommandSpec(commandReference.Executable(), stdio.Args())
 	if err != nil {
 		return delegate.DelegatePlan{}, newMCPDelegatePlanError(
 			MCPDelegatePlanReasonInvalidCommand,
-			commandReference.Name(),
+			commandReference.Executable(),
 			"invalid MCP command argv for delegated executable plan",
 			err,
 		)
@@ -121,7 +121,7 @@ func MCPStdioDelegatePlan(stdio desiredmcp.Stdio) (delegate.DelegatePlan, error)
 	if err != nil {
 		return delegate.DelegatePlan{}, newMCPDelegatePlanError(
 			MCPDelegatePlanReasonInvalidPlan,
-			command.Name(),
+			command.Executable(),
 			"invalid delegated executable plan",
 			err,
 		)
@@ -129,7 +129,7 @@ func MCPStdioDelegatePlan(stdio desiredmcp.Stdio) (delegate.DelegatePlan, error)
 	return plan, nil
 }
 
-// MCPBindingDelegatePlanIfSupported returns the portable launcher plan when
+// MCPBindingDelegatePlanIfSupported returns the exact launcher plan when
 // the selected host surface admits one as locked desired state.
 func MCPBindingDelegatePlanIfSupported(
 	server desiredmcp.Server,
@@ -203,7 +203,7 @@ func mcpDelegateEnvBindings(env map[string]desiredmcp.EnvReference) (delegate.En
 }
 
 func mcpDelegateRunner(command delegate.CommandSpec) (delegate.Runner, *delegate.PackageRef, delegate.PinPolicy, error) {
-	switch command.Name() {
+	switch command.Executable() {
 	case "npx":
 		return packageBackedRunner(delegate.RunnerNPX, command, parseNPMDelegatePackage)
 	case "uvx":
