@@ -103,7 +103,7 @@ func isForbiddenStatefileBehaviorImport(importPath string) bool {
 }
 
 func isPresentPackage(packagePath string) bool {
-	return packagePath == "internal/cli/present"
+	return isPackageOrChild(packagePath, "internal/cli/present")
 }
 
 func isCLIPresentationChildPackage(packagePath string) bool {
@@ -115,6 +115,9 @@ func isAllowedCLIPresentationChildPackage(packagePath string) bool {
 }
 
 func isAllowedPresentWorkflowResultImport(packagePath string, importPath string) bool {
+	if packagePath == "internal/cli/present/progress" {
+		return importPath == "internal/workflow/lock"
+	}
 	if packagePath != "internal/cli/present" {
 		return false
 	}

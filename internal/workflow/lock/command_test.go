@@ -204,3 +204,17 @@ func TestLockManifestEntryLeaseConflictsWithSymlinkReplacement(t *testing.T) {
 		t.Fatalf("Acquire error = %v, want manifest entry cancellation", err)
 	}
 }
+
+func TestProgressEventSinkKeepsNilAndPanicSemantics(t *testing.T) {
+	var nilSink ProgressEventSink
+	nilSink.emit(ProgressEvent{Kind: "ignored"})
+
+	defer func() {
+		if recovered := recover(); recovered != "sink panic" {
+			t.Fatalf("recovered = %#v, want sink panic", recovered)
+		}
+	}()
+	ProgressEventSink(func(ProgressEvent) {
+		panic("sink panic")
+	}).emit(ProgressEvent{Kind: "resource_locked"})
+}

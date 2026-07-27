@@ -338,6 +338,31 @@ func TestStatefileMayConsumeCanonicalRelationSummariesButNotRelationAdapters(t *
 	}
 }
 
+func TestProgressPresentationMayConsumeOnlyLockWorkflowFacts(t *testing.T) {
+	if violations := analyzeImports(
+		"internal/cli/present/progress",
+		[]string{"example.com/project/internal/workflow/lock"},
+	); containsFindingRule(violations, rulePresentWorkflowImport) {
+		t.Fatalf("lock workflow fact import violations = %+v", violations)
+	}
+
+	for _, importPath := range []string{
+		"example.com/project/internal/workflow/apply",
+		"example.com/project/internal/workflow/lock/generate",
+		"example.com/project/internal/workflow/status",
+	} {
+		violations := analyzeImports("internal/cli/present/progress", []string{importPath})
+		if !containsFindingRule(violations, rulePresentWorkflowImport) {
+			t.Fatalf(
+				"progress workflow import %q violations = %+v, want %q",
+				importPath,
+				violations,
+				rulePresentWorkflowImport,
+			)
+		}
+	}
+}
+
 func TestLockGenerateBoundaryAllowsFrozenDependencies(t *testing.T) {
 	for _, importPath := range []string{
 		"example.com/project/internal/supply/artifact",
