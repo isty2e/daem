@@ -2,6 +2,7 @@ package refine
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/skill"
@@ -95,5 +96,125 @@ func TestSkillProjectionIdentitySurvivesConsumerAndInstallNameChanges(t *testing
 	renamedProjection, _ := renamedRealization.ManagedPathProjection()
 	if renamedProjection.Destination().String() != ".agents/skills/review" {
 		t.Fatalf("renamed destination = %q", renamedProjection.Destination())
+	}
+}
+
+func TestSkillProjectionLoweringSelectsExplicitAdmittedRoot(t *testing.T) {
+	placement, err := skill.NewTargetPlacement(target.ScopeProject, ".agents/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := desiredtest.Skill(t, skill.Spec{
+		Name: "oracle", Source: sourcetest.Local(t, "skills/oracle", source.LocalSourceModeVendor),
+		Targets:    []target.Target{target.TargetOpenCode},
+		Placements: map[target.Target]skill.TargetPlacement{target.TargetOpenCode: placement},
+		Scope:      target.ScopeProject, InstallMode: skill.InstallModeCopy,
+	})
+
+	contracts, err := SkillPathProjections(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(contracts) != 1 || contracts[0].SubjectID().Namespace() != "skill.project.agents" {
+		t.Fatalf("contracts = %#v, want agents placement", contracts)
+	}
+	spec, _ := contracts[0].Realization()
+	projection, _ := spec.ManagedPathProjection()
+	if projection.Destination().String() != ".agents/skills/oracle" ||
+		!reflect.DeepEqual(projection.ConsumerTargets(), []target.Target{target.TargetOpenCode}) {
+		t.Fatalf("projection = %#v", projection)
+	}
+}
+
+func TestSkillProjectionLoweringTreatsExplicitDefaultLikeOmission(t *testing.T) {
+	base := skill.Spec{
+		Name: "oracle", Source: sourcetest.Local(t, "skills/oracle", source.LocalSourceModeVendor),
+		Targets: []target.Target{target.TargetOpenCode},
+		Scope:   target.ScopeProject, InstallMode: skill.InstallModeCopy,
+	}
+	omitted := desiredtest.Skill(t, base)
+
+	explicitDefault, err := skill.NewTargetPlacement(target.ScopeProject, ".opencode/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.Placements = map[target.Target]skill.TargetPlacement{
+		target.TargetOpenCode: explicitDefault,
+	}
+	explicit := desiredtest.Skill(t, base)
+
+	omittedContracts, err := SkillPathProjections(omitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitContracts, err := SkillPathProjections(explicit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(omittedContracts) != 1 || len(explicitContracts) != 1 ||
+		!omittedContracts[0].Equal(explicitContracts[0]) {
+		t.Fatalf("omitted=%#v explicit=%#v", omittedContracts, explicitContracts)
+	}
+}
+
+func TestSkillProjectionLoweringCoalescesOnlySharedSelectedRoots(t *testing.T) {
+	sharedRoot, err := skill.NewTargetPlacement(target.ScopeProject, ".agents/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := desiredtest.Skill(t, skill.Spec{
+		Name: "oracle", Source: sourcetest.Local(t, "skills/oracle", source.LocalSourceModeVendor),
+		Targets: []target.Target{target.TargetCodex, target.TargetOpenCode},
+		Placements: map[target.Target]skill.TargetPlacement{
+			target.TargetOpenCode: sharedRoot,
+		},
+		Scope: target.ScopeProject, InstallMode: skill.InstallModeCopy,
+	})
+	sharedContracts, err := SkillPathProjections(shared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sharedContracts) != 1 {
+		t.Fatalf("shared contracts = %#v", sharedContracts)
+	}
+
+	splitRoot, err := skill.NewTargetPlacement(target.ScopeProject, ".claude/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	splitSpec := skill.Spec{
+		Name: "oracle", Source: sourcetest.Local(t, "skills/oracle", source.LocalSourceModeVendor),
+		Targets: []target.Target{target.TargetCodex, target.TargetOpenCode},
+		Placements: map[target.Target]skill.TargetPlacement{
+			target.TargetOpenCode: splitRoot,
+		},
+		Scope: target.ScopeProject, InstallMode: skill.InstallModeCopy,
+	}
+	splitContracts, err := SkillPathProjections(desiredtest.Skill(t, splitSpec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(splitContracts) != 2 {
+		t.Fatalf("split contracts = %#v", splitContracts)
+	}
+}
+
+func TestSkillProjectionLoweringRejectsUnadmittedExplicitRoot(t *testing.T) {
+	unadmitted, err := skill.NewTargetPlacement(target.ScopeProject, ".pi/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := desiredtest.Skill(t, skill.Spec{
+		Name: "oracle", Source: sourcetest.Local(t, "skills/oracle", source.LocalSourceModeVendor),
+		Targets:    []target.Target{target.TargetOpenCode},
+		Placements: map[target.Target]skill.TargetPlacement{target.TargetOpenCode: unadmitted},
+		Scope:      target.ScopeProject, InstallMode: skill.InstallModeCopy,
+	})
+
+	_, err = SkillPathProjections(value)
+	if err == nil ||
+		!strings.Contains(err.Error(), `placement ".pi/skills" is not admitted`) ||
+		!strings.Contains(err.Error(), `.agents/skills, .claude/skills, .opencode/skills`) {
+		t.Fatalf("SkillPathProjections error = %v", err)
 	}
 }

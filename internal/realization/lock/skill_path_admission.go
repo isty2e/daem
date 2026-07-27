@@ -18,25 +18,14 @@ func validateAdmittedSkillPathProjection(contract LockedSubjectContract) (bool, 
 		return false, nil
 	}
 
-	placements, err := profile.ManagedPathPlacementsFor(
+	selected, err := profile.ManagedPathPlacementForConsumers(
 		entity.KindSkill,
 		projection.Scope(),
+		projection.PlacementID(),
 		projection.ConsumerTargets(),
 	)
 	if err != nil {
 		return true, err
-	}
-	var selected profile.SelectedManagedPathPlacement
-	found := false
-	for _, placement := range placements {
-		if placement.ID() == projection.PlacementID() {
-			selected = placement
-			found = true
-			break
-		}
-	}
-	if !found {
-		return true, fmt.Errorf("Skill path projection placement %q is not selected by its consumers", projection.PlacementID())
 	}
 	if _, err := selected.ChildName(projection.Destination()); err != nil {
 		return true, fmt.Errorf("Skill path projection destination: %w", err)

@@ -233,6 +233,109 @@ func TestSkillPlacementAdmissionsExposeDefaultsAndAlternatesWithoutChangingDefau
 	}
 }
 
+func TestManagedPathPlacementSelectionsRespectPerTargetAdmissions(t *testing.T) {
+	defaults, err := ManagedPathPlacementsFor(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetOpenCode},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicitDefault, err := ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetOpenCode},
+		map[target.Target]string{target.TargetOpenCode: ".opencode/skills"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(defaults, explicitDefault) {
+		t.Fatalf("explicit default changed selection: default=%#v explicit=%#v", defaults, explicitDefault)
+	}
+
+	shared, err := ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetCodex, target.TargetOpenCode},
+		map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(shared) != 1 || shared[0].ID() != "skill.project.agents" {
+		t.Fatalf("shared selection = %#v", shared)
+	}
+	wantConsumers := []target.Target{target.TargetCodex, target.TargetOpenCode}
+	if !reflect.DeepEqual(shared[0].ConsumerTargets(), wantConsumers) {
+		t.Fatalf("shared consumers = %#v, want %#v", shared[0].ConsumerTargets(), wantConsumers)
+	}
+
+	split, err := ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetCodex, target.TargetOpenCode},
+		map[target.Target]string{target.TargetOpenCode: ".claude/skills"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(split) != 2 || split[0].ID() != "skill.project.agents" || split[1].ID() != "skill.project.claude" {
+		t.Fatalf("split selection = %#v", split)
+	}
+}
+
+func TestManagedPathPlacementSelectionsRejectCrossTargetAuthority(t *testing.T) {
+	_, err := ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetCodex},
+		map[target.Target]string{target.TargetCodex: ".claude/skills"},
+	)
+	if err == nil ||
+		!strings.Contains(err.Error(), `target "codex"`) ||
+		!strings.Contains(err.Error(), `placement ".claude/skills" is not admitted`) ||
+		!strings.Contains(err.Error(), `admitted roots: .agents/skills`) {
+		t.Fatalf("selection error = %v", err)
+	}
+
+	_, err = ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{target.TargetCodex},
+		map[target.Target]string{target.TargetOpenCode: ".agents/skills"},
+	)
+	if err == nil || !strings.Contains(err.Error(), `target "opencode" is not a consumer`) {
+		t.Fatalf("extraneous selection error = %v", err)
+	}
+}
+
+func TestManagedPathPlacementForConsumersRevalidatesExactIdentity(t *testing.T) {
+	selected, err := ManagedPathPlacementForConsumers(
+		entity.KindSkill,
+		target.ScopeProject,
+		"skill.project.agents",
+		[]target.Target{target.TargetPi, target.TargetCodex, target.TargetOpenCode},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantConsumers := []target.Target{target.TargetCodex, target.TargetOpenCode, target.TargetPi}
+	if !reflect.DeepEqual(selected.ConsumerTargets(), wantConsumers) {
+		t.Fatalf("consumers = %#v, want %#v", selected.ConsumerTargets(), wantConsumers)
+	}
+
+	if _, err := ManagedPathPlacementForConsumers(
+		entity.KindSkill,
+		target.ScopeProject,
+		"skill.project.opencode",
+		[]target.Target{target.TargetCodex},
+	); err == nil || !strings.Contains(err.Error(), "is not selected by its consumers") {
+		t.Fatalf("cross-target identity error = %v", err)
+	}
+}
+
 func mustTestDiscoveryLocation(
 	t *testing.T,
 	selectedTarget target.Target,

@@ -3,6 +3,7 @@ package reconcile
 import (
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/output"
@@ -10,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 // ManagedPathDecisionKind is the closed reconciliation result for one physical
@@ -314,4 +316,71 @@ func (decision ManagedPathDecision) MutatesHost() bool {
 
 func (decision ManagedPathDecision) MutatesState() bool {
 	return decision.Kind().MutatesState()
+}
+
+func validateManagedPathDecision(decision ManagedPathDecision) error {
+	variants := 0
+	for _, present := range []bool{
+		decision.create != nil,
+		decision.replace != nil,
+		decision.remove != nil,
+		decision.record != nil,
+		decision.noOp != nil,
+		decision.blocked != nil,
+	} {
+		if present {
+			variants++
+		}
+	}
+	if variants != 1 {
+		return fmt.Errorf("requires exactly one variant, got %d", variants)
+	}
+
+	facts := decision.facts()
+	if err := facts.subject.Validate(); err != nil {
+		return fmt.Errorf("subject: %w", err)
+	}
+	if facts.subject.Kind() != topology.SubjectProjection {
+		return fmt.Errorf("subject %q is not a projection", facts.subject)
+	}
+	if _, err := target.ParseScope(string(facts.scope)); err != nil {
+		return fmt.Errorf("scope: %w", err)
+	}
+	if err := facts.destination.ValidateScope(facts.scope); err != nil {
+		return fmt.Errorf("destination: %w", err)
+	}
+	if len(facts.consumerTargets) == 0 && facts.previous == nil {
+		return fmt.Errorf("requires a current consumer target or previous managed state")
+	}
+	seenTargets := make(map[target.Target]struct{}, len(facts.consumerTargets))
+	for index, consumer := range facts.consumerTargets {
+		parsed, err := target.ParseTarget(string(consumer))
+		if err != nil {
+			return fmt.Errorf("consumer target[%d]: %w", index, err)
+		}
+		if _, duplicate := seenTargets[parsed]; duplicate {
+			return fmt.Errorf("duplicate consumer target %q", parsed)
+		}
+		seenTargets[parsed] = struct{}{}
+	}
+	if facts.previous != nil && facts.previous.Subject() != facts.subject {
+		if decision.Kind() != ManagedPathReplace && decision.Kind() != ManagedPathBlocked {
+			return fmt.Errorf("cross-subject previous state requires a replace or blocked decision")
+		}
+		currentEntity, currentEntityBacked := topologyprojection.EntityID(facts.subject)
+		previousEntity, previousEntityBacked := topologyprojection.EntityID(facts.previous.Subject())
+		if !currentEntityBacked || !previousEntityBacked || currentEntity != previousEntity {
+			return fmt.Errorf("cross-subject previous state must belong to the same entity")
+		}
+		if facts.previous.Scope() == facts.scope && facts.previous.Destination() == facts.destination {
+			return fmt.Errorf("cross-subject previous state requires a physical relocation")
+		}
+		if facts.previous.ContentKind() != facts.contentKind {
+			return fmt.Errorf("cross-subject previous state content kind does not match")
+		}
+		if !slices.Equal(facts.previous.ConsumerTargets(), facts.consumerTargets) {
+			return fmt.Errorf("cross-subject previous state consumers do not match")
+		}
+	}
+	return nil
 }

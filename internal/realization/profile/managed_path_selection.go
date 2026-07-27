@@ -3,6 +3,7 @@ package profile
 import (
 	"fmt"
 	"path"
+	"slices"
 	"sort"
 	"strings"
 
@@ -47,6 +48,17 @@ func ManagedPathPlacementsFor(
 	scope target.Scope,
 	targets []target.Target,
 ) ([]SelectedManagedPathPlacement, error) {
+	return ManagedPathPlacementsForSelections(resourceKind, scope, targets, nil)
+}
+
+// ManagedPathPlacementsForSelections selects and coalesces one admitted
+// placement per target. Missing selection entries use that target's default.
+func ManagedPathPlacementsForSelections(
+	resourceKind entity.Kind,
+	scope target.Scope,
+	targets []target.Target,
+	requestedRoots map[target.Target]string,
+) ([]SelectedManagedPathPlacement, error) {
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return nil, err
 	}
@@ -57,13 +69,41 @@ func ManagedPathPlacementsFor(
 	if len(canonicalTargets) == 0 {
 		return nil, fmt.Errorf("managed path placement requires at least one target")
 	}
+	for requestedTarget := range requestedRoots {
+		parsedTarget, err := target.ParseTarget(string(requestedTarget))
+		if err != nil {
+			return nil, fmt.Errorf("managed path placement selection target %q: %w", requestedTarget, err)
+		}
+		if !slices.Contains(canonicalTargets, parsedTarget) {
+			return nil, fmt.Errorf(
+				"managed path placement selection target %q is not a consumer",
+				requestedTarget,
+			)
+		}
+	}
 
 	placements := make(map[string]SelectedManagedPathPlacement, len(canonicalTargets))
 	placementIDsByAddress := make(map[managedPathPlacementAddress]string, len(canonicalTargets))
 	for _, selectedTarget := range canonicalTargets {
-		candidate, err := Profile(selectedTarget).DefaultPlacement(resourceKind, scope)
+		selectedProfile := Profile(selectedTarget)
+		requestedRoot, explicit := requestedRoots[selectedTarget]
+		candidate, err := selectedProfile.DefaultPlacement(resourceKind, scope)
 		if err != nil {
 			return nil, err
+		}
+		if explicit {
+			selected, admitted := selectedProfile.PlacementAt(resourceKind, scope, requestedRoot)
+			if !admitted {
+				return nil, fmt.Errorf(
+					"%s target %q scope %q placement %q is not admitted; admitted roots: %s",
+					resourceKind,
+					selectedTarget,
+					scope,
+					requestedRoot,
+					strings.Join(managedPathPlacementRoots(selectedProfile, resourceKind, scope), ", "),
+				)
+			}
+			candidate = selected
 		}
 		if err := candidate.validate(); err != nil {
 			return nil, fmt.Errorf("target %q %s placement: %w", selectedTarget, resourceKind, err)
@@ -80,6 +120,84 @@ func ManagedPathPlacementsFor(
 	}
 	sort.Slice(result, func(left int, right int) bool { return result[left].ID() < result[right].ID() })
 	return result, nil
+}
+
+// ManagedPathPlacementForConsumers selects one exact persisted placement only
+// when every consumer target currently admits that placement identity.
+func ManagedPathPlacementForConsumers(
+	resourceKind entity.Kind,
+	scope target.Scope,
+	placementID string,
+	consumerTargets []target.Target,
+) (SelectedManagedPathPlacement, error) {
+	if _, err := target.ParseScope(string(scope)); err != nil {
+		return SelectedManagedPathPlacement{}, err
+	}
+	canonicalTargets, err := target.CanonicalSet(consumerTargets)
+	if err != nil {
+		return SelectedManagedPathPlacement{}, fmt.Errorf("managed path placement consumers: %w", err)
+	}
+	if len(canonicalTargets) == 0 {
+		return SelectedManagedPathPlacement{}, fmt.Errorf("managed path placement requires at least one consumer")
+	}
+
+	var selected SelectedManagedPathPlacement
+	for index, consumer := range canonicalTargets {
+		candidate, admitted := Profile(consumer).placementByID(resourceKind, scope, placementID)
+		if !admitted {
+			return SelectedManagedPathPlacement{}, fmt.Errorf(
+				"%s placement %q is not selected by its consumers: target %q scope %q does not admit it",
+				resourceKind,
+				placementID,
+				consumer,
+				scope,
+			)
+		}
+		if index == 0 {
+			selected = candidate
+			continue
+		}
+		selected, err = MergeManagedPathPlacements(selected, candidate)
+		if err != nil {
+			return SelectedManagedPathPlacement{}, err
+		}
+	}
+	return selected, nil
+}
+
+func (profile TargetProfile) placementByID(
+	resourceKind entity.Kind,
+	scope target.Scope,
+	placementID string,
+) (SelectedManagedPathPlacement, bool) {
+	var selected ManagedPathPlacement
+	matches := 0
+	for _, placement := range profile.Placements(resourceKind, scope) {
+		if placement.ID() != placementID {
+			continue
+		}
+		selected = placement
+		matches++
+	}
+	if matches != 1 {
+		return SelectedManagedPathPlacement{}, false
+	}
+	result, err := newSelectedManagedPathPlacement(selected, []target.Target{profile.selectedTarget})
+	return result, err == nil
+}
+
+func managedPathPlacementRoots(
+	profile TargetProfile,
+	resourceKind entity.Kind,
+	scope target.Scope,
+) []string {
+	placements := profile.Placements(resourceKind, scope)
+	roots := make([]string, 0, len(placements))
+	for _, placement := range placements {
+		roots = append(roots, placement.Root().String())
+	}
+	sort.Strings(roots)
+	return roots
 }
 
 // MergeManagedPathPlacements coalesces consumers only when both values name

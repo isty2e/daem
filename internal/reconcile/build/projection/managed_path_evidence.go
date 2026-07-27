@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
 type managedPathEvidenceKey struct {
@@ -45,6 +46,69 @@ func managedPathStateIndex(values []durable.ManagedPathState) (map[topology.Subj
 		result[value.Subject()] = value
 	}
 	return result, nil
+}
+
+func managedPathRelocationStates(
+	expectations []ManagedPathExpectation,
+	expectationIndex map[topology.SubjectID]ManagedPathExpectation,
+	states map[topology.SubjectID]durable.ManagedPathState,
+	selection map[target.Target]struct{},
+) (
+	map[topology.SubjectID]durable.ManagedPathState,
+	map[topology.SubjectID]struct{},
+	error,
+) {
+	relocations := make(map[topology.SubjectID]durable.ManagedPathState)
+	consumed := make(map[topology.SubjectID]struct{})
+	for _, expectation := range expectations {
+		facts := expectation.decisionInput()
+		if _, exact := states[facts.Subject]; exact {
+			continue
+		}
+		selectedConsumers := selectedManagedPathConsumers(facts.ConsumerTargets, selection)
+		if len(selectedConsumers) == 0 {
+			continue
+		}
+		expectedEntity, entityBacked := topologyprojection.EntityID(facts.Subject)
+		if !entityBacked {
+			continue
+		}
+
+		var candidate durable.ManagedPathState
+		candidateCount := 0
+		for previousSubject, state := range states {
+			if _, alreadyConsumed := consumed[previousSubject]; alreadyConsumed {
+				continue
+			}
+			if _, stillDesired := expectationIndex[previousSubject]; stillDesired {
+				continue
+			}
+			previousEntity, previousEntityBacked := topologyprojection.EntityID(previousSubject)
+			if !previousEntityBacked || previousEntity != expectedEntity {
+				continue
+			}
+			if state.ContentKind() != facts.ContentKind ||
+				!sameManagedPathConsumers(state.ConsumerTargets(), selectedConsumers) {
+				continue
+			}
+			if state.Scope() == facts.Scope && state.Destination() == facts.Destination {
+				continue
+			}
+			candidate = state
+			candidateCount++
+		}
+		if candidateCount > 1 {
+			return nil, nil, fmt.Errorf(
+				"managed path subject %q has multiple eligible relocation states",
+				facts.Subject,
+			)
+		}
+		if candidateCount == 1 {
+			relocations[facts.Subject] = candidate
+			consumed[candidate.Subject()] = struct{}{}
+		}
+	}
+	return relocations, consumed, nil
 }
 
 func managedPathAddressConflicts(

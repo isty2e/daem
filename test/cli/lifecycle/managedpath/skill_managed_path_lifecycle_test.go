@@ -203,6 +203,153 @@ func TestManagedSkillScopeRelocationAcquiresAndReleasesGlobalOwnership(t *testin
 	testkit.AssertNoRecoveryArtifacts(t, root)
 }
 
+func TestManagedSkillAdmittedRootSelectionRelocatesWithinScope(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	statefilePath := filepath.Join(root, ".daem", "state.json")
+	testkit.WriteFile(t, root, "skills/oracle/SKILL.md", "---\nname: oracle\ndescription: oracle\n---\n")
+	skillHash := testkit.HashDirectory(t, filepath.Join(root, "skills", "oracle"))
+	defaultPath := filepath.Join(root, ".opencode", "skills", "oracle")
+	alternatePath := filepath.Join(root, ".agents", "skills", "oracle")
+
+	writeManagedSkillManifestWithPlacement(t, root, "", false)
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
+	if got := testkit.HashDirectory(t, defaultPath); got != skillHash {
+		t.Fatalf("default Skill hash=%q, want %q", got, skillHash)
+	}
+
+	writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", false)
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+	stateBefore, err := os.ReadFile(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
+	if exitCode != 0 || stderr != "" ||
+		!strings.Contains(stdout, "dry-run: 1 actions") ||
+		!strings.Contains(stdout, `destination=".agents/skills/oracle"`) ||
+		!strings.Contains(stdout, `detail="managed destination changed"`) {
+		t.Fatalf("relocation dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	if got := testkit.HashDirectory(t, defaultPath); got != skillHash {
+		t.Fatalf("dry-run changed default Skill hash=%q, want %q", got, skillHash)
+	}
+	if _, err := os.Stat(alternatePath); !os.IsNotExist(err) {
+		t.Fatalf("dry-run created alternate Skill path: %v", err)
+	}
+	stateAfterDryRun, err := os.ReadFile(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stateAfterDryRun, stateBefore) {
+		t.Fatal("dry-run changed managed state")
+	}
+
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("alternate relocation left default Skill path: %v", err)
+	}
+	if got := testkit.HashDirectory(t, alternatePath); got != skillHash {
+		t.Fatalf("alternate Skill hash=%q, want %q", got, skillHash)
+	}
+	state, err := statefile.Load(t.Context(), statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testkit.AssertSkillPathState(t, state, "oracle", "opencode", "project", ".agents/skills/oracle", skillHash)
+
+	writeManagedSkillManifestWithPlacement(t, root, "", false)
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
+	if _, err := os.Stat(alternatePath); !os.IsNotExist(err) {
+		t.Fatalf("default relocation left alternate Skill path: %v", err)
+	}
+	if got := testkit.HashDirectory(t, defaultPath); got != skillHash {
+		t.Fatalf("restored default Skill hash=%q, want %q", got, skillHash)
+	}
+	testkit.AssertNoRecoveryArtifacts(t, root)
+}
+
+func TestManagedSkillAdmittedRootRelocationRejectsOccupiedDestinationAndChangedSource(t *testing.T) {
+	t.Run("occupied destination", func(t *testing.T) {
+		root := prepareOpenCodePlacementProject(t)
+		manifestPath := filepath.Join(root, "daem.toml")
+		defaultPath := filepath.Join(root, ".opencode", "skills", "oracle")
+		alternatePath := filepath.Join(root, ".agents", "skills", "oracle")
+		skillHash := testkit.HashDirectory(t, defaultPath)
+
+		writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", false)
+		assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+		testkit.WriteFile(t, root, ".agents/skills/oracle/foreign.txt", "foreign\n")
+
+		stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
+		if exitCode != 1 || stderr != "" || !strings.Contains(stdout, "reason=unmanaged_output_exists") {
+			t.Fatalf("occupied relocation exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		if got := testkit.HashDirectory(t, defaultPath); got != skillHash {
+			t.Fatalf("occupied relocation changed source hash=%q, want %q", got, skillHash)
+		}
+		testkit.AssertFileContent(t, filepath.Join(alternatePath, "foreign.txt"), "foreign\n")
+	})
+
+	t.Run("changed old output", func(t *testing.T) {
+		root := prepareOpenCodePlacementProject(t)
+		manifestPath := filepath.Join(root, "daem.toml")
+		defaultPath := filepath.Join(root, ".opencode", "skills", "oracle")
+		alternatePath := filepath.Join(root, ".agents", "skills", "oracle")
+		testkit.WriteFile(t, root, ".opencode/skills/oracle/SKILL.md", "externally changed\n")
+
+		writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", false)
+		assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+		stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
+		if exitCode != 1 || stderr != "" || !strings.Contains(stdout, "reason=drifted_output") {
+			t.Fatalf("drifted relocation exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		testkit.AssertFileContent(t, filepath.Join(defaultPath, "SKILL.md"), "externally changed\n")
+		if _, err := os.Stat(alternatePath); !os.IsNotExist(err) {
+			t.Fatalf("drifted relocation created alternate path: %v", err)
+		}
+	})
+
+	t.Run("missing old output", func(t *testing.T) {
+		root := prepareOpenCodePlacementProject(t)
+		manifestPath := filepath.Join(root, "daem.toml")
+		defaultPath := filepath.Join(root, ".opencode", "skills", "oracle")
+		alternatePath := filepath.Join(root, ".agents", "skills", "oracle")
+		if err := os.RemoveAll(defaultPath); err != nil {
+			t.Fatal(err)
+		}
+
+		writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", false)
+		assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+		stdout, stderr, exitCode := runManagedSkillCLI("apply", "--manifest", manifestPath, "--dry-run")
+		if exitCode != 1 || stderr != "" || !strings.Contains(stdout, "reason=drifted_output") {
+			t.Fatalf("missing-old relocation exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		if _, err := os.Stat(alternatePath); !os.IsNotExist(err) {
+			t.Fatalf("missing-old relocation created alternate path: %v", err)
+		}
+	})
+}
+
+func TestManagedSkillGroupInheritsAdmittedRootSelection(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	testkit.WriteFile(t, root, "skills/oracle/SKILL.md", "---\nname: oracle\ndescription: oracle\n---\n")
+	writeManagedSkillManifestWithPlacement(t, root, ".agents/skills", true)
+
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
+	wantHash := testkit.HashDirectory(t, filepath.Join(root, "skills", "oracle"))
+	if got := testkit.HashDirectory(t, filepath.Join(root, ".agents", "skills", "oracle")); got != wantHash {
+		t.Fatalf("group-selected Skill hash=%q, want %q", got, wantHash)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".opencode", "skills", "oracle")); !os.IsNotExist(err) {
+		t.Fatalf("group selection also wrote default path: %v", err)
+	}
+}
+
 func TestManagedSkillUnsupportedPlacementFailsBeforeMutation(t *testing.T) {
 	for _, mode := range []string{"symlink", "hardlink"} {
 		t.Run(mode, func(t *testing.T) {
@@ -409,6 +556,41 @@ func writeManagedSkillManifestWithScope(t *testing.T, root string, scope string)
 		"version = 1\ntargets = [\"codex\"]\n\n[[skill]]\nname = \"oracle\"\nsource = { path = %q, mode = \"vendor\" }\ntargets = [\"codex\"]\nscope = %q\n",
 		sourcePath, scope,
 	))
+}
+
+func prepareOpenCodePlacementProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	testkit.WriteFile(t, root, "skills/oracle/SKILL.md", "---\nname: oracle\ndescription: oracle\n---\n")
+	writeManagedSkillManifestWithPlacement(t, root, "", false)
+	manifestPath := filepath.Join(root, "daem.toml")
+	assertManagedSkillCLI(t, 0, "lock", "--manifest", manifestPath)
+	assertManagedSkillCLI(t, 0, "apply", "--manifest", manifestPath, "--yes")
+	return root
+}
+
+func writeManagedSkillManifestWithPlacement(t *testing.T, root string, installTo string, group bool) {
+	t.Helper()
+	kind := "skill"
+	declaration := `[[skill]]
+name = "oracle"
+source = { path = "skills/oracle", mode = "vendor" }`
+	if group {
+		kind = "skill_group"
+		declaration = `[[skill_group]]
+names = ["oracle"]
+source = { path = "skills", mode = "vendor" }`
+	}
+	content := "version = 1\ntargets = [\"opencode\"]\n\n" +
+		declaration + "\ntargets = [\"opencode\"]\nscope = \"project\"\n"
+	if installTo != "" {
+		content += fmt.Sprintf(
+			"\n[%s.target.opencode]\ninstall_to = %q\n",
+			kind,
+			installTo,
+		)
+	}
+	testkit.WriteFile(t, root, "daem.toml", content)
 }
 
 func assertManagedSkillCLI(t *testing.T, wantExit int, args ...string) {

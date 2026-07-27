@@ -373,54 +373,6 @@ func compareManagedPathDecisionIdentity(left ManagedPathDecision, right ManagedP
 	}
 }
 
-func validateManagedPathDecision(decision ManagedPathDecision) error {
-	variants := 0
-	for _, present := range []bool{
-		decision.create != nil,
-		decision.replace != nil,
-		decision.remove != nil,
-		decision.record != nil,
-		decision.noOp != nil,
-		decision.blocked != nil,
-	} {
-		if present {
-			variants++
-		}
-	}
-	if variants != 1 {
-		return fmt.Errorf("requires exactly one variant, got %d", variants)
-	}
-
-	facts := decision.facts()
-	if err := facts.subject.Validate(); err != nil {
-		return fmt.Errorf("subject: %w", err)
-	}
-	if facts.subject.Kind() != topology.SubjectProjection {
-		return fmt.Errorf("subject %q is not a projection", facts.subject)
-	}
-	if _, err := target.ParseScope(string(facts.scope)); err != nil {
-		return fmt.Errorf("scope: %w", err)
-	}
-	if err := facts.destination.ValidateScope(facts.scope); err != nil {
-		return fmt.Errorf("destination: %w", err)
-	}
-	if len(facts.consumerTargets) == 0 && facts.previous == nil {
-		return fmt.Errorf("requires a current consumer target or previous managed state")
-	}
-	seenTargets := make(map[target.Target]struct{}, len(facts.consumerTargets))
-	for index, consumer := range facts.consumerTargets {
-		parsed, err := target.ParseTarget(string(consumer))
-		if err != nil {
-			return fmt.Errorf("consumer target[%d]: %w", index, err)
-		}
-		if _, duplicate := seenTargets[parsed]; duplicate {
-			return fmt.Errorf("duplicate consumer target %q", parsed)
-		}
-		seenTargets[parsed] = struct{}{}
-	}
-	return nil
-}
-
 func validateAggregateDecision(decision AggregateDecision) error {
 	if err := validateAggregateDecisionKind(decision.kind); err != nil {
 		return err

@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -78,6 +79,124 @@ func TestManagedPathEffectRejectsPreviousStateFromAnotherSubject(t *testing.T) {
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
 	if err := effect.validate(); err == nil || !strings.Contains(err.Error(), "subject") {
 		t.Fatalf("cross-subject validation error = %v, want rejection", err)
+	}
+}
+
+func TestManagedPathEffectCorrelatesExactCrossPlacementRelocation(t *testing.T) {
+	previous := testManagedPathEffectStateAt(
+		t,
+		"oracle",
+		"skill.project.opencode",
+		[]target.Target{target.TargetOpenCode},
+		outputtest.Parse(t, ".opencode/skills/oracle"),
+	)
+	nextSubject := testManagedPathEffectSubject(t, "oracle", "skill.project.agents")
+	facts := managedPathEffectFacts{
+		subject:          nextSubject,
+		consumerTargets:  previous.ConsumerTargets(),
+		scope:            previous.Scope(),
+		destination:      outputtest.Parse(t, ".agents/skills/oracle"),
+		desiredHash:      testArtifactHash("new"),
+		contentKind:      previous.ContentKind(),
+		permissionPolicy: previous.PermissionPolicy(),
+		previous:         &previous,
+	}
+	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
+
+	if err := effect.validate(); err != nil {
+		t.Fatalf("cross-placement relocation validation: %v", err)
+	}
+	mutations, err := managedPathJournalMutations([]ManagedPathEffect{effect})
+	if err != nil {
+		t.Fatalf("managedPathJournalMutations returned error: %v", err)
+	}
+	if len(mutations) != 2 {
+		t.Fatalf("relocation journal mutation count = %d, want create plus remove", len(mutations))
+	}
+
+	current, err := durable.NewSnapshot(durable.SnapshotInput{
+		ManagedPaths: []durable.ManagedPathState{previous},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot returned error: %v", err)
+	}
+	next, err := snapshotAfterManagedPathEffects(current, []ManagedPathEffect{effect})
+	if err != nil {
+		t.Fatalf("snapshotAfterManagedPathEffects returned error: %v", err)
+	}
+	states := next.ManagedPaths()
+	if len(states) != 1 {
+		t.Fatalf("managed path state count = %d, want 1", len(states))
+	}
+	if states[0].Subject() != nextSubject {
+		t.Fatalf("managed path subject = %q, want %q", states[0].Subject(), nextSubject)
+	}
+	if states[0].Destination() != facts.destination {
+		t.Fatalf("managed path destination = %q, want %q", states[0].Destination(), facts.destination)
+	}
+	if states[0].ContentHash() != facts.desiredHash {
+		t.Fatalf("managed path content hash = %q, want %q", states[0].ContentHash(), facts.desiredHash)
+	}
+}
+
+func TestManagedPathEffectRejectsInexactCrossPlacementRelocation(t *testing.T) {
+	previous := testManagedPathEffectStateAt(
+		t,
+		"oracle",
+		"skill.project.opencode",
+		[]target.Target{target.TargetOpenCode},
+		outputtest.Parse(t, ".opencode/skills/oracle"),
+	)
+	base := managedPathEffectFacts{
+		subject:          testManagedPathEffectSubject(t, "oracle", "skill.project.agents"),
+		consumerTargets:  previous.ConsumerTargets(),
+		scope:            previous.Scope(),
+		destination:      outputtest.Parse(t, ".agents/skills/oracle"),
+		desiredHash:      testArtifactHash("new"),
+		contentKind:      previous.ContentKind(),
+		permissionPolicy: previous.PermissionPolicy(),
+		previous:         &previous,
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*managedPathEffectFacts)
+	}{
+		{
+			name: "different entity",
+			mutate: func(facts *managedPathEffectFacts) {
+				facts.subject = testManagedPathEffectSubject(t, "review", "skill.project.agents")
+			},
+		},
+		{
+			name: "different consumers",
+			mutate: func(facts *managedPathEffectFacts) {
+				facts.consumerTargets = []target.Target{target.TargetCodex}
+			},
+		},
+		{
+			name: "same physical location",
+			mutate: func(facts *managedPathEffectFacts) {
+				facts.destination = previous.Destination()
+			},
+		},
+		{
+			name: "different content kind",
+			mutate: func(facts *managedPathEffectFacts) {
+				facts.contentKind = realization.PathProjectionFile
+				facts.permissionPolicy = realization.PathPermissionsExact
+				facts.desiredFileMode = 0o600
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			facts := base
+			test.mutate(&facts)
+			effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: facts}}
+			if err := effect.validate(); err == nil || !strings.Contains(err.Error(), "relocation") {
+				t.Fatalf("cross-placement validation error = %v, want exact-correlation rejection", err)
+			}
+		})
 	}
 }
 
@@ -326,17 +445,27 @@ func testExactManagedPathEffectState(t *testing.T) durable.ManagedPathState {
 
 func testManagedPathEffectState(t *testing.T, name string, destination output.Destination) durable.ManagedPathState {
 	t.Helper()
-	id, err := entity.New(entity.KindSkill, name)
-	if err != nil {
-		t.Fatalf("entity.New returned error: %v", err)
-	}
-	subject, err := topologyprojection.Subject(id, "skill.project.agents")
-	if err != nil {
-		t.Fatalf("projection.Subject returned error: %v", err)
-	}
+	return testManagedPathEffectStateAt(
+		t,
+		name,
+		"skill.project.agents",
+		[]target.Target{target.TargetCodex},
+		destination,
+	)
+}
+
+func testManagedPathEffectStateAt(
+	t *testing.T,
+	name string,
+	placementID string,
+	consumers []target.Target,
+	destination output.Destination,
+) durable.ManagedPathState {
+	t.Helper()
+	subject := testManagedPathEffectSubject(t, name, placementID)
 	state, err := durable.NewManagedPathState(
 		subject,
-		[]target.Target{target.TargetCodex},
+		consumers,
 		target.ScopeProject,
 		destination,
 		testArtifactHash("old"),
@@ -348,4 +477,17 @@ func testManagedPathEffectState(t *testing.T, name string, destination output.De
 		t.Fatalf("NewManagedPathState returned error: %v", err)
 	}
 	return state
+}
+
+func testManagedPathEffectSubject(t *testing.T, name string, placementID string) topology.SubjectID {
+	t.Helper()
+	id, err := entity.New(entity.KindSkill, name)
+	if err != nil {
+		t.Fatalf("entity.New returned error: %v", err)
+	}
+	subject, err := topologyprojection.Subject(id, placementID)
+	if err != nil {
+		t.Fatalf("projection.Subject returned error: %v", err)
+	}
+	return subject
 }
