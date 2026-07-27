@@ -19,6 +19,7 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -254,7 +255,7 @@ func validateAdmittedLockedSubject(contract lock.LockedSubjectContract, serverNa
 	if contribution.Target() != selectedTarget || contribution.Scope() != selectedScope {
 		return fmt.Errorf("locked MCP subject %q target/scope = %s/%s, want %s/%s", subject.Key(), contribution.Target(), contribution.Scope(), selectedTarget, selectedScope)
 	}
-	placement, operations, ok := runtimeProbePlacementOperations(subject)
+	placement, _, ok := runtimeProbePlacementCapability(subject)
 	if !ok {
 		return fmt.Errorf(
 			"locked subject %s/%s %q is not admitted for runtime probe",
@@ -267,7 +268,7 @@ func validateAdmittedLockedSubject(contract lock.LockedSubjectContract, serverNa
 	if err != nil {
 		return fmt.Errorf("locked MCP subject %q projection: %w", subject.Key(), err)
 	}
-	if !contribution.Equal(expected) || !operations.SupportsRuntimeProbe() {
+	if !contribution.Equal(expected) {
 		return fmt.Errorf(
 			"locked MCP subject %q projection identity does not match admitted runtime-probe adapter",
 			subject.Key(),
@@ -286,7 +287,7 @@ func probeRequestFromLockedLaunchIdentity(contract lock.LockedSubjectContract) (
 	if !ok {
 		return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q is not a managed aggregate contribution", subject.Key())
 	}
-	_, operations, ok := runtimeProbePlacementOperations(subject)
+	placement, capability, ok := runtimeProbePlacementCapability(subject)
 	if !ok {
 		return runtimeprobemcp.ProbeRequest{}, fmt.Errorf(
 			"locked subject %s/%s %q is not admitted for runtime probe",
@@ -295,11 +296,14 @@ func probeRequestFromLockedLaunchIdentity(contract lock.LockedSubjectContract) (
 			subject.Key(),
 		)
 	}
-	command, args, env, err := operations.RuntimeProbeLaunch(contribution.CanonicalContribution())
+	command, args, env, err := mcpcodec.DecodeRuntimeProbeLaunch(
+		placement.ID(),
+		contribution.CanonicalContribution(),
+	)
 	if err != nil {
 		return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("decode locked MCP projection for %q: %w", subject.Key(), err)
 	}
-	if operations.RuntimeProbeRequiresDelegatePlan() {
+	if capability.RequiresDelegatePlan() {
 		plan, present := contract.DelegatePlan()
 		if !present {
 			return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q is missing locked launch identity", subject.Key())
@@ -341,8 +345,9 @@ func validateRuntimeProbeBinding(binding desiredmcp.Binding) error {
 	if err != nil {
 		return err
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(placement.ID())
-	if !ok || !operations.SupportsRuntimeProbe() {
+	if _, ok := profile.Profile(binding.Target()).MCPRuntimeProbeCapability(
+		placement.ID(),
+	); !ok {
 		return fmt.Errorf(
 			"target=%s scope=%s is not admitted for runtime probe",
 			binding.Target(),
@@ -352,23 +357,25 @@ func validateRuntimeProbeBinding(binding desiredmcp.Binding) error {
 	return nil
 }
 
-func runtimeProbePlacementOperations(
+func runtimeProbePlacementCapability(
 	subject topology.SubjectID,
-) (aggregate.MCPPlacement, mcpcodec.MCPPlacementOperations, bool) {
+) (aggregate.MCPPlacement, profile.MCPRuntimeProbeCapability, bool) {
 	placement, ok := aggregate.MCPPlacementForSubject(subject)
 	if !ok {
-		return aggregate.MCPPlacement{}, mcpcodec.MCPPlacementOperations{}, false
+		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(placement.ID())
-	if !ok || !operations.SupportsRuntimeProbe() {
-		return aggregate.MCPPlacement{}, mcpcodec.MCPPlacementOperations{}, false
+	capability, ok := profile.Profile(placement.Target()).MCPRuntimeProbeCapability(
+		placement.ID(),
+	)
+	if !ok {
+		return aggregate.MCPPlacement{}, profile.MCPRuntimeProbeCapability{}, false
 	}
-	return placement, operations, true
+	return placement, capability, true
 }
 
 func runtimeProbeTargetSupported(selectedTarget target.Target) bool {
-	for _, placement := range mcpcodec.RuntimeProbePlacements() {
-		if placement.Target() == selectedTarget {
+	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
+		if capability.Placement().Target() == selectedTarget {
 			return true
 		}
 	}
@@ -376,8 +383,8 @@ func runtimeProbeTargetSupported(selectedTarget target.Target) bool {
 }
 
 func runtimeProbeScopeSupported(selectedScope target.Scope) bool {
-	for _, placement := range mcpcodec.RuntimeProbePlacements() {
-		if placement.Scope() == selectedScope {
+	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
+		if capability.Placement().Scope() == selectedScope {
 			return true
 		}
 	}
@@ -387,8 +394,8 @@ func runtimeProbeScopeSupported(selectedScope target.Scope) bool {
 func runtimeProbeTargetValues() []string {
 	values := make([]string, 0)
 	seen := make(map[target.Target]struct{})
-	for _, placement := range mcpcodec.RuntimeProbePlacements() {
-		value := placement.Target()
+	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
+		value := capability.Placement().Target()
 		if _, duplicate := seen[value]; duplicate {
 			continue
 		}
@@ -401,8 +408,8 @@ func runtimeProbeTargetValues() []string {
 func runtimeProbeScopeValues() []string {
 	values := make([]string, 0)
 	seen := make(map[target.Scope]struct{})
-	for _, placement := range mcpcodec.RuntimeProbePlacements() {
-		value := placement.Scope()
+	for _, capability := range profile.MCPRuntimeProbeCapabilities() {
+		value := capability.Placement().Scope()
 		if _, duplicate := seen[value]; duplicate {
 			continue
 		}

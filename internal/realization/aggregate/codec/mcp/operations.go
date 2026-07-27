@@ -3,7 +3,6 @@ package mcpcodec
 import (
 	"bytes"
 	"fmt"
-	"maps"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -87,8 +86,6 @@ type MCPPlacementOperations struct {
 	compareCanonicalEntry func([]byte, string, []byte) (MCPProjectionCanonicalComparison, error)
 	entryPresent          func([]byte, string) (bool, error)
 	parentPresent         func([]byte) (bool, error)
-	runtimeProbeLaunch    func(string) (string, []string, map[string]string, error)
-	probeRequiresDelegate bool
 }
 
 type mcpPlacementOperationsInput struct {
@@ -104,8 +101,6 @@ type mcpPlacementOperationsInput struct {
 	compareCanonicalEntry func([]byte, string, []byte) (MCPProjectionCanonicalComparison, error)
 	entryPresent          func([]byte, string) (bool, error)
 	parentPresent         func([]byte) (bool, error)
-	runtimeProbeLaunch    func(string) (string, []string, map[string]string, error)
-	probeRequiresDelegate bool
 }
 
 var implementedMCPPlacementOperationCatalog []MCPPlacementOperations
@@ -124,8 +119,6 @@ func newMCPPlacementOperations(input mcpPlacementOperationsInput) (MCPPlacementO
 		compareCanonicalEntry: input.compareCanonicalEntry,
 		entryPresent:          input.entryPresent,
 		parentPresent:         input.parentPresent,
-		runtimeProbeLaunch:    input.runtimeProbeLaunch,
-		probeRequiresDelegate: input.probeRequiresDelegate,
 	}
 	if err := operations.validate(); err != nil {
 		return MCPPlacementOperations{}, err
@@ -169,9 +162,6 @@ func (operations MCPPlacementOperations) validate() error {
 	}
 	if operations.parentPresent == nil {
 		return fmt.Errorf("MCP placement operations %q parent-present operation is required", operations.placement.ID())
-	}
-	if operations.probeRequiresDelegate && operations.runtimeProbeLaunch == nil {
-		return fmt.Errorf("MCP placement operations %q require a delegate plan without a runtime-probe launch operation", operations.placement.ID())
 	}
 	return nil
 }
@@ -266,38 +256,6 @@ func (operations MCPPlacementOperations) ParentPresent(existing []byte) (bool, e
 	return operations.parentPresent(existing)
 }
 
-// SupportsRuntimeProbe reports whether this placement can lower its canonical
-// projection into a launch/initialize probe without host config reinspection.
-func (operations MCPPlacementOperations) SupportsRuntimeProbe() bool {
-	return operations.runtimeProbeLaunch != nil
-}
-
-// RuntimeProbeRequiresDelegatePlan reports whether the locked launch identity
-// must independently agree with the canonical projection before probing.
-func (operations MCPPlacementOperations) RuntimeProbeRequiresDelegatePlan() bool {
-	return operations.probeRequiresDelegate
-}
-
-// RuntimeProbeLaunch lowers the placement's canonical projection into
-// secret-free executable launch facts.
-func (operations MCPPlacementOperations) RuntimeProbeLaunch(
-	canonicalProjection string,
-) (string, []string, map[string]string, error) {
-	if operations.runtimeProbeLaunch == nil {
-		return "", nil, nil, fmt.Errorf(
-			"MCP placement %q does not support runtime probes",
-			operations.placement.ID(),
-		)
-	}
-	command, args, env, err := operations.runtimeProbeLaunch(canonicalProjection)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	clonedEnv := make(map[string]string, len(env))
-	maps.Copy(clonedEnv, env)
-	return command, append([]string(nil), args...), clonedEnv, nil
-}
-
 // ImplementedMCPPlacementOperationsForID returns the implemented operation row for id.
 func ImplementedMCPPlacementOperationsForID(id aggregate.MCPPlacementID) (MCPPlacementOperations, bool) {
 	for _, operations := range implementedMCPPlacementOperationCatalog {
@@ -318,18 +276,6 @@ func ImplementedMCPPlacementOperationsForCodecContract(codecContractID aggregate
 	return MCPPlacementOperations{}, false
 }
 
-// RuntimeProbePlacements returns placements whose concrete codec operation row
-// can lower an explicit launch/initialize probe.
-func RuntimeProbePlacements() []aggregate.MCPPlacement {
-	placements := make([]aggregate.MCPPlacement, 0)
-	for _, operations := range implementedMCPPlacementOperationCatalog {
-		if operations.SupportsRuntimeProbe() {
-			placements = append(placements, operations.Placement())
-		}
-	}
-	return placements
-}
-
 func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 	return []MCPPlacementOperations{
 		mustMCPPlacementOperations(aggregate.MCPPlacementClaudeProject, mcpPlacementOperationsInput{
@@ -344,8 +290,6 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			compareCanonicalEntry: compareClaudeProjectMCPServerCanonicalEntry,
 			entryPresent:          claudeProjectMCPServerEntryPresent,
 			parentPresent:         claudeProjectMCPServersParentPresent,
-			runtimeProbeLaunch:    claudeProjectMCPRuntimeProbeLaunch,
-			probeRequiresDelegate: true,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementClaudeGlobal, mcpPlacementOperationsInput{
 			foldMutations:         foldClaudeGlobalMCPProjectionMutations,
@@ -385,7 +329,6 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			compareCanonicalEntry: compareOpenCodeProjectMCPServerCanonicalEntry,
 			entryPresent:          openCodeProjectMCPServerEntryPresent,
 			parentPresent:         openCodeProjectMCPServersParentPresent,
-			runtimeProbeLaunch:    openCodeProjectMCPRuntimeProbeLaunch,
 		}),
 		mustMCPPlacementOperations(aggregate.MCPPlacementOpenCodeGlobal, mcpPlacementOperationsInput{
 			foldMutations:         foldOpenCodeGlobalMCPProjectionMutations,

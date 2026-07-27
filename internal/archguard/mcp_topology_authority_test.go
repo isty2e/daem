@@ -79,6 +79,48 @@ func TestMCPPlacementCatalogOwnsTargetSpecificAdmissionPolicy(t *testing.T) {
 	}
 }
 
+func TestMCPRuntimeProbeAdmissionIsProfileOwned(t *testing.T) {
+	root := findRepoRoot(t)
+	assertProductionPackageOmits(
+		t,
+		root,
+		"internal/realization/aggregate/codec/mcp",
+		[]string{
+			"SupportsRuntimeProbe",
+			"RuntimeProbeRequiresDelegatePlan",
+			"probeRequiresDelegate",
+		},
+	)
+	assertProductionPackageOmits(
+		t,
+		root,
+		"internal/realization/aggregate/codec",
+		[]string{"MCPRuntimeProbePlacements"},
+	)
+
+	commandPath := filepath.Join(root, "internal", "workflow", "probe", "command.go")
+	content, err := os.ReadFile(commandPath)
+	if err != nil {
+		t.Fatalf("read MCP runtime-probe workflow: %v", err)
+	}
+	source := string(content)
+	if !strings.Contains(source, "MCPRuntimeProbeCapability") {
+		t.Fatal("MCP runtime-probe workflow does not consume the profile capability")
+	}
+	for _, forbidden := range []string{
+		"ImplementedMCPPlacementOperationsForID",
+		"RuntimeProbePlacements",
+		"SupportsRuntimeProbe",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf(
+				"MCP runtime-probe workflow still derives admission from codec operation %q",
+				forbidden,
+			)
+		}
+	}
+}
+
 func assertProductionPackageOmits(t *testing.T, root string, packagePath string, forbidden []string) {
 	t.Helper()
 	directory := filepath.Join(root, filepath.FromSlash(packagePath))

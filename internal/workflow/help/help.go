@@ -3,7 +3,6 @@ package help
 import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -28,8 +27,17 @@ func BuildUsageFacts() UsageFacts {
 		SupportedTargets:          target.SupportedTargets(),
 		ImportTargets:             profile.ImportableTargets(),
 		MCPAuthoringPlacements:    mcpPlacementFacts(aggregate.ImplementedMCPPlacements()),
-		MCPRuntimeProbePlacements: mcpPlacementFacts(aggregatecodec.MCPRuntimeProbePlacements()),
+		MCPRuntimeProbePlacements: mcpRuntimeProbePlacementFacts(),
 	}
+}
+
+func mcpRuntimeProbePlacementFacts() []MCPPlacementFact {
+	capabilities := profile.MCPRuntimeProbeCapabilities()
+	placements := make([]aggregate.MCPPlacement, 0, len(capabilities))
+	for _, capability := range capabilities {
+		placements = append(placements, capability.Placement())
+	}
+	return mcpPlacementFacts(placements)
 }
 
 func mcpPlacementFacts(placements []aggregate.MCPPlacement) []MCPPlacementFact {

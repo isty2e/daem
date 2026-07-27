@@ -192,5 +192,26 @@ func (profile TargetProfile) validate() error {
 			return fmt.Errorf("runtime location %q is not admitted by profile %q", location.Path(), profile.selectedTarget)
 		}
 	}
+	for _, capability := range profile.mcpRuntimeProbes {
+		if err := capability.Validate(); err != nil {
+			return err
+		}
+		placement := capability.Placement()
+		if placement.Target() != profile.selectedTarget {
+			return fmt.Errorf(
+				"MCP runtime-probe capability %q belongs to target %q, not profile %q",
+				placement.ID(),
+				placement.Target(),
+				profile.selectedTarget,
+			)
+		}
+		if _, ok := profile.MCPPlacement(placement.ID()); !ok {
+			return fmt.Errorf(
+				"MCP runtime-probe capability %q has no placement in profile %q",
+				placement.ID(),
+				profile.selectedTarget,
+			)
+		}
+	}
 	return nil
 }

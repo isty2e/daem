@@ -98,9 +98,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "phase packages would export transaction internals and make rollback ordering cross-package state",
 	},
 	"internal/realization/aggregate/codec/mcp": {
-		reviewedValue:       15,
+		reviewedValue:       16,
 		owner:               "MCP aggregate external protocol",
-		reason:              "at 15 production files, canonical entry, mutation fold, restore, compare, and preservation rules share one protocol boundary",
+		reason:              "at 16 production files, canonical entry, mutation fold, restore, compare, preservation, and launch-vector decoding share one syntax boundary while probe admission remains profile-owned",
 		naturalSplit:        "create one aggregate codec package per host",
 		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
 	},
