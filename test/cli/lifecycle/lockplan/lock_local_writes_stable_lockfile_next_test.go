@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,6 +145,59 @@ compat_repair = true
 	}
 	testkit.AssertDirectoryEntryMissingExact(t, filepath.Join(tempDir, "skills/oracle"), "SKILL.md")
 	testkit.AssertDirectoryEntryExistsExact(t, filepath.Join(tempDir, "skills/oracle"), "skill.md")
+}
+
+func TestRunLockDryRunAcceptsCompatibleSkillWithCompatRepair(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	skillPath := filepath.Join(tempDir, "skills/ast-grep/SKILL.md")
+	testkit.WriteFile(
+		t,
+		tempDir,
+		"skills/ast-grep/SKILL.md",
+		"---\nname: ast-grep\ndescription: Use for structural code search.\n---\n",
+	)
+	originalContent, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+
+	manifest := fmt.Sprintf(`
+version = 1
+targets = ["codex", "claude-code", "opencode", "pi", "antigravity-cli"]
+
+[[skill]]
+name = "ast-grep"
+source = { path = %q, mode = "vendor" }
+scope = "global"
+compat_repair = true
+`, filepath.Dir(skillPath))
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI([]string{"lock", "--manifest", manifestPath, "--dry-run"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "resource/skill/ast-grep") {
+		t.Fatalf("stdout = %q, want compatible skill lock entry", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "(repaired)") {
+		t.Fatalf("stdout = %q, compatible skill must not be reported as repaired", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(tempDir, "daem.lock.toml")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run wrote lockfile or stat failed unexpectedly: %v", err)
+	}
+	currentContent, err := os.ReadFile(skillPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+	if !bytes.Equal(currentContent, originalContent) {
+		t.Fatal("dry-run mutated the compatible skill source")
+	}
 }
 
 func TestRunLockWritesCompatRepairRecipe(t *testing.T) {

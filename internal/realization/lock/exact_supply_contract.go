@@ -46,7 +46,10 @@ func defaultExactArtifactOperationContracts() ([]OperationContract, error) {
 	return []OperationContract{write, observe}, nil
 }
 
-// ExactSupplySubjectInput carries exact Supply facts already produced by their owners.
+// ExactSupplySubjectInput carries exact Supply facts already produced by their
+// owners. RepairRecipe is present only for a Skill exact supply derived by
+// canonical compatibility repair; direct and file-materialization derivations
+// omit it.
 type ExactSupplySubjectInput struct {
 	EntityID                  entity.ID
 	SubjectID                 topology.SubjectID

@@ -165,6 +165,11 @@ func (contract LockedSubjectContract) ValidateFileMaterialization(
 
 func (contract LockedSubjectContract) validateRepairRecipe() error {
 	if contract.repairRecipe == nil {
+		if contract.entityID.Kind() == entity.KindSkill && contract.derivation != nil {
+			if _, deterministic := contract.derivation.DeterministicTransform(); deterministic {
+				return fmt.Errorf("Skill deterministic derivation requires repair recipe")
+			}
+		}
 		return nil
 	}
 	if err := contract.repairRecipe.Validate(); err != nil {

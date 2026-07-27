@@ -15,6 +15,80 @@ import (
 	"github.com/isty2e/daem/test/testkit"
 )
 
+func TestRunApplyYesUsesDirectLockForCompatibleSkillWithCompatRepair(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	statefilePath := filepath.Join(tempDir, ".daem", "state.json")
+	sourcePath := filepath.Join(tempDir, "skills/ast-grep")
+	testkit.WriteFile(
+		t,
+		tempDir,
+		"skills/ast-grep/SKILL.md",
+		"---\nname: ast-grep\ndescription: Use for structural code search.\n---\n",
+	)
+	sourceHash := testkit.HashDirectory(t, sourcePath)
+	testkit.WriteFile(t, tempDir, "daem.toml", `
+version = 1
+targets = ["opencode"]
+
+[[skill]]
+name = "ast-grep"
+source = { path = "skills/ast-grep", mode = "vendor" }
+targets = ["opencode"]
+compat_repair = true
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI([]string{"lock", "--manifest", manifestPath}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	locked, err := lockfile.Load(lockfilePath)
+	if err != nil {
+		t.Fatalf("lockfile.Load returned error: %v", err)
+	}
+	skills := testkit.LockedSkills(t, locked)
+	if len(skills) != 1 || skills[0].Repair != nil {
+		t.Fatalf("locked skills = %#v, want unchanged direct lock entry", skills)
+	}
+	if skills[0].ContentHash != sourceHash {
+		t.Fatalf("locked hash = %q, want original hash %q", skills[0].ContentHash, sourceHash)
+	}
+	derivation, ok := skills[0].Contract.Derivation()
+	if !ok || derivation.Kind() != lock.DerivationDirectResolution {
+		t.Fatalf("locked derivation = %#v, present=%t, want direct resolution", derivation, ok)
+	}
+	if replay := skills[0].Contract.ReplayCoverage().Derivation(); replay != lock.ReplayNotApplicable {
+		t.Fatalf("locked derivation replay = %q, want %q", replay, lock.ReplayNotApplicable)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI([]string{"apply", "--manifest", manifestPath, "--target", "opencode", "--yes"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("apply exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	testkit.AssertFileContent(
+		t,
+		filepath.Join(tempDir, ".opencode/skills/ast-grep/SKILL.md"),
+		"---\nname: ast-grep\ndescription: Use for structural code search.\n---\n",
+	)
+	state, err := statefile.Load(t.Context(), statefilePath)
+	if err != nil {
+		t.Fatalf("statefile.Load returned error: %v", err)
+	}
+	testkit.AssertSkillPathState(t, state, "ast-grep", "opencode", "project", ".opencode/skills/ast-grep", sourceHash)
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI([]string{"status", "--manifest", manifestPath, "--target", "opencode", "--check"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("status exitCode = %d, stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunApplyYesReplaysLockedSkillRepairRecipe(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
