@@ -91,7 +91,7 @@ func BuildLocationInventory(
 			resourceKind: requested.resource, realization: LocationUnavailable,
 			role: LocationRoleUnsupported, requested: true,
 			selectionSource: LocationSelectionNotApplicable, source: LocationSourceManifest,
-			reason: "requested-placement-not-admitted", detail: fmt.Sprintf("requested root %q", requested.path),
+			reason: "requested-placement-not-admitted", detail: fmt.Sprintf("requested placement %q", requested.path),
 		}); err != nil {
 			return LocationInventory{}, err
 		}

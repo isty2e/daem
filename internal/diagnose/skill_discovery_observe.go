@@ -23,20 +23,21 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-type skillDiscoveryCoverage struct {
-	entityID    entity.ID
-	target      target.Target
-	scope       target.Scope
-	destination output.Destination
-}
-
-type skillDiscoveryCoverageKey struct {
+type skillDiscoveryRepresentedKey struct {
 	entityID entity.ID
 	target   target.Target
 	scope    target.Scope
 }
 
-type skillDiscoveryCoverageIndex map[skillDiscoveryCoverageKey][]output.Destination
+type skillDiscoveryScheduledRemovalKey struct {
+	target target.Target
+	scope  target.Scope
+}
+
+type skillDiscoveryCoverage struct {
+	represented       map[skillDiscoveryRepresentedKey][]output.Destination
+	scheduledRemovals map[skillDiscoveryScheduledRemovalKey][]output.Destination
+}
 
 type skillDiscoveryObserver struct {
 	stat func(string) (fs.FileInfo, error)
@@ -47,14 +48,13 @@ func inspectRetainedSkillDiscoveries(
 	paths daempaths.Paths,
 	skills []skillresource.Skill,
 	selection targetselection.Selection,
-	coverage []skillDiscoveryCoverage,
+	coverage skillDiscoveryCoverage,
 	observer skillDiscoveryObserver,
 ) []skillDiscoveryFinding {
 	if ctx == nil || observer.stat == nil {
 		return nil
 	}
 	resolver := hostpath.NewResolver(paths.ManifestRoot)
-	coverageIndex := indexSkillDiscoveryCoverage(coverage)
 	canonicalSkills := append([]skillresource.Skill(nil), skills...)
 	sort.Slice(canonicalSkills, func(left int, right int) bool {
 		return canonicalSkills[left].ID().String() < canonicalSkills[right].ID().String()
@@ -70,7 +70,7 @@ func inspectRetainedSkillDiscoveries(
 				skill,
 				selectedTarget,
 				resolver,
-				coverageIndex,
+				coverage,
 				observer,
 			)...)
 		}
@@ -85,7 +85,7 @@ func inspectSkillTargetDiscoveries(
 	skill skillresource.Skill,
 	selectedTarget target.Target,
 	resolver hostpath.Resolver,
-	coverage skillDiscoveryCoverageIndex,
+	coverage skillDiscoveryCoverage,
 	observer skillDiscoveryObserver,
 ) []skillDiscoveryFinding {
 	selectedDestination, err := selectedSkillDestination(skill, selectedTarget)
@@ -226,7 +226,7 @@ func selectedSkillDestination(
 }
 
 func skillDiscoveryPhysicallyCovered(
-	coverage skillDiscoveryCoverageIndex,
+	coverage skillDiscoveryCoverage,
 	entityID entity.ID,
 	selectedTarget target.Target,
 	scope target.Scope,
@@ -235,8 +235,7 @@ func skillDiscoveryPhysicallyCovered(
 	resolver hostpath.Resolver,
 	observer skillDiscoveryObserver,
 ) bool {
-	key := skillDiscoveryCoverageKey{entityID: entityID, target: selectedTarget, scope: scope}
-	for _, destination := range coverage[key] {
+	for _, destination := range coverage.destinations(entityID, selectedTarget, scope) {
 		coveredPath, err := resolver.Resolve(destination)
 		if err != nil {
 			continue
@@ -253,14 +252,13 @@ func skillDiscoveryPhysicallyCovered(
 }
 
 func skillDiscoveryCovered(
-	coverage skillDiscoveryCoverageIndex,
+	coverage skillDiscoveryCoverage,
 	entityID entity.ID,
 	selectedTarget target.Target,
 	scope target.Scope,
 	destination output.Destination,
 ) bool {
-	key := skillDiscoveryCoverageKey{entityID: entityID, target: selectedTarget, scope: scope}
-	for _, candidate := range coverage[key] {
+	for _, candidate := range coverage.destinations(entityID, selectedTarget, scope) {
 		if candidate.String() == destination.String() {
 			return true
 		}
@@ -268,62 +266,71 @@ func skillDiscoveryCovered(
 	return false
 }
 
-func indexSkillDiscoveryCoverage(values []skillDiscoveryCoverage) skillDiscoveryCoverageIndex {
-	result := make(skillDiscoveryCoverageIndex)
-	for _, value := range values {
-		key := skillDiscoveryCoverageKey{
-			entityID: value.entityID,
-			target:   value.target,
-			scope:    value.scope,
-		}
-		result[key] = append(result[key], value.destination)
+func (coverage skillDiscoveryCoverage) destinations(
+	entityID entity.ID,
+	selectedTarget target.Target,
+	scope target.Scope,
+) []output.Destination {
+	representedKey := skillDiscoveryRepresentedKey{
+		entityID: entityID,
+		target:   selectedTarget,
+		scope:    scope,
 	}
-	return result
+	scheduledKey := skillDiscoveryScheduledRemovalKey{
+		target: selectedTarget,
+		scope:  scope,
+	}
+	destinations := append([]output.Destination(nil), coverage.represented[representedKey]...)
+	return append(destinations, coverage.scheduledRemovals[scheduledKey]...)
 }
 
-func skillDiscoveryCoverageFromState(snapshot durable.Snapshot) []skillDiscoveryCoverage {
-	result := make([]skillDiscoveryCoverage, 0)
+func skillDiscoveryCoverageFromState(snapshot durable.Snapshot) skillDiscoveryCoverage {
+	result := skillDiscoveryCoverage{
+		represented: make(map[skillDiscoveryRepresentedKey][]output.Destination),
+	}
 	for _, state := range snapshot.ManagedPaths() {
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
 		if !entityBacked || entityID.Kind() != entity.KindSkill {
 			continue
 		}
 		for _, selectedTarget := range state.ConsumerTargets() {
-			result = append(result, skillDiscoveryCoverage{
-				entityID:    entityID,
-				target:      selectedTarget,
-				scope:       state.Scope(),
-				destination: state.Destination(),
-			})
+			key := skillDiscoveryRepresentedKey{
+				entityID: entityID,
+				target:   selectedTarget,
+				scope:    state.Scope(),
+			}
+			result.represented[key] = append(result.represented[key], state.Destination())
 		}
 	}
 	return result
 }
 
-func skillDiscoveryCoverageFromPlan(planned reconcile.Result) []skillDiscoveryCoverage {
-	result := make([]skillDiscoveryCoverage, 0)
+func skillDiscoveryCoverageFromPlan(planned reconcile.Result) skillDiscoveryCoverage {
+	result := skillDiscoveryCoverage{
+		scheduledRemovals: make(map[skillDiscoveryScheduledRemovalKey][]output.Destination),
+	}
 	for _, decision := range planned.ManagedPaths() {
-		entityID, entityBacked := topologyprojection.EntityID(decision.Subject())
-		if !entityBacked || entityID.Kind() != entity.KindSkill {
+		decisionEntityID, entityBacked := topologyprojection.EntityID(decision.Subject())
+		if !entityBacked || decisionEntityID.Kind() != entity.KindSkill {
 			continue
 		}
 		switch decision.Kind() {
 		case reconcile.ManagedPathRemove:
-			result = appendSkillDiscoveryCoverage(
-				result,
-				entityID,
-				decision.ConsumerTargets(),
-				decision.Scope(),
-				decision.Destination(),
+			previous, present := decision.PreviousState()
+			if !present {
+				continue
+			}
+			result.scheduleRemoval(
+				previous.ConsumerTargets(),
+				previous.Scope(),
+				previous.Destination(),
 			)
 		case reconcile.ManagedPathReplace:
 			previous, present := decision.PreviousState()
 			if !present || previous.Destination().String() == decision.Destination().String() {
 				continue
 			}
-			result = appendSkillDiscoveryCoverage(
-				result,
-				entityID,
+			result.scheduleRemoval(
 				previous.ConsumerTargets(),
 				previous.Scope(),
 				previous.Destination(),
@@ -333,22 +340,18 @@ func skillDiscoveryCoverageFromPlan(planned reconcile.Result) []skillDiscoveryCo
 	return result
 }
 
-func appendSkillDiscoveryCoverage(
-	result []skillDiscoveryCoverage,
-	entityID entity.ID,
+func (coverage *skillDiscoveryCoverage) scheduleRemoval(
 	targets []target.Target,
 	scope target.Scope,
 	destination output.Destination,
-) []skillDiscoveryCoverage {
-	for _, selectedTarget := range targets {
-		result = append(result, skillDiscoveryCoverage{
-			entityID:    entityID,
-			target:      selectedTarget,
-			scope:       scope,
-			destination: destination,
-		})
+) {
+	if coverage.scheduledRemovals == nil {
+		coverage.scheduledRemovals = make(map[skillDiscoveryScheduledRemovalKey][]output.Destination)
 	}
-	return result
+	for _, selectedTarget := range targets {
+		key := skillDiscoveryScheduledRemovalKey{target: selectedTarget, scope: scope}
+		coverage.scheduledRemovals[key] = append(coverage.scheduledRemovals[key], destination)
+	}
 }
 
 func sameObservedFile(observed []fs.FileInfo, candidate fs.FileInfo) bool {

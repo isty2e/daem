@@ -4,6 +4,7 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredinstructions "github.com/isty2e/daem/internal/desired/instructions"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
@@ -50,15 +51,24 @@ func collectManifestLocationSelections(environment desired.Environment) (manifes
 		unadmittedPlacements: make(map[requestedPlacement]struct{}),
 	}
 	for _, value := range environment.Instructions() {
-		for _, selectedTarget := range value.Targets() {
-			key := resourceRequestKey{target: selectedTarget, scope: value.Scope(), resource: entity.KindInstructions}
-			result.resources[key] = true
-			if err := result.selectManagedDefault(key); err != nil {
-				return manifestLocationSelections{}, err
-			}
+		if err := result.selectInstructions(
+			value.Targets(),
+			value.Scope(),
+			value.Renderings(),
+		); err != nil {
+			return manifestLocationSelections{}, err
 		}
 	}
 	for _, value := range environment.Skills() {
+		if err := result.selectSkill(
+			value.Targets(),
+			value.Scope(),
+			value.TargetPlacements(),
+		); err != nil {
+			return manifestLocationSelections{}, err
+		}
+	}
+	for _, value := range environment.SkillSets() {
 		if err := result.selectSkill(
 			value.Targets(),
 			value.Scope(),
@@ -105,6 +115,45 @@ func (selections *manifestLocationSelections) selectManagedDefault(key resourceR
 		selectedPathKey{resourceRequestKey: key, path: placement.Root().String()},
 		LocationSelectionManifestDefault,
 	)
+	return nil
+}
+
+func (selections *manifestLocationSelections) selectInstructions(
+	targets []target.Target,
+	scope target.Scope,
+	renderings map[target.Target]desiredinstructions.Rendering,
+) error {
+	for _, selectedTarget := range targets {
+		key := resourceRequestKey{target: selectedTarget, scope: scope, resource: entity.KindInstructions}
+		selections.resources[key] = true
+
+		renderTo := ""
+		if rendering, present := renderings[selectedTarget]; present {
+			renderTo = rendering.RenderTo()
+		}
+		if renderTo == "" {
+			if err := selections.selectManagedDefault(key); err != nil {
+				return err
+			}
+			continue
+		}
+		placement, err := profile.ManagedFilePlacementForRelativePath(
+			entity.KindInstructions,
+			selectedTarget,
+			scope,
+			renderTo,
+		)
+		if err != nil {
+			selections.unadmittedPlacements[requestedPlacement{
+				target: selectedTarget, scope: scope, resource: entity.KindInstructions, path: renderTo,
+			}] = struct{}{}
+			continue
+		}
+		selections.recordSelectedPath(
+			selectedPathKey{resourceRequestKey: key, path: placement.Root().String()},
+			LocationSelectionManifestExplicit,
+		)
+	}
 	return nil
 }
 

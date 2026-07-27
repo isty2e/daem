@@ -187,6 +187,98 @@ install_to = ".future/skills"
 	}
 }
 
+func TestRunPathsUsesInstructionRenderToAndSelectorSkillGroupPlacement(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["antigravity-cli", "opencode", "pi"]
+
+[instructions.project]
+source = "AGENTS.md"
+targets = ["antigravity-cli"]
+
+[instructions.project.target.antigravity-cli]
+render_to = "GEMINI.md"
+mode = "copy"
+
+[[skill_group]]
+include = ["glob:*"]
+source = { path = "skills", mode = "vendor" }
+targets = ["opencode", "pi"]
+scope = "project"
+
+[skill_group.target.opencode]
+install_to = ".agents/skills"
+`)
+
+	result, err := RunPaths(context.Background(), Input{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("RunPaths returned error: %v", err)
+	}
+	entries := result.Inventory.Entries()
+	assertLocationEntry(t, entries, locationExpectation{
+		target: target.TargetAntigravityCLI, scope: target.ScopeProject, resource: entity.KindInstructions,
+		role: LocationRoleWrite, path: "GEMINI.md",
+		selected: true, requested: true, defaultChoice: false,
+		selectionSource: LocationSelectionManifestExplicit,
+	})
+	assertLocationEntry(t, entries, locationExpectation{
+		target: target.TargetAntigravityCLI, scope: target.ScopeProject, resource: entity.KindInstructions,
+		role: LocationRoleWrite, path: "AGENTS.md",
+		selected: false, requested: true, defaultChoice: true,
+		selectionSource: LocationSelectionProfileDefault,
+	})
+	assertLocationEntry(t, entries, locationExpectation{
+		target: target.TargetOpenCode, scope: target.ScopeProject, resource: entity.KindSkill,
+		role: LocationRoleWrite, path: ".agents/skills",
+		selected: true, requested: true, defaultChoice: false,
+		selectionSource: LocationSelectionManifestExplicit,
+	})
+	assertLocationEntry(t, entries, locationExpectation{
+		target: target.TargetPi, scope: target.ScopeProject, resource: entity.KindSkill,
+		role: LocationRoleWrite, path: ".pi/skills",
+		selected: true, requested: true, defaultChoice: true,
+		selectionSource: LocationSelectionManifestDefault,
+	})
+}
+
+func TestRunPathsReportsUnadmittedInstructionRenderToWithoutSelectingDefault(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["codex"]
+
+[instructions.project]
+source = "AGENTS.md"
+targets = ["codex"]
+
+[instructions.project.target.codex]
+render_to = "CLAUDE.md"
+mode = "copy"
+`)
+
+	result, err := RunPaths(context.Background(), Input{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("RunPaths returned error: %v", err)
+	}
+	entries := result.Inventory.Entries()
+	entry := assertLocationEntry(t, entries, locationExpectation{
+		target: target.TargetCodex, scope: target.ScopeProject, resource: entity.KindInstructions,
+		role: LocationRoleUnsupported, reason: "requested-placement-not-admitted",
+		selected: false, requested: true,
+	})
+	if entry.Path() != "" || !strings.Contains(entry.Detail(), "CLAUDE.md") {
+		t.Fatalf("unadmitted entry = %#v, want non-actionable requested-placement detail", entry)
+	}
+	for _, candidate := range entries {
+		if candidate.Target() == target.TargetCodex &&
+			candidate.Scope() == target.ScopeProject &&
+			candidate.ResourceKind() == entity.KindInstructions &&
+			candidate.Role() == LocationRoleWrite &&
+			candidate.Selected() {
+			t.Fatalf("unadmitted render_to selected an admitted write row: %#v", candidate)
+		}
+	}
+}
+
 func TestRunPathsPreservesMultipleSelectedSkillRoots(t *testing.T) {
 	manifestPath := writePathInventoryManifest(t, `
 version = 1
@@ -301,6 +393,32 @@ install_to = ".agents/skills"
 	assertLocationEntry(t, result.Inventory.Entries(), locationExpectation{
 		target: target.TargetCodex, scope: target.ScopeProject, resource: entity.KindSkill,
 		role: LocationRoleWrite, path: ".agents/skills",
+		selected: true, requested: true, defaultChoice: true,
+		selectionSource: LocationSelectionManifestExplicit,
+	})
+}
+
+func TestRunPathsDistinguishesExplicitDefaultInstructionPlacement(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["codex"]
+
+[instructions.project]
+source = "AGENTS.md"
+targets = ["codex"]
+
+[instructions.project.target.codex]
+render_to = "AGENTS.md"
+mode = "copy"
+`)
+
+	result, err := RunPaths(context.Background(), Input{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("RunPaths returned error: %v", err)
+	}
+	assertLocationEntry(t, result.Inventory.Entries(), locationExpectation{
+		target: target.TargetCodex, scope: target.ScopeProject, resource: entity.KindInstructions,
+		role: LocationRoleWrite, path: "AGENTS.md",
 		selected: true, requested: true, defaultChoice: true,
 		selectionSource: LocationSelectionManifestExplicit,
 	})
