@@ -1,10 +1,48 @@
 package mcpcodec
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+func TestValidateMCPCommandPreservesProjectionReasonAndValidationDetail(t *testing.T) {
+	absoluteBase, err := filepath.Abs("mcp-command")
+	if err != nil {
+		t.Fatalf("filepath.Abs returned error: %v", err)
+	}
+	separator := string(filepath.Separator)
+	nonCanonicalAbsolute := absoluteBase + separator + ".." + separator + filepath.Base(absoluteBase)
+
+	tests := []struct {
+		name    string
+		command string
+		detail  string
+	}{
+		{
+			name:    "non-canonical absolute path",
+			command: nonCanonicalAbsolute,
+			detail:  "command path must be canonical",
+		},
+		{
+			name:    "invalid ambient token",
+			command: "npx --yes",
+			detail:  "command must be a portable command token",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateMCPCommand(test.command)
+			assertMCPProjectionReason(t, err, MCPProjectionReasonProjectionEquivalenceUndefined)
+			if !strings.Contains(err.Error(), test.detail) {
+				t.Fatalf("error = %q, want detail %q", err, test.detail)
+			}
+		})
+	}
+}
 
 func TestClaudeProjectMCPProjectionRejectsUnsupportedShapesWithReasonCodes(t *testing.T) {
 	projection := validMCPProjection("context7")

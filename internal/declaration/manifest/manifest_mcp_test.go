@@ -102,17 +102,17 @@ func TestParseRejectsAmbiguousOrInvalidMCPCommandForms(t *testing.T) {
 		{
 			name:    "redundant portable flag",
 			command: `{ path = ` + strconv.Quote(absolutePath) + `, portable = false }`,
-			want:    "exactly one path key",
+			want:    `exactly one key named "path"`,
 		},
 		{
 			name:    "empty object",
 			command: `{}`,
-			want:    "exactly one path key",
+			want:    `exactly one key named "path"`,
 		},
 		{
 			name:    "unknown object",
 			command: `{ local_parameter = "codegraph" }`,
-			want:    "unknown command object",
+			want:    `exactly one key named "path"`,
 		},
 		{
 			name:    "non-string path",

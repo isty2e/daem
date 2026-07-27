@@ -79,12 +79,9 @@ func mcpCommandFromTOMLValue(value any) (MCPCommand, error) {
 	case string:
 		return NewMCPAmbientCommand(typed), nil
 	case map[string]any:
-		if len(typed) != 1 {
-			return MCPCommand{}, fmt.Errorf("command path must be an object containing exactly one path key")
-		}
 		rawPath, ok := typed["path"]
-		if !ok {
-			return MCPCommand{}, fmt.Errorf("unknown command object; expected exactly one path key")
+		if len(typed) != 1 || !ok {
+			return MCPCommand{}, fmt.Errorf(`command object must contain exactly one key named "path"`)
 		}
 		path, ok := rawPath.(string)
 		if !ok {

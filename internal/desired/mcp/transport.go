@@ -33,6 +33,7 @@ func NewAmbientCommand(name string) (Command, error) {
 }
 
 // NewAbsolutePathCommand constructs an exact, machine-local executable reference.
+// Validation is lexical; symlink resolution and existence checks are deferred to runtime.
 func NewAbsolutePathCommand(path string) (Command, error) {
 	if err := validateAbsoluteCommandPath(path); err != nil {
 		return Command{}, err

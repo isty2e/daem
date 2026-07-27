@@ -2,6 +2,7 @@ package mcpcodec
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -320,17 +321,20 @@ func validateServerID(serverID string) error {
 }
 
 func validateMCPCommand(command string) error {
-	if _, err := desiredmcp.NewAmbientCommand(command); err == nil {
-		return nil
+	var validationErr error
+	if filepath.IsAbs(command) {
+		_, validationErr = desiredmcp.NewAbsolutePathCommand(command)
+	} else {
+		_, validationErr = desiredmcp.NewAmbientCommand(command)
 	}
-	if _, err := desiredmcp.NewAbsolutePathCommand(command); err == nil {
-		return nil
+	if validationErr != nil {
+		return newMCPProjectionError(
+			MCPProjectionReasonProjectionEquivalenceUndefined,
+			command,
+			validationErr.Error(),
+		)
 	}
-	return newMCPProjectionError(
-		MCPProjectionReasonProjectionEquivalenceUndefined,
-		command,
-		"command must be a portable command token or canonical absolute path",
-	)
+	return nil
 }
 
 func validateEnvName(value string, subject string) error {
