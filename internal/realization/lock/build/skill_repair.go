@@ -57,20 +57,32 @@ func lockRepairedSkill(
 		return lock.LockedSubjectContract{}, fmt.Errorf("verify repaired skill %q before locking: %w", value.ID().Name(), err)
 	}
 
-	recipe, present := result.Recipe()
-	if !present {
-		return lock.LockedSubjectContract{}, fmt.Errorf("repair skill %q did not produce a canonical recipe", value.ID().Name())
-	}
-	derivation, err := lock.NewDeterministicTransformDerivation(lock.DeterministicTransform{
-		InputIdentity:          inputIdentity,
-		RecipeHash:             recipe.Hash(),
-		AlgorithmID:            skillrepair.DerivationAlgorithmID,
-		AlgorithmVersion:       fmt.Sprintf("v%d", recipe.Version()),
-		ExecutionDomain:        skillrepair.DerivationExecutionDomain,
-		ExpectedOutputIdentity: repairedIdentity,
-	})
-	if err != nil {
-		return lock.LockedSubjectContract{}, fmt.Errorf("lock repaired skill %q derivation: %w", value.ID().Name(), err)
+	var (
+		derivation   lock.DerivationContract
+		repairRecipe *skillrepair.Recipe
+	)
+	recipe, repaired := result.Recipe()
+	if repaired {
+		derivation, err = lock.NewDeterministicTransformDerivation(lock.DeterministicTransform{
+			InputIdentity:          inputIdentity,
+			RecipeHash:             recipe.Hash(),
+			AlgorithmID:            skillrepair.DerivationAlgorithmID,
+			AlgorithmVersion:       fmt.Sprintf("v%d", recipe.Version()),
+			ExecutionDomain:        skillrepair.DerivationExecutionDomain,
+			ExpectedOutputIdentity: repairedIdentity,
+		})
+		if err != nil {
+			return lock.LockedSubjectContract{}, fmt.Errorf("lock repaired skill %q derivation: %w", value.ID().Name(), err)
+		}
+		repairRecipe = &recipe
+	} else {
+		if !repairedIdentity.Equal(inputIdentity) {
+			return lock.LockedSubjectContract{}, fmt.Errorf("repair skill %q changed artifact without a canonical recipe", value.ID().Name())
+		}
+		derivation, err = lock.NewDirectResolutionDerivation(repairedIdentity)
+		if err != nil {
+			return lock.LockedSubjectContract{}, fmt.Errorf("lock unchanged skill %q derivation: %w", value.ID().Name(), err)
+		}
 	}
 	correlation, err := skillSetMemberCorrelation(skillSetDeclaration)
 	if err != nil {
@@ -85,7 +97,7 @@ func lockRepairedSkill(
 		SubjectID:                 subjectID,
 		ExactSupply:               repairedIdentity,
 		Derivation:                derivation,
-		RepairRecipe:              &recipe,
+		RepairRecipe:              repairRecipe,
 		SkillSetMemberCorrelation: correlation,
 	})
 	if err != nil {
