@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -100,4 +103,99 @@ digest = "sha256:abc123"
 			}
 		})
 	}
+}
+
+func TestRunLockApplyAndStatusPreserveExplicitAbsoluteMCPCommandPath(t *testing.T) {
+	project := newMCPCLIProject(t)
+	homeDir := filepath.Join(project.root, "home")
+	t.Setenv("HOME", homeDir)
+	absolutePath := filepath.Join(project.root, "missing executable with spaces", "codegraph;literal")
+	if _, err := os.Stat(absolutePath); !os.IsNotExist(err) {
+		t.Fatalf("absolute command path stat error = %v, want missing prerequisite", err)
+	}
+	testkit.WriteFile(t, project.root, "daem.toml", `version = 1
+targets = ["antigravity-cli"]
+
+[[mcp_server]]
+name = "codegraph"
+targets = ["antigravity-cli"]
+scope = "global"
+transport = "stdio"
+command = { path = `+strconv.Quote(absolutePath)+` }
+args = ["serve", "--mcp"]
+`)
+
+	runMCPLock(t, project)
+	locked, err := lockfile.Load(project.lockfilePath)
+	if err != nil {
+		t.Fatalf("Load lockfile returned error: %v", err)
+	}
+	subjects := locked.Locked.Subjects()
+	if len(subjects) != 1 {
+		t.Fatalf("locked subjects = %#v, want one MCP projection", subjects)
+	}
+	if _, present := subjects[0].DelegatePlan(); present {
+		t.Fatal("Antigravity absolute command unexpectedly gained delegated execution authority")
+	}
+	contribution := testkit.LockedManagedAggregateContribution(t, subjects[0])
+	if !strings.Contains(contribution.CanonicalContribution(), absolutePath) {
+		t.Fatalf("locked canonical contribution = %q, want exact path %q", contribution.CanonicalContribution(), absolutePath)
+	}
+
+	exitCode, stdout, stderr := runMCPCLI(
+		t,
+		"apply",
+		"--manifest", project.manifestPath,
+		"--target", "antigravity-cli",
+		"--yes",
+		"--json",
+	)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	if _, err := os.Stat(absolutePath); !os.IsNotExist(err) {
+		t.Fatalf("apply changed missing prerequisite path: %v", err)
+	}
+
+	hostConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
+	entry, present, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjection(
+		testkit.ReadFile(t, hostConfigPath),
+		"codegraph",
+	)
+	if err != nil {
+		t.Fatalf("ExtractAntigravityGlobalMCPServerProjection returned error: %v", err)
+	}
+	if !present || entry.Command != absolutePath {
+		t.Fatalf("host entry = %#v, present=%t, want exact path %q", entry, present, absolutePath)
+	}
+	runMCPCLIExpect(
+		t,
+		0,
+		"status converged absolute command",
+		"status",
+		"--manifest", project.manifestPath,
+		"--target", "antigravity-cli",
+		"--check",
+		"--json",
+	)
+
+	otherPath := filepath.Join(project.root, "other", "codegraph")
+	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
+  "mcpServers": {
+    "codegraph": {
+      "command": `+strconv.Quote(otherPath)+`,
+      "args": ["serve", "--mcp"]
+    }
+  }
+}`)
+	runMCPCLIExpect(
+		t,
+		1,
+		"status detects changed absolute command",
+		"status",
+		"--manifest", project.manifestPath,
+		"--target", "antigravity-cli",
+		"--check",
+		"--json",
+	)
 }

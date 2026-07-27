@@ -198,8 +198,8 @@ func assertDelegatePlan(t *testing.T, plan delegate.DelegatePlan, wantRunner del
 	if plan.Runner().Kind() != wantRunner {
 		t.Fatalf("Runner().Kind() = %q, want %q", plan.Runner().Kind(), wantRunner)
 	}
-	if plan.Command().Name() != wantCommand {
-		t.Fatalf("Command().Name() = %q, want %q", plan.Command().Name(), wantCommand)
+	if plan.Command().Executable() != wantCommand {
+		t.Fatalf("Command().Executable() = %q, want %q", plan.Command().Executable(), wantCommand)
 	}
 	if !reflect.DeepEqual(plan.Command().Args(), wantArgs) {
 		t.Fatalf("Command().Args() = %#v, want %#v", plan.Command().Args(), wantArgs)

@@ -5,33 +5,54 @@ package mcp
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/topology"
 )
 
 const (
-	executableNamespace  = "executable"
-	environmentNamespace = "env"
+	executableNamespace         = "executable"
+	absoluteExecutableNamespace = "executable.path"
+	environmentNamespace        = "env"
 )
 
-// ExecutableSubject returns the structural identity of an ambient command lookup.
+// ExecutableSubject returns the structural identity of an ambient command lookup
+// or an exact absolute executable path. The namespaces keep the two resolution
+// contracts distinct while preserving existing ambient identities.
 func ExecutableSubject(command string) (topology.SubjectID, error) {
-	if err := validateAmbientExecutableCommand(command); err != nil {
+	if filepath.IsAbs(command) {
+		if _, err := desiredmcp.NewAbsolutePathCommand(command); err != nil {
+			return topology.SubjectID{}, err
+		}
+		return topology.NewSubjectID(topology.SubjectRuntimeDependency, absoluteExecutableNamespace, command)
+	}
+	if _, err := desiredmcp.NewAmbientCommand(command); err != nil {
 		return topology.SubjectID{}, err
 	}
 	return topology.NewSubjectID(topology.SubjectRuntimeDependency, executableNamespace, command)
 }
 
-// ExecutableCommand returns the ambient command represented by subject.
-func ExecutableCommand(subject topology.SubjectID) (string, bool) {
-	if subject.Kind() != topology.SubjectRuntimeDependency || subject.Namespace() != executableNamespace {
-		return "", false
+// ExecutableReference returns the canonical command reference represented by subject.
+func ExecutableReference(subject topology.SubjectID) (desiredmcp.Command, bool) {
+	if subject.Kind() != topology.SubjectRuntimeDependency {
+		return desiredmcp.Command{}, false
 	}
-	if err := validateAmbientExecutableCommand(subject.Key()); err != nil {
-		return "", false
+	switch subject.Namespace() {
+	case executableNamespace:
+		command, err := desiredmcp.NewAmbientCommand(subject.Key())
+		if err != nil {
+			return desiredmcp.Command{}, false
+		}
+		return command, true
+	case absoluteExecutableNamespace:
+		command, err := desiredmcp.NewAbsolutePathCommand(subject.Key())
+		if err != nil {
+			return desiredmcp.Command{}, false
+		}
+		return command, true
+	default:
+		return desiredmcp.Command{}, false
 	}
-	return subject.Key(), true
 }
 
 // EnvironmentReferenceSubject returns the structural identity of one source
@@ -52,19 +73,6 @@ func EnvironmentReferenceName(subject topology.SubjectID) (string, bool) {
 		return "", false
 	}
 	return subject.Key(), true
-}
-
-func validateAmbientExecutableCommand(command string) error {
-	if command == "" {
-		return fmt.Errorf("ambient executable command is required")
-	}
-	if filepath.IsAbs(command) || strings.ContainsAny(command, "/\\ \t\n\r;&|$`") {
-		return fmt.Errorf("ambient executable command %q must be a portable command token", command)
-	}
-	if !isStableToken(command) {
-		return fmt.Errorf("ambient executable command %q must be a stable command token", command)
-	}
-	return nil
 }
 
 func validateEnvironmentName(value string) error {

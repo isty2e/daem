@@ -341,14 +341,17 @@ Common authoring is intentionally curated:
 | Extension | id, one opaque carrier-native source, target, scope | carrier spelling and lifecycle/contribution policy |
 | Instruction | name, local source, target, scope | remote source and target-specific placement |
 | Hook | name, event, command, matcher, timeout, target, scope | status text, target overrides, assets, non-command handlers |
-| MCP server | name, portable command, ordered args, target, scope | env refs, remote transport, auth, cwd, tool policy |
+| MCP server | name, portable command, ordered args, target, scope | exact absolute command path, env refs, remote transport, auth, cwd, tool policy |
 | Skill | source, Git path/ref, installed name, target, scope | resource id, install mode, repair and source policy |
 | Skill group | source root, exact members, Git path/ref, target, scope | selectors, install mode, repair and per-member policy |
 
 Hook `<command>` is one opaque shell-command string. Hook timeout is a positive
 duration such as `30s` or `2m` and must be exactly representable as whole
 seconds. MCP `<command>` is one portable executable token, not a shell command;
-`--arg` preserves argv order and duplicates.
+`--arg` preserves argv order and duplicates. Exact machine-local MCP
+executables use the manifest-only `command = { path = "/absolute/path" }`
+form; `daem import` also emits that form for supported host entries with an
+absolute command.
 
 Extension source is one opaque operand validated against the selected target's
 supported carrier row. Registry and host-source spelling are not separate CLI

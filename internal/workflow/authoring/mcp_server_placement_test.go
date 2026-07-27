@@ -150,7 +150,7 @@ func TestMCPServerFromAddRequestSupportsCodexProjectRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "project" ||
 		len(server.Targets) != 1 ||
@@ -205,7 +205,7 @@ func TestMCPServerFromAddRequestSupportsCodexGlobalRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "global" ||
 		len(server.Targets) != 1 ||
@@ -229,7 +229,7 @@ func TestMCPServerFromAddRequestSupportsClaudeGlobalRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "global" ||
 		len(server.Targets) != 1 ||
@@ -252,7 +252,7 @@ func TestMCPServerFromAddRequestSupportsOpenCodeProjectRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "project" ||
 		len(server.Targets) != 1 ||
@@ -276,7 +276,7 @@ func TestMCPServerFromAddRequestSupportsOpenCodeGlobalRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "global" ||
 		len(server.Targets) != 1 ||
@@ -300,7 +300,7 @@ func TestMCPServerFromAddRequestSupportsAntigravityGlobalRow(t *testing.T) {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
 	}
 	if server.Name != "context7" ||
-		server.Command != "npx" ||
+		server.Command != declaration.NewMCPAmbientCommand("npx") ||
 		server.Transport != "stdio" ||
 		server.Scope != "global" ||
 		len(server.Targets) != 1 ||

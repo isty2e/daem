@@ -59,7 +59,8 @@ targets = ["codex"]
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
 `[[package_runner]]`, `[[executable_artifact]]`, and
 `command = { local_parameter = "..." }` are not public syntax and are rejected
-before Desired normalization. Current
+before Desired normalization. The only supported MCP command object is the
+exact absolute-path form documented under [MCP Servers](#mcp-servers). Current
 `[[mcp_server]]` `command` and `args` fields are launch-vector data for the
 managed config projection; they are not provisioning, package installation,
 runtime readiness, or cleanup syntax.
@@ -648,6 +649,36 @@ args = ["-y", "@upstash/context7-mcp@1.2.3"]
 env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 ```
 
+The string form is a portable executable token resolved through the agent
+process environment:
+
+```toml
+command = "npx"
+```
+
+Use the explicit object form when host configuration must preserve one exact,
+machine-local executable path:
+
+```toml
+command = { path = "/opt/example/bin/codegraph" }
+args = ["serve", "--mcp"]
+```
+
+The `path` value must be an absolute, lexically canonical path under the
+current host's path rules. Relative paths, traversal, surrounding whitespace,
+control or bidirectional formatting characters, unknown command-object keys,
+and redundant flags such as `portable = false` are rejected. The path is the
+literal `argv[0]`; daem does not parse it as a shell command or resolve
+symlinks while locking. Lock and host projection preserve the exact path, and
+import emits this object form when a supported host entry already contains an
+absolute command. The executable remains a non-owned prerequisite: declaring
+the path does not make daem install, update, remove, or claim runtime readiness
+for it.
+
+`daem add mcp-server` intentionally accepts only the common portable string
+form. Author an exact absolute path directly in the manifest, or obtain it
+through `daem import`.
+
 `[[mcp_server]]` is currently limited to seven standalone stdio
 exact-projection slices:
 
@@ -757,10 +788,11 @@ install packages, remove credentials, or change approval/trust state.
 explicit `apply` reconciles only the managed MCP projection. It does not delete
 project executables, package-manager caches, daem store objects, credentials,
 trust records, sessions, logs, or runtime state. `doctor` may passively report
-ambient executable prerequisite diagnostics for selected supported MCP
-declarations by checking command-token discoverability and modeled host-source
-env names only; it does not execute the command or prove package/cache/runtime
-convergence. Claude Code rows additionally lock a delegated executable plan
+executable prerequisite diagnostics for selected supported MCP declarations by
+checking ambient command tokens through `PATH`, explicit absolute commands at
+their exact path, and modeled host-source env names only. It does not execute
+the command or prove package/cache/runtime convergence. Claude Code rows
+additionally lock a delegated executable plan
 identity. That identity stores each exact child variable name together with its
 host `from_env` source name; values remain runtime-only and are never locked.
 Codex, OpenCode, and Antigravity CLI direct config projections have no
@@ -1481,23 +1513,23 @@ yet:
   passive MCP executable prerequisite diagnostics, and last delegate attempt
   diagnostics as separate dimensions. The Claude global slice renders one
   standalone server relation into top-level `~/.claude.json`, locks the
-  command/args config projection, may report passive ambient executable
+  command/args config projection, may report passive executable
   prerequisites, and has no delegated executable or runtime readiness claim.
   The Codex slices render one standalone
   server relation into project `.codex/config.toml` or default user
   `~/.codex/config.toml`, lock the command/args config projection, may report
-  passive ambient executable prerequisites, and have no delegated executable or
+  passive executable prerequisites, and have no delegated executable or
   runtime readiness claim.
   The OpenCode slices render one standalone server relation into project
   `opencode.json` or default user `~/.config/opencode/opencode.json`, lock the
-  command/args config projection, may report passive ambient executable
+  command/args config projection, may report passive executable
   prerequisites, and have no delegated executable claim. Runtime probe support
   remains limited to the separate explicit project-scope
   `probe mcp-server --target opencode --scope project` launch+initialize check
   with no state, lock, or host config mutation. The Antigravity slice renders
   one standalone server relation into
   `~/.gemini/config/mcp_config.json`, locks the command/args config projection,
-  may report passive ambient executable prerequisites, and has no delegated
+  may report passive executable prerequisites, and has no delegated
   executable or runtime readiness claim. Runtime startup, package/cache
   ownership, credential availability, approval/trust state, endpoint health,
   tool inventory, tool policy, and broader host config ownership remain outside

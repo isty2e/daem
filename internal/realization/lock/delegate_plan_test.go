@@ -108,9 +108,9 @@ func mustLockedContractWithDelegatePlan(
 	credentialReferences := plan.Env().SourceNames()
 	input := testMCPProjectionInput(t, placement, credentialReferences)
 	command := plan.Command()
-	input.LauncherCommand = command.Name()
+	input.LauncherCommand = command.Executable()
 	input.LauncherArgs = command.Args()
-	input.Graph = testMCPProjectionGraph(t, placement, command.Name(), credentialReferences)
+	input.Graph = testMCPProjectionGraph(t, placement, command.Executable(), credentialReferences)
 	input.DelegatePlan = &plan
 	contract, err := NewMCPProjectionSubjectContract(input)
 	if err != nil {

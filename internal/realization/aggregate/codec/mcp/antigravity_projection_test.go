@@ -170,7 +170,7 @@ func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testin
 			name: "absolute command",
 			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
-				Command:         "/usr/bin/node",
+				Command:         "/usr/bin/../bin/node",
 				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,

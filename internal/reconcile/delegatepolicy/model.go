@@ -108,14 +108,14 @@ func classifyRisks(
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskDryRunDisclosure,
 			Severity: reconciliation.DelegateRiskInfo,
-			Subject:  command.Name(),
+			Subject:  command.Executable(),
 		})
 	}
 	if runner == RunnerMissing {
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskMissingRunner,
 			Severity: reconciliation.DelegateRiskBlock,
-			Subject:  command.Name(),
+			Subject:  command.Executable(),
 		})
 	}
 	for _, envRef := range missingEnvRefs {

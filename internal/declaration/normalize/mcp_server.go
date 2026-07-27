@@ -30,7 +30,7 @@ func ExplicitMCPServer(server declarationcodec.MCPServer) (desiredmcp.Server, de
 	if err != nil {
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server scope: %w", err)
 	}
-	command, err := desiredmcp.NewAmbientCommand(server.Command)
+	command, err := normalizeMCPCommand(server.Command)
 	if err != nil {
 		return desiredmcp.Server{}, desiredmcp.Binding{}, fmt.Errorf("mcp-server command: %w", err)
 	}
@@ -112,11 +112,7 @@ func normalizeMCPServers(rawServers []declaration.MCPServer, defaultTargets []ta
 			return nil, fmt.Errorf("%s.transport: unsupported MCP transport %q", context, transportKind)
 		}
 
-		commandName, err := requiredExactString(raw.Command, context+".command")
-		if err != nil {
-			return nil, err
-		}
-		command, err := desiredmcp.NewAmbientCommand(commandName)
+		command, err := normalizeMCPCommand(raw.Command)
 		if err != nil {
 			return nil, fmt.Errorf("%s.command: %w", context, err)
 		}
@@ -151,6 +147,17 @@ func normalizeMCPServers(rawServers []declaration.MCPServer, defaultTargets []ta
 	}
 
 	return servers, nil
+}
+
+func normalizeMCPCommand(raw declaration.MCPCommand) (desiredmcp.Command, error) {
+	switch raw.Kind() {
+	case declaration.MCPCommandKindAmbient:
+		return desiredmcp.NewAmbientCommand(raw.Value())
+	case declaration.MCPCommandKindAbsolutePath:
+		return desiredmcp.NewAbsolutePathCommand(raw.Value())
+	default:
+		return desiredmcp.Command{}, fmt.Errorf("command is required")
+	}
 }
 
 func validateExplicitMCPGlobalScope(scope target.Scope, rawScope string, context string) error {

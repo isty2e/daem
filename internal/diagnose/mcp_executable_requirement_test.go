@@ -2,6 +2,7 @@ package diagnose
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -83,6 +84,63 @@ func TestMCPExecutableRequirementChecksCoverCurrentAdmittedRows(t *testing.T) {
 	if len(seen) != 3 {
 		t.Fatalf("lookPath calls = %d, want one per admitted row", len(seen))
 	}
+}
+
+func TestMCPExecutableRequirementChecksPreserveAbsolutePathSemantics(t *testing.T) {
+	selection := mustPrerequisiteSelection(t, "antigravity-cli")
+	absolutePath := filepath.Join(t.TempDir(), "bin with spaces", "codegraph")
+	command, err := desiredmcp.NewAbsolutePathCommand(absolutePath)
+	if err != nil {
+		t.Fatalf("NewAbsolutePathCommand returned error: %v", err)
+	}
+	transport, err := desiredmcp.NewStdioTransport(command, []string{"serve", "--mcp"}, nil)
+	if err != nil {
+		t.Fatalf("NewStdioTransport returned error: %v", err)
+	}
+	binding, err := desiredmcp.NewBinding(
+		target.TargetAntigravityCLI,
+		target.ScopeGlobal,
+		transport,
+		desiredmcp.OnAbsentRemoveBinding,
+	)
+	if err != nil {
+		t.Fatalf("NewBinding returned error: %v", err)
+	}
+	server, err := desiredmcp.New(desiredmcp.Spec{
+		Name:     "codegraph",
+		Bindings: []desiredmcp.Binding{binding},
+	})
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	var lookedUp string
+	checks := mcpExecutableRequirementChecks(
+		[]desiredmcp.Server{server},
+		selection,
+		mcpExecutableEnvironment{
+			lookPath: func(executable string) (string, error) {
+				lookedUp = executable
+				return "", errors.New("missing")
+			},
+			lookupEnv: func(string) (string, bool) {
+				t.Fatal("lookupEnv must not run without env references")
+				return "", false
+			},
+		},
+	)
+	check := assertPrerequisiteWarnContains(
+		t,
+		checks,
+		"target=antigravity-cli scope=global mcp_server=codegraph executable_requirement=command",
+		`exact path "`+absolutePath+`" is not currently executable`,
+	)
+	if lookedUp != absolutePath {
+		t.Fatalf("lookPath command = %q, want exact path %q", lookedUp, absolutePath)
+	}
+	if strings.Contains(check.Detail, "PATH") {
+		t.Fatalf("detail = %q, absolute path must not be described as PATH resolution", check.Detail)
+	}
+	assertPrerequisiteTerminology(t, check)
 }
 
 func prerequisiteMCPServer(t *testing.T, id string, command string, args []string) desiredmcp.Server {

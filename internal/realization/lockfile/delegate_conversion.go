@@ -60,7 +60,7 @@ func delegatePlanToDTO(contract lock.LockedSubjectContract) *delegatePlanDTO {
 	dto := &delegatePlanDTO{
 		IdentityKey: plan.IdentityKey(),
 		RunnerKind:  string(plan.Runner().Kind()),
-		Command:     command.Name(),
+		Command:     command.Executable(),
 		Args:        command.Args(),
 		Env:         delegateEnvToDTO(plan.Env()),
 		PinPolicy:   string(plan.PinPolicy()),

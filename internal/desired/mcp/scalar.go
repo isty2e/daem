@@ -32,6 +32,28 @@ func validatePortableCommand(value string) error {
 	return validateStableToken(value, "command")
 }
 
+func validateAbsoluteCommandPath(value string) error {
+	if value == "" {
+		return fmt.Errorf("command path is required")
+	}
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("command path must be valid UTF-8")
+	}
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("command path must not contain surrounding whitespace")
+	}
+	if strings.IndexFunc(value, isUnsafeControl) >= 0 {
+		return fmt.Errorf("command path must not contain control or bidirectional formatting characters")
+	}
+	if !filepath.IsAbs(value) {
+		return fmt.Errorf("command path must be absolute")
+	}
+	if filepath.Clean(value) != value {
+		return fmt.Errorf("command path must be canonical")
+	}
+	return nil
+}
+
 func validateEnvName(value string, label string) error {
 	if value == "" {
 		return fmt.Errorf("%s is required", label)

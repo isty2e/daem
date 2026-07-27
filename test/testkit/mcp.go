@@ -32,7 +32,7 @@ func AssertSingleMCPStdioBinding(
 		t.Fatalf("server = %#v, want target=%s scope=%s standalone", server, wantTarget, wantScope)
 	}
 	stdio, ok := binding.Transport().Stdio()
-	if !ok || stdio.Command().Name() != wantCommand {
+	if !ok || stdio.Command().Executable() != wantCommand {
 		t.Fatalf("server transport = %#v, want ambient command %s stdio", binding.Transport(), wantCommand)
 	}
 	args := stdio.Args()

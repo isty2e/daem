@@ -17,7 +17,7 @@ type MCPServer struct {
 	Targets   []string                   `toml:"targets"`
 	Scope     string                     `toml:"scope"`
 	Transport string                     `toml:"transport"`
-	Command   string                     `toml:"command"`
+	Command   declaration.MCPCommand     `toml:"command"`
 	Args      []string                   `toml:"args"`
 	Env       map[string]MCPEnvReference `toml:"env"`
 }
@@ -99,7 +99,7 @@ func RenderMCPServerBlock(server MCPServer) string {
 	builder.WriteString(strconv.Quote(server.Transport))
 	builder.WriteByte('\n')
 	builder.WriteString("command = ")
-	builder.WriteString(strconv.Quote(server.Command))
+	builder.WriteString(renderMCPCommand(server.Command))
 	builder.WriteByte('\n')
 	if len(server.Args) != 0 {
 		builder.WriteString("args = ")
@@ -112,6 +112,13 @@ func RenderMCPServerBlock(server MCPServer) string {
 		builder.WriteByte('\n')
 	}
 	return builder.String()
+}
+
+func renderMCPCommand(command declaration.MCPCommand) string {
+	if command.Kind() == declaration.MCPCommandKindAbsolutePath {
+		return "{ path = " + strconv.Quote(command.Value()) + " }"
+	}
+	return strconv.Quote(command.Value())
 }
 
 func renderMCPEnvReferences(env map[string]MCPEnvReference) string {

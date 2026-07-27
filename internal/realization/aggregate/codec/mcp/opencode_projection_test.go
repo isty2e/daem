@@ -221,7 +221,7 @@ func TestOpenCodeProjectMCPProjectionRejectsUnsupportedSameNameShapes(t *testing
 		{name: "command string", input: []byte(`{"mcp":{"context7":{"type":"local","command":"npx"}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "command empty array", input: []byte(`{"mcp":{"context7":{"type":"local","command":[]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "command arg non string", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx",7]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
-		{name: "command first not portable", input: []byte(`{"mcp":{"context7":{"type":"local","command":["/usr/bin/node"]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+		{name: "command first not canonical", input: []byte(`{"mcp":{"context7":{"type":"local","command":["/usr/bin/../bin/node"]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "unsupported env field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported cwd field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"cwd":"/tmp"}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported timeout field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"timeout":30}}}`), want: MCPProjectionReasonUnsupportedManagedField},
@@ -309,7 +309,7 @@ func TestOpenCodeProjectMCPProjectionRejectsInvalidDesiredProjection(t *testing.
 			name: "absolute command",
 			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
-				Command:         "/usr/bin/node",
+				Command:         "/usr/bin/../bin/node",
 				AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,

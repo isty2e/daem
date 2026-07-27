@@ -13,7 +13,7 @@ import (
 
 func TestExplicitMCPServerNormalizesOneResolvedDeclarationRow(t *testing.T) {
 	server, binding, err := ExplicitMCPServer(declarationcodec.MCPServer{
-		Name: "context7", Targets: []string{"codex"}, Scope: "project", Transport: "stdio", Command: "npx",
+		Name: "context7", Targets: []string{"codex"}, Scope: "project", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"),
 		Args: []string{"-y", "@upstash/context7-mcp"}, Env: map[string]declarationcodec.MCPEnvReference{"TOKEN": {FromEnv: "TOKEN"}},
 	})
 	if err != nil {
@@ -38,7 +38,7 @@ func TestExplicitMCPServerRejectsAnUnadmittedTransport(t *testing.T) {
 	for _, transport := range []string{"http", "HTTP", "sse", "", " stdio", "stdio "} {
 		t.Run(transport, func(t *testing.T) {
 			_, _, err := ExplicitMCPServer(declarationcodec.MCPServer{
-				Name: "context7", Targets: []string{"codex"}, Scope: "project", Transport: transport, Command: "npx",
+				Name: "context7", Targets: []string{"codex"}, Scope: "project", Transport: transport, Command: declaration.NewMCPAmbientCommand("npx"),
 			})
 			if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("unsupported MCP transport %q", transport)) {
 				t.Fatalf("ExplicitMCPServer transport %q error = %v", transport, err)
@@ -79,7 +79,7 @@ func TestManifestEdgeRoundOneRejectsIdentityAndRelationCollisions(t *testing.T) 
 			name: "same mcp binding",
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetClaudeCode)
-				server := declaration.MCPServer{Name: "same", Transport: "stdio", Command: "npx"}
+				server := declaration.MCPServer{Name: "same", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")}
 				raw.MCPServers = []declaration.MCPServer{server, server}
 				return raw
 			}(),
@@ -127,7 +127,7 @@ func TestManifestEdgeRoundOneRejectsInvalidUTF8AtOpaqueBoundaries(t *testing.T) 
 			name: "mcp argument",
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetClaudeCode)
-				raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: "npx", Args: []string{invalid}}}
+				raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"), Args: []string{invalid}}}
 				return raw
 			}(),
 		},
@@ -180,8 +180,8 @@ func TestManifestEdgeRoundTwoPreservesOrthogonalAxes(t *testing.T) {
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetCodex)
 				raw.MCPServers = []declaration.MCPServer{
-					{Name: "same", Transport: "stdio", Command: "npx"},
-					{Name: "same", Scope: "global", Transport: "stdio", Command: "npx"},
+					{Name: "same", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")},
+					{Name: "same", Scope: "global", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")},
 				}
 				return raw
 			}(),
@@ -293,7 +293,7 @@ func TestManifestEdgeRoundThreeProducesDeterministicFailures(t *testing.T) {
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetClaudeCode)
 				raw.MCPServers = []declaration.MCPServer{{
-					Name: "bad", Transport: "stdio", Command: "npx",
+					Name: "bad", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"),
 					Env: map[string]declaration.MCPEnvReference{
 						"1BAD": {FromEnv: "HOST_ONE"},
 						"-BAD": {FromEnv: "HOST_TWO"},
@@ -443,7 +443,7 @@ func TestManifestEdgeRoundFourRejectsBidiControlsInOtherRenderedFields(t *testin
 			name: "mcp argument",
 			raw: func() declaration.Manifest {
 				raw := baseManifest(target.TargetClaudeCode)
-				raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: "npx", Args: []string{"safe\u202etxt"}}}
+				raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"), Args: []string{"safe\u202etxt"}}}
 				return raw
 			}(),
 		},
@@ -474,7 +474,7 @@ func TestManifestEdgeRoundFiveAuthorityAndScopeAxes(t *testing.T) {
 	t.Run("inherited global mcp authority", func(t *testing.T) {
 		raw := baseManifest(target.TargetCodex)
 		raw.Defaults.Scope = "global"
-		raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: "npx"}}
+		raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")}}
 		if _, err := Manifest(raw); err == nil || !strings.Contains(err.Error(), "requires explicit scope") {
 			t.Fatalf("Manifest error = %v, want explicit global rejection", err)
 		}
@@ -506,7 +506,7 @@ func TestManifestEdgeRoundFiveAuthorityAndScopeAxes(t *testing.T) {
 
 	t.Run("mcp carriage return argument", func(t *testing.T) {
 		raw := baseManifest(target.TargetClaudeCode)
-		raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: "npx", Args: []string{"one\rtwo"}}}
+		raw.MCPServers = []declaration.MCPServer{{Name: "bad", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"), Args: []string{"one\rtwo"}}}
 		if _, err := Manifest(raw); err == nil || !strings.Contains(err.Error(), "control") {
 			t.Fatalf("Manifest error = %v, want control rejection", err)
 		}
@@ -586,9 +586,9 @@ func TestManifestEdgeRoundSevenPreservesDeterministicAuthoredOrder(t *testing.T)
 	t.Run("interleaved mcp aggregation", func(t *testing.T) {
 		raw := baseManifest(target.TargetCodex, target.TargetClaudeCode)
 		raw.MCPServers = []declaration.MCPServer{
-			{Name: "a", Targets: []string{"codex"}, Transport: "stdio", Command: "npx"},
-			{Name: "b", Targets: []string{"claude-code"}, Transport: "stdio", Command: "uvx"},
-			{Name: "a", Targets: []string{"claude-code"}, Transport: "stdio", Command: "uvx"},
+			{Name: "a", Targets: []string{"codex"}, Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx")},
+			{Name: "b", Targets: []string{"claude-code"}, Transport: "stdio", Command: declaration.NewMCPAmbientCommand("uvx")},
+			{Name: "a", Targets: []string{"claude-code"}, Transport: "stdio", Command: declaration.NewMCPAmbientCommand("uvx")},
 		}
 		environment, err := Manifest(raw)
 		if err != nil {
@@ -626,7 +626,7 @@ func TestManifestEdgeRoundSevenPreservesDeterministicAuthoredOrder(t *testing.T)
 
 	t.Run("valid unicode mcp argument", func(t *testing.T) {
 		raw := baseManifest(target.TargetClaudeCode)
-		raw.MCPServers = []declaration.MCPServer{{Name: "unicode", Transport: "stdio", Command: "npx", Args: []string{"안녕👩‍💻"}}}
+		raw.MCPServers = []declaration.MCPServer{{Name: "unicode", Transport: "stdio", Command: declaration.NewMCPAmbientCommand("npx"), Args: []string{"안녕👩‍💻"}}}
 		if _, err := Manifest(raw); err != nil {
 			t.Fatalf("Manifest rejected valid Unicode argument: %v", err)
 		}

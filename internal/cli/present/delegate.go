@@ -114,7 +114,7 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 		command := plan.Command()
 		env := plan.Env().Bindings()
 		if !options.Verbose {
-			fmt.Fprintf(output, "  - run MCP command attempt subject=%q target=%s scope=%s command=%q args=%s env_bindings=%s environment=%s\n", subjectStringFromID(action.Subject()), action.Target(), action.Scope(), command.Name(), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
+			fmt.Fprintf(output, "  - run MCP command attempt subject=%q target=%s scope=%s command=%q args=%s env_bindings=%s environment=%s\n", subjectStringFromID(action.Subject()), action.Target(), action.Scope(), command.Executable(), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
 			fmt.Fprintln(output, "    package, cache, server, auth, and future readiness are not guaranteed")
 			continue
 		}
@@ -128,7 +128,7 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 			action.PolicyOutcome(),
 			action.SchedulesAttempt(),
 			plan.Runner().Kind(),
-			command.Name(),
+			command.Executable(),
 			quotedList(command.Args()),
 			delegateEnvBindingList(env),
 			subprocess.ChildEnvironmentInheritancePolicy,
@@ -210,7 +210,7 @@ func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSO
 			SchedulesAttempt: action.SchedulesAttempt(),
 			PlanIdentityKey:  plan.IdentityKey(),
 			RunnerKind:       string(plan.Runner().Kind()),
-			Command:          command.Name(),
+			Command:          command.Executable(),
 			Args:             command.Args(),
 			EnvBindings:      delegateJSONEnvBindings(plan.Env().Bindings()),
 			Environment:      subprocess.ChildEnvironmentInheritancePolicy,

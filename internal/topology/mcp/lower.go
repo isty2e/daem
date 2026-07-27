@@ -100,7 +100,7 @@ func (builder *graphBuilder) addProjectionBinding(
 
 func (builder *graphBuilder) addCommand(stdio desiredmcp.Stdio, projection topology.SubjectID, context string) error {
 	command := stdio.Command()
-	dependency, err := ExecutableSubject(command.Name())
+	dependency, err := ExecutableSubject(command.Executable())
 	if err != nil {
 		return fmt.Errorf("%s.command: %w", context, err)
 	}

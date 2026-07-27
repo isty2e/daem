@@ -66,8 +66,8 @@ func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
 			if plan.Runner().Kind() != test.runner {
 				t.Fatalf("Runner().Kind() = %q, want %q", plan.Runner().Kind(), test.runner)
 			}
-			if plan.Command().Name() != test.command {
-				t.Fatalf("Command().Name() = %q, want %q", plan.Command().Name(), test.command)
+			if plan.Command().Executable() != test.command {
+				t.Fatalf("Command().Executable() = %q, want %q", plan.Command().Executable(), test.command)
 			}
 			if plan.PinPolicy() != test.pin {
 				t.Fatalf("PinPolicy() = %q, want %q", plan.PinPolicy(), test.pin)
@@ -93,13 +93,27 @@ func TestCommandSpecPreservesEmptyArgument(t *testing.T) {
 	}
 }
 
+func TestCommandSpecPreservesAbsoluteExecutablePath(t *testing.T) {
+	command, err := NewCommandSpec("/opt/example/bin/codegraph", []string{"serve", "--mcp"})
+	if err != nil {
+		t.Fatalf("NewCommandSpec returned error: %v", err)
+	}
+	if command.Executable() != "/opt/example/bin/codegraph" {
+		t.Fatalf("Executable = %q", command.Executable())
+	}
+}
+
 func TestDelegatePlanRejectsInvalidStatesWithReasons(t *testing.T) {
 	assertReason(t, ReasonInvalidRunnerKind, func() error {
 		_, err := NewRunner(RunnerKind("shell"))
 		return err
 	})
 	assertReason(t, ReasonInvalidCommand, func() error {
-		_, err := NewCommandSpec("/usr/local/bin/npx", nil)
+		_, err := NewCommandSpec("./usr/local/bin/npx", nil)
+		return err
+	})
+	assertReason(t, ReasonInvalidCommand, func() error {
+		_, err := NewCommandSpec("/usr/local/../bin/npx", nil)
 		return err
 	})
 	assertReason(t, ReasonInvalidCommand, func() error {
