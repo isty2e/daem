@@ -22,6 +22,7 @@ import (
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func compareApplyMCPPlacementCanonicalEntry(
@@ -32,7 +33,7 @@ func compareApplyMCPPlacementCanonicalEntry(
 	canonical []byte,
 ) (mcpcodec.MCPProjectionCanonicalComparison, error) {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(id)
+	operations, ok := mcptest.OperationsForPlacementID(id)
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}

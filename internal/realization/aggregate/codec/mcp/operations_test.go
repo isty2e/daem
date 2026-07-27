@@ -200,7 +200,7 @@ func TestValidateMCPPlacementOperationCatalogRejectsMissingDuplicateAndStrayRows
 }
 
 func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project operation row missing")
 	}
@@ -254,7 +254,7 @@ func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
 }
 
 func TestMCPPlacementOperationsPropagateInvalidServerIDAcrossOperations(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project operation row missing")
 	}
@@ -287,7 +287,7 @@ func TestMCPPlacementOperationsPropagateInvalidServerIDAcrossOperations(t *testi
 }
 
 func TestMCPPlacementOperationsCodexTOMLPlacementRoundTrip(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementCodexGlobal)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementCodexGlobal)
 	if !ok {
 		t.Fatal("Codex global operation row missing")
 	}
@@ -362,7 +362,7 @@ func TestMCPPlacementOperationsRestoreRemoveDropsEmptyParentWhenAbsentBefore(t *
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+			operations, ok := mcpPlacementOperationsForID(tc.placement)
 			if !ok {
 				t.Fatalf("%s operation row missing", tc.placement)
 			}
@@ -382,7 +382,7 @@ func TestMCPPlacementOperationsRestoreRemoveDropsEmptyParentWhenAbsentBefore(t *
 }
 
 func TestMCPPlacementOperationsDistinguishAbsentFromMalformedPresentEntry(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementCodexProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementCodexProject)
 	if !ok {
 		t.Fatal("Codex project operation row missing")
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
@@ -27,7 +28,7 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical entry: %v", err)
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeGlobal)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeGlobal)
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}

@@ -21,6 +21,7 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 const (
@@ -55,7 +56,7 @@ func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
 			t.Setenv("USERPROFILE", home)
 			t.Setenv("CONTEXT7_API_TOKEN", mcpPublicExampleSecretCanary)
 
-			operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(test.placementID)
+			operations, ok := mcptest.OperationsForPlacementID(test.placementID)
 			if !ok {
 				t.Fatalf("implemented MCP placement operations %q not found", test.placementID)
 			}

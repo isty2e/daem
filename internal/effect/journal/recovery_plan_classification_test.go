@@ -13,6 +13,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestBuildRecoveryPlanClassifiesCleanStatesAsCleanupOnly(t *testing.T) {
@@ -263,7 +264,7 @@ func TestExtractRecoveryObservationProjectionRequiresMatchingContractAddress(t *
 	if err != nil {
 		t.Fatalf("CanonicalClaudeProjectMCPServerEntry returned error: %v", err)
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project MCP placement operations missing")
 	}

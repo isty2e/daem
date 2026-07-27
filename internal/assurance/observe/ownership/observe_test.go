@@ -14,12 +14,12 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
@@ -43,7 +43,7 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	foreign, _ := stateauthority.New(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
-	operations, admitted := mcpcodec.ImplementedMCPPlacementOperationsForID(
+	operations, admitted := mcptest.OperationsForPlacementID(
 		aggregate.MCPPlacementCodexGlobal,
 	)
 	if !admitted {
@@ -146,7 +146,7 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 	root := canonicalRoot(t)
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"claude-code"})
-	operations, admitted := mcpcodec.ImplementedMCPPlacementOperationsForID(
+	operations, admitted := mcptest.OperationsForPlacementID(
 		aggregate.MCPPlacementClaudeGlobal,
 	)
 	if !admitted {

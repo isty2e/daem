@@ -6,11 +6,11 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 // MCPProjectionInput carries already-canonical MCP projection fixture facts.
@@ -27,7 +27,7 @@ type MCPProjectionInput struct {
 // MCPProjection constructs one canonically refined MCP projection fixture.
 func MCPProjection(t testing.TB, input MCPProjectionInput) lock.LockedSubjectContract {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(input.PlacementID)
+	operations, ok := mcptest.OperationsForPlacementID(input.PlacementID)
 	if !ok {
 		t.Fatalf("MCP placement %q is unavailable", input.PlacementID)
 	}

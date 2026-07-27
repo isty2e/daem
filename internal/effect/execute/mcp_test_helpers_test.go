@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 type mcpProjectionApplyFixture struct {
@@ -108,7 +109,7 @@ func mergeMCPPlacementCanonicalEntry(
 	canonical []byte,
 ) ([]byte, error) {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(id)
+	operations, ok := mcptest.OperationsForPlacementID(id)
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}

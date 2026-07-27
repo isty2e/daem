@@ -256,16 +256,6 @@ func (operations MCPPlacementOperations) ParentPresent(existing []byte) (bool, e
 	return operations.parentPresent(existing)
 }
 
-// ImplementedMCPPlacementOperationsForID returns the implemented operation row for id.
-func ImplementedMCPPlacementOperationsForID(id aggregate.MCPPlacementID) (MCPPlacementOperations, bool) {
-	for _, operations := range implementedMCPPlacementOperationCatalog {
-		if operations.placement.ID() == id {
-			return operations, true
-		}
-	}
-	return MCPPlacementOperations{}, false
-}
-
 // ImplementedMCPPlacementOperationsForCodecContract returns the operation row for codecContractID.
 func ImplementedMCPPlacementOperationsForCodecContract(codecContractID aggregate.CodecContractID) (MCPPlacementOperations, bool) {
 	for _, operations := range implementedMCPPlacementOperationCatalog {

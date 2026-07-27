@@ -52,6 +52,7 @@ var testToolPackageAdmissions = map[string]testToolAdmission{
 	"test/testkit/clijson":                   {Reason: "strict CLI JSON decoding fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit/doctorenv":                 {Reason: "isolated cross-platform doctor environment fixture is test support", Kind: testToolHelperPackage},
 	"test/testkit/execcheck":                 {Reason: "isolated executable-attempt canaries are test support", Kind: testToolHelperPackage},
+	"test/testkit/mcp":                       {Reason: "placement-keyed MCP codec fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit/metadatatx":                {Reason: "cross-workflow interrupted metadata transaction fixtures are test support", Kind: testToolHelperPackage},
 }
 

@@ -14,6 +14,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestRecoveryContentPathBaselineRejectsGlobalFinalSymlink(t *testing.T) {
@@ -320,7 +321,7 @@ func claudeGlobalCanonicalEntry(t *testing.T, command string) []byte {
 
 func claudeGlobalConfig(t *testing.T, canonical []byte) []byte {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeGlobal)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeGlobal)
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}

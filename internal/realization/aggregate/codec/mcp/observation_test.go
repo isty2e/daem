@@ -11,7 +11,7 @@ import (
 func TestMCPPlacementOperationsObserveSelectedCanonicalEntries(t *testing.T) {
 	for _, test := range mcpProjectionMutationCases() {
 		t.Run(test.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(test.placement)
+			operations, ok := mcpPlacementOperationsForID(test.placement)
 			if !ok {
 				t.Fatalf("placement operations %q missing", test.placement)
 			}
@@ -51,7 +51,7 @@ func TestMCPPlacementOperationsObserveSelectedCanonicalEntries(t *testing.T) {
 }
 
 func TestMCPPlacementOperationsRejectInvalidObservationSelection(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project placement operations missing")
 	}

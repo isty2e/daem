@@ -257,7 +257,7 @@ func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 
 func mustMCPCodecOperations(t *testing.T, placementID aggregate.MCPPlacementID) MCPPlacementOperations {
 	t.Helper()
-	operations, ok := ImplementedMCPPlacementOperationsForID(placementID)
+	operations, ok := mcpPlacementOperationsForID(placementID)
 	if !ok {
 		t.Fatalf("MCP placement operations %q are missing", placementID)
 	}

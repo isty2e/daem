@@ -9,11 +9,11 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestManagedAggregateMCPPipelineCreatesThroughCommand(t *testing.T) {
@@ -304,7 +304,7 @@ func assertMCPEntryCommand(
 	if err != nil {
 		t.Fatalf("read MCP config: %v", err)
 	}
-	operations, present := mcpcodec.ImplementedMCPPlacementOperationsForID(placementID)
+	operations, present := mcptest.OperationsForPlacementID(placementID)
 	if !present {
 		t.Fatalf("placement operations %q are missing", placementID)
 	}
@@ -331,7 +331,7 @@ func assertMCPEntryAbsent(
 	if err != nil {
 		t.Fatalf("read MCP config: %v", err)
 	}
-	operations, present := mcpcodec.ImplementedMCPPlacementOperationsForID(placementID)
+	operations, present := mcptest.OperationsForPlacementID(placementID)
 	if !present {
 		t.Fatalf("placement operations %q are missing", placementID)
 	}
