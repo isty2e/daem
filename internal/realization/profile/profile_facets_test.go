@@ -16,6 +16,9 @@ func TestHookAssetPlacementRequiresCorrelatedRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if placement.Root().String() != ".daem/hook-assets" {
+		t.Fatalf("hook asset root = %q, want .daem/hook-assets", placement.Root())
+	}
 	route, ok := Profile(target.TargetCodex).OperationRoute(entity.KindHookAsset, placement.ID(), OperationWrite)
 	if !ok {
 		t.Fatal("hook asset write route missing")

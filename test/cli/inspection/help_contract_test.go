@@ -23,7 +23,7 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 		{topic: []string{"add"}, usage: "Usage: daem add <resource>", lineBudget: 32, required: []string{"extension", "instruction", "hook", "mcp-server", "skill", "skill-group"}, forbidden: []string{"daem add extension <id>", "--member", "--timeout"}},
 		{topic: []string{"remove"}, usage: "Usage: daem remove <resource>", lineBudget: 32, required: []string{"extension", "instruction", "hook", "mcp-server", "skill"}, forbidden: []string{"daem remove hook <name>", "--scope"}},
 		{topic: []string{"unmanage"}, usage: "Usage: daem unmanage <resource>", lineBudget: 32, required: []string{"extension", "never invokes a host route"}, forbidden: []string{"--yes", "--prune"}},
-		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 32, required: []string{"resources", "outputs"}, forbidden: []string{"--inventory"}},
+		{topic: []string{"list"}, usage: "Usage: daem list <resource>", lineBudget: 36, required: []string{"resources", "outputs", "paths"}, forbidden: []string{"--inventory"}},
 		{topic: []string{"probe"}, usage: "Usage: daem probe <resource>", lineBudget: 32, required: []string{"mcp-server", "terminal stdin/stdout/stderr or --yes"}},
 		{topic: []string{"init"}, usage: "Usage: daem init", lineBudget: 46, required: []string{"--force", "entry-identity revalidation", "create ./daem.toml", "daem init --manifest"}, forbidden: []string{"--yes", "--lockfile"}},
 		{topic: []string{"import"}, usage: "Usage: daem import --target <target>", lineBudget: 46, required: []string{"--source-dir", "--merge", "At least one --target is required", "--target codex --target claude-code"}, forbidden: []string{"--output", "--yes", "--lockfile"}},
@@ -47,6 +47,7 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 		{topic: []string{"unmanage", "extension"}, usage: "Usage: daem unmanage extension <id>", lineBudget: 46, required: []string{"--target <target>", "--scope <scope>", "always retains host state", "ambient or manual consumers remain unobservable"}, forbidden: []string{"--yes", "--prune", "--uninstall"}},
 		{topic: []string{"list", "resources"}, usage: "Usage: daem list resources", lineBudget: 46, required: []string{"stable remove keys", "--target codex --json"}},
 		{topic: []string{"list", "outputs"}, usage: "Usage: daem list outputs", lineBudget: 46, required: []string{"ownership inventory", "use daem status"}},
+		{topic: []string{"list", "paths"}, usage: "Usage: daem list paths", lineBudget: 46, required: []string{"agent paths", "static and read-only"}},
 		{topic: []string{"probe", "mcp-server"}, usage: "Usage: daem probe mcp-server <name>", lineBudget: 60, required: []string{"needed only when the name is ambiguous", "--timeout <duration>", "terminal stdin/stdout/stderr", "never mutates manifest"}},
 	}
 

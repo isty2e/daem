@@ -192,6 +192,7 @@ flags.
 | `import` | `--diff`, `--dry-run`, `--json`, `--manifest`, `--merge`, `--scope`, `--source-dir`, `--target`, `--verbose` |
 | `init` | `--dry-run`, `--force`, `--json`, `--manifest`, `--verbose` |
 | `list outputs` | `--json`, `--manifest`, `--target`, `--verbose` |
+| `list paths` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `list resources` | `--json`, `--manifest`, `--target`, `--verbose` |
 | `lock` | `--dry-run`, `--json`, `--manifest`, `--verbose` |
 | `outdated` | `--check`, `--json`, `--manifest`, `--verbose` |
@@ -220,6 +221,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `lock`, `outdated` | Lock comparison | `2` |
 | `list resources` | Resource inventory | `1` |
 | `list outputs` | Output inventory | `3` |
+| `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `9` |
 | confirmed `apply` | Apply result | `13` |
 | `recover` | Recovery plan/result | `3` |
@@ -525,6 +527,8 @@ daem list resources [--manifest <path>] [--target <target> ...]
   [--json|--verbose]
 daem list outputs [--manifest <path>] [--target <target> ...]
   [--json|--verbose]
+daem list paths [--manifest <path>] [--target <target> ...]
+  [--json|--verbose]
 ```
 
 Bare `list` is navigation only. `list resources` reads and normalizes the
@@ -538,12 +542,40 @@ reason and bounded owner/conflict detail so they agree with `status` without
 being mislabeled as unmanaged. It is an ownership inventory, not a convergence
 report; use status for the complete plan. List commands never truncate rows.
 
+`list paths` prints a static target -> scope -> resource tree. It includes
+project and global locations even before the manifest declares resources:
+
+- instruction and skill write, discovery, and runtime directories;
+- hook config files, or an unsupported row when that target has no hook route;
+- daem's private hook-asset store;
+- MCP config files, or an unsupported row;
+- delegated extension install, refresh, and remove routes.
+
+`selected` marks the write path, config file, or delegated route chosen by the
+manifest. `default` marks a target profile's default write path. Alternative
+discovery and runtime directories explain where a host can find resources; they
+do not grant daem permission to write there. An explicit skill `install_to`
+selects an admitted alternative. A requested but unrecognized root is reported
+as unsupported and never becomes path authority.
+
+The inventory comes from daem's validated target catalogs plus manifest
+selection facts. It does not inspect host files, execute host commands, or
+report whether a path exists. Use `--verbose` for realization, catalog source,
+selection source, and request details.
+
 `list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
 version `3`, with separate `managed`, `unmanaged`, and `blocked` arrays and
 counts. Resource-owned rows use singular `target`. Subject-owned managed paths
 also retain their canonical `subject` and complete `targets` consumer set while
 reporting the correlated resource identity when one exists. Both commands
 include every selected row.
+
+`list paths` JSON uses schema version `1` and a flat `locations` array. Every
+row contains `target`, `scope`, `resource`, `kind`, `realization`, `role`,
+`selected`, `requested`, `default`, `selection_source`, and `source`. A row has
+exactly one applicable payload: `path`, delegated `route` plus `operation`, or
+unsupported `reason` plus optional `detail`. The JSON ordering matches the
+human tree.
 
 ## `status`
 

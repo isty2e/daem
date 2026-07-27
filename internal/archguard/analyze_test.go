@@ -106,7 +106,9 @@ func TestAnalyzeRecordsAllowsPresentationToReadWorkflowResults(t *testing.T) {
 			"example.com/project/internal/workflow/apply",
 			"example.com/project/internal/workflow/authoring",
 			"example.com/project/internal/workflow/init",
+			"example.com/project/internal/workflow/list",
 			"example.com/project/internal/workflow/probe",
+			"example.com/project/internal/workflow/refresh",
 			"example.com/project/internal/workflow/status",
 		},
 	}})

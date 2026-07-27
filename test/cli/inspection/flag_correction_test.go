@@ -20,6 +20,7 @@ func TestFlagSyntaxErrorsUseNearestScopedCorrection(t *testing.T) {
 		{name: "outdated", args: []string{"outdated", "--unknown"}, helpPath: "outdated"},
 		{name: "list resources", args: []string{"list", "resources", "--unknown"}, helpPath: "list resources"},
 		{name: "list outputs", args: []string{"list", "outputs", "--unknown"}, helpPath: "list outputs"},
+		{name: "list paths", args: []string{"list", "paths", "--unknown"}, helpPath: "list paths"},
 		{name: "status", args: []string{"status", "--unknown"}, helpPath: "status"},
 		{name: "doctor", args: []string{"doctor", "--unknown"}, helpPath: "doctor"},
 		{name: "probe mcp-server", args: []string{"probe", "mcp-server", "example", "--unknown"}, helpPath: "probe mcp-server"},

@@ -26,6 +26,12 @@ type Result struct {
 	skillGroups  map[string]string
 }
 
+// PathResult is the selected manifest path plus its immutable location inventory.
+type PathResult struct {
+	ManifestPath string
+	Inventory    LocationInventory
+}
+
 // SkillGroups returns a defensive copy of syntax-only expanded skill
 // membership labels used by the list presentation.
 func (result Result) SkillGroups() map[string]string {
@@ -67,4 +73,18 @@ func Run(ctx context.Context, input Input) (Result, error) {
 	result.Selection = selection
 	result.skillGroups = groupMembership
 	return result, nil
+}
+
+// RunPaths loads the same selected manifest as Run, then projects the complete
+// static location catalog for its selected targets.
+func RunPaths(ctx context.Context, input Input) (PathResult, error) {
+	result, err := Run(ctx, input)
+	if err != nil {
+		return PathResult{ManifestPath: result.ManifestPath}, err
+	}
+	inventory, err := BuildLocationInventory(result.Environment, result.Selection)
+	if err != nil {
+		return PathResult{ManifestPath: result.ManifestPath}, fmt.Errorf("build location inventory: %w", err)
+	}
+	return PathResult{ManifestPath: result.ManifestPath, Inventory: inventory}, nil
 }

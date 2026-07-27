@@ -269,6 +269,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 		"list": groupPage("daem list", "enumerate declarations or output ownership", []helpRow{
 			{"resources", "Declared resources and stable remove keys."},
 			{"outputs", "Managed outputs and conflicting live destinations."},
+			{"paths", "Agent paths, config files, and delegated routes."},
 		}, "Bare list is navigation only; select one inventory basis."),
 		"probe": groupPage("daem probe", "run an explicitly authorized active check", []helpRow{
 			{"mcp-server", "Launch one locked MCP command and test runtime dimensions."},
@@ -391,6 +392,10 @@ func addInventoryPages(pages map[string]helpPage, workspace helpRow, target help
 		[]helpRow{workspace, target, jsonOutput, verbose},
 		[]helpRow{{"", "This is an ownership inventory, not a convergence report; use daem status for planned reconciliation."}},
 		[]string{"daem list outputs", "daem list outputs --target claude-code --verbose"}, reference)
+	pages["list paths"] = leaf("daem list paths", "daem list paths [--manifest <path>] [--target <target> ...] [--json|--verbose]", "list agent paths, config files, and delegated routes", nil,
+		[]helpRow{workspace, target, jsonOutput, verbose},
+		[]helpRow{{"", "The inventory is static and read-only. Selected labels come from the manifest; no host files or commands are inspected."}},
+		[]string{"daem list paths", "daem list paths --target codex --verbose"}, reference)
 }
 
 func groupPage(path string, summary string, children []helpRow, rule string) helpPage {

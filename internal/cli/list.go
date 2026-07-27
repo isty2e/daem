@@ -16,7 +16,7 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 		return exitCode
 	}
 	subcommand := args[0]
-	if subcommand != "resources" && subcommand != "outputs" {
+	if subcommand != "resources" && subcommand != "outputs" && subcommand != "paths" {
 		fmt.Fprintf(stderr, "unknown list resource %q\n", subcommand)
 		fmt.Fprintln(stderr, "next: run daem help list")
 		return 2
@@ -69,6 +69,34 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 			return 0
 		}
 		clipresent.PrintInventoryReportWithOptions(stdout, result.Inventory, clipresent.HumanOptions{Verbose: *verbose})
+		return 0
+	}
+	if subcommand == "paths" {
+		result, err := listworkflow.RunPaths(options.context, listworkflow.Input{
+			ManifestPath: *manifestPath,
+			TargetValues: targets,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "list failed: %s\n", humanDiagnosticError(err))
+			printMissingManifestInitHint(stderr, *manifestPath, err)
+			if errors.Is(err, targetselection.ErrInvalid) {
+				printTargetSelectionHint(stderr, result.ManifestPath)
+			}
+			return 1
+		}
+		if *jsonOutput {
+			if err := clipresent.PrintListPathsJSON(stdout, result.ManifestPath, result.Inventory); err != nil {
+				fmt.Fprintf(stderr, "list failed: write json: %s\n", humanDiagnosticError(err))
+				return 1
+			}
+			return 0
+		}
+		clipresent.PrintListPathsWithOptions(
+			stdout,
+			result.ManifestPath,
+			result.Inventory,
+			clipresent.HumanOptions{Verbose: *verbose},
+		)
 		return 0
 	}
 
