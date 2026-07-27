@@ -1,0 +1,22 @@
+# Skill placement example using one shared project root. Codex uses its default;
+# OpenCode and Pi explicitly select the compatible Codex root. Run
+# `daem list paths --manifest examples/skill-placement.toml` to see defaults,
+# alternatives, discovery locations, and the selected roots.
+
+version = 1
+targets = ["codex", "opencode", "pi"]
+
+[defaults]
+scope = "project"
+install_mode = "copy"
+
+[[skill]]
+name = "local-review"
+source = { path = "skills/local-review", mode = "vendor" }
+targets = ["codex", "opencode", "pi"]
+
+[skill.target.opencode]
+install_to = ".agents/skills"
+
+[skill.target.pi]
+install_to = ".agents/skills"

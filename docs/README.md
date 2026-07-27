@@ -27,6 +27,9 @@ Start here:
 - [Representative Project](../examples/representative-project.toml):
   instruction, local skill, managed hook asset, hook, and MCP declarations in
   one lock-validated manifest.
+- [Skill Placement](../examples/skill-placement.toml): Codex's project default
+  and supported OpenCode/Pi compatible-root selection in one lock-validated
+  manifest.
 
 These documents are self-contained for public commands, schema, product support,
 and safety guarantees. Implementation and invariant-bearing tests enforce those

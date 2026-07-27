@@ -131,10 +131,13 @@ directories, or plugin-provided rules.
 ### Skills And Skill Groups
 
 Skills install locked Agent Skills-compatible directories into the target's
-preferred placement root. `[[skill_group]]` expands one source root into
-separately locked child skills. System, builtin, administrator, and
-plugin-supplied roots remain outside ownership, as do marketplace discovery,
-markdown slash-command files, and host-specific execution success.
+default placement root or one explicitly selected compatible root from the
+static target catalog. `[[skill_group]]` expands one source root into separately
+locked child skills and inherits the same per-target root selection. The
+selection does not register arbitrary paths or grant authority over other
+discovery roots. System, builtin, administrator, and plugin-supplied roots
+remain outside ownership, as do marketplace discovery, markdown slash-command
+files, and host-specific execution success.
 
 ### Command Hooks
 

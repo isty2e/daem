@@ -34,6 +34,7 @@ func TestTargetPlacementValidatesScopeRelativeCanonicalPaths(t *testing.T) {
 		{name: "empty", scope: target.ScopeProject},
 		{name: "trim", scope: target.ScopeProject, value: " .agents/skills"},
 		{name: "project absolute", scope: target.ScopeProject, value: "/tmp/skills"},
+		{name: "project windows absolute", scope: target.ScopeProject, value: "C:/Users/me/skills"},
 		{name: "project home", scope: target.ScopeProject, value: "~/.agents/skills"},
 		{name: "project parent", scope: target.ScopeProject, value: "../skills"},
 		{name: "project noncanonical", scope: target.ScopeProject, value: ".agents/../skills"},

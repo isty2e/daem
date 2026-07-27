@@ -228,6 +228,10 @@ Skill resources install a full skill directory containing `SKILL.md`. The
 default write roots are target-specific, for example `.agents/skills/<install-name>`
 for Codex project skills and `.claude/skills/<install-name>` for Claude Code
 project skills. `name` is the agent-visible directory and frontmatter name.
+Where the target catalog exposes a compatible alternative, a per-target
+`install_to` selects that root before `<install-name>` is appended. The request
+does not admit arbitrary directories and does not change the target's
+discovery or runtime catalog.
 Copy placement is executable today. Skill `symlink` and `hardlink` placement
 can be represented in desired state and lockfiles but `apply` rejects them
 before host, state, or journal mutation.

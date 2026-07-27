@@ -42,6 +42,25 @@ targets = ["opencode"]
 		t.Fatalf("read retained skill: %v", err)
 	}
 
+	pathsOutput := runSkillDiscoveryCLI(
+		t,
+		0,
+		"list",
+		"paths",
+		"--manifest",
+		manifestPath,
+		"--target",
+		"opencode",
+	)
+	for _, want := range []string{
+		"write: .opencode/skills [selected, default]",
+		"discover: .agents/skills",
+	} {
+		if !strings.Contains(pathsOutput, want) {
+			t.Fatalf("list paths output = %q, want %q", pathsOutput, want)
+		}
+	}
+
 	doctorOutput := runSkillDiscoveryCLI(
 		t,
 		0,

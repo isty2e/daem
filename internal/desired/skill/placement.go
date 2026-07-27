@@ -90,7 +90,7 @@ func validateInstallTo(scope target.Scope, value string) error {
 
 	switch scope {
 	case target.ScopeProject:
-		if path.IsAbs(value) || strings.HasPrefix(value, "~") {
+		if path.IsAbs(value) || windowsDriveInstallPath(value) || strings.HasPrefix(value, "~") {
 			return fmt.Errorf("project install_to %q must be project-relative", value)
 		}
 	case target.ScopeGlobal:
@@ -103,4 +103,10 @@ func validateInstallTo(scope target.Scope, value string) error {
 		return fmt.Errorf("unknown scope %q", scope)
 	}
 	return nil
+}
+
+func windowsDriveInstallPath(value string) bool {
+	return len(value) >= 2 &&
+		((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) &&
+		value[1] == ':'
 }

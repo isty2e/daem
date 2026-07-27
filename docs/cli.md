@@ -551,6 +551,22 @@ project and global locations even before the manifest declares resources:
 - MCP config files, or an unsupported row;
 - delegated extension install, refresh, and remove routes.
 
+Resource families select their destinations differently:
+
+| Resource | What selects the destination |
+| --- | --- |
+| Instructions | The target default, or a supported target-specific `render_to`. |
+| Skills and skill groups | The target default, or a supported target-specific `install_to`; the skill name is appended below that root. |
+| Hooks | The target profile's fixed native config file. |
+| Hook assets | Daem's fixed private same-scope asset store. |
+| MCP servers | The target and scope select one fixed supported config file. |
+| Extensions | The target, scope, and source select delegated host routes rather than a daem write path. |
+
+There is no generic destination override. A resource-specific selector changes
+only the dimension that resource owns; it cannot turn a discovery path,
+runtime path, config file, private store, or delegated route into another kind
+of destination.
+
 `selected` marks the write path, config file, or delegated route chosen by the
 manifest. `default` marks a target profile's default write path. Alternative
 discovery and runtime directories explain where a host can find resources; they
@@ -562,6 +578,13 @@ The inventory comes from daem's validated target catalogs plus manifest
 selection facts. It does not inspect host files, execute host commands, or
 report whether a path exists. Use `--verbose` for realization, catalog source,
 selection source, and request details.
+
+For skills, `doctor`, `status`, and `apply` (including dry-run) additionally
+check the exact same-name child at other modeled discovery roots for the
+selected target and scope. A retained-copy warning means that path exists and
+the current command does not plan to migrate or remove it. The warning does not
+claim which copy the host will load, does not grant ownership, and never
+deletes or adopts the other copy.
 
 `list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
 version `3`, with separate `managed`, `unmanaged`, and `blocked` arrays and
