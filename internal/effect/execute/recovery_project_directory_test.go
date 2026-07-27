@@ -11,12 +11,12 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
@@ -74,7 +74,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	}
 	placementID := ""
 	for _, placement := range placements {
-		if _, err := placement.ChildName(destination); err == nil {
+		if _, err := placement.ChildName(outputtest.Parse(t, destination)); err == nil {
 			placementID = placement.ID()
 			break
 		}
@@ -94,7 +94,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		beforeHash,
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -107,7 +107,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		afterHash,
 		beforeHash,
 		realization.PathProjectionDirectory,
@@ -119,7 +119,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	}
 	evidence, err := observe.NewManagedPathEvidence(
 		subject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		true,
 		beforeHash,
 		0o550,
@@ -131,7 +131,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		afterHash,
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,

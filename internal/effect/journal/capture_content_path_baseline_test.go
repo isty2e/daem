@@ -199,7 +199,7 @@ func claudeRecoveryBaselineMutation(
 	}
 	return pathMutation{
 		Scope:             scope,
-		Destination:       output.Destination(placement.ConfigPath()),
+		Destination:       placement.ConfigPath(),
 		ContentPath:       output.ContentPath(contract.Address().ContentPath()),
 		AggregateContract: pointerToAggregateContract(contract),
 	}

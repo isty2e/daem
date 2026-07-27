@@ -13,11 +13,12 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathEvidenceCoverageRequiresExactCurrentFact(t *testing.T) {
 	subject := testManagedPathSubject(t, "oracle")
-	destination := output.Destination(".agents/skills/oracle")
+	destination := outputtest.Parse(t, ".agents/skills/oracle")
 	mutation, err := NewManagedPathCreateMutation(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -56,7 +57,7 @@ func TestManagedPathEvidenceCoverageRequiresExactCurrentFact(t *testing.T) {
 func TestManagedPathEvidenceCoverageRejectsWrongSubjectStaleHashAndDuplicates(t *testing.T) {
 	subject := testManagedPathSubject(t, "oracle")
 	other := testManagedPathSubject(t, "review")
-	destination := output.Destination(".agents/skills/oracle")
+	destination := outputtest.Parse(t, ".agents/skills/oracle")
 	previous, err := durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -113,7 +114,7 @@ func TestManagedPathEvidenceCoverageRejectsWrongSubjectStaleHashAndDuplicates(t 
 
 func TestManagedPathMutationCopiesPreviousState(t *testing.T) {
 	subject := testManagedPathSubject(t, "oracle")
-	destination := output.Destination(".agents/skills/oracle")
+	destination := outputtest.Parse(t, ".agents/skills/oracle")
 	previous, err := durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},

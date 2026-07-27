@@ -14,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -22,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -101,7 +101,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 		t.Fatalf("daempaths.Resolve returned error: %v", err)
 	}
 	operationID := "20260621T120000.000000000Z-apply"
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	currentState := durable.EmptySnapshot()
 	nextState := testkit.Snapshot(
 		t,

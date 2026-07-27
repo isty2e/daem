@@ -11,10 +11,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCaptureBoundGlobalManagedPathPreconditionRejectsFinalSymlink(t *testing.T) {
@@ -112,7 +112,7 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 	t.Setenv("HOME", homeAlias)
 	t.Setenv("USERPROFILE", homeAlias)
 
-	destination := output.Destination("~/.agents/skills/oracle")
+	destination := outputtest.Parse(t, "~/.agents/skills/oracle")
 	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
 		scope: target.ScopeGlobal, destination: destination,
 	}}}
@@ -200,7 +200,7 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 		t.Fatalf("create data root alias: %v", err)
 	}
 
-	destination := output.Destination("@data/hook-assets/guard/sha256-deadbeef/asset")
+	destination := outputtest.Parse(t, "@data/hook-assets/guard/sha256-deadbeef/asset")
 	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
 		scope: target.ScopeGlobal, destination: destination,
 	}}}
@@ -286,7 +286,7 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 	for index := range effectCount {
 		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
 			scope:       target.ScopeGlobal,
-			destination: output.Destination(fmt.Sprintf("~/.agents/skills/skill-%03d", index)),
+			destination: outputtest.Parse(t, fmt.Sprintf("~/.agents/skills/skill-%03d", index)),
 		}}}
 		effects = append(effects, effect, effect)
 	}
@@ -336,7 +336,7 @@ func captureBoundGlobalManagedPathPrecondition(
 	root := filepath.Dir(path)
 	t.Setenv("HOME", root)
 	t.Setenv("USERPROFILE", root)
-	destination := output.Destination("~/" + filepath.Base(path))
+	destination := outputtest.Parse(t, "~/"+filepath.Base(path))
 	effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
 		scope: target.ScopeGlobal, destination: destination,
 	}}}

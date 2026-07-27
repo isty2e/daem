@@ -137,7 +137,7 @@ func assertMCPPublicExampleWrittenLock(
 		subject.Key(),
 		string(contribution.Target()),
 		string(contribution.Scope()),
-		contribution.AggregateRoot(),
+		contribution.AggregateRoot().String(),
 		contribution.ContentPath(),
 		string(contribution.CodecContractID()),
 	)
@@ -174,7 +174,7 @@ func assertMCPPublicExampleProjectionIdentity(
 		name != mcpPublicExampleServerID ||
 		selectedTarget != string(placement.Target()) ||
 		scope != string(placement.Scope()) ||
-		configPath != placement.ConfigPath() ||
+		configPath != placement.ConfigPath().String() ||
 		contentPath != string(wantContentPath) ||
 		adapterContract != string(placement.CodecContractID()) {
 		t.Fatalf("projection identity kind=%q namespace=%q name=%q target=%q scope=%q config=%q content=%q adapter=%q, want placement %#v", kind, namespace, name, selectedTarget, scope, configPath, contentPath, adapterContract, placement)
@@ -273,7 +273,7 @@ func mcpPublicExampleHostConfigPath(
 	placement aggregate.MCPPlacement,
 ) string {
 	t.Helper()
-	logical := placement.ConfigPath()
+	logical := placement.ConfigPath().String()
 	switch placement.Scope() {
 	case target.ScopeProject:
 		if filepath.IsAbs(logical) || strings.HasPrefix(logical, "~") {
@@ -361,7 +361,7 @@ func assertMCPPublicExampleStatusPayload(
 		if action.Kind != "noop" || action.Reason != "already_current" ||
 			action.Projection.Target != string(placement.Target()) ||
 			action.Projection.Scope != string(placement.Scope()) ||
-			action.Projection.ConfigPath != placement.ConfigPath() ||
+			action.Projection.ConfigPath != placement.ConfigPath().String() ||
 			action.Projection.ContentPath != string(wantContentPath) {
 			t.Fatalf("status action = %#v, want already-current placement %q", action, placement.ID())
 		}

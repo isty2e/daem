@@ -132,7 +132,7 @@ func claimTransitionsForAggregateEffects(
 			}
 			address := projection.contract.Address()
 			key := ownershipOutputKey{
-				destination: output.Destination(document.AggregateRoot()),
+				destination: document.AggregateRoot(),
 				contentPath: output.ContentPath(address.ContentPath()),
 			}
 			observation, present := byOutput[key]

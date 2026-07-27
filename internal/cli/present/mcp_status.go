@@ -67,7 +67,7 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 		}
 		status.Target = string(observation.Target())
 		status.Scope = string(observation.Scope())
-		status.ConfigPath = observation.ConfigPath()
+		status.ConfigPath = observation.ConfigPath().String()
 		status.ContentPath = string(observation.ContentPath())
 		status.AdapterContractVersion = string(observation.AdapterContractVersion())
 		statuses = append(statuses, status)

@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRunConsumesPublicMCPManifestLockSubject(t *testing.T) {
@@ -231,7 +232,7 @@ func TestRunReportsProjectedAntigravityMCPStatusWhenStateOwnsEntry(t *testing.T)
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementAntigravityGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.AntigravityGlobalMCPConfigPath), output.ContentPath(mcpcodec.AntigravityGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.AntigravityGlobalMCPConfigPath), output.ContentPath(mcpcodec.AntigravityGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -326,7 +327,7 @@ func TestRunReportsProjectedCodexGlobalMCPStatusWhenStateOwnsEntry(t *testing.T)
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementCodexGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.CodexGlobalMCPConfigPath), output.ContentPath(mcpcodec.CodexGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.CodexGlobalMCPConfigPath), output.ContentPath(mcpcodec.CodexGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -359,7 +360,7 @@ func TestRunReportsProjectedOpenCodeGlobalMCPStatusWhenStateOwnsEntry(t *testing
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementOpenCodeGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.OpenCodeGlobalMCPConfigPath), output.ContentPath(mcpcodec.OpenCodeGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.OpenCodeGlobalMCPConfigPath), output.ContentPath(mcpcodec.OpenCodeGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,

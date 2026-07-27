@@ -81,7 +81,7 @@ func Build(input Input) (Result, error) {
 			byKey,
 			input.Resolver,
 			input.Registry,
-			output.Destination(document.AggregateRoot()),
+			document.AggregateRoot(),
 			output.ContentPath(address.ContentPath()),
 		); err != nil {
 			return Result{}, err
@@ -112,7 +112,7 @@ func Build(input Input) (Result, error) {
 			byKey,
 			input.Resolver,
 			input.Registry,
-			output.Destination(contribution.AggregateRoot()),
+			contribution.AggregateRoot(),
 			output.ContentPath(contribution.ContentPath()),
 		); err != nil {
 			return Result{}, err
@@ -125,7 +125,7 @@ func Build(input Input) (Result, error) {
 	}
 	sort.Slice(keys, func(left int, right int) bool {
 		if keys[left].destination != keys[right].destination {
-			return keys[left].destination < keys[right].destination
+			return keys[left].destination.String() < keys[right].destination.String()
 		}
 		return keys[left].contentPath < keys[right].contentPath
 	})

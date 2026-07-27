@@ -40,7 +40,7 @@ func Classify(
 
 	for _, entryIndex := range selection.indexes {
 		entry := authority.entries[entryIndex]
-		observation, ok := pathsByEntry[pathEvidenceKey{path: entry.destination, contentPath: entry.contentPath}]
+		observation, ok := pathsByEntry[pathEvidenceKey{path: entry.destination.String(), contentPath: entry.contentPath}]
 		action := actionFromEntry(entry)
 		if !ok {
 			action.Kind = ActionKindError
@@ -169,7 +169,7 @@ func actionFromEntry(entry Entry) Action {
 		Target:              entry.target,
 		ConsumerTargets:     append([]target.Target(nil), entry.consumerTargets...),
 		Scope:               entry.scope,
-		Destination:         entry.destination,
+		Destination:         entry.destination.String(),
 		ContentPath:         entry.contentPath,
 		ContentKind:         entry.contentKind,
 		BeforePathMode:      clonePermissionMode(entry.before.PathMode),

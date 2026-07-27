@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathEvidenceObservesCanonicalFileAndDirectory(t *testing.T) {
@@ -18,8 +19,8 @@ func TestManagedPathEvidenceObservesCanonicalFileAndDirectory(t *testing.T) {
 	writeTestFile(t, root, "skills/oracle/SKILL.md", "skill\n")
 
 	requests := []ManagedPathRequest{
-		managedPathTestRequest(t, "file", "AGENTS.md", realization.PathProjectionFile),
-		managedPathTestRequest(t, "directory", "skills/oracle", realization.PathProjectionDirectory),
+		managedPathTestRequest(t, "file", outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionFile),
+		managedPathTestRequest(t, "directory", outputtest.Parse(t, "skills/oracle"), realization.PathProjectionDirectory),
 	}
 	evidence, err := ManagedPathEvidence(context.Background(), managedPathTestResolver(root), requests)
 	if err != nil {
@@ -50,22 +51,22 @@ func TestManagedPathEvidenceRejectsCrossKindAndDuplicateRequests(t *testing.T) {
 		{
 			name: "directory cannot satisfy file request",
 			requests: []ManagedPathRequest{
-				managedPathTestRequest(t, "file", "directory", realization.PathProjectionFile),
+				managedPathTestRequest(t, "file", outputtest.Parse(t, "directory"), realization.PathProjectionFile),
 			},
 			want: "expected regular file",
 		},
 		{
 			name: "file cannot satisfy directory request",
 			requests: []ManagedPathRequest{
-				managedPathTestRequest(t, "directory", "AGENTS.md", realization.PathProjectionDirectory),
+				managedPathTestRequest(t, "directory", outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionDirectory),
 			},
 			want: "expected directory",
 		},
 		{
 			name: "same subject and address cannot change kind",
 			requests: []ManagedPathRequest{
-				managedPathTestRequest(t, "duplicate", "AGENTS.md", realization.PathProjectionFile),
-				managedPathTestRequest(t, "duplicate", "AGENTS.md", realization.PathProjectionDirectory),
+				managedPathTestRequest(t, "duplicate", outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionFile),
+				managedPathTestRequest(t, "duplicate", outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionDirectory),
 			},
 			want: "conflicts with duplicate subject/address",
 		},
@@ -97,6 +98,6 @@ func managedPathTestRequest(
 
 func managedPathTestResolver(root string) DestinationResolver {
 	return func(destination output.Destination) (string, error) {
-		return filepath.Join(root, filepath.FromSlash(string(destination))), nil
+		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), nil
 	}
 }

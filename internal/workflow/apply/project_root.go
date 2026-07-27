@@ -168,7 +168,7 @@ func projectDestinationAuthorityPathFor(
 	if err != nil {
 		return "", err
 	}
-	relative, err := rootedpath.NewRelativeDestination(string(destinationValue))
+	relative, err := rootedpath.NewRelativeDestination(destinationValue.RelativePath())
 	if err != nil {
 		return "", err
 	}
@@ -200,7 +200,7 @@ func observeProjectDestinationAuthorityFor(
 	if err != nil {
 		return err
 	}
-	relative, err := rootedpath.NewRelativeDestination(string(destinationValue))
+	relative, err := rootedpath.NewRelativeDestination(destinationValue.RelativePath())
 	if err != nil {
 		return err
 	}

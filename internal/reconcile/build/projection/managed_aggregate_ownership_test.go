@@ -207,7 +207,7 @@ func aggregateOwnershipObservation(
 	t.Helper()
 	address := projection.contract.Address()
 	document := address.Document()
-	destination := output.Destination(document.AggregateRoot())
+	destination := document.AggregateRoot()
 	contentPath := output.ContentPath(address.ContentPath())
 	managedAddress, err := ownership.NewManagedAddress(
 		filepath.Join(root, "home", ".claude.json"),

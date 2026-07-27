@@ -24,16 +24,17 @@ const (
 	RootData    RootRole = "data"
 )
 
-// Portable is one canonical root role plus a slash-separated relative path.
-type Portable struct {
+// Destination is one canonical portable output root plus a slash-separated
+// relative path. Its zero value is invalid.
+type Destination struct {
 	root     RootRole
 	relative string
 }
 
 // Parse parses the one canonical persisted spelling of a destination.
-func Parse(value string) (Portable, error) {
+func Parse(value string) (Destination, error) {
 	if err := validateDestinationText("destination", value); err != nil {
-		return Portable{}, err
+		return Destination{}, err
 	}
 
 	root := RootProject
@@ -46,42 +47,42 @@ func Parse(value string) (Portable, error) {
 		root = RootData
 		relative = strings.TrimPrefix(value, dataDestinationPrefix)
 	case strings.HasPrefix(value, "~"):
-		return Portable{}, fmt.Errorf("destination home-relative path must begin with %s", homeDestinationPrefix)
+		return Destination{}, fmt.Errorf("destination home-relative path must begin with %s", homeDestinationPrefix)
 	case strings.HasPrefix(value, "@"):
-		return Portable{}, fmt.Errorf("destination has unknown reserved root role")
+		return Destination{}, fmt.Errorf("destination has unknown reserved root role")
 	}
 
-	destination, err := newPortable(root, relative)
+	destination, err := newDestination(root, relative)
 	if err != nil {
-		return Portable{}, fmt.Errorf("destination: %w", err)
+		return Destination{}, fmt.Errorf("destination: %w", err)
 	}
 	if destination.String() != value {
-		return Portable{}, fmt.Errorf("destination must use its canonical portable spelling")
+		return Destination{}, fmt.Errorf("destination must use its canonical portable spelling")
 	}
 	return destination, nil
 }
 
-func newPortable(root RootRole, relative string) (Portable, error) {
+func newDestination(root RootRole, relative string) (Destination, error) {
 	if !root.valid() {
-		return Portable{}, fmt.Errorf("unsupported destination root role %q", root)
+		return Destination{}, fmt.Errorf("unsupported destination root role %q", root)
 	}
 	if err := validateRelativeDestinationPath(relative); err != nil {
-		return Portable{}, err
+		return Destination{}, err
 	}
 	if root == RootProject && (strings.HasPrefix(relative, "~") || strings.HasPrefix(relative, "@")) {
-		return Portable{}, fmt.Errorf("project relative path must not use a reserved root prefix")
+		return Destination{}, fmt.Errorf("project relative path must not use a reserved root prefix")
 	}
-	return Portable{root: root, relative: relative}, nil
+	return Destination{root: root, relative: relative}, nil
 }
 
-// RootRole returns the destination's portable root role.
-func (destination Portable) RootRole() RootRole { return destination.root }
+// RootRole returns the destination's root role.
+func (destination Destination) RootRole() RootRole { return destination.root }
 
 // RelativePath returns the canonical path relative to the selected root.
-func (destination Portable) RelativePath() string { return destination.relative }
+func (destination Destination) RelativePath() string { return destination.relative }
 
 // String returns the canonical persisted spelling.
-func (destination Portable) String() string {
+func (destination Destination) String() string {
 	switch destination.root {
 	case RootProject:
 		return destination.relative
@@ -94,9 +95,21 @@ func (destination Portable) String() string {
 	}
 }
 
+// Validate rejects a zero, forged, or non-canonical destination.
+func (destination Destination) Validate() error {
+	canonical, err := newDestination(destination.root, destination.relative)
+	if err != nil {
+		return err
+	}
+	if canonical != destination {
+		return fmt.Errorf("destination is not canonical")
+	}
+	return nil
+}
+
 // ValidateScope rejects root roles that contradict project/global placement.
-func (destination Portable) ValidateScope(scope target.Scope) error {
-	if err := destination.validate(); err != nil {
+func (destination Destination) ValidateScope(scope target.Scope) error {
+	if err := destination.Validate(); err != nil {
 		return err
 	}
 	if _, err := target.ParseScope(string(scope)); err != nil {
@@ -115,34 +128,8 @@ func (destination Portable) ValidateScope(scope target.Scope) error {
 	return nil
 }
 
-func (destination Portable) validate() error {
-	canonical, err := newPortable(destination.root, destination.relative)
-	if err != nil {
-		return err
-	}
-	if canonical != destination {
-		return fmt.Errorf("portable destination is not canonical")
-	}
-	return nil
-}
-
 func (root RootRole) valid() bool {
 	return root == RootProject || root == RootHome || root == RootData
-}
-
-// Validate rejects a non-portable or non-canonical destination.
-func (destination Destination) Validate() error {
-	_, err := Parse(string(destination))
-	return err
-}
-
-// ValidateScope rejects a destination whose root role contradicts scope.
-func (destination Destination) ValidateScope(scope target.Scope) error {
-	portable, err := Parse(string(destination))
-	if err != nil {
-		return err
-	}
-	return portable.ValidateScope(scope)
 }
 
 func validateRelativeDestinationPath(value string) error {

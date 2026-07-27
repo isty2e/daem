@@ -237,7 +237,7 @@ func ownershipFingerprintFacts(
 	facts := make([]ownershipObservationFingerprintFacts, 0, len(observations))
 	for _, observation := range observations {
 		fact := ownershipObservationFingerprintFacts{
-			Destination: string(observation.Destination),
+			Destination: observation.Destination.String(),
 			ContentPath: string(observation.ContentPath),
 			Path:        observation.Address.Path(),
 		}

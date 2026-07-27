@@ -40,7 +40,7 @@ func compareManagedPath(left ManagedPathState, right ManagedPathState) int {
 	return compareStrings(
 		string(left.scope), string(right.scope),
 		left.subject.String(), right.subject.String(),
-		string(left.destination), string(right.destination),
+		left.destination.String(), right.destination.String(),
 	)
 }
 

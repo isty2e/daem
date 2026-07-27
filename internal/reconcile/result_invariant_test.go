@@ -15,10 +15,11 @@ import (
 	reconcile "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestResultOwnsAllDecisionFamiliesAndDefensiveCopies(t *testing.T) {
-	managed := resultManagedPath(t, "oracle", "skills/oracle")
+	managed := resultManagedPath(t, "oracle", outputtest.Parse(t, "skills/oracle"))
 	aggregateDecision, projectionSubject := resultAggregate(t, "context7")
 	relationSubject := mustSubject(t, "context7-plugin", "managed/context7-plugin")
 	relation := mustPlan(t, relationSubject, correlationFor(t, relationSubject, observerelation.InventorySpec{
@@ -76,7 +77,7 @@ func TestResultOwnsAllDecisionFamiliesAndDefensiveCopies(t *testing.T) {
 }
 
 func TestResultRejectsDuplicateAndCrossFamilyIdentities(t *testing.T) {
-	managed := resultManagedPath(t, "context7", "skills/context7")
+	managed := resultManagedPath(t, "context7", outputtest.Parse(t, "skills/context7"))
 	aggregateDecision, aggregateSubject := resultAggregate(t, "context7")
 	relationSubject := mustSubject(t, "context7-plugin", "managed/context7-plugin")
 	relation := mustPlan(t, relationSubject, correlationFor(t, relationSubject, observerelation.InventorySpec{
@@ -104,7 +105,7 @@ func TestResultRejectsDuplicateAndCrossFamilyIdentities(t *testing.T) {
 		})
 	}
 
-	conflictingManaged := resultManagedPathForSubject(t, aggregateSubject, "skills/context7")
+	conflictingManaged := resultManagedPathForSubject(t, aggregateSubject, outputtest.Parse(t, "skills/context7"))
 	_, err := reconcile.NewResult(reconcile.ResultInput{
 		Context:      reconcile.ContextInspect,
 		ManagedPaths: []reconcile.ManagedPathDecision{conflictingManaged},
@@ -175,8 +176,8 @@ func TestDelegateDisclosureMatchesPlanRequiresExactArgsAndEnv(t *testing.T) {
 }
 
 func TestResultRejectsContradictoryDelegateDependencyState(t *testing.T) {
-	projection := resultManagedPath(t, "blocked", "skills/blocked")
-	blockedProjection := resultBlockedManagedPathForSubject(t, projection.Subject(), "skills/blocked")
+	projection := resultManagedPath(t, "blocked", outputtest.Parse(t, "skills/blocked"))
+	blockedProjection := resultBlockedManagedPathForSubject(t, projection.Subject(), outputtest.Parse(t, "skills/blocked"))
 
 	scheduled := resultDelegate(t, projection.Subject(), reconcile.DelegateScheduled)
 	_, err := reconcile.NewResult(reconcile.ResultInput{
@@ -214,8 +215,8 @@ func TestResultRejectsContradictoryDelegateDependencyState(t *testing.T) {
 }
 
 func TestResultCanonicalizesFamilyOrder(t *testing.T) {
-	managedZ := resultManagedPath(t, "zeta", "skills/zeta")
-	managedA := resultManagedPath(t, "alpha", "skills/alpha")
+	managedZ := resultManagedPath(t, "zeta", outputtest.Parse(t, "skills/zeta"))
+	managedA := resultManagedPath(t, "alpha", outputtest.Parse(t, "skills/alpha"))
 	aggregateGlobal, _ := resultAggregateAt(t, aggregate.MCPPlacementClaudeGlobal, "zeta")
 	aggregateProject, _ := resultAggregateAt(t, aggregate.MCPPlacementClaudeProject, "alpha")
 
@@ -230,7 +231,7 @@ func TestResultCanonicalizesFamilyOrder(t *testing.T) {
 	if got := []topology.SubjectID{result.ManagedPaths()[0].Subject(), result.ManagedPaths()[1].Subject()}; !reflect.DeepEqual(got, []topology.SubjectID{managedA.Subject(), managedZ.Subject()}) {
 		t.Fatalf("managed path order = %v", got)
 	}
-	if got := []string{result.Aggregates()[0].DocumentAddress().AggregateRoot(), result.Aggregates()[1].DocumentAddress().AggregateRoot()}; !reflect.DeepEqual(got, []string{aggregateGlobal.DocumentAddress().AggregateRoot(), aggregateProject.DocumentAddress().AggregateRoot()}) {
+	if got := []output.Destination{result.Aggregates()[0].DocumentAddress().AggregateRoot(), result.Aggregates()[1].DocumentAddress().AggregateRoot()}; !reflect.DeepEqual(got, []output.Destination{aggregateGlobal.DocumentAddress().AggregateRoot(), aggregateProject.DocumentAddress().AggregateRoot()}) {
 		t.Fatalf("aggregate order = %v", got)
 	}
 }

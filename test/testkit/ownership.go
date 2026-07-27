@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -19,7 +18,7 @@ func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination st
 	if err != nil {
 		t.Fatalf("Resolve ownership paths returned error: %v", err)
 	}
-	resolved, err := hostpath.NewResolverWithManagedDataRoot(paths.ManifestRoot, paths.DataDir).Resolve(output.Destination(destination))
+	resolved, err := hostpath.NewResolverWithManagedDataRoot(paths.ManifestRoot, paths.DataDir).Resolve(parseDestination(t, destination))
 	if err != nil {
 		t.Fatalf("Resolve ownership destination returned error: %v", err)
 	}

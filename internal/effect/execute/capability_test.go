@@ -6,7 +6,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -126,7 +125,7 @@ func managedPathCapabilityPlan(
 	}
 	evidence, err := observe.NewManagedPathEvidence(
 		projection.SubjectID(),
-		output.Destination(destination),
+		destination,
 		false,
 		"",
 		0,

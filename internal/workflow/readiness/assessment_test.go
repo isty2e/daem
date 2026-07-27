@@ -17,7 +17,7 @@ import (
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -26,7 +26,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/internal/target/availability"
+	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -277,7 +277,7 @@ scope = "project"
 		if destination == claudeOnlyDestination {
 			return "", fmt.Errorf("resolved unselected-only HookAsset destination %q", destination)
 		}
-		return filepath.Join(tempDir, filepath.FromSlash(string(destination))), nil
+		return filepath.Join(tempDir, filepath.FromSlash(destination.String())), nil
 	}
 
 	inputs, err := buildManagedAggregatePlanningInputs(
@@ -340,11 +340,11 @@ func hookAssetDestination(
 		}
 		projection, managedPath := realization.ManagedPathProjection()
 		if managedPath {
-			return output.Destination(projection.Destination())
+			return projection.Destination()
 		}
 	}
 	t.Fatalf("locked HookAsset %q has no managed path projection", assetName)
-	return ""
+	return output.Destination{}
 }
 
 func parseTestManifest(t *testing.T, content string) desired.Environment {
@@ -411,6 +411,6 @@ func mustReadTestFile(t *testing.T, path string) []byte {
 
 func testDestinationResolver(root string) liveobserve.DestinationResolver {
 	return func(destination output.Destination) (string, error) {
-		return filepath.Join(root, filepath.FromSlash(string(destination))), nil
+		return filepath.Join(root, filepath.FromSlash(destination.String())), nil
 	}
 }

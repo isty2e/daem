@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -40,7 +39,7 @@ func (expectation ManagedPathExpectation) decisionInput() reconcile.ManagedPathD
 	projection, _ := realization.ManagedPathProjection()
 	return reconcile.ManagedPathDecisionInput{
 		Subject: expectation.contract.SubjectID(), ConsumerTargets: projection.ConsumerTargets(),
-		Scope: projection.Scope(), Destination: output.Destination(projection.Destination()),
+		Scope: projection.Scope(), Destination: projection.Destination(),
 		ContentKind: projection.ContentKind(), PlacementMode: projection.PlacementMode(),
 		PermissionPolicy: projection.PermissionPolicy(), DesiredFileMode: managedPathProjectionExactMode(projection),
 	}

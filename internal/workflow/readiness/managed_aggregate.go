@@ -9,9 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	"github.com/isty2e/daem/internal/desired"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -165,7 +164,7 @@ func resolvedHookAssetPaths(
 		if !slices.Equal(projection.ConsumerTargets(), consumers) {
 			return nil, fmt.Errorf("HookAsset subject %q consumer targets differ from topology", expected.SubjectID())
 		}
-		physical, err := resolver(output.Destination(projection.Destination()))
+		physical, err := resolver(projection.Destination())
 		if err != nil {
 			return nil, fmt.Errorf("resolve HookAsset %q path: %w", contract.EntityID().Name(), err)
 		}
@@ -268,7 +267,7 @@ func observeAggregateDocuments(
 			}
 			result.preconditions = append(result.preconditions, observed)
 		}
-		logical := output.Destination(address.AggregateRoot())
+		logical := address.AggregateRoot()
 		if err := liveobserve.ValidateAggregateReadPreconditions(logical, resolver); err != nil {
 			return aggregateDocumentObservations{}, err
 		}
@@ -299,7 +298,7 @@ func observeAggregateDocuments(
 }
 
 func aggregateDocumentKey(address aggregate.DocumentAddress) string {
-	return string(address.Target()) + "\x00" + string(address.Scope()) + "\x00" + address.AggregateRoot()
+	return string(address.Target()) + "\x00" + string(address.Scope()) + "\x00" + address.AggregateRoot().String()
 }
 
 func aggregateProjectionKey(address aggregate.ProjectionAddress) string {

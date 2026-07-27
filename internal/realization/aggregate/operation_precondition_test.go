@@ -21,8 +21,8 @@ func TestOperationPreconditionsForCodecMatchPlacementCatalog(t *testing.T) {
 				t.Fatal("implemented MCP codec has no operation-precondition profile")
 			}
 
-			conflictingPath := placement.ConflictingConfigPath()
-			if conflictingPath == "" {
+			conflictingPath, hasConflictingPath := placement.ConflictingConfigPath()
+			if !hasConflictingPath {
 				if len(preconditions) != 0 {
 					t.Fatalf("preconditions = %#v, want none", preconditions)
 				}
@@ -56,7 +56,7 @@ func TestOperationPreconditionsForCodecMatchPlacementCatalog(t *testing.T) {
 				detail,
 				"unsupported alternate config",
 			) || !strings.Contains(detail, string(aggregate.OperationPreconditionDocumentAbsent)) ||
-				!strings.Contains(detail, conflictingPath) {
+				!strings.Contains(detail, conflictingPath.String()) {
 				t.Fatalf("unsatisfied detail = %q", detail)
 			}
 		})

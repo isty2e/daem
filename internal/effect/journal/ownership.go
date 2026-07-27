@@ -119,7 +119,11 @@ func validateRecoveryClaimCoverage(
 		if entry.Scope != string(target.ScopeGlobal) {
 			continue
 		}
-		physical, err := resolver(output.Destination(entry.Path))
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d] destination: %w", index, err)
+		}
+		physical, err := resolver(destination)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
 		}

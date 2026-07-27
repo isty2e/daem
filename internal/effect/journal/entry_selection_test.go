@@ -10,11 +10,12 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestEntrySelectionsPreserveHostMutationOrderAndIdentity(t *testing.T) {
-	first := testManagedPathCreateMutation(t, "oracle", ".agents/skills/oracle")
-	second := testManagedPathCreateMutation(t, "review", ".agents/skills/review")
+	first := testManagedPathCreateMutation(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
+	second := testManagedPathCreateMutation(t, "review", outputtest.Parse(t, ".agents/skills/review"))
 
 	selections, err := EntrySelections([]ManagedPathMutation{first, second}, nil)
 	if err != nil {
@@ -23,8 +24,8 @@ func TestEntrySelectionsPreserveHostMutationOrderAndIdentity(t *testing.T) {
 	if len(selections) != 2 {
 		t.Fatalf("selections = %d, want 2", len(selections))
 	}
-	if selections[0].key.destination != ".agents/skills/oracle" ||
-		selections[1].key.destination != ".agents/skills/review" {
+	if selections[0].key.destination.String() != ".agents/skills/oracle" ||
+		selections[1].key.destination.String() != ".agents/skills/review" {
 		t.Fatalf("selection order = %#v, want host mutation order", selections)
 	}
 	if !selections[0].initialized || selections[0].key.subject != first.facts().subject {
@@ -33,7 +34,7 @@ func TestEntrySelectionsPreserveHostMutationOrderAndIdentity(t *testing.T) {
 }
 
 func TestEntrySelectionsRejectInvalidAndDuplicateMutations(t *testing.T) {
-	valid := testManagedPathCreateMutation(t, "oracle", ".agents/skills/oracle")
+	valid := testManagedPathCreateMutation(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	if _, err := EntrySelections([]ManagedPathMutation{{}}, nil); err == nil || !strings.Contains(err.Error(), "managed path journal mutation[0]") {
 		t.Fatalf("invalid mutation error = %v, want indexed validation failure", err)
 	}
@@ -54,7 +55,7 @@ func TestEntrySelectionPreservesCanonicalSubjectIdentity(t *testing.T) {
 		Subject:     subject,
 		Target:      target.TargetClaudeCode,
 		Scope:       target.ScopeProject,
-		Destination: aggregate.ClaudeProjectMCPConfigPath,
+		Destination: outputtest.Parse(t, aggregate.ClaudeProjectMCPConfigPath),
 		ContentPath: output.ContentPath(mcpcodec.ClaudeProjectMCPContentPath("context7")),
 	}
 
@@ -143,7 +144,7 @@ func TestSelectedRecoveryEntriesRejectInvalidAuthority(t *testing.T) {
 	}
 
 	unknown := selection
-	unknown.key.destination = "UNKNOWN.md"
+	unknown.key.destination = outputtest.Parse(t, "UNKNOWN.md")
 	if _, err := selectedRecoveryEntryIndexes([]recoveryEntry{entry}, []EntrySelection{unknown}); err == nil || !strings.Contains(err.Error(), "do not match the active journal") {
 		t.Fatalf("unknown selection error = %v", err)
 	}

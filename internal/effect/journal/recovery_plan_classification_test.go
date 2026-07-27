@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildRecoveryPlanClassifiesCleanStatesAsCleanupOnly(t *testing.T) {
@@ -155,7 +156,7 @@ func TestBuildRecoveryPlanTreatsProjectionContainerModeDriftAsNeitherGuardedSide
 		},
 		Target:           string(document.Target()),
 		Scope:            string(document.Scope()),
-		Path:             document.AggregateRoot(),
+		Path:             document.AggregateRoot().String(),
 		ContentPath:      string(address.ContentPath()),
 		Aggregate:        persistedAggregateContract(contract),
 		StateIndependent: true,
@@ -277,7 +278,7 @@ func TestExtractRecoveryObservationProjectionRequiresMatchingContractAddress(t *
 
 	_, _, err = extractRecoveryObservationProjection(
 		content,
-		output.Destination("unknown-mcp-config.json"),
+		outputtest.Parse(t, "unknown-mcp-config.json"),
 		output.ContentPath(mcpcodec.ClaudeProjectMCPContentPath("context7")),
 		&contract,
 		journalTestCodecs(),

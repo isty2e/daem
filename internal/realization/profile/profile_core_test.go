@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestProfilesPreserveCurrentSupportAndRealizationMatrix(t *testing.T) {
@@ -46,7 +47,7 @@ func TestProfilesPreserveCurrentSupportAndRealizationMatrix(t *testing.T) {
 func TestProfileSeparatesPlacementDiscoveryRuntimeAndRoutes(t *testing.T) {
 	claude := Profile(target.TargetClaudeCode)
 	placements := claude.Placements(entity.KindInstructions, target.ScopeProject)
-	if len(placements) != 1 || placements[0].Root() != "CLAUDE.md" {
+	if len(placements) != 1 || placements[0].Root().String() != "CLAUDE.md" {
 		t.Fatalf("placements = %#v", placements)
 	}
 	discoveries := claude.DiscoveryLocations(entity.KindInstructions, target.ScopeProject)
@@ -92,7 +93,7 @@ func TestSharedPlacementsRemainOnePhysicalIdentity(t *testing.T) {
 	if !ok {
 		t.Fatal("shared placement has no write route")
 	}
-	spec, err := placements[0].Realize("AGENTS.md", realization.PathProjectionCopy, route)
+	spec, err := placements[0].Realize(outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionCopy, route)
 	if err != nil || spec.Validate() != nil {
 		t.Fatalf("Realize = %#v, %v", spec, err)
 	}

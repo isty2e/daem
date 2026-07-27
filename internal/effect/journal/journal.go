@@ -338,7 +338,7 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 			}
 			document := contract.Address().Document()
 			if entry.Target != string(document.Target()) || entry.Scope != string(document.Scope()) ||
-				entry.Path != document.AggregateRoot() || entry.ContentPath != string(contract.Address().ContentPath()) {
+				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contract.Address().ContentPath()) {
 				return fmt.Errorf("recovery entries[%d].aggregate: contract differs from path identity", index)
 			}
 			if _, ok, admissionErr := aggregate.OperationPreconditionsForCodec(contract.CodecContractID()); admissionErr != nil {

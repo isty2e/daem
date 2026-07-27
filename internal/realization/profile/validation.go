@@ -56,7 +56,7 @@ func validateProfileFacetCatalogs(
 		}
 		placementIDs[placement.ID()] = placement
 		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := placementKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root()}
+			key := placementKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
 			if previousID, exists := placementsByTarget[key]; exists {
 				return fmt.Errorf(
 					"target %q %s %s path %q is claimed by placements %q and %q",
@@ -144,7 +144,7 @@ func validateProfileFacetCatalogs(
 			}
 		}
 		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := locationKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root()}
+			key := locationKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
 			if _, exists := discoveryKeys[key]; !exists {
 				return fmt.Errorf("placement %q has no corresponding discovery location for target %q", placement.ID(), selectedTarget)
 			}

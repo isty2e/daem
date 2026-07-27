@@ -2,16 +2,13 @@ package refine
 
 import (
 	"fmt"
-	"path"
 	"sort"
-	"strings"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/profile"
-	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
@@ -34,15 +31,11 @@ func InstructionsPathProjections(value instructions.Instructions) ([]lock.Locked
 				return nil, err
 			}
 		}
-		destination, err := instructionDestination(selectedTarget, value.Scope(), rendering.RenderTo())
-		if err != nil {
-			return nil, fmt.Errorf("instructions %q target %q: %w", value.ID().Name(), selectedTarget, err)
-		}
-		placement, err := profile.ManagedFilePlacementFor(
+		placement, err := profile.ManagedFilePlacementForRelativePath(
 			entity.KindInstructions,
 			selectedTarget,
 			value.Scope(),
-			destination,
+			rendering.RenderTo(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf(
@@ -52,16 +45,17 @@ func InstructionsPathProjections(value instructions.Instructions) ([]lock.Locked
 				rendering.RenderTo(),
 				selectedTarget,
 				value.Scope(),
-				destination,
+				rendering.RenderTo(),
 				err,
 			)
 		}
+		destination := placement.Root()
 		mode, err := instructionProjectionMode(rendering.Mode())
 		if err != nil {
 			return nil, fmt.Errorf("instructions %q target %q: %w", value.ID().Name(), selectedTarget, err)
 		}
 
-		address := string(value.Scope()) + "\x00" + destination
+		address := string(value.Scope()) + "\x00" + destination.String()
 		if existingID, occupied := placementByAddress[address]; occupied && existingID != placement.ID() {
 			return nil, fmt.Errorf(
 				"instructions %q placement ids %q and %q claim destination %q",
@@ -132,48 +126,6 @@ func InstructionsPathProjections(value instructions.Instructions) ([]lock.Locked
 		contracts = append(contracts, contract)
 	}
 	return contracts, nil
-}
-
-func instructionDestination(selectedTarget target.Target, scope target.Scope, renderTo string) (string, error) {
-	defaultPlacement, err := profile.Profile(selectedTarget).DefaultPlacement(entity.KindInstructions, scope)
-	if err != nil {
-		return "", err
-	}
-	if renderTo == "" {
-		return defaultPlacement.Root(), nil
-	}
-	clean, err := cleanInstructionRenderPath(renderTo)
-	if err != nil {
-		return "", err
-	}
-	if scope == target.ScopeProject {
-		return clean, nil
-	}
-	if scope == target.ScopeGlobal {
-		return path.Join(path.Dir(defaultPlacement.Root()), clean), nil
-	}
-	return "", fmt.Errorf("unknown scope %q", scope)
-}
-
-func cleanInstructionRenderPath(value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return "", fmt.Errorf("render_to is required")
-	}
-	if strings.Contains(trimmed, "\\") {
-		return "", fmt.Errorf("render_to %q must use slash-separated relative paths", value)
-	}
-	if strings.HasPrefix(trimmed, "~") || path.IsAbs(trimmed) {
-		return "", fmt.Errorf("render_to %q must be relative to the target scope root", value)
-	}
-	cleaned := path.Clean(trimmed)
-	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("render_to %q must stay inside the target scope root", value)
-	}
-	if cleaned != trimmed {
-		return "", fmt.Errorf("render_to %q must be a canonical slash-separated relative path", value)
-	}
-	return cleaned, nil
 }
 
 func instructionProjectionMode(mode instructions.RenderMode) (realization.PathProjectionMode, error) {

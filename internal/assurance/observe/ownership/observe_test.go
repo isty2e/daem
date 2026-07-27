@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
@@ -81,7 +82,7 @@ func TestBuildDeduplicatesManagedPathAndStateAndFiltersSelection(t *testing.T) {
 	root := canonicalRoot(t)
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"codex"})
-	destination := output.Destination("~/.agents/skills/reviewer")
+	destination := outputtest.Parse(t, "~/.agents/skills/reviewer")
 	resolverCalls := 0
 	result, err := Build(Input{
 		Paths: paths,
@@ -94,8 +95,8 @@ func TestBuildDeduplicatesManagedPathAndStateAndFiltersSelection(t *testing.T) {
 		}},
 		StatePaths: []durable.ManagedPathState{
 			testManagedPathState(t, "selected", target.TargetCodex, target.ScopeGlobal, destination),
-			testManagedPathState(t, "other-target", target.TargetClaudeCode, target.ScopeGlobal, "~/.claude/ignored"),
-			testManagedPathState(t, "project", target.TargetCodex, target.ScopeProject, "project"),
+			testManagedPathState(t, "other-target", target.TargetClaudeCode, target.ScopeGlobal, outputtest.Parse(t, "~/.claude/ignored")),
+			testManagedPathState(t, "project", target.TargetCodex, target.ScopeProject, outputtest.Parse(t, "project")),
 		},
 		Selection: selection,
 		Registry:  outputownership.EmptyRegistry(),
@@ -164,7 +165,7 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 		Paths: paths,
 		Resolver: func(destination output.Destination) (string, error) {
 			resolverCalls++
-			if destination != output.Destination(contract.Address().Document().AggregateRoot()) {
+			if destination != contract.Address().Document().AggregateRoot() {
 				t.Fatalf("resolver destination = %q, want aggregate root", destination)
 			}
 			return physical, nil

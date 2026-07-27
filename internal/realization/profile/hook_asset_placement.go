@@ -31,7 +31,7 @@ type HookAssetPlacement struct {
 	id              string
 	consumerTargets []target.Target
 	scope           target.Scope
-	root            string
+	root            output.Destination
 }
 
 // HookAssetPlacementFor selects the one admitted daem-owned asset root.
@@ -55,12 +55,17 @@ func HookAssetPlacementFor(scope target.Scope, consumers []target.Target) (HookA
 	}
 
 	placement := HookAssetPlacement{consumerTargets: canonicalConsumers, scope: parsedScope}
+	var rootText string
 	if parsedScope == target.ScopeProject {
 		placement.id = hookAssetProjectPlacementID
-		placement.root = hookAssetProjectRoot
+		rootText = hookAssetProjectRoot
 	} else {
 		placement.id = hookAssetGlobalPlacementID
-		placement.root = hookAssetGlobalRoot
+		rootText = hookAssetGlobalRoot
+	}
+	placement.root, err = output.Parse(rootText)
+	if err != nil {
+		return HookAssetPlacement{}, err
 	}
 	if err := placement.Validate(); err != nil {
 		return HookAssetPlacement{}, err
@@ -79,55 +84,55 @@ func (placement HookAssetPlacement) Validate() error {
 	if _, err := target.ParseScope(string(placement.scope)); err != nil {
 		return err
 	}
-	if err := validatePlacementPathScope(placement.root, placement.scope); err != nil {
+	if err := placement.root.ValidateScope(placement.scope); err != nil {
 		return err
 	}
 	wantID, wantRoot := hookAssetGlobalPlacementID, hookAssetGlobalRoot
 	if placement.scope == target.ScopeProject {
 		wantID, wantRoot = hookAssetProjectPlacementID, hookAssetProjectRoot
 	}
-	if placement.id != wantID || placement.root != wantRoot {
+	if placement.id != wantID || placement.root.String() != wantRoot {
 		return fmt.Errorf("HookAsset placement does not match scope %q", placement.scope)
 	}
 	return nil
 }
 
 // Destination returns the portable content-addressed file destination.
-func (placement HookAssetPlacement) Destination(assetName string, contentHash artifact.ContentHash) (string, error) {
+func (placement HookAssetPlacement) Destination(assetName string, contentHash artifact.ContentHash) (output.Destination, error) {
 	if err := placement.Validate(); err != nil {
-		return "", err
+		return output.Destination{}, err
 	}
 	if err := validatePathComponent("HookAsset name", assetName); err != nil {
-		return "", err
+		return output.Destination{}, err
 	}
 	if err := contentHash.Validate(); err != nil {
-		return "", err
+		return output.Destination{}, err
 	}
 	hashSegment := strings.ReplaceAll(string(contentHash), ":", "-")
-	destination := path.Join(placement.root, assetName, hashSegment, hookAssetFileName)
-	parsed, err := output.Parse(destination)
+	destination, err := output.Parse(path.Join(placement.root.String(), assetName, hashSegment, hookAssetFileName))
 	if err != nil {
-		return "", err
+		return output.Destination{}, err
 	}
-	if err := parsed.ValidateScope(placement.scope); err != nil {
-		return "", err
+	if err := destination.ValidateScope(placement.scope); err != nil {
+		return output.Destination{}, err
 	}
 	return destination, nil
 }
 
 // ContentHash inverts one canonical asset destination for this placement.
-func (placement HookAssetPlacement) ContentHash(assetName string, destination string) (artifact.ContentHash, error) {
+func (placement HookAssetPlacement) ContentHash(assetName string, destination output.Destination) (artifact.ContentHash, error) {
 	if err := placement.Validate(); err != nil {
 		return "", err
 	}
 	if err := validatePathComponent("HookAsset name", assetName); err != nil {
 		return "", err
 	}
-	prefix := path.Join(placement.root, assetName) + "/"
-	if !strings.HasPrefix(destination, prefix) {
+	destinationText := destination.String()
+	prefix := path.Join(placement.root.String(), assetName) + "/"
+	if !strings.HasPrefix(destinationText, prefix) {
 		return "", fmt.Errorf("HookAsset destination %q is outside placement %q", destination, placement.id)
 	}
-	relative := strings.TrimPrefix(destination, prefix)
+	relative := strings.TrimPrefix(destinationText, prefix)
 	parts := strings.Split(relative, "/")
 	if len(parts) != 2 || parts[1] != hookAssetFileName {
 		return "", fmt.Errorf("HookAsset destination %q has invalid content-addressed shape", destination)

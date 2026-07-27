@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/test/outputtest"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,7 +41,7 @@ func TestManagedPathEvidenceRejectsLinkAndSpecialFileDestinations(t *testing.T) 
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := managedPathTestRequest(t, test.name, output.Destination(test.destination), realization.PathProjectionFile)
+			request := managedPathTestRequest(t, test.name, outputtest.Parse(t, test.destination), realization.PathProjectionFile)
 			_, err := ManagedPathEvidence(context.Background(), managedPathTestResolver(root), []ManagedPathRequest{request})
 			if err == nil || !strings.Contains(strings.ToLower(err.Error()), test.want) {
 				t.Fatalf("ManagedPathEvidence error = %v, want %q", err, test.want)

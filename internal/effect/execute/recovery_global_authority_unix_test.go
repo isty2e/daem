@@ -30,6 +30,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) {
@@ -38,7 +39,7 @@ func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) 
 		destination output.Destination
 		useHome     bool
 	}{
-		{name: "home", destination: "~/.codex/AGENTS.md", useHome: true},
+		{name: "home", destination: outputtest.Parse(t, "~/.codex/AGENTS.md"), useHome: true},
 		{name: "data"},
 	}
 	retargetTimings := []struct {
@@ -106,19 +107,19 @@ func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) 
 }
 
 func TestRecoveryRequiresEveryGlobalBindingBeforeEffects(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	action := recovery.Action{
 		Scope:       target.ScopeGlobal,
-		Destination: string(destination),
+		Destination: destination.String(),
 	}
 	authority := &mutationAuthority{
 		globalDestinationBindings: map[output.Destination]globalDestinationBinding{
-			"~/.codex/OTHER.md": {},
+			outputtest.Parse(t, "~/.codex/OTHER.md"): {},
 		},
 	}
 
 	err := requireRecoveryGlobalBindings(authority, []recovery.Action{action})
-	if err == nil || !strings.Contains(err.Error(), string(destination)) {
+	if err == nil || !strings.Contains(err.Error(), destination.String()) {
 		t.Fatalf("requireRecoveryGlobalBindings error = %v, want exact unbound destination refusal", err)
 	}
 	if _, err := authority.resolveBoundDestination(target.ScopeGlobal, destination); err == nil ||
@@ -128,7 +129,7 @@ func TestRecoveryRequiresEveryGlobalBindingBeforeEffects(t *testing.T) {
 }
 
 func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	authority, err := newRecoveryMutationAuthority(
 		fixture.paths,
@@ -148,7 +149,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 		authority,
 		[]recoveryHostAction{{
 			Scope:         target.ScopeGlobal,
-			Destination:   string(destination),
+			Destination:   destination.String(),
 			ExpectedAfter: planned.ExpectedAfter.Clone(),
 		}},
 		testAggregateCodecs(),
@@ -204,7 +205,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 }
 
 func TestRecoveryBackupRejectsReplacementAfterViewSelection(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	action := recoveryHostActionFromJournalAction(fixture.plan.Actions()[0])
 	backup, err := recoveryBackupForAction(fixture.plan.OperationDir(), action)
@@ -227,7 +228,7 @@ func TestRecoveryBackupRejectsReplacementAfterViewSelection(t *testing.T) {
 }
 
 func TestRecoveryBackupAcceptsEquivalentReplacementAfterViewSelection(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	action := recoveryHostActionFromJournalAction(fixture.plan.Actions()[0])
 	backup, err := recoveryBackupForAction(fixture.plan.OperationDir(), action)
@@ -289,7 +290,7 @@ func TestRecoveryBackupRejectsOversizedRegularFile(t *testing.T) {
 }
 
 func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	authority, err := newRecoveryMutationAuthority(
 		fixture.paths,
@@ -370,7 +371,7 @@ func TestRecoveryRollbackStagesOneBaselinePerSharedDocument(t *testing.T) {
 		}
 		actions = append(actions, recoveryHostAction{
 			Scope:             target.ScopeProject,
-			Destination:       string(fixture.destination),
+			Destination:       fixture.destination.String(),
 			ContentPath:       fixture.contentPath(serverID),
 			AggregateContract: &contract,
 			ExpectedAfter: recovery.ExpectedPathState{
@@ -427,7 +428,7 @@ func TestRecoveryRollbackStagesOneBaselinePerSharedDocument(t *testing.T) {
 }
 
 func TestRecoveryRejectsDirectFileChangeAfterFinalReloadWithoutOverwritingIt(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	external := []byte("external after final reload\n")
 	err := ExecuteRecoveryPlanWithOptions(
@@ -462,7 +463,7 @@ func TestRecoveryRejectsDirectFileChangeAfterFinalReloadWithoutOverwritingIt(t *
 }
 
 func TestRecoveryDirectFileCommitUsesStagedEntryIdentity(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	authority, err := newRecoveryMutationAuthority(
 		fixture.paths,
@@ -506,7 +507,7 @@ func TestRecoveryDirectFileCommitUsesStagedEntryIdentity(t *testing.T) {
 }
 
 func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *testing.T) {
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	authority, err := newRecoveryMutationAuthority(
 		fixture.paths,
@@ -654,7 +655,7 @@ func newGlobalFileRecoveryFixture(
 		if err != nil {
 			t.Fatalf("derive global HookAsset destination: %v", err)
 		}
-		destination = output.Destination(destinationValue)
+		destination = destinationValue
 		entityID, err := entity.New(entity.KindHookAsset, "recovery")
 		if err != nil {
 			t.Fatalf("construct global HookAsset entity: %v", err)

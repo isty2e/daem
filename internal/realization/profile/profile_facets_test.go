@@ -92,7 +92,7 @@ func TestFacetCatalogRejectsDuplicateDefaultsAndMissingRoutes(t *testing.T) {
 		t.Fatalf("duplicate-default validation error = %v", err)
 	}
 
-	discovery := mustDiscoveryLocation(target.TargetCodex, entity.KindSkill, target.ScopeProject, first.Root(), 0)
+	discovery := mustDiscoveryLocation(target.TargetCodex, entity.KindSkill, target.ScopeProject, first.Root().String(), 0)
 	write := mustOperationRoute(entity.KindSkill, OperationWrite, first.ID(), "test.write", "test-v1")
 	if err := validateProfileFacetCatalogs([]ManagedPathPlacement{first}, []DiscoveryLocation{discovery}, nil, []OperationRoute{write}); err == nil || !strings.Contains(err.Error(), "no remove route") {
 		t.Fatalf("missing-route validation error = %v", err)

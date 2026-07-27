@@ -5,7 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -43,7 +43,7 @@ func TestAggregateEventFactsPreserveAggregateEffectAxis(t *testing.T) {
 			facts.ManagedPathKind,
 		)
 	}
-	if facts.Subject != subject || facts.Destination != ".codex/hooks.json" {
+	if facts.Subject != subject || facts.Destination.String() != ".codex/hooks.json" {
 		t.Fatalf("aggregate event facts = %#v", facts)
 	}
 }

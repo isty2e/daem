@@ -86,7 +86,7 @@ func (decision AggregateSubjectDecision) Scope() target.Scope {
 }
 
 func (decision AggregateSubjectDecision) Destination() output.Destination {
-	return output.Destination(decision.delta.contract.Address().Document().AggregateRoot())
+	return decision.delta.contract.Address().Document().AggregateRoot()
 }
 
 func (decision AggregateSubjectDecision) ContentPath() output.ContentPath {
@@ -209,7 +209,7 @@ func decisionKey(decision Decision) decisionOrderKey {
 			destructiveRank: decisionDestructiveRank(operation),
 			targetRank:      decisionTargetRank(managedPath.ConsumerTargets(), ""),
 			scope:           managedPath.Scope(),
-			destination:     string(managedPath.Destination()),
+			destination:     managedPath.Destination().String(),
 			entityKind:      string(entityID.Kind()),
 			entityName:      entityID.Name(),
 			subject:         managedPath.Subject(),
@@ -225,7 +225,7 @@ func decisionKey(decision Decision) decisionOrderKey {
 		destructiveRank: decisionDestructiveRank(operation),
 		targetRank:      decisionTargetRank(nil, aggregate.Target()),
 		scope:           aggregate.Scope(),
-		destination:     string(aggregate.Destination()),
+		destination:     aggregate.Destination().String(),
 		entityKind:      string(entityID.Kind()),
 		entityName:      entityID.Name(),
 		subject:         aggregate.Subject(),

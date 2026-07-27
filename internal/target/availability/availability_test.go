@@ -171,7 +171,7 @@ func TestFromManifestLockAndStateIncludesManagedOrdinaryStateOnlyTarget(t *testi
 		"instructions.project.agents",
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		mustAvailabilityDestination(t, "AGENTS.md"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
 	)
@@ -192,7 +192,7 @@ func TestFromManifestLockAndStateIncludesAllSharedStateConsumersInStableOrder(t 
 		"instructions.project.agents",
 		[]target.Target{target.TargetOpenCode, target.TargetPi},
 		target.ScopeProject,
-		"AGENTS.md",
+		mustAvailabilityDestination(t, "AGENTS.md"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
 	)
@@ -203,7 +203,7 @@ func TestFromManifestLockAndStateIncludesAllSharedStateConsumersInStableOrder(t 
 		"skill.project.opencode",
 		[]target.Target{target.TargetOpenCode},
 		target.ScopeProject,
-		".opencode/skills/duplicate-opencode",
+		mustAvailabilityDestination(t, ".opencode/skills/duplicate-opencode"),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
 	)
@@ -238,7 +238,7 @@ func TestManagedPathStateRejectsInvalidConsumerTargetsBeforeAvailability(t *test
 			subject,
 			consumers,
 			target.ScopeProject,
-			"AGENTS.md",
+			mustAvailabilityDestination(t, "AGENTS.md"),
 			"sha256:invalid",
 			realization.PathProjectionFile,
 			realization.PathPermissionsExecutableClass,
@@ -288,6 +288,15 @@ func managedPathSnapshot(
 		t.Fatalf("NewSnapshot returned error: %v", err)
 	}
 	return snapshot
+}
+
+func mustAvailabilityDestination(t testing.TB, value string) output.Destination {
+	t.Helper()
+	destination, err := output.Parse(value)
+	if err != nil {
+		t.Fatalf("output.Parse(%q) returned error: %v", value, err)
+	}
+	return destination
 }
 
 func managedPathState(

@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -77,8 +78,8 @@ type MCPPlacementInput struct {
 	Target                target.Target
 	Scope                 target.Scope
 	ConfigLayer           MCPConfigLayer
-	ConfigPath            MCPAggregateRoot
-	ConflictingConfigPath MCPAggregateRoot
+	ConfigPath            string
+	ConflictingConfigPath string
 	MergeUnit             MCPMergeUnit
 	ContentPathPrefix     MCPContentPathPrefix
 	SiblingRetention      MCPSiblingRetentionPolicy
@@ -95,7 +96,8 @@ type MCPPlacement struct {
 	scope                 target.Scope
 	configLayer           MCPConfigLayer
 	aggregateSpec         MCPConfigAggregateSpec
-	conflictingConfigPath MCPAggregateRoot
+	conflictingConfigPath output.Destination
+	hasConflictingPath    bool
 	codecContractID       CodecContractID
 	comparedFields        []string
 	absence               MCPAbsencePolicy
@@ -104,8 +106,12 @@ type MCPPlacement struct {
 
 // NewMCPPlacement constructs a validated MCP placement row.
 func NewMCPPlacement(input MCPPlacementInput) (MCPPlacement, error) {
+	configPath, err := output.Parse(input.ConfigPath)
+	if err != nil {
+		return MCPPlacement{}, fmt.Errorf("MCP config path: %w", err)
+	}
 	aggregateSpec, err := NewMCPConfigAggregateSpec(MCPConfigAggregateSpecInput{
-		Root:              input.ConfigPath,
+		Root:              configPath,
 		MergeUnit:         input.MergeUnit,
 		ContentPathPrefix: input.ContentPathPrefix,
 		SiblingRetention:  input.SiblingRetention,
@@ -113,13 +119,22 @@ func NewMCPPlacement(input MCPPlacementInput) (MCPPlacement, error) {
 	if err != nil {
 		return MCPPlacement{}, err
 	}
+	var conflictingConfigPath output.Destination
+	hasConflictingPath := strings.TrimSpace(input.ConflictingConfigPath) != ""
+	if hasConflictingPath {
+		conflictingConfigPath, err = output.Parse(input.ConflictingConfigPath)
+		if err != nil {
+			return MCPPlacement{}, fmt.Errorf("MCP conflicting config path: %w", err)
+		}
+	}
 	placement := MCPPlacement{
 		id:                    input.ID,
 		target:                input.Target,
 		scope:                 input.Scope,
 		configLayer:           input.ConfigLayer,
 		aggregateSpec:         aggregateSpec,
-		conflictingConfigPath: MCPAggregateRoot(strings.TrimSpace(string(input.ConflictingConfigPath))),
+		conflictingConfigPath: conflictingConfigPath,
+		hasConflictingPath:    hasConflictingPath,
 		codecContractID:       input.CodecContractID,
 		comparedFields:        canonicalTokenSet(input.ComparedFields),
 		absence:               input.Absence,
@@ -157,19 +172,19 @@ func (placement MCPPlacement) AggregateSpec() MCPConfigAggregateSpec {
 }
 
 // AggregateRoot returns the host config aggregate root for this placement row.
-func (placement MCPPlacement) AggregateRoot() MCPAggregateRoot {
+func (placement MCPPlacement) AggregateRoot() output.Destination {
 	return placement.aggregateSpec.Root()
 }
 
 // ConfigPath returns the host config path role for this placement row.
-func (placement MCPPlacement) ConfigPath() string {
-	return string(placement.aggregateSpec.Root())
+func (placement MCPPlacement) ConfigPath() output.Destination {
+	return placement.aggregateSpec.Root()
 }
 
 // ConflictingConfigPath returns an alternate host config whose presence makes
-// direct mutation of this placement ambiguous. The empty value means none.
-func (placement MCPPlacement) ConflictingConfigPath() string {
-	return string(placement.conflictingConfigPath)
+// direct mutation of this placement ambiguous.
+func (placement MCPPlacement) ConflictingConfigPath() (output.Destination, bool) {
+	return placement.conflictingConfigPath, placement.hasConflictingPath
 }
 
 // MergeUnit returns the managed subtree unit for this placement row.
@@ -297,8 +312,15 @@ func (placement MCPPlacement) Validate() error {
 	if err := placement.aggregateSpec.Validate(); err != nil {
 		return fmt.Errorf("MCP placement %q aggregate spec: %w", placement.id, err)
 	}
-	if placement.conflictingConfigPath == placement.aggregateSpec.Root() {
+	if placement.hasConflictingPath && placement.conflictingConfigPath == placement.aggregateSpec.Root() {
 		return fmt.Errorf("MCP placement %q conflicting config path must differ from its aggregate root", placement.id)
+	}
+	if placement.hasConflictingPath {
+		if err := placement.conflictingConfigPath.ValidateScope(placement.scope); err != nil {
+			return fmt.Errorf("MCP placement %q conflicting config path: %w", placement.id, err)
+		}
+	} else if placement.conflictingConfigPath.Validate() == nil {
+		return fmt.Errorf("MCP placement %q has an unmarked conflicting config path", placement.id)
 	}
 	if err := validateToken("MCP codec contract", string(placement.codecContractID)); err != nil {
 		return err

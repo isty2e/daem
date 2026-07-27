@@ -6,7 +6,6 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -175,7 +174,7 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 		desiredSubjects[contract.SubjectID()] = struct{}{}
 		facts := reconcile.ManagedPathDecisionInput{
 			Subject: contract.SubjectID(), ConsumerTargets: selectedConsumers,
-			Scope: projection.Scope(), Destination: output.Destination(projection.Destination()),
+			Scope: projection.Scope(), Destination: projection.Destination(),
 			ContentKind: projection.ContentKind(), PlacementMode: projection.PlacementMode(),
 			PermissionPolicy: projection.PermissionPolicy(), DesiredFileMode: managedPathProjectionExactMode(projection),
 		}

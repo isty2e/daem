@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestJSONRealizationKeepsDelegatedAndAggregateFieldAxesSeparate(t *testing.T) {
@@ -54,7 +55,7 @@ func TestJSONRealizationPreservesExplicitExactPermissionModeZero(t *testing.T) {
 	}
 	realization, err := realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
 		PlacementID: "future.project.exact", ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: ".daem/future-exact", ContentKind: realization.PathProjectionFile,
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, ".daem/future-exact"), ContentKind: realization.PathProjectionFile,
 		PlacementMode: realization.PathProjectionCopy, PermissionPolicy: realization.PathPermissionsExact,
 		ExactPermissionMode: exactMode, AdapterContractVersion: "future-exact-v1",
 	})

@@ -29,16 +29,10 @@ func NewResolverWithManagedDataRoot(projectRoot string, dataRoot string) Resolve
 
 // Resolve expands a canonical portable destination without changing its identity.
 func (resolver Resolver) Resolve(destination output.Destination) (string, error) {
-	value := string(destination)
-	if strings.TrimSpace(value) == "" {
-		return "", fmt.Errorf("destination is required")
-	}
-
-	portable, err := output.Parse(value)
-	if err != nil {
+	if err := destination.Validate(); err != nil {
 		return "", err
 	}
-	switch portable.RootRole() {
+	switch destination.RootRole() {
 	case output.RootHome:
 		homeDirectory, err := os.UserHomeDir()
 		if err != nil {
@@ -47,21 +41,21 @@ func (resolver Resolver) Resolve(destination output.Destination) (string, error)
 		if strings.TrimSpace(homeDirectory) != homeDirectory || !filepath.IsAbs(homeDirectory) {
 			return "", fmt.Errorf("resolve home directory for %q: home root must be a trimmed absolute path", destination)
 		}
-		return filepath.Join(homeDirectory, filepath.FromSlash(portable.RelativePath())), nil
+		return filepath.Join(homeDirectory, filepath.FromSlash(destination.RelativePath())), nil
 	case output.RootData:
 		dataRoot, err := cleanManagedDataRoot(resolver.dataRoot)
 		if err != nil {
 			return "", fmt.Errorf("resolve data-root destination %q: %w", destination, err)
 		}
-		return filepath.Join(dataRoot, filepath.FromSlash(portable.RelativePath())), nil
+		return filepath.Join(dataRoot, filepath.FromSlash(destination.RelativePath())), nil
 	case output.RootProject:
 		projectRoot, err := cleanProjectRoot(resolver.projectRoot)
 		if err != nil {
 			return "", fmt.Errorf("resolve project destination %q: %w", destination, err)
 		}
-		return filepath.Join(projectRoot, filepath.FromSlash(portable.RelativePath())), nil
+		return filepath.Join(projectRoot, filepath.FromSlash(destination.RelativePath())), nil
 	default:
-		return "", fmt.Errorf("destination %q has unsupported root role %q", destination, portable.RootRole())
+		return "", fmt.Errorf("destination %q has unsupported root role %q", destination, destination.RootRole())
 	}
 }
 

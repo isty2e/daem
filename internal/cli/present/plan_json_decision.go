@@ -16,7 +16,7 @@ func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) planJS
 	row := planJSONAction{
 		Kind: aggregatePublicKind(decision), Reason: string(decision.Reason()),
 		Subject: planJSONSubjectFor(decision.Subject()), Target: string(decision.Target()),
-		Scope: string(decision.Scope()), Destination: string(decision.Destination()),
+		Scope: string(decision.Scope()), Destination: decision.Destination().String(),
 		ContentPath: string(decision.ContentPath()), Detail: decision.Detail(),
 		ResourceID: resourceID, Resource: resourceValue,
 	}
@@ -26,7 +26,7 @@ func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) planJS
 		row.Projection = &planJSONProjection{
 			Target:      string(document.Target()),
 			Scope:       string(document.Scope()),
-			ConfigPath:  document.AggregateRoot(),
+			ConfigPath:  document.AggregateRoot().String(),
 			ContentPath: string(address.ContentPath()),
 		}
 	}
@@ -35,7 +35,7 @@ func planJSONAggregateAction(decision reconcile.AggregateSubjectDecision) planJS
 			Subject:     planJSONSubjectFor(decision.Subject()),
 			Target:      string(previous.Target()),
 			Scope:       string(previous.Scope()),
-			Destination: previous.AggregateRoot(),
+			Destination: previous.AggregateRoot().String(),
 			ContentPath: previous.ContentPath(),
 			ContentHash: string(artifact.HashFileContent([]byte(previous.CanonicalContribution()))),
 		}
@@ -48,7 +48,7 @@ func planJSONManagedPathAction(decision reconcile.ManagedPathDecision) planJSONA
 	row := planJSONAction{
 		Kind: managedPathPublicKind(decision), Reason: string(decision.Reason()),
 		Subject: planJSONSubjectFor(decision.Subject()), Targets: targetStrings(decision.ConsumerTargets()),
-		Scope: string(decision.Scope()), Destination: string(decision.Destination()),
+		Scope: string(decision.Scope()), Destination: decision.Destination().String(),
 		PlacementMode: string(decision.PlacementMode()), ContentKind: string(decision.ContentKind()),
 		PermissionPolicy: string(decision.PermissionPolicy()),
 		DesiredHash:      string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()), Detail: decision.Detail(),
@@ -67,7 +67,7 @@ func planJSONManagedPathAction(decision reconcile.ManagedPathDecision) planJSONA
 		previousResourceID, previousResource := planJSONEntityResource(previous.Subject())
 		row.PreviousState = &planJSONPreviousState{
 			Subject: planJSONSubjectFor(previous.Subject()), Targets: targetStrings(previous.ConsumerTargets()),
-			Scope: string(previous.Scope()), Destination: string(previous.Destination()),
+			Scope: string(previous.Scope()), Destination: previous.Destination().String(),
 			ContentHash: string(previous.ContentHash()), ContentKind: string(previous.ContentKind()),
 			PermissionPolicy: string(previous.PermissionPolicy()),
 			ResourceID:       previousResourceID, Resource: previousResource,

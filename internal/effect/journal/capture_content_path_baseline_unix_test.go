@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRecoveryContentPathBaselineRejectsGlobalFinalSymlink(t *testing.T) {
@@ -134,7 +135,7 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	observation := observeRecoveryPath(
 		t.Context(),
 		journalTestFilesystem(),
-		string(action.Destination),
+		action.Destination.String(),
 		string(action.ContentPath),
 		hostPath,
 		action.AggregateContract,
@@ -254,7 +255,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 
 func TestAcquireMatchingRootedCapabilityRejectsNilPresentCapability(t *testing.T) {
 	_, _, err := acquireMatchingRootedCapability(
-		output.Destination("~/.claude.json"),
+		outputtest.Parse(t, "~/.claude.json"),
 		filepath.Join(t.TempDir(), "config.json"),
 		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
 			return nil, true, nil
@@ -285,7 +286,7 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 	}
 
 	_, _, err = acquireMatchingRootedCapability(
-		output.Destination("~/.claude.json"),
+		outputtest.Parse(t, "~/.claude.json"),
 		resolvedPath,
 		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
 			return capability, false, nil

@@ -37,7 +37,7 @@ func assertMCPStateSubject(t *testing.T, file durable.Snapshot, serverID string)
 		contribution := state.Contribution()
 		if contribution.Target() != target.TargetClaudeCode ||
 			contribution.Scope() != target.ScopeProject ||
-			contribution.AggregateRoot() != aggregate.ClaudeProjectMCPConfigPath ||
+			contribution.AggregateRoot().String() != aggregate.ClaudeProjectMCPConfigPath ||
 			contribution.ContentPath() != mcpcodec.ClaudeProjectMCPContentPath(serverID) ||
 			contribution.CanonicalContribution() == "" {
 			t.Fatalf("MCP aggregate state = %#v, want managed Claude project MCP subject", state)
@@ -137,7 +137,7 @@ func assertLockedMCPSubjectForPlacement(
 	}
 	contribution := testkit.LockedManagedAggregateContribution(t, contract)
 	if contribution.Target() != selectedTarget || contribution.Scope() != scope ||
-		contribution.AggregateRoot() != configPath || contribution.ContentPath() != contentPath ||
+		contribution.AggregateRoot().String() != configPath || contribution.ContentPath() != contentPath ||
 		string(contribution.CodecContractID()) != adapterContract {
 		t.Fatalf("managed aggregate contribution = %#v", contribution)
 	}

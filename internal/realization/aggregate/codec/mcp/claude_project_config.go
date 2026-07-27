@@ -175,7 +175,7 @@ func mcpConfigSpecForPlacement(id aggregate.MCPPlacementID, label string, server
 		panic(fmt.Sprintf("implemented MCP placement %q is missing", id))
 	}
 	return mcpConfigSpec{
-		configPath:  placement.ConfigPath(),
+		configPath:  placement.ConfigPath().String(),
 		label:       label,
 		serversKey:  serversKey,
 		serversPath: string(placement.ContentPathPrefix()),

@@ -3,6 +3,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
@@ -31,27 +32,36 @@ type HookPlacement struct {
 	id              HookPlacementID
 	target          target.Target
 	scope           target.Scope
-	aggregateRoot   string
+	aggregateRoot   output.Destination
 	codecContractID CodecContractID
 }
 
 var implementedHookPlacements = []HookPlacement{
-	{
-		id: HookPlacementCodexProject, target: target.TargetCodex, scope: target.ScopeProject,
-		aggregateRoot: ".codex/hooks.json", codecContractID: HookCodecCodexProject,
-	},
-	{
-		id: HookPlacementCodexGlobal, target: target.TargetCodex, scope: target.ScopeGlobal,
-		aggregateRoot: "~/.codex/hooks.json", codecContractID: HookCodecCodexGlobal,
-	},
-	{
-		id: HookPlacementClaudeProject, target: target.TargetClaudeCode, scope: target.ScopeProject,
-		aggregateRoot: ".claude/settings.json", codecContractID: HookCodecClaudeProject,
-	},
-	{
-		id: HookPlacementClaudeGlobal, target: target.TargetClaudeCode, scope: target.ScopeGlobal,
-		aggregateRoot: "~/.claude/settings.json", codecContractID: HookCodecClaudeGlobal,
-	},
+	mustHookPlacement(HookPlacementCodexProject, target.TargetCodex, target.ScopeProject, ".codex/hooks.json", HookCodecCodexProject),
+	mustHookPlacement(HookPlacementCodexGlobal, target.TargetCodex, target.ScopeGlobal, "~/.codex/hooks.json", HookCodecCodexGlobal),
+	mustHookPlacement(HookPlacementClaudeProject, target.TargetClaudeCode, target.ScopeProject, ".claude/settings.json", HookCodecClaudeProject),
+	mustHookPlacement(HookPlacementClaudeGlobal, target.TargetClaudeCode, target.ScopeGlobal, "~/.claude/settings.json", HookCodecClaudeGlobal),
+}
+
+func mustHookPlacement(
+	id HookPlacementID,
+	selectedTarget target.Target,
+	scope target.Scope,
+	aggregateRoot string,
+	codecContractID CodecContractID,
+) HookPlacement {
+	root, err := output.Parse(aggregateRoot)
+	if err != nil {
+		panic(err)
+	}
+	placement := HookPlacement{
+		id: id, target: selectedTarget, scope: scope,
+		aggregateRoot: root, codecContractID: codecContractID,
+	}
+	if err := placement.Validate(); err != nil {
+		panic(err)
+	}
+	return placement
 }
 
 func init() {
@@ -160,8 +170,11 @@ func validateHookPlacements(placements []HookPlacement) error {
 	return nil
 }
 
-func (placement HookPlacement) ID() HookPlacementID              { return placement.id }
-func (placement HookPlacement) Target() target.Target            { return placement.target }
-func (placement HookPlacement) Scope() target.Scope              { return placement.scope }
-func (placement HookPlacement) AggregateRoot() string            { return placement.aggregateRoot }
+func (placement HookPlacement) ID() HookPlacementID   { return placement.id }
+func (placement HookPlacement) Target() target.Target { return placement.target }
+func (placement HookPlacement) Scope() target.Scope   { return placement.scope }
+func (placement HookPlacement) AggregateRoot() output.Destination {
+	return placement.aggregateRoot
+}
+
 func (placement HookPlacement) CodecContractID() CodecContractID { return placement.codecContractID }

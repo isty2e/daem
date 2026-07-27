@@ -89,10 +89,10 @@ func compareManagedPathDecisions(left managedPathDecision, right managedPathDeci
 	if subject := topology.CompareSubjectID(left.input.Subject, right.input.Subject); subject != 0 {
 		return subject
 	}
-	if left.input.Destination < right.input.Destination {
+	if left.input.Destination.String() < right.input.Destination.String() {
 		return -1
 	}
-	if left.input.Destination > right.input.Destination {
+	if left.input.Destination.String() > right.input.Destination.String() {
 		return 1
 	}
 	if left.input.Kind < right.input.Kind {

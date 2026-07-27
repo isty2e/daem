@@ -102,7 +102,7 @@ func TestJSONMCPConfigSpecsUsePlacementAggregateSpecRows(t *testing.T) {
 			if !ok {
 				t.Fatalf("placement %q missing", tc.placement)
 			}
-			if tc.spec.configPath != placement.ConfigPath() ||
+			if tc.spec.configPath != placement.ConfigPath().String() ||
 				tc.spec.serversPath != string(placement.ContentPathPrefix()) {
 				t.Fatalf("codec spec = %#v, placement = %#v", tc.spec, placement.AggregateSpec())
 			}

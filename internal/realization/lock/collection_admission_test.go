@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestLockedSectionRejectsDuplicateManagedPathOccupancyBeforeProfileAdmission(t *testing.T) {
@@ -229,7 +230,7 @@ func testPathProjectionContractWith(
 	}
 	realization, err := realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
 		PlacementID: "instructions.project", ConsumerTargets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject,
-		Destination: destination, ContentKind: contentKind,
+		Destination: outputtest.Parse(t, destination), ContentKind: contentKind,
 		PlacementMode:          realization.PathProjectionCopy,
 		PermissionPolicy:       permissionPolicy,
 		ExactPermissionMode:    exactMode,
@@ -313,7 +314,7 @@ func testAggregateProjectionContractAtTarget(
 	t.Helper()
 	realization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
 		PlacementID: placementID, Target: selectedTarget, Scope: target.ScopeProject,
-		AggregateRoot: "settings.json", ContentPath: contentPath,
+		AggregateRoot: outputtest.Parse(t, "settings.json"), ContentPath: contentPath,
 		MergeUnit: "entry", Cardinality: cardinality,
 		SiblingRetention:    aggregate.PreserveUnmanagedSiblings,
 		SiblingPreservation: aggregate.PreserveSiblingsSemantic,

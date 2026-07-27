@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestFilePayloadIsClosedImmutableEffectReadyContent(t *testing.T) {
@@ -181,7 +182,7 @@ func TestPayloadVerifyHashRejectsPlannedMismatch(t *testing.T) {
 		t.Fatalf("NewFilePayload returned error: %v", err)
 	}
 	plannedHash := artifact.HashFileContent([]byte("planned"))
-	if err := value.VerifyHash(plannedHash, "AGENTS.md"); err == nil {
+	if err := value.VerifyHash(plannedHash, outputtest.Parse(t, "AGENTS.md")); err == nil {
 		t.Fatal("VerifyHash accepted a mismatched planned hash")
 	}
 }

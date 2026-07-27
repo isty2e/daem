@@ -133,7 +133,7 @@ func (profile TargetProfile) PlacementAt(
 	var selected ManagedPathPlacement
 	count := 0
 	for _, placement := range profile.Placements(resourceKind, scope) {
-		if placement.Root() == path {
+		if placement.Root().String() == path {
 			selected = placement
 			count++
 		}

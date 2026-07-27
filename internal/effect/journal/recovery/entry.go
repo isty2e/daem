@@ -16,7 +16,7 @@ type Entry struct {
 	target            target.Target
 	consumerTargets   []target.Target
 	scope             target.Scope
-	destination       string
+	destination       output.Destination
 	contentPath       string
 	contentKind       realization.PathProjectionContentKind
 	before            BeforePathState
@@ -37,12 +37,16 @@ func NewEntry(
 	expectedAfter ExpectedPathState,
 	aggregateContract *aggregate.ProjectionContract,
 ) (Entry, error) {
+	parsedDestination, err := output.Parse(destination)
+	if err != nil {
+		return Entry{}, fmt.Errorf("recovery entry destination: %w", err)
+	}
 	entry := Entry{
 		subject:         subject,
 		target:          agentTarget,
 		consumerTargets: append([]target.Target(nil), consumerTargets...),
 		scope:           scope,
-		destination:     destination,
+		destination:     parsedDestination,
 		contentPath:     contentPath,
 		contentKind:     contentKind,
 		before:          cloneBeforePathState(before),
@@ -65,11 +69,7 @@ func (entry Entry) validate() error {
 	if _, err := target.ParseScope(string(entry.scope)); err != nil {
 		return fmt.Errorf("recovery entry scope: %w", err)
 	}
-	parsedDestination, err := output.Parse(entry.destination)
-	if err != nil {
-		return fmt.Errorf("recovery entry destination: %w", err)
-	}
-	if err := parsedDestination.ValidateScope(entry.scope); err != nil {
+	if err := entry.destination.ValidateScope(entry.scope); err != nil {
 		return fmt.Errorf("recovery entry destination: %w", err)
 	}
 

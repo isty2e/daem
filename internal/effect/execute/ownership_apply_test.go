@@ -24,6 +24,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func bindNilOwnershipRegistryStore(
@@ -130,12 +131,12 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectState := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	projectState := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	globalState, err := durable.NewManagedPathState(
 		projectState.Subject(),
 		projectState.ConsumerTargets(),
 		target.ScopeGlobal,
-		"~/global-old",
+		outputtest.Parse(t, "~/global-old"),
 		projectState.ContentHash(),
 		projectState.ContentKind(),
 		projectState.PermissionPolicy(),
@@ -145,7 +146,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 		t.Fatal(err)
 	}
 	oldGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-old"), globalState.Destination(), owner, true)
-	newGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-new"), "~/global-new", owner, false)
+	newGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-new"), outputtest.Parse(t, "~/global-new"), owner, false)
 
 	tests := []struct {
 		name         string
@@ -157,19 +158,19 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	}{
 		{
 			name: "project to global acquires only", previous: projectState,
-			scope: target.ScopeGlobal, destination: "~/global-new",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/global-new"),
 			observations: []observe.OwnershipObservation{newGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionAcquire},
 		},
 		{
 			name: "global to project releases only", previous: globalState,
-			scope: target.ScopeProject, destination: ".agents/skills/oracle",
+			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skills/oracle"),
 			observations: []observe.OwnershipObservation{oldGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionRelease},
 		},
 		{
 			name: "global to global releases then acquires", previous: globalState,
-			scope: target.ScopeGlobal, destination: "~/global-new",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/global-new"),
 			observations: []observe.OwnershipObservation{oldGlobal, newGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionRelease, ownershipmutation.TransitionAcquire},
 		},

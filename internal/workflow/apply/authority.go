@@ -182,7 +182,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		document := decision.DocumentAddress()
 		if err := addManagedPath(
 			document.Scope(),
-			output.Destination(document.AggregateRoot()),
+			document.AggregateRoot(),
 			[]target.Target{document.Target()},
 			physicalOccupancyAggregate,
 			document.Target(),
@@ -193,7 +193,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			document := precondition.DocumentAddress()
 			if err := addManagedPath(
 				document.Scope(),
-				output.Destination(document.AggregateRoot()),
+				document.AggregateRoot(),
 				[]target.Target{document.Target()},
 				physicalOccupancyAggregate,
 				document.Target(),

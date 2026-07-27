@@ -24,7 +24,7 @@ func enforceAggregateProjectionOwnership(
 
 	preblocked := projection.kind == reconcile.AggregateBlocked
 	key := ownershipObservationKey{
-		destination: output.Destination(document.AggregateRoot()),
+		destination: document.AggregateRoot(),
 		contentPath: output.ContentPath(address.ContentPath()),
 	}
 	observation, observed := observations[key]

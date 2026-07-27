@@ -9,10 +9,10 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *testing.T) {
@@ -45,7 +45,7 @@ func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *tes
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: output.Destination(".agents/skills/review"),
+		Destination: outputtest.Parse(t, ".agents/skills/review"),
 		LiveExists:  true, LiveHash: contentHash,
 		LivePathExists: true, LivePathHash: contentHash,
 	}
@@ -97,7 +97,7 @@ func TestCaptureProjectExistingDirectoryRejectsAncestorSymlinkWithoutBackup(t *t
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: output.Destination(".agents/skills/review"),
+		Destination: outputtest.Parse(t, ".agents/skills/review"),
 		LiveExists:  true, LiveHash: "sha256:unreachable",
 		LivePathExists: true, LivePathHash: "sha256:unreachable",
 	}
@@ -143,7 +143,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
-		Destination: output.Destination("large.bin"),
+		Destination: outputtest.Parse(t, "large.bin"),
 		LiveExists:  true, LiveHash: artifact.ContentHash("sha256:" + strings.Repeat("0", 64)),
 		LivePathExists: true,
 		LivePathHash:   artifact.ContentHash("sha256:" + strings.Repeat("0", 64)),

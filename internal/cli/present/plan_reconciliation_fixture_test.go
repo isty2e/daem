@@ -7,7 +7,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -162,7 +161,7 @@ func newManagedPathPlanFixture(
 		supply:      admittedSupply,
 		expectation: expectation,
 		subject:     admittedSubject,
-		destination: output.Destination(pathProjection.Destination()),
+		destination: pathProjection.Destination(),
 		scope:       pathProjection.Scope(),
 		contentKind: pathProjection.ContentKind(),
 		permissions: pathProjection.PermissionPolicy(),

@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRunRecoverInteractiveDeclineRetainsCurrentJournal(t *testing.T) {
@@ -123,6 +124,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 	newContent := []byte("new hooks\n")
 	oldHash := string(artifact.HashFileContent(oldContent))
 	newHash := string(artifact.HashFileContent(newContent))
+	destination := outputtest.Parse(t, "AGENTS.md")
 	entityID, err := entity.New(entity.KindInstructions, "recovery-confirmation")
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +138,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,
@@ -149,7 +151,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(newHash),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,
@@ -174,7 +176,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(newHash),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
@@ -186,7 +188,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 	}
 	evidence, err := observe.NewManagedPathEvidence(
 		subject,
-		"AGENTS.md",
+		destination,
 		true,
 		artifact.ContentHash(oldHash),
 		0o600,

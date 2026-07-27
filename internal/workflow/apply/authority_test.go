@@ -15,7 +15,6 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -32,6 +31,7 @@ import (
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
@@ -271,7 +271,7 @@ func TestProjectAuthorityPathCoalescesSymlinkAliasToPhysicalRoot(t *testing.T) {
 func TestProjectAuthorityPathRejectsInvalidScopeInsteadOfUsingLexicalFallback(t *testing.T) {
 	planned := applyAuthorityTestPlan(t)
 
-	if _, err := projectDestinationAuthorityPathFor(planned, "", ".claude/skills/review"); err == nil {
+	if _, err := projectDestinationAuthorityPathFor(planned, "", outputtest.Parse(t, ".claude/skills/review")); err == nil {
 		t.Fatal("projectDestinationAuthorityPathFor accepted an invalid scope")
 	}
 }
@@ -293,7 +293,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalDestination := output.Destination("~/.agents/skills/review")
+	globalDestination := outputtest.Parse(t, "~/.agents/skills/review")
 	globalPath, err := hostpath.NewResolverWithManagedDataRoot(root, paths.DataDir).Resolve(globalDestination)
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestPhysicalOccupancyIndexAllowsSharedConsumersOnlyAtSameLogicalAddressAndK
 	path := filepath.Join(t.TempDir(), "config")
 	index := make(physicalOccupancyIndex)
 	whole := physicalOccupancy{
-		scope: target.ScopeProject, destination: output.Destination(".agent/config"), kind: physicalOccupancyWholePath,
+		scope: target.ScopeProject, destination: outputtest.Parse(t, ".agent/config"), kind: physicalOccupancyWholePath,
 	}
 	if err := index.register(path, whole); err != nil {
 		t.Fatal(err)
@@ -584,7 +584,7 @@ func applyAuthorityManagedPathPlan(
 	}
 	pathEvidence, err := observe.NewManagedPathEvidence(
 		admittedSubject.SubjectID(),
-		output.Destination(destination),
+		destination,
 		false,
 		"",
 		0,

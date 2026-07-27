@@ -36,7 +36,7 @@ func Destination(selectedTarget target.Target, scope target.Scope) (string, bool
 	if !ok {
 		return "", false
 	}
-	return pathpkg.Clean(placement.AggregateRoot()), true
+	return pathpkg.Clean(placement.AggregateRoot().String()), true
 }
 
 func CodexInlineConfigDestination(hookDestination string) (string, bool) {
@@ -48,7 +48,7 @@ func CodexInlineConfigDestination(hookDestination string) (string, bool) {
 		{scope: target.ScopeGlobal, config: codexGlobalHookConfig},
 	} {
 		placement, ok := aggregate.HookPlacementFor(target.TargetCodex, candidate.scope)
-		if ok && pathpkg.Clean(hookDestination) == pathpkg.Clean(placement.AggregateRoot()) {
+		if ok && pathpkg.Clean(hookDestination) == pathpkg.Clean(placement.AggregateRoot().String()) {
 			return pathpkg.Clean(candidate.config), true
 		}
 	}

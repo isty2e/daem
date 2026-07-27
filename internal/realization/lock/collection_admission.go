@@ -6,7 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -77,7 +77,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			pathProjectionContracts[subject.SubjectID()] = subject
 			pathProjectionCountByEntity[subject.EntityID()]++
 			key := managedPathOccupancy{
-				scope: projection.Scope(), destination: projection.Destination(),
+				scope: projection.Scope(), destination: projection.Destination().String(),
 			}
 			if existing, duplicate := seenPaths[key]; duplicate {
 				return lockedCollectionIndex{}, fmt.Errorf(
@@ -91,7 +91,7 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		if contribution, ok := realization.ManagedAggregateContribution(); ok {
 			key := managedAggregateOccupancy{
 				scope:         contribution.Scope(),
-				aggregateRoot: contribution.AggregateRoot(), contentPath: contribution.ContentPath(),
+				aggregateRoot: contribution.AggregateRoot().String(), contentPath: contribution.ContentPath(),
 			}
 			if existing, duplicate := seenContributions[key]; duplicate {
 				if !existing.contract.Equal(contribution.Contract()) {

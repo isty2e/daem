@@ -3,6 +3,7 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -199,8 +200,8 @@ func init() {
 func validateMCPPlacementCatalog(placements []MCPPlacement) error {
 	ids := make(map[MCPPlacementID]struct{}, len(placements))
 	targetScopes := make(map[string]MCPPlacementID, len(placements))
-	configPaths := make(map[string]MCPPlacementID, len(placements))
-	conflictingConfigPaths := make(map[string]MCPPlacementID, len(placements))
+	configPaths := make(map[output.Destination]MCPPlacementID, len(placements))
+	conflictingConfigPaths := make(map[output.Destination]MCPPlacementID, len(placements))
 	codecContracts := make(map[CodecContractID]MCPPlacementID, len(placements))
 	for _, placement := range placements {
 		if err := placement.Validate(); err != nil {
@@ -220,8 +221,8 @@ func validateMCPPlacementCatalog(placements []MCPPlacement) error {
 			return fmt.Errorf("MCP placements %q and %q share config path %q", existing, placement.id, configPath)
 		}
 		configPaths[configPath] = placement.id
-		conflictingConfigPath := placement.ConflictingConfigPath()
-		if conflictingConfigPath != "" {
+		conflictingConfigPath, hasConflict := placement.ConflictingConfigPath()
+		if hasConflict {
 			if existing, ok := conflictingConfigPaths[conflictingConfigPath]; ok {
 				return fmt.Errorf("MCP placements %q and %q share conflicting config path %q", existing, placement.id, conflictingConfigPath)
 			}
@@ -234,8 +235,8 @@ func validateMCPPlacementCatalog(placements []MCPPlacement) error {
 		codecContracts[codecContractID] = placement.id
 	}
 	for _, placement := range placements {
-		conflictingConfigPath := placement.ConflictingConfigPath()
-		if conflictingConfigPath == "" {
+		conflictingConfigPath, hasConflict := placement.ConflictingConfigPath()
+		if !hasConflict {
 			continue
 		}
 		if owner, ok := configPaths[conflictingConfigPath]; ok {

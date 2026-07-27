@@ -235,12 +235,16 @@ func entrySelectionKeyFromRecoveryEntry(entry recoveryEntry) (entrySelectionKey,
 	if err != nil {
 		return entrySelectionKey{}, fmt.Errorf("recovery entry subject: %w", err)
 	}
+	destination, err := output.Parse(entry.Path)
+	if err != nil {
+		return entrySelectionKey{}, fmt.Errorf("recovery entry destination: %w", err)
+	}
 	return entrySelectionKey{
 		subject:     subject,
 		target:      agentTarget,
 		consumers:   strings.Join(entry.Targets, "\x00"),
 		scope:       scope,
-		destination: output.Destination(entry.Path),
+		destination: destination,
 		contentPath: output.ContentPath(entry.ContentPath),
 	}, nil
 }

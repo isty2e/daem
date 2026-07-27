@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
@@ -115,7 +116,7 @@ type AggregateProjectionObservation struct {
 type ProjectionObservation struct {
 	State       ProjectionState
 	Reason      ReasonCode
-	ConfigPath  string
+	ConfigPath  output.Destination
 	ContentPath string
 	Present     bool
 	Equivalent  bool

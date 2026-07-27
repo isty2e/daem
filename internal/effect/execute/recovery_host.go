@@ -29,6 +29,17 @@ type recoveryHostAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
+func recoveryDestination(scope target.Scope, value string) (output.Destination, error) {
+	destination, err := output.Parse(value)
+	if err != nil {
+		return output.Destination{}, fmt.Errorf("recovery destination: %w", err)
+	}
+	if err := destination.ValidateScope(scope); err != nil {
+		return output.Destination{}, fmt.Errorf("recovery destination: %w", err)
+	}
+	return destination, nil
+}
+
 func (action recoveryHostAction) validateAggregateCorrelation() error {
 	if action.ContentPath == "" {
 		if action.AggregateContract != nil {
@@ -52,7 +63,7 @@ func (action recoveryHostAction) validateAggregateCorrelation() error {
 			document.Scope(),
 		)
 	}
-	if action.Destination != document.AggregateRoot() ||
+	if action.Destination != document.AggregateRoot().String() ||
 		action.ContentPath != string(address.ContentPath()) {
 		return fmt.Errorf(
 			"aggregate address %q%q does not match contract address %q%q",
@@ -103,13 +114,18 @@ func newRecoveryMutationAuthority(
 	}
 	authority.ownershipRegistryBinder = ownershipRegistryBinder
 	for _, action := range actions {
+		destination, err := recoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			_ = authority.close()
+			return nil, err
+		}
 		targets := append([]target.Target(nil), action.ConsumerTargets...)
 		if action.Target != "" {
 			targets = []target.Target{action.Target}
 		}
 		if err := authority.bindPhysicalAuthority(
 			action.Scope,
-			output.Destination(action.Destination),
+			destination,
 			targets,
 		); err != nil {
 			_ = authority.close()
@@ -127,7 +143,11 @@ func requireRecoveryGlobalBindings(authority *mutationAuthority, actions []recov
 		if action.Scope != target.ScopeGlobal {
 			continue
 		}
-		if _, present := authority.globalDestinationBindings[output.Destination(action.Destination)]; !present {
+		destination, err := recoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			return err
+		}
+		if _, present := authority.globalDestinationBindings[destination]; !present {
 			return fmt.Errorf("global recovery destination %q was not bound before effects", action.Destination)
 		}
 	}
@@ -171,7 +191,11 @@ func executeRecoveryHostActions(
 			}
 		}
 
-		destination, err := authority.resolveBoundDestination(action.Scope, output.Destination(action.Destination))
+		logical, err := recoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			return err
+		}
+		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
 			return err
 		}

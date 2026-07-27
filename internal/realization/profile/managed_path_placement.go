@@ -19,7 +19,7 @@ type ManagedPathPlacement struct {
 	consumerTargets  []target.Target
 	resourceKind     entity.Kind
 	scope            target.Scope
-	root             string
+	root             output.Destination
 	defaultPlacement bool
 	contentKind      realization.PathProjectionContentKind
 	permissionPolicy realization.PathPermissionPolicy
@@ -42,12 +42,16 @@ func NewManagedPathPlacement(input ManagedPathPlacementInput) (ManagedPathPlacem
 	if err != nil {
 		return ManagedPathPlacement{}, fmt.Errorf("managed path placement consumer targets: %w", err)
 	}
+	root, err := output.Parse(strings.TrimSpace(input.Root))
+	if err != nil {
+		return ManagedPathPlacement{}, fmt.Errorf("managed path placement root: %w", err)
+	}
 	placement := ManagedPathPlacement{
 		id:               strings.TrimSpace(input.ID),
 		consumerTargets:  consumerTargets,
 		resourceKind:     input.ResourceKind,
 		scope:            input.Scope,
-		root:             strings.TrimSpace(input.Root),
+		root:             root,
 		defaultPlacement: input.DefaultPlacement,
 		contentKind:      input.ContentKind,
 		permissionPolicy: managedPathPermissionPolicy(input.ContentKind),
@@ -125,7 +129,7 @@ func MergeManagedPathPlacements(
 
 type managedPathPlacementAddress struct {
 	scope target.Scope
-	root  string
+	root  output.Destination
 }
 
 func addManagedPathPlacement(
@@ -184,47 +188,48 @@ func (placement ManagedPathPlacement) ContentKind() realization.PathProjectionCo
 }
 
 // Root returns the portable placement root.
-func (placement ManagedPathPlacement) Root() string { return placement.root }
+func (placement ManagedPathPlacement) Root() output.Destination { return placement.root }
 
 // Default reports whether this placement is selected when no destination is authored.
 func (placement ManagedPathPlacement) Default() bool { return placement.defaultPlacement }
 
 // ChildDestination returns the canonical child path below this placement root.
-func (placement ManagedPathPlacement) ChildDestination(component string) (string, error) {
+func (placement ManagedPathPlacement) ChildDestination(component string) (output.Destination, error) {
 	if err := placement.validate(); err != nil {
-		return "", err
+		return output.Destination{}, err
 	}
 	if placement.contentKind != realization.PathProjectionDirectory {
-		return "", fmt.Errorf("managed path placement %q does not admit child destinations", placement.id)
+		return output.Destination{}, fmt.Errorf("managed path placement %q does not admit child destinations", placement.id)
 	}
 	if strings.TrimSpace(component) == "" || strings.TrimSpace(component) != component ||
 		component == "." || component == ".." || strings.ContainsAny(component, `/\`) ||
 		path.Clean(component) != component {
-		return "", fmt.Errorf("managed path child %q must be one canonical path component", component)
+		return output.Destination{}, fmt.Errorf("managed path child %q must be one canonical path component", component)
 	}
-	destination := path.Join(placement.root, component)
-	if _, err := output.Parse(destination); err != nil {
-		return "", err
+	destination, err := output.Parse(path.Join(placement.root.String(), component))
+	if err != nil {
+		return output.Destination{}, err
 	}
-	if err := validatePlacementPathScope(destination, placement.scope); err != nil {
-		return "", err
+	if err := destination.ValidateScope(placement.scope); err != nil {
+		return output.Destination{}, err
 	}
 	return destination, nil
 }
 
 // ChildName returns the one canonical child represented by destination.
-func (placement ManagedPathPlacement) ChildName(destination string) (string, error) {
+func (placement ManagedPathPlacement) ChildName(destination output.Destination) (string, error) {
 	if err := placement.validate(); err != nil {
 		return "", err
 	}
 	if placement.contentKind != realization.PathProjectionDirectory {
 		return "", fmt.Errorf("managed path placement %q does not admit child destinations", placement.id)
 	}
-	prefix := placement.root + "/"
-	if !strings.HasPrefix(destination, prefix) {
+	destinationText := destination.String()
+	prefix := placement.root.String() + "/"
+	if !strings.HasPrefix(destinationText, prefix) {
 		return "", fmt.Errorf("managed path destination %q is outside placement %q", destination, placement.id)
 	}
-	child := strings.TrimPrefix(destination, prefix)
+	child := strings.TrimPrefix(destinationText, prefix)
 	canonical, err := placement.ChildDestination(child)
 	if err != nil {
 		return "", err
@@ -237,7 +242,7 @@ func (placement ManagedPathPlacement) ChildName(destination string) (string, err
 
 // Realize constructs one exact occupancy for this placement.
 func (placement ManagedPathPlacement) Realize(
-	destination string,
+	destination output.Destination,
 	mode realization.PathProjectionMode,
 	writeRoute OperationRoute,
 ) (realization.RealizationSpec, error) {
@@ -301,11 +306,7 @@ func (placement ManagedPathPlacement) validate() error {
 	if _, err := target.ParseScope(string(placement.scope)); err != nil {
 		return err
 	}
-	destination, err := output.Parse(placement.root)
-	if err != nil {
-		return err
-	}
-	if err := destination.ValidateScope(placement.scope); err != nil {
+	if err := placement.root.ValidateScope(placement.scope); err != nil {
 		return err
 	}
 	if placement.contentKind != realization.PathProjectionFile && placement.contentKind != realization.PathProjectionDirectory {
@@ -333,7 +334,7 @@ func ManagedFilePlacementFor(
 	resourceKind entity.Kind,
 	selectedTarget target.Target,
 	scope target.Scope,
-	destination string,
+	destination output.Destination,
 ) (ManagedPathPlacement, error) {
 	if _, err := target.ParseTarget(string(selectedTarget)); err != nil {
 		return ManagedPathPlacement{}, err
@@ -341,7 +342,7 @@ func ManagedFilePlacementFor(
 	if _, err := target.ParseScope(string(scope)); err != nil {
 		return ManagedPathPlacement{}, err
 	}
-	if _, err := output.Parse(destination); err != nil {
+	if err := destination.Validate(); err != nil {
 		return ManagedPathPlacement{}, fmt.Errorf(
 			"%s target %q scope %q destination %q is not an admitted file placement: %w",
 			resourceKind,
@@ -351,7 +352,7 @@ func ManagedFilePlacementFor(
 			err,
 		)
 	}
-	if err := validatePlacementPathScope(destination, scope); err != nil {
+	if err := destination.ValidateScope(scope); err != nil {
 		return ManagedPathPlacement{}, fmt.Errorf(
 			"%s target %q scope %q destination %q is not an admitted file placement: %w",
 			resourceKind,
@@ -397,12 +398,41 @@ func ManagedFilePlacementFor(
 	return placement, nil
 }
 
-func validatePlacementPathScope(value string, scope target.Scope) error {
+// ManagedFilePlacementForRelativePath resolves one authored scope-relative
+// file path and selects its exact admitted placement.
+func ManagedFilePlacementForRelativePath(
+	resourceKind entity.Kind,
+	selectedTarget target.Target,
+	scope target.Scope,
+	relativePath string,
+) (ManagedPathPlacement, error) {
+	defaultPlacement, err := Profile(selectedTarget).DefaultPlacement(resourceKind, scope)
+	if err != nil {
+		return ManagedPathPlacement{}, err
+	}
+	if relativePath == "" {
+		return defaultPlacement, nil
+	}
+	trimmed := strings.TrimSpace(relativePath)
+	if trimmed == "" || trimmed != relativePath {
+		return ManagedPathPlacement{}, fmt.Errorf("relative file path must be non-empty and trimmed")
+	}
+	if strings.Contains(trimmed, "\\") || strings.HasPrefix(trimmed, "~") || path.IsAbs(trimmed) {
+		return ManagedPathPlacement{}, fmt.Errorf("relative file path %q must be slash-separated and relative to the target scope root", relativePath)
+	}
+	cleaned := path.Clean(trimmed)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") || cleaned != trimmed {
+		return ManagedPathPlacement{}, fmt.Errorf("relative file path %q must be canonical and stay inside the target scope root", relativePath)
+	}
+	value := cleaned
+	if scope == target.ScopeGlobal {
+		value = path.Join(path.Dir(defaultPlacement.root.String()), cleaned)
+	}
 	destination, err := output.Parse(value)
 	if err != nil {
-		return err
+		return ManagedPathPlacement{}, err
 	}
-	return destination.ValidateScope(scope)
+	return ManagedFilePlacementFor(resourceKind, selectedTarget, scope, destination)
 }
 
 func validatePlacementRoute(

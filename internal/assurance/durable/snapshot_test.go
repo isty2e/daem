@@ -13,12 +13,13 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathStateCanonicalizesConsumersAndDefendsCopies(t *testing.T) {
@@ -41,7 +42,7 @@ func TestManagedPathStateRejectsInvalidAndForgedConsumerSets(t *testing.T) {
 		subject,
 		[]target.Target{target.TargetCodex, "future"},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.HashFileContent([]byte("oracle")),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -67,7 +68,7 @@ func TestManagedPathStateRejectsNonEntityProjectionAndInvalidPermissionState(t *
 		nonEntity,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.HashFileContent([]byte("oracle")),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -81,7 +82,7 @@ func TestManagedPathStateRejectsNonEntityProjectionAndInvalidPermissionState(t *
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		"sha256:short",
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -93,7 +94,7 @@ func TestManagedPathStateRejectsNonEntityProjectionAndInvalidPermissionState(t *
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.HashFileContent([]byte("oracle")),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsExact,
@@ -105,10 +106,9 @@ func TestManagedPathStateRejectsNonEntityProjectionAndInvalidPermissionState(t *
 		scope       target.Scope
 		destination output.Destination
 	}{
-		{scope: target.ScopeProject, destination: "../escape"},
-		{scope: target.ScopeProject, destination: "~/agents/skills/oracle"},
-		{scope: target.ScopeGlobal, destination: ".agents/skills/oracle"},
-		{scope: target.ScopeGlobal, destination: "/absolute/escape"},
+		{scope: target.ScopeProject},
+		{scope: target.ScopeProject, destination: outputtest.Parse(t, "~/agents/skills/oracle")},
+		{scope: target.ScopeGlobal, destination: outputtest.Parse(t, ".agents/skills/oracle")},
 	} {
 		if _, err := NewManagedPathState(
 			subject,
@@ -138,7 +138,7 @@ func TestSnapshotRejectsDuplicateManagedOwnership(t *testing.T) {
 func TestSnapshotRejectsOverlappingManagedOwnership(t *testing.T) {
 	aggregateState := testManagedAggregate(t, "guard", "echo guard")
 	aggregateRoot := aggregateState.Contribution().AggregateRoot()
-	pathState := testManagedPath(t, "same-root", aggregateRoot)
+	pathState := testManagedPath(t, "same-root", aggregateRoot.String())
 	if _, err := NewSnapshot(SnapshotInput{
 		ManagedPaths:      []ManagedPathState{pathState},
 		ManagedAggregates: []ManagedAggregateState{aggregateState},
@@ -292,7 +292,7 @@ func testManagedPath(t *testing.T, name string, destination string) ManagedPathS
 		subject,
 		[]target.Target{target.TargetCodex, target.TargetAntigravityCLI, target.TargetCodex},
 		target.ScopeProject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		artifact.HashFileContent([]byte(name)),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,

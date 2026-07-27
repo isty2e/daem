@@ -10,7 +10,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -66,7 +65,7 @@ func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T
 		document := precondition.DocumentAddress()
 		if err := authority.bindPhysicalAuthority(
 			document.Scope(),
-			output.Destination(document.AggregateRoot()),
+			document.AggregateRoot(),
 			[]target.Target{document.Target()},
 		); err != nil {
 			t.Fatalf("bind precondition authority: %v", err)

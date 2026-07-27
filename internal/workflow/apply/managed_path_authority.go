@@ -36,7 +36,7 @@ func managedPathFingerprintRows(decisions []reconcile.ManagedPathDecision) []man
 	for _, decision := range decisions {
 		row := managedPathFingerprintFacts{
 			Kind: decision.Kind(), Subject: decision.Subject(), Consumers: targetValues(decision.ConsumerTargets()),
-			Scope: string(decision.Scope()), Destination: string(decision.Destination()),
+			Scope: string(decision.Scope()), Destination: decision.Destination().String(),
 			DesiredHash: string(decision.DesiredHash()), LiveHash: string(decision.LiveHash()),
 			ContentKind: decision.ContentKind(), PlacementMode: decision.PlacementMode(),
 			Reason: decision.Reason(), Detail: decision.Detail(),
@@ -44,7 +44,7 @@ func managedPathFingerprintRows(decisions []reconcile.ManagedPathDecision) []man
 		if previous, present := decision.PreviousState(); present {
 			row.Previous = &managedPathPreviousFingerprintFacts{
 				Subject: previous.Subject(), Consumers: targetValues(previous.ConsumerTargets()),
-				Scope: string(previous.Scope()), Destination: string(previous.Destination()),
+				Scope: string(previous.Scope()), Destination: previous.Destination().String(),
 				ContentHash: string(previous.ContentHash()), ContentKind: previous.ContentKind(),
 			}
 		}

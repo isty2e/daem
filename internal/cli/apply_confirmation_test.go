@@ -14,7 +14,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -335,7 +334,7 @@ func assertApplyConfirmationStateResource(t *testing.T, snapshot durable.Snapsho
 	for _, state := range snapshot.ManagedPaths() {
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
 		if !entityBacked || entityID.Kind() != entity.KindInstructions ||
-			entityID.Name() != "project" || state.Scope() != "project" || string(state.Destination()) != path {
+			entityID.Name() != "project" || state.Scope() != "project" || state.Destination().String() != path {
 			continue
 		}
 		consumers := state.ConsumerTargets()
@@ -365,7 +364,7 @@ func applyConfirmationInstructionState(t *testing.T, lockfilePath string, conten
 			contract.SubjectID(),
 			projection.ConsumerTargets(),
 			projection.Scope(),
-			output.Destination(projection.Destination()),
+			projection.Destination(),
 			artifact.ContentHash(contentHash),
 			projection.ContentKind(),
 			projection.PermissionPolicy(),

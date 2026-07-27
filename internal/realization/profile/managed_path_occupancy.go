@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -23,6 +24,13 @@ func ValidateManagedPathOccupancy(
 	if err := entityID.Validate(); err != nil {
 		return fmt.Errorf("managed path entity: %w", err)
 	}
+	parsedDestination, err := output.Parse(destination)
+	if err != nil {
+		return err
+	}
+	if err := parsedDestination.ValidateScope(scope); err != nil {
+		return err
+	}
 	if entityID.Kind() == entity.KindHookAsset {
 		placement, err := HookAssetPlacementFor(scope, consumerTargets)
 		if err != nil {
@@ -37,7 +45,7 @@ func ValidateManagedPathOccupancy(
 		if !slices.Equal(placement.ConsumerTargets(), consumerTargets) {
 			return fmt.Errorf("HookAsset placement %q consumer set is not canonical", placementID)
 		}
-		if _, err := placement.ContentHash(entityID.Name(), destination); err != nil {
+		if _, err := placement.ContentHash(entityID.Name(), parsedDestination); err != nil {
 			return err
 		}
 		return nil
@@ -47,7 +55,7 @@ func ValidateManagedPathOccupancy(
 	if contentKind == realization.PathProjectionFile {
 		var selected ManagedPathPlacement
 		for index, consumer := range consumerTargets {
-			candidate, err := ManagedFilePlacementFor(resourceKind, consumer, scope, destination)
+			candidate, err := ManagedFilePlacementFor(resourceKind, consumer, scope, parsedDestination)
 			if err != nil {
 				return err
 			}
@@ -77,14 +85,14 @@ func ValidateManagedPathOccupancy(
 		if placement.ID() != placementID {
 			continue
 		}
-		if _, err := placement.ChildName(destination); err != nil {
+		if _, err := placement.ChildName(parsedDestination); err != nil {
 			return err
 		}
 		writeRoute, ok := Profile(consumerTargets[0]).OperationRoute(resourceKind, placement.ID(), OperationWrite)
 		if !ok {
 			return fmt.Errorf("managed path placement %q has no write route", placement.ID())
 		}
-		spec, err := placement.Realize(destination, realization.PathProjectionCopy, writeRoute)
+		spec, err := placement.Realize(parsedDestination, realization.PathProjectionCopy, writeRoute)
 		if err != nil {
 			return err
 		}

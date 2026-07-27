@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
@@ -177,7 +178,7 @@ func TestPayloadVerifyHashForRejectsMismatch(t *testing.T) {
 		t.Fatalf("NewFilePayload returned error: %v", err)
 	}
 	plannedHash := artifact.HashFileContent([]byte("planned"))
-	err = value.VerifyHash(plannedHash, "AGENTS.md")
+	err = value.VerifyHash(plannedHash, outputtest.Parse(t, "AGENTS.md"))
 	want := `host payload hash "` + string(value.Hash()) + `" does not match planned hash "` + string(plannedHash) + `" for "AGENTS.md"`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("VerifyHash error = %v, want hash mismatch", err)

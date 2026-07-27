@@ -6,12 +6,12 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestResultCloneIsIndependentFromOuterSliceMutation(t *testing.T) {
@@ -23,7 +23,7 @@ func TestResultCloneIsIndependentFromOuterSliceMutation(t *testing.T) {
 		subject:         subject,
 		consumerTargets: []target.Target{target.TargetCodex},
 		scope:           target.ScopeProject,
-		destination:     output.Destination("AGENTS.md"),
+		destination:     outputtest.Parse(t, "AGENTS.md"),
 	}, ReasonAlreadyCurrent)
 	input := []ManagedPathDecision{decision}
 	original := mustReconciliationResult(t, input, nil)
@@ -53,7 +53,7 @@ func TestNewResultRejectsMissingAndDuplicateManagedPathVariants(t *testing.T) {
 		subject:         subject,
 		consumerTargets: []target.Target{target.TargetCodex},
 		scope:           target.ScopeProject,
-		destination:     output.Destination("AGENTS.md"),
+		destination:     outputtest.Parse(t, "AGENTS.md"),
 	}, ReasonAlreadyCurrent)
 	if _, err := NewResult(ResultInput{Context: ContextInspect, ManagedPaths: []ManagedPathDecision{decision, decision}}); err == nil {
 		t.Fatal("NewResult accepted duplicate managed path decisions")
@@ -73,7 +73,7 @@ func TestNewResultRejectsMalformedManagedPathDecisions(t *testing.T) {
 		subject:         projection,
 		consumerTargets: []target.Target{target.TargetCodex},
 		scope:           target.ScopeProject,
-		destination:     output.Destination("AGENTS.md"),
+		destination:     outputtest.Parse(t, "AGENTS.md"),
 	}
 	tests := []struct {
 		name     string
@@ -161,7 +161,7 @@ func TestNewResultAcceptsRemovalWithOnlyPreviousConsumerAuthority(t *testing.T) 
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		output.Destination("AGENTS.md"),
+		outputtest.Parse(t, "AGENTS.md"),
 		artifact.HashFileContent([]byte("previous")),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,
@@ -173,7 +173,7 @@ func TestNewResultAcceptsRemovalWithOnlyPreviousConsumerAuthority(t *testing.T) 
 	decision := newManagedPathRemove(managedPathDecisionFacts{
 		subject:     subject,
 		scope:       target.ScopeProject,
-		destination: output.Destination("AGENTS.md"),
+		destination: outputtest.Parse(t, "AGENTS.md"),
 		previous:    &previous,
 	}, ReasonRemovedFromManifest)
 	if _, err := NewResult(ResultInput{Context: ContextInspect, ManagedPaths: []ManagedPathDecision{decision}}); err != nil {

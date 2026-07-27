@@ -28,6 +28,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCaptureLoadAndExecuteRollback(t *testing.T) {
@@ -102,7 +103,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	}
 
 	resolver := func(destination output.Destination) (string, error) {
-		return filepath.Join(root, filepath.FromSlash(string(destination))), nil
+		return filepath.Join(root, filepath.FromSlash(destination.RelativePath())), nil
 	}
 	result, err := journal.CaptureJournalWithOptions(
 		context.Background(),
@@ -301,7 +302,7 @@ func recoveryInstructionPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		contentHash,
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
@@ -417,7 +418,7 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 	valid := recoveryHostAction{
 		Kind:              recovery.ActionKindRestoreDelete,
 		Scope:             target.ScopeProject,
-		Destination:       contract.Address().Document().AggregateRoot(),
+		Destination:       contract.Address().Document().AggregateRoot().String(),
 		ContentPath:       string(contract.Address().ContentPath()),
 		AggregateContract: &contract,
 	}

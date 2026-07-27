@@ -44,7 +44,7 @@ func TestInstructionsPathProjectionContractsCoalesceSharedPhysicalFile(t *testin
 		target.TargetPi,
 	}
 	if projection.PlacementID() != "instructions.project.agents" ||
-		projection.Destination() != "AGENTS.md" ||
+		projection.Destination().String() != "AGENTS.md" ||
 		projection.ContentKind() != realization.PathProjectionFile ||
 		projection.PlacementMode() != realization.PathProjectionCopy ||
 		!reflect.DeepEqual(projection.ConsumerTargets(), wantTargets) {
@@ -138,7 +138,7 @@ func TestInstructionsPathProjectionContractsKeepDistinctAndNonDefaultPlacements(
 	for _, contract := range contracts {
 		spec, _ := contract.Realization()
 		projection, _ := spec.ManagedPathProjection()
-		if want[projection.PlacementID()] != projection.Destination() {
+		if want[projection.PlacementID()] != projection.Destination().String() {
 			t.Fatalf("projection = %#v, want destinations %#v", projection, want)
 		}
 	}

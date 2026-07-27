@@ -76,7 +76,14 @@ func recoveryPathObservations(
 			)
 			continue
 		}
-		hostPath, err := resolver(output.Destination(entry.Path))
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			observations = append(observations, recoveryPathObservation{
+				Path: entry.Path, ContentPath: entry.ContentPath, Error: err.Error(),
+			})
+			continue
+		}
+		hostPath, err := resolver(destination)
 		if err != nil {
 			observations = append(observations, recoveryPathObservation{
 				Path:        entry.Path,
@@ -139,11 +146,15 @@ func canonicalRecoveryAggregateContract(
 	if err != nil {
 		return nil, fmt.Errorf("recovery aggregate projection scope: %w", err)
 	}
+	destination, err := output.Parse(entry.Path)
+	if err != nil {
+		return nil, fmt.Errorf("recovery aggregate projection destination: %w", err)
+	}
 	if err := validateAggregateProjectionCorrelation(
 		subject,
 		selectedTarget,
 		selectedScope,
-		output.Destination(entry.Path),
+		destination,
 		output.ContentPath(entry.ContentPath),
 		contract,
 	); err != nil {
@@ -265,9 +276,13 @@ func observeRecoveryContentPath(
 		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: fmt.Sprintf("read content-path destination: %v", err)}
 	}
 	content := snapshot.Content()
+	destination, err := output.Parse(journalPath)
+	if err != nil {
+		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: err.Error()}
+	}
 	projection, present, err := extractRecoveryObservationProjection(
 		content,
-		output.Destination(journalPath),
+		destination,
 		output.ContentPath(contentPath),
 		aggregateContract,
 		codecs,
@@ -316,7 +331,7 @@ func extractRecoveryObservationProjection(
 		)
 	}
 	address := aggregateContract.Address()
-	if address.Document().AggregateRoot() != string(destination) ||
+	if address.Document().AggregateRoot() != destination ||
 		string(address.ContentPath()) != string(contentPath) {
 		return nil, false, fmt.Errorf(
 			"recovery aggregate contract address %q%q does not match observation %q%q",

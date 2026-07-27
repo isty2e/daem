@@ -365,9 +365,9 @@ func compareManagedPathDecisionIdentity(left ManagedPathDecision, right ManagedP
 		return subject
 	}
 	switch {
-	case left.Destination() < right.Destination():
+	case left.Destination().String() < right.Destination().String():
 		return -1
-	case left.Destination() > right.Destination():
+	case left.Destination().String() > right.Destination().String():
 		return 1
 	default:
 		return 0
