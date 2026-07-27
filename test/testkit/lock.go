@@ -241,9 +241,9 @@ func exactSupplySkillProjections(
 	if mode == "" {
 		mode = realization.PathProjectionCopy
 	}
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, scope, targets)
+	placements, err := profile.ManagedPathPlacementsForSelections(entity.KindSkill, scope, targets, nil)
 	if err != nil {
-		t.Fatalf("ManagedPathPlacementsFor returned error: %v", err)
+		t.Fatalf("ManagedPathPlacementsForSelections returned error: %v", err)
 	}
 	id, err := entity.New(entity.KindSkill, fixture.Name)
 	if err != nil {
@@ -315,10 +315,11 @@ func exactSupplyInstructionProjections(
 				t.Fatalf("ManagedFilePlacementFor returned error: %v", err)
 			}
 		} else {
-			defaults, err := profile.ManagedPathPlacementsFor(
+			defaults, err := profile.ManagedPathPlacementsForSelections(
 				entity.KindInstructions,
 				exactSupplyFixtureScope(fixture),
 				[]target.Target{consumer},
+				nil,
 			)
 			if err != nil {
 				t.Fatalf("ManagedPathPlacementsFor returned error: %v", err)

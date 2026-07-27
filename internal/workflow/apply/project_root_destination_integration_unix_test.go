@@ -43,10 +43,11 @@ targets = ["codex"]
 		ArtifactKind: artifact.ArtifactKindDirectory,
 		ContentHash:  artifact.ContentHash(hashApplyPath(t, sourcePath)),
 	})
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		[]target.Target{target.TargetCodex},
+		nil,
 	)
 	if err != nil || len(placements) != 1 {
 		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)

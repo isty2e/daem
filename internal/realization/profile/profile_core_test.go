@@ -141,10 +141,11 @@ func TestImportableTargetsFollowStableProfilePolicy(t *testing.T) {
 }
 
 func TestSharedPlacementsRemainOnePhysicalIdentity(t *testing.T) {
-	placements, err := ManagedPathPlacementsFor(
+	placements, err := ManagedPathPlacementsForSelections(
 		entity.KindInstructions,
 		target.ScopeProject,
 		[]target.Target{target.TargetPi, target.TargetCodex, target.TargetOpenCode},
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -234,10 +235,11 @@ func TestSkillPlacementAdmissionsExposeDefaultsAndAlternatesWithoutChangingDefau
 }
 
 func TestManagedPathPlacementSelectionsRespectPerTargetAdmissions(t *testing.T) {
-	defaults, err := ManagedPathPlacementsFor(
+	defaults, err := ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		[]target.Target{target.TargetOpenCode},
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -353,9 +355,9 @@ func mustTestDiscoveryLocation(
 
 func TestCanonicalTargetCallersRejectInvalidConsumers(t *testing.T) {
 	invalid := []target.Target{"future"}
-	if _, err := ManagedPathPlacementsFor(entity.KindInstructions, target.ScopeProject, invalid); err == nil ||
+	if _, err := ManagedPathPlacementsForSelections(entity.KindInstructions, target.ScopeProject, invalid, nil); err == nil ||
 		!strings.Contains(err.Error(), `target[0]: unknown target "future"`) {
-		t.Fatalf("ManagedPathPlacementsFor error = %v", err)
+		t.Fatalf("ManagedPathPlacementsForSelections error = %v", err)
 	}
 	if _, err := NewPlacementAdmission(invalid[0], "skill.project.agents", true); err == nil ||
 		!strings.Contains(err.Error(), `unknown target "future"`) {

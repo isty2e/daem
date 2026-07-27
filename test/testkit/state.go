@@ -28,9 +28,9 @@ func SkillPathState(
 	t.Helper()
 	consumers := parseTargets(t, consumerValues)
 	scope := parseScope(t, scopeValue)
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, scope, consumers)
+	placements, err := profile.ManagedPathPlacementsForSelections(entity.KindSkill, scope, consumers, nil)
 	if err != nil {
-		t.Fatalf("ManagedPathPlacementsFor returned error: %v", err)
+		t.Fatalf("ManagedPathPlacementsForSelections returned error: %v", err)
 	}
 	var placementID string
 	for _, placement := range placements {

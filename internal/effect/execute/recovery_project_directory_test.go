@@ -64,10 +64,11 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		ManifestRoot:  projectRoot,
 		DataDir:       filepath.Join(stateDir, "data"),
 	}
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		target.ScopeProject,
 		[]target.Target{target.TargetCodex},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("derive Skill placement: %v", err)

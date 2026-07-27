@@ -85,7 +85,12 @@ func TestLockedSectionRejectsOrphanAndProfileDriftedSkillProjection(t *testing.T
 
 func mustSkillPathPlacement(t *testing.T, selected target.Target) profile.SelectedManagedPathPlacement {
 	t.Helper()
-	placements, err := profile.ManagedPathPlacementsFor(entity.KindSkill, target.ScopeProject, []target.Target{selected})
+	placements, err := profile.ManagedPathPlacementsForSelections(
+		entity.KindSkill,
+		target.ScopeProject,
+		[]target.Target{selected},
+		nil,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

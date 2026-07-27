@@ -41,16 +41,6 @@ func newSelectedManagedPathPlacement(
 	return selected, nil
 }
 
-// ManagedPathPlacementsFor selects and coalesces default path placements for
-// one resource kind, scope, and target set.
-func ManagedPathPlacementsFor(
-	resourceKind entity.Kind,
-	scope target.Scope,
-	targets []target.Target,
-) ([]SelectedManagedPathPlacement, error) {
-	return ManagedPathPlacementsForSelections(resourceKind, scope, targets, nil)
-}
-
 // ManagedPathPlacementsForSelections selects and coalesces one admitted
 // placement per target. Missing selection entries use that target's default.
 func ManagedPathPlacementsForSelections(

@@ -539,10 +539,11 @@ func applyAuthorityManagedPathPlan(
 		ArtifactKind: artifact.ArtifactKindDirectory,
 		ContentHash:  artifact.HashFileContent([]byte(hashSeed)),
 	})
-	placements, err := profile.ManagedPathPlacementsFor(
+	placements, err := profile.ManagedPathPlacementsForSelections(
 		entity.KindSkill,
 		scope,
 		[]target.Target{selectedTarget},
+		nil,
 	)
 	if err != nil || len(placements) != 1 {
 		t.Fatalf("ManagedPathPlacementsFor = %#v, %v", placements, err)
