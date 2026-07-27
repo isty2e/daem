@@ -80,6 +80,10 @@ func TestBuildRejectsInvalidSourceResolution(t *testing.T) {
 
 type invalidResolutionResolver struct{}
 
-func (invalidResolutionResolver) Resolve(context.Context, source.Source) (acquisition.Resolution, error) {
+func (invalidResolutionResolver) Resolve(
+	context.Context,
+	source.Source,
+	acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	return acquisition.Resolution{}, nil
 }

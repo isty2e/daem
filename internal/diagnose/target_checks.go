@@ -161,7 +161,7 @@ func skillRootSpecs(targetProfile profile.TargetProfile, scope targetpkg.Scope) 
 	result := make([]doctorSkillRootSpec, 0)
 	defaultPlacement, err := targetProfile.DefaultPlacement(entity.KindSkill, scope)
 	if err == nil {
-		result = append(result, doctorSkillRootSpec{Scope: scope, Role: "preferred", Index: -1, Root: defaultPlacement.Root()})
+		result = append(result, doctorSkillRootSpec{Scope: scope, Role: "preferred", Index: -1, Root: defaultPlacement.Root().String()})
 	}
 	compatibleIndex := 0
 	for _, location := range targetProfile.DiscoveryLocations(entity.KindSkill, scope) {

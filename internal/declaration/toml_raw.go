@@ -67,7 +67,6 @@ type Hook struct {
 	StatusMessage   string               `toml:"status_message"`
 	Targets         []string             `toml:"targets"`
 	Scope           string               `toml:"scope"`
-	Source          *Source              `toml:"source"`
 	TargetOverrides []HookTargetOverride `toml:"target_override"`
 }
 
@@ -92,7 +91,7 @@ type HookAssetSource struct {
 func (source *HookAssetSource) UnmarshalTOML(value any) error {
 	source.Set = true
 
-	raw, err := sourceFromStringOrInlineTable(value)
+	raw, err := SourceFromTOMLValue(value)
 	if err != nil {
 		return err
 	}
@@ -147,6 +146,15 @@ type ExtensionSource struct {
 	HostSource  string `toml:"host_source"`
 }
 
+// Ref returns the populated external reference without interpreting its
+// host-specific source kind.
+func (source ExtensionSource) Ref() string {
+	if source.HostSource != "" {
+		return source.HostSource
+	}
+	return source.Marketplace
+}
+
 type Instructions struct {
 	Source  InstructionSource            `toml:"source"`
 	Targets []string                     `toml:"targets"`
@@ -162,7 +170,7 @@ type InstructionSource struct {
 func (source *InstructionSource) UnmarshalTOML(value any) error {
 	source.Set = true
 
-	raw, err := sourceFromStringOrInlineTable(value)
+	raw, err := SourceFromTOMLValue(value)
 	if err != nil {
 		return err
 	}
@@ -170,7 +178,9 @@ func (source *InstructionSource) UnmarshalTOML(value any) error {
 	return nil
 }
 
-func sourceFromStringOrInlineTable(value any) (Source, error) {
+// SourceFromTOMLValue decodes the manifest source grammar shared by source
+// fields that accept either a path string or an inline table.
+func SourceFromTOMLValue(value any) (Source, error) {
 	switch typed := value.(type) {
 	case string:
 		return Source{
@@ -178,13 +188,13 @@ func sourceFromStringOrInlineTable(value any) (Source, error) {
 			Mode: "vendor",
 		}, nil
 	case map[string]any:
-		return SourceFromInlineTable(typed)
+		return sourceFromInlineTable(typed)
 	default:
 		return Source{}, fmt.Errorf("source must be a string path or inline table")
 	}
 }
 
-func SourceFromInlineTable(values map[string]any) (Source, error) {
+func sourceFromInlineTable(values map[string]any) (Source, error) {
 	var source Source
 	for key, value := range values {
 		text, ok := value.(string)

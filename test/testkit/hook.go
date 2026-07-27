@@ -78,7 +78,7 @@ func AssertHookAggregateState(
 		}
 		contribution := aggregateState.Contribution()
 		if string(contribution.Target()) != targetValue ||
-			string(contribution.Scope()) != scopeValue || contribution.AggregateRoot() != destination ||
+			string(contribution.Scope()) != scopeValue || contribution.AggregateRoot().String() != destination ||
 			contribution.ContentPath() != "/hooks" {
 			t.Fatalf("Hook aggregate state = %#v", aggregateState)
 		}

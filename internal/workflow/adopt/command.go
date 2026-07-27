@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -116,8 +117,8 @@ func commandTargets(values []string) ([]targetpkg.Target, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !adoptmodel.SupportsTarget(target) {
-			return nil, fmt.Errorf("target %q is not supported by import (accepted import targets: %s)", target, targetValues(adoptmodel.SupportedTargets()))
+		if !profile.Profile(target).HasImportableDiscovery() {
+			return nil, fmt.Errorf("target %q is not supported by import (accepted import targets: %s)", target, targetValues(profile.ImportableTargets()))
 		}
 		if _, ok := seen[target]; ok {
 			continue

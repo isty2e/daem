@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -148,7 +149,7 @@ func IntoManifest(
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	content = adoptmodel.AppendManifestBody(content, body)
+	content = declarationcodec.AppendImportManifestBody(content, body)
 	if err := validateManifestSyntax(content); err != nil {
 		mergeResults = append(mergeResults, adoptmodel.MergeResult{
 			Resource: "manifest",

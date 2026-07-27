@@ -73,30 +73,30 @@ func BuildRemoveExtensionChange(document ManifestDocument, request RemoveExtensi
 	}, nil
 }
 
-func ExtensionFromAddRequest(request AddExtensionRequest, header declaration.ManifestHeader, origin daempaths.ManifestOrigin) (declarationcodec.Extension, error) {
+func ExtensionFromAddRequest(request AddExtensionRequest, header declaration.ManifestHeader, origin daempaths.ManifestOrigin) (declaration.Extension, error) {
 	id, err := CleanExtensionID(request.ID)
 	if err != nil {
-		return declarationcodec.Extension{}, err
+		return declaration.Extension{}, err
 	}
 	carrier, err := extensionAuthoringCarrierFromAddRequest(request, header, origin)
 	if err != nil {
-		return declarationcodec.Extension{}, err
+		return declaration.Extension{}, err
 	}
 	rawScope := extensionAuthoringScopeInput(request.Scope, origin)
 	scope, err := extensionAuthoringScope(carrier, rawScope)
 	if err != nil {
-		return declarationcodec.Extension{}, err
+		return declaration.Extension{}, err
 	}
 	source, err := extensionAuthoringSource(carrier, request.Source)
 	if err != nil {
-		return declarationcodec.Extension{}, err
+		return declaration.Extension{}, err
 	}
 	admittedTarget, ok := carrier.AdmittedTarget()
 	if !ok {
-		return declarationcodec.Extension{}, fmt.Errorf("unsupported extension carrier %q", carrier)
+		return declaration.Extension{}, fmt.Errorf("unsupported extension carrier %q", carrier)
 	}
 
-	return declarationcodec.Extension{
+	return declaration.Extension{
 		ID:      id,
 		Carrier: string(carrier),
 		Targets: []string{string(admittedTarget)},
@@ -105,7 +105,7 @@ func ExtensionFromAddRequest(request AddExtensionRequest, header declaration.Man
 	}, nil
 }
 
-func ApplyAddExtensionToManifest(original []byte, extension declarationcodec.Extension, header declaration.ManifestHeader) ([]byte, string, error) {
+func ApplyAddExtensionToManifest(original []byte, extension declaration.Extension, header declaration.ManifestHeader) ([]byte, string, error) {
 	incomingSubject, err := extensionAuthoringSubject(extension, header, "incoming extension")
 	if err != nil {
 		return nil, "", err
@@ -166,7 +166,7 @@ func ApplyRemoveExtensionToManifest(original []byte, request RemoveExtensionRequ
 	return content, "remove extension resource", nil
 }
 
-func extensionAuthoringSubject(extension declarationcodec.Extension, header declaration.ManifestHeader, context string) (string, error) {
+func extensionAuthoringSubject(extension declaration.Extension, header declaration.ManifestHeader, context string) (string, error) {
 	carrier, ok := extensionAuthoringCarrierFor(extension.Carrier)
 	if !ok {
 		return "", fmt.Errorf("%s.carrier: unsupported extension carrier %q", context, extension.Carrier)

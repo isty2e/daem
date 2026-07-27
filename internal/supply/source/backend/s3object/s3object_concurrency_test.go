@@ -93,7 +93,7 @@ func TestResolveIndependentResolversSerializeSameFinalRoot(t *testing.T) {
 	for _, currentResolver := range []Resolver{firstResolver, secondResolver} {
 		go func(currentResolver Resolver) {
 			<-start
-			resolved, err := currentResolver.Resolve(context.Background(), sourceSpec)
+			resolved, err := currentResolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			results <- s3ResolveResult{artifact: resolved, err: err}
 		}(currentResolver)
 	}
@@ -153,7 +153,7 @@ func TestResolveNoVersionInFlightDedupeButSequentialResolveRefetches(t *testing.
 		t.Fatalf("in-flight GetObject calls = %d, want 1", calls)
 	}
 
-	secondArtifact, err := resolver.Resolve(context.Background(), sourceSpec)
+	secondArtifact, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestResolveWaiterCancellationDoesNotCancelOwner(t *testing.T) {
 	}
 	t.Cleanup(releaseOwner)
 	go func() {
-		resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+		resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 		ownerDone <- s3ResolveResult{artifact: resolved, err: err}
 	}()
 	waitForS3TestSignal(t, started, "owner GetObject start")
@@ -199,7 +199,7 @@ func TestResolveWaiterCancellationDoesNotCancelOwner(t *testing.T) {
 	}
 	waiterDone := make(chan error, 1)
 	go func() {
-		_, err := resolver.Resolve(waiterContext, sourceSpec)
+		_, err := resolver.Resolve(waiterContext, sourceSpec, noOperationOptions)
 		waiterDone <- err
 	}()
 	waitForS3TestSignal(t, waiterContext.joined, "waiter in-flight join")
@@ -249,7 +249,7 @@ func resolveS3WithJoinedFollowers(
 	results := make([]s3ResolveResult, workers)
 	var waitGroup sync.WaitGroup
 	waitGroup.Go(func() {
-		resolved, err := leader.Resolve(context.Background(), sourceSpec)
+		resolved, err := leader.Resolve(context.Background(), sourceSpec, noOperationOptions)
 		results[0] = s3ResolveResult{artifact: resolved, err: err}
 	})
 	waitForS3TestSignal(t, started, "leader GetObject start")
@@ -265,7 +265,7 @@ func resolveS3WithJoinedFollowers(
 				Context: context.Background(),
 				joined:  waiterJoined,
 			}
-			resolved, err := follower.Resolve(ctx, sourceSpec)
+			resolved, err := follower.Resolve(ctx, sourceSpec, noOperationOptions)
 			results[worker] = s3ResolveResult{artifact: resolved, err: err}
 		}(worker)
 	}

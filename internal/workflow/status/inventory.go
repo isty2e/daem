@@ -54,7 +54,7 @@ func blockedOwnershipInventoryEntries(planResult reconcile.Result, selection tar
 		entries = append(entries, InventoryEntry{
 			EntityID: inventoryEntityForSubject(decision.Subject()),
 			Subject:  decision.Subject(), Targets: decision.ConsumerTargets(), Scope: decision.Scope(),
-			Path: string(decision.Destination()), Reason: decision.Reason(), Detail: decision.Detail(),
+			Path: decision.Destination().String(), Reason: decision.Reason(), Detail: decision.Detail(),
 		})
 	}
 	return entries
@@ -74,7 +74,7 @@ func managedInventoryEntries(file durable.Snapshot, selection targetselection.Se
 			Subject:  state.Subject(),
 			Targets:  consumers,
 			Scope:    state.Scope(),
-			Path:     string(state.Destination()),
+			Path:     state.Destination().String(),
 			Hash:     string(state.ContentHash()),
 		})
 	}
@@ -88,7 +88,7 @@ func managedInventoryEntries(file durable.Snapshot, selection targetselection.Se
 			Subject:  state.Subject(),
 			Targets:  []target.Target{contribution.Target()},
 			Scope:    contribution.Scope(),
-			Path:     contribution.AggregateRoot(),
+			Path:     contribution.AggregateRoot().String(),
 		})
 	}
 	return entries
@@ -104,7 +104,7 @@ func unmanagedInventoryEntries(planResult reconcile.Result, selection targetsele
 		entries = append(entries, InventoryEntry{
 			EntityID: inventoryEntityForSubject(decision.Subject()),
 			Subject:  decision.Subject(), Targets: decision.ConsumerTargets(), Scope: decision.Scope(),
-			Path: string(decision.Destination()), Hash: string(decision.LiveHash()), Reason: decision.Reason(), Detail: decision.Detail(),
+			Path: decision.Destination().String(), Hash: string(decision.LiveHash()), Reason: decision.Reason(), Detail: decision.Detail(),
 		})
 	}
 

@@ -15,10 +15,11 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathEffectRejectsMissingCurrentEvidence(t *testing.T) {
-	previous := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	previous := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	facts := managedPathEffectFacts{
 		subject:          previous.Subject(),
 		consumerTargets:  previous.ConsumerTargets(),
@@ -41,12 +42,12 @@ func TestManagedPathEffectRejectsMissingCurrentEvidence(t *testing.T) {
 }
 
 func TestManagedPathEffectAllowsRelocationWithAbsentNewDestination(t *testing.T) {
-	previous := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	previous := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	facts := managedPathEffectFacts{
 		subject:          previous.Subject(),
 		consumerTargets:  previous.ConsumerTargets(),
 		scope:            previous.Scope(),
-		destination:      ".agents/skills-v2/oracle",
+		destination:      outputtest.Parse(t, ".agents/skills-v2/oracle"),
 		desiredHash:      testArtifactHash("new"),
 		contentKind:      realization.PathProjectionDirectory,
 		permissionPolicy: realization.PathPermissionsNone,
@@ -60,8 +61,8 @@ func TestManagedPathEffectAllowsRelocationWithAbsentNewDestination(t *testing.T)
 }
 
 func TestManagedPathEffectRejectsPreviousStateFromAnotherSubject(t *testing.T) {
-	previous := testManagedPathEffectState(t, "review", ".agents/skills/oracle")
-	oracle := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	previous := testManagedPathEffectState(t, "review", outputtest.Parse(t, ".agents/skills/oracle"))
+	oracle := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	facts := managedPathEffectFacts{
 		subject:          oracle.Subject(),
 		consumerTargets:  oracle.ConsumerTargets(),
@@ -81,7 +82,7 @@ func TestManagedPathEffectRejectsPreviousStateFromAnotherSubject(t *testing.T) {
 }
 
 func TestManagedPathEffectRejectsMalformedDesiredAndLiveHashes(t *testing.T) {
-	previous := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	previous := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	facts := managedPathEffectFacts{
 		subject:          previous.Subject(),
 		consumerTargets:  previous.ConsumerTargets(),
@@ -113,18 +114,19 @@ func TestManagedPathEffectRejectsMalformedDesiredAndLiveHashes(t *testing.T) {
 	for _, test := range []struct {
 		scope       target.Scope
 		destination output.Destination
+		want        string
 	}{
-		{scope: target.ScopeProject, destination: "../escape"},
-		{scope: target.ScopeProject, destination: "~/agents/skills/oracle"},
-		{scope: target.ScopeGlobal, destination: ".agents/skills/oracle"},
-		{scope: target.ScopeGlobal, destination: "/absolute/escape"},
+		{scope: target.ScopeProject, destination: outputtest.Parse(t, "~/agents/skills/oracle"), want: "destination"},
+		{scope: target.ScopeGlobal, destination: outputtest.Parse(t, ".agents/skills/oracle"), want: "destination"},
+		{scope: target.ScopeProject, want: "destination"},
+		{destination: outputtest.Parse(t, ".agents/skills/oracle"), want: "unknown scope"},
 	} {
 		malformedDestination := facts
 		malformedDestination.scope = test.scope
 		malformedDestination.destination = test.destination
 		if err := (ManagedPathEffect{
 			replace: &managedPathReplaceEffect{facts: malformedDestination},
-		}).validate(); err == nil || !strings.Contains(err.Error(), "destination") {
+		}).validate(); err == nil || !strings.Contains(err.Error(), test.want) {
 			t.Fatalf("scope %q destination %q error = %v", test.scope, test.destination, err)
 		}
 	}
@@ -141,7 +143,7 @@ func TestManagedPathEffectValidatesExactModeWithoutFamilyAssumptions(t *testing.
 	}
 	base := managedPathEffectFacts{
 		subject: subject, consumerTargets: []target.Target{target.TargetCodex},
-		scope: target.ScopeProject, destination: ".daem/future-exact",
+		scope: target.ScopeProject, destination: outputtest.Parse(t, ".daem/future-exact"),
 		desiredHash: testArtifactHash("future"), contentKind: realization.PathProjectionFile,
 	}
 	for _, test := range []struct {
@@ -310,7 +312,7 @@ func testExactManagedPathEffectState(t *testing.T) durable.ManagedPathState {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".daem/hook-assets/guard/sha256-test/asset",
+		outputtest.Parse(t, ".daem/hook-assets/guard/sha256-test/asset"),
 		testArtifactHash("current"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,

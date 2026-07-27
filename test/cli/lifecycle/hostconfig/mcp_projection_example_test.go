@@ -21,6 +21,7 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 const (
@@ -55,7 +56,7 @@ func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
 			t.Setenv("USERPROFILE", home)
 			t.Setenv("CONTEXT7_API_TOKEN", mcpPublicExampleSecretCanary)
 
-			operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(test.placementID)
+			operations, ok := mcptest.OperationsForPlacementID(test.placementID)
 			if !ok {
 				t.Fatalf("implemented MCP placement operations %q not found", test.placementID)
 			}
@@ -137,7 +138,7 @@ func assertMCPPublicExampleWrittenLock(
 		subject.Key(),
 		string(contribution.Target()),
 		string(contribution.Scope()),
-		contribution.AggregateRoot(),
+		contribution.AggregateRoot().String(),
 		contribution.ContentPath(),
 		string(contribution.CodecContractID()),
 	)
@@ -174,7 +175,7 @@ func assertMCPPublicExampleProjectionIdentity(
 		name != mcpPublicExampleServerID ||
 		selectedTarget != string(placement.Target()) ||
 		scope != string(placement.Scope()) ||
-		configPath != placement.ConfigPath() ||
+		configPath != placement.ConfigPath().String() ||
 		contentPath != string(wantContentPath) ||
 		adapterContract != string(placement.CodecContractID()) {
 		t.Fatalf("projection identity kind=%q namespace=%q name=%q target=%q scope=%q config=%q content=%q adapter=%q, want placement %#v", kind, namespace, name, selectedTarget, scope, configPath, contentPath, adapterContract, placement)
@@ -273,7 +274,7 @@ func mcpPublicExampleHostConfigPath(
 	placement aggregate.MCPPlacement,
 ) string {
 	t.Helper()
-	logical := placement.ConfigPath()
+	logical := placement.ConfigPath().String()
 	switch placement.Scope() {
 	case target.ScopeProject:
 		if filepath.IsAbs(logical) || strings.HasPrefix(logical, "~") {
@@ -361,7 +362,7 @@ func assertMCPPublicExampleStatusPayload(
 		if action.Kind != "noop" || action.Reason != "already_current" ||
 			action.Projection.Target != string(placement.Target()) ||
 			action.Projection.Scope != string(placement.Scope()) ||
-			action.Projection.ConfigPath != placement.ConfigPath() ||
+			action.Projection.ConfigPath != placement.ConfigPath().String() ||
 			action.Projection.ContentPath != string(wantContentPath) {
 			t.Fatalf("status action = %#v, want already-current placement %q", action, placement.ID())
 		}

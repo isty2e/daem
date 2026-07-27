@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -486,7 +487,7 @@ func testGlobalClaimWithProvenance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(authorityRoot, ".daem", "state.json"),
 		filepath.Join(authorityRoot, "daem.toml"),
 	)

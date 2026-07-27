@@ -53,7 +53,7 @@ func buildSkillPayloads(
 			return result, fmt.Errorf("skill %q: missing lockfile entry", skill.ID().Name())
 		}
 
-		resolution, err := resolver.Resolve(ctx, skill.Source())
+		resolution, err := resolver.Resolve(ctx, skill.Source(), acquisition.OperationOptions{})
 		if err != nil {
 			return result, fmt.Errorf("skill %q: resolve source: %w", skill.ID().Name(), err)
 		}

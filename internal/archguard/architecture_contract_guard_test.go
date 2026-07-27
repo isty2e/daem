@@ -47,10 +47,12 @@ var testToolPackageAdmissions = map[string]testToolAdmission{
 	"test/cli/lifecycle/hostconfig":          {Reason: "aggregate host-config lifecycle journeys belong only to external test files", Kind: testToolTestsOnlyPackage},
 	"test/cli/lifecycle/lockplan":            {Reason: "lock and plan lifecycle journeys belong only to external test files", Kind: testToolTestsOnlyPackage},
 	"test/cli/lifecycle/managedpath":         {Reason: "managed-path lifecycle journeys belong only to external test files", Kind: testToolTestsOnlyPackage},
+	"test/outputtest":                        {Reason: "dependency-light output value fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit":                           {Reason: "cross-package integration helpers are test support", Kind: testToolHelperPackage},
 	"test/testkit/clijson":                   {Reason: "strict CLI JSON decoding fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit/doctorenv":                 {Reason: "isolated cross-platform doctor environment fixture is test support", Kind: testToolHelperPackage},
 	"test/testkit/execcheck":                 {Reason: "isolated executable-attempt canaries are test support", Kind: testToolHelperPackage},
+	"test/testkit/mcp":                       {Reason: "placement-keyed MCP codec fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit/metadatatx":                {Reason: "cross-workflow interrupted metadata transaction fixtures are test support", Kind: testToolHelperPackage},
 }
 

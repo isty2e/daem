@@ -6,8 +6,9 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRealizationSpecVariantsRemainClosedAndValidated(t *testing.T) {
@@ -15,7 +16,7 @@ func TestRealizationSpecVariantsRemainClosedAndValidated(t *testing.T) {
 		PlacementID:            "instructions.project.agents",
 		ConsumerTargets:        []target.Target{target.TargetCodex},
 		Scope:                  target.ScopeProject,
-		Destination:            "AGENTS.md",
+		Destination:            outputtest.Parse(t, "AGENTS.md"),
 		ContentKind:            PathProjectionFile,
 		PlacementMode:          PathProjectionCopy,
 		PermissionPolicy:       PathPermissionsExecutableClass,
@@ -32,7 +33,7 @@ func TestRealizationSpecVariantsRemainClosedAndValidated(t *testing.T) {
 		PlacementID:           "codex.project.hooks",
 		Target:                target.TargetCodex,
 		Scope:                 target.ScopeProject,
-		AggregateRoot:         "settings.json",
+		AggregateRoot:         outputtest.Parse(t, "settings.json"),
 		ContentPath:           "/hooks",
 		MergeUnit:             "hook-set",
 		Cardinality:           aggregate.ContributionSharedSet,
@@ -81,7 +82,7 @@ func TestManagedPathProjectionRejectsInvalidConsumerTarget(t *testing.T) {
 		PlacementID:            "instructions.project.agents",
 		ConsumerTargets:        []target.Target{"future"},
 		Scope:                  target.ScopeProject,
-		Destination:            "AGENTS.md",
+		Destination:            outputtest.Parse(t, "AGENTS.md"),
 		ContentKind:            PathProjectionFile,
 		PlacementMode:          PathProjectionCopy,
 		PermissionPolicy:       PathPermissionsExecutableClass,
@@ -95,7 +96,7 @@ func TestManagedPathProjectionRejectsInvalidConsumerTarget(t *testing.T) {
 func TestRealizationSpecAccessorsReturnDefensiveCopies(t *testing.T) {
 	spec, err := NewManagedPathProjection(ManagedPathProjectionInput{
 		PlacementID: "skill.project.agents", ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: ".agents/skills/review",
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, ".agents/skills/review"),
 		ContentKind: PathProjectionDirectory, PlacementMode: PathProjectionCopy,
 		PermissionPolicy: PathPermissionsNone, AdapterContractVersion: "managed-directory-v1",
 	})

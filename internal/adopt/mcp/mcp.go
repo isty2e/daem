@@ -3,9 +3,12 @@ package mcp
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	adopt "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -18,28 +21,37 @@ const (
 
 // Candidates imports only admitted standalone MCP config projection rows.
 func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	var importConfig func(string) ([]adopt.MCPServer, []adopt.Skipped, error)
 	switch {
 	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeProject:
-		return claudeProjectCandidates()
+		importConfig = claudeProjectCandidates
 	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeGlobal:
-		return claudeGlobalCandidates()
+		importConfig = claudeGlobalCandidates
 	case target == targetpkg.TargetOpenCode && scope == targetpkg.ScopeProject:
-		return openCodeProjectCandidates()
+		importConfig = openCodeProjectCandidates
 	case target == targetpkg.TargetOpenCode && scope == targetpkg.ScopeGlobal:
-		return openCodeGlobalCandidates()
+		importConfig = openCodeGlobalCandidates
 	case target == targetpkg.TargetCodex && scope == targetpkg.ScopeProject:
-		return codexProjectCandidates()
+		importConfig = codexProjectCandidates
 	case target == targetpkg.TargetCodex && scope == targetpkg.ScopeGlobal:
-		return codexGlobalCandidates()
+		importConfig = codexGlobalCandidates
 	case target == targetpkg.TargetAntigravityCLI && scope == targetpkg.ScopeGlobal:
-		return antigravityGlobalCandidates()
+		importConfig = antigravityGlobalCandidates
 	default:
 		return nil, []adopt.Skipped{adopt.UnsupportedSurfaceSkip(target, scope, "mcp_server")}, nil
 	}
+	placement, ok := aggregate.ImplementedMCPPlacement(target, scope)
+	if !ok {
+		return nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
+	}
+	livePath, err := mcpConfigPath(placement.ConfigPath(), scope)
+	if err != nil {
+		return nil, nil, err
+	}
+	return importConfig(livePath)
 }
 
-func claudeProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath := aggregate.ClaudeProjectMCPConfigPath
+func claudeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -63,11 +75,7 @@ func claudeProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func claudeGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath, err := adopt.ResolveDestination(aggregate.ClaudeGlobalMCPConfigPath)
-	if err != nil {
-		return nil, nil, err
-	}
+func claudeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -91,8 +99,7 @@ func claudeGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func openCodeProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath := aggregate.OpenCodeProjectMCPConfigPath
+func openCodeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -116,11 +123,7 @@ func openCodeProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func openCodeGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath, err := adopt.ResolveDestination(aggregate.OpenCodeGlobalMCPConfigPath)
-	if err != nil {
-		return nil, nil, err
-	}
+func openCodeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -144,8 +147,7 @@ func openCodeGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func codexProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath := aggregate.CodexProjectMCPConfigPath
+func codexProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -169,11 +171,7 @@ func codexProjectCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func codexGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath, err := adopt.ResolveDestination(aggregate.CodexGlobalMCPConfigPath)
-	if err != nil {
-		return nil, nil, err
-	}
+func codexGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -197,11 +195,7 @@ func codexGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func antigravityGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
-	livePath, err := adopt.ResolveDestination(aggregate.AntigravityGlobalMCPConfigPath)
-	if err != nil {
-		return nil, nil, err
-	}
+func antigravityGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	content, skip, err := readConfig(livePath)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
@@ -223,6 +217,20 @@ func antigravityGlobalCandidates() ([]adopt.MCPServer, []adopt.Skipped, error) {
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil
+}
+
+func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (string, error) {
+	if err := destination.ValidateScope(scope); err != nil {
+		return "", fmt.Errorf("validate MCP config destination %q: %w", destination, err)
+	}
+	if destination.RootRole() == output.RootProject {
+		return filepath.FromSlash(destination.RelativePath()), nil
+	}
+	livePath, err := hostpath.NewResolver("").Resolve(destination)
+	if err != nil {
+		return "", fmt.Errorf("resolve MCP config destination %q: %w", destination, err)
+	}
+	return livePath, nil
 }
 
 func readConfig(livePath string) ([]byte, adopt.Skipped, error) {

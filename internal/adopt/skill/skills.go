@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -48,7 +50,7 @@ func Candidates(
 	scope targetpkg.Scope,
 	importedDestinations DestinationClaims,
 ) ([]adopt.Skill, []adopt.Scan, []adopt.Skipped, error) {
-	locations := skillImportLocations(target, scope)
+	locations := profile.Profile(target).DiscoveryLocations(entity.KindSkill, scope)
 	skills := make([]adopt.Skill, 0)
 	scans := make([]adopt.Scan, 0, len(locations))
 	skipped := make([]adopt.Skipped, 0)
@@ -57,12 +59,12 @@ func Candidates(
 		if err := ctx.Err(); err != nil {
 			return nil, nil, nil, err
 		}
-		liveRoot, err := adopt.LocationPath(location.Path())
+		liveRoot, err := skillLocationPath(location.Path())
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if location.ImportPolicy() == profile.ImportPolicyClassify {
-			if exists, err := adopt.PathExists(liveRoot); err != nil {
+			if exists, err := skillPathExists(liveRoot); err != nil {
 				return nil, nil, nil, fmt.Errorf("inspect skill root %q: %w", liveRoot, err)
 			} else if exists {
 				scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipSuppliedRoot, 0, 0, 0))
@@ -93,12 +95,12 @@ func Candidates(
 		scans = append(scans, rootScan)
 		skipped = append(skipped, rootSkipped...)
 	}
-	for _, location := range adopt.RuntimeLocations(target, entity.KindSkill, scope) {
-		liveRoot, err := adopt.LocationPath(location.Path())
+	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindSkill, scope) {
+		liveRoot, err := skillLocationPath(location.Path())
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if exists, err := adopt.PathExists(liveRoot); err != nil {
+		if exists, err := skillPathExists(liveRoot); err != nil {
 			return nil, nil, nil, fmt.Errorf("inspect skill runtime root %q: %w", liveRoot, err)
 		} else if exists {
 			scans = append(scans, newSkillRootScan(target, scope, liveRoot, importSkillSkipSuppliedRoot, 0, 0, 0))
@@ -108,6 +110,27 @@ func Candidates(
 	return skills, scans, skipped, nil
 }
 
-func skillImportLocations(target targetpkg.Target, scope targetpkg.Scope) []profile.DiscoveryLocation {
-	return adopt.DiscoveryLocations(target, entity.KindSkill, scope)
+func skillLocationPath(locationPath string) (string, error) {
+	if strings.HasPrefix(locationPath, "~/") {
+		homeDirectory, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home directory: %w", err)
+		}
+		return filepath.Join(homeDirectory, filepath.FromSlash(strings.TrimPrefix(locationPath, "~/"))), nil
+	}
+	if filepath.IsAbs(locationPath) {
+		return filepath.Clean(locationPath), nil
+	}
+	return filepath.FromSlash(locationPath), nil
+}
+
+func skillPathExists(livePath string) (bool, error) {
+	_, err := os.Lstat(livePath)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
 }

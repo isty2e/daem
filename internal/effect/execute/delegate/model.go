@@ -188,7 +188,7 @@ func newAttemptRecord(
 		subject:         subject,
 		target:          string(action.Target()),
 		scope:           string(action.Scope()),
-		identityKey:     action.PlanIdentity().IdentityKey,
+		identityKey:     action.Plan().IdentityKey(),
 		status:          status,
 		reason:          reason,
 		exitCode:        exitCode,

@@ -87,7 +87,7 @@ func RenderMCPServerBlock(server MCPServer) string {
 	builder.WriteByte('\n')
 	if len(server.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderMCPServerStringArray(server.Targets))
+		builder.WriteString(renderStringArray(server.Targets))
 		builder.WriteByte('\n')
 	}
 	if server.Scope != "" {
@@ -103,7 +103,7 @@ func RenderMCPServerBlock(server MCPServer) string {
 	builder.WriteByte('\n')
 	if len(server.Args) != 0 {
 		builder.WriteString("args = ")
-		builder.WriteString(renderMCPServerStringArray(server.Args))
+		builder.WriteString(renderStringArray(server.Args))
 		builder.WriteByte('\n')
 	}
 	if len(server.Env) != 0 {
@@ -112,14 +112,6 @@ func RenderMCPServerBlock(server MCPServer) string {
 		builder.WriteByte('\n')
 	}
 	return builder.String()
-}
-
-func renderMCPServerStringArray(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 func renderMCPEnvReferences(env map[string]MCPEnvReference) string {

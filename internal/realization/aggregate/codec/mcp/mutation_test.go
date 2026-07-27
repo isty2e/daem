@@ -19,7 +19,7 @@ type mcpProjectionMutationCase struct {
 func TestMCPPlacementOperationsFoldAndVerifyMixedMutations(t *testing.T) {
 	for _, tc := range mcpProjectionMutationCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+			operations, ok := mcpPlacementOperationsForID(tc.placement)
 			if !ok {
 				t.Fatalf("placement operations %q missing", tc.placement)
 			}
@@ -74,7 +74,7 @@ func TestMCPProjectionInsertRequiresReplacementAuthority(t *testing.T) {
 		mcpProjectionMutationCases()[5],
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+			operations, ok := mcpPlacementOperationsForID(tc.placement)
 			if !ok {
 				t.Fatalf("placement operations %q missing", tc.placement)
 			}
@@ -129,7 +129,7 @@ func TestMCPProjectionMutationBatchRejectsUnsupportedSameNameEntry(t *testing.T)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+			operations, ok := mcpPlacementOperationsForID(tc.placement)
 			if !ok {
 				t.Fatalf("placement operations %q missing", tc.placement)
 			}
@@ -146,7 +146,7 @@ func TestMCPProjectionMutationBatchRejectsUnsupportedSameNameEntry(t *testing.T)
 }
 
 func TestMCPProjectionMutationBatchRejectsInvalidAndDuplicateValues(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project placement operations missing")
 	}
@@ -185,7 +185,7 @@ func TestMCPProjectionMutationBatchRejectsInvalidAndDuplicateValues(t *testing.T
 
 func TestMCPProjectionMutationOwnsCanonicalBytes(t *testing.T) {
 	tc := mcpProjectionMutationCases()[0]
-	operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+	operations, ok := mcpPlacementOperationsForID(tc.placement)
 	if !ok {
 		t.Fatal("Claude project placement operations missing")
 	}

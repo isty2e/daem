@@ -55,8 +55,8 @@ func (contract LockedSubjectContract) validate() error {
 	if err := contract.validateRepairRecipe(); err != nil {
 		return err
 	}
-	if contract.delegatePlanIdentity != nil {
-		if _, err := NewDelegatePlanIdentity(*contract.delegatePlanIdentity); err != nil {
+	if contract.delegatePlan != nil {
+		if err := contract.delegatePlan.Validate(); err != nil {
 			return err
 		}
 		if contract.realization == nil {

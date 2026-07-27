@@ -5,14 +5,15 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestCarrierModelComparisonsPreserveEveryTieBreaker(t *testing.T) {
 	root := t.TempDir()
-	ownerA := mustStateAuthority(t, filepath.Join(root, "a"), "daem.toml")
-	ownerB := mustStateAuthority(t, filepath.Join(root, "b"), "daem.toml")
+	ownerA := mustAuthority(t, filepath.Join(root, "a"), "daem.toml")
+	ownerB := mustAuthority(t, filepath.Join(root, "b"), "daem.toml")
 	relationA := carrierFixtureFor(t, "alpha", "shared@official", target.ScopeProject)
 	relationB := carrierFixtureFor(t, "beta", "shared@official", target.ScopeProject)
 	carrierA := carrierFixtureFor(t, "same", "alpha@official", target.ScopeProject)
@@ -26,7 +27,7 @@ func TestCarrierModelComparisonsPreserveEveryTieBreaker(t *testing.T) {
 	requestHashB := orderRequest(t, "route.a", "1", hashB)
 
 	pending := func(
-		owner durablecarrier.StateAuthority,
+		owner stateauthority.Authority,
 		fixture carrierFixture,
 		request realizationdelegate.Request,
 	) durablecarrier.PendingCarrierInstall {
@@ -75,7 +76,7 @@ func TestCarrierModelComparisonsPreserveEveryTieBreaker(t *testing.T) {
 	)
 
 	claim := func(
-		owner durablecarrier.StateAuthority,
+		owner stateauthority.Authority,
 		fixture carrierFixture,
 		request realizationdelegate.Request,
 		provenance durablecarrier.ClaimProvenance,

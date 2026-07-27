@@ -9,13 +9,13 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -32,6 +32,7 @@ import (
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
@@ -98,7 +99,7 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		"desired",
 		target.TargetClaudeCode,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	changedEvidence, err := buildApplyAuthorityEvidence(t.Context(), changed)
@@ -149,7 +150,7 @@ func TestApplyOperationFingerprintBindsPlanAndDelegateMode(t *testing.T) {
 		"changed",
 		target.TargetClaudeCode,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	changedFingerprint, err := applyOperationFingerprint(changed, reconcile.ContextApply)
@@ -236,7 +237,7 @@ func TestProjectAuthorityPathCoalescesSymlinkAliasToPhysicalRoot(t *testing.T) {
 				"desired",
 				target.TargetCodex,
 				target.ScopeProject,
-				ownership.OwnerAuthority{},
+				stateauthority.Authority{},
 				nil,
 			),
 		},
@@ -271,7 +272,7 @@ func TestProjectAuthorityPathCoalescesSymlinkAliasToPhysicalRoot(t *testing.T) {
 func TestProjectAuthorityPathRejectsInvalidScopeInsteadOfUsingLexicalFallback(t *testing.T) {
 	planned := applyAuthorityTestPlan(t)
 
-	if _, err := projectDestinationAuthorityPathFor(planned, "", ".claude/skills/review"); err == nil {
+	if _, err := projectDestinationAuthorityPathFor(planned, "", outputtest.Parse(t, ".claude/skills/review")); err == nil {
 		t.Fatal("projectDestinationAuthorityPathFor accepted an invalid scope")
 	}
 }
@@ -289,11 +290,11 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		StateDir:              filepath.Join(root, ".daem"),
 		StatefilePath:         filepath.Join(root, ".daem", "state.json"),
 	}
-	owner, err := ownership.NewOwnerAuthority(paths.StatefilePath, paths.ManifestPath)
+	owner, err := stateauthority.New(paths.StatefilePath, paths.ManifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalDestination := output.Destination("~/.agents/skills/review")
+	globalDestination := outputtest.Parse(t, "~/.agents/skills/review")
 	globalPath, err := hostpath.NewResolverWithManagedDataRoot(root, paths.DataDir).Resolve(globalDestination)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +315,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		"project",
 		target.TargetCodex,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	globalPlan := applyAuthorityManagedPathPlan(
@@ -360,7 +361,7 @@ func TestPhysicalOccupancyIndexAllowsSharedConsumersOnlyAtSameLogicalAddressAndK
 	path := filepath.Join(t.TempDir(), "config")
 	index := make(physicalOccupancyIndex)
 	whole := physicalOccupancy{
-		scope: target.ScopeProject, destination: output.Destination(".agent/config"), kind: physicalOccupancyWholePath,
+		scope: target.ScopeProject, destination: outputtest.Parse(t, ".agent/config"), kind: physicalOccupancyWholePath,
 	}
 	if err := index.register(path, whole); err != nil {
 		t.Fatal(err)
@@ -486,7 +487,7 @@ func applyAuthorityTestPlan(t *testing.T) commandPlan {
 				"desired",
 				target.TargetClaudeCode,
 				target.ScopeProject,
-				ownership.OwnerAuthority{},
+				stateauthority.Authority{},
 				nil,
 			),
 		},
@@ -512,7 +513,7 @@ func applyAuthorityManagedPathPlan(
 	hashSeed string,
 	selectedTarget target.Target,
 	scope target.Scope,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	ownershipEvidence []observe.OwnershipObservation,
 ) reconcile.Result {
 	t.Helper()
@@ -584,7 +585,7 @@ func applyAuthorityManagedPathPlan(
 	}
 	pathEvidence, err := observe.NewManagedPathEvidence(
 		admittedSubject.SubjectID(),
-		output.Destination(destination),
+		destination,
 		false,
 		"",
 		0,

@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -26,7 +27,7 @@ func selectExtensionManagement(
 	environment desired.Environment,
 	state durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	request UnmanageExtensionRequest,
 ) (selection, error) {
 	declaration, hasDeclaration, err := selectDeclaration(environment.Extensions(), request)
@@ -153,11 +154,11 @@ func managedIdentityFromDeclaration(
 func ownedExtensionFacts(
 	state durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	id string,
 ) ([]ownedIdentity, error) {
 	facts := make([]ownedIdentity, 0)
-	add := func(candidateOwner durablecarrier.StateAuthority, identity durablecarrier.ManagedCarrierIdentity) error {
+	add := func(candidateOwner stateauthority.Authority, identity durablecarrier.ManagedCarrierIdentity) error {
 		if identity.RelationSubject().Key() != id {
 			return nil
 		}

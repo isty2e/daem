@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -24,6 +25,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func bindNilOwnershipRegistryStore(
@@ -126,16 +128,16 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := ownership.NewOwnerAuthority(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	projectState := testManagedPathEffectState(t, "oracle", ".agents/skills/oracle")
+	projectState := testManagedPathEffectState(t, "oracle", outputtest.Parse(t, ".agents/skills/oracle"))
 	globalState, err := durable.NewManagedPathState(
 		projectState.Subject(),
 		projectState.ConsumerTargets(),
 		target.ScopeGlobal,
-		"~/global-old",
+		outputtest.Parse(t, "~/global-old"),
 		projectState.ContentHash(),
 		projectState.ContentKind(),
 		projectState.PermissionPolicy(),
@@ -145,7 +147,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 		t.Fatal(err)
 	}
 	oldGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-old"), globalState.Destination(), owner, true)
-	newGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-new"), "~/global-new", owner, false)
+	newGlobal := managedPathOwnershipObservation(t, filepath.Join(root, "global-new"), outputtest.Parse(t, "~/global-new"), owner, false)
 
 	tests := []struct {
 		name         string
@@ -157,19 +159,19 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	}{
 		{
 			name: "project to global acquires only", previous: projectState,
-			scope: target.ScopeGlobal, destination: "~/global-new",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/global-new"),
 			observations: []observe.OwnershipObservation{newGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionAcquire},
 		},
 		{
 			name: "global to project releases only", previous: globalState,
-			scope: target.ScopeProject, destination: ".agents/skills/oracle",
+			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skills/oracle"),
 			observations: []observe.OwnershipObservation{oldGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionRelease},
 		},
 		{
 			name: "global to global releases then acquires", previous: globalState,
-			scope: target.ScopeGlobal, destination: "~/global-new",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/global-new"),
 			observations: []observe.OwnershipObservation{oldGlobal, newGlobal},
 			wantKinds:    []ownershipmutation.TransitionKind{ownershipmutation.TransitionRelease, ownershipmutation.TransitionAcquire},
 		},
@@ -204,7 +206,7 @@ func managedPathOwnershipObservation(
 	t *testing.T,
 	path string,
 	destination output.Destination,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
@@ -577,12 +579,12 @@ func globalAggregateOwnershipInput(
 	if err != nil {
 		t.Fatalf("canonicalize statefile authority: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority(
+	owner, err := stateauthority.New(
 		statefileKey,
 		filepath.Join(fixture.root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	canonicalPath, err := mutation.CanonicalDirectoryEntryKey(fixture.hostConfigPath)
 	if err != nil {

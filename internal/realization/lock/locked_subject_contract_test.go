@@ -7,13 +7,14 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestLockedSubjectContractAdmitsOrthogonalFacetShapes(t *testing.T) {
@@ -428,7 +429,7 @@ func mustPathContractRealization(t *testing.T, selectedTarget target.Target, des
 	t.Helper()
 	realization, err := realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
 		PlacementID: "instructions.project", ConsumerTargets: []target.Target{selectedTarget}, Scope: target.ScopeProject,
-		Destination: destination, ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
+		Destination: outputtest.Parse(t, destination), ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
 		PermissionPolicy:       realization.PathPermissionsExecutableClass,
 		AdapterContractVersion: adapter,
 	})
@@ -442,7 +443,7 @@ func mustAggregateContractRealization(t *testing.T, name string) realization.Rea
 	t.Helper()
 	realization, err := realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
 		PlacementID: "claude-code.project.mcp", Target: target.TargetClaudeCode, Scope: target.ScopeProject,
-		AggregateRoot: ".mcp.json", ContentPath: "/mcpServers/" + name,
+		AggregateRoot: outputtest.Parse(t, ".mcp.json"), ContentPath: "/mcpServers/" + name,
 		MergeUnit:             aggregate.MergeUnit("mcp-server-entry"),
 		Cardinality:           aggregate.ContributionExclusive,
 		SiblingRetention:      aggregate.PreserveUnmanagedSiblings,

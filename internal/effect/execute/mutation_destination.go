@@ -29,7 +29,7 @@ func (destination mutationDestination) isRooted() bool {
 	if destination.scope != target.ScopeProject && destination.scope != target.ScopeGlobal {
 		return false
 	}
-	if destination.logical == "" || destination.hostPath == "" ||
+	if destination.logical.Validate() != nil || destination.hostPath == "" ||
 		destination.root == nil || destination.destination.Validate() != nil {
 		return false
 	}
@@ -116,7 +116,7 @@ func newMutationAuthorityWithProjectionEffects(
 			document := precondition.DocumentAddress()
 			if err := authority.bindPhysicalAuthority(
 				document.Scope(),
-				output.Destination(document.AggregateRoot()),
+				document.AggregateRoot(),
 				[]target.Target{document.Target()},
 			); err != nil {
 				_ = authority.close()
@@ -382,11 +382,7 @@ func (authority *mutationAuthority) rootedJournalCapability(
 }
 
 func (authority *mutationAuthority) resolveGlobalHostPath(logical output.Destination) (string, error) {
-	portable, err := output.Parse(string(logical))
-	if err != nil {
-		return "", err
-	}
-	if err := portable.ValidateScope(target.ScopeGlobal); err != nil {
+	if err := logical.ValidateScope(target.ScopeGlobal); err != nil {
 		return "", fmt.Errorf("global destination %q must be home-relative or data-root-relative", logical)
 	}
 	return authority.lexical(logical)
@@ -396,7 +392,10 @@ func (authority *mutationAuthority) resolveProject(logical output.Destination) (
 	if authority == nil || authority.capturedRoot == nil {
 		return mutationDestination{}, fmt.Errorf("project mutation authority is unavailable")
 	}
-	relative, err := rootedpath.NewRelativeDestination(string(logical))
+	if err := logical.ValidateScope(target.ScopeProject); err != nil {
+		return mutationDestination{}, fmt.Errorf("project destination %q must be project-relative", logical)
+	}
+	relative, err := rootedpath.NewRelativeDestination(logical.RelativePath())
 	if err != nil {
 		return mutationDestination{}, err
 	}

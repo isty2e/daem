@@ -10,9 +10,9 @@ import (
 	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
@@ -20,8 +20,8 @@ func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
 	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
 	sink := renderer.Sink()
 	sink(execute.Event{Kind: execute.EventJournalCaptureStarted, TotalActions: 2})
-	sink(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts()})
-	sink(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()})
+	sink(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts(t)})
+	sink(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts(t)})
 	renderer.Close()
 
 	got := output.String()
@@ -37,19 +37,18 @@ func TestApplyProgressRendererShowsOnlyEphemeralActionProgress(t *testing.T) {
 	}
 }
 
-func TestApplyProgressRendererEscapesUntrustedLabels(t *testing.T) {
+func TestApplyProgressRendererSuppressesUntrustedErrors(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
-	facts := applyProgressActionFacts()
-	facts.Destination = "bad\n\x1b[31m"
+	facts := applyProgressActionFacts(t)
 	renderer.Sink()(execute.Event{Kind: execute.EventActionFailed, TotalActions: 1, Action: facts, Err: errors.New("secret\nerror")})
 
 	got := output.String()
-	if strings.Contains(got, "bad\n") || strings.Contains(got, "\x1b[31m") || strings.Contains(got, "secret") {
-		t.Fatalf("output leaked control/error text: %q", got)
+	if strings.Contains(got, "secret") {
+		t.Fatalf("output leaked error text: %q", got)
 	}
-	if !strings.Contains(got, `bad\n\x1b[31m`) || !strings.Contains(got, ": failed") {
-		t.Fatalf("output = %q, want escaped label and failure state", got)
+	if !strings.Contains(got, ".codex/hooks.json") || !strings.Contains(got, ": failed") {
+		t.Fatalf("output = %q, want canonical label and failure state", got)
 	}
 }
 
@@ -69,7 +68,7 @@ func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
 		Action: &execute.ActionEventFacts{
 			Index: 0, ManagedPathKind: execute.ManagedPathEffectCreate, Subject: subject,
 			ConsumerTargets: []target.Target{target.TargetCodex}, Scope: target.ScopeProject,
-			Destination: ".agents/skills/oracle",
+			Destination: outputtest.Parse(t, ".agents/skills/oracle"),
 		},
 	})
 	if !strings.Contains(output.String(), "skill/oracle -> .agents/skills/oracle") {
@@ -80,8 +79,8 @@ func TestApplyProgressRendererAttributesEntityBackedManagedPath(t *testing.T) {
 func TestApplyProgressRendererSuppressesAfterWriteError(t *testing.T) {
 	writer := &applyFailAfterFirstWrite{}
 	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: writer})
-	renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts()})
-	renderer.Sink()(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()})
+	renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 2, Action: applyProgressActionFacts(t)})
+	renderer.Sink()(execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts(t)})
 	renderer.Close()
 	if writer.writes != 2 {
 		t.Fatalf("writes = %d, want 2", writer.writes)
@@ -91,7 +90,7 @@ func TestApplyProgressRendererSuppressesAfterWriteError(t *testing.T) {
 func TestApplyProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewApplyProgressRenderer(cliprogress.ApplyProgressRendererOptions{Output: &output})
-	event := execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts()}
+	event := execute.Event{Kind: execute.EventActionDone, TotalActions: 2, Action: applyProgressActionFacts(t)}
 	renderer.Sink()(event)
 	renderer.Sink()(event)
 	if strings.Contains(output.String(), "Applying 2/2") || strings.Count(output.String(), "Applying 1/2") != 1 {
@@ -105,7 +104,7 @@ func TestApplyProgressRendererAcceptsConcurrentEvents(t *testing.T) {
 	var waitGroup sync.WaitGroup
 	for range 32 {
 		waitGroup.Go(func() {
-			renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 32, Action: applyProgressActionFacts()})
+			renderer.Sink()(execute.Event{Kind: execute.EventActionStarted, TotalActions: 32, Action: applyProgressActionFacts(t)})
 		})
 	}
 	waitGroup.Wait()
@@ -122,7 +121,7 @@ func TestApplyProgressRendererNilReceiverIsNoop(t *testing.T) {
 	renderer.Close()
 }
 
-func applyProgressActionFacts() *execute.ActionEventFacts {
+func applyProgressActionFacts(t testing.TB) *execute.ActionEventFacts {
 	entityID, err := entity.New(entity.KindHook, "project")
 	if err != nil {
 		panic(err)
@@ -137,7 +136,7 @@ func applyProgressActionFacts() *execute.ActionEventFacts {
 		Subject:         subject,
 		Target:          target.TargetCodex,
 		Scope:           target.ScopeProject,
-		Destination:     output.Destination(".codex/hooks.json"),
+		Destination:     outputtest.Parse(t, ".codex/hooks.json"),
 	}
 }
 

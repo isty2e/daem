@@ -140,19 +140,19 @@ func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error)
 }
 
 func ReplaceSkillTargets(block string, targets []string) string {
-	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "targets", renderSkillStringArray(targets)); ok {
+	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "targets", renderStringArray(targets)); ok {
 		return updated
 	}
 	lines := strings.SplitAfter(block, "\n")
 	if len(lines) == 0 {
-		return "targets = " + renderSkillStringArray(targets) + "\n"
+		return "targets = " + renderStringArray(targets) + "\n"
 	}
 	insertAt := len(lines)
 	if lines[len(lines)-1] == "" {
 		insertAt = len(lines) - 1
 	}
 	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderSkillStringArray(targets)+"\n")
+	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
 	newLines = append(newLines, lines[insertAt:]...)
 	return strings.Join(newLines, "")
 }
@@ -173,7 +173,7 @@ func RenderSkillBlock(skill Skill) string {
 	builder.WriteByte('\n')
 	if len(skill.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderSkillStringArray(skill.Targets))
+		builder.WriteString(renderStringArray(skill.Targets))
 		builder.WriteByte('\n')
 	}
 	if skill.Scope != "" {
@@ -196,12 +196,4 @@ func renderSkillSource(source SkillSource) string {
 			", ref = " + strconv.Quote(source.Ref) + " }"
 	}
 	return "{ path = " + strconv.Quote(source.Path) + ", mode = " + strconv.Quote(source.Mode) + " }"
-}
-
-func renderSkillStringArray(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
 }

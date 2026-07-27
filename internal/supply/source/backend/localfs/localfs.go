@@ -53,12 +53,7 @@ func NewResolver(root string) (Resolver, error) {
 }
 
 // Resolve resolves and hashes a local source without copying it into vendor storage.
-func (resolver Resolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
-	return resolver.ResolveWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ResolveWithOptions resolves and hashes a local source with source-owned operation options.
-func (resolver Resolver) ResolveWithOptions(
+func (resolver Resolver) Resolve(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
@@ -122,12 +117,7 @@ func (resolver Resolver) contentPath(sourceSpec source.Source) (string, error) {
 }
 
 // ListSourceRoot lists direct child directories of a local source root without hashing contents.
-func (resolver Resolver) ListSourceRoot(ctx context.Context, sourceSpec source.Source) (source.RootListing, error) {
-	return resolver.ListSourceRootWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ListSourceRootWithOptions lists direct child directories with source-owned operation options.
-func (resolver Resolver) ListSourceRootWithOptions(
+func (resolver Resolver) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
 	_ acquisition.OperationOptions,

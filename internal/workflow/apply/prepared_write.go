@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 var (
@@ -177,7 +177,7 @@ func cloneCommandResult(result CommandResult) CommandResult {
 		cloned.Diagnostics[index].RepairActions = append([]string(nil), diagnostic.RepairActions...)
 		cloned.Diagnostics[index].ManualReasons = append([]string(nil), diagnostic.ManualReasons...)
 	}
-	cloned.LockOnly = append([]targetavailability.UnsupportedProjection(nil), result.LockOnly...)
+	cloned.LockOnly = append([]readiness.UnsupportedProjection(nil), result.LockOnly...)
 	cloned.MCPProjections = append([]mcpobserve.LockedProjectionObservation(nil), result.MCPProjections...)
 	return cloned
 }

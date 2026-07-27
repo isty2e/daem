@@ -8,10 +8,11 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRejectCodexInlineHooksConflictIsScopedToCodexHookDestinations(t *testing.T) {
-	err := ValidateAggregateReadPreconditions(".claude/settings.json", func(destination output.Destination) (string, error) {
+	err := ValidateAggregateReadPreconditions(outputtest.Parse(t, ".claude/settings.json"), func(destination output.Destination) (string, error) {
 		t.Fatalf("resolver called for non-Codex hook destination %q", destination)
 		return "", nil
 	})
@@ -32,32 +33,32 @@ func TestRejectCodexInlineHooksConflictChecksPairedConfigOnly(t *testing.T) {
 	}{
 		{
 			name:              "project inline hooks conflict",
-			hookDestination:   ".codex/hooks.json",
+			hookDestination:   outputtest.Parse(t, ".codex/hooks.json"),
 			configDestination: ".codex/config.toml",
 			configContent:     "[hooks]\n",
 			wantError:         `unmanaged Codex inline hooks found in ".codex/config.toml"`,
 		},
 		{
 			name:              "global inline hooks conflict",
-			hookDestination:   "~/.codex/hooks.json",
+			hookDestination:   outputtest.Parse(t, "~/.codex/hooks.json"),
 			configDestination: "~/.codex/config.toml",
 			configContent:     "hooks = []\n",
 			wantError:         `unmanaged Codex inline hooks found in "~/.codex/config.toml"`,
 		},
 		{
 			name:              "unrelated codex config table is allowed",
-			hookDestination:   ".codex/hooks.json",
+			hookDestination:   outputtest.Parse(t, ".codex/hooks.json"),
 			configDestination: ".codex/config.toml",
 			configContent:     "[mcp_servers.context7]\ncommand = \"npx\"\n",
 		},
 		{
 			name:              "missing paired config is allowed",
-			hookDestination:   ".codex/hooks.json",
+			hookDestination:   outputtest.Parse(t, ".codex/hooks.json"),
 			configDestination: ".codex/config.toml",
 		},
 		{
 			name:              "malformed paired config remains boundary parse error",
-			hookDestination:   ".codex/hooks.json",
+			hookDestination:   outputtest.Parse(t, ".codex/hooks.json"),
 			configDestination: ".codex/config.toml",
 			configContent:     "[hooks\n",
 			wantError:         `parse ".codex/config.toml" for Codex inline hooks`,
@@ -90,7 +91,7 @@ func TestRejectCodexInlineHooksConflictChecksPairedConfigOnly(t *testing.T) {
 	missingResolution := func(destination output.Destination) (string, error) {
 		return "", fmt.Errorf("unexpected destination %q", destination)
 	}
-	if err := ValidateAggregateReadPreconditions(".codex/hooks.json", missingResolution); err == nil {
+	if err := ValidateAggregateReadPreconditions(outputtest.Parse(t, ".codex/hooks.json"), missingResolution); err == nil {
 		t.Fatal("rejectCodexInlineHooksConflict returned nil for resolver failure")
 	}
 }
@@ -109,6 +110,6 @@ func writeTestFile(t *testing.T, root string, relativePath string, content strin
 
 func testDestinationResolver(root string) DestinationResolver {
 	return func(destination output.Destination) (string, error) {
-		return filepath.Join(root, filepath.FromSlash(string(destination))), nil
+		return filepath.Join(root, filepath.FromSlash(destination.String())), nil
 	}
 }

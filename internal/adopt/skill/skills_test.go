@@ -1,7 +1,10 @@
 package skill
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
@@ -54,5 +57,116 @@ func TestAssignImportedSkillGroupSourcesUsesSkillContentInGroupRoot(t *testing.T
 	}
 	if changed[0].GroupRoot == grouped[0].GroupRoot {
 		t.Fatalf("groupRoot = %q after content change, want content-addressed root to change", changed[0].GroupRoot)
+	}
+}
+
+func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
+	contentHash := artifact.HashFileContent([]byte("same"))
+	finalized := Finalize([]adopt.Skill{
+		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
+		{InstallName: "alpha", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
+		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
+	})
+	if len(finalized) != 1 {
+		t.Fatalf("Finalize returned %#v, want one skill", finalized)
+	}
+	if finalized[0].Target != targetpkg.TargetPi {
+		t.Fatalf("representative target = %q, want first-seen pi", finalized[0].Target)
+	}
+	want := []targetpkg.Target{targetpkg.TargetPi, targetpkg.TargetCodex}
+	if !reflect.DeepEqual(finalized[0].Targets, want) {
+		t.Fatalf("targets = %#v, want %#v", finalized[0].Targets, want)
+	}
+}
+
+func TestAssignGroupSourcesTreatsTargetOrderAsSetIdentity(t *testing.T) {
+	sourceDir := filepath.Join(t.TempDir(), "daem.d")
+	sourceDirectory, err := adopt.NewSourceDirectory(filepath.Join(filepath.Dir(sourceDir), "daem.toml"), sourceDir)
+	if err != nil {
+		t.Fatalf("NewSourceDirectory returned error: %v", err)
+	}
+	skills := []adopt.Skill{
+		{
+			ResourceName: "alpha",
+			InstallName:  "alpha",
+			Targets:      []targetpkg.Target{targetpkg.TargetPi, targetpkg.TargetCodex},
+			Scope:        targetpkg.ScopeGlobal,
+			ContentHash:  artifact.HashFileContent([]byte("alpha")),
+		},
+		{
+			ResourceName: "beta",
+			InstallName:  "beta",
+			Targets:      []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetPi},
+			Scope:        targetpkg.ScopeGlobal,
+			ContentHash:  artifact.HashFileContent([]byte("beta")),
+		},
+	}
+
+	grouped, err := AssignGroupSources(sourceDirectory, skills)
+	if err != nil {
+		t.Fatalf("AssignGroupSources returned error: %v", err)
+	}
+	if grouped[0].GroupRoot == "" || grouped[0].GroupRoot != grouped[1].GroupRoot {
+		t.Fatalf("group roots = %q and %q, want one order-independent target-set group", grouped[0].GroupRoot, grouped[1].GroupRoot)
+	}
+}
+
+func TestSkillLocationPathPreservesProfilePathDomains(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	homePath, err := skillLocationPath("~/agent/skills")
+	if err != nil {
+		t.Fatalf("skillLocationPath(home) error = %v", err)
+	}
+	if want := filepath.Join(home, "agent", "skills"); homePath != want {
+		t.Fatalf("skillLocationPath(home) = %q, want %q", homePath, want)
+	}
+
+	relativePath, err := skillLocationPath(".agents/skills")
+	if err != nil {
+		t.Fatalf("skillLocationPath(relative) error = %v", err)
+	}
+	if want := filepath.FromSlash(".agents/skills"); relativePath != want {
+		t.Fatalf("skillLocationPath(relative) = %q, want %q", relativePath, want)
+	}
+
+	absoluteInput := filepath.Join(string(os.PathSeparator), "tmp", "nested", "..", "skills")
+	absolutePath, err := skillLocationPath(absoluteInput)
+	if err != nil {
+		t.Fatalf("skillLocationPath(absolute) error = %v", err)
+	}
+	if want := filepath.Clean(absoluteInput); absolutePath != want {
+		t.Fatalf("skillLocationPath(absolute) = %q, want %q", absolutePath, want)
+	}
+}
+
+func TestSkillLocationPathReportsUnavailableHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
+	if _, err := skillLocationPath("~/skills"); err == nil {
+		t.Fatal("skillLocationPath() succeeded without a home directory")
+	}
+}
+
+func TestSkillPathExistsUsesLstatForDanglingSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	link := filepath.Join(root, "skill")
+	if err := os.Symlink(filepath.Join(root, "missing"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	exists, err := skillPathExists(link)
+	if err != nil {
+		t.Fatalf("skillPathExists() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("skillPathExists() = false, want dangling symlink to exist")
 	}
 }

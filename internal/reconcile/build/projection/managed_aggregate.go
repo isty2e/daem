@@ -6,7 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -25,7 +25,7 @@ type AggregateInput struct {
 	PreconditionEvidence   []observe.AggregatePreconditionEvidence
 	SelectedTargets        reconcile.SelectedTargets
 	ManageUnmanagedMatches bool
-	Owner                  ownership.OwnerAuthority
+	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	Codecs                 aggregate.CodecCatalog
 }

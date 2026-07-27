@@ -11,11 +11,12 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -130,11 +131,15 @@ func (persisted managedPathDTO) canonical() (durable.ManagedPathState, error) {
 	if persisted.FileMode != nil {
 		fileMode = os.FileMode(*persisted.FileMode)
 	}
+	destination, err := output.Parse(persisted.Destination)
+	if err != nil {
+		return durable.ManagedPathState{}, err
+	}
 	return durable.NewManagedPathState(
 		subject,
 		consumerTargets,
 		scope,
-		output.Destination(persisted.Destination),
+		destination,
 		artifact.ContentHash(persisted.ContentHash),
 		realization.PathProjectionContentKind(persisted.ContentKind),
 		realization.PathPermissionPolicy(persisted.PermissionPolicy),
@@ -150,11 +155,15 @@ func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState,
 	if err := requireCanonicalStrings(persisted.ComparedFields, "compared_fields"); err != nil {
 		return durable.ManagedAggregateState{}, err
 	}
+	aggregateRoot, err := output.Parse(persisted.AggregateRoot)
+	if err != nil {
+		return durable.ManagedAggregateState{}, err
+	}
 	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
 		PlacementID:           persisted.PlacementID,
 		Target:                target.Target(persisted.Target),
 		Scope:                 target.Scope(persisted.Scope),
-		AggregateRoot:         persisted.AggregateRoot,
+		AggregateRoot:         aggregateRoot,
 		ContentPath:           persisted.ContentPath,
 		MergeUnit:             aggregate.MergeUnit(persisted.MergeUnit),
 		Cardinality:           aggregate.ContributionCardinality(persisted.Cardinality),
@@ -171,8 +180,8 @@ func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState,
 	return durable.NewManagedAggregateState(subject, contribution)
 }
 
-func (persisted stateAuthorityDTO) canonical() (durablecarrier.StateAuthority, error) {
-	return durablecarrier.NewStateAuthority(persisted.StatefileKey, persisted.ManifestPath)
+func (persisted stateAuthorityDTO) canonical() (stateauthority.Authority, error) {
+	return stateauthority.New(persisted.StatefileKey, persisted.ManifestPath)
 }
 
 func (persisted managedCarrierIdentityDTO) canonical() (durablecarrier.ManagedCarrierIdentity, error) {
@@ -474,7 +483,7 @@ func validateSnapshotForPersistence(snapshot durable.Snapshot) error {
 			state.Subject().Namespace(),
 			state.ConsumerTargets(),
 			state.Scope(),
-			string(state.Destination()),
+			state.Destination().String(),
 			state.ContentKind(),
 		); err != nil {
 			return fmt.Errorf("managed_paths[%d]: managed path occupancy: %w", index, err)

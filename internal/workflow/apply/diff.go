@@ -116,17 +116,17 @@ func BuildDryRunDiffs(
 			if err != nil {
 				return nil, fmt.Errorf("read current destination %q: %w", decision.Destination(), err)
 			}
-			currentLabel = "current/" + string(decision.Destination())
+			currentLabel = "current/" + decision.Destination().String()
 		}
 
 		diffs = append(diffs, DryRunDiff{
 			EntityID:       entityID,
 			Targets:        append([]target.Target(nil), consumers...),
 			Scope:          decision.Scope(),
-			Destination:    string(decision.Destination()),
+			Destination:    decision.Destination().String(),
 			CurrentLabel:   currentLabel,
 			CurrentContent: currentContent,
-			DesiredLabel:   "desired/" + string(decision.Destination()),
+			DesiredLabel:   "desired/" + decision.Destination().String(),
 			DesiredContent: file.Bytes(),
 		})
 	}
@@ -154,7 +154,7 @@ func readManagedFileForDiff(
 		if authorityErr != nil {
 			return nil, authorityErr
 		}
-		relative, relativeErr := rootedpath.NewRelativeDestination(string(destination))
+		relative, relativeErr := rootedpath.NewRelativeDestination(destination.RelativePath())
 		if relativeErr != nil {
 			return nil, relativeErr
 		}

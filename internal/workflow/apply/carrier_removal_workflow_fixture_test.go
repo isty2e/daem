@@ -14,6 +14,7 @@ import (
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
@@ -89,7 +90,7 @@ func newWorkflowFixtureWithPostconditions(
 	if err := os.WriteFile(manifestPath, []byte("version = 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statePath, manifestPath)
+	owner, err := stateauthority.New(statePath, manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

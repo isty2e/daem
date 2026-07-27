@@ -2,6 +2,7 @@ package gitcli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,21 @@ import (
 
 	artifactpkg "github.com/isty2e/daem/internal/supply/artifact"
 )
+
+func TestListSourceRootRejectsNilAndCanceledContexts(t *testing.T) {
+	sourceSpec := mustGitSource(t, "https://example.test/repository.git", "skills", "main")
+
+	if _, err := (Resolver{}).ListSourceRoot(nil, sourceSpec, noOperationOptions); err == nil ||
+		!strings.Contains(err.Error(), "context is required") {
+		t.Fatalf("nil context error = %v, want explicit rejection", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (Resolver{}).ListSourceRoot(ctx, sourceSpec, noOperationOptions); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled context error = %v, want context.Canceled", err)
+	}
+}
 
 func TestResolveGitPathWithSpaces(t *testing.T) {
 	requireGit(t)
@@ -22,7 +38,7 @@ func TestResolveGitPathWithSpaces(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/my skill", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/my skill", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -42,7 +58,7 @@ func TestResolveReportsMissingGitRef(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "missing-ref"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "missing-ref"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -64,7 +80,7 @@ func TestResolveLeadingDashGitPath(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "-skill", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "-skill", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -89,7 +105,7 @@ func TestResolveHonorsCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"))
+	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -112,7 +128,7 @@ func TestResolveRepositoryPathWithSpaces(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -140,7 +156,7 @@ func TestResolveLinkFailureCleansTemporaryArtifact(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "links/target", "main"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "links/target", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -167,7 +183,7 @@ func TestResolveMissingPathDoesNotPublishArtifact(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/missing", "main"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/missing", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -194,7 +210,7 @@ func TestResolveAllowsRootGitPath(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, ".", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, ".", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -221,7 +237,7 @@ func TestListSourceRootListsGitDirectoriesWithoutArtifactExport(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	rootListing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, ".", "main"))
+	rootListing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, ".", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("ListSourceRoot root returned error: %v", err)
 	}
@@ -235,7 +251,7 @@ func TestListSourceRootListsGitDirectoriesWithoutArtifactExport(t *testing.T) {
 		t.Fatalf("root ResolvedRef = %q, want %q", rootListing.ResolvedRef(), commit)
 	}
 
-	skillsListing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, "skills", "main"))
+	skillsListing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, "skills", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("ListSourceRoot skills returned error: %v", err)
 	}

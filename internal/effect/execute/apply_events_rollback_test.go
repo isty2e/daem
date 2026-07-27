@@ -193,16 +193,16 @@ func TestApplyWithOptionsRollbackRestoresExecutableHookAssetMode(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
 		t.Fatalf("error = %v, want guarded rollback", err)
 	}
-	content, readErr := os.ReadFile(fixture.hostPath(string(first.Destination)))
+	content, readErr := os.ReadFile(fixture.hostPath(first.Destination.String()))
 	if !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("rolled-back new destination content = %q, error = %v, want absent", content, readErr)
 	}
 	oldDestination := first.PreviousState.Destination
-	content, readErr = os.ReadFile(fixture.hostPath(string(oldDestination)))
+	content, readErr = os.ReadFile(fixture.hostPath(oldDestination.String()))
 	if readErr != nil || string(content) != "old\n" {
 		t.Fatalf("restored old content = %q, error = %v, want old content", content, readErr)
 	}
-	info, statErr := os.Stat(fixture.hostPath(string(oldDestination)))
+	info, statErr := os.Stat(fixture.hostPath(oldDestination.String()))
 	if statErr != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("restored mode = %v, error = %v, want 0700", info, statErr)
 	}
@@ -214,7 +214,7 @@ func TestApplyWithOptionsRollbackRestoresNonExecutablePermissionMode(t *testing.
 	first := fixture.updateAction("first", "FIRST.md", "old\n", "new\n")
 	first.LiveFileMode = 0o640
 	first.DesiredFileMode = 0o600
-	if err := os.Chmod(fixture.hostPath(string(first.PreviousState.Destination)), 0o640); err != nil {
+	if err := os.Chmod(fixture.hostPath(first.PreviousState.Destination.String()), 0o640); err != nil {
 		t.Fatalf("chmod before path: %v", err)
 	}
 	second := fixture.createAction("second", "SECOND.md", "second\n")
@@ -224,8 +224,8 @@ func TestApplyWithOptionsRollbackRestoresNonExecutablePermissionMode(t *testing.
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
 		t.Fatalf("error = %v, want guarded rollback", err)
 	}
-	assertHostMissing(t, fixture.hostPath(string(first.Destination)))
-	info, statErr := os.Stat(fixture.hostPath(string(first.PreviousState.Destination)))
+	assertHostMissing(t, fixture.hostPath(first.Destination.String()))
+	info, statErr := os.Stat(fixture.hostPath(first.PreviousState.Destination.String()))
 	if statErr != nil || info.Mode().Perm() != 0o640 {
 		t.Fatalf("restored mode = %v, error = %v, want 0640", info, statErr)
 	}
@@ -249,16 +249,16 @@ func TestApplyWithOptionsCancellationAfterSuccessfulEffectUsesGuardedRollback(t 
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "host changes rolled back") {
 		t.Fatalf("error = %v, want canceled apply with guarded rollback", err)
 	}
-	content, readErr := os.ReadFile(fixture.hostPath(string(action.Destination)))
+	content, readErr := os.ReadFile(fixture.hostPath(action.Destination.String()))
 	if !errors.Is(readErr, os.ErrNotExist) {
 		t.Fatalf("rolled-back new destination content = %q, error = %v, want absent", content, readErr)
 	}
 	oldDestination := action.PreviousState.Destination
-	content, readErr = os.ReadFile(fixture.hostPath(string(oldDestination)))
+	content, readErr = os.ReadFile(fixture.hostPath(oldDestination.String()))
 	if readErr != nil || string(content) != "old\n" {
 		t.Fatalf("restored old content = %q, error = %v, want old content", content, readErr)
 	}
-	info, statErr := os.Stat(fixture.hostPath(string(oldDestination)))
+	info, statErr := os.Stat(fixture.hostPath(oldDestination.String()))
 	if statErr != nil || info.Mode().Perm() != 0o700 {
 		t.Fatalf("restored mode = %v, error = %v, want 0700", info, statErr)
 	}

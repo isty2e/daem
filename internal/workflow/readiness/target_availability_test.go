@@ -1,4 +1,4 @@
-package targetavailability
+package readiness
 
 import (
 	"path/filepath"
@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -104,7 +105,7 @@ func TestFromManifestLockAndStateIncludesRetainedCarrierFactTarget(t *testing.T)
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
@@ -127,6 +128,101 @@ func TestFromManifestLockAndStateIncludesRetainedCarrierFactTarget(t *testing.T)
 	}
 	if !reflect.DeepEqual(got, []target.Target{target.TargetClaudeCode}) {
 		t.Fatalf("targets = %#v, want Claude Code from retained carrier authority", got)
+	}
+}
+
+func TestFromManifestLockAndStateIncludesManagedCarrierClaimTarget(t *testing.T) {
+	claim := testManagedCarrierClaim(
+		t,
+		testLockedClaudePluginCarrierSubject(t, "context7@market"),
+	)
+	state, err := durable.NewSnapshot(durable.SnapshotInput{
+		ManagedCarrierClaims: []durablecarrier.ManagedCarrierClaim{claim},
+	})
+	if err != nil {
+		t.Fatalf("NewSnapshot returned error: %v", err)
+	}
+
+	got, err := FromManifestLockAndState(
+		emptyEnvironment(t),
+		lock.File{},
+		state,
+		durablecarrier.EmptyGlobalCarrierClaims(),
+	)
+	if err != nil {
+		t.Fatalf("FromManifestLockAndState returned error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []target.Target{target.TargetClaudeCode}) {
+		t.Fatalf("targets = %#v, want Claude Code from managed carrier claim", got)
+	}
+}
+
+func TestFromManifestLockAndStateIncludesGlobalCarrierClaimTarget(t *testing.T) {
+	claim := testManagedCarrierClaim(
+		t,
+		testLockedCodexPluginCarrierSubject(
+			t,
+			"documents-managed",
+			"documents@openai-primary-runtime",
+		),
+	)
+	claims, err := durablecarrier.NewGlobalCarrierClaims(
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	)
+	if err != nil {
+		t.Fatalf("NewGlobalCarrierClaims returned error: %v", err)
+	}
+
+	got, err := FromManifestLockAndState(
+		emptyEnvironment(t),
+		lock.File{},
+		durable.EmptySnapshot(),
+		claims,
+	)
+	if err != nil {
+		t.Fatalf("FromManifestLockAndState returned error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []target.Target{target.TargetCodex}) {
+		t.Fatalf("targets = %#v, want Codex from global carrier claim", got)
+	}
+}
+
+func TestFromManifestLockAndStateDeduplicatesOneTargetAcrossAllSources(t *testing.T) {
+	contract := testLockedCodexPluginCarrierSubject(
+		t,
+		"documents-managed",
+		"documents@openai-primary-runtime",
+	)
+	claim := testManagedCarrierClaim(t, contract)
+	claims, err := durablecarrier.NewGlobalCarrierClaims(
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	)
+	if err != nil {
+		t.Fatalf("NewGlobalCarrierClaims returned error: %v", err)
+	}
+	state := managedPathSnapshot(
+		t,
+		entity.KindInstructions,
+		"project-guidance",
+		"instructions.project.agents",
+		[]target.Target{target.TargetCodex},
+		target.ScopeProject,
+		mustAvailabilityDestination(t, "AGENTS.md"),
+		realization.PathProjectionFile,
+		realization.PathPermissionsExecutableClass,
+	)
+
+	got, err := FromManifestLockAndState(
+		mcpEnvironment(t, "context7", target.TargetCodex, target.ScopeGlobal),
+		snapshottest.File(t, contract),
+		state,
+		claims,
+	)
+	if err != nil {
+		t.Fatalf("FromManifestLockAndState returned error: %v", err)
+	}
+	if !reflect.DeepEqual(got, []target.Target{target.TargetCodex}) {
+		t.Fatalf("targets = %#v, want one deduplicated Codex target", got)
 	}
 }
 
@@ -171,7 +267,7 @@ func TestFromManifestLockAndStateIncludesManagedOrdinaryStateOnlyTarget(t *testi
 		"instructions.project.agents",
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		mustAvailabilityDestination(t, "AGENTS.md"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
 	)
@@ -192,7 +288,7 @@ func TestFromManifestLockAndStateIncludesAllSharedStateConsumersInStableOrder(t 
 		"instructions.project.agents",
 		[]target.Target{target.TargetOpenCode, target.TargetPi},
 		target.ScopeProject,
-		"AGENTS.md",
+		mustAvailabilityDestination(t, "AGENTS.md"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
 	)
@@ -203,7 +299,7 @@ func TestFromManifestLockAndStateIncludesAllSharedStateConsumersInStableOrder(t 
 		"skill.project.opencode",
 		[]target.Target{target.TargetOpenCode},
 		target.ScopeProject,
-		".opencode/skills/duplicate-opencode",
+		mustAvailabilityDestination(t, ".opencode/skills/duplicate-opencode"),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
 	)
@@ -238,7 +334,7 @@ func TestManagedPathStateRejectsInvalidConsumerTargetsBeforeAvailability(t *test
 			subject,
 			consumers,
 			target.ScopeProject,
-			"AGENTS.md",
+			mustAvailabilityDestination(t, "AGENTS.md"),
 			"sha256:invalid",
 			realization.PathProjectionFile,
 			realization.PathPermissionsExecutableClass,
@@ -290,6 +386,15 @@ func managedPathSnapshot(
 	return snapshot
 }
 
+func mustAvailabilityDestination(t testing.TB, value string) output.Destination {
+	t.Helper()
+	destination, err := output.Parse(value)
+	if err != nil {
+		t.Fatalf("output.Parse(%q) returned error: %v", value, err)
+	}
+	return destination
+}
+
 func managedPathState(
 	t *testing.T,
 	kind entity.Kind,
@@ -329,6 +434,39 @@ func projectionSubject(t *testing.T, kind entity.Kind, name string, namespace st
 		t.Fatalf("projection.Subject returned error: %v", err)
 	}
 	return subject
+}
+
+func testManagedCarrierClaim(
+	t *testing.T,
+	contract lock.LockedSubjectContract,
+) durablecarrier.ManagedCarrierClaim {
+	t.Helper()
+	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(contract)
+	if err != nil || !admitted {
+		t.Fatalf("ManagedCarrierIdentityFromLockedRecord = (%#v, %t, %v)", identity, admitted, err)
+	}
+	request, err := lock.DelegatedOperationRequest(contract, lock.OperationInstall)
+	if err != nil {
+		t.Fatalf("DelegatedOperationRequest returned error: %v", err)
+	}
+	root := t.TempDir()
+	owner, err := stateauthority.New(
+		filepath.Join(root, ".daem", "state.json"),
+		filepath.Join(root, "daem.toml"),
+	)
+	if err != nil {
+		t.Fatalf("stateauthority.New returned error: %v", err)
+	}
+	claim, err := durablecarrier.NewManagedCarrierClaim(
+		owner,
+		identity,
+		request,
+		durablecarrier.ClaimProvenanceInstalledObserved,
+	)
+	if err != nil {
+		t.Fatalf("NewManagedCarrierClaim returned error: %v", err)
+	}
+	return claim
 }
 
 func testLockedClaudePluginCarrierSubject(t *testing.T, pluginKey string) lock.LockedSubjectContract {
@@ -381,16 +519,15 @@ func testLockedMCPSubject(t *testing.T, serverID string) lock.LockedSubjectContr
 	if err != nil {
 		t.Fatalf("CanonicalMCPBindingContribution returned error: %v", err)
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	record, err := lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
-		Graph:                graph,
-		EntityID:             server.ID(),
-		PlacementID:          placement.ID(),
-		ServerID:             serverID,
-		RequestedOnAbsent:    desiredmcp.OnAbsentRemoveBinding,
-		LauncherCommand:      "node",
-		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: &delegateIdentity,
+		Graph:               graph,
+		EntityID:            server.ID(),
+		PlacementID:         placement.ID(),
+		ServerID:            serverID,
+		RequestedOnAbsent:   desiredmcp.OnAbsentRemoveBinding,
+		LauncherCommand:     "node",
+		CanonicalProjection: string(canonical),
+		DelegatePlan:        &delegatePlan,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPProjectionSubjectContract returned error: %v", err)

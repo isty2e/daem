@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -37,7 +38,7 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 			Subject:          persistedSubject(state.Subject()),
 			ConsumerTargets:  consumerTargets,
 			Scope:            string(state.Scope()),
-			Destination:      string(state.Destination()),
+			Destination:      state.Destination().String(),
 			ContentHash:      string(state.ContentHash()),
 			ContentKind:      string(state.ContentKind()),
 			PermissionPolicy: string(state.PermissionPolicy()),
@@ -53,7 +54,7 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 				PlacementID:           contribution.PlacementID(),
 				Target:                string(contribution.Target()),
 				Scope:                 string(contribution.Scope()),
-				AggregateRoot:         contribution.AggregateRoot(),
+				AggregateRoot:         contribution.AggregateRoot().String(),
 				ContentPath:           contribution.ContentPath(),
 				MergeUnit:             string(contribution.MergeUnit()),
 				Cardinality:           string(contribution.Cardinality()),
@@ -193,7 +194,7 @@ func persistedManagedCarrierClaim(claim durablecarrier.ManagedCarrierClaim) mana
 	}
 }
 
-func persistedStateAuthority(authority durablecarrier.StateAuthority) stateAuthorityDTO {
+func persistedStateAuthority(authority stateauthority.Authority) stateAuthorityDTO {
 	return stateAuthorityDTO{
 		StatefileKey: authority.StatefileKey(),
 		ManifestPath: authority.ManifestPath(),

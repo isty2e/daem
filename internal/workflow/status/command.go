@@ -25,7 +25,6 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -45,7 +44,7 @@ type CommandResult struct {
 	LockfileMissing   bool
 	Reconciliation    reconcile.Result
 	Diagnostics       []findings.Diagnostic
-	LockOnly          []targetavailability.UnsupportedProjection
+	LockOnly          []readiness.UnsupportedProjection
 	Inventory         Inventory
 	MCPProjections    []mcpobserve.LockedProjectionObservation
 	HostRouteAttempts []durableattempt.HostRouteAttempt
@@ -95,7 +94,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 	}
 	result.Reconciliation = assessment.Reconciliation
 	result.Diagnostics = loaded.Diagnostics
-	result.LockOnly = targetavailability.SelectedUnsupportedProjections(
+	result.LockOnly = readiness.SelectedUnsupportedProjections(
 		loaded.RuntimeEnvironment,
 		loaded.Selection,
 	)
@@ -161,7 +160,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	}
 	persistenceEpoch := readiness.NewPersistenceEpoch(currentState, globalCarrierClaims)
 
-	availableTargets, err := targetavailability.FromManifestLockAndState(
+	availableTargets, err := readiness.FromManifestLockAndState(
 		environment,
 		locked,
 		currentState,

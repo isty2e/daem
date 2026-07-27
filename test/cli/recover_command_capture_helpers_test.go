@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -47,7 +48,7 @@ func captureCLIRecoveryUpdateJournal(t *testing.T, manifestPath string) (daempat
 		previous.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		artifact.ContentHash(newHash),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
@@ -83,7 +84,7 @@ func captureCLIRecoveryCreateJournal(t *testing.T, manifestPath string) (daempat
 		desired.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		artifact.ContentHash(newHash),
 		realization.PathProjectionFile,
 		0o600,
@@ -143,7 +144,7 @@ func managedInstructionEvidence(
 	t.Helper()
 	evidence, err := observe.NewManagedPathEvidence(
 		subject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		exists,
 		artifact.ContentHash(contentHash),
 		mode,
@@ -208,7 +209,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -221,7 +222,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.ContentHash(newHash),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionDirectory,
@@ -233,7 +234,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 	}
 	evidence, err := observe.NewManagedPathEvidence(
 		subject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		true,
 		artifact.ContentHash(oldHash),
 		0,

@@ -37,7 +37,7 @@ func TestSkillProjectionLoweringPreservesDistinctPlacementsAndMode(t *testing.T)
 		spec, _ := contract.Realization()
 		projection, _ := spec.ManagedPathProjection()
 		if contract.SubjectID().Namespace() != want[index].namespace ||
-			projection.Destination() != want[index].destination ||
+			projection.Destination().String() != want[index].destination ||
 			projection.PlacementMode() != realization.PathProjectionHardlink ||
 			!reflect.DeepEqual(projection.ConsumerTargets(), []target.Target{want[index].consumer}) {
 			t.Fatalf("contract[%d] = subject %q projection %#v", index, contract.SubjectID(), projection)
@@ -93,7 +93,7 @@ func TestSkillProjectionIdentitySurvivesConsumerAndInstallNameChanges(t *testing
 	}
 	renamedRealization, _ := renamedContracts[0].Realization()
 	renamedProjection, _ := renamedRealization.ManagedPathProjection()
-	if renamedProjection.Destination() != ".agents/skills/review" {
+	if renamedProjection.Destination().String() != ".agents/skills/review" {
 		t.Fatalf("renamed destination = %q", renamedProjection.Destination())
 	}
 }

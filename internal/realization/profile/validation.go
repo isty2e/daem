@@ -56,7 +56,7 @@ func validateProfileFacetCatalogs(
 		}
 		placementIDs[placement.ID()] = placement
 		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := placementKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root()}
+			key := placementKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
 			if previousID, exists := placementsByTarget[key]; exists {
 				return fmt.Errorf(
 					"target %q %s %s path %q is claimed by placements %q and %q",
@@ -144,7 +144,7 @@ func validateProfileFacetCatalogs(
 			}
 		}
 		for _, selectedTarget := range placement.ConsumerTargets() {
-			key := locationKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root()}
+			key := locationKey{selectedTarget, placement.ResourceKind(), placement.Scope(), placement.Root().String()}
 			if _, exists := discoveryKeys[key]; !exists {
 				return fmt.Errorf("placement %q has no corresponding discovery location for target %q", placement.ID(), selectedTarget)
 			}
@@ -190,6 +190,27 @@ func (profile TargetProfile) validate() error {
 	for _, location := range profile.runtime {
 		if location.Target() != profile.selectedTarget || !profile.Supports(location.ResourceKind()) {
 			return fmt.Errorf("runtime location %q is not admitted by profile %q", location.Path(), profile.selectedTarget)
+		}
+	}
+	for _, capability := range profile.mcpRuntimeProbes {
+		if err := capability.Validate(); err != nil {
+			return err
+		}
+		placement := capability.Placement()
+		if placement.Target() != profile.selectedTarget {
+			return fmt.Errorf(
+				"MCP runtime-probe capability %q belongs to target %q, not profile %q",
+				placement.ID(),
+				placement.Target(),
+				profile.selectedTarget,
+			)
+		}
+		if _, ok := profile.MCPPlacement(placement.ID()); !ok {
+			return fmt.Errorf(
+				"MCP runtime-probe capability %q has no placement in profile %q",
+				placement.ID(),
+				profile.selectedTarget,
+			)
 		}
 	}
 	return nil

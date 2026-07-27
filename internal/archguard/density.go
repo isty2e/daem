@@ -49,9 +49,9 @@ func (admission densityReviewAdmission) validate(metric string) error {
 
 var packageDensityAdmissions = map[string]densityReviewAdmission{
 	"internal/archguard": {
-		reviewedValue:       17,
+		reviewedValue:       19,
 		owner:               "repository topology analysis and report projection",
-		reason:              "at 17 production files, all guard families share one package-record model, finding identity, and deterministic report contract",
+		reason:              "at 19 production files, Pi validation, the finite placement catalog, and import policy have distinct change reasons while all guard families share one package-record model, finding identity, and deterministic report contract",
 		naturalSplit:        "move each guard family into a child analyzer package",
 		alternativeRejected: "the children would export test-only machinery and duplicate the shared finding and report boundary",
 	},
@@ -77,9 +77,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "the split would duplicate schema and transaction authority; wire-neutral recovery algebra is already isolated",
 	},
 	"internal/realization/lock": {
-		reviewedValue:       22,
+		reviewedValue:       21,
 		owner:               "canonical Realization aggregate",
-		reason:              "at 22 production files, identity, admission, ordering, snapshot comparison, operation, and replay invariants form one closed aggregate",
+		reason:              "at 21 production files, identity, admission, ordering, snapshot comparison, operation, and replay invariants form one closed aggregate after delegate-plan identity moved to its canonical owner",
 		naturalSplit:        "move realization variants into child packages",
 		alternativeRejected: "variant packages would require reverse imports or export aggregate-private construction rules",
 	},
@@ -98,9 +98,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "phase packages would export transaction internals and make rollback ordering cross-package state",
 	},
 	"internal/realization/aggregate/codec/mcp": {
-		reviewedValue:       15,
+		reviewedValue:       16,
 		owner:               "MCP aggregate external protocol",
-		reason:              "at 15 production files, canonical entry, mutation fold, restore, compare, and preservation rules share one protocol boundary",
+		reason:              "at 16 production files, canonical entry, mutation fold, restore, compare, preservation, and launch-vector decoding share one syntax boundary while probe admission remains profile-owned",
 		naturalSplit:        "create one aggregate codec package per host",
 		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
 	},

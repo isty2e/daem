@@ -60,12 +60,7 @@ func NewResolver(cacheRoot string) (Resolver, error) {
 }
 
 // Resolve resolves a Git source to an exported artifact path and immutable commit.
-func (resolver Resolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
-	return resolver.ResolveWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ResolveWithOptions resolves a Git source with source-owned operation options.
-func (resolver Resolver) ResolveWithOptions(
+func (resolver Resolver) Resolve(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,

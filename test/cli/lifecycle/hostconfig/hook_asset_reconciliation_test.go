@@ -358,7 +358,7 @@ func assertHookAssetStateExactMode(
 	t.Helper()
 
 	for _, managedPath := range state.ManagedPaths() {
-		if string(managedPath.Destination()) != path {
+		if managedPath.Destination().String() != path {
 			continue
 		}
 		if managedPath.PermissionPolicy() != realization.PathPermissionsExact || managedPath.FileMode() != want {

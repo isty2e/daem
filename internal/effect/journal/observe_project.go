@@ -29,7 +29,12 @@ func observeProjectRecoveryPath(
 		base.Error = "project root authority is required"
 		return base
 	}
-	capability, err := projectAuthority.acquire(output.Destination(journalPath))
+	destination, err := output.Parse(journalPath)
+	if err != nil {
+		base.Error = fmt.Sprintf("parse project destination: %v", err)
+		return base
+	}
+	capability, err := projectAuthority.acquire(destination)
 	if err != nil {
 		base.Error = fmt.Sprintf("acquire project destination: %v", err)
 		return base
@@ -64,8 +69,13 @@ func observeGlobalRecoveryPath(
 	codecs aggregate.CodecCatalog,
 ) recoveryPathObservation {
 	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
+	destination, err := output.Parse(journalPath)
+	if err != nil {
+		base.Error = fmt.Sprintf("parse global destination: %v", err)
+		return base
+	}
 	capability, present, err := acquireMatchingRootedCapability(
-		output.Destination(journalPath),
+		destination,
 		resolvedPath,
 		resolver,
 	)
@@ -185,9 +195,14 @@ func observeRootedRecoveryContentPath(
 		PathExisted: true,
 		PathMode:    recovery.NewPermissionMode(mode),
 	}
+	destination, err := output.Parse(journalPath)
+	if err != nil {
+		base.Error = err.Error()
+		return base
+	}
 	projection, present, err := extractRecoveryObservationProjection(
 		content,
-		output.Destination(journalPath),
+		destination,
 		output.ContentPath(contentPath),
 		aggregateContract,
 		codecs,

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestMarshalAndLoadManagedPathProjection(t *testing.T) {
@@ -94,7 +95,7 @@ func TestManagedPathRealizationCodecRoundTripsPortableDataRootAndExactMode(t *te
 			}
 			projection, ok := roundTripped.ManagedPathProjection()
 			exactMode, exact := projection.ExactPermissionMode()
-			if !ok || projection.Destination() != "@data/hook-assets/guard/sha256-deadbeef/asset" ||
+			if !ok || projection.Destination().String() != "@data/hook-assets/guard/sha256-deadbeef/asset" ||
 				!exact || exactMode.FileMode() != fileMode {
 				t.Fatalf("round-tripped projection = %#v, %t", projection, ok)
 			}
@@ -193,7 +194,7 @@ func exactManagedPathRealization(t *testing.T, fileMode os.FileMode) realization
 		PlacementID:            "hookasset.global.store",
 		ConsumerTargets:        []target.Target{target.TargetCodex, target.TargetClaudeCode},
 		Scope:                  target.ScopeGlobal,
-		Destination:            "@data/hook-assets/guard/sha256-deadbeef/asset",
+		Destination:            outputtest.Parse(t, "@data/hook-assets/guard/sha256-deadbeef/asset"),
 		ContentKind:            realization.PathProjectionFile,
 		PlacementMode:          realization.PathProjectionCopy,
 		PermissionPolicy:       realization.PathPermissionsExact,

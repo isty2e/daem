@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -9,29 +10,10 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 )
 
-type Hook struct {
-	Name            string               `toml:"name"`
-	Event           string               `toml:"event"`
-	Matcher         string               `toml:"matcher"`
-	Type            string               `toml:"type"`
-	Command         string               `toml:"command"`
-	TimeoutSeconds  int                  `toml:"timeout"`
-	StatusMessage   string               `toml:"status_message"`
-	Targets         []string             `toml:"targets"`
-	Scope           string               `toml:"scope"`
-	TargetOverrides []HookTargetOverride `toml:"target_override"`
-}
-
-type HookTargetOverride struct {
-	Target    string `toml:"target"`
-	Condition string `toml:"if"`
-	Matcher   string `toml:"matcher"`
-}
-
 type HookBlock struct {
 	Start int
 	End   int
-	Hook  Hook
+	Hook  declaration.Hook
 }
 
 func ScanHookBlocks(content []byte) ([]HookBlock, error) {
@@ -57,7 +39,7 @@ func startsNewHookTable(trimmedLine string) bool {
 
 func parseHookBlock(content []byte, start int, end int) (HookBlock, error) {
 	var decoded struct {
-		Hooks []Hook `toml:"hook"`
+		Hooks []declaration.Hook `toml:"hook"`
 	}
 	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
 		return HookBlock{}, fmt.Errorf("parse existing hook block: %w", err)
@@ -74,7 +56,7 @@ func parseHookBlock(content []byte, start int, end int) (HookBlock, error) {
 
 // sameHookIdentity reports whether two hook declarations may share one block while
 // differing only in their explicit target sets and target overrides.
-func sameHookIdentity(left Hook, right Hook) bool {
+func sameHookIdentity(left declaration.Hook, right declaration.Hook) bool {
 	return strings.TrimSpace(left.Event) == strings.TrimSpace(right.Event) &&
 		strings.TrimSpace(left.Matcher) == strings.TrimSpace(right.Matcher) &&
 		effectiveHookType(left.Type) == effectiveHookType(right.Type) &&
@@ -85,8 +67,8 @@ func sameHookIdentity(left Hook, right Hook) bool {
 }
 
 // HookOverridesByTarget indexes declaration-local target overrides.
-func HookOverridesByTarget(overrides []HookTargetOverride) map[string]HookTargetOverride {
-	result := make(map[string]HookTargetOverride, len(overrides))
+func HookOverridesByTarget(overrides []declaration.HookTargetOverride) map[string]declaration.HookTargetOverride {
+	result := make(map[string]declaration.HookTargetOverride, len(overrides))
 	for _, override := range overrides {
 		result[override.Target] = override
 	}
@@ -95,12 +77,12 @@ func HookOverridesByTarget(overrides []HookTargetOverride) map[string]HookTarget
 
 // FilterHookOverrides retains target overrides associated with the selected
 // declaration targets, preserving declaration order.
-func FilterHookOverrides(overrides []HookTargetOverride, targets []string) []HookTargetOverride {
+func FilterHookOverrides(overrides []declaration.HookTargetOverride, targets []string) []declaration.HookTargetOverride {
 	targetSet := make(map[string]struct{}, len(targets))
 	for _, selectedTarget := range targets {
 		targetSet[selectedTarget] = struct{}{}
 	}
-	result := make([]HookTargetOverride, 0, len(overrides))
+	result := make([]declaration.HookTargetOverride, 0, len(overrides))
 	for _, override := range overrides {
 		if _, ok := targetSet[override.Target]; ok {
 			result = append(result, override)
@@ -115,35 +97,35 @@ func FilterHookOverrides(overrides []HookTargetOverride, targets []string) []Hoo
 func ApplyHookAdd(
 	original []byte,
 	header declaration.ManifestHeader,
-	hook Hook,
-	mergeTargets func(existing Hook, incoming Hook, mergedTargets []string, header declaration.ManifestHeader) (Hook, error),
+	hook declaration.Hook,
+	mergeTargets func(existing declaration.Hook, incoming declaration.Hook, mergedTargets []string, header declaration.ManifestHeader) (declaration.Hook, error),
 ) (declaration.EditResult, error) {
 	if mergeTargets == nil {
 		return declaration.EditResult{}, fmt.Errorf("hook target merge policy is required")
 	}
-	return declaration.ApplyAddDeclaration(declaration.AddEditInput[Hook]{
+	return declaration.ApplyAddDeclaration(declaration.AddEditInput[declaration.Hook]{
 		Original:    original,
 		Header:      header,
 		Declaration: hook,
-		Codec: declaration.AddEditContract[Hook]{
+		Codec: declaration.AddEditContract[declaration.Hook]{
 			Kind: declaration.KindHook,
 			Scan: scanHookEditBlocks,
-			Key: func(value Hook) (declaration.Key, error) {
+			Key: func(value declaration.Hook) (declaration.Key, error) {
 				return declaration.Key{Kind: declaration.KindHook, Name: value.Name}, nil
 			},
-			ExplicitTargets: func(value Hook) declaration.Targets {
+			ExplicitTargets: func(value declaration.Hook) declaration.Targets {
 				return declaration.Targets(value.Targets)
 			},
-			SameIdentity: func(existing Hook, incoming Hook, _ declaration.ManifestHeader) bool {
+			SameIdentity: func(existing declaration.Hook, incoming declaration.Hook, _ declaration.ManifestHeader) bool {
 				return sameHookIdentity(existing, incoming)
 			},
 			RenderBlock: RenderHookBlock,
-			RenderBlockWithTargets: func(_ string, existing Hook, incoming Hook, mergedTargetsValue declaration.Targets, header declaration.ManifestHeader) (string, error) {
+			RenderBlockWithTargets: func(originalBlock string, existing declaration.Hook, incoming declaration.Hook, mergedTargetsValue declaration.Targets, header declaration.ManifestHeader) (string, error) {
 				merged, err := mergeTargets(existing, incoming, mergedTargetsValue.Values(), header)
 				if err != nil {
 					return "", err
 				}
-				return RenderHookBlock(merged), nil
+				return UpdateHookTargets(originalBlock, existing, merged)
 			},
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate hook name %q", key.Name)
@@ -161,14 +143,14 @@ func ApplyHookAdd(
 	})
 }
 
-func scanHookEditBlocks(content []byte) ([]declaration.EditBlock[Hook], error) {
+func scanHookEditBlocks(content []byte) ([]declaration.EditBlock[declaration.Hook], error) {
 	blocks, err := ScanHookBlocks(content)
 	if err != nil {
 		return nil, err
 	}
-	declarations := make([]declaration.EditBlock[Hook], 0, len(blocks))
+	declarations := make([]declaration.EditBlock[declaration.Hook], 0, len(blocks))
 	for _, block := range blocks {
-		declarations = append(declarations, declaration.EditBlock[Hook]{
+		declarations = append(declarations, declaration.EditBlock[declaration.Hook]{
 			Range: declaration.DocumentRange{Start: block.Start, End: block.End},
 			Value: block.Hook,
 		})
@@ -184,15 +166,95 @@ func effectiveHookType(value string) string {
 	return hookType
 }
 
-func ReplaceHookBlock(original []byte, block HookBlock, hook Hook) []byte {
-	return declaration.ReplaceDocumentRange(
-		original,
-		declaration.DocumentRange{Start: block.Start, End: block.End},
-		[]byte(RenderHookBlock(hook)),
+// UpdateHookTargets changes only the explicit targets assignment and target
+// override tables whose target membership changed.
+func UpdateHookTargets(block string, existing declaration.Hook, updated declaration.Hook) (string, error) {
+	ranges := hookTargetOverrideRanges(block)
+	if len(ranges) != len(existing.TargetOverrides) {
+		return "", fmt.Errorf(
+			"update hook targets: found %d target_override tables for %d decoded overrides",
+			len(ranges),
+			len(existing.TargetOverrides),
+		)
+	}
+
+	updatedByTarget := HookOverridesByTarget(updated.TargetOverrides)
+	content := []byte(block)
+	for index := len(ranges) - 1; index >= 0; index-- {
+		if _, retained := updatedByTarget[existing.TargetOverrides[index].Target]; retained {
+			continue
+		}
+		content = declaration.RemoveDocumentRange(content, ranges[index])
+	}
+
+	targetsLine, replaced := declaration.ReplaceDocumentAssignmentLine(
+		string(content),
+		"targets",
+		renderStringArray(updated.Targets),
 	)
+	if !replaced {
+		return "", fmt.Errorf("update hook targets: explicit targets assignment is missing")
+	}
+
+	existingByTarget := HookOverridesByTarget(existing.TargetOverrides)
+	added := make([]declaration.HookTargetOverride, 0)
+	for _, override := range updated.TargetOverrides {
+		if _, exists := existingByTarget[override.Target]; !exists {
+			added = append(added, override)
+		}
+	}
+	return appendHookTargetOverrides(targetsLine, added, strings.HasSuffix(block, "\n")), nil
 }
 
-func RenderHookBlock(hook Hook) string {
+func hookTargetOverrideRanges(block string) []declaration.DocumentRange {
+	lines := bytes.SplitAfter([]byte(block), []byte("\n"))
+	ranges := make([]declaration.DocumentRange, 0)
+	offset := 0
+	activeStart := -1
+	for _, line := range lines {
+		header, isHeader := declaration.ParseTableHeader(strings.TrimSpace(string(line)))
+		if isHeader && activeStart >= 0 {
+			ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: offset})
+			activeStart = -1
+		}
+		if isHeader && header.Array &&
+			len(header.Segments) == 2 &&
+			header.Segments[0] == "hook" &&
+			header.Segments[1] == "target_override" {
+			activeStart = offset
+		}
+		offset += len(line)
+	}
+	if activeStart >= 0 {
+		ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: len(block)})
+	}
+	return ranges
+}
+
+func appendHookTargetOverrides(block string, overrides []declaration.HookTargetOverride, hadTerminalNewline bool) string {
+	if len(overrides) == 0 {
+		if !hadTerminalNewline {
+			return strings.TrimRight(block, "\r\n")
+		}
+		return block
+	}
+
+	lineEnding := "\n"
+	if strings.Contains(block, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	output := strings.TrimRight(block, "\r\n")
+	for _, override := range overrides {
+		output += lineEnding + lineEnding
+		output += renderHookTargetOverride(override, lineEnding)
+	}
+	if hadTerminalNewline {
+		output += lineEnding
+	}
+	return output
+}
+
+func RenderHookBlock(hook declaration.Hook) string {
 	var builder strings.Builder
 	builder.WriteString("[[hook]]\n")
 	builder.WriteString("name = ")
@@ -226,7 +288,7 @@ func RenderHookBlock(hook Hook) string {
 	}
 	if len(hook.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderHookStringArray(hook.Targets))
+		builder.WriteString(renderStringArray(hook.Targets))
 		builder.WriteByte('\n')
 	}
 	if hook.Scope != "" {
@@ -236,28 +298,28 @@ func RenderHookBlock(hook Hook) string {
 	}
 	for _, override := range hook.TargetOverrides {
 		builder.WriteByte('\n')
-		builder.WriteString("[[hook.target_override]]\n")
-		builder.WriteString("target = ")
-		builder.WriteString(strconv.Quote(override.Target))
+		builder.WriteString(renderHookTargetOverride(override, "\n"))
 		builder.WriteByte('\n')
-		if override.Matcher != "" {
-			builder.WriteString("matcher = ")
-			builder.WriteString(strconv.Quote(override.Matcher))
-			builder.WriteByte('\n')
-		}
-		if override.Condition != "" {
-			builder.WriteString("if = ")
-			builder.WriteString(strconv.Quote(override.Condition))
-			builder.WriteByte('\n')
-		}
 	}
 	return builder.String()
 }
 
-func renderHookStringArray(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
+func renderHookTargetOverride(override declaration.HookTargetOverride, lineEnding string) string {
+	var builder strings.Builder
+	builder.WriteString("[[hook.target_override]]")
+	builder.WriteString(lineEnding)
+	builder.WriteString("target = ")
+	builder.WriteString(strconv.Quote(override.Target))
+	builder.WriteString(lineEnding)
+	if override.Matcher != "" {
+		builder.WriteString("matcher = ")
+		builder.WriteString(strconv.Quote(override.Matcher))
+		builder.WriteString(lineEnding)
 	}
-	return "[" + strings.Join(quoted, ", ") + "]"
+	if override.Condition != "" {
+		builder.WriteString("if = ")
+		builder.WriteString(strconv.Quote(override.Condition))
+		builder.WriteString(lineEnding)
+	}
+	return strings.TrimSuffix(builder.String(), lineEnding)
 }

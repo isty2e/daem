@@ -201,12 +201,12 @@ func TestCodecOwnedDeclarationTypesRenderBoundaryFields(t *testing.T) {
 	requireContains(t, string(groupContent), `source = { git = "https://github.com/owner/repo.git", path = "skills", ref = "main" }`)
 	requireContains(t, string(groupContent), `portable = false`)
 
-	hookContent, _, err := ApplyAddHookToManifest(original, declarationcodec.Hook{
+	hookContent, _, err := ApplyAddHookToManifest(original, declaration.Hook{
 		Name:    "lint",
 		Event:   "PreToolUse",
 		Command: "make lint",
 		Targets: []string{"codex"},
-		TargetOverrides: []declarationcodec.HookTargetOverride{{
+		TargetOverrides: []declaration.HookTargetOverride{{
 			Target:  "codex",
 			Matcher: "Write",
 		}},
@@ -233,7 +233,7 @@ func TestInstructionCodecOwnedTypeRendersTargetMap(t *testing.T) {
 		Source:  declarationcodec.InstructionSource{Path: "instructions/project.md", Mode: "vendor"},
 		Targets: []string{"codex"},
 		Scope:   "project",
-		Target: map[string]declarationcodec.InstructionRendering{
+		Target: map[string]declaration.InstructionTarget{
 			"codex": {
 				RenderTo: "AGENTS.md",
 				Mode:     "copy",
@@ -276,7 +276,7 @@ func TestCodecDeclarationValuesOwnRequestCollections(t *testing.T) {
 	}
 
 	hookTargets := []string{"codex"}
-	overrides := []declarationcodec.HookTargetOverride{{Target: "codex", Matcher: "Write"}}
+	overrides := []declaration.HookTargetOverride{{Target: "codex", Matcher: "Write"}}
 	hook, _, err := HookFromAddRequest(AddHookRequest{
 		Name:            "lint",
 		Event:           "PreToolUse",
@@ -339,7 +339,7 @@ command = "python3 hooks/protect.py"
 targets = ["codex"]
 `)
 
-	updated, changeKind, err := ApplyAddHookToManifest(original, declarationcodec.Hook{
+	updated, changeKind, err := ApplyAddHookToManifest(original, declaration.Hook{
 		Name:    "protect-env",
 		Event:   "PreToolUse",
 		Matcher: "Bash",
@@ -360,7 +360,7 @@ targets = ["codex"]
 		Event:   "PostToolUse",
 		Command: "python3 hooks/protect.py",
 		Targets: []string{"codex"},
-		TargetOverrides: []declarationcodec.HookTargetOverride{{
+		TargetOverrides: []declaration.HookTargetOverride{{
 			Target:    "codex",
 			Condition: "tool_name == 'Write'",
 		}},

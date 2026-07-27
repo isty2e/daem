@@ -13,19 +13,20 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/payload"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestApplyRetainsClassifiableJournalForPostVisibilityStatefileFaults(t *testing.T) {
@@ -116,7 +117,7 @@ func TestApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testing.T) {
 
 func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testing.T) {
 	fixture := newApplyEventFixture(t)
-	destination := output.Destination(".agents/skills/oracle")
+	destination := outputtest.Parse(t, ".agents/skills/oracle")
 	projection := testManagedPathEffectState(t, "oracle", destination)
 	source := filepath.Join(t.TempDir(), "oracle")
 	if err := os.Mkdir(source, 0o700); err != nil {
@@ -182,7 +183,7 @@ func TestManagedPathApplyRollsBackOnlyProvenUncommittedStatefileFailure(t *testi
 	if err == nil || !strings.Contains(err.Error(), "host changes rolled back") {
 		t.Fatalf("ApplyWithOptions error = %v, want guarded managed-path rollback", err)
 	}
-	assertHostMissing(t, filepath.Join(fixture.root, filepath.FromSlash(string(destination))))
+	assertHostMissing(t, filepath.Join(fixture.root, filepath.FromSlash(destination.RelativePath())))
 	assertHostMissing(t, fixture.paths.StatefilePath)
 	assertNoActiveRecoveryOperation(t, fixture.paths.RecoveryDir)
 }
@@ -344,7 +345,7 @@ func statefileCommitRelationAction(
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, manifestPath)
+	owner, err := stateauthority.New(statefileKey, manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

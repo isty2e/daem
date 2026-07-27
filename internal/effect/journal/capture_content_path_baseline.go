@@ -257,7 +257,7 @@ func deriveRecoveryContentPathProjections(
 			)
 		}
 		address := contract.Address()
-		if address.Document().AggregateRoot() != string(destination) ||
+		if address.Document().AggregateRoot() != destination ||
 			address.ContentPath() != aggregate.ContentPath(contentPath) {
 			return nil, fmt.Errorf(
 				"recovery aggregate contract address %q%q does not match baseline %q%q",

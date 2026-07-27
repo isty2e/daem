@@ -125,7 +125,7 @@ func (session *projectAuthoritySession) acquire(
 	if session == nil || session.root == nil {
 		return nil, fmt.Errorf("project root authority is unavailable for %q", destination)
 	}
-	relative, err := rootedpath.NewRelativeDestination(string(destination))
+	relative, err := rootedpath.NewRelativeDestination(destination.RelativePath())
 	if err != nil {
 		return nil, err
 	}

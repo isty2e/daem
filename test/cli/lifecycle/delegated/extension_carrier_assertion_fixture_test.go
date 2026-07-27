@@ -74,8 +74,8 @@ func assertCLIClaudeExtensionLockedSubjectWithScope(t *testing.T, lockfilePath s
 		string(relation.ExpectedRelation().SubjectKey()) != "context7@market" {
 		t.Fatalf("relation = %#v, want context7 Claude marketplace relation", relation)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("Claude extension lock unexpectedly carries delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("Claude extension lock unexpectedly carries delegate plan")
 	}
 }
 

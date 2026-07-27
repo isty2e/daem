@@ -5,19 +5,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedContributionOwnsAndCanonicalizesItsContract(t *testing.T) {
-	input := testSharedHookContributionInput(`{"command":"review"}`)
+	input := testSharedHookContributionInput(t, `{"command":"review"}`)
 	input.ComparedFields = []string{"event", "command", "event"}
 	contribution := mustManagedContribution(t, input)
 
 	if contribution.Cardinality() != ContributionSharedSet ||
 		contribution.Address().Document().Target() != target.TargetCodex ||
 		contribution.Address().Document().Scope() != target.ScopeProject ||
-		contribution.Address().Document().AggregateRoot() != "settings.json" ||
+		contribution.Address().Document().AggregateRoot().String() != "settings.json" ||
 		contribution.Address().ContentPath() != ContentPath("/hooks") {
 		t.Fatalf("contribution address/contract = %#v", contribution)
 	}
@@ -44,8 +46,10 @@ func TestManagedContributionRejectsMalformedIndependentAxes(t *testing.T) {
 		{name: "placement whitespace", mutate: func(input *ManagedContributionInput) { input.PlacementID = " codex.project.hooks " }, want: "placement id"},
 		{name: "target", mutate: func(input *ManagedContributionInput) { input.Target = "future" }, want: "target"},
 		{name: "scope", mutate: func(input *ManagedContributionInput) { input.Scope = "workspace" }, want: "scope"},
-		{name: "absolute root", mutate: func(input *ManagedContributionInput) { input.AggregateRoot = "/tmp/settings.json" }, want: "aggregate root"},
-		{name: "home root in project", mutate: func(input *ManagedContributionInput) { input.AggregateRoot = "~/.config/settings.json" }, want: "selected project root"},
+		{name: "zero root", mutate: func(input *ManagedContributionInput) { input.AggregateRoot = output.Destination{} }, want: "aggregate root"},
+		{name: "home root in project", mutate: func(input *ManagedContributionInput) {
+			input.AggregateRoot = outputtest.Parse(t, "~/.config/settings.json")
+		}, want: "selected project root"},
 		{name: "relative content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "hooks" }, want: "absolute"},
 		{name: "traversal content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/../mcp" }, want: "canonical"},
 		{name: "nul content path", mutate: func(input *ManagedContributionInput) { input.ContentPath = "/hooks/\x00entry" }, want: "control"},
@@ -67,7 +71,7 @@ func TestManagedContributionRejectsMalformedIndependentAxes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input := testSharedHookContributionInput(`{"command":"review"}`)
+			input := testSharedHookContributionInput(t, `{"command":"review"}`)
 			test.mutate(&input)
 			_, err := NewManagedContribution(input)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -78,8 +82,8 @@ func TestManagedContributionRejectsMalformedIndependentAxes(t *testing.T) {
 }
 
 func TestContributionSetSeparatesSharedAndExclusiveProjectionCardinality(t *testing.T) {
-	alpha := mustSubjectContribution(t, "alpha", testSharedHookContributionInput(`{"command":"alpha"}`))
-	zeta := mustSubjectContribution(t, "zeta", testSharedHookContributionInput(`{"command":"zeta"}`))
+	alpha := mustSubjectContribution(t, "alpha", testSharedHookContributionInput(t, `{"command":"alpha"}`))
+	zeta := mustSubjectContribution(t, "zeta", testSharedHookContributionInput(t, `{"command":"zeta"}`))
 
 	set, err := NewContributionSet([]SubjectContribution{zeta, alpha})
 	if err != nil {
@@ -97,7 +101,7 @@ func TestContributionSetSeparatesSharedAndExclusiveProjectionCardinality(t *test
 		t.Fatalf("duplicate subject error = %v", err)
 	}
 
-	exclusiveInput := testSharedHookContributionInput(`{"command":"alpha"}`)
+	exclusiveInput := testSharedHookContributionInput(t, `{"command":"alpha"}`)
 	exclusiveInput.Cardinality = ContributionExclusive
 	exclusiveAlpha := mustSubjectContribution(t, "alpha", exclusiveInput)
 	exclusiveZeta := mustSubjectContribution(t, "zeta", exclusiveInput)
@@ -114,7 +118,7 @@ func TestOneSubjectMCPEntryUsesTheGenericExclusiveContributionSet(t *testing.T) 
 		PlacementID:           "claude-code.project.project-config",
 		Target:                target.TargetClaudeCode,
 		Scope:                 target.ScopeProject,
-		AggregateRoot:         ".mcp.json",
+		AggregateRoot:         outputtest.Parse(t, ".mcp.json"),
 		ContentPath:           "/mcpServers/context7",
 		MergeUnit:             "mcp-server-entry",
 		Cardinality:           ContributionExclusive,
@@ -147,7 +151,7 @@ func TestOneSubjectMCPEntryUsesTheGenericExclusiveContributionSet(t *testing.T) 
 }
 
 func TestContributionSetRejectsStaticContractDrift(t *testing.T) {
-	base := testSharedHookContributionInput(`{"command":"alpha"}`)
+	base := testSharedHookContributionInput(t, `{"command":"alpha"}`)
 	alpha := mustSubjectContribution(t, "alpha", base)
 
 	tests := []struct {
@@ -175,12 +179,13 @@ func TestContributionSetRejectsStaticContractDrift(t *testing.T) {
 	}
 }
 
-func testSharedHookContributionInput(canonical string) ManagedContributionInput {
+func testSharedHookContributionInput(t testing.TB, canonical string) ManagedContributionInput {
+	t.Helper()
 	return ManagedContributionInput{
 		PlacementID:           "codex.project.hooks",
 		Target:                target.TargetCodex,
 		Scope:                 target.ScopeProject,
-		AggregateRoot:         "settings.json",
+		AggregateRoot:         outputtest.Parse(t, "settings.json"),
 		ContentPath:           "/hooks",
 		MergeUnit:             "hook-set",
 		Cardinality:           ContributionSharedSet,

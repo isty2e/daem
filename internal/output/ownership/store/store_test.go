@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -300,12 +301,12 @@ func testActiveClaim(t *testing.T, root string, ownerName string, path string, c
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	authority, err := ownership.NewOwnerAuthority(
+	authority, err := stateauthority.New(
 		filepath.Join(root, ownerName, ".daem", "state.json"),
 		filepath.Join(root, ownerName, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	claim, err := ownership.NewActiveClaim(address, authority)
 	if err != nil {

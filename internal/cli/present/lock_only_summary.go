@@ -7,7 +7,6 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 )
 
 type LockOnlyResources struct {
@@ -23,7 +22,10 @@ type LockOnlyResource struct {
 
 // LockOnlyResourcesFrom projects canonical unsupported-target facts into the
 // stable CLI lock_only shape.
-func LockOnlyResourcesFrom(projections []targetavailability.UnsupportedProjection) LockOnlyResources {
+func LockOnlyResourcesFrom[P interface {
+	EntityID() entity.ID
+	Targets() []target.Target
+}](projections []P) LockOnlyResources {
 	resources := LockOnlyResources{
 		Skills: []LockOnlyResource{},
 		Hooks:  []LockOnlyResource{},

@@ -198,7 +198,7 @@ func TestDelegatePlanRejectsInvalidStatesWithReasons(t *testing.T) {
 	})
 }
 
-func TestDelegatePlanIdentityIsStableAndImmutable(t *testing.T) {
+func TestDelegatePlanKeyIsStableAndImmutable(t *testing.T) {
 	args := []string{"-y", "server@1.0.0"}
 	env := []string{"Z_TOKEN", "A_TOKEN", "Z_TOKEN"}
 	pkg := &packageInput{ecosystem: EcosystemNPM, name: "server", selector: "1.0.0"}
@@ -232,6 +232,93 @@ func TestDelegatePlanIdentityIsStableAndImmutable(t *testing.T) {
 	changedArg := mustPlan(t, RunnerNPX, "npx", []string{"server@1.0.0"}, []string{"A_TOKEN", "Z_TOKEN"}, pkg, PinPinned)
 	if plan.IdentityKey() == changedArg.IdentityKey() {
 		t.Fatalf("IdentityKey() did not change after argv identity changed")
+	}
+}
+
+func TestDelegatePlanValidatesComparesAndCorrelatesCanonicalInvocation(t *testing.T) {
+	plan := mustPlan(
+		t,
+		RunnerPlain,
+		"node",
+		[]string{"server.js", "--stdio"},
+		[]string{"TOKEN_B", "TOKEN_A"},
+		nil,
+		PinNotApplicable,
+	)
+	equivalent := mustPlan(
+		t,
+		RunnerPlain,
+		"node",
+		[]string{"server.js", "--stdio"},
+		[]string{"TOKEN_A", "TOKEN_B"},
+		nil,
+		PinNotApplicable,
+	)
+	if err := plan.Validate(); err != nil {
+		t.Fatalf("Validate() returned error: %v", err)
+	}
+	if !plan.Equal(equivalent) || !equivalent.Equal(plan) {
+		t.Fatal("Equal rejected equivalent canonical plans")
+	}
+	if !plan.CorrelatesInvocation(plan.Command(), plan.Env()) {
+		t.Fatal("CorrelatesInvocation rejected exact canonical invocation")
+	}
+
+	changedCommand := mustCommand(t, "node", []string{"--stdio", "server.js"})
+	if plan.CorrelatesInvocation(changedCommand, plan.Env()) {
+		t.Fatal("CorrelatesInvocation accepted reordered argv")
+	}
+	changedEnvBinding, err := NewEnvBinding("TOKEN_A", "OTHER_TOKEN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchangedEnvBinding, err := NewEnvBinding("TOKEN_B", "TOKEN_B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedEnv, err := NewEnvBindingSet([]EnvBinding{changedEnvBinding, unchangedEnvBinding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.CorrelatesInvocation(plan.Command(), changedEnv) {
+		t.Fatal("CorrelatesInvocation accepted changed environment source")
+	}
+}
+
+func TestDelegatePlanRejectsZeroAndForgedNonCanonicalState(t *testing.T) {
+	if err := (DelegatePlan{}).Validate(); err == nil {
+		t.Fatal("zero DelegatePlan unexpectedly validated")
+	}
+	if (DelegatePlan{}).Equal(DelegatePlan{}) {
+		t.Fatal("zero DelegatePlans unexpectedly compared equal")
+	}
+
+	valid := mustPlan(
+		t,
+		RunnerPlain,
+		"node",
+		[]string{"server.js"},
+		[]string{"TOKEN_A", "TOKEN_B"},
+		nil,
+		PinNotApplicable,
+	)
+	forged := valid
+	forged.env.bindings = append([]EnvBinding(nil), valid.env.bindings...)
+	forged.env.bindings[0], forged.env.bindings[1] = forged.env.bindings[1], forged.env.bindings[0]
+	if err := forged.Validate(); err == nil {
+		t.Fatal("forged non-canonical DelegatePlan unexpectedly validated")
+	}
+	if forged.Equal(valid) || valid.Equal(forged) {
+		t.Fatal("forged DelegatePlan unexpectedly compared equal")
+	}
+	if forged.CorrelatesInvocation(valid.Command(), valid.Env()) {
+		t.Fatal("forged DelegatePlan unexpectedly correlated")
+	}
+
+	hiddenPackage := valid
+	hiddenPackage.packageRef = mustPackage(t, EcosystemNPM, "hidden", "1.0.0")
+	if err := hiddenPackage.Validate(); err == nil {
+		t.Fatal("DelegatePlan with hidden package state unexpectedly validated")
 	}
 }
 
@@ -270,7 +357,7 @@ func TestEnvBindingSetPreservesChildSourceIdentityAndRejectsConflicts(t *testing
 	})
 }
 
-func TestDelegatePlanIdentityIncludesChildAndSourceEnvironmentNames(t *testing.T) {
+func TestDelegatePlanKeyIncludesChildAndSourceEnvironmentNames(t *testing.T) {
 	mapping := func(child string, source string) EnvBindingSet {
 		binding, err := NewEnvBinding(child, source)
 		if err != nil {

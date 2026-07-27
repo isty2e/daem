@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
@@ -42,7 +43,7 @@ type ManagedPathInput struct {
 
 // Result contains the selected state authority and global managed-address observations.
 type Result struct {
-	Owner        outputownership.OwnerAuthority
+	Owner        stateauthority.Authority
 	Observations []observe.OwnershipObservation
 }
 
@@ -55,7 +56,7 @@ func Build(input Input) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := outputownership.NewOwnerAuthority(statefileKey, input.Paths.ManifestPath)
+	owner, err := stateauthority.New(statefileKey, input.Paths.ManifestPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("construct state authority: %w", err)
 	}
@@ -81,7 +82,7 @@ func Build(input Input) (Result, error) {
 			byKey,
 			input.Resolver,
 			input.Registry,
-			output.Destination(document.AggregateRoot()),
+			document.AggregateRoot(),
 			output.ContentPath(address.ContentPath()),
 		); err != nil {
 			return Result{}, err
@@ -112,7 +113,7 @@ func Build(input Input) (Result, error) {
 			byKey,
 			input.Resolver,
 			input.Registry,
-			output.Destination(contribution.AggregateRoot()),
+			contribution.AggregateRoot(),
 			output.ContentPath(contribution.ContentPath()),
 		); err != nil {
 			return Result{}, err
@@ -125,7 +126,7 @@ func Build(input Input) (Result, error) {
 	}
 	sort.Slice(keys, func(left int, right int) bool {
 		if keys[left].destination != keys[right].destination {
-			return keys[left].destination < keys[right].destination
+			return keys[left].destination.String() < keys[right].destination.String()
 		}
 		return keys[left].contentPath < keys[right].contentPath
 	})

@@ -31,16 +31,16 @@ func TestMCPPublicCLIStatusReportsDelegateFailureWithoutCheckFailure(t *testing.
 	runMCPCLIWithSuccessfulDelegate(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes")
 
 	record := loadMCPDelegateStatusRecord(t, project.lockfilePath, "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	state := loadMCPStatefile(t, project.root)
 	state = snapshotWithMCPDelegateStatusAttempt(
 		t,
 		state,
 		record.SubjectID(),
-		delegateIdentity.IdentityKey,
+		delegatePlan.IdentityKey(),
 		durableattempt.DelegateStatusFailed,
 		durableattempt.DelegateReasonNonZeroExit,
 	)
@@ -80,7 +80,7 @@ func TestMCPPublicCLIStatusReportsDelegateFailureWithoutCheckFailure(t *testing.
 		t,
 		state,
 		record.SubjectID(),
-		delegateIdentity.IdentityKey,
+		delegatePlan.IdentityKey(),
 		durableattempt.DelegateStatusSucceeded,
 		durableattempt.DelegateReasonNone,
 	)
@@ -112,16 +112,16 @@ func TestMCPPublicCLIStatusReportsStaleLastDelegateAttemptAfterLockDrift(t *test
 	runMCPCLIWithSuccessfulDelegate(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes", "--json")
 
 	oldRecord := loadMCPDelegateStatusRecord(t, project.lockfilePath, "context7")
-	oldDelegateIdentity, ok := oldRecord.DelegatePlanIdentity()
+	oldDelegatePlan, ok := oldRecord.DelegatePlan()
 	if !ok {
-		t.Fatal("old locked MCP record missing delegate plan identity")
+		t.Fatal("old locked MCP record missing delegate plan")
 	}
 	state := loadMCPStatefile(t, project.root)
 	state = snapshotWithMCPDelegateStatusAttempt(
 		t,
 		state,
 		oldRecord.SubjectID(),
-		oldDelegateIdentity.IdentityKey,
+		oldDelegatePlan.IdentityKey(),
 		durableattempt.DelegateStatusSucceeded,
 		durableattempt.DelegateReasonNone,
 	)

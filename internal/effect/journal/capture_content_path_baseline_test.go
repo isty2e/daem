@@ -13,12 +13,13 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "config.json")
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstream/context7"},
@@ -27,7 +28,7 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical entry: %v", err)
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeGlobal)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeGlobal)
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}
@@ -95,7 +96,7 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 	mutations := make([]pathMutation, 0, memberCount)
 	for index := range memberCount {
 		serverID := fmt.Sprintf("server-%03d", index)
-		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         "npx",
 			Args:            []string{"-y", "@upstream/" + serverID},
@@ -199,7 +200,7 @@ func claudeRecoveryBaselineMutation(
 	}
 	return pathMutation{
 		Scope:             scope,
-		Destination:       output.Destination(placement.ConfigPath()),
+		Destination:       placement.ConfigPath(),
 		ContentPath:       output.ContentPath(contract.Address().ContentPath()),
 		AggregateContract: pointerToAggregateContract(contract),
 	}

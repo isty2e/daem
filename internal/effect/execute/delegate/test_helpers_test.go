@@ -6,7 +6,6 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/delegate"
-	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/delegatepolicy"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -36,9 +35,9 @@ func testAction(t *testing.T, input testActionInput) reconcile.DelegateAction {
 	if input.runnerReadiness == "" {
 		input.runnerReadiness = delegatepolicy.RunnerAvailable
 	}
-	planIdentity := testPlanIdentityWithEnv(t, input.command, input.args, input.envRefs, input.env)
+	plan := testDelegatePlan(t, input.command, input.args, input.envRefs, input.env)
 	decision, err := delegatepolicy.Evaluate(delegatepolicy.Input{
-		Plan:   planIdentity,
+		Plan:   plan,
 		Mode:   input.mode,
 		Runner: input.runnerReadiness,
 	})
@@ -49,9 +48,8 @@ func testAction(t *testing.T, input testActionInput) reconcile.DelegateAction {
 		Subject:     subject,
 		Target:      target.TargetClaudeCode,
 		Scope:       target.ScopeProject,
-		Plan:        planIdentity,
+		Plan:        plan,
 		Disposition: input.disposition,
-		Disclosure:  decision.Disclosure(),
 		Risks:       decision.Risks(),
 	})
 	if err != nil {
@@ -60,17 +58,13 @@ func testAction(t *testing.T, input testActionInput) reconcile.DelegateAction {
 	return action
 }
 
-func testPlanIdentity(t *testing.T, commandName string, args []string, envRefs []string) lock.DelegatePlanIdentity {
-	return testPlanIdentityWithEnv(t, commandName, args, envRefs, nil)
-}
-
-func testPlanIdentityWithEnv(
+func testDelegatePlan(
 	t *testing.T,
 	commandName string,
 	args []string,
 	envRefs []string,
 	env map[string]string,
-) lock.DelegatePlanIdentity {
+) delegate.DelegatePlan {
 	t.Helper()
 	runner, err := delegate.NewRunner(delegate.RunnerPlain)
 	if err != nil {
@@ -108,7 +102,7 @@ func testPlanIdentityWithEnv(
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
 	}
-	return lock.DelegatePlanIdentityFromPlan(plan)
+	return plan
 }
 
 func testWorkingDirectoryBinder(t *testing.T) subprocess.WorkingDirectoryBinder {

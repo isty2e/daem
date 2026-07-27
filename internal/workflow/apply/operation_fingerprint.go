@@ -10,7 +10,6 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 	"github.com/isty2e/daem/internal/topology"
@@ -97,12 +96,32 @@ type delegateFingerprintFacts struct {
 	Subject      topology.SubjectID
 	Target       string
 	Scope        string
-	PlanIdentity lock.DelegatePlanIdentity
+	Plan         delegatePlanFingerprintFacts
 	Status       reconcile.DelegateDisposition
 	Outcome      reconcile.DelegatePolicyOutcome
-	Disclosure   reconcile.DelegateDisclosure
 	Risks        []reconcile.DelegateRisk
 	Dependencies []reconcile.DelegateDependency
+}
+
+type delegatePlanFingerprintFacts struct {
+	IdentityKey string
+	RunnerKind  realizationdelegate.RunnerKind
+	Command     string
+	Args        []string
+	Env         []delegateEnvFingerprintFacts
+	Package     *delegatePackageFingerprintFacts
+	PinPolicy   realizationdelegate.PinPolicy
+}
+
+type delegateEnvFingerprintFacts struct {
+	Name       string
+	SourceName string
+}
+
+type delegatePackageFingerprintFacts struct {
+	Ecosystem realizationdelegate.PackageEcosystem
+	Name      string
+	Selector  string
 }
 
 func applyOperationFingerprint(
@@ -164,10 +183,9 @@ func applyOperationFingerprint(
 			Subject:      action.Subject(),
 			Target:       string(action.Target()),
 			Scope:        string(action.Scope()),
-			PlanIdentity: action.PlanIdentity(),
+			Plan:         delegatePlanFingerprint(action.Plan()),
 			Status:       action.Disposition(),
 			Outcome:      action.PolicyOutcome(),
-			Disclosure:   action.Disclosure(),
 			Risks:        action.Risks(),
 			Dependencies: action.Dependencies(),
 		})
@@ -209,6 +227,34 @@ func applyOperationFingerprint(
 	return mutation.NewOperationFingerprint(canonical), nil
 }
 
+func delegatePlanFingerprint(plan realizationdelegate.DelegatePlan) delegatePlanFingerprintFacts {
+	command := plan.Command()
+	envBindings := plan.Env().Bindings()
+	env := make([]delegateEnvFingerprintFacts, 0, len(envBindings))
+	for _, binding := range envBindings {
+		env = append(env, delegateEnvFingerprintFacts{
+			Name:       binding.Name(),
+			SourceName: binding.SourceName(),
+		})
+	}
+	facts := delegatePlanFingerprintFacts{
+		IdentityKey: plan.IdentityKey(),
+		RunnerKind:  plan.Runner().Kind(),
+		Command:     command.Name(),
+		Args:        command.Args(),
+		Env:         env,
+		PinPolicy:   plan.PinPolicy(),
+	}
+	if packageRef, present := plan.PackageRef(); present {
+		facts.Package = &delegatePackageFingerprintFacts{
+			Ecosystem: packageRef.Ecosystem(),
+			Name:      packageRef.Name(),
+			Selector:  packageRef.Selector(),
+		}
+	}
+	return facts
+}
+
 func carrierClaimFingerprintRows(
 	registry durablecarrier.GlobalCarrierClaims,
 ) []carrierClaimFingerprintFacts {
@@ -237,7 +283,7 @@ func ownershipFingerprintFacts(
 	facts := make([]ownershipObservationFingerprintFacts, 0, len(observations))
 	for _, observation := range observations {
 		fact := ownershipObservationFingerprintFacts{
-			Destination: string(observation.Destination),
+			Destination: observation.Destination.String(),
 			ContentPath: string(observation.ContentPath),
 			Path:        observation.Address.Path(),
 		}

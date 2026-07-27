@@ -62,7 +62,7 @@ type ContentPath string
 type DocumentAddress struct {
 	target target.Target
 	scope  target.Scope
-	root   output.Portable
+	root   output.Destination
 }
 
 // ProjectionAddress identifies one placement-owned projection in a document.
@@ -78,7 +78,7 @@ type ManagedContributionInput struct {
 	PlacementID           string
 	Target                target.Target
 	Scope                 target.Scope
-	AggregateRoot         string
+	AggregateRoot         output.Destination
 	ContentPath           string
 	MergeUnit             MergeUnit
 	Cardinality           ContributionCardinality
@@ -146,7 +146,7 @@ func newProjectionAddress(
 	placementID string,
 	selectedTarget target.Target,
 	scope target.Scope,
-	aggregateRoot string,
+	aggregateRoot output.Destination,
 	mergeUnit MergeUnit,
 	contentPath string,
 ) (ProjectionAddress, error) {
@@ -220,7 +220,7 @@ func (address ProjectionAddress) Validate() error {
 		address.placementID,
 		address.document.target,
 		address.document.scope,
-		address.document.root.String(),
+		address.document.root,
 		address.mergeUnit,
 		string(address.contentPath),
 	)
@@ -259,8 +259,8 @@ func (contribution ManagedContribution) Scope() target.Scope {
 	return contribution.address.document.scope
 }
 
-func (contribution ManagedContribution) AggregateRoot() string {
-	return contribution.address.document.root.String()
+func (contribution ManagedContribution) AggregateRoot() output.Destination {
+	return contribution.address.document.root
 }
 
 func (contribution ManagedContribution) ContentPath() string {
@@ -319,9 +319,9 @@ func (address ProjectionAddress) PlacementID() string       { return address.pla
 func (address ProjectionAddress) MergeUnit() MergeUnit      { return address.mergeUnit }
 func (address ProjectionAddress) ContentPath() ContentPath  { return address.contentPath }
 
-func (address DocumentAddress) Target() target.Target { return address.target }
-func (address DocumentAddress) Scope() target.Scope   { return address.scope }
-func (address DocumentAddress) AggregateRoot() string { return address.root.String() }
+func (address DocumentAddress) Target() target.Target             { return address.target }
+func (address DocumentAddress) Scope() target.Scope               { return address.scope }
+func (address DocumentAddress) AggregateRoot() output.Destination { return address.root }
 
 // Validate rejects zero or forged projection contracts.
 func (contract ProjectionContract) Validate() error {

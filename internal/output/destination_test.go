@@ -1,7 +1,6 @@
 package output
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -11,10 +10,10 @@ import (
 func TestDestinationValidationRejectsNonCanonicalAndScopeContradictoryValues(t *testing.T) {
 	t.Parallel()
 
-	for name, destination := range map[string]Destination{
+	for name, value := range map[string]string{
 		"empty":             "",
 		"parent escape":     "../escape",
-		"absolute":          Destination(filepath.Join(string(filepath.Separator), "tmp", "escape")),
+		"absolute":          "/tmp/escape",
 		"backslash":         `nested\escape`,
 		"redundant segment": "nested/./escape",
 		"unknown role":      "@cache/escape",
@@ -22,44 +21,52 @@ func TestDestinationValidationRejectsNonCanonicalAndScopeContradictoryValues(t *
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if err := destination.Validate(); err == nil {
-				t.Fatalf("Destination(%q).Validate returned nil error", destination)
+			if _, err := Parse(value); err == nil {
+				t.Fatalf("Parse(%q) returned nil error", value)
 			}
 		})
 	}
 
 	for _, test := range []struct {
-		name        string
-		destination Destination
-		scope       target.Scope
+		name  string
+		value string
+		scope target.Scope
 	}{
-		{name: "project uses home", destination: "~/agents/skills", scope: target.ScopeProject},
-		{name: "project uses data", destination: "@data/skills", scope: target.ScopeProject},
-		{name: "global uses project", destination: ".agents/skills", scope: target.ScopeGlobal},
+		{name: "project uses home", value: "~/agents/skills", scope: target.ScopeProject},
+		{name: "project uses data", value: "@data/skills", scope: target.ScopeProject},
+		{name: "global uses project", value: ".agents/skills", scope: target.ScopeGlobal},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
-			if err := test.destination.ValidateScope(test.scope); err == nil {
-				t.Fatalf("Destination(%q).ValidateScope(%q) returned nil error", test.destination, test.scope)
+			destination, err := Parse(test.value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := destination.ValidateScope(test.scope); err == nil {
+				t.Fatalf("Destination(%q).ValidateScope(%q) returned nil error", test.value, test.scope)
 			}
 		})
 	}
 
 	for _, test := range []struct {
-		destination Destination
-		scope       target.Scope
+		value string
+		scope target.Scope
 	}{
-		{destination: ".agents/skills", scope: target.ScopeProject},
-		{destination: "~/agents/skills", scope: target.ScopeGlobal},
-		{destination: "@data/skills", scope: target.ScopeGlobal},
+		{value: ".agents/skills", scope: target.ScopeProject},
+		{value: "~/agents/skills", scope: target.ScopeGlobal},
+		{value: "@data/skills", scope: target.ScopeGlobal},
 	} {
-		if err := test.destination.ValidateScope(test.scope); err != nil {
-			t.Fatalf("Destination(%q).ValidateScope(%q) returned error: %v", test.destination, test.scope, err)
+		destination, err := Parse(test.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := destination.ValidateScope(test.scope); err != nil {
+			t.Fatalf("Destination(%q).ValidateScope(%q) returned error: %v", test.value, test.scope, err)
 		}
 	}
 }
 
-func TestPortableRoundTripsEveryRootRole(t *testing.T) {
+func TestDestinationRoundTripsEveryRootRole(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -92,7 +99,39 @@ func TestPortableRoundTripsEveryRootRole(t *testing.T) {
 	}
 }
 
-func TestPortableRejectsMalformedAndEscapingSpellings(t *testing.T) {
+func TestDestinationIsComparableByCanonicalValue(t *testing.T) {
+	t.Parallel()
+
+	first, err := Parse("~/.agents/skills/review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Parse(first.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	owners := map[Destination]string{first: "manifest"}
+	if owners[second] != "manifest" {
+		t.Fatal("equivalent parsed destinations did not address the same map entry")
+	}
+}
+
+func TestDestinationValidationRejectsForgedFields(t *testing.T) {
+	t.Parallel()
+
+	for _, destination := range []Destination{
+		{},
+		{root: RootRole("cache"), relative: "asset"},
+		{root: RootProject, relative: "../escape"},
+		{root: RootHome, relative: ""},
+	} {
+		if err := destination.Validate(); err == nil {
+			t.Fatalf("forged destination %#v passed validation", destination)
+		}
+	}
+}
+
+func TestDestinationRejectsMalformedAndEscapingSpellings(t *testing.T) {
 	t.Parallel()
 
 	cases := []string{
@@ -109,7 +148,7 @@ func TestPortableRejectsMalformedAndEscapingSpellings(t *testing.T) {
 	}
 }
 
-func TestPortableTreatsReservedMarkersAsOrdinaryNonLeadingComponents(t *testing.T) {
+func TestDestinationTreatsReservedMarkersAsOrdinaryNonLeadingComponents(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -132,10 +171,10 @@ func TestPortableTreatsReservedMarkersAsOrdinaryNonLeadingComponents(t *testing.
 	}
 }
 
-func TestPortableZeroValueIsNeverValid(t *testing.T) {
+func TestDestinationZeroValueIsNeverValid(t *testing.T) {
 	t.Parallel()
 
-	var destination Portable
+	var destination Destination
 	if destination.String() != "" {
 		t.Fatalf("zero destination string = %q", destination.String())
 	}
@@ -144,7 +183,7 @@ func TestPortableZeroValueIsNeverValid(t *testing.T) {
 	}
 }
 
-func TestPortableRejectsScopeContradictions(t *testing.T) {
+func TestDestinationRejectsScopeContradictions(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -166,20 +205,20 @@ func TestPortableRejectsScopeContradictions(t *testing.T) {
 	}
 }
 
-func TestPortableConstructorRejectsAmbiguousProjectSpelling(t *testing.T) {
+func TestDestinationConstructorRejectsAmbiguousProjectSpelling(t *testing.T) {
 	t.Parallel()
 
 	for _, relative := range []string{"@data/asset", "@future/asset", "~/asset"} {
-		if _, err := newPortable(RootProject, relative); err == nil {
-			t.Fatalf("newPortable(project, %q) returned nil error", relative)
+		if _, err := newDestination(RootProject, relative); err == nil {
+			t.Fatalf("newDestination(project, %q) returned nil error", relative)
 		}
 	}
-	if _, err := newPortable(RootRole("cache"), "asset"); err == nil {
-		t.Fatal("newPortable admitted an unknown root role")
+	if _, err := newDestination(RootRole("cache"), "asset"); err == nil {
+		t.Fatal("newDestination admitted an unknown root role")
 	}
 }
 
-func TestPortableScopeValidationCoversEveryRootAndScopeCombination(t *testing.T) {
+func TestDestinationScopeValidationCoversEveryRootAndScopeCombination(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -212,7 +251,7 @@ func TestPortableScopeValidationCoversEveryRootAndScopeCombination(t *testing.T)
 	}
 }
 
-func TestPortablePreservesValidUnicodePathComponents(t *testing.T) {
+func TestDestinationPreservesValidUnicodePathComponents(t *testing.T) {
 	t.Parallel()
 
 	for _, value := range []string{

@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -165,14 +166,14 @@ func (identity ManagedCarrierIdentity) MatchesLockedRecord(
 // PendingCarrierInstall is write-ahead correlation eligibility for one exact
 // observed-absent install. It is not a claim or evidence of current presence.
 type PendingCarrierInstall struct {
-	owner          StateAuthority
+	owner          stateauthority.Authority
 	identity       ManagedCarrierIdentity
 	installRequest realizationdelegate.Request
 }
 
 // NewPendingCarrierInstall constructs exact pre-effect correlation state.
 func NewPendingCarrierInstall(
-	owner StateAuthority,
+	owner stateauthority.Authority,
 	identity ManagedCarrierIdentity,
 	installRequest realizationdelegate.Request,
 ) (PendingCarrierInstall, error) {
@@ -202,7 +203,7 @@ func (pending PendingCarrierInstall) Validate() error {
 }
 
 // Owner returns the state authority that observed absence and requested install.
-func (pending PendingCarrierInstall) Owner() StateAuthority { return pending.owner }
+func (pending PendingCarrierInstall) Owner() stateauthority.Authority { return pending.owner }
 
 // Identity returns the exact carrier and relation identity.
 func (pending PendingCarrierInstall) Identity() ManagedCarrierIdentity {

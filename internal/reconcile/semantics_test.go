@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestActionReasonOwnershipBlockClassification(t *testing.T) {
@@ -116,7 +117,7 @@ func TestResultHasLockReadinessErrorsIncludesUnexpectedManagedPathProjection(t *
 			subject:         projection,
 			consumerTargets: []target.Target{target.TargetCodex},
 			scope:           target.ScopeProject,
-			destination:     "AGENTS.md",
+			destination:     outputtest.Parse(t, "AGENTS.md"),
 		}, ReasonUnexpectedLockSubject, "unexpected locked projection"),
 	}, nil)
 	if !plan.HasLockReadinessErrors() {
@@ -135,11 +136,11 @@ func TestResultDecisionsExpandAggregateSubjectsAndOrderPublishSwitchRetire(t *te
 	}
 	pathFacts := managedPathDecisionFacts{
 		subject: assetSubject, consumerTargets: []target.Target{target.TargetCodex},
-		scope: target.ScopeProject, destination: ".daem/hook-assets/runner/new/asset",
+		scope: target.ScopeProject, destination: outputtest.Parse(t, ".daem/hook-assets/runner/new/asset"),
 	}
 	publish := newManagedPathCreate(pathFacts, ReasonMissingOutput)
 	retireFacts := pathFacts
-	retireFacts.destination = ".daem/hook-assets/runner/old/asset"
+	retireFacts.destination = outputtest.Parse(t, ".daem/hook-assets/runner/old/asset")
 	retire := newManagedPathRemove(retireFacts, ReasonRemovedFromManifest)
 
 	guard := aggregateDecisionInputForServer(t, "guard")
@@ -192,7 +193,7 @@ func TestResultMutatingDecisionsOwnVariantSemantics(t *testing.T) {
 	}
 	facts := managedPathDecisionFacts{
 		subject: subject, consumerTargets: []target.Target{target.TargetCodex},
-		scope: target.ScopeProject, destination: "AGENTS.md",
+		scope: target.ScopeProject, destination: outputtest.Parse(t, "AGENTS.md"),
 	}
 	recordSubject, err := topology.NewSubjectID(
 		topology.SubjectProjection,
@@ -204,7 +205,7 @@ func TestResultMutatingDecisionsOwnVariantSemantics(t *testing.T) {
 	}
 	recordFacts := facts
 	recordFacts.subject = recordSubject
-	recordFacts.destination = "RECORD.md"
+	recordFacts.destination = outputtest.Parse(t, "RECORD.md")
 	planned := mustReconciliationResult(t, []ManagedPathDecision{
 		newManagedPathNoOp(facts, ReasonAlreadyCurrent),
 		newManagedPathRecord(recordFacts, ReasonStateStale, ""),
@@ -244,7 +245,7 @@ func TestResultDecisionsRankSharedManagedPathsByEveryConsumer(t *testing.T) {
 			target.TargetCodex,
 		},
 		scope:       target.ScopeProject,
-		destination: "ZZZ.md",
+		destination: outputtest.Parse(t, "ZZZ.md"),
 	}, ReasonMissingOutput)
 	claudeSubject, err := topology.NewSubjectID(
 		topology.SubjectProjection,
@@ -256,7 +257,7 @@ func TestResultDecisionsRankSharedManagedPathsByEveryConsumer(t *testing.T) {
 	}
 	claude := newManagedPathCreate(managedPathDecisionFacts{
 		subject: claudeSubject, consumerTargets: []target.Target{target.TargetClaudeCode},
-		scope: target.ScopeProject, destination: "AAA.json",
+		scope: target.ScopeProject, destination: outputtest.Parse(t, "AAA.json"),
 	}, ReasonMissingOutput)
 
 	decisions := mustReconciliationResult(t, []ManagedPathDecision{claude, shared}, nil).Decisions()

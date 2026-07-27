@@ -3,6 +3,8 @@ package codec
 import (
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 func TestMCPServerScanAndRenderMCPServerBlock(t *testing.T) {
@@ -153,6 +155,30 @@ args = ["--stdio"]
 	}
 	if !strings.Contains(err.Error(), "command") {
 		t.Fatalf("error = %q, want command object rejection", err)
+	}
+}
+
+func TestMCPServerEnvModelsRemainDistinctAcrossStrictAndPartialDecode(t *testing.T) {
+	content := []byte(`version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+transport = "stdio"
+command = "npx"
+env = { TOKEN = { from_env = "TOKEN", future = "preserve" } }
+`)
+
+	if _, err := declaration.DecodeManifest(content); err == nil ||
+		!strings.Contains(err.Error(), `unknown env reference key "future"`) {
+		t.Fatalf("DecodeManifest error = %v, want strict env reference rejection", err)
+	}
+	blocks, err := ScanMCPServerBlocks(content)
+	if err != nil {
+		t.Fatalf("ScanMCPServerBlocks returned error: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].Server.Env["TOKEN"].FromEnv != "TOKEN" {
+		t.Fatalf("blocks = %#v, want partial MCP env projection", blocks)
 	}
 }
 

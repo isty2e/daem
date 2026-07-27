@@ -11,6 +11,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -126,7 +127,7 @@ func writeCLIClaudeGlobalManagedCarrierState(
 	if err != nil {
 		t.Fatalf("canonicalize statefile key: %v", err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, fixture.manifestPath)
+	owner, err := stateauthority.New(statefileKey, fixture.manifestPath)
 	if err != nil {
 		t.Fatalf("construct carrier state authority: %v", err)
 	}

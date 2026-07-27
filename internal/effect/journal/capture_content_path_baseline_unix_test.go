@@ -13,6 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestRecoveryContentPathBaselineRejectsGlobalFinalSymlink(t *testing.T) {
@@ -134,7 +136,7 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	observation := observeRecoveryPath(
 		t.Context(),
 		journalTestFilesystem(),
-		string(action.Destination),
+		action.Destination.String(),
 		string(action.ContentPath),
 		hostPath,
 		action.AggregateContract,
@@ -254,7 +256,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 
 func TestAcquireMatchingRootedCapabilityRejectsNilPresentCapability(t *testing.T) {
 	_, _, err := acquireMatchingRootedCapability(
-		output.Destination("~/.claude.json"),
+		outputtest.Parse(t, "~/.claude.json"),
 		filepath.Join(t.TempDir(), "config.json"),
 		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
 			return nil, true, nil
@@ -285,7 +287,7 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 	}
 
 	_, _, err = acquireMatchingRootedCapability(
-		output.Destination("~/.claude.json"),
+		outputtest.Parse(t, "~/.claude.json"),
 		resolvedPath,
 		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
 			return capability, false, nil
@@ -306,7 +308,7 @@ func globalClaudeRecoveryBaselineMutation(t *testing.T) pathMutation {
 
 func claudeGlobalCanonicalEntry(t *testing.T, command string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         command,
 		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
@@ -319,7 +321,7 @@ func claudeGlobalCanonicalEntry(t *testing.T, command string) []byte {
 
 func claudeGlobalConfig(t *testing.T, canonical []byte) []byte {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeGlobal)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeGlobal)
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}

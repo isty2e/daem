@@ -93,7 +93,7 @@ func resolveLocalSkill(
 			return resolution, true, nil
 		}
 	}
-	resolution, err := resolver.Resolve(ctx, sourceSpec)
+	resolution, err := resolver.Resolve(ctx, sourceSpec, acquisition.OperationOptions{})
 	if err != nil {
 		return acquisition.Resolution{}, true, err
 	}

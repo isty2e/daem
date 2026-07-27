@@ -11,8 +11,8 @@ import (
 
 func TestGlobalCarrierClaimsAllowSharedCarrierAcrossAuthorities(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	first := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "first.toml"))
-	second := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "second.toml"))
+	first := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "first.toml"))
+	second := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "second.toml"))
 
 	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{second, first})
 	if err != nil {
@@ -32,8 +32,8 @@ func TestGlobalCarrierClaimsAllowSharedCarrierAcrossAuthorities(t *testing.T) {
 
 func TestGlobalCarrierClaimsUpsertBatchIsAtomicCanonicalAndIdempotent(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	first := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "first.toml"))
-	second := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "second.toml"))
+	first := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "first.toml"))
+	second := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "second.toml"))
 
 	registry, changed, err := durablecarrier.EmptyGlobalCarrierClaims().WithClaims(
 		[]durablecarrier.ManagedCarrierClaim{second, first},
@@ -56,7 +56,7 @@ func TestGlobalCarrierClaimsUpsertBatchIsAtomicCanonicalAndIdempotent(t *testing
 
 func TestGlobalCarrierClaimsRejectProjectAndConflictingOwnerRelation(t *testing.T) {
 	project := carrierFixtureFor(t, "project", "project@official", target.ScopeProject)
-	projectClaim := claimForFixture(t, project, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	projectClaim := claimForFixture(t, project, mustAuthority(t, t.TempDir(), "daem.toml"))
 	if _, err := durablecarrier.NewGlobalCarrierClaims(
 		[]durablecarrier.ManagedCarrierClaim{projectClaim},
 	); err == nil || !strings.Contains(err.Error(), "global scope") {
@@ -64,7 +64,7 @@ func TestGlobalCarrierClaimsRejectProjectAndConflictingOwnerRelation(t *testing.
 	}
 
 	global := carrierFixtureFor(t, "global", "global@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	claim := claimForFixture(t, global, owner)
 	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
 	if err != nil {
@@ -88,7 +88,7 @@ func TestGlobalCarrierClaimsRejectProjectAndConflictingOwnerRelation(t *testing.
 
 func TestGlobalCarrierClaimsRetireOnlyExactClaim(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	claim := claimForFixture(t, fixture, owner)
 	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
 	if err != nil {

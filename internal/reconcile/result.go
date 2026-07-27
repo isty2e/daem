@@ -267,9 +267,8 @@ func validateDelegateAction(action DelegateAction) error {
 		Subject:      action.Subject(),
 		Target:       action.Target(),
 		Scope:        action.Scope(),
-		Plan:         action.PlanIdentity(),
+		Plan:         action.Plan(),
 		Disposition:  action.Disposition(),
-		Disclosure:   action.Disclosure(),
 		Risks:        action.Risks(),
 		Dependencies: action.Dependencies(),
 	})
@@ -365,9 +364,9 @@ func compareManagedPathDecisionIdentity(left ManagedPathDecision, right ManagedP
 		return subject
 	}
 	switch {
-	case left.Destination() < right.Destination():
+	case left.Destination().String() < right.Destination().String():
 		return -1
-	case left.Destination() > right.Destination():
+	case left.Destination().String() > right.Destination().String():
 		return 1
 	default:
 		return 0

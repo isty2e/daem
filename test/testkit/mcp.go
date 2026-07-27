@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func AssertSingleMCPStdioBinding(
@@ -55,7 +56,7 @@ func AssertClaudeGlobalMCPConfigEquivalent(
 ) {
 	t.Helper()
 	content := ReadFile(t, hostConfigPath)
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -64,7 +65,7 @@ func AssertClaudeGlobalMCPConfigEquivalent(
 	if err != nil {
 		t.Fatalf("CanonicalClaudeGlobalMCPServerEntry returned error: %v", err)
 	}
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeGlobal)
+	operations, ok := mcptest.OperationsForPlacementID(aggregate.MCPPlacementClaudeGlobal)
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}

@@ -36,7 +36,7 @@ func assertWorkflowMCPSubject(t *testing.T, file lock.File, serverID string) mcp
 		t.Fatal("MCP subject realization is not a managed aggregate contribution")
 	}
 	if record.OnAbsent() != lock.OnAbsentRemoveBinding ||
-		claim.AggregateRoot() != aggregate.ClaudeProjectMCPConfigPath ||
+		claim.AggregateRoot().String() != aggregate.ClaudeProjectMCPConfigPath ||
 		claim.ContentPath() != mcpcodec.ClaudeProjectMCPContentPath(serverID) ||
 		claim.Equivalence() != aggregate.EquivalenceCanonicalSemantic ||
 		string(claim.CodecContractID()) != aggregate.ClaudeProjectMCPStdioAdapterV1 {

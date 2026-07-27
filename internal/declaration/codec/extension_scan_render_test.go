@@ -3,6 +3,8 @@ package codec
 import (
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 func TestExtensionScanAndRenderExtensionBlock(t *testing.T) {
@@ -36,12 +38,12 @@ name = "later"
 		t.Fatalf("scanned range included following mcp_server block")
 	}
 
-	rendered := RenderExtensionBlock(Extension{
+	rendered := RenderExtensionBlock(declaration.Extension{
 		ID:      "context7-managed",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
-		Source:  ExtensionSource{Marketplace: "context7@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	})
 	for _, want := range []string{
 		"[[extension]]",
@@ -76,11 +78,11 @@ source = { host_source = "@acme/opencode-formatter" }
 		t.Fatalf("source = %#v, want host_source only", blocks[0].Extension.Source)
 	}
 
-	rendered := RenderExtensionBlock(Extension{
+	rendered := RenderExtensionBlock(declaration.Extension{
 		ID:      "formatter-managed",
 		Carrier: "opencode-plugin",
 		Targets: []string{"opencode"},
-		Source:  ExtensionSource{HostSource: "@acme/opencode-formatter"},
+		Source:  declaration.ExtensionSource{HostSource: "@acme/opencode-formatter"},
 	})
 	for _, want := range []string{
 		"[[extension]]",
@@ -131,10 +133,37 @@ source = { marketplace = "other@market" }
 	}
 }
 
-func TestExtensionRelationIdentityAndSourceReferenceAreCodecOwned(t *testing.T) {
-	left := Extension{
+func TestExtensionSharedWireRowKeepsStrictnessOperationLocal(t *testing.T) {
+	content := []byte(`version = 1
+targets = ["opencode"]
+
+[[extension]]
+id = "formatter"
+carrier = "opencode-plugin"
+targets = ["opencode"]
+source = { host_source = "@acme/formatter", future = "preserve" }
+`)
+
+	if _, err := declaration.DecodeManifest(content); err == nil ||
+		!strings.Contains(err.Error(), "extension.source.future") {
+		t.Fatalf("DecodeManifest error = %v, want strict nested unknown-field rejection", err)
+	}
+	blocks, err := ScanExtensionBlocks(content)
+	if err != nil {
+		t.Fatalf("ScanExtensionBlocks returned error: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].Extension.Source.HostSource != "@acme/formatter" {
+		t.Fatalf("blocks = %#v, want partial extension projection", blocks)
+	}
+	if !strings.Contains(string(content[blocks[0].Start:blocks[0].End]), `future = "preserve"`) {
+		t.Fatal("partial scan range did not retain unowned source bytes")
+	}
+}
+
+func TestExtensionRelationIdentityUsesDeclarationOwnedWireSource(t *testing.T) {
+	left := declaration.Extension{
 		ID: "left", Carrier: "claude_plugin", Targets: []string{"claude-code"}, Scope: "project",
-		Source: ExtensionSource{Marketplace: "official"},
+		Source: declaration.ExtensionSource{Marketplace: "official"},
 	}
 	right := left
 	right.ID = "right"

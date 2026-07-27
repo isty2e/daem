@@ -46,7 +46,7 @@ func lastDelegateAttempt(
 	contribution aggregate.ManagedContribution,
 	currentState durable.Snapshot,
 ) (LastDelegateAttemptInput, error) {
-	planIdentity, ok := contract.DelegatePlanIdentity()
+	delegatePlan, ok := contract.DelegatePlan()
 	if !ok {
 		return LastDelegateAttemptInput{}, nil
 	}
@@ -59,7 +59,7 @@ func lastDelegateAttempt(
 	if !ok {
 		return LastDelegateAttemptInput{}, nil
 	}
-	if !recordedAttempt.MatchesPlanIdentity(planIdentity.IdentityKey) {
+	if !recordedAttempt.MatchesPlanIdentity(delegatePlan.IdentityKey()) {
 		return LastDelegateAttemptInput{
 			Observed:            true,
 			MatchesPlanIdentity: false,

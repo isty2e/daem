@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 )
 
 // WithoutCarrierManagement retires every exact project-state management fact
@@ -11,7 +12,7 @@ import (
 // same-relation drift instead of treating a replacement as the selected
 // identity. Global active claims remain owned by GlobalCarrierClaims.
 func (snapshot Snapshot) WithoutCarrierManagement(
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	identity durablecarrier.ManagedCarrierIdentity,
 ) (Snapshot, bool, error) {
 	if err := owner.Validate(); err != nil {
@@ -25,7 +26,7 @@ func (snapshot Snapshot) WithoutCarrierManagement(
 		snapshot.PendingCarrierInstalls(),
 		owner,
 		identity,
-		func(value durablecarrier.PendingCarrierInstall) durablecarrier.StateAuthority { return value.Owner() },
+		func(value durablecarrier.PendingCarrierInstall) stateauthority.Authority { return value.Owner() },
 		func(value durablecarrier.PendingCarrierInstall) durablecarrier.ManagedCarrierIdentity {
 			return value.Identity()
 		},
@@ -37,7 +38,7 @@ func (snapshot Snapshot) WithoutCarrierManagement(
 		snapshot.PendingCarrierRemovals(),
 		owner,
 		identity,
-		func(value durablecarrier.PendingCarrierRemoval) durablecarrier.StateAuthority { return value.Owner() },
+		func(value durablecarrier.PendingCarrierRemoval) stateauthority.Authority { return value.Owner() },
 		func(value durablecarrier.PendingCarrierRemoval) durablecarrier.ManagedCarrierIdentity {
 			return value.Identity()
 		},
@@ -49,7 +50,7 @@ func (snapshot Snapshot) WithoutCarrierManagement(
 		snapshot.ManagedCarrierClaims(),
 		owner,
 		identity,
-		func(value durablecarrier.ManagedCarrierClaim) durablecarrier.StateAuthority { return value.Owner() },
+		func(value durablecarrier.ManagedCarrierClaim) stateauthority.Authority { return value.Owner() },
 		func(value durablecarrier.ManagedCarrierClaim) durablecarrier.ManagedCarrierIdentity {
 			return value.Identity()
 		},
@@ -75,9 +76,9 @@ func (snapshot Snapshot) WithoutCarrierManagement(
 
 func withoutMatchingCarrierFacts[T any](
 	values []T,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	identity durablecarrier.ManagedCarrierIdentity,
-	ownerOf func(T) durablecarrier.StateAuthority,
+	ownerOf func(T) stateauthority.Authority,
 	identityOf func(T) durablecarrier.ManagedCarrierIdentity,
 ) ([]T, bool, error) {
 	next := make([]T, 0, len(values))

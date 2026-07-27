@@ -74,7 +74,7 @@ func newOperationPrecondition(
 	kind OperationPreconditionKind,
 	selectedTarget target.Target,
 	scope target.Scope,
-	root string,
+	root output.Destination,
 ) (OperationPrecondition, error) {
 	document, err := newDocumentAddress(selectedTarget, scope, root)
 	if err != nil {
@@ -134,8 +134,8 @@ func OperationPreconditionsForCodec(
 	if !ok {
 		return nil, false, nil
 	}
-	conflictingPath := placement.ConflictingConfigPath()
-	if conflictingPath == "" {
+	conflictingPath, ok := placement.ConflictingConfigPath()
+	if !ok {
 		return nil, true, nil
 	}
 	precondition, err := newOperationPrecondition(
@@ -153,7 +153,7 @@ func OperationPreconditionsForCodec(
 func newDocumentAddress(
 	selectedTarget target.Target,
 	scope target.Scope,
-	aggregateRoot string,
+	aggregateRoot output.Destination,
 ) (DocumentAddress, error) {
 	parsedTarget, err := target.ParseTarget(string(selectedTarget))
 	if err != nil {
@@ -163,19 +163,15 @@ func newDocumentAddress(
 	if err != nil {
 		return DocumentAddress{}, fmt.Errorf("scope: %w", err)
 	}
-	root, err := output.Parse(aggregateRoot)
-	if err != nil {
+	if err := aggregateRoot.ValidateScope(parsedScope); err != nil {
 		return DocumentAddress{}, fmt.Errorf("aggregate root: %w", err)
 	}
-	if err := root.ValidateScope(parsedScope); err != nil {
-		return DocumentAddress{}, fmt.Errorf("aggregate root: %w", err)
-	}
-	return DocumentAddress{target: parsedTarget, scope: parsedScope, root: root}, nil
+	return DocumentAddress{target: parsedTarget, scope: parsedScope, root: aggregateRoot}, nil
 }
 
 // Validate rejects zero or forged aggregate document addresses.
 func (address DocumentAddress) Validate() error {
-	canonical, err := newDocumentAddress(address.target, address.scope, address.root.String())
+	canonical, err := newDocumentAddress(address.target, address.scope, address.root)
 	if err != nil {
 		return err
 	}

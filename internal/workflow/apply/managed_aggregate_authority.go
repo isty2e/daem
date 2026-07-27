@@ -103,7 +103,7 @@ func aggregateFingerprintRows(decisions []reconcile.AggregateDecision) []aggrega
 			document := precondition.DocumentAddress()
 			row.Preconditions = append(row.Preconditions, aggregatePreconditionFingerprintFacts{
 				Kind: string(precondition.Kind()), Target: string(document.Target()),
-				Scope: string(document.Scope()), AggregateRoot: document.AggregateRoot(),
+				Scope: string(document.Scope()), AggregateRoot: document.AggregateRoot().String(),
 			})
 		}
 		rows = append(rows, row)
@@ -116,7 +116,7 @@ func aggregateContractFingerprint(contract aggregate.ProjectionContract) aggrega
 	document := address.Document()
 	return aggregateContractFingerprintFacts{
 		PlacementID: address.PlacementID(), Target: string(document.Target()), Scope: string(document.Scope()),
-		AggregateRoot: document.AggregateRoot(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
+		AggregateRoot: document.AggregateRoot().String(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
 		Cardinality: string(contract.Cardinality()), SiblingRetention: string(contract.SiblingRetention()),
 		SiblingPreservation: string(contract.SiblingPreservation()), Equivalence: string(contract.Equivalence()),
 		CodecContractID: string(contract.CodecContractID()), ComparedFields: contract.ComparedFields(),

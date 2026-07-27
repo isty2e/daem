@@ -3,11 +3,9 @@ package reconcile
 import (
 	"cmp"
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -73,32 +71,13 @@ type DelegateRisk struct {
 	Subject  string
 }
 
-// DelegateDisclosure is the exact request that dry-run and apply may present.
-type DelegateDisclosure struct {
-	IdentityKey string
-	RunnerKind  delegate.RunnerKind
-	Command     string
-	Args        []string
-	Env         []lock.DelegateEnvBinding
-	Package     *lock.DelegatePackageIdentity
-	PinPolicy   delegate.PinPolicy
-}
-
-// MatchesPlan reports whether the disclosure losslessly represents one valid
-// locked delegate plan identity.
-func (disclosure DelegateDisclosure) MatchesPlan(input lock.DelegatePlanIdentity) bool {
-	planIdentity, err := lock.NewDelegatePlanIdentity(input)
-	return err == nil && delegateDisclosureMatchesPlan(disclosure, planIdentity)
-}
-
 // DelegateActionInput contains already-evaluated facts for one delegate action.
 type DelegateActionInput struct {
 	Subject      topology.SubjectID
 	Target       target.Target
 	Scope        target.Scope
-	Plan         lock.DelegatePlanIdentity
+	Plan         delegate.DelegatePlan
 	Disposition  DelegateDisposition
-	Disclosure   DelegateDisclosure
 	Risks        []DelegateRisk
 	Dependencies []DelegateDependency
 }
@@ -108,9 +87,8 @@ type DelegateAction struct {
 	subject      topology.SubjectID
 	target       target.Target
 	scope        target.Scope
-	plan         lock.DelegatePlanIdentity
+	plan         delegate.DelegatePlan
 	disposition  DelegateDisposition
-	disclosure   DelegateDisclosure
 	risks        []DelegateRisk
 	dependencies []DelegateDependency
 }
@@ -128,7 +106,7 @@ func (action DelegateAction) Compare(other DelegateAction) int {
 	if order := topology.CompareSubjectID(action.subject, other.subject); order != 0 {
 		return order
 	}
-	return cmp.Compare(action.plan.IdentityKey, other.plan.IdentityKey)
+	return cmp.Compare(action.plan.IdentityKey(), other.plan.IdentityKey())
 }
 
 // NewDelegateAction validates and constructs one delegated-route decision.
@@ -142,15 +120,11 @@ func NewDelegateAction(input DelegateActionInput) (DelegateAction, error) {
 	if _, err := target.ParseScope(string(input.Scope)); err != nil {
 		return DelegateAction{}, err
 	}
-	planIdentity, err := lock.NewDelegatePlanIdentity(input.Plan)
-	if err != nil {
+	if err := input.Plan.Validate(); err != nil {
 		return DelegateAction{}, err
 	}
 	if err := validateDelegateDisposition(input.Disposition); err != nil {
 		return DelegateAction{}, err
-	}
-	if !delegateDisclosureMatchesPlan(input.Disclosure, planIdentity) {
-		return DelegateAction{}, fmt.Errorf("delegate action disclosure does not match locked plan identity")
 	}
 	risks, err := normalizeDelegateRisks(input.Risks)
 	if err != nil {
@@ -168,9 +142,8 @@ func NewDelegateAction(input DelegateActionInput) (DelegateAction, error) {
 		subject:      input.Subject,
 		target:       input.Target,
 		scope:        input.Scope,
-		plan:         cloneDelegatePlanIdentity(planIdentity),
+		plan:         input.Plan,
 		disposition:  input.Disposition,
-		disclosure:   cloneDelegateDisclosure(input.Disclosure),
 		risks:        risks,
 		dependencies: dependencies,
 	}, nil
@@ -180,10 +153,8 @@ func (action DelegateAction) Subject() topology.SubjectID { return action.subjec
 func (action DelegateAction) Target() target.Target       { return action.target }
 func (action DelegateAction) Scope() target.Scope         { return action.scope }
 
-// PlanIdentity returns the exact locked delegated-route identity.
-func (action DelegateAction) PlanIdentity() lock.DelegatePlanIdentity {
-	return cloneDelegatePlanIdentity(action.plan)
-}
+// Plan returns the exact locked delegated-route plan.
+func (action DelegateAction) Plan() delegate.DelegatePlan { return action.plan }
 
 func (action DelegateAction) Disposition() DelegateDisposition { return action.disposition }
 
@@ -201,10 +172,6 @@ func (action DelegateAction) PolicyOutcome() DelegatePolicyOutcome {
 		}
 	}
 	return DelegatePolicyAllow
-}
-
-func (action DelegateAction) Disclosure() DelegateDisclosure {
-	return cloneDelegateDisclosure(action.disclosure)
 }
 
 func (action DelegateAction) Risks() []DelegateRisk {
@@ -316,51 +283,4 @@ func normalizeDelegateDependencies(values []DelegateDependency) ([]DelegateDepen
 		return topology.CompareSubjectID(canonical[left].Subject, canonical[right].Subject) < 0
 	})
 	return canonical, nil
-}
-
-func delegateDisclosureMatchesPlan(disclosure DelegateDisclosure, plan lock.DelegatePlanIdentity) bool {
-	if disclosure.IdentityKey != plan.IdentityKey ||
-		disclosure.RunnerKind != plan.RunnerKind ||
-		disclosure.Command != plan.Command ||
-		disclosure.PinPolicy != plan.PinPolicy ||
-		!slices.Equal(disclosure.Args, plan.Args) ||
-		!slices.Equal(disclosure.Env, plan.Env) {
-		return false
-	}
-	if disclosure.Package == nil || plan.Package == nil {
-		return disclosure.Package == nil && plan.Package == nil
-	}
-	return *disclosure.Package == *plan.Package
-}
-
-func cloneDelegatePlanIdentity(identity lock.DelegatePlanIdentity) lock.DelegatePlanIdentity {
-	cloned := lock.DelegatePlanIdentity{
-		IdentityKey: identity.IdentityKey,
-		RunnerKind:  identity.RunnerKind,
-		Command:     identity.Command,
-		Args:        append([]string(nil), identity.Args...),
-		Env:         append([]lock.DelegateEnvBinding(nil), identity.Env...),
-		PinPolicy:   identity.PinPolicy,
-	}
-	if identity.Package != nil {
-		value := *identity.Package
-		cloned.Package = &value
-	}
-	return cloned
-}
-
-func cloneDelegateDisclosure(disclosure DelegateDisclosure) DelegateDisclosure {
-	cloned := DelegateDisclosure{
-		IdentityKey: disclosure.IdentityKey,
-		RunnerKind:  disclosure.RunnerKind,
-		Command:     disclosure.Command,
-		Args:        append([]string(nil), disclosure.Args...),
-		Env:         append([]lock.DelegateEnvBinding(nil), disclosure.Env...),
-		PinPolicy:   disclosure.PinPolicy,
-	}
-	if disclosure.Package != nil {
-		value := *disclosure.Package
-		cloned.Package = &value
-	}
-	return cloned
 }

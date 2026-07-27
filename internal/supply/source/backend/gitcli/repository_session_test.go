@@ -98,12 +98,12 @@ func TestRepositorySnapshotSessionKeepsPathFailuresIsolated(t *testing.T) {
 		eventSink,
 	)
 
-	if _, err := resolver.ResolveWithOptions(
+	if _, err := resolver.Resolve(
 		context.Background(),
 		missingSource,
 		missingOptions,
 	); err == nil {
-		t.Fatal("missing path ResolveWithOptions returned nil error")
+		t.Fatal("missing path Resolve returned nil error")
 	}
 	validSource := mustGitSource(t, repositoryPath, "skills/valid", "main")
 	validOptions := mustGitOperationOptions(
@@ -111,13 +111,13 @@ func TestRepositorySnapshotSessionKeepsPathFailuresIsolated(t *testing.T) {
 		mustGitAcquisitionRequest(t, "valid", 1, acquisition.OperationResolve, validSource),
 		eventSink,
 	)
-	valid, err := resolver.ResolveWithOptions(
+	valid, err := resolver.Resolve(
 		context.Background(),
 		validSource,
 		validOptions,
 	)
 	if err != nil {
-		t.Fatalf("valid ResolveWithOptions returned error after sibling failure: %v", err)
+		t.Fatalf("valid Resolve returned error after sibling failure: %v", err)
 	}
 	if valid.Identity().SourceID() == "" || valid.Identity().ContentHash() == "" {
 		t.Fatalf("valid artifact is incomplete: %#v", valid)

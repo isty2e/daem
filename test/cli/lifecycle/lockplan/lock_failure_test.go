@@ -157,8 +157,8 @@ source = { path = "hooks/missing.py", mode = "vendor" }
 		t.Fatalf("exitCode = %d, want 1", exitCode)
 	}
 
-	if !strings.Contains(stderr.String(), "hook[0].source: hook executable sources are not supported") {
-		t.Fatalf("stderr = %q, want unsupported hook source diagnostic", stderr.String())
+	if !strings.Contains(stderr.String(), `unknown manifest key "hook.source"`) {
+		t.Fatalf("stderr = %q, want strict unknown hook source diagnostic", stderr.String())
 	}
 
 	currentLockfile, err := os.ReadFile(lockfilePath)

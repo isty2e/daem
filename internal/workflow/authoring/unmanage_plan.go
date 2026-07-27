@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -54,7 +55,7 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, document.Path)
+	owner, err := stateauthority.New(statefileKey, document.Path)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}

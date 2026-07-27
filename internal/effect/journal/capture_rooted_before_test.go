@@ -14,11 +14,12 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCaptureGlobalExistingDirectoryUsesRootedCapabilityAndHashEquivalentBackup(t *testing.T) {
 	root, destination, contentHash := rootedGlobalDirectoryFixture(t)
-	action := rootedGlobalUpdateAction(contentHash)
+	action := rootedGlobalUpdateAction(t, contentHash)
 	operationDir := t.TempDir()
 	callbackUsed := false
 
@@ -69,7 +70,7 @@ func TestCaptureGlobalExistingDirectoryRejectsBackupHashDifferentFromObservation
 	if wrongHash == contentHash {
 		t.Fatal("test fixture unexpectedly has the adversarial hash")
 	}
-	action := rootedGlobalUpdateAction(wrongHash)
+	action := rootedGlobalUpdateAction(t, wrongHash)
 	operationDir := t.TempDir()
 
 	_, backupIndex, err := captureRecoveryBeforePath(
@@ -108,7 +109,7 @@ func TestCaptureGlobalExistingDirectoryRejectsBackupHashDifferentFromObservation
 
 func TestCaptureGlobalExistingDirectoryRefusesMissingStrictRootAuthority(t *testing.T) {
 	_, destination, contentHash := rootedGlobalDirectoryFixture(t)
-	action := rootedGlobalUpdateAction(contentHash)
+	action := rootedGlobalUpdateAction(t, contentHash)
 	resolvedPath, err := destination.LexicalPath()
 	if err != nil {
 		t.Fatalf("read rooted destination path: %v", err)
@@ -145,7 +146,7 @@ func TestCaptureGlobalFileFallbackUsesBoundedStableSnapshot(t *testing.T) {
 	contentHash := artifact.HashFileContentWithExecutable(content, true)
 	action := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeGlobal,
-		Destination: output.Destination("~/.codex/AGENTS.md"),
+		Destination: outputtest.Parse(t, "~/.codex/AGENTS.md"),
 		LiveExists:  true, LiveHash: contentHash,
 		LivePathExists: true, LivePathHash: contentHash,
 	}
@@ -202,10 +203,11 @@ func rootedGlobalDirectoryFixture(
 	return root, destination, contentHash
 }
 
-func rootedGlobalUpdateAction(contentHash artifact.ContentHash) pathMutation {
+func rootedGlobalUpdateAction(t testing.TB, contentHash artifact.ContentHash) pathMutation {
+	t.Helper()
 	return pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeGlobal,
-		Destination: output.Destination("~/.agents/skills/review"),
+		Destination: outputtest.Parse(t, "~/.agents/skills/review"),
 		LiveExists:  true, LiveHash: contentHash,
 		LivePathExists: true, LivePathHash: contentHash,
 	}

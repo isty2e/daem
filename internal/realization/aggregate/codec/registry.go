@@ -17,12 +17,6 @@ func Catalog() aggregate.CodecCatalog {
 	return catalog
 }
 
-// MCPRuntimeProbePlacements returns the finite MCP placements whose concrete
-// codec operations admit launch/initialize probing.
-func MCPRuntimeProbePlacements() []aggregate.MCPPlacement {
-	return mcpcodec.RuntimeProbePlacements()
-}
-
 func mustCatalog() aggregate.CodecCatalog {
 	catalog, err := buildCatalog()
 	if err != nil {

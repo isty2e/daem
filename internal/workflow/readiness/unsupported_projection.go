@@ -1,4 +1,4 @@
-package targetavailability
+package readiness
 
 import (
 	"github.com/isty2e/daem/internal/desired"

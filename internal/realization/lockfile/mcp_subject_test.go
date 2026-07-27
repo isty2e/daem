@@ -70,18 +70,19 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 	assertLockedSubjectsEqual(t, loaded.Locked.Subjects(), file.Locked.Subjects())
-	loadedDelegate, ok := loaded.Locked.Subjects()[0].DelegatePlanIdentity()
+	loadedDelegate, ok := loaded.Locked.Subjects()[0].DelegatePlan()
 	if !ok {
-		t.Fatal("loaded contract is missing delegate plan identity")
+		t.Fatal("loaded contract is missing delegate plan")
 	}
-	if len(loadedDelegate.Env) != 1 ||
-		loadedDelegate.Env[0].Name != "API_TOKEN" ||
-		loadedDelegate.Env[0].SourceName != "CONTEXT7_API_TOKEN" {
-		t.Fatalf("loaded delegate env = %#v, want API_TOKEN <- CONTEXT7_API_TOKEN", loadedDelegate.Env)
+	loadedEnv := loadedDelegate.Env().Bindings()
+	if len(loadedEnv) != 1 ||
+		loadedEnv[0].Name() != "API_TOKEN" ||
+		loadedEnv[0].SourceName() != "CONTEXT7_API_TOKEN" {
+		t.Fatalf("loaded delegate env = %#v, want API_TOKEN <- CONTEXT7_API_TOKEN", loadedEnv)
 	}
-	originalDelegate, _ := contract.DelegatePlanIdentity()
-	if loadedDelegate.IdentityKey != originalDelegate.IdentityKey {
-		t.Fatalf("loaded delegate identity key = %q, want %q", loadedDelegate.IdentityKey, originalDelegate.IdentityKey)
+	originalDelegate, _ := contract.DelegatePlan()
+	if loadedDelegate.IdentityKey() != originalDelegate.IdentityKey() {
+		t.Fatalf("loaded delegate identity key = %q, want %q", loadedDelegate.IdentityKey(), originalDelegate.IdentityKey())
 	}
 }
 
@@ -142,7 +143,6 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 	if err != nil {
 		t.Fatalf("MCPBindingDelegatePlan returned error: %v", err)
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(mcpcodec.ClaudeProjectMCPServerProjection{
 		ServerID:        serverName,
 		Command:         "npx",
@@ -162,7 +162,7 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 		LauncherCommand:      "npx",
 		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
 		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: &delegateIdentity,
+		DelegatePlan:         &delegatePlan,
 		CredentialReferences: []string{"CONTEXT7_API_TOKEN"},
 	})
 	if err != nil {

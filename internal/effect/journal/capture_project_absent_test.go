@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestValidateAbsentProjectRecoveryPathRejectsAliasesAndDrift(t *testing.T) {
@@ -82,7 +82,7 @@ func TestValidateAbsentProjectRecoveryPathRejectsAliasesAndDrift(t *testing.T) {
 			mutation := pathMutation{
 				Kind:        pathMutationCreate,
 				Scope:       target.ScopeProject,
-				Destination: output.Destination(".agents/skills/review"),
+				Destination: outputtest.Parse(t, ".agents/skills/review"),
 			}
 
 			err := validateAbsentProjectRecoveryPath(
@@ -114,7 +114,7 @@ func TestValidateAbsentProjectRecoveryPathAcceptsMissingDestination(t *testing.T
 	mutation := pathMutation{
 		Kind:        pathMutationCreate,
 		Scope:       target.ScopeProject,
-		Destination: output.Destination(".agents/skills/review"),
+		Destination: outputtest.Parse(t, ".agents/skills/review"),
 	}
 
 	if err := validateAbsentProjectRecoveryPath(

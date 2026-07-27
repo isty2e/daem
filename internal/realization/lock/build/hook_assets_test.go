@@ -102,8 +102,8 @@ func TestBuildLocksHookAssetWithExecutableIdentity(t *testing.T) {
 	}
 	pathRealization, _ := pathProjections[0].Realization()
 	pathProjection, _ := pathRealization.ManagedPathProjection()
-	if strings.HasPrefix(pathProjection.Destination(), root) ||
-		!strings.HasPrefix(pathProjection.Destination(), ".daem/hook-assets/guard/sha256-") {
+	if strings.HasPrefix(pathProjection.Destination().String(), root) ||
+		!strings.HasPrefix(pathProjection.Destination().String(), ".daem/hook-assets/guard/sha256-") {
 		t.Fatalf("HookAsset destination = %q, want portable content-addressed project path", pathProjection.Destination())
 	}
 	hookContracts := lockedSubjectsOfKind(lockfile, entity.KindHook)

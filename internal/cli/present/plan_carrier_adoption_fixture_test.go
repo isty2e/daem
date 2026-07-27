@@ -5,13 +5,14 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 )
 
 type presentCarrierAdoptionFixture struct {
 	contract  lock.LockedSubjectContract
-	owner     durablecarrier.StateAuthority
+	owner     stateauthority.Authority
 	exact     observerelation.CorrelationResult
 	lifecycle carrieradoption.Lifecycle
 }
@@ -56,7 +57,7 @@ func (fixture presentCarrierAdoptionFixture) actionWithObservation(
 
 func (fixture presentCarrierAdoptionFixture) claim(
 	t *testing.T,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	provenance durablecarrier.ClaimProvenance,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()

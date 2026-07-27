@@ -19,8 +19,11 @@ func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *te
 	if !ok {
 		t.Fatal("OpenCode project MCP placement operations are missing")
 	}
-	conflictingConfigPath := operations.Placement().ConflictingConfigPath()
-	hostPath := filepath.Join(root, filepath.FromSlash(conflictingConfigPath))
+	conflictingConfigPath, hasConflictingConfigPath := operations.Placement().ConflictingConfigPath()
+	if !hasConflictingConfigPath {
+		t.Fatal("OpenCode project placement is missing its alternate config path")
+	}
+	hostPath := filepath.Join(root, filepath.FromSlash(conflictingConfigPath.RelativePath()))
 	if err := os.MkdirAll(filepath.Dir(hostPath), 0o700); err != nil {
 		t.Fatalf("create conflicting config parent: %v", err)
 	}

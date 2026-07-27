@@ -13,14 +13,14 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -30,6 +30,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestSnapshotV7GoldenShapeAndSemanticRoundTrip(t *testing.T) {
@@ -368,7 +369,7 @@ func TestSnapshotV7RejectsForgedManagedPathOccupancy(t *testing.T) {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".agents/skills/oracle",
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.HashFileContent([]byte("oracle")),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -642,7 +643,7 @@ func TestLoadOptionalDistinguishesMissingFromMalformed(t *testing.T) {
 	}
 }
 
-func TestLoadValidatesCarrierStateAuthorityAgainstSelectedPath(t *testing.T) {
+func TestLoadValidatesCarrierAuthorityAgainstSelectedPath(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".daem", "state.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -653,7 +654,7 @@ func TestLoadValidatesCarrierStateAuthorityAgainstSelectedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity, request := testV7CarrierIdentity(t, "context7", "context7@official")
-	owner, err := durablecarrier.NewStateAuthority(canonicalPath, filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(canonicalPath, filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -702,7 +703,7 @@ func testV7Snapshot(t *testing.T) durable.Snapshot {
 		pathSubject,
 		[]target.Target{target.TargetCodex, target.TargetAntigravityCLI},
 		target.ScopeProject,
-		output.Destination(".agents/skills/oracle"),
+		outputtest.Parse(t, ".agents/skills/oracle"),
 		artifact.HashFileContent([]byte("oracle")),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,
@@ -713,7 +714,7 @@ func testV7Snapshot(t *testing.T) durable.Snapshot {
 	}
 	aggregateState := testV7AggregateState(t)
 	authorityRoot := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(authorityRoot, ".daem", "state.json"),
 		filepath.Join(authorityRoot, "daem.toml"),
 	)

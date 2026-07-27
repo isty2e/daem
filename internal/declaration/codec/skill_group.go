@@ -82,7 +82,7 @@ func startsNewSkillGroupTopLevelTable(trimmedLine string) bool {
 }
 
 func ReplaceSkillGroupNames(block string, names []string) string {
-	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "names", renderSkillStringArray(names)); ok {
+	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "names", renderStringArray(names)); ok {
 		return updated
 	}
 	return block
@@ -93,16 +93,16 @@ func RenderSkillGroupBlock(group SkillGroup) string {
 	builder.WriteString("[[skill_group]]\n")
 	if len(group.Include) != 0 {
 		builder.WriteString("include = ")
-		builder.WriteString(renderSkillStringArray(group.Include))
+		builder.WriteString(renderStringArray(group.Include))
 		builder.WriteByte('\n')
 		if len(group.Exclude) != 0 {
 			builder.WriteString("exclude = ")
-			builder.WriteString(renderSkillStringArray(group.Exclude))
+			builder.WriteString(renderStringArray(group.Exclude))
 			builder.WriteByte('\n')
 		}
 	} else {
 		builder.WriteString("names = ")
-		builder.WriteString(renderSkillStringArray(group.Names))
+		builder.WriteString(renderStringArray(group.Names))
 		builder.WriteByte('\n')
 	}
 	builder.WriteString("source = ")
@@ -110,7 +110,7 @@ func RenderSkillGroupBlock(group SkillGroup) string {
 	builder.WriteByte('\n')
 	if len(group.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderSkillStringArray(group.Targets))
+		builder.WriteString(renderStringArray(group.Targets))
 		builder.WriteByte('\n')
 	}
 	if group.Scope != "" {

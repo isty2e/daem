@@ -9,7 +9,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
-	"github.com/isty2e/daem/internal/realization/lock"
+	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/topology"
@@ -110,9 +110,11 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 	}
 	fmt.Fprintf(output, "delegate actions: %d plans\n", len(actions))
 	for _, action := range actions {
-		disclosure := action.Disclosure()
+		plan := action.Plan()
+		command := plan.Command()
+		env := plan.Env().Bindings()
 		if !options.Verbose {
-			fmt.Fprintf(output, "  - run MCP command attempt subject=%q target=%s scope=%s command=%q args=%s env_bindings=%s environment=%s\n", subjectStringFromID(action.Subject()), action.Target(), action.Scope(), disclosure.Command, quotedList(disclosure.Args), delegateEnvBindingList(disclosure.Env), subprocess.ChildEnvironmentInheritancePolicy)
+			fmt.Fprintf(output, "  - run MCP command attempt subject=%q target=%s scope=%s command=%q args=%s env_bindings=%s environment=%s\n", subjectStringFromID(action.Subject()), action.Target(), action.Scope(), command.Name(), quotedList(command.Args()), delegateEnvBindingList(env), subprocess.ChildEnvironmentInheritancePolicy)
 			fmt.Fprintln(output, "    package, cache, server, auth, and future readiness are not guaranteed")
 			continue
 		}
@@ -125,16 +127,16 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 			action.Disposition(),
 			action.PolicyOutcome(),
 			action.SchedulesAttempt(),
-			disclosure.RunnerKind,
-			disclosure.Command,
-			quotedList(disclosure.Args),
-			delegateEnvBindingList(disclosure.Env),
+			plan.Runner().Kind(),
+			command.Name(),
+			quotedList(command.Args()),
+			delegateEnvBindingList(env),
 			subprocess.ChildEnvironmentInheritancePolicy,
-			disclosure.PinPolicy,
+			plan.PinPolicy(),
 			delegateTimeoutPolicy(),
 		)
-		if disclosure.Package != nil {
-			fmt.Fprintf(output, " package=%q", delegatePackageString(*disclosure.Package))
+		if packageRef, present := plan.PackageRef(); present {
+			fmt.Fprintf(output, " package=%q", delegatePackageString(packageRef))
 		}
 		if risks := delegateRiskList(action.Risks()); risks != "" {
 			fmt.Fprintf(output, " risks=%s", risks)
@@ -196,7 +198,9 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSON {
 	result := make([]delegateActionJSON, 0, len(actions))
 	for _, action := range actions {
-		disclosure := action.Disclosure()
+		plan := action.Plan()
+		command := plan.Command()
+		packageRef, hasPackage := plan.PackageRef()
 		result = append(result, delegateActionJSON{
 			Subject:          subjectIDJSON(action.Subject()),
 			Target:           string(action.Target()),
@@ -204,14 +208,14 @@ func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSO
 			Status:           string(action.Disposition()),
 			PolicyOutcome:    string(action.PolicyOutcome()),
 			SchedulesAttempt: action.SchedulesAttempt(),
-			PlanIdentityKey:  action.PlanIdentity().IdentityKey,
-			RunnerKind:       string(disclosure.RunnerKind),
-			Command:          disclosure.Command,
-			Args:             append([]string(nil), disclosure.Args...),
-			EnvBindings:      delegateJSONEnvBindings(disclosure.Env),
+			PlanIdentityKey:  plan.IdentityKey(),
+			RunnerKind:       string(plan.Runner().Kind()),
+			Command:          command.Name(),
+			Args:             command.Args(),
+			EnvBindings:      delegateJSONEnvBindings(plan.Env().Bindings()),
 			Environment:      subprocess.ChildEnvironmentInheritancePolicy,
-			Package:          delegateJSONPackage(disclosure.Package),
-			PinPolicy:        string(disclosure.PinPolicy),
+			Package:          delegateJSONPackage(packageRef, hasPackage),
+			PinPolicy:        string(plan.PinPolicy()),
 			TimeoutSeconds:   int(delegate.DefaultTimeout / time.Second),
 			Risks:            delegateJSONRisks(action.Risks()),
 			Dependencies:     delegateJSONDependencies(action.Dependencies()),
@@ -220,12 +224,12 @@ func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSO
 	return result
 }
 
-func delegateJSONEnvBindings(values []lock.DelegateEnvBinding) []delegateEnvBindingJSON {
+func delegateJSONEnvBindings(values []realizationdelegate.EnvBinding) []delegateEnvBindingJSON {
 	result := make([]delegateEnvBindingJSON, 0, len(values))
 	for _, value := range values {
 		result = append(result, delegateEnvBindingJSON{
-			Name:       value.Name,
-			SourceName: value.SourceName,
+			Name:       value.Name(),
+			SourceName: value.SourceName(),
 		})
 	}
 	return result
@@ -260,14 +264,17 @@ func delegateJSONAttempts(results []DelegateAttemptInput) []delegateAttemptJSON 
 	return rows
 }
 
-func delegateJSONPackage(pkg *lock.DelegatePackageIdentity) *delegatePackageJSON {
-	if pkg == nil {
+func delegateJSONPackage(
+	pkg realizationdelegate.PackageRef,
+	present bool,
+) *delegatePackageJSON {
+	if !present {
 		return nil
 	}
 	return &delegatePackageJSON{
-		Ecosystem: string(pkg.Ecosystem),
-		Name:      pkg.Name,
-		Selector:  pkg.Selector,
+		Ecosystem: string(pkg.Ecosystem()),
+		Name:      pkg.Name(),
+		Selector:  pkg.Selector(),
 	}
 }
 
@@ -317,10 +324,10 @@ func delegateTimeoutPolicy() string {
 	return delegate.DefaultTimeout.String()
 }
 
-func delegatePackageString(pkg lock.DelegatePackageIdentity) string {
-	value := string(pkg.Ecosystem) + ":" + pkg.Name
-	if pkg.Selector != "" {
-		value += "@" + pkg.Selector
+func delegatePackageString(pkg realizationdelegate.PackageRef) string {
+	value := string(pkg.Ecosystem()) + ":" + pkg.Name()
+	if pkg.Selector() != "" {
+		value += "@" + pkg.Selector()
 	}
 	return value
 }
@@ -369,10 +376,10 @@ func plainList(values []string) string {
 	return "[" + strings.Join(values, ",") + "]"
 }
 
-func delegateEnvBindingList(values []lock.DelegateEnvBinding) string {
+func delegateEnvBindingList(values []realizationdelegate.EnvBinding) string {
 	items := make([]string, 0, len(values))
 	for _, value := range values {
-		items = append(items, value.Name+"<-"+value.SourceName)
+		items = append(items, value.Name()+"<-"+value.SourceName())
 	}
 	return plainList(items)
 }

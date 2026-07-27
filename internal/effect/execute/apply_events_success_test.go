@@ -89,7 +89,7 @@ func TestApplyWithOptionsRecordOnlyEmitsActionEventsWithoutHostWrite(t *testing.
 	}
 	fixture := newApplyEventFixture(t)
 	action := fixture.recordAction("record", "readonly/RECORD.md", "record me\n")
-	readOnlyDir := filepath.Dir(fixture.hostPath(string(action.Destination)))
+	readOnlyDir := filepath.Dir(fixture.hostPath(action.Destination.String()))
 	if err := os.Chmod(readOnlyDir, 0o500); err != nil {
 		t.Fatalf("chmod readonly directory: %v", err)
 	}

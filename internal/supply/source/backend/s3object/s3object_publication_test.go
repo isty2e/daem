@@ -22,7 +22,7 @@ func TestResolvePreservesCompleteFinalEntry(t *testing.T) {
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/instructions/project.md", "v1", "", sourcepkg.S3ObjectFormatFile)
 
-	resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestResolvePreservesCompleteFinalEntry(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	secondResolved, err := resolver.Resolve(context.Background(), sourceSpec)
+	secondResolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestResolveRebuildsPoisonedSameKeyFinalEntry(t *testing.T) {
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/instructions/project.md", "v1", "", sourcepkg.S3ObjectFormatFile)
 
-	first, err := resolver.Resolve(context.Background(), sourceSpec)
+	first, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestResolveRebuildsPoisonedSameKeyFinalEntry(t *testing.T) {
 		t.Fatalf("poison final entry: %v", err)
 	}
 
-	second, err := resolver.Resolve(context.Background(), sourceSpec)
+	second, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestResolveRecoversStalePartialFinalEntry(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestResolveBodyReadErrorCleansTemp(t *testing.T) {
 	sourceSpec := sourcetest.S3(t, "s3://daem/instructions/project.md", "", "", sourcepkg.S3ObjectFormatFile)
 	sourceID := mustS3SourceID(t, sourceSpec)
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Resolve error = %v, want body read error", err)
 	}
@@ -155,7 +155,7 @@ func TestResolveBodyReadCancellationCleansTemp(t *testing.T) {
 	sourceSpec := sourcetest.S3(t, "s3://daem/instructions/project.md", "", "", sourcepkg.S3ObjectFormatFile)
 	sourceID := mustS3SourceID(t, sourceSpec)
 
-	_, err = resolver.Resolve(ctx, sourceSpec)
+	_, err = resolver.Resolve(ctx, sourceSpec, noOperationOptions)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Resolve error = %v, want context.Canceled", err)
 	}
@@ -174,7 +174,7 @@ func TestResolveHashCancellationCleansTemp(t *testing.T) {
 	sourceSpec := sourcetest.S3(t, "s3://daem/instructions/project.md", "", "", sourcepkg.S3ObjectFormatFile)
 	sourceID := mustS3SourceID(t, sourceSpec)
 
-	_, err = resolver.Resolve(ctx, sourceSpec)
+	_, err = resolver.Resolve(ctx, sourceSpec, noOperationOptions)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Resolve error = %v, want context.Canceled", err)
 	}

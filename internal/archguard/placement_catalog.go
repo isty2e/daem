@@ -1,0 +1,420 @@
+package archguard
+
+var packagePlacementRows = []packagePlacementRow{
+	{
+		id:        "desired.kernel",
+		placement: plainPlacement(affinityDesired, roleSemanticKernel),
+		packages: []string{
+			"internal/desired",
+			"internal/desired/entity",
+		},
+	},
+	{
+		id:        "desired.family.extension",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Extension"),
+		packages:  []string{"internal/desired/extension"},
+	},
+	{
+		id:        "desired.family.hook",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Hook"),
+		packages:  []string{"internal/desired/hook"},
+	},
+	{
+		id:        "desired.family.hookasset",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "HookAsset"),
+		packages:  []string{"internal/desired/hookasset"},
+	},
+	{
+		id:        "desired.family.instructions",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Instructions"),
+		packages:  []string{"internal/desired/instructions"},
+	},
+	{
+		id:        "desired.family.mcp",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "MCP"),
+		packages:  []string{"internal/desired/mcp"},
+	},
+	{
+		id:        "desired.family.skill",
+		placement: specializedPlacement(affinityDesired, roleSemanticKernel, specializationFamily, "Skill"),
+		packages:  []string{"internal/desired/skill"},
+	},
+	{
+		id:        "topology.kernel",
+		placement: plainPlacement(affinityTopology, roleSemanticKernel),
+		packages: []string{
+			"internal/topology",
+			"internal/topology/projection",
+		},
+	},
+	{
+		id:        "topology.family.extension",
+		placement: specializedPlacement(affinityTopology, roleSemanticKernel, specializationFamily, "Extension"),
+		packages:  []string{"internal/topology/extension"},
+	},
+	{
+		id:        "topology.family.hook",
+		placement: specializedPlacement(affinityTopology, roleSemanticKernel, specializationFamily, "Hook"),
+		packages:  []string{"internal/topology/hook"},
+	},
+	{
+		id:        "topology.family.mcp",
+		placement: specializedPlacement(affinityTopology, roleSemanticKernel, specializationFamily, "MCP"),
+		packages:  []string{"internal/topology/mcp"},
+	},
+	{
+		id:        "topology.family.resource",
+		placement: specializedPlacement(affinityTopology, roleSemanticKernel, specializationFamily, "Resource"),
+		packages:  []string{"internal/topology/resource"},
+	},
+	{
+		id:        "supply.kernel",
+		placement: plainPlacement(affinitySupply, roleSemanticKernel),
+		packages: []string{
+			"internal/supply/artifact",
+			"internal/supply/source",
+			"internal/supply/source/acquisition",
+			"internal/supply/source/directfile",
+		},
+	},
+	{
+		id:        "supply.family.skill",
+		placement: specializedPlacement(affinitySupply, roleSemanticKernel, specializationFamily, "Skill"),
+		packages:  []string{"internal/supply/compat/skill"},
+	},
+	{
+		id:        "realization.kernel",
+		placement: plainPlacement(affinityRealization, roleSemanticKernel),
+		packages: []string{
+			"internal/realization",
+			"internal/realization/aggregate",
+			"internal/realization/delegate",
+			"internal/realization/effectpostcondition",
+			"internal/realization/lock",
+			"internal/realization/profile",
+			"internal/realization/relation",
+		},
+	},
+	{
+		id:        "assurance.kernel",
+		placement: plainPlacement(affinityAssurance, roleSemanticKernel),
+		packages: []string{
+			"internal/assurance/durable",
+			"internal/assurance/durable/attempt",
+			"internal/assurance/durable/carrier",
+			"internal/assurance/hostroute",
+			"internal/assurance/observe",
+			"internal/assurance/observe/config",
+			"internal/assurance/observe/contribution",
+			"internal/assurance/observe/mcp",
+			"internal/assurance/observe/postcondition",
+			"internal/assurance/observe/relation",
+			"internal/assurance/postcondition",
+			"internal/assurance/runtimeprobe",
+		},
+	},
+	{
+		id:        "reconciliation.kernel",
+		placement: plainPlacement(affinityReconciliation, roleSemanticKernel),
+		packages: []string{
+			"internal/reconcile",
+			"internal/reconcile/build/hostroute",
+			"internal/reconcile/build/projection",
+			"internal/reconcile/carrierabsence",
+			"internal/reconcile/carrieradoption",
+			"internal/reconcile/delegatepolicy",
+		},
+	},
+	{
+		id:        "effect.kernel",
+		placement: plainPlacement(affinityEffect, roleSemanticKernel),
+		packages: []string{
+			"internal/effect/mutation/filesystem",
+			"internal/effect/mutation/ownership",
+			"internal/effect/payload",
+		},
+	},
+	{
+		id:        "platform.kernel",
+		placement: specializedPlacement(affinityNone, roleSemanticKernel, specializationPlatform, "GOOS/GOARCH"),
+		packages:  []string{"internal/platformsupport"},
+	},
+	{
+		id:        "stable.value",
+		placement: plainPlacement(affinityNone, roleStableValue),
+		packages: []string{
+			"internal/assurance/stateauthority",
+			"internal/findings",
+			"internal/output",
+			"internal/output/ownership",
+			"internal/target",
+		},
+	},
+	{
+		id:        "desired.lowering",
+		placement: plainPlacement(affinityDesired, roleLoweringRefinement),
+		packages:  []string{"internal/declaration/normalize"},
+	},
+	{
+		id:        "realization.refinement",
+		placement: plainPlacement(affinityRealization, roleLoweringRefinement),
+		packages:  []string{"internal/realization/lock/refine"},
+	},
+	{
+		id:        "realization.refinement.hook",
+		placement: specializedPlacement(affinityRealization, roleLoweringRefinement, specializationFamily, "Hook"),
+		packages:  []string{"internal/realization/aggregate/hook"},
+	},
+	{
+		id:        "realization.refinement.mcp",
+		placement: specializedPlacement(affinityRealization, roleLoweringRefinement, specializationProtocol, "MCP"),
+		packages:  []string{"internal/realization/delegate/mcp"},
+	},
+	{
+		id:        "declaration.codec.toml",
+		placement: specializedPlacement(affinityDesired, roleCodec, specializationFormat, "TOML"),
+		packages: []string{
+			"internal/declaration",
+			"internal/declaration/codec",
+		},
+	},
+	{
+		id:        "declaration.transaction",
+		placement: plainPlacement(affinityNone, roleTransactionRecovery),
+		packages:  []string{"internal/declaration/transaction"},
+	},
+	{
+		id:        "realization.codec.aggregate",
+		placement: plainPlacement(affinityRealization, roleCodec),
+		packages:  []string{"internal/realization/aggregate/codec"},
+	},
+	{
+		id:        "realization.codec.hook",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationFamily, "Hook"),
+		packages:  []string{"internal/realization/aggregate/codec/hook"},
+	},
+	{
+		id:        "realization.codec.mcp",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationProtocol, "MCP"),
+		packages:  []string{"internal/realization/aggregate/codec/mcp"},
+	},
+	{
+		id:        "realization.codec.opencode",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationHost, "OpenCode"),
+		packages:  []string{"internal/realization/configrelation/opencode"},
+	},
+	{
+		id:        "realization.codec.lockfile",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationFormat, "lockfile"),
+		packages:  []string{"internal/realization/lockfile"},
+	},
+	{
+		id:        "assurance.codec.statefile",
+		placement: specializedPlacement(affinityAssurance, roleCodec, specializationFormat, "private state"),
+		packages:  []string{"internal/assurance/statefile"},
+	},
+	{
+		id:        "codec.strict-json",
+		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "strict JSON"),
+		packages:  []string{"internal/encoding/jsonstrict"},
+	},
+	{
+		id:        "assurance.observation",
+		placement: plainPlacement(affinityAssurance, roleObservationAdapter),
+		packages: []string{
+			"internal/assurance/observe/live",
+			"internal/assurance/observe/lock",
+			"internal/assurance/observe/ownership",
+			"internal/assurance/observe/relation/host",
+		},
+	},
+	{
+		id:        "assurance.observation.mcp",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationProtocol, "MCP"),
+		packages:  []string{"internal/assurance/runtimeprobe/mcp"},
+	},
+	{
+		id:        "assurance.observation.antigravity",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Antigravity"),
+		packages:  []string{"internal/assurance/observe/antigravityplugin"},
+	},
+	{
+		id:        "assurance.observation.claude-code",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Claude Code"),
+		packages:  []string{"internal/assurance/observe/claudeplugin"},
+	},
+	{
+		id:        "assurance.observation.codex",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Codex"),
+		packages:  []string{"internal/assurance/observe/codexplugin"},
+	},
+	{
+		id:        "assurance.observation.pi",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Pi"),
+		packages:  []string{"internal/assurance/observe/pipackage"},
+	},
+	{
+		id:        "effect.active.execute",
+		placement: plainPlacement(affinityEffect, roleActiveAdapter),
+		packages: []string{
+			"internal/effect/execute/configrelation",
+			"internal/effect/execute/delegate",
+			"internal/effect/execute/hostroute",
+			"internal/effect/mutation",
+			"internal/effect/mutation/filesystem/artifactstage",
+			"internal/effect/mutation/rootedpath",
+		},
+	},
+	{
+		id:        "supply.active",
+		placement: plainPlacement(affinitySupply, roleActiveAdapter),
+		packages: []string{
+			"internal/supply/artifact/access",
+			"internal/supply/source/cache",
+			"internal/supply/source/resolution",
+		},
+	},
+	{
+		id:        "supply.active.skill-repair",
+		placement: specializedPlacement(affinitySupply, roleActiveAdapter, specializationFamily, "Skill"),
+		packages:  []string{"internal/supply/compat/skill/repair"},
+	},
+	{
+		id:        "supply.active.archive",
+		placement: specializedPlacement(affinitySupply, roleActiveAdapter, specializationFormat, "archive"),
+		packages:  []string{"internal/supply/source/archive"},
+	},
+	{
+		id:        "supply.active.backend.git",
+		placement: specializedPlacement(affinitySupply, roleActiveAdapter, specializationBackend, "Git"),
+		packages:  []string{"internal/supply/source/backend/gitcli"},
+	},
+	{
+		id:        "supply.active.backend.local",
+		placement: specializedPlacement(affinitySupply, roleActiveAdapter, specializationBackend, "local filesystem"),
+		packages:  []string{"internal/supply/source/backend/localfs"},
+	},
+	{
+		id:        "supply.active.backend.s3",
+		placement: specializedPlacement(affinitySupply, roleActiveAdapter, specializationBackend, "S3"),
+		packages:  []string{"internal/supply/source/backend/s3object"},
+	},
+	{
+		id:        "effect.transaction",
+		placement: plainPlacement(affinityEffect, roleTransactionRecovery),
+		packages: []string{
+			"internal/effect/execute",
+			"internal/effect/journal",
+			"internal/effect/journal/recovery",
+			"internal/effect/storage/commit",
+		},
+	},
+	{
+		id:        "effect.transaction.carrier-claims",
+		placement: specializedPlacement(affinityEffect, roleTransactionRecovery, specializationFormat, "carrier claims"),
+		packages:  []string{"internal/effect/storage/carrierclaim"},
+	},
+	{
+		id:        "effect.transaction.output-ownership",
+		placement: specializedPlacement(affinityEffect, roleTransactionRecovery, specializationFormat, "output ownership"),
+		packages:  []string{"internal/output/ownership/store"},
+	},
+	{
+		id:        "active.boundary",
+		placement: plainPlacement(affinityNone, roleActiveAdapter),
+		packages: []string{
+			"internal/output/hostpath",
+			"internal/paths",
+			"internal/subprocess",
+		},
+	},
+	{
+		id:        "declaration.workflow.toml",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFormat, "TOML"),
+		packages:  []string{"internal/declaration/manifest"},
+	},
+	{
+		id:        "realization.workflow.lock-build",
+		placement: plainPlacement(affinityRealization, roleWorkflowComposition),
+		packages:  []string{"internal/realization/lock/build"},
+	},
+	{
+		id:        "workflow.composition",
+		placement: plainPlacement(affinityNone, roleWorkflowComposition),
+		packages: []string{
+			"internal/adopt",
+			"internal/adopt/merge",
+			"internal/cli",
+			"internal/diagnose",
+			"internal/effect/payload/build",
+			"internal/target/selection",
+			"internal/workflow/adopt",
+			"internal/workflow/apply",
+			"internal/workflow/authoring",
+			"internal/workflow/diagnose",
+			"internal/workflow/help",
+			"internal/workflow/init",
+			"internal/workflow/list",
+			"internal/workflow/lock",
+			"internal/workflow/lock/generate",
+			"internal/workflow/probe",
+			"internal/workflow/readiness",
+			"internal/workflow/recover",
+			"internal/workflow/refresh",
+			"internal/workflow/status",
+		},
+	},
+	{
+		id:        "workflow.family.hook",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "Hook"),
+		packages:  []string{"internal/adopt/hook"},
+	},
+	{
+		id:        "workflow.family.instructions",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "Instructions"),
+		packages:  []string{"internal/adopt/instructions"},
+	},
+	{
+		id:        "workflow.family.mcp",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "MCP"),
+		packages:  []string{"internal/adopt/mcp"},
+	},
+	{
+		id:        "workflow.family.skill",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "Skill"),
+		packages:  []string{"internal/adopt/skill"},
+	},
+	{
+		id:        "presentation",
+		placement: plainPlacement(affinityNone, rolePresentation),
+		packages: []string{
+			"internal/cli/present",
+			"internal/cli/present/progress",
+		},
+	},
+	{
+		id:        "repository.tool",
+		placement: plainPlacement(affinityNone, roleRepositoryTool),
+		packages: []string{
+			"internal/archguard",
+			"internal/buildidentity",
+			"internal/releaseartifact",
+			"internal/releaseartifact/cmd/releasepack",
+		},
+	},
+	{
+		id:        "test-support.desired",
+		placement: plainPlacement(affinityDesired, roleTestSupport),
+		packages:  []string{"internal/desired/testfixture"},
+	},
+	{
+		id:        "test-support.realization",
+		placement: plainPlacement(affinityRealization, roleTestSupport),
+		packages:  []string{"internal/realization/lock/snapshottest"},
+	},
+	{
+		id:        "test-support.supply",
+		placement: plainPlacement(affinitySupply, roleTestSupport),
+		packages:  []string{"internal/supply/source/sourcetest"},
+	},
+}

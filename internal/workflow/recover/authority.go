@@ -37,6 +37,17 @@ type recoveryDestinationKey struct {
 	destination output.Destination
 }
 
+func canonicalRecoveryDestination(scope target.Scope, value string) (output.Destination, error) {
+	destination, err := output.Parse(value)
+	if err != nil {
+		return output.Destination{}, err
+	}
+	if err := destination.ValidateScope(scope); err != nil {
+		return output.Destination{}, err
+	}
+	return destination, nil
+}
+
 type recoveryPhysicalOccupancy struct {
 	destination recoveryDestinationKey
 	aggregate   bool
@@ -182,9 +193,11 @@ func buildRecoveryAuthorityEvidence(paths daempaths.Paths, plan recovery.Plan) (
 		if len(targets) == 0 {
 			return recoveryAuthorityEvidence{}, fmt.Errorf("recovery guarded action has no target authority")
 		}
-		resolved := resolvedDestinations[recoveryDestinationKey{
-			scope: action.Scope, destination: output.Destination(action.Destination),
-		}]
+		destination, err := canonicalRecoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			return recoveryAuthorityEvidence{}, fmt.Errorf("recovery guarded action destination: %w", err)
+		}
+		resolved := resolvedDestinations[recoveryDestinationKey{scope: action.Scope, destination: destination}]
 		for _, effect := range []mutation.PathEffect{mutation.PathEffectDirectoryEntry, mutation.PathEffectReferent} {
 			for _, selected := range targets {
 				if err := addPhysical(resolved, string(selected), string(action.Scope), effect); err != nil {
@@ -232,9 +245,11 @@ func resolveRecoveryGuardedDestinations(
 		if action.Destination == "" || action.Scope == "" {
 			return nil, fmt.Errorf("recovery guarded action has incomplete destination authority")
 		}
-		key := recoveryDestinationKey{
-			scope: action.Scope, destination: output.Destination(action.Destination),
+		destination, err := canonicalRecoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			return nil, fmt.Errorf("recovery guarded action destination: %w", err)
 		}
+		key := recoveryDestinationKey{scope: action.Scope, destination: destination}
 		path, present := resolved[key]
 		if !present {
 			var err error

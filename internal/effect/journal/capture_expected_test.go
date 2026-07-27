@@ -6,13 +6,14 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestExpectedPathStateFromMutationPreservesExplicitModeZero(t *testing.T) {
 	action := pathMutation{
 		Subject:         testManagedPathSubject(t, "mode-zero"),
 		ConsumerTargets: []target.Target{target.TargetCodex},
-		Destination:     "AGENTS.md",
+		Destination:     outputtest.Parse(t, "AGENTS.md"),
 		DesiredHash:     testContentHash("after"),
 		ExpectedExists:  true,
 		ContentKind:     realization.PathProjectionFile,
@@ -31,7 +32,7 @@ func TestExpectedPathStateFromMutationKeepsProjectionAndDocumentExistenceIndepen
 	action := pathMutation{
 		Subject:            testManagedPathSubject(t, "removed-projection"),
 		Target:             target.TargetClaudeCode,
-		Destination:        ".claude.json",
+		Destination:        outputtest.Parse(t, ".claude.json"),
 		ContentPath:        "/mcpServers/removed",
 		ExpectedExists:     false,
 		ExpectedPathExists: true,
@@ -53,7 +54,7 @@ func TestCaptureRecoveryExpectedAfterManagedRemovalIsAbsentAndUnmanaged(t *testi
 		Kind:               pathMutationRemove,
 		Subject:            testManagedPathSubject(t, "removed"),
 		ConsumerTargets:    []target.Target{target.TargetCodex},
-		Destination:        ".agents/skills/removed",
+		Destination:        outputtest.Parse(t, ".agents/skills/removed"),
 		DesiredHash:        testContentHash("before"),
 		ExpectedExists:     false,
 		ExpectedPathExists: false,

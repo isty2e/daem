@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -20,7 +21,7 @@ type CarrierAdoptionInput struct {
 	Locked          lock.File
 	SelectedTargets reconcile.SelectedTargets
 	Observations    relationobserve.Batch
-	CurrentOwner    durablecarrier.StateAuthority
+	CurrentOwner    stateauthority.Authority
 	AllClaims       []durablecarrier.ManagedCarrierClaim
 	ManageExisting  bool
 	StoreAvailable  bool

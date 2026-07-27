@@ -38,7 +38,7 @@ func runOutdated(args []string, stdout io.Writer, stderr io.Writer, options comm
 		ManifestPath: *manifestPath,
 		LockfilePath: "",
 		SourceEvents: progress.SourceSink(),
-		LockEvents:   lockWorkflowProgressSink(progress),
+		LockEvents:   progress.LockSink(),
 	})
 	progress.Close()
 	if err != nil {

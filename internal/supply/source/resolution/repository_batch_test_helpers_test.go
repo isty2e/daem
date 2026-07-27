@@ -73,11 +73,7 @@ func (backend *repositoryBatchBackend) PrepareRepositorySnapshot(
 	return backend.ensureRepositorySnapshot(ctx, sourceSpec, options)
 }
 
-func (backend *repositoryBatchBackend) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
-	return backend.ResolveWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-func (backend *repositoryBatchBackend) ResolveWithOptions(
+func (backend *repositoryBatchBackend) Resolve(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
@@ -106,11 +102,7 @@ func (backend *repositoryBatchBackend) ResolveWithOptions(
 	return acquisition.NewResolution(sourceSpec, identity, backend.view)
 }
 
-func (backend *repositoryBatchBackend) ListSourceRoot(ctx context.Context, sourceSpec source.Source) (source.RootListing, error) {
-	return backend.ListSourceRootWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-func (backend *repositoryBatchBackend) ListSourceRootWithOptions(
+func (backend *repositoryBatchBackend) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,

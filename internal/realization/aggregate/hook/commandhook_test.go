@@ -25,7 +25,7 @@ func TestDestination(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, ok := Destination(test.target, test.scope)
-			if got != test.want || ok != test.ok {
+			if got.String() != test.want || ok != test.ok {
 				t.Fatalf("Destination(%q, %q) = %q, %t; want %q, %t", test.target, test.scope, got, ok, test.want, test.ok)
 			}
 		})
@@ -33,13 +33,16 @@ func TestDestination(t *testing.T) {
 }
 
 func TestCodexInlineConfigDestination(t *testing.T) {
-	if got, ok := CodexInlineConfigDestination(".codex/hooks.json"); got != ".codex/config.toml" || !ok {
+	projectHooks, _ := Destination(target.TargetCodex, target.ScopeProject)
+	if got, ok := CodexInlineConfigDestination(projectHooks); got.String() != ".codex/config.toml" || !ok {
 		t.Fatalf("project inline config = %q, %t", got, ok)
 	}
-	if got, ok := CodexInlineConfigDestination("~/.codex/hooks.json"); got != "~/.codex/config.toml" || !ok {
+	globalHooks, _ := Destination(target.TargetCodex, target.ScopeGlobal)
+	if got, ok := CodexInlineConfigDestination(globalHooks); got.String() != "~/.codex/config.toml" || !ok {
 		t.Fatalf("global inline config = %q, %t", got, ok)
 	}
-	if got, ok := CodexInlineConfigDestination(".claude/settings.json"); got != "" || ok {
+	claudeHooks, _ := Destination(target.TargetClaudeCode, target.ScopeProject)
+	if got, ok := CodexInlineConfigDestination(claudeHooks); got.Validate() == nil || ok {
 		t.Fatalf("non-codex inline config = %q, %t", got, ok)
 	}
 }

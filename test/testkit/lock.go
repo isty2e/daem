@@ -309,7 +309,7 @@ func exactSupplyInstructionProjections(
 				entity.KindInstructions,
 				consumer,
 				exactSupplyFixtureScope(fixture),
-				destination,
+				parseDestination(t, destination),
 			)
 			if err != nil {
 				t.Fatalf("ManagedFilePlacementFor returned error: %v", err)

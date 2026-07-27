@@ -223,7 +223,7 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 				Rule:        rulePresentWorkflowImport,
 				PackagePath: packagePath,
 				ImportPath:  importInternalPath,
-				Detail:      "presentation may read only an explicitly admitted workflow-local result; workflows never import presentation",
+				Detail:      "presentation may read only an explicitly admitted workflow result or progress fact; workflows never import presentation",
 			})
 		}
 

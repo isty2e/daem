@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func canonicalMCPEntryForSpec(t *testing.T, serverID string, spec mcpManifestSpec) []byte {
@@ -38,7 +39,7 @@ func compareCLIMCPPlacementCanonicalEntry(
 	canonical []byte,
 ) (mcpcodec.MCPProjectionCanonicalComparison, error) {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(id)
+	operations, ok := mcptest.OperationsForPlacementID(id)
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}

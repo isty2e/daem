@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -13,11 +14,12 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
@@ -38,10 +40,10 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 		t.Fatalf("canonicalize fixture: %v", err)
 	}
 	parentAddress, _ := outputownership.NewManagedAddress(canonical, "/mcp_servers")
-	foreign, _ := outputownership.NewOwnerAuthority(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
+	foreign, _ := stateauthority.New(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
-	operations, admitted := mcpcodec.ImplementedMCPPlacementOperationsForID(
+	operations, admitted := mcptest.OperationsForPlacementID(
 		aggregate.MCPPlacementCodexGlobal,
 	)
 	if !admitted {
@@ -81,7 +83,7 @@ func TestBuildDeduplicatesManagedPathAndStateAndFiltersSelection(t *testing.T) {
 	root := canonicalRoot(t)
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"codex"})
-	destination := output.Destination("~/.agents/skills/reviewer")
+	destination := outputtest.Parse(t, "~/.agents/skills/reviewer")
 	resolverCalls := 0
 	result, err := Build(Input{
 		Paths: paths,
@@ -94,8 +96,8 @@ func TestBuildDeduplicatesManagedPathAndStateAndFiltersSelection(t *testing.T) {
 		}},
 		StatePaths: []durable.ManagedPathState{
 			testManagedPathState(t, "selected", target.TargetCodex, target.ScopeGlobal, destination),
-			testManagedPathState(t, "other-target", target.TargetClaudeCode, target.ScopeGlobal, "~/.claude/ignored"),
-			testManagedPathState(t, "project", target.TargetCodex, target.ScopeProject, "project"),
+			testManagedPathState(t, "other-target", target.TargetClaudeCode, target.ScopeGlobal, outputtest.Parse(t, "~/.claude/ignored")),
+			testManagedPathState(t, "project", target.TargetCodex, target.ScopeProject, outputtest.Parse(t, "project")),
 		},
 		Selection: selection,
 		Registry:  outputownership.EmptyRegistry(),
@@ -144,7 +146,7 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 	root := canonicalRoot(t)
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"claude-code"})
-	operations, admitted := mcpcodec.ImplementedMCPPlacementOperationsForID(
+	operations, admitted := mcptest.OperationsForPlacementID(
 		aggregate.MCPPlacementClaudeGlobal,
 	)
 	if !admitted {
@@ -164,7 +166,7 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 		Paths: paths,
 		Resolver: func(destination output.Destination) (string, error) {
 			resolverCalls++
-			if destination != output.Destination(contract.Address().Document().AggregateRoot()) {
+			if destination != contract.Address().Document().AggregateRoot() {
 				t.Fatalf("resolver destination = %q, want aggregate root", destination)
 			}
 			return physical, nil

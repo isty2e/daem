@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -289,7 +290,7 @@ func runAfterCarrierClaimRetirements(
 	locked lock.File,
 	selection targetselection.Selection,
 	stateResult execute.ApplyResult,
-	carrierOwner durablecarrier.StateAuthority,
+	carrierOwner stateauthority.Authority,
 	globalClaims durablecarrier.GlobalCarrierClaims,
 	globalRetirements []durablecarrier.ManagedCarrierClaim,
 	globalAdoptions []durablecarrier.ManagedCarrierClaim,

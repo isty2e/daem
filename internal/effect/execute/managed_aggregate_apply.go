@@ -8,7 +8,6 @@ import (
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -85,7 +84,7 @@ func verifyAggregateOperationPreconditions(
 		document := precondition.DocumentAddress()
 		destination, err := authority.resolveBoundDestination(
 			document.Scope(),
-			output.Destination(document.AggregateRoot()),
+			document.AggregateRoot(),
 		)
 		if err != nil {
 			return err
@@ -307,6 +306,6 @@ func aggregateEventFacts(index int, subject AggregateSubjectEffect) ActionEventF
 	return ActionEventFacts{
 		Index: index, AggregateKind: subject.Kind(), Subject: subject.Subject(),
 		Target: contract.Address().Document().Target(), Scope: contract.Address().Document().Scope(),
-		Destination: output.Destination(contract.Address().Document().AggregateRoot()),
+		Destination: contract.Address().Document().AggregateRoot(),
 	}
 }

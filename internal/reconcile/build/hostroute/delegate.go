@@ -53,7 +53,7 @@ func BuildDelegateActions(input DelegateInput) ([]reconciliation.DelegateAction,
 
 	actions := make([]reconciliation.DelegateAction, 0)
 	for _, contract := range input.Locked.Locked.Subjects() {
-		planIdentity, ok := contract.DelegatePlanIdentity()
+		delegatePlan, ok := contract.DelegatePlan()
 		if !ok {
 			continue
 		}
@@ -67,7 +67,7 @@ func BuildDelegateActions(input DelegateInput) ([]reconciliation.DelegateAction,
 
 		readiness := readinessBySubject[contract.SubjectID()]
 		decision, err := delegatepolicy.Evaluate(delegatepolicy.Input{
-			Plan:           planIdentity,
+			Plan:           delegatePlan,
 			Mode:           mode,
 			Runner:         readiness.runner(),
 			MissingEnvRefs: readiness.MissingEnvRefs,
@@ -83,9 +83,8 @@ func BuildDelegateActions(input DelegateInput) ([]reconciliation.DelegateAction,
 			Subject:      contract.SubjectID(),
 			Target:       context.target,
 			Scope:        context.scope,
-			Plan:         planIdentity,
+			Plan:         delegatePlan,
 			Disposition:  delegateDisposition(decision.Outcome()),
-			Disclosure:   decision.Disclosure(),
 			Risks:        decision.Risks(),
 			Dependencies: context.dependencies,
 		})

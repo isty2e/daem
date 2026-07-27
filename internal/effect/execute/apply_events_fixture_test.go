@@ -275,8 +275,8 @@ func (fixture *applyEventFixture) updateExecutableFileAction(t *testing.T, name 
 	oldDestination := fixture.hookAssetDestination(name, oldHash)
 	newDestination := fixture.hookAssetDestination(name, newHash)
 	fixture.destinations[destination] = newDestination
-	writeApplyEventFile(nil, fixture.hostPath(string(oldDestination)), oldContent)
-	if err := os.Chmod(fixture.hostPath(string(oldDestination)), 0o700); err != nil {
+	writeApplyEventFile(nil, fixture.hostPath(oldDestination.String()), oldContent)
+	if err := os.Chmod(fixture.hostPath(oldDestination.String()), 0o700); err != nil {
 		t.Fatalf("chmod executable hook asset: %v", err)
 	}
 	fixture.appendManagedPath(durable.NewManagedPathState(
@@ -320,7 +320,7 @@ func (fixture *applyEventFixture) recordAction(name string, destination string, 
 	hash := artifact.HashFileContent([]byte(content))
 	canonicalDestination := fixture.hookAssetDestination(name, hash)
 	fixture.destinations[destination] = canonicalDestination
-	fixture.writeExistingHostFile(string(canonicalDestination), content)
+	fixture.writeExistingHostFile(canonicalDestination.String(), content)
 	return applyEventAction{
 		Kind:         reconcile.ActionKindRecord,
 		Reason:       reconcile.ReasonManagedExisting,
@@ -338,7 +338,7 @@ func (fixture *applyEventFixture) existingManagedAction(kind reconcile.ActionKin
 	hash := artifact.HashFileContent([]byte(content))
 	canonicalDestination := fixture.hookAssetDestination(name, hash)
 	fixture.destinations[destination] = canonicalDestination
-	fixture.writeExistingHostFile(string(canonicalDestination), content)
+	fixture.writeExistingHostFile(canonicalDestination.String(), content)
 	fixture.appendManagedPath(durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -427,7 +427,7 @@ func (fixture *applyEventFixture) hookAssetDestination(name string, hash artifac
 	if err != nil {
 		panic(err)
 	}
-	return output.Destination(destination)
+	return destination
 }
 
 func (fixture *applyEventFixture) writeExistingHostFile(destination string, content string) artifact.ContentHash {
@@ -437,7 +437,7 @@ func (fixture *applyEventFixture) writeExistingHostFile(destination string, cont
 
 func (fixture *applyEventFixture) hostPath(destination string) string {
 	if canonical, ok := fixture.destinations[destination]; ok {
-		destination = string(canonical)
+		destination = canonical.String()
 	}
 	return filepath.Join(fixture.root, filepath.FromSlash(destination))
 }

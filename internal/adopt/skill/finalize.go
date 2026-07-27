@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -55,7 +56,7 @@ func Finalize(skills []adopt.Skill) []adopt.Skill {
 		for _, skill := range group {
 			targets = append(targets, skill.Target)
 		}
-		representative.Targets = adopt.UniqueTargets(targets)
+		representative.Targets = uniqueTargets(targets)
 		representative.Target = representative.Targets[0]
 
 		resourceName := representative.InstallName
@@ -75,8 +76,12 @@ func AssignGroupSources(sourceDirectory adopt.SourceDirectory, skills []adopt.Sk
 		if !importSkillGroupEligible(skill) {
 			continue
 		}
+		targetsKey, err := importSkillTargetsKey(skill.Targets)
+		if err != nil {
+			return nil, err
+		}
 		key := importSkillManifestGroupKey{
-			Targets: adopt.TargetsKey(skill.Targets),
+			Targets: targetsKey,
 			Scope:   skill.Scope,
 		}
 		groups[key] = append(groups[key], index)
@@ -101,6 +106,31 @@ func AssignGroupSources(sourceDirectory adopt.SourceDirectory, skills []adopt.Sk
 	}
 
 	return skills, nil
+}
+
+func uniqueTargets(targets []targetpkg.Target) []targetpkg.Target {
+	result := make([]targetpkg.Target, 0, len(targets))
+	seen := make(map[targetpkg.Target]struct{}, len(targets))
+	for _, selectedTarget := range targets {
+		if _, duplicate := seen[selectedTarget]; duplicate {
+			continue
+		}
+		seen[selectedTarget] = struct{}{}
+		result = append(result, selectedTarget)
+	}
+	return result
+}
+
+func importSkillTargetsKey(targets []targetpkg.Target) (string, error) {
+	canonical, err := targetpkg.CanonicalSet(targets)
+	if err != nil {
+		return "", err
+	}
+	values := make([]string, 0, len(canonical))
+	for _, selectedTarget := range canonical {
+		values = append(values, string(selectedTarget))
+	}
+	return strings.Join(values, "\x00"), nil
 }
 
 func importSkillGroupEligible(skill adopt.Skill) bool {

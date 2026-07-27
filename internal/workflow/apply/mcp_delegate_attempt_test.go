@@ -399,7 +399,7 @@ func assertApplyMCPDelegateAttempts(
 	if record.Subject() != subject ||
 		record.Target() != action.Target() ||
 		record.Scope() != action.Scope() ||
-		record.PlanIdentityKey() != action.PlanIdentity().IdentityKey ||
+		record.PlanIdentityKey() != action.Plan().IdentityKey() ||
 		record.Status() != status ||
 		record.Reason() != reason ||
 		record.ObservationSummary() != observation ||
@@ -412,13 +412,13 @@ func assertApplyMCPDelegateAttempts(
 			subject.Key(),
 			status,
 			reason,
-			action.PlanIdentity().IdentityKey,
+			action.Plan().IdentityKey(),
 		)
 	}
-	if record.MatchesPlanIdentity(action.PlanIdentity().IdentityKey) != matchesPlanIdentity {
+	if record.MatchesPlanIdentity(action.Plan().IdentityKey()) != matchesPlanIdentity {
 		t.Fatalf(
 			"MatchesPlanIdentity = %t, want %t for %#v",
-			record.MatchesPlanIdentity(action.PlanIdentity().IdentityKey),
+			record.MatchesPlanIdentity(action.Plan().IdentityKey()),
 			matchesPlanIdentity,
 			record,
 		)

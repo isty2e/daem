@@ -10,6 +10,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -41,7 +42,7 @@ func TestCarrierAdoptionPreservesSharedGlobalClaimAndHonorsCancellation(t *testi
 		if err != nil {
 			t.Fatal(err)
 		}
-		foreignOwner, err := durablecarrier.NewStateAuthority(
+		foreignOwner, err := stateauthority.New(
 			foreignKey,
 			filepath.Join(filepath.Dir(filepath.Dir(foreignPath)), "daem.toml"),
 		)
@@ -229,7 +230,7 @@ func TestExactPendingInstallCompletionTakesPrecedenceOverAdoption(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner, err := durablecarrier.NewStateAuthority(statefileKey, manifestPath)
+			owner, err := stateauthority.New(statefileKey, manifestPath)
 			if err != nil {
 				t.Fatal(err)
 			}

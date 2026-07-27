@@ -3,10 +3,9 @@ package aggregate
 import (
 	"fmt"
 	"strings"
-)
 
-// MCPAggregateRoot identifies the host config aggregate root for one exact projection.
-type MCPAggregateRoot string
+	"github.com/isty2e/daem/internal/output"
+)
 
 // MCPContentPathPrefix identifies the managed parent path inside a config aggregate.
 type MCPContentPathPrefix string
@@ -27,7 +26,7 @@ const (
 
 // MCPConfigAggregateSpecInput carries pure config aggregate semantics for a placement row.
 type MCPConfigAggregateSpecInput struct {
-	Root              MCPAggregateRoot
+	Root              output.Destination
 	MergeUnit         MCPMergeUnit
 	ContentPathPrefix MCPContentPathPrefix
 	SiblingRetention  MCPSiblingRetentionPolicy
@@ -35,7 +34,7 @@ type MCPConfigAggregateSpecInput struct {
 
 // MCPConfigAggregateSpec is the canonical aggregate ownership row for one exact projection.
 type MCPConfigAggregateSpec struct {
-	root              MCPAggregateRoot
+	root              output.Destination
 	mergeUnit         MCPMergeUnit
 	contentPathPrefix MCPContentPathPrefix
 	siblingRetention  MCPSiblingRetentionPolicy
@@ -44,7 +43,7 @@ type MCPConfigAggregateSpec struct {
 // NewMCPConfigAggregateSpec constructs a validated aggregate ownership spec row.
 func NewMCPConfigAggregateSpec(input MCPConfigAggregateSpecInput) (MCPConfigAggregateSpec, error) {
 	spec := MCPConfigAggregateSpec{
-		root:              MCPAggregateRoot(strings.TrimSpace(string(input.Root))),
+		root:              input.Root,
 		mergeUnit:         input.MergeUnit,
 		contentPathPrefix: MCPContentPathPrefix(strings.TrimSpace(string(input.ContentPathPrefix))),
 		siblingRetention:  input.SiblingRetention,
@@ -56,7 +55,7 @@ func NewMCPConfigAggregateSpec(input MCPConfigAggregateSpecInput) (MCPConfigAggr
 }
 
 // Root returns the host config aggregate root for this spec.
-func (spec MCPConfigAggregateSpec) Root() MCPAggregateRoot {
+func (spec MCPConfigAggregateSpec) Root() output.Destination {
 	return spec.root
 }
 
@@ -110,8 +109,8 @@ func (spec MCPConfigAggregateSpec) ServerIDFromContentPath(contentPath ContentPa
 
 // Validate rejects malformed aggregate ownership specs.
 func (spec MCPConfigAggregateSpec) Validate() error {
-	if strings.TrimSpace(string(spec.root)) == "" {
-		return fmt.Errorf("MCP aggregate root is required")
+	if err := spec.root.Validate(); err != nil {
+		return fmt.Errorf("MCP aggregate root: %w", err)
 	}
 	if spec.mergeUnit != MCPMergeUnitServerEntry {
 		return fmt.Errorf("MCP aggregate root %q merge unit %q is unsupported", spec.root, spec.mergeUnit)

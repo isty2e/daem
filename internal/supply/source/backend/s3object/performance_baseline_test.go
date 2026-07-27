@@ -36,7 +36,7 @@ func TestReadPathVersionlessS3ReusesClientWithinResolverEpoch(t *testing.T) {
 			"us-east-1",
 			sourcepkg.S3ObjectFormatFile,
 		)
-		if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+		if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 			t.Fatalf("Resolve source[%d] returned error: %v", index, err)
 		}
 	}
@@ -79,7 +79,7 @@ func TestReadPathBaselineWarmExactS3SkipsClientConstruction(t *testing.T) {
 	)
 
 	for index := range 2 {
-		if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+		if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 			t.Fatalf("Resolve[%d] returned error: %v", index, err)
 		}
 	}
@@ -120,7 +120,7 @@ func BenchmarkS3ReadPath(b *testing.B) {
 				"us-east-1",
 				sourcepkg.S3ObjectFormatFile,
 			)
-			if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+			if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 				b.Fatal(err)
 			}
 		}
@@ -139,14 +139,14 @@ func BenchmarkS3ReadPath(b *testing.B) {
 			"us-east-1",
 			sourcepkg.S3ObjectFormatFile,
 		)
-		if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+		if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 			b.Fatal(err)
 		}
 		b.ReportAllocs()
 		b.ResetTimer()
 
 		for range b.N {
-			if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+			if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 				b.Fatal(err)
 			}
 		}

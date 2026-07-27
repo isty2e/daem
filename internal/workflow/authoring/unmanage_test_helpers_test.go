@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -121,13 +122,13 @@ func unmanageTestPaths(t *testing.T, root string) daempaths.Paths {
 	return paths
 }
 
-func unmanageTestOwner(t *testing.T, paths daempaths.Paths) durablecarrier.StateAuthority {
+func unmanageTestOwner(t *testing.T, paths daempaths.Paths) stateauthority.Authority {
 	t.Helper()
 	statefileKey, err := mutation.CanonicalDirectoryEntryKey(paths.StatefilePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func unmanageTestOwner(t *testing.T, paths daempaths.Paths) durablecarrier.State
 func unmanageTestClaim(
 	t *testing.T,
 	fixture unmanageTestFixture,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()
 	return unmanageTestClaimWithProvenance(
@@ -151,7 +152,7 @@ func unmanageTestClaim(
 func unmanageTestClaimWithProvenance(
 	t *testing.T,
 	fixture unmanageTestFixture,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	provenance durablecarrier.ClaimProvenance,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()

@@ -12,6 +12,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
@@ -30,7 +31,7 @@ func runHostRoutesAndPersistAttemptRecords(
 	locked lock.File,
 	statePath string,
 	current durable.Snapshot,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims,
 	relationActions []reconciliation.RelationAction,
 	options runOptions,

@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathFileModeExpectationDistinguishesAbsentFromExplicitZero(t *testing.T) {
@@ -25,7 +26,7 @@ func TestManagedPathFileModeExpectationDistinguishesAbsentFromExplicitZero(t *te
 }
 
 func TestManagedPathPreconditionRejectsInvalidHashBeforeAuthorityUse(t *testing.T) {
-	destination := mutationDestination{logical: "AGENTS.md"}
+	destination := mutationDestination{logical: outputtest.Parse(t, "AGENTS.md")}
 	if _, err := captureRootedManagedPathPrecondition(
 		context.Background(),
 		nil,

@@ -41,7 +41,7 @@ func runLock(args []string, stdout io.Writer, stderr io.Writer, options commandO
 		LockfilePath: "",
 		DryRun:       *dryRun,
 		SourceEvents: progress.SourceSink(),
-		LockEvents:   lockWorkflowProgressSink(progress),
+		LockEvents:   progress.LockSink(),
 	})
 	progress.Close()
 	if err != nil {

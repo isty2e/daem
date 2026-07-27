@@ -18,6 +18,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildManagedPathDecisionsEnforcesExactPermissionPolicy(t *testing.T) {
@@ -99,7 +100,7 @@ func TestManagedPathExpectationAndModeSelectionRetainRealizationOwnedExactMode(t
 	}
 	spec, err := realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
 		PlacementID: "future.project.exact", ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: ".daem/future-exact", ContentKind: realization.PathProjectionFile,
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, ".daem/future-exact"), ContentKind: realization.PathProjectionFile,
 		PlacementMode: realization.PathProjectionCopy, PermissionPolicy: realization.PathPermissionsExact,
 		ExactPermissionMode: exactMode, AdapterContractVersion: "future-exact-v1",
 	})
@@ -139,7 +140,7 @@ func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T)
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		".daem/future-exact",
+		outputtest.Parse(t, ".daem/future-exact"),
 		contentHash,
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,
@@ -150,7 +151,7 @@ func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T)
 	}
 	facts := reconcile.ManagedPathDecisionInput{
 		Subject: subject, ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: ".daem/future-exact", DesiredHash: contentHash,
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, ".daem/future-exact"), DesiredHash: contentHash,
 		ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
 		PermissionPolicy: realization.PathPermissionsExact, DesiredFileMode: 0o640,
 	}
@@ -165,7 +166,7 @@ func TestReconcileManagedPathDesiredRepairsArbitraryExactModeDrift(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			current, err := observe.NewManagedPathEvidence(
 				subject,
-				".daem/future-exact",
+				outputtest.Parse(t, ".daem/future-exact"),
 				true,
 				contentHash,
 				test.liveMode,
@@ -222,7 +223,7 @@ func TestReconcileManagedPathDesiredExecutableClassIgnoresReadWriteBits(t *testi
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		contentHash,
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
@@ -231,13 +232,13 @@ func TestReconcileManagedPathDesiredExecutableClassIgnoresReadWriteBits(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	current, err := observe.NewManagedPathEvidence(subject, "AGENTS.md", true, contentHash, 0o644)
+	current, err := observe.NewManagedPathEvidence(subject, outputtest.Parse(t, "AGENTS.md"), true, contentHash, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
 	facts := reconcile.ManagedPathDecisionInput{
 		Subject: subject, ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: "AGENTS.md", DesiredHash: contentHash,
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, "AGENTS.md"), DesiredHash: contentHash,
 		ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
 		PermissionPolicy: realization.PathPermissionsExecutableClass, DesiredFileMode: 0o600,
 	}
@@ -277,19 +278,19 @@ func TestReconcileManagedPathPermissionPolicyTransitionsAreStateOnly(t *testing.
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			state, err := durable.NewManagedPathState(
-				subject, []target.Target{target.TargetCodex}, target.ScopeProject, "managed.bin",
+				subject, []target.Target{target.TargetCodex}, target.ScopeProject, outputtest.Parse(t, "managed.bin"),
 				contentHash, realization.PathProjectionFile, test.statePolicy, test.stateMode,
 			)
 			if err != nil {
 				t.Fatal(err)
 			}
-			current, err := observe.NewManagedPathEvidence(subject, "managed.bin", true, contentHash, test.liveMode)
+			current, err := observe.NewManagedPathEvidence(subject, outputtest.Parse(t, "managed.bin"), true, contentHash, test.liveMode)
 			if err != nil {
 				t.Fatal(err)
 			}
 			facts := reconcile.ManagedPathDecisionInput{
 				Subject: subject, ConsumerTargets: []target.Target{target.TargetCodex},
-				Scope: target.ScopeProject, Destination: "managed.bin", DesiredHash: contentHash,
+				Scope: target.ScopeProject, Destination: outputtest.Parse(t, "managed.bin"), DesiredHash: contentHash,
 				ContentKind: realization.PathProjectionFile, PlacementMode: realization.PathProjectionCopy,
 				PermissionPolicy: test.desiredPolicy, DesiredFileMode: test.desiredMode, LiveFileMode: test.liveMode,
 			}
@@ -311,7 +312,7 @@ func TestBuildManagedPathDecisionsPartialRemovalPreservesExactModeAuthority(t *t
 		subject,
 		[]target.Target{target.TargetClaudeCode, target.TargetCodex},
 		target.ScopeProject,
-		"managed.bin",
+		outputtest.Parse(t, "managed.bin"),
 		contentHash,
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,
@@ -320,7 +321,7 @@ func TestBuildManagedPathDecisionsPartialRemovalPreservesExactModeAuthority(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	evidence, err := observe.NewManagedPathEvidence(subject, "managed.bin", true, contentHash, 0o700)
+	evidence, err := observe.NewManagedPathEvidence(subject, outputtest.Parse(t, "managed.bin"), true, contentHash, 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +408,7 @@ func managedHookAssetPathLock(
 	}
 	locked := snapshottest.Section(t, supply, projection)
 	path, _ := spec.ManagedPathProjection()
-	return locked, supply, projection, output.Destination(path.Destination()), hash
+	return locked, supply, projection, path.Destination(), hash
 }
 
 func managedFileState(

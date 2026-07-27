@@ -6,10 +6,11 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
-	"github.com/isty2e/daem/internal/realization/relation"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -95,7 +96,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		Realization:               realization,
 		Derivation:                derivation,
 		RepairRecipe:              recipe,
-		DelegatePlanIdentity:      delegatePlan,
+		DelegatePlan:              delegatePlan,
 		SkillSetMemberCorrelation: correlation,
 		Ownership:                 lock.OwnershipBasis(dto.Ownership),
 		OnAbsent:                  lock.OnAbsentPolicy(dto.OnAbsent),
@@ -210,18 +211,26 @@ func realizationFromDTO(dto *realizationDTO) (*realization.RealizationSpec, erro
 		if modeErr != nil {
 			return nil, modeErr
 		}
+		destination, destinationErr := output.Parse(body.Destination)
+		if destinationErr != nil {
+			return nil, destinationErr
+		}
 		spec, err = realization.NewManagedPathProjection(realization.ManagedPathProjectionInput{
 			PlacementID: body.PlacementID, ConsumerTargets: targetsFromDTO(body.ConsumerTargets), Scope: target.Scope(body.Scope),
-			Destination: body.Destination, ContentKind: realization.PathProjectionContentKind(body.ContentKind),
+			Destination: destination, ContentKind: realization.PathProjectionContentKind(body.ContentKind),
 			PlacementMode:          realization.PathProjectionMode(body.PlacementMode),
 			PermissionPolicy:       realization.PathPermissionPolicy(body.PermissionPolicy),
 			ExactPermissionMode:    exactPermissionMode,
 			AdapterContractVersion: body.AdapterContractVersion,
 		})
 	} else if body := dto.ManagedAggregate; body != nil {
+		aggregateRoot, rootErr := output.Parse(body.AggregateRoot)
+		if rootErr != nil {
+			return nil, rootErr
+		}
 		spec, err = realization.NewManagedAggregateContribution(aggregate.ManagedContributionInput{
 			PlacementID: body.PlacementID, Target: target.Target(body.Target), Scope: target.Scope(body.Scope),
-			AggregateRoot: body.AggregateRoot, ContentPath: body.ContentPath,
+			AggregateRoot: aggregateRoot, ContentPath: body.ContentPath,
 			MergeUnit: aggregate.MergeUnit(body.MergeUnit), SiblingRetention: aggregate.SiblingRetention(body.SiblingRetention),
 			Cardinality:         aggregate.ContributionCardinality(body.ContributionCardinality),
 			SiblingPreservation: aggregate.SiblingPreservation(body.SiblingPreservation),
@@ -263,7 +272,7 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) *realizati
 	if body, ok := spec.ManagedPathProjection(); ok {
 		dto.ManagedPath = &managedPathProjectionDTO{
 			PlacementID: body.PlacementID(), ConsumerTargets: targetsToDTO(body.ConsumerTargets()), Scope: string(body.Scope()),
-			Destination: body.Destination(), ContentKind: string(body.ContentKind()),
+			Destination: body.Destination().String(), ContentKind: string(body.ContentKind()),
 			PlacementMode: string(body.PlacementMode()), PermissionPolicy: string(body.PermissionPolicy()),
 			ExactPermissionMode:    exactPathPermissionModeToDTO(body),
 			AdapterContractVersion: body.AdapterContractVersion(),
@@ -271,7 +280,7 @@ func realizationToDTO(spec realization.RealizationSpec, present bool) *realizati
 	} else if body, ok := spec.ManagedAggregateContribution(); ok {
 		dto.ManagedAggregate = &managedAggregateContributionDTO{
 			PlacementID: body.PlacementID(), Target: string(body.Target()), Scope: string(body.Scope()),
-			AggregateRoot: body.AggregateRoot(), ContentPath: body.ContentPath(), MergeUnit: string(body.MergeUnit()),
+			AggregateRoot: body.AggregateRoot().String(), ContentPath: body.ContentPath(), MergeUnit: string(body.MergeUnit()),
 			ContributionCardinality: string(body.Cardinality()),
 			SiblingRetention:        string(body.SiblingRetention()), SiblingPreservation: string(body.SiblingPreservation()),
 			Equivalence: string(body.Equivalence()), CanonicalContribution: body.CanonicalContribution(),

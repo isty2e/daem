@@ -16,6 +16,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 )
 
+var noOperationOptions acquisition.OperationOptions
+
 func mustGitSource(t *testing.T, locator string, repositoryPath string, ref string) source.Source {
 	t.Helper()
 
@@ -36,7 +38,11 @@ func newFakeResolver(t *testing.T) fakeResolver {
 	return fakeResolver{view: view, contentHash: contentHash}
 }
 
-func (resolver fakeResolver) Resolve(_ context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver fakeResolver) Resolve(
+	_ context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	return resolver.resolution(sourceSpec)
 }
 
@@ -62,7 +68,11 @@ type fakeRootResolver struct {
 	name string
 }
 
-func (resolver fakeRootResolver) ListSourceRoot(_ context.Context, sourceSpec source.Source) (source.RootListing, error) {
+func (resolver fakeRootResolver) ListSourceRoot(
+	_ context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (source.RootListing, error) {
 	return source.NewRootListing(sourceSpec, resolutionTestRef(sourceSpec), artifact.ArtifactKindDirectory, []string{resolver.name + "-root"})
 }
 
@@ -100,7 +110,11 @@ func newBatchResolverTracker(t *testing.T) *batchResolverTracker {
 	}
 }
 
-func (resolver *batchResolverTracker) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver *batchResolverTracker) Resolve(
+	ctx context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return acquisition.Resolution{}, err
@@ -130,7 +144,11 @@ func (resolver *batchResolverTracker) Resolve(ctx context.Context, sourceSpec so
 	return acquisition.NewResolution(sourceSpec, identity, resolver.view)
 }
 
-func (resolver *batchResolverTracker) ListSourceRoot(ctx context.Context, sourceSpec source.Source) (source.RootListing, error) {
+func (resolver *batchResolverTracker) ListSourceRoot(
+	ctx context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (source.RootListing, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return source.RootListing{}, err

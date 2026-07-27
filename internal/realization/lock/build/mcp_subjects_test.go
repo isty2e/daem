@@ -58,20 +58,21 @@ func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *test
 
 	record := file.Locked.Subjects()[0]
 	assertMCPSubjectRecord(t, record, "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("MCP subject is missing delegate plan identity")
+		t.Fatal("MCP subject is missing delegate plan")
 	}
-	if delegateIdentity.RunnerKind != delegate.RunnerNPX ||
-		delegateIdentity.Command != "npx" ||
-		delegateIdentity.PinPolicy != delegate.PinFloating ||
-		delegateIdentity.Package == nil ||
-		delegateIdentity.Package.Ecosystem != delegate.EcosystemNPM ||
-		delegateIdentity.Package.Name != "@upstash/context7-mcp" {
-		t.Fatalf("delegate identity = %#v", delegateIdentity)
+	delegatePackage, hasDelegatePackage := delegatePlan.PackageRef()
+	if delegatePlan.Runner().Kind() != delegate.RunnerNPX ||
+		delegatePlan.Command().Name() != "npx" ||
+		delegatePlan.PinPolicy() != delegate.PinFloating ||
+		!hasDelegatePackage ||
+		delegatePackage.Ecosystem() != delegate.EcosystemNPM ||
+		delegatePackage.Name() != "@upstash/context7-mcp" {
+		t.Fatalf("delegate plan identity = %q", delegatePlan.IdentityKey())
 	}
 	projection := mustAggregateContribution(t, record)
-	if projection.AggregateRoot() != aggregate.ClaudeProjectMCPConfigPath ||
+	if projection.AggregateRoot().String() != aggregate.ClaudeProjectMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.ClaudeProjectMCPContentPath("context7") ||
 		projection.Equivalence() != aggregate.EquivalenceCanonicalSemantic ||
 		string(projection.CodecContractID()) != aggregate.ClaudeProjectMCPStdioAdapterV1 {
@@ -100,18 +101,18 @@ func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *test
 	assertOnlySnapshotValidatedEvent(t, lockEvents, 2)
 }
 
-func TestBuildLocksMCPDelegatePlanIdentityStableAndDrifts(t *testing.T) {
+func TestBuildLocksMCPDelegatePlanStableAndDrifts(t *testing.T) {
 	baseServer := testMCPServer(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp@1.2.3"}, map[string]string{
 		"API_TOKEN": "CONTEXT7_API_TOKEN",
 	})
 	baseFile := mustBuildMCPFile(t, baseServer)
-	baseIdentity := mustMCPDelegateIdentity(t, baseFile)
-	sameIdentity := mustMCPDelegateIdentity(t, mustBuildMCPFile(t, baseServer))
-	if baseIdentity.IdentityKey != sameIdentity.IdentityKey {
-		t.Fatalf("same manifest delegate identity = %q, want %q", sameIdentity.IdentityKey, baseIdentity.IdentityKey)
+	basePlan := mustMCPDelegatePlan(t, baseFile)
+	samePlan := mustMCPDelegatePlan(t, mustBuildMCPFile(t, baseServer))
+	if basePlan.IdentityKey() != samePlan.IdentityKey() {
+		t.Fatalf("same manifest delegate identity = %q, want %q", samePlan.IdentityKey(), basePlan.IdentityKey())
 	}
-	if baseIdentity.PinPolicy != delegate.PinPinned {
-		t.Fatalf("base pin policy = %q, want pinned", baseIdentity.PinPolicy)
+	if basePlan.PinPolicy() != delegate.PinPinned {
+		t.Fatalf("base pin policy = %q, want pinned", basePlan.PinPolicy())
 	}
 
 	cases := []struct {
@@ -148,12 +149,12 @@ func TestBuildLocksMCPDelegatePlanIdentityStableAndDrifts(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			changedFile := mustBuildMCPFile(t, tc.server)
-			changedIdentity := mustMCPDelegateIdentity(t, changedFile)
-			if changedIdentity.IdentityKey == baseIdentity.IdentityKey {
-				t.Fatalf("delegate identity did not drift: %q", changedIdentity.IdentityKey)
+			changedPlan := mustMCPDelegatePlan(t, changedFile)
+			if changedPlan.IdentityKey() == basePlan.IdentityKey() {
+				t.Fatalf("delegate identity did not drift: %q", changedPlan.IdentityKey())
 			}
-			if changedIdentity.RunnerKind != tc.wantRunner || changedIdentity.PinPolicy != tc.wantPin {
-				t.Fatalf("changed identity = %#v", changedIdentity)
+			if changedPlan.Runner().Kind() != tc.wantRunner || changedPlan.PinPolicy() != tc.wantPin {
+				t.Fatalf("changed delegate plan identity = %q", changedPlan.IdentityKey())
 			}
 			delta := lock.BuildDelta(baseFile, changedFile)
 			changedSubjects := delta.EntriesWithStatus(lock.DeltaStatusChanged)
@@ -189,13 +190,13 @@ func TestBuildLocksAntigravityGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		subject.Key() != "context7" {
 		t.Fatalf("subject = %#v, want Antigravity global MCP projection subject", subject)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("Antigravity global MCP projection unexpectedly carried delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("Antigravity global MCP projection unexpectedly carried delegate plan")
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.Target() != target.TargetAntigravityCLI ||
 		projection.Scope() != target.ScopeGlobal ||
-		projection.AggregateRoot() != aggregate.AntigravityGlobalMCPConfigPath ||
+		projection.AggregateRoot().String() != aggregate.AntigravityGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.AntigravityGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPCommandAdapterV1 {
 		t.Fatalf("projection = %#v, want Antigravity global MCP aggregate contribution", projection)
@@ -242,13 +243,13 @@ func TestBuildLocksClaudeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		subject.Key() != "context7" {
 		t.Fatalf("subject = %#v, want Claude global MCP projection subject", subject)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("Claude global MCP projection unexpectedly carried delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("Claude global MCP projection unexpectedly carried delegate plan")
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.Target() != target.TargetClaudeCode ||
 		projection.Scope() != target.ScopeGlobal ||
-		projection.AggregateRoot() != aggregate.ClaudeGlobalMCPConfigPath ||
+		projection.AggregateRoot().String() != aggregate.ClaudeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.ClaudeGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioAdapterV1 {
 		t.Fatalf("projection = %#v, want Claude global MCP aggregate contribution", projection)
@@ -297,13 +298,13 @@ func TestBuildLocksOpenCodeProjectMCPServerWithoutDelegatePlan(t *testing.T) {
 		subject.Key() != "context7" {
 		t.Fatalf("subject = %#v, want OpenCode project MCP projection subject", subject)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("OpenCode project MCP projection unexpectedly carried delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("OpenCode project MCP projection unexpectedly carried delegate plan")
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.Target() != target.TargetOpenCode ||
 		projection.Scope() != target.ScopeProject ||
-		projection.AggregateRoot() != aggregate.OpenCodeProjectMCPConfigPath ||
+		projection.AggregateRoot().String() != aggregate.OpenCodeProjectMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.OpenCodeProjectMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.OpenCodeProjectMCPLocalCommandV1 {
 		t.Fatalf("projection = %#v, want OpenCode project MCP aggregate contribution", projection)
@@ -351,13 +352,13 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		subject.Key() != "context7" {
 		t.Fatalf("subject = %#v, want OpenCode global MCP projection subject", subject)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("OpenCode global MCP projection unexpectedly carried delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("OpenCode global MCP projection unexpectedly carried delegate plan")
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.Target() != target.TargetOpenCode ||
 		projection.Scope() != target.ScopeGlobal ||
-		projection.AggregateRoot() != aggregate.OpenCodeGlobalMCPConfigPath ||
+		projection.AggregateRoot().String() != aggregate.OpenCodeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.OpenCodeGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalCommandV1 {
 		t.Fatalf("projection = %#v, want OpenCode global MCP aggregate contribution", projection)
@@ -405,13 +406,13 @@ func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		subject.Key() != "context7" {
 		t.Fatalf("subject = %#v, want Codex global MCP projection subject", subject)
 	}
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("Codex global MCP projection unexpectedly carried delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("Codex global MCP projection unexpectedly carried delegate plan")
 	}
 	projection := mustAggregateContribution(t, record)
 	if projection.Target() != target.TargetCodex ||
 		projection.Scope() != target.ScopeGlobal ||
-		projection.AggregateRoot() != aggregate.CodexGlobalMCPConfigPath ||
+		projection.AggregateRoot().String() != aggregate.CodexGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.CodexGlobalMCPContentPath("context7") ||
 		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioCommandV1 {
 		t.Fatalf("projection = %#v, want Codex global MCP aggregate contribution", projection)
@@ -697,13 +698,13 @@ func mustBuildMCPFile(t *testing.T, server desiredmcp.Server) lock.File {
 	return file
 }
 
-func mustMCPDelegateIdentity(t *testing.T, file lock.File) lock.DelegatePlanIdentity {
+func mustMCPDelegatePlan(t *testing.T, file lock.File) delegate.DelegatePlan {
 	t.Helper()
-	identity, ok := file.Locked.Subjects()[0].DelegatePlanIdentity()
+	plan, ok := file.Locked.Subjects()[0].DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP subject is missing delegate plan identity")
+		t.Fatal("locked MCP subject is missing delegate plan")
 	}
-	return identity
+	return plan
 }
 
 func assertMCPSubjectRecord(t *testing.T, record lock.LockedSubjectContract, serverID string) {

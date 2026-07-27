@@ -45,7 +45,7 @@ func TestResolveExactVersionManyIndependentReadersUseOnePersistentArtifact(t *te
 	for _, resolver := range resolvers {
 		go func(resolver Resolver) {
 			<-start
-			resolved, resolveErr := resolver.Resolve(ctx, sourceSpec)
+			resolved, resolveErr := resolver.Resolve(ctx, sourceSpec, noOperationOptions)
 			results <- s3ResolveResult{artifact: resolved, err: resolveErr}
 		}(resolver)
 	}
@@ -94,11 +94,11 @@ func TestResolveDifferentExactVersionsCanFillInParallel(t *testing.T) {
 	secondSource := sourcetest.S3(t, "s3://daem/object", "v2", "", sourcepkg.S3ObjectFormatFile)
 	results := make(chan s3ResolveResult, 2)
 	go func() {
-		resolved, resolveErr := firstResolver.Resolve(context.Background(), firstSource)
+		resolved, resolveErr := firstResolver.Resolve(context.Background(), firstSource, noOperationOptions)
 		results <- s3ResolveResult{artifact: resolved, err: resolveErr}
 	}()
 	go func() {
-		resolved, resolveErr := secondResolver.Resolve(context.Background(), secondSource)
+		resolved, resolveErr := secondResolver.Resolve(context.Background(), secondSource, noOperationOptions)
 		results <- s3ResolveResult{artifact: resolved, err: resolveErr}
 	}()
 
@@ -128,7 +128,7 @@ func TestResolveFailedExactVersionOwnerAllowsLaterFiller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := failingResolver.Resolve(t.Context(), sourceSpec); !errors.Is(err, remoteErr) {
+	if _, err := failingResolver.Resolve(t.Context(), sourceSpec, noOperationOptions); !errors.Is(err, remoteErr) {
 		t.Fatalf("initial Resolve error = %v, want remote failure", err)
 	}
 	sourceID := mustS3SourceID(t, sourceSpec)
@@ -255,7 +255,7 @@ func TestResolvePersistentHitEmitsOnlyCacheWaitAndCacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolver.ResolveWithOptions(t.Context(), sourceSpec, options)
+	got, err := resolver.Resolve(t.Context(), sourceSpec, options)
 	if err != nil || got != want {
 		t.Fatalf("persistent Resolve = %#v, %v, want %#v", got, err, want)
 	}

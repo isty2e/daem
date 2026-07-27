@@ -7,7 +7,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -16,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildManagedPathDecisionsCoversDesiredLifecycle(t *testing.T) {
@@ -169,7 +169,7 @@ func TestReconcileManagedPathDesiredKeepsUnsupportedPlacementModePending(t *test
 	current := managedPathEvidence(t, projection, ".agents/skills/oracle", true, "desired")
 	facts := reconcile.ManagedPathDecisionInput{
 		Subject: projection.SubjectID(), ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeProject, Destination: ".agents/skills/oracle",
+		Scope: target.ScopeProject, Destination: outputtest.Parse(t, ".agents/skills/oracle"),
 		DesiredHash: state.ContentHash(), ContentKind: realization.PathProjectionDirectory,
 		PlacementMode: realization.PathProjectionSymlink,
 	}
@@ -186,7 +186,7 @@ func TestManagedPathDecisionInvolvesCurrentAndPreviousScopes(t *testing.T) {
 	previous := managedPathState(t, projection, []target.Target{target.TargetCodex}, ".agents/skills/oracle", "desired")
 	facts := reconcile.ManagedPathDecisionInput{
 		Subject: projection.SubjectID(), ConsumerTargets: []target.Target{target.TargetCodex},
-		Scope: target.ScopeGlobal, Destination: "~/.agents/skills/oracle", Previous: &previous,
+		Scope: target.ScopeGlobal, Destination: outputtest.Parse(t, "~/.agents/skills/oracle"), Previous: &previous,
 	}
 	decision := newManagedPathReplace(facts, reconcile.ReasonContentChanged, "managed destination changed")
 
@@ -390,7 +390,7 @@ func managedPathEvidence(
 	if exists {
 		hash = artifact.HashFileContent([]byte(hashSeed))
 	}
-	evidence, err := observe.NewManagedPathEvidence(projection.SubjectID(), output.Destination(destination), exists, hash, 0)
+	evidence, err := observe.NewManagedPathEvidence(projection.SubjectID(), outputtest.Parse(t, destination), exists, hash, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func managedPathState(
 		projection.SubjectID(),
 		consumers,
 		target.ScopeProject,
-		output.Destination(destination),
+		outputtest.Parse(t, destination),
 		artifact.HashFileContent([]byte(hashSeed)),
 		realization.PathProjectionDirectory,
 		realization.PathPermissionsNone,

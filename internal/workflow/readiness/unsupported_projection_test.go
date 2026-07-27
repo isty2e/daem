@@ -1,4 +1,4 @@
-package targetavailability
+package readiness
 
 import (
 	"reflect"

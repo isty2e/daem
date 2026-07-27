@@ -18,11 +18,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func hasRootedPathFailureKind(err error, kind rootedpath.FailureKind) bool {
@@ -436,7 +436,7 @@ func newProjectPathRecoveryFixture(
 			subject,
 			spec.consumerTargets,
 			target.ScopeProject,
-			output.Destination(spec.destination),
+			outputtest.Parse(t, spec.destination),
 			beforeHash,
 			spec.contentKind,
 			spec.permissionPolicy,
@@ -449,7 +449,7 @@ func newProjectPathRecoveryFixture(
 			subject,
 			spec.consumerTargets,
 			target.ScopeProject,
-			output.Destination(spec.destination),
+			outputtest.Parse(t, spec.destination),
 			afterHash,
 			spec.contentKind,
 			spec.permissionPolicy,
@@ -462,7 +462,7 @@ func newProjectPathRecoveryFixture(
 			subject,
 			spec.consumerTargets,
 			target.ScopeProject,
-			output.Destination(spec.destination),
+			outputtest.Parse(t, spec.destination),
 			afterHash,
 			beforeHash,
 			spec.contentKind,
@@ -474,7 +474,7 @@ func newProjectPathRecoveryFixture(
 		}
 		observation, err := observe.NewManagedPathEvidence(
 			subject,
-			output.Destination(spec.destination),
+			outputtest.Parse(t, spec.destination),
 			true,
 			beforeHash,
 			liveMode,

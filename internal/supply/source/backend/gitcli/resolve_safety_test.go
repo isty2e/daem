@@ -28,7 +28,7 @@ func TestResolveReportsMissingGitPath(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/missing", "main"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/missing", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -191,7 +191,7 @@ func TestResolveBadRepositoryReportsCloneContext(t *testing.T) {
 	}
 
 	missingRepo := filepath.Join(tempDir, "missing-repo")
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, missingRepo, "skills/demo", "main"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, missingRepo, "skills/demo", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -221,7 +221,7 @@ func TestResolveRejectsGitSymlink(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "links/target", "main"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "links/target", "main"), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}

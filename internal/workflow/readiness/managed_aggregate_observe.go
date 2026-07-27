@@ -6,7 +6,6 @@ import (
 	"os"
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -15,7 +14,7 @@ func observeAggregatePrecondition(
 	precondition aggregate.OperationPrecondition,
 ) (bool, error) {
 	document := precondition.DocumentAddress()
-	logical := output.Destination(document.AggregateRoot())
+	logical := document.AggregateRoot()
 	if err := liveobserve.ValidateAggregateReadPreconditions(logical, resolver); err != nil {
 		return false, err
 	}

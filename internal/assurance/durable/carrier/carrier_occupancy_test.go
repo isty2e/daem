@@ -13,9 +13,9 @@ func TestCarrierOccupancyIndexesOnlyExactDaemKnownConsumers(t *testing.T) {
 	second := carrierFixtureFor(t, "beta", "shared@official", target.ScopeGlobal)
 	foreign := carrierFixtureFor(t, "foreign", "other@official", target.ScopeGlobal)
 
-	firstClaim := claimForFixture(t, first, mustStateAuthority(t, t.TempDir(), "alpha.toml"))
-	secondClaim := claimForFixture(t, second, mustStateAuthority(t, t.TempDir(), "beta.toml"))
-	foreignClaim := claimForFixture(t, foreign, mustStateAuthority(t, t.TempDir(), "foreign.toml"))
+	firstClaim := claimForFixture(t, first, mustAuthority(t, t.TempDir(), "alpha.toml"))
+	secondClaim := claimForFixture(t, second, mustAuthority(t, t.TempDir(), "beta.toml"))
+	foreignClaim := claimForFixture(t, foreign, mustAuthority(t, t.TempDir(), "foreign.toml"))
 
 	occupancy, err := durablecarrier.NewCarrierOccupancy(
 		first.carrier,
@@ -49,7 +49,7 @@ func TestCarrierOccupancyIndexesOnlyExactDaemKnownConsumers(t *testing.T) {
 
 func TestCarrierOccupancyRejectsDuplicateConsumerClaims(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	claim := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	claim := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "daem.toml"))
 	if _, err := durablecarrier.NewCarrierOccupancy(
 		fixture.carrier,
 		[]durablecarrier.ManagedCarrierClaim{claim, claim},

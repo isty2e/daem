@@ -72,12 +72,7 @@ func newResolverWithClientFactory(cacheRoot string, clientFactory clientFactory)
 }
 
 // Resolve downloads and materializes an S3 object source.
-func (resolver Resolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
-	return resolver.ResolveWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ResolveWithOptions downloads and materializes an S3 object source with source-owned operation options.
-func (resolver Resolver) ResolveWithOptions(
+func (resolver Resolver) Resolve(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,

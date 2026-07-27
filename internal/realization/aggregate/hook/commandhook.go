@@ -2,15 +2,15 @@ package commandhook
 
 import (
 	"fmt"
-	pathpkg "path"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
-const (
-	codexProjectHookConfig = ".codex/config.toml"
-	codexGlobalHookConfig  = "~/.codex/config.toml"
+var (
+	codexProjectHookConfig = mustHookConfigDestination(".codex/config.toml")
+	codexGlobalHookConfig  = mustHookConfigDestination("~/.codex/config.toml")
 )
 
 var codexSupportedHookEvents = map[string]struct{}{
@@ -31,28 +31,36 @@ var codexMatcherIgnoredHookEvents = map[string]struct{}{
 	"UserPromptSubmit": {},
 }
 
-func Destination(selectedTarget target.Target, scope target.Scope) (string, bool) {
+func Destination(selectedTarget target.Target, scope target.Scope) (output.Destination, bool) {
 	placement, ok := aggregate.HookPlacementFor(selectedTarget, scope)
 	if !ok {
-		return "", false
+		return output.Destination{}, false
 	}
-	return pathpkg.Clean(placement.AggregateRoot()), true
+	return placement.AggregateRoot(), true
 }
 
-func CodexInlineConfigDestination(hookDestination string) (string, bool) {
+func CodexInlineConfigDestination(hookDestination output.Destination) (output.Destination, bool) {
 	for _, candidate := range []struct {
 		scope  target.Scope
-		config string
+		config output.Destination
 	}{
 		{scope: target.ScopeProject, config: codexProjectHookConfig},
 		{scope: target.ScopeGlobal, config: codexGlobalHookConfig},
 	} {
 		placement, ok := aggregate.HookPlacementFor(target.TargetCodex, candidate.scope)
-		if ok && pathpkg.Clean(hookDestination) == pathpkg.Clean(placement.AggregateRoot()) {
-			return pathpkg.Clean(candidate.config), true
+		if ok && hookDestination == placement.AggregateRoot() {
+			return candidate.config, true
 		}
 	}
-	return "", false
+	return output.Destination{}, false
+}
+
+func mustHookConfigDestination(value string) output.Destination {
+	destination, err := output.Parse(value)
+	if err != nil {
+		panic(err)
+	}
+	return destination
 }
 
 func ValidateShape(name string, selectedTarget target.Target, event string, matcher string, condition string) error {

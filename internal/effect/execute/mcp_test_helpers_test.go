@@ -10,6 +10,8 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/test/outputtest"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 type mcpProjectionApplyFixture struct {
@@ -27,7 +29,7 @@ func newMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFixture {
 	return mcpProjectionApplyFixture{
 		root:           root,
 		hostConfigPath: filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath),
-		destination:    output.Destination(aggregate.ClaudeProjectMCPConfigPath),
+		destination:    outputtest.Parse(t, aggregate.ClaudeProjectMCPConfigPath),
 		contentPath:    mcpcodec.ClaudeProjectMCPContentPath,
 		paths: Paths{
 			RecoveryDir:   filepath.Join(stateDir, "recovery"),
@@ -47,7 +49,7 @@ func newClaudeGlobalMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFi
 	return mcpProjectionApplyFixture{
 		root:           root,
 		hostConfigPath: filepath.Join(home, ".claude.json"),
-		destination:    output.Destination(aggregate.ClaudeGlobalMCPConfigPath),
+		destination:    outputtest.Parse(t, aggregate.ClaudeGlobalMCPConfigPath),
 		contentPath:    mcpcodec.ClaudeGlobalMCPContentPath,
 		paths: Paths{
 			RecoveryDir:   filepath.Join(stateDir, "recovery"),
@@ -86,7 +88,7 @@ func (fixture mcpProjectionApplyFixture) claudeGlobalCanonicalEntry(
 ) []byte {
 	t.Helper()
 	content, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(
-		mcpcodec.ClaudeGlobalMCPServerProjection{
+		mcpcodec.MCPNoEnvServerProjection{
 			ServerID:        serverID,
 			Command:         command,
 			Args:            []string{"-y", "@upstream/" + serverID},
@@ -107,7 +109,7 @@ func mergeMCPPlacementCanonicalEntry(
 	canonical []byte,
 ) ([]byte, error) {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(id)
+	operations, ok := mcptest.OperationsForPlacementID(id)
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}

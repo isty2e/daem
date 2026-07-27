@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 type recoveryFixture struct {
@@ -44,11 +45,12 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 	newContent := []byte("new instructions\n")
 	oldHash := string(artifact.HashFileContent(oldContent))
 	newHash := string(artifact.HashFileContent(newContent))
+	destination := outputtest.Parse(t, "AGENTS.md")
 	placement, err := profile.ManagedFilePlacementFor(
 		entity.KindInstructions,
 		target.TargetCodex,
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -66,7 +68,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
@@ -79,7 +81,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(newHash),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExecutableClass,
@@ -104,7 +106,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		destination,
 		artifact.ContentHash(newHash),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
@@ -116,7 +118,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 	}
 	evidence, err := observe.NewManagedPathEvidence(
 		subject,
-		"AGENTS.md",
+		destination,
 		true,
 		artifact.ContentHash(oldHash),
 		0o600,

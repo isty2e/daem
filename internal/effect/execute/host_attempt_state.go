@@ -9,6 +9,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
@@ -25,7 +26,7 @@ func CommitPendingCarrierInstalls(
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
 	stateEncoder durable.SnapshotEncoder,
 ) (durable.Snapshot, error) {
@@ -43,7 +44,7 @@ func commitPendingCarrierInstalls(
 	ctx context.Context,
 	commit snapshotCommitter,
 	current durable.Snapshot,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
 	stateEncoder durable.SnapshotEncoder,
 ) (durable.Snapshot, error) {
@@ -168,7 +169,7 @@ func CommitRetiredPendingCarrierInstall(
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
 	current durable.Snapshot,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	action reconciliation.RelationAction,
 	stateEncoder durable.SnapshotEncoder,
 ) (durable.Snapshot, error) {
@@ -423,7 +424,7 @@ func commitHostRouteAttempts(
 }
 
 func pendingCarrierInstalls(
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	actions []reconciliation.RelationAction,
 ) ([]durablecarrier.PendingCarrierInstall, error) {
 	pending := make([]durablecarrier.PendingCarrierInstall, 0, len(actions))

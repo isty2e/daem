@@ -101,6 +101,7 @@ type fixedResolutionResolver struct {
 func (resolver fixedResolutionResolver) Resolve(
 	_ context.Context,
 	_ source.Source,
+	_ acquisition.OperationOptions,
 ) (acquisition.Resolution, error) {
 	return resolver.resolution, nil
 }

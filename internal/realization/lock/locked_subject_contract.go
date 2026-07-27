@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/target"
@@ -95,7 +96,7 @@ type LockedSubjectContractInput struct {
 	Realization               *realization.RealizationSpec
 	Derivation                *DerivationContract
 	RepairRecipe              *skillrepair.Recipe
-	DelegatePlanIdentity      *DelegatePlanIdentity
+	DelegatePlan              *realizationdelegate.DelegatePlan
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation
 	Ownership                 OwnershipBasis
 	OnAbsent                  OnAbsentPolicy
@@ -114,7 +115,7 @@ type LockedSubjectContract struct {
 	realization               *realization.RealizationSpec
 	derivation                *DerivationContract
 	repairRecipe              *skillrepair.Recipe
-	delegatePlanIdentity      *DelegatePlanIdentity
+	delegatePlan              *realizationdelegate.DelegatePlan
 	skillSetMemberCorrelation *SkillSetMemberCorrelation
 	ownership                 OwnershipBasis
 	onAbsent                  OnAbsentPolicy
@@ -158,13 +159,12 @@ func NewLockedSubjectContract(input LockedSubjectContractInput) (LockedSubjectCo
 		}
 		contract.repairRecipe = &recipe
 	}
-	if input.DelegatePlanIdentity != nil {
-		identity, err := NewDelegatePlanIdentity(*input.DelegatePlanIdentity)
-		if err != nil {
+	if input.DelegatePlan != nil {
+		if err := input.DelegatePlan.Validate(); err != nil {
 			return LockedSubjectContract{}, err
 		}
-		cloned := cloneDelegatePlanIdentity(identity)
-		contract.delegatePlanIdentity = &cloned
+		plan := *input.DelegatePlan
+		contract.delegatePlan = &plan
 	}
 	if input.SkillSetMemberCorrelation != nil {
 		correlation, err := NewSkillSetMemberCorrelation(input.SkillSetMemberCorrelation.declarationIdentity)
@@ -269,12 +269,12 @@ func (contract LockedSubjectContract) RepairRecipe() (skillrepair.Recipe, bool) 
 	return *contract.repairRecipe, true
 }
 
-// DelegatePlanIdentity returns the locked launcher plan when present.
-func (contract LockedSubjectContract) DelegatePlanIdentity() (DelegatePlanIdentity, bool) {
-	if contract.delegatePlanIdentity == nil {
-		return DelegatePlanIdentity{}, false
+// DelegatePlan returns the locked launcher plan when present.
+func (contract LockedSubjectContract) DelegatePlan() (realizationdelegate.DelegatePlan, bool) {
+	if contract.delegatePlan == nil {
+		return realizationdelegate.DelegatePlan{}, false
 	}
-	return cloneDelegatePlanIdentity(*contract.delegatePlanIdentity), true
+	return *contract.delegatePlan, true
 }
 
 // SkillSetMemberCorrelation returns selector-member correlation when present.
@@ -333,7 +333,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		optionalRealizationEqual(contract.realization, other.realization) &&
 		optionalDerivationEqual(contract.derivation, other.derivation) &&
 		optionalSkillRepairRecipeEqual(contract.repairRecipe, other.repairRecipe) &&
-		optionalDelegatePlanIdentityEqual(contract.delegatePlanIdentity, other.delegatePlanIdentity) &&
+		optionalDelegatePlanEqual(contract.delegatePlan, other.delegatePlan) &&
 		optionalSkillSetCorrelationEqual(contract.skillSetMemberCorrelation, other.skillSetMemberCorrelation) &&
 		contract.ownership == other.ownership &&
 		contract.onAbsent == other.onAbsent &&
@@ -402,24 +402,14 @@ func deterministicTransformsEqual(left DeterministicTransform, right Determinist
 		left.ExpectedOutputIdentity.Equal(right.ExpectedOutputIdentity)
 }
 
-func optionalDelegatePlanIdentityEqual(left *DelegatePlanIdentity, right *DelegatePlanIdentity) bool {
+func optionalDelegatePlanEqual(
+	left *realizationdelegate.DelegatePlan,
+	right *realizationdelegate.DelegatePlan,
+) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}
-	return left.IdentityKey == right.IdentityKey &&
-		left.RunnerKind == right.RunnerKind &&
-		left.Command == right.Command &&
-		slices.Equal(left.Args, right.Args) &&
-		slices.Equal(left.Env, right.Env) &&
-		delegatePackageIdentitiesEqual(left.Package, right.Package) &&
-		left.PinPolicy == right.PinPolicy
-}
-
-func delegatePackageIdentitiesEqual(left *DelegatePackageIdentity, right *DelegatePackageIdentity) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return *left == *right
+	return left.Equal(*right)
 }
 
 func optionalSkillSetCorrelationEqual(left *SkillSetMemberCorrelation, right *SkillSetMemberCorrelation) bool {

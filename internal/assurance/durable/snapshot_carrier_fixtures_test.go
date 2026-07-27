@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -85,13 +86,13 @@ func carrierFixtureFor(
 	}
 }
 
-func mustStateAuthority(
+func mustAuthority(
 	t *testing.T,
 	root string,
 	manifestName string,
-) durablecarrier.StateAuthority {
+) stateauthority.Authority {
 	t.Helper()
-	authority, err := durablecarrier.NewStateAuthority(
+	authority, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, manifestName),
 	)
@@ -104,7 +105,7 @@ func mustStateAuthority(
 func claimForFixture(
 	t *testing.T,
 	fixture carrierFixture,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()
 	pending, err := durablecarrier.NewPendingCarrierInstall(

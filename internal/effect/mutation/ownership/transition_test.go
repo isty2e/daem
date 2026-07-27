@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -304,11 +305,11 @@ func mustAddress(t *testing.T, path string, contentPath string) outputownership.
 	return address
 }
 
-func mustAuthority(t *testing.T, statefilePath string, manifestPath string) outputownership.OwnerAuthority {
+func mustAuthority(t *testing.T, statefilePath string, manifestPath string) stateauthority.Authority {
 	t.Helper()
-	authority, err := outputownership.NewOwnerAuthority(statefilePath, manifestPath)
+	authority, err := stateauthority.New(statefilePath, manifestPath)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	return authority
 }

@@ -48,7 +48,7 @@ func BenchmarkDuplicateGitReadPath(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 		b.Fatalf("seed Resolve returned error: %v", err)
 	}
 
@@ -71,7 +71,7 @@ func BenchmarkDuplicateGitReadPath(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {
 			for range requestCount {
-				if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+				if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 					b.Fatal(err)
 				}
 			}

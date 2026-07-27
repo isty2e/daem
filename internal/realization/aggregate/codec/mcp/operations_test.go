@@ -1,7 +1,6 @@
 package mcpcodec
 
 import (
-	"slices"
 	"strings"
 	"testing"
 
@@ -102,7 +101,7 @@ func TestJSONMCPConfigSpecsUsePlacementAggregateSpecRows(t *testing.T) {
 			if !ok {
 				t.Fatalf("placement %q missing", tc.placement)
 			}
-			if tc.spec.configPath != placement.ConfigPath() ||
+			if tc.spec.configPath != placement.ConfigPath().String() ||
 				tc.spec.serversPath != string(placement.ContentPathPrefix()) {
 				t.Fatalf("codec spec = %#v, placement = %#v", tc.spec, placement.AggregateSpec())
 			}
@@ -145,7 +144,6 @@ func TestMCPPlacementOperationsRejectIncompleteRows(t *testing.T) {
 		{name: "missing compare", edit: func(input *mcpPlacementOperationsInput) { input.compareCanonicalEntry = nil }, want: "compare canonical entry"},
 		{name: "missing entry present", edit: func(input *mcpPlacementOperationsInput) { input.entryPresent = nil }, want: "entry-present"},
 		{name: "missing parent present", edit: func(input *mcpPlacementOperationsInput) { input.parentPresent = nil }, want: "parent-present"},
-		{name: "delegate requirement without probe", edit: func(input *mcpPlacementOperationsInput) { input.probeRequiresDelegate = true }, want: "without a runtime-probe launch"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,129 +154,6 @@ func TestMCPPlacementOperationsRejectIncompleteRows(t *testing.T) {
 				t.Fatalf("error = %v, want %q", err, tc.want)
 			}
 		})
-	}
-}
-
-func TestMCPPlacementRuntimeProbeCapabilitiesAreExact(t *testing.T) {
-	supported := make(map[aggregate.MCPPlacementID]bool)
-	for _, operations := range implementedMCPPlacementOperationCatalog {
-		if operations.SupportsRuntimeProbe() {
-			supported[operations.Placement().ID()] = operations.RuntimeProbeRequiresDelegatePlan()
-		}
-	}
-	want := map[aggregate.MCPPlacementID]bool{
-		aggregate.MCPPlacementClaudeProject:   true,
-		aggregate.MCPPlacementOpenCodeProject: false,
-	}
-	if len(supported) != len(want) {
-		t.Fatalf("runtime-probe placements = %#v, want %#v", supported, want)
-	}
-	for id, requiresDelegate := range want {
-		if supported[id] != requiresDelegate {
-			t.Fatalf(
-				"runtime-probe placement %q requires delegate = %v, want %v",
-				id,
-				supported[id],
-				requiresDelegate,
-			)
-		}
-	}
-	placements := RuntimeProbePlacements()
-	gotIDs := make([]aggregate.MCPPlacementID, 0, len(placements))
-	for _, placement := range placements {
-		gotIDs = append(gotIDs, placement.ID())
-	}
-	wantIDs := []aggregate.MCPPlacementID{
-		aggregate.MCPPlacementClaudeProject,
-		aggregate.MCPPlacementOpenCodeProject,
-	}
-	if !slices.Equal(gotIDs, wantIDs) {
-		t.Fatalf("runtime-probe placement order = %v, want %v", gotIDs, wantIDs)
-	}
-	placements[0] = aggregate.MCPPlacement{}
-	if got := RuntimeProbePlacements()[0].ID(); got != wantIDs[0] {
-		t.Fatalf("runtime-probe placements leaked caller mutation: first id = %q, want %q", got, wantIDs[0])
-	}
-}
-
-func TestMCPPlacementRuntimeProbeLaunchLowersCanonicalEntriesDefensively(t *testing.T) {
-	claudeOperations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
-	if !ok {
-		t.Fatal("Claude project operation row missing")
-	}
-	claudeProjection := validMCPProjection("context7")
-	claudeProjection.Command = "node"
-	claudeProjection.Args = []string{"server.js", "--stdio"}
-	claudeProjection.Env = map[string]string{"API_TOKEN": "${HOST_TOKEN}"}
-	claudeCanonical := mustCanonicalClaudeProjectMCPServerEntry(t, claudeProjection)
-
-	command, args, env, err := claudeOperations.RuntimeProbeLaunch(string(claudeCanonical))
-	if err != nil {
-		t.Fatalf("Claude RuntimeProbeLaunch returned error: %v", err)
-	}
-	if command != "node" ||
-		!slices.Equal(args, []string{"server.js", "--stdio"}) ||
-		env["API_TOKEN"] != "HOST_TOKEN" {
-		t.Fatalf("Claude runtime launch = %q %#v %#v", command, args, env)
-	}
-	args[0] = "mutated"
-	env["API_TOKEN"] = "MUTATED"
-	_, secondArgs, secondEnv, err := claudeOperations.RuntimeProbeLaunch(string(claudeCanonical))
-	if err != nil {
-		t.Fatalf("second Claude RuntimeProbeLaunch returned error: %v", err)
-	}
-	if secondArgs[0] != "server.js" || secondEnv["API_TOKEN"] != "HOST_TOKEN" {
-		t.Fatalf("runtime launch aliased caller mutations: %#v %#v", secondArgs, secondEnv)
-	}
-
-	openCodeOperations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementOpenCodeProject)
-	if !ok {
-		t.Fatal("OpenCode project operation row missing")
-	}
-	openCodeProjection := validOpenCodeMCPProjection("context7")
-	openCodeProjection.Command = "node"
-	openCodeProjection.Args = []string{"server.js"}
-	openCodeCanonical, err := CanonicalOpenCodeProjectMCPServerEntry(openCodeProjection)
-	if err != nil {
-		t.Fatalf("CanonicalOpenCodeProjectMCPServerEntry returned error: %v", err)
-	}
-	command, args, env, err = openCodeOperations.RuntimeProbeLaunch(string(openCodeCanonical))
-	if err != nil {
-		t.Fatalf("OpenCode RuntimeProbeLaunch returned error: %v", err)
-	}
-	if command != "node" || !slices.Equal(args, []string{"server.js"}) || len(env) != 0 {
-		t.Fatalf("OpenCode runtime launch = %q %#v %#v", command, args, env)
-	}
-
-	codexOperations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementCodexProject)
-	if !ok {
-		t.Fatal("Codex project operation row missing")
-	}
-	if _, _, _, err := codexOperations.RuntimeProbeLaunch(`{"command":"node"}`); err == nil ||
-		!strings.Contains(err.Error(), "does not support runtime probes") {
-		t.Fatalf("unsupported RuntimeProbeLaunch error = %v", err)
-	}
-}
-
-func TestMCPPlacementRuntimeProbeLaunchRejectsMalformedOrSecretBearingCanonicalEntries(t *testing.T) {
-	claudeOperations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
-	if !ok {
-		t.Fatal("Claude project operation row missing")
-	}
-	if _, _, _, err := claudeOperations.RuntimeProbeLaunch(
-		`{"type":"stdio","command":"node","args":[],"env":{"TOKEN":"SECRET"}}`,
-	); err == nil {
-		t.Fatal("Claude RuntimeProbeLaunch accepted a literal secret")
-	}
-
-	openCodeOperations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementOpenCodeProject)
-	if !ok {
-		t.Fatal("OpenCode project operation row missing")
-	}
-	if _, _, _, err := openCodeOperations.RuntimeProbeLaunch(
-		`{"type":"local","command":[]}`,
-	); err == nil {
-		t.Fatal("OpenCode RuntimeProbeLaunch accepted an empty command vector")
 	}
 }
 
@@ -325,7 +200,7 @@ func TestValidateMCPPlacementOperationCatalogRejectsMissingDuplicateAndStrayRows
 }
 
 func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project operation row missing")
 	}
@@ -379,7 +254,7 @@ func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
 }
 
 func TestMCPPlacementOperationsPropagateInvalidServerIDAcrossOperations(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementClaudeProject)
 	if !ok {
 		t.Fatal("Claude project operation row missing")
 	}
@@ -412,7 +287,7 @@ func TestMCPPlacementOperationsPropagateInvalidServerIDAcrossOperations(t *testi
 }
 
 func TestMCPPlacementOperationsCodexTOMLPlacementRoundTrip(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementCodexGlobal)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementCodexGlobal)
 	if !ok {
 		t.Fatal("Codex global operation row missing")
 	}
@@ -487,7 +362,7 @@ func TestMCPPlacementOperationsRestoreRemoveDropsEmptyParentWhenAbsentBefore(t *
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			operations, ok := ImplementedMCPPlacementOperationsForID(tc.placement)
+			operations, ok := mcpPlacementOperationsForID(tc.placement)
 			if !ok {
 				t.Fatalf("%s operation row missing", tc.placement)
 			}
@@ -507,7 +382,7 @@ func TestMCPPlacementOperationsRestoreRemoveDropsEmptyParentWhenAbsentBefore(t *
 }
 
 func TestMCPPlacementOperationsDistinguishAbsentFromMalformedPresentEntry(t *testing.T) {
-	operations, ok := ImplementedMCPPlacementOperationsForID(aggregate.MCPPlacementCodexProject)
+	operations, ok := mcpPlacementOperationsForID(aggregate.MCPPlacementCodexProject)
 	if !ok {
 		t.Fatal("Codex project operation row missing")
 	}
@@ -582,7 +457,7 @@ func mustCanonicalClaudeProjectMCPServerEntry(t *testing.T, projection ClaudePro
 	return canonical
 }
 
-func mustCanonicalCodexProjectMCPServerEntry(t *testing.T, projection CodexProjectMCPServerProjection) []byte {
+func mustCanonicalCodexProjectMCPServerEntry(t *testing.T, projection MCPNoEnvServerProjection) []byte {
 	t.Helper()
 	canonical, err := CanonicalCodexProjectMCPServerEntry(projection)
 	if err != nil {

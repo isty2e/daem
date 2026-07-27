@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -14,8 +15,8 @@ func TestBuildUsageFactsReturnsStaticTargetInventory(t *testing.T) {
 	if len(facts.SupportedTargets) == 0 {
 		t.Fatalf("SupportedTargets = %+v, want target facts", facts.SupportedTargets)
 	}
-	if len(facts.ImportTargets) == 0 {
-		t.Fatalf("ImportTargets = %+v, want import target facts", facts.ImportTargets)
+	if want := profile.ImportableTargets(); !reflect.DeepEqual(facts.ImportTargets, want) {
+		t.Fatalf("ImportTargets = %+v, want profile-derived %+v", facts.ImportTargets, want)
 	}
 	wantAuthoring := []MCPPlacementFact{
 		{Target: target.TargetClaudeCode, Scope: target.ScopeProject},

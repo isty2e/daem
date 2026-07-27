@@ -7,27 +7,13 @@ import (
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
+	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
 // LockProgressRendererOptions configures lock/outdated human progress rendering.
 type LockProgressRendererOptions struct {
 	Output io.Writer
 }
-
-// LockEvent carries present-owned lock progress facts.
-type LockEvent struct {
-	Kind            string
-	TaskID          acquisition.RequestID
-	Stage           string
-	Ordinal         int
-	EntityID        entity.ID
-	SkillGroupIndex *int
-	Count           int
-	Err             error
-}
-
-// LockEventSink observes lock progress events. Nil sinks are no-ops.
-type LockEventSink func(LockEvent)
 
 // LockProgressRenderer renders lock/source progress facts as line-oriented human text.
 type LockProgressRenderer struct {
@@ -56,7 +42,7 @@ func (renderer *LockProgressRenderer) SourceSink() acquisition.EventSink {
 }
 
 // LockSink returns the lock progress sink used by lock/outdated workflows.
-func (renderer *LockProgressRenderer) LockSink() LockEventSink {
+func (renderer *LockProgressRenderer) LockSink() workflowlock.ProgressEventSink {
 	if renderer == nil {
 		return nil
 	}
@@ -94,7 +80,7 @@ func (renderer *LockProgressRenderer) renderSourceEvent(event acquisition.Event)
 	renderer.line.write(line)
 }
 
-func (renderer *LockProgressRenderer) renderLockEvent(event LockEvent) {
+func (renderer *LockProgressRenderer) renderLockEvent(event workflowlock.ProgressEvent) {
 	if renderer == nil {
 		return
 	}
@@ -126,7 +112,7 @@ func (renderer *LockProgressRenderer) renderLockEvent(event LockEvent) {
 	renderer.line.write(line)
 }
 
-func lockEventLabel(event LockEvent) string {
+func lockEventLabel(event workflowlock.ProgressEvent) string {
 	if event.EntityID != (entity.ID{}) {
 		return string(event.EntityID.Kind()) + "/" + event.EntityID.Name()
 	}

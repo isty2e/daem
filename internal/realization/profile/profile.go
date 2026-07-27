@@ -16,15 +16,16 @@ import (
 // TargetProfile is an immutable projection of independent static facts for one target.
 // It chooses compatible facts but never combines their axes into a wider record.
 type TargetProfile struct {
-	selectedTarget  target.Target
-	supports        map[entity.Kind]Support
-	realizations    map[entity.Kind]realization.RealizationKind
-	placements      []ManagedPathPlacement
-	discoveries     []DiscoveryLocation
-	runtime         []RuntimeLocation
-	operationRoutes []OperationRoute
-	mcpPlacements   []aggregate.MCPPlacement
-	delegatedRoutes []DelegatedRouteProfile
+	selectedTarget   target.Target
+	supports         map[entity.Kind]Support
+	realizations     map[entity.Kind]realization.RealizationKind
+	placements       []ManagedPathPlacement
+	discoveries      []DiscoveryLocation
+	runtime          []RuntimeLocation
+	operationRoutes  []OperationRoute
+	mcpPlacements    []aggregate.MCPPlacement
+	mcpRuntimeProbes []MCPRuntimeProbeCapability
+	delegatedRoutes  []DelegatedRouteProfile
 }
 
 // Profile returns the finite static profile for one target. Unknown targets
@@ -34,14 +35,15 @@ func Profile(selectedTarget target.Target) TargetProfile {
 	mcpPlacements := profileMCPPlacements(selectedTarget)
 	delegatedRoutes := profileDelegatedRoutes(selectedTarget)
 	profile := TargetProfile{
-		selectedTarget:  selectedTarget,
-		supports:        supports,
-		placements:      profilePlacements(selectedTarget),
-		discoveries:     profileDiscoveries(selectedTarget),
-		runtime:         profileRuntimeLocations(selectedTarget),
-		operationRoutes: profileRoutes(selectedTarget, delegatedRoutes),
-		mcpPlacements:   mcpPlacements,
-		delegatedRoutes: delegatedRoutes,
+		selectedTarget:   selectedTarget,
+		supports:         supports,
+		placements:       profilePlacements(selectedTarget),
+		discoveries:      profileDiscoveries(selectedTarget),
+		runtime:          profileRuntimeLocations(selectedTarget),
+		operationRoutes:  profileRoutes(selectedTarget, delegatedRoutes),
+		mcpPlacements:    mcpPlacements,
+		mcpRuntimeProbes: profileMCPRuntimeProbeCapabilities(selectedTarget),
+		delegatedRoutes:  delegatedRoutes,
 	}
 	profile.realizations = profileRealizations(supports, len(mcpPlacements), len(delegatedRoutes))
 	if _, err := target.ParseTarget(string(selectedTarget)); err == nil {
@@ -133,7 +135,7 @@ func (profile TargetProfile) PlacementAt(
 	var selected ManagedPathPlacement
 	count := 0
 	for _, placement := range profile.Placements(resourceKind, scope) {
-		if placement.Root() == path {
+		if placement.Root().String() == path {
 			selected = placement
 			count++
 		}
@@ -155,6 +157,29 @@ func (profile TargetProfile) DiscoveryLocations(resourceKind entity.Kind, scope 
 		}
 		return result[left].Path() < result[right].Path()
 	})
+	return result
+}
+
+// HasImportableDiscovery reports whether at least one discovery location may
+// contribute a standalone import candidate.
+func (profile TargetProfile) HasImportableDiscovery() bool {
+	for _, location := range profile.discoveries {
+		if location.ImportPolicy() == ImportPolicyInclude {
+			return true
+		}
+	}
+	return false
+}
+
+// ImportableTargets returns target profiles with importable discovery evidence
+// in stable product target order.
+func ImportableTargets() []target.Target {
+	result := make([]target.Target, 0)
+	for _, selectedTarget := range target.SupportedTargets() {
+		if Profile(selectedTarget).HasImportableDiscovery() {
+			result = append(result, selectedTarget)
+		}
+	}
 	return result
 }
 
@@ -195,6 +220,18 @@ func (profile TargetProfile) MCPPlacement(id aggregate.MCPPlacementID) (aggregat
 		}
 	}
 	return aggregate.MCPPlacement{}, false
+}
+
+// MCPRuntimeProbeCapability returns the exact static probe row selected by this profile.
+func (profile TargetProfile) MCPRuntimeProbeCapability(
+	id aggregate.MCPPlacementID,
+) (MCPRuntimeProbeCapability, bool) {
+	for _, capability := range profile.mcpRuntimeProbes {
+		if capability.Placement().ID() == id {
+			return capability, true
+		}
+	}
+	return MCPRuntimeProbeCapability{}, false
 }
 
 // DelegatedRoute returns the route profile for one desired carrier.

@@ -46,12 +46,12 @@ func cloneContributionSetPointer(value *aggregate.ContributionSet) *aggregate.Co
 func aggregateAddressKey(address aggregate.ProjectionAddress) string {
 	document := address.Document()
 	return string(document.Target()) + "\x00" + string(document.Scope()) + "\x00" +
-		document.AggregateRoot() + "\x00" + address.PlacementID() + "\x00" +
+		document.AggregateRoot().String() + "\x00" + address.PlacementID() + "\x00" +
 		string(address.MergeUnit()) + "\x00" + string(address.ContentPath())
 }
 
 func aggregateDocumentAddressKey(address aggregate.DocumentAddress) string {
-	return string(address.Target()) + "\x00" + string(address.Scope()) + "\x00" + address.AggregateRoot()
+	return string(address.Target()) + "\x00" + string(address.Scope()) + "\x00" + address.AggregateRoot().String()
 }
 
 func aggregateDecisionKey(decision AggregateDecision) string {

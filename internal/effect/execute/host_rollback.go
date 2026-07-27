@@ -9,7 +9,6 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -93,7 +92,11 @@ func stageRecoveryRollback(
 	stageGroups := make([][]rollbackStageAction, 0, len(actions))
 	stageGroupByDestination := make(map[string]int, len(actions))
 	for index, action := range actions {
-		destination, err := authority.resolveBoundDestination(action.Scope, output.Destination(action.Destination))
+		logical, err := recoveryDestination(action.Scope, action.Destination)
+		if err != nil {
+			return hostRollback{}, errors.Join(err, rollback.cleanup())
+		}
+		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
 			return hostRollback{}, errors.Join(err, rollback.cleanup())
 		}

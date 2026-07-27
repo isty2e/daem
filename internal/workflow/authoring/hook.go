@@ -49,8 +49,8 @@ func BuildAddHookChange(document ManifestDocument, request AddHookRequest) (Chan
 	}, nil
 }
 
-func HookFromAddRequest(request AddHookRequest, header declaration.ManifestHeader) (declarationcodec.Hook, []string, error) {
-	hook := declarationcodec.Hook{
+func HookFromAddRequest(request AddHookRequest, header declaration.ManifestHeader) (declaration.Hook, []string, error) {
+	hook := declaration.Hook{
 		Name:            request.Name,
 		Event:           request.Event,
 		Matcher:         request.Matcher,
@@ -59,25 +59,25 @@ func HookFromAddRequest(request AddHookRequest, header declaration.ManifestHeade
 		StatusMessage:   request.StatusMessage,
 		Targets:         append([]string(nil), request.Targets...),
 		Scope:           request.Scope,
-		TargetOverrides: append([]declarationcodec.HookTargetOverride(nil), request.TargetOverrides...),
+		TargetOverrides: append([]declaration.HookTargetOverride(nil), request.TargetOverrides...),
 	}
 	if strings.TrimSpace(hook.Event) == "" {
-		return declarationcodec.Hook{}, nil, fmt.Errorf("--event is required")
+		return declaration.Hook{}, nil, fmt.Errorf("--event is required")
 	}
 	if strings.TrimSpace(hook.Command) == "" {
-		return declarationcodec.Hook{}, nil, fmt.Errorf("--command is required")
+		return declaration.Hook{}, nil, fmt.Errorf("--command is required")
 	}
 
 	effectiveTargets := header.EffectiveTargets(hook.Targets)
 	if len(effectiveTargets) == 0 {
-		return declarationcodec.Hook{}, nil, fmt.Errorf("hook %q has no targets; set manifest targets or pass --target", hook.Name)
+		return declaration.Hook{}, nil, fmt.Errorf("hook %q has no targets; set manifest targets or pass --target", hook.Name)
 	}
 	if err := validateHookTargetOverrides(hook, effectiveTargets); err != nil {
-		return declarationcodec.Hook{}, nil, err
+		return declaration.Hook{}, nil, err
 	}
 	warnings, err := validateHookTargets(hook, effectiveTargets)
 	if err != nil {
-		return declarationcodec.Hook{}, nil, err
+		return declaration.Hook{}, nil, err
 	}
 
 	return hook, warnings, nil
@@ -109,7 +109,7 @@ func BuildRemoveHookChange(document ManifestDocument, request RemoveHookRequest)
 	}, nil
 }
 
-func ApplyAddHookToManifest(original []byte, hook declarationcodec.Hook, header declaration.ManifestHeader) ([]byte, string, error) {
+func ApplyAddHookToManifest(original []byte, hook declaration.Hook, header declaration.ManifestHeader) ([]byte, string, error) {
 	change, err := declarationcodec.ApplyHookAdd(original, header, hook, mergeHookTargets)
 	if err != nil {
 		return nil, "", err
@@ -146,7 +146,7 @@ type removeHookCandidate struct {
 	targets      []string
 	start        int
 	end          int
-	hook         declarationcodec.Hook
+	hook         declaration.Hook
 }
 
 func removeHookCandidates(content []byte, header declaration.ManifestHeader) ([]removeHookCandidate, error) {
@@ -194,11 +194,11 @@ func applyRemoveHookCandidate(original []byte, candidate removeHookCandidate, se
 		NoSelectedTargetsError: func() error {
 			return fmt.Errorf("hook resource %q does not include selected targets", candidate.resourceName)
 		},
-		RenderBlockWithTargets: func(_ string, remainingTargets declaration.Targets) (string, error) {
+		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
 			remainingHook := candidate.hook
 			remainingHook.Targets = remainingTargets.Values()
 			remainingHook.TargetOverrides = declarationcodec.FilterHookOverrides(candidate.hook.TargetOverrides, remainingTargets.Values())
-			return declarationcodec.RenderHookBlock(remainingHook), nil
+			return declarationcodec.UpdateHookTargets(originalBlock, candidate.hook, remainingHook)
 		},
 	})
 	if err != nil {
@@ -211,7 +211,7 @@ func applyRemoveHookCandidate(original []byte, candidate removeHookCandidate, se
 	return change.Content, changeKind, nil
 }
 
-func validateHookTargetOverrides(hook declarationcodec.Hook, targets []string) error {
+func validateHookTargetOverrides(hook declaration.Hook, targets []string) error {
 	targetSet := make(map[string]struct{}, len(targets))
 	for _, selectedTarget := range targets {
 		targetSet[selectedTarget] = struct{}{}
@@ -234,7 +234,7 @@ func validateHookTargetOverrides(hook declarationcodec.Hook, targets []string) e
 	return nil
 }
 
-func validateHookTargets(hook declarationcodec.Hook, targets []string) ([]string, error) {
+func validateHookTargets(hook declaration.Hook, targets []string) ([]string, error) {
 	overrideByTarget := declarationcodec.HookOverridesByTarget(hook.TargetOverrides)
 	warnings := make([]string, 0)
 	for _, targetValue := range targets {
@@ -330,22 +330,22 @@ func hookSupportDetail(support profile.Support, known bool) string {
 	}
 }
 
-func mergeHookTargets(existing declarationcodec.Hook, addition declarationcodec.Hook, mergedTargets []string, header declaration.ManifestHeader) (declarationcodec.Hook, error) {
+func mergeHookTargets(existing declaration.Hook, addition declaration.Hook, mergedTargets []string, header declaration.ManifestHeader) (declaration.Hook, error) {
 	result := existing
 	result.Targets = mergedTargets
 	overrideByTarget := declarationcodec.HookOverridesByTarget(existing.TargetOverrides)
 	for _, override := range addition.TargetOverrides {
 		if _, exists := overrideByTarget[override.Target]; exists {
-			return declarationcodec.Hook{}, fmt.Errorf("hook %q already has target_override for target %q", existing.Name, override.Target)
+			return declaration.Hook{}, fmt.Errorf("hook %q already has target_override for target %q", existing.Name, override.Target)
 		}
 		result.TargetOverrides = append(result.TargetOverrides, override)
 	}
 	effectiveTargets := header.EffectiveTargets(result.Targets)
 	if err := validateHookTargetOverrides(result, effectiveTargets); err != nil {
-		return declarationcodec.Hook{}, err
+		return declaration.Hook{}, err
 	}
 	if _, err := validateHookTargets(result, effectiveTargets); err != nil {
-		return declarationcodec.Hook{}, err
+		return declaration.Hook{}, err
 	}
 	return result, nil
 }

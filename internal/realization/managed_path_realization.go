@@ -76,7 +76,7 @@ type ManagedPathProjectionInput struct {
 	PlacementID            string
 	ConsumerTargets        []target.Target
 	Scope                  target.Scope
-	Destination            string
+	Destination            output.Destination
 	ContentKind            PathProjectionContentKind
 	PlacementMode          PathProjectionMode
 	PermissionPolicy       PathPermissionPolicy
@@ -89,7 +89,7 @@ type ManagedPathProjection struct {
 	placementID            string
 	consumerTargets        []target.Target
 	scope                  target.Scope
-	destination            output.Portable
+	destination            output.Destination
 	contentKind            PathProjectionContentKind
 	placementMode          PathProjectionMode
 	permissionPolicy       PathPermissionPolicy
@@ -99,10 +99,6 @@ type ManagedPathProjection struct {
 
 // NewManagedPathProjection constructs a path realization with no current-state facts.
 func NewManagedPathProjection(input ManagedPathProjectionInput) (RealizationSpec, error) {
-	destination, err := output.Parse(input.Destination)
-	if err != nil {
-		return RealizationSpec{}, fmt.Errorf("managed path projection: %w", err)
-	}
 	consumerTargets, err := target.CanonicalSet(input.ConsumerTargets)
 	if err != nil {
 		return RealizationSpec{}, fmt.Errorf("managed path projection consumer targets: %w", err)
@@ -111,7 +107,7 @@ func NewManagedPathProjection(input ManagedPathProjectionInput) (RealizationSpec
 		placementID:            strings.TrimSpace(input.PlacementID),
 		consumerTargets:        consumerTargets,
 		scope:                  input.Scope,
-		destination:            destination,
+		destination:            input.Destination,
 		contentKind:            input.ContentKind,
 		placementMode:          input.PlacementMode,
 		permissionPolicy:       input.PermissionPolicy,
@@ -146,7 +142,9 @@ func (projection ManagedPathProjection) ConsumerTargets() []target.Target {
 	return append([]target.Target(nil), projection.consumerTargets...)
 }
 func (projection ManagedPathProjection) Scope() target.Scope { return projection.scope }
-func (projection ManagedPathProjection) Destination() string { return projection.destination.String() }
+func (projection ManagedPathProjection) Destination() output.Destination {
+	return projection.destination
+}
 
 func (projection ManagedPathProjection) ContentKind() PathProjectionContentKind {
 	return projection.contentKind

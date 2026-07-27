@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -25,7 +26,7 @@ const (
 // ManagedCarrierClaim is durable delete-authority provenance for one exact
 // daem-managed carrier relation. It is not current host evidence.
 type ManagedCarrierClaim struct {
-	owner          StateAuthority
+	owner          stateauthority.Authority
 	identity       ManagedCarrierIdentity
 	installRequest realizationdelegate.Request
 	provenance     ClaimProvenance
@@ -33,7 +34,7 @@ type ManagedCarrierClaim struct {
 
 // NewManagedCarrierClaim reconstructs one exact durable claim.
 func NewManagedCarrierClaim(
-	owner StateAuthority,
+	owner stateauthority.Authority,
 	identity ManagedCarrierIdentity,
 	installRequest realizationdelegate.Request,
 	provenance ClaimProvenance,
@@ -108,7 +109,7 @@ func ClaimAfterObservedInstall(
 // ClaimFromObservedAdoption creates state-only management authority for one
 // fresh source-exact external relation already declared by the current lock.
 func ClaimFromObservedAdoption(
-	owner StateAuthority,
+	owner stateauthority.Authority,
 	locked lock.LockedSubjectContract,
 	observation observerelation.CorrelationResult,
 ) (ManagedCarrierClaim, error) {
@@ -242,7 +243,7 @@ func (claim ManagedCarrierClaim) Validate() error {
 }
 
 // Owner returns the manifest state authority that owns this claim.
-func (claim ManagedCarrierClaim) Owner() StateAuthority { return claim.owner }
+func (claim ManagedCarrierClaim) Owner() stateauthority.Authority { return claim.owner }
 
 // Identity returns the exact carrier and managed relation identity.
 func (claim ManagedCarrierClaim) Identity() ManagedCarrierIdentity {

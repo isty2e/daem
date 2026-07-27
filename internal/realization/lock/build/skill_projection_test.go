@@ -55,7 +55,7 @@ func TestBuildCoalescesSharedSkillPlacementIntoOneLockedProjection(t *testing.T)
 	projection, _ := realization.ManagedPathProjection()
 	wantTargets := []target.Target{target.TargetAntigravityCLI, target.TargetCodex}
 	if projections[0].SubjectID().Namespace() != "skill.project.agents" ||
-		projection.Destination() != ".agents/skills/oracle" ||
+		projection.Destination().String() != ".agents/skills/oracle" ||
 		!reflect.DeepEqual(projection.ConsumerTargets(), wantTargets) {
 		t.Fatalf("projection = subject %q body %#v consumers %#v", projections[0].SubjectID(), projection, projection.ConsumerTargets())
 	}

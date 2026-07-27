@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestValidateMCPPlacementCatalogRejectsDuplicateTargetScope(t *testing.T) {
@@ -40,7 +41,7 @@ func TestValidateMCPPlacementCatalogRejectsDuplicateConfigPath(t *testing.T) {
 func TestValidateMCPPlacementCatalogRejectsDuplicateCodecContract(t *testing.T) {
 	left := mustTestMCPPlacement(t, "left", target.TargetCodex, target.ScopeProject, "codex-left-config")
 	right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeProject, "opencode-right-config")
-	right.aggregateSpec.root = ".test/other-config"
+	right.aggregateSpec.root = outputtest.Parse(t, ".test/other-config")
 	right.codecContractID = left.codecContractID
 
 	err := validateMCPPlacementCatalog([]MCPPlacement{left, right})
@@ -52,10 +53,12 @@ func TestValidateMCPPlacementCatalogRejectsDuplicateCodecContract(t *testing.T) 
 func TestValidateMCPPlacementCatalogRejectsConflictingConfigPathCollisions(t *testing.T) {
 	t.Run("duplicate conflict path", func(t *testing.T) {
 		left := mustTestMCPPlacement(t, "left", target.TargetCodex, target.ScopeProject, "codex-left-config")
-		right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeGlobal, "opencode-right-config")
-		right.aggregateSpec.root = ".test/right-config"
-		left.conflictingConfigPath = ".test/conflict"
-		right.conflictingConfigPath = ".test/conflict"
+		right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeProject, "opencode-right-config")
+		right.aggregateSpec.root = outputtest.Parse(t, ".test/right-config")
+		left.conflictingConfigPath = outputtest.Parse(t, ".test/conflict")
+		left.hasConflictingPath = true
+		right.conflictingConfigPath = outputtest.Parse(t, ".test/conflict")
+		right.hasConflictingPath = true
 
 		err := validateMCPPlacementCatalog([]MCPPlacement{left, right})
 		if err == nil || !strings.Contains(err.Error(), "share conflicting config path") {
@@ -65,9 +68,10 @@ func TestValidateMCPPlacementCatalogRejectsConflictingConfigPathCollisions(t *te
 
 	t.Run("conflict path owned by another row", func(t *testing.T) {
 		left := mustTestMCPPlacement(t, "left", target.TargetCodex, target.ScopeProject, "codex-left-config")
-		right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeGlobal, "opencode-right-config")
-		right.aggregateSpec.root = ".test/right-config"
+		right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeProject, "opencode-right-config")
+		right.aggregateSpec.root = outputtest.Parse(t, ".test/right-config")
 		left.conflictingConfigPath = right.aggregateSpec.root
+		left.hasConflictingPath = true
 
 		err := validateMCPPlacementCatalog([]MCPPlacement{left, right})
 		if err == nil || !strings.Contains(err.Error(), "is owned by placement") {

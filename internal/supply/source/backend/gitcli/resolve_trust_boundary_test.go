@@ -22,7 +22,7 @@ func TestResolveFileURLLocator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
-	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, locator, "skills/demo", "main"))
+	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, locator, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestResolveRebuildsSubstitutedCompletedArtifact(t *testing.T) {
 	}
 	sourceSpec := mustGitSource(t, repoPath, "skills/demo", "main")
 
-	first, err := resolver.Resolve(context.Background(), sourceSpec)
+	first, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestResolveRebuildsSubstitutedCompletedArtifact(t *testing.T) {
 		t.Fatalf("substitute completed artifact: %v", err)
 	}
 
-	second, err := resolver.Resolve(context.Background(), sourceSpec)
+	second, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestResolveRejectsUnqualifiedBranchTagCollision(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "collision"))
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "collision"), noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "matches both a branch and a tag") {
 		t.Fatalf("Resolve error = %v, want branch/tag ambiguity", err)
 	}
@@ -99,12 +99,12 @@ func TestResolvePrunesDeletedTagFromRepositoryCache(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 	sourceSpec := mustGitSource(t, repoPath, "skills/demo", "refs/tags/temporary")
-	if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 
 	runGitTestCommand(t, repoPath, "tag", "-d", "temporary")
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "no matching branch or tag") {
 		t.Fatalf("second Resolve error = %v, want deleted tag rejection", err)
 	}
@@ -169,7 +169,7 @@ func TestResolveRejectsBundleFileBeforeGitProcessLaunch(t *testing.T) {
 	}
 	fileURL := (&url.URL{Scheme: "file", Path: bundlePath}).String()
 	for _, locator := range []string{bundlePath, fileURL} {
-		_, err := resolver.Resolve(context.Background(), mustGitSource(t, locator, ".", "main"))
+		_, err := resolver.Resolve(context.Background(), mustGitSource(t, locator, ".", "main"), noOperationOptions)
 		if err == nil || !strings.Contains(err.Error(), "bundle files are unsupported") {
 			t.Fatalf("Resolve(%q) error = %v, want bundle rejection", locator, err)
 		}
@@ -232,7 +232,7 @@ esac
 			t.Setenv("DAEM_FAKE_GIT_OUTPUT", test.gitOutput)
 			t.Setenv("DAEM_GIT_ARCHIVE_MARKER", archiveMarker)
 
-			_, err = resolver.Resolve(context.Background(), sourceSpec)
+			_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			if err == nil || !strings.Contains(err.Error(), test.wantDetail) {
 				t.Fatalf("Resolve error = %v, want %q", err, test.wantDetail)
 			}
@@ -256,7 +256,7 @@ func TestResolveTreatsShellMetacharactersInValidRefAsInertData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
-	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", ref))
+	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", ref), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}

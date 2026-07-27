@@ -154,12 +154,12 @@ func TestAntigravityGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testi
 func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 	cases := []struct {
 		name       string
-		projection AntigravityGlobalMCPServerProjection
+		projection MCPNoEnvServerProjection
 		want       MCPProjectionReasonCode
 	}{
 		{
 			name: "stale adapter",
-			projection: AntigravityGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx",
 				AdapterContract: "antigravity-cli-global-mcp-command-v0",
@@ -168,7 +168,7 @@ func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testin
 		},
 		{
 			name: "absolute command",
-			projection: AntigravityGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "/usr/bin/node",
 				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
@@ -177,7 +177,7 @@ func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testin
 		},
 		{
 			name: "invalid server id",
-			projection: AntigravityGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "bad/server",
 				Command:         "npx",
 				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
@@ -186,7 +186,7 @@ func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testin
 		},
 		{
 			name: "shell command",
-			projection: AntigravityGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx --yes",
 				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
@@ -226,7 +226,7 @@ func TestAntigravityGlobalMCPProjectionMergeBlocksUnsupportedSameNameEntry(t *te
 	}
 }
 
-func mergeAntigravityGlobalMCPServerProjectionForTest(existing []byte, projection AntigravityGlobalMCPServerProjection) ([]byte, error) {
+func mergeAntigravityGlobalMCPServerProjectionForTest(existing []byte, projection MCPNoEnvServerProjection) ([]byte, error) {
 	canonical, err := CanonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err

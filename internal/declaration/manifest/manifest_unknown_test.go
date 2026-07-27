@@ -124,8 +124,8 @@ targets = ["pi"]
 				t.Fatal("Bytes returned nil error")
 			}
 
-			if !strings.Contains(err.Error(), "hook[0].source: hook executable sources are not supported") {
-				t.Fatalf("error = %q, want unsupported hook source diagnostic", err)
+			if !strings.Contains(err.Error(), "unknown manifest key \"hook.source\"") {
+				t.Fatalf("error = %q, want strict unknown hook source diagnostic", err)
 			}
 		})
 	}

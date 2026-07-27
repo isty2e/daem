@@ -6,24 +6,14 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 )
 
-// Resolver materializes a source without knowing host targets or destinations.
+// Resolver materializes a source with optional operation observation routing.
 type Resolver interface {
-	Resolve(context.Context, source.Source) (Resolution, error)
+	Resolve(context.Context, source.Source, OperationOptions) (Resolution, error)
 }
 
-// ResolverWithOptions resolves a source with operation observation routing.
-type ResolverWithOptions interface {
-	ResolveWithOptions(context.Context, source.Source, OperationOptions) (Resolution, error)
-}
-
-// RootLister lists direct source-root children without resolving artifacts.
+// RootLister lists direct source-root children with optional operation observation routing.
 type RootLister interface {
-	ListSourceRoot(context.Context, source.Source) (source.RootListing, error)
-}
-
-// RootListerWithOptions lists a source root with operation observation routing.
-type RootListerWithOptions interface {
-	ListSourceRootWithOptions(context.Context, source.Source, OperationOptions) (source.RootListing, error)
+	ListSourceRoot(context.Context, source.Source, OperationOptions) (source.RootListing, error)
 }
 
 // BatchResolver resolves source operations with stable result slots.

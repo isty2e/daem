@@ -18,7 +18,7 @@ func assertHookAggregateState(t *testing.T, snapshot durable.Snapshot, expectedS
 		}
 		contribution := stateResource.Contribution()
 		if contribution.Target() != targetpkg.TargetCodex || contribution.Scope() != targetpkg.ScopeProject ||
-			contribution.AggregateRoot() != ".codex/hooks.json" || contribution.ContentPath() != "/hooks" ||
+			contribution.AggregateRoot().String() != ".codex/hooks.json" || contribution.ContentPath() != "/hooks" ||
 			!strings.Contains(contribution.CanonicalContribution(), "python3 hooks/protect.py") {
 			t.Fatalf("managed Hook aggregate state = %#v", stateResource)
 		}

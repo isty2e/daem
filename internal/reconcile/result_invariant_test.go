@@ -10,15 +10,15 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/delegate"
-	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	reconcile "github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestResultOwnsAllDecisionFamiliesAndDefensiveCopies(t *testing.T) {
-	managed := resultManagedPath(t, "oracle", "skills/oracle")
+	managed := resultManagedPath(t, "oracle", outputtest.Parse(t, "skills/oracle"))
 	aggregateDecision, projectionSubject := resultAggregate(t, "context7")
 	relationSubject := mustSubject(t, "context7-plugin", "managed/context7-plugin")
 	relation := mustPlan(t, relationSubject, correlationFor(t, relationSubject, observerelation.InventorySpec{
@@ -67,16 +67,16 @@ func TestResultOwnsAllDecisionFamiliesAndDefensiveCopies(t *testing.T) {
 
 	dependencies := result.Delegates()[0].Dependencies()
 	dependencies[0] = reconcile.DelegateDependency{}
-	disclosure := result.Delegates()[0].Disclosure()
-	disclosure.Args[0] = "mutated"
+	args := result.Delegates()[0].Plan().Command().Args()
+	args[0] = "mutated"
 	if result.Delegates()[0].Dependencies()[0].Subject != projectionSubject ||
-		result.Delegates()[0].Disclosure().Args[0] == "mutated" {
+		result.Delegates()[0].Plan().Command().Args()[0] == "mutated" {
 		t.Fatal("Result leaked mutable delegate internals")
 	}
 }
 
 func TestResultRejectsDuplicateAndCrossFamilyIdentities(t *testing.T) {
-	managed := resultManagedPath(t, "context7", "skills/context7")
+	managed := resultManagedPath(t, "context7", outputtest.Parse(t, "skills/context7"))
 	aggregateDecision, aggregateSubject := resultAggregate(t, "context7")
 	relationSubject := mustSubject(t, "context7-plugin", "managed/context7-plugin")
 	relation := mustPlan(t, relationSubject, correlationFor(t, relationSubject, observerelation.InventorySpec{
@@ -104,7 +104,7 @@ func TestResultRejectsDuplicateAndCrossFamilyIdentities(t *testing.T) {
 		})
 	}
 
-	conflictingManaged := resultManagedPathForSubject(t, aggregateSubject, "skills/context7")
+	conflictingManaged := resultManagedPathForSubject(t, aggregateSubject, outputtest.Parse(t, "skills/context7"))
 	_, err := reconcile.NewResult(reconcile.ResultInput{
 		Context:      reconcile.ContextInspect,
 		ManagedPaths: []reconcile.ManagedPathDecision{conflictingManaged},
@@ -140,10 +140,9 @@ func TestResultRejectsContextAndDependencyContradictions(t *testing.T) {
 	}
 
 	plan := resultDelegatePlan(t)
-	disclosure := resultDisclosure(plan)
 	_, err := reconcile.NewDelegateAction(reconcile.DelegateActionInput{
 		Subject: projectionSubject, Target: target.TargetClaudeCode, Scope: target.ScopeProject,
-		Plan: plan, Disposition: reconcile.DelegateScheduled, Disclosure: disclosure,
+		Plan: plan, Disposition: reconcile.DelegateScheduled,
 		Dependencies: []reconcile.DelegateDependency{{Kind: "delegate", Subject: projectionSubject}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "kind \"delegate\" is unsupported") {
@@ -151,32 +150,9 @@ func TestResultRejectsContextAndDependencyContradictions(t *testing.T) {
 	}
 }
 
-func TestDelegateDisclosureMatchesPlanRequiresExactArgsAndEnv(t *testing.T) {
-	plan := resultDelegatePlan(t)
-	disclosure := resultDisclosure(plan)
-	if !disclosure.MatchesPlan(plan) {
-		t.Fatal("exact delegate disclosure did not match its plan")
-	}
-
-	changedArgs := resultDisclosure(plan)
-	changedArgs.Args = append(changedArgs.Args, "--different")
-	if changedArgs.MatchesPlan(plan) {
-		t.Fatal("delegate disclosure with different argv matched its plan")
-	}
-
-	changedEnv := resultDisclosure(plan)
-	changedEnv.Env = append(changedEnv.Env, lock.DelegateEnvBinding{
-		Name:       "API_TOKEN",
-		SourceName: "API_TOKEN",
-	})
-	if changedEnv.MatchesPlan(plan) {
-		t.Fatal("delegate disclosure with different environment bindings matched its plan")
-	}
-}
-
 func TestResultRejectsContradictoryDelegateDependencyState(t *testing.T) {
-	projection := resultManagedPath(t, "blocked", "skills/blocked")
-	blockedProjection := resultBlockedManagedPathForSubject(t, projection.Subject(), "skills/blocked")
+	projection := resultManagedPath(t, "blocked", outputtest.Parse(t, "skills/blocked"))
+	blockedProjection := resultBlockedManagedPathForSubject(t, projection.Subject(), outputtest.Parse(t, "skills/blocked"))
 
 	scheduled := resultDelegate(t, projection.Subject(), reconcile.DelegateScheduled)
 	_, err := reconcile.NewResult(reconcile.ResultInput{
@@ -214,8 +190,8 @@ func TestResultRejectsContradictoryDelegateDependencyState(t *testing.T) {
 }
 
 func TestResultCanonicalizesFamilyOrder(t *testing.T) {
-	managedZ := resultManagedPath(t, "zeta", "skills/zeta")
-	managedA := resultManagedPath(t, "alpha", "skills/alpha")
+	managedZ := resultManagedPath(t, "zeta", outputtest.Parse(t, "skills/zeta"))
+	managedA := resultManagedPath(t, "alpha", outputtest.Parse(t, "skills/alpha"))
 	aggregateGlobal, _ := resultAggregateAt(t, aggregate.MCPPlacementClaudeGlobal, "zeta")
 	aggregateProject, _ := resultAggregateAt(t, aggregate.MCPPlacementClaudeProject, "alpha")
 
@@ -230,7 +206,7 @@ func TestResultCanonicalizesFamilyOrder(t *testing.T) {
 	if got := []topology.SubjectID{result.ManagedPaths()[0].Subject(), result.ManagedPaths()[1].Subject()}; !reflect.DeepEqual(got, []topology.SubjectID{managedA.Subject(), managedZ.Subject()}) {
 		t.Fatalf("managed path order = %v", got)
 	}
-	if got := []string{result.Aggregates()[0].DocumentAddress().AggregateRoot(), result.Aggregates()[1].DocumentAddress().AggregateRoot()}; !reflect.DeepEqual(got, []string{aggregateGlobal.DocumentAddress().AggregateRoot(), aggregateProject.DocumentAddress().AggregateRoot()}) {
+	if got := []output.Destination{result.Aggregates()[0].DocumentAddress().AggregateRoot(), result.Aggregates()[1].DocumentAddress().AggregateRoot()}; !reflect.DeepEqual(got, []output.Destination{aggregateGlobal.DocumentAddress().AggregateRoot(), aggregateProject.DocumentAddress().AggregateRoot()}) {
 		t.Fatalf("aggregate order = %v", got)
 	}
 }
@@ -373,12 +349,12 @@ func resultDelegate(t *testing.T, subject topology.SubjectID, disposition reconc
 	if disposition == reconcile.DelegateSkipped {
 		risks = []reconcile.DelegateRisk{{
 			Code: reconcile.DelegateRiskDryRunDisclosure, Severity: reconcile.DelegateRiskInfo,
-			Subject: plan.IdentityKey,
+			Subject: plan.IdentityKey(),
 		}}
 	}
 	action, err := reconcile.NewDelegateAction(reconcile.DelegateActionInput{
 		Subject: subject, Target: target.TargetClaudeCode, Scope: target.ScopeProject,
-		Plan: plan, Disposition: disposition, Disclosure: resultDisclosure(plan), Risks: risks,
+		Plan: plan, Disposition: disposition, Risks: risks,
 		Dependencies: []reconcile.DelegateDependency{{Kind: reconcile.DelegateDependencyProjection, Subject: subject}},
 	})
 	if err != nil {
@@ -397,7 +373,7 @@ func resultDelegateWithRisks(
 	plan := resultDelegatePlan(t)
 	action, err := reconcile.NewDelegateAction(reconcile.DelegateActionInput{
 		Subject: subject, Target: target.TargetClaudeCode, Scope: target.ScopeProject,
-		Plan: plan, Disposition: disposition, Disclosure: resultDisclosure(plan), Risks: risks,
+		Plan: plan, Disposition: disposition, Risks: risks,
 		Dependencies: []reconcile.DelegateDependency{{Kind: reconcile.DelegateDependencyProjection, Subject: subject}},
 	})
 	if err != nil {
@@ -416,7 +392,7 @@ func resultDelegateAt(
 	plan := resultDelegatePlan(t)
 	action, err := reconcile.NewDelegateAction(reconcile.DelegateActionInput{
 		Subject: subject, Target: actionTarget, Scope: scope,
-		Plan: plan, Disposition: reconcile.DelegateScheduled, Disclosure: resultDisclosure(plan),
+		Plan: plan, Disposition: reconcile.DelegateScheduled,
 		Dependencies: []reconcile.DelegateDependency{{Kind: reconcile.DelegateDependencyProjection, Subject: subject}},
 	})
 	if err != nil {
@@ -461,7 +437,7 @@ func resultRelationAt(
 	return action
 }
 
-func resultDelegatePlan(t *testing.T) lock.DelegatePlanIdentity {
+func resultDelegatePlan(t *testing.T) delegate.DelegatePlan {
 	t.Helper()
 	runner, err := delegate.NewRunner(delegate.RunnerPlain)
 	if err != nil {
@@ -481,13 +457,5 @@ func resultDelegatePlan(t *testing.T) lock.DelegatePlanIdentity {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return lock.DelegatePlanIdentityFromPlan(plan)
-}
-
-func resultDisclosure(plan lock.DelegatePlanIdentity) reconcile.DelegateDisclosure {
-	return reconcile.DelegateDisclosure{
-		IdentityKey: plan.IdentityKey, RunnerKind: plan.RunnerKind, Command: plan.Command,
-		Args: append([]string(nil), plan.Args...), Env: append([]lock.DelegateEnvBinding(nil), plan.Env...),
-		Package: plan.Package, PinPolicy: plan.PinPolicy,
-	}
+	return plan
 }

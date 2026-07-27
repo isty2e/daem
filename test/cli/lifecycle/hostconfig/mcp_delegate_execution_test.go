@@ -225,9 +225,9 @@ func TestMCPPublicCLIApplyDelegatedRouteRetriesDespitePreviousSuccess(t *testing
 	runMCPCLIWithSuccessfulDelegate(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes", "--json")
 
 	record := loadMCPDelegateStatusRecord(t, project.lockfilePath, "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	state := loadMCPStatefile(t, project.root)
 	subject, err := topology.NewSubjectID(
@@ -242,7 +242,7 @@ func TestMCPPublicCLIApplyDelegatedRouteRetriesDespitePreviousSuccess(t *testing
 		Subject:         subject,
 		Target:          target.TargetClaudeCode,
 		Scope:           target.ScopeProject,
-		PlanIdentityKey: delegateIdentity.IdentityKey,
+		PlanIdentityKey: delegatePlan.IdentityKey(),
 		ObservedAt:      time.Date(2026, time.June, 30, 10, 0, 0, 0, time.UTC),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
@@ -577,7 +577,7 @@ func assertMCPDelegateActionDisclosure(
 		t.Fatalf("delegate action = %#v, want %s/%s %s disclosure for %#v", action, wantStatus, wantOutcome, wantRunner, spec)
 	}
 	for name, sourceName := range spec.Env {
-		if !slices.ContainsFunc(action.EnvBindings, func(binding clijson.DelegateEnvBinding) bool {
+		if !slices.ContainsFunc(action.EnvBindings, func(binding clijson.EnvBinding) bool {
 			return binding.Name == name && binding.SourceName == sourceName
 		}) {
 			t.Fatalf("delegate action env bindings = %#v, want %s<-%s", action.EnvBindings, name, sourceName)

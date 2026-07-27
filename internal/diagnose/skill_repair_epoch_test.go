@@ -58,7 +58,7 @@ func TestSkillRepairDiagnosticsReusesMatchingSourceEpoch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolution, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolution, err := resolver.Resolve(context.Background(), sourceSpec, acquisition.OperationOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}

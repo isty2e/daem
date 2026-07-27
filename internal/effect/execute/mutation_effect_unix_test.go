@@ -10,14 +10,14 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCommitFileDestinationAgainstRejectsProjectFinalSymlink(t *testing.T) {
@@ -212,7 +212,7 @@ func projectMutationDestinationForTest(
 ) (*mutationAuthority, mutationDestination) {
 	t.Helper()
 	effect := ManagedPathEffect{replace: &managedPathReplaceEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeProject, destination: output.Destination(relative),
+		scope: target.ScopeProject, destination: outputtest.Parse(t, relative),
 	}}}
 	paths := Paths{ManifestRoot: root}
 	authority, err := newMutationAuthorityWithProjectionEffects(
@@ -232,7 +232,7 @@ func projectMutationDestinationForTest(
 			t.Errorf("close mutation authority: %v", err)
 		}
 	})
-	destination, err := authority.resolveBoundDestination(target.ScopeProject, output.Destination(relative))
+	destination, err := authority.resolveBoundDestination(target.ScopeProject, outputtest.Parse(t, relative))
 	if err != nil {
 		t.Fatalf("resolve mutation destination: %v", err)
 	}

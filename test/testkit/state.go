@@ -10,7 +10,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -35,7 +34,7 @@ func SkillPathState(
 	}
 	var placementID string
 	for _, placement := range placements {
-		if _, err := placement.ChildName(path); err == nil {
+		if _, err := placement.ChildName(parseDestination(t, path)); err == nil {
 			placementID = placement.ID()
 			break
 		}
@@ -74,7 +73,7 @@ func InstructionPathState(
 			entity.KindInstructions,
 			consumer,
 			scope,
-			path,
+			parseDestination(t, path),
 		)
 		if err != nil {
 			t.Fatalf("ManagedFilePlacementFor returned error: %v", err)
@@ -147,7 +146,7 @@ func AssertManagedPathState(
 ) {
 	t.Helper()
 	for _, state := range snapshot.ManagedPaths() {
-		if string(state.Scope()) != scope || string(state.Destination()) != path {
+		if string(state.Scope()) != scope || state.Destination().String() != path {
 			continue
 		}
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
@@ -190,7 +189,7 @@ func AssertManagedPathStateMissing(
 ) {
 	t.Helper()
 	for _, state := range snapshot.ManagedPaths() {
-		if string(state.Scope()) != scope || string(state.Destination()) != path {
+		if string(state.Scope()) != scope || state.Destination().String() != path {
 			continue
 		}
 		entityID, entityBacked := topologyprojection.EntityID(state.Subject())
@@ -393,7 +392,7 @@ func managedPathState(
 		subject,
 		consumers,
 		scope,
-		output.Destination(path),
+		parseDestination(t, path),
 		canonicalHash,
 		contentKind,
 		permissionPolicy,

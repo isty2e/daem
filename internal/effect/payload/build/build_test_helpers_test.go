@@ -24,7 +24,6 @@ import (
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
@@ -275,11 +274,13 @@ func hostOutputTestPaths(t *testing.T, root string) daempaths.Paths {
 	return paths
 }
 
-func mustHostOutputSelection(t *testing.T, environment desired.Environment, requested ...string) targetselection.Selection {
+func mustHostOutputSelection(t *testing.T, requested ...string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := targetavailability.FromEnvironment(environment)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
+	selection, err := targetselection.ForAvailableTargets(
+		[]target.Target{target.TargetCodex},
+		requested,
+	)
 	if err != nil {
 		t.Fatalf("ForAvailableTargets returned error: %v", err)
 	}

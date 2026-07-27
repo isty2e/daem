@@ -5,7 +5,7 @@ import (
 	"path"
 	"strings"
 
-	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/declaration"
 )
 
 type AddSkillRequest struct {
@@ -57,7 +57,7 @@ type AddHookRequest struct {
 	StatusMessage   string
 	Targets         []string
 	Scope           string
-	TargetOverrides []declarationcodec.HookTargetOverride
+	TargetOverrides []declaration.HookTargetOverride
 }
 
 type RemoveHookRequest struct {

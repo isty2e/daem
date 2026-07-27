@@ -6,7 +6,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	ownershipobserve "github.com/isty2e/daem/internal/assurance/observe/ownership"
-	"github.com/isty2e/daem/internal/output"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -35,11 +34,11 @@ func buildManagedPathPlanningInputs(
 			continue
 		}
 		inputs.requests = append(inputs.requests, liveobserve.ManagedPathRequest{
-			Subject: contract.SubjectID(), Destination: output.Destination(projection.Destination()),
+			Subject: contract.SubjectID(), Destination: projection.Destination(),
 			ContentKind: projection.ContentKind(),
 		})
 		inputs.ownership = append(inputs.ownership, ownershipobserve.ManagedPathInput{
-			Scope: projection.Scope(), Destination: output.Destination(projection.Destination()),
+			Scope: projection.Scope(), Destination: projection.Destination(),
 			ConsumerTargets: projection.ConsumerTargets(),
 		})
 	}

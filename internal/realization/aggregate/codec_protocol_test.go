@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestDocumentDistinguishesAbsentFromExistingEmptyAndClonesBytes(t *testing.T) {
@@ -29,9 +31,9 @@ func TestDocumentDistinguishesAbsentFromExistingEmptyAndClonesBytes(t *testing.T
 }
 
 func TestSelectionCanonicalizesOneDocumentAndRejectsPhysicalAlias(t *testing.T) {
-	leftInput := testSharedHookContributionInput(`{"command":"left"}`)
+	leftInput := testSharedHookContributionInput(t, `{"command":"left"}`)
 	leftInput.ContentPath = "/hooks/left"
-	rightInput := testSharedHookContributionInput(`{"command":"right"}`)
+	rightInput := testSharedHookContributionInput(t, `{"command":"right"}`)
 	rightInput.ContentPath = "/hooks/right"
 	left := mustManagedContribution(t, leftInput).Contract()
 	right := mustManagedContribution(t, rightInput).Contract()
@@ -53,7 +55,7 @@ func TestSelectionCanonicalizesOneDocumentAndRejectsPhysicalAlias(t *testing.T) 
 	}
 
 	otherDocumentInput := rightInput
-	otherDocumentInput.AggregateRoot = "other-settings.json"
+	otherDocumentInput.AggregateRoot = outputtest.Parse(t, "other-settings.json")
 	otherDocument := mustManagedContribution(t, otherDocumentInput).Contract()
 	if _, err := NewSelection([]ProjectionContract{left, otherDocument}); err == nil || !strings.Contains(err.Error(), "mixes documents") {
 		t.Fatalf("mixed document error = %v", err)
@@ -68,9 +70,9 @@ func TestSelectionCanonicalizesOneDocumentAndRejectsPhysicalAlias(t *testing.T) 
 }
 
 func TestProtocolValuesRejectDuplicateAndContradictoryCoverage(t *testing.T) {
-	leftInput := testSharedHookContributionInput(`{"command":"left"}`)
+	leftInput := testSharedHookContributionInput(t, `{"command":"left"}`)
 	leftInput.ContentPath = "/hooks/left"
-	rightInput := testSharedHookContributionInput(`{"command":"right"}`)
+	rightInput := testSharedHookContributionInput(t, `{"command":"right"}`)
 	rightInput.ContentPath = "/hooks/right"
 	left := mustManagedContribution(t, leftInput).Contract()
 	right := mustManagedContribution(t, rightInput).Contract()
@@ -121,7 +123,7 @@ func TestProtocolValuesRejectDuplicateAndContradictoryCoverage(t *testing.T) {
 }
 
 func TestSnapshotAndPlanRequireExactAddressCorrelatedCoverage(t *testing.T) {
-	contribution := mustManagedContribution(t, testSharedHookContributionInput(`{"command":"review"}`))
+	contribution := mustManagedContribution(t, testSharedHookContributionInput(t, `{"command":"review"}`))
 	contract := contribution.Contract()
 	selection, err := NewSelection([]ProjectionContract{contract})
 	if err != nil {
@@ -139,13 +141,13 @@ func TestSnapshotAndPlanRequireExactAddressCorrelatedCoverage(t *testing.T) {
 	if !covered || !selected.Contract().Equal(contract) || selected.Present() {
 		t.Fatalf("snapshot selected state = %#v, %t", selected, covered)
 	}
-	driftedContractInput := testSharedHookContributionInput(`{"command":"review"}`)
+	driftedContractInput := testSharedHookContributionInput(t, `{"command":"review"}`)
 	driftedContractInput.CodecContractID = "codex-project-hooks-v2"
 	driftedContract := mustManagedContribution(t, driftedContractInput).Contract()
 	if _, covered := before.State(driftedContract); covered {
 		t.Fatal("snapshot matched an address-equal but contract-different projection")
 	}
-	desired, err := NewContributionSet([]SubjectContribution{mustSubjectContribution(t, "review", testSharedHookContributionInput(`{"command":"review"}`))})
+	desired, err := NewContributionSet([]SubjectContribution{mustSubjectContribution(t, "review", testSharedHookContributionInput(t, `{"command":"review"}`))})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,10 +191,10 @@ func TestSnapshotAndPlanRequireExactAddressCorrelatedCoverage(t *testing.T) {
 		t.Fatalf("remove absent projection error = %v", err)
 	}
 
-	driftedInput := testSharedHookContributionInput(`{"command":"other"}`)
+	driftedInput := testSharedHookContributionInput(t, `{"command":"other"}`)
 	driftedInput.CodecContractID = "codex-project-hooks-v2"
 	forgedDesired := ContributionSet{items: []SubjectContribution{
-		mustSubjectContribution(t, "review", testSharedHookContributionInput(`{"command":"review"}`)),
+		mustSubjectContribution(t, "review", testSharedHookContributionInput(t, `{"command":"review"}`)),
 		mustSubjectContribution(t, "other", driftedInput),
 	}}
 	forgedIntent := ProjectionIntent{before: absent, desired: &forgedDesired}
@@ -202,7 +204,7 @@ func TestSnapshotAndPlanRequireExactAddressCorrelatedCoverage(t *testing.T) {
 }
 
 func TestRenderedRemovalAndRecoveryRemainNonAuthoritativeCandidates(t *testing.T) {
-	contribution := mustManagedContribution(t, testSharedHookContributionInput(`{"command":"review"}`))
+	contribution := mustManagedContribution(t, testSharedHookContributionInput(t, `{"command":"review"}`))
 	contract := contribution.Contract()
 	selection, _ := NewSelection([]ProjectionContract{contract})
 	present, _ := NewProjectionState(contract, true, true, `[{"command":"review"}]`)

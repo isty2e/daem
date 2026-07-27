@@ -10,10 +10,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
@@ -65,7 +65,7 @@ func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
 				context.Background(),
 				captured,
 				target.ScopeProject,
-				output.Destination("AGENTS.md"),
+				outputtest.Parse(t, "AGENTS.md"),
 				artifact.HashFileContent(before),
 				hostpath.NewResolver(root).Resolve,
 			)
@@ -102,7 +102,7 @@ func TestReadManagedFileForDiffPreservesExecutableIdentityClass(t *testing.T) {
 		context.Background(),
 		captured,
 		target.ScopeProject,
-		output.Destination("AGENTS.md"),
+		outputtest.Parse(t, "AGENTS.md"),
 		artifact.HashFileContentWithExecutable(before, true),
 		hostpath.NewResolver(root).Resolve,
 	)

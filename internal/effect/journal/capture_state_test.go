@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestCaptureRecoveryStateBeforeUsesPreviousStateIdentity(t *testing.T) {
@@ -25,7 +26,7 @@ func TestCaptureRecoveryStateBeforeUsesPreviousStateIdentity(t *testing.T) {
 	action := pathMutationFromManagedState(t, previousState)
 	action.Subject = mustTestManagedPathSubject("relocated", "instructions.project.claude")
 	action.ConsumerTargets = []target.Target{target.TargetClaudeCode}
-	action.Destination = "CLAUDE.md"
+	action.Destination = outputtest.Parse(t, "CLAUDE.md")
 	state := recoveryManagedStateMap(previousState)
 
 	got, err := captureRecoveryStateBefore(action, state)

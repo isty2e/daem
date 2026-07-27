@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
@@ -28,7 +29,7 @@ type LockedProjectionObservation struct {
 	lastDelegateAttempt    LastDelegateAttemptObservation
 	target                 target.Target
 	scope                  target.Scope
-	configPath             string
+	configPath             output.Destination
 	contentPath            aggregate.ContentPath
 	adapterContractVersion aggregate.CodecContractID
 }
@@ -123,7 +124,7 @@ func (observation LockedProjectionObservation) Scope() target.Scope {
 	return observation.scope
 }
 
-func (observation LockedProjectionObservation) ConfigPath() string {
+func (observation LockedProjectionObservation) ConfigPath() output.Destination {
 	return observation.configPath
 }
 

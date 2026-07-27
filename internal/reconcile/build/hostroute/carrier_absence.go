@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -25,7 +26,7 @@ type CarrierAbsenceInput struct {
 	Locked          lock.File
 	SelectedTargets reconcile.SelectedTargets
 	Observations    relationobserve.Batch
-	CurrentOwner    durablecarrier.StateAuthority
+	CurrentOwner    stateauthority.Authority
 	AllClaims       []durablecarrier.ManagedCarrierClaim
 	PendingRemovals []durablecarrier.PendingCarrierRemoval
 	ResolveRoute    CarrierRemovalRouteResolver
@@ -154,7 +155,7 @@ func canonicalCarrierClaims(
 
 func pendingCarrierRemovals(
 	values []durablecarrier.PendingCarrierRemoval,
-	currentOwner durablecarrier.StateAuthority,
+	currentOwner stateauthority.Authority,
 	claims []durablecarrier.ManagedCarrierClaim,
 ) (map[carrierOwnerRelationKey]durablecarrier.PendingCarrierRemoval, error) {
 	claimByKey := make(map[carrierOwnerRelationKey]durablecarrier.ManagedCarrierClaim, len(claims))

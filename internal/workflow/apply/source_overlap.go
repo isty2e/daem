@@ -95,7 +95,7 @@ func hostMutationDestinations(planResult reconcile.Result) []output.Destination 
 	}
 	for _, decision := range planResult.MutatingAggregates() {
 		if decision.MutatesHost() {
-			destinations = append(destinations, output.Destination(decision.DocumentAddress().AggregateRoot()))
+			destinations = append(destinations, decision.DocumentAddress().AggregateRoot())
 		}
 	}
 	return destinations

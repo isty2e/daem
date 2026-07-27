@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestProfilesPreserveCurrentSupportAndRealizationMatrix(t *testing.T) {
@@ -46,7 +47,7 @@ func TestProfilesPreserveCurrentSupportAndRealizationMatrix(t *testing.T) {
 func TestProfileSeparatesPlacementDiscoveryRuntimeAndRoutes(t *testing.T) {
 	claude := Profile(target.TargetClaudeCode)
 	placements := claude.Placements(entity.KindInstructions, target.ScopeProject)
-	if len(placements) != 1 || placements[0].Root() != "CLAUDE.md" {
+	if len(placements) != 1 || placements[0].Root().String() != "CLAUDE.md" {
 		t.Fatalf("placements = %#v", placements)
 	}
 	discoveries := claude.DiscoveryLocations(entity.KindInstructions, target.ScopeProject)
@@ -72,6 +73,73 @@ func TestProfileSeparatesPlacementDiscoveryRuntimeAndRoutes(t *testing.T) {
 	}
 }
 
+func TestProfileImportabilityRequiresIncludeDiscovery(t *testing.T) {
+	projectClassify := mustTestDiscoveryLocation(
+		t,
+		target.TargetCodex,
+		target.ScopeProject,
+		"classified",
+		ImportPolicyClassify,
+	)
+	globalClassify := mustTestDiscoveryLocation(
+		t,
+		target.TargetCodex,
+		target.ScopeGlobal,
+		"~/classified",
+		ImportPolicyClassify,
+	)
+	projectInclude := mustTestDiscoveryLocation(
+		t,
+		target.TargetCodex,
+		target.ScopeProject,
+		"included",
+		ImportPolicyInclude,
+	)
+	globalInclude := mustTestDiscoveryLocation(
+		t,
+		target.TargetCodex,
+		target.ScopeGlobal,
+		"~/included",
+		ImportPolicyInclude,
+	)
+
+	for _, test := range []struct {
+		name        string
+		discoveries []DiscoveryLocation
+		want        bool
+	}{
+		{name: "empty"},
+		{name: "classify-only", discoveries: []DiscoveryLocation{projectClassify, globalClassify}},
+		{name: "include-only", discoveries: []DiscoveryLocation{projectInclude}, want: true},
+		{name: "mixed-classify-first", discoveries: []DiscoveryLocation{projectClassify, globalInclude}, want: true},
+		{name: "mixed-include-first", discoveries: []DiscoveryLocation{projectInclude, globalClassify}, want: true},
+		{name: "duplicate-include", discoveries: []DiscoveryLocation{projectInclude, projectInclude}, want: true},
+		{name: "global-only", discoveries: []DiscoveryLocation{globalInclude}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			profile := TargetProfile{discoveries: test.discoveries}
+			if got := profile.HasImportableDiscovery(); got != test.want {
+				t.Fatalf("HasImportableDiscovery() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestImportableTargetsFollowStableProfilePolicy(t *testing.T) {
+	want := target.SupportedTargets()
+	got := ImportableTargets()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ImportableTargets() = %#v, want %#v", got, want)
+	}
+	got[0] = target.TargetPi
+	if reflect.DeepEqual(got, ImportableTargets()) {
+		t.Fatal("ImportableTargets returned shared mutable storage")
+	}
+	if Profile(target.Target("future-agent")).HasImportableDiscovery() {
+		t.Fatal("unknown target profile became importable")
+	}
+}
+
 func TestSharedPlacementsRemainOnePhysicalIdentity(t *testing.T) {
 	placements, err := ManagedPathPlacementsFor(
 		entity.KindInstructions,
@@ -92,10 +160,25 @@ func TestSharedPlacementsRemainOnePhysicalIdentity(t *testing.T) {
 	if !ok {
 		t.Fatal("shared placement has no write route")
 	}
-	spec, err := placements[0].Realize("AGENTS.md", realization.PathProjectionCopy, route)
+	spec, err := placements[0].Realize(outputtest.Parse(t, "AGENTS.md"), realization.PathProjectionCopy, route)
 	if err != nil || spec.Validate() != nil {
 		t.Fatalf("Realize = %#v, %v", spec, err)
 	}
+}
+
+func mustTestDiscoveryLocation(
+	t *testing.T,
+	selectedTarget target.Target,
+	scope target.Scope,
+	path string,
+	policy ImportPolicy,
+) DiscoveryLocation {
+	t.Helper()
+	location, err := NewDiscoveryLocation(selectedTarget, entity.KindSkill, scope, path, 0, policy)
+	if err != nil {
+		t.Fatalf("NewDiscoveryLocation returned error: %v", err)
+	}
+	return location
 }
 
 func TestCanonicalTargetCallersRejectInvalidConsumers(t *testing.T) {

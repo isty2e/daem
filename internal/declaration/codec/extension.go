@@ -9,31 +9,9 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 )
 
-type Extension struct {
-	ID      string          `toml:"id"`
-	Carrier string          `toml:"carrier"`
-	Targets []string        `toml:"targets"`
-	Scope   string          `toml:"scope"`
-	Source  ExtensionSource `toml:"source"`
-}
-
-type ExtensionSource struct {
-	Marketplace string `toml:"marketplace"`
-	HostSource  string `toml:"host_source"`
-}
-
-// Ref returns the populated external source reference without interpreting its
-// host-specific kind.
-func (source ExtensionSource) Ref() string {
-	if source.HostSource != "" {
-		return source.HostSource
-	}
-	return source.Marketplace
-}
-
 // SameExtensionRelation reports whether two extension declarations describe the same
 // document-local relation independently of their declaration IDs.
-func SameExtensionRelation(left Extension, right Extension) bool {
+func SameExtensionRelation(left declaration.Extension, right declaration.Extension) bool {
 	return left.Carrier == right.Carrier &&
 		left.Scope == right.Scope &&
 		equalExtensionStringValues(left.Targets, right.Targets) &&
@@ -55,7 +33,7 @@ func equalExtensionStringValues(left []string, right []string) bool {
 type ExtensionBlock struct {
 	Start     int
 	End       int
-	Extension Extension
+	Extension declaration.Extension
 }
 
 func ScanExtensionBlocks(content []byte) ([]ExtensionBlock, error) {
@@ -81,7 +59,7 @@ func startsNewExtensionTable(trimmedLine string) bool {
 
 func parseExtensionBlock(content []byte, start int, end int) (ExtensionBlock, error) {
 	var decoded struct {
-		Extensions []Extension `toml:"extension"`
+		Extensions []declaration.Extension `toml:"extension"`
 	}
 	if _, err := toml.Decode(string(content[start:end]), &decoded); err != nil {
 		return ExtensionBlock{}, fmt.Errorf("parse existing extension block: %w", err)
@@ -96,7 +74,7 @@ func parseExtensionBlock(content []byte, start int, end int) (ExtensionBlock, er
 	}, nil
 }
 
-func RenderExtensionBlock(extension Extension) string {
+func RenderExtensionBlock(extension declaration.Extension) string {
 	var builder strings.Builder
 	builder.WriteString("[[extension]]\n")
 	builder.WriteString("id = ")
@@ -107,7 +85,7 @@ func RenderExtensionBlock(extension Extension) string {
 	builder.WriteByte('\n')
 	if len(extension.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderExtensionStringArray(extension.Targets))
+		builder.WriteString(renderStringArray(extension.Targets))
 		builder.WriteByte('\n')
 	}
 	if extension.Scope != "" {
@@ -121,7 +99,7 @@ func RenderExtensionBlock(extension Extension) string {
 	return builder.String()
 }
 
-func renderExtensionSource(source ExtensionSource) string {
+func renderExtensionSource(source declaration.ExtensionSource) string {
 	parts := make([]string, 0, 2)
 	if source.Marketplace != "" {
 		parts = append(parts, "marketplace = "+strconv.Quote(source.Marketplace))
@@ -130,12 +108,4 @@ func renderExtensionSource(source ExtensionSource) string {
 		parts = append(parts, "host_source = "+strconv.Quote(source.HostSource))
 	}
 	return "{ " + strings.Join(parts, ", ") + " }"
-}
-
-func renderExtensionStringArray(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
 }

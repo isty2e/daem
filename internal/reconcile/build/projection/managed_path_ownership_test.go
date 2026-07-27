@@ -7,17 +7,19 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := ownership.NewOwnerAuthority(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +27,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	projectState := managedPathState(t, projection, []target.Target{target.TargetCodex}, ".agents/skills/oracle", "old")
 	globalState, err := durable.NewManagedPathState(
 		projectState.Subject(), projectState.ConsumerTargets(), target.ScopeGlobal,
-		"~/.codex/skills/oracle", projectState.ContentHash(), projectState.ContentKind(),
+		outputtest.Parse(t, "~/.codex/skills/oracle"), projectState.ContentHash(), projectState.ContentKind(),
 		projectState.PermissionPolicy(), projectState.FileMode(),
 	)
 	if err != nil {
@@ -35,7 +37,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 		t, filepath.Join(root, "old-global"), globalState.Destination(), owner, true,
 	)
 	newGlobal := planningManagedPathOwnershipObservation(
-		t, filepath.Join(root, "new-global"), "~/.codex/skills/review", owner, false,
+		t, filepath.Join(root, "new-global"), outputtest.Parse(t, "~/.codex/skills/review"), owner, false,
 	)
 
 	tests := []struct {
@@ -49,30 +51,30 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	}{
 		{
 			name: "project to global checks only new address", previous: projectState,
-			scope: target.ScopeGlobal, destination: "~/.codex/skills/review",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/.codex/skills/review"),
 			observations: []observe.OwnershipObservation{newGlobal},
 			wantKind:     reconcile.ManagedPathReplace, wantReason: reconcile.ReasonContentChanged,
 		},
 		{
 			name: "global to project checks only old address", previous: globalState,
-			scope: target.ScopeProject, destination: ".agents/skills/review",
+			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skills/review"),
 			observations: []observe.OwnershipObservation{oldGlobal},
 			wantKind:     reconcile.ManagedPathReplace, wantReason: reconcile.ReasonContentChanged,
 		},
 		{
 			name: "global to global checks both addresses", previous: globalState,
-			scope: target.ScopeGlobal, destination: "~/.codex/skills/review",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/.codex/skills/review"),
 			observations: []observe.OwnershipObservation{oldGlobal, newGlobal},
 			wantKind:     reconcile.ManagedPathReplace, wantReason: reconcile.ReasonContentChanged,
 		},
 		{
 			name: "project to global requires new observation", previous: projectState,
-			scope: target.ScopeGlobal, destination: "~/.codex/skills/review",
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/.codex/skills/review"),
 			wantKind: reconcile.ManagedPathBlocked, wantReason: reconcile.ReasonOwnershipObservationMissing,
 		},
 		{
 			name: "global to project requires old active claim", previous: globalState,
-			scope: target.ScopeProject, destination: ".agents/skills/review",
+			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skills/review"),
 			observations: []observe.OwnershipObservation{
 				planningManagedPathOwnershipObservation(t, filepath.Join(root, "old-unclaimed"), globalState.Destination(), owner, false),
 			},
@@ -103,14 +105,14 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	requester, err := ownership.NewOwnerAuthority(
+	requester, err := stateauthority.New(
 		filepath.Join(root, "requester-state.json"),
 		filepath.Join(root, "requester.toml"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := ownership.NewOwnerAuthority(
+	foreign, err := stateauthority.New(
 		filepath.Join(root, "foreign-state.json"),
 		filepath.Join(root, "foreign.toml"),
 	)
@@ -129,7 +131,7 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	destination := output.Destination("~/.codex/AGENTS.md")
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	observations, conflicts, err := ownershipObservations([]observe.OwnershipObservation{{
 		Destination: destination,
 		Address:     address,
@@ -153,7 +155,7 @@ func planningManagedPathOwnershipObservation(
 	t *testing.T,
 	path string,
 	destination output.Destination,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()

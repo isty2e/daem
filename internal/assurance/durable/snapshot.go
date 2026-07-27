@@ -6,6 +6,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -55,7 +56,7 @@ func NewSnapshot(input SnapshotInput) (Snapshot, error) {
 
 func (snapshot Snapshot) validate() error {
 	projectionSubjects := make(map[topology.SubjectID]string)
-	pathAddresses := make(map[string]topology.SubjectID)
+	pathAddresses := make(map[output.Destination]topology.SubjectID)
 	aggregateContracts := make(map[string]aggregate.ProjectionContract)
 	for index, state := range snapshot.managedPaths {
 		if err := state.validate(); err != nil {
@@ -70,7 +71,7 @@ func (snapshot Snapshot) validate() error {
 			)
 		}
 		projectionSubjects[state.subject] = "managed path"
-		address := string(state.destination)
+		address := state.destination
 		if existing, duplicate := pathAddresses[address]; duplicate {
 			return fmt.Errorf(
 				"managed path[%d]: destination %q already belongs to subject %q",
@@ -319,6 +320,6 @@ func (snapshot Snapshot) input() SnapshotInput {
 
 func aggregatePhysicalKey(contribution aggregate.ManagedContribution) string {
 	return string(contribution.Scope()) + "\x00" +
-		contribution.AggregateRoot() + "\x00" +
+		contribution.AggregateRoot().String() + "\x00" +
 		contribution.ContentPath()
 }

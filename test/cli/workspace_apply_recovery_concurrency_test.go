@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -246,7 +247,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 		previous.Subject(),
 		[]target.Target{target.TargetCodex},
 		target.ScopeGlobal,
-		"~/.codex/AGENTS.md",
+		outputtest.Parse(t, "~/.codex/AGENTS.md"),
 		artifact.ContentHash(afterHash),
 		artifact.ContentHash(oldHash),
 		realization.PathProjectionFile,
@@ -258,7 +259,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 	}
 	managedEvidence, err := observe.NewManagedPathEvidence(
 		previous.Subject(),
-		"~/.codex/AGENTS.md",
+		outputtest.Parse(t, "~/.codex/AGENTS.md"),
 		true,
 		artifact.ContentHash(oldHash),
 		0o600,

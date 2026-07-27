@@ -339,7 +339,7 @@ func (effect AggregateEffect) Scope() target.Scope {
 }
 
 func (effect AggregateEffect) Destination() output.Destination {
-	return output.Destination(effect.documentAddress.AggregateRoot())
+	return effect.documentAddress.AggregateRoot()
 }
 func (effect AggregateEffect) BeforeDocument() aggregate.Document { return effect.before }
 func (effect AggregateEffect) BeforeSnapshot() aggregate.Snapshot { return effect.snapshot }

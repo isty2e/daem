@@ -6,11 +6,12 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestSnapshotWithoutCarrierManagementRetiresExactProjectFacts(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	selected := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	retained := carrierFixtureFor(t, "other", "other@official", target.ScopeProject)
 	selectedClaim := claimForFixture(t, selected, owner)
@@ -50,7 +51,7 @@ func TestSnapshotWithoutCarrierManagementRetiresExactProjectFacts(t *testing.T) 
 }
 
 func TestSnapshotWithoutCarrierManagementRetiresGlobalPendingInstallOnly(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	selected := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	pending, err := durablecarrier.NewPendingCarrierInstall(owner, selected.identity, selected.installRequest)
 	if err != nil {
@@ -70,7 +71,7 @@ func TestSnapshotWithoutCarrierManagementRetiresGlobalPendingInstallOnly(t *test
 }
 
 func TestSnapshotWithoutCarrierManagementRejectsSameRelationDrift(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	selected := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	replacement := carrierFixtureFor(t, "context7", "context7@other", target.ScopeProject)
 	replacementClaim := claimForFixture(t, replacement, owner)
@@ -89,8 +90,8 @@ func TestSnapshotWithoutCarrierManagementRejectsSameRelationDrift(t *testing.T) 
 
 func TestSnapshotWithoutCarrierManagementRejectsOwnerProvenanceDrift(t *testing.T) {
 	root := t.TempDir()
-	selectedOwner := mustStateAuthority(t, root, "selected.toml")
-	retainedOwner, err := durablecarrier.NewStateAuthority(
+	selectedOwner := mustAuthority(t, root, "selected.toml")
+	retainedOwner, err := stateauthority.New(
 		selectedOwner.StatefileKey(),
 		selectedOwner.ManifestPath()+".other",
 	)

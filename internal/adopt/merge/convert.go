@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -16,11 +17,11 @@ func manifestInstructionFromImportSource(source adoptmodel.Source, targets []tar
 			Path: filepath.ToSlash(source.SourcePath),
 			Mode: string(sourcepkg.LocalSourceModeVendor),
 		},
-		Targets: adoptmodel.TargetStrings(targets),
+		Targets: targetStrings(targets),
 		Scope:   string(source.Scope),
 	}
 	if source.RenderTo != "" {
-		instruction.Target = map[string]declarationcodec.InstructionRendering{
+		instruction.Target = map[string]declaration.InstructionTarget{
 			string(source.Target): {RenderTo: source.RenderTo},
 		}
 	}
@@ -35,13 +36,13 @@ func manifestSkillFromImportSkill(skill adoptmodel.Skill, targets []targetpkg.Ta
 			Path: filepath.ToSlash(skill.SourcePath),
 			Mode: string(sourcepkg.LocalSourceModeVendor),
 		},
-		Targets: adoptmodel.TargetStrings(targets),
+		Targets: targetStrings(targets),
 		Scope:   string(skill.Scope),
 	}
 }
 
-func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target) declarationcodec.Hook {
-	result := declarationcodec.Hook{
+func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target) declaration.Hook {
+	result := declaration.Hook{
 		Name:           hook.ResourceName,
 		Event:          hook.Event,
 		Matcher:        hook.Matcher,
@@ -49,15 +50,23 @@ func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target
 		Command:        hook.Command,
 		TimeoutSeconds: hook.Timeout,
 		StatusMessage:  hook.StatusMessage,
-		Targets:        adoptmodel.TargetStrings(targets),
+		Targets:        targetStrings(targets),
 		Scope:          string(hook.Scope),
 	}
 	if hook.Condition != "" && containsTarget(targets, hook.Target) {
-		result.TargetOverrides = []declarationcodec.HookTargetOverride{
+		result.TargetOverrides = []declaration.HookTargetOverride{
 			{Target: string(hook.Target), Condition: hook.Condition},
 		}
 	}
 	return result
+}
+
+func targetStrings(targets []targetpkg.Target) []string {
+	values := make([]string, 0, len(targets))
+	for _, selectedTarget := range targets {
+		values = append(values, string(selectedTarget))
+	}
+	return values
 }
 
 func manifestMCPServerFromImportMCPServer(server adoptmodel.MCPServer) declarationcodec.MCPServer {

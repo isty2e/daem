@@ -177,11 +177,15 @@ func resourceStateWithPermissions(
 	for _, value := range entry.Targets {
 		consumers = append(consumers, target.Target(value))
 	}
+	destination, err := output.Parse(entry.Path)
+	if err != nil {
+		panic("test recovery entry requires one canonical destination")
+	}
 	state, err := durable.NewManagedPathState(
 		subject,
 		consumers,
 		target.Scope(entry.Scope),
-		output.Destination(entry.Path),
+		destination,
 		testContentHash(contentHash),
 		realization.PathProjectionContentKind(entry.ContentKind),
 		policy,

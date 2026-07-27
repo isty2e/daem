@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	statusworkflow "github.com/isty2e/daem/internal/workflow/status"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestStatusExitContractSeparatesReportOnlyFromCheck(t *testing.T) {
@@ -61,7 +62,7 @@ func statusPendingManagedPathPlan(t *testing.T) reconcile.Result {
 		subject,
 		[]target.Target{target.TargetCodex},
 		target.ScopeProject,
-		"AGENTS.md",
+		outputtest.Parse(t, "AGENTS.md"),
 		artifact.ContentHash("sha256:1111111111111111111111111111111111111111111111111111111111111111"),
 		realization.PathProjectionFile,
 		realization.PathPermissionsExact,

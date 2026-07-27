@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/payload"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
@@ -23,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
@@ -133,7 +133,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		t.Fatalf("write before config: %v", err)
 	}
 
-	destination := output.Destination(".agents/skills/oracle")
+	destination := outputtest.Parse(t, ".agents/skills/oracle")
 	projection := testManagedPathEffectState(t, "oracle", destination)
 	source := filepath.Join(t.TempDir(), "oracle")
 	if err := os.Mkdir(source, 0o700); err != nil {
@@ -225,7 +225,7 @@ func TestApplyRollsBackManagedDirectoryAndAggregateAfterStatefileFailure(t *test
 		completed[1].Index != 1 || completed[1].AggregateKind != AggregateEffectCreate {
 		t.Fatalf("completed action facts = %#v, want distinct managed-path and aggregate indices", completed)
 	}
-	assertHostMissing(t, filepath.Join(root, filepath.FromSlash(string(destination))))
+	assertHostMissing(t, filepath.Join(root, filepath.FromSlash(destination.RelativePath())))
 	restoredConfig, readErr := os.ReadFile(configPath)
 	if readErr != nil || string(restoredConfig) != string(beforeConfig) {
 		t.Fatalf("restored aggregate config = %q, error = %v, want %q", restoredConfig, readErr, beforeConfig)

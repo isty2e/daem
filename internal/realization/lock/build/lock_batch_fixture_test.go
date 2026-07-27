@@ -31,7 +31,11 @@ type failingSequentialResolver struct {
 	errBySourceID map[string]error
 }
 
-func (resolver failingSequentialResolver) Resolve(_ context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver failingSequentialResolver) Resolve(
+	_ context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return acquisition.Resolution{}, err
@@ -43,7 +47,11 @@ func (resolver failingSequentialResolver) Resolve(_ context.Context, sourceSpec 
 	return acquisition.Resolution{}, fmt.Errorf("missing fixture for source %s", sourceID)
 }
 
-func (resolver *trackingBatchResolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver *trackingBatchResolver) Resolve(
+	ctx context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return acquisition.Resolution{}, err
@@ -58,7 +66,11 @@ func (resolver *trackingBatchResolver) Resolve(ctx context.Context, sourceSpec s
 	return resolutionFromTestFixture(ctx, sourceSpec, resolvedArtifact)
 }
 
-func (resolver *trackingBatchResolver) ListSourceRoot(_ context.Context, sourceSpec source.Source) (source.RootListing, error) {
+func (resolver *trackingBatchResolver) ListSourceRoot(
+	_ context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (source.RootListing, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return source.RootListing{}, err

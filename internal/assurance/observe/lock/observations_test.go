@@ -24,7 +24,6 @@ import (
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -58,6 +57,7 @@ func (resolver *panicRootListerResolver) ResolveBatch(
 func (resolver *panicRootListerResolver) ListSourceRoot(
 	context.Context,
 	source.Source,
+	acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	resolver.listCalls++
 	panic("lock observation rediscovered a selector source root")
@@ -76,7 +76,7 @@ source = "instructions/project.md"
 targets = ["codex"]
 `)
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	sourceHash := hashTestPath(t, filepath.Join(tempDir, "instructions", "project.md"), artifact.ArtifactKindFile)
 
@@ -123,7 +123,7 @@ targets = ["codex"]
 scope = "project"
 `)
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
@@ -200,7 +200,7 @@ targets = ["claude-code"]
 scope = "project"
 `)
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
@@ -248,7 +248,7 @@ targets = ["codex"]
 compat_repair = true
 `)
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
@@ -312,7 +312,7 @@ targets = ["codex"]
 `)
 
 	environment := parseTestManifest(t, string(mustReadTestFile(t, manifestPath)))
-	selection := testSelection(t, environment, "codex")
+	selection := testSelection(t, "codex")
 	paths := resolveTestPaths(t, manifestPath)
 	resolver, err := sourceresolution.NewResolver(paths)
 	if err != nil {
@@ -370,11 +370,13 @@ func parseTestManifest(t *testing.T, content string) desired.Environment {
 	return environment
 }
 
-func testSelection(t *testing.T, environment desired.Environment, requested ...string) targetselection.Selection {
+func testSelection(t *testing.T, requested ...string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := targetavailability.FromEnvironment(environment)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
+	selection, err := targetselection.ForAvailableTargets(
+		[]target.Target{target.TargetCodex},
+		requested,
+	)
 	if err != nil {
 		t.Fatalf("ForAvailableTargets returned error: %v", err)
 	}

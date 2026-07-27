@@ -58,9 +58,3 @@ func TestProgressAdmissionRequiresTerminalTextStderr(t *testing.T) {
 		})
 	}
 }
-
-func TestNilLockProgressRendererHasNoWorkflowSink(t *testing.T) {
-	if sink := lockWorkflowProgressSink(nil); sink != nil {
-		t.Fatal("nil renderer returned a workflow progress sink")
-	}
-}

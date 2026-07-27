@@ -7,6 +7,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -16,12 +17,12 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-func TestStateAuthorityUsesStatefileIdentityAndRetainsExactProvenance(t *testing.T) {
+func TestAuthorityUsesStatefileIdentityAndRetainsExactProvenance(t *testing.T) {
 	root := t.TempDir()
-	first := mustStateAuthority(t, root, "first.toml")
-	second, err := durablecarrier.NewStateAuthority(first.StatefileKey(), filepath.Join(root, "second.toml"))
+	first := mustAuthority(t, root, "first.toml")
+	second, err := stateauthority.New(first.StatefileKey(), filepath.Join(root, "second.toml"))
 	if err != nil {
-		t.Fatalf("NewStateAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	if !first.Equal(second) {
 		t.Fatal("same statefile key did not identify one authority")
@@ -41,7 +42,7 @@ func TestStateAuthorityUsesStatefileIdentityAndRetainsExactProvenance(t *testing
 		{name: "nul", statefileKey: filepath.Join(root, "state.json") + "\x00", manifestPath: filepath.Join(root, "daem.toml"), want: "NUL"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := durablecarrier.NewStateAuthority(test.statefileKey, test.manifestPath); err == nil ||
+			if _, err := stateauthority.New(test.statefileKey, test.manifestPath); err == nil ||
 				!strings.Contains(err.Error(), test.want) {
 				t.Fatalf("error = %v, want %q", err, test.want)
 			}
@@ -95,7 +96,7 @@ func TestManagedCarrierIdentityReconstructsCompleteLockedIdentity(t *testing.T) 
 
 func TestPendingInstallPromotionPreservesExactAcquisitionIdentity(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	pending, err := durablecarrier.NewPendingCarrierInstall(
 		owner,
 		fixture.identity,
@@ -130,7 +131,7 @@ func TestPendingInstallPromotionPreservesExactAcquisitionIdentity(t *testing.T) 
 
 func TestObservedInstallPreservesExactRetainedClaimProvenance(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	pending, err := durablecarrier.NewPendingCarrierInstall(
 		owner,
 		fixture.identity,
@@ -194,7 +195,7 @@ func TestObservedInstallPreservesExactRetainedClaimProvenance(t *testing.T) {
 func TestManagedCarrierClaimRejectsUnsupportedProvenance(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	_, err := durablecarrier.NewManagedCarrierClaim(
-		mustStateAuthority(t, t.TempDir(), "daem.toml"),
+		mustAuthority(t, t.TempDir(), "daem.toml"),
 		fixture.identity,
 		fixture.installRequest,
 		durablecarrier.ClaimProvenance("attempt_succeeded"),
@@ -206,7 +207,7 @@ func TestManagedCarrierClaimRejectsUnsupportedProvenance(t *testing.T) {
 
 func TestManagedCarrierClaimSameAcquisitionIgnoresOnlyProvenance(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	installed := claimForFixture(t, fixture, owner)
 	adopted, err := durablecarrier.NewManagedCarrierClaim(
 		owner,
@@ -229,7 +230,7 @@ func TestManagedCarrierClaimSameAcquisitionIgnoresOnlyProvenance(t *testing.T) {
 	otherOwner := claimForFixture(
 		t,
 		fixture,
-		mustStateAuthority(t, t.TempDir(), "daem.toml"),
+		mustAuthority(t, t.TempDir(), "daem.toml"),
 	)
 	if installed.SameAcquisition(otherSource) || installed.SameAcquisition(otherOwner) {
 		t.Fatal("SameAcquisition ignored source or owner drift")
@@ -238,7 +239,7 @@ func TestManagedCarrierClaimSameAcquisitionIgnoresOnlyProvenance(t *testing.T) {
 
 func TestObservedAdoptionCreatesExactClaimWithoutHostTransition(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 
 	claim, err := durablecarrier.ClaimFromObservedAdoption(
 		owner,
@@ -262,7 +263,7 @@ func TestObservedAdoptionCreatesExactClaimWithoutHostTransition(t *testing.T) {
 func TestObservedAdoptionRejectsInexactStaleAndMixedEvidence(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	other := carrierFixtureFor(t, "other", "other@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	staleInventory, err := observerelation.NewInventory(observerelation.InventorySpec{
 		Availability: observerelation.InventorySupported,
 		Freshness:    observerelation.EvidenceStale,
@@ -312,7 +313,7 @@ func TestObservedAdoptionRejectsSourceInexactCarrierAndZeroOwner(t *testing.T) {
 		"guidance@google",
 		"guidance",
 	)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	if _, err := durablecarrier.ClaimFromObservedAdoption(
 		owner,
 		antigravity.contract,
@@ -323,7 +324,7 @@ func TestObservedAdoptionRejectsSourceInexactCarrierAndZeroOwner(t *testing.T) {
 
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	if _, err := durablecarrier.ClaimFromObservedAdoption(
-		durablecarrier.StateAuthority{},
+		stateauthority.Authority{},
 		fixture.contract,
 		exactCorrelation(t, fixture),
 	); err == nil || !strings.Contains(err.Error(), "owner") {
@@ -333,7 +334,7 @@ func TestObservedAdoptionRejectsSourceInexactCarrierAndZeroOwner(t *testing.T) {
 
 func TestCarrierClaimEqualityKeepsProvenanceOutOfOccupancyIdentity(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	installed := claimForFixture(t, fixture, owner)
 	adopted, err := durablecarrier.NewManagedCarrierClaim(
 		owner,
@@ -358,7 +359,7 @@ func TestCarrierClaimEqualityKeepsProvenanceOutOfOccupancyIdentity(t *testing.T)
 func TestPendingInstallCannotPromoteWithoutFreshExactPostObservation(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	pending, err := durablecarrier.NewPendingCarrierInstall(
-		mustStateAuthority(t, t.TempDir(), "daem.toml"),
+		mustAuthority(t, t.TempDir(), "daem.toml"),
 		fixture.identity,
 		fixture.installRequest,
 	)
@@ -446,7 +447,7 @@ func TestPendingInstallPromotionBoundsAntigravityNameEvidence(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			pending, err := durablecarrier.NewPendingCarrierInstall(
-				mustStateAuthority(t, t.TempDir(), "daem.toml"),
+				mustAuthority(t, t.TempDir(), "daem.toml"),
 				test.fixture.identity,
 				test.fixture.installRequest,
 			)
@@ -588,14 +589,14 @@ func unkeyedCorrelation(t *testing.T, fixture carrierFixture) observerelation.Co
 	return observerelation.Correlate(fixture.relation, inventory)
 }
 
-func mustStateAuthority(t *testing.T, root string, manifestName string) durablecarrier.StateAuthority {
+func mustAuthority(t *testing.T, root string, manifestName string) stateauthority.Authority {
 	t.Helper()
-	authority, err := durablecarrier.NewStateAuthority(
+	authority, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, manifestName),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	return authority
 }
@@ -603,7 +604,7 @@ func mustStateAuthority(t *testing.T, root string, manifestName string) durablec
 func claimForFixture(
 	t *testing.T,
 	fixture carrierFixture,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()
 	pending, err := durablecarrier.NewPendingCarrierInstall(

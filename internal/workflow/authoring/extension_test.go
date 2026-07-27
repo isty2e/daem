@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
-	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -77,45 +76,45 @@ targets = ["claude-code"]
 scope = "project"
 source = { marketplace = "context7@market" }
 `)
-	_, _, err := ApplyAddExtensionToManifest(original, declarationcodec.Extension{
+	_, _, err := ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "context7-managed",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
-		Source:  declarationcodec.ExtensionSource{Marketplace: "other@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "other@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err == nil || !strings.Contains(err.Error(), `duplicate extension id "context7-managed"`) {
 		t.Fatalf("err = %v, want duplicate id", err)
 	}
 
-	_, _, err = ApplyAddExtensionToManifest(original, declarationcodec.Extension{
+	_, _, err = ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "other-id",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
-		Source:  declarationcodec.ExtensionSource{Marketplace: "context7@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err == nil || !strings.Contains(err.Error(), `duplicate extension relation subject`) {
 		t.Fatalf("err = %v, want duplicate subject", err)
 	}
 
-	_, _, err = ApplyAddExtensionToManifest(original, declarationcodec.Extension{
+	_, _, err = ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "context7-managed",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
-		Source:  declarationcodec.ExtensionSource{Marketplace: "context7@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err == nil || !strings.Contains(err.Error(), `extension "context7-managed" already exists`) {
 		t.Fatalf("err = %v, want already exists", err)
 	}
 
-	_, _, err = ApplyAddExtensionToManifest(original, declarationcodec.Extension{
+	_, _, err = ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "context7-global",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "global",
-		Source:  declarationcodec.ExtensionSource{Marketplace: "context7@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err != nil {
 		t.Fatalf("ApplyAddExtensionToManifest global same marketplace returned error: %v", err)
@@ -131,12 +130,12 @@ targets = ["opencode"]
 scope = "project"
 source = { host_source = "@acme/formatter" }
 `)
-	_, _, err = ApplyAddExtensionToManifest(hostSourceOriginal, declarationcodec.Extension{
+	_, _, err = ApplyAddExtensionToManifest(hostSourceOriginal, declaration.Extension{
 		ID:      "formatter-alias",
 		Carrier: "opencode-plugin",
 		Targets: []string{"opencode"},
 		Scope:   "project",
-		Source:  declarationcodec.ExtensionSource{HostSource: "@acme/formatter"},
+		Source:  declaration.ExtensionSource{HostSource: "@acme/formatter"},
 	}, declaration.ManifestHeader{Targets: []string{"opencode"}})
 	if err == nil || !strings.Contains(err.Error(), `duplicate extension relation subject`) {
 		t.Fatalf("host-source err = %v, want duplicate subject", err)
@@ -168,12 +167,12 @@ targets = ["antigravity-cli"]
 scope = "global"
 source = { host_source = "modern-web-guidance@google" }
 `)
-	updated, _, err := ApplyAddExtensionToManifest(original, declarationcodec.Extension{
+	updated, _, err := ApplyAddExtensionToManifest(original, declaration.Extension{
 		ID:      "context7-managed",
 		Carrier: "claude-code-plugin",
 		Targets: []string{"claude-code"},
 		Scope:   "project",
-		Source:  declarationcodec.ExtensionSource{Marketplace: "context7@market"},
+		Source:  declaration.ExtensionSource{Marketplace: "context7@market"},
 	}, declaration.ManifestHeader{Targets: []string{"claude-code"}})
 	if err != nil {
 		t.Fatalf("ApplyAddExtensionToManifest returned error: %v", err)

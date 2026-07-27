@@ -70,7 +70,7 @@ func assertImmutableFallbackRepairs(t *testing.T, fixture immutableCorruptionFix
 
 func mustResolveS3(t *testing.T, resolver Resolver, sourceSpec sourcepkg.Source) acquisition.Resolution {
 	t.Helper()
-	resolved, err := resolver.Resolve(t.Context(), sourceSpec)
+	resolved, err := resolver.Resolve(t.Context(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatal(err)
 	}

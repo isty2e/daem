@@ -3,8 +3,10 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -464,6 +466,33 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 	}
 	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "projection_equivalence_undefined" {
 		t.Fatalf("skipped = %#v, want duplicate-key projection rejection", skipped)
+	}
+}
+
+func TestMCPConfigPathUsesCanonicalScopeAwareOutputGrammar(t *testing.T) {
+	projectDestination, err := output.Parse(".mcp.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectPath, err := mcpConfigPath(projectDestination, target.ScopeProject)
+	if err != nil {
+		t.Fatalf("mcpConfigPath(project) error = %v", err)
+	}
+	if projectPath != ".mcp.json" {
+		t.Fatalf("mcpConfigPath(project) = %q, want .mcp.json", projectPath)
+	}
+
+	if _, err := mcpConfigPath(projectDestination, target.ScopeGlobal); err == nil {
+		t.Fatal("mcpConfigPath(project destination, global scope) succeeded, want error")
+	}
+
+	dataDestination, err := output.Parse("@data/mcp.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = mcpConfigPath(dataDestination, target.ScopeGlobal)
+	if err == nil || !strings.Contains(err.Error(), "managed data root is required") {
+		t.Fatalf("mcpConfigPath(data) error = %v, want explicit unavailable data root", err)
 	}
 }
 

@@ -12,7 +12,7 @@ func TestInstructionApplyAddMergesInstructionTargetsAndPreservesNestedTables(t *
 	existing := Instruction{
 		Source:  InstructionSource{Path: "AGENTS.md", Mode: "vendor"},
 		Targets: []string{"codex"}, Scope: "project",
-		Target: map[string]InstructionRendering{"codex": {RenderTo: "AGENTS.md", Mode: "copy"}},
+		Target: map[string]declaration.InstructionTarget{"codex": {RenderTo: "AGENTS.md", Mode: "copy"}},
 	}
 	incoming := existing
 	incoming.Targets = []string{"claude-code"}
@@ -138,6 +138,37 @@ source = { path = "AGENTS.md", mode = "vendor"
 	}
 }
 
+func TestInstructionSharedPrimitivesKeepStrictnessOperationLocal(t *testing.T) {
+	content := []byte(`version = 1
+targets = ["codex"]
+
+[instructions."project"]
+source = { s3 = "s3://bucket/AGENTS.md", version_id = "v1", region = "us-east-1", format = "file" }
+targets = ["codex"]
+
+[instructions."project".target."codex"]
+render_to = "AGENTS.md"
+future = "preserve"
+`)
+
+	if _, err := declaration.DecodeManifest(content); err == nil ||
+		!strings.Contains(err.Error(), "instructions.project.target.codex.future") {
+		t.Fatalf("DecodeManifest error = %v, want strict nested unknown-field rejection", err)
+	}
+	blocks, err := ScanInstructionBlocks(content)
+	if err != nil {
+		t.Fatalf("ScanInstructionBlocks returned error: %v", err)
+	}
+	if len(blocks) != 1 ||
+		blocks[0].Instruction.Source.S3 != "s3://bucket/AGENTS.md" ||
+		blocks[0].Instruction.Target["codex"].RenderTo != "AGENTS.md" {
+		t.Fatalf("blocks = %#v, want shared source grammar and target projection", blocks)
+	}
+	if !strings.Contains(string(content[blocks[0].Start:blocks[0].End]), `future = "preserve"`) {
+		t.Fatal("partial scan range did not retain unowned target bytes")
+	}
+}
+
 func TestInstructionRenderBlockWritesInstructionSyntax(t *testing.T) {
 	rendered := RenderInstructionBlock("daily", Instruction{
 		Source:  InstructionSource{Path: "docs/daily.md", Mode: "vendor"},
@@ -154,7 +185,7 @@ func TestInstructionRenderBlockWritesTargetRenderingTables(t *testing.T) {
 		Source:  InstructionSource{Path: "docs/daily.md", Mode: "vendor"},
 		Targets: []string{"antigravity-cli"},
 		Scope:   "project",
-		Target: map[string]InstructionRendering{
+		Target: map[string]declaration.InstructionTarget{
 			"antigravity-cli": {RenderTo: "GEMINI.md"},
 		},
 	})

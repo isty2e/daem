@@ -35,7 +35,7 @@ func recoveryStateKeyForAction(action pathMutation) recoveryStateKey {
 		subject:     action.Subject,
 		target:      string(action.Target),
 		scope:       string(action.Scope),
-		path:        string(action.Destination),
+		path:        action.Destination.String(),
 		contentPath: string(action.ContentPath),
 	}
 }
@@ -45,7 +45,7 @@ func recoveryStateKeyForPreviousState(previous previousPathState) recoveryStateK
 		subject:     previous.Subject,
 		target:      string(previous.Target),
 		scope:       string(previous.Scope),
-		path:        string(previous.Destination),
+		path:        previous.Destination.String(),
 		contentPath: string(previous.ContentPath),
 	}
 }
@@ -54,7 +54,7 @@ func recoveryStateKeyForManagedPath(state durable.ManagedPathState) recoveryStat
 	return recoveryStateKey{
 		subject: state.Subject(),
 		scope:   string(state.Scope()),
-		path:    string(state.Destination()),
+		path:    state.Destination().String(),
 	}
 }
 
@@ -328,7 +328,11 @@ func validateRecoveryStateIdentity(identity recoveryStateIdentity) error {
 	if err != nil {
 		return err
 	}
-	if err := output.Destination(identity.Path).ValidateScope(scope); err != nil {
+	destination, err := output.Parse(identity.Path)
+	if err != nil {
+		return fmt.Errorf("path: %w", err)
+	}
+	if err := destination.ValidateScope(scope); err != nil {
 		return fmt.Errorf("path: %w", err)
 	}
 	if identity.ContentPath != "" && (!strings.HasPrefix(identity.ContentPath, "/") || strings.TrimSpace(identity.ContentPath) != identity.ContentPath) {
@@ -397,7 +401,7 @@ func recoveryStateIdentityFromManagedPath(state durable.ManagedPathState) recove
 		},
 		Targets:     targetStrings(state.ConsumerTargets()),
 		Scope:       string(state.Scope()),
-		Path:        string(state.Destination()),
+		Path:        state.Destination().String(),
 		ContentKind: string(state.ContentKind()),
 	}
 }

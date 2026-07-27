@@ -87,8 +87,8 @@ func progressActionLabel(action *execute.ActionEventFacts) string {
 	if entityID, ok := topologyprojection.EntityID(action.Subject); ok {
 		parts = append(parts, string(entityID.Kind())+"/"+entityID.Name())
 	}
-	if action.Destination != "" {
-		parts = append(parts, string(action.Destination))
+	if action.Destination.Validate() == nil {
+		parts = append(parts, action.Destination.String())
 	}
 	return escapeText(strings.Join(parts, " -> "))
 }

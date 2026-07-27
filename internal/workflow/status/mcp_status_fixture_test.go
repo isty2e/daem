@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func assertStatusMCPDimension(
@@ -175,7 +176,7 @@ func statusMCPStateSnapshot(
 	attempts ...durableattempt.DelegateAttempt,
 ) durable.Snapshot {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(placementID)
+	operations, ok := mcptest.OperationsForPlacementID(placementID)
 	if !ok {
 		t.Fatalf("MCP placement operations %q are unavailable", placementID)
 	}

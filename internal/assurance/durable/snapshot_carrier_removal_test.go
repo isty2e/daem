@@ -10,7 +10,7 @@ import (
 )
 
 func TestSnapshotPreparedProjectCarrierRemovalRequiresExactClaim(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	claim := claimForFixture(t, fixture, owner)
 	pending, err := durablecarrier.NewPendingCarrierRemoval(
@@ -42,7 +42,7 @@ func TestSnapshotPreparedProjectCarrierRemovalRequiresExactClaim(t *testing.T) {
 }
 
 func TestSnapshotRejectsConcurrentInstallAndRemovalForOneRelation(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	claim := claimForFixture(t, fixture, owner)
 	install, err := durablecarrier.NewPendingCarrierInstall(owner, fixture.identity, fixture.installRequest)
@@ -69,7 +69,7 @@ func TestSnapshotRejectsConcurrentInstallAndRemovalForOneRelation(t *testing.T) 
 }
 
 func TestSnapshotPreparedCarrierRemovalIsExactAndIdempotent(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	claim := claimForFixture(t, fixture, owner)
 	current, err := durable.NewSnapshot(durable.SnapshotInput{
@@ -121,7 +121,7 @@ func TestSnapshotPreparedCarrierRemovalIsExactAndIdempotent(t *testing.T) {
 }
 
 func TestSnapshotRetiresProjectClaimAndPendingRemovalAtomically(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	claim := claimForFixture(t, fixture, owner)
 	pending, err := durablecarrier.NewPendingCarrierRemoval(
@@ -151,7 +151,7 @@ func TestSnapshotRetiresProjectClaimAndPendingRemovalAtomically(t *testing.T) {
 }
 
 func TestSnapshotAllowsGlobalPendingRemovalWithoutLocalClaim(t *testing.T) {
-	owner := mustStateAuthority(t, t.TempDir(), "daem.toml")
+	owner := mustAuthority(t, t.TempDir(), "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	claim := claimForFixture(t, fixture, owner)
 	pending, err := durablecarrier.NewPendingCarrierRemoval(

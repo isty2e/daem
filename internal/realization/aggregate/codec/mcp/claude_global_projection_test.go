@@ -67,7 +67,7 @@ func TestClaudeGlobalMCPProjectionMergeCompareAndPreserveUserSiblings(t *testing
 	    "sibling": {"type":"http","url":"https://example.invalid/mcp","headers":{"Authorization":"Bearer SECRET_CANARY"}}
 	  }
 	}`)
-	canonical, err := CanonicalClaudeGlobalMCPServerEntry(ClaudeGlobalMCPServerProjection{
+	canonical, err := CanonicalClaudeGlobalMCPServerEntry(MCPNoEnvServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstash/context7-mcp"},
@@ -204,12 +204,12 @@ func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows
 func TestClaudeGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 	cases := []struct {
 		name       string
-		projection ClaudeGlobalMCPServerProjection
+		projection MCPNoEnvServerProjection
 		want       MCPProjectionReasonCode
 	}{
 		{
 			name: "stale adapter",
-			projection: ClaudeGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx",
 				AdapterContract: "claude-code-user-mcp-stdio-v0",
@@ -218,7 +218,7 @@ func TestClaudeGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) 
 		},
 		{
 			name: "absolute command",
-			projection: ClaudeGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "/usr/bin/node",
 				AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
@@ -227,7 +227,7 @@ func TestClaudeGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) 
 		},
 		{
 			name: "invalid server id",
-			projection: ClaudeGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "bad/server",
 				Command:         "npx",
 				AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
@@ -236,7 +236,7 @@ func TestClaudeGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) 
 		},
 		{
 			name: "shell command",
-			projection: ClaudeGlobalMCPServerProjection{
+			projection: MCPNoEnvServerProjection{
 				ServerID:        "context7",
 				Command:         "npx --yes",
 				AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,

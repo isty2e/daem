@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
@@ -21,10 +22,10 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	t.Setenv("USERPROFILE", dataDir)
 	effects := []ManagedPathEffect{
 		{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			scope: target.ScopeProject, destination: output.Destination(".agents/skill"),
+			scope: target.ScopeProject, destination: outputtest.Parse(t, ".agents/skill"),
 		}}},
 		{create: &managedPathCreateEffect{facts: managedPathEffectFacts{
-			scope: target.ScopeGlobal, destination: output.Destination("~/managed"),
+			scope: target.ScopeGlobal, destination: outputtest.Parse(t, "~/managed"),
 		}}},
 	}
 	paths := Paths{ManifestRoot: root, DataDir: dataDir}
@@ -44,7 +45,7 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 
 	projectDestination, err := authority.resolveBoundDestination(
 		target.ScopeProject,
-		output.Destination(".agents/skill"),
+		outputtest.Parse(t, ".agents/skill"),
 	)
 	if err != nil {
 		t.Fatalf("resolve project destination: %v", err)
@@ -64,7 +65,7 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 
 	globalDestination, err := authority.resolveBoundDestination(
 		target.ScopeGlobal,
-		output.Destination("~/managed"),
+		outputtest.Parse(t, "~/managed"),
 	)
 	wantGlobalPath, canonicalErr := mutation.CanonicalDirectoryEntryPath(allowedGlobalPath)
 	if canonicalErr != nil {
@@ -83,10 +84,10 @@ func TestMutationAuthorityRejectsScopePathContradictions(t *testing.T) {
 	}
 	paths := Paths{ManifestRoot: root}
 	tests := []managedPathEffectFacts{
-		{scope: target.ScopeProject, destination: output.Destination("~/.agent/config")},
-		{scope: target.ScopeGlobal, destination: output.Destination(".agent/config")},
-		{scope: target.ScopeGlobal, destination: output.Destination(filepath.Join(t.TempDir(), "absolute"))},
-		{destination: output.Destination(".agent/config")},
+		{scope: target.ScopeProject, destination: outputtest.Parse(t, "~/.agent/config")},
+		{scope: target.ScopeGlobal, destination: outputtest.Parse(t, ".agent/config")},
+		{scope: target.ScopeGlobal},
+		{destination: outputtest.Parse(t, ".agent/config")},
 	}
 	for _, facts := range tests {
 		effect := ManagedPathEffect{create: &managedPathCreateEffect{facts: facts}}
@@ -114,7 +115,7 @@ func TestMutationAuthorityRetainsProjectRootForNonHostJournalEntry(t *testing.T)
 		t.Fatalf("create project root: %v", err)
 	}
 	effect := ManagedPathEffect{record: &managedPathRecordEffect{facts: managedPathEffectFacts{
-		scope: target.ScopeProject, destination: output.Destination("AGENTS.md"),
+		scope: target.ScopeProject, destination: outputtest.Parse(t, "AGENTS.md"),
 	}}}
 	paths := Paths{ManifestRoot: root}
 	authority, err := newMutationAuthorityWithProjectionEffects(
@@ -139,7 +140,7 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	destination := output.Destination("~/.codex/config.toml")
+	destination := outputtest.Parse(t, "~/.codex/config.toml")
 	effect := ManagedPathEffect{record: &managedPathRecordEffect{facts: managedPathEffectFacts{
 		scope: target.ScopeGlobal, destination: destination,
 	}}}
@@ -168,7 +169,7 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 
 	for _, mutate := range []func(*mutationDestination){
 		func(candidate *mutationDestination) { candidate.scope = target.Scope("") },
-		func(candidate *mutationDestination) { candidate.logical = "" },
+		func(candidate *mutationDestination) { candidate.logical = output.Destination{} },
 		func(candidate *mutationDestination) { candidate.hostPath = filepath.Join(home, "different") },
 	} {
 		candidate := resolved

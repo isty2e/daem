@@ -15,11 +15,10 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -34,10 +33,10 @@ import (
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	targetpkg "github.com/isty2e/daem/internal/target"
-	targetavailability "github.com/isty2e/daem/internal/target/availability"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func run(
@@ -230,11 +229,13 @@ func applyInstructionLockfile(
 	return snapshottest.File(t, append([]lock.LockedSubjectContract{contract}, projections...)...)
 }
 
-func applySelection(t *testing.T, environment desired.Environment, requested []string) targetselection.Selection {
+func applySelection(t *testing.T, requested []string) targetselection.Selection {
 	t.Helper()
 
-	availableTargets := targetavailability.FromEnvironment(environment)
-	selection, err := targetselection.ForAvailableTargets(availableTargets, requested)
+	selection, err := targetselection.ForAvailableTargets(
+		[]targetpkg.Target{targetpkg.TargetCodex},
+		requested,
+	)
 	if err != nil {
 		t.Fatalf("build selection: %v", err)
 	}
@@ -327,7 +328,7 @@ func assertApplyStateResource(t *testing.T, snapshot durable.Snapshot, name stri
 		subject := stateResource.Subject()
 		entityID, entityBacked := topologyprojection.EntityID(subject)
 		if !entityBacked || entityID.Kind() != entity.KindInstructions || entityID.Name() != name ||
-			string(stateResource.Scope()) != scope || string(stateResource.Destination()) != path {
+			string(stateResource.Scope()) != scope || stateResource.Destination().String() != path {
 			continue
 		}
 		consumers := stateResource.ConsumerTargets()
@@ -346,7 +347,7 @@ func assertApplyStateResourceMissing(t *testing.T, snapshot durable.Snapshot, na
 		subject := stateResource.Subject()
 		entityID, entityBacked := topologyprojection.EntityID(subject)
 		if entityBacked && entityID.Kind() == entity.KindInstructions && entityID.Name() == name &&
-			string(stateResource.Scope()) == scope && string(stateResource.Destination()) == path {
+			string(stateResource.Scope()) == scope && stateResource.Destination().String() == path {
 			t.Fatalf("managed Instructions state unexpectedly present in %#v", snapshot.ManagedPaths())
 		}
 	}
@@ -373,9 +374,10 @@ func applyInstructionPathState(
 	if err != nil {
 		t.Fatalf("parse Instructions state scope: %v", err)
 	}
+	destinationValue := outputtest.Parse(t, destination)
 	var placement profile.ManagedPathPlacement
 	for index, consumer := range consumers {
-		candidate, err := profile.ManagedFilePlacementFor(entity.KindInstructions, consumer, scope, destination)
+		candidate, err := profile.ManagedFilePlacementFor(entity.KindInstructions, consumer, scope, destinationValue)
 		if err != nil {
 			t.Fatalf("derive Instructions state placement: %v", err)
 		}
@@ -400,7 +402,7 @@ func applyInstructionPathState(
 	if err != nil {
 		t.Fatalf("resolve Instructions state write route: %v", err)
 	}
-	spec, err := placement.Realize(destination, realization.PathProjectionCopy, writeRoute)
+	spec, err := placement.Realize(destinationValue, realization.PathProjectionCopy, writeRoute)
 	if err != nil {
 		t.Fatalf("realize Instructions state placement: %v", err)
 	}
@@ -412,7 +414,7 @@ func applyInstructionPathState(
 		subject,
 		consumers,
 		scope,
-		output.Destination(destination),
+		destinationValue,
 		artifact.ContentHash(contentHash),
 		projection.ContentKind(),
 		projection.PermissionPolicy(),

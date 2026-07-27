@@ -6,13 +6,14 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestSnapshotCanonicalizesProjectCarrierFacts(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	alpha := carrierFixtureFor(t, "alpha", "alpha@official", target.ScopeProject)
 	beta := carrierFixtureFor(t, "beta", "beta@official", target.ScopeProject)
 
@@ -39,7 +40,7 @@ func TestSnapshotCanonicalizesProjectCarrierFacts(t *testing.T) {
 
 func TestSnapshotRejectsGlobalClaimAndAllowsExactReinstallOverlap(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	global := carrierFixtureFor(t, "global", "global@official", target.ScopeGlobal)
 	globalClaim := claimForFixture(t, global, owner)
 	if _, err := durable.NewSnapshot(durable.SnapshotInput{
@@ -69,8 +70,8 @@ func TestSnapshotRejectsGlobalClaimAndAllowsExactReinstallOverlap(t *testing.T) 
 
 func TestSnapshotRejectsForeignCarrierAuthority(t *testing.T) {
 	root := t.TempDir()
-	firstOwner := mustStateAuthority(t, root, "first.toml")
-	secondOwner := mustStateAuthority(t, t.TempDir(), "second.toml")
+	firstOwner := mustAuthority(t, root, "first.toml")
+	secondOwner := mustAuthority(t, t.TempDir(), "second.toml")
 	first := carrierFixtureFor(t, "first", "first@official", target.ScopeProject)
 	second := carrierFixtureFor(t, "second", "second@official", target.ScopeProject)
 	firstPending, err := durablecarrier.NewPendingCarrierInstall(
@@ -98,7 +99,7 @@ func TestSnapshotRejectsForeignCarrierAuthority(t *testing.T) {
 
 func TestSnapshotPreparedCarrierInstallIsExactAndIdempotent(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	pending, err := durablecarrier.NewPendingCarrierInstall(owner, fixture.identity, fixture.installRequest)
 	if err != nil {
@@ -117,7 +118,7 @@ func TestSnapshotPreparedCarrierInstallIsExactAndIdempotent(t *testing.T) {
 		t.Fatalf("idempotent prepare = (%#v, %t, %v)", again, changed, err)
 	}
 
-	otherOwner, err := durablecarrier.NewStateAuthority(owner.StatefileKey(), root+"/other.toml")
+	otherOwner, err := stateauthority.New(owner.StatefileKey(), root+"/other.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +139,7 @@ func TestSnapshotPreparedCarrierInstallIsExactAndIdempotent(t *testing.T) {
 
 func TestSnapshotRetiresOnlyExactCompletedPendingCarrierInstall(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	pending, err := durablecarrier.NewPendingCarrierInstall(owner, fixture.identity, fixture.installRequest)
 	if err != nil {
@@ -159,7 +160,7 @@ func TestSnapshotRetiresOnlyExactCompletedPendingCarrierInstall(t *testing.T) {
 		t.Fatalf("idempotent retire = (%#v, %t, %v)", again, changed, err)
 	}
 
-	otherOwner, err := durablecarrier.NewStateAuthority(owner.StatefileKey(), root+"/other.toml")
+	otherOwner, err := stateauthority.New(owner.StatefileKey(), root+"/other.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +180,7 @@ func TestSnapshotRetiresOnlyExactCompletedPendingCarrierInstall(t *testing.T) {
 
 func TestSnapshotPromotesOnlyExactPendingProjectClaim(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	pending, err := durablecarrier.NewPendingCarrierInstall(owner, fixture.identity, fixture.installRequest)
 	if err != nil {
@@ -212,7 +213,7 @@ func TestSnapshotPromotesOnlyExactPendingProjectClaim(t *testing.T) {
 
 func TestSnapshotAdoptsOnlyExplicitProjectClaimWithoutPendingAcquisition(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	adopted, err := durablecarrier.NewManagedCarrierClaim(
 		owner,
@@ -289,7 +290,7 @@ func TestSnapshotAdoptsOnlyExplicitProjectClaimWithoutPendingAcquisition(t *test
 
 func TestSnapshotRetiresOnlyExactProjectCarrierClaim(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
 	claim := claimForFixture(t, fixture, owner)
 	current, err := durable.NewSnapshot(durable.SnapshotInput{
@@ -333,7 +334,7 @@ func TestSnapshotRetiresOnlyExactProjectCarrierClaim(t *testing.T) {
 
 func TestSnapshotConvergesOnlyExactRegistryFirstGlobalClaim(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	pending, err := durablecarrier.NewPendingCarrierInstall(owner, fixture.identity, fixture.installRequest)
 	if err != nil {
@@ -355,7 +356,7 @@ func TestSnapshotConvergesOnlyExactRegistryFirstGlobalClaim(t *testing.T) {
 		t.Fatalf("WithConvergedGlobalCarrierClaims = (%#v, %t, %v)", next, changed, err)
 	}
 
-	foreignOwner := mustStateAuthority(t, t.TempDir(), "other.toml")
+	foreignOwner := mustAuthority(t, t.TempDir(), "other.toml")
 	foreignClaim := claimForFixture(t, fixture, foreignOwner)
 	foreignRegistry, err := durablecarrier.NewGlobalCarrierClaims(
 		[]durablecarrier.ManagedCarrierClaim{foreignClaim},

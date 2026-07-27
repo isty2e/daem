@@ -6,8 +6,8 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
-	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -27,12 +27,12 @@ func newPresentCarrierAdoptionFixture(t *testing.T) presentCarrierAdoptionFixtur
 	contract, relation := claudePluginCarrierFixture(t)
 	identity := presentManagedCarrierIdentity(t, contract)
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	request, err := lock.DelegatedOperationRequest(contract, lock.OperationInstall)
 	if err != nil {
@@ -162,7 +162,7 @@ func newManagedPathPlanFixture(
 		supply:      admittedSupply,
 		expectation: expectation,
 		subject:     admittedSubject,
-		destination: output.Destination(pathProjection.Destination()),
+		destination: pathProjection.Destination(),
 		scope:       pathProjection.Scope(),
 		contentKind: pathProjection.ContentKind(),
 		permissions: pathProjection.PermissionPolicy(),

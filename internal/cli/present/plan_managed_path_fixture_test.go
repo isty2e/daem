@@ -5,8 +5,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
@@ -33,7 +33,7 @@ type managedPathPlanInput struct {
 	states               []durable.ManagedPathState
 	evidence             []observe.ManagedPathEvidence
 	manageUnmanagedMatch bool
-	owner                ownership.OwnerAuthority
+	owner                stateauthority.Authority
 	ownership            []observe.OwnershipObservation
 }
 

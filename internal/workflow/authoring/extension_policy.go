@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/declaration"
-	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
@@ -174,42 +173,42 @@ func extensionAuthoringScope(carrier desiredextension.Carrier, rawScope string) 
 	return scope, nil
 }
 
-func extensionAuthoringSource(carrier desiredextension.Carrier, value string) (declarationcodec.ExtensionSource, error) {
+func extensionAuthoringSource(carrier desiredextension.Carrier, value string) (declaration.ExtensionSource, error) {
 	sourceKind, ok := carrier.RequiredSourceKind()
 	if !ok {
-		return declarationcodec.ExtensionSource{}, fmt.Errorf("unsupported extension carrier %q", carrier)
+		return declaration.ExtensionSource{}, fmt.Errorf("unsupported extension carrier %q", carrier)
 	}
 	switch sourceKind {
 	case desiredextension.SourceKindMarketplace:
 		if strings.TrimSpace(value) == "" {
-			return declarationcodec.ExtensionSource{}, fmt.Errorf("extension source must be PLUGIN@MARKETPLACE for %s", extensionAuthoringSourceTargetOptions(sourceKind))
+			return declaration.ExtensionSource{}, fmt.Errorf("extension source must be PLUGIN@MARKETPLACE for %s", extensionAuthoringSourceTargetOptions(sourceKind))
 		}
 		if value != strings.TrimSpace(value) {
-			return declarationcodec.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
+			return declaration.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
 		}
 		source, err := desiredextension.NewSourceRef(sourceKind, value)
 		if err != nil {
 			if strings.Contains(err.Error(), "marketplace source must be PLUGIN@MARKETPLACE") {
-				return declarationcodec.ExtensionSource{}, fmt.Errorf("extension source must be PLUGIN@MARKETPLACE for %s", extensionAuthoringSourceTargetOptions(sourceKind))
+				return declaration.ExtensionSource{}, fmt.Errorf("extension source must be PLUGIN@MARKETPLACE for %s", extensionAuthoringSourceTargetOptions(sourceKind))
 			}
-			return declarationcodec.ExtensionSource{}, err
+			return declaration.ExtensionSource{}, err
 		}
-		return declarationcodec.ExtensionSource{Marketplace: source.Ref()}, nil
+		return declaration.ExtensionSource{Marketplace: source.Ref()}, nil
 	case desiredextension.SourceKindHostSource:
 		if strings.TrimSpace(value) == "" {
-			return declarationcodec.ExtensionSource{}, fmt.Errorf("extension source is required")
+			return declaration.ExtensionSource{}, fmt.Errorf("extension source is required")
 		}
 		if value != strings.TrimSpace(value) {
-			return declarationcodec.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
+			return declaration.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
 		}
 		source, err := desiredextension.NewSourceRef(sourceKind, value)
 		if err != nil {
-			return declarationcodec.ExtensionSource{}, err
+			return declaration.ExtensionSource{}, err
 		}
-		return declarationcodec.ExtensionSource{HostSource: source.Ref()}, nil
+		return declaration.ExtensionSource{HostSource: source.Ref()}, nil
 	default:
 		admittedTarget, _ := carrier.AdmittedTarget()
-		return declarationcodec.ExtensionSource{}, fmt.Errorf("--target %s has unsupported extension source kind %q", admittedTarget, sourceKind)
+		return declaration.ExtensionSource{}, fmt.Errorf("--target %s has unsupported extension source kind %q", admittedTarget, sourceKind)
 	}
 }
 
@@ -244,7 +243,7 @@ func extensionAuthoringSourceTargetOptions(sourceKind desiredextension.SourceKin
 	return "--target " + strings.Join(values, " or ")
 }
 
-func extensionCanonicalSourceRef(extension declarationcodec.Extension, carrier desiredextension.Carrier, context string) (desiredextension.SourceRef, error) {
+func extensionCanonicalSourceRef(extension declaration.Extension, carrier desiredextension.Carrier, context string) (desiredextension.SourceRef, error) {
 	sourceKind, ok := carrier.RequiredSourceKind()
 	if !ok {
 		return desiredextension.SourceRef{}, fmt.Errorf("%s.source: unsupported extension carrier %q", context, carrier)

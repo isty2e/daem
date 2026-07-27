@@ -60,7 +60,7 @@ func validateAggregateProjectionCorrelation(
 			document.Scope(),
 		)
 	}
-	if string(destination) != document.AggregateRoot() ||
+	if destination != document.AggregateRoot() ||
 		string(contentPath) != string(contract.Address().ContentPath()) {
 		return fmt.Errorf(
 			"aggregate projection address %q%q does not match contract address %q%q",
@@ -165,7 +165,7 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) pathMutation {
 	result := pathMutation{
 		Kind: pathMutationKind(mutation.kind), Subject: mutation.subject,
 		Target: mutation.contract.Address().Document().Target(), Scope: mutation.contract.Address().Document().Scope(),
-		Destination: output.Destination(mutation.contract.Address().Document().AggregateRoot()),
+		Destination: mutation.contract.Address().Document().AggregateRoot(),
 		ContentPath: output.ContentPath(mutation.contract.Address().ContentPath()),
 		LiveExists:  beforeState.Present(), LiveHash: projectionStateHash(beforeState),
 		DesiredHash: projectionStateHash(expectedState), ExpectedExists: expectedState.Present(),
@@ -223,7 +223,7 @@ func persistedAggregateContract(contract aggregate.ProjectionContract) *recovery
 	document := address.Document()
 	return &recoveryAggregateContract{
 		PlacementID: address.PlacementID(), Target: string(document.Target()), Scope: string(document.Scope()),
-		AggregateRoot: document.AggregateRoot(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
+		AggregateRoot: document.AggregateRoot().String(), ContentPath: string(address.ContentPath()), MergeUnit: string(address.MergeUnit()),
 		Cardinality: string(contract.Cardinality()), SiblingRetention: string(contract.SiblingRetention()),
 		SiblingPreservation: string(contract.SiblingPreservation()), Equivalence: string(contract.Equivalence()),
 		CodecContractID: string(contract.CodecContractID()), ComparedFields: contract.ComparedFields(),
@@ -231,9 +231,13 @@ func persistedAggregateContract(contract aggregate.ProjectionContract) *recovery
 }
 
 func (persisted recoveryAggregateContract) canonical() (aggregate.ProjectionContract, error) {
+	aggregateRoot, err := output.Parse(persisted.AggregateRoot)
+	if err != nil {
+		return aggregate.ProjectionContract{}, err
+	}
 	contribution, err := aggregate.NewManagedContribution(aggregate.ManagedContributionInput{
 		PlacementID: persisted.PlacementID, Target: target.Target(persisted.Target), Scope: target.Scope(persisted.Scope),
-		AggregateRoot: persisted.AggregateRoot, ContentPath: persisted.ContentPath, MergeUnit: aggregate.MergeUnit(persisted.MergeUnit),
+		AggregateRoot: aggregateRoot, ContentPath: persisted.ContentPath, MergeUnit: aggregate.MergeUnit(persisted.MergeUnit),
 		Cardinality:         aggregate.ContributionCardinality(persisted.Cardinality),
 		SiblingRetention:    aggregate.SiblingRetention(persisted.SiblingRetention),
 		SiblingPreservation: aggregate.SiblingPreservation(persisted.SiblingPreservation),

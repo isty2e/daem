@@ -117,7 +117,7 @@ func TestPresentationBoundaryOmitsRetiredWorkflowDTOsAndCLIAdapters(t *testing.T
 	}
 }
 
-func TestPresentationMayConsumeWorkflowResultsButCannotInvokeWorkflows(t *testing.T) {
+func TestPresentationMayConsumeAdmittedWorkflowFactsButCannotInvokeWorkflows(t *testing.T) {
 	records := loadRepoPackageRecords(t)
 	workflowFunctions := exportedWorkflowFunctions(t, records)
 	workflowPackageNames := packageNames(records)
@@ -138,7 +138,7 @@ func TestPresentationMayConsumeWorkflowResultsButCannotInvokeWorkflows(t *testin
 			workflowImports := importedWorkflowPackages(t, file, workflowPackageNames)
 			for _, reference := range workflowFunctionReferences(file, workflowImports, workflowFunctions) {
 				t.Errorf(
-					"presentation %s/%s references workflow function %s; only immutable result consumption is admitted",
+					"presentation %s/%s references workflow function %s; only admitted result or progress-fact consumption is allowed",
 					packagePath,
 					fileName,
 					reference,

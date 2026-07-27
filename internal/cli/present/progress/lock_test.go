@@ -13,14 +13,15 @@ import (
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
+	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
 func TestLockProgressRendererShowsCorrelatedEphemeralProgress(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
-	renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_resolve_started", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")})
+	renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_resolve_started", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")})
 	renderer.SourceSink()(newSourceProgressEvent(t, acquisition.EventStarted, "skill:0"))
-	renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_locked", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")})
+	renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_locked", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")})
 	renderer.Close()
 
 	got := output.String()
@@ -57,7 +58,7 @@ func newSourceProgressEvent(t *testing.T, kind acquisition.EventKind, requestID 
 func TestLockProgressRendererDeduplicatesEquivalentUpdates(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
-	event := cliprogress.LockEvent{Kind: "resource_resolve_started", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")}
+	event := workflowlock.ProgressEvent{Kind: "resource_resolve_started", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")}
 	renderer.LockSink()(event)
 	renderer.LockSink()(event)
 	if got := strings.Count(output.String(), "Resolving sources"); got != 1 {
@@ -68,7 +69,7 @@ func TestLockProgressRendererDeduplicatesEquivalentUpdates(t *testing.T) {
 func TestLockProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
-	event := cliprogress.LockEvent{Kind: "resource_locked", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")}
+	event := workflowlock.ProgressEvent{Kind: "resource_locked", TaskID: "skill:0", EntityID: progressEntityID(t, "oracle")}
 	renderer.LockSink()(event)
 	renderer.LockSink()(event)
 	if strings.Contains(output.String(), "Resolving sources 2") || strings.Count(output.String(), "Resolving sources 1") != 1 {
@@ -76,10 +77,29 @@ func TestLockProgressRendererDoesNotDoubleCountRepeatedCompletion(t *testing.T) 
 	}
 }
 
+func TestLockProgressRendererDeduplicatesMissingTaskIDByLabel(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
+	groupIndex := 7
+	event := workflowlock.ProgressEvent{
+		Kind:            "skill_group_expanded",
+		SkillGroupIndex: &groupIndex,
+	}
+	renderer.LockSink()(event)
+	renderer.LockSink()(event)
+
+	got := output.String()
+	if strings.Contains(got, "Resolving sources 2") ||
+		strings.Count(got, "Resolving sources 1") != 1 ||
+		!strings.Contains(got, "skill_group[7]") {
+		t.Fatalf("output = %q, want one label-keyed completion", got)
+	}
+}
+
 func TestLockProgressRendererEscapesLabelsAndHidesErrors(t *testing.T) {
 	var output bytes.Buffer
 	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
-	renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_resolve_failed", TaskID: "skill:0", EntityID: progressEntityID(t, "bad\n\x1b[31m"), Err: errors.New("private detail")})
+	renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_resolve_failed", TaskID: "skill:0", EntityID: progressEntityID(t, "bad\n\x1b[31m"), Err: errors.New("private detail")})
 	got := output.String()
 	if strings.Contains(got, "bad\n") || strings.Contains(got, "\x1b[31m") || strings.Contains(got, "private detail") {
 		t.Fatalf("output leaked control/error text: %q", got)
@@ -92,8 +112,8 @@ func TestLockProgressRendererEscapesLabelsAndHidesErrors(t *testing.T) {
 func TestLockProgressRendererSuppressesAfterWriteError(t *testing.T) {
 	writer := &failAfterFirstWrite{}
 	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: writer})
-	renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_resolve_started", EntityID: progressEntityID(t, "one")})
-	renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_locked", EntityID: progressEntityID(t, "one")})
+	renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_resolve_started", EntityID: progressEntityID(t, "one")})
+	renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_locked", EntityID: progressEntityID(t, "one")})
 	renderer.Close()
 	if writer.writeAttempts != 2 {
 		t.Fatalf("write attempts = %d, want 2", writer.writeAttempts)
@@ -108,12 +128,45 @@ func TestLockProgressRendererAcceptsConcurrentEvents(t *testing.T) {
 		waitGroup.Add(1)
 		go func(index int) {
 			defer waitGroup.Done()
-			renderer.LockSink()(cliprogress.LockEvent{Kind: "resource_resolve_started", TaskID: acquisition.RequestID(fmt.Sprintf("skill:%d", index)), EntityID: progressEntityID(t, fmt.Sprintf("skill-%d", index))})
+			renderer.LockSink()(workflowlock.ProgressEvent{Kind: "resource_resolve_started", TaskID: acquisition.RequestID(fmt.Sprintf("skill:%d", index)), EntityID: progressEntityID(t, fmt.Sprintf("skill-%d", index))})
 		}(index)
 	}
 	waitGroup.Wait()
 	if !strings.Contains(output.String(), "Resolving sources") {
 		t.Fatalf("output = %q, want progress", output.String())
+	}
+}
+
+func TestLockProgressRendererCloseIsConcurrentAndReusable(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: &output})
+	sink := renderer.LockSink()
+	var waitGroup sync.WaitGroup
+	for index := range 32 {
+		waitGroup.Add(2)
+		go func(index int) {
+			defer waitGroup.Done()
+			sink(workflowlock.ProgressEvent{
+				Kind:     "resource_resolve_started",
+				TaskID:   acquisition.RequestID(fmt.Sprintf("skill:%d", index)),
+				EntityID: progressEntityID(t, fmt.Sprintf("skill-%d", index)),
+			})
+		}(index)
+		go func() {
+			defer waitGroup.Done()
+			renderer.Close()
+		}()
+	}
+	waitGroup.Wait()
+
+	sink(workflowlock.ProgressEvent{
+		Kind:     "resource_resolve_started",
+		TaskID:   "after-close",
+		EntityID: progressEntityID(t, "after-close"),
+	})
+	renderer.Close()
+	if !strings.Contains(output.String(), "skill/after-close") {
+		t.Fatalf("output = %q, want renderer reuse after Close", output.String())
 	}
 }
 

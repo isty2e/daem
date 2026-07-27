@@ -65,7 +65,7 @@ func ManagedPathEvidence(
 		if keys[left].subject != keys[right].subject {
 			return topology.CompareSubjectID(keys[left].subject, keys[right].subject) < 0
 		}
-		return keys[left].destination < keys[right].destination
+		return keys[left].destination.String() < keys[right].destination.String()
 	})
 
 	result := make([]observe.ManagedPathEvidence, 0, len(keys))

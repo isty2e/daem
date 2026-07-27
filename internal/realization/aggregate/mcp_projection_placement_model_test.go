@@ -117,11 +117,13 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ContentPath returned error: %v", err)
 			}
+			conflictingConfigPath, hasConflictingConfigPath := placement.ConflictingConfigPath()
 			if placement.ID() != tc.wantID ||
 				placement.ConfigLayer() != tc.wantLayer ||
-				placement.AggregateRoot() != aggregate.MCPAggregateRoot(tc.wantConfigPath) ||
-				placement.ConfigPath() != tc.wantConfigPath ||
-				placement.ConflictingConfigPath() != tc.wantConflictPath ||
+				placement.AggregateRoot().String() != tc.wantConfigPath ||
+				placement.ConfigPath().String() != tc.wantConfigPath ||
+				conflictingConfigPath.String() != tc.wantConflictPath ||
+				hasConflictingConfigPath != (tc.wantConflictPath != "") ||
 				placement.MergeUnit() != aggregate.MCPMergeUnitServerEntry ||
 				placement.ContentPathPrefix() != tc.wantPathPrefix ||
 				string(contentPath) != tc.wantContentPath ||
@@ -138,7 +140,7 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			if contribution.PlacementID() != string(tc.wantID) ||
 				contribution.Target() != tc.target ||
 				contribution.Scope() != tc.scope ||
-				contribution.AggregateRoot() != tc.wantConfigPath ||
+				contribution.AggregateRoot().String() != tc.wantConfigPath ||
 				contribution.ContentPath() != tc.wantContentPath ||
 				contribution.MergeUnit() != aggregate.MergeUnit(aggregate.MCPMergeUnitServerEntry) ||
 				contribution.Cardinality() != aggregate.ContributionExclusive ||
@@ -283,7 +285,7 @@ func TestMCPProjectionAddressIncludesPlacementIDForSameRootAndPath(t *testing.T)
 		Target:            target.TargetCodex,
 		Scope:             target.ScopeProject,
 		ConfigLayer:       "codex-project-same-root-alternate",
-		ConfigPath:        aggregate.MCPAggregateRoot(basePlacement.ConfigPath()),
+		ConfigPath:        basePlacement.ConfigPath().String(),
 		MergeUnit:         aggregate.MCPMergeUnitServerEntry,
 		ContentPathPrefix: basePlacement.ContentPathPrefix(),
 		SiblingRetention:  aggregate.MCPSiblingRetentionPreserveUnmanaged,

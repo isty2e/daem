@@ -15,6 +15,7 @@ import (
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -241,7 +242,7 @@ func TestExecuteWithOptionsPromotesInterruptedGlobalInstallFromFreshPresence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, manifestPath)
+	owner, err := stateauthority.New(statefileKey, manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -146,7 +146,7 @@ func assertApplyMCPPlanSubject(t *testing.T, result reconcile.Result, serverID s
 	t.Helper()
 	decision := requireApplyMCPAggregateDecision(t, result, serverID)
 	if decision.Target() != targetpkg.TargetClaudeCode ||
-		decision.Destination() != outputpkg.Destination(aggregate.ClaudeProjectMCPConfigPath) ||
+		decision.Destination().String() != aggregate.ClaudeProjectMCPConfigPath ||
 		decision.ContentPath() != outputpkg.ContentPath(mcpcodec.ClaudeProjectMCPContentPath(serverID)) {
 		t.Fatalf("aggregate decision = %#v, want Claude project MCP projection subject %q", decision, serverID)
 	}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -105,7 +106,7 @@ func NewRequest(
 
 	targetSet := make(map[targetpkg.Target]struct{}, len(targets))
 	for _, target := range targets {
-		if !SupportsTarget(target) {
+		if !profile.Profile(target).HasImportableDiscovery() {
 			return Request{}, fmt.Errorf("target %q is not supported by import", target)
 		}
 		if _, duplicate := targetSet[target]; duplicate {

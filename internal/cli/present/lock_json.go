@@ -205,8 +205,8 @@ func jsonLockedSubjectFor(contract lock.LockedSubjectContract) jsonLockedSubject
 	if recipe, ok := contract.RepairRecipe(); ok {
 		result.RepairHash = recipe.Hash()
 	}
-	if plan, ok := contract.DelegatePlanIdentity(); ok {
-		result.DelegatePlan = &jsonDelegatePlan{IdentityKey: plan.IdentityKey, RunnerKind: string(plan.RunnerKind)}
+	if plan, ok := contract.DelegatePlan(); ok {
+		result.DelegatePlan = &jsonDelegatePlan{IdentityKey: plan.IdentityKey(), RunnerKind: string(plan.Runner().Kind())}
 	}
 	if correlation, ok := contract.SkillSetMemberCorrelation(); ok {
 		result.SkillSetMember = &jsonSkillSetCorrelation{
@@ -224,7 +224,7 @@ func jsonRealizationFor(spec realization.RealizationSpec) jsonRealization {
 		result.PlacementID = projection.PlacementID()
 		result.ConsumerTargets = targetStrings(projection.ConsumerTargets())
 		result.Scope = string(projection.Scope())
-		result.Destination = projection.Destination()
+		result.Destination = projection.Destination().String()
 		result.ContentKind = string(projection.ContentKind())
 		result.PlacementMode = string(projection.PlacementMode())
 		result.PermissionPolicy = string(projection.PermissionPolicy())
@@ -238,7 +238,7 @@ func jsonRealizationFor(spec realization.RealizationSpec) jsonRealization {
 		result.PlacementID = contribution.PlacementID()
 		result.Target = string(contribution.Target())
 		result.Scope = string(contribution.Scope())
-		result.AggregateRoot = contribution.AggregateRoot()
+		result.AggregateRoot = contribution.AggregateRoot().String()
 		result.ContentPath = contribution.ContentPath()
 		result.MergeUnit = string(contribution.MergeUnit())
 		result.SiblingRetention = string(contribution.SiblingRetention())

@@ -8,6 +8,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -21,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRunConsumesPublicMCPManifestLockSubject(t *testing.T) {
@@ -170,9 +172,9 @@ func TestRunReportsProjectedMCPStatusWhenStateOwnsEntry(t *testing.T) {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	canonical := canonicalStatusMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeTestFile(t, tempDir, aggregate.ClaudeProjectMCPConfigPath, `{"mcpServers":{"context7":`+string(canonical)+`}}`)
@@ -189,7 +191,7 @@ func TestRunReportsProjectedMCPStatusWhenStateOwnsEntry(t *testing.T) {
 				record.SubjectID(),
 				target.TargetClaudeCode,
 				target.ScopeProject,
-				delegateIdentity.IdentityKey,
+				delegatePlan.IdentityKey(),
 				durableattempt.DelegateStatusFailed,
 				durableattempt.DelegateReasonNonZeroExit,
 			),
@@ -221,8 +223,8 @@ func TestRunReportsProjectedAntigravityMCPStatusWhenStateOwnsEntry(t *testing.T)
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusAntigravityMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("locked Antigravity MCP record unexpectedly has delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("locked Antigravity MCP record unexpectedly has delegate plan")
 	}
 	canonical := canonicalStatusAntigravityMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeHomeRelativeTestFile(t, homeDir, ".gemini/config/mcp_config.json", `{"mcpServers":{"context7":`+string(canonical)+`}}`)
@@ -231,7 +233,7 @@ func TestRunReportsProjectedAntigravityMCPStatusWhenStateOwnsEntry(t *testing.T)
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementAntigravityGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.AntigravityGlobalMCPConfigPath), output.ContentPath(mcpcodec.AntigravityGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.AntigravityGlobalMCPConfigPath), output.ContentPath(mcpcodec.AntigravityGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -326,7 +328,7 @@ func TestRunReportsProjectedCodexGlobalMCPStatusWhenStateOwnsEntry(t *testing.T)
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementCodexGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.CodexGlobalMCPConfigPath), output.ContentPath(mcpcodec.CodexGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.CodexGlobalMCPConfigPath), output.ContentPath(mcpcodec.CodexGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -359,7 +361,7 @@ func TestRunReportsProjectedOpenCodeGlobalMCPStatusWhenStateOwnsEntry(t *testing
 		filepath.Join(tempDir, ".daem", "state.json"),
 		statusMCPStateSnapshot(t, aggregate.MCPPlacementOpenCodeGlobal, "context7", canonical),
 	)
-	writeStatusOwnershipClaim(t, manifestPath, output.Destination(aggregate.OpenCodeGlobalMCPConfigPath), output.ContentPath(mcpcodec.OpenCodeGlobalMCPContentPath("context7")))
+	writeStatusOwnershipClaim(t, manifestPath, outputtest.Parse(t, aggregate.OpenCodeGlobalMCPConfigPath), output.ContentPath(mcpcodec.OpenCodeGlobalMCPContentPath("context7")))
 
 	result, err := Run(context.Background(), CommandInput{
 		ManifestPath: manifestPath,
@@ -670,9 +672,9 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("canonicalize statefile authority: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	claim, err := ownership.NewActiveClaim(address, owner)
 	if err != nil {
@@ -694,7 +696,7 @@ func canonicalStatusMCPEntry(t *testing.T, serverID string, command string) []by
 
 func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -708,7 +710,7 @@ func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.OpenCodeProjectMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -722,7 +724,7 @@ func canonicalStatusOpenCodeMCPEntryWithArgs(t *testing.T, serverID string, comm
 
 func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.CodexProjectMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -736,7 +738,7 @@ func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command
 
 func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
@@ -750,7 +752,7 @@ func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),

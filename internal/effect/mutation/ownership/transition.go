@@ -4,6 +4,7 @@ package ownership
 import (
 	"fmt"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -44,7 +45,7 @@ func NewTransition(
 // NewAcquireTransition constructs absent -> reserved -> active ownership.
 func NewAcquireTransition(
 	address outputownership.ManagedAddress,
-	owner outputownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	operationID string,
 ) (ClaimTransition, error) {
 	reserved, err := outputownership.NewReservedClaim(address, owner, operationID)
@@ -111,7 +112,7 @@ func (transition ClaimTransition) Validate() error {
 		if err != nil {
 			return err
 		}
-		if !prepared.Address().Equal(after.Address()) || !exactOwnerEqual(prepared.Owner(), after.Owner()) {
+		if !prepared.Address().Equal(after.Address()) || !prepared.Owner().ExactEqual(after.Owner()) {
 			return fmt.Errorf("ownership acquire phases must have one address and owner")
 		}
 	case TransitionRelease:
@@ -189,7 +190,7 @@ func (transition ClaimTransition) Equal(other ClaimTransition) bool {
 }
 
 // Owner returns the state authority responsible for every phase of the transition.
-func (transition ClaimTransition) Owner() outputownership.OwnerAuthority {
+func (transition ClaimTransition) Owner() stateauthority.Authority {
 	claim, ok := transition.prepared.Get()
 	if !ok {
 		claim, _ = transition.before.Get()
@@ -213,9 +214,4 @@ func requireClaimState(
 		return outputownership.Claim{}, fmt.Errorf("ownership %s claim must be %s", phase, state)
 	}
 	return claim, nil
-}
-
-func exactOwnerEqual(left outputownership.OwnerAuthority, right outputownership.OwnerAuthority) bool {
-	return left.StatefileKey() == right.StatefileKey() &&
-		left.ManifestPath() == right.ManifestPath()
 }

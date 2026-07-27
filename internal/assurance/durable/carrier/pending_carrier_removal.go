@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -231,7 +232,7 @@ func (pending PendingCarrierRemoval) Claim() ManagedCarrierClaim {
 }
 
 // Owner returns the state authority that prepared the removal.
-func (pending PendingCarrierRemoval) Owner() StateAuthority {
+func (pending PendingCarrierRemoval) Owner() stateauthority.Authority {
 	return pending.claim.Owner()
 }
 

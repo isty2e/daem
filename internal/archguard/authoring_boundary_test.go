@@ -78,7 +78,7 @@ func TestAuthoringBoundaryDoesNotReintroduceDeclarationModels(t *testing.T) {
 func TestAuthoringBoundaryGuardRejectsRenamedAndAliasedDeclarationModels(t *testing.T) {
 	source := `package authoring
 
-import declarationcodec "example/internal/declaration/codec"
+import "example/internal/declaration"
 
 type AuthoredHook struct {
 	Name string
@@ -93,7 +93,7 @@ type AuthoredHook struct {
 	TargetOverrides []string
 }
 
-type HookCopy = declarationcodec.Hook
+type HookCopy = declaration.Hook
 `
 	file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
 	if err != nil {

@@ -10,11 +10,20 @@ import (
 	"github.com/isty2e/daem/internal/output"
 )
 
+func mustDestination(t testing.TB, value string) output.Destination {
+	t.Helper()
+	destination, err := output.Parse(value)
+	if err != nil {
+		t.Fatalf("output.Parse(%q) returned error: %v", value, err)
+	}
+	return destination
+}
+
 func TestResolverExpandsProjectDestination(t *testing.T) {
 	root := t.TempDir()
 	resolver := NewResolver(root)
 
-	got, err := resolver.Resolve(output.Destination("nested/skill"))
+	got, err := resolver.Resolve(mustDestination(t, "nested/skill"))
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -29,7 +38,7 @@ func TestResolverExpandsHomeDestinationFromCurrentEnvironment(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	got, err := NewResolver(t.TempDir()).Resolve(output.Destination("~/agents/skills"))
+	got, err := NewResolver(t.TempDir()).Resolve(mustDestination(t, "~/agents/skills"))
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -45,7 +54,7 @@ func TestResolverRejectsMalformedHomeRoot(t *testing.T) {
 	}
 	t.Setenv("HOME", " relative ")
 
-	_, err := NewResolver(t.TempDir()).Resolve(output.Destination("~/agents/skills"))
+	_, err := NewResolver(t.TempDir()).Resolve(mustDestination(t, "~/agents/skills"))
 	if err == nil || !strings.Contains(err.Error(), "trimmed absolute path") {
 		t.Fatalf("Resolve error = %v, want malformed home-root rejection", err)
 	}
@@ -55,7 +64,7 @@ func TestResolverUsesSelectedManagedDataRoot(t *testing.T) {
 	projectRoot := t.TempDir()
 	firstDataRoot := filepath.Join(t.TempDir(), "data-one")
 	secondDataRoot := filepath.Join(t.TempDir(), "data-two")
-	destination := output.Destination("@data/hook-assets/example")
+	destination := mustDestination(t, "@data/hook-assets/example")
 
 	first, err := NewResolverWithManagedDataRoot(projectRoot, firstDataRoot).Resolve(destination)
 	if err != nil {
@@ -78,7 +87,7 @@ func TestResolverUsesSelectedManagedDataRoot(t *testing.T) {
 
 func TestResolverRejectsMissingOrUnsafeManagedDataRoot(t *testing.T) {
 	projectRoot := t.TempDir()
-	destination := output.Destination("@data/hook-assets/example")
+	destination := mustDestination(t, "@data/hook-assets/example")
 	for _, dataRoot := range []string{"", " relative ", "relative", string(filepath.Separator)} {
 		_, err := NewResolverWithManagedDataRoot(projectRoot, dataRoot).Resolve(destination)
 		if err == nil {
@@ -89,41 +98,31 @@ func TestResolverRejectsMissingOrUnsafeManagedDataRoot(t *testing.T) {
 
 func TestResolverRejectsMissingOrRelativeProjectRoot(t *testing.T) {
 	for _, projectRoot := range []string{"", " relative ", "relative"} {
-		_, err := NewResolver(projectRoot).Resolve(output.Destination("AGENTS.md"))
+		_, err := NewResolver(projectRoot).Resolve(mustDestination(t, "AGENTS.md"))
 		if err == nil || !strings.Contains(err.Error(), "project root") {
 			t.Fatalf("Resolve with project root %q error = %v, want root rejection", projectRoot, err)
 		}
 	}
 }
 
-func TestResolverRejectsNonCanonicalDestinations(t *testing.T) {
+func TestResolverRejectsZeroDestination(t *testing.T) {
 	dataRoot := filepath.Join(t.TempDir(), "data")
-	for _, destination := range []output.Destination{
-		"",
-		".",
-		"nested/../escape",
-		"../escape",
-		"/absolute",
-		`C:\absolute`,
-		"~",
-		"@unknown/value",
-	} {
-		if _, err := NewResolverWithManagedDataRoot(t.TempDir(), dataRoot).Resolve(destination); err == nil {
-			t.Fatalf("Resolve accepted %q", destination)
-		}
+	var destination output.Destination
+	if _, err := NewResolverWithManagedDataRoot(t.TempDir(), dataRoot).Resolve(destination); err == nil {
+		t.Fatal("Resolve accepted a zero destination")
 	}
 }
 
 func TestResolverDoesNotRequireUnusedRoots(t *testing.T) {
 	projectRoot := t.TempDir()
-	if _, err := NewResolver(projectRoot).Resolve(output.Destination("AGENTS.md")); err != nil {
+	if _, err := NewResolver(projectRoot).Resolve(mustDestination(t, "AGENTS.md")); err != nil {
 		t.Fatalf("project Resolve required an unused data root: %v", err)
 	}
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	if _, err := NewResolver("").Resolve(output.Destination("~/AGENTS.md")); err != nil {
+	if _, err := NewResolver("").Resolve(mustDestination(t, "~/AGENTS.md")); err != nil {
 		t.Fatalf("home Resolve required an unused project root: %v", err)
 	}
 }
@@ -137,14 +136,14 @@ func TestResolverUsesCurrentHomeOnEveryResolution(t *testing.T) {
 	resolver := NewResolver(t.TempDir())
 	t.Setenv("HOME", firstHome)
 
-	first, err := resolver.Resolve(output.Destination("~/AGENTS.md"))
+	first, err := resolver.Resolve(mustDestination(t, "~/AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Setenv("HOME", secondHome); err != nil {
 		t.Fatal(err)
 	}
-	second, err := resolver.Resolve(output.Destination("~/AGENTS.md"))
+	second, err := resolver.Resolve(mustDestination(t, "~/AGENTS.md"))
 	if err != nil {
 		t.Fatal(err)
 	}

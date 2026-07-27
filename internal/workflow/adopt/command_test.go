@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/realization/profile"
 )
 
 func TestBuildCommandPlanDefaultsProjectScopeAndDedupesTargets(t *testing.T) {
@@ -111,5 +113,13 @@ func TestBuildCommandPlanRejectsMissingTargetBeforeResolvingRequest(t *testing.T
 	}
 	if result.OutputPath() != "" {
 		t.Fatalf("OutputPath = %q, want empty path before request resolution", result.OutputPath())
+	}
+}
+
+func TestImportTargetDiagnosticCatalogUsesProfilePolicyOrder(t *testing.T) {
+	got := targetValues(profile.ImportableTargets())
+	want := "codex, claude-code, opencode, pi, antigravity-cli"
+	if got != want {
+		t.Fatalf("import target values = %q, want %q", got, want)
 	}
 }

@@ -6,10 +6,11 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 // MCPProjectionInput carries already-canonical MCP projection fixture facts.
@@ -20,13 +21,13 @@ type MCPProjectionInput struct {
 	LauncherArgs         []string
 	CanonicalProjection  string
 	CredentialReferences []string
-	DelegatePlanIdentity *lock.DelegatePlanIdentity
+	DelegatePlan         *delegate.DelegatePlan
 }
 
 // MCPProjection constructs one canonically refined MCP projection fixture.
 func MCPProjection(t testing.TB, input MCPProjectionInput) lock.LockedSubjectContract {
 	t.Helper()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForID(input.PlacementID)
+	operations, ok := mcptest.OperationsForPlacementID(input.PlacementID)
 	if !ok {
 		t.Fatalf("MCP placement %q is unavailable", input.PlacementID)
 	}
@@ -66,7 +67,7 @@ func MCPProjection(t testing.TB, input MCPProjectionInput) lock.LockedSubjectCon
 		LauncherCommand:      input.LauncherCommand,
 		LauncherArgs:         append([]string(nil), input.LauncherArgs...),
 		CanonicalProjection:  input.CanonicalProjection,
-		DelegatePlanIdentity: input.DelegatePlanIdentity,
+		DelegatePlan:         input.DelegatePlan,
 		CredentialReferences: append([]string(nil), input.CredentialReferences...),
 	})
 	if err != nil {

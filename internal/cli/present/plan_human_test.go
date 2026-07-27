@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -50,11 +51,11 @@ func TestPrintPlanIncludesOwnershipConflictProvenance(t *testing.T) {
 		[]target.Target{target.TargetCodex},
 		"desired",
 	)
-	requester, err := ownership.NewOwnerAuthority("/work/right/state.json", "/work/right/daem.toml")
+	requester, err := stateauthority.New("/work/right/state.json", "/work/right/daem.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := ownership.NewOwnerAuthority("/work/left/state.json", "/work/left/daem.toml")
+	foreign, err := stateauthority.New("/work/left/state.json", "/work/left/daem.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,6 +22,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologyhook "github.com/isty2e/daem/internal/topology/hook"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
@@ -39,7 +40,7 @@ func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
@@ -122,7 +123,7 @@ func TestBuildManagedPathPayloadSetRejectsInstructionLockProblems(t *testing.T) 
 	input := Input{
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{validLocked[1].SubjectID()},
 	}
 	validIdentity, ok := validLocked[0].ExactSupply()
@@ -177,7 +178,7 @@ func TestPayloadVerifyHashForRejectsMismatch(t *testing.T) {
 		t.Fatalf("NewFilePayload returned error: %v", err)
 	}
 	plannedHash := artifact.HashFileContent([]byte("planned"))
-	err = value.VerifyHash(plannedHash, "AGENTS.md")
+	err = value.VerifyHash(plannedHash, outputtest.Parse(t, "AGENTS.md"))
 	want := `host payload hash "` + string(value.Hash()) + `" does not match planned hash "` + string(plannedHash) + `" for "AGENTS.md"`
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("VerifyHash error = %v, want hash mismatch", err)
@@ -197,7 +198,7 @@ func TestBuildPayloadSetSkipsSkillsWithoutRequiredProjectionEffects(t *testing.T
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 	})
 	if err != nil {
 		t.Fatalf("PayloadSet materialized a Skill with no required effect: %v", err)
@@ -230,7 +231,7 @@ func TestBuildPayloadSetCleansUpRepairedSkillPayload(t *testing.T) {
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
@@ -292,7 +293,7 @@ func TestBuildPayloadSetCleansRepairedSkillWhenLaterPayloadValidationFails(t *te
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t, locked...),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{
 			locked[1].SubjectID(),
 			assetSubject,
@@ -338,7 +339,7 @@ func TestBuildPayloadSetCleansRepairedSkillWhenLaterSkillLockIsMissing(t *testin
 		Paths:       hostOutputTestPaths(t, root),
 		Environment: environment,
 		Lockfile:    snapshottest.File(t, locked...),
-		Selection:   mustHostOutputSelection(t, environment, "codex"),
+		Selection:   mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{
 			locked[1].SubjectID(),
 			skillProjectionSubject(t, "missing", target.TargetCodex),
@@ -400,7 +401,7 @@ func TestBuildManagedPathPayloadSetSkipsUnselectedInstructionTargets(t *testing.
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
-		Selection:                  mustHostOutputSelection(t, environment, "codex"),
+		Selection:                  mustHostOutputSelection(t, "codex"),
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
