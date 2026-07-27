@@ -61,7 +61,7 @@ func TestClassifyFindingsSeparatesViolationReviewAndWarningFindings(t *testing.T
 func TestAnalyzeReportClassifiesDensityWarningAndReviewGate(t *testing.T) {
 	report := AnalyzeReport([]PackageRecord{
 		{
-			ImportPath: "example.com/project/internal/adopt/example",
+			ImportPath: "example.com/project/internal/adopt",
 			GoFiles: []string{
 				"a.go", "b.go", "c.go", "d.go", "e.go", "f.go", "g.go",
 				"h.go", "i.go", "j.go", "k.go", "l.go", "m.go", "n.go",
@@ -71,7 +71,7 @@ func TestAnalyzeReportClassifiesDensityWarningAndReviewGate(t *testing.T) {
 			FileLineCounts: map[string]int{"a.go": 351, "a_test.go": 351},
 		},
 		{
-			ImportPath:     "example.com/project/internal/adopt/too_dense",
+			ImportPath:     "example.com/project/internal/adopt/merge",
 			GoFiles:        []string{"huge.go"},
 			FileLineCounts: map[string]int{"huge.go": 501},
 		},
@@ -89,7 +89,7 @@ func TestAnalyzeReportClassifiesDensityWarningAndReviewGate(t *testing.T) {
 
 func TestAnalyzeReportRecordsPackageDensity(t *testing.T) {
 	report := AnalyzeReport([]PackageRecord{{
-		ImportPath:     "example.com/project/internal/adopt/example",
+		ImportPath:     "example.com/project/internal/adopt",
 		GoFiles:        []string{"a.go"},
 		TestGoFiles:    []string{"a_test.go"},
 		FileLineCounts: map[string]int{"a.go": 12, "a_test.go": 34},

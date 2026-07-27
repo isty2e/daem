@@ -29,7 +29,8 @@ func TestArchitectureContractRejectsDesiredReverseImports(t *testing.T) {
 	}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleDesiredImportDirection) != 3 {
+	if countViolationRule(violations, ruleDesiredImportDirection) != 2 ||
+		countViolationRule(violations, rulePackagePlacementOwnership) != 1 {
 		t.Fatalf("desired reverse-import violations:\n%s", FormatReport(violations))
 	}
 }
@@ -168,7 +169,8 @@ func TestArchitectureContractRejectsTopologyFamilyReverseImports(t *testing.T) {
 	}}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleTopologyImportDirection) != 5 {
+	if countViolationRule(violations, ruleTopologyImportDirection) != 4 ||
+		countViolationRule(violations, rulePackagePlacementOwnership) != 1 {
 		t.Fatalf("topology family reverse-import violations:\n%s", FormatReport(violations))
 	}
 }
@@ -218,7 +220,8 @@ func TestArchitectureContractRejectsTopologyFamilyCrossFamilyAndImplicitAdmissio
 	}
 
 	violations := analyzeArchitectureDependencyDirections(records)
-	if countViolationRule(violations, ruleTopologyImportDirection) != 9 {
+	if countViolationRule(violations, ruleTopologyImportDirection) != 4 ||
+		countViolationRule(violations, rulePackagePlacementOwnership) != 4 {
 		t.Fatalf("topology exact-admission violations:\n%s", FormatReport(violations))
 	}
 }
@@ -258,7 +261,7 @@ func TestArchitectureContractRejectsCrossBlockKernelImports(t *testing.T) {
 			Imports:    []string{"example.com/project/internal/effect/execute"},
 		},
 		{
-			ImportPath: "example.com/project/internal/effect/mutation",
+			ImportPath: "example.com/project/internal/effect/payload",
 			Imports:    []string{"example.com/project/internal/desired/skill"},
 		},
 	}
@@ -352,7 +355,7 @@ func TestArchitectureContractAllowsExactStableCrossBlockValueImports(t *testing.
 func TestArchitectureContractRejectsStableValuePackageDescendantsFromKernels(t *testing.T) {
 	records := []PackageRecord{
 		{
-			ImportPath: "example.com/project/internal/supply/source/archive",
+			ImportPath: "example.com/project/internal/supply/source/acquisition",
 			Imports:    []string{"example.com/project/internal/target/selection"},
 		},
 		{
@@ -368,7 +371,7 @@ func TestArchitectureContractRejectsStableValuePackageDescendantsFromKernels(t *
 			Imports:    []string{"example.com/project/internal/output/ownership/store"},
 		},
 		{
-			ImportPath: "example.com/project/internal/effect/mutation",
+			ImportPath: "example.com/project/internal/effect/payload",
 			Imports:    []string{"example.com/project/internal/output/ownership/store"},
 		},
 		{
@@ -380,7 +383,7 @@ func TestArchitectureContractRejectsStableValuePackageDescendantsFromKernels(t *
 			Imports:    []string{"example.com/project/internal/output/hostpath"},
 		},
 		{
-			ImportPath: "example.com/project/internal/effect/mutation",
+			ImportPath: "example.com/project/internal/effect/payload",
 			Imports:    []string{"example.com/project/internal/output/hostpath"},
 		},
 	}
@@ -402,7 +405,7 @@ func TestArchitectureContractRejectsStableValuePackageDescendantsFromKernels(t *
 func TestArchitectureContractRejectsStableValuesOutsideTheirAdmittedBlocks(t *testing.T) {
 	records := []PackageRecord{
 		{
-			ImportPath: "example.com/project/internal/supply/source/archive",
+			ImportPath: "example.com/project/internal/supply/source/acquisition",
 			Imports:    []string{"example.com/project/internal/output"},
 		},
 		{
@@ -420,7 +423,7 @@ func TestArchitectureContractRejectsStableValuesOutsideTheirAdmittedBlocks(t *te
 
 func TestArchitectureContractRejectsSupplyBehaviorFromEffect(t *testing.T) {
 	records := []PackageRecord{{
-		ImportPath: "example.com/project/internal/effect/execute",
+		ImportPath: "example.com/project/internal/effect/payload",
 		Imports:    []string{"example.com/project/internal/supply/source/acquisition"},
 	}}
 
@@ -451,7 +454,7 @@ func TestArchitectureContractRejectsArtifactBehaviorImportsFromLaterKernels(t *t
 
 func TestAnalyzeReportIncludesCrossBlockKernelGuards(t *testing.T) {
 	report := AnalyzeReport([]PackageRecord{{
-		ImportPath: "example.com/project/internal/supply/source/archive",
+		ImportPath: "example.com/project/internal/supply/source/acquisition",
 		Imports:    []string{"example.com/project/internal/reconcile"},
 	}})
 	if !containsFindingRule(report.Violations, ruleSupplyImportDirection) {
@@ -492,14 +495,21 @@ func TestArchitectureContractKeepsBoundaryAdaptersOutOfSemanticKernelRules(t *te
 	}
 }
 
-func TestArchitectureContractClassifiesMCPRuntimeProbeAdapterOnlyAsBoundary(t *testing.T) {
-	blocks := semanticDependencyBlocksForPackage("internal/assurance/runtimeprobe/mcp")
-	if len(blocks) != 1 || blocks[0] != dependencyBoundary {
-		t.Fatalf("MCP runtime probe blocks = %v, want Boundary only", blocks)
+func TestArchitectureContractClassifiesMCPRuntimeProbeAdapterByIndependentAxes(t *testing.T) {
+	placement, ok := packagePlacementFor("internal/assurance/runtimeprobe/mcp")
+	if !ok {
+		t.Fatal("MCP runtime probe has no Pi placement")
+	}
+	if placement.affinity != affinityAssurance ||
+		placement.role != roleObservationAdapter ||
+		placement.specialization != (packageSpecialization{
+			kind: specializationProtocol, value: "MCP",
+		}) {
+		t.Fatalf("MCP runtime probe placement = %+v", placement)
 	}
 }
 
-func TestArchitectureContractClassifiesAssuranceOwnerLocalBoundariesExactly(t *testing.T) {
+func TestArchitectureContractClassifiesAssuranceOwnerLocalRolesExactly(t *testing.T) {
 	for _, packagePath := range []string{
 		"internal/assurance/runtimeprobe/mcp",
 		"internal/assurance/observe/antigravityplugin",
@@ -512,9 +522,10 @@ func TestArchitectureContractClassifiesAssuranceOwnerLocalBoundariesExactly(t *t
 		"internal/assurance/observe/relation/host",
 		"internal/assurance/statefile",
 	} {
-		blocks := semanticDependencyBlocksForPackage(packagePath)
-		if len(blocks) != 1 || blocks[0] != dependencyBoundary {
-			t.Errorf("%s blocks = %v, want Boundary only", packagePath, blocks)
+		placement, ok := packagePlacementFor(packagePath)
+		if !ok || placement.affinity != affinityAssurance ||
+			(placement.role != roleObservationAdapter && placement.role != roleCodec) {
+			t.Errorf("%s placement = %+v, %t; want Assurance observation/codec", packagePath, placement, ok)
 		}
 	}
 
@@ -528,9 +539,11 @@ func TestArchitectureContractClassifiesAssuranceOwnerLocalBoundariesExactly(t *t
 		"internal/assurance/observe/mcp",
 		"internal/assurance/observe/relation",
 	} {
-		blocks := semanticDependencyBlocksForPackage(packagePath)
-		if len(blocks) != 1 || blocks[0] != dependencyAssurance {
-			t.Errorf("%s blocks = %v, want Assurance only", packagePath, blocks)
+		placement, ok := packagePlacementFor(packagePath)
+		if !ok ||
+			placement.affinity != affinityAssurance ||
+			placement.role != roleSemanticKernel {
+			t.Errorf("%s placement = %+v, %t; want Assurance semantic kernel", packagePath, placement, ok)
 		}
 	}
 }

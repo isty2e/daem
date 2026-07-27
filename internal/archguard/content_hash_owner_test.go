@@ -40,8 +40,11 @@ func TestAssuranceAndReconciliationUseArtifactPackageOnlyForContentHash(t *testi
 	root := findRepoRoot(t)
 	walkProductionGoFiles(t, root, func(relativePath string, parsed *ast.File) {
 		packagePath := filepath.ToSlash(filepath.Dir(relativePath))
-		block := semanticDependencyBlockForPackage(packagePath)
-		if block != dependencyAssurance && block != dependencyReconciliation {
+		placement, placed := packagePlacementFor(packagePath)
+		if !placed ||
+			placement.role != roleSemanticKernel ||
+			(placement.affinity != affinityAssurance &&
+				placement.affinity != affinityReconciliation) {
 			return
 		}
 

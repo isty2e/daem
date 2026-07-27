@@ -49,9 +49,9 @@ func (admission densityReviewAdmission) validate(metric string) error {
 
 var packageDensityAdmissions = map[string]densityReviewAdmission{
 	"internal/archguard": {
-		reviewedValue:       17,
+		reviewedValue:       19,
 		owner:               "repository topology analysis and report projection",
-		reason:              "at 17 production files, all guard families share one package-record model, finding identity, and deterministic report contract",
+		reason:              "at 19 production files, Pi validation, the finite placement catalog, and import policy have distinct change reasons while all guard families share one package-record model, finding identity, and deterministic report contract",
 		naturalSplit:        "move each guard family into a child analyzer package",
 		alternativeRejected: "the children would export test-only machinery and duplicate the shared finding and report boundary",
 	},
