@@ -64,59 +64,34 @@ func (resolver Resolver) withResolutionSession() Resolver {
 }
 
 // Resolve resolves a source through its registered backend resolver.
-func (resolver Resolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
-	return resolver.ResolveWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ResolveWithOptions resolves a source through its registered backend resolver with source-owned operation options.
-func (resolver Resolver) ResolveWithOptions(
+func (resolver Resolver) Resolve(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
 ) (acquisition.Resolution, error) {
 	switch sourceSpec.Kind() {
 	case source.SourceKindLocal:
-		if resolverWithOptions, ok := resolver.local.(acquisition.ResolverWithOptions); ok {
-			return resolverWithOptions.ResolveWithOptions(ctx, sourceSpec, options)
-		}
-		return resolver.local.Resolve(ctx, sourceSpec)
+		return resolver.local.Resolve(ctx, sourceSpec, options)
 	case source.SourceKindGit:
-		if resolverWithOptions, ok := resolver.git.(acquisition.ResolverWithOptions); ok {
-			return resolverWithOptions.ResolveWithOptions(ctx, sourceSpec, options)
-		}
-		return resolver.git.Resolve(ctx, sourceSpec)
+		return resolver.git.Resolve(ctx, sourceSpec, options)
 	case source.SourceKindS3:
-		if resolverWithOptions, ok := resolver.s3.(acquisition.ResolverWithOptions); ok {
-			return resolverWithOptions.ResolveWithOptions(ctx, sourceSpec, options)
-		}
-		return resolver.s3.Resolve(ctx, sourceSpec)
+		return resolver.s3.Resolve(ctx, sourceSpec, options)
 	default:
 		return acquisition.Resolution{}, fmt.Errorf("unsupported source kind %q", sourceSpec.Kind())
 	}
 }
 
 // ListSourceRoot lists direct source-root entries for selector-backed local and Git sources.
-func (resolver Resolver) ListSourceRoot(ctx context.Context, sourceSpec source.Source) (source.RootListing, error) {
-	return resolver.ListSourceRootWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ListSourceRootWithOptions lists direct source-root entries with source-owned operation options.
-func (resolver Resolver) ListSourceRootWithOptions(
+func (resolver Resolver) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	switch sourceSpec.Kind() {
 	case source.SourceKindLocal:
-		if listerWithOptions, ok := resolver.local.(acquisition.RootListerWithOptions); ok {
-			return listerWithOptions.ListSourceRootWithOptions(ctx, sourceSpec, options)
-		}
-		return resolver.local.ListSourceRoot(ctx, sourceSpec)
+		return resolver.local.ListSourceRoot(ctx, sourceSpec, options)
 	case source.SourceKindGit:
-		if listerWithOptions, ok := resolver.git.(acquisition.RootListerWithOptions); ok {
-			return listerWithOptions.ListSourceRootWithOptions(ctx, sourceSpec, options)
-		}
-		return resolver.git.ListSourceRoot(ctx, sourceSpec)
+		return resolver.git.ListSourceRoot(ctx, sourceSpec, options)
 	case source.SourceKindS3:
 		return source.RootListing{}, fmt.Errorf("S3 skill groups are unsupported; S3 prefix directory sources are unsupported")
 	default:

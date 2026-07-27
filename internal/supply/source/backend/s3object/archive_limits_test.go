@@ -28,7 +28,7 @@ func TestResolveRejectsKnownOversizedS3ArchiveBeforeBodyRead(t *testing.T) {
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/archive.tar", "v1", "", sourcepkg.S3ObjectFormatTar)
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	var limitErr *sourcearchive.LimitError
 	if !errors.As(err, &limitErr) || limitErr.Kind() != sourcearchive.LimitInputBytes {
 		t.Fatalf("Resolve error = %v, want input LimitError", err)
@@ -60,7 +60,7 @@ func TestResolveRejectsOversizedS3ArchiveWhenLengthIsMissingOrUnderreported(t *t
 			}
 			sourceSpec := sourcetest.S3(t, "s3://daem/archive.tar", "v1", "", sourcepkg.S3ObjectFormatTar)
 
-			_, err = resolver.Resolve(context.Background(), sourceSpec)
+			_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			var limitErr *sourcearchive.LimitError
 			if !errors.As(err, &limitErr) || limitErr.Kind() != sourcearchive.LimitEntryBytes {
 				t.Fatalf("Resolve error = %v, want entry-byte LimitError", err)

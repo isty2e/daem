@@ -213,9 +213,9 @@ func (resolver Resolver) runBatchOwner(ctx context.Context, owner *batchOwner, e
 	}
 	switch owner.request.Operation() {
 	case acquisition.OperationResolve:
-		owner.resolution, owner.err = resolver.ResolveWithOptions(ctx, owner.request.Source(), operationOptions)
+		owner.resolution, owner.err = resolver.Resolve(ctx, owner.request.Source(), operationOptions)
 	case acquisition.OperationListRoot:
-		owner.listing, owner.err = resolver.ListSourceRootWithOptions(ctx, owner.request.Source(), operationOptions)
+		owner.listing, owner.err = resolver.ListSourceRoot(ctx, owner.request.Source(), operationOptions)
 	default:
 		owner.err = fmt.Errorf("unknown source operation %q", owner.request.Operation())
 	}

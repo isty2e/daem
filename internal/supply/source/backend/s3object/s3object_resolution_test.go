@@ -18,6 +18,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 )
 
+var noOperationOptions acquisition.OperationOptions
+
 func TestResolveS3FileObject(t *testing.T) {
 	client := &fakeS3Client{
 		body:      []byte("project instructions\n"),
@@ -34,7 +36,7 @@ func TestResolveS3FileObject(t *testing.T) {
 		"requested-version",
 		"us-east-1",
 		sourcepkg.S3ObjectFormatFile,
-	))
+	), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -104,7 +106,7 @@ func TestResolveS3VersionCorrelationMatrix(t *testing.T) {
 				sourcepkg.S3ObjectFormatFile,
 			)
 
-			resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+			resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -115,7 +117,7 @@ func TestResolveS3VersionCorrelationMatrix(t *testing.T) {
 	}
 }
 
-func TestResolveWithOptionsEmitsS3BackendEvents(t *testing.T) {
+func TestResolveEmitsS3BackendEvents(t *testing.T) {
 	client := &fakeS3Client{
 		body:      []byte("project instructions\n"),
 		versionID: "requested-version",
@@ -136,9 +138,9 @@ func TestResolveWithOptionsEmitsS3BackendEvents(t *testing.T) {
 	options := mustS3OperationOptions(t, sourceSpec, func(event acquisition.Event) {
 		events = append(events, event)
 	})
-	resolvedArtifact, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, options)
+	resolvedArtifact, err := resolver.Resolve(context.Background(), sourceSpec, options)
 	if err != nil {
-		t.Fatalf("ResolveWithOptions returned error: %v", err)
+		t.Fatalf("Resolve returned error: %v", err)
 	}
 	if resolvedArtifact.Identity().ResolvedRef() != "requested-version" {
 		t.Fatalf("ResolvedRef = %q, want requested-version", resolvedArtifact.Identity().ResolvedRef())
@@ -163,7 +165,7 @@ func TestResolveWithOptionsEmitsS3BackendEvents(t *testing.T) {
 	}
 }
 
-func TestResolveWithOptionsEmitsS3CacheHitOnlyForReusedArtifact(t *testing.T) {
+func TestResolveEmitsS3CacheHitOnlyForReusedArtifact(t *testing.T) {
 	client := &fakeS3Client{
 		body:      []byte("project instructions\n"),
 		versionID: "requested-version",
@@ -195,8 +197,8 @@ func TestResolveWithOptionsEmitsS3CacheHitOnlyForReusedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOperationOptions returned error: %v", err)
 	}
-	if _, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, firstOptions); err != nil {
-		t.Fatalf("first ResolveWithOptions returned error: %v", err)
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, firstOptions); err != nil {
+		t.Fatalf("first Resolve returned error: %v", err)
 	}
 	if hasS3EventKind(firstEvents, acquisition.EventCacheHit) {
 		t.Fatalf("first events = %#v, want no cache_hit before artifact exists", firstEvents)
@@ -209,8 +211,8 @@ func TestResolveWithOptionsEmitsS3CacheHitOnlyForReusedArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOperationOptions returned error: %v", err)
 	}
-	if _, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, secondOptions); err != nil {
-		t.Fatalf("second ResolveWithOptions returned error: %v", err)
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, secondOptions); err != nil {
+		t.Fatalf("second Resolve returned error: %v", err)
 	}
 	if !hasS3EventKind(secondEvents, acquisition.EventCacheHit) {
 		t.Fatalf("second events = %#v, want cache_hit for reused artifact", secondEvents)
@@ -242,7 +244,7 @@ func TestResolveS3TarGzipObject(t *testing.T) {
 		"",
 		"",
 		sourcepkg.S3ObjectFormatTarGzip,
-	))
+	), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -278,7 +280,7 @@ func TestResolveS3ArchiveRejectsLinks(t *testing.T) {
 		"",
 		"",
 		sourcepkg.S3ObjectFormatTarGzip,
-	))
+	), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -310,7 +312,7 @@ func TestResolveRejectsEmptyS3Body(t *testing.T) {
 		"",
 		"",
 		sourcepkg.S3ObjectFormatFile,
-	))
+	), noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "empty response body") {
 		t.Fatalf("Resolve error = %v, want empty body diagnostic", err)
 	}
@@ -337,7 +339,7 @@ func TestResolveRejectsMismatchedExplicitVersionBeforePublication(t *testing.T) 
 		sourcepkg.S3ObjectFormatFile,
 	)
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "does not match requested version id") {
 		t.Fatalf("Resolve error = %v, want explicit-version mismatch", err)
 	}
@@ -367,7 +369,7 @@ func TestResolveReportsS3ClientError(t *testing.T) {
 		"",
 		"",
 		sourcepkg.S3ObjectFormatFile,
-	))
+	), noOperationOptions)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("Resolve error = %v, want client error", err)
 	}

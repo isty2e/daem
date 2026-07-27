@@ -144,7 +144,11 @@ type resolutionFixture struct {
 	ResolvedRef artifact.ResolvedRef
 }
 
-func (resolver stubResolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver stubResolver) Resolve(
+	ctx context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return acquisition.Resolution{}, err
@@ -164,11 +168,19 @@ type rootListingResolver struct {
 	resolved  []string
 }
 
-func (resolver *rootListingResolver) ListSourceRoot(_ context.Context, _ source.Source) (source.RootListing, error) {
+func (resolver *rootListingResolver) ListSourceRoot(
+	_ context.Context,
+	_ source.Source,
+	_ acquisition.OperationOptions,
+) (source.RootListing, error) {
 	return resolver.root, nil
 }
 
-func (resolver *rootListingResolver) Resolve(ctx context.Context, sourceSpec source.Source) (acquisition.Resolution, error) {
+func (resolver *rootListingResolver) Resolve(
+	ctx context.Context,
+	sourceSpec source.Source,
+	_ acquisition.OperationOptions,
+) (acquisition.Resolution, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
 		return acquisition.Resolution{}, err

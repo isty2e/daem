@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/supply/source"
+	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
 )
@@ -26,7 +27,7 @@ func materializeLockedFile(
 	locked lock.LockedSubjectContract,
 	requiredExecutable bool,
 ) (lockedFileMaterialization, error) {
-	resolution, err := resolver.Resolve(ctx, sourceSpec)
+	resolution, err := resolver.Resolve(ctx, sourceSpec, acquisition.OperationOptions{})
 	if err != nil {
 		return lockedFileMaterialization{}, fmt.Errorf("resolve source: %w", err)
 	}

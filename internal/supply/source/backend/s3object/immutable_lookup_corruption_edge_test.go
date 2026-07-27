@@ -258,7 +258,7 @@ func TestResolveCorruptLookupDoesNotMaskRemoteFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = failingResolver.Resolve(t.Context(), fixture.sourceSpec)
+	_, err = failingResolver.Resolve(t.Context(), fixture.sourceSpec, noOperationOptions)
 	if !errors.Is(err, remoteErr) {
 		t.Fatalf("Resolve error = %v, want remote failure", err)
 	}

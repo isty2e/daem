@@ -27,7 +27,7 @@ func TestResolveRejectsKnownOversizedS3DirectFileBeforeBodyRead(t *testing.T) {
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/direct-file", "v1", "", sourcepkg.S3ObjectFormatFile)
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	requireDirectFileLimit(t, err)
 	if bodyReader.reads != 0 {
 		t.Fatalf("body reads = %d, want zero after known-size rejection", bodyReader.reads)
@@ -53,7 +53,7 @@ func TestResolveRejectsUnderreportedOversizedS3DirectFileWithoutPublication(t *t
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/direct-file", "v1", "", sourcepkg.S3ObjectFormatFile)
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	requireDirectFileLimit(t, err)
 	if closes := client.closeCount(); closes != 1 {
 		t.Fatalf("Body closes = %d, want 1", closes)
@@ -69,7 +69,7 @@ func TestResolveRejectsOversizedImmutableCacheWithoutRemoteRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/direct-file", "v1", "", sourcepkg.S3ObjectFormatFile)
-	resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("initial Resolve: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestResolveRejectsOversizedImmutableCacheWithoutRemoteRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), sourceSpec)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	requireDirectFileLimit(t, err)
 	if calls := client.callCount(); calls != 1 {
 		t.Fatalf("GetObject calls = %d, want no retry after oversized cache", calls)

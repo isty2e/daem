@@ -53,15 +53,15 @@ func TestResolveExactVersionSeparatesCanonicalSourceAxes(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			first, err := resolver.Resolve(t.Context(), test.first)
+			first, err := resolver.Resolve(t.Context(), test.first, noOperationOptions)
 			if err != nil {
 				t.Fatalf("first Resolve returned error: %v", err)
 			}
-			second, err := resolver.Resolve(t.Context(), test.second)
+			second, err := resolver.Resolve(t.Context(), test.second, noOperationOptions)
 			if err != nil {
 				t.Fatalf("second Resolve returned error: %v", err)
 			}
-			reused, err := resolver.Resolve(t.Context(), test.first)
+			reused, err := resolver.Resolve(t.Context(), test.first, noOperationOptions)
 			if err != nil {
 				t.Fatalf("reused Resolve returned error: %v", err)
 			}
@@ -96,11 +96,11 @@ func TestResolveVersionlessResponseVersionDoesNotEnablePersistentReuse(t *testin
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/object", "", "us-east-1", sourcepkg.S3ObjectFormatFile)
 
-	first, err := resolver.Resolve(t.Context(), sourceSpec)
+	first, err := resolver.Resolve(t.Context(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
-	second, err := resolver.Resolve(t.Context(), sourceSpec)
+	second, err := resolver.Resolve(t.Context(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}

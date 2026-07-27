@@ -58,6 +58,7 @@ func (resolver *panicRootListerResolver) ResolveBatch(
 func (resolver *panicRootListerResolver) ListSourceRoot(
 	context.Context,
 	source.Source,
+	acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	resolver.listCalls++
 	panic("lock observation rediscovered a selector source root")

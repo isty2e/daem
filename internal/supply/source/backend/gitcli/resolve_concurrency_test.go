@@ -27,7 +27,7 @@ func TestResolveRootPathKeepsCompletionRecordOutsideContent(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, ".", "main"))
+	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, ".", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestResolveConcurrentSameArtifactAcrossResolverInstances(t *testing.T) {
 			if worker%2 == 1 {
 				resolver = secondResolver
 			}
-			resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+			resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			results <- resolveResult{resolution: resolved, err: err}
 		}(worker)
 	}
@@ -211,11 +211,11 @@ func TestConcurrentResolveAndListSourceRootDoesNotPublishListingArtifact(t *test
 	resolveDone := make(chan resolveResult, 1)
 	listDone := make(chan listResult, 1)
 	go func() {
-		resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/alpha", "main"))
+		resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/alpha", "main"), noOperationOptions)
 		resolveDone <- resolveResult{resolution: resolved, err: err}
 	}()
 	go func() {
-		listing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, "skills", "main"))
+		listing, err := resolver.ListSourceRoot(context.Background(), mustGitSource(t, repoPath, "skills", "main"), noOperationOptions)
 		listDone <- listResult{listing: listing, err: err}
 	}()
 
@@ -259,7 +259,7 @@ func TestResolveRecoversStalePartialArtifactUnderLock(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -285,7 +285,7 @@ func TestResolveDoesNotRemoveCompleteArtifactOnReResolve(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main")); err != nil {
+	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions); err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 
@@ -295,7 +295,7 @@ func TestResolveDoesNotRemoveCompleteArtifactOnReResolve(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main")); err != nil {
+	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions); err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
 	if _, err := os.Stat(sentinelPath); err != nil {
@@ -317,7 +317,7 @@ func TestResolveCancellationDuringArtifactPublishLeavesNoCompletionRecord(t *tes
 
 	ctx, cancel := context.WithCancel(context.Background())
 	resolver.state.testAfterArchiveExtract = cancel
-	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"))
+	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Resolve error = %v, want context.Canceled", err)
 	}
@@ -356,7 +356,7 @@ func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"))
+	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Resolve error = %v, want context deadline", err)
 	}
@@ -386,7 +386,7 @@ func resolveConcurrently(t *testing.T, resolver Resolver, sources []source.Sourc
 		go func(index int, sourceSpec source.Source) {
 			defer waitGroup.Done()
 			<-start
-			resolved, err := resolver.Resolve(context.Background(), sourceSpec)
+			resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 			results[index] = resolveResult{resolution: resolved, err: err}
 		}(index, sourceSpec)
 	}

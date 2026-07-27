@@ -30,7 +30,7 @@ func TestResolveReclonesStaleCacheDirectory(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestResolveAnnotatedTagRef(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -75,12 +75,12 @@ func TestResolveSameCommitHasStableContentHash(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 
-	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestResolvePinnedCommitDoesNotMoveWithBranch(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", firstCommit))
+	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", firstCommit), noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestResolvePinnedCommitDoesNotMoveWithBranch(t *testing.T) {
 	}
 	commitAll(t, repoPath, "update skill")
 
-	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", firstCommit))
+	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", firstCommit), noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestResolveFetchesForcePushedBranch(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main")); err != nil {
+	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions); err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 
@@ -148,7 +148,7 @@ func TestResolveFetchesForcePushedBranch(t *testing.T) {
 	commitAll(t, repoPath, "update skill")
 	runGitTestCommand(t, repoPath, "reset", "--hard", firstCommit)
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestResolveFetchesForceUpdatedTag(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0")); err != nil {
+	if _, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0"), noOperationOptions); err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 
@@ -181,7 +181,7 @@ func TestResolveFetchesForceUpdatedTag(t *testing.T) {
 	secondCommit := commitAll(t, repoPath, "update skill")
 	runGitTestCommand(t, repoPath, "tag", "-f", "-a", "v1.0.0", "-m", "v1.0.0")
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "v1.0.0"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestResolveFetchesUpdatedRef(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	firstArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestResolveFetchesUpdatedRef(t *testing.T) {
 	}
 	secondCommit := commitAll(t, repoPath, "update skill")
 
-	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"))
+	secondArtifact, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("second Resolve returned error: %v", err)
 	}

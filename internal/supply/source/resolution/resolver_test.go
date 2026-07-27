@@ -26,7 +26,7 @@ func TestResolverDispatchesResolveBySourceKind(t *testing.T) {
 		{name: "s3", sourceSpec: sourcetest.S3(t, "s3://bucket/key.tar.gz", "", "", source.S3ObjectFormatTarGzip)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			resolution, err := resolver.Resolve(context.Background(), tt.sourceSpec)
+			resolution, err := resolver.Resolve(context.Background(), tt.sourceSpec, noOperationOptions)
 			if err != nil {
 				t.Fatalf("Resolve returned error: %v", err)
 			}
@@ -39,7 +39,7 @@ func TestResolverDispatchesResolveBySourceKind(t *testing.T) {
 }
 
 func TestResolverRejectsUnsupportedSourceKind(t *testing.T) {
-	_, err := (Resolver{}).Resolve(context.Background(), source.Source{})
+	_, err := (Resolver{}).Resolve(context.Background(), source.Source{}, noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "unsupported source kind") {
 		t.Fatalf("Resolve error = %v, want unsupported source kind", err)
 	}
@@ -62,7 +62,7 @@ func TestResolverListsOnlyRootBackedSources(t *testing.T) {
 		{name: "git", sourceSpec: mustGitSource(t, "https://example.test/repo.git", "skills", "main"), wantPath: "git-root"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			listing, err := resolver.ListSourceRoot(context.Background(), tt.sourceSpec)
+			listing, err := resolver.ListSourceRoot(context.Background(), tt.sourceSpec, noOperationOptions)
 			if err != nil {
 				t.Fatalf("ListSourceRoot returned error: %v", err)
 			}
@@ -72,10 +72,7 @@ func TestResolverListsOnlyRootBackedSources(t *testing.T) {
 		})
 	}
 
-	_, err := resolver.ListSourceRoot(
-		context.Background(),
-		sourcetest.S3(t, "s3://bucket/key.tar.gz", "", "", source.S3ObjectFormatTarGzip),
-	)
+	_, err := resolver.ListSourceRoot(context.Background(), sourcetest.S3(t, "s3://bucket/key.tar.gz", "", "", source.S3ObjectFormatTarGzip), noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "S3 skill groups are unsupported") {
 		t.Fatalf("ListSourceRoot S3 error = %v, want unsupported S3 skill group", err)
 	}

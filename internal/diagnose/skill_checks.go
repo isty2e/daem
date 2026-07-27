@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	skillcompat "github.com/isty2e/daem/internal/supply/compat/skill"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
+	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/backend/localfs"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -52,7 +53,7 @@ func manifestSkillsForChecks(
 		if _, ok := set.Source().Local(); !ok {
 			continue
 		}
-		listing, err := resolver.ListSourceRoot(ctx, set.Source())
+		listing, err := resolver.ListSourceRoot(ctx, set.Source(), acquisition.OperationOptions{})
 		if err != nil {
 			continue
 		}
@@ -82,7 +83,7 @@ func skillChecks(
 	}
 
 	sourcePath := localSource.Path()
-	resolution, err := resolver.Resolve(ctx, skill.Source())
+	resolution, err := resolver.Resolve(ctx, skill.Source(), acquisition.OperationOptions{})
 	if err != nil {
 		if localfs.IsSourceUnavailable(err) {
 			return skillSourceUnavailableChecks(targets, skill, sourcePath)

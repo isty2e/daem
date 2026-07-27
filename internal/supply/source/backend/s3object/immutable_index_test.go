@@ -37,7 +37,7 @@ func TestResolveExactVersionReusesVerifiedArtifactAcrossResolverInstances(t *tes
 		sourcepkg.S3ObjectFormatFile,
 	)
 
-	first, err := resolver.Resolve(context.Background(), sourceSpec)
+	first, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestResolveExactVersionReusesVerifiedArtifactAcrossResolverInstances(t *tes
 		t.Fatalf("published lookup read = found %t, error %v", found, err)
 	}
 	copied := resolver
-	second, err := copied.Resolve(context.Background(), sourceSpec)
+	second, err := copied.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("copied Resolve returned error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestResolveExactVersionReusesVerifiedArtifactAcrossResolverInstances(t *tes
 	if err != nil {
 		t.Fatalf("independent newResolverWithClientFactory returned error: %v", err)
 	}
-	third, err := independent.Resolve(context.Background(), sourceSpec)
+	third, err := independent.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("independent Resolve returned error: %v", err)
 	}
@@ -85,15 +85,15 @@ func TestResolveExactVersionKeysDifferentRequestedVersionsSeparately(t *testing.
 	firstSource := sourcetest.S3(t, "s3://daem/object", "requested-one", "", sourcepkg.S3ObjectFormatFile)
 	secondSource := sourcetest.S3(t, "s3://daem/object", "requested-two", "", sourcepkg.S3ObjectFormatFile)
 
-	first, err := resolver.Resolve(context.Background(), firstSource)
+	first, err := resolver.Resolve(context.Background(), firstSource, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first version Resolve returned error: %v", err)
 	}
-	second, err := resolver.Resolve(context.Background(), secondSource)
+	second, err := resolver.Resolve(context.Background(), secondSource, noOperationOptions)
 	if err != nil {
 		t.Fatalf("second version Resolve returned error: %v", err)
 	}
-	reused, err := resolver.Resolve(context.Background(), firstSource)
+	reused, err := resolver.Resolve(context.Background(), firstSource, noOperationOptions)
 	if err != nil {
 		t.Fatalf("reused first version Resolve returned error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestResolveRepairsCorruptImmutableLookupRecord(t *testing.T) {
 		t.Fatalf("newResolverWithClient returned error: %v", err)
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/object", "v1", "", sourcepkg.S3ObjectFormatFile)
-	first, err := resolver.Resolve(context.Background(), sourceSpec)
+	first, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -131,11 +131,11 @@ func TestResolveRepairsCorruptImmutableLookupRecord(t *testing.T) {
 		t.Fatalf("corrupt lookup record: %v", err)
 	}
 
-	second, err := resolver.Resolve(context.Background(), sourceSpec)
+	second, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("fallback Resolve returned error: %v", err)
 	}
-	third, err := resolver.Resolve(context.Background(), sourceSpec)
+	third, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("post-repair Resolve returned error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestResolveRepairsWrongModeImmutableLookupRecord(t *testing.T) {
 		t.Fatalf("newResolverWithClient returned error: %v", err)
 	}
 	sourceSpec := sourcetest.S3(t, "s3://daem/object", "v1", "", sourcepkg.S3ObjectFormatFile)
-	first, err := resolver.Resolve(context.Background(), sourceSpec)
+	first, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
@@ -171,10 +171,10 @@ func TestResolveRepairsWrongModeImmutableLookupRecord(t *testing.T) {
 		t.Fatalf("chmod lookup record: %v", err)
 	}
 
-	if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 		t.Fatalf("fallback Resolve returned error: %v", err)
 	}
-	if _, err := resolver.Resolve(context.Background(), sourceSpec); err != nil {
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err != nil {
 		t.Fatalf("post-repair Resolve returned error: %v", err)
 	}
 	info, err := os.Stat(recordPath)
@@ -211,7 +211,7 @@ func TestResolveCanceledWhileWaitingForImmutableLookupDoesNotCreateClient(t *tes
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
-	_, err = resolver.Resolve(ctx, sourceSpec)
+	_, err = resolver.Resolve(ctx, sourceSpec, noOperationOptions)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("Resolve error = %v, want context deadline", err)
 	}

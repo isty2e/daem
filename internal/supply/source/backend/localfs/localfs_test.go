@@ -15,6 +15,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 )
 
+var noOperationOptions acquisition.OperationOptions
+
 func TestResolveVendorLocalDirectory(t *testing.T) {
 	root := t.TempDir()
 	writeLocalTestFile(t, root, "skills/demo/SKILL.md", "---\nname: demo\n---\n")
@@ -25,7 +27,7 @@ func TestResolveVendorLocalDirectory(t *testing.T) {
 	}
 
 	sourceSpec := sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor)
-	resolution, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolution, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -56,7 +58,7 @@ func TestResolveVendorLocalDirectory(t *testing.T) {
 	}
 }
 
-func TestResolveWithOptionsEmitsHashEvent(t *testing.T) {
+func TestResolveEmitsHashEvent(t *testing.T) {
 	root := t.TempDir()
 	writeLocalTestFile(t, root, "instructions/project.md", "project instructions\n")
 
@@ -77,9 +79,9 @@ func TestResolveWithOptionsEmitsHashEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOperationOptions returned error: %v", err)
 	}
-	_, err = resolver.ResolveWithOptions(context.Background(), sourceSpec, options)
+	_, err = resolver.Resolve(context.Background(), sourceSpec, options)
 	if err != nil {
-		t.Fatalf("ResolveWithOptions returned error: %v", err)
+		t.Fatalf("Resolve returned error: %v", err)
 	}
 
 	if len(events) != 1 {
@@ -101,7 +103,7 @@ func TestResolveLinkLocalFile(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), sourcetest.Local(t, "hooks/protect_env.py", source.LocalSourceModeLink))
+	resolution, err := resolver.Resolve(context.Background(), sourcetest.Local(t, "hooks/protect_env.py", source.LocalSourceModeLink), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -134,10 +136,7 @@ func TestResolveRejectsOversizedSparseLocalFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = resolver.Resolve(
-		context.Background(),
-		sourcetest.Local(t, "oversized", source.LocalSourceModeVendor),
-	)
+	_, err = resolver.Resolve(context.Background(), sourcetest.Local(t, "oversized", source.LocalSourceModeVendor), noOperationOptions)
 	var limitErr *directfile.LimitError
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("Resolve error = %v, want directfile.LimitError", err)
@@ -160,10 +159,7 @@ func TestResolveMissingSourcePreservesRequestedPath(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(
-		context.Background(),
-		sourcetest.Local(t, "skills/missing-review", source.LocalSourceModeVendor),
-	)
+	_, err = resolver.Resolve(context.Background(), sourcetest.Local(t, "skills/missing-review", source.LocalSourceModeVendor), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -196,7 +192,7 @@ func TestListSourceRootListsDirectLocalDirectories(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	listing, err := resolver.ListSourceRoot(context.Background(), sourcetest.Local(t, "skills", source.LocalSourceModeVendor))
+	listing, err := resolver.ListSourceRoot(context.Background(), sourcetest.Local(t, "skills", source.LocalSourceModeVendor), noOperationOptions)
 	if err != nil {
 		t.Fatalf("ListSourceRoot returned error: %v", err)
 	}
@@ -225,10 +221,7 @@ func TestListSourceRootUsesNoFollowRootAndChildSemantics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listing, err := resolver.ListSourceRoot(
-		context.Background(),
-		sourcetest.Local(t, "skills", source.LocalSourceModeVendor),
-	)
+	listing, err := resolver.ListSourceRoot(context.Background(), sourcetest.Local(t, "skills", source.LocalSourceModeVendor), noOperationOptions)
 	if err != nil {
 		t.Fatalf("ListSourceRoot returned error: %v", err)
 	}
@@ -236,10 +229,7 @@ func TestListSourceRootUsesNoFollowRootAndChildSemantics(t *testing.T) {
 		t.Fatalf("ChildNames = %q, want only no-follow directory real", got)
 	}
 
-	_, err = resolver.ListSourceRoot(
-		context.Background(),
-		sourcetest.Local(t, "linked-skills", source.LocalSourceModeVendor),
-	)
+	_, err = resolver.ListSourceRoot(context.Background(), sourcetest.Local(t, "linked-skills", source.LocalSourceModeVendor), noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
 		t.Fatalf("root symlink error = %v, want no-follow rejection", err)
 	}
@@ -253,10 +243,7 @@ func TestListSourceRootClassifiesFileRootWithoutReadingChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	listing, err := resolver.ListSourceRoot(
-		context.Background(),
-		sourcetest.Local(t, "SKILL.md", source.LocalSourceModeVendor),
-	)
+	listing, err := resolver.ListSourceRoot(context.Background(), sourcetest.Local(t, "SKILL.md", source.LocalSourceModeVendor), noOperationOptions)
 	if err != nil {
 		t.Fatalf("ListSourceRoot returned error: %v", err)
 	}
@@ -274,12 +261,12 @@ func TestListSourceRootRejectsNilAndCanceledContexts(t *testing.T) {
 	}
 	sourceSpec := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
 
-	if _, err := resolver.ListSourceRoot(nil, sourceSpec); err == nil || !strings.Contains(err.Error(), "context is required") {
+	if _, err := resolver.ListSourceRoot(nil, sourceSpec, noOperationOptions); err == nil || !strings.Contains(err.Error(), "context is required") {
 		t.Fatalf("nil context error = %v, want explicit rejection", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := resolver.ListSourceRoot(ctx, sourceSpec); !errors.Is(err, context.Canceled) {
+	if _, err := resolver.ListSourceRoot(ctx, sourceSpec, noOperationOptions); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled context error = %v, want context.Canceled", err)
 	}
 }
@@ -295,7 +282,7 @@ func TestResolveRejectsGitSource(t *testing.T) {
 		t.Fatalf("NewGitSource returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), gitSource)
+	_, err = resolver.Resolve(context.Background(), gitSource, noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -314,7 +301,7 @@ func TestResolveHonorsContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err = resolver.Resolve(ctx, sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor))
+	_, err = resolver.Resolve(ctx, sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}

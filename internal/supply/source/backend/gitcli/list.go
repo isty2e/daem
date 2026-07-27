@@ -12,16 +12,14 @@ import (
 )
 
 // ListSourceRoot lists direct child directories of a Git source root without exporting or hashing the root tree.
-func (resolver Resolver) ListSourceRoot(ctx context.Context, sourceSpec source.Source) (source.RootListing, error) {
-	return resolver.ListSourceRootWithOptions(ctx, sourceSpec, acquisition.OperationOptions{})
-}
-
-// ListSourceRootWithOptions lists direct child directories with source-owned operation options.
-func (resolver Resolver) ListSourceRootWithOptions(
+func (resolver Resolver) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
+	if ctx == nil {
+		return source.RootListing{}, fmt.Errorf("git root listing context is required")
+	}
 	if err := ctx.Err(); err != nil {
 		return source.RootListing{}, err
 	}

@@ -248,6 +248,27 @@ func TestOperationAndBatchOptionsPreserveBoundedRouting(t *testing.T) {
 	}
 }
 
+func TestZeroOperationOptionsDropsProgress(t *testing.T) {
+	OperationOptions{}.Emit(EventStarted, source.Source{}, "", "", nil)
+}
+
+func TestEventSinkPanicPropagatesToInternalCaller(t *testing.T) {
+	want := errors.New("event sink panic")
+	var recovered any
+	func() {
+		defer func() {
+			recovered = recover()
+		}()
+		EventSink(func(Event) {
+			panic(want)
+		}).Emit(Event{})
+	}()
+
+	if recovered != want {
+		t.Fatalf("recovered = %v, want exact event-sink panic", recovered)
+	}
+}
+
 func TestRepositorySnapshotGroupOwnsCanonicalRepositoryCorrelation(t *testing.T) {
 	first, err := source.NewGitSource("https://example.test/repository.git", "skills/alpha", "main")
 	if err != nil {

@@ -13,6 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 )
 
+var noOperationOptions acquisition.OperationOptions
+
 func TestResolveGitSkillDirectory(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
@@ -26,7 +28,7 @@ func TestResolveGitSkillDirectory(t *testing.T) {
 	}
 
 	sourceSpec := mustGitSource(t, repoPath, "skills/demo", "main")
-	resolution, err := resolver.Resolve(context.Background(), sourceSpec)
+	resolution, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}
@@ -43,7 +45,7 @@ func TestResolveGitSkillDirectory(t *testing.T) {
 	}
 }
 
-func TestResolveWithOptionsEmitsGitBackendEvents(t *testing.T) {
+func TestResolveEmitsGitBackendEvents(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -61,9 +63,9 @@ func TestResolveWithOptionsEmitsGitBackendEvents(t *testing.T) {
 	options := mustGitOperationOptions(t, request, func(event acquisition.Event) {
 		events = append(events, event)
 	})
-	resolution, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, options)
+	resolution, err := resolver.Resolve(context.Background(), sourceSpec, options)
 	if err != nil {
-		t.Fatalf("ResolveWithOptions returned error: %v", err)
+		t.Fatalf("Resolve returned error: %v", err)
 	}
 	if resolution.Identity().ResolvedRef() != artifactpkg.ResolvedRef(commit) {
 		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
@@ -89,7 +91,7 @@ func TestResolveWithOptionsEmitsGitBackendEvents(t *testing.T) {
 	}
 }
 
-func TestResolveWithOptionsEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
+func TestResolveEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -106,8 +108,8 @@ func TestResolveWithOptionsEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
 	firstOptions := mustGitOperationOptions(t, request, func(event acquisition.Event) {
 		firstEvents = append(firstEvents, event)
 	})
-	if _, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, firstOptions); err != nil {
-		t.Fatalf("first ResolveWithOptions returned error: %v", err)
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, firstOptions); err != nil {
+		t.Fatalf("first Resolve returned error: %v", err)
 	}
 	if got := countGitEventKind(firstEvents, acquisition.EventCacheHit); got != 0 {
 		t.Fatalf("first events cache_hit count = %d, want 0; events=%#v", got, firstEvents)
@@ -117,8 +119,8 @@ func TestResolveWithOptionsEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
 	secondOptions := mustGitOperationOptions(t, request, func(event acquisition.Event) {
 		secondEvents = append(secondEvents, event)
 	})
-	if _, err := resolver.ResolveWithOptions(context.Background(), sourceSpec, secondOptions); err != nil {
-		t.Fatalf("second ResolveWithOptions returned error: %v", err)
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, secondOptions); err != nil {
+		t.Fatalf("second Resolve returned error: %v", err)
 	}
 	if got := countGitEventKind(secondEvents, acquisition.EventCacheHit); got < 2 {
 		t.Fatalf("second events cache_hit count = %d, want repo and artifact cache hits; events=%#v", got, secondEvents)
@@ -134,7 +136,7 @@ func TestResolveRejectsLocalSource(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	_, err = resolver.Resolve(context.Background(), sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor))
+	_, err = resolver.Resolve(context.Background(), sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor), noOperationOptions)
 	if err == nil {
 		t.Fatal("Resolve returned nil error")
 	}
@@ -159,7 +161,7 @@ func TestResolveGitFilePreservesExecutableBit(t *testing.T) {
 		t.Fatalf("NewResolver returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "hooks/protect.sh", "main"))
+	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "hooks/protect.sh", "main"), noOperationOptions)
 	if err != nil {
 		t.Fatalf("Resolve returned error: %v", err)
 	}

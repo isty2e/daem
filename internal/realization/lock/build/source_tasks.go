@@ -269,7 +269,7 @@ func sequentialSourceTaskResults(
 		result := sourceTaskResult{task: task}
 		switch task.operation {
 		case acquisition.OperationResolve:
-			resolvedArtifact, err := resolver.Resolve(ctx, task.sourceSpec)
+			resolvedArtifact, err := resolver.Resolve(ctx, task.sourceSpec, acquisition.OperationOptions{})
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, ctxErr
@@ -288,7 +288,7 @@ func sequentialSourceTaskResults(
 				results = append(results, result)
 				return results, nil
 			}
-			listing, err := lister.ListSourceRoot(ctx, task.sourceSpec)
+			listing, err := lister.ListSourceRoot(ctx, task.sourceSpec, acquisition.OperationOptions{})
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, ctxErr
