@@ -86,6 +86,13 @@ func Run(ctx context.Context, input Input, admission platformsupport.Admission) 
 			loadedManifest.facts.SkillSets(),
 			selection,
 		)...)
+		checks = append(checks, diagnose.RetainedSkillDiscoveryChecks(
+			ctx,
+			paths,
+			loadedManifest.facts.Skills(),
+			loadedManifest.facts.SkillSets(),
+			selection,
+		)...)
 		checks = append(checks, diagnose.MCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
 	}
 	checks = append(checks, diagnose.EnvironmentChecks(

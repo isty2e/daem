@@ -93,7 +93,19 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		return result, fmt.Errorf("inspect MCP projection status: %w", err)
 	}
 	result.Reconciliation = assessment.Reconciliation
-	result.Diagnostics = loaded.Diagnostics
+	result.Diagnostics = append(
+		loaded.Diagnostics,
+		diagnose.RetainedSkillDiscoveryDiagnostics(
+			ctx,
+			loaded.Paths,
+			loaded.RuntimeEnvironment.Skills(),
+			loaded.Selection,
+			assessment.Reconciliation,
+		)...,
+	)
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
 	result.LockOnly = readiness.SelectedUnsupportedProjections(
 		loaded.RuntimeEnvironment,
 		loaded.Selection,

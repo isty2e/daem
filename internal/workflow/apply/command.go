@@ -230,6 +230,21 @@ func planReadinessAtPaths(
 
 	result.Reconciliation = planning.Reconciliation
 	result.ReconciliationReady = true
+	result.Diagnostics = append(
+		result.Diagnostics,
+		diagnose.RetainedSkillDiscoveryDiagnostics(
+			ctx,
+			loaded.Paths,
+			loaded.RuntimeEnvironment.Skills(),
+			loaded.Selection,
+			planning.Reconciliation,
+		)...,
+	)
+	if err := ctx.Err(); err != nil {
+		planned.result = result
+		planned.assessment = planning
+		return planned, err
+	}
 	mcpProjections, err := readiness.ClassifyMCPProjections(
 		loaded.Lockfile,
 		loaded.Selection,
