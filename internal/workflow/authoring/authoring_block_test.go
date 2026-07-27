@@ -17,6 +17,12 @@ source = { path = "skills/alpha", mode = "vendor" }
 targets = ["codex", "claude-code"]
 scope = "project"
 
+[skill.target.codex]
+install_to = ".agents/skills"
+
+[skill.target.claude-code]
+install_to = ".claude/skills"
+
 [[skill]]
 name = "beta"
 source = { path = "skills/beta", mode = "vendor" }
@@ -34,6 +40,8 @@ targets = ["codex"]
 		t.Fatalf("change kind = %q, want update skill targets", changeKind)
 	}
 	requireContains(t, string(updated), `targets = ["claude-code"]`)
+	requireNotContains(t, string(updated), `[skill.target.codex]`)
+	requireContains(t, string(updated), `[skill.target.claude-code]`)
 	requireContains(t, string(updated), `name = "beta"`)
 
 	removed, changeKind, err := ApplyRemoveSkillToManifest(updated, RemoveSkillRequest{

@@ -39,22 +39,28 @@ type Skill struct {
 	Name         string `toml:"name"`
 	Source       Source `toml:"source"`
 	Targets      []string
-	Scope        string `toml:"scope"`
-	InstallMode  string `toml:"install_mode"`
-	Portable     *bool  `toml:"portable"`
-	CompatRepair bool   `toml:"compat_repair"`
+	Scope        string                 `toml:"scope"`
+	InstallMode  string                 `toml:"install_mode"`
+	Portable     *bool                  `toml:"portable"`
+	CompatRepair bool                   `toml:"compat_repair"`
+	Target       map[string]SkillTarget `toml:"target"`
 }
 
 type SkillGroup struct {
-	Names        []string `toml:"names"`
-	Include      []string `toml:"include"`
-	Exclude      []string `toml:"exclude"`
-	Source       Source   `toml:"source"`
-	Targets      []string `toml:"targets"`
-	Scope        string   `toml:"scope"`
-	InstallMode  string   `toml:"install_mode"`
-	Portable     *bool    `toml:"portable"`
-	CompatRepair bool     `toml:"compat_repair"`
+	Names        []string               `toml:"names"`
+	Include      []string               `toml:"include"`
+	Exclude      []string               `toml:"exclude"`
+	Source       Source                 `toml:"source"`
+	Targets      []string               `toml:"targets"`
+	Scope        string                 `toml:"scope"`
+	InstallMode  string                 `toml:"install_mode"`
+	Portable     *bool                  `toml:"portable"`
+	CompatRepair bool                   `toml:"compat_repair"`
+	Target       map[string]SkillTarget `toml:"target"`
+}
+
+type SkillTarget struct {
+	InstallTo string `toml:"install_to"`
 }
 
 type Hook struct {

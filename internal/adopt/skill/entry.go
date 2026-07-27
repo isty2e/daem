@@ -17,6 +17,7 @@ func importSkillsFromRoot(
 	sourceDirectory adopt.SourceDirectory,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
+	installTo string,
 	liveRoot string,
 	importedDestinations DestinationClaims,
 ) ([]adopt.Skill, adopt.Scan, []adopt.Skipped, error) {
@@ -32,7 +33,16 @@ func importSkillsFromRoot(
 			return nil, adopt.Scan{}, nil, err
 		}
 		livePath := filepath.Join(liveRoot, entry.Name())
-		skill, skip, err := importSkillFromEntry(ctx, sourceDirectory, target, scope, livePath, entry.Name(), importedDestinations)
+		skill, skip, err := importSkillFromEntry(
+			ctx,
+			sourceDirectory,
+			target,
+			scope,
+			installTo,
+			livePath,
+			entry.Name(),
+			importedDestinations,
+		)
 		if err != nil {
 			return nil, adopt.Scan{}, nil, err
 		}
@@ -80,6 +90,7 @@ func importSkillFromEntry(
 	sourceDirectory adopt.SourceDirectory,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
+	installTo string,
 	livePath string,
 	name string,
 	importedDestinations DestinationClaims,
@@ -151,11 +162,16 @@ func importSkillFromEntry(
 	}
 	importedDestinations[destination] = livePath
 
+	placements := make(map[targetpkg.Target]string)
+	if installTo != "" {
+		placements[target] = installTo
+	}
 	return adopt.Skill{
 		ResourceName: cleanName,
 		InstallName:  cleanName,
 		Target:       target,
 		Targets:      []targetpkg.Target{target},
+		Placements:   placements,
 		Scope:        scope,
 		LivePath:     livePath,
 		ReadPath:     readPath,

@@ -21,13 +21,14 @@ func startsNewSkillTopLevelTable(trimmedLine string) bool {
 }
 
 type Skill struct {
-	ID          string      `toml:"id"`
-	Name        string      `toml:"name"`
-	Source      SkillSource `toml:"source"`
-	Targets     []string    `toml:"targets"`
-	Scope       string      `toml:"scope"`
-	InstallMode string      `toml:"install_mode"`
-	Portable    *bool       `toml:"portable"`
+	ID          string                             `toml:"id"`
+	Name        string                             `toml:"name"`
+	Source      SkillSource                        `toml:"source"`
+	Targets     []string                           `toml:"targets"`
+	Scope       string                             `toml:"scope"`
+	InstallMode string                             `toml:"install_mode"`
+	Portable    *bool                              `toml:"portable"`
+	Target      map[string]declaration.SkillTarget `toml:"target"`
 }
 
 type SkillBlock struct {
@@ -83,7 +84,8 @@ func (skill Skill) ResourceID() string {
 func sameSkillIdentity(left Skill, right Skill) bool {
 	return strings.TrimSpace(left.Name) == strings.TrimSpace(right.Name) &&
 		strings.TrimSpace(left.Scope) == strings.TrimSpace(right.Scope) &&
-		left.Source == right.Source
+		left.Source == right.Source &&
+		skillTargetMapsCompatible(left.Target, right.Target)
 }
 
 // ApplySkillAdd appends a skill declaration or merges its explicit target set while
@@ -105,8 +107,8 @@ func ApplySkillAdd(original []byte, skill Skill) (declaration.EditResult, error)
 				return sameSkillIdentity(existing, incoming)
 			},
 			RenderBlock: RenderSkillBlock,
-			RenderBlockWithTargets: func(originalBlock string, _ Skill, _ Skill, mergedTargets declaration.Targets, _ declaration.ManifestHeader) (string, error) {
-				return ReplaceSkillTargets(originalBlock, mergedTargets.Values()), nil
+			RenderBlockWithTargets: func(originalBlock string, existing Skill, incoming Skill, mergedTargets declaration.Targets, _ declaration.ManifestHeader) (string, error) {
+				return UpdateSkillTargets(originalBlock, existing, incoming, mergedTargets.Values())
 			},
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate skill id %q", key.Name)
@@ -122,6 +124,21 @@ func ApplySkillAdd(original []byte, skill Skill) (declaration.EditResult, error)
 			},
 		},
 	})
+}
+
+// UpdateSkillTargets preserves existing bytes while adding explicit targets
+// and their target-local placement metadata.
+func UpdateSkillTargets(
+	block string,
+	existing Skill,
+	incoming Skill,
+	targets []string,
+) (string, error) {
+	if !skillTargetMapsCompatible(existing.Target, incoming.Target) {
+		return "", fmt.Errorf("skill %q has conflicting target placement metadata", existing.ResourceID())
+	}
+	updated := ReplaceSkillTargets(block, targets)
+	return mergeSkillTargetTables(updated, "skill", existing.Target, incoming.Target), nil
 }
 
 func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error) {
@@ -140,6 +157,10 @@ func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error)
 }
 
 func ReplaceSkillTargets(block string, targets []string) string {
+	return replaceSkillTargets(block, "skill", targets)
+}
+
+func replaceSkillTargets(block string, root string, targets []string) string {
 	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "targets", renderStringArray(targets)); ok {
 		return updated
 	}
@@ -148,7 +169,13 @@ func ReplaceSkillTargets(block string, targets []string) string {
 		return "targets = " + renderStringArray(targets) + "\n"
 	}
 	insertAt := len(lines)
-	if lines[len(lines)-1] == "" {
+	for index, line := range lines {
+		if _, ok := parseSkillTargetHeader(strings.TrimSpace(line), root); ok {
+			insertAt = index
+			break
+		}
+	}
+	if insertAt == len(lines) && lines[len(lines)-1] == "" {
 		insertAt = len(lines) - 1
 	}
 	newLines := append([]string{}, lines[:insertAt]...)
@@ -186,6 +213,7 @@ func RenderSkillBlock(skill Skill) string {
 		builder.WriteString(strconv.FormatBool(*skill.Portable))
 		builder.WriteByte('\n')
 	}
+	renderSkillTargetTables(&builder, "skill", skill.Target)
 	return builder.String()
 }
 

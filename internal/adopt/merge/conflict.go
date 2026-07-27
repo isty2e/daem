@@ -7,6 +7,8 @@ import (
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/realization/profile"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
@@ -67,6 +69,13 @@ func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Sk
 				Detail:   "existing skill has the same id with a different name, source, scope, or install mode",
 			}, nil
 		}
+		if !sameImportedSkillPlacements(block.Skill, skill, importedTargets) {
+			return adoptmodel.MergeResult{
+				Resource: resource,
+				Status:   adoptmodel.MergeStatusConflict,
+				Detail:   "existing skill target placement differs from the imported skill location",
+			}, nil
+		}
 		return classifyImportTargets(resource, block.Skill.Targets, importedTargets)
 	}
 	if conflict := conflictingSkillDestination(existing, skill); conflict != "" {
@@ -77,6 +86,34 @@ func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Sk
 		}, nil
 	}
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported skill"}, nil
+}
+
+func sameImportedSkillPlacements(
+	existing declarationcodec.Skill,
+	imported adoptmodel.Skill,
+	importedTargets []targetpkg.Target,
+) bool {
+	for _, selectedTarget := range importedTargets {
+		if !containsStringTarget(existing.Targets, selectedTarget) {
+			continue
+		}
+		defaultPlacement, err := profile.Profile(selectedTarget).DefaultPlacement(entity.KindSkill, imported.Scope)
+		if err != nil {
+			return false
+		}
+		expected := defaultPlacement.Root().String()
+		if installTo := imported.Placements[selectedTarget]; installTo != "" {
+			expected = installTo
+		}
+		actual := defaultPlacement.Root().String()
+		if placement, explicit := existing.Target[string(selectedTarget)]; explicit {
+			actual = placement.InstallTo
+		}
+		if actual != expected {
+			return false
+		}
+	}
+	return true
 }
 
 func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target) {

@@ -110,12 +110,16 @@ func TestImportManifestDirectSkillAndMergePreserveAuthoredOrder(t *testing.T) {
 		Targets:      []targetpkg.Target{targetpkg.TargetPi, targetpkg.TargetCodex},
 		Scope:        targetpkg.ScopeGlobal,
 		SourcePath:   "skills/alpha",
+		Placements:   map[targetpkg.Target]string{targetpkg.TargetPi: "~/.agents/skills"},
 	}}, nil, nil, nil, make(map[targetpkg.Target]struct{}))
 	if err != nil {
 		t.Fatalf("importManifestTables returned error: %v", err)
 	}
 	if len(body.Skills) != 1 || !reflect.DeepEqual(body.Skills[0].Targets, []string{"pi", "codex"}) {
 		t.Fatalf("direct skill targets = %#v, want authored order", body.Skills)
+	}
+	if got := body.Skills[0].Target["pi"].InstallTo; got != "~/.agents/skills" {
+		t.Fatalf("direct skill placement = %q", got)
 	}
 
 	merged := mergeImportTargetStrings(
@@ -124,5 +128,27 @@ func TestImportManifestDirectSkillAndMergePreserveAuthoredOrder(t *testing.T) {
 	)
 	if !reflect.DeepEqual(merged, []string{"pi", "codex", "claude-code"}) {
 		t.Fatalf("merged targets = %#v, want existing-first unique order", merged)
+	}
+}
+
+func TestImportManifestDoesNotMergeSkillGroupsWithDifferentPlacementPolicies(t *testing.T) {
+	skills := []Skill{
+		{
+			InstallName: "alpha", Targets: []targetpkg.Target{targetpkg.TargetOpenCode},
+			Scope: targetpkg.ScopeProject, GroupRoot: "skills/group",
+			Placements: map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".agents/skills"},
+		},
+		{
+			InstallName: "beta", Targets: []targetpkg.Target{targetpkg.TargetOpenCode},
+			Scope: targetpkg.ScopeProject, GroupRoot: "skills/group",
+			Placements: map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".claude/skills"},
+		},
+	}
+	body, _, err := importManifestTables(nil, skills, nil, nil, nil, make(map[targetpkg.Target]struct{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body.SkillGroups) != 2 {
+		t.Fatalf("skill groups = %#v, want two placement-distinct groups", body.SkillGroups)
 	}
 }

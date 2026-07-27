@@ -6,14 +6,16 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/isty2e/daem/internal/supply/source"
+	"github.com/isty2e/daem/internal/target"
 )
 
 const (
-	skillSetDeclarationIdentityVersion = 1
+	skillSetDeclarationIdentityVersion = 2
 )
 
 // SkillSetDeclarationIdentity is opaque correlation evidence for every
@@ -45,6 +47,7 @@ func (set SkillSet) DeclarationIdentity() (SkillSetDeclarationIdentity, error) {
 		targetValues = append(targetValues, string(selected))
 	}
 	writeSkillSetIdentitySet(digest, targetValues)
+	writeSkillSetIdentityPlacements(digest, set.placements)
 	writeSkillSetIdentityString(digest, string(set.scope))
 	writeSkillSetIdentityString(digest, string(set.installMode))
 	writeSkillSetIdentityBool(digest, set.compatRepair)
@@ -116,6 +119,22 @@ func writeSkillSetIdentitySet(digest hash.Hash, values []string) {
 	writeSkillSetIdentityUint64(digest, uint64(len(unique)))
 	for _, value := range unique {
 		writeSkillSetIdentityString(digest, value)
+	}
+}
+
+func writeSkillSetIdentityPlacements(
+	digest hash.Hash,
+	placements map[target.Target]TargetPlacement,
+) {
+	targets := make([]target.Target, 0, len(placements))
+	for selectedTarget := range placements {
+		targets = append(targets, selectedTarget)
+	}
+	slices.Sort(targets)
+	writeSkillSetIdentityUint64(digest, uint64(len(targets)))
+	for _, selectedTarget := range targets {
+		writeSkillSetIdentityString(digest, string(selectedTarget))
+		writeSkillSetIdentityString(digest, placements[selectedTarget].InstallTo())
 	}
 }
 

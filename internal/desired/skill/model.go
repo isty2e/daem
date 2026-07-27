@@ -35,6 +35,7 @@ type Spec struct {
 	InstallName  string
 	Source       source.Source
 	Targets      []target.Target
+	Placements   map[target.Target]TargetPlacement
 	Scope        target.Scope
 	InstallMode  InstallMode
 	Portable     bool
@@ -47,6 +48,7 @@ type Skill struct {
 	installName  string
 	source       source.Source
 	targets      target.Set
+	placements   map[target.Target]TargetPlacement
 	scope        target.Scope
 	installMode  InstallMode
 	portable     bool
@@ -86,12 +88,17 @@ func New(spec Spec) (Skill, error) {
 	if err := validateSource(spec.Source, scope, spec.Portable); err != nil {
 		return Skill{}, fmt.Errorf("skill %q source: %w", name, err)
 	}
+	placements, err := validateTargetPlacements(fmt.Sprintf("skill %q", name), targets, scope, spec.Placements)
+	if err != nil {
+		return Skill{}, err
+	}
 
 	return Skill{
 		id:           id,
 		installName:  installName,
 		source:       spec.Source,
 		targets:      targets,
+		placements:   placements,
 		scope:        scope,
 		installMode:  installMode,
 		portable:     spec.Portable,
@@ -122,6 +129,14 @@ func (skill Skill) Validate() error {
 	}
 	if err := validateSource(skill.source, skill.scope, skill.portable); err != nil {
 		return fmt.Errorf("skill %q source: %w", skill.id.Name(), err)
+	}
+	if _, err := validateTargetPlacements(
+		fmt.Sprintf("skill %q", skill.id.Name()),
+		skill.targets,
+		skill.scope,
+		skill.placements,
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -155,6 +170,11 @@ func (skill Skill) Source() source.Source { return skill.source }
 
 // Targets returns a defensive copy in authored order.
 func (skill Skill) Targets() []target.Target { return skill.targets.Values() }
+
+// TargetPlacements returns a defensive copy of explicit target root requests.
+func (skill Skill) TargetPlacements() map[target.Target]TargetPlacement {
+	return cloneTargetPlacements(skill.placements)
+}
 
 // Scope returns the requested placement scope.
 func (skill Skill) Scope() target.Scope { return skill.scope }

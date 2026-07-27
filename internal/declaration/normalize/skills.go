@@ -46,6 +46,7 @@ func normalizeSkills(
 			rawSkill.InstallMode,
 			rawSkill.Portable,
 			rawSkill.CompatRepair,
+			rawSkill.Target,
 			defaultTargets,
 			defaults,
 			context,
@@ -91,6 +92,7 @@ func normalizeSkills(
 				rawGroup.InstallMode,
 				rawGroup.Portable,
 				rawGroup.CompatRepair,
+				rawGroup.Target,
 				defaultTargets,
 				defaults,
 				groupContext,
@@ -123,6 +125,7 @@ func normalizeSkills(
 				rawGroup.InstallMode,
 				rawGroup.Portable,
 				rawGroup.CompatRepair,
+				rawGroup.Target,
 				defaultTargets,
 				defaults,
 				nameContext,
@@ -160,6 +163,7 @@ func normalizeSkillGroupIntent(
 	rawInstallMode string,
 	rawPortable *bool,
 	compatRepair bool,
+	rawPlacements map[string]declaration.SkillTarget,
 	defaultTargets []target.Target,
 	defaults desired.Defaults,
 	context string,
@@ -183,12 +187,17 @@ func normalizeSkillGroupIntent(
 	if rawPortable != nil {
 		portable = *rawPortable
 	}
+	placements, err := normalizeSkillTargetPlacements(rawPlacements, scope, context)
+	if err != nil {
+		return desiredskill.SkillSet{}, err
+	}
 
 	set, err := desiredskill.NewSkillSet(desiredskill.SkillSetSpec{
 		Source:       sourceRoot,
 		Include:      include,
 		Exclude:      exclude,
 		Targets:      targets,
+		Placements:   placements,
 		Scope:        scope,
 		InstallMode:  installMode,
 		Portable:     portable,
@@ -209,6 +218,7 @@ func normalizeSkillIntent(
 	rawInstallMode string,
 	rawPortable *bool,
 	compatRepair bool,
+	rawPlacements map[string]declaration.SkillTarget,
 	defaultTargets []target.Target,
 	defaults desired.Defaults,
 	context string,
@@ -232,12 +242,17 @@ func normalizeSkillIntent(
 	if rawPortable != nil {
 		portable = *rawPortable
 	}
+	placements, err := normalizeSkillTargetPlacements(rawPlacements, scope, context)
+	if err != nil {
+		return desiredskill.Skill{}, err
+	}
 
 	skill, err := desiredskill.New(desiredskill.Spec{
 		Name:         resourceName,
 		InstallName:  installName,
 		Source:       sourceSpec,
 		Targets:      targets,
+		Placements:   placements,
 		Scope:        scope,
 		InstallMode:  installMode,
 		Portable:     portable,
@@ -247,6 +262,26 @@ func normalizeSkillIntent(
 		return desiredskill.Skill{}, fmt.Errorf("%s: %w", context, err)
 	}
 	return skill, nil
+}
+
+func normalizeSkillTargetPlacements(
+	rawPlacements map[string]declaration.SkillTarget,
+	scope target.Scope,
+	context string,
+) (map[target.Target]desiredskill.TargetPlacement, error) {
+	placements := make(map[target.Target]desiredskill.TargetPlacement, len(rawPlacements))
+	for rawTarget, rawPlacement := range rawPlacements {
+		parsedTarget, err := target.ParseTarget(rawTarget)
+		if err != nil {
+			return nil, fmt.Errorf("%s.target.%s: %w", context, rawTarget, err)
+		}
+		placement, err := desiredskill.NewTargetPlacement(scope, rawPlacement.InstallTo)
+		if err != nil {
+			return nil, fmt.Errorf("%s.target.%s.install_to: %w", context, rawTarget, err)
+		}
+		placements[parsedTarget] = placement
+	}
+	return placements, nil
 }
 
 func skillIntentIdentity(rawID string, installName string, context string) (string, error) {

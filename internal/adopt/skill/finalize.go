@@ -19,8 +19,9 @@ type importSkillGroupKey struct {
 }
 
 type importSkillManifestGroupKey struct {
-	Targets string
-	Scope   targetpkg.Scope
+	Targets    string
+	Placements string
+	Scope      targetpkg.Scope
 }
 
 func Finalize(skills []adopt.Skill) []adopt.Skill {
@@ -53,11 +54,18 @@ func Finalize(skills []adopt.Skill) []adopt.Skill {
 
 		representative := group[0]
 		targets := make([]targetpkg.Target, 0, len(group))
+		placements := make(map[targetpkg.Target]string)
 		for _, skill := range group {
 			targets = append(targets, skill.Target)
+			for selectedTarget, installTo := range skill.Placements {
+				if _, present := placements[selectedTarget]; !present {
+					placements[selectedTarget] = installTo
+				}
+			}
 		}
 		representative.Targets = uniqueTargets(targets)
 		representative.Target = representative.Targets[0]
+		representative.Placements = placements
 
 		resourceName := representative.InstallName
 		if len(installGroups[representative.InstallName]) > 1 {
@@ -80,9 +88,14 @@ func AssignGroupSources(sourceDirectory adopt.SourceDirectory, skills []adopt.Sk
 		if err != nil {
 			return nil, err
 		}
+		placementsKey, err := importSkillPlacementsKey(skill.Placements)
+		if err != nil {
+			return nil, err
+		}
 		key := importSkillManifestGroupKey{
-			Targets: targetsKey,
-			Scope:   skill.Scope,
+			Targets:    targetsKey,
+			Placements: placementsKey,
+			Scope:      skill.Scope,
 		}
 		groups[key] = append(groups[key], index)
 	}
@@ -129,6 +142,22 @@ func importSkillTargetsKey(targets []targetpkg.Target) (string, error) {
 	values := make([]string, 0, len(canonical))
 	for _, selectedTarget := range canonical {
 		values = append(values, string(selectedTarget))
+	}
+	return strings.Join(values, "\x00"), nil
+}
+
+func importSkillPlacementsKey(placements map[targetpkg.Target]string) (string, error) {
+	targets := make([]targetpkg.Target, 0, len(placements))
+	for selectedTarget := range placements {
+		targets = append(targets, selectedTarget)
+	}
+	canonical, err := targetpkg.CanonicalSet(targets)
+	if err != nil {
+		return "", err
+	}
+	values := make([]string, 0, len(canonical))
+	for _, selectedTarget := range canonical {
+		values = append(values, string(selectedTarget)+"="+placements[selectedTarget])
 	}
 	return strings.Join(values, "\x00"), nil
 }
