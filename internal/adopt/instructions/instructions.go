@@ -40,7 +40,7 @@ func Candidates(
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 ) ([]adopt.Source, []adopt.Skipped, error) {
-	locations := adopt.DiscoveryLocations(target, entity.KindInstructions, scope)
+	locations := profile.Profile(target).DiscoveryLocations(entity.KindInstructions, scope)
 	if len(locations) == 0 {
 		return nil, []adopt.Skipped{unsupportedInstructionImportSkip(target, scope)}, nil
 	}
@@ -76,7 +76,7 @@ func Candidates(
 			return nil, nil, fmt.Errorf("unsupported instruction import policy %q for %s", location.ImportPolicy(), livePath)
 		}
 	}
-	for _, location := range adopt.RuntimeLocations(target, entity.KindInstructions, scope) {
+	for _, location := range profile.Profile(target).RuntimeLocations(entity.KindInstructions, scope) {
 		livePath, err := instructionLocationPath(location.Path())
 		if err != nil {
 			return nil, nil, err
@@ -262,20 +262,30 @@ func renderToForInstructionPlacement(location profile.DiscoveryLocation) (string
 }
 
 func classifyOnlyInstructionSkip(livePath string) (adopt.Skipped, bool, error) {
-	exists, err := adopt.PathExists(livePath)
+	_, err := os.Lstat(livePath)
+	if os.IsNotExist(err) {
+		return adopt.Skipped{}, false, nil
+	}
 	if err != nil {
 		return adopt.Skipped{}, false, fmt.Errorf("inspect instruction path %q: %w", livePath, err)
-	}
-	if !exists {
-		return adopt.Skipped{}, false, nil
 	}
 	return adopt.Skipped{LivePath: livePath, Reason: importInstructionSkipClassifyOnly}, true, nil
 }
 
 func instructionLocationPath(locationPath string) (string, error) {
 	codexHome := strings.TrimSpace(os.Getenv("CODEX_HOME"))
-	if codexHome == "" || !strings.HasPrefix(locationPath, "~/.codex/") {
-		return adopt.LocationPath(locationPath)
+	if codexHome != "" && strings.HasPrefix(locationPath, "~/.codex/") {
+		return filepath.Join(codexHome, filepath.FromSlash(strings.TrimPrefix(locationPath, "~/.codex/"))), nil
 	}
-	return filepath.Join(codexHome, filepath.FromSlash(strings.TrimPrefix(locationPath, "~/.codex/"))), nil
+	if strings.HasPrefix(locationPath, "~/") {
+		homeDirectory, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve home directory: %w", err)
+		}
+		return filepath.Join(homeDirectory, filepath.FromSlash(strings.TrimPrefix(locationPath, "~/"))), nil
+	}
+	if filepath.IsAbs(locationPath) {
+		return filepath.Clean(locationPath), nil
+	}
+	return filepath.FromSlash(locationPath), nil
 }

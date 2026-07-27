@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
@@ -41,34 +44,39 @@ func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.Hook, [
 	if err != nil {
 		return nil, nil, err
 	}
-	livePath, err := adopt.ResolveDestination(liveDestination)
+	livePath, err := hookDestinationPath(liveDestination, scope)
 	if err != nil {
 		return nil, nil, err
 	}
+	liveDestinationValue := liveDestination.String()
 	info, err := os.Stat(livePath)
 	if os.IsNotExist(err) {
-		skipped := append([]adopt.Skipped{{LivePath: liveDestination, Reason: "missing"}}, inlineSkipped...)
+		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: "missing"}}, inlineSkipped...)
 		return nil, skipped, nil
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestination, err)
+		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
 	}
 	if info.IsDir() || !info.Mode().IsRegular() {
-		skipped := append([]adopt.Skipped{{LivePath: liveDestination, Reason: "not_regular_file"}}, inlineSkipped...)
+		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: "not_regular_file"}}, inlineSkipped...)
 		return nil, skipped, nil
 	}
 
 	content, err := os.ReadFile(livePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestination, err)
+		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
 	}
 
-	hooks, skipped := parseImportHooks(content, target, scope, liveDestination)
+	hooks, skipped := parseImportHooks(content, target, scope, liveDestinationValue)
 	skipped = append(skipped, inlineSkipped...)
 	return hooks, skipped, nil
 }
 
-func importCodexInlineHookSkips(target targetpkg.Target, scope targetpkg.Scope, hookDestination string) ([]adopt.Skipped, error) {
+func importCodexInlineHookSkips(
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+	hookDestination output.Destination,
+) ([]adopt.Skipped, error) {
 	if target != targetpkg.TargetCodex {
 		return nil, nil
 	}
@@ -76,7 +84,7 @@ func importCodexInlineHookSkips(target targetpkg.Target, scope targetpkg.Scope, 
 	if !ok {
 		return nil, nil
 	}
-	configPath, err := adopt.ResolveDestination(configDestination)
+	configPath, err := hookDestinationPath(configDestination, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -87,13 +95,27 @@ func importCodexInlineHookSkips(target targetpkg.Target, scope targetpkg.Scope, 
 		return nil, nil
 	}
 	if err != nil {
-		return []adopt.Skipped{{LivePath: configDestination, Reason: "inline_config_malformed"}}, nil
+		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_malformed"}}, nil
 	}
 	if metadata.IsDefined("hooks") {
-		return []adopt.Skipped{{LivePath: configDestination, Reason: "unsupported_inline_hooks"}}, nil
+		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "unsupported_inline_hooks"}}, nil
 	}
 
 	return nil, nil
+}
+
+func hookDestinationPath(destination output.Destination, scope targetpkg.Scope) (string, error) {
+	if err := destination.ValidateScope(scope); err != nil {
+		return "", fmt.Errorf("validate live hook destination %q: %w", destination, err)
+	}
+	if destination.RootRole() == output.RootProject {
+		return filepath.FromSlash(destination.RelativePath()), nil
+	}
+	livePath, err := hostpath.NewResolver("").Resolve(destination)
+	if err != nil {
+		return "", fmt.Errorf("resolve live hook destination %q: %w", destination, err)
+	}
+	return livePath, nil
 }
 
 func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.Scope, livePath string) ([]adopt.Hook, []adopt.Skipped) {

@@ -3,6 +3,7 @@ package instructions
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
@@ -324,6 +325,66 @@ func TestCandidatesIgnoresAntigravityConfigInstructionPaths(t *testing.T) {
 	}
 	if !hasSkipped(skipped, filepath.Join(homeDir, ".gemini", "GEMINI.md"), "missing") {
 		t.Fatalf("skipped = %#v, want missing admitted global path only", skipped)
+	}
+}
+
+func TestInstructionLocationPathPreservesProfilePathDomains(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	homePath, err := instructionLocationPath("~/agent/AGENTS.md")
+	if err != nil {
+		t.Fatalf("instructionLocationPath(home) error = %v", err)
+	}
+	if want := filepath.Join(home, "agent", "AGENTS.md"); homePath != want {
+		t.Fatalf("instructionLocationPath(home) = %q, want %q", homePath, want)
+	}
+
+	relativePath, err := instructionLocationPath(".agents/AGENTS.md")
+	if err != nil {
+		t.Fatalf("instructionLocationPath(relative) error = %v", err)
+	}
+	if want := filepath.FromSlash(".agents/AGENTS.md"); relativePath != want {
+		t.Fatalf("instructionLocationPath(relative) = %q, want %q", relativePath, want)
+	}
+
+	absoluteInput := filepath.Join(string(os.PathSeparator), "tmp", "nested", "..", "AGENTS.md")
+	absolutePath, err := instructionLocationPath(absoluteInput)
+	if err != nil {
+		t.Fatalf("instructionLocationPath(absolute) error = %v", err)
+	}
+	if want := filepath.Clean(absoluteInput); absolutePath != want {
+		t.Fatalf("instructionLocationPath(absolute) = %q, want %q", absolutePath, want)
+	}
+}
+
+func TestInstructionLocationPathReportsUnavailableHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
+	if _, err := instructionLocationPath("~/AGENTS.md"); err == nil {
+		t.Fatal("instructionLocationPath() succeeded without a home directory")
+	}
+}
+
+func TestClassifyOnlyInstructionSkipTreatsDanglingSymlinkAsPresent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	link := filepath.Join(root, "AGENTS.md")
+	if err := os.Symlink(filepath.Join(root, "missing"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	skip, ok, err := classifyOnlyInstructionSkip(link)
+	if err != nil {
+		t.Fatalf("classifyOnlyInstructionSkip() error = %v", err)
+	}
+	if !ok || skip.LivePath != link || skip.Reason != importInstructionSkipClassifyOnly {
+		t.Fatalf("classifyOnlyInstructionSkip() = (%#v, %v), want dangling link classified", skip, ok)
 	}
 }
 

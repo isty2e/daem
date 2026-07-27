@@ -1,8 +1,10 @@
 package skill
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
@@ -106,5 +108,65 @@ func TestAssignGroupSourcesTreatsTargetOrderAsSetIdentity(t *testing.T) {
 	}
 	if grouped[0].GroupRoot == "" || grouped[0].GroupRoot != grouped[1].GroupRoot {
 		t.Fatalf("group roots = %q and %q, want one order-independent target-set group", grouped[0].GroupRoot, grouped[1].GroupRoot)
+	}
+}
+
+func TestSkillLocationPathPreservesProfilePathDomains(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	homePath, err := skillLocationPath("~/agent/skills")
+	if err != nil {
+		t.Fatalf("skillLocationPath(home) error = %v", err)
+	}
+	if want := filepath.Join(home, "agent", "skills"); homePath != want {
+		t.Fatalf("skillLocationPath(home) = %q, want %q", homePath, want)
+	}
+
+	relativePath, err := skillLocationPath(".agents/skills")
+	if err != nil {
+		t.Fatalf("skillLocationPath(relative) error = %v", err)
+	}
+	if want := filepath.FromSlash(".agents/skills"); relativePath != want {
+		t.Fatalf("skillLocationPath(relative) = %q, want %q", relativePath, want)
+	}
+
+	absoluteInput := filepath.Join(string(os.PathSeparator), "tmp", "nested", "..", "skills")
+	absolutePath, err := skillLocationPath(absoluteInput)
+	if err != nil {
+		t.Fatalf("skillLocationPath(absolute) error = %v", err)
+	}
+	if want := filepath.Clean(absoluteInput); absolutePath != want {
+		t.Fatalf("skillLocationPath(absolute) = %q, want %q", absolutePath, want)
+	}
+}
+
+func TestSkillLocationPathReportsUnavailableHome(t *testing.T) {
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
+	if _, err := skillLocationPath("~/skills"); err == nil {
+		t.Fatal("skillLocationPath() succeeded without a home directory")
+	}
+}
+
+func TestSkillPathExistsUsesLstatForDanglingSymlink(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	link := filepath.Join(root, "skill")
+	if err := os.Symlink(filepath.Join(root, "missing"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	exists, err := skillPathExists(link)
+	if err != nil {
+		t.Fatalf("skillPathExists() error = %v", err)
+	}
+	if !exists {
+		t.Fatal("skillPathExists() = false, want dangling symlink to exist")
 	}
 }

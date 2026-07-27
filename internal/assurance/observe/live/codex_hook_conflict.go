@@ -13,13 +13,9 @@ import (
 // outside an aggregate document before its codec is allowed to observe it.
 func ValidateAggregateReadPreconditions(destination output.Destination, resolver DestinationResolver) error {
 	// This is a private Codex boundary guard, not a generic hook policy.
-	configDestinationValue, ok := commandhook.CodexInlineConfigDestination(destination.String())
+	configDestination, ok := commandhook.CodexInlineConfigDestination(destination)
 	if !ok {
 		return nil
-	}
-	configDestination, err := output.Parse(configDestinationValue)
-	if err != nil {
-		return fmt.Errorf("Codex inline hook config destination: %w", err)
 	}
 
 	configPath, err := resolver(configDestination)

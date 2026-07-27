@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -80,5 +81,38 @@ func TestCandidatesSkipsCodexHookShapeThatSurfaceCannotRepresent(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].Reason == "" {
 		t.Fatalf("skipped = %#v, want one reason", skipped)
+	}
+}
+
+func TestHookDestinationPathUsesCanonicalOutputGrammar(t *testing.T) {
+	projectDestination, err := output.Parse(".codex/hooks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectPath, err := hookDestinationPath(projectDestination, target.ScopeProject)
+	if err != nil {
+		t.Fatalf("hookDestinationPath(project) error = %v", err)
+	}
+	if want := filepath.FromSlash(".codex/hooks.json"); projectPath != want {
+		t.Fatalf("hookDestinationPath(project) = %q, want %q", projectPath, want)
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	homeDestination, err := output.Parse("~/.claude/settings.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	homePath, err := hookDestinationPath(homeDestination, target.ScopeGlobal)
+	if err != nil {
+		t.Fatalf("hookDestinationPath(home) error = %v", err)
+	}
+	if want := filepath.Join(home, ".claude", "settings.json"); homePath != want {
+		t.Fatalf("hookDestinationPath(home) = %q, want %q", homePath, want)
+	}
+
+	if _, err := hookDestinationPath(homeDestination, target.ScopeProject); err == nil {
+		t.Fatal("hookDestinationPath(home, project scope) succeeded, want scope error")
 	}
 }
