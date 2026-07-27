@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -166,7 +167,7 @@ func conflictingSkillDestination(existing existingDeclarations, imported adoptmo
 	return ""
 }
 
-func sameImportedHookBase(existing declarationcodec.Hook, imported adoptmodel.Hook) bool {
+func sameImportedHookBase(existing declaration.Hook, imported adoptmodel.Hook) bool {
 	return existing.Event == imported.Event &&
 		existing.Matcher == imported.Matcher &&
 		existing.Type == declarationHookTypeCommand &&
@@ -176,7 +177,7 @@ func sameImportedHookBase(existing declarationcodec.Hook, imported adoptmodel.Ho
 		existing.Scope == string(imported.Scope)
 }
 
-func sameImportedHookOverride(existing declarationcodec.Hook, imported adoptmodel.Hook) bool {
+func sameImportedHookOverride(existing declaration.Hook, imported adoptmodel.Hook) bool {
 	override, ok := hookOverrideFor(existing.TargetOverrides, imported.Target)
 	if imported.Condition == "" {
 		return !ok || (override.Condition == "" && override.Matcher == "")
@@ -219,11 +220,11 @@ func sameStringSlice(left []string, right []string) bool {
 	return true
 }
 
-func hookOverrideFor(overrides []declarationcodec.HookTargetOverride, target targetpkg.Target) (declarationcodec.HookTargetOverride, bool) {
+func hookOverrideFor(overrides []declaration.HookTargetOverride, target targetpkg.Target) (declaration.HookTargetOverride, bool) {
 	for _, override := range overrides {
 		if override.Target == string(target) {
 			return override, true
 		}
 	}
-	return declarationcodec.HookTargetOverride{}, false
+	return declaration.HookTargetOverride{}, false
 }

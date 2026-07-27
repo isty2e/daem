@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
-	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 )
 
 func TestHookAuthoringEdgeHuntPreservesOverrideDiagnosticOrder(t *testing.T) {
@@ -14,7 +13,7 @@ func TestHookAuthoringEdgeHuntPreservesOverrideDiagnosticOrder(t *testing.T) {
 		Event:   "PreToolUse",
 		Command: "python3 hooks/protect.py",
 		Targets: []string{"opencode", "pi"},
-		TargetOverrides: []declarationcodec.HookTargetOverride{
+		TargetOverrides: []declaration.HookTargetOverride{
 			{Target: "pi", Matcher: "Write"},
 			{Target: "opencode", Matcher: "Bash"},
 		},
@@ -37,7 +36,7 @@ func TestHookAuthoringEdgeHuntRoundOnePreservesBoundaryDiagnostics(t *testing.T)
 		Event:   "PreToolUse",
 		Command: "python3 hooks/protect.py",
 		Targets: []string{"codex"},
-		TargetOverrides: []declarationcodec.HookTargetOverride{{
+		TargetOverrides: []declaration.HookTargetOverride{{
 			Target:  "claude-code",
 			Matcher: "Write",
 		}},
@@ -62,7 +61,7 @@ func TestHookAuthoringEdgeHuntRoundOnePreservesBoundaryDiagnostics(t *testing.T)
 		{
 			name: "duplicate overrides remain prospective manifest validation",
 			mutate: func(request *AddHookRequest) {
-				request.TargetOverrides = []declarationcodec.HookTargetOverride{
+				request.TargetOverrides = []declaration.HookTargetOverride{
 					{Target: "codex", Matcher: "Write"},
 					{Target: "codex", Matcher: "Bash"},
 				}
@@ -185,7 +184,7 @@ func TestHookAuthoringEdgeHuntRoundThreeDefersCanonicalTextValidation(t *testing
 		{
 			name: "bidirectional override matcher",
 			mutate: func(request *AddHookRequest) {
-				request.TargetOverrides = []declarationcodec.HookTargetOverride{{
+				request.TargetOverrides = []declaration.HookTargetOverride{{
 					Target:  "codex",
 					Matcher: "safe\u202etxt",
 				}}

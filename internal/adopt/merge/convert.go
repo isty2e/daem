@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -20,7 +21,7 @@ func manifestInstructionFromImportSource(source adoptmodel.Source, targets []tar
 		Scope:   string(source.Scope),
 	}
 	if source.RenderTo != "" {
-		instruction.Target = map[string]declarationcodec.InstructionRendering{
+		instruction.Target = map[string]declaration.InstructionTarget{
 			string(source.Target): {RenderTo: source.RenderTo},
 		}
 	}
@@ -40,8 +41,8 @@ func manifestSkillFromImportSkill(skill adoptmodel.Skill, targets []targetpkg.Ta
 	}
 }
 
-func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target) declarationcodec.Hook {
-	result := declarationcodec.Hook{
+func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target) declaration.Hook {
+	result := declaration.Hook{
 		Name:           hook.ResourceName,
 		Event:          hook.Event,
 		Matcher:        hook.Matcher,
@@ -53,7 +54,7 @@ func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target
 		Scope:          string(hook.Scope),
 	}
 	if hook.Condition != "" && containsTarget(targets, hook.Target) {
-		result.TargetOverrides = []declarationcodec.HookTargetOverride{
+		result.TargetOverrides = []declaration.HookTargetOverride{
 			{Target: string(hook.Target), Condition: hook.Condition},
 		}
 	}

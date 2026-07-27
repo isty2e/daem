@@ -27,6 +27,48 @@ func TestSkillApplyAddMergesTargetsWithoutOwningWorkflowPolicy(t *testing.T) {
 	}
 }
 
+func TestSkillTargetMergePreservesUnsupportedAuthoringFieldsAndCRLF(t *testing.T) {
+	original := []byte("[[skill]]\r\n" +
+		"id = \"shared\"\r\n" +
+		"name = \"lint\"\r\n" +
+		"source = { s3 = \"s3://bucket/skill.zip\", version_id = \"v1\", region = \"us-east-1\", format = \"archive\" }\r\n" +
+		"targets = [\"codex\"]\r\n" +
+		"scope = \"project\"\r\n" +
+		"install_mode = \"copy\"\r\n" +
+		"compat_repair = true")
+	incoming := Skill{
+		ID: "shared", Name: "lint",
+		Source:  SkillSource{},
+		Targets: []string{"claude-code"},
+		Scope:   "project",
+	}
+
+	blocks, err := ScanSkillBlocks(original)
+	if err != nil {
+		t.Fatalf("ScanSkillBlocks: %v", err)
+	}
+	incoming.Source = blocks[0].Skill.Source
+	change, err := ApplySkillAdd(original, incoming)
+	if err != nil {
+		t.Fatalf("ApplySkillAdd: %v", err)
+	}
+	got := string(change.Content)
+	for _, want := range []string{
+		`s3 = "s3://bucket/skill.zip"`,
+		`version_id = "v1"`,
+		`compat_repair = true`,
+		`install_mode = "copy"`,
+		`targets = ["codex", "claude-code"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("content = %q, want %q preserved", got, want)
+		}
+	}
+	if strings.Count(got, "\r\n") != 7 || strings.HasSuffix(got, "\n") {
+		t.Fatalf("line endings changed: %q", got)
+	}
+}
+
 func TestSkillResourceIDAndIdentityAreDocumentLocal(t *testing.T) {
 	left := Skill{ID: " id ", Name: " name ", Scope: " project ", Source: SkillSource{Path: "skill", Mode: "vendor"}}
 	right := Skill{ID: "different", Name: "name", Scope: "project", Source: left.Source}

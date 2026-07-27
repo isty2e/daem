@@ -221,6 +221,56 @@ mode = "vendor"
 	requireContains(t, string(merged.ManifestContent()), `[skill.source]`)
 }
 
+func TestIntoManifestMergesHookTargetWithoutReencodingExistingBlock(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte("version = 1\r\n" +
+			"targets = [\"codex\", \"claude-code\"]\r\n" +
+			"\r\n" +
+			"[[hook]] # keep header\r\n" +
+			"name = 'lint'\r\n" +
+			"event = 'PreToolUse'\r\n" +
+			"type = 'command'\r\n" +
+			"command = 'make lint' # keep command\r\n" +
+			"targets = ['codex']\r\n" +
+			"scope = 'project'"),
+		Hooks: []adopt.Hook{{
+			ResourceName: "lint",
+			Target:       target.TargetClaudeCode,
+			Scope:        target.ScopeProject,
+			Event:        "PreToolUse",
+			Command:      "make lint",
+			Condition:    "always",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.HasMergeConflicts() {
+		t.Fatalf("merge results = %#v, want no conflict", merged.MergeResults())
+	}
+	got := string(merged.ManifestContent())
+	for _, want := range []string{
+		"[[hook]] # keep header\r\n",
+		"command = 'make lint' # keep command\r\n",
+		`targets = ["codex", "claude-code"]`,
+		`target = "claude-code"`,
+		`if = "always"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("content = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
+		t.Fatalf("content contains mixed line endings: %q", got)
+	}
+	if strings.HasSuffix(got, "\n") {
+		t.Fatalf("terminal newline was added: %q", got)
+	}
+}
+
 func TestIntoManifestReportsSameDestinationSkillConflict(t *testing.T) {
 	plan := mergeTestInput{
 		Merge: true,

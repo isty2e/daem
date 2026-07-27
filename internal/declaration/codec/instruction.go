@@ -13,27 +13,13 @@ import (
 )
 
 type Instruction struct {
-	Source  InstructionSource               `toml:"source"`
-	Targets []string                        `toml:"targets"`
-	Scope   string                          `toml:"scope"`
-	Target  map[string]InstructionRendering `toml:"target"`
+	Source  InstructionSource                        `toml:"source"`
+	Targets []string                                 `toml:"targets"`
+	Scope   string                                   `toml:"scope"`
+	Target  map[string]declaration.InstructionTarget `toml:"target"`
 }
 
-type InstructionSource struct {
-	Git       string
-	Path      string
-	Ref       string
-	Mode      string
-	S3        string
-	VersionID string
-	Region    string
-	Format    string
-}
-
-type InstructionRendering struct {
-	RenderTo string `toml:"render_to"`
-	Mode     string `toml:"mode"`
-}
+type InstructionSource declaration.Source
 
 type InstructionBlock struct {
 	Start       int
@@ -127,42 +113,12 @@ func isSingleTOMLTableHeader(trimmedLine string) bool {
 }
 
 func (source *InstructionSource) UnmarshalTOML(value any) error {
-	switch typed := value.(type) {
-	case string:
-		source.Path = typed
-		source.Mode = "vendor"
-		return nil
-	case map[string]any:
-		for key, value := range typed {
-			text, ok := value.(string)
-			if !ok {
-				return fmt.Errorf("source.%s: must be a string", key)
-			}
-			switch strings.TrimSpace(key) {
-			case "git":
-				source.Git = text
-			case "path":
-				source.Path = text
-			case "ref":
-				source.Ref = text
-			case "mode":
-				source.Mode = text
-			case "s3":
-				source.S3 = text
-			case "version_id":
-				source.VersionID = text
-			case "region":
-				source.Region = text
-			case "format":
-				source.Format = text
-			default:
-				return fmt.Errorf("unknown source key %q", key)
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("source must be a string path or inline table")
+	decoded, err := declaration.SourceFromTOMLValue(value)
+	if err != nil {
+		return err
 	}
+	*source = InstructionSource(decoded)
+	return nil
 }
 
 type instructionEditDeclaration struct {
@@ -265,12 +221,12 @@ func ReplaceInstructionTargets(block string, instructionName string, targets []s
 			if strings.HasSuffix(line, "\n") {
 				lineEnd = "\n"
 			}
-			lines[index] = indent + "targets = " + renderInstructionStringArray(targets) + lineEnd
+			lines[index] = indent + "targets = " + renderStringArray(targets) + lineEnd
 			return strings.Join(lines, "")
 		}
 	}
 	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderInstructionStringArray(targets)+"\n")
+	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
 	newLines = append(newLines, lines[insertAt:]...)
 	return strings.Join(newLines, "")
 }
@@ -321,7 +277,7 @@ func RenderInstructionBlock(name string, instruction Instruction) string {
 	builder.WriteByte('\n')
 	if len(instruction.Targets) != 0 {
 		builder.WriteString("targets = ")
-		builder.WriteString(renderInstructionStringArray(instruction.Targets))
+		builder.WriteString(renderStringArray(instruction.Targets))
 		builder.WriteByte('\n')
 	}
 	if instruction.Scope != "" {
@@ -384,15 +340,7 @@ func renderInstructionSource(source InstructionSource) string {
 	return "{ " + strings.Join(parts, ", ") + " }"
 }
 
-func renderInstructionStringArray(values []string) string {
-	quoted := make([]string, 0, len(values))
-	for _, value := range values {
-		quoted = append(quoted, strconv.Quote(value))
-	}
-	return "[" + strings.Join(quoted, ", ") + "]"
-}
-
-func sortedInstructionRenderingTargets(renderings map[string]InstructionRendering) []string {
+func sortedInstructionRenderingTargets(renderings map[string]declaration.InstructionTarget) []string {
 	targets := make([]string, 0, len(renderings))
 	for targetName := range renderings {
 		targets = append(targets, targetName)

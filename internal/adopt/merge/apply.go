@@ -52,7 +52,7 @@ func applyImportSkillTargetMerge(content []byte, skill declarationcodec.Skill) (
 	return declaration.AppendDocumentBlock(content, declarationcodec.RenderSkillBlock(skill)), "append skill resource", nil
 }
 
-func applyImportHookTargetMerge(content []byte, hook declarationcodec.Hook) ([]byte, string, error) {
+func applyImportHookTargetMerge(content []byte, hook declaration.Hook) ([]byte, string, error) {
 	blocks, err := declarationcodec.ScanHookBlocks(content)
 	if err != nil {
 		return nil, "", err
@@ -80,7 +80,19 @@ func applyImportHookTargetMerge(content []byte, hook declarationcodec.Hook) ([]b
 			}
 			mergedHook.TargetOverrides = append(mergedHook.TargetOverrides, override)
 		}
-		return declarationcodec.ReplaceHookBlock(content, block, mergedHook), "update hook targets", nil
+		updatedBlock, err := declarationcodec.UpdateHookTargets(
+			string(content[block.Start:block.End]),
+			block.Hook,
+			mergedHook,
+		)
+		if err != nil {
+			return nil, "", err
+		}
+		return declaration.ReplaceDocumentRange(
+			content,
+			declaration.DocumentRange{Start: block.Start, End: block.End},
+			[]byte(updatedBlock),
+		), "update hook targets", nil
 	}
 	return declaration.AppendDocumentBlock(content, declarationcodec.RenderHookBlock(hook)), "append hook resource", nil
 }

@@ -29,10 +29,6 @@ func normalizeHooks(rawHooks []declaration.Hook, defaultTargets []target.Target,
 			return nil, err
 		}
 
-		if rawHook.Source != nil {
-			return nil, fmt.Errorf("%s.source: hook executable sources are not supported; command must reference an existing executable", context)
-		}
-
 		overrides, err := normalizeHookOverrides(rawHook.TargetOverrides, context)
 		if err != nil {
 			return nil, err
