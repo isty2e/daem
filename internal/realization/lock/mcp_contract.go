@@ -9,6 +9,7 @@ import (
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -42,7 +43,7 @@ type MCPProjectionSubjectInput struct {
 	LauncherCommand      string
 	LauncherArgs         []string
 	CanonicalProjection  string
-	DelegatePlanIdentity *DelegatePlanIdentity
+	DelegatePlan         *delegate.DelegatePlan
 	CredentialReferences []string
 }
 
@@ -88,7 +89,7 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 		return LockedSubjectContract{}, err
 	}
 	if err := validateMCPDelegatePlanCorrelation(
-		input.DelegatePlanIdentity,
+		input.DelegatePlan,
 		input.LauncherCommand,
 		input.LauncherArgs,
 		input.CredentialReferences,
@@ -112,40 +113,40 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 		return LockedSubjectContract{}, err
 	}
 	return NewLockedSubjectContract(LockedSubjectContractInput{
-		EntityID:             input.EntityID,
-		SubjectID:            projectionSubject,
-		Realization:          &realization,
-		DelegatePlanIdentity: input.DelegatePlanIdentity,
-		Ownership:            OwnershipManifest,
-		OnAbsent:             OnAbsentRemoveBinding,
-		Replay:               replay,
-		OperationContracts:   contracts,
+		EntityID:           input.EntityID,
+		SubjectID:          projectionSubject,
+		Realization:        &realization,
+		DelegatePlan:       input.DelegatePlan,
+		Ownership:          OwnershipManifest,
+		OnAbsent:           OnAbsentRemoveBinding,
+		Replay:             replay,
+		OperationContracts: contracts,
 	})
 }
 
 func validateMCPDelegatePlanCorrelation(
-	identity *DelegatePlanIdentity,
+	plan *delegate.DelegatePlan,
 	command string,
 	args []string,
 	credentialReferences []string,
 ) error {
-	if identity == nil {
+	if plan == nil {
 		return nil
 	}
-	canonical, err := NewDelegatePlanIdentity(*identity)
-	if err != nil {
+	if err := plan.Validate(); err != nil {
 		return fmt.Errorf("MCP delegate plan: %w", err)
 	}
 	if err := validateStringSet(credentialReferences, "MCP credential reference"); err != nil {
 		return err
 	}
-	if canonical.Command != command {
-		return fmt.Errorf("MCP delegate command %q does not match launcher command %q", canonical.Command, command)
+	planCommand := plan.Command()
+	if planCommand.Name() != command {
+		return fmt.Errorf("MCP delegate command %q does not match launcher command %q", planCommand.Name(), command)
 	}
-	if !slices.Equal(canonical.Args, args) {
+	if !slices.Equal(planCommand.Args(), args) {
 		return fmt.Errorf("MCP delegate args do not match launcher args")
 	}
-	if !slices.Equal(canonical.EnvSourceNames(), normalizeStrings(credentialReferences)) {
+	if !slices.Equal(plan.Env().SourceNames(), normalizeStrings(credentialReferences)) {
 		return fmt.Errorf("MCP delegate env refs do not match credential references")
 	}
 	return nil

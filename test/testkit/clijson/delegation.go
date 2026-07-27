@@ -1,6 +1,6 @@
 package clijson
 
-type DelegateEnvBinding struct {
+type EnvBinding struct {
 	Name       string `json:"name"`
 	SourceName string `json:"source_name"`
 }
@@ -11,17 +11,17 @@ type DelegateAction struct {
 		Namespace string `json:"namespace"`
 		Name      string `json:"name"`
 	} `json:"subject"`
-	Target           string               `json:"target"`
-	Scope            string               `json:"scope"`
-	Status           string               `json:"status"`
-	PolicyOutcome    string               `json:"policy_outcome"`
-	SchedulesAttempt bool                 `json:"schedules_attempt"`
-	PlanIdentityKey  string               `json:"plan_identity_key"`
-	RunnerKind       string               `json:"runner_kind"`
-	Command          string               `json:"command"`
-	Args             []string             `json:"args"`
-	EnvBindings      []DelegateEnvBinding `json:"env_bindings"`
-	Environment      string               `json:"environment"`
+	Target           string       `json:"target"`
+	Scope            string       `json:"scope"`
+	Status           string       `json:"status"`
+	PolicyOutcome    string       `json:"policy_outcome"`
+	SchedulesAttempt bool         `json:"schedules_attempt"`
+	PlanIdentityKey  string       `json:"plan_identity_key"`
+	RunnerKind       string       `json:"runner_kind"`
+	Command          string       `json:"command"`
+	Args             []string     `json:"args"`
+	EnvBindings      []EnvBinding `json:"env_bindings"`
+	Environment      string       `json:"environment"`
 	Package          *struct {
 		Ecosystem string `json:"ecosystem"`
 		Name      string `json:"name"`

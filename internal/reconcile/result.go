@@ -267,9 +267,8 @@ func validateDelegateAction(action DelegateAction) error {
 		Subject:      action.Subject(),
 		Target:       action.Target(),
 		Scope:        action.Scope(),
-		Plan:         action.PlanIdentity(),
+		Plan:         action.Plan(),
 		Disposition:  action.Disposition(),
-		Disclosure:   action.Disclosure(),
 		Risks:        action.Risks(),
 		Dependencies: action.Dependencies(),
 	})

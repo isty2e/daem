@@ -85,9 +85,9 @@ env = { API_TOKEN = { from_env = "NEW_CONTEXT7_TOKEN" } }
 				t.Fatalf("old RunLock returned error: %v", err)
 			}
 			oldRecord := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-			oldIdentity, ok := oldRecord.DelegatePlanIdentity()
+			oldPlan, ok := oldRecord.DelegatePlan()
 			if !ok {
-				t.Fatal("old locked MCP record missing delegate plan identity")
+				t.Fatal("old locked MCP record missing delegate plan")
 			}
 
 			writeTestFile(t, tempDir, "daem.toml", test.newManifest)
@@ -95,11 +95,11 @@ env = { API_TOKEN = { from_env = "NEW_CONTEXT7_TOKEN" } }
 				t.Fatalf("new RunLock returned error: %v", err)
 			}
 			newRecord := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-			newIdentity, ok := newRecord.DelegatePlanIdentity()
+			newPlan, ok := newRecord.DelegatePlan()
 			if !ok {
-				t.Fatal("new locked MCP record missing delegate plan identity")
+				t.Fatal("new locked MCP record missing delegate plan")
 			}
-			if oldIdentity.IdentityKey == newIdentity.IdentityKey {
+			if oldPlan.IdentityKey() == newPlan.IdentityKey() {
 				t.Fatalf("delegate identity key did not change after %s changed", test.name)
 			}
 
@@ -118,7 +118,7 @@ env = { API_TOKEN = { from_env = "NEW_CONTEXT7_TOKEN" } }
 						newRecord.SubjectID(),
 						target.TargetClaudeCode,
 						target.ScopeProject,
-						oldIdentity.IdentityKey,
+						oldPlan.IdentityKey(),
 						durableattempt.DelegateStatusSucceeded,
 						durableattempt.DelegateReasonNone,
 					),

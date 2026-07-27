@@ -42,8 +42,8 @@ func TestBuildCreatesScheduledApplyActionWithProjectionDependency(t *testing.T) 
 	assertDependency(t, action, reconciliation.DelegateDependencyProjection, record.SubjectID())
 	assertRisk(t, action, reconciliation.DelegateRiskExternalStore)
 	assertRisk(t, action, reconciliation.DelegateRiskFloatingPackage)
-	if action.Disclosure().Command != "npx" {
-		t.Fatalf("disclosure = %#v, want npx command", action.Disclosure())
+	if action.Plan().Command().Name() != "npx" {
+		t.Fatalf("delegate plan command = %q, want npx", action.Plan().Command().Name())
 	}
 }
 
@@ -74,7 +74,7 @@ func TestBuildAcceptsEmptySelectedTargets(t *testing.T) {
 	}
 }
 
-func TestBuildDryRunKeepsDisclosureWithoutScheduling(t *testing.T) {
+func TestBuildDryRunKeepsPlanWithoutScheduling(t *testing.T) {
 	record := testMCPRecord(t, "context7")
 
 	actions, err := BuildDelegateActions(DelegateInput{
@@ -91,8 +91,9 @@ func TestBuildDryRunKeepsDisclosureWithoutScheduling(t *testing.T) {
 		t.Fatalf("action disposition = %q, schedules=%t; want skipped dry-run", action.Disposition(), action.SchedulesAttempt())
 	}
 	assertRisk(t, action, reconciliation.DelegateRiskDryRunDisclosure)
-	if action.Disclosure().Package == nil || action.Disclosure().Package.Name != "@upstash/context7-mcp" {
-		t.Fatalf("disclosure = %#v, want package disclosure", action.Disclosure())
+	packageRef, present := action.Plan().PackageRef()
+	if !present || packageRef.Name() != "@upstash/context7-mcp" {
+		t.Fatalf("delegate plan package = %#v, present=%t", packageRef, present)
 	}
 }
 
@@ -176,17 +177,16 @@ func TestBuildApplyBlocksOnFailedDependencyPrecondition(t *testing.T) {
 
 func TestNewDelegateActionRejectsEffectOutcomesAndIncompatibleDisposition(t *testing.T) {
 	record := testMCPRecord(t, "context7")
-	planIdentity := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
-	decision := testPolicyDecision(t, planIdentity, delegatepolicy.ModeApply, delegatepolicy.RunnerMissing, nil)
+	delegatePlan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
+	decision := testPolicyDecision(t, delegatePlan, delegatepolicy.ModeApply, delegatepolicy.RunnerMissing, nil)
 
 	for _, disposition := range []reconciliation.DelegateDisposition{"succeeded", "failed", "timeout"} {
 		_, err := reconciliation.NewDelegateAction(reconciliation.DelegateActionInput{
 			Subject:     record.SubjectID(),
 			Target:      target.TargetClaudeCode,
 			Scope:       target.ScopeProject,
-			Plan:        planIdentity,
+			Plan:        delegatePlan,
 			Disposition: disposition,
-			Disclosure:  decision.Disclosure(),
 			Risks:       decision.Risks(),
 		})
 		if err == nil || !strings.Contains(err.Error(), "disposition") {
@@ -198,9 +198,8 @@ func TestNewDelegateActionRejectsEffectOutcomesAndIncompatibleDisposition(t *tes
 		Subject:     record.SubjectID(),
 		Target:      target.TargetClaudeCode,
 		Scope:       target.ScopeProject,
-		Plan:        planIdentity,
+		Plan:        delegatePlan,
 		Disposition: reconciliation.DelegateScheduled,
-		Disclosure:  decision.Disclosure(),
 		Risks:       decision.Risks(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "incompatible policy risks") {
@@ -223,21 +222,18 @@ func TestActionAccessorsReturnDefensiveCopies(t *testing.T) {
 	}
 
 	action := requireOneAction(t, actions)
-	identity := action.PlanIdentity()
-	identity.Args[0] = "mutated"
-	identity.Package.Name = "mutated"
-	disclosure := action.Disclosure()
-	disclosure.Args[0] = "mutated"
-	disclosure.Package.Name = "mutated"
+	plan := action.Plan()
+	args := plan.Command().Args()
+	args[0] = "mutated"
+	env := plan.Env().Bindings()
+	env[0] = delegate.EnvBinding{}
 	risks := action.Risks()
 	risks[0] = reconciliation.DelegateRisk{Code: reconciliation.DelegateRiskMissingRunner}
 	dependencies := action.Dependencies()
 	dependencies[0].Subject = topology.SubjectID{}
 
-	if action.PlanIdentity().Args[0] == "mutated" ||
-		action.PlanIdentity().Package.Name == "mutated" ||
-		action.Disclosure().Args[0] == "mutated" ||
-		action.Disclosure().Package.Name == "mutated" ||
+	if action.Plan().Command().Args()[0] == "mutated" ||
+		action.Plan().Env().Bindings()[0] == (delegate.EnvBinding{}) ||
 		action.Risks()[0].Code == reconciliation.DelegateRiskMissingRunner ||
 		action.Dependencies()[0].Subject.IsZero() {
 		t.Fatalf("action accessors leaked mutable state")
@@ -291,7 +287,6 @@ func testMCPRecord(t *testing.T, serverID string) lock.LockedSubjectContract {
 	if err != nil {
 		t.Fatalf("CanonicalClaudeProjectMCPServerEntry returned error: %v", err)
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	record, err := lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
 		Graph:                graph,
 		EntityID:             server.ID(),
@@ -301,7 +296,7 @@ func testMCPRecord(t *testing.T, serverID string) lock.LockedSubjectContract {
 		LauncherCommand:      "npx",
 		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
 		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: &delegateIdentity,
+		DelegatePlan:         &delegatePlan,
 		CredentialReferences: []string{"CONTEXT7_API_TOKEN"},
 	})
 	if err != nil {
@@ -310,7 +305,7 @@ func testMCPRecord(t *testing.T, serverID string) lock.LockedSubjectContract {
 	return record
 }
 
-func testDelegatePlanIdentity(
+func testDelegatePlan(
 	t *testing.T,
 	runnerKind delegate.RunnerKind,
 	commandName string,
@@ -318,7 +313,7 @@ func testDelegatePlanIdentity(
 	envRefs []string,
 	packageRef *delegate.PackageRef,
 	pinPolicy delegate.PinPolicy,
-) lock.DelegatePlanIdentity {
+) delegate.DelegatePlan {
 	t.Helper()
 	runner, err := delegate.NewRunner(runnerKind)
 	if err != nil {
@@ -350,12 +345,12 @@ func testDelegatePlanIdentity(
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
 	}
-	return lock.DelegatePlanIdentityFromPlan(plan)
+	return plan
 }
 
 func testPolicyDecision(
 	t *testing.T,
-	plan lock.DelegatePlanIdentity,
+	plan delegate.DelegatePlan,
 	mode delegatepolicy.Mode,
 	runner delegatepolicy.RunnerReadiness,
 	missingEnvRefs []string,

@@ -1,82 +1,102 @@
 package lockfile
 
 import (
+	"fmt"
+
 	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
-func delegatePlanFromDTO(dto *delegatePlanDTO) (*lock.DelegatePlanIdentity, error) {
+func delegatePlanFromDTO(dto *delegatePlanDTO) (*delegate.DelegatePlan, error) {
 	if dto == nil {
 		return nil, nil
 	}
-	identity := lock.DelegatePlanIdentity{
-		IdentityKey: dto.IdentityKey,
-		RunnerKind:  delegate.RunnerKind(dto.RunnerKind),
-		Command:     dto.Command,
-		Args:        dto.Args,
-		Env:         delegateEnvFromDTO(dto.Env),
-		PinPolicy:   delegate.PinPolicy(dto.PinPolicy),
-	}
-	if dto.Package != nil {
-		identity.Package = &lock.DelegatePackageIdentity{
-			Ecosystem: delegate.PackageEcosystem(dto.Package.Ecosystem),
-			Name:      dto.Package.Name,
-			Selector:  dto.Package.Selector,
-		}
-	}
-	canonical, err := lock.NewDelegatePlanIdentity(identity)
+	runner, err := delegate.NewRunner(delegate.RunnerKind(dto.RunnerKind))
 	if err != nil {
 		return nil, err
 	}
-	return &canonical, nil
+	command, err := delegate.NewCommandSpec(dto.Command, dto.Args)
+	if err != nil {
+		return nil, err
+	}
+	env, err := delegateEnvFromDTO(dto.Env)
+	if err != nil {
+		return nil, err
+	}
+	var packageRef *delegate.PackageRef
+	if dto.Package != nil {
+		value, err := delegate.NewPackageRef(
+			delegate.PackageEcosystem(dto.Package.Ecosystem),
+			dto.Package.Name,
+			dto.Package.Selector,
+		)
+		if err != nil {
+			return nil, err
+		}
+		packageRef = &value
+	}
+	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
+		Runner:     runner,
+		Command:    command,
+		Env:        env,
+		PackageRef: packageRef,
+		PinPolicy:  delegate.PinPolicy(dto.PinPolicy),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if dto.IdentityKey != plan.IdentityKey() {
+		return nil, fmt.Errorf("delegate plan identity key does not match canonical plan")
+	}
+	return &plan, nil
 }
 
 func delegatePlanToDTO(contract lock.LockedSubjectContract) *delegatePlanDTO {
-	identity, ok := contract.DelegatePlanIdentity()
+	plan, ok := contract.DelegatePlan()
 	if !ok {
 		return nil
 	}
+	command := plan.Command()
 	dto := &delegatePlanDTO{
-		IdentityKey: identity.IdentityKey,
-		RunnerKind:  string(identity.RunnerKind),
-		Command:     identity.Command,
-		Args:        identity.Args,
-		Env:         delegateEnvToDTO(identity.Env),
-		PinPolicy:   string(identity.PinPolicy),
+		IdentityKey: plan.IdentityKey(),
+		RunnerKind:  string(plan.Runner().Kind()),
+		Command:     command.Name(),
+		Args:        command.Args(),
+		Env:         delegateEnvToDTO(plan.Env()),
+		PinPolicy:   string(plan.PinPolicy()),
 	}
-	if identity.Package != nil {
+	if packageRef, present := plan.PackageRef(); present {
 		dto.Package = &delegatePackageDTO{
-			Ecosystem: string(identity.Package.Ecosystem),
-			Name:      identity.Package.Name,
-			Selector:  identity.Package.Selector,
+			Ecosystem: string(packageRef.Ecosystem()),
+			Name:      packageRef.Name(),
+			Selector:  packageRef.Selector(),
 		}
 	}
 	return dto
 }
 
-func delegateEnvFromDTO(values []delegateEnvDTO) []lock.DelegateEnvBinding {
-	if len(values) == 0 {
-		return nil
-	}
-	result := make([]lock.DelegateEnvBinding, 0, len(values))
+func delegateEnvFromDTO(values []delegateEnvDTO) (delegate.EnvBindingSet, error) {
+	result := make([]delegate.EnvBinding, 0, len(values))
 	for _, value := range values {
-		result = append(result, lock.DelegateEnvBinding{
-			Name:       value.Name,
-			SourceName: value.SourceName,
-		})
+		binding, err := delegate.NewEnvBinding(value.Name, value.SourceName)
+		if err != nil {
+			return delegate.EnvBindingSet{}, err
+		}
+		result = append(result, binding)
 	}
-	return result
+	return delegate.NewEnvBindingSet(result)
 }
 
-func delegateEnvToDTO(values []lock.DelegateEnvBinding) []delegateEnvDTO {
+func delegateEnvToDTO(env delegate.EnvBindingSet) []delegateEnvDTO {
+	values := env.Bindings()
 	if len(values) == 0 {
 		return nil
 	}
 	result := make([]delegateEnvDTO, 0, len(values))
 	for _, value := range values {
 		result = append(result, delegateEnvDTO{
-			Name:       value.Name,
-			SourceName: value.SourceName,
+			Name:       value.Name(),
+			SourceName: value.SourceName(),
 		})
 	}
 	return result

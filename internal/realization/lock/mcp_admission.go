@@ -66,8 +66,8 @@ func validateAdmittedMCPProjection(
 		Ownership: OwnershipManifest, OnAbsent: OnAbsentRemoveBinding, Replay: replay,
 		OperationContracts: operationContracts,
 	}
-	if delegatePlan, present := contract.DelegatePlanIdentity(); present {
-		input.DelegatePlanIdentity = &delegatePlan
+	if delegatePlan, present := contract.DelegatePlan(); present {
+		input.DelegatePlan = &delegatePlan
 	}
 	expected, err := NewLockedSubjectContract(input)
 	if err != nil {

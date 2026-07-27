@@ -11,7 +11,6 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/delegatepolicy"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -263,9 +262,9 @@ func delegatePresentationAction(t *testing.T) reconcile.DelegateAction {
 	if err != nil {
 		t.Fatalf("ProjectionSubjectID returned error: %v", err)
 	}
-	planIdentity := delegatePresentationPlan(t)
+	plan := delegatePresentationPlan(t)
 	decision, err := delegatepolicy.Evaluate(delegatepolicy.Input{
-		Plan:   planIdentity,
+		Plan:   plan,
 		Mode:   delegatepolicy.ModeApply,
 		Runner: delegatepolicy.RunnerAvailable,
 	})
@@ -276,9 +275,8 @@ func delegatePresentationAction(t *testing.T) reconcile.DelegateAction {
 		Subject:     subject,
 		Target:      target.TargetClaudeCode,
 		Scope:       target.ScopeProject,
-		Plan:        planIdentity,
+		Plan:        plan,
 		Disposition: reconcile.DelegateScheduled,
-		Disclosure:  decision.Disclosure(),
 		Risks:       decision.Risks(),
 	})
 	if err != nil {
@@ -287,7 +285,7 @@ func delegatePresentationAction(t *testing.T) reconcile.DelegateAction {
 	return action
 }
 
-func delegatePresentationPlan(t *testing.T) lock.DelegatePlanIdentity {
+func delegatePresentationPlan(t *testing.T) surfacedelegate.DelegatePlan {
 	t.Helper()
 	runner, err := surfacedelegate.NewRunner(surfacedelegate.RunnerPlain)
 	if err != nil {
@@ -310,7 +308,7 @@ func delegatePresentationPlan(t *testing.T) lock.DelegatePlanIdentity {
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
 	}
-	return lock.DelegatePlanIdentityFromPlan(plan)
+	return plan
 }
 
 func delegatePresentationWorkingDirectoryBinder(t *testing.T) subprocess.WorkingDirectoryBinder {

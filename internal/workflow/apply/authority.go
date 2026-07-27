@@ -256,7 +256,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	for _, action := range result.Reconciliation.Delegates() {
 		if action.SchedulesAttempt() {
-			family := delegateRouteFamilyPrefix + string(action.PlanIdentity().RunnerKind)
+			family := delegateRouteFamilyPrefix + string(action.Plan().Runner().Kind())
 			if err := addRoute(string(action.Target()), string(action.Scope()), family); err != nil {
 				return applyAuthorityEvidence{}, err
 			}

@@ -81,8 +81,8 @@ func printSubjectFields(output io.Writer, contract lock.LockedSubjectContract) {
 	if recipe, ok := contract.RepairRecipe(); ok {
 		fmt.Fprintf(output, " repair_recipe_hash=%q", recipe.Hash())
 	}
-	if plan, ok := contract.DelegatePlanIdentity(); ok {
-		fmt.Fprintf(output, " delegate_plan=%q runner=%q", plan.IdentityKey, plan.RunnerKind)
+	if plan, ok := contract.DelegatePlan(); ok {
+		fmt.Fprintf(output, " delegate_plan=%q runner=%q", plan.IdentityKey(), plan.Runner().Kind())
 	}
 	if correlation, ok := contract.SkillSetMemberCorrelation(); ok {
 		fmt.Fprintf(output, " skill_set=%q", correlation.DeclarationIdentity())
@@ -206,9 +206,12 @@ func optionalRepairRecipe(contract lock.LockedSubjectContract) optional[skillrep
 	return optional[skillrepair.Recipe]{value: value, present: ok}
 }
 
-func optionalDelegatePlan(contract lock.LockedSubjectContract) optional[lock.DelegatePlanIdentity] {
-	value, ok := contract.DelegatePlanIdentity()
-	return optional[lock.DelegatePlanIdentity]{value: value, present: ok}
+func optionalDelegatePlan(contract lock.LockedSubjectContract) optional[string] {
+	value, ok := contract.DelegatePlan()
+	if !ok {
+		return optional[string]{}
+	}
+	return optional[string]{value: value.IdentityKey(), present: true}
 }
 
 func optionalSkillSetCorrelation(contract lock.LockedSubjectContract) optional[lock.SkillSetMemberCorrelation] {

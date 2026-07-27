@@ -77,9 +77,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "the split would duplicate schema and transaction authority; wire-neutral recovery algebra is already isolated",
 	},
 	"internal/realization/lock": {
-		reviewedValue:       22,
+		reviewedValue:       21,
 		owner:               "canonical Realization aggregate",
-		reason:              "at 22 production files, identity, admission, ordering, snapshot comparison, operation, and replay invariants form one closed aggregate",
+		reason:              "at 21 production files, identity, admission, ordering, snapshot comparison, operation, and replay invariants form one closed aggregate after delegate-plan identity moved to its canonical owner",
 		naturalSplit:        "move realization variants into child packages",
 		alternativeRejected: "variant packages would require reverse imports or export aggregate-private construction rules",
 	},

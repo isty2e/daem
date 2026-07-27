@@ -7,6 +7,7 @@ import (
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -20,7 +21,7 @@ type MCPProjectionInput struct {
 	LauncherArgs         []string
 	CanonicalProjection  string
 	CredentialReferences []string
-	DelegatePlanIdentity *lock.DelegatePlanIdentity
+	DelegatePlan         *delegate.DelegatePlan
 }
 
 // MCPProjection constructs one canonically refined MCP projection fixture.
@@ -66,7 +67,7 @@ func MCPProjection(t testing.TB, input MCPProjectionInput) lock.LockedSubjectCon
 		LauncherCommand:      input.LauncherCommand,
 		LauncherArgs:         append([]string(nil), input.LauncherArgs...),
 		CanonicalProjection:  input.CanonicalProjection,
-		DelegatePlanIdentity: input.DelegatePlanIdentity,
+		DelegatePlan:         input.DelegatePlan,
 		CredentialReferences: append([]string(nil), input.CredentialReferences...),
 	})
 	if err != nil {

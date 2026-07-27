@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/isty2e/daem/internal/realization/lock"
+	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 )
@@ -47,7 +47,8 @@ func (executor Executor) Execute(
 		return newAttemptRecord(action, AttemptSkipped, ReasonNotScheduled, subprocess.CommandAttemptResult{})
 	}
 
-	disclosure := action.Disclosure()
+	plan := action.Plan()
+	command := plan.Command()
 	if bind == nil {
 		bind = func() (subprocess.WorkingDirectoryBinding, error) {
 			return nil, errors.New("working-directory binding is required")
@@ -59,9 +60,9 @@ func (executor Executor) Execute(
 		LookupEnv:   executor.lookupEnv,
 		Runner:      executor.runner,
 	}).ExecuteInWorkingDirectory(ctx, subprocess.CommandAttemptRequest{
-		Command:     disclosure.Command,
-		Args:        append([]string(nil), disclosure.Args...),
-		EnvRefs:     commandEnvRefs(disclosure.Env),
+		Command:     command.Name(),
+		Args:        command.Args(),
+		EnvRefs:     commandEnvRefs(plan.Env().Bindings()),
 		OutputLimit: executor.outputLimit,
 	}, bind)
 	status, reason := classifyResult(result)
@@ -123,12 +124,12 @@ func classifyResult(result subprocess.CommandAttemptResult) (AttemptStatus, Reas
 	}
 }
 
-func commandEnvRefs(bindings []lock.DelegateEnvBinding) []subprocess.CommandEnvRef {
+func commandEnvRefs(bindings []realizationdelegate.EnvBinding) []subprocess.CommandEnvRef {
 	refs := make([]subprocess.CommandEnvRef, 0, len(bindings))
 	for _, binding := range bindings {
 		refs = append(refs, subprocess.CommandEnvRef{
-			Name:       binding.Name,
-			SourceName: binding.SourceName,
+			Name:       binding.Name(),
+			SourceName: binding.SourceName(),
 		})
 	}
 	return refs

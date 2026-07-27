@@ -61,9 +61,9 @@ func TestRunIgnoresLastDelegateAttemptForDifferentTargetScope(t *testing.T) {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	canonical := canonicalStatusMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeTestFile(t, tempDir, aggregate.ClaudeProjectMCPConfigPath, `{"mcpServers":{"context7":`+string(canonical)+`}}`)
@@ -80,7 +80,7 @@ func TestRunIgnoresLastDelegateAttemptForDifferentTargetScope(t *testing.T) {
 				record.SubjectID(),
 				target.TargetClaudeCode,
 				target.ScopeGlobal,
-				delegateIdentity.IdentityKey,
+				delegatePlan.IdentityKey(),
 				durableattempt.DelegateStatusFailed,
 				durableattempt.DelegateReasonNonZeroExit,
 			),
@@ -105,9 +105,9 @@ func TestRunSelectsMatchingLastDelegateAttemptAfterUnrelatedRows(t *testing.T) {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	canonical := canonicalStatusMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeTestFile(t, tempDir, aggregate.ClaudeProjectMCPConfigPath, `{"mcpServers":{"context7":`+string(canonical)+`}}`)
@@ -124,7 +124,7 @@ func TestRunSelectsMatchingLastDelegateAttemptAfterUnrelatedRows(t *testing.T) {
 				record.SubjectID(),
 				target.TargetClaudeCode,
 				target.ScopeGlobal,
-				delegateIdentity.IdentityKey,
+				delegatePlan.IdentityKey(),
 				durableattempt.DelegateStatusFailed,
 				durableattempt.DelegateReasonNonZeroExit,
 			),
@@ -133,7 +133,7 @@ func TestRunSelectsMatchingLastDelegateAttemptAfterUnrelatedRows(t *testing.T) {
 				record.SubjectID(),
 				target.TargetClaudeCode,
 				target.ScopeProject,
-				delegateIdentity.IdentityKey,
+				delegatePlan.IdentityKey(),
 				durableattempt.DelegateStatusSucceeded,
 				durableattempt.DelegateReasonNone,
 			),

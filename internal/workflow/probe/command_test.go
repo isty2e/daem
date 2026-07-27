@@ -609,19 +609,19 @@ func tamperedClaudeLockedProjection(
 	if err != nil {
 		t.Fatalf("NewManagedAggregateContribution: %v", err)
 	}
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked subject is missing delegate plan identity")
+		t.Fatal("locked subject is missing delegate plan")
 	}
 	tampered, err := lock.NewLockedSubjectContract(lock.LockedSubjectContractInput{
-		EntityID:             record.EntityID(),
-		SubjectID:            record.SubjectID(),
-		Realization:          &tamperedRealization,
-		DelegatePlanIdentity: &delegateIdentity,
-		Ownership:            record.Ownership(),
-		OnAbsent:             record.OnAbsent(),
-		Replay:               record.ReplayCoverage(),
-		OperationContracts:   probeOperationContractsFromRecord(record),
+		EntityID:           record.EntityID(),
+		SubjectID:          record.SubjectID(),
+		Realization:        &tamperedRealization,
+		DelegatePlan:       &delegatePlan,
+		Ownership:          record.Ownership(),
+		OnAbsent:           record.OnAbsent(),
+		Replay:             record.ReplayCoverage(),
+		OperationContracts: probeOperationContractsFromRecord(record),
 	})
 	if err != nil {
 		t.Fatalf("NewLockedSubjectContract: %v", err)

@@ -131,7 +131,6 @@ func applyMCPLockfile(t *testing.T, serverID string, command string, args []stri
 	if !ok {
 		t.Fatal("Claude project MCP placement is unavailable")
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	record, err := lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
 		Graph:                graph,
 		EntityID:             server.ID(),
@@ -141,7 +140,7 @@ func applyMCPLockfile(t *testing.T, serverID string, command string, args []stri
 		LauncherCommand:      command,
 		LauncherArgs:         args,
 		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: &delegateIdentity,
+		DelegatePlan:         &delegatePlan,
 		CredentialReferences: []string{"DAEM_TEST_TOKEN"},
 	})
 	if err != nil {

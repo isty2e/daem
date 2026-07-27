@@ -203,15 +203,15 @@ func successfulAttemptForContract(
 	if !ok {
 		t.Fatal("MCP fixture is missing aggregate contribution")
 	}
-	identity, ok := contract.DelegatePlanIdentity()
+	plan, ok := contract.DelegatePlan()
 	if !ok {
-		t.Fatal("MCP fixture is missing delegate plan identity")
+		t.Fatal("MCP fixture is missing delegate plan")
 	}
 	attempt, err := durableattempt.NewDelegateAttempt(durableattempt.DelegateAttemptInput{
 		Subject:         contract.SubjectID(),
 		Target:          contribution.Target(),
 		Scope:           contribution.Scope(),
-		PlanIdentityKey: identity.IdentityKey,
+		PlanIdentityKey: plan.IdentityKey(),
 		ObservedAt:      time.Unix(1, 0),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,

@@ -141,9 +141,9 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 func TestMCPProjectionSubjectContractCorrelatesDelegatePlan(t *testing.T) {
 	placement := mustTestMCPPlacement(t, aggregate.MCPPlacementClaudeProject)
 	base := testMCPProjectionInput(t, placement, []string{"TOKEN"})
-	identity := testDelegatePlanIdentity(t, "npx", []string{"-y", "@acme/mcp"}, []string{"TOKEN"})
+	plan := testDelegatePlan(t, "npx", []string{"-y", "@acme/mcp"}, []string{"TOKEN"})
 	base.LauncherArgs = []string{"-y", "@acme/mcp"}
-	base.DelegatePlanIdentity = &identity
+	base.DelegatePlan = &plan
 	if _, err := NewMCPProjectionSubjectContract(base); err != nil {
 		t.Fatalf("correlated delegate plan rejected: %v", err)
 	}
@@ -245,7 +245,7 @@ func mustTestMCPPlacement(t *testing.T, id aggregate.MCPPlacementID) aggregate.M
 	return aggregate.MCPPlacement{}
 }
 
-func testDelegatePlanIdentity(t *testing.T, commandName string, args []string, env []string) DelegatePlanIdentity {
+func testDelegatePlan(t *testing.T, commandName string, args []string, env []string) delegate.DelegatePlan {
 	t.Helper()
 	runner, err := delegate.NewRunner(delegate.RunnerPlain)
 	if err != nil {
@@ -266,7 +266,7 @@ func testDelegatePlanIdentity(t *testing.T, commandName string, args []string, e
 	if err != nil {
 		t.Fatal(err)
 	}
-	return DelegatePlanIdentityFromPlan(plan)
+	return plan
 }
 
 func TestMCPProjectionSubjectContractUsesAggregateRealizationKind(t *testing.T) {

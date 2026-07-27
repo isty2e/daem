@@ -96,7 +96,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		Realization:               realization,
 		Derivation:                derivation,
 		RepairRecipe:              recipe,
-		DelegatePlanIdentity:      delegatePlan,
+		DelegatePlan:              delegatePlan,
 		SkillSetMemberCorrelation: correlation,
 		Ownership:                 lock.OwnershipBasis(dto.Ownership),
 		OnAbsent:                  lock.OnAbsentPolicy(dto.OnAbsent),

@@ -15,6 +15,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -299,11 +300,19 @@ func probeRequestFromLockedLaunchIdentity(contract lock.LockedSubjectContract) (
 		return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("decode locked MCP projection for %q: %w", subject.Key(), err)
 	}
 	if operations.RuntimeProbeRequiresDelegatePlan() {
-		plan, present := contract.DelegatePlanIdentity()
+		plan, present := contract.DelegatePlan()
 		if !present {
 			return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q is missing locked launch identity", subject.Key())
 		}
-		if !plan.CorrelatesInvocation(command, args, delegateEnvBindings(env)) {
+		commandSpec, err := delegate.NewCommandSpec(command, args)
+		if err != nil {
+			return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q has invalid probe command: %w", subject.Key(), err)
+		}
+		envBindings, err := delegateEnvBindingSet(env)
+		if err != nil {
+			return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q has invalid probe environment: %w", subject.Key(), err)
+		}
+		if !plan.CorrelatesInvocation(commandSpec, envBindings) {
 			return runtimeprobemcp.ProbeRequest{}, fmt.Errorf("locked MCP subject %q projection does not match locked launch identity", subject.Key())
 		}
 	}
@@ -315,15 +324,16 @@ func probeRequestFromLockedLaunchIdentity(contract lock.LockedSubjectContract) (
 	}, nil
 }
 
-func delegateEnvBindings(values map[string]string) []lock.DelegateEnvBinding {
-	result := make([]lock.DelegateEnvBinding, 0, len(values))
+func delegateEnvBindingSet(values map[string]string) (delegate.EnvBindingSet, error) {
+	result := make([]delegate.EnvBinding, 0, len(values))
 	for name, sourceName := range values {
-		result = append(result, lock.DelegateEnvBinding{
-			Name:       name,
-			SourceName: sourceName,
-		})
+		binding, err := delegate.NewEnvBinding(name, sourceName)
+		if err != nil {
+			return delegate.EnvBindingSet{}, err
+		}
+		result = append(result, binding)
 	}
-	return result
+	return delegate.NewEnvBindingSet(result)
 }
 
 func validateRuntimeProbeBinding(binding desiredmcp.Binding) error {

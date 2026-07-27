@@ -390,16 +390,15 @@ func testLockedMCPSubject(t *testing.T, serverID string) lock.LockedSubjectContr
 	if err != nil {
 		t.Fatalf("CanonicalMCPBindingContribution returned error: %v", err)
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	record, err := lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
-		Graph:                graph,
-		EntityID:             server.ID(),
-		PlacementID:          placement.ID(),
-		ServerID:             serverID,
-		RequestedOnAbsent:    desiredmcp.OnAbsentRemoveBinding,
-		LauncherCommand:      "node",
-		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: &delegateIdentity,
+		Graph:               graph,
+		EntityID:            server.ID(),
+		PlacementID:         placement.ID(),
+		ServerID:            serverID,
+		RequestedOnAbsent:   desiredmcp.OnAbsentRemoveBinding,
+		LauncherCommand:     "node",
+		CanonicalProjection: string(canonical),
+		DelegatePlan:        &delegatePlan,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPProjectionSubjectContract returned error: %v", err)

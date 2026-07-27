@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 )
 
@@ -39,7 +38,7 @@ const (
 
 // Input contains already-observed facts for one delegate policy decision.
 type Input struct {
-	Plan               lock.DelegatePlanIdentity
+	Plan               delegate.DelegatePlan
 	Mode               Mode
 	Runner             RunnerReadiness
 	MissingEnvRefs     []string
@@ -53,15 +52,13 @@ type PreconditionBlock struct {
 
 // Decision is a pure scheduling result. It does not execute, probe, or present.
 type Decision struct {
-	outcome    Outcome
-	disclosure reconciliation.DelegateDisclosure
-	risks      []reconciliation.DelegateRisk
+	outcome Outcome
+	risks   []reconciliation.DelegateRisk
 }
 
 // Evaluate classifies whether a locked delegate plan may be scheduled.
 func Evaluate(input Input) (Decision, error) {
-	plan, err := lock.NewDelegatePlanIdentity(input.Plan)
-	if err != nil {
+	if err := input.Plan.Validate(); err != nil {
 		return Decision{}, err
 	}
 	if err := validateMode(input.Mode); err != nil {
@@ -70,7 +67,7 @@ func Evaluate(input Input) (Decision, error) {
 	if err := validateRunnerReadiness(input.Runner); err != nil {
 		return Decision{}, err
 	}
-	missingEnvRefs, err := normalizeMissingEnvRefs(plan, input.MissingEnvRefs)
+	missingEnvRefs, err := normalizeMissingEnvRefs(input.Plan, input.MissingEnvRefs)
 	if err != nil {
 		return Decision{}, err
 	}
@@ -79,12 +76,11 @@ func Evaluate(input Input) (Decision, error) {
 		return Decision{}, err
 	}
 
-	risks := classifyRisks(plan, input.Mode, input.Runner, missingEnvRefs, preconditionBlocks)
+	risks := classifyRisks(input.Plan, input.Mode, input.Runner, missingEnvRefs, preconditionBlocks)
 	outcome := outcomeFor(input.Mode, risks)
 	return Decision{
-		outcome:    outcome,
-		disclosure: disclosureFromPlan(plan),
-		risks:      risks,
+		outcome: outcome,
+		risks:   risks,
 	}, nil
 }
 
@@ -93,36 +89,33 @@ func (decision Decision) Outcome() Outcome {
 	return decision.outcome
 }
 
-// Disclosure returns a defensive copy of the exact locked invocation facts.
-func (decision Decision) Disclosure() reconciliation.DelegateDisclosure {
-	return cloneDisclosure(decision.disclosure)
-}
-
 // Risks returns a stable copy of policy reasons.
 func (decision Decision) Risks() []reconciliation.DelegateRisk {
 	return append([]reconciliation.DelegateRisk(nil), decision.risks...)
 }
 
 func classifyRisks(
-	plan lock.DelegatePlanIdentity,
+	plan delegate.DelegatePlan,
 	mode Mode,
 	runner RunnerReadiness,
 	missingEnvRefs []string,
 	preconditionBlocks []PreconditionBlock,
 ) []reconciliation.DelegateRisk {
 	risks := make([]reconciliation.DelegateRisk, 0)
+	command := plan.Command()
+	runnerKind := plan.Runner().Kind()
 	if mode == ModeDryRun {
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskDryRunDisclosure,
 			Severity: reconciliation.DelegateRiskInfo,
-			Subject:  plan.Command,
+			Subject:  command.Name(),
 		})
 	}
 	if runner == RunnerMissing {
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskMissingRunner,
 			Severity: reconciliation.DelegateRiskBlock,
-			Subject:  plan.Command,
+			Subject:  command.Name(),
 		})
 	}
 	for _, envRef := range missingEnvRefs {
@@ -139,14 +132,14 @@ func classifyRisks(
 			Subject:  block.Subject,
 		})
 	}
-	if runnerMayUseExternalStore(plan.RunnerKind) {
+	if runnerMayUseExternalStore(runnerKind) {
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskExternalStore,
 			Severity: reconciliation.DelegateRiskWarn,
-			Subject:  string(plan.RunnerKind),
+			Subject:  string(runnerKind),
 		})
 	}
-	switch plan.PinPolicy {
+	switch plan.PinPolicy() {
 	case delegate.PinFloating:
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskFloatingPackage,
@@ -157,7 +150,7 @@ func classifyRisks(
 		risks = append(risks, reconciliation.DelegateRisk{
 			Code:     reconciliation.DelegateRiskHostSelected,
 			Severity: reconciliation.DelegateRiskWarn,
-			Subject:  string(plan.RunnerKind),
+			Subject:  string(runnerKind),
 		})
 	}
 	return risks
@@ -180,52 +173,14 @@ func outcomeFor(mode Mode, risks []reconciliation.DelegateRisk) Outcome {
 	return OutcomeAllow
 }
 
-func disclosureFromPlan(plan lock.DelegatePlanIdentity) reconciliation.DelegateDisclosure {
-	disclosure := reconciliation.DelegateDisclosure{
-		IdentityKey: plan.IdentityKey,
-		RunnerKind:  plan.RunnerKind,
-		Command:     plan.Command,
-		Args:        append([]string(nil), plan.Args...),
-		Env:         append([]lock.DelegateEnvBinding(nil), plan.Env...),
-		PinPolicy:   plan.PinPolicy,
-	}
-	if plan.Package != nil {
-		disclosure.Package = &lock.DelegatePackageIdentity{
-			Ecosystem: plan.Package.Ecosystem,
-			Name:      plan.Package.Name,
-			Selector:  plan.Package.Selector,
-		}
-	}
-	return disclosure
-}
-
-func cloneDisclosure(disclosure reconciliation.DelegateDisclosure) reconciliation.DelegateDisclosure {
-	cloned := reconciliation.DelegateDisclosure{
-		IdentityKey: disclosure.IdentityKey,
-		RunnerKind:  disclosure.RunnerKind,
-		Command:     disclosure.Command,
-		Args:        append([]string(nil), disclosure.Args...),
-		Env:         append([]lock.DelegateEnvBinding(nil), disclosure.Env...),
-		PinPolicy:   disclosure.PinPolicy,
-	}
-	if disclosure.Package != nil {
-		cloned.Package = &lock.DelegatePackageIdentity{
-			Ecosystem: disclosure.Package.Ecosystem,
-			Name:      disclosure.Package.Name,
-			Selector:  disclosure.Package.Selector,
-		}
-	}
-	return cloned
-}
-
 func normalizeMissingEnvRefs(
-	plan lock.DelegatePlanIdentity,
+	plan delegate.DelegatePlan,
 	missing []string,
 ) ([]string, error) {
 	if len(missing) == 0 {
 		return nil, nil
 	}
-	requiredNames := plan.EnvSourceNames()
+	requiredNames := plan.Env().SourceNames()
 	required := make(map[string]struct{}, len(requiredNames))
 	for _, envRef := range requiredNames {
 		required[envRef] = struct{}{}
@@ -288,14 +243,15 @@ func runnerMayUseExternalStore(kind delegate.RunnerKind) bool {
 	}
 }
 
-func packageSubject(plan lock.DelegatePlanIdentity) string {
-	if plan.Package == nil {
-		return string(plan.RunnerKind)
+func packageSubject(plan delegate.DelegatePlan) string {
+	packageRef, present := plan.PackageRef()
+	if !present {
+		return string(plan.Runner().Kind())
 	}
-	if strings.TrimSpace(plan.Package.Selector) == "" {
-		return plan.Package.Name
+	if strings.TrimSpace(packageRef.Selector()) == "" {
+		return packageRef.Name()
 	}
-	return plan.Package.Name + "@" + plan.Package.Selector
+	return packageRef.Name() + "@" + packageRef.Selector()
 }
 
 func validateMode(mode Mode) error {

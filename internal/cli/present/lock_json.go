@@ -205,8 +205,8 @@ func jsonLockedSubjectFor(contract lock.LockedSubjectContract) jsonLockedSubject
 	if recipe, ok := contract.RepairRecipe(); ok {
 		result.RepairHash = recipe.Hash()
 	}
-	if plan, ok := contract.DelegatePlanIdentity(); ok {
-		result.DelegatePlan = &jsonDelegatePlan{IdentityKey: plan.IdentityKey, RunnerKind: string(plan.RunnerKind)}
+	if plan, ok := contract.DelegatePlan(); ok {
+		result.DelegatePlan = &jsonDelegatePlan{IdentityKey: plan.IdentityKey(), RunnerKind: string(plan.Runner().Kind())}
 	}
 	if correlation, ok := contract.SkillSetMemberCorrelation(); ok {
 		result.SkillSetMember = &jsonSkillSetCorrelation{

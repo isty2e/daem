@@ -7,6 +7,7 @@ import (
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
@@ -36,14 +37,13 @@ func claudeMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	if err != nil {
 		t.Fatalf("CanonicalClaudeProjectMCPServerEntry returned error: %v", err)
 	}
-	delegateIdentity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
 	return mcpProjectionContract(
 		t,
 		graph,
 		server,
 		aggregate.MCPPlacementClaudeProject,
 		string(canonical),
-		&delegateIdentity,
+		&delegatePlan,
 		[]string{"CONTEXT7_API_TOKEN"},
 	)
 }
@@ -94,7 +94,7 @@ func mcpProjectionContract(
 	server desiredmcp.Server,
 	placementID aggregate.MCPPlacementID,
 	canonical string,
-	delegateIdentity *lock.DelegatePlanIdentity,
+	delegatePlan *delegate.DelegatePlan,
 	credentialReferences []string,
 ) lock.LockedSubjectContract {
 	t.Helper()
@@ -107,7 +107,7 @@ func mcpProjectionContract(
 		LauncherCommand:      "npx",
 		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
 		CanonicalProjection:  canonical,
-		DelegatePlanIdentity: delegateIdentity,
+		DelegatePlan:         delegatePlan,
 		CredentialReferences: credentialReferences,
 	})
 	if err != nil {

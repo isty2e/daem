@@ -324,7 +324,7 @@ func TestLockedSubjectContractRejectsCrossAxisPolicyDrift(t *testing.T) {
 	aggregate := mustAggregateContractRealization(t, "review")
 	delegated := mustDelegatedContractRealization(t, "review")
 	filePath := mustPathContractRealization(t, target.TargetCodex, "AGENTS.md", "managed-path-v1")
-	plan := DelegatePlanIdentityFromPlan(mustDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, delegate.PinNotApplicable))
+	plan := mustDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, delegate.PinNotApplicable)
 
 	tests := []struct {
 		name  string
@@ -372,7 +372,7 @@ func TestLockedSubjectContractRejectsCrossAxisPolicyDrift(t *testing.T) {
 			input: LockedSubjectContractInput{
 				EntityID:    mustContractEntityID(t, entity.KindSkill, "review"),
 				SubjectID:   mustTopologySubjectID(t, topology.SubjectResource, "skill", "review"),
-				ExactSupply: &exact, Derivation: &direct, DelegatePlanIdentity: &plan,
+				ExactSupply: &exact, Derivation: &direct, DelegatePlan: &plan,
 				Ownership: OwnershipManifest, OnAbsent: OnAbsentApply,
 				Replay:             mustContractReplay(t, ReplayUnavailable, ReplayExact, ReplayNotApplicable),
 				OperationContracts: contractSupplyOperations(t, "snapshot.resource.v1"),

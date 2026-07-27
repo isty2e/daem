@@ -7,6 +7,7 @@ import (
 
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/realization/delegate"
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/topology"
@@ -98,10 +99,9 @@ func mcpLockedSubjectContract(
 	if err != nil {
 		return lock.LockedSubjectContract{}, err
 	}
-	var delegateIdentity *lock.DelegatePlanIdentity
+	var lockedDelegatePlan *delegate.DelegatePlan
 	if hasDelegatePlan {
-		identity := lock.DelegatePlanIdentityFromPlan(delegatePlan)
-		delegateIdentity = &identity
+		lockedDelegatePlan = &delegatePlan
 	}
 
 	return lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
@@ -113,7 +113,7 @@ func mcpLockedSubjectContract(
 		LauncherCommand:      stdio.Command().Name(),
 		LauncherArgs:         stdio.Args(),
 		CanonicalProjection:  string(canonical),
-		DelegatePlanIdentity: delegateIdentity,
+		DelegatePlan:         lockedDelegatePlan,
 		CredentialReferences: credentialReferences,
 	})
 }

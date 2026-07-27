@@ -51,8 +51,8 @@ func TestBuildLocksClaudeExtensionsAsPluginCarrierSubjects(t *testing.T) {
 
 	record := file.Locked.Subjects()[0]
 	assertClaudeExtensionSubjectRecord(t, record, "context7-managed", "context7@official")
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("Claude extension carrier lock must not carry delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("Claude extension carrier lock must not carry delegate plan")
 	}
 }
 

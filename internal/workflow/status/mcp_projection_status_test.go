@@ -171,9 +171,9 @@ func TestRunReportsProjectedMCPStatusWhenStateOwnsEntry(t *testing.T) {
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	delegateIdentity, ok := record.DelegatePlanIdentity()
+	delegatePlan, ok := record.DelegatePlan()
 	if !ok {
-		t.Fatal("locked MCP record missing delegate plan identity")
+		t.Fatal("locked MCP record missing delegate plan")
 	}
 	canonical := canonicalStatusMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeTestFile(t, tempDir, aggregate.ClaudeProjectMCPConfigPath, `{"mcpServers":{"context7":`+string(canonical)+`}}`)
@@ -190,7 +190,7 @@ func TestRunReportsProjectedMCPStatusWhenStateOwnsEntry(t *testing.T) {
 				record.SubjectID(),
 				target.TargetClaudeCode,
 				target.ScopeProject,
-				delegateIdentity.IdentityKey,
+				delegatePlan.IdentityKey(),
 				durableattempt.DelegateStatusFailed,
 				durableattempt.DelegateReasonNonZeroExit,
 			),
@@ -222,8 +222,8 @@ func TestRunReportsProjectedAntigravityMCPStatusWhenStateOwnsEntry(t *testing.T)
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	record := lockedStatusAntigravityMCPRecord(t, filepath.Join(tempDir, "daem.lock.toml"), "context7")
-	if _, ok := record.DelegatePlanIdentity(); ok {
-		t.Fatal("locked Antigravity MCP record unexpectedly has delegate plan identity")
+	if _, ok := record.DelegatePlan(); ok {
+		t.Fatal("locked Antigravity MCP record unexpectedly has delegate plan")
 	}
 	canonical := canonicalStatusAntigravityMCPEntryWithArgs(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
 	writeHomeRelativeTestFile(t, homeDir, ".gemini/config/mcp_config.json", `{"mcpServers":{"context7":`+string(canonical)+`}}`)

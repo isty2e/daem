@@ -4,12 +4,11 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 )
 
-func TestEvaluateApplySchedulesDelegateAndDisclosesRisks(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server"}, []string{"API_TOKEN"}, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", ""), delegate.PinFloating)
+func TestEvaluateApplySchedulesDelegateAndReportsRisks(t *testing.T) {
+	plan := testDelegatePlan(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server"}, []string{"API_TOKEN"}, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", ""), delegate.PinFloating)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -24,18 +23,10 @@ func TestEvaluateApplySchedulesDelegateAndDisclosesRisks(t *testing.T) {
 	}
 	assertRisk(t, decision, reconciliation.DelegateRiskExternalStore, reconciliation.DelegateRiskWarn, string(delegate.RunnerNPX))
 	assertRisk(t, decision, reconciliation.DelegateRiskFloatingPackage, reconciliation.DelegateRiskWarn, "@scope/server")
-	disclosure := decision.Disclosure()
-	if disclosure.Command != "npx" ||
-		disclosure.Args[1] != "@scope/server" ||
-		disclosure.Env[0].SourceName != "API_TOKEN" ||
-		disclosure.Package == nil ||
-		disclosure.Package.Name != "@scope/server" {
-		t.Fatalf("disclosure = %#v", disclosure)
-	}
 }
 
 func TestEvaluateApplyAllowsPlainDelegateWhenReady(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -54,7 +45,7 @@ func TestEvaluateApplyAllowsPlainDelegateWhenReady(t *testing.T) {
 }
 
 func TestEvaluateApplyWarnsForPackageBackedAndFloatingDelegates(t *testing.T) {
-	pinned := testDelegatePlanIdentity(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server@1.2.3"}, nil, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", "1.2.3"), delegate.PinPinned)
+	pinned := testDelegatePlan(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server@1.2.3"}, nil, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", "1.2.3"), delegate.PinPinned)
 	pinnedDecision, err := Evaluate(Input{
 		Plan:   pinned,
 		Mode:   ModeApply,
@@ -69,7 +60,7 @@ func TestEvaluateApplyWarnsForPackageBackedAndFloatingDelegates(t *testing.T) {
 	assertRisk(t, pinnedDecision, reconciliation.DelegateRiskExternalStore, reconciliation.DelegateRiskWarn, string(delegate.RunnerNPX))
 	assertNoRisk(t, pinnedDecision, reconciliation.DelegateRiskFloatingPackage)
 
-	floating := testDelegatePlanIdentity(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server"}, nil, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", ""), delegate.PinFloating)
+	floating := testDelegatePlan(t, delegate.RunnerNPX, "npx", []string{"-y", "@scope/server"}, nil, testPackageRef(t, delegate.EcosystemNPM, "@scope/server", ""), delegate.PinFloating)
 	floatingDecision, err := Evaluate(Input{
 		Plan:   floating,
 		Mode:   ModeApply,
@@ -85,7 +76,7 @@ func TestEvaluateApplyWarnsForPackageBackedAndFloatingDelegates(t *testing.T) {
 }
 
 func TestEvaluateApplyBlocksKnownMissingRunnerAndEnvRefs(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN", "OTHER_TOKEN"}, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN", "OTHER_TOKEN"}, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:           plan,
@@ -105,7 +96,7 @@ func TestEvaluateApplyBlocksKnownMissingRunnerAndEnvRefs(t *testing.T) {
 }
 
 func TestEvaluateApplyBlocksOnPreconditionBlock(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -128,8 +119,8 @@ func TestEvaluateApplyBlocksOnPreconditionBlock(t *testing.T) {
 	assertRisk(t, decision, reconciliation.DelegateRiskPreconditionBlocked, reconciliation.DelegateRiskBlock, "projection:projection/claude-project-mcp/context7")
 }
 
-func TestEvaluateDryRunSkipsAndKeepsDisclosureWithoutExecution(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerDocker, "docker", []string{"run", "ghcr.io/acme/server:latest"}, nil, testPackageRef(t, delegate.EcosystemContainer, "ghcr.io/acme/server", "latest"), delegate.PinFloating)
+func TestEvaluateDryRunSkipsWithoutExecution(t *testing.T) {
+	plan := testDelegatePlan(t, delegate.RunnerDocker, "docker", []string{"run", "ghcr.io/acme/server:latest"}, nil, testPackageRef(t, delegate.EcosystemContainer, "ghcr.io/acme/server", "latest"), delegate.PinFloating)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -144,14 +135,10 @@ func TestEvaluateDryRunSkipsAndKeepsDisclosureWithoutExecution(t *testing.T) {
 	}
 	assertRisk(t, decision, reconciliation.DelegateRiskDryRunDisclosure, reconciliation.DelegateRiskInfo, "docker")
 	assertRisk(t, decision, reconciliation.DelegateRiskMissingRunner, reconciliation.DelegateRiskBlock, "docker")
-	disclosure := decision.Disclosure()
-	if disclosure.Package == nil || disclosure.Package.Selector != "latest" {
-		t.Fatalf("disclosure = %#v", disclosure)
-	}
 }
 
 func TestEvaluateRejectsInconsistentMissingEnvRef(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
 
 	_, err := Evaluate(Input{
 		Plan:           plan,
@@ -165,7 +152,7 @@ func TestEvaluateRejectsInconsistentMissingEnvRef(t *testing.T) {
 }
 
 func TestEvaluateWarnsForHostSelectedDelegate(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerHostNative, "claude", []string{"plugin", "install", "marketplace/name"}, nil, nil, delegate.PinHostSelected)
+	plan := testDelegatePlan(t, delegate.RunnerHostNative, "claude", []string{"plugin", "install", "marketplace/name"}, nil, nil, delegate.PinHostSelected)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -181,22 +168,19 @@ func TestEvaluateWarnsForHostSelectedDelegate(t *testing.T) {
 	assertRisk(t, decision, reconciliation.DelegateRiskHostSelected, reconciliation.DelegateRiskWarn, string(delegate.RunnerHostNative))
 }
 
-func TestEvaluateRejectsTamperedDelegatePlanIdentity(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
-	plan.Args = []string{"other.js"}
-
+func TestEvaluateRejectsZeroDelegatePlan(t *testing.T) {
 	_, err := Evaluate(Input{
-		Plan:   plan,
+		Plan:   delegate.DelegatePlan{},
 		Mode:   ModeApply,
 		Runner: RunnerAvailable,
 	})
 	if err == nil {
-		t.Fatal("Evaluate returned nil error for tampered delegate plan identity")
+		t.Fatal("Evaluate returned nil error for zero delegate plan")
 	}
 }
 
 func TestEvaluateRejectsUnsupportedModeAndRunnerReadiness(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
 
 	_, modeErr := Evaluate(Input{
 		Plan:   plan,
@@ -218,7 +202,7 @@ func TestEvaluateRejectsUnsupportedModeAndRunnerReadiness(t *testing.T) {
 }
 
 func TestEvaluateDeduplicatesMissingEnvRisks(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:           plan,
@@ -235,7 +219,7 @@ func TestEvaluateDeduplicatesMissingEnvRisks(t *testing.T) {
 }
 
 func TestDecisionRisksReturnsCopy(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerNPX, "npx", []string{"server"}, nil, testPackageRef(t, delegate.EcosystemNPM, "server", ""), delegate.PinFloating)
+	plan := testDelegatePlan(t, delegate.RunnerNPX, "npx", []string{"server"}, nil, testPackageRef(t, delegate.EcosystemNPM, "server", ""), delegate.PinFloating)
 	decision, err := Evaluate(Input{
 		Plan:   plan,
 		Mode:   ModeApply,
@@ -254,7 +238,7 @@ func TestDecisionRisksReturnsCopy(t *testing.T) {
 }
 
 func TestEvaluateApplyAllowsUnknownRunnerForExecutorRevalidation(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, nil, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -273,7 +257,7 @@ func TestEvaluateApplyAllowsUnknownRunnerForExecutorRevalidation(t *testing.T) {
 }
 
 func TestEvaluateApplyBlocksOnPassiveReadinessFacts(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
+	plan := testDelegatePlan(t, delegate.RunnerPlain, "node", []string{"server.js"}, []string{"API_TOKEN"}, nil, delegate.PinNotApplicable)
 
 	decision, err := Evaluate(Input{
 		Plan:           plan,
@@ -292,7 +276,7 @@ func TestEvaluateApplyBlocksOnPassiveReadinessFacts(t *testing.T) {
 }
 
 func TestEvaluateFloatingPackageRiskSubjectIncludesSelector(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerDocker, "docker", []string{"run", "ghcr.io/acme/server:latest"}, nil, testPackageRef(t, delegate.EcosystemContainer, "ghcr.io/acme/server", "latest"), delegate.PinFloating)
+	plan := testDelegatePlan(t, delegate.RunnerDocker, "docker", []string{"run", "ghcr.io/acme/server:latest"}, nil, testPackageRef(t, delegate.EcosystemContainer, "ghcr.io/acme/server", "latest"), delegate.PinFloating)
 
 	decision, err := Evaluate(Input{
 		Plan:   plan,
@@ -305,65 +289,7 @@ func TestEvaluateFloatingPackageRiskSubjectIncludesSelector(t *testing.T) {
 	assertRisk(t, decision, reconciliation.DelegateRiskFloatingPackage, reconciliation.DelegateRiskWarn, "ghcr.io/acme/server@latest")
 }
 
-func TestEvaluateDisclosureCopiesPlanFields(t *testing.T) {
-	plan := testDelegatePlanIdentity(t, delegate.RunnerNPX, "npx", []string{"server"}, []string{"API_TOKEN"}, testPackageRef(t, delegate.EcosystemNPM, "server", ""), delegate.PinFloating)
-
-	decision, err := Evaluate(Input{
-		Plan:   plan,
-		Mode:   ModeApply,
-		Runner: RunnerUnknown,
-	})
-	if err != nil {
-		t.Fatalf("Evaluate returned error: %v", err)
-	}
-
-	plan.Args[0] = "mutated"
-	plan.Env[0] = lock.DelegateEnvBinding{Name: "MUTATED", SourceName: "MUTATED"}
-	plan.Package.Name = "mutated"
-
-	disclosure := decision.Disclosure()
-	if disclosure.Args[0] != "server" ||
-		disclosure.Env[0].SourceName != "API_TOKEN" ||
-		disclosure.Package == nil ||
-		disclosure.Package.Name != "server" {
-		t.Fatalf("disclosure = %#v, want copied plan fields", disclosure)
-	}
-}
-
-func TestDecisionDisclosureIsImmutableAndMatchesEveryPlanFact(t *testing.T) {
-	plan := testDelegatePlanIdentity(
-		t,
-		delegate.RunnerNPX,
-		"npx",
-		[]string{"server"},
-		[]string{"API_TOKEN"},
-		testPackageRef(t, delegate.EcosystemNPM, "server", ""),
-		delegate.PinFloating,
-	)
-	decision, err := Evaluate(Input{Plan: plan, Mode: ModeApply, Runner: RunnerAvailable})
-	if err != nil {
-		t.Fatalf("Evaluate returned error: %v", err)
-	}
-	disclosure := decision.Disclosure()
-	if !disclosure.MatchesPlan(plan) {
-		t.Fatal("canonical disclosure does not match its locked plan")
-	}
-
-	disclosure.Env[0].SourceName = "OTHER_TOKEN"
-	disclosure.Args[0] = "other"
-	disclosure.Package.Name = "other"
-	if disclosure.MatchesPlan(plan) {
-		t.Fatal("tampered disclosure matched locked plan")
-	}
-	fresh := decision.Disclosure()
-	if fresh.Env[0].SourceName != "API_TOKEN" ||
-		fresh.Args[0] != "server" ||
-		fresh.Package.Name != "server" {
-		t.Fatalf("decision disclosure leaked mutable state: %#v", fresh)
-	}
-}
-
-func testDelegatePlanIdentity(
+func testDelegatePlan(
 	t *testing.T,
 	runnerKind delegate.RunnerKind,
 	commandName string,
@@ -371,7 +297,7 @@ func testDelegatePlanIdentity(
 	envRefs []string,
 	packageRef *delegate.PackageRef,
 	pinPolicy delegate.PinPolicy,
-) lock.DelegatePlanIdentity {
+) delegate.DelegatePlan {
 	t.Helper()
 	runner, err := delegate.NewRunner(runnerKind)
 	if err != nil {
@@ -403,7 +329,7 @@ func testDelegatePlanIdentity(
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
 	}
-	return lock.DelegatePlanIdentityFromPlan(plan)
+	return plan
 }
 
 func testPackageRef(t *testing.T, ecosystem delegate.PackageEcosystem, name string, selector string) *delegate.PackageRef {
