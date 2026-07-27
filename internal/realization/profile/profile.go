@@ -158,6 +158,29 @@ func (profile TargetProfile) DiscoveryLocations(resourceKind entity.Kind, scope 
 	return result
 }
 
+// HasImportableDiscovery reports whether at least one discovery location may
+// contribute a standalone import candidate.
+func (profile TargetProfile) HasImportableDiscovery() bool {
+	for _, location := range profile.discoveries {
+		if location.ImportPolicy() == ImportPolicyInclude {
+			return true
+		}
+	}
+	return false
+}
+
+// ImportableTargets returns target profiles with importable discovery evidence
+// in stable product target order.
+func ImportableTargets() []target.Target {
+	result := make([]target.Target, 0)
+	for _, selectedTarget := range target.SupportedTargets() {
+		if Profile(selectedTarget).HasImportableDiscovery() {
+			result = append(result, selectedTarget)
+		}
+	}
+	return result
+}
+
 // RuntimeLocations returns read-only host runtime lookup locations.
 func (profile TargetProfile) RuntimeLocations(resourceKind entity.Kind, scope target.Scope) []RuntimeLocation {
 	result := make([]RuntimeLocation, 0)

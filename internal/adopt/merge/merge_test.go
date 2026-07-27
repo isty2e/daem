@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -476,7 +477,7 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 		t.Fatal(err)
 	}
 	request, err := adopt.NewRequest(
-		adopt.SupportedTargets(),
+		profile.ImportableTargets(),
 		[]target.Scope{target.ScopeProject, target.ScopeGlobal},
 		output,
 		sourceDirectory,

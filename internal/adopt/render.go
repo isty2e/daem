@@ -200,7 +200,7 @@ func importManifestTables(
 			}
 		}
 		if skill.GroupRoot != "" {
-			groupKey := filepath.ToSlash(skill.GroupRoot) + "\x00" + string(skill.Scope) + "\x00" + TargetsKey(skillTargets)
+			groupKey := filepath.ToSlash(skill.GroupRoot) + "\x00" + string(skill.Scope) + "\x00" + importTargetSetKey(skillTargets)
 			if index, ok := manifestSkillGroupIndexes[groupKey]; ok {
 				existing := manifestSkillGroups[index]
 				existing.Names = append(existing.Names, skill.InstallName)
@@ -215,7 +215,7 @@ func importManifestTables(
 					Path: filepath.ToSlash(skill.GroupRoot),
 					Mode: string(sourcepkg.LocalSourceModeVendor),
 				},
-				Targets:     TargetStrings(OrderedTargets(skillTargets)),
+				Targets:     importTargetStrings(orderedImportTargets(skillTargets)),
 				Scope:       string(skill.Scope),
 				InstallMode: declarationInstallModeCopy,
 			})
@@ -239,7 +239,7 @@ func importManifestTables(
 				Path: manifestPath,
 				Mode: string(sourcepkg.LocalSourceModeVendor),
 			},
-			Targets:     TargetStrings(skillTargets),
+			Targets:     importTargetStrings(skillTargets),
 			Scope:       string(skill.Scope),
 			InstallMode: declarationInstallModeCopy,
 		})
@@ -327,5 +327,48 @@ func ManifestSkillID(skill Skill) string {
 }
 
 func mergeImportTargetStrings(existing []string, additions []targetpkg.Target) []string {
-	return MergeTargetStrings(existing, additions)
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	merged := make([]string, 0, len(existing)+len(additions))
+	for _, selectedTarget := range existing {
+		if _, duplicate := seen[selectedTarget]; duplicate {
+			continue
+		}
+		seen[selectedTarget] = struct{}{}
+		merged = append(merged, selectedTarget)
+	}
+	for _, selectedTarget := range additions {
+		value := string(selectedTarget)
+		if _, duplicate := seen[value]; duplicate {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	return merged
+}
+
+func importTargetSetKey(targets []targetpkg.Target) string {
+	return strings.Join(importTargetStrings(orderedImportTargets(targets)), "\x00")
+}
+
+func orderedImportTargets(targets []targetpkg.Target) []targetpkg.Target {
+	selected := make(map[targetpkg.Target]struct{}, len(targets))
+	for _, selectedTarget := range targets {
+		selected[selectedTarget] = struct{}{}
+	}
+	ordered := make([]targetpkg.Target, 0, len(selected))
+	for _, selectedTarget := range targetpkg.SupportedTargets() {
+		if _, ok := selected[selectedTarget]; ok {
+			ordered = append(ordered, selectedTarget)
+		}
+	}
+	return ordered
+}
+
+func importTargetStrings(targets []targetpkg.Target) []string {
+	values := make([]string, 0, len(targets))
+	for _, selectedTarget := range targets {
+		values = append(values, string(selectedTarget))
+	}
+	return values
 }

@@ -92,6 +92,15 @@ func TestRequestRejectsPartialAndDuplicateSelections(t *testing.T) {
 			}
 		})
 	}
+	if _, err := NewRequest(
+		[]targetpkg.Target{"unknown"},
+		[]targetpkg.Scope{targetpkg.ScopeProject},
+		output,
+		sourceDirectory,
+		false,
+	); err == nil || err.Error() != `target "unknown" is not supported by import` {
+		t.Fatalf("unsupported target error = %v", err)
+	}
 	if err := (Request{}).Validate(); err == nil {
 		t.Fatal("zero Request validated")
 	}

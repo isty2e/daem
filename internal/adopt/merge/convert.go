@@ -17,7 +17,7 @@ func manifestInstructionFromImportSource(source adoptmodel.Source, targets []tar
 			Path: filepath.ToSlash(source.SourcePath),
 			Mode: string(sourcepkg.LocalSourceModeVendor),
 		},
-		Targets: adoptmodel.TargetStrings(targets),
+		Targets: targetStrings(targets),
 		Scope:   string(source.Scope),
 	}
 	if source.RenderTo != "" {
@@ -36,7 +36,7 @@ func manifestSkillFromImportSkill(skill adoptmodel.Skill, targets []targetpkg.Ta
 			Path: filepath.ToSlash(skill.SourcePath),
 			Mode: string(sourcepkg.LocalSourceModeVendor),
 		},
-		Targets: adoptmodel.TargetStrings(targets),
+		Targets: targetStrings(targets),
 		Scope:   string(skill.Scope),
 	}
 }
@@ -50,7 +50,7 @@ func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target
 		Command:        hook.Command,
 		TimeoutSeconds: hook.Timeout,
 		StatusMessage:  hook.StatusMessage,
-		Targets:        adoptmodel.TargetStrings(targets),
+		Targets:        targetStrings(targets),
 		Scope:          string(hook.Scope),
 	}
 	if hook.Condition != "" && containsTarget(targets, hook.Target) {
@@ -59,6 +59,14 @@ func manifestHookFromImportHook(hook adoptmodel.Hook, targets []targetpkg.Target
 		}
 	}
 	return result
+}
+
+func targetStrings(targets []targetpkg.Target) []string {
+	values := make([]string, 0, len(targets))
+	for _, selectedTarget := range targets {
+		values = append(values, string(selectedTarget))
+	}
+	return values
 }
 
 func manifestMCPServerFromImportMCPServer(server adoptmodel.MCPServer) declarationcodec.MCPServer {

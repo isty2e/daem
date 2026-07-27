@@ -7,6 +7,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -28,7 +29,7 @@ func NewRequest(input RequestInput) (adoptmodel.Request, error) {
 		input.Scopes = []targetpkg.Scope{targetpkg.ScopeProject}
 	}
 	for _, target := range input.Targets {
-		if !adoptmodel.SupportsTarget(target) {
+		if !profile.Profile(target).HasImportableDiscovery() {
 			return adoptmodel.Request{}, fmt.Errorf("target %q is not supported by import", target)
 		}
 	}

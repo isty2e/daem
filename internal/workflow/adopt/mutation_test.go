@@ -10,6 +10,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -177,7 +178,7 @@ func testAdoptPlan(
 		t.Fatal(err)
 	}
 	request, err := adoptmodel.NewRequest(
-		adoptmodel.SupportedTargets(),
+		profile.ImportableTargets(),
 		[]target.Scope{target.ScopeProject, target.ScopeGlobal},
 		output,
 		sourceDirectory,

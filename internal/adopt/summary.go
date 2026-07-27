@@ -66,7 +66,7 @@ func importSummaryRows(plan Plan) map[importSummaryKey]importSummaryCounts {
 		if len(targets) == 0 {
 			targets = []targetpkg.Target{skill.Target}
 		}
-		for _, target := range UniqueTargets(targets) {
+		for _, target := range targets {
 			key := importSummaryKey{Target: target, Scope: skill.Scope}
 			counts := rows[key]
 			counts.Skills++

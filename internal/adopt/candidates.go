@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -144,7 +145,7 @@ func validateSkill(skill Skill) error {
 	seen := make(map[targetpkg.Target]struct{}, len(skill.Targets))
 	representativePresent := false
 	for _, target := range skill.Targets {
-		if !SupportsTarget(target) {
+		if !profile.Profile(target).HasImportableDiscovery() {
 			return fmt.Errorf("target %q is not supported by import", target)
 		}
 		if _, duplicate := seen[target]; duplicate {
@@ -220,7 +221,7 @@ func validateScan(scan Scan) error {
 }
 
 func validateTargetScope(target targetpkg.Target, scope targetpkg.Scope) error {
-	if !SupportsTarget(target) {
+	if !profile.Profile(target).HasImportableDiscovery() {
 		return fmt.Errorf("target %q is not supported by import", target)
 	}
 	if scope != targetpkg.ScopeProject && scope != targetpkg.ScopeGlobal {

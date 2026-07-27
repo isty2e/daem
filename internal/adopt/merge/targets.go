@@ -4,18 +4,23 @@ import (
 	"slices"
 	"strings"
 
-	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
 func missingImportTargets(existingTargets []string, importedTargets []targetpkg.Target) []targetpkg.Target {
-	missing := make([]targetpkg.Target, 0, len(importedTargets))
+	missing := make(map[targetpkg.Target]struct{}, len(importedTargets))
 	for _, target := range importedTargets {
 		if !containsStringTarget(existingTargets, target) {
-			missing = append(missing, target)
+			missing[target] = struct{}{}
 		}
 	}
-	return adoptmodel.OrderedTargets(missing)
+	ordered := make([]targetpkg.Target, 0, len(missing))
+	for _, selectedTarget := range targetpkg.SupportedTargets() {
+		if _, ok := missing[selectedTarget]; ok {
+			ordered = append(ordered, selectedTarget)
+		}
+	}
+	return ordered
 }
 
 func containsStringTarget(targets []string, target targetpkg.Target) bool {
