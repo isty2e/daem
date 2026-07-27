@@ -163,7 +163,7 @@ func TestWithRecordedHostRouteAttemptsKeepsOperationsAsDistinctHistory(t *testin
 
 func TestWithRecordedHostRouteAttemptsNeverChangesCarrierFacts(t *testing.T) {
 	root := t.TempDir()
-	owner := mustStateAuthority(t, root, "daem.toml")
+	owner := mustAuthority(t, root, "daem.toml")
 	pendingFixture := carrierFixtureFor(
 		t,
 		"pending",

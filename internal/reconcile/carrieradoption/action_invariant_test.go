@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -76,12 +77,12 @@ func invariantTestAction(t *testing.T) Action {
 		t.Fatalf("DelegatedOperationRequest: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	claim, err := durablecarrier.NewManagedCarrierClaim(
 		owner,

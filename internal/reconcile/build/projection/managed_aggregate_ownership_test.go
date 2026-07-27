@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -25,7 +26,7 @@ func TestAggregateProjectionOwnershipRejectsUnsafeGlobalClaimStates(t *testing.T
 	tests := []struct {
 		name         string
 		projection   aggregateProjectionDecision
-		owner        ownership.OwnerAuthority
+		owner        stateauthority.Authority
 		observations []observe.OwnershipObservation
 		wantReason   reconcile.ActionReason
 	}{
@@ -186,14 +187,14 @@ func aggregateOwnershipAuthority(
 	t *testing.T,
 	root string,
 	name string,
-) ownership.OwnerAuthority {
+) stateauthority.Authority {
 	t.Helper()
-	authority, err := ownership.NewOwnerAuthority(
+	authority, err := stateauthority.New(
 		filepath.Join(root, name, "state.json"),
 		filepath.Join(root, name+".toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	return authority
 }
@@ -230,7 +231,7 @@ func aggregateOwnershipObservation(
 func aggregateClaimedObservation(
 	t *testing.T,
 	observation observe.OwnershipObservation,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	reserved bool,
 ) observe.OwnershipObservation {
 	t.Helper()

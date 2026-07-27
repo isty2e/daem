@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -29,14 +30,18 @@ func TestCarrierFactKeyRejectsZeroAndForgedValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	absoluteStatefile := filepath.Join(t.TempDir(), "state.json")
+	canonicalKey, err := stateauthority.NewKey(absoluteStatefile)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for name, key := range map[string]CarrierFactKey{
-		"relative statefile": {
-			statefileKey:    ".daem/state.json",
+		"zero statefile key": {
+			statefileKey:    stateauthority.Key{},
 			relationSubject: relation,
 		},
 		"non-relation subject": {
-			statefileKey:    absoluteStatefile,
+			statefileKey:    canonicalKey,
 			relationSubject: projection,
 		},
 	} {
@@ -48,7 +53,7 @@ func TestCarrierFactKeyRejectsZeroAndForgedValues(t *testing.T) {
 	}
 
 	canonical := CarrierFactKey{
-		statefileKey:    absoluteStatefile,
+		statefileKey:    canonicalKey,
 		relationSubject: relation,
 	}
 	if err := canonical.Validate(); err != nil {

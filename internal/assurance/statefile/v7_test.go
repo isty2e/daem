@@ -13,6 +13,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -642,7 +643,7 @@ func TestLoadOptionalDistinguishesMissingFromMalformed(t *testing.T) {
 	}
 }
 
-func TestLoadValidatesCarrierStateAuthorityAgainstSelectedPath(t *testing.T) {
+func TestLoadValidatesCarrierAuthorityAgainstSelectedPath(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, ".daem", "state.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -653,7 +654,7 @@ func TestLoadValidatesCarrierStateAuthorityAgainstSelectedPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	identity, request := testV7CarrierIdentity(t, "context7", "context7@official")
-	owner, err := durablecarrier.NewStateAuthority(canonicalPath, filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(canonicalPath, filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -713,7 +714,7 @@ func testV7Snapshot(t *testing.T) durable.Snapshot {
 	}
 	aggregateState := testV7AggregateState(t)
 	authorityRoot := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(authorityRoot, ".daem", "state.json"),
 		filepath.Join(authorityRoot, "daem.toml"),
 	)

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -57,7 +58,7 @@ func mustPiPendingRemoval(
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(commandRoot, ".daem", "state.json"),
 		filepath.Join(commandRoot, "daem.toml"),
 	)

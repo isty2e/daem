@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -12,7 +13,7 @@ import (
 
 func enforceAggregateProjectionOwnership(
 	projection aggregateProjectionDecision,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	observations map[ownershipObservationKey]observe.OwnershipObservation,
 	conflicts map[ownershipObservationKey]struct{},
 ) aggregateProjectionDecision {

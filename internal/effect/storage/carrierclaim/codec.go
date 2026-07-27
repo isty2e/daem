@@ -7,6 +7,7 @@ import (
 	"io"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -166,7 +167,7 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 }
 
 func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error) {
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		persisted.Owner.StatefileKey,
 		persisted.Owner.ManifestPath,
 	)

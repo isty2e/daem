@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -15,9 +16,9 @@ func validateSnapshotCarrierFacts(
 	pendingByKey := make(map[durablecarrier.CarrierFactKey]durablecarrier.PendingCarrierInstall, len(pending))
 	removalsByKey := make(map[durablecarrier.CarrierFactKey]durablecarrier.PendingCarrierRemoval, len(removals))
 	claimsByKey := make(map[durablecarrier.CarrierFactKey]durablecarrier.ManagedCarrierClaim, len(claims))
-	var owner durablecarrier.StateAuthority
+	var owner stateauthority.Authority
 	haveOwner := false
-	validateOwner := func(candidate durablecarrier.StateAuthority, label string) error {
+	validateOwner := func(candidate stateauthority.Authority, label string) error {
 		if !haveOwner {
 			owner = candidate
 			haveOwner = true

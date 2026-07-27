@@ -6,6 +6,7 @@ import (
 
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization"
@@ -110,12 +111,12 @@ func TestStatusCheckExitCodeFailsForCarrierAdoptionClaimConflict(t *testing.T) {
 		t.Fatalf("DelegatedOperationRequest: %v", err)
 	}
 	otherRoot := t.TempDir()
-	otherOwner, err := durablecarrier.NewStateAuthority(
+	otherOwner, err := stateauthority.New(
 		filepath.Join(otherRoot, ".daem", "state.json"),
 		filepath.Join(otherRoot, "other.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	conflict, err := durablecarrier.NewManagedCarrierClaim(
 		otherOwner,
@@ -197,12 +198,12 @@ func cliClaudePluginCarrierAdoptionAction(
 		t.Fatalf("NewSelectedTargets: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	actions, err := reconcilehostroute.BuildCarrierAdoptionActions(
 		reconcilehostroute.CarrierAdoptionInput{
@@ -266,12 +267,12 @@ func cliClaudePluginCarrierCommandResultForSubject(
 		t.Fatalf("observerelation.NewBatch returned error: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("carrier.NewStateAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	actions, err := reconcilehostroute.BuildRelationActions(reconcilehostroute.RelationInput{
 		Locked:          locked,

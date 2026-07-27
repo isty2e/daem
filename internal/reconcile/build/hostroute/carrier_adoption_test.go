@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -267,15 +268,15 @@ func adoptionObservationBatch(
 	return batch
 }
 
-func adoptionOwner(t *testing.T) durablecarrier.StateAuthority {
+func adoptionOwner(t *testing.T) stateauthority.Authority {
 	t.Helper()
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	return owner
 }

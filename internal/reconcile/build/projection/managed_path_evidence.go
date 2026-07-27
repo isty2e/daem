@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -141,7 +142,7 @@ func sameManagedPathConsumers(left []target.Target, right []target.Target) bool 
 func enforceManagedPathOwnership(
 	decision managedPathDecision,
 	hasState bool,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	observations map[ownershipObservationKey]observe.OwnershipObservation,
 	conflicts map[ownershipObservationKey]struct{},
 ) managedPathDecision {
@@ -230,7 +231,7 @@ func enforceManagedPathOwnership(
 
 func managedPathActiveClaimBlock(
 	observation observe.OwnershipObservation,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 ) (reconcile.ActionReason, string, bool) {
 	claim, claimed := observation.Claim.Get()
 	if !claimed {

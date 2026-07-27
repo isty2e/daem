@@ -8,6 +8,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization"
@@ -722,7 +723,7 @@ func buildRelationActions(
 func relationManagementFacts(
 	t *testing.T,
 	locked lock.File,
-) (durablecarrier.PendingCarrierInstall, durablecarrier.ManagedCarrierClaim, durablecarrier.StateAuthority) {
+) (durablecarrier.PendingCarrierInstall, durablecarrier.ManagedCarrierClaim, stateauthority.Authority) {
 	t.Helper()
 	contract := locked.Locked.Subjects()[0]
 	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(contract)
@@ -734,7 +735,7 @@ func relationManagementFacts(
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
@@ -757,10 +758,10 @@ func relationManagementFacts(
 	return pending, claim, owner
 }
 
-func relationTestOwner(t *testing.T) durablecarrier.StateAuthority {
+func relationTestOwner(t *testing.T) stateauthority.Authority {
 	t.Helper()
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)

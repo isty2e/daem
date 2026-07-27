@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
@@ -12,7 +13,7 @@ import (
 
 // CarrierConsumer identifies one daem-known managed relation consuming a carrier.
 type CarrierConsumer struct {
-	owner              StateAuthority
+	owner              stateauthority.Authority
 	relationSubject    topology.SubjectID
 	managedInstanceKey hostrelation.ManagedInstanceKey
 }
@@ -43,7 +44,7 @@ func carrierConsumerFromClaim(claim ManagedCarrierClaim) CarrierConsumer {
 }
 
 // Owner returns the manifest state authority that owns this consumer claim.
-func (consumer CarrierConsumer) Owner() StateAuthority { return consumer.owner }
+func (consumer CarrierConsumer) Owner() stateauthority.Authority { return consumer.owner }
 
 // RelationSubject returns the declaration-local host relation subject.
 func (consumer CarrierConsumer) RelationSubject() topology.SubjectID {

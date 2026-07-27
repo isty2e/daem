@@ -143,6 +143,7 @@ var packagePlacementRows = []packagePlacementRow{
 		id:        "stable.value",
 		placement: plainPlacement(affinityNone, roleStableValue),
 		packages: []string{
+			"internal/assurance/stateauthority",
 			"internal/findings",
 			"internal/output",
 			"internal/output/ownership",

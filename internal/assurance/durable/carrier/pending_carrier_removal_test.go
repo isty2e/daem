@@ -13,7 +13,7 @@ import (
 
 func TestPendingCarrierRemovalPreservesClaimAndRemoveRequestIdentity(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
-	claim := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	claim := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "daem.toml"))
 	removeRequest := removalRequestForTest(t, "context7")
 	effectPostconditions := coupledRemovalPostconditions(t)
 
@@ -40,7 +40,7 @@ func TestPendingCarrierRemovalPreservesClaimAndRemoveRequestIdentity(t *testing.
 
 func TestPendingCarrierRemovalOperationIdentityDoesNotDependOnRequestInequality(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
-	claim := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	claim := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "daem.toml"))
 
 	pending, err := durablecarrier.NewPendingCarrierRemoval(
 		claim,
@@ -58,7 +58,7 @@ func TestPendingCarrierRemovalOperationIdentityDoesNotDependOnRequestInequality(
 
 func TestPendingCarrierRemovalRejectsIncompleteRequest(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
-	claim := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	claim := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "daem.toml"))
 
 	if _, err := durablecarrier.NewPendingCarrierRemoval(
 		claim,
@@ -72,7 +72,7 @@ func TestPendingCarrierRemovalRejectsIncompleteRequest(t *testing.T) {
 
 func TestPendingCarrierRemovalRequiresExactLocalSourceBaseline(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeProject)
-	claim := claimForFixture(t, fixture, mustStateAuthority(t, t.TempDir(), "daem.toml"))
+	claim := claimForFixture(t, fixture, mustAuthority(t, t.TempDir(), "daem.toml"))
 	requirements, err := effectpostcondition.NewSet(
 		[]effectpostcondition.Requirement{effectpostcondition.LocalSourceUnchanged},
 	)

@@ -9,6 +9,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -166,9 +167,9 @@ func seedApplyCarrierClaimWithProvenance(
 	if err != nil {
 		t.Fatalf("canonicalize statefile key: %v", err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, manifestPath)
+	owner, err := stateauthority.New(statefileKey, manifestPath)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	record := previous.Locked.Subjects()[0]
 	identity, admitted, err := durablecarrier.ManagedCarrierIdentityFromLockedRecord(record)

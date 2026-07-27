@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -18,7 +19,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := ownership.NewOwnerAuthority(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,14 +105,14 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	requester, err := ownership.NewOwnerAuthority(
+	requester, err := stateauthority.New(
 		filepath.Join(root, "requester-state.json"),
 		filepath.Join(root, "requester.toml"),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := ownership.NewOwnerAuthority(
+	foreign, err := stateauthority.New(
 		filepath.Join(root, "foreign-state.json"),
 		filepath.Join(root, "foreign.toml"),
 	)
@@ -154,7 +155,7 @@ func planningManagedPathOwnershipObservation(
 	t *testing.T,
 	path string,
 	destination output.Destination,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()

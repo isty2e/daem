@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
@@ -42,7 +43,7 @@ type ManagedPathInput struct {
 
 // Result contains the selected state authority and global managed-address observations.
 type Result struct {
-	Owner        outputownership.OwnerAuthority
+	Owner        stateauthority.Authority
 	Observations []observe.OwnershipObservation
 }
 
@@ -55,7 +56,7 @@ func Build(input Input) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := outputownership.NewOwnerAuthority(statefileKey, input.Paths.ManifestPath)
+	owner, err := stateauthority.New(statefileKey, input.Paths.ManifestPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("construct state authority: %w", err)
 	}

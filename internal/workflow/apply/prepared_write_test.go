@@ -6,10 +6,10 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/findings"
-	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -151,7 +151,7 @@ func TestPreparedWriteDisclosureDoesNotAliasManagedDecisionOrDiagnostics(t *test
 		"desired",
 		target.TargetCodex,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	planned := commandPlan{result: CommandResult{

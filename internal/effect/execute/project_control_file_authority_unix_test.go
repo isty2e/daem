@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
-func TestRootedControlFileCommitSupportsExternalStateAuthority(t *testing.T) {
+func TestRootedControlFileCommitSupportsExternalAuthority(t *testing.T) {
 	base := t.TempDir()
 	selectedRoot := filepath.Join(base, "config")
 	stateDir := filepath.Join(base, "state")

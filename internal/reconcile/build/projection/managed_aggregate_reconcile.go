@@ -5,7 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
-	"github.com/isty2e/daem/internal/output/ownership"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 )
@@ -16,7 +16,7 @@ func reconcileAggregateDocument(
 	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
 	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
 	manageUnmanagedMatches bool,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	ownershipEvidence map[ownershipObservationKey]observe.OwnershipObservation,
 	ownershipConflicts map[ownershipObservationKey]struct{},
 	codecs aggregate.CodecCatalog,

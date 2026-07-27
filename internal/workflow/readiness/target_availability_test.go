@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -104,7 +105,7 @@ func TestFromManifestLockAndStateIncludesRetainedCarrierFactTarget(t *testing.T)
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
@@ -449,12 +450,12 @@ func testManagedCarrierClaim(
 		t.Fatalf("DelegatedOperationRequest returned error: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	claim, err := durablecarrier.NewManagedCarrierClaim(
 		owner,

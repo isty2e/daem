@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -39,7 +40,7 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 		t.Fatalf("canonicalize fixture: %v", err)
 	}
 	parentAddress, _ := outputownership.NewManagedAddress(canonical, "/mcp_servers")
-	foreign, _ := outputownership.NewOwnerAuthority(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
+	foreign, _ := stateauthority.New(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
 	operations, admitted := mcpcodec.ImplementedMCPPlacementOperationsForID(

@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -98,7 +99,7 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		"desired",
 		target.TargetClaudeCode,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	changedEvidence, err := buildApplyAuthorityEvidence(t.Context(), changed)
@@ -149,7 +150,7 @@ func TestApplyOperationFingerprintBindsPlanAndDelegateMode(t *testing.T) {
 		"changed",
 		target.TargetClaudeCode,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	changedFingerprint, err := applyOperationFingerprint(changed, reconcile.ContextApply)
@@ -236,7 +237,7 @@ func TestProjectAuthorityPathCoalescesSymlinkAliasToPhysicalRoot(t *testing.T) {
 				"desired",
 				target.TargetCodex,
 				target.ScopeProject,
-				ownership.OwnerAuthority{},
+				stateauthority.Authority{},
 				nil,
 			),
 		},
@@ -289,7 +290,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		StateDir:              filepath.Join(root, ".daem"),
 		StatefilePath:         filepath.Join(root, ".daem", "state.json"),
 	}
-	owner, err := ownership.NewOwnerAuthority(paths.StatefilePath, paths.ManifestPath)
+	owner, err := stateauthority.New(paths.StatefilePath, paths.ManifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +315,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		"project",
 		target.TargetCodex,
 		target.ScopeProject,
-		ownership.OwnerAuthority{},
+		stateauthority.Authority{},
 		nil,
 	)
 	globalPlan := applyAuthorityManagedPathPlan(
@@ -486,7 +487,7 @@ func applyAuthorityTestPlan(t *testing.T) commandPlan {
 				"desired",
 				target.TargetClaudeCode,
 				target.ScopeProject,
-				ownership.OwnerAuthority{},
+				stateauthority.Authority{},
 				nil,
 			),
 		},
@@ -512,7 +513,7 @@ func applyAuthorityManagedPathPlan(
 	hashSeed string,
 	selectedTarget target.Target,
 	scope target.Scope,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	ownershipEvidence []observe.OwnershipObservation,
 ) reconcile.Result {
 	t.Helper()

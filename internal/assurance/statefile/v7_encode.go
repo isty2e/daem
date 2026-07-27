@@ -6,6 +6,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -193,7 +194,7 @@ func persistedManagedCarrierClaim(claim durablecarrier.ManagedCarrierClaim) mana
 	}
 }
 
-func persistedStateAuthority(authority durablecarrier.StateAuthority) stateAuthorityDTO {
+func persistedStateAuthority(authority stateauthority.Authority) stateAuthorityDTO {
 	return stateAuthorityDTO{
 		StatefileKey: authority.StatefileKey(),
 		ManifestPath: authority.ManifestPath(),

@@ -141,6 +141,7 @@ func TestPackagePlacementRejectsUnknownAndImplicitDescendantPackages(t *testing.
 		"internal/future",
 		"internal/desired/future",
 		"internal/assurance/observe/codexplugin/private",
+		"internal/assurance/stateauthority/future",
 		"internal/output/ownership/future",
 		"internal/supply/source/backend/future",
 	} {

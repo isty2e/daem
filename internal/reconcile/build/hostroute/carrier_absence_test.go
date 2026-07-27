@@ -10,6 +10,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -203,7 +204,7 @@ func TestBuildCarrierAbsenceActionsRejectsInvalidPendingRemovalSet(t *testing.T)
 	pending := pendingCarrierRemovalFor(t, fixture.claim)
 	for _, test := range []struct {
 		name         string
-		currentOwner durablecarrier.StateAuthority
+		currentOwner stateauthority.Authority
 		claims       []durablecarrier.ManagedCarrierClaim
 		pending      []durablecarrier.PendingCarrierRemoval
 		want         string
@@ -308,12 +309,12 @@ func retainedCarrierFixtureFor(t *testing.T, locked lock.File) retainedCarrierFi
 		t.Fatalf("NewManagedCarrierIdentity: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	request, err := lock.DelegatedOperationRequest(contract, lock.OperationInstall)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
@@ -15,7 +16,7 @@ import (
 
 func TestPromotedProjectCarrierClaimsSelectOnlyExactPendingNoOp(t *testing.T) {
 	action := testHostRelationAction(t)
-	owner := testCarrierStateAuthority(t)
+	owner := testAuthority(t)
 	pending, err := durablecarrier.NewPendingCarrierInstall(
 		owner,
 		action.CarrierIdentity(),
@@ -51,7 +52,7 @@ func TestPromotedProjectCarrierClaimsSelectOnlyExactPendingNoOp(t *testing.T) {
 
 func TestPromotedProjectCarrierClaimsIgnoreRouteMismatch(t *testing.T) {
 	action := testHostRelationAction(t)
-	owner := testCarrierStateAuthority(t)
+	owner := testAuthority(t)
 	staleRequest, err := realizationdelegate.NewRequest(
 		action.RouteRequest().RouteID(),
 		action.RouteRequest().ContractVersion(),
@@ -88,10 +89,10 @@ func TestPromotedProjectCarrierClaimsIgnoreRouteMismatch(t *testing.T) {
 	}
 }
 
-func testCarrierStateAuthority(t *testing.T) durablecarrier.StateAuthority {
+func testAuthority(t *testing.T) stateauthority.Authority {
 	t.Helper()
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)

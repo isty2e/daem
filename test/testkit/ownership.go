@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -34,9 +35,9 @@ func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination st
 	if err != nil {
 		t.Fatalf("CanonicalDirectoryEntryKey statefile returned error: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	claim, err := ownership.NewActiveClaim(address, owner)
 	if err != nil {

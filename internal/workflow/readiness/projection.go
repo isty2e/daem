@@ -5,8 +5,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
-	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
@@ -28,7 +28,7 @@ type projectionPlanningInput struct {
 	aggregateFailures      []observe.AggregateObservationFailure
 	aggregatePreconditions []observe.AggregatePreconditionEvidence
 	manageUnmanagedMatches bool
-	owner                  outputownership.OwnerAuthority
+	owner                  stateauthority.Authority
 	ownership              []observe.OwnershipObservation
 	codecs                 aggregate.CodecCatalog
 }

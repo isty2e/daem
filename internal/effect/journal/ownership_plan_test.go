@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -113,9 +114,9 @@ func TestBuildRecoveryPlanBlocksForeignAcquireClaim(t *testing.T) {
 	entry := globalAcquireRecoveryEntry(t)
 	journal := recoveryJournalFor(entry)
 	transition, _, _ := testAcquireTransition(t, entry)
-	foreignOwner, err := ownership.NewOwnerAuthority("/tmp/foreign-state.json", "/tmp/foreign-daem.toml")
+	foreignOwner, err := stateauthority.New("/tmp/foreign-state.json", "/tmp/foreign-daem.toml")
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	foreign, err := ownership.NewActiveClaim(transition.Address(), foreignOwner)
 	if err != nil {
@@ -145,9 +146,9 @@ func TestBuildRecoveryPlanClassifiesReleaseFinalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority("/tmp/daem-state.json", "/tmp/daem.toml")
+	owner, err := stateauthority.New("/tmp/daem-state.json", "/tmp/daem.toml")
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	active, err := ownership.NewActiveClaim(address, owner)
 	if err != nil {
@@ -199,9 +200,9 @@ func testAcquireTransition(t *testing.T, entry recoveryEntry) (ownershipmutation
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority("/tmp/daem-state.json", "/tmp/daem.toml")
+	owner, err := stateauthority.New("/tmp/daem-state.json", "/tmp/daem.toml")
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	transition, err := ownershipmutation.NewAcquireTransition(address, owner, testOperationID)
 	if err != nil {

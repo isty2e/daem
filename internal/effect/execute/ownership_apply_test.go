@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -127,7 +128,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := ownership.NewOwnerAuthority(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +206,7 @@ func managedPathOwnershipObservation(
 	t *testing.T,
 	path string,
 	destination output.Destination,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
@@ -578,12 +579,12 @@ func globalAggregateOwnershipInput(
 	if err != nil {
 		t.Fatalf("canonicalize statefile authority: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority(
+	owner, err := stateauthority.New(
 		statefileKey,
 		filepath.Join(fixture.root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	canonicalPath, err := mutation.CanonicalDirectoryEntryKey(fixture.hostConfigPath)
 	if err != nil {

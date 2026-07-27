@@ -14,6 +14,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -342,7 +343,7 @@ func recoveryTestPendingCarrierInstall(
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := durablecarrier.NewStateAuthority(statefileKey, manifestPath)
+	owner, err := stateauthority.New(statefileKey, manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

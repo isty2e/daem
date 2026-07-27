@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -791,7 +792,7 @@ func newGlobalFileRecoveryFixture(
 	if err != nil {
 		t.Fatalf("canonicalize global recovery manifest: %v", err)
 	}
-	owner, err := ownership.NewOwnerAuthority(statefileKey, manifestPath)
+	owner, err := stateauthority.New(statefileKey, manifestPath)
 	if err != nil {
 		t.Fatalf("construct global recovery owner: %v", err)
 	}

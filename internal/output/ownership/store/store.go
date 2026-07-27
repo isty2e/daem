@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -306,7 +307,7 @@ func decode(content []byte) (ownership.Registry, error) {
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] address: %w", index, err)
 		}
-		authority, err := ownership.NewOwnerAuthority(record.StatefileKey, record.ManifestPath)
+		authority, err := stateauthority.New(record.StatefileKey, record.ManifestPath)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] owner: %w", index, err)
 		}

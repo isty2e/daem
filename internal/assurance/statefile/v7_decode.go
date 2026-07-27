@@ -11,6 +11,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
@@ -179,8 +180,8 @@ func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState,
 	return durable.NewManagedAggregateState(subject, contribution)
 }
 
-func (persisted stateAuthorityDTO) canonical() (durablecarrier.StateAuthority, error) {
-	return durablecarrier.NewStateAuthority(persisted.StatefileKey, persisted.ManifestPath)
+func (persisted stateAuthorityDTO) canonical() (stateauthority.Authority, error) {
+	return stateauthority.New(persisted.StatefileKey, persisted.ManifestPath)
 }
 
 func (persisted managedCarrierIdentityDTO) canonical() (durablecarrier.ManagedCarrierIdentity, error) {

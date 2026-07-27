@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -26,7 +27,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
-	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -85,13 +86,7 @@ func runWithOptions(
 	if err != nil {
 		return runResult{}, err
 	}
-	carrierOwner, err := durablecarrier.NewStateAuthority(
-		assessment.Owner.StatefileKey(),
-		assessment.Owner.ManifestPath(),
-	)
-	if err != nil {
-		return runResult{}, fmt.Errorf("construct carrier state authority: %w", err)
-	}
+	carrierOwner := assessment.Owner
 	projectCarrierRetirements, globalCarrierRetirements, err := stateOnlyCarrierClaimRetirements(
 		assessment.Reconciliation.CarrierAbsences(),
 	)
@@ -231,7 +226,7 @@ func runHostRoutesDelegatesAndPersistAttemptRecords(
 	selection targetselection.Selection,
 	statePath string,
 	current durable.Snapshot,
-	carrierOwner durablecarrier.StateAuthority,
+	carrierOwner stateauthority.Authority,
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims,
 	actionCount int,
 	reconciliation reconcile.Result,

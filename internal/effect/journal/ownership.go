@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
@@ -242,7 +243,7 @@ func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}
-	owner, err := ownership.NewOwnerAuthority(record.StatefileKey, record.ManifestPath)
+	owner, err := stateauthority.New(record.StatefileKey, record.ManifestPath)
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}

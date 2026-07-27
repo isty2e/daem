@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
@@ -23,7 +24,7 @@ type RelationInput struct {
 	Locked          lock.File
 	SelectedTargets reconciliation.SelectedTargets
 	Observations    relationobserve.Batch
-	CurrentOwner    durablecarrier.StateAuthority
+	CurrentOwner    stateauthority.Authority
 	PendingInstalls []durablecarrier.PendingCarrierInstall
 	ManagedClaims   []durablecarrier.ManagedCarrierClaim
 }
@@ -179,7 +180,7 @@ func validateRelationManagementFacts(
 
 func matchesPendingInstall(
 	contract lock.LockedSubjectContract,
-	currentOwner durablecarrier.StateAuthority,
+	currentOwner stateauthority.Authority,
 	pending []durablecarrier.PendingCarrierInstall,
 ) bool {
 	for _, candidate := range pending {
@@ -193,7 +194,7 @@ func matchesPendingInstall(
 
 func matchesManagedClaim(
 	contract lock.LockedSubjectContract,
-	currentOwner durablecarrier.StateAuthority,
+	currentOwner stateauthority.Authority,
 	claims []durablecarrier.ManagedCarrierClaim,
 ) bool {
 	for _, candidate := range claims {

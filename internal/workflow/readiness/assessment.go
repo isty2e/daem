@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
@@ -15,10 +16,9 @@ import (
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
-	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcilehostroute "github.com/isty2e/daem/internal/reconcile/build/hostroute"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -35,7 +35,7 @@ type Assessment struct {
 	AggregatePreconditions []observe.AggregatePreconditionEvidence
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
-	Owner                  outputownership.OwnerAuthority
+	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	SelectedTargets        reconcile.SelectedTargets
 }
@@ -203,15 +203,11 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("inspect carrier relation inventory: %w", err)
 	}
-	carrierOwner, err := durablecarrier.NewStateAuthority(owner.StatefileKey(), owner.ManifestPath())
-	if err != nil {
-		return Assessment{}, fmt.Errorf("construct carrier state authority: %w", err)
-	}
 	relationActions, err := reconcilehostroute.BuildRelationActions(reconcilehostroute.RelationInput{
 		Locked:          locked,
 		SelectedTargets: selectedTargets,
 		Observations:    relationObservations,
-		CurrentOwner:    carrierOwner,
+		CurrentOwner:    owner,
 		PendingInstalls: currentState.PendingCarrierInstalls(),
 		ManagedClaims:   allCarrierClaims,
 	})
@@ -223,7 +219,7 @@ func buildAssessment(
 			Locked:          locked,
 			SelectedTargets: selectedTargets,
 			Observations:    relationObservations,
-			CurrentOwner:    carrierOwner,
+			CurrentOwner:    owner,
 			AllClaims:       allCarrierClaims,
 			ManageExisting:  manageUnmanagedMatches,
 			StoreAvailable:  true,
@@ -237,7 +233,7 @@ func buildAssessment(
 			Locked:          locked,
 			SelectedTargets: selectedTargets,
 			Observations:    relationObservations,
-			CurrentOwner:    carrierOwner,
+			CurrentOwner:    owner,
 			AllClaims:       allCarrierClaims,
 			PendingRemovals: currentState.PendingCarrierRemovals(),
 			ResolveRoute:    reconcilehostroute.ResolveCurrentCarrierRemovalRoute,

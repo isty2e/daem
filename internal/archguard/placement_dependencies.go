@@ -356,6 +356,11 @@ func allowsExactCrossAffinityValue(
 			(importing == affinityAssurance ||
 				importing == affinityReconciliation ||
 				importing == affinityEffect)
+	case "internal/assurance/stateauthority":
+		return imported.role == roleStableValue &&
+			(importing == affinityAssurance ||
+				importing == affinityReconciliation ||
+				importing == affinityEffect)
 	case "internal/supply/artifact":
 		return imported.role == roleSemanticKernel &&
 			(importing == affinityAssurance ||

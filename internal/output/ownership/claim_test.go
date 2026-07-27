@@ -3,56 +3,9 @@ package ownership
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 )
-
-func TestOwnerAuthorityEqualityUsesStatefileKey(t *testing.T) {
-	root := t.TempDir()
-	statefile := filepath.Join(root, ".daem", "state.json")
-	left := mustAuthority(t, statefile, filepath.Join(root, "daem.toml"))
-	right := mustAuthority(t, statefile, filepath.Join(root, "alternate.toml"))
-	foreign := mustAuthority(t, filepath.Join(root, "other", ".daem", "state.json"), filepath.Join(root, "other", "daem.toml"))
-
-	if !left.Equal(right) {
-		t.Fatal("authorities with the same canonical statefile key must be equal")
-	}
-	if left.Equal(foreign) {
-		t.Fatal("authorities with different statefile keys must not be equal")
-	}
-}
-
-func TestOwnerAuthorityRejectsPartialOrUncleanIdentity(t *testing.T) {
-	root := t.TempDir()
-	tests := []struct {
-		name         string
-		statefileKey string
-		manifestPath string
-	}{
-		{name: "missing statefile", manifestPath: filepath.Join(root, "daem.toml")},
-		{name: "relative statefile", statefileKey: ".daem/state.json", manifestPath: filepath.Join(root, "daem.toml")},
-		{name: "missing manifest", statefileKey: filepath.Join(root, ".daem", "state.json")},
-		{name: "unclean manifest", statefileKey: filepath.Join(root, ".daem", "state.json"), manifestPath: root + string(filepath.Separator) + "nested" + string(filepath.Separator) + ".." + string(filepath.Separator) + "daem.toml"},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewOwnerAuthority(test.statefileKey, test.manifestPath); err == nil {
-				t.Fatal("NewOwnerAuthority returned nil error")
-			}
-		})
-	}
-}
-
-func TestOwnerAuthorityPreservesWhitespaceInCanonicalAbsolutePaths(t *testing.T) {
-	root := t.TempDir()
-	statefileKey := filepath.Join(root, "state directory\n", "state.json")
-	manifestPath := filepath.Join(root, "daem.toml\n")
-	authority, err := NewOwnerAuthority(statefileKey, manifestPath)
-	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
-	}
-	if authority.StatefileKey() != statefileKey || authority.ManifestPath() != manifestPath {
-		t.Fatalf("authority = %#v, want exact whitespace-bearing paths", authority)
-	}
-}
 
 func TestClaimStateInvariants(t *testing.T) {
 	root := t.TempDir()
@@ -96,11 +49,11 @@ func TestClaimConflictsIgnoreIdenticalContentAndSubjectConcepts(t *testing.T) {
 	}
 }
 
-func mustAuthority(t *testing.T, statefilePath string, manifestPath string) OwnerAuthority {
+func mustAuthority(t *testing.T, statefilePath string, manifestPath string) stateauthority.Authority {
 	t.Helper()
-	authority, err := NewOwnerAuthority(filepath.Clean(statefilePath), filepath.Clean(manifestPath))
+	authority, err := stateauthority.New(filepath.Clean(statefilePath), filepath.Clean(manifestPath))
 	if err != nil {
-		t.Fatalf("NewOwnerAuthority returned error: %v", err)
+		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
 	return authority
 }

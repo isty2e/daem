@@ -10,6 +10,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -589,12 +590,12 @@ func newCarrierFixture(
 		t.Fatalf("NewManagedCarrierIdentity: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	install, err := realizationdelegate.NewRequest(
 		"test.install",

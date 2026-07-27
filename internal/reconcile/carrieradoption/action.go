@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
@@ -34,7 +35,7 @@ type PlanIdentity string
 type ActionInput struct {
 	Locked         lock.LockedSubjectContract
 	Observation    observerelation.CorrelationResult
-	CurrentOwner   durablecarrier.StateAuthority
+	CurrentOwner   stateauthority.Authority
 	Claims         []durablecarrier.ManagedCarrierClaim
 	Lifecycle      Lifecycle
 	ManageExisting bool
@@ -48,7 +49,7 @@ type Action struct {
 	identity          durablecarrier.ManagedCarrierIdentity
 	acquisition       realizationdelegate.Request
 	observation       observerelation.CorrelationResult
-	owner             durablecarrier.StateAuthority
+	owner             stateauthority.Authority
 	claims            []durablecarrier.ManagedCarrierClaim
 	occupancy         durablecarrier.CarrierOccupancy
 	lifecycle         Lifecycle
@@ -233,7 +234,7 @@ func (action Action) AcquisitionRequest() realizationdelegate.Request { return a
 func (action Action) Observation() observerelation.CorrelationResult { return action.observation }
 
 // CurrentOwner returns the selected durable state authority.
-func (action Action) CurrentOwner() durablecarrier.StateAuthority { return action.owner }
+func (action Action) CurrentOwner() stateauthority.Authority { return action.owner }
 
 // Occupancy returns the daem-known consumers of the exact structural carrier.
 func (action Action) Occupancy() durablecarrier.CarrierOccupancy { return action.occupancy }

@@ -6,13 +6,14 @@ import (
 	"sort"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
 func relevantCarrierAdoptionClaims(
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	identity durablecarrier.ManagedCarrierIdentity,
 	claims []durablecarrier.ManagedCarrierClaim,
 ) []durablecarrier.ManagedCarrierClaim {
@@ -39,7 +40,7 @@ type claimAssessment struct {
 }
 
 func assessClaims(
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	identity durablecarrier.ManagedCarrierIdentity,
 	locked lock.LockedSubjectContract,
 	claims []durablecarrier.ManagedCarrierClaim,

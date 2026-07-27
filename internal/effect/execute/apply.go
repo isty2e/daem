@@ -10,13 +10,13 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
-	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	reconciliation "github.com/isty2e/daem/internal/reconcile"
 )
@@ -53,7 +53,7 @@ type ApplyInput struct {
 	AdoptedProjectCarrierClaims []durablecarrier.ManagedCarrierClaim
 	Payloads                    payload.PayloadSet
 	ConfirmedRelationActions    []reconciliation.RelationAction
-	Owner                       ownership.OwnerAuthority
+	Owner                       stateauthority.Authority
 	Ownership                   []observe.OwnershipObservation
 	ProjectRoot                 *rootedpath.CapturedRoot
 	Codecs                      aggregate.CodecCatalog

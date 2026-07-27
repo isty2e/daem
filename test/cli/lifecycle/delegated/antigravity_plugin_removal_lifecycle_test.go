@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -165,7 +166,7 @@ func TestAntigravityGlobalRemovalBlocksForAnotherDaemKnownConsumer(t *testing.T)
 		t.Fatalf("initial global claims = %#v, want one", claims)
 	}
 	otherRoot := filepath.Join(fixture.root, "other-project")
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(otherRoot, ".daem", "state.json"),
 		filepath.Join(otherRoot, "daem.toml"),
 	)

@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -318,7 +319,7 @@ const (
 
 type adoptionFixture struct {
 	contract  lock.LockedSubjectContract
-	owner     durablecarrier.StateAuthority
+	owner     stateauthority.Authority
 	exact     observerelation.CorrelationResult
 	lifecycle carrieradoption.Lifecycle
 }
@@ -420,7 +421,7 @@ func (fixture adoptionFixture) lifecycleWithStoreAvailability(
 
 func (fixture adoptionFixture) claim(
 	t *testing.T,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 	provenance durablecarrier.ClaimProvenance,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()
@@ -542,7 +543,7 @@ func conflictingClaim(
 
 func unrelatedClaim(
 	t *testing.T,
-	owner durablecarrier.StateAuthority,
+	owner stateauthority.Authority,
 ) durablecarrier.ManagedCarrierClaim {
 	t.Helper()
 	desired := desiredtest.Extension(t, desiredextension.Spec{
@@ -561,14 +562,14 @@ func unrelatedClaim(
 	return fixture.claim(t, owner, durablecarrier.ClaimProvenanceInstalledObserved)
 }
 
-func mustAuthority(t *testing.T, root string) durablecarrier.StateAuthority {
+func mustAuthority(t *testing.T, root string) stateauthority.Authority {
 	t.Helper()
-	owner, err := durablecarrier.NewStateAuthority(
+	owner, err := stateauthority.New(
 		filepath.Join(root, ".daem", "state.json"),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {
-		t.Fatalf("NewStateAuthority: %v", err)
+		t.Fatalf("stateauthority.New: %v", err)
 	}
 	return owner
 }

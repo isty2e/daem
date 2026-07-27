@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -16,7 +17,7 @@ import (
 
 func claimTransitionsForManagedPathEffects(
 	effects []ManagedPathEffect,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	observations []observe.OwnershipObservation,
 	operationID string,
 ) ([]ownershipmutation.ClaimTransition, error) {
@@ -103,7 +104,7 @@ func claimTransitionsForManagedPathEffects(
 
 func claimTransitionsForAggregateEffects(
 	effects []AggregateEffect,
-	owner ownership.OwnerAuthority,
+	owner stateauthority.Authority,
 	observations []observe.OwnershipObservation,
 	operationID string,
 ) ([]ownershipmutation.ClaimTransition, error) {
