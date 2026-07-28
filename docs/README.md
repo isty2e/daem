@@ -7,6 +7,9 @@ Start here:
 
 - [Getting Started](getting-started.md): executable first-project and import
   paths through authoring, lock, status, apply, diagnosis, and recovery.
+- [Install, Upgrade, And Roll Back](install.md): canonical release artifacts,
+  checksum verification, PATH setup, executable replacement, rollback, and
+  diagnostics.
 - [Feature Support](features.md): what users can currently manage for each
   agent CLI.
 - [Host Integration Contract](host-integrations.md): exact native commands,

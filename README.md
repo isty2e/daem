@@ -71,25 +71,17 @@ Review `daem apply --dry-run --diff` before applying them. See the
 [Representative Project](examples/representative-project.toml) for hooks,
 managed hook assets, and project-scoped resources.
 
-## Install From Source
+## Install
 
-No public release artifacts are published yet. Install from a source checkout
-with a current security patch of Go 1.25 or later:
+Published binaries come from
+[GitHub Releases](https://github.com/isty2e/daem/releases). Release `v0.1.0`
+provides checksum-verified native artifacts for macOS 26 or newer on Apple
+silicon and Linux on x86-64. Follow
+[Install, Upgrade, And Roll Back](docs/install.md) for exact download,
+verification, PATH, upgrade, rollback, and diagnostic steps.
 
-```bash
-git clone https://github.com/isty2e/daem.git
-cd daem
-go install ./cmd/daem
-export PATH="$(go env GOPATH)/bin:$PATH"
-daem version
-daem --help
-```
-
-If `go env GOBIN` is set, add that directory to `PATH` instead.
-Run a source installation only on a currently supported platform. Released builds
-must also have passed the row's required native lane. See
-[Platform Support](docs/platforms.md) for the authoritative rows and evidence
-distinction.
+Source builds remain available for contributor and unreleased development
+testing, but they do not substitute for a supported native release lane.
 
 ## First Project
 
@@ -158,7 +150,7 @@ Codex environment with:
 
 ```bash
 daem add skill https://github.com/isty2e/daem.git \
-  --path skills/daem --ref main --name daem \
+  --path skills/daem --ref v0.1.0 --name daem \
   --target codex --scope global --dry-run --diff
 # Review the preview, then repeat without --dry-run --diff.
 daem apply --dry-run --diff
@@ -185,6 +177,7 @@ daem.
 ## Documentation
 
 - [Getting Started](docs/getting-started.md)
+- [Install, Upgrade, And Roll Back](docs/install.md)
 - [CLI Reference](docs/cli.md)
 - [Manifest Reference](docs/manifest.md)
 - [Feature Support](docs/features.md)

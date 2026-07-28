@@ -185,6 +185,57 @@ jobs:
           test -x "${RUNNER_TEMP}/extracted/daem"
           cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/extracted/daem"
           "${RUNNER_TEMP}/extracted/daem" --version
+      - name: Smoke-test install, source upgrade, and executable rollback
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          release_binary="${RUNNER_TEMP}/extracted/daem"
+          fresh_bin="${RUNNER_TEMP}/fresh-home/.local/bin/daem"
+          upgrade_bin="${RUNNER_TEMP}/upgrade-home/.local/bin/daem"
+          development_binary="${RUNNER_TEMP}/development-daem"
+
+          install -d "$(dirname "${fresh_bin}")"
+          install -m 0755 "${release_binary}" "${fresh_bin}.new"
+          mv -f "${fresh_bin}.new" "${fresh_bin}"
+          cmp "${release_binary}" "${fresh_bin}"
+          "${fresh_bin}" version --json > "${RUNNER_TEMP}/fresh-version.json"
+          grep -F -x "  \"version\": \"${RELEASE_TAG}\"," \
+            "${RUNNER_TEMP}/fresh-version.json"
+          grep -F -x "  \"goos\": \"${RELEASE_GOOS}\"," \
+            "${RUNNER_TEMP}/fresh-version.json"
+          grep -F -x "  \"goarch\": \"${RELEASE_GOARCH}\"" \
+            "${RUNNER_TEMP}/fresh-version.json"
+
+          GOCACHE="${RUNNER_TEMP}/development-cache" \
+            go build -mod=readonly -buildvcs=false -trimpath \
+              -o "${development_binary}" ./cmd/daem
+          "${development_binary}" version --json \
+            > "${RUNNER_TEMP}/development-version.json"
+          if cmp -s "${development_binary}" "${release_binary}"; then
+            echo "development and release binaries unexpectedly match" >&2
+            exit 1
+          fi
+
+          install -d "$(dirname "${upgrade_bin}")"
+          install -m 0755 "${development_binary}" "${upgrade_bin}"
+          install -m 0755 "${upgrade_bin}" "${upgrade_bin}.previous"
+          install -m 0755 "${release_binary}" "${upgrade_bin}.new"
+          mv -f "${upgrade_bin}.new" "${upgrade_bin}"
+          cmp "${release_binary}" "${upgrade_bin}"
+          "${upgrade_bin}" version --json \
+            > "${RUNNER_TEMP}/upgraded-version.json"
+          grep -F -x "  \"version\": \"${RELEASE_TAG}\"," \
+            "${RUNNER_TEMP}/upgraded-version.json"
+
+          install -m 0755 "${upgrade_bin}.previous" \
+            "${upgrade_bin}.rollback"
+          mv -f "${upgrade_bin}.rollback" "${upgrade_bin}"
+          cmp "${development_binary}" "${upgrade_bin}"
+          "${upgrade_bin}" version --json \
+            > "${RUNNER_TEMP}/rollback-version.json"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Upload private workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
