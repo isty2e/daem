@@ -48,12 +48,31 @@ Do not force an ambiguous object into the nearest resource kind. Inspect
 `daem help add <resource>` and ask only when the user's intent still cannot be
 represented without guessing.
 
+For removal, obtain the exact resource key from `daem list resources`, then use
+`daem remove <resource> <resource-key>`. Skill groups are removed through
+`daem remove skill <resource-key>`.
+
 For extensions, distinguish two removal intents:
 
 - Use `daem remove extension` when the user wants the declared relation absent.
   A later apply may execute a supported removal route under daem authority.
 - Use `daem unmanage extension` when the user wants daem to release management
   while retaining host-installed state.
+
+## Safety Gates
+
+- Successful authoring does not authorize host effects. Always inspect the
+  apply or runtime-operation preview before execution.
+- An explicit request to perform an exact install, update, or removal
+  authorizes only its ordinary matching effects.
+- Obtain additional approval before adopting existing state with
+  `--manage-existing`, deleting shared or global state not named in the
+  request, or accepting a materially different destructive plan.
+- Never use `--yes` to bypass a blocker, stale state, failed validation, or
+  unsupported capability.
+- Do not infer current installation, ownership, runtime readiness, or removal
+  success from historical command evidence.
+- Do not silently fall back to direct file writes or host-native commands.
 
 ## Perform A Change
 
@@ -80,11 +99,21 @@ For extensions, distinguish two removal intents:
    repeat `daem lock`; successful add/remove already refreshes the lockfile in
    the same transaction.
 
-3. If required fields are manifest-only, edit only the selected manifest.
-   Retain its exact pre-edit content, run `daem lock --dry-run`, and restore
-   only the agent's edit if validation fails. After a successful preview, run
-   `daem lock` to persist the exact result. Never continue to apply with a
-   stale or failed lock.
+3. If required fields appear to be manifest-only, re-read
+   `daem help add <resource>` before editing. When no curated flag represents
+   the request:
+
+   - Read the selected manifest and record the exact old text for every intended
+     hunk.
+   - Apply only narrow patches that require that old text to still match. Never
+     replace the whole file or use a whole-file backup and restore sequence.
+   - Run `daem lock --dry-run`.
+   - On failure, apply the inverse patch only while every new hunk still matches
+     exactly. If any hunk changed, stop and report the concurrent edit instead
+     of overwriting it.
+   - After a successful preview, run `daem lock` to persist the exact result.
+
+   Never continue to apply with a stale or failed lock.
 
 4. Preview host effects:
 
@@ -96,12 +125,8 @@ For extensions, distinguish two removal intents:
    effect, and uncertain postcondition. Do not treat a clean authoring result
    as proof that apply is safe or supported.
 
-5. Execute the disclosed plan. An explicit request to perform the exact
-   install, update, or removal authorizes its ordinary matching effects. Ask
-   before adding effects not implied by the request, including adopting
-   existing state with `--manage-existing`, deleting shared or global state, or
-   accepting a materially different destructive plan. In non-interactive
-   execution, use `daem apply --yes` only after this authorization check.
+5. Execute only after the Safety Gates are satisfied. In non-interactive
+   execution, use `daem apply --yes` only after the required authorization.
 
 6. Verify with:
 
@@ -134,9 +159,5 @@ For extensions, distinguish two removal intents:
 
 - Do not repair manifest or host state by hand after an add/remove failure;
   those authoring commands are transactional.
-- Do not use `--yes` to bypass a blocker, stale state, failed validation, or
-  unsupported capability.
-- Do not infer current installation, ownership, runtime readiness, or removal
-  success from historical command evidence.
-- Do not silently fall back to direct file writes or host-native commands.
-  Explain the unsupported boundary and preserve the user's environment.
+- When daem rejects or cannot represent a route, explain the unsupported
+  boundary and preserve the user's environment.

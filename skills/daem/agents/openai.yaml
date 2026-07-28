@@ -1,4 +1,4 @@
 interface:
   display_name: "Daem"
-  short_description: "Manage agent environments through daem"
-  default_prompt: "Use daem to inspect and perform this agent-environment change through its manifest, lockfile, and apply workflow."
+  short_description: "Manage agent environments declaratively"
+  default_prompt: "Use $daem to inspect and perform this agent-environment change through its manifest, lockfile, and apply workflow."
