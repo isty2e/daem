@@ -52,7 +52,7 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"version --json",
 		"internal/releaseartifact/cmd/releasepack",
 		"shasum -a 256 -c",
-		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+		"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
 		"if-no-files-found: error",
 		"compression-level: 0",
 	} {
@@ -144,7 +144,7 @@ func TestReleaseArtifactWorkflowHasOneFailClosedNativeJob(t *testing.T) {
 		}
 	}
 	upload := job.Steps[len(job.Steps)-1]
-	if upload.Uses != "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" {
+	if upload.Uses != "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" {
 		t.Fatalf("last artifact step uses %q, want pinned private upload", upload.Uses)
 	}
 	if upload.If != "" {
