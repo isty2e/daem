@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -140,6 +141,20 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 	openCodeGlobalInput := testMCPProjectionInput(t, openCodeGlobal, []string{credential})
 	if _, err := NewMCPProjectionSubjectContract(openCodeGlobalInput); err != nil {
 		t.Fatalf("OpenCode global credential reference rejected: %v", err)
+	}
+
+	antigravityGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementAntigravityGlobal)
+	antigravityGlobalInput := testMCPProjectionInput(t, antigravityGlobal, []string{credential})
+	antigravityContract, err := NewMCPProjectionSubjectContract(antigravityGlobalInput)
+	if err != nil {
+		t.Fatalf("Antigravity global credential reference rejected: %v", err)
+	}
+	if !slices.Equal(antigravityContract.MCPEnvironmentSources(), []string{credential}) {
+		t.Fatalf(
+			"Antigravity locked environment sources = %#v, want %q",
+			antigravityContract.MCPEnvironmentSources(),
+			credential,
+		)
 	}
 
 	codexProject := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)

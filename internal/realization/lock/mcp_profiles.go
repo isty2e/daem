@@ -8,7 +8,7 @@ import (
 var antigravityGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetAntigravityCLI, aggregate.MCPPlacementAntigravityGlobal),
 	Label:                    "Antigravity CLI global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         antigravityGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",

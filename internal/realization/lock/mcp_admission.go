@@ -63,8 +63,11 @@ func validateAdmittedMCPProjection(
 	}
 	input := LockedSubjectContractInput{
 		EntityID: contract.EntityID(), SubjectID: contract.SubjectID(), Realization: &expectedRealization,
-		Ownership: OwnershipManifest, OnAbsent: OnAbsentRemoveBinding, Replay: replay,
-		OperationContracts: operationContracts,
+		MCPEnvironmentSources: contract.MCPEnvironmentSources(),
+		Ownership:             OwnershipManifest,
+		OnAbsent:              OnAbsentRemoveBinding,
+		Replay:                replay,
+		OperationContracts:    operationContracts,
 	}
 	if delegatePlan, present := contract.DelegatePlan(); present {
 		input.DelegatePlan = &delegatePlan

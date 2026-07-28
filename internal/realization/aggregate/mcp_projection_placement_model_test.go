@@ -58,9 +58,9 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			wantConfigPath:    "~/.gemini/config/mcp_config.json",
 			wantPathPrefix:    "/mcpServers",
 			wantContentPath:   "/mcpServers/context7",
-			wantCodec:         aggregate.MCPCodecAntigravityGlobalCommand,
-			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
-			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
+			wantCodec:         aggregate.MCPCodecAntigravityGlobalAmbientEnv,
+			wantEnvMapping:    aggregate.MCPEnvMappingSameName,
+			wantEnvResolution: aggregate.MCPEnvResolutionHostRuntime,
 		},
 		{
 			name:              "opencode project",

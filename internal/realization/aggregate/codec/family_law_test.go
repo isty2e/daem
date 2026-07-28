@@ -265,8 +265,8 @@ func aggregateLawMCPCanonical(
 			AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 		})
 	case aggregate.MCPPlacementAntigravityGlobal:
-		canonical, err = mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
-			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		canonical, err = mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
+			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 		})
 	case aggregate.MCPPlacementOpenCodeProject:
 		canonical, err = mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{

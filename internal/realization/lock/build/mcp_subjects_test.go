@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -198,7 +199,7 @@ func TestBuildLocksAntigravityGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.AntigravityGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.AntigravityGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPCommandAdapterV1 {
+		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPAmbientEnvV1 {
 		t.Fatalf("projection = %#v, want Antigravity global MCP aggregate contribution", projection)
 	}
 	var entry mcpcodec.AntigravityGlobalMCPServerEntry
@@ -483,7 +484,7 @@ func TestBuildSeparatesMCPProjectionSubjectNamespacesByTargetAndScope(t *testing
 	}
 }
 
-func TestBuildRejectsAntigravityGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
+func TestBuildRejectsAntigravityGlobalMCPEnvAliasBeforeSnapshotWrite(t *testing.T) {
 	server := testMCPServerForPlacement(
 		t, "context7", target.TargetAntigravityCLI, target.ScopeGlobal,
 		"npx", []string{"-y", "@upstash/context7-mcp"},
@@ -493,8 +494,86 @@ func TestBuildRejectsAntigravityGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
 	_, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
 		MCPServers: []desiredmcp.Server{server},
 	}), nil, Options{})
-	if err == nil || !strings.Contains(err.Error(), "does not support env") {
-		t.Fatalf("BuildWithOptions error = %v, want Antigravity env rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "supports only same-name environment references") {
+		t.Fatalf("BuildWithOptions error = %v, want Antigravity alias rejection", err)
+	}
+}
+
+func TestBuildLocksAntigravityGlobalMCPEnvironmentSourcesWithoutNativeValues(t *testing.T) {
+	const (
+		sourceName = "CONTEXT7_API_TOKEN"
+		secret     = "antigravity-global-secret-canary"
+	)
+	t.Setenv(sourceName, secret)
+	server := testMCPServerForPlacement(
+		t, "context7", target.TargetAntigravityCLI, target.ScopeGlobal,
+		"npx", []string{"-y", "@upstash/context7-mcp"},
+		map[string]string{sourceName: sourceName},
+	)
+
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+		MCPServers: []desiredmcp.Server{server},
+	}), nil, Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one Antigravity global MCP subject", file.Locked.Subjects())
+	}
+	subject := file.Locked.Subjects()[0]
+	if !slices.Equal(subject.MCPEnvironmentSources(), []string{sourceName}) {
+		t.Fatalf(
+			"locked environment sources = %#v, want %q",
+			subject.MCPEnvironmentSources(),
+			sourceName,
+		)
+	}
+	if _, hasDelegatePlan := subject.DelegatePlan(); hasDelegatePlan {
+		t.Fatal("Antigravity ambient environment row unexpectedly has a delegate plan")
+	}
+	projection := mustAggregateContribution(t, subject)
+	var entry mcpcodec.AntigravityGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if entry.Command != "npx" || len(entry.Args) != 2 {
+		t.Fatalf("canonical projection entry = %#v, want Antigravity command/args", entry)
+	}
+	for _, forbidden := range []string{sourceName, secret, `"env"`} {
+		if strings.Contains(projection.CanonicalContribution(), forbidden) {
+			t.Fatalf("canonical projection leaked %q: %s", forbidden, projection.CanonicalContribution())
+		}
+	}
+
+	withoutEnvironmentFile, err := buildWithTestOptions(
+		context.Background(),
+		lockEnvironment(t, desired.Spec{
+			MCPServers: []desiredmcp.Server{
+				testAntigravityGlobalMCPServer(
+					t,
+					"context7",
+					"npx",
+					[]string{"-y", "@upstash/context7-mcp"},
+				),
+			},
+		}),
+		nil,
+		Options{},
+	)
+	if err != nil {
+		t.Fatalf("build without environment references: %v", err)
+	}
+	withoutEnvironment := withoutEnvironmentFile.Locked.Subjects()[0]
+	withoutEnvironmentProjection := mustAggregateContribution(t, withoutEnvironment)
+	if projection.CanonicalContribution() != withoutEnvironmentProjection.CanonicalContribution() {
+		t.Fatalf(
+			"native projection changed with ambient requirements:\nwith:    %s\nwithout: %s",
+			projection.CanonicalContribution(),
+			withoutEnvironmentProjection.CanonicalContribution(),
+		)
+	}
+	if subject.Equal(withoutEnvironment) {
+		t.Fatal("locked Antigravity relation collapsed same-name requirements into a zero-reference row")
 	}
 }
 

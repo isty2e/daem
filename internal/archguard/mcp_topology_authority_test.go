@@ -128,7 +128,6 @@ func TestMCPNoEnvProjectionInputsHaveOneConcreteRepresentation(t *testing.T) {
 		root,
 		"internal/realization/aggregate/codec/mcp",
 		[]string{
-			"type AntigravityGlobalMCPServerProjection ",
 			"type OpenCodeProjectMCPServerProjection ",
 			"type CodexProjectMCPServerProjection ",
 		},

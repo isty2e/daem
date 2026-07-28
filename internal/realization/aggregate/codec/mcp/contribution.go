@@ -83,10 +83,20 @@ func CanonicalMCPBindingContribution(
 			AdapterContract: adapterContract,
 		})
 	case aggregate.MCPPlacementAntigravityGlobal:
-		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingSameName,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
 			return nil, err
 		}
-		return CanonicalAntigravityGlobalMCPServerEntry(noEnvProjection)
+		return CanonicalAntigravityGlobalMCPServerEntry(AntigravityGlobalMCPServerProjection{
+			ServerID:         serverID,
+			Command:          command,
+			Args:             args,
+			EnvironmentNames: stdio.EnvironmentSourceNames(),
+			AdapterContract:  adapterContract,
+		})
 	case aggregate.MCPPlacementOpenCodeProject:
 		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
 			return nil, err
@@ -182,7 +192,7 @@ func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProject
 }
 
 // CanonicalAntigravityGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -279,12 +289,21 @@ func canonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProject
 	}, nil
 }
 
-func canonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (AntigravityGlobalMCPServerEntry, error) {
-	if err := validateNoEnvMCPServerProjection(
-		projection,
-		aggregate.AntigravityGlobalMCPCommandAdapterV1,
-		"unsupported Antigravity CLI global MCP adapter contract",
-	); err != nil {
+func canonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) (AntigravityGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.AntigravityGlobalMCPAmbientEnvV1 {
+		return AntigravityGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported Antigravity CLI global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return AntigravityGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return AntigravityGlobalMCPServerEntry{}, err
+	}
+	if _, err := canonicalSameNameMCPEnvironmentNames(projection.EnvironmentNames, "ambient_environment"); err != nil {
 		return AntigravityGlobalMCPServerEntry{}, err
 	}
 	return AntigravityGlobalMCPServerEntry{
@@ -378,7 +397,7 @@ func canonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjectio
 	if err := validateMCPCommand(projection.Command); err != nil {
 		return CodexGlobalMCPServerEntry{}, err
 	}
-	envVars, err := canonicalCodexGlobalMCPEnvVars(projection.EnvVars, "env_vars")
+	envVars, err := canonicalSameNameMCPEnvironmentNames(projection.EnvVars, "env_vars")
 	if err != nil {
 		return CodexGlobalMCPServerEntry{}, err
 	}

@@ -27,12 +27,13 @@ func validClaudeGlobalMCPProjection(serverID string) ClaudeGlobalMCPServerProjec
 	}
 }
 
-func validAntigravityMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
-		ServerID:        serverID,
-		Command:         "npx",
-		Args:            []string{},
-		AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+func validAntigravityMCPProjection(serverID string) AntigravityGlobalMCPServerProjection {
+	return AntigravityGlobalMCPServerProjection{
+		ServerID:         serverID,
+		Command:          "npx",
+		Args:             []string{},
+		EnvironmentNames: []string{},
+		AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
 	}
 }
 

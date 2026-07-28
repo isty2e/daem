@@ -108,6 +108,17 @@ type ClaudeGlobalMCPServerProjection struct {
 	AdapterContract string
 }
 
+// AntigravityGlobalMCPServerProjection is the normalized Antigravity CLI
+// default-global stdio projection. EnvironmentNames are same-name ambient
+// runtime prerequisites and are intentionally absent from native config bytes.
+type AntigravityGlobalMCPServerProjection struct {
+	ServerID         string
+	Command          string
+	Args             []string
+	EnvironmentNames []string
+	AdapterContract  string
+}
+
 // OpenCodeGlobalMCPServerProjection is the normalized OpenCode default-global
 // local-server projection. Environment contains exact child-to-host-source references.
 type OpenCodeGlobalMCPServerProjection struct {

@@ -697,11 +697,11 @@ func canonicalStatusMCPEntry(t *testing.T, serverID string, command string) []by
 
 func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalAntigravityGlobalMCPServerEntry returned error: %v", err)

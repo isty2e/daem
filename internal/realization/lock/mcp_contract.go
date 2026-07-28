@@ -113,14 +113,15 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 		return LockedSubjectContract{}, err
 	}
 	return NewLockedSubjectContract(LockedSubjectContractInput{
-		EntityID:           input.EntityID,
-		SubjectID:          projectionSubject,
-		Realization:        &realization,
-		DelegatePlan:       input.DelegatePlan,
-		Ownership:          OwnershipManifest,
-		OnAbsent:           OnAbsentRemoveBinding,
-		Replay:             replay,
-		OperationContracts: contracts,
+		EntityID:              input.EntityID,
+		SubjectID:             projectionSubject,
+		Realization:           &realization,
+		DelegatePlan:          input.DelegatePlan,
+		MCPEnvironmentSources: input.CredentialReferences,
+		Ownership:             OwnershipManifest,
+		OnAbsent:              OnAbsentRemoveBinding,
+		Replay:                replay,
+		OperationContracts:    contracts,
 	})
 }
 

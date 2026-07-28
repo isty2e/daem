@@ -97,6 +97,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		Derivation:                derivation,
 		RepairRecipe:              recipe,
 		DelegatePlan:              delegatePlan,
+		MCPEnvironmentSources:     append([]string(nil), dto.MCPEnvironmentSources...),
 		SkillSetMemberCorrelation: correlation,
 		Ownership:                 lock.OwnershipBasis(dto.Ownership),
 		OnAbsent:                  lock.OnAbsentPolicy(dto.OnAbsent),
@@ -110,19 +111,20 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 		return lockedSubjectDTO{}, fmt.Errorf("invalid locked subject identity")
 	}
 	return lockedSubjectDTO{
-		EntityID:       contract.EntityID().String(),
-		SubjectID:      contract.SubjectID().String(),
-		ExactSupply:    optionalExactIdentityToDTO(contract.ExactSupply()),
-		ExactFileUse:   exactFileUseToDTO(contract.ExactFileUse()),
-		Realization:    realizationToDTO(contract.Realization()),
-		Derivation:     derivationToDTO(contract.Derivation()),
-		RepairRecipe:   repairRecipeToDTO(contract.RepairRecipe()),
-		DelegatePlan:   delegatePlanToDTO(contract),
-		SkillSetMember: skillSetMemberToDTO(contract.SkillSetMemberCorrelation()),
-		Ownership:      string(contract.Ownership()),
-		OnAbsent:       string(contract.OnAbsent()),
-		Replay:         replayCoverageToDTO(contract.ReplayCoverage()),
-		Operations:     operationContractsToDTO(contract),
+		EntityID:              contract.EntityID().String(),
+		SubjectID:             contract.SubjectID().String(),
+		ExactSupply:           optionalExactIdentityToDTO(contract.ExactSupply()),
+		ExactFileUse:          exactFileUseToDTO(contract.ExactFileUse()),
+		Realization:           realizationToDTO(contract.Realization()),
+		Derivation:            derivationToDTO(contract.Derivation()),
+		RepairRecipe:          repairRecipeToDTO(contract.RepairRecipe()),
+		DelegatePlan:          delegatePlanToDTO(contract),
+		MCPEnvironmentSources: contract.MCPEnvironmentSources(),
+		SkillSetMember:        skillSetMemberToDTO(contract.SkillSetMemberCorrelation()),
+		Ownership:             string(contract.Ownership()),
+		OnAbsent:              string(contract.OnAbsent()),
+		Replay:                replayCoverageToDTO(contract.ReplayCoverage()),
+		Operations:            operationContractsToDTO(contract),
 	}, nil
 }
 

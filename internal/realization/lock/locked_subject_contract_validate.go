@@ -2,12 +2,15 @@ package lock
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	resourcetopology "github.com/isty2e/daem/internal/topology/resource"
 )
 
@@ -66,6 +69,9 @@ func (contract LockedSubjectContract) validate() error {
 			return fmt.Errorf("delegate plan identity requires managed aggregate realization")
 		}
 	}
+	if err := contract.validateMCPEnvironmentSources(); err != nil {
+		return err
+	}
 	if contract.skillSetMemberCorrelation != nil {
 		if err := contract.validateSkillSetMemberCorrelation(); err != nil {
 			return err
@@ -94,6 +100,59 @@ func (contract LockedSubjectContract) validate() error {
 		if err := contract.validateOperationCompatibility(operationContract); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (contract LockedSubjectContract) validateMCPEnvironmentSources() error {
+	if err := validateStringSet(contract.mcpEnvironmentSources, "MCP environment source"); err != nil {
+		return err
+	}
+	if !slices.IsSorted(contract.mcpEnvironmentSources) {
+		return fmt.Errorf("MCP environment sources must use canonical order")
+	}
+
+	if contract.realization == nil {
+		if len(contract.mcpEnvironmentSources) != 0 {
+			return fmt.Errorf("MCP environment sources require a managed aggregate realization")
+		}
+		return nil
+	}
+	_, managedAggregate := contract.realization.ManagedAggregateContribution()
+	if !managedAggregate {
+		if len(contract.mcpEnvironmentSources) != 0 {
+			return fmt.Errorf("MCP environment sources require a managed aggregate realization")
+		}
+		return nil
+	}
+	placement, isMCP := aggregate.MCPPlacementForSubject(contract.subjectID)
+	if !isMCP {
+		if len(contract.mcpEnvironmentSources) != 0 {
+			if contract.entityID.Kind() == entity.KindMCPServer {
+				return nil
+			}
+			return fmt.Errorf(
+				"MCP environment sources are invalid for non-MCP subject %q",
+				contract.subjectID,
+			)
+		}
+		return nil
+	}
+	if len(contract.mcpEnvironmentSources) != 0 &&
+		!placement.EnvReferenceContract().Supported() {
+		return fmt.Errorf(
+			"MCP placement %q does not admit environment sources",
+			placement.ID(),
+		)
+	}
+	for _, source := range contract.mcpEnvironmentSources {
+		if _, err := topologymcp.EnvironmentReferenceSubject(source); err != nil {
+			return fmt.Errorf("MCP environment source %q: %w", source, err)
+		}
+	}
+	if contract.delegatePlan != nil &&
+		!slices.Equal(contract.delegatePlan.Env().SourceNames(), contract.mcpEnvironmentSources) {
+		return fmt.Errorf("MCP delegate env refs do not match locked environment sources")
 	}
 	return nil
 }

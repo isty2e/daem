@@ -26,6 +26,7 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		"[[locked.subject]]",
 		`entity_id = "mcp_server:context7"`,
 		`subject_id = "projection/claude-code.project.mcp-server/context7"`,
+		`mcp_environment_sources = ["CONTEXT7_API_TOKEN"]`,
 		`ownership = "manifest"`,
 		`on_absent = "remove_binding"`,
 		"[locked.subject.realization]",
@@ -83,6 +84,84 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 	originalDelegate, _ := contract.DelegatePlan()
 	if loadedDelegate.IdentityKey() != originalDelegate.IdentityKey() {
 		t.Fatalf("loaded delegate identity key = %q, want %q", loadedDelegate.IdentityKey(), originalDelegate.IdentityKey())
+	}
+	if got := loaded.Locked.Subjects()[0].MCPEnvironmentSources(); len(got) != 1 || got[0] != "CONTEXT7_API_TOKEN" {
+		t.Fatalf("loaded MCP environment sources = %#v", got)
+	}
+}
+
+func TestMarshalAndLoadAntigravityAmbientEnvironmentSourcesWithoutNativeEnv(t *testing.T) {
+	const sourceName = "CONTEXT7_API_TOKEN"
+	env := map[string]desiredmcp.EnvReference{
+		sourceName: desiredtest.MCPEnvReference(t, sourceName),
+	}
+	transport := desiredtest.MCPStdio(
+		t,
+		desiredtest.MCPCommand(t, "npx"),
+		[]string{"-y", "@upstash/context7-mcp"},
+		env,
+	)
+	binding := desiredtest.MCPBinding(
+		t,
+		target.TargetAntigravityCLI,
+		target.ScopeGlobal,
+		transport,
+		desiredmcp.OnAbsentRemoveBinding,
+	)
+	server := desiredtest.MCPServer(t, desiredmcp.Spec{
+		Name:     "context7",
+		Bindings: []desiredmcp.Binding{binding},
+	})
+	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	if err != nil {
+		t.Fatalf("Servers returned error: %v", err)
+	}
+	placement, ok := aggregate.MCPPlacementForID(aggregate.MCPPlacementAntigravityGlobal)
+	if !ok {
+		t.Fatal("Antigravity global MCP placement is missing")
+	}
+	canonical, err := mcpcodec.CanonicalMCPBindingContribution(server, binding, placement)
+	if err != nil {
+		t.Fatalf("CanonicalMCPBindingContribution returned error: %v", err)
+	}
+	contract, err := lock.NewMCPProjectionSubjectContract(lock.MCPProjectionSubjectInput{
+		Graph:                graph,
+		EntityID:             server.ID(),
+		PlacementID:          aggregate.MCPPlacementAntigravityGlobal,
+		ServerID:             server.ID().Name(),
+		RequestedOnAbsent:    desiredmcp.OnAbsentRemoveBinding,
+		LauncherCommand:      "npx",
+		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
+		CanonicalProjection:  string(canonical),
+		CredentialReferences: []string{sourceName},
+	})
+	if err != nil {
+		t.Fatalf("NewMCPProjectionSubjectContract returned error: %v", err)
+	}
+
+	content, err := Marshal(lockfileWithSubjects(t, contract))
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	rendered := string(content)
+	if !strings.Contains(rendered, `mcp_environment_sources = ["`+sourceName+`"]`) {
+		t.Fatalf("rendered lockfile is missing ambient environment source:\n%s", rendered)
+	}
+	for _, forbidden := range []string{"delegate_plan", `"env"`, "${" + sourceName + "}"} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("rendered lockfile contains forbidden Antigravity field %q:\n%s", forbidden, rendered)
+		}
+	}
+
+	loaded, err := Load(writeLockfileText(t, rendered))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if got := loaded.Locked.Subjects()[0].MCPEnvironmentSources(); len(got) != 1 || got[0] != sourceName {
+		t.Fatalf("loaded Antigravity environment sources = %#v", got)
+	}
+	if _, present := loaded.Locked.Subjects()[0].DelegatePlan(); present {
+		t.Fatal("loaded Antigravity ambient row unexpectedly has a delegate plan")
 	}
 }
 

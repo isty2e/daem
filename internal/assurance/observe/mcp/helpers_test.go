@@ -55,11 +55,11 @@ func antigravityMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
-	projection := mcpcodec.MCPNoEnvServerProjection{
+	projection := mcpcodec.AntigravityGlobalMCPServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstash/context7-mcp"},
-		AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 	}
 	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {

@@ -74,7 +74,7 @@ func canonicalOpenCodeMCPEnvironment(values map[string]string) (map[string]strin
 	return environment, nil
 }
 
-func canonicalCodexGlobalMCPEnvVars(values []string, subject string) ([]string, error) {
+func canonicalSameNameMCPEnvironmentNames(values []string, subject string) ([]string, error) {
 	seen := make(map[string]struct{}, len(values))
 	for index, value := range values {
 		if err := validateEnvName(value, fmt.Sprintf("%s[%d]", subject, index)); err != nil {
@@ -237,7 +237,7 @@ func codexGlobalMCPEnvVars(value any, subject string) ([]string, error) {
 		}
 		names = append(names, name)
 	}
-	return canonicalCodexGlobalMCPEnvVars(names, subject)
+	return canonicalSameNameMCPEnvironmentNames(names, subject)
 }
 
 func codexGlobalMCPEnvVarName(value any, subject string) (string, error) {

@@ -43,11 +43,6 @@ func TestMCPNoEnvServerProjectionRejectsCrossSurfaceAdapterContracts(t *testing.
 		canonicalize    func(MCPNoEnvServerProjection) ([]byte, error)
 	}{
 		{
-			name:            "Antigravity global",
-			adapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
-			canonicalize:    CanonicalAntigravityGlobalMCPServerEntry,
-		},
-		{
 			name:            "OpenCode project",
 			adapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 			canonicalize:    CanonicalOpenCodeProjectMCPServerEntry,
@@ -81,15 +76,6 @@ func TestMCPNoEnvServerProjectionCanonicalEntriesOwnArgs(t *testing.T) {
 		lower           func(MCPNoEnvServerProjection) ([]string, error)
 		want            []string
 	}{
-		{
-			name:            "Antigravity global",
-			adapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
-			lower: func(projection MCPNoEnvServerProjection) ([]string, error) {
-				entry, err := canonicalAntigravityGlobalMCPServerEntry(projection)
-				return entry.Args, err
-			},
-			want: []string{"", "--flag", "--flag", " value "},
-		},
 		{
 			name:            "OpenCode project",
 			adapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
@@ -137,11 +123,6 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 		content []byte
 		extract extractFunc
 	}{
-		{
-			name:    "Antigravity global",
-			content: []byte(`{"mcpServers":{"context7":{"command":"npx","args":["-y"]}}}`),
-			extract: ExtractAntigravityGlobalMCPServerProjections,
-		},
 		{
 			name:    "OpenCode project",
 			content: []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"]}}}`),

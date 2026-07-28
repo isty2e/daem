@@ -94,7 +94,7 @@ func assertLockedMCPSubject(t *testing.T, file lock.File, serverID string) {
 func assertLockedAntigravityMCPSubject(t *testing.T, file lock.File, serverID string) {
 	assertLockedMCPSubjectForPlacement(t, file, serverID, target.TargetAntigravityCLI, target.ScopeGlobal,
 		"antigravity-cli.global.mcp-server", aggregate.AntigravityGlobalMCPConfigPath,
-		mcpcodec.AntigravityGlobalMCPContentPath(serverID), aggregate.AntigravityGlobalMCPCommandAdapterV1)
+		mcpcodec.AntigravityGlobalMCPContentPath(serverID), aggregate.AntigravityGlobalMCPAmbientEnvV1)
 }
 
 func assertLockedCodexMCPSubject(t *testing.T, file lock.File, serverID string) {

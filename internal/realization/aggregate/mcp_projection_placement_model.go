@@ -23,20 +23,20 @@ const (
 )
 
 const (
-	ClaudeProjectMCPConfigPath           = ".mcp.json"
-	ClaudeProjectMCPStdioAdapterV1       = "claude-project-mcp-stdio-v1"
-	ClaudeGlobalMCPConfigPath            = "~/.claude.json"
-	ClaudeGlobalMCPStdioEnvAdapterV1     = "claude-code-user-mcp-stdio-env-v1"
-	AntigravityGlobalMCPConfigPath       = "~/.gemini/config/mcp_config.json"
-	AntigravityGlobalMCPCommandAdapterV1 = "antigravity-cli-global-mcp-command-v1"
-	OpenCodeProjectMCPConfigPath         = "opencode.json"
-	OpenCodeProjectMCPLocalCommandV1     = "opencode-project-mcp-local-command-v1"
-	OpenCodeGlobalMCPConfigPath          = "~/.config/opencode/opencode.json"
-	OpenCodeGlobalMCPLocalEnvV1          = "opencode-global-mcp-local-env-v1"
-	CodexProjectMCPConfigPath            = ".codex/config.toml"
-	CodexProjectMCPStdioCommandV1        = "codex-project-mcp-stdio-command-v1"
-	CodexGlobalMCPConfigPath             = "~/.codex/config.toml"
-	CodexGlobalMCPStdioEnvVarsV1         = "codex-global-mcp-stdio-env-vars-v1"
+	ClaudeProjectMCPConfigPath       = ".mcp.json"
+	ClaudeProjectMCPStdioAdapterV1   = "claude-project-mcp-stdio-v1"
+	ClaudeGlobalMCPConfigPath        = "~/.claude.json"
+	ClaudeGlobalMCPStdioEnvAdapterV1 = "claude-code-user-mcp-stdio-env-v1"
+	AntigravityGlobalMCPConfigPath   = "~/.gemini/config/mcp_config.json"
+	AntigravityGlobalMCPAmbientEnvV1 = "antigravity-cli-global-mcp-ambient-env-v1"
+	OpenCodeProjectMCPConfigPath     = "opencode.json"
+	OpenCodeProjectMCPLocalCommandV1 = "opencode-project-mcp-local-command-v1"
+	OpenCodeGlobalMCPConfigPath      = "~/.config/opencode/opencode.json"
+	OpenCodeGlobalMCPLocalEnvV1      = "opencode-global-mcp-local-env-v1"
+	CodexProjectMCPConfigPath        = ".codex/config.toml"
+	CodexProjectMCPStdioCommandV1    = "codex-project-mcp-stdio-command-v1"
+	CodexGlobalMCPConfigPath         = "~/.codex/config.toml"
+	CodexGlobalMCPStdioEnvVarsV1     = "codex-global-mcp-stdio-env-vars-v1"
 
 	openCodeProjectMCPConflictPath = "opencode.jsonc"
 	openCodeGlobalMCPConflictPath  = "~/.config/opencode/opencode.jsonc"
@@ -56,13 +56,13 @@ const (
 )
 
 const (
-	MCPCodecClaudeProjectStdio       CodecContractID = ClaudeProjectMCPStdioAdapterV1
-	MCPCodecClaudeGlobalStdioEnv     CodecContractID = ClaudeGlobalMCPStdioEnvAdapterV1
-	MCPCodecAntigravityGlobalCommand CodecContractID = AntigravityGlobalMCPCommandAdapterV1
-	MCPCodecOpenCodeProjectLocal     CodecContractID = OpenCodeProjectMCPLocalCommandV1
-	MCPCodecOpenCodeGlobalLocalEnv   CodecContractID = OpenCodeGlobalMCPLocalEnvV1
-	MCPCodecCodexProjectStdioCommand CodecContractID = CodexProjectMCPStdioCommandV1
-	MCPCodecCodexGlobalStdioEnvVars  CodecContractID = CodexGlobalMCPStdioEnvVarsV1
+	MCPCodecClaudeProjectStdio          CodecContractID = ClaudeProjectMCPStdioAdapterV1
+	MCPCodecClaudeGlobalStdioEnv        CodecContractID = ClaudeGlobalMCPStdioEnvAdapterV1
+	MCPCodecAntigravityGlobalAmbientEnv CodecContractID = AntigravityGlobalMCPAmbientEnvV1
+	MCPCodecOpenCodeProjectLocal        CodecContractID = OpenCodeProjectMCPLocalCommandV1
+	MCPCodecOpenCodeGlobalLocalEnv      CodecContractID = OpenCodeGlobalMCPLocalEnvV1
+	MCPCodecCodexProjectStdioCommand    CodecContractID = CodexProjectMCPStdioCommandV1
+	MCPCodecCodexGlobalStdioEnvVars     CodecContractID = CodexGlobalMCPStdioEnvVarsV1
 )
 
 // MCPAbsencePolicy identifies the row-local behavior when the manifest declaration disappears.
