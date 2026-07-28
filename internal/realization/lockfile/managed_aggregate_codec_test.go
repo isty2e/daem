@@ -15,7 +15,7 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 		reason    string
 	}{
 		{aggregate.MCPPlacementClaudeProject, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
-		{aggregate.MCPPlacementClaudeGlobal, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
+		{aggregate.MCPPlacementClaudeGlobal, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
 		{aggregate.MCPPlacementAntigravityGlobal, `{"type":"stdio","command":"npx","args":[]}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementOpenCodeProject, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementOpenCodeGlobal, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},

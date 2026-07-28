@@ -166,12 +166,8 @@ func decodeClaudeGlobalMCPServerEntry(raw json.RawMessage, serverID string) (Cla
 				"env must be a JSON string map",
 			)
 		}
-		if len(entry.Env) != 0 {
-			return ClaudeGlobalMCPServerEntry{}, newMCPProjectionError(
-				MCPProjectionReasonUnsupportedManagedField,
-				subject,
-				`Claude Code user/global MCP projection does not support non-empty "env"`,
-			)
+		if _, err := canonicalMCPEnv(entry.Env); err != nil {
+			return ClaudeGlobalMCPServerEntry{}, err
 		}
 	}
 	return entry, nil

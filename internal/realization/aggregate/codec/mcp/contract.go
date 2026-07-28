@@ -98,6 +98,16 @@ type ClaudeProjectMCPServerEntry struct {
 	Env     map[string]string `json:"env"`
 }
 
+// ClaudeGlobalMCPServerProjection is the normalized Claude Code user/global
+// stdio projection. Env contains exact child-to-host-source references.
+type ClaudeGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	Env             map[string]string
+	AdapterContract string
+}
+
 // MCPNoEnvServerProjection is the normalized input shared by MCP host surfaces
 // whose wire entry cannot carry environment bindings.
 type MCPNoEnvServerProjection struct {

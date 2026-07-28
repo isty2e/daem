@@ -27,9 +27,10 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 		"TOKEN": desiredtest.MCPEnvReference(t, "HOST_TOKEN"),
 	}
 	tests := []struct {
-		name      string
-		binding   desiredmcp.Binding
-		wantError string
+		name          string
+		binding       desiredmcp.Binding
+		wantPlacement MCPPlacementID
+		wantError     string
 	}{
 		{
 			name: "unsupported scope",
@@ -43,7 +44,7 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 			wantError: "unsupported MCP scope",
 		},
 		{
-			name: "unsupported env",
+			name: "global aliased env",
 			binding: desiredtest.MCPBinding(
 				t,
 				target.TargetClaudeCode,
@@ -51,7 +52,7 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 				desiredtest.MCPStdio(t, desiredtest.MCPCommand(t, "npx"), nil, env),
 				desiredmcp.OnAbsentKeep,
 			),
-			wantError: "does not support environment references",
+			wantPlacement: MCPPlacementClaudeGlobal,
 		},
 		{
 			name: "aliased env",
@@ -62,6 +63,7 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 				desiredtest.MCPStdio(t, desiredtest.MCPCommand(t, "npx"), nil, env),
 				desiredmcp.OnAbsentKeep,
 			),
+			wantPlacement: MCPPlacementClaudeProject,
 		},
 	}
 
@@ -72,8 +74,8 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 				if err != nil {
 					t.Fatalf("MCPPlacementForBinding returned error: %v", err)
 				}
-				if placement.ID() != MCPPlacementClaudeProject {
-					t.Fatalf("placement = %q, want %q", placement.ID(), MCPPlacementClaudeProject)
+				if placement.ID() != test.wantPlacement {
+					t.Fatalf("placement = %q, want %q", placement.ID(), test.wantPlacement)
 				}
 				return
 			}

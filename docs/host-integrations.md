@@ -153,7 +153,8 @@ plugin-bundled hooks.
 Supported rows manage one bounded stdio entry while preserving unrelated host
 configuration. Codex supports command/args project rows and explicit-global
 rows with optional same-name `env_vars`; Claude Code supports project rows with
-structured environment references and command/args-only explicit-global rows.
+structured environment references and explicit-global rows with exact aliased
+`${SOURCE}` environment references.
 OpenCode supports project and explicit-global command rows, Antigravity CLI
 supports only the explicit-global command row, and Pi has no core standalone
 row. `import` can author these rows, and `apply --manage-existing` can register
@@ -170,6 +171,16 @@ manifest and host environment. Lock stores names only; normal apply checks
 fresh presence before mutation, and Codex resolves values when it later starts
 the server. Aliases, literal values, remote sources, and Codex project
 environment references are rejected.
+
+Claude Code global environment support accepts exact child-to-source aliases.
+Daem renders each accepted mapping as `"CHILD": "${SOURCE}"` in the top-level
+user MCP entry. Lock stores names only, and normal apply checks every source
+for fresh presence before mutation; an empty but present value is valid. Claude
+Code resolves the value when it starts the server. Literal values, defaults,
+compound templates, `user_config` interpolation, and malformed names are
+rejected. Claude Code 2.1.220 was observed to warn but still launch a server
+with an unexpanded placeholder when a source is absent, so the daem preflight
+is deliberately authoritative rather than relying on host rejection.
 
 ### Delegated Executable Execution
 
@@ -445,7 +456,8 @@ contribution ownership.
   outside current product coverage.
 - Cross-target MCP config projection beyond the Codex project command/args
   slice and explicit-global command/args plus same-name environment-reference
-  slice, Claude project stdio and explicit-global command/args-only slices,
+  slice, Claude project stdio and explicit-global command/args plus exact
+  aliased environment-reference slices,
   OpenCode project and
   explicit-global command/args-only slices, and the Antigravity CLI
   explicit-global command/args-only slice.

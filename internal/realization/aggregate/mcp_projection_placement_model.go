@@ -26,7 +26,7 @@ const (
 	ClaudeProjectMCPConfigPath           = ".mcp.json"
 	ClaudeProjectMCPStdioAdapterV1       = "claude-project-mcp-stdio-v1"
 	ClaudeGlobalMCPConfigPath            = "~/.claude.json"
-	ClaudeGlobalMCPStdioAdapterV1        = "claude-code-user-mcp-stdio-v1"
+	ClaudeGlobalMCPStdioEnvAdapterV1     = "claude-code-user-mcp-stdio-env-v1"
 	AntigravityGlobalMCPConfigPath       = "~/.gemini/config/mcp_config.json"
 	AntigravityGlobalMCPCommandAdapterV1 = "antigravity-cli-global-mcp-command-v1"
 	OpenCodeProjectMCPConfigPath         = "opencode.json"
@@ -57,7 +57,7 @@ const (
 
 const (
 	MCPCodecClaudeProjectStdio       CodecContractID = ClaudeProjectMCPStdioAdapterV1
-	MCPCodecClaudeGlobalStdio        CodecContractID = ClaudeGlobalMCPStdioAdapterV1
+	MCPCodecClaudeGlobalStdioEnv     CodecContractID = ClaudeGlobalMCPStdioEnvAdapterV1
 	MCPCodecAntigravityGlobalCommand CodecContractID = AntigravityGlobalMCPCommandAdapterV1
 	MCPCodecOpenCodeProjectLocal     CodecContractID = OpenCodeProjectMCPLocalCommandV1
 	MCPCodecOpenCodeGlobalLocal      CodecContractID = OpenCodeGlobalMCPLocalCommandV1

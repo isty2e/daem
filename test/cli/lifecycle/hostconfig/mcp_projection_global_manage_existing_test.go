@@ -94,6 +94,8 @@ env = { MANUAL_TOKEN = "keep-literal" }
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_CLAUDE_GLOBAL_TOKEN"
+	t.Setenv(sourceName, "claude-global-manage-existing-secret")
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
@@ -102,11 +104,12 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".claude.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
   "mcpServers": {
-    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"]},
+    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${DAEM_TEST_CLAUDE_GLOBAL_TOKEN}"}},
     "manual": {"type": "http", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   },
   "projects": {

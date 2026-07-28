@@ -45,9 +45,9 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			wantConfigPath:    "~/.claude.json",
 			wantPathPrefix:    "/mcpServers",
 			wantContentPath:   "/mcpServers/context7",
-			wantCodec:         aggregate.MCPCodecClaudeGlobalStdio,
-			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
-			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
+			wantCodec:         aggregate.MCPCodecClaudeGlobalStdioEnv,
+			wantEnvMapping:    aggregate.MCPEnvMappingAliased,
+			wantEnvResolution: aggregate.MCPEnvResolutionHostRuntime,
 		},
 		{
 			name:              "antigravity global",

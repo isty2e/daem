@@ -16,6 +16,11 @@ import (
 )
 
 func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *testing.T) {
+	const (
+		sourceName = "DAEM_TEST_CLAUDE_GLOBAL_TOKEN"
+		secret     = "claude-global-lifecycle-secret"
+	)
+	t.Setenv(sourceName, secret)
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
@@ -24,6 +29,7 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".claude.json")
 	writeClaudeGlobalMCPConfigWithSiblings(t, hostConfigPath, "")
@@ -33,7 +39,14 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("apply create exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfigPath, "context7", "npx", []string{"-y", "@example/mcp-server"})
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(
+		t,
+		hostConfigPath,
+		"context7",
+		"npx",
+		[]string{"-y", "@example/mcp-server"},
+		map[string]string{"API_TOKEN": "${" + sourceName + "}"},
+	)
 	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, hostConfigPath)
 	assertGlobalMCPStateSubject(t, loadMCPStatefile(t, project.root), globalMCPStateWant{
 		namespace:   "claude-code.global.mcp-server",
@@ -44,6 +57,9 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 		serverID:    "context7",
 	})
 	assertNoPublicMCPOutputLeaks(t, stdout)
+	if strings.Contains(stdout, secret) {
+		t.Fatal("apply output leaked resolved Claude environment value")
+	}
 
 	exitCode, stdout, stderr = runMCPCLI(t, "status", "--manifest", project.manifestPath, "--target", "claude-code", "--check", "--json")
 	if exitCode != 0 || stderr != "" {
@@ -55,20 +71,49 @@ func TestMCPPublicCLIClaudeGlobalProjectionLifecyclePreservesSharedUserState(t *
 	assertMCPJSONDimension(t, statusPayload, "runtime_launcher", "not_probed", "RUNTIME_NOT_PROBED")
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
+	writeClaudeGlobalMCPConfigWithSiblings(
+		t,
+		hostConfigPath,
+		`"context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${DRIFTED_TOKEN}"}}`,
+	)
+	exitCode, stdout, stderr = runMCPCLI(t, "status", "--manifest", project.manifestPath, "--target", "claude-code", "--check", "--json")
+	if exitCode != 1 || stderr != "" {
+		t.Fatalf("status drift exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	driftStatus := clijson.DecodePlan(t, []byte(stdout))
+	assertMCPJSONDimension(t, driftStatus, "global_projection", "drifted", "")
+	assertNoPublicMCPOutputLeaks(t, stdout)
+
+	writeClaudeGlobalMCPConfigWithSiblings(
+		t,
+		hostConfigPath,
+		`"context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${`+sourceName+`}"}}`,
+	)
 	writeMCPManifest(t, project.root, mcpManifestSpec{
 		Target:  "claude-code",
 		Scope:   "global",
 		Command: "node",
 		Args:    []string{"server.js"},
+		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
 	runMCPLock(t, project)
 	exitCode, stdout, stderr = runMCPCLI(t, "apply", "--manifest", project.manifestPath, "--target", "claude-code", "--yes", "--json")
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("apply update exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfigPath, "context7", "node", []string{"server.js"})
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(
+		t,
+		hostConfigPath,
+		"context7",
+		"node",
+		[]string{"server.js"},
+		map[string]string{"API_TOKEN": "${" + sourceName + "}"},
+	)
 	assertClaudeGlobalMCPConfigPreservesSharedUserState(t, hostConfigPath)
 	assertNoPublicMCPOutputLeaks(t, stdout)
+	if strings.Contains(stdout, secret) {
+		t.Fatal("apply output leaked resolved Claude environment value")
+	}
 
 	writeMCPManifestWithoutServers(t, project.root)
 	runMCPLock(t, project)

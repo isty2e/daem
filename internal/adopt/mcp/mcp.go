@@ -93,7 +93,7 @@ func claudeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped
 			LivePath:     livePath + "#" + mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID),
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
+			Env:          hostEnvReferences(projection.Env),
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil

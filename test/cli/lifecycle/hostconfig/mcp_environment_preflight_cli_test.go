@@ -11,6 +11,7 @@ import (
 	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
@@ -252,6 +253,177 @@ func TestMCPPublicCLICodexGlobalApplyPreflightsSameNameEnvironment(t *testing.T)
 				} {
 					if strings.Contains(content, test.value) {
 						t.Fatalf("%s persisted resolved Codex environment value", label)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMCPPublicCLIClaudeGlobalApplyPreflightsAliasedEnvironment(t *testing.T) {
+	const (
+		childName  = "API_TOKEN"
+		sourceName = "DAEM_TEST_CLAUDE_GLOBAL_TOKEN"
+	)
+
+	t.Run("missing blocks before mutation", func(t *testing.T) {
+		unsetEnvForMCPDelegateTest(t, sourceName)
+		project := newMCPCLIProject(t)
+		homeDir := filepath.Join(project.root, "host-home")
+		t.Setenv("HOME", homeDir)
+		writeMCPManifest(t, project.root, mcpManifestSpec{
+			Target:  "claude-code",
+			Scope:   "global",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp-server"},
+			Env:     map[string]string{childName: sourceName},
+		})
+		runMCPLock(t, project)
+
+		exitCode, stdout, stderr := runMCPCLI(
+			t,
+			"apply",
+			"--manifest",
+			project.manifestPath,
+			"--target",
+			"claude-code",
+			"--yes",
+			"--json",
+		)
+		if exitCode != 1 || stderr != "" {
+			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		payload := clijson.DecodeApplyResult(t, []byte(stdout))
+		if !payload.HasErrors || len(payload.Errors) != 1 ||
+			!strings.Contains(payload.Errors[0].Message, sourceName) {
+			t.Fatalf("payload errors = %#v, want missing Claude environment source", payload.Errors)
+		}
+		if payload.ActionCount != 0 {
+			t.Fatalf("action_count = %d, want no committed action", payload.ActionCount)
+		}
+		for _, path := range []string{
+			filepath.Join(homeDir, ".claude.json"),
+			filepath.Join(project.root, ".daem", "state.json"),
+			filepath.Join(project.root, ".daem", "recovery"),
+		} {
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("%s stat error = %v, want absent after preflight failure", path, err)
+			}
+		}
+	})
+
+	t.Run("current row still requires source", func(t *testing.T) {
+		t.Setenv(sourceName, "initial-value")
+		project := newMCPCLIProject(t)
+		homeDir := filepath.Join(project.root, "host-home")
+		t.Setenv("HOME", homeDir)
+		writeMCPManifest(t, project.root, mcpManifestSpec{
+			Target:  "claude-code",
+			Scope:   "global",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp-server"},
+			Env:     map[string]string{childName: sourceName},
+		})
+		runMCPLock(t, project)
+		exitCode, stdout, stderr := runMCPCLI(
+			t,
+			"apply",
+			"--manifest",
+			project.manifestPath,
+			"--target",
+			"claude-code",
+			"--yes",
+			"--json",
+		)
+		if exitCode != 0 || stderr != "" {
+			t.Fatalf("initial apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		configPath := filepath.Join(homeDir, ".claude.json")
+		statePath := filepath.Join(project.root, ".daem", "state.json")
+		beforeConfig := string(testkit.ReadFile(t, configPath))
+		beforeState := string(testkit.ReadFile(t, statePath))
+		unsetEnvForMCPDelegateTest(t, sourceName)
+
+		exitCode, stdout, stderr = runMCPCLI(
+			t,
+			"apply",
+			"--manifest",
+			project.manifestPath,
+			"--target",
+			"claude-code",
+			"--yes",
+			"--json",
+		)
+		if exitCode != 1 || stderr != "" {
+			t.Fatalf("current-row apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		payload := clijson.DecodeApplyResult(t, []byte(stdout))
+		if !payload.HasErrors || payload.ActionCount != 0 ||
+			len(payload.Errors) != 1 ||
+			!strings.Contains(payload.Errors[0].Message, sourceName) {
+			t.Fatalf("current-row payload = %#v, want missing-source preflight failure", payload)
+		}
+		if config := string(testkit.ReadFile(t, configPath)); config != beforeConfig {
+			t.Fatalf("current-row preflight changed config:\ngot  %s\nwant %s", config, beforeConfig)
+		}
+		if state := string(testkit.ReadFile(t, statePath)); state != beforeState {
+			t.Fatalf("current-row preflight changed state:\ngot  %s\nwant %s", state, beforeState)
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "present empty is admitted"},
+		{name: "present value is not persisted", value: "claude-global-secret-canary"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(sourceName, test.value)
+			project := newMCPCLIProject(t)
+			homeDir := filepath.Join(project.root, "host-home")
+			t.Setenv("HOME", homeDir)
+			writeMCPManifest(t, project.root, mcpManifestSpec{
+				Target:  "claude-code",
+				Scope:   "global",
+				Command: "npx",
+				Args:    []string{"-y", "@example/mcp-server"},
+				Env:     map[string]string{childName: sourceName},
+			})
+			runMCPLock(t, project)
+
+			exitCode, stdout, stderr := runMCPCLI(
+				t,
+				"apply",
+				"--manifest",
+				project.manifestPath,
+				"--target",
+				"claude-code",
+				"--yes",
+				"--json",
+			)
+			if exitCode != 0 || stderr != "" {
+				t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+			}
+			configPath := filepath.Join(homeDir, ".claude.json")
+			config := testkit.ReadFile(t, configPath)
+			entry, present, err := mcpcodec.ExtractClaudeGlobalMCPServerProjection(config, "context7")
+			if err != nil || !present {
+				t.Fatalf("Claude global projection = %#v, present=%t, err=%v", entry, present, err)
+			}
+			if len(entry.Env) != 1 || entry.Env[childName] != "${"+sourceName+"}" {
+				t.Fatalf("Claude global env = %#v, want exact native reference", entry.Env)
+			}
+			state := testkit.ReadFile(t, filepath.Join(project.root, ".daem", "state.json"))
+			if test.value != "" {
+				for label, content := range map[string]string{
+					"stdout":   stdout,
+					"lockfile": string(testkit.ReadFile(t, project.lockfilePath)),
+					"config":   string(config),
+					"state":    string(state),
+				} {
+					if strings.Contains(content, test.value) {
+						t.Fatalf("%s persisted resolved Claude environment value", label)
 					}
 				}
 			}

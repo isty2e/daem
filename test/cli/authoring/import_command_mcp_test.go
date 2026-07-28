@@ -310,7 +310,8 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
   "mcpServers": {
     "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"]},
     "remote": {"type": "http", "url": "https://example.invalid/mcp"},
-    "withEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}}
+    "withEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "${CLAUDE_GLOBAL_TOKEN}"}},
+    "literalEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}}
   },
   "projects": {
     "/repo": {
@@ -333,8 +334,9 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 		`target=claude-code`,
 		`scope=global`,
 		`live="` + livePath + `#/mcpServers/context7"`,
+		`resource="mcp_server/withEnv"`,
 		`skip live="` + livePath + `#/mcpServers/remote" reason=unsupported_mcp_transport`,
-		`skip live="` + livePath + `#/mcpServers/withEnv" reason=unsupported_mcp_managed_field`,
+		`skip live="` + livePath + `#/mcpServers/literalEnv" reason=secret_literal_forbidden`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -349,7 +351,21 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 	server := readImportedMCPServer(t, outputPath, "context7")
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetClaudeCode, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
 	if env := stdio.Env(); len(env) != 0 {
-		t.Fatalf("env = %#v, want none for Claude global import", env)
+		t.Fatalf("env = %#v, want none for env-free Claude global import", env)
+	}
+	withEnv := readImportedMCPServer(t, outputPath, "withEnv")
+	withEnvStdio := testkit.AssertSingleMCPStdioBinding(
+		t,
+		withEnv,
+		"withEnv",
+		target.TargetClaudeCode,
+		target.ScopeGlobal,
+		"npx",
+		nil,
+	)
+	if env := withEnvStdio.Env(); len(env) != 1 ||
+		env["API_TOKEN"].FromEnv() != "CLAUDE_GLOBAL_TOKEN" {
+		t.Fatalf("env = %#v, want exact Claude global environment reference", env)
 	}
 }
 

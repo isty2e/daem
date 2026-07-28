@@ -88,11 +88,12 @@ func (fixture mcpProjectionApplyFixture) claudeGlobalCanonicalEntry(
 ) []byte {
 	t.Helper()
 	content, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(
-		mcpcodec.MCPNoEnvServerProjection{
+		mcpcodec.ClaudeGlobalMCPServerProjection{
 			ServerID:        serverID,
 			Command:         command,
 			Args:            []string{"-y", "@upstream/" + serverID},
-			AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+			Env:             map[string]string{"API_KEY": "${CONTEXT7_API_KEY}"},
+			AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 		},
 	)
 	if err != nil {

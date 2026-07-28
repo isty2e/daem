@@ -169,41 +169,49 @@ func compareCodexGlobalMCPServerEntry(existing []byte, serverID string, desired 
 }
 
 func mcpServerEntriesEqual(left ClaudeProjectMCPServerEntry, right ClaudeProjectMCPServerEntry) bool {
-	if left.Type != right.Type || left.Command != right.Command {
+	return claudeMCPServerFieldsEqual(
+		left.Type, left.Command, left.Args, left.Env,
+		right.Type, right.Command, right.Args, right.Env,
+	)
+}
+
+func claudeGlobalMCPServerEntriesEqual(left ClaudeGlobalMCPServerEntry, right ClaudeGlobalMCPServerEntry) bool {
+	return claudeMCPServerFieldsEqual(
+		left.Type, left.Command, left.Args, left.Env,
+		right.Type, right.Command, right.Args, right.Env,
+	)
+}
+
+func claudeMCPServerFieldsEqual(
+	leftType string,
+	leftCommand string,
+	leftArgs []string,
+	leftEnv map[string]string,
+	rightType string,
+	rightCommand string,
+	rightArgs []string,
+	rightEnv map[string]string,
+) bool {
+	if leftType != rightType || leftCommand != rightCommand {
 		return false
 	}
-	if len(left.Args) != len(right.Args) {
+	if len(leftArgs) != len(rightArgs) {
 		return false
 	}
-	for index := range left.Args {
-		if left.Args[index] != right.Args[index] {
+	for index := range leftArgs {
+		if leftArgs[index] != rightArgs[index] {
 			return false
 		}
 	}
-	if len(left.Env) != len(right.Env) {
+	if len(leftEnv) != len(rightEnv) {
 		return false
 	}
-	for key, leftValue := range left.Env {
-		if right.Env[key] != leftValue {
+	for key, leftValue := range leftEnv {
+		if rightEnv[key] != leftValue {
 			return false
 		}
 	}
 	return true
-}
-
-func claudeGlobalMCPServerEntriesEqual(left ClaudeGlobalMCPServerEntry, right ClaudeGlobalMCPServerEntry) bool {
-	if left.Type != right.Type || left.Command != right.Command {
-		return false
-	}
-	if len(left.Args) != len(right.Args) {
-		return false
-	}
-	for index := range left.Args {
-		if left.Args[index] != right.Args[index] {
-			return false
-		}
-	}
-	return len(left.Env) == 0 && len(right.Env) == 0
 }
 
 func codexProjectMCPServerEntriesEqual(left CodexProjectMCPServerEntry, right CodexProjectMCPServerEntry) bool {

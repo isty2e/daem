@@ -112,7 +112,7 @@ func assertLockedCodexGlobalMCPSubject(t *testing.T, file lock.File, serverID st
 func assertLockedClaudeGlobalMCPSubject(t *testing.T, file lock.File, serverID string) {
 	assertLockedMCPSubjectForPlacement(t, file, serverID, target.TargetClaudeCode, target.ScopeGlobal,
 		"claude-code.global.mcp-server", aggregate.ClaudeGlobalMCPConfigPath,
-		mcpcodec.ClaudeGlobalMCPContentPath(serverID), aggregate.ClaudeGlobalMCPStdioAdapterV1)
+		mcpcodec.ClaudeGlobalMCPContentPath(serverID), aggregate.ClaudeGlobalMCPStdioEnvAdapterV1)
 }
 
 func assertLockedMCPSubjectForPlacement(

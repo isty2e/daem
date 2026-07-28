@@ -124,6 +124,12 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 		t.Fatalf("Claude credential reference rejected: %v", err)
 	}
 
+	claudeGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementClaudeGlobal)
+	claudeGlobalInput := testMCPProjectionInput(t, claudeGlobal, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(claudeGlobalInput); err != nil {
+		t.Fatalf("Claude global credential reference rejected: %v", err)
+	}
+
 	codexGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexGlobal)
 	codexGlobalInput := testMCPProjectionInput(t, codexGlobal, []string{credential})
 	if _, err := NewMCPProjectionSubjectContract(codexGlobalInput); err != nil {

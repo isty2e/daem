@@ -27,7 +27,7 @@ var antigravityGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 var claudeGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetClaudeCode, aggregate.MCPPlacementClaudeGlobal),
 	Label:                    "Claude Code user/global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         claudeGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",

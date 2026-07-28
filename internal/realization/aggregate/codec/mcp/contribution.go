@@ -65,10 +65,24 @@ func CanonicalMCPBindingContribution(
 			AdapterContract: adapterContract,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
-		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
 			return nil, err
 		}
-		return CanonicalClaudeGlobalMCPServerEntry(noEnvProjection)
+		env, err := canonicalMCPBindingEnv(stdio.Env())
+		if err != nil {
+			return nil, err
+		}
+		return CanonicalClaudeGlobalMCPServerEntry(ClaudeGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			Env:             env,
+			AdapterContract: adapterContract,
+		})
 	case aggregate.MCPPlacementAntigravityGlobal:
 		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
 			return nil, err
@@ -158,7 +172,7 @@ func CanonicalClaudeProjectMCPServerEntry(projection ClaudeProjectMCPServerProje
 }
 
 // CanonicalClaudeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalClaudeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -238,19 +252,29 @@ func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudePr
 	}, nil
 }
 
-func canonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (ClaudeGlobalMCPServerEntry, error) {
-	if err := validateNoEnvMCPServerProjection(
-		projection,
-		aggregate.ClaudeGlobalMCPStdioAdapterV1,
-		"unsupported Claude Code user/global MCP adapter contract",
-	); err != nil {
+func canonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) (ClaudeGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.ClaudeGlobalMCPStdioEnvAdapterV1 {
+		return ClaudeGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported Claude Code user/global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return ClaudeGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return ClaudeGlobalMCPServerEntry{}, err
+	}
+	env, err := canonicalMCPEnv(projection.Env)
+	if err != nil {
 		return ClaudeGlobalMCPServerEntry{}, err
 	}
 	return ClaudeGlobalMCPServerEntry{
 		Type:    claudeProjectMCPTransportStdio,
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
-		Env:     map[string]string{},
+		Env:     env,
 	}, nil
 }
 

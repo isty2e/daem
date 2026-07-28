@@ -17,12 +17,13 @@ func validMCPProjection(serverID string) ClaudeProjectMCPServerProjection {
 	}
 }
 
-func validClaudeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validClaudeGlobalMCPProjection(serverID string) ClaudeGlobalMCPServerProjection {
+	return ClaudeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		Env:             map[string]string{},
+		AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 	}
 }
 

@@ -53,7 +53,7 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project scope with structured environment references or explicit-global command/args-only scope, OpenCode strict project or explicit-global `type = "local"` command/args-only scope, and Antigravity CLI explicit global command/args-only scope. |
+| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project or explicit-global `type = "local"` command/args-only scope, and Antigravity CLI explicit global command/args-only scope. |
 | `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -736,7 +736,8 @@ exact-projection slices:
 - Claude Code project scope, rendered into project `.mcp.json` with `command`,
   `args`, and structured `env` references.
 - Claude Code explicit global scope, rendered into top-level `~/.claude.json`
-  under `/mcpServers/<name>` with `command` and `args` only.
+  under `/mcpServers/<name>` with `command`, `args`, and exact aliased
+  `${SOURCE}` `env` references.
 - OpenCode project scope, rendered into strict project `opencode.json` as
   `type = "local"` with `command` and `args` only.
 - OpenCode explicit global scope, rendered into strict default user
@@ -801,13 +802,18 @@ Claude Code MCP requires effective `targets = ["claude-code"]` and either
 effective project scope or explicit row-local `scope = "global"`.
 Project-scoped rows render into project `.mcp.json` and may carry structured
 `env` references. Explicit-global rows render only the top-level
-`~/.claude.json` `/mcpServers/<name>` entry with `command` and `args` only.
+`~/.claude.json` `/mcpServers/<name>` entry with `command`, `args`, and
+structured references lowered to exact `"CHILD": "${SOURCE}"` strings.
 `daem add mcp-server --target claude-code --scope global` writes the
-explicit-global row. The Claude global adapter rejects `env`, local/project
-scope state, OAuth/session/trust fields inside the managed entry, HTTP/remote
-transport fields, headers, `cwd`, timeout/tool-policy fields, and unknown
-managed-entry fields rather than silently preserving them inside the managed
-entry. Unrelated top-level user config, project-local `projects` entries,
+explicit-global command/args row. Add environment references by editing the
+manifest directly or importing an accepted native entry. The Claude global
+adapter accepts only exact `${VALID_NAME}` native values. It rejects literals,
+defaults such as `${NAME:-default}`, compound templates, `user_config`
+interpolation, malformed names, local/project scope state,
+OAuth/session/trust fields inside the managed entry, HTTP/remote transport
+fields, headers, `cwd`, timeout/tool-policy fields, and unknown managed-entry
+fields rather than silently preserving them inside the managed entry.
+Unrelated top-level user config, project-local `projects` entries,
 OAuth/session/trust siblings, and same-name project shadows are preserved but
 not owned by the global row.
 
@@ -825,8 +831,9 @@ row, and Antigravity CLI explicit-global row. Omitted target/scope succeeds only
 when manifest inheritance and supported-row compatibility identify one row.
 Claude global authoring requires
 `--target claude-code --scope global` because defaults do not authorize global
-MCP, and rejects `env` plus all remote/auth/tool-policy fields. Codex authoring
-requires `--target codex`; global authoring additionally requires
+MCP. The helper creates a command/args row; add global environment references
+by editing the manifest directly or importing an accepted native entry. Codex
+authoring requires `--target codex`; global authoring additionally requires
 `--scope global` because defaults do not authorize global MCP. The authoring
 helper creates command/args-only Codex rows. Add same-name global environment
 references by editing the manifest directly or by importing an accepted native
@@ -846,8 +853,9 @@ checking ambient command tokens through `PATH`, explicit absolute commands at
 their exact path, and modeled host-source env names only. It does not execute
 the command or prove package/cache/runtime convergence. Claude Code project
 rows additionally lock a delegated executable plan identity with each exact
-child/source pair. Codex global rows lock only the canonical same-name
-`env_vars` names as part of their config projection. Values remain
+child/source pair. Claude global rows lock only the exact child/source mapping
+rendered as `${SOURCE}` placeholders. Codex global rows lock only the canonical
+same-name `env_vars` names as part of their config projection. Values remain
 runtime-only and are never locked.
 
 Lock and dry-run validate only symbolic names and supported mappings; they do
@@ -858,9 +866,10 @@ before acquiring mutation authority and after rebuilding the plan under the
 lease. An empty value counts as present. The check also applies when a selected
 binding is already current, but not after that binding has been removed from
 the desired manifest. Missing-source diagnostics are sorted, deduplicated,
-bounded, and contain source names only. Claude values are resolved again only
-for delegated subprocess launch; Codex reads its same-name variables later
-when the host launches the configured server. Values are never added to the
+bounded, and contain source names only. Claude project values are resolved
+again only for delegated subprocess launch; Claude global and Codex global
+values are resolved later by the host when it launches the configured server.
+Values are never added to the
 lockfile, statefile, recovery data, plan fingerprint, rendered config, or CLI
 output.
 Codex, OpenCode, and Antigravity CLI direct config projections have no
@@ -1572,8 +1581,8 @@ yet:
 
 - MCP server declarations beyond the supported Codex project command/args slice
   and explicit-global command/args plus same-name environment-reference slice,
-  Claude Code project stdio and explicit-global
-  command/args-only slices, OpenCode project and explicit-global
+  Claude Code project stdio and explicit-global command/args plus exact aliased
+  environment-reference slices, OpenCode project and explicit-global
   command/args-only slices, and Antigravity CLI explicit-global
   command/args-only slice. The
   Claude slice renders one standalone server relation into the project
@@ -1582,7 +1591,8 @@ yet:
   passive MCP executable prerequisite diagnostics, and last delegate attempt
   diagnostics as separate dimensions. The Claude global slice renders one
   standalone server relation into top-level `~/.claude.json`, locks the
-  command/args config projection, may report passive executable
+  command/args and symbolic child/source environment mapping, may report
+  passive executable
   prerequisites, and has no delegated executable or runtime readiness claim.
   The Codex slices render one standalone
   server relation into project `.codex/config.toml` or default user

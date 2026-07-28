@@ -251,7 +251,7 @@ func TestBuildLocksClaudeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.ClaudeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.ClaudeGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioAdapterV1 {
+		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioEnvAdapterV1 {
 		t.Fatalf("projection = %#v, want Claude global MCP aggregate contribution", projection)
 	}
 	var entry mcpcodec.ClaudeGlobalMCPServerEntry
@@ -498,18 +498,34 @@ func TestBuildRejectsAntigravityGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsClaudeGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
+func TestBuildLocksClaudeGlobalMCPEnvReferencesWithoutValues(t *testing.T) {
+	const secret = "claude-global-lock-secret"
+	t.Setenv("CONTEXT7_API_TOKEN", secret)
 	server := testMCPServerForPlacement(
 		t, "context7", target.TargetClaudeCode, target.ScopeGlobal,
 		"npx", []string{"-y", "@upstash/context7-mcp"},
 		map[string]string{"API_TOKEN": "CONTEXT7_API_TOKEN"},
 	)
 
-	_, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
 		MCPServers: []desiredmcp.Server{server},
 	}), nil, Options{})
-	if err == nil || !strings.Contains(err.Error(), "does not support env") {
-		t.Fatalf("BuildWithOptions error = %v, want Claude global env rejection", err)
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one Claude global MCP subject", file.Locked.Subjects())
+	}
+	projection := mustAggregateContribution(t, file.Locked.Subjects()[0])
+	var entry mcpcodec.ClaudeGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if len(entry.Env) != 1 || entry.Env["API_TOKEN"] != "${CONTEXT7_API_TOKEN}" {
+		t.Fatalf("canonical projection entry = %#v, want exact host environment reference", entry)
+	}
+	if strings.Contains(projection.CanonicalContribution(), secret) {
+		t.Fatalf("canonical projection leaked environment value: %s", projection.CanonicalContribution())
 	}
 }
 

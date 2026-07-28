@@ -8,7 +8,7 @@ func compareClaudeProjectMCPServerProjection(existing []byte, projection ClaudeP
 	return compareClaudeProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareClaudeGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareClaudeGlobalMCPServerProjection(existing []byte, projection ClaudeGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalClaudeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err

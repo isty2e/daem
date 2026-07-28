@@ -259,8 +259,10 @@ func aggregateLawMCPCanonical(
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
-		canonical, err = mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
-			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		canonical, err = mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
+			ServerID: serverID, Command: command, Args: args,
+			Env:             map[string]string{"API_TOKEN": "${CONTEXT7_API_TOKEN}"},
+			AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 		})
 	case aggregate.MCPPlacementAntigravityGlobal:
 		canonical, err = mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{

@@ -43,13 +43,8 @@ func TestMCPNoEnvServerProjectionRejectsCrossSurfaceAdapterContracts(t *testing.
 		canonicalize    func(MCPNoEnvServerProjection) ([]byte, error)
 	}{
 		{
-			name:            "Claude global",
-			adapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
-			canonicalize:    CanonicalClaudeGlobalMCPServerEntry,
-		},
-		{
 			name:            "Antigravity global",
-			adapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+			adapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 			canonicalize:    CanonicalAntigravityGlobalMCPServerEntry,
 		},
 		{
@@ -91,15 +86,6 @@ func TestMCPNoEnvServerProjectionCanonicalEntriesOwnArgs(t *testing.T) {
 		lower           func(MCPNoEnvServerProjection) ([]string, error)
 		want            []string
 	}{
-		{
-			name:            "Claude global",
-			adapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
-			lower: func(projection MCPNoEnvServerProjection) ([]string, error) {
-				entry, err := canonicalClaudeGlobalMCPServerEntry(projection)
-				return entry.Args, err
-			},
-			want: []string{"", "--flag", "--flag", " value "},
-		},
 		{
 			name:            "Antigravity global",
 			adapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
@@ -165,13 +151,6 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 		content []byte
 		extract extractFunc
 	}{
-		{
-			name: "Claude global",
-			content: []byte(
-				`{"mcpServers":{"context7":{"type":"stdio","command":"npx","args":["-y"],"env":{}}}}`,
-			),
-			extract: ExtractClaudeGlobalMCPServerProjections,
-		},
 		{
 			name:    "Antigravity global",
 			content: []byte(`{"mcpServers":{"context7":{"command":"npx","args":["-y"]}}}`),

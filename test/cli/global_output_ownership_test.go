@@ -101,8 +101,8 @@ func TestGlobalOutputOwnershipAllowsDisjointAggregateProjections(t *testing.T) {
 			t.Fatalf("apply %s exit=%d stderr=%q", manifest, exitCode, stderr)
 		}
 	}
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "alpha", "npx", []string{"-y", "@example/alpha"})
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"})
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "alpha", "npx", []string{"-y", "@example/alpha"}, nil)
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"}, nil)
 
 	leftRoot := filepath.Dir(leftManifest)
 	testkit.WriteFile(t, leftRoot, "daem.toml", "version = 1\ntargets = [\"claude-code\"]\n")
@@ -113,7 +113,7 @@ func TestGlobalOutputOwnershipAllowsDisjointAggregateProjections(t *testing.T) {
 		t.Fatalf("remove alpha exit=%d stderr=%q", exitCode, stderr)
 	}
 	testkit.AssertClaudeGlobalMCPConfigMissing(t, hostConfig, "alpha")
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"})
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"}, nil)
 }
 
 func TestConcurrentDisjointGlobalProjectionsConvergeAfterStaleRetry(t *testing.T) {
@@ -145,8 +145,8 @@ func TestConcurrentDisjointGlobalProjectionsConvergeAfterStaleRetry(t *testing.T
 	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", retryManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("disjoint retry exit=%d stderr=%q", exitCode, stderr)
 	}
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "alpha", "npx", []string{"-y", "@example/alpha"})
-	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"})
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "alpha", "npx", []string{"-y", "@example/alpha"}, nil)
+	testkit.AssertClaudeGlobalMCPConfigEquivalent(t, hostConfig, "beta", "npx", []string{"-y", "@example/beta"}, nil)
 }
 
 func TestMovedManifestCannotSilentlyInheritGlobalOwnership(t *testing.T) {
