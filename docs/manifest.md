@@ -746,7 +746,8 @@ exact-projection slices:
   `args`, plus optional exact child-to-source environment references lowered to
   `{env:SOURCE}` strings.
 - Antigravity CLI explicit global scope, rendered into
-  `~/.gemini/config/mcp_config.json` with `command` and `args` only.
+  `~/.gemini/config/mcp_config.json` with `command` and `args` only; optional
+  same-name ambient source names remain lock-only prerequisites.
 
 Any standalone MCP row that writes shared user-level global host config must
 put `scope = "global"` directly on that `[[mcp_server]]` block. A top-level

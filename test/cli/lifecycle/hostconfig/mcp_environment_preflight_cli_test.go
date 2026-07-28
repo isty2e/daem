@@ -97,6 +97,152 @@ func TestMCPPublicCLIApplyNeverPrintsOrPersistsResolvedEnvironmentValue(t *testi
 	}
 }
 
+func TestMCPPublicCLICrossTargetGlobalEnvironmentReferencesRemainIsolated(t *testing.T) {
+	const (
+		sharedSource     = "DAEM_TEST_CROSS_TARGET_SHARED"
+		ambientSource    = "DAEM_TEST_CROSS_TARGET_AMBIENT"
+		secretCanary     = "cross-target-secret-canary"
+		claudeServerID   = "claude-global"
+		codexServerID    = "codex-global"
+		openCodeServerID = "opencode-global"
+		ambientServerID  = "antigravity-global"
+	)
+	unsetEnvForMCPDelegateTest(t, sharedSource)
+	t.Setenv(ambientSource, "")
+	project := newMCPCLIProject(t)
+	homeDir := filepath.Join(project.root, "host-home")
+	t.Setenv("HOME", homeDir)
+	writeCrossTargetGlobalMCPEnvironmentManifest(t, project.root, sharedSource, ambientSource)
+	runMCPLock(t, project)
+
+	claudeConfigPath := expandMCPGlobalConfigPath(t, homeDir, aggregate.ClaudeGlobalMCPConfigPath)
+	codexConfigPath := expandMCPGlobalConfigPath(t, homeDir, aggregate.CodexGlobalMCPConfigPath)
+	openCodeConfigPath := expandMCPGlobalConfigPath(t, homeDir, aggregate.OpenCodeGlobalMCPConfigPath)
+	antigravityConfigPath := expandMCPGlobalConfigPath(
+		t,
+		homeDir,
+		aggregate.AntigravityGlobalMCPConfigPath,
+	)
+	globalConfigPaths := []string{
+		claudeConfigPath,
+		codexConfigPath,
+		openCodeConfigPath,
+		antigravityConfigPath,
+	}
+	applyArgs := []string{
+		"apply",
+		"--manifest", project.manifestPath,
+		"--target", "claude-code",
+		"--target", "codex",
+		"--target", "opencode",
+		"--target", "antigravity-cli",
+		"--yes",
+		"--json",
+	}
+
+	exitCode, stdout, stderr := runMCPCLI(t, applyArgs...)
+	if exitCode != 1 || stderr != "" {
+		t.Fatalf("missing-source apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	payload := clijson.DecodeApplyResult(t, []byte(stdout))
+	if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
+		!strings.Contains(payload.Errors[0].Message, sharedSource) ||
+		strings.Count(payload.Errors[0].Message, sharedSource) != 1 ||
+		strings.Contains(payload.Errors[0].Message, ambientSource) {
+		t.Fatalf("missing-source payload = %#v", payload)
+	}
+	for _, path := range append(globalConfigPaths, filepath.Join(project.root, ".daem", "state.json")) {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s stat error = %v, want absent after cross-target preflight failure", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(project.root, ".daem", "recovery")); !os.IsNotExist(err) {
+		t.Fatalf("recovery stat error = %v, want absent after cross-target preflight failure", err)
+	}
+
+	t.Setenv(sharedSource, secretCanary)
+	exitCode, stdout, stderr = runMCPCLI(t, applyArgs...)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("cross-target apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	payload = clijson.DecodeApplyResult(t, []byte(stdout))
+	if payload.HasErrors || payload.ActionCount != 4 {
+		t.Fatalf("cross-target payload = %#v, want four committed projections", payload)
+	}
+
+	configs := make(map[string][]byte, len(globalConfigPaths))
+	for _, path := range globalConfigPaths {
+		configs[path] = testkit.ReadFile(t, path)
+	}
+	assertCrossTargetMCPEnvironmentProjection(
+		t,
+		configs[claudeConfigPath],
+		claudeServerID,
+		`"TOKEN"`,
+		"${"+sharedSource+"}",
+	)
+	assertCrossTargetMCPEnvironmentProjection(
+		t,
+		configs[codexConfigPath],
+		codexServerID,
+		"env_vars",
+		sharedSource,
+	)
+	assertCrossTargetMCPEnvironmentProjection(
+		t,
+		configs[openCodeConfigPath],
+		openCodeServerID,
+		"{env:"+sharedSource+"}",
+		`"environment"`,
+	)
+	antigravityConfig := string(configs[antigravityConfigPath])
+	if !strings.Contains(antigravityConfig, ambientServerID) ||
+		strings.Contains(antigravityConfig, ambientSource) ||
+		strings.Contains(antigravityConfig, `"env"`) {
+		t.Fatalf("Antigravity ambient projection = %s", antigravityConfig)
+	}
+
+	statePath := filepath.Join(project.root, ".daem", "state.json")
+	for label, content := range map[string]string{
+		"stdout":   stdout,
+		"lockfile": string(testkit.ReadFile(t, project.lockfilePath)),
+		"state":    string(testkit.ReadFile(t, statePath)),
+	} {
+		if strings.Contains(content, secretCanary) {
+			t.Fatalf("%s persisted cross-target environment value", label)
+		}
+	}
+	for path, content := range configs {
+		if strings.Contains(string(content), secretCanary) {
+			t.Fatalf("%s persisted cross-target environment value", path)
+		}
+	}
+	assertMCPRecoveryDirectoryEmpty(t, filepath.Join(project.root, ".daem", "recovery"))
+
+	beforeState := testkit.ReadFile(t, statePath)
+	if err := os.Unsetenv(sharedSource); err != nil {
+		t.Fatalf("unset %s: %v", sharedSource, err)
+	}
+	exitCode, stdout, stderr = runMCPCLI(t, applyArgs...)
+	if exitCode != 1 || stderr != "" {
+		t.Fatalf("stale-source apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	payload = clijson.DecodeApplyResult(t, []byte(stdout))
+	if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
+		!strings.Contains(payload.Errors[0].Message, sharedSource) {
+		t.Fatalf("stale-source payload = %#v", payload)
+	}
+	for path, before := range configs {
+		if got := testkit.ReadFile(t, path); !slices.Equal(got, before) {
+			t.Fatalf("stale-source preflight changed %s", path)
+		}
+	}
+	if got := testkit.ReadFile(t, statePath); !slices.Equal(got, beforeState) {
+		t.Fatal("stale-source preflight changed state")
+	}
+	assertMCPRecoveryDirectoryEmpty(t, filepath.Join(project.root, ".daem", "recovery"))
+}
+
 func TestMCPPublicCLIApplyDelegatedRouteMissingEnvDoesNotLaunchRunner(t *testing.T) {
 	missingEnvName := "DAEM_TEST_MISSING_ENV_REF"
 	unsetEnvForMCPDelegateTest(t, missingEnvName)
@@ -145,6 +291,91 @@ func TestMCPPublicCLIApplyDelegatedRouteMissingEnvDoesNotLaunchRunner(t *testing
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s stat error = %v, want absent after preflight failure", path, err)
 		}
+	}
+}
+
+func writeCrossTargetGlobalMCPEnvironmentManifest(
+	t *testing.T,
+	root string,
+	sharedSource string,
+	ambientSource string,
+) {
+	t.Helper()
+	testkit.WriteFile(t, root, "daem.toml", `version = 1
+targets = ["claude-code", "codex", "opencode", "antigravity-cli"]
+
+[[mcp_server]]
+name = "claude-global"
+targets = ["claude-code"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@example/claude-mcp"]
+env = { TOKEN = { from_env = "`+sharedSource+`" } }
+
+[[mcp_server]]
+name = "codex-global"
+targets = ["codex"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@example/codex-mcp"]
+env = { `+sharedSource+` = { from_env = "`+sharedSource+`" } }
+
+[[mcp_server]]
+name = "opencode-global"
+targets = ["opencode"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@example/opencode-mcp"]
+env = { TOKEN = { from_env = "`+sharedSource+`" } }
+
+[[mcp_server]]
+name = "antigravity-global"
+targets = ["antigravity-cli"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@example/antigravity-mcp"]
+env = { `+ambientSource+` = { from_env = "`+ambientSource+`" } }
+`)
+}
+
+func expandMCPGlobalConfigPath(t *testing.T, homeDir string, path string) string {
+	t.Helper()
+	if !strings.HasPrefix(path, "~/") {
+		t.Fatalf("global MCP config path %q is not home-relative", path)
+	}
+	return filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
+}
+
+func assertCrossTargetMCPEnvironmentProjection(
+	t *testing.T,
+	content []byte,
+	serverID string,
+	requiredFragments ...string,
+) {
+	t.Helper()
+	rendered := string(content)
+	for _, fragment := range append([]string{serverID}, requiredFragments...) {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("projection for %s is missing %q: %s", serverID, fragment, rendered)
+		}
+	}
+}
+
+func assertMCPRecoveryDirectoryEmpty(t *testing.T, path string) {
+	t.Helper()
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return
+		}
+		t.Fatalf("read recovery directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("recovery entries = %#v, want empty", entries)
 	}
 }
 
