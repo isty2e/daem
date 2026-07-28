@@ -53,7 +53,7 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, and Antigravity CLI explicit global command/args-only scope. |
+| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, and Antigravity CLI explicit-global command/args plus same-name ambient environment requirements. |
 | `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -76,7 +76,8 @@ Supported target identifiers:
 `antigravity-cli` currently supports project and global instruction file
 rendering, Agent Skills-compatible directory packages through `[[skill]]` and
 `[[skill_group]]`, plus explicit-global standalone stdio MCP config projection
-through `[[mcp_server]]` when the entry uses only `command` and `args`.
+through `[[mcp_server]]` with command/args and optional same-name ambient
+environment requirements.
 Markdown slash-command skills, hooks, project-local MCP, remote MCP,
 plugin-bundled MCP, plugin rows outside the explicit-global host-source carrier
 slice, rules/workflows as separate surfaces, settings, runtime readiness, and
@@ -825,10 +826,18 @@ not owned by the global row.
 
 Antigravity CLI MCP requires `targets = ["antigravity-cli"]` and an explicit
 `scope = "global"` on the `[[mcp_server]]` block. The Antigravity adapter
-rejects `env`, `serverUrl`, `url`, `headers`, `oauth`, `authProviderType`,
-`disabled`, `disabledTools`, `enabledTools`, `tools`, `cwd`, and unknown
-managed-entry fields rather than silently preserving them inside the managed
-entry.
+accepts only same-name manifest references such as
+`env = { TOKEN = { from_env = "TOKEN" } }`. Daem locks the source names and
+checks their current presence before mutation, but writes no native `env`
+field: the child inherits from the Antigravity CLI process environment.
+Aliases are rejected. Native `env` is also rejected in every form, including
+literal values, `${TOKEN}`, `$TOKEN`, and `{env:TOKEN}`, because those values
+are passed literally rather than expanded. Import cannot infer an ambient
+requirement from a command/args-only native entry and therefore imports no
+environment references. `serverUrl`, `url`, `headers`, `oauth`,
+`authProviderType`, `disabled`, `disabledTools`, `enabledTools`, `tools`,
+`cwd`, and unknown managed-entry fields are rejected rather than silently
+preserved inside the managed entry.
 
 `daem add mcp-server` and `daem remove mcp-server` are authoring helpers for the
 supported Codex project row, Codex explicit-global row, Claude Code project row,
@@ -849,8 +858,10 @@ creates a command/args row. Add global environment references by editing the
 manifest directly or importing an accepted native entry; project rows reject
 them. Custom/JSONC/remote/auth/tool-policy fields remain rejected. Antigravity
 authoring requires `--target antigravity-cli --scope global` because defaults
-do not authorize global MCP, and rejects `env` plus all remote/auth/tool-policy
-fields. Authoring helpers update the manifest and adjacent lockfile together;
+do not authorize global MCP. The helper creates a command/args row; add
+same-name environment references by editing the manifest directly. Import
+cannot infer them. Aliases and all remote/auth/tool-policy fields are rejected.
+Authoring helpers update the manifest and adjacent lockfile together;
 they do not write host config, start a server, install packages, remove
 credentials, or change approval/trust state.
 `remove mcp-server` removes the whole selected declaration block, and a later
@@ -878,6 +889,9 @@ the desired manifest. Missing-source diagnostics are sorted, deduplicated,
 bounded, and contain source names only. Claude project values are resolved
 again only for delegated subprocess launch; Claude global and Codex global
 values are resolved later by the host when it launches the configured server.
+Antigravity values are inherited from the environment of the Antigravity CLI
+process that starts the server; daem cannot prove the environment of a future
+independently launched process.
 Values are never added to the
 lockfile, statefile, recovery data, plan fingerprint, rendered config, or CLI
 output.
@@ -1593,8 +1607,8 @@ yet:
   Claude Code project stdio and explicit-global command/args plus exact aliased
   environment-reference slices, OpenCode project command/args and
   explicit-global command/args plus exact aliased environment-reference slices,
-  and Antigravity CLI explicit-global
-  command/args-only slice. The
+  and Antigravity CLI explicit-global command/args plus same-name ambient
+  environment-reference slice. The
   Claude slice renders one standalone server relation into the project
   `.mcp.json` config, locks its delegated executable plan identity, and reports
   config convergence,
@@ -1617,9 +1631,10 @@ yet:
   `probe mcp-server --target opencode --scope project` launch+initialize check
   with no state, lock, or host config mutation. The Antigravity slice renders
   one standalone server relation into
-  `~/.gemini/config/mcp_config.json`, locks the command/args config projection,
-  may report passive executable prerequisites, and has no delegated
-  executable or runtime readiness claim. Runtime startup, package/cache
+  `~/.gemini/config/mcp_config.json`, locks command/args plus symbolic source
+  names while omitting native `env`, may report passive executable
+  prerequisites, and has no delegated executable or runtime readiness claim.
+  Import does not infer ambient names. Runtime startup, package/cache
   ownership, credential availability, approval/trust state, endpoint health,
   tool inventory, tool policy, and broader host config ownership remain outside
   the managed aggregate contribution contract.

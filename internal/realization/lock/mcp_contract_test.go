@@ -156,6 +156,11 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 			credential,
 		)
 	}
+	sources := antigravityContract.MCPEnvironmentSources()
+	sources[0] = "MUTATED"
+	if !slices.Equal(antigravityContract.MCPEnvironmentSources(), []string{credential}) {
+		t.Fatal("Antigravity locked environment sources exposed mutable canonical storage")
+	}
 
 	codexProject := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)
 	codexProjectInput := testMCPProjectionInput(t, codexProject, []string{credential})
@@ -175,6 +180,42 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 	if _, err := NewMCPProjectionSubjectContract(claudeInput); err == nil ||
 		!strings.Contains(err.Error(), "duplicate MCP credential reference") {
 		t.Fatalf("duplicate credential error = %v", err)
+	}
+
+	claudeInput.CredentialReferences = []string{"9TOKEN"}
+	if _, err := NewMCPProjectionSubjectContract(claudeInput); err == nil ||
+		!strings.Contains(err.Error(), "must not start with a digit") {
+		t.Fatalf("invalid credential name error = %v", err)
+	}
+
+	realization, ok := antigravityContract.Realization()
+	if !ok {
+		t.Fatal("Antigravity contract is missing realization")
+	}
+	operations := make([]OperationContract, 0, len(antigravityContract.OperationKinds()))
+	for _, operation := range antigravityContract.OperationKinds() {
+		contract, present := antigravityContract.OperationContract(operation)
+		if !present {
+			t.Fatalf("Antigravity contract is missing operation %q", operation)
+		}
+		operations = append(operations, contract)
+	}
+	unknownSubject, err := topology.NewSubjectID(topology.SubjectProjection, "unknown.mcp", "context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewLockedSubjectContract(LockedSubjectContractInput{
+		EntityID:              antigravityContract.EntityID(),
+		SubjectID:             unknownSubject,
+		Realization:           &realization,
+		MCPEnvironmentSources: []string{credential},
+		Ownership:             antigravityContract.Ownership(),
+		OnAbsent:              antigravityContract.OnAbsent(),
+		Replay:                antigravityContract.ReplayCoverage(),
+		OperationContracts:    operations,
+	})
+	if err == nil || !strings.Contains(err.Error(), "require an implemented MCP placement") {
+		t.Fatalf("unknown MCP subject error = %v", err)
 	}
 }
 

@@ -260,6 +260,153 @@ func TestMCPPublicCLICodexGlobalApplyPreflightsSameNameEnvironment(t *testing.T)
 	}
 }
 
+func TestMCPPublicCLIAntigravityGlobalApplyPreflightsSameNameAmbientEnvironment(t *testing.T) {
+	const sourceName = "DAEM_TEST_ANTIGRAVITY_GLOBAL_TOKEN"
+
+	t.Run("missing blocks before mutation", func(t *testing.T) {
+		unsetEnvForMCPDelegateTest(t, sourceName)
+		project := newMCPCLIProject(t)
+		homeDir := filepath.Join(project.root, "host-home")
+		t.Setenv("HOME", homeDir)
+		writeMCPManifest(t, project.root, mcpManifestSpec{
+			Target:  "antigravity-cli",
+			Scope:   "global",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp-server"},
+			Env:     map[string]string{sourceName: sourceName},
+		})
+		runMCPLock(t, project)
+
+		lockfile := string(testkit.ReadFile(t, project.lockfilePath))
+		if !strings.Contains(lockfile, `mcp_environment_sources = ["`+sourceName+`"]`) {
+			t.Fatalf("lockfile = %q, want Antigravity ambient source", lockfile)
+		}
+		exitCode, stdout, stderr := runMCPCLI(
+			t,
+			"apply",
+			"--manifest",
+			project.manifestPath,
+			"--target",
+			"antigravity-cli",
+			"--yes",
+			"--json",
+		)
+		if exitCode != 1 || stderr != "" {
+			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		payload := clijson.DecodeApplyResult(t, []byte(stdout))
+		if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
+			!strings.Contains(payload.Errors[0].Message, sourceName) {
+			t.Fatalf("payload = %#v, want missing Antigravity environment source", payload)
+		}
+		for _, path := range []string{
+			filepath.Join(
+				homeDir,
+				strings.TrimPrefix(aggregate.AntigravityGlobalMCPConfigPath, "~/"),
+			),
+			filepath.Join(project.root, ".daem", "state.json"),
+			filepath.Join(project.root, ".daem", "recovery"),
+		} {
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("%s stat error = %v, want absent after preflight failure", path, err)
+			}
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "present empty is admitted"},
+		{name: "present value remains runtime only", value: "antigravity-secret-canary"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(sourceName, test.value)
+			project := newMCPCLIProject(t)
+			homeDir := filepath.Join(project.root, "host-home")
+			t.Setenv("HOME", homeDir)
+			writeMCPManifest(t, project.root, mcpManifestSpec{
+				Target:  "antigravity-cli",
+				Scope:   "global",
+				Command: "npx",
+				Args:    []string{"-y", "@example/mcp-server"},
+				Env:     map[string]string{sourceName: sourceName},
+			})
+			runMCPLock(t, project)
+
+			exitCode, stdout, stderr := runMCPCLI(
+				t,
+				"apply",
+				"--manifest",
+				project.manifestPath,
+				"--target",
+				"antigravity-cli",
+				"--yes",
+				"--json",
+			)
+			if exitCode != 0 || stderr != "" {
+				t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+			}
+			configPath := filepath.Join(
+				homeDir,
+				strings.TrimPrefix(aggregate.AntigravityGlobalMCPConfigPath, "~/"),
+			)
+			config := testkit.ReadFile(t, configPath)
+			entry, present, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjection(config, "context7")
+			if err != nil || !present {
+				t.Fatalf("Antigravity projection = %#v, present=%t, err=%v", entry, present, err)
+			}
+			if entry.Command != "npx" || len(entry.Args) != 2 {
+				t.Fatalf("Antigravity projection = %#v, want command/args", entry)
+			}
+			for label, content := range map[string]string{
+				"stdout":   stdout,
+				"lockfile": string(testkit.ReadFile(t, project.lockfilePath)),
+				"config":   string(config),
+				"state":    string(testkit.ReadFile(t, filepath.Join(project.root, ".daem", "state.json"))),
+			} {
+				if test.value != "" && strings.Contains(content, test.value) {
+					t.Fatalf("%s persisted resolved Antigravity environment value", label)
+				}
+				if label == "config" && (strings.Contains(content, sourceName) || strings.Contains(content, `"env"`)) {
+					t.Fatalf("Antigravity config materialized ambient environment metadata: %s", content)
+				}
+			}
+
+			beforeConfig := append([]byte(nil), config...)
+			beforeState := testkit.ReadFile(t, filepath.Join(project.root, ".daem", "state.json"))
+			if err := os.Unsetenv(sourceName); err != nil {
+				t.Fatalf("unset %s: %v", sourceName, err)
+			}
+			exitCode, stdout, stderr = runMCPCLI(
+				t,
+				"apply",
+				"--manifest",
+				project.manifestPath,
+				"--target",
+				"antigravity-cli",
+				"--yes",
+				"--json",
+			)
+			if exitCode != 1 || stderr != "" {
+				t.Fatalf("fresh preflight exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+			}
+			payload := clijson.DecodeApplyResult(t, []byte(stdout))
+			if !payload.HasErrors || payload.ActionCount != 0 ||
+				len(payload.Errors) != 1 ||
+				!strings.Contains(payload.Errors[0].Message, sourceName) {
+				t.Fatalf("fresh preflight payload = %#v", payload)
+			}
+			if got := testkit.ReadFile(t, configPath); !slices.Equal(got, beforeConfig) {
+				t.Fatalf("fresh preflight changed Antigravity config:\ngot  %s\nwant %s", got, beforeConfig)
+			}
+			if got := testkit.ReadFile(t, filepath.Join(project.root, ".daem", "state.json")); !slices.Equal(got, beforeState) {
+				t.Fatalf("fresh preflight changed state:\ngot  %s\nwant %s", got, beforeState)
+			}
+		})
+	}
+}
+
 func TestMCPPublicCLIClaudeGlobalApplyPreflightsAliasedEnvironment(t *testing.T) {
 	const (
 		childName  = "API_TOKEN"

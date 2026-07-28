@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -108,6 +109,11 @@ func (contract LockedSubjectContract) validateMCPEnvironmentSources() error {
 	if err := validateStringSet(contract.mcpEnvironmentSources, "MCP environment source"); err != nil {
 		return err
 	}
+	for _, source := range contract.mcpEnvironmentSources {
+		if _, err := desiredmcp.NewEnvReference(source); err != nil {
+			return fmt.Errorf("MCP environment source %q: %w", source, err)
+		}
+	}
 	if !slices.IsSorted(contract.mcpEnvironmentSources) {
 		return fmt.Errorf("MCP environment sources must use canonical order")
 	}
@@ -128,11 +134,8 @@ func (contract LockedSubjectContract) validateMCPEnvironmentSources() error {
 	placement, isMCP := aggregate.MCPPlacementForSubject(contract.subjectID)
 	if !isMCP {
 		if len(contract.mcpEnvironmentSources) != 0 {
-			if contract.entityID.Kind() == entity.KindMCPServer {
-				return nil
-			}
 			return fmt.Errorf(
-				"MCP environment sources are invalid for non-MCP subject %q",
+				"MCP environment sources require an implemented MCP placement for subject %q",
 				contract.subjectID,
 			)
 		}

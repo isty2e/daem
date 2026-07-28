@@ -239,14 +239,17 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactAntigravityGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_ANTIGRAVITY_GLOBAL_TOKEN"
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
+	t.Setenv(sourceName, "antigravity-manage-existing-secret")
 	writeMCPManifest(t, project.root, mcpManifestSpec{
 		Target:  "antigravity-cli",
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{sourceName: sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{

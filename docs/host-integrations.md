@@ -156,10 +156,11 @@ rows with optional same-name `env_vars`; Claude Code supports project rows with
 structured environment references and explicit-global rows with exact aliased
 `${SOURCE}` environment references.
 OpenCode supports project command rows and explicit-global rows with exact
-aliased `{env:SOURCE}` environment references. Antigravity CLI supports only
-the explicit-global command row, and Pi has no core standalone row. `import`
-can author these rows, and `apply --manage-existing` can register exact
-matching projections.
+aliased `{env:SOURCE}` environment references. Antigravity CLI supports an
+explicit-global command row with optional same-name ambient environment
+requirements, and Pi has no core standalone row. `import` can author observable
+command/args facts for these rows, and `apply --manage-existing` can register
+exact matching projections.
 
 These rows do not own the executable, package, cache, credentials, trust,
 session, runtime health, effective merged host state, remote transports, or
@@ -191,6 +192,19 @@ value is valid. OpenCode resolves the value when it loads the config. Literal
 values, shell-style `$NAME` or `${NAME}` forms, file interpolation, compound
 templates, malformed names, project-scope environment references, and JSONC
 authority are rejected.
+
+Antigravity CLI global environment support accepts only same-name references.
+Daem stores the source names in the lockfile and checks their current presence
+before any selected mutation; an empty but present value is valid. The native
+`~/.gemini/config/mcp_config.json` entry deliberately contains only `command`
+and `args`: an Antigravity-launched server inherits same-name values from the
+Antigravity CLI process environment. Native `env` values, including
+`${SOURCE}`, `$SOURCE`, and `{env:SOURCE}`, are rejected because Antigravity CLI
+1.1.7 delivered those forms literally in an isolated launch probe. Import
+cannot infer ambient intent from command/args-only native state, so it imports
+no environment references. Apply verifies the environment of its own process;
+it cannot prove the environment of a future independently launched
+Antigravity CLI process.
 
 ### Delegated Executable Execution
 
@@ -456,7 +470,8 @@ contribution ownership.
   extension, contribution inventory, ordinary update, prune, runtime
   readiness, trust, and exact artifact/package-store ownership.
 - Antigravity CLI surfaces beyond Agent Skills-compatible directory packages,
-  the explicit-global command/args-only standalone MCP config projection, and
+  the explicit-global command/args plus same-name ambient standalone MCP
+  projection, and
   the explicit-global host-source plugin install/create and repeat-install
   refresh rows, including markdown slash-command skills, hooks, project-local
   MCP, remote MCP, plugin-bundled MCP, import/link/project-scope plugin rows,
@@ -470,7 +485,7 @@ contribution ownership.
   aliased environment-reference slices,
   OpenCode project command/args and explicit-global command/args plus exact
   aliased environment-reference slices, and the Antigravity CLI
-  explicit-global command/args-only slice.
+  explicit-global command/args plus same-name ambient slice.
 - MCP runtime probes beyond the supported Claude Code project stdio and OpenCode
   project local-command stdio launch+initialize slices and their stdio
   endpoint/auth/tool-inventory support classification, including active OAuth

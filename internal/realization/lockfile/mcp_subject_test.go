@@ -165,6 +165,56 @@ func TestMarshalAndLoadAntigravityAmbientEnvironmentSourcesWithoutNativeEnv(t *t
 	}
 }
 
+func TestLoadRejectsNonCanonicalOrInvalidMCPEnvironmentSources(t *testing.T) {
+	content, err := Marshal(lockfileWithSubjects(t, claudeProjectMCPSubjectContract(t)))
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	canonical := string(content)
+
+	for _, test := range []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "duplicate source",
+			content: duplicateFirstStringArrayFieldValue(t, canonical, "mcp_environment_sources"),
+			want:    "duplicate MCP environment source",
+		},
+		{
+			name: "invalid source name",
+			content: strings.Replace(
+				canonical,
+				`mcp_environment_sources = ["CONTEXT7_API_TOKEN"]`,
+				`mcp_environment_sources = ["9TOKEN"]`,
+				1,
+			),
+			want: "must not start with a digit",
+		},
+		{
+			name: "non-canonical whitespace",
+			content: strings.Replace(
+				canonical,
+				`mcp_environment_sources = ["CONTEXT7_API_TOKEN"]`,
+				`mcp_environment_sources = [" CONTEXT7_API_TOKEN"]`,
+				1,
+			),
+			want: "non-canonical values",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if test.content == canonical {
+				t.Fatal("tampered fixture matches canonical lockfile")
+			}
+			_, err := Load(writeLockfileText(t, test.content))
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestLoadRejectsDelegateEnvironmentBindingTampering(t *testing.T) {
 	content, err := Marshal(lockfileWithSubjects(t, claudeProjectMCPSubjectContract(t)))
 	if err != nil {

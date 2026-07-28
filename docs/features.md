@@ -41,7 +41,10 @@ MCP configuration support manages the host's command and argument entry. Claude
 Code project and global rows also support structured child-to-source
 environment references, while Codex global rows support same-name references
 rendered as native `env_vars`. OpenCode global rows support child-to-source
-aliases rendered as exact `{env:SOURCE}` references. Environment values stay
+aliases rendered as exact `{env:SOURCE}` references. Antigravity CLI global
+rows support same-name ambient requirements; daem locks the names and checks
+current presence, but intentionally omits native `env` so the server inherits
+the environment of the Antigravity CLI process. Environment values stay
 runtime-only. Daem does not install the executable or package named by an MCP
 entry. Claude Code project MCP is the only current row where confirmed `apply`
 may run the locked command. `probe mcp-server` is a separate, explicit startup
