@@ -7,28 +7,19 @@ configuration belongs in the [Manifest Reference](manifest.md).
 
 ## 1. Install
 
-No public release artifacts are published yet. Install from the repository
-root:
+Install the checksum-verified `v0.1.0` artifact for the current supported
+platform by following [Install, Upgrade, And Roll Back](install.md). Return
+here after these commands report the expected release identity and help:
 
 ```bash
-git clone https://github.com/isty2e/daem.git
-cd daem
-go install ./cmd/daem
-export PATH="$(go env GOPATH)/bin:$PATH"
 daem version
 daem --help
 ```
 
-If `go env GOBIN` is set, add that directory to `PATH` instead.
-Run this flow only on a supported platform. Released builds must also have passed
-the row's native release gate. The authoritative rows and evidence distinction
-are in [Platform Support](platforms.md); cross-built targets are not a supported
-installation path.
-
 `daem version` reports the executable's embedded module version, full source
 revision, clean/modified/unknown source state, Go toolchain, and build target.
-A source installation normally reports a development or pseudo-version; it does
-not claim that an official release artifact or native CI lane produced it.
+The authoritative platform rows and native evidence requirements are in
+[Platform Support](platforms.md).
 
 ## 2. Start A Project
 
