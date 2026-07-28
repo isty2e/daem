@@ -10,97 +10,111 @@ import (
 
 func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 	cases := []struct {
-		name             string
-		target           target.Target
-		scope            target.Scope
-		wantID           aggregate.MCPPlacementID
-		wantLayer        aggregate.MCPConfigLayer
-		wantConfigPath   string
-		wantConflictPath string
-		wantPathPrefix   aggregate.MCPContentPathPrefix
-		wantContentPath  string
-		wantCodec        aggregate.CodecContractID
-		wantEnv          bool
+		name              string
+		target            target.Target
+		scope             target.Scope
+		wantID            aggregate.MCPPlacementID
+		wantLayer         aggregate.MCPConfigLayer
+		wantConfigPath    string
+		wantConflictPath  string
+		wantPathPrefix    aggregate.MCPContentPathPrefix
+		wantContentPath   string
+		wantCodec         aggregate.CodecContractID
+		wantEnvMapping    aggregate.MCPEnvReferenceMapping
+		wantEnvResolution aggregate.MCPEnvReferenceResolution
 	}{
 		{
-			name:            "claude project",
-			target:          target.TargetClaudeCode,
-			scope:           target.ScopeProject,
-			wantID:          aggregate.MCPPlacementClaudeProject,
-			wantLayer:       aggregate.MCPConfigLayerClaudeProjectFile,
-			wantConfigPath:  ".mcp.json",
-			wantPathPrefix:  "/mcpServers",
-			wantContentPath: "/mcpServers/context7",
-			wantCodec:       aggregate.MCPCodecClaudeProjectStdio,
-			wantEnv:         true,
+			name:              "claude project",
+			target:            target.TargetClaudeCode,
+			scope:             target.ScopeProject,
+			wantID:            aggregate.MCPPlacementClaudeProject,
+			wantLayer:         aggregate.MCPConfigLayerClaudeProjectFile,
+			wantConfigPath:    ".mcp.json",
+			wantPathPrefix:    "/mcpServers",
+			wantContentPath:   "/mcpServers/context7",
+			wantCodec:         aggregate.MCPCodecClaudeProjectStdio,
+			wantEnvMapping:    aggregate.MCPEnvMappingAliased,
+			wantEnvResolution: aggregate.MCPEnvResolutionHostRuntime,
 		},
 		{
-			name:            "claude global",
-			target:          target.TargetClaudeCode,
-			scope:           target.ScopeGlobal,
-			wantID:          aggregate.MCPPlacementClaudeGlobal,
-			wantLayer:       aggregate.MCPConfigLayerClaudeUserSharedJSON,
-			wantConfigPath:  "~/.claude.json",
-			wantPathPrefix:  "/mcpServers",
-			wantContentPath: "/mcpServers/context7",
-			wantCodec:       aggregate.MCPCodecClaudeGlobalStdio,
+			name:              "claude global",
+			target:            target.TargetClaudeCode,
+			scope:             target.ScopeGlobal,
+			wantID:            aggregate.MCPPlacementClaudeGlobal,
+			wantLayer:         aggregate.MCPConfigLayerClaudeUserSharedJSON,
+			wantConfigPath:    "~/.claude.json",
+			wantPathPrefix:    "/mcpServers",
+			wantContentPath:   "/mcpServers/context7",
+			wantCodec:         aggregate.MCPCodecClaudeGlobalStdio,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 		{
-			name:            "antigravity global",
-			target:          target.TargetAntigravityCLI,
-			scope:           target.ScopeGlobal,
-			wantID:          aggregate.MCPPlacementAntigravityGlobal,
-			wantLayer:       aggregate.MCPConfigLayerAntigravityGlobalDefaultFile,
-			wantConfigPath:  "~/.gemini/config/mcp_config.json",
-			wantPathPrefix:  "/mcpServers",
-			wantContentPath: "/mcpServers/context7",
-			wantCodec:       aggregate.MCPCodecAntigravityGlobalCommand,
+			name:              "antigravity global",
+			target:            target.TargetAntigravityCLI,
+			scope:             target.ScopeGlobal,
+			wantID:            aggregate.MCPPlacementAntigravityGlobal,
+			wantLayer:         aggregate.MCPConfigLayerAntigravityGlobalDefaultFile,
+			wantConfigPath:    "~/.gemini/config/mcp_config.json",
+			wantPathPrefix:    "/mcpServers",
+			wantContentPath:   "/mcpServers/context7",
+			wantCodec:         aggregate.MCPCodecAntigravityGlobalCommand,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 		{
-			name:             "opencode project",
-			target:           target.TargetOpenCode,
-			scope:            target.ScopeProject,
-			wantID:           aggregate.MCPPlacementOpenCodeProject,
-			wantLayer:        aggregate.MCPConfigLayerOpenCodeProjectFile,
-			wantConfigPath:   "opencode.json",
-			wantConflictPath: "opencode.jsonc",
-			wantPathPrefix:   "/mcp",
-			wantContentPath:  "/mcp/context7",
-			wantCodec:        aggregate.MCPCodecOpenCodeProjectLocal,
+			name:              "opencode project",
+			target:            target.TargetOpenCode,
+			scope:             target.ScopeProject,
+			wantID:            aggregate.MCPPlacementOpenCodeProject,
+			wantLayer:         aggregate.MCPConfigLayerOpenCodeProjectFile,
+			wantConfigPath:    "opencode.json",
+			wantConflictPath:  "opencode.jsonc",
+			wantPathPrefix:    "/mcp",
+			wantContentPath:   "/mcp/context7",
+			wantCodec:         aggregate.MCPCodecOpenCodeProjectLocal,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 		{
-			name:             "opencode global",
-			target:           target.TargetOpenCode,
-			scope:            target.ScopeGlobal,
-			wantID:           aggregate.MCPPlacementOpenCodeGlobal,
-			wantLayer:        aggregate.MCPConfigLayerOpenCodeGlobalDefaultJSON,
-			wantConfigPath:   "~/.config/opencode/opencode.json",
-			wantConflictPath: "~/.config/opencode/opencode.jsonc",
-			wantPathPrefix:   "/mcp",
-			wantContentPath:  "/mcp/context7",
-			wantCodec:        aggregate.MCPCodecOpenCodeGlobalLocal,
+			name:              "opencode global",
+			target:            target.TargetOpenCode,
+			scope:             target.ScopeGlobal,
+			wantID:            aggregate.MCPPlacementOpenCodeGlobal,
+			wantLayer:         aggregate.MCPConfigLayerOpenCodeGlobalDefaultJSON,
+			wantConfigPath:    "~/.config/opencode/opencode.json",
+			wantConflictPath:  "~/.config/opencode/opencode.jsonc",
+			wantPathPrefix:    "/mcp",
+			wantContentPath:   "/mcp/context7",
+			wantCodec:         aggregate.MCPCodecOpenCodeGlobalLocal,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 		{
-			name:            "codex project",
-			target:          target.TargetCodex,
-			scope:           target.ScopeProject,
-			wantID:          aggregate.MCPPlacementCodexProject,
-			wantLayer:       aggregate.MCPConfigLayerCodexProjectFile,
-			wantConfigPath:  ".codex/config.toml",
-			wantPathPrefix:  "/mcp_servers",
-			wantContentPath: "/mcp_servers/context7",
-			wantCodec:       aggregate.MCPCodecCodexProjectStdioCommand,
+			name:              "codex project",
+			target:            target.TargetCodex,
+			scope:             target.ScopeProject,
+			wantID:            aggregate.MCPPlacementCodexProject,
+			wantLayer:         aggregate.MCPConfigLayerCodexProjectFile,
+			wantConfigPath:    ".codex/config.toml",
+			wantPathPrefix:    "/mcp_servers",
+			wantContentPath:   "/mcp_servers/context7",
+			wantCodec:         aggregate.MCPCodecCodexProjectStdioCommand,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 		{
-			name:            "codex global",
-			target:          target.TargetCodex,
-			scope:           target.ScopeGlobal,
-			wantID:          aggregate.MCPPlacementCodexGlobal,
-			wantLayer:       aggregate.MCPConfigLayerCodexGlobalDefaultFile,
-			wantConfigPath:  "~/.codex/config.toml",
-			wantPathPrefix:  "/mcp_servers",
-			wantContentPath: "/mcp_servers/context7",
-			wantCodec:       aggregate.MCPCodecCodexGlobalStdioCommand,
+			name:              "codex global",
+			target:            target.TargetCodex,
+			scope:             target.ScopeGlobal,
+			wantID:            aggregate.MCPPlacementCodexGlobal,
+			wantLayer:         aggregate.MCPConfigLayerCodexGlobalDefaultFile,
+			wantConfigPath:    "~/.codex/config.toml",
+			wantPathPrefix:    "/mcp_servers",
+			wantContentPath:   "/mcp_servers/context7",
+			wantCodec:         aggregate.MCPCodecCodexGlobalStdioCommand,
+			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
+			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
 		},
 	}
 
@@ -118,6 +132,7 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 				t.Fatalf("ContentPath returned error: %v", err)
 			}
 			conflictingConfigPath, hasConflictingConfigPath := placement.ConflictingConfigPath()
+			envReferences := placement.EnvReferenceContract()
 			if placement.ID() != tc.wantID ||
 				placement.ConfigLayer() != tc.wantLayer ||
 				placement.AggregateRoot().String() != tc.wantConfigPath ||
@@ -130,7 +145,9 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 				placement.SiblingRetention() != aggregate.MCPSiblingRetentionPreserveUnmanaged ||
 				placement.CodecContractID() != tc.wantCodec ||
 				placement.Absence() != aggregate.MCPAbsenceRemoveBinding ||
-				placement.SupportsEnv() != tc.wantEnv {
+				envReferences.Mapping() != tc.wantEnvMapping ||
+				envReferences.Resolution() != tc.wantEnvResolution ||
+				envReferences.Supported() != (tc.wantEnvMapping != aggregate.MCPEnvMappingUnsupported) {
 				t.Fatalf("placement = %#v", placement)
 			}
 			contribution, err := placement.Contribution("context7", "canonical-context7")
@@ -179,17 +196,19 @@ func TestImplementedMCPPlacementDoesNotEnableAdmittedFutureGlobalRows(t *testing
 
 func TestMCPPlacementRejectsMalformedRowsAndServerIDs(t *testing.T) {
 	valid := aggregate.MCPPlacementInput{
-		ID:                "codex.project.test-config",
-		Target:            target.TargetCodex,
-		Scope:             target.ScopeProject,
-		ConfigLayer:       "codex-project-test-config",
-		ConfigPath:        ".codex/test.toml",
-		MergeUnit:         aggregate.MCPMergeUnitServerEntry,
-		ContentPathPrefix: "/mcp_servers",
-		SiblingRetention:  aggregate.MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:   "codex-project-test-mcp-stdio-command-v1",
-		ComparedFields:    []string{"target", "command", "target"},
-		Absence:           aggregate.MCPAbsenceRemoveBinding,
+		ID:                     "codex.project.test-config",
+		Target:                 target.TargetCodex,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            "codex-project-test-config",
+		ConfigPath:             ".codex/test.toml",
+		MergeUnit:              aggregate.MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcp_servers",
+		SiblingRetention:       aggregate.MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        "codex-project-test-mcp-stdio-command-v1",
+		ComparedFields:         []string{"target", "command", "target"},
+		Absence:                aggregate.MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    aggregate.MCPEnvMappingUnsupported,
+		EnvReferenceResolution: aggregate.MCPEnvResolutionUnavailable,
 	}
 	cases := []struct {
 		name string
@@ -210,6 +229,14 @@ func TestMCPPlacementRejectsMalformedRowsAndServerIDs(t *testing.T) {
 		{name: "unsupported sibling retention", edit: func(input *aggregate.MCPPlacementInput) { input.SiblingRetention = "replace_aggregate" }},
 		{name: "missing compared fields", edit: func(input *aggregate.MCPPlacementInput) { input.ComparedFields = nil }},
 		{name: "invalid compared field", edit: func(input *aggregate.MCPPlacementInput) { input.ComparedFields = []string{"bad field"} }},
+		{name: "missing env mapping", edit: func(input *aggregate.MCPPlacementInput) { input.EnvReferenceMapping = "" }},
+		{name: "missing env resolution", edit: func(input *aggregate.MCPPlacementInput) { input.EnvReferenceResolution = "" }},
+		{name: "unsupported env with runtime resolution", edit: func(input *aggregate.MCPPlacementInput) {
+			input.EnvReferenceResolution = aggregate.MCPEnvResolutionHostRuntime
+		}},
+		{name: "aliased env with unavailable resolution", edit: func(input *aggregate.MCPPlacementInput) {
+			input.EnvReferenceMapping = aggregate.MCPEnvMappingAliased
+		}},
 		{name: "unsupported absence", edit: func(input *aggregate.MCPPlacementInput) { input.Absence = "delete_config" }},
 	}
 
@@ -281,17 +308,19 @@ func TestMCPProjectionAddressIncludesPlacementIDForSameRootAndPath(t *testing.T)
 		t.Fatal("Codex project placement missing")
 	}
 	alternatePlacement, err := aggregate.NewMCPPlacement(aggregate.MCPPlacementInput{
-		ID:                "codex.project.same-root-alternate",
-		Target:            target.TargetCodex,
-		Scope:             target.ScopeProject,
-		ConfigLayer:       "codex-project-same-root-alternate",
-		ConfigPath:        basePlacement.ConfigPath().String(),
-		MergeUnit:         aggregate.MCPMergeUnitServerEntry,
-		ContentPathPrefix: basePlacement.ContentPathPrefix(),
-		SiblingRetention:  aggregate.MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:   "codex-project-same-root-alternate-v1",
-		ComparedFields:    basePlacement.ComparedFields(),
-		Absence:           aggregate.MCPAbsenceRemoveBinding,
+		ID:                     "codex.project.same-root-alternate",
+		Target:                 target.TargetCodex,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            "codex-project-same-root-alternate",
+		ConfigPath:             basePlacement.ConfigPath().String(),
+		MergeUnit:              aggregate.MCPMergeUnitServerEntry,
+		ContentPathPrefix:      basePlacement.ContentPathPrefix(),
+		SiblingRetention:       aggregate.MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        "codex-project-same-root-alternate-v1",
+		ComparedFields:         basePlacement.ComparedFields(),
+		Absence:                aggregate.MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    aggregate.MCPEnvMappingUnsupported,
+		EnvReferenceResolution: aggregate.MCPEnvResolutionUnavailable,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPPlacement returned error: %v", err)

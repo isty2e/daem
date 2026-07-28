@@ -89,17 +89,19 @@ func mustTestMCPPlacement(
 ) MCPPlacement {
 	t.Helper()
 	placement, err := NewMCPPlacement(MCPPlacementInput{
-		ID:                id,
-		Target:            selectedTarget,
-		Scope:             selectedScope,
-		ConfigLayer:       configLayer,
-		ConfigPath:        ".test/config",
-		MergeUnit:         MCPMergeUnitServerEntry,
-		ContentPathPrefix: "/mcp",
-		SiblingRetention:  MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:   CodecContractID(string(id) + "-codec-v1"),
-		ComparedFields:    []string{"command", "target"},
-		Absence:           MCPAbsenceRemoveBinding,
+		ID:                     id,
+		Target:                 selectedTarget,
+		Scope:                  selectedScope,
+		ConfigLayer:            configLayer,
+		ConfigPath:             ".test/config",
+		MergeUnit:              MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcp",
+		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        CodecContractID(string(id) + "-codec-v1"),
+		ComparedFields:         []string{"command", "target"},
+		Absence:                MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    MCPEnvMappingUnsupported,
+		EnvReferenceResolution: MCPEnvResolutionUnavailable,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPPlacement returned error: %v", err)

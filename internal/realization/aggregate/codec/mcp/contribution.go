@@ -46,6 +46,13 @@ func CanonicalMCPBindingContribution(
 	}
 	switch placement.ID() {
 	case aggregate.MCPPlacementClaudeProject:
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
 		env, err := canonicalMCPBindingEnv(stdio.Env())
 		if err != nil {
 			return nil, err
@@ -58,20 +65,65 @@ func CanonicalMCPBindingContribution(
 			AdapterContract: adapterContract,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalClaudeGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementAntigravityGlobal:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalAntigravityGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeProject:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalOpenCodeProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeGlobal:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalOpenCodeGlobalMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementCodexProject:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalCodexProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementCodexGlobal:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalCodexGlobalMCPServerEntry(noEnvProjection)
 	default:
 		return nil, fmt.Errorf("unsupported MCP placement %q", placement.ID())
 	}
+}
+
+func requireMCPNoEnvReferenceCodecContract(placement aggregate.MCPPlacement) error {
+	return requireMCPEnvReferenceCodecContract(
+		placement,
+		aggregate.MCPEnvMappingUnsupported,
+		aggregate.MCPEnvResolutionUnavailable,
+	)
+}
+
+func requireMCPEnvReferenceCodecContract(
+	placement aggregate.MCPPlacement,
+	mapping aggregate.MCPEnvReferenceMapping,
+	resolution aggregate.MCPEnvReferenceResolution,
+) error {
+	contract := placement.EnvReferenceContract()
+	if contract.Mapping() == mapping && contract.Resolution() == resolution {
+		return nil
+	}
+	return fmt.Errorf(
+		"MCP placement %q environment-reference contract %q/%q does not match codec capability %q/%q",
+		placement.ID(),
+		contract.Mapping(),
+		contract.Resolution(),
+		mapping,
+		resolution,
+	)
 }
 
 func canonicalMCPBindingEnv(values map[string]desiredmcp.EnvReference) (map[string]string, error) {

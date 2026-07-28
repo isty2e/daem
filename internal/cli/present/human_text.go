@@ -79,8 +79,11 @@ func Error(err error) string {
 			admissionFailure.Detail(),
 		))
 	}
-	var envFailure aggregate.MCPEnvUnsupportedError
+	var envFailure aggregate.MCPEnvReferenceAdmissionError
 	if errors.As(err, &envFailure) {
+		if envFailure.Mapping() != aggregate.MCPEnvMappingUnsupported {
+			return Escape(err.Error())
+		}
 		message, specialized := mcpEnvUnsupportedMessages[envFailure.PlacementID()]
 		if !specialized {
 			return Escape(err.Error())

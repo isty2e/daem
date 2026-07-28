@@ -51,13 +51,32 @@ func TestMCPPlacementForBindingOwnsCapabilityAdmission(t *testing.T) {
 				desiredtest.MCPStdio(t, desiredtest.MCPCommand(t, "npx"), nil, env),
 				desiredmcp.OnAbsentKeep,
 			),
-			wantError: "does not support env",
+			wantError: "does not support environment references",
+		},
+		{
+			name: "aliased env",
+			binding: desiredtest.MCPBinding(
+				t,
+				target.TargetClaudeCode,
+				target.ScopeProject,
+				desiredtest.MCPStdio(t, desiredtest.MCPCommand(t, "npx"), nil, env),
+				desiredmcp.OnAbsentKeep,
+			),
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := MCPPlacementForBinding(test.binding)
+			placement, err := MCPPlacementForBinding(test.binding)
+			if test.wantError == "" {
+				if err != nil {
+					t.Fatalf("MCPPlacementForBinding returned error: %v", err)
+				}
+				if placement.ID() != MCPPlacementClaudeProject {
+					t.Fatalf("placement = %q, want %q", placement.ID(), MCPPlacementClaudeProject)
+				}
+				return
+			}
 			if err == nil || !strings.Contains(err.Error(), test.wantError) {
 				t.Fatalf("MCPPlacementForBinding error = %v, want containing %q", err, test.wantError)
 			}

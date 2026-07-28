@@ -3,6 +3,9 @@ package clipresent
 import (
 	"errors"
 	"testing"
+
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func TestEscapePreservesPrintableTextAndEscapesTerminalControls(t *testing.T) {
@@ -18,6 +21,21 @@ func TestErrorHandlesNilAndEscapesDynamicDetail(t *testing.T) {
 		t.Fatalf("Error(nil) = %q, want empty", got)
 	}
 	if got, want := Error(errors.New("failure\nnext: run injected")), `failure\nnext: run injected`; got != want {
+		t.Fatalf("Error = %q, want %q", got, want)
+	}
+}
+
+func TestErrorSpecializesUnsupportedMCPEnvironmentReference(t *testing.T) {
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetCodex, target.ScopeProject)
+	if !ok {
+		t.Fatal("Codex project placement missing")
+	}
+	err := placement.AdmitEnvironmentReference("TOKEN", "HOST_TOKEN")
+	if err == nil {
+		t.Fatal("Codex project placement admitted environment reference")
+	}
+	const want = "Codex MCP projection does not support env in the admitted command/args adapter"
+	if got := Error(err); got != want {
 		t.Fatalf("Error = %q, want %q", got, want)
 	}
 }

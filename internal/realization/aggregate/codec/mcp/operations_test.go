@@ -413,17 +413,19 @@ env = { API_TOKEN = "SECRET" }
 func mustTestMCPPlacementOperations(t *testing.T, id aggregate.MCPPlacementID) MCPPlacementOperations {
 	t.Helper()
 	placement, err := aggregate.NewMCPPlacement(aggregate.MCPPlacementInput{
-		ID:                id,
-		Target:            target.TargetCodex,
-		Scope:             target.ScopeProject,
-		ConfigLayer:       "codex-test-config",
-		ConfigPath:        ".test/config",
-		MergeUnit:         aggregate.MCPMergeUnitServerEntry,
-		ContentPathPrefix: "/mcp",
-		SiblingRetention:  aggregate.MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:   aggregate.CodecContractID(string(id) + "-codec-v1"),
-		ComparedFields:    []string{"command", "target"},
-		Absence:           aggregate.MCPAbsenceRemoveBinding,
+		ID:                     id,
+		Target:                 target.TargetCodex,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            "codex-test-config",
+		ConfigPath:             ".test/config",
+		MergeUnit:              aggregate.MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcp",
+		SiblingRetention:       aggregate.MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        aggregate.CodecContractID(string(id) + "-codec-v1"),
+		ComparedFields:         []string{"command", "target"},
+		Absence:                aggregate.MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    aggregate.MCPEnvMappingUnsupported,
+		EnvReferenceResolution: aggregate.MCPEnvResolutionUnavailable,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPPlacement returned error: %v", err)

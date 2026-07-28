@@ -125,7 +125,7 @@ func TestMCPAuthoringDerivesEveryTargetScopeFromCanonicalPlacementCatalog(t *tes
 			Targets: targets,
 			Scope:   scope,
 		}
-		if placement.SupportsEnv() {
+		if placement.EnvReferenceContract().Supported() {
 			request.Env = []MCPServerEnvAssignment{{Name: "TOKEN", FromEnv: "HOST_TOKEN"}}
 		}
 		if err := validateAddMCPAuthoringShape(targets[0], scope, request); err != nil {

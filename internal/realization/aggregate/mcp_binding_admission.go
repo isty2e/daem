@@ -2,22 +2,10 @@ package aggregate
 
 import (
 	"fmt"
+	"sort"
 
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 )
-
-// MCPEnvUnsupportedError reports that one otherwise-admitted placement cannot
-// represent environment references. Human host labels belong to presentation.
-type MCPEnvUnsupportedError struct {
-	placementID MCPPlacementID
-}
-
-func (failure MCPEnvUnsupportedError) Error() string {
-	return fmt.Sprintf("MCP placement %q does not support env", failure.placementID)
-}
-
-// PlacementID returns the rejected aggregate placement identity.
-func (failure MCPEnvUnsupportedError) PlacementID() MCPPlacementID { return failure.placementID }
 
 // MCPPlacementForBinding validates one Desired binding against the implemented
 // placement catalog and returns the single placement that admits it.
@@ -36,8 +24,16 @@ func MCPPlacementForBinding(binding desiredmcp.Binding) (MCPPlacement, error) {
 	if !ok {
 		return MCPPlacement{}, fmt.Errorf("unsupported MCP transport %q", binding.Transport().Kind())
 	}
-	if len(stdio.Env()) != 0 && !placement.SupportsEnv() {
-		return MCPPlacement{}, MCPEnvUnsupportedError{placementID: placement.ID()}
+	env := stdio.Env()
+	childNames := make([]string, 0, len(env))
+	for childName := range env {
+		childNames = append(childNames, childName)
+	}
+	sort.Strings(childNames)
+	for _, childName := range childNames {
+		if err := placement.AdmitEnvironmentReference(childName, env[childName].FromEnv()); err != nil {
+			return MCPPlacement{}, err
+		}
 	}
 	return placement, nil
 }

@@ -74,19 +74,20 @@ const (
 
 // MCPPlacementInput carries the semantic facts required to construct an MCP placement row.
 type MCPPlacementInput struct {
-	ID                    MCPPlacementID
-	Target                target.Target
-	Scope                 target.Scope
-	ConfigLayer           MCPConfigLayer
-	ConfigPath            string
-	ConflictingConfigPath string
-	MergeUnit             MCPMergeUnit
-	ContentPathPrefix     MCPContentPathPrefix
-	SiblingRetention      MCPSiblingRetentionPolicy
-	CodecContractID       CodecContractID
-	ComparedFields        []string
-	Absence               MCPAbsencePolicy
-	Env                   bool
+	ID                     MCPPlacementID
+	Target                 target.Target
+	Scope                  target.Scope
+	ConfigLayer            MCPConfigLayer
+	ConfigPath             string
+	ConflictingConfigPath  string
+	MergeUnit              MCPMergeUnit
+	ContentPathPrefix      MCPContentPathPrefix
+	SiblingRetention       MCPSiblingRetentionPolicy
+	CodecContractID        CodecContractID
+	ComparedFields         []string
+	Absence                MCPAbsencePolicy
+	EnvReferenceMapping    MCPEnvReferenceMapping
+	EnvReferenceResolution MCPEnvReferenceResolution
 }
 
 // MCPPlacement is the canonical internal row for one standalone MCP exact projection.
@@ -101,7 +102,7 @@ type MCPPlacement struct {
 	codecContractID       CodecContractID
 	comparedFields        []string
 	absence               MCPAbsencePolicy
-	env                   bool
+	envReferences         MCPEnvReferenceContract
 }
 
 // NewMCPPlacement constructs a validated MCP placement row.
@@ -118,6 +119,13 @@ func NewMCPPlacement(input MCPPlacementInput) (MCPPlacement, error) {
 	})
 	if err != nil {
 		return MCPPlacement{}, err
+	}
+	envReferences, err := NewMCPEnvReferenceContract(
+		input.EnvReferenceMapping,
+		input.EnvReferenceResolution,
+	)
+	if err != nil {
+		return MCPPlacement{}, fmt.Errorf("MCP environment-reference contract: %w", err)
 	}
 	var conflictingConfigPath output.Destination
 	hasConflictingPath := strings.TrimSpace(input.ConflictingConfigPath) != ""
@@ -138,7 +146,7 @@ func NewMCPPlacement(input MCPPlacementInput) (MCPPlacement, error) {
 		codecContractID:       input.CodecContractID,
 		comparedFields:        canonicalTokenSet(input.ComparedFields),
 		absence:               input.Absence,
-		env:                   input.Env,
+		envReferences:         envReferences,
 	}
 	if err := placement.Validate(); err != nil {
 		return MCPPlacement{}, err
@@ -290,9 +298,27 @@ func (placement MCPPlacement) Absence() MCPAbsencePolicy {
 	return placement.absence
 }
 
-// SupportsEnv reports whether this placement can carry host env references.
-func (placement MCPPlacement) SupportsEnv() bool {
-	return placement.env
+// EnvReferenceContract returns the exact symbolic environment-reference
+// capability selected for this placement.
+func (placement MCPPlacement) EnvReferenceContract() MCPEnvReferenceContract {
+	return placement.envReferences
+}
+
+// AdmitEnvironmentReference validates one canonical child/source mapping
+// against this placement. Desired owns environment-name syntax.
+func (placement MCPPlacement) AdmitEnvironmentReference(childName string, sourceName string) error {
+	if err := placement.Validate(); err != nil {
+		return err
+	}
+	if placement.envReferences.AdmitsReference(childName, sourceName) {
+		return nil
+	}
+	return MCPEnvReferenceAdmissionError{
+		placementID: placement.id,
+		mapping:     placement.envReferences.Mapping(),
+		childName:   childName,
+		sourceName:  sourceName,
+	}
 }
 
 // Validate rejects malformed placement rows.
@@ -327,6 +353,9 @@ func (placement MCPPlacement) Validate() error {
 	}
 	if err := validateTokenSet("MCP compared field", placement.comparedFields); err != nil {
 		return err
+	}
+	if err := placement.envReferences.Validate(); err != nil {
+		return fmt.Errorf("MCP placement %q environment references: %w", placement.id, err)
 	}
 	if placement.absence != MCPAbsenceRemoveBinding {
 		return fmt.Errorf("MCP placement %q absence policy %q is unsupported", placement.id, placement.absence)
