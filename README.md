@@ -149,6 +149,25 @@ state/cache directories. Imported durable source material defaults to
 Run `daem help <command>` for scoped usage. Advanced resource fields belong in
 the manifest rather than an expanding flag surface.
 
+## Agent Skill
+
+This repository includes a portable [`daem` agent skill](skills/daem/SKILL.md)
+that routes instruction, skill, hook, MCP, and extension changes through the
+selected manifest, lockfile, and apply workflow. Bootstrap it into a global
+Codex environment with:
+
+```bash
+daem add skill https://github.com/isty2e/daem.git \
+  --path skills/daem --ref main --name daem \
+  --target codex --scope global --dry-run --diff
+# Review the preview, then repeat without --dry-run --diff.
+daem apply --dry-run --diff
+daem apply
+```
+
+Choose or repeat `--target` for other agent hosts supported by the installed
+daem.
+
 ## Safety Boundaries
 
 - `--dry-run` uses the same planning and validation path without persistent
