@@ -77,6 +77,13 @@ published sidecar. It is not a signature, publisher-authenticity proof, or
 substitute for verifying that the download came from the expected GitHub
 repository and HTTPS endpoint.
 
+## Release Immutability
+
+Published release tags and attached assets are immutable. If a release is bad,
+it is superseded by a new version; the existing tag and assets are not replaced.
+Pin an exact version when installing or rolling back, and verify its checksum
+sidecar. The moving "Latest" label is a discovery aid, not an artifact identity.
+
 ## Upgrade
 
 Read the target release notes, set `DAEM_VERSION` to the exact newer tag, and
