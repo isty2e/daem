@@ -10,6 +10,7 @@ import (
 func TestAntigravityGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 	projection := validAntigravityMCPProjection("context7")
 	projection.Args = nil
+	projection.EnvironmentNames = []string{"TOKEN_Z", "TOKEN_A", "TOKEN_Z"}
 
 	entry, err := CanonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
@@ -33,6 +34,20 @@ func TestAntigravityGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 	}
 	if got := AntigravityGlobalMCPContentPath("context7"); got != "/mcpServers/context7" {
 		t.Fatalf("content path = %q", got)
+	}
+
+	withoutEnvironmentNames := projection
+	withoutEnvironmentNames.EnvironmentNames = nil
+	withoutEnvironment, err := CanonicalAntigravityGlobalMCPServerEntry(withoutEnvironmentNames)
+	if err != nil {
+		t.Fatalf("canonicalize projection without environment names: %v", err)
+	}
+	if string(withoutEnvironment) != string(entry) {
+		t.Fatalf(
+			"native entries differ by ambient prerequisites:\nwith names: %s\nwithout:    %s",
+			entry,
+			withoutEnvironment,
+		)
 	}
 }
 
@@ -134,7 +149,12 @@ func TestAntigravityGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testi
 		{name: "args not array", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":"-y"}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "args null", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":null}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "unsupported type field", input: []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"npx","args":[]}}}`), want: MCPProjectionReasonUnsupportedManagedField},
-		{name: "unsupported env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{"TOKEN":"${TOKEN}"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported literal env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{"TOKEN":"secret"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported braced env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{"TOKEN":"${TOKEN}"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported dollar env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{"TOKEN":"$TOKEN"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported opencode env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{"TOKEN":"{env:TOKEN}"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported empty env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":{}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "unsupported null env field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","args":[],"env":null}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported serverUrl field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","serverUrl":"https://example.invalid/mcp"}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported headers field", input: []byte(`{"mcpServers":{"context7":{"command":"npx","headers":{"Authorization":"Bearer SECRET_CANARY"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "shell command existing", input: []byte(`{"mcpServers":{"context7":{"command":"npx --yes"}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
@@ -154,12 +174,12 @@ func TestAntigravityGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testi
 func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testing.T) {
 	cases := []struct {
 		name       string
-		projection MCPNoEnvServerProjection
+		projection AntigravityGlobalMCPServerProjection
 		want       MCPProjectionReasonCode
 	}{
 		{
 			name: "stale adapter",
-			projection: MCPNoEnvServerProjection{
+			projection: AntigravityGlobalMCPServerProjection{
 				ServerID:        "context7",
 				Command:         "npx",
 				AdapterContract: "antigravity-cli-global-mcp-command-v0",
@@ -168,28 +188,38 @@ func TestAntigravityGlobalMCPProjectionRejectsInvalidDesiredProjection(t *testin
 		},
 		{
 			name: "absolute command",
-			projection: MCPNoEnvServerProjection{
+			projection: AntigravityGlobalMCPServerProjection{
 				ServerID:        "context7",
 				Command:         "/usr/bin/../bin/node",
-				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+				AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,
 		},
 		{
 			name: "invalid server id",
-			projection: MCPNoEnvServerProjection{
+			projection: AntigravityGlobalMCPServerProjection{
 				ServerID:        "bad/server",
 				Command:         "npx",
-				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+				AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,
 		},
 		{
 			name: "shell command",
-			projection: MCPNoEnvServerProjection{
+			projection: AntigravityGlobalMCPServerProjection{
 				ServerID:        "context7",
 				Command:         "npx --yes",
-				AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+				AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
+			},
+			want: MCPProjectionReasonProjectionEquivalenceUndefined,
+		},
+		{
+			name: "invalid environment name",
+			projection: AntigravityGlobalMCPServerProjection{
+				ServerID:         "context7",
+				Command:          "npx",
+				EnvironmentNames: []string{"VALID_TOKEN", "9INVALID"},
+				AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
 			},
 			want: MCPProjectionReasonProjectionEquivalenceUndefined,
 		},
@@ -226,7 +256,7 @@ func TestAntigravityGlobalMCPProjectionMergeBlocksUnsupportedSameNameEntry(t *te
 	}
 }
 
-func mergeAntigravityGlobalMCPServerProjectionForTest(existing []byte, projection MCPNoEnvServerProjection) ([]byte, error) {
+func mergeAntigravityGlobalMCPServerProjectionForTest(existing []byte, projection AntigravityGlobalMCPServerProjection) ([]byte, error) {
 	canonical, err := CanonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err

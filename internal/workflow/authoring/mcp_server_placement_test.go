@@ -31,7 +31,7 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 			want:    "supports --scope global for --target antigravity-cli",
 		},
 		{
-			name: "antigravity env",
+			name: "antigravity env alias",
 			request: AddMCPServerRequest{
 				Name:    "context7",
 				Command: "npx",
@@ -39,7 +39,7 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 				Scope:   "global",
 				Env:     []MCPServerEnvAssignment{{Name: "API_TOKEN", FromEnv: "CONTEXT7_API_TOKEN"}},
 			},
-			want: "does not support --env for --target antigravity-cli",
+			want: "supports only same-name environment references",
 		},
 		{
 			name: "opencode env",
@@ -125,8 +125,12 @@ func TestMCPAuthoringDerivesEveryTargetScopeFromCanonicalPlacementCatalog(t *tes
 			Targets: targets,
 			Scope:   scope,
 		}
-		if placement.SupportsEnv() {
-			request.Env = []MCPServerEnvAssignment{{Name: "TOKEN", FromEnv: "HOST_TOKEN"}}
+		if placement.EnvReferenceContract().Supported() {
+			sourceName := "HOST_TOKEN"
+			if placement.EnvReferenceContract().Mapping() == aggregate.MCPEnvMappingSameName {
+				sourceName = "TOKEN"
+			}
+			request.Env = []MCPServerEnvAssignment{{Name: "TOKEN", FromEnv: sourceName}}
 		}
 		if err := validateAddMCPAuthoringShape(targets[0], scope, request); err != nil {
 			t.Fatalf("validateAddMCPAuthoringShape(%q, %q) returned error: %v", targets[0], scope, err)
@@ -295,6 +299,7 @@ func TestMCPServerFromAddRequestSupportsAntigravityGlobalRow(t *testing.T) {
 		Args:    []string{"-y", "@upstash/context7-mcp@1.2.3"},
 		Targets: []string{"antigravity-cli"},
 		Scope:   "global",
+		Env:     []MCPServerEnvAssignment{{Name: "CONTEXT7_API_TOKEN", FromEnv: "CONTEXT7_API_TOKEN"}},
 	}, declaration.ManifestHeader{}, daempaths.ManifestOriginExplicit)
 	if err != nil {
 		t.Fatalf("MCPServerFromAddRequest returned error: %v", err)
@@ -307,7 +312,8 @@ func TestMCPServerFromAddRequestSupportsAntigravityGlobalRow(t *testing.T) {
 		server.Targets[0] != "antigravity-cli" {
 		t.Fatalf("server = %#v, want Antigravity global MCP row", server)
 	}
-	if len(server.Env) != 0 {
-		t.Fatalf("server.Env = %#v, want empty", server.Env)
+	if len(server.Env) != 1 ||
+		server.Env["CONTEXT7_API_TOKEN"].FromEnv != "CONTEXT7_API_TOKEN" {
+		t.Fatalf("server.Env = %#v, want same-name Antigravity environment reference", server.Env)
 	}
 }

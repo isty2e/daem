@@ -513,6 +513,9 @@ func managedAggregateWorkflowClassifications() map[string]managedAggregateWorkfl
 		"internal/workflow/apply/managed_aggregate_authority.go": {
 			guard: true, reason: "generic aggregate execution-authority fingerprinting",
 		},
+		"internal/workflow/apply/mcp_environment_preflight.go": {
+			reason: "MCP-specific apply-time environment source capability and presence preflight",
+		},
 		"internal/workflow/readiness/assessment.go": {
 			reason: "readiness composition over generic aggregate planning inputs",
 		},

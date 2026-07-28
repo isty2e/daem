@@ -32,7 +32,25 @@ func mergeCodexProjectMCPServerCanonicalEntry(existing []byte, serverID string, 
 }
 
 func mergeCodexGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
-	return mergeCodexProjectMCPServerCanonicalEntry(existing, serverID, canonical)
+	if err := validateServerID(serverID); err != nil {
+		return nil, err
+	}
+	desired, err := decodeCodexGlobalMCPServerEntry(canonical, serverID)
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := decodeCodexProjectMCPConfig(existing)
+	if err != nil {
+		return nil, err
+	}
+	if existingValue, exists := config.servers[serverID]; exists {
+		if _, err := decodeCodexGlobalMCPServerEntryValue(existingValue, serverID); err != nil {
+			return nil, err
+		}
+	}
+	config.servers[serverID] = codexGlobalMCPServerEntryMap(desired)
+	return config.encode()
 }
 
 func removeCodexProjectMCPServerProjection(existing []byte, serverID string) ([]byte, error) {
@@ -53,7 +71,20 @@ func removeCodexProjectMCPServerProjection(existing []byte, serverID string) ([]
 }
 
 func removeCodexGlobalMCPServerProjection(existing []byte, serverID string) ([]byte, error) {
-	return removeCodexProjectMCPServerProjection(existing, serverID)
+	if err := validateServerID(serverID); err != nil {
+		return nil, err
+	}
+	config, err := decodeCodexProjectMCPConfig(existing)
+	if err != nil {
+		return nil, err
+	}
+	if existingValue, exists := config.servers[serverID]; exists {
+		if _, err := decodeCodexGlobalMCPServerEntryValue(existingValue, serverID); err != nil {
+			return nil, err
+		}
+		delete(config.servers, serverID)
+	}
+	return config.encode()
 }
 
 func restoreRemoveCodexProjectMCPServerProjection(existing []byte, serverID string, parentExistedBefore bool) ([]byte, bool, error) {
@@ -78,33 +109,64 @@ func restoreRemoveCodexProjectMCPServerProjection(existing []byte, serverID stri
 }
 
 func restoreRemoveCodexGlobalMCPServerProjection(existing []byte, serverID string, parentExistedBefore bool) ([]byte, bool, error) {
-	return restoreRemoveCodexProjectMCPServerProjection(existing, serverID, parentExistedBefore)
-}
-
-// ExtractCodexProjectMCPServerProjection extracts a canonical managed server entry.
-func ExtractCodexProjectMCPServerProjection(existing []byte, serverID string) (CodexMCPServerEntry, bool, error) {
 	if err := validateServerID(serverID); err != nil {
-		return CodexMCPServerEntry{}, false, err
+		return nil, false, err
 	}
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
-		return CodexMCPServerEntry{}, false, err
+		return nil, false, err
+	}
+	if existingValue, exists := config.servers[serverID]; exists {
+		if _, err := decodeCodexGlobalMCPServerEntryValue(existingValue, serverID); err != nil {
+			return nil, false, err
+		}
+		delete(config.servers, serverID)
+	}
+	content, keepFile, err := config.encodePreservingMCPParent(parentExistedBefore)
+	if err != nil {
+		return nil, false, err
+	}
+	return content, keepFile, nil
+}
+
+// ExtractCodexProjectMCPServerProjection extracts a canonical managed server entry.
+func ExtractCodexProjectMCPServerProjection(existing []byte, serverID string) (CodexProjectMCPServerEntry, bool, error) {
+	if err := validateServerID(serverID); err != nil {
+		return CodexProjectMCPServerEntry{}, false, err
+	}
+	config, err := decodeCodexProjectMCPConfig(existing)
+	if err != nil {
+		return CodexProjectMCPServerEntry{}, false, err
 	}
 	value, ok := config.servers[serverID]
 	if !ok {
-		return CodexMCPServerEntry{}, false, nil
+		return CodexProjectMCPServerEntry{}, false, nil
 	}
 	entry, err := decodeCodexProjectMCPServerEntryValue(value, serverID)
 	if err != nil {
-		return CodexMCPServerEntry{}, false, err
+		return CodexProjectMCPServerEntry{}, false, err
 	}
 	return entry, true, nil
 }
 
 // ExtractCodexGlobalMCPServerProjection extracts a canonical managed server entry.
-func ExtractCodexGlobalMCPServerProjection(existing []byte, serverID string) (CodexMCPServerEntry, bool, error) {
-	entry, present, err := ExtractCodexProjectMCPServerProjection(existing, serverID)
-	return entry, present, err
+func ExtractCodexGlobalMCPServerProjection(existing []byte, serverID string) (CodexGlobalMCPServerEntry, bool, error) {
+	if err := validateServerID(serverID); err != nil {
+		return CodexGlobalMCPServerEntry{}, false, err
+	}
+	config, err := decodeCodexProjectMCPConfig(existing)
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, false, err
+	}
+	value, ok := config.servers[serverID]
+	if !ok {
+		return CodexGlobalMCPServerEntry{}, false, nil
+	}
+	entry, err := decodeCodexGlobalMCPServerEntryValue(value, serverID)
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, false, err
+	}
+	return entry, true, nil
 }
 
 func ExtractCodexProjectMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
@@ -135,12 +197,12 @@ func ExtractCodexProjectMCPServerProjections(existing []byte) ([]MCPNoEnvServerP
 	return projections, rejections, nil
 }
 
-func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
+func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]CodexGlobalMCPServerProjection, []MCPProjectionRejection, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
+	projections := make([]CodexGlobalMCPServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
 	for _, serverID := range sortedCodexMCPServerIDs(config.servers) {
 		contentPath := CodexGlobalMCPContentPath(serverID)
@@ -148,16 +210,17 @@ func ExtractCodexGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerPr
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		entry, err := decodeCodexProjectMCPServerEntryValue(config.servers[serverID], serverID)
+		entry, err := decodeCodexGlobalMCPServerEntryValue(config.servers[serverID], serverID)
 		if err != nil {
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		projections = append(projections, MCPNoEnvServerProjection{
+		projections = append(projections, CodexGlobalMCPServerProjection{
 			ServerID:        serverID,
 			Command:         entry.Command,
 			Args:            append([]string(nil), entry.Args...),
-			AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+			EnvVars:         append([]string(nil), entry.EnvVars...),
+			AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 		})
 	}
 	return projections, rejections, nil
@@ -180,7 +243,7 @@ func extractCodexGlobalMCPServerProjectionBytes(existing []byte, serverID string
 	if err != nil || !present {
 		return nil, present, err
 	}
-	content, err := encodeCodexProjectMCPServerEntry(entry)
+	content, err := encodeCodexGlobalMCPServerEntry(entry)
 	if err != nil {
 		return nil, false, err
 	}
@@ -281,12 +344,12 @@ func (config codexProjectMCPConfig) encodePreservingMCPParent(parentExistedBefor
 	return content, true, err
 }
 
-func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexMCPServerEntry, error) {
+func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexProjectMCPServerEntry, error) {
 	if err := validateServerID(serverID); err != nil {
-		return CodexMCPServerEntry{}, err
+		return CodexProjectMCPServerEntry{}, err
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
+		return CodexProjectMCPServerEntry{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			CodexProjectMCPContentPath(serverID),
 			"Codex MCP canonical entry TOML is empty",
@@ -294,7 +357,7 @@ func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexMCP
 	}
 	var raw map[string]any
 	if _, err := toml.Decode(string(content), &raw); err != nil {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
+		return CodexProjectMCPServerEntry{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			CodexProjectMCPContentPath(serverID),
 			fmt.Sprintf("decode Codex MCP canonical entry TOML: %v", err),
@@ -303,11 +366,11 @@ func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexMCP
 	return decodeCodexProjectMCPServerEntryValue(raw, serverID)
 }
 
-func decodeCodexProjectMCPServerEntryValue(value any, serverID string) (CodexMCPServerEntry, error) {
+func decodeCodexProjectMCPServerEntryValue(value any, serverID string) (CodexProjectMCPServerEntry, error) {
 	subject := CodexProjectMCPContentPath(serverID)
 	object, ok := value.(map[string]any)
 	if !ok || object == nil {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
+		return CodexProjectMCPServerEntry{}, newMCPProjectionError(
 			MCPProjectionReasonProjectionEquivalenceUndefined,
 			subject,
 			"projection object is not a TOML table",
@@ -317,34 +380,41 @@ func decodeCodexProjectMCPServerEntryValue(value any, serverID string) (CodexMCP
 		switch key {
 		case "command", "args":
 		default:
-			return CodexMCPServerEntry{}, newMCPProjectionError(
+			return CodexProjectMCPServerEntry{}, newMCPProjectionError(
 				MCPProjectionReasonUnsupportedManagedField,
 				subject+"/"+key,
 				"unsupported Codex MCP managed field",
 			)
 		}
 	}
+	command, args, err := decodeCodexMCPCommandArgs(object, subject)
+	if err != nil {
+		return CodexProjectMCPServerEntry{}, err
+	}
+	return CodexProjectMCPServerEntry{
+		Command: command,
+		Args:    args,
+	}, nil
+}
 
+func decodeCodexMCPCommandArgs(object map[string]any, subject string) (string, []string, error) {
 	command, ok := object["command"].(string)
 	if !ok {
-		return CodexMCPServerEntry{}, newMCPProjectionError(
+		return "", nil, newMCPProjectionError(
 			MCPProjectionReasonProjectionEquivalenceUndefined,
 			subject+"/command",
 			"command is required and must be a string",
 		)
 	}
 	if err := validateMCPCommand(command); err != nil {
-		return CodexMCPServerEntry{}, err
+		return "", nil, err
 	}
 
 	args, err := codexProjectMCPArgs(object["args"], subject+"/args")
 	if err != nil {
-		return CodexMCPServerEntry{}, err
+		return "", nil, err
 	}
-	return CodexMCPServerEntry{
-		Command: command,
-		Args:    args,
-	}, nil
+	return command, args, nil
 }
 
 func codexProjectMCPArgs(value any, subject string) ([]string, error) {
@@ -377,8 +447,8 @@ func codexProjectMCPArgs(value any, subject string) ([]string, error) {
 	return args, nil
 }
 
-func encodeCodexProjectMCPServerEntry(entry CodexMCPServerEntry) ([]byte, error) {
-	content, err := toml.Marshal(CodexMCPServerEntry{
+func encodeCodexProjectMCPServerEntry(entry CodexProjectMCPServerEntry) ([]byte, error) {
+	content, err := toml.Marshal(CodexProjectMCPServerEntry{
 		Command: entry.Command,
 		Args:    append([]string(nil), entry.Args...),
 	})
@@ -388,7 +458,7 @@ func encodeCodexProjectMCPServerEntry(entry CodexMCPServerEntry) ([]byte, error)
 	return content, nil
 }
 
-func codexProjectMCPServerEntryMap(entry CodexMCPServerEntry) map[string]any {
+func codexProjectMCPServerEntryMap(entry CodexProjectMCPServerEntry) map[string]any {
 	return map[string]any{
 		"command": entry.Command,
 		"args":    append([]string(nil), entry.Args...),

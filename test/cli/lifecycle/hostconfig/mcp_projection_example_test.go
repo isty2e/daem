@@ -55,6 +55,7 @@ func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
 			t.Setenv("HOME", home)
 			t.Setenv("USERPROFILE", home)
 			t.Setenv("CONTEXT7_API_TOKEN", mcpPublicExampleSecretCanary)
+			t.Setenv("CODEX_TOKEN", mcpPublicExampleSecretCanary)
 
 			operations, ok := mcptest.OperationsForPlacementID(test.placementID)
 			if !ok {

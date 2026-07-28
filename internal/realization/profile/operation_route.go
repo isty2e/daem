@@ -105,12 +105,12 @@ var hookAggregateRouteIDs = map[aggregate.HookPlacementID]aggregateRouteIDs{
 
 var mcpAggregateRouteIDs = map[aggregate.MCPPlacementID]aggregateRouteIDs{
 	aggregate.MCPPlacementClaudeProject:     {write: "claude-project-mcp-stdio.write_projection", remove: "claude-project-mcp-stdio.remove_binding"},
-	aggregate.MCPPlacementClaudeGlobal:      {write: "claude-code-user-mcp-stdio.write_projection", remove: "claude-code-user-mcp-stdio.remove_binding"},
-	aggregate.MCPPlacementAntigravityGlobal: {write: "antigravity-cli-global-mcp-command.write_projection", remove: "antigravity-cli-global-mcp-command.remove_binding"},
+	aggregate.MCPPlacementClaudeGlobal:      {write: "claude-code-user-mcp-stdio-env.write_projection", remove: "claude-code-user-mcp-stdio-env.remove_binding"},
+	aggregate.MCPPlacementAntigravityGlobal: {write: "antigravity-cli-global-mcp-ambient-env.write_projection", remove: "antigravity-cli-global-mcp-ambient-env.remove_binding"},
 	aggregate.MCPPlacementOpenCodeProject:   {write: "opencode-project-mcp-local-command.write_projection", remove: "opencode-project-mcp-local-command.remove_binding"},
-	aggregate.MCPPlacementOpenCodeGlobal:    {write: "opencode-global-mcp-local-command.write_projection", remove: "opencode-global-mcp-local-command.remove_binding"},
+	aggregate.MCPPlacementOpenCodeGlobal:    {write: "opencode-global-mcp-local-env.write_projection", remove: "opencode-global-mcp-local-env.remove_binding"},
 	aggregate.MCPPlacementCodexProject:      {write: "codex-project-mcp-stdio-command.write_projection", remove: "codex-project-mcp-stdio-command.remove_binding"},
-	aggregate.MCPPlacementCodexGlobal:       {write: "codex-global-mcp-stdio-command.write_projection", remove: "codex-global-mcp-stdio-command.remove_binding"},
+	aggregate.MCPPlacementCodexGlobal:       {write: "codex-global-mcp-stdio-env-vars.write_projection", remove: "codex-global-mcp-stdio-env-vars.remove_binding"},
 }
 
 func aggregateOperationRoutesForTarget(selectedTarget target.Target) []OperationRoute {

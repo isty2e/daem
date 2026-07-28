@@ -8,7 +8,7 @@ import (
 var antigravityGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetAntigravityCLI, aggregate.MCPPlacementAntigravityGlobal),
 	Label:                    "Antigravity CLI global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         antigravityGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",
@@ -27,7 +27,7 @@ var antigravityGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 var claudeGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetClaudeCode, aggregate.MCPPlacementClaudeGlobal),
 	Label:                    "Claude Code user/global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         claudeGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",
@@ -84,7 +84,7 @@ var codexProjectMCPProjectionSpec = mcpProjectionLockSpec{
 var codexGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetCodex, aggregate.MCPPlacementCodexGlobal),
 	Label:                    "Codex global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         codexGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",
@@ -124,7 +124,7 @@ var openCodeProjectMCPProjectionSpec = mcpProjectionLockSpec{
 var openCodeGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetOpenCode, aggregate.MCPPlacementOpenCodeGlobal),
 	Label:                    "OpenCode global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         openCodeMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",

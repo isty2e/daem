@@ -293,6 +293,7 @@ func TestMCPPlacementOperationsCodexTOMLPlacementRoundTrip(t *testing.T) {
 	}
 	projection := validCodexGlobalMCPProjection("context7")
 	projection.Args = []string{"-y", "@upstash/context7-mcp"}
+	projection.EnvVars = []string{"CONTEXT7_TOKEN"}
 	canonical, err := CanonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		t.Fatalf("CanonicalCodexGlobalMCPServerEntry returned error: %v", err)
@@ -309,7 +310,12 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{`model = "gpt-5-codex"`, `[mcp_servers.sibling]`, `[mcp_servers.context7]`} {
+	for _, want := range []string{
+		`model = "gpt-5-codex"`,
+		`[mcp_servers.sibling]`,
+		`[mcp_servers.context7]`,
+		`env_vars = ["CONTEXT7_TOKEN"]`,
+	} {
 		if !strings.Contains(string(merged), want) {
 			t.Fatalf("merged = %s, want %q", merged, want)
 		}
@@ -413,17 +419,19 @@ env = { API_TOKEN = "SECRET" }
 func mustTestMCPPlacementOperations(t *testing.T, id aggregate.MCPPlacementID) MCPPlacementOperations {
 	t.Helper()
 	placement, err := aggregate.NewMCPPlacement(aggregate.MCPPlacementInput{
-		ID:                id,
-		Target:            target.TargetCodex,
-		Scope:             target.ScopeProject,
-		ConfigLayer:       "codex-test-config",
-		ConfigPath:        ".test/config",
-		MergeUnit:         aggregate.MCPMergeUnitServerEntry,
-		ContentPathPrefix: "/mcp",
-		SiblingRetention:  aggregate.MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:   aggregate.CodecContractID(string(id) + "-codec-v1"),
-		ComparedFields:    []string{"command", "target"},
-		Absence:           aggregate.MCPAbsenceRemoveBinding,
+		ID:                     id,
+		Target:                 target.TargetCodex,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            "codex-test-config",
+		ConfigPath:             ".test/config",
+		MergeUnit:              aggregate.MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcp",
+		SiblingRetention:       aggregate.MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        aggregate.CodecContractID(string(id) + "-codec-v1"),
+		ComparedFields:         []string{"command", "target"},
+		Absence:                aggregate.MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    aggregate.MCPEnvMappingUnsupported,
+		EnvReferenceResolution: aggregate.MCPEnvResolutionUnavailable,
 	})
 	if err != nil {
 		t.Fatalf("NewMCPPlacement returned error: %v", err)

@@ -60,9 +60,11 @@ targets = ["codex", "claude-code"]
 [[mcp_server]]
 name = "context7"
 targets = ["claude-code"]
+scope = "global"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 ```
 
 Global declarations affect every project using the selected agent profile.

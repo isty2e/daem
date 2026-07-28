@@ -276,7 +276,7 @@ subject = []
 				`subject_id = "projection/claude-code.project.mcp-server/context7"`,
 				`subject_id = "projection/claude-code.future.mcp-server/context7"`,
 			),
-			wantError: "subject has no current topology refinement",
+			wantError: "require an implemented MCP placement",
 		},
 		{
 			name:      "MCP target profile drift",

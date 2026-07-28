@@ -19,11 +19,11 @@ import (
 func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "config.json")
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
 		ServerID:        "context7",
 		Command:         "npx",
 		Args:            []string{"-y", "@upstream/context7"},
-		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 	})
 	if err != nil {
 		t.Fatalf("canonical entry: %v", err)
@@ -96,11 +96,11 @@ func TestRecoveryContentPathBaselineCacheReadsLargeAggregateOnce(t *testing.T) {
 	mutations := make([]pathMutation, 0, memberCount)
 	for index := range memberCount {
 		serverID := fmt.Sprintf("server-%03d", index)
-		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+		canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
 			ServerID:        serverID,
 			Command:         "npx",
 			Args:            []string{"-y", "@upstream/" + serverID},
-			AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+			AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 		})
 		if err != nil {
 			t.Fatalf("canonical entry %q: %v", serverID, err)

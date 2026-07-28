@@ -93,7 +93,7 @@ func claudeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped
 			LivePath:     livePath + "#" + mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID),
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
+			Env:          hostEnvReferences(projection.Env),
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil
@@ -141,7 +141,7 @@ func openCodeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipp
 			LivePath:     livePath + "#" + mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID),
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
+			Env:          openCodeEnvReferences(projection.Environment),
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil
@@ -189,7 +189,7 @@ func codexGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped,
 			LivePath:     livePath + "#" + mcpcodec.CodexGlobalMCPContentPath(projection.ServerID),
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
+			Env:          sameNameEnvReferences(projection.EnvVars),
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil
@@ -255,6 +255,22 @@ func hostEnvReferences(env map[string]string) map[string]string {
 	result := make(map[string]string, len(env))
 	for key, value := range env {
 		result[key] = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	}
+	return result
+}
+
+func openCodeEnvReferences(environment map[string]string) map[string]string {
+	result := make(map[string]string, len(environment))
+	for key, value := range environment {
+		result[key] = strings.TrimSuffix(strings.TrimPrefix(value, "{env:"), "}")
+	}
+	return result
+}
+
+func sameNameEnvReferences(names []string) map[string]string {
+	result := make(map[string]string, len(names))
+	for _, name := range names {
+		result[name] = name
 	}
 	return result
 }

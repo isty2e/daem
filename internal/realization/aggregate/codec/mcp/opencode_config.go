@@ -11,7 +11,12 @@ func foldOpenCodeProjectMCPProjectionMutations(existing []byte, mutations []MCPP
 }
 
 func foldOpenCodeGlobalMCPProjectionMutations(existing []byte, mutations []MCPProjectionMutation) ([]byte, error) {
-	return foldOpenCodeMCPProjectionMutations(existing, mutations, openCodeGlobalMCPConfigSpec())
+	return foldMCPJSONServerMutations(
+		existing,
+		mutations,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func observeOpenCodeProjectMCPProjections(existing []byte, serverIDs []string) (MCPProjectionObservation, error) {
@@ -19,7 +24,12 @@ func observeOpenCodeProjectMCPProjections(existing []byte, serverIDs []string) (
 }
 
 func observeOpenCodeGlobalMCPProjections(existing []byte, serverIDs []string) (MCPProjectionObservation, error) {
-	return observeOpenCodeMCPProjections(existing, serverIDs, openCodeGlobalMCPConfigSpec())
+	return observeMCPJSONServerProjections(
+		existing,
+		serverIDs,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func observeOpenCodeMCPProjections(
@@ -43,7 +53,13 @@ func verifyOpenCodeProjectMCPProjectionMutations(content []byte, mutations []MCP
 }
 
 func verifyOpenCodeGlobalMCPProjectionMutations(content []byte, mutations []MCPProjectionMutation) error {
-	return verifyOpenCodeMCPProjectionMutations(content, mutations, openCodeGlobalMCPConfigSpec())
+	return verifyMCPJSONServerMutations(
+		content,
+		mutations,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+		openCodeGlobalMCPServerEntriesEqual,
+	)
 }
 
 func verifyOpenCodeMCPProjectionMutations(
@@ -61,7 +77,13 @@ func verifyOpenCodeMCPProjectionMutations(
 }
 
 func mergeOpenCodeGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
-	return mergeOpenCodeMCPServerCanonicalEntry(existing, serverID, canonical, openCodeGlobalMCPConfigSpec())
+	return mergeMCPJSONServerCanonicalEntry(
+		existing,
+		serverID,
+		canonical,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func mergeOpenCodeMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte, spec mcpConfigSpec) ([]byte, error) {
@@ -73,7 +95,12 @@ func removeOpenCodeProjectMCPServerProjection(existing []byte, serverID string) 
 }
 
 func removeOpenCodeGlobalMCPServerProjection(existing []byte, serverID string) ([]byte, error) {
-	return removeOpenCodeMCPServerProjection(existing, serverID, openCodeGlobalMCPConfigSpec())
+	return removeMCPJSONServerProjection(
+		existing,
+		serverID,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func removeOpenCodeMCPServerProjection(existing []byte, serverID string, spec mcpConfigSpec) ([]byte, error) {
@@ -85,7 +112,13 @@ func restoreRemoveOpenCodeProjectMCPServerProjection(existing []byte, serverID s
 }
 
 func restoreRemoveOpenCodeGlobalMCPServerProjection(existing []byte, serverID string, parentExistedBefore bool) ([]byte, bool, error) {
-	return restoreRemoveOpenCodeMCPServerProjection(existing, serverID, parentExistedBefore, openCodeGlobalMCPConfigSpec())
+	return restoreRemoveMCPJSONServerProjection(
+		existing,
+		serverID,
+		parentExistedBefore,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func restoreRemoveOpenCodeMCPServerProjection(existing []byte, serverID string, parentExistedBefore bool, spec mcpConfigSpec) ([]byte, bool, error) {
@@ -99,16 +132,21 @@ func restoreRemoveOpenCodeMCPServerProjection(existing []byte, serverID string, 
 }
 
 // ExtractOpenCodeProjectMCPServerProjection extracts a canonical managed server entry.
-func ExtractOpenCodeProjectMCPServerProjection(existing []byte, serverID string) (OpenCodeMCPServerEntry, bool, error) {
+func ExtractOpenCodeProjectMCPServerProjection(existing []byte, serverID string) (OpenCodeProjectMCPServerEntry, bool, error) {
 	return extractOpenCodeMCPServerProjection(existing, serverID, openCodeProjectMCPConfigSpec())
 }
 
 // ExtractOpenCodeGlobalMCPServerProjection extracts a canonical managed server entry.
-func ExtractOpenCodeGlobalMCPServerProjection(existing []byte, serverID string) (OpenCodeMCPServerEntry, bool, error) {
-	return extractOpenCodeMCPServerProjection(existing, serverID, openCodeGlobalMCPConfigSpec())
+func ExtractOpenCodeGlobalMCPServerProjection(existing []byte, serverID string) (OpenCodeGlobalMCPServerEntry, bool, error) {
+	return extractMCPJSONServerProjection(
+		existing,
+		serverID,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
-func extractOpenCodeMCPServerProjection(existing []byte, serverID string, spec mcpConfigSpec) (OpenCodeMCPServerEntry, bool, error) {
+func extractOpenCodeMCPServerProjection(existing []byte, serverID string, spec mcpConfigSpec) (OpenCodeProjectMCPServerEntry, bool, error) {
 	return extractMCPJSONServerProjection(existing, serverID, spec, decodeOpenCodeProjectMCPServerEntry)
 }
 
@@ -116,18 +154,30 @@ func ExtractOpenCodeProjectMCPServerProjections(existing []byte) ([]MCPNoEnvServ
 	return extractOpenCodeMCPServerProjections(existing, openCodeProjectMCPConfigSpec(), aggregate.OpenCodeProjectMCPLocalCommandV1)
 }
 
-func ExtractOpenCodeGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
-	projectProjections, rejections, err := extractOpenCodeMCPServerProjections(existing, openCodeGlobalMCPConfigSpec(), aggregate.OpenCodeGlobalMCPLocalCommandV1)
+func ExtractOpenCodeGlobalMCPServerProjections(existing []byte) ([]OpenCodeGlobalMCPServerProjection, []MCPProjectionRejection, error) {
+	config, err := decodeMCPConfig(existing, openCodeGlobalMCPConfigSpec())
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]MCPNoEnvServerProjection, 0, len(projectProjections))
-	for _, projection := range projectProjections {
-		projections = append(projections, MCPNoEnvServerProjection{
-			ServerID:        projection.ServerID,
-			Command:         projection.Command,
-			Args:            append([]string(nil), projection.Args...),
-			AdapterContract: projection.AdapterContract,
+	projections := make([]OpenCodeGlobalMCPServerProjection, 0, len(config.servers))
+	rejections := make([]MCPProjectionRejection, 0)
+	for _, serverID := range sortedMCPServerIDs(config.servers) {
+		contentPath := OpenCodeGlobalMCPContentPath(serverID)
+		if err := validateServerID(serverID); err != nil {
+			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			continue
+		}
+		entry, err := decodeOpenCodeGlobalMCPServerEntry(config.servers[serverID], serverID)
+		if err != nil {
+			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			continue
+		}
+		projections = append(projections, OpenCodeGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         entry.Command[0],
+			Args:            append([]string(nil), entry.Command[1:]...),
+			Environment:     cloneStringMap(entry.Environment),
+			AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 		})
 	}
 	return projections, rejections, nil
@@ -166,7 +216,12 @@ func extractOpenCodeProjectMCPServerProjectionBytes(existing []byte, serverID st
 }
 
 func extractOpenCodeGlobalMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {
-	return extractOpenCodeMCPServerProjectionBytes(existing, serverID, openCodeGlobalMCPConfigSpec())
+	return extractMCPJSONServerProjectionBytes(
+		existing,
+		serverID,
+		openCodeGlobalMCPConfigSpec(),
+		decodeOpenCodeGlobalMCPServerEntry,
+	)
 }
 
 func extractOpenCodeMCPServerProjectionBytes(existing []byte, serverID string, spec mcpConfigSpec) ([]byte, bool, error) {

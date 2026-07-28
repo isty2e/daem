@@ -8,7 +8,7 @@ func compareClaudeProjectMCPServerProjection(existing []byte, projection ClaudeP
 	return compareClaudeProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareClaudeGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareClaudeGlobalMCPServerProjection(existing []byte, projection ClaudeGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalClaudeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -16,7 +16,7 @@ func compareClaudeGlobalMCPServerProjection(existing []byte, projection MCPNoEnv
 	return compareClaudeGlobalMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareAntigravityGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareAntigravityGlobalMCPServerProjection(existing []byte, projection AntigravityGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -32,7 +32,7 @@ func compareOpenCodeProjectMCPServerProjection(existing []byte, projection MCPNo
 	return compareOpenCodeProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareOpenCodeGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareOpenCodeGlobalMCPServerProjection(existing []byte, projection OpenCodeGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -48,7 +48,7 @@ func compareCodexProjectMCPServerProjection(existing []byte, projection MCPNoEnv
 	return compareCodexProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareCodexGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareCodexGlobalMCPServerProjection(existing []byte, projection CodexGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err

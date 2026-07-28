@@ -64,12 +64,12 @@ func ExtractAntigravityGlobalMCPServerProjection(existing []byte, serverID strin
 	return extractMCPJSONServerProjection(existing, serverID, antigravityGlobalMCPConfigSpec(), decodeAntigravityGlobalMCPServerEntry)
 }
 
-func ExtractAntigravityGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
+func ExtractAntigravityGlobalMCPServerProjections(existing []byte) ([]AntigravityGlobalMCPServerProjection, []MCPProjectionRejection, error) {
 	config, err := decodeMCPConfig(existing, antigravityGlobalMCPConfigSpec())
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
+	projections := make([]AntigravityGlobalMCPServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
 	for _, serverID := range sortedMCPServerIDs(config.servers) {
 		contentPath := AntigravityGlobalMCPContentPath(serverID)
@@ -82,11 +82,12 @@ func ExtractAntigravityGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvSe
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		projections = append(projections, MCPNoEnvServerProjection{
-			ServerID:        serverID,
-			Command:         entry.Command,
-			Args:            append([]string(nil), entry.Args...),
-			AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		projections = append(projections, AntigravityGlobalMCPServerProjection{
+			ServerID:         serverID,
+			Command:          entry.Command,
+			Args:             append([]string(nil), entry.Args...),
+			EnvironmentNames: []string{},
+			AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
 		})
 	}
 	return projections, rejections, nil

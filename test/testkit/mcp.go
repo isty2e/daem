@@ -53,14 +53,16 @@ func AssertClaudeGlobalMCPConfigEquivalent(
 	serverID string,
 	command string,
 	args []string,
+	env map[string]string,
 ) {
 	t.Helper()
 	content := ReadFile(t, hostConfigPath)
-	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalClaudeGlobalMCPServerEntry(mcpcodec.ClaudeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		Env:             env,
+		AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalClaudeGlobalMCPServerEntry returned error: %v", err)

@@ -267,6 +267,7 @@ func mcpProjectionMutationCases() []mcpProjectionMutationCase {
 			canonical: func(serverID string, command string) ([]byte, error) {
 				projection := validCodexGlobalMCPProjection(serverID)
 				projection.Command = command
+				projection.EnvVars = []string{"CODEX_TOKEN"}
 				return CanonicalCodexGlobalMCPServerEntry(projection)
 			},
 		},

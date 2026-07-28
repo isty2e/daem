@@ -64,12 +64,12 @@ func ExtractClaudeGlobalMCPServerProjection(existing []byte, serverID string) (C
 	return extractMCPJSONServerProjection(existing, serverID, claudeGlobalMCPConfigSpec(), decodeClaudeGlobalMCPServerEntry)
 }
 
-func ExtractClaudeGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
+func ExtractClaudeGlobalMCPServerProjections(existing []byte) ([]ClaudeGlobalMCPServerProjection, []MCPProjectionRejection, error) {
 	config, err := decodeMCPConfig(existing, claudeGlobalMCPConfigSpec())
 	if err != nil {
 		return nil, nil, err
 	}
-	projections := make([]MCPNoEnvServerProjection, 0, len(config.servers))
+	projections := make([]ClaudeGlobalMCPServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
 	for _, serverID := range sortedMCPServerIDs(config.servers) {
 		contentPath := ClaudeGlobalMCPContentPath(serverID)
@@ -82,11 +82,12 @@ func ExtractClaudeGlobalMCPServerProjections(existing []byte) ([]MCPNoEnvServerP
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		projections = append(projections, MCPNoEnvServerProjection{
+		projections = append(projections, ClaudeGlobalMCPServerProjection{
 			ServerID:        serverID,
 			Command:         entry.Command,
 			Args:            append([]string(nil), entry.Args...),
-			AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+			Env:             cloneStringMap(entry.Env),
+			AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 		})
 	}
 	return projections, rejections, nil

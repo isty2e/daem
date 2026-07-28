@@ -45,8 +45,8 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 	}
 	if err := os.WriteFile(livePath, []byte(`{
   "mcpServers": {
-    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"]},
-    "withEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}},
+    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"], "env": {"API_TOKEN": "${CONTEXT7_API_TOKEN}"}},
+    "literal": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}},
     "remote": {"type": "http", "url": "https://example.invalid/mcp"}
   },
   "projects": {
@@ -71,17 +71,18 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 		servers[0].LivePath != livePath+"#/mcpServers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
-		len(servers[0].Env) != 0 {
+		len(servers[0].Env) != 1 ||
+		servers[0].Env["API_TOKEN"] != "CONTEXT7_API_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 Claude global live path", servers)
 	}
 	if len(skipped) != 2 {
 		t.Fatalf("skipped = %#v, want env and remote skips", skipped)
 	}
-	if skipped[0].LivePath != livePath+"#/mcpServers/remote" || skipped[0].Reason != "unsupported_mcp_transport" {
-		t.Fatalf("skipped[0] = %#v, want remote unsupported transport", skipped[0])
+	if skipped[0].LivePath != livePath+"#/mcpServers/literal" || skipped[0].Reason != "secret_literal_forbidden" {
+		t.Fatalf("skipped[0] = %#v, want literal env rejection without secret leak", skipped[0])
 	}
-	if skipped[1].LivePath != livePath+"#/mcpServers/withEnv" || skipped[1].Reason != "unsupported_mcp_managed_field" {
-		t.Fatalf("skipped[1] = %#v, want env unsupported managed field without secret leak", skipped[1])
+	if skipped[1].LivePath != livePath+"#/mcpServers/remote" || skipped[1].Reason != "unsupported_mcp_transport" {
+		t.Fatalf("skipped[1] = %#v, want remote unsupported transport", skipped[1])
 	}
 }
 
@@ -163,6 +164,7 @@ func TestCandidatesImportsCodexGlobalMCPAndReportsRejectedRows(t *testing.T) {
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env_vars = [{ name = "CONTEXT7_TOKEN", source = "local" }]
 
 [mcp_servers.remote]
 command = "npx"
@@ -182,13 +184,14 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		servers[0].LivePath != livePath+"#/mcp_servers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
-		len(servers[0].Env) != 0 {
+		len(servers[0].Env) != 1 ||
+		servers[0].Env["CONTEXT7_TOKEN"] != "CONTEXT7_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 Codex global live path", servers)
 	}
 	if len(skipped) != 1 ||
 		skipped[0].LivePath != livePath+"#/mcp_servers/remote" ||
-		skipped[0].Reason != "unsupported_mcp_managed_field" {
-		t.Fatalf("skipped = %#v, want remote unsupported managed field", skipped)
+		skipped[0].Reason != "secret_literal_forbidden" {
+		t.Fatalf("skipped = %#v, want literal environment rejection", skipped)
 	}
 }
 
@@ -204,7 +207,8 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@upstash/context7-mcp"]},
     "remote": {"type": "remote", "command": ["npx"]},
-    "withEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "${TOKEN}"}}
+    "withAlias": {"type": "local", "command": ["npx"], "environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}},
+    "literalEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "SECRET_CANARY"}}
   }
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -214,24 +218,26 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(servers) != 1 ||
+	if len(servers) != 2 ||
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetOpenCode ||
 		servers[0].Scope != target.ScopeGlobal ||
 		servers[0].LivePath != livePath+"#/mcp/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
-		len(servers[0].Env) != 0 {
+		len(servers[0].Env) != 0 ||
+		servers[1].ResourceName != "withAlias" ||
+		servers[1].Env["CHILD_TOKEN"] != "SOURCE_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 OpenCode global live path", servers)
 	}
 	if len(skipped) != 2 {
 		t.Fatalf("skipped = %#v, want remote and env skips", skipped)
 	}
-	if skipped[0].LivePath != livePath+"#/mcp/remote" || skipped[0].Reason != "unsupported_mcp_transport" {
-		t.Fatalf("skipped[0] = %#v, want remote unsupported transport", skipped[0])
+	if skipped[0].LivePath != livePath+"#/mcp/literalEnv" || skipped[0].Reason != "secret_literal_forbidden" {
+		t.Fatalf("skipped[0] = %#v, want non-reference environment rejection", skipped[0])
 	}
-	if skipped[1].LivePath != livePath+"#/mcp/withEnv" || skipped[1].Reason != "unsupported_mcp_managed_field" {
-		t.Fatalf("skipped[1] = %#v, want env unsupported managed field", skipped[1])
+	if skipped[1].LivePath != livePath+"#/mcp/remote" || skipped[1].Reason != "unsupported_mcp_transport" {
+		t.Fatalf("skipped[1] = %#v, want remote unsupported transport", skipped[1])
 	}
 }
 

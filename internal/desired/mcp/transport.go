@@ -176,3 +176,17 @@ func (stdio Stdio) Env() map[string]EnvReference {
 	maps.Copy(result, stdio.env)
 	return result
 }
+
+// EnvironmentSourceNames returns the distinct host source names in stable order.
+func (stdio Stdio) EnvironmentSourceNames() []string {
+	seen := make(map[string]struct{}, len(stdio.env))
+	for _, reference := range stdio.env {
+		seen[reference.fromEnv] = struct{}{}
+	}
+	result := make([]string, 0, len(seen))
+	for name := range seen {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+	return result
+}

@@ -266,6 +266,7 @@ func TestRunImportYesWritesCodexGlobalMCPManifestOnly(t *testing.T) {
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env_vars = ["CONTEXT7_TOKEN"]
 
 [mcp_servers.withEnv]
 command = "npx"
@@ -283,7 +284,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		`target=codex`,
 		`scope=global`,
 		`live="` + livePath + `#/mcp_servers/context7"`,
-		`skip live="` + livePath + `#/mcp_servers/withEnv" reason=unsupported_mcp_managed_field`,
+		`skip live="` + livePath + `#/mcp_servers/withEnv" reason=secret_literal_forbidden`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -292,8 +293,9 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
 	server := readImportedMCPServer(t, outputPath, "context7")
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetCodex, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
-	if env := stdio.Env(); len(env) != 0 {
-		t.Fatalf("env = %#v, want none for Codex global import", env)
+	env := stdio.Env()
+	if len(env) != 1 || env["CONTEXT7_TOKEN"].FromEnv() != "CONTEXT7_TOKEN" {
+		t.Fatalf("env = %#v, want same-name Codex global reference", env)
 	}
 }
 
@@ -308,7 +310,8 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
   "mcpServers": {
     "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@upstash/context7-mcp"]},
     "remote": {"type": "http", "url": "https://example.invalid/mcp"},
-    "withEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}}
+    "withEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "${CLAUDE_GLOBAL_TOKEN}"}},
+    "literalEnv": {"type": "stdio", "command": "npx", "env": {"API_TOKEN": "SECRET_CANARY"}}
   },
   "projects": {
     "/repo": {
@@ -331,8 +334,9 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 		`target=claude-code`,
 		`scope=global`,
 		`live="` + livePath + `#/mcpServers/context7"`,
+		`resource="mcp_server/withEnv"`,
 		`skip live="` + livePath + `#/mcpServers/remote" reason=unsupported_mcp_transport`,
-		`skip live="` + livePath + `#/mcpServers/withEnv" reason=unsupported_mcp_managed_field`,
+		`skip live="` + livePath + `#/mcpServers/literalEnv" reason=secret_literal_forbidden`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -347,7 +351,21 @@ func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 	server := readImportedMCPServer(t, outputPath, "context7")
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetClaudeCode, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
 	if env := stdio.Env(); len(env) != 0 {
-		t.Fatalf("env = %#v, want none for Claude global import", env)
+		t.Fatalf("env = %#v, want none for env-free Claude global import", env)
+	}
+	withEnv := readImportedMCPServer(t, outputPath, "withEnv")
+	withEnvStdio := testkit.AssertSingleMCPStdioBinding(
+		t,
+		withEnv,
+		"withEnv",
+		target.TargetClaudeCode,
+		target.ScopeGlobal,
+		"npx",
+		nil,
+	)
+	if env := withEnvStdio.Env(); len(env) != 1 ||
+		env["API_TOKEN"].FromEnv() != "CLAUDE_GLOBAL_TOKEN" {
+		t.Fatalf("env = %#v, want exact Claude global environment reference", env)
 	}
 }
 
@@ -362,7 +380,8 @@ func TestRunImportYesWritesOpenCodeGlobalMCPManifestOnly(t *testing.T) {
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@upstash/context7-mcp"]},
     "remote": {"type": "remote", "command": ["npx"]},
-    "withEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "${TOKEN}"}}
+    "withAlias": {"type": "local", "command": ["npx"], "environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}},
+    "literalEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "SECRET_CANARY"}}
   }
 }
 `)
@@ -378,8 +397,9 @@ func TestRunImportYesWritesOpenCodeGlobalMCPManifestOnly(t *testing.T) {
 		`target=opencode`,
 		`scope=global`,
 		`live="` + livePath + `#/mcp/context7"`,
+		`resource="mcp_server/withAlias"`,
 		`skip live="` + livePath + `#/mcp/remote" reason=unsupported_mcp_transport`,
-		`skip live="` + livePath + `#/mcp/withEnv" reason=unsupported_mcp_managed_field`,
+		`skip live="` + livePath + `#/mcp/literalEnv" reason=secret_literal_forbidden`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -390,6 +410,20 @@ func TestRunImportYesWritesOpenCodeGlobalMCPManifestOnly(t *testing.T) {
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetOpenCode, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
 	if env := stdio.Env(); len(env) != 0 {
 		t.Fatalf("env = %#v, want none for OpenCode global import", env)
+	}
+	withAlias := readImportedMCPServer(t, outputPath, "withAlias")
+	withAliasStdio := testkit.AssertSingleMCPStdioBinding(
+		t,
+		withAlias,
+		"withAlias",
+		target.TargetOpenCode,
+		target.ScopeGlobal,
+		"npx",
+		nil,
+	)
+	if env := withAliasStdio.Env(); len(env) != 1 ||
+		env["CHILD_TOKEN"].FromEnv() != "SOURCE_TOKEN" {
+		t.Fatalf("env = %#v, want exact OpenCode global environment reference", env)
 	}
 }
 

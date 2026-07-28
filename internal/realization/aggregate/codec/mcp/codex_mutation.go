@@ -2,15 +2,43 @@ package mcpcodec
 
 import "fmt"
 
+type codexMCPEntryContract[T any] struct {
+	decodeCanonical func([]byte, string) (T, error)
+	decodeValue     func(any, string) (T, error)
+	encode          func(T) ([]byte, error)
+	entryMap        func(T) map[string]any
+	equal           func(T, T) bool
+}
+
+var codexProjectMCPEntryContract = codexMCPEntryContract[CodexProjectMCPServerEntry]{
+	decodeCanonical: decodeCodexProjectMCPServerEntry,
+	decodeValue:     decodeCodexProjectMCPServerEntryValue,
+	encode:          encodeCodexProjectMCPServerEntry,
+	entryMap:        codexProjectMCPServerEntryMap,
+	equal:           codexProjectMCPServerEntriesEqual,
+}
+
+var codexGlobalMCPEntryContract = codexMCPEntryContract[CodexGlobalMCPServerEntry]{
+	decodeCanonical: decodeCodexGlobalMCPServerEntry,
+	decodeValue:     decodeCodexGlobalMCPServerEntryValue,
+	encode:          encodeCodexGlobalMCPServerEntry,
+	entryMap:        codexGlobalMCPServerEntryMap,
+	equal:           codexGlobalMCPServerEntriesEqual,
+}
+
 func observeCodexProjectMCPProjections(existing []byte, serverIDs []string) (MCPProjectionObservation, error) {
-	return observeCodexMCPProjections(existing, serverIDs)
+	return observeCodexMCPProjections(existing, serverIDs, codexProjectMCPEntryContract)
 }
 
 func observeCodexGlobalMCPProjections(existing []byte, serverIDs []string) (MCPProjectionObservation, error) {
-	return observeCodexMCPProjections(existing, serverIDs)
+	return observeCodexMCPProjections(existing, serverIDs, codexGlobalMCPEntryContract)
 }
 
-func observeCodexMCPProjections(existing []byte, serverIDs []string) (MCPProjectionObservation, error) {
+func observeCodexMCPProjections[T any](
+	existing []byte,
+	serverIDs []string,
+	contract codexMCPEntryContract[T],
+) (MCPProjectionObservation, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return MCPProjectionObservation{}, err
@@ -21,11 +49,11 @@ func observeCodexMCPProjections(existing []byte, serverIDs []string) (MCPProject
 		if !present {
 			continue
 		}
-		entry, err := decodeCodexProjectMCPServerEntryValue(value, serverID)
+		entry, err := contract.decodeValue(value, serverID)
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}
-		content, err := encodeCodexProjectMCPServerEntry(entry)
+		content, err := contract.encode(entry)
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}
@@ -36,53 +64,66 @@ func observeCodexMCPProjections(existing []byte, serverIDs []string) (MCPProject
 }
 
 func foldCodexProjectMCPProjectionMutations(existing []byte, mutations []MCPProjectionMutation) ([]byte, error) {
-	return foldCodexMCPProjectionMutations(existing, mutations, "Codex project MCP")
+	return foldCodexMCPProjectionMutations(
+		existing,
+		mutations,
+		"Codex project MCP",
+		codexProjectMCPEntryContract,
+	)
 }
 
 func foldCodexGlobalMCPProjectionMutations(existing []byte, mutations []MCPProjectionMutation) ([]byte, error) {
-	return foldCodexMCPProjectionMutations(existing, mutations, "Codex global MCP")
+	return foldCodexMCPProjectionMutations(
+		existing,
+		mutations,
+		"Codex global MCP",
+		codexGlobalMCPEntryContract,
+	)
 }
 
-func foldCodexMCPProjectionMutations(
+func foldCodexMCPProjectionMutations[T any](
 	existing []byte,
 	mutations []MCPProjectionMutation,
 	label string,
+	contract codexMCPEntryContract[T],
 ) ([]byte, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return nil, err
 	}
-	if err := applyCodexMCPProjectionMutations(&config, mutations, label); err != nil {
+	if err := applyCodexMCPProjectionMutations(&config, mutations, label, contract); err != nil {
 		return nil, err
 	}
 	return config.encode()
 }
 
-func restoreCodexMCPProjectionMutations(
+func restoreCodexMCPProjectionMutations[T any](
 	existing []byte,
 	mutations []MCPProjectionMutation,
 	parentExistedBefore bool,
 	label string,
+	contract codexMCPEntryContract[T],
 ) ([]byte, bool, error) {
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return nil, false, err
 	}
-	if err := applyCodexMCPProjectionMutations(&config, mutations, label); err != nil {
+	if err := applyCodexMCPProjectionMutations(&config, mutations, label, contract); err != nil {
 		return nil, false, err
 	}
 	return config.encodePreservingMCPParent(parentExistedBefore)
 }
 
-func applyCodexMCPProjectionMutations(
+func applyCodexMCPProjectionMutations[T any](
 	config *codexProjectMCPConfig,
 	mutations []MCPProjectionMutation,
 	label string,
+	contract codexMCPEntryContract[T],
 ) error {
 	for _, mutation := range mutations {
 		existingValue, exists := config.servers[mutation.serverID]
 		if exists {
-			if _, err := decodeCodexProjectMCPServerEntryValue(existingValue, mutation.serverID); err != nil {
+			if _, err := contract.decodeValue(existingValue, mutation.serverID); err != nil {
 				return err
 			}
 		}
@@ -91,14 +132,14 @@ func applyCodexMCPProjectionMutations(
 		case mcpProjectionMutationRemove:
 			delete(config.servers, mutation.serverID)
 		case mcpProjectionMutationInsert, mcpProjectionMutationUpsert:
-			desired, err := decodeCodexProjectMCPServerEntry(mutation.canonical, mutation.serverID)
+			desired, err := contract.decodeCanonical(mutation.canonical, mutation.serverID)
 			if err != nil {
 				return err
 			}
 			if exists && mutation.kind == mcpProjectionMutationInsert {
 				return mcpProjectionReplacementAuthorityError(label, mutation.serverID)
 			}
-			config.servers[mutation.serverID] = codexProjectMCPServerEntryMap(desired)
+			config.servers[mutation.serverID] = contract.entryMap(desired)
 		default:
 			return fmt.Errorf("unsupported MCP projection mutation kind %d", mutation.kind)
 		}
@@ -107,17 +148,28 @@ func applyCodexMCPProjectionMutations(
 }
 
 func verifyCodexProjectMCPProjectionMutations(content []byte, mutations []MCPProjectionMutation) error {
-	return verifyCodexMCPProjectionMutations(content, mutations, "Codex project MCP")
+	return verifyCodexMCPProjectionMutations(
+		content,
+		mutations,
+		"Codex project MCP",
+		codexProjectMCPEntryContract,
+	)
 }
 
 func verifyCodexGlobalMCPProjectionMutations(content []byte, mutations []MCPProjectionMutation) error {
-	return verifyCodexMCPProjectionMutations(content, mutations, "Codex global MCP")
+	return verifyCodexMCPProjectionMutations(
+		content,
+		mutations,
+		"Codex global MCP",
+		codexGlobalMCPEntryContract,
+	)
 }
 
-func verifyCodexMCPProjectionMutations(
+func verifyCodexMCPProjectionMutations[T any](
 	content []byte,
 	mutations []MCPProjectionMutation,
 	label string,
+	contract codexMCPEntryContract[T],
 ) error {
 	config, err := decodeCodexProjectMCPConfig(content)
 	if err != nil {
@@ -134,15 +186,15 @@ func verifyCodexMCPProjectionMutations(
 		if !present {
 			return fmt.Errorf("%s projection %q postcondition failed: entry is absent", label, mutation.serverID)
 		}
-		existingEntry, err := decodeCodexProjectMCPServerEntryValue(existingValue, mutation.serverID)
+		existingEntry, err := contract.decodeValue(existingValue, mutation.serverID)
 		if err != nil {
 			return err
 		}
-		desiredEntry, err := decodeCodexProjectMCPServerEntry(mutation.canonical, mutation.serverID)
+		desiredEntry, err := contract.decodeCanonical(mutation.canonical, mutation.serverID)
 		if err != nil {
 			return err
 		}
-		if !codexProjectMCPServerEntriesEqual(existingEntry, desiredEntry) {
+		if !contract.equal(existingEntry, desiredEntry) {
 			return fmt.Errorf("%s projection %q postcondition failed: entry differs", label, mutation.serverID)
 		}
 	}

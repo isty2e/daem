@@ -154,7 +154,7 @@ func validateAddMCPAuthoringShape(selectedTarget string, selectedScope string, r
 	if !ok {
 		return fmt.Errorf("mcp-server authoring does not implement target/scope %s/%s", parsedTarget, parsedScope)
 	}
-	if len(request.Env) == 0 || placement.SupportsEnv() {
+	if len(request.Env) == 0 || placement.EnvReferenceContract().Supported() {
 		return nil
 	}
 	if mcpAuthoringTargetHasEnvPlacement(parsedTarget) {
@@ -194,7 +194,7 @@ func mcpAuthoringScopeOptions(selectedTarget target.Target) string {
 
 func mcpAuthoringTargetHasEnvPlacement(selectedTarget target.Target) bool {
 	for _, placement := range aggregate.ImplementedMCPPlacements() {
-		if placement.Target() == selectedTarget && placement.SupportsEnv() {
+		if placement.Target() == selectedTarget && placement.EnvReferenceContract().Supported() {
 			return true
 		}
 	}

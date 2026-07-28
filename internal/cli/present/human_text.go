@@ -30,7 +30,6 @@ var mcpEnvUnsupportedMessages = map[aggregate.MCPPlacementID]mcpEnvUnsupportedMe
 	aggregate.MCPPlacementOpenCodeProject:   {label: "OpenCode MCP projection", adapterShape: "local-command"},
 	aggregate.MCPPlacementOpenCodeGlobal:    {label: "OpenCode global MCP projection", adapterShape: "local-command"},
 	aggregate.MCPPlacementCodexProject:      {label: "Codex MCP projection", adapterShape: "command/args"},
-	aggregate.MCPPlacementCodexGlobal:       {label: "Codex global MCP projection", adapterShape: "command/args"},
 }
 
 // Escape preserves printable text while making control, format, and invalid
@@ -79,8 +78,11 @@ func Error(err error) string {
 			admissionFailure.Detail(),
 		))
 	}
-	var envFailure aggregate.MCPEnvUnsupportedError
+	var envFailure aggregate.MCPEnvReferenceAdmissionError
 	if errors.As(err, &envFailure) {
+		if envFailure.Mapping() != aggregate.MCPEnvMappingUnsupported {
+			return Escape(err.Error())
+		}
 		message, specialized := mcpEnvUnsupportedMessages[envFailure.PlacementID()]
 		if !specialized {
 			return Escape(err.Error())

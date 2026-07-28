@@ -625,6 +625,7 @@ scope = "global"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" } }
 `)
 }
 
@@ -696,11 +697,11 @@ func canonicalStatusMCPEntry(t *testing.T, serverID string, command string) []by
 
 func canonicalStatusAntigravityMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalAntigravityGlobalMCPServerEntry(mcpcodec.AntigravityGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+		AdapterContract: aggregate.AntigravityGlobalMCPAmbientEnvV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalAntigravityGlobalMCPServerEntry returned error: %v", err)
@@ -738,11 +739,12 @@ func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command
 
 func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+		EnvVars:         []string{"CODEX_TOKEN"},
+		AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalCodexGlobalMCPServerEntry returned error: %v", err)
@@ -752,11 +754,11 @@ func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+		AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)

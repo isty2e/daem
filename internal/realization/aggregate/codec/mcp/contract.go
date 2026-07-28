@@ -98,12 +98,53 @@ type ClaudeProjectMCPServerEntry struct {
 	Env     map[string]string `json:"env"`
 }
 
+// ClaudeGlobalMCPServerProjection is the normalized Claude Code user/global
+// stdio projection. Env contains exact child-to-host-source references.
+type ClaudeGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	Env             map[string]string
+	AdapterContract string
+}
+
+// AntigravityGlobalMCPServerProjection is the normalized Antigravity CLI
+// default-global stdio projection. EnvironmentNames are same-name ambient
+// runtime prerequisites and are intentionally absent from native config bytes.
+type AntigravityGlobalMCPServerProjection struct {
+	ServerID         string
+	Command          string
+	Args             []string
+	EnvironmentNames []string
+	AdapterContract  string
+}
+
+// OpenCodeGlobalMCPServerProjection is the normalized OpenCode default-global
+// local-server projection. Environment contains exact child-to-host-source references.
+type OpenCodeGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	Environment     map[string]string
+	AdapterContract string
+}
+
 // MCPNoEnvServerProjection is the normalized input shared by MCP host surfaces
 // whose wire entry cannot carry environment bindings.
 type MCPNoEnvServerProjection struct {
 	ServerID        string
 	Command         string
 	Args            []string
+	AdapterContract string
+}
+
+// CodexGlobalMCPServerProjection is the normalized Codex global stdio
+// projection. EnvVars contains same-name host environment references only.
+type CodexGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	EnvVars         []string
 	AdapterContract string
 }
 
@@ -121,16 +162,30 @@ type AntigravityGlobalMCPServerEntry struct {
 	Args    []string `json:"args"`
 }
 
-// OpenCodeMCPServerEntry is the canonical managed server entry inside OpenCode config JSON.
-type OpenCodeMCPServerEntry struct {
+// OpenCodeProjectMCPServerEntry is the canonical managed project server entry inside opencode.json.
+type OpenCodeProjectMCPServerEntry struct {
 	Type    string   `json:"type"`
 	Command []string `json:"command"`
 }
 
-// CodexMCPServerEntry is the canonical managed server entry inside Codex config TOML.
-type CodexMCPServerEntry struct {
+// OpenCodeGlobalMCPServerEntry is the canonical managed default-global server entry.
+type OpenCodeGlobalMCPServerEntry struct {
+	Type        string            `json:"type"`
+	Command     []string          `json:"command"`
+	Environment map[string]string `json:"environment,omitempty"`
+}
+
+// CodexProjectMCPServerEntry is the canonical managed project server entry.
+type CodexProjectMCPServerEntry struct {
 	Command string   `toml:"command"`
 	Args    []string `toml:"args"`
+}
+
+// CodexGlobalMCPServerEntry is the canonical managed global server entry.
+type CodexGlobalMCPServerEntry struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+	EnvVars []string `toml:"env_vars,omitempty"`
 }
 
 // ClaudeProjectMCPContentPath returns the managed JSON pointer for one server id.

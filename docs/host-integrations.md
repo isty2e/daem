@@ -89,8 +89,8 @@ details and retained effects are listed below.
 
 Destructive route behavior was last checked against Claude Code `2.1.216`,
 Codex `0.144.5`, OpenCode `1.18.4`, Pi `0.80.10`, and Antigravity CLI `1.1.4`.
-A 2026-07-26 non-destructive local smoke check used Claude Code `2.1.220`,
-Codex `0.144.5`, OpenCode `1.18.5`, Pi `0.82.0`, and Antigravity CLI `1.1.7`;
+A 2026-07-28 non-destructive local smoke check used Claude Code `2.1.220`,
+Codex `0.145.0`, OpenCode `1.18.5`, Pi `0.82.0`, and Antigravity CLI `1.1.7`;
 their expected default config paths remained available.
 
 The newer local version is not automatically unsupported, but config-path
@@ -150,18 +150,61 @@ plugin-bundled hooks.
 
 ### Standalone MCP Server Config
 
-Supported rows manage one command/args-only stdio entry while preserving
-unrelated host configuration. Codex and OpenCode support project and explicit
-global rows; Claude Code supports project stdio and command/args-only explicit
-global rows; Antigravity CLI supports only the explicit global row. Pi has no
-core standalone row. `import` can author these rows, and
-`apply --manage-existing` can register exact matching projections.
+Supported rows manage one bounded stdio entry while preserving unrelated host
+configuration. Codex supports command/args project rows and explicit-global
+rows with optional same-name `env_vars`; Claude Code supports project rows with
+structured environment references and explicit-global rows with exact aliased
+`${SOURCE}` environment references.
+OpenCode supports project command rows and explicit-global rows with exact
+aliased `{env:SOURCE}` environment references. Antigravity CLI supports an
+explicit-global command row with optional same-name ambient environment
+requirements, and Pi has no core standalone row. `import` can author observable
+command/args facts for these rows, and `apply --manage-existing` can register
+exact matching projections.
 
 These rows do not own the executable, package, cache, credentials, trust,
 session, runtime health, effective merged host state, remote transports, or
 plugin-bundled MCP. Removing a row reconciles only its managed config entry.
 Target-specific paths and rejected fields are listed in the
 [Manifest Reference](manifest.md#mcp-servers).
+
+Codex global environment support is limited to names that are identical in the
+manifest and host environment. Lock stores names only; normal apply checks
+fresh presence before mutation, and Codex resolves values when it later starts
+the server. Aliases, literal values, remote sources, and Codex project
+environment references are rejected.
+
+Claude Code global environment support accepts exact child-to-source aliases.
+Daem renders each accepted mapping as `"CHILD": "${SOURCE}"` in the top-level
+user MCP entry. Lock stores names only, and normal apply checks every source
+for fresh presence before mutation; an empty but present value is valid. Claude
+Code resolves the value when it starts the server. Literal values, defaults,
+compound templates, `user_config` interpolation, and malformed names are
+rejected. Claude Code 2.1.220 was observed to warn but still launch a server
+with an unexpanded placeholder when a source is absent, so the daem preflight
+is deliberately authoritative rather than relying on host rejection.
+
+OpenCode global environment support accepts exact child-to-source aliases.
+Daem renders each accepted mapping as `"CHILD": "{env:SOURCE}"` in the strict
+default-user `opencode.json` entry. Lock stores names only, and normal apply
+checks every source for fresh presence before mutation; an empty but present
+value is valid. OpenCode resolves the value when it loads the config. Literal
+values, shell-style `$NAME` or `${NAME}` forms, file interpolation, compound
+templates, malformed names, project-scope environment references, and JSONC
+authority are rejected.
+
+Antigravity CLI global environment support accepts only same-name references.
+Daem stores the source names in the lockfile and checks their current presence
+before any selected mutation; an empty but present value is valid. The native
+`~/.gemini/config/mcp_config.json` entry deliberately contains only `command`
+and `args`: an Antigravity-launched server inherits same-name values from the
+Antigravity CLI process environment. Native `env` values, including
+`${SOURCE}`, `$SOURCE`, and `{env:SOURCE}`, are rejected because Antigravity CLI
+1.1.7 delivered those forms literally in an isolated launch probe. Import
+cannot infer ambient intent from command/args-only native state, so it imports
+no environment references. Apply verifies the environment of its own process;
+it cannot prove the environment of a future independently launched
+Antigravity CLI process.
 
 ### Delegated Executable Execution
 
@@ -427,7 +470,8 @@ contribution ownership.
   extension, contribution inventory, ordinary update, prune, runtime
   readiness, trust, and exact artifact/package-store ownership.
 - Antigravity CLI surfaces beyond Agent Skills-compatible directory packages,
-  the explicit-global command/args-only standalone MCP config projection, and
+  the explicit-global command/args plus same-name ambient standalone MCP
+  projection, and
   the explicit-global host-source plugin install/create and repeat-install
   refresh rows, including markdown slash-command skills, hooks, project-local
   MCP, remote MCP, plugin-bundled MCP, import/link/project-scope plugin rows,
@@ -435,11 +479,13 @@ contribution ownership.
   host sources, and residue prune. Exact managed removal is current only for
   safe selector-shaped explicit-global sources. Antigravity IDE remains
   outside current product coverage.
-- Cross-target MCP config projection beyond the Codex project and
-  explicit-global command/args-only slices, Claude project stdio and
-  explicit-global command/args-only slices, OpenCode project and
-  explicit-global command/args-only slices, and the Antigravity CLI
-  explicit-global command/args-only slice.
+- Cross-target MCP config projection beyond the Codex project command/args
+  slice and explicit-global command/args plus same-name environment-reference
+  slice, Claude project stdio and explicit-global command/args plus exact
+  aliased environment-reference slices,
+  OpenCode project command/args and explicit-global command/args plus exact
+  aliased environment-reference slices, and the Antigravity CLI
+  explicit-global command/args plus same-name ambient slice.
 - MCP runtime probes beyond the supported Claude Code project stdio and OpenCode
   project local-command stdio launch+initialize slices and their stdio
   endpoint/auth/tool-inventory support classification, including active OAuth

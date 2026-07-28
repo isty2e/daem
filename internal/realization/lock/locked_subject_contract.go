@@ -97,6 +97,7 @@ type LockedSubjectContractInput struct {
 	Derivation                *DerivationContract
 	RepairRecipe              *skillrepair.Recipe
 	DelegatePlan              *realizationdelegate.DelegatePlan
+	MCPEnvironmentSources     []string
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation
 	Ownership                 OwnershipBasis
 	OnAbsent                  OnAbsentPolicy
@@ -116,6 +117,7 @@ type LockedSubjectContract struct {
 	derivation                *DerivationContract
 	repairRecipe              *skillrepair.Recipe
 	delegatePlan              *realizationdelegate.DelegatePlan
+	mcpEnvironmentSources     []string
 	skillSetMemberCorrelation *SkillSetMemberCorrelation
 	ownership                 OwnershipBasis
 	onAbsent                  OnAbsentPolicy
@@ -166,6 +168,7 @@ func NewLockedSubjectContract(input LockedSubjectContractInput) (LockedSubjectCo
 		plan := *input.DelegatePlan
 		contract.delegatePlan = &plan
 	}
+	contract.mcpEnvironmentSources = normalizeStrings(input.MCPEnvironmentSources)
 	if input.SkillSetMemberCorrelation != nil {
 		correlation, err := NewSkillSetMemberCorrelation(input.SkillSetMemberCorrelation.declarationIdentity)
 		if err != nil {
@@ -277,6 +280,12 @@ func (contract LockedSubjectContract) DelegatePlan() (realizationdelegate.Delega
 	return *contract.delegatePlan, true
 }
 
+// MCPEnvironmentSources returns the stable host environment names required by
+// an MCP projection. Values are never part of this locked facet.
+func (contract LockedSubjectContract) MCPEnvironmentSources() []string {
+	return append([]string(nil), contract.mcpEnvironmentSources...)
+}
+
 // SkillSetMemberCorrelation returns selector-member correlation when present.
 func (contract LockedSubjectContract) SkillSetMemberCorrelation() (SkillSetMemberCorrelation, bool) {
 	if contract.skillSetMemberCorrelation == nil {
@@ -334,6 +343,7 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		optionalDerivationEqual(contract.derivation, other.derivation) &&
 		optionalSkillRepairRecipeEqual(contract.repairRecipe, other.repairRecipe) &&
 		optionalDelegatePlanEqual(contract.delegatePlan, other.delegatePlan) &&
+		slices.Equal(contract.mcpEnvironmentSources, other.mcpEnvironmentSources) &&
 		optionalSkillSetCorrelationEqual(contract.skillSetMemberCorrelation, other.skillSetMemberCorrelation) &&
 		contract.ownership == other.ownership &&
 		contract.onAbsent == other.onAbsent &&

@@ -64,6 +64,14 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
 	}
+	if err := preflightMCPEnvironmentSources(
+		ctx,
+		planned.context.RuntimeEnvironment,
+		planned.context.Selection,
+		execution.request.environmentPresent,
+	); err != nil {
+		return disclose(planned), err
+	}
 
 	store, err := mutation.NewStore(planned.context.Paths.DataDir)
 	if err != nil {
@@ -143,6 +151,14 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		return disclose(current), err
 	} else if !matches {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
+	}
+	if err := preflightMCPEnvironmentSources(
+		ctx,
+		current.context.RuntimeEnvironment,
+		current.context.Selection,
+		execution.request.environmentPresent,
+	); err != nil {
+		return disclose(current), err
 	}
 
 	// The captured revisions describe the pre-execution world. After the first

@@ -3,6 +3,7 @@ package build
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -198,7 +199,7 @@ func TestBuildLocksAntigravityGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.AntigravityGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.AntigravityGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPCommandAdapterV1 {
+		string(projection.CodecContractID()) != aggregate.AntigravityGlobalMCPAmbientEnvV1 {
 		t.Fatalf("projection = %#v, want Antigravity global MCP aggregate contribution", projection)
 	}
 	var entry mcpcodec.AntigravityGlobalMCPServerEntry
@@ -251,7 +252,7 @@ func TestBuildLocksClaudeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.ClaudeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.ClaudeGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioAdapterV1 {
+		string(projection.CodecContractID()) != aggregate.ClaudeGlobalMCPStdioEnvAdapterV1 {
 		t.Fatalf("projection = %#v, want Claude global MCP aggregate contribution", projection)
 	}
 	var entry mcpcodec.ClaudeGlobalMCPServerEntry
@@ -309,7 +310,7 @@ func TestBuildLocksOpenCodeProjectMCPServerWithoutDelegatePlan(t *testing.T) {
 		string(projection.CodecContractID()) != aggregate.OpenCodeProjectMCPLocalCommandV1 {
 		t.Fatalf("projection = %#v, want OpenCode project MCP aggregate contribution", projection)
 	}
-	var entry mcpcodec.OpenCodeMCPServerEntry
+	var entry mcpcodec.OpenCodeProjectMCPServerEntry
 	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
 		t.Fatalf("canonical projection is not JSON: %v", err)
 	}
@@ -360,10 +361,10 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.OpenCodeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.OpenCodeGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalCommandV1 {
+		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalEnvV1 {
 		t.Fatalf("projection = %#v, want OpenCode global MCP aggregate contribution", projection)
 	}
-	var entry mcpcodec.OpenCodeMCPServerEntry
+	var entry mcpcodec.OpenCodeProjectMCPServerEntry
 	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
 		t.Fatalf("canonical projection is not JSON: %v", err)
 	}
@@ -382,11 +383,21 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 }
 
 func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
+	const resolvedSecret = "must-not-enter-lock"
+	t.Setenv("CONTEXT7_API_TOKEN", resolvedSecret)
 	file, err := buildWithTestOptions(
 		context.Background(),
 		lockEnvironment(t, desired.Spec{
 			MCPServers: []desiredmcp.Server{
-				testCodexGlobalMCPServer(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"}),
+				testMCPServerForPlacement(
+					t,
+					"context7",
+					target.TargetCodex,
+					target.ScopeGlobal,
+					"npx",
+					[]string{"-y", "@upstash/context7-mcp"},
+					map[string]string{"CONTEXT7_API_TOKEN": "CONTEXT7_API_TOKEN"},
+				),
 			},
 		}),
 		nil,
@@ -414,15 +425,19 @@ func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.CodexGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.CodexGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioCommandV1 {
+		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioEnvVarsV1 {
 		t.Fatalf("projection = %#v, want Codex global MCP aggregate contribution", projection)
 	}
-	for _, want := range []string{`command = "npx"`, `args = ["-y", "@upstash/context7-mcp"]`} {
+	for _, want := range []string{
+		`command = "npx"`,
+		`args = ["-y", "@upstash/context7-mcp"]`,
+		`env_vars = ["CONTEXT7_API_TOKEN"]`,
+	} {
 		if !strings.Contains(projection.CanonicalContribution(), want) {
 			t.Fatalf("canonical projection = %s, want %q", projection.CanonicalContribution(), want)
 		}
 	}
-	for _, forbidden := range []string{`"type"`, `"env"`, `cwd`, `url`, `headers`, "CONTEXT7_API_TOKEN"} {
+	for _, forbidden := range []string{`"type"`, `env =`, `cwd`, `url`, `headers`, resolvedSecret} {
 		if strings.Contains(projection.CanonicalContribution(), forbidden) {
 			t.Fatalf("canonical projection leaked forbidden value %q: %s", forbidden, projection.CanonicalContribution())
 		}
@@ -469,7 +484,7 @@ func TestBuildSeparatesMCPProjectionSubjectNamespacesByTargetAndScope(t *testing
 	}
 }
 
-func TestBuildRejectsAntigravityGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
+func TestBuildRejectsAntigravityGlobalMCPEnvAliasBeforeSnapshotWrite(t *testing.T) {
 	server := testMCPServerForPlacement(
 		t, "context7", target.TargetAntigravityCLI, target.ScopeGlobal,
 		"npx", []string{"-y", "@upstash/context7-mcp"},
@@ -479,23 +494,148 @@ func TestBuildRejectsAntigravityGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
 	_, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
 		MCPServers: []desiredmcp.Server{server},
 	}), nil, Options{})
-	if err == nil || !strings.Contains(err.Error(), "does not support env") {
-		t.Fatalf("BuildWithOptions error = %v, want Antigravity env rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "supports only same-name environment references") {
+		t.Fatalf("BuildWithOptions error = %v, want Antigravity alias rejection", err)
 	}
 }
 
-func TestBuildRejectsClaudeGlobalMCPEnvBeforeSnapshotWrite(t *testing.T) {
+func TestBuildLocksAntigravityGlobalMCPEnvironmentSourcesWithoutNativeValues(t *testing.T) {
+	const (
+		sourceName = "CONTEXT7_API_TOKEN"
+		secret     = "antigravity-global-secret-canary"
+	)
+	t.Setenv(sourceName, secret)
+	server := testMCPServerForPlacement(
+		t, "context7", target.TargetAntigravityCLI, target.ScopeGlobal,
+		"npx", []string{"-y", "@upstash/context7-mcp"},
+		map[string]string{sourceName: sourceName},
+	)
+
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+		MCPServers: []desiredmcp.Server{server},
+	}), nil, Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one Antigravity global MCP subject", file.Locked.Subjects())
+	}
+	subject := file.Locked.Subjects()[0]
+	if !slices.Equal(subject.MCPEnvironmentSources(), []string{sourceName}) {
+		t.Fatalf(
+			"locked environment sources = %#v, want %q",
+			subject.MCPEnvironmentSources(),
+			sourceName,
+		)
+	}
+	if _, hasDelegatePlan := subject.DelegatePlan(); hasDelegatePlan {
+		t.Fatal("Antigravity ambient environment row unexpectedly has a delegate plan")
+	}
+	projection := mustAggregateContribution(t, subject)
+	var entry mcpcodec.AntigravityGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if entry.Command != "npx" || len(entry.Args) != 2 {
+		t.Fatalf("canonical projection entry = %#v, want Antigravity command/args", entry)
+	}
+	for _, forbidden := range []string{sourceName, secret, `"env"`} {
+		if strings.Contains(projection.CanonicalContribution(), forbidden) {
+			t.Fatalf("canonical projection leaked %q: %s", forbidden, projection.CanonicalContribution())
+		}
+	}
+
+	withoutEnvironmentFile, err := buildWithTestOptions(
+		context.Background(),
+		lockEnvironment(t, desired.Spec{
+			MCPServers: []desiredmcp.Server{
+				testAntigravityGlobalMCPServer(
+					t,
+					"context7",
+					"npx",
+					[]string{"-y", "@upstash/context7-mcp"},
+				),
+			},
+		}),
+		nil,
+		Options{},
+	)
+	if err != nil {
+		t.Fatalf("build without environment references: %v", err)
+	}
+	withoutEnvironment := withoutEnvironmentFile.Locked.Subjects()[0]
+	withoutEnvironmentProjection := mustAggregateContribution(t, withoutEnvironment)
+	if projection.CanonicalContribution() != withoutEnvironmentProjection.CanonicalContribution() {
+		t.Fatalf(
+			"native projection changed with ambient requirements:\nwith:    %s\nwithout: %s",
+			projection.CanonicalContribution(),
+			withoutEnvironmentProjection.CanonicalContribution(),
+		)
+	}
+	if subject.Equal(withoutEnvironment) {
+		t.Fatal("locked Antigravity relation collapsed same-name requirements into a zero-reference row")
+	}
+}
+
+func TestBuildLocksClaudeGlobalMCPEnvReferencesWithoutValues(t *testing.T) {
+	const secret = "claude-global-lock-secret"
+	t.Setenv("CONTEXT7_API_TOKEN", secret)
 	server := testMCPServerForPlacement(
 		t, "context7", target.TargetClaudeCode, target.ScopeGlobal,
 		"npx", []string{"-y", "@upstash/context7-mcp"},
 		map[string]string{"API_TOKEN": "CONTEXT7_API_TOKEN"},
 	)
 
-	_, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
 		MCPServers: []desiredmcp.Server{server},
 	}), nil, Options{})
-	if err == nil || !strings.Contains(err.Error(), "does not support env") {
-		t.Fatalf("BuildWithOptions error = %v, want Claude global env rejection", err)
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one Claude global MCP subject", file.Locked.Subjects())
+	}
+	projection := mustAggregateContribution(t, file.Locked.Subjects()[0])
+	var entry mcpcodec.ClaudeGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if len(entry.Env) != 1 || entry.Env["API_TOKEN"] != "${CONTEXT7_API_TOKEN}" {
+		t.Fatalf("canonical projection entry = %#v, want exact host environment reference", entry)
+	}
+	if strings.Contains(projection.CanonicalContribution(), secret) {
+		t.Fatalf("canonical projection leaked environment value: %s", projection.CanonicalContribution())
+	}
+}
+
+func TestBuildLocksOpenCodeGlobalMCPEnvReferencesWithoutValues(t *testing.T) {
+	const secret = "opencode-global-lock-secret"
+	t.Setenv("SOURCE_TOKEN", secret)
+	server := testMCPServerForPlacement(
+		t, "context7", target.TargetOpenCode, target.ScopeGlobal,
+		"npx", []string{"-y", "@upstash/context7-mcp"},
+		map[string]string{"CHILD_TOKEN": "SOURCE_TOKEN"},
+	)
+
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+		MCPServers: []desiredmcp.Server{server},
+	}), nil, Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one OpenCode global MCP subject", file.Locked.Subjects())
+	}
+	projection := mustAggregateContribution(t, file.Locked.Subjects()[0])
+	var entry mcpcodec.OpenCodeGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if len(entry.Environment) != 1 || entry.Environment["CHILD_TOKEN"] != "{env:SOURCE_TOKEN}" {
+		t.Fatalf("canonical projection entry = %#v, want exact OpenCode host environment reference", entry)
+	}
+	if strings.Contains(projection.CanonicalContribution(), secret) {
+		t.Fatalf("canonical projection leaked environment value: %s", projection.CanonicalContribution())
 	}
 }
 

@@ -40,6 +40,9 @@ func TestOpenCodeProjectMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 func TestOpenCodeGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 	projection := validOpenCodeGlobalMCPProjection("context7")
 	projection.Args = nil
+	projection.Environment = map[string]string{
+		"CHILD_TOKEN": "{env:SOURCE_TOKEN}",
+	}
 
 	entry, err := CanonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
@@ -49,12 +52,14 @@ func TestOpenCodeGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 		`"type": "local"`,
 		`"command": [`,
 		`"npx"`,
+		`"environment": {`,
+		`"CHILD_TOKEN": "{env:SOURCE_TOKEN}"`,
 	} {
 		if !strings.Contains(string(entry), want) {
 			t.Fatalf("canonical entry = %s, want %q", entry, want)
 		}
 	}
-	for _, forbidden := range []string{`"args"`, `"env"`, `"environment"`, `"cwd"`, `"enabled"`, `"timeout"`, `"url"`, `"headers"`, `"oauth"`} {
+	for _, forbidden := range []string{`"args"`, `"env"`, `"cwd"`, `"enabled"`, `"timeout"`, `"url"`, `"headers"`, `"oauth"`} {
 		if strings.Contains(string(entry), forbidden) {
 			t.Fatalf("canonical entry = %s, did not want %q", entry, forbidden)
 		}
@@ -64,6 +69,32 @@ func TestOpenCodeGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 	}
 	if got := OpenCodeGlobalMCPContentPath("context7"); got != "/mcp/context7" {
 		t.Fatalf("content path = %q", got)
+	}
+}
+
+func TestOpenCodeGlobalMCPProjectionCanonicalEntryOmitsEmptyEnvironment(t *testing.T) {
+	entry, err := CanonicalOpenCodeGlobalMCPServerEntry(validOpenCodeGlobalMCPProjection("context7"))
+	if err != nil {
+		t.Fatalf("CanonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)
+	}
+	if strings.Contains(string(entry), `"environment"`) {
+		t.Fatalf("canonical entry = %s, did not want empty environment", entry)
+	}
+}
+
+func TestOpenCodeGlobalMCPProjectionTreatsMissingAndEmptyEnvironmentAsEquivalent(t *testing.T) {
+	projection := validOpenCodeGlobalMCPProjection("context7")
+	for _, existing := range [][]byte{
+		[]byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}}}`),
+		[]byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{}}}}`),
+	} {
+		comparison, err := compareOpenCodeGlobalMCPServerProjection(existing, projection)
+		if err != nil {
+			t.Fatalf("compareOpenCodeGlobalMCPServerProjection returned error: %v", err)
+		}
+		if !comparison.Present || !comparison.Equivalent {
+			t.Fatalf("comparison = %#v, want present/equivalent", comparison)
+		}
 	}
 }
 
@@ -139,6 +170,7 @@ func TestOpenCodeGlobalMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T
 	}`)
 	projection := validOpenCodeGlobalMCPProjection("context7")
 	projection.Args = []string{"-y", "@upstash/context7-mcp"}
+	projection.Environment = map[string]string{"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}
 	canonical, err := CanonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		t.Fatalf("CanonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)
@@ -155,6 +187,7 @@ func TestOpenCodeGlobalMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T
 		`"context7": {`,
 		`"type": "local"`,
 		`"command": [`,
+		`"CHILD_TOKEN": "{env:SOURCE_TOKEN}"`,
 	} {
 		if !strings.Contains(string(merged), want) {
 			t.Fatalf("merged = %s, want %q", merged, want)
@@ -170,6 +203,15 @@ func TestOpenCodeGlobalMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T
 	}
 	if comparison.ContentPath != "/mcp/context7" {
 		t.Fatalf("content path = %q", comparison.ContentPath)
+	}
+
+	drifted := []byte(strings.ReplaceAll(string(merged), "{env:SOURCE_TOKEN}", "{env:OTHER_TOKEN}"))
+	comparison, err = compareOpenCodeGlobalMCPServerCanonicalEntry(drifted, "context7", canonical)
+	if err != nil {
+		t.Fatalf("compare drifted OpenCode global entry returned error: %v", err)
+	}
+	if !comparison.Present || comparison.Equivalent {
+		t.Fatalf("drifted comparison = %#v, want present/non-equivalent", comparison)
 	}
 }
 
@@ -247,7 +289,16 @@ func TestOpenCodeGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.
 		want  MCPProjectionReasonCode
 	}{
 		{name: "remote type", input: []byte(`{"mcp":{"context7":{"type":"remote","command":["npx"]}}}`), want: MCPProjectionReasonUnsupportedTransport},
-		{name: "unsupported environment field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
+		{name: "literal environment value", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "shell environment reference", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"${TOKEN}"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "dollar environment reference", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"$TOKEN"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "file interpolation", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"{file:/tmp/token}"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "compound reference", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"prefix-{env:TOKEN}"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "empty source name", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"{env:}"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "invalid source name", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"{env:BAD-NAME}"}}}}`), want: MCPProjectionReasonSecretLiteralForbidden},
+		{name: "environment array", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":[]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+		{name: "environment null", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":null}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+		{name: "unknown field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"headers":{}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "duplicate command key", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"command":["node"]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "command string", input: []byte(`{"mcp":{"context7":{"type":"local","command":"npx"}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 	}
@@ -260,6 +311,73 @@ func TestOpenCodeGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.
 				t.Fatalf("error leaked secret canary: %q", err)
 			}
 		})
+	}
+}
+
+func TestOpenCodeGlobalMCPProjectionRejectsInvalidDesiredEnvironment(t *testing.T) {
+	cases := []struct {
+		name        string
+		environment map[string]string
+	}{
+		{name: "invalid child name", environment: map[string]string{"BAD-NAME": "{env:SOURCE_TOKEN}"}},
+		{name: "literal value", environment: map[string]string{"CHILD_TOKEN": "SECRET_CANARY"}},
+		{name: "shell reference", environment: map[string]string{"CHILD_TOKEN": "${SOURCE_TOKEN}"}},
+		{name: "compound reference", environment: map[string]string{"CHILD_TOKEN": "{env:SOURCE_TOKEN}/suffix"}},
+		{name: "invalid source name", environment: map[string]string{"CHILD_TOKEN": "{env:BAD-NAME}"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			projection := validOpenCodeGlobalMCPProjection("context7")
+			projection.Environment = tc.environment
+			_, err := CanonicalOpenCodeGlobalMCPServerEntry(projection)
+			if err == nil {
+				t.Fatal("error = nil, want invalid environment rejection")
+			}
+			if strings.Contains(err.Error(), "SECRET_CANARY") {
+				t.Fatalf("error leaked secret canary: %q", err)
+			}
+		})
+	}
+}
+
+func TestOpenCodeGlobalMCPProjectionOwnsArgsAndEnvironment(t *testing.T) {
+	projection := validOpenCodeGlobalMCPProjection("context7")
+	projection.Args = []string{"-y"}
+	projection.Environment = map[string]string{"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}
+
+	entry, err := canonicalOpenCodeGlobalMCPServerEntry(projection)
+	if err != nil {
+		t.Fatalf("canonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)
+	}
+	projection.Args[0] = "caller-mutated"
+	projection.Environment["CHILD_TOKEN"] = "{env:OTHER_TOKEN}"
+
+	if got := entry.Command; len(got) != 2 || got[1] != "-y" {
+		t.Fatalf("entry command after caller mutation = %#v", got)
+	}
+	if got := entry.Environment["CHILD_TOKEN"]; got != "{env:SOURCE_TOKEN}" {
+		t.Fatalf("entry environment after caller mutation = %q", got)
+	}
+}
+
+func TestExtractOpenCodeGlobalMCPServerProjectionsOwnsEnvironment(t *testing.T) {
+	content := []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"],"environment":{"CHILD_TOKEN":"{env:SOURCE_TOKEN}"}}}}`)
+	first, rejections, err := ExtractOpenCodeGlobalMCPServerProjections(content)
+	if err != nil || len(rejections) != 0 || len(first) != 1 {
+		t.Fatalf("first extraction = %#v, rejections = %#v, error = %v", first, rejections, err)
+	}
+	first[0].Args[0] = "caller-mutated"
+	first[0].Environment["CHILD_TOKEN"] = "{env:OTHER_TOKEN}"
+
+	second, rejections, err := ExtractOpenCodeGlobalMCPServerProjections(content)
+	if err != nil || len(rejections) != 0 || len(second) != 1 {
+		t.Fatalf("second extraction = %#v, rejections = %#v, error = %v", second, rejections, err)
+	}
+	if got := second[0].Args; len(got) != 1 || got[0] != "-y" {
+		t.Fatalf("second extraction args = %#v", got)
+	}
+	if got := second[0].Environment["CHILD_TOKEN"]; got != "{env:SOURCE_TOKEN}" {
+		t.Fatalf("second extraction environment = %q", got)
 	}
 }
 

@@ -17,21 +17,23 @@ func validMCPProjection(serverID string) ClaudeProjectMCPServerProjection {
 	}
 }
 
-func validClaudeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validClaudeGlobalMCPProjection(serverID string) ClaudeGlobalMCPServerProjection {
+	return ClaudeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.ClaudeGlobalMCPStdioAdapterV1,
+		Env:             map[string]string{},
+		AdapterContract: aggregate.ClaudeGlobalMCPStdioEnvAdapterV1,
 	}
 }
 
-func validAntigravityMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
-		ServerID:        serverID,
-		Command:         "npx",
-		Args:            []string{},
-		AdapterContract: aggregate.AntigravityGlobalMCPCommandAdapterV1,
+func validAntigravityMCPProjection(serverID string) AntigravityGlobalMCPServerProjection {
+	return AntigravityGlobalMCPServerProjection{
+		ServerID:         serverID,
+		Command:          "npx",
+		Args:             []string{},
+		EnvironmentNames: []string{},
+		AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
 	}
 }
 
@@ -44,12 +46,13 @@ func validOpenCodeMCPProjection(serverID string) MCPNoEnvServerProjection {
 	}
 }
 
-func validOpenCodeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validOpenCodeGlobalMCPProjection(serverID string) OpenCodeGlobalMCPServerProjection {
+	return OpenCodeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+		Environment:     map[string]string{},
+		AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 	}
 }
 
@@ -62,12 +65,13 @@ func validCodexMCPProjection(serverID string) MCPNoEnvServerProjection {
 	}
 }
 
-func validCodexGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validCodexGlobalMCPProjection(serverID string) CodexGlobalMCPServerProjection {
+	return CodexGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+		EnvVars:         []string{},
+		AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 	}
 }
 

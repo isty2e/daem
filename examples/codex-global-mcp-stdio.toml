@@ -1,9 +1,10 @@
 # Minimal Codex global MCP projection example.
 #
-# This example manages exactly one command/args-only mcp_servers entry inside
-# ~/.codex/config.toml. It does not run codex mcp, install packages, probe MCP
-# runtime readiness, manage auth/session state, support custom config roots, or
-# cover plugin-provided MCP.
+# This example manages one mcp_servers entry inside ~/.codex/config.toml.
+# CODEX_TOKEN is checked for presence during apply and rendered by name only as
+# env_vars = ["CODEX_TOKEN"]; its value is never written by daem. This example
+# does not run codex mcp, install packages, probe MCP runtime readiness, manage
+# auth/session state, support custom config roots, or cover plugin-provided MCP.
 
 version = 1
 targets = ["codex"]
@@ -15,3 +16,4 @@ scope = "global"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" } }

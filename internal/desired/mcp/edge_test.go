@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -50,6 +51,33 @@ func TestStdioAccessorsDefendEveryCollection(t *testing.T) {
 	stdio, _ = transport.Stdio()
 	if stdio.Args()[0] != "server.js" || stdio.Env()["TOKEN"].FromEnv() != "HOST_TOKEN" {
 		t.Fatal("stdio accessor exposed mutable canonical storage")
+	}
+}
+
+func TestStdioEnvironmentSourceNamesAreDistinctStableAndDefensive(t *testing.T) {
+	command, _ := NewAmbientCommand("node")
+	first, _ := NewEnvReference("HOST_Z")
+	second, _ := NewEnvReference("HOST_A")
+	transport, err := NewStdioTransport(
+		command,
+		nil,
+		map[string]EnvReference{
+			"FIRST":  first,
+			"ALIAS":  first,
+			"SECOND": second,
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewStdioTransport returned error: %v", err)
+	}
+	stdio, _ := transport.Stdio()
+	names := stdio.EnvironmentSourceNames()
+	if !slices.Equal(names, []string{"HOST_A", "HOST_Z"}) {
+		t.Fatalf("EnvironmentSourceNames = %#v", names)
+	}
+	names[0] = "changed"
+	if !slices.Equal(stdio.EnvironmentSourceNames(), []string{"HOST_A", "HOST_Z"}) {
+		t.Fatal("EnvironmentSourceNames exposed mutable canonical storage")
 	}
 }
 

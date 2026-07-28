@@ -1,9 +1,12 @@
 # Minimal Antigravity CLI global MCP projection example.
 #
-# This example manages exactly one command/args-only mcpServers entry inside
-# ~/.gemini/config/mcp_config.json. It does not install packages, probe /mcp,
-# manage auth/session state, support project-local Antigravity MCP, or cover
-# Antigravity IDE.
+# This example manages one command/args mcpServers entry inside
+# ~/.gemini/config/mcp_config.json. CONTEXT7_API_TOKEN is locked by name and
+# checked for current presence during apply, but native `env` is omitted so the
+# server inherits it from the Antigravity CLI process environment. Import of
+# the command/args-only native entry cannot infer this ambient requirement.
+# This example does not install packages, probe /mcp, manage auth/session state,
+# support project-local Antigravity MCP, or cover Antigravity IDE.
 
 version = 1
 targets = ["antigravity-cli"]
@@ -15,3 +18,4 @@ scope = "global"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { CONTEXT7_API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }

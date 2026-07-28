@@ -17,11 +17,13 @@ func TestMCPPublicCLIManageExistingAdoptsExactCodexGlobalEntry(t *testing.T) {
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
+	t.Setenv("CODEX_TOKEN", "runtime-only")
 	writeMCPManifest(t, project.root, mcpManifestSpec{
 		Target:  "codex",
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"CODEX_TOKEN": "CODEX_TOKEN"},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".codex", "config.toml")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `
@@ -30,10 +32,12 @@ model = "keep"
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@example/mcp-server"]
+env_vars = ["CODEX_TOKEN"]
 
 [mcp_servers.manual]
 command = "node"
 args = ["manual.js"]
+env = { MANUAL_TOKEN = "keep-literal" }
 `)
 	beforeConfig := testkit.ReadFile(t, hostConfigPath)
 	runMCPLock(t, project)
@@ -90,6 +94,8 @@ args = ["manual.js"]
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_CLAUDE_GLOBAL_TOKEN"
+	t.Setenv(sourceName, "claude-global-manage-existing-secret")
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
@@ -98,11 +104,12 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"API_TOKEN": sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".claude.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
   "mcpServers": {
-    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"]},
+    "context7": {"type": "stdio", "command": "npx", "args": ["-y", "@example/mcp-server"], "env": {"API_TOKEN": "${DAEM_TEST_CLAUDE_GLOBAL_TOKEN}"}},
     "manual": {"type": "http", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   },
   "projects": {
@@ -157,6 +164,8 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_OPENCODE_GLOBAL_TOKEN"
+	t.Setenv(sourceName, "opencode-global-manage-existing-secret")
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
@@ -165,12 +174,13 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"CHILD_TOKEN": sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".config", "opencode", "opencode.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
   "model": "keep",
   "mcp": {
-    "context7": {"type": "local", "command": ["npx", "-y", "@example/mcp-server"]},
+    "context7": {"type": "local", "command": ["npx", "-y", "@example/mcp-server"], "environment": {"CHILD_TOKEN": "{env:DAEM_TEST_OPENCODE_GLOBAL_TOKEN}"}},
     "manual": {"type": "remote", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   }
 }`)
@@ -229,14 +239,17 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactAntigravityGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_ANTIGRAVITY_GLOBAL_TOKEN"
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
+	t.Setenv(sourceName, "antigravity-manage-existing-secret")
 	writeMCPManifest(t, project.root, mcpManifestSpec{
 		Target:  "antigravity-cli",
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{sourceName: sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".gemini", "config", "mcp_config.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{

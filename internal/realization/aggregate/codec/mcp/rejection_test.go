@@ -144,6 +144,21 @@ func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(
 	if len(projections) != 1 || projections[0].ServerID != "context7" || projections[0].Command != "npx" {
 		t.Fatalf("projections = %#v, want context7 npx", projections)
 	}
+	if len(projections[0].EnvironmentNames) != 0 {
+		t.Fatalf("imported environment names = %#v, want no inferred ambient references", projections[0].EnvironmentNames)
+	}
+	projections[0].Args[0] = "mutated"
+	reimported, _, err := ExtractAntigravityGlobalMCPServerProjections([]byte(`{
+  "mcpServers": {
+    "context7": {"command": "npx", "args": ["-y"]}
+  }
+}`))
+	if err != nil {
+		t.Fatalf("reimport Antigravity projection: %v", err)
+	}
+	if reimported[0].Args[0] != "-y" {
+		t.Fatalf("imported args alias decoder storage: %#v", reimported[0].Args)
+	}
 	assertProjectionRejection(t, rejections, "/mcpServers/remote", MCPProjectionReasonUnsupportedManagedField)
 }
 

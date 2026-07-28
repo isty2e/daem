@@ -94,7 +94,7 @@ func assertLockedMCPSubject(t *testing.T, file lock.File, serverID string) {
 func assertLockedAntigravityMCPSubject(t *testing.T, file lock.File, serverID string) {
 	assertLockedMCPSubjectForPlacement(t, file, serverID, target.TargetAntigravityCLI, target.ScopeGlobal,
 		"antigravity-cli.global.mcp-server", aggregate.AntigravityGlobalMCPConfigPath,
-		mcpcodec.AntigravityGlobalMCPContentPath(serverID), aggregate.AntigravityGlobalMCPCommandAdapterV1)
+		mcpcodec.AntigravityGlobalMCPContentPath(serverID), aggregate.AntigravityGlobalMCPAmbientEnvV1)
 }
 
 func assertLockedCodexMCPSubject(t *testing.T, file lock.File, serverID string) {
@@ -106,13 +106,13 @@ func assertLockedCodexMCPSubject(t *testing.T, file lock.File, serverID string) 
 func assertLockedCodexGlobalMCPSubject(t *testing.T, file lock.File, serverID string) {
 	assertLockedMCPSubjectForPlacement(t, file, serverID, target.TargetCodex, target.ScopeGlobal,
 		"codex.global.mcp-server", aggregate.CodexGlobalMCPConfigPath,
-		mcpcodec.CodexGlobalMCPContentPath(serverID), aggregate.CodexGlobalMCPStdioCommandV1)
+		mcpcodec.CodexGlobalMCPContentPath(serverID), aggregate.CodexGlobalMCPStdioEnvVarsV1)
 }
 
 func assertLockedClaudeGlobalMCPSubject(t *testing.T, file lock.File, serverID string) {
 	assertLockedMCPSubjectForPlacement(t, file, serverID, target.TargetClaudeCode, target.ScopeGlobal,
 		"claude-code.global.mcp-server", aggregate.ClaudeGlobalMCPConfigPath,
-		mcpcodec.ClaudeGlobalMCPContentPath(serverID), aggregate.ClaudeGlobalMCPStdioAdapterV1)
+		mcpcodec.ClaudeGlobalMCPContentPath(serverID), aggregate.ClaudeGlobalMCPStdioEnvAdapterV1)
 }
 
 func assertLockedMCPSubjectForPlacement(

@@ -3,7 +3,6 @@ package mcpcodec
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
@@ -46,6 +45,13 @@ func CanonicalMCPBindingContribution(
 	}
 	switch placement.ID() {
 	case aggregate.MCPPlacementClaudeProject:
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
 		env, err := canonicalMCPBindingEnv(stdio.Env())
 		if err != nil {
 			return nil, err
@@ -58,32 +64,113 @@ func CanonicalMCPBindingContribution(
 			AdapterContract: adapterContract,
 		})
 	case aggregate.MCPPlacementClaudeGlobal:
-		return CanonicalClaudeGlobalMCPServerEntry(noEnvProjection)
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
+		env, err := canonicalMCPBindingEnv(stdio.Env())
+		if err != nil {
+			return nil, err
+		}
+		return CanonicalClaudeGlobalMCPServerEntry(ClaudeGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			Env:             env,
+			AdapterContract: adapterContract,
+		})
 	case aggregate.MCPPlacementAntigravityGlobal:
-		return CanonicalAntigravityGlobalMCPServerEntry(noEnvProjection)
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingSameName,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
+		return CanonicalAntigravityGlobalMCPServerEntry(AntigravityGlobalMCPServerProjection{
+			ServerID:         serverID,
+			Command:          command,
+			Args:             args,
+			EnvironmentNames: stdio.EnvironmentSourceNames(),
+			AdapterContract:  adapterContract,
+		})
 	case aggregate.MCPPlacementOpenCodeProject:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalOpenCodeProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeGlobal:
-		return CanonicalOpenCodeGlobalMCPServerEntry(noEnvProjection)
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
+		environment, err := canonicalOpenCodeMCPBindingEnvironment(stdio.Env())
+		if err != nil {
+			return nil, err
+		}
+		return CanonicalOpenCodeGlobalMCPServerEntry(OpenCodeGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			Environment:     environment,
+			AdapterContract: adapterContract,
+		})
 	case aggregate.MCPPlacementCodexProject:
+		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+			return nil, err
+		}
 		return CanonicalCodexProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementCodexGlobal:
-		return CanonicalCodexGlobalMCPServerEntry(noEnvProjection)
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingSameName,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
+		return CanonicalCodexGlobalMCPServerEntry(CodexGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			EnvVars:         stdio.EnvironmentSourceNames(),
+			AdapterContract: adapterContract,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported MCP placement %q", placement.ID())
 	}
 }
 
-func canonicalMCPBindingEnv(values map[string]desiredmcp.EnvReference) (map[string]string, error) {
-	env := make(map[string]string, len(values))
-	for name, reference := range values {
-		fromEnv := strings.TrimSpace(reference.FromEnv())
-		if fromEnv == "" {
-			return nil, fmt.Errorf("env.%s.from_env: required", name)
-		}
-		env[name] = "${" + fromEnv + "}"
+func requireMCPNoEnvReferenceCodecContract(placement aggregate.MCPPlacement) error {
+	return requireMCPEnvReferenceCodecContract(
+		placement,
+		aggregate.MCPEnvMappingUnsupported,
+		aggregate.MCPEnvResolutionUnavailable,
+	)
+}
+
+func requireMCPEnvReferenceCodecContract(
+	placement aggregate.MCPPlacement,
+	mapping aggregate.MCPEnvReferenceMapping,
+	resolution aggregate.MCPEnvReferenceResolution,
+) error {
+	contract := placement.EnvReferenceContract()
+	if contract.Mapping() == mapping && contract.Resolution() == resolution {
+		return nil
 	}
-	return env, nil
+	return fmt.Errorf(
+		"MCP placement %q environment-reference contract %q/%q does not match codec capability %q/%q",
+		placement.ID(),
+		contract.Mapping(),
+		contract.Resolution(),
+		mapping,
+		resolution,
+	)
 }
 
 // CanonicalClaudeProjectMCPServerEntry returns the canonical managed server entry bytes.
@@ -96,7 +183,7 @@ func CanonicalClaudeProjectMCPServerEntry(projection ClaudeProjectMCPServerProje
 }
 
 // CanonicalClaudeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalClaudeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -105,7 +192,7 @@ func CanonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([
 }
 
 // CanonicalAntigravityGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalAntigravityGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -123,7 +210,7 @@ func CanonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection)
 }
 
 // CanonicalOpenCodeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -141,12 +228,12 @@ func CanonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) ([
 }
 
 // CanonicalCodexGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalCodexGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
 	}
-	return encodeCodexProjectMCPServerEntry(entry)
+	return encodeCodexGlobalMCPServerEntry(entry)
 }
 
 func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudeProjectMCPServerEntry, error) {
@@ -176,28 +263,47 @@ func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudePr
 	}, nil
 }
 
-func canonicalClaudeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (ClaudeGlobalMCPServerEntry, error) {
-	if err := validateNoEnvMCPServerProjection(
-		projection,
-		aggregate.ClaudeGlobalMCPStdioAdapterV1,
-		"unsupported Claude Code user/global MCP adapter contract",
-	); err != nil {
+func canonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProjection) (ClaudeGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.ClaudeGlobalMCPStdioEnvAdapterV1 {
+		return ClaudeGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported Claude Code user/global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return ClaudeGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return ClaudeGlobalMCPServerEntry{}, err
+	}
+	env, err := canonicalMCPEnv(projection.Env)
+	if err != nil {
 		return ClaudeGlobalMCPServerEntry{}, err
 	}
 	return ClaudeGlobalMCPServerEntry{
 		Type:    claudeProjectMCPTransportStdio,
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
-		Env:     map[string]string{},
+		Env:     env,
 	}, nil
 }
 
-func canonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (AntigravityGlobalMCPServerEntry, error) {
-	if err := validateNoEnvMCPServerProjection(
-		projection,
-		aggregate.AntigravityGlobalMCPCommandAdapterV1,
-		"unsupported Antigravity CLI global MCP adapter contract",
-	); err != nil {
+func canonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPServerProjection) (AntigravityGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.AntigravityGlobalMCPAmbientEnvV1 {
+		return AntigravityGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported Antigravity CLI global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return AntigravityGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return AntigravityGlobalMCPServerEntry{}, err
+	}
+	if _, err := canonicalSameNameMCPEnvironmentNames(projection.EnvironmentNames, "ambient_environment"); err != nil {
 		return AntigravityGlobalMCPServerEntry{}, err
 	}
 	return AntigravityGlobalMCPServerEntry{
@@ -206,68 +312,99 @@ func canonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjectio
 	}, nil
 }
 
-func canonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
-	return canonicalOpenCodeMCPServerEntry(
+func canonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeProjectMCPServerEntry, error) {
+	return canonicalOpenCodeNoEnvMCPServerEntry(
 		projection,
 		aggregate.OpenCodeProjectMCPLocalCommandV1,
 		"unsupported OpenCode project MCP adapter contract",
 	)
 }
 
-func canonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
-	return canonicalOpenCodeMCPServerEntry(
-		projection,
-		aggregate.OpenCodeGlobalMCPLocalCommandV1,
-		"unsupported OpenCode global MCP adapter contract",
-	)
+func canonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) (OpenCodeGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.OpenCodeGlobalMCPLocalEnvV1 {
+		return OpenCodeGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported OpenCode global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	environment, err := canonicalOpenCodeMCPEnvironment(projection.Environment)
+	if err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	command := make([]string, 0, 1+len(projection.Args))
+	command = append(command, projection.Command)
+	command = append(command, projection.Args...)
+	return OpenCodeGlobalMCPServerEntry{
+		Type:        openCodeProjectMCPTypeLocal,
+		Command:     command,
+		Environment: environment,
+	}, nil
 }
 
-func canonicalOpenCodeMCPServerEntry(
+func canonicalOpenCodeNoEnvMCPServerEntry(
 	projection MCPNoEnvServerProjection,
 	expectedAdapterContract string,
 	staleAdapterMessage string,
-) (OpenCodeMCPServerEntry, error) {
+) (OpenCodeProjectMCPServerEntry, error) {
 	if err := validateNoEnvMCPServerProjection(
 		projection,
 		expectedAdapterContract,
 		staleAdapterMessage,
 	); err != nil {
-		return OpenCodeMCPServerEntry{}, err
+		return OpenCodeProjectMCPServerEntry{}, err
 	}
 	command := make([]string, 0, 1+len(projection.Args))
 	command = append(command, projection.Command)
 	command = append(command, projection.Args...)
-	return OpenCodeMCPServerEntry{
+	return OpenCodeProjectMCPServerEntry{
 		Type:    openCodeProjectMCPTypeLocal,
 		Command: command,
 	}, nil
 }
 
-func canonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) (CodexMCPServerEntry, error) {
+func canonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) (CodexProjectMCPServerEntry, error) {
 	if err := validateNoEnvMCPServerProjection(
 		projection,
 		aggregate.CodexProjectMCPStdioCommandV1,
 		"unsupported Codex project MCP adapter contract",
 	); err != nil {
-		return CodexMCPServerEntry{}, err
+		return CodexProjectMCPServerEntry{}, err
 	}
-	return CodexMCPServerEntry{
+	return CodexProjectMCPServerEntry{
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
 	}, nil
 }
 
-func canonicalCodexGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (CodexMCPServerEntry, error) {
-	if err := validateNoEnvMCPServerProjection(
-		projection,
-		aggregate.CodexGlobalMCPStdioCommandV1,
-		"unsupported Codex global MCP adapter contract",
-	); err != nil {
-		return CodexMCPServerEntry{}, err
+func canonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjection) (CodexGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.CodexGlobalMCPStdioEnvVarsV1 {
+		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported Codex global MCP adapter contract",
+		)
 	}
-	return CodexMCPServerEntry{
+	if err := validateServerID(projection.ServerID); err != nil {
+		return CodexGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return CodexGlobalMCPServerEntry{}, err
+	}
+	envVars, err := canonicalSameNameMCPEnvironmentNames(projection.EnvVars, "env_vars")
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, err
+	}
+	return CodexGlobalMCPServerEntry{
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
+		EnvVars: envVars,
 	}, nil
 }
 
@@ -287,26 +424,6 @@ func validateNoEnvMCPServerProjection(
 		return err
 	}
 	return validateMCPCommand(projection.Command)
-}
-
-func canonicalMCPEnv(values map[string]string) (map[string]string, error) {
-	env := make(map[string]string, len(values))
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if err := validateEnvName(key, "env."+key); err != nil {
-			return nil, err
-		}
-		value := values[key]
-		if err := validateHostEnvReference(value, "env."+key); err != nil {
-			return nil, err
-		}
-		env[key] = value
-	}
-	return env, nil
 }
 
 func validateServerID(serverID string) error {
@@ -333,34 +450,6 @@ func validateMCPCommand(command string) error {
 			command,
 			validationErr.Error(),
 		)
-	}
-	return nil
-}
-
-func validateEnvName(value string, subject string) error {
-	if value == "" || value[0] >= '0' && value[0] <= '9' {
-		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
-	}
-	for index := 0; index < len(value); index++ {
-		character := value[index]
-		if (character >= 'A' && character <= 'Z') ||
-			(character >= 'a' && character <= 'z') ||
-			(character >= '0' && character <= '9') ||
-			character == '_' {
-			continue
-		}
-		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
-	}
-	return nil
-}
-
-func validateHostEnvReference(value string, subject string) error {
-	if !strings.HasPrefix(value, "${") || !strings.HasSuffix(value, "}") {
-		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must be a host env reference")
-	}
-	name := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
-	if err := validateEnvName(name, subject); err != nil {
-		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must reference a valid host env name")
 	}
 	return nil
 }

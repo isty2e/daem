@@ -1,6 +1,7 @@
 package lock
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -124,17 +125,97 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 		t.Fatalf("Claude credential reference rejected: %v", err)
 	}
 
-	codex := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)
-	codexInput := testMCPProjectionInput(t, codex, []string{credential})
-	if _, err := NewMCPProjectionSubjectContract(codexInput); err == nil ||
+	claudeGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementClaudeGlobal)
+	claudeGlobalInput := testMCPProjectionInput(t, claudeGlobal, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(claudeGlobalInput); err != nil {
+		t.Fatalf("Claude global credential reference rejected: %v", err)
+	}
+
+	codexGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexGlobal)
+	codexGlobalInput := testMCPProjectionInput(t, codexGlobal, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(codexGlobalInput); err != nil {
+		t.Fatalf("Codex global credential reference rejected: %v", err)
+	}
+
+	openCodeGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementOpenCodeGlobal)
+	openCodeGlobalInput := testMCPProjectionInput(t, openCodeGlobal, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(openCodeGlobalInput); err != nil {
+		t.Fatalf("OpenCode global credential reference rejected: %v", err)
+	}
+
+	antigravityGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementAntigravityGlobal)
+	antigravityGlobalInput := testMCPProjectionInput(t, antigravityGlobal, []string{credential})
+	antigravityContract, err := NewMCPProjectionSubjectContract(antigravityGlobalInput)
+	if err != nil {
+		t.Fatalf("Antigravity global credential reference rejected: %v", err)
+	}
+	if !slices.Equal(antigravityContract.MCPEnvironmentSources(), []string{credential}) {
+		t.Fatalf(
+			"Antigravity locked environment sources = %#v, want %q",
+			antigravityContract.MCPEnvironmentSources(),
+			credential,
+		)
+	}
+	sources := antigravityContract.MCPEnvironmentSources()
+	sources[0] = "MUTATED"
+	if !slices.Equal(antigravityContract.MCPEnvironmentSources(), []string{credential}) {
+		t.Fatal("Antigravity locked environment sources exposed mutable canonical storage")
+	}
+
+	codexProject := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)
+	codexProjectInput := testMCPProjectionInput(t, codexProject, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(codexProjectInput); err == nil ||
 		!strings.Contains(err.Error(), "cannot lock credential dependencies") {
-		t.Fatalf("non-Claude credential error = %v", err)
+		t.Fatalf("Codex project credential error = %v", err)
+	}
+
+	openCodeProject := mustTestMCPPlacement(t, aggregate.MCPPlacementOpenCodeProject)
+	openCodeProjectInput := testMCPProjectionInput(t, openCodeProject, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(openCodeProjectInput); err == nil ||
+		!strings.Contains(err.Error(), "cannot lock credential dependencies") {
+		t.Fatalf("OpenCode project credential error = %v", err)
 	}
 
 	claudeInput.CredentialReferences = []string{credential, credential}
 	if _, err := NewMCPProjectionSubjectContract(claudeInput); err == nil ||
 		!strings.Contains(err.Error(), "duplicate MCP credential reference") {
 		t.Fatalf("duplicate credential error = %v", err)
+	}
+
+	claudeInput.CredentialReferences = []string{"9TOKEN"}
+	if _, err := NewMCPProjectionSubjectContract(claudeInput); err == nil ||
+		!strings.Contains(err.Error(), "must not start with a digit") {
+		t.Fatalf("invalid credential name error = %v", err)
+	}
+
+	realization, ok := antigravityContract.Realization()
+	if !ok {
+		t.Fatal("Antigravity contract is missing realization")
+	}
+	operations := make([]OperationContract, 0, len(antigravityContract.OperationKinds()))
+	for _, operation := range antigravityContract.OperationKinds() {
+		contract, present := antigravityContract.OperationContract(operation)
+		if !present {
+			t.Fatalf("Antigravity contract is missing operation %q", operation)
+		}
+		operations = append(operations, contract)
+	}
+	unknownSubject, err := topology.NewSubjectID(topology.SubjectProjection, "unknown.mcp", "context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewLockedSubjectContract(LockedSubjectContractInput{
+		EntityID:              antigravityContract.EntityID(),
+		SubjectID:             unknownSubject,
+		Realization:           &realization,
+		MCPEnvironmentSources: []string{credential},
+		Ownership:             antigravityContract.Ownership(),
+		OnAbsent:              antigravityContract.OnAbsent(),
+		Replay:                antigravityContract.ReplayCoverage(),
+		OperationContracts:    operations,
+	})
+	if err == nil || !strings.Contains(err.Error(), "require an implemented MCP placement") {
+		t.Fatalf("unknown MCP subject error = %v", err)
 	}
 }
 
