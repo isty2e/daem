@@ -279,8 +279,9 @@ func aggregateLawMCPCanonical(
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 		})
 	case aggregate.MCPPlacementCodexGlobal:
-		canonical, err = mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
-			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+		canonical, err = mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
+			ServerID: serverID, Command: command, Args: args, EnvVars: []string{"CODEX_TOKEN"},
+			AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 		})
 	default:
 		t.Fatalf("unhandled MCP placement %q", placementID)

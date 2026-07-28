@@ -53,7 +53,7 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project or explicit-global command/args-only scope, Claude Code project scope or explicit-global command/args-only scope, OpenCode strict project or explicit-global `type = "local"` command/args-only scope, and Antigravity CLI explicit global command/args-only scope. |
+| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project scope with structured environment references or explicit-global command/args-only scope, OpenCode strict project or explicit-global `type = "local"` command/args-only scope, and Antigravity CLI explicit global command/args-only scope. |
 | `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -732,7 +732,7 @@ exact-projection slices:
 - Codex project scope, rendered into project `.codex/config.toml` under
   `/mcp_servers/<name>` with `command` and `args` only.
 - Codex explicit global scope, rendered into `~/.codex/config.toml` under
-  `/mcp_servers/<name>` with `command` and `args` only.
+  `/mcp_servers/<name>` with `command`, `args`, and same-name `env_vars`.
 - Claude Code project scope, rendered into project `.mcp.json` with `command`,
   `args`, and structured `env` references.
 - Claude Code explicit global scope, rendered into top-level `~/.claude.json`
@@ -786,12 +786,16 @@ Codex MCP requires effective `targets = ["codex"]` and either effective project
 scope or explicit row-local `scope = "global"`. `daem add mcp-server --target
 codex` writes an explicit project-scoped row; `daem add mcp-server --target
 codex --scope global` writes an explicit-global row. The Codex adapter writes
-only `.codex/config.toml` or `~/.codex/config.toml` entries under
-`/mcp_servers/<name>` with `command` and `args` only. It rejects `env`,
-`env_vars`, custom/profile/system/admin/managed config roots, `cwd`, remote HTTP
-config, auth/session fields, tool-policy fields, plugin-provided MCP, and
-unknown managed-entry fields rather than silently preserving them inside the
-managed entry.
+project `.codex/config.toml` entries with `command` and `args` only. The
+explicit-global row also accepts only same-name references such as
+`env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" } }` and renders their
+sorted, deduplicated names as `env_vars = ["CODEX_TOKEN"]`. Import treats a
+native string name, `{ name = "CODEX_TOKEN" }`, and
+`{ name = "CODEX_TOKEN", source = "local" }` as equivalent. Codex project
+environment references, child/source aliases, native literal `env`, remote
+sources, unknown environment-object keys, custom config roots, `cwd`, remote
+HTTP config, auth/session fields, tool-policy fields, and plugin-provided MCP
+remain unsupported.
 
 Claude Code MCP requires effective `targets = ["claude-code"]` and either
 effective project scope or explicit row-local `scope = "global"`.
@@ -821,10 +825,12 @@ row, and Antigravity CLI explicit-global row. Omitted target/scope succeeds only
 when manifest inheritance and supported-row compatibility identify one row.
 Claude global authoring requires
 `--target claude-code --scope global` because defaults do not authorize global
-MCP, and rejects `env` plus all remote/auth/tool-policy fields. Codex authoring requires
-`--target codex` and rejects `env` plus env-vars/cwd/remote/auth/tool-policy
-fields; Codex global authoring additionally requires `--scope global` because
-defaults do not authorize global MCP. OpenCode authoring requires
+MCP, and rejects `env` plus all remote/auth/tool-policy fields. Codex authoring
+requires `--target codex`; global authoring additionally requires
+`--scope global` because defaults do not authorize global MCP. The authoring
+helper creates command/args-only Codex rows. Add same-name global environment
+references by editing the manifest directly or by importing an accepted native
+entry. OpenCode authoring requires
 `--target opencode`, permits project scope or explicit `--scope global`, and
 rejects `env` plus custom/JSONC/remote/auth/tool-policy fields. Antigravity authoring requires `--target antigravity-cli --scope global`
 because defaults do not authorize global MCP, and rejects `env` plus all
@@ -838,21 +844,25 @@ trust records, sessions, logs, or runtime state. `doctor` may passively report
 executable prerequisite diagnostics for selected supported MCP declarations by
 checking ambient command tokens through `PATH`, explicit absolute commands at
 their exact path, and modeled host-source env names only. It does not execute
-the command or prove package/cache/runtime convergence. Claude Code rows
-additionally lock a delegated executable plan
-identity. That identity stores each exact child variable name together with its
-host `from_env` source name; values remain runtime-only and are never locked.
-Lock and dry-run validate only the symbolic names and supported mapping; they
-do not require those names to be present in the current process environment.
+the command or prove package/cache/runtime convergence. Claude Code project
+rows additionally lock a delegated executable plan identity with each exact
+child/source pair. Codex global rows lock only the canonical same-name
+`env_vars` names as part of their config projection. Values remain
+runtime-only and are never locked.
+
+Lock and dry-run validate only symbolic names and supported mappings; they do
+not require those names to be present in the current process environment.
 Before a normal apply can mutate anything, daem requires every source used by
 the selected desired MCP bindings to be present. It repeats that presence check
 before acquiring mutation authority and after rebuilding the plan under the
 lease. An empty value counts as present. The check also applies when a selected
 binding is already current, but not after that binding has been removed from
 the desired manifest. Missing-source diagnostics are sorted, deduplicated,
-bounded, and contain source names only. The actual values are resolved again
-only at subprocess launch and are never added to the lockfile, statefile,
-recovery data, plan fingerprint, or CLI output.
+bounded, and contain source names only. Claude values are resolved again only
+for delegated subprocess launch; Codex reads its same-name variables later
+when the host launches the configured server. Values are never added to the
+lockfile, statefile, recovery data, plan fingerprint, rendered config, or CLI
+output.
 Codex, OpenCode, and Antigravity CLI direct config projections have no
 delegated executable claim in this slice. Codex has no runtime probe in this
 slice. OpenCode runtime checks are
@@ -1560,8 +1570,9 @@ hooks, and the supported MCP exact-projection relations, but
 some product surfaces and downstream actions are intentionally not implemented
 yet:
 
-- MCP server declarations beyond the supported Codex project and explicit-global
-  command/args-only slices, Claude Code project stdio and explicit-global
+- MCP server declarations beyond the supported Codex project command/args slice
+  and explicit-global command/args plus same-name environment-reference slice,
+  Claude Code project stdio and explicit-global
   command/args-only slices, OpenCode project and explicit-global
   command/args-only slices, and Antigravity CLI explicit-global
   command/args-only slice. The
@@ -1575,9 +1586,9 @@ yet:
   prerequisites, and has no delegated executable or runtime readiness claim.
   The Codex slices render one standalone
   server relation into project `.codex/config.toml` or default user
-  `~/.codex/config.toml`, lock the command/args config projection, may report
-  passive executable prerequisites, and have no delegated executable or
-  runtime readiness claim.
+  `~/.codex/config.toml`, lock the project command/args projection or global
+  command/args plus same-name environment names, may report passive executable
+  prerequisites, and have no delegated executable or runtime readiness claim.
   The OpenCode slices render one standalone server relation into project
   `opencode.json` or default user `~/.config/opencode/opencode.json`, lock the
   command/args config projection, may report passive executable

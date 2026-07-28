@@ -382,11 +382,21 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 }
 
 func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
+	const resolvedSecret = "must-not-enter-lock"
+	t.Setenv("CONTEXT7_API_TOKEN", resolvedSecret)
 	file, err := buildWithTestOptions(
 		context.Background(),
 		lockEnvironment(t, desired.Spec{
 			MCPServers: []desiredmcp.Server{
-				testCodexGlobalMCPServer(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"}),
+				testMCPServerForPlacement(
+					t,
+					"context7",
+					target.TargetCodex,
+					target.ScopeGlobal,
+					"npx",
+					[]string{"-y", "@upstash/context7-mcp"},
+					map[string]string{"CONTEXT7_API_TOKEN": "CONTEXT7_API_TOKEN"},
+				),
 			},
 		}),
 		nil,
@@ -414,15 +424,19 @@ func TestBuildLocksCodexGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.CodexGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.CodexGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioCommandV1 {
+		string(projection.CodecContractID()) != aggregate.CodexGlobalMCPStdioEnvVarsV1 {
 		t.Fatalf("projection = %#v, want Codex global MCP aggregate contribution", projection)
 	}
-	for _, want := range []string{`command = "npx"`, `args = ["-y", "@upstash/context7-mcp"]`} {
+	for _, want := range []string{
+		`command = "npx"`,
+		`args = ["-y", "@upstash/context7-mcp"]`,
+		`env_vars = ["CONTEXT7_API_TOKEN"]`,
+	} {
 		if !strings.Contains(projection.CanonicalContribution(), want) {
 			t.Fatalf("canonical projection = %s, want %q", projection.CanonicalContribution(), want)
 		}
 	}
-	for _, forbidden := range []string{`"type"`, `"env"`, `cwd`, `url`, `headers`, "CONTEXT7_API_TOKEN"} {
+	for _, forbidden := range []string{`"type"`, `env =`, `cwd`, `url`, `headers`, resolvedSecret} {
 		if strings.Contains(projection.CanonicalContribution(), forbidden) {
 			t.Fatalf("canonical projection leaked forbidden value %q: %s", forbidden, projection.CanonicalContribution())
 		}

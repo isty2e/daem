@@ -20,7 +20,7 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 		{aggregate.MCPPlacementOpenCodeProject, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementOpenCodeGlobal, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementCodexProject, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "unsupported_managed_field"},
-		{aggregate.MCPPlacementCodexGlobal, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "unsupported_managed_field"},
+		{aggregate.MCPPlacementCodexGlobal, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "secret_literal_forbidden"},
 	}
 
 	for _, test := range tests {

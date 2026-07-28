@@ -10,8 +10,10 @@ import (
 
 	clipkg "github.com/isty2e/daem/internal/cli"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/execcheck"
 )
@@ -142,5 +144,117 @@ func TestMCPPublicCLIApplyDelegatedRouteMissingEnvDoesNotLaunchRunner(t *testing
 		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("%s stat error = %v, want absent after preflight failure", path, err)
 		}
+	}
+}
+
+func TestMCPPublicCLICodexGlobalApplyPreflightsSameNameEnvironment(t *testing.T) {
+	const sourceName = "DAEM_TEST_CODEX_GLOBAL_TOKEN"
+
+	t.Run("missing blocks before mutation", func(t *testing.T) {
+		unsetEnvForMCPDelegateTest(t, sourceName)
+		project := newMCPCLIProject(t)
+		homeDir := filepath.Join(project.root, "host-home")
+		t.Setenv("HOME", homeDir)
+		writeMCPManifest(t, project.root, mcpManifestSpec{
+			Target:  "codex",
+			Scope:   "global",
+			Command: "npx",
+			Args:    []string{"-y", "@example/mcp-server"},
+			Env:     map[string]string{sourceName: sourceName},
+		})
+		runMCPLock(t, project)
+
+		exitCode, stdout, stderr := runMCPCLI(
+			t,
+			"apply",
+			"--manifest",
+			project.manifestPath,
+			"--target",
+			"codex",
+			"--yes",
+			"--json",
+		)
+		if exitCode != 1 || stderr != "" {
+			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		payload := clijson.DecodeApplyResult(t, []byte(stdout))
+		if !payload.HasErrors || len(payload.Errors) != 1 ||
+			!strings.Contains(payload.Errors[0].Message, sourceName) {
+			t.Fatalf("payload errors = %#v, want missing Codex environment source", payload.Errors)
+		}
+		if payload.ActionCount != 0 {
+			t.Fatalf("action_count = %d, want no committed action", payload.ActionCount)
+		}
+		for _, path := range []string{
+			filepath.Join(homeDir, strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/")),
+			filepath.Join(project.root, ".daem", "state.json"),
+			filepath.Join(project.root, ".daem", "recovery"),
+		} {
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("%s stat error = %v, want absent after preflight failure", path, err)
+			}
+		}
+	})
+
+	for _, test := range []struct {
+		name  string
+		value string
+	}{
+		{name: "present empty is admitted"},
+		{name: "present value is not persisted", value: "codex-secret-canary"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(sourceName, test.value)
+			project := newMCPCLIProject(t)
+			homeDir := filepath.Join(project.root, "host-home")
+			t.Setenv("HOME", homeDir)
+			writeMCPManifest(t, project.root, mcpManifestSpec{
+				Target:  "codex",
+				Scope:   "global",
+				Command: "npx",
+				Args:    []string{"-y", "@example/mcp-server"},
+				Env:     map[string]string{sourceName: sourceName},
+			})
+			runMCPLock(t, project)
+
+			exitCode, stdout, stderr := runMCPCLI(
+				t,
+				"apply",
+				"--manifest",
+				project.manifestPath,
+				"--target",
+				"codex",
+				"--yes",
+				"--json",
+			)
+			if exitCode != 0 || stderr != "" {
+				t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+			}
+			configPath := filepath.Join(
+				homeDir,
+				strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"),
+			)
+			config := string(testkit.ReadFile(t, configPath))
+			if !strings.Contains(config, `env_vars = ["`+sourceName+`"]`) {
+				t.Fatalf("Codex config = %q, want canonical env_vars name", config)
+			}
+			if strings.Contains(config, "\nenv =") {
+				t.Fatalf("Codex config = %q, want no literal environment table", config)
+			}
+			statePath := filepath.Join(project.root, ".daem", "state.json")
+			state := string(testkit.ReadFile(t, statePath))
+			if test.value != "" {
+				for label, content := range map[string]string{
+					"stdout":   stdout,
+					"lockfile": string(testkit.ReadFile(t, project.lockfilePath)),
+					"config":   config,
+					"state":    state,
+				} {
+					if strings.Contains(content, test.value) {
+						t.Fatalf("%s persisted resolved Codex environment value", label)
+					}
+				}
+			}
+		})
 	}
 }

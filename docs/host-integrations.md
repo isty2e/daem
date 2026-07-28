@@ -89,8 +89,8 @@ details and retained effects are listed below.
 
 Destructive route behavior was last checked against Claude Code `2.1.216`,
 Codex `0.144.5`, OpenCode `1.18.4`, Pi `0.80.10`, and Antigravity CLI `1.1.4`.
-A 2026-07-26 non-destructive local smoke check used Claude Code `2.1.220`,
-Codex `0.144.5`, OpenCode `1.18.5`, Pi `0.82.0`, and Antigravity CLI `1.1.7`;
+A 2026-07-28 non-destructive local smoke check used Claude Code `2.1.220`,
+Codex `0.145.0`, OpenCode `1.18.5`, Pi `0.82.0`, and Antigravity CLI `1.1.7`;
 their expected default config paths remained available.
 
 The newer local version is not automatically unsupported, but config-path
@@ -150,18 +150,26 @@ plugin-bundled hooks.
 
 ### Standalone MCP Server Config
 
-Supported rows manage one command/args-only stdio entry while preserving
-unrelated host configuration. Codex and OpenCode support project and explicit
-global rows; Claude Code supports project stdio and command/args-only explicit
-global rows; Antigravity CLI supports only the explicit global row. Pi has no
-core standalone row. `import` can author these rows, and
-`apply --manage-existing` can register exact matching projections.
+Supported rows manage one bounded stdio entry while preserving unrelated host
+configuration. Codex supports command/args project rows and explicit-global
+rows with optional same-name `env_vars`; Claude Code supports project rows with
+structured environment references and command/args-only explicit-global rows.
+OpenCode supports project and explicit-global command rows, Antigravity CLI
+supports only the explicit-global command row, and Pi has no core standalone
+row. `import` can author these rows, and `apply --manage-existing` can register
+exact matching projections.
 
 These rows do not own the executable, package, cache, credentials, trust,
 session, runtime health, effective merged host state, remote transports, or
 plugin-bundled MCP. Removing a row reconciles only its managed config entry.
 Target-specific paths and rejected fields are listed in the
 [Manifest Reference](manifest.md#mcp-servers).
+
+Codex global environment support is limited to names that are identical in the
+manifest and host environment. Lock stores names only; normal apply checks
+fresh presence before mutation, and Codex resolves values when it later starts
+the server. Aliases, literal values, remote sources, and Codex project
+environment references are rejected.
 
 ### Delegated Executable Execution
 
@@ -435,9 +443,10 @@ contribution ownership.
   host sources, and residue prune. Exact managed removal is current only for
   safe selector-shaped explicit-global sources. Antigravity IDE remains
   outside current product coverage.
-- Cross-target MCP config projection beyond the Codex project and
-  explicit-global command/args-only slices, Claude project stdio and
-  explicit-global command/args-only slices, OpenCode project and
+- Cross-target MCP config projection beyond the Codex project command/args
+  slice and explicit-global command/args plus same-name environment-reference
+  slice, Claude project stdio and explicit-global command/args-only slices,
+  OpenCode project and
   explicit-global command/args-only slices, and the Antigravity CLI
   explicit-global command/args-only slice.
 - MCP runtime probes beyond the supported Claude Code project stdio and OpenCode

@@ -163,6 +163,7 @@ func TestCandidatesImportsCodexGlobalMCPAndReportsRejectedRows(t *testing.T) {
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env_vars = [{ name = "CONTEXT7_TOKEN", source = "local" }]
 
 [mcp_servers.remote]
 command = "npx"
@@ -182,13 +183,14 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		servers[0].LivePath != livePath+"#/mcp_servers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
-		len(servers[0].Env) != 0 {
+		len(servers[0].Env) != 1 ||
+		servers[0].Env["CONTEXT7_TOKEN"] != "CONTEXT7_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 Codex global live path", servers)
 	}
 	if len(skipped) != 1 ||
 		skipped[0].LivePath != livePath+"#/mcp_servers/remote" ||
-		skipped[0].Reason != "unsupported_mcp_managed_field" {
-		t.Fatalf("skipped = %#v, want remote unsupported managed field", skipped)
+		skipped[0].Reason != "secret_literal_forbidden" {
+		t.Fatalf("skipped = %#v, want literal environment rejection", skipped)
 	}
 }
 

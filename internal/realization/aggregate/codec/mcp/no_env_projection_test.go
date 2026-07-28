@@ -64,13 +64,8 @@ func TestMCPNoEnvServerProjectionRejectsCrossSurfaceAdapterContracts(t *testing.
 		},
 		{
 			name:            "Codex project",
-			adapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+			adapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 			canonicalize:    CanonicalCodexProjectMCPServerEntry,
-		},
-		{
-			name:            "Codex global",
-			adapterContract: aggregate.CodexProjectMCPStdioCommandV1,
-			canonicalize:    CanonicalCodexGlobalMCPServerEntry,
 		},
 	}
 	for _, test := range tests {
@@ -141,15 +136,6 @@ func TestMCPNoEnvServerProjectionCanonicalEntriesOwnArgs(t *testing.T) {
 			},
 			want: []string{"", "--flag", "--flag", " value "},
 		},
-		{
-			name:            "Codex global",
-			adapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
-			lower: func(projection MCPNoEnvServerProjection) ([]string, error) {
-				entry, err := canonicalCodexGlobalMCPServerEntry(projection)
-				return entry.Args, err
-			},
-			want: []string{"", "--flag", "--flag", " value "},
-		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -205,11 +191,6 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 			name:    "Codex project",
 			content: []byte("[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\"]\n"),
 			extract: ExtractCodexProjectMCPServerProjections,
-		},
-		{
-			name:    "Codex global",
-			content: []byte("[mcp_servers.context7]\ncommand = \"npx\"\nargs = [\"-y\"]\n"),
-			extract: ExtractCodexGlobalMCPServerProjections,
 		},
 	}
 	for _, test := range tests {

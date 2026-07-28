@@ -110,7 +110,7 @@ var mcpAggregateRouteIDs = map[aggregate.MCPPlacementID]aggregateRouteIDs{
 	aggregate.MCPPlacementOpenCodeProject:   {write: "opencode-project-mcp-local-command.write_projection", remove: "opencode-project-mcp-local-command.remove_binding"},
 	aggregate.MCPPlacementOpenCodeGlobal:    {write: "opencode-global-mcp-local-command.write_projection", remove: "opencode-global-mcp-local-command.remove_binding"},
 	aggregate.MCPPlacementCodexProject:      {write: "codex-project-mcp-stdio-command.write_projection", remove: "codex-project-mcp-stdio-command.remove_binding"},
-	aggregate.MCPPlacementCodexGlobal:       {write: "codex-global-mcp-stdio-command.write_projection", remove: "codex-global-mcp-stdio-command.remove_binding"},
+	aggregate.MCPPlacementCodexGlobal:       {write: "codex-global-mcp-stdio-env-vars.write_projection", remove: "codex-global-mcp-stdio-env-vars.remove_binding"},
 }
 
 func aggregateOperationRoutesForTarget(selectedTarget target.Target) []OperationRoute {

@@ -107,6 +107,16 @@ type MCPNoEnvServerProjection struct {
 	AdapterContract string
 }
 
+// CodexGlobalMCPServerProjection is the normalized Codex global stdio
+// projection. EnvVars contains same-name host environment references only.
+type CodexGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	EnvVars         []string
+	AdapterContract string
+}
+
 // ClaudeGlobalMCPServerEntry is the canonical managed server entry inside ~/.claude.json.
 type ClaudeGlobalMCPServerEntry struct {
 	Type    string            `json:"type"`
@@ -127,10 +137,17 @@ type OpenCodeMCPServerEntry struct {
 	Command []string `json:"command"`
 }
 
-// CodexMCPServerEntry is the canonical managed server entry inside Codex config TOML.
-type CodexMCPServerEntry struct {
+// CodexProjectMCPServerEntry is the canonical managed project server entry.
+type CodexProjectMCPServerEntry struct {
 	Command string   `toml:"command"`
 	Args    []string `toml:"args"`
+}
+
+// CodexGlobalMCPServerEntry is the canonical managed global server entry.
+type CodexGlobalMCPServerEntry struct {
+	Command string   `toml:"command"`
+	Args    []string `toml:"args"`
+	EnvVars []string `toml:"env_vars,omitempty"`
 }
 
 // ClaudeProjectMCPContentPath returns the managed JSON pointer for one server id.

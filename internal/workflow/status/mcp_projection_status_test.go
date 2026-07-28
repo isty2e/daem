@@ -625,6 +625,7 @@ scope = "global"
 transport = "stdio"
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env = { CODEX_TOKEN = { from_env = "CODEX_TOKEN" } }
 `)
 }
 
@@ -738,11 +739,12 @@ func canonicalStatusCodexMCPEntryWithArgs(t *testing.T, serverID string, command
 
 func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalCodexGlobalMCPServerEntry(mcpcodec.CodexGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+		EnvVars:         []string{"CODEX_TOKEN"},
+		AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalCodexGlobalMCPServerEntry returned error: %v", err)

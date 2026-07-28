@@ -112,9 +112,9 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			wantConfigPath:    "~/.codex/config.toml",
 			wantPathPrefix:    "/mcp_servers",
 			wantContentPath:   "/mcp_servers/context7",
-			wantCodec:         aggregate.MCPCodecCodexGlobalStdioCommand,
-			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
-			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
+			wantCodec:         aggregate.MCPCodecCodexGlobalStdioEnvVars,
+			wantEnvMapping:    aggregate.MCPEnvMappingSameName,
+			wantEnvResolution: aggregate.MCPEnvResolutionHostRuntime,
 		},
 	}
 

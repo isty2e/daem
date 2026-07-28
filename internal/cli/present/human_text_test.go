@@ -39,3 +39,18 @@ func TestErrorSpecializesUnsupportedMCPEnvironmentReference(t *testing.T) {
 		t.Fatalf("Error = %q, want %q", got, want)
 	}
 }
+
+func TestErrorPreservesCodexGlobalSameNameAdmissionDetail(t *testing.T) {
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetCodex, target.ScopeGlobal)
+	if !ok {
+		t.Fatal("Codex global placement missing")
+	}
+	err := placement.AdmitEnvironmentReference("TOKEN", "HOST_TOKEN")
+	if err == nil {
+		t.Fatal("Codex global placement admitted aliased environment reference")
+	}
+	const want = `MCP placement "codex.global.default-config" supports only same-name environment references; child "TOKEN" selects source "HOST_TOKEN"`
+	if got := Error(err); got != want {
+		t.Fatalf("Error = %q, want %q", got, want)
+	}
+}

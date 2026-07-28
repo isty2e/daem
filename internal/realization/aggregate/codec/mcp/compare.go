@@ -49,7 +49,7 @@ func compareCodexProjectMCPServerCanonicalEntry(existing []byte, serverID string
 }
 
 func compareCodexGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeCodexProjectMCPServerEntry(canonical, serverID)
+	desired, err := decodeCodexGlobalMCPServerEntry(canonical, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -136,7 +136,7 @@ func compareOpenCodeGlobalMCPServerEntry(existing []byte, serverID string, desir
 	return comparison, nil
 }
 
-func compareCodexProjectMCPServerEntry(existing []byte, serverID string, desired CodexMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
+func compareCodexProjectMCPServerEntry(existing []byte, serverID string, desired CodexProjectMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
 	existingEntry, ok, err := ExtractCodexProjectMCPServerProjection(existing, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -152,7 +152,7 @@ func compareCodexProjectMCPServerEntry(existing []byte, serverID string, desired
 	return comparison, nil
 }
 
-func compareCodexGlobalMCPServerEntry(existing []byte, serverID string, desired CodexMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
+func compareCodexGlobalMCPServerEntry(existing []byte, serverID string, desired CodexGlobalMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
 	existingEntry, ok, err := ExtractCodexGlobalMCPServerProjection(existing, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -164,7 +164,7 @@ func compareCodexGlobalMCPServerEntry(existing []byte, serverID string, desired 
 	if !ok {
 		return comparison, nil
 	}
-	comparison.Equivalent = codexProjectMCPServerEntriesEqual(existingEntry, desired)
+	comparison.Equivalent = codexGlobalMCPServerEntriesEqual(existingEntry, desired)
 	return comparison, nil
 }
 
@@ -206,12 +206,34 @@ func claudeGlobalMCPServerEntriesEqual(left ClaudeGlobalMCPServerEntry, right Cl
 	return len(left.Env) == 0 && len(right.Env) == 0
 }
 
-func codexProjectMCPServerEntriesEqual(left CodexMCPServerEntry, right CodexMCPServerEntry) bool {
-	if left.Command != right.Command || len(left.Args) != len(right.Args) {
+func codexProjectMCPServerEntriesEqual(left CodexProjectMCPServerEntry, right CodexProjectMCPServerEntry) bool {
+	return codexMCPCommandArgsEqual(left.Command, left.Args, right.Command, right.Args)
+}
+
+func codexGlobalMCPServerEntriesEqual(left CodexGlobalMCPServerEntry, right CodexGlobalMCPServerEntry) bool {
+	if !codexMCPCommandArgsEqual(left.Command, left.Args, right.Command, right.Args) ||
+		len(left.EnvVars) != len(right.EnvVars) {
 		return false
 	}
-	for index := range left.Args {
-		if left.Args[index] != right.Args[index] {
+	for index := range left.EnvVars {
+		if left.EnvVars[index] != right.EnvVars[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func codexMCPCommandArgsEqual(
+	leftCommand string,
+	leftArgs []string,
+	rightCommand string,
+	rightArgs []string,
+) bool {
+	if leftCommand != rightCommand || len(leftArgs) != len(rightArgs) {
+		return false
+	}
+	for index := range leftArgs {
+		if leftArgs[index] != rightArgs[index] {
 			return false
 		}
 	}

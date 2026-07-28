@@ -84,7 +84,7 @@ var codexProjectMCPProjectionSpec = mcpProjectionLockSpec{
 var codexGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetCodex, aggregate.MCPPlacementCodexGlobal),
 	Label:                    "Codex global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         codexGlobalMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",

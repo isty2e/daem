@@ -48,7 +48,7 @@ func compareCodexProjectMCPServerProjection(existing []byte, projection MCPNoEnv
 	return compareCodexProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareCodexGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareCodexGlobalMCPServerProjection(existing []byte, projection CodexGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err

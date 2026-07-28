@@ -61,6 +61,70 @@ func TestClaudeProjectContributionKeepsEnvironmentReferencesSymbolic(t *testing.
 	}
 }
 
+func TestCodexGlobalContributionLowersOnlySameNameEnvironmentReferences(t *testing.T) {
+	const resolvedSecret = "must-not-enter-canonical-projection"
+	t.Setenv("CONTEXT7_TOKEN", resolvedSecret)
+
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetCodex, target.ScopeGlobal)
+	if !ok {
+		t.Fatal("Codex global placement missing")
+	}
+	sameNameTransport := desiredtest.MCPStdio(
+		t,
+		desiredtest.MCPCommand(t, "npx"),
+		nil,
+		map[string]desiredmcp.EnvReference{
+			"CONTEXT7_TOKEN": desiredtest.MCPEnvReference(t, "CONTEXT7_TOKEN"),
+		},
+	)
+	sameNameBinding := desiredtest.MCPBinding(
+		t,
+		target.TargetCodex,
+		target.ScopeGlobal,
+		sameNameTransport,
+		desiredmcp.OnAbsentRemoveBinding,
+	)
+	server := desiredtest.MCPServer(t, desiredmcp.Spec{
+		Name:     "context7",
+		Bindings: []desiredmcp.Binding{sameNameBinding},
+	})
+
+	canonical, err := CanonicalMCPBindingContribution(server, sameNameBinding, placement)
+	if err != nil {
+		t.Fatalf("CanonicalMCPBindingContribution returned error: %v", err)
+	}
+	if !strings.Contains(string(canonical), `env_vars = ["CONTEXT7_TOKEN"]`) {
+		t.Fatalf("canonical contribution = %s, want same-name env_vars", canonical)
+	}
+	if strings.Contains(string(canonical), resolvedSecret) {
+		t.Fatalf("canonical contribution persisted resolved environment value: %s", canonical)
+	}
+
+	aliasedTransport := desiredtest.MCPStdio(
+		t,
+		desiredtest.MCPCommand(t, "npx"),
+		nil,
+		map[string]desiredmcp.EnvReference{
+			"CHILD_TOKEN": desiredtest.MCPEnvReference(t, "HOST_TOKEN"),
+		},
+	)
+	aliasedBinding := desiredtest.MCPBinding(
+		t,
+		target.TargetCodex,
+		target.ScopeGlobal,
+		aliasedTransport,
+		desiredmcp.OnAbsentRemoveBinding,
+	)
+	aliasedServer := desiredtest.MCPServer(t, desiredmcp.Spec{
+		Name:     "aliased",
+		Bindings: []desiredmcp.Binding{aliasedBinding},
+	})
+	if _, err := CanonicalMCPBindingContribution(aliasedServer, aliasedBinding, placement); err == nil ||
+		!strings.Contains(err.Error(), "same-name") {
+		t.Fatalf("aliased contribution error = %v, want same-name rejection", err)
+	}
+}
+
 func TestCanonicalMCPBindingContributionRejectsPlacementCodecEnvironmentContractDrift(t *testing.T) {
 	transport := desiredtest.MCPStdio(
 		t,

@@ -17,11 +17,13 @@ func TestMCPPublicCLIManageExistingAdoptsExactCodexGlobalEntry(t *testing.T) {
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
+	t.Setenv("CODEX_TOKEN", "runtime-only")
 	writeMCPManifest(t, project.root, mcpManifestSpec{
 		Target:  "codex",
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"CODEX_TOKEN": "CODEX_TOKEN"},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".codex", "config.toml")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `
@@ -30,10 +32,12 @@ model = "keep"
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@example/mcp-server"]
+env_vars = ["CODEX_TOKEN"]
 
 [mcp_servers.manual]
 command = "node"
 args = ["manual.js"]
+env = { MANUAL_TOKEN = "keep-literal" }
 `)
 	beforeConfig := testkit.ReadFile(t, hostConfigPath)
 	runMCPLock(t, project)

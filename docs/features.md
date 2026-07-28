@@ -37,11 +37,14 @@ private-store, and delegated-route location together with the manifest
 selection. If the same skill name still exists at another modeled discovery
 root, `doctor`, `status`, and `apply` warn without deleting it.
 
-MCP configuration support manages the host's command and argument entry. It
-does not install the executable or package named by that entry. Claude Code
-project MCP is the only current row where confirmed `apply` may run the locked
-command. `probe mcp-server` is a separate, explicit startup check for Claude
-Code and OpenCode project MCP entries.
+MCP configuration support manages the host's command and argument entry. Claude
+Code project rows also support structured environment references, while Codex
+global rows support same-name references rendered as native `env_vars`.
+Environment values stay runtime-only. Daem does not install the executable or
+package named by an MCP entry. Claude Code project MCP is the only current row
+where confirmed `apply` may run the locked command. `probe mcp-server` is a
+separate, explicit startup check for Claude Code and OpenCode project MCP
+entries.
 
 ## Plugins And Extensions
 

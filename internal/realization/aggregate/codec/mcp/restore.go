@@ -80,6 +80,7 @@ func restoreCodexProjectMCPProjectionMutations(
 		mutations,
 		parentExistedBefore,
 		"Codex project MCP",
+		codexProjectMCPEntryContract,
 	)
 }
 
@@ -93,5 +94,6 @@ func restoreCodexGlobalMCPProjectionMutations(
 		mutations,
 		parentExistedBefore,
 		"Codex global MCP",
+		codexGlobalMCPEntryContract,
 	)
 }

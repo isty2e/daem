@@ -293,6 +293,7 @@ func TestMCPPlacementOperationsCodexTOMLPlacementRoundTrip(t *testing.T) {
 	}
 	projection := validCodexGlobalMCPProjection("context7")
 	projection.Args = []string{"-y", "@upstash/context7-mcp"}
+	projection.EnvVars = []string{"CONTEXT7_TOKEN"}
 	canonical, err := CanonicalCodexGlobalMCPServerEntry(projection)
 	if err != nil {
 		t.Fatalf("CanonicalCodexGlobalMCPServerEntry returned error: %v", err)
@@ -309,7 +310,12 @@ args = ["manual.js"]
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
-	for _, want := range []string{`model = "gpt-5-codex"`, `[mcp_servers.sibling]`, `[mcp_servers.context7]`} {
+	for _, want := range []string{
+		`model = "gpt-5-codex"`,
+		`[mcp_servers.sibling]`,
+		`[mcp_servers.context7]`,
+		`env_vars = ["CONTEXT7_TOKEN"]`,
+	} {
 		if !strings.Contains(string(merged), want) {
 			t.Fatalf("merged = %s, want %q", merged, want)
 		}

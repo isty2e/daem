@@ -124,11 +124,17 @@ func TestMCPProjectionSubjectContractEnforcesCredentialPolicy(t *testing.T) {
 		t.Fatalf("Claude credential reference rejected: %v", err)
 	}
 
-	codex := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)
-	codexInput := testMCPProjectionInput(t, codex, []string{credential})
-	if _, err := NewMCPProjectionSubjectContract(codexInput); err == nil ||
+	codexGlobal := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexGlobal)
+	codexGlobalInput := testMCPProjectionInput(t, codexGlobal, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(codexGlobalInput); err != nil {
+		t.Fatalf("Codex global credential reference rejected: %v", err)
+	}
+
+	codexProject := mustTestMCPPlacement(t, aggregate.MCPPlacementCodexProject)
+	codexProjectInput := testMCPProjectionInput(t, codexProject, []string{credential})
+	if _, err := NewMCPProjectionSubjectContract(codexProjectInput); err == nil ||
 		!strings.Contains(err.Error(), "cannot lock credential dependencies") {
-		t.Fatalf("non-Claude credential error = %v", err)
+		t.Fatalf("Codex project credential error = %v", err)
 	}
 
 	claudeInput.CredentialReferences = []string{credential, credential}

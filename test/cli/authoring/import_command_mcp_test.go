@@ -266,6 +266,7 @@ func TestRunImportYesWritesCodexGlobalMCPManifestOnly(t *testing.T) {
 [mcp_servers.context7]
 command = "npx"
 args = ["-y", "@upstash/context7-mcp"]
+env_vars = ["CONTEXT7_TOKEN"]
 
 [mcp_servers.withEnv]
 command = "npx"
@@ -283,7 +284,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		`target=codex`,
 		`scope=global`,
 		`live="` + livePath + `#/mcp_servers/context7"`,
-		`skip live="` + livePath + `#/mcp_servers/withEnv" reason=unsupported_mcp_managed_field`,
+		`skip live="` + livePath + `#/mcp_servers/withEnv" reason=secret_literal_forbidden`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
@@ -292,8 +293,9 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
 	server := readImportedMCPServer(t, outputPath, "context7")
 	stdio := testkit.AssertSingleMCPStdioBinding(t, server, "context7", target.TargetCodex, target.ScopeGlobal, "npx", []string{"-y", "@upstash/context7-mcp"})
-	if env := stdio.Env(); len(env) != 0 {
-		t.Fatalf("env = %#v, want none for Codex global import", env)
+	env := stdio.Env()
+	if len(env) != 1 || env["CONTEXT7_TOKEN"].FromEnv() != "CONTEXT7_TOKEN" {
+		t.Fatalf("env = %#v, want same-name Codex global reference", env)
 	}
 }
 

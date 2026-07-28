@@ -62,12 +62,13 @@ func validCodexMCPProjection(serverID string) MCPNoEnvServerProjection {
 	}
 }
 
-func validCodexGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validCodexGlobalMCPProjection(serverID string) CodexGlobalMCPServerProjection {
+	return CodexGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.CodexGlobalMCPStdioCommandV1,
+		EnvVars:         []string{},
+		AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 	}
 }
 

@@ -133,7 +133,6 @@ func TestMCPNoEnvProjectionInputsHaveOneConcreteRepresentation(t *testing.T) {
 			"type OpenCodeProjectMCPServerProjection ",
 			"type OpenCodeGlobalMCPServerProjection ",
 			"type CodexProjectMCPServerProjection ",
-			"type CodexGlobalMCPServerProjection ",
 		},
 	)
 }

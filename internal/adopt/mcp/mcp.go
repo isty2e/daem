@@ -189,7 +189,7 @@ func codexGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped,
 			LivePath:     livePath + "#" + mcpcodec.CodexGlobalMCPContentPath(projection.ServerID),
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
-			Env:          map[string]string{},
+			Env:          sameNameEnvReferences(projection.EnvVars),
 		})
 	}
 	return servers, rejectionSkips(livePath, rejections), nil
@@ -255,6 +255,14 @@ func hostEnvReferences(env map[string]string) map[string]string {
 	result := make(map[string]string, len(env))
 	for key, value := range env {
 		result[key] = strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	}
+	return result
+}
+
+func sameNameEnvReferences(names []string) map[string]string {
+	result := make(map[string]string, len(names))
+	for _, name := range names {
+		result[name] = name
 	}
 	return result
 }

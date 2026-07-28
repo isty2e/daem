@@ -36,7 +36,7 @@ const (
 	CodexProjectMCPConfigPath            = ".codex/config.toml"
 	CodexProjectMCPStdioCommandV1        = "codex-project-mcp-stdio-command-v1"
 	CodexGlobalMCPConfigPath             = "~/.codex/config.toml"
-	CodexGlobalMCPStdioCommandV1         = "codex-global-mcp-stdio-command-v1"
+	CodexGlobalMCPStdioEnvVarsV1         = "codex-global-mcp-stdio-env-vars-v1"
 
 	openCodeProjectMCPConflictPath = "opencode.jsonc"
 	openCodeGlobalMCPConflictPath  = "~/.config/opencode/opencode.jsonc"
@@ -62,7 +62,7 @@ const (
 	MCPCodecOpenCodeProjectLocal     CodecContractID = OpenCodeProjectMCPLocalCommandV1
 	MCPCodecOpenCodeGlobalLocal      CodecContractID = OpenCodeGlobalMCPLocalCommandV1
 	MCPCodecCodexProjectStdioCommand CodecContractID = CodexProjectMCPStdioCommandV1
-	MCPCodecCodexGlobalStdioCommand  CodecContractID = CodexGlobalMCPStdioCommandV1
+	MCPCodecCodexGlobalStdioEnvVars  CodecContractID = CodexGlobalMCPStdioEnvVarsV1
 )
 
 // MCPAbsencePolicy identifies the row-local behavior when the manifest declaration disappears.
