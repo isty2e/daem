@@ -73,6 +73,24 @@ that case, preserve or move the existing material yourself, or import supported
 host configuration into a manifest before applying. `--manage-existing` is not
 an overwrite flag.
 
+## Missing MCP Environment Sources
+
+A normal apply fails before host, state, or recovery mutation when a selected
+MCP declaration references a `from_env` source that is absent from the daem
+process environment. The error lists source names, never their values.
+
+1. Export each reported source name in the same shell or service environment
+   that launches daem. An explicitly empty value is accepted as present.
+2. Retry `daem apply --dry-run` to review the plan; dry-run does not require the
+   runtime values.
+3. Run the normal apply again after the sources are present.
+4. If the binding is no longer wanted, remove it from the manifest, refresh the
+   lockfile, and apply the removal. A removed binding does not require its old
+   source.
+
+Do not put secret values directly in the manifest. `status` and `doctor` remain
+point-in-time diagnostics and do not replace the apply-time gate.
+
 ## External Carrier Is Present But Unclaimed
 
 An extension installed outside daem can be claimed only after its exact

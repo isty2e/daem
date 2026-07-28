@@ -351,35 +351,6 @@ func TestMCPPublicCLIOrdinaryApplyRunsAdmittedDelegate(t *testing.T) {
 	assertSingleMCPDelegateAttempt(t, state, durableattempt.DelegateStatusSucceeded, durableattempt.DelegateReasonNone)
 }
 
-func TestMCPPublicCLIApplyDelegatedRouteMissingEnvDoesNotLaunchRunner(t *testing.T) {
-	missingEnvName := "DAEM_TEST_MISSING_ENV_REF"
-	unsetEnvForMCPDelegateTest(t, missingEnvName)
-	canary := execcheck.New(t, "must-not-run-daem-test")
-	project := newMCPCLIProject(t)
-	spec := mcpManifestSpec{
-		Command: "must-not-run-daem-test",
-		Args:    []string{"--serve", "context7"},
-		Env:     map[string]string{"API_TOKEN": missingEnvName},
-	}
-	writeMCPManifest(t, project.root, spec)
-	runMCPLock(t, project)
-
-	payload, state := runMCPApplyDelegatedRouteExpectFailed(t, project)
-
-	if payload.ActionCount != 1 {
-		t.Fatalf("action_count = %d, want projection committed before missing-env attempt diagnostic", payload.ActionCount)
-	}
-	assertMCPConfigEquivalent(t, project.root, "context7", spec)
-	assertMCPStateSubject(t, state, "context7")
-	execcheck.AssertClean(t, canary, "missing env attempt")
-	if len(payload.DelegateActions) != 1 || len(payload.DelegateAttempts) != 1 {
-		t.Fatalf("delegate json = %#v/%#v, want one action and one failed attempt", payload.DelegateActions, payload.DelegateAttempts)
-	}
-	assertMCPDelegateActionDisclosure(t, payload.DelegateActions[0], "scheduled", "allow", true, "plain", spec)
-	assertMCPDelegateAttemptJSON(t, payload.DelegateAttempts[0], "failed", durableattempt.DelegateReasonMissingEnvRef)
-	assertSingleMCPDelegateAttempt(t, state, durableattempt.DelegateStatusFailed, durableattempt.DelegateReasonMissingEnvRef)
-}
-
 func TestMCPPublicCLIApplyDelegatedRouteMissingRunnerPersistsDiagnostic(t *testing.T) {
 	project := newMCPCLIProject(t)
 	spec := mcpManifestSpec{

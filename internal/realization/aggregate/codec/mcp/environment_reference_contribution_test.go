@@ -106,3 +106,30 @@ func TestCanonicalMCPBindingContributionRejectsPlacementCodecEnvironmentContract
 		t.Fatalf("CanonicalMCPBindingContribution error = %v, want codec capability mismatch", err)
 	}
 }
+
+func TestEveryImplementedMCPPlacementMatchesItsCodecEnvironmentContract(t *testing.T) {
+	for _, placement := range aggregate.ImplementedMCPPlacements() {
+		t.Run(string(placement.ID()), func(t *testing.T) {
+			transport := desiredtest.MCPStdio(
+				t,
+				desiredtest.MCPCommand(t, "npx"),
+				nil,
+				nil,
+			)
+			binding := desiredtest.MCPBinding(
+				t,
+				placement.Target(),
+				placement.Scope(),
+				transport,
+				desiredmcp.OnAbsentRemoveBinding,
+			)
+			server := desiredtest.MCPServer(t, desiredmcp.Spec{
+				Name:     "catalog-contract",
+				Bindings: []desiredmcp.Binding{binding},
+			})
+			if _, err := CanonicalMCPBindingContribution(server, binding, placement); err != nil {
+				t.Fatalf("codec rejected catalog environment contract: %v", err)
+			}
+		})
+	}
+}

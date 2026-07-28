@@ -48,6 +48,7 @@ type CommandInput struct {
 	TargetValues           []string
 	RelationObservations   *relationobserve.Batch
 	ManageUnmanagedMatches bool
+	environmentPresent     environmentSourcePresence
 }
 
 type CommandResult struct {
@@ -142,6 +143,14 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := rejectBlockedCarrierAbsences(planned.assessment.Reconciliation.CarrierAbsences()); err != nil {
+		return unavailablePreparedWrite(planned.result), err
+	}
+	if err := preflightMCPEnvironmentSources(
+		ctx,
+		planned.context.RuntimeEnvironment,
+		planned.context.Selection,
+		input.environmentPresent,
+	); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := retainProjectRootAuthority(&planned, root, rootCaptureErr); err != nil {

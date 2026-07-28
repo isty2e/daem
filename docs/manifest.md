@@ -842,6 +842,17 @@ the command or prove package/cache/runtime convergence. Claude Code rows
 additionally lock a delegated executable plan
 identity. That identity stores each exact child variable name together with its
 host `from_env` source name; values remain runtime-only and are never locked.
+Lock and dry-run validate only the symbolic names and supported mapping; they
+do not require those names to be present in the current process environment.
+Before a normal apply can mutate anything, daem requires every source used by
+the selected desired MCP bindings to be present. It repeats that presence check
+before acquiring mutation authority and after rebuilding the plan under the
+lease. An empty value counts as present. The check also applies when a selected
+binding is already current, but not after that binding has been removed from
+the desired manifest. Missing-source diagnostics are sorted, deduplicated,
+bounded, and contain source names only. The actual values are resolved again
+only at subprocess launch and are never added to the lockfile, statefile,
+recovery data, plan fingerprint, or CLI output.
 Codex, OpenCode, and Antigravity CLI direct config projections have no
 delegated executable claim in this slice. Codex has no runtime probe in this
 slice. OpenCode runtime checks are
