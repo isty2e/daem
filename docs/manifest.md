@@ -53,7 +53,7 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project or explicit-global `type = "local"` command/args-only scope, and Antigravity CLI explicit global command/args-only scope. |
+| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, and Antigravity CLI explicit global command/args-only scope. |
 | `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -742,7 +742,8 @@ exact-projection slices:
   `type = "local"` with `command` and `args` only.
 - OpenCode explicit global scope, rendered into strict default user
   `~/.config/opencode/opencode.json` as `type = "local"` with `command` and
-  `args` only.
+  `args`, plus optional exact child-to-source environment references lowered to
+  `{env:SOURCE}` strings.
 - Antigravity CLI explicit global scope, rendered into
   `~/.gemini/config/mcp_config.json` with `command` and `args` only.
 
@@ -778,10 +779,15 @@ project scope or explicit global scope. `daem add mcp-server --target opencode`
 writes an explicit project-scoped row; `--scope global` is required for the
 default user config row. The OpenCode adapter writes only strict
 `opencode.json` entries under `/mcp/<name>` as `type = "local"` with command
-plus ordered args. It rejects `env`, custom/JSONC/remote config authority,
-`cwd`, `enabled`, `timeout`, auth/session fields, tool-policy fields, and
-unknown managed-entry
-fields rather than silently preserving them inside the managed entry.
+plus ordered args. Project rows reject `env`. Explicit-global rows accept
+child/source aliases such as
+`env = { CHILD_TOKEN = { from_env = "SOURCE_TOKEN" } }` and render them as
+`"environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}`. Import recognizes only
+that exact whole-value form. Literal values, `$NAME`, `${NAME}`, file
+interpolation, compound templates, malformed names, custom/JSONC/remote config
+authority, `cwd`, `enabled`, `timeout`, auth/session fields, tool-policy fields,
+and unknown managed-entry fields are rejected rather than silently preserved
+inside the managed entry.
 
 Codex MCP requires effective `targets = ["codex"]` and either effective project
 scope or explicit row-local `scope = "global"`. `daem add mcp-server --target
@@ -839,11 +845,14 @@ helper creates command/args-only Codex rows. Add same-name global environment
 references by editing the manifest directly or by importing an accepted native
 entry. OpenCode authoring requires
 `--target opencode`, permits project scope or explicit `--scope global`, and
-rejects `env` plus custom/JSONC/remote/auth/tool-policy fields. Antigravity authoring requires `--target antigravity-cli --scope global`
-because defaults do not authorize global MCP, and rejects `env` plus all
-remote/auth/tool-policy fields. Authoring helpers update the manifest and
-adjacent lockfile together; they do not write host config, start a server,
-install packages, remove credentials, or change approval/trust state.
+creates a command/args row. Add global environment references by editing the
+manifest directly or importing an accepted native entry; project rows reject
+them. Custom/JSONC/remote/auth/tool-policy fields remain rejected. Antigravity
+authoring requires `--target antigravity-cli --scope global` because defaults
+do not authorize global MCP, and rejects `env` plus all remote/auth/tool-policy
+fields. Authoring helpers update the manifest and adjacent lockfile together;
+they do not write host config, start a server, install packages, remove
+credentials, or change approval/trust state.
 `remove mcp-server` removes the whole selected declaration block, and a later
 explicit `apply` reconciles only the managed MCP projection. It does not delete
 project executables, package-manager caches, daem store objects, credentials,
@@ -1582,8 +1591,9 @@ yet:
 - MCP server declarations beyond the supported Codex project command/args slice
   and explicit-global command/args plus same-name environment-reference slice,
   Claude Code project stdio and explicit-global command/args plus exact aliased
-  environment-reference slices, OpenCode project and explicit-global
-  command/args-only slices, and Antigravity CLI explicit-global
+  environment-reference slices, OpenCode project command/args and
+  explicit-global command/args plus exact aliased environment-reference slices,
+  and Antigravity CLI explicit-global
   command/args-only slice. The
   Claude slice renders one standalone server relation into the project
   `.mcp.json` config, locks its delegated executable plan identity, and reports

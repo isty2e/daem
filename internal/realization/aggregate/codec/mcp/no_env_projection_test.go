@@ -49,13 +49,8 @@ func TestMCPNoEnvServerProjectionRejectsCrossSurfaceAdapterContracts(t *testing.
 		},
 		{
 			name:            "OpenCode project",
-			adapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+			adapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 			canonicalize:    CanonicalOpenCodeProjectMCPServerEntry,
-		},
-		{
-			name:            "OpenCode global",
-			adapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
-			canonicalize:    CanonicalOpenCodeGlobalMCPServerEntry,
 		},
 		{
 			name:            "Codex project",
@@ -100,15 +95,6 @@ func TestMCPNoEnvServerProjectionCanonicalEntriesOwnArgs(t *testing.T) {
 			adapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
 			lower: func(projection MCPNoEnvServerProjection) ([]string, error) {
 				entry, err := canonicalOpenCodeProjectMCPServerEntry(projection)
-				return entry.Command, err
-			},
-			want: []string{"npx", "", "--flag", "--flag", " value "},
-		},
-		{
-			name:            "OpenCode global",
-			adapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
-			lower: func(projection MCPNoEnvServerProjection) ([]string, error) {
-				entry, err := canonicalOpenCodeGlobalMCPServerEntry(projection)
 				return entry.Command, err
 			},
 			want: []string{"npx", "", "--flag", "--flag", " value "},
@@ -160,11 +146,6 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 			name:    "OpenCode project",
 			content: []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"]}}}`),
 			extract: ExtractOpenCodeProjectMCPServerProjections,
-		},
-		{
-			name:    "OpenCode global",
-			content: []byte(`{"mcp":{"context7":{"type":"local","command":["npx","-y"]}}}`),
-			extract: ExtractOpenCodeGlobalMCPServerProjections,
 		},
 		{
 			name:    "Codex project",

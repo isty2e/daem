@@ -754,11 +754,11 @@ func canonicalStatusCodexGlobalMCPEntryWithArgs(t *testing.T, serverID string, c
 
 func canonicalStatusOpenCodeGlobalMCPEntryWithArgs(t *testing.T, serverID string, command string, args []string) []byte {
 	t.Helper()
-	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
+	canonical, err := mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         command,
 		Args:            append([]string(nil), args...),
-		AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+		AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 	})
 	if err != nil {
 		t.Fatalf("CanonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)

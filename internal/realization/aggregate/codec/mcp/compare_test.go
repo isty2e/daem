@@ -32,7 +32,7 @@ func compareOpenCodeProjectMCPServerProjection(existing []byte, projection MCPNo
 	return compareOpenCodeProjectMCPServerCanonicalEntry(existing, projection.ServerID, canonical)
 }
 
-func compareOpenCodeGlobalMCPServerProjection(existing []byte, projection MCPNoEnvServerProjection) (MCPProjectionCanonicalComparison, error) {
+func compareOpenCodeGlobalMCPServerProjection(existing []byte, projection OpenCodeGlobalMCPServerProjection) (MCPProjectionCanonicalComparison, error) {
 	canonical, err := CanonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err

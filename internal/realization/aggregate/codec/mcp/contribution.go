@@ -3,7 +3,6 @@ package mcpcodec
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
@@ -94,10 +93,24 @@ func CanonicalMCPBindingContribution(
 		}
 		return CanonicalOpenCodeProjectMCPServerEntry(noEnvProjection)
 	case aggregate.MCPPlacementOpenCodeGlobal:
-		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
 			return nil, err
 		}
-		return CanonicalOpenCodeGlobalMCPServerEntry(noEnvProjection)
+		environment, err := canonicalOpenCodeMCPBindingEnvironment(stdio.Env())
+		if err != nil {
+			return nil, err
+		}
+		return CanonicalOpenCodeGlobalMCPServerEntry(OpenCodeGlobalMCPServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			Environment:     environment,
+			AdapterContract: adapterContract,
+		})
 	case aggregate.MCPPlacementCodexProject:
 		if err := requireMCPNoEnvReferenceCodecContract(placement); err != nil {
 			return nil, err
@@ -150,18 +163,6 @@ func requireMCPEnvReferenceCodecContract(
 	)
 }
 
-func canonicalMCPBindingEnv(values map[string]desiredmcp.EnvReference) (map[string]string, error) {
-	env := make(map[string]string, len(values))
-	for name, reference := range values {
-		fromEnv := strings.TrimSpace(reference.FromEnv())
-		if fromEnv == "" {
-			return nil, fmt.Errorf("env.%s.from_env: required", name)
-		}
-		env[name] = "${" + fromEnv + "}"
-	}
-	return env, nil
-}
-
 // CanonicalClaudeProjectMCPServerEntry returns the canonical managed server entry bytes.
 func CanonicalClaudeProjectMCPServerEntry(projection ClaudeProjectMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalServerEntry(projection)
@@ -199,7 +200,7 @@ func CanonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection)
 }
 
 // CanonicalOpenCodeGlobalMCPServerEntry returns the canonical managed server entry bytes.
-func CanonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) ([]byte, error) {
+func CanonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) ([]byte, error) {
 	entry, err := canonicalOpenCodeGlobalMCPServerEntry(projection)
 	if err != nil {
 		return nil, err
@@ -292,38 +293,58 @@ func canonicalAntigravityGlobalMCPServerEntry(projection MCPNoEnvServerProjectio
 	}, nil
 }
 
-func canonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
-	return canonicalOpenCodeMCPServerEntry(
+func canonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeProjectMCPServerEntry, error) {
+	return canonicalOpenCodeNoEnvMCPServerEntry(
 		projection,
 		aggregate.OpenCodeProjectMCPLocalCommandV1,
 		"unsupported OpenCode project MCP adapter contract",
 	)
 }
 
-func canonicalOpenCodeGlobalMCPServerEntry(projection MCPNoEnvServerProjection) (OpenCodeMCPServerEntry, error) {
-	return canonicalOpenCodeMCPServerEntry(
-		projection,
-		aggregate.OpenCodeGlobalMCPLocalCommandV1,
-		"unsupported OpenCode global MCP adapter contract",
-	)
+func canonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerProjection) (OpenCodeGlobalMCPServerEntry, error) {
+	if projection.AdapterContract != aggregate.OpenCodeGlobalMCPLocalEnvV1 {
+		return OpenCodeGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonStaleAdapterContract,
+			projection.AdapterContract,
+			"unsupported OpenCode global MCP adapter contract",
+		)
+	}
+	if err := validateServerID(projection.ServerID); err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	if err := validateMCPCommand(projection.Command); err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	environment, err := canonicalOpenCodeMCPEnvironment(projection.Environment)
+	if err != nil {
+		return OpenCodeGlobalMCPServerEntry{}, err
+	}
+	command := make([]string, 0, 1+len(projection.Args))
+	command = append(command, projection.Command)
+	command = append(command, projection.Args...)
+	return OpenCodeGlobalMCPServerEntry{
+		Type:        openCodeProjectMCPTypeLocal,
+		Command:     command,
+		Environment: environment,
+	}, nil
 }
 
-func canonicalOpenCodeMCPServerEntry(
+func canonicalOpenCodeNoEnvMCPServerEntry(
 	projection MCPNoEnvServerProjection,
 	expectedAdapterContract string,
 	staleAdapterMessage string,
-) (OpenCodeMCPServerEntry, error) {
+) (OpenCodeProjectMCPServerEntry, error) {
 	if err := validateNoEnvMCPServerProjection(
 		projection,
 		expectedAdapterContract,
 		staleAdapterMessage,
 	); err != nil {
-		return OpenCodeMCPServerEntry{}, err
+		return OpenCodeProjectMCPServerEntry{}, err
 	}
 	command := make([]string, 0, 1+len(projection.Args))
 	command = append(command, projection.Command)
 	command = append(command, projection.Args...)
-	return OpenCodeMCPServerEntry{
+	return OpenCodeProjectMCPServerEntry{
 		Type:    openCodeProjectMCPTypeLocal,
 		Command: command,
 	}, nil
@@ -368,22 +389,6 @@ func canonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjectio
 	}, nil
 }
 
-func canonicalCodexGlobalMCPEnvVars(values []string, subject string) ([]string, error) {
-	seen := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		if err := validateEnvName(value, fmt.Sprintf("%s[%d]", subject, index)); err != nil {
-			return nil, err
-		}
-		seen[value] = struct{}{}
-	}
-	envVars := make([]string, 0, len(seen))
-	for value := range seen {
-		envVars = append(envVars, value)
-	}
-	sort.Strings(envVars)
-	return envVars, nil
-}
-
 func validateNoEnvMCPServerProjection(
 	projection MCPNoEnvServerProjection,
 	expectedAdapterContract string,
@@ -400,26 +405,6 @@ func validateNoEnvMCPServerProjection(
 		return err
 	}
 	return validateMCPCommand(projection.Command)
-}
-
-func canonicalMCPEnv(values map[string]string) (map[string]string, error) {
-	env := make(map[string]string, len(values))
-	keys := make([]string, 0, len(values))
-	for key := range values {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if err := validateEnvName(key, "env."+key); err != nil {
-			return nil, err
-		}
-		value := values[key]
-		if err := validateHostEnvReference(value, "env."+key); err != nil {
-			return nil, err
-		}
-		env[key] = value
-	}
-	return env, nil
 }
 
 func validateServerID(serverID string) error {
@@ -446,34 +431,6 @@ func validateMCPCommand(command string) error {
 			command,
 			validationErr.Error(),
 		)
-	}
-	return nil
-}
-
-func validateEnvName(value string, subject string) error {
-	if value == "" || value[0] >= '0' && value[0] <= '9' {
-		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
-	}
-	for index := 0; index < len(value); index++ {
-		character := value[index]
-		if (character >= 'A' && character <= 'Z') ||
-			(character >= 'a' && character <= 'z') ||
-			(character >= '0' && character <= '9') ||
-			character == '_' {
-			continue
-		}
-		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
-	}
-	return nil
-}
-
-func validateHostEnvReference(value string, subject string) error {
-	if !strings.HasPrefix(value, "${") || !strings.HasSuffix(value, "}") {
-		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must be a host env reference")
-	}
-	name := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
-	if err := validateEnvName(name, subject); err != nil {
-		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must reference a valid host env name")
 	}
 	return nil
 }

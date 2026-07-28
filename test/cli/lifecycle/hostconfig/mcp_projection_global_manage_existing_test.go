@@ -164,6 +164,8 @@ func TestMCPPublicCLIManageExistingAdoptsExactClaudeGlobalEntry(t *testing.T) {
 }
 
 func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) {
+	const sourceName = "DAEM_TEST_OPENCODE_GLOBAL_TOKEN"
+	t.Setenv(sourceName, "opencode-global-manage-existing-secret")
 	project := newMCPCLIProject(t)
 	homeDir := filepath.Join(project.root, "home")
 	t.Setenv("HOME", homeDir)
@@ -172,12 +174,13 @@ func TestMCPPublicCLIManageExistingAdoptsExactOpenCodeGlobalEntry(t *testing.T) 
 		Scope:   "global",
 		Command: "npx",
 		Args:    []string{"-y", "@example/mcp-server"},
+		Env:     map[string]string{"CHILD_TOKEN": sourceName},
 	})
 	hostConfigPath := filepath.Join(homeDir, ".config", "opencode", "opencode.json")
 	testkit.WriteFile(t, filepath.Dir(hostConfigPath), filepath.Base(hostConfigPath), `{
   "model": "keep",
   "mcp": {
-    "context7": {"type": "local", "command": ["npx", "-y", "@example/mcp-server"]},
+    "context7": {"type": "local", "command": ["npx", "-y", "@example/mcp-server"], "environment": {"CHILD_TOKEN": "{env:DAEM_TEST_OPENCODE_GLOBAL_TOKEN}"}},
     "manual": {"type": "remote", "url": "https://example.invalid/mcp", "headers": {"Authorization": "Bearer SECRET_CANARY"}}
   }
 }`)

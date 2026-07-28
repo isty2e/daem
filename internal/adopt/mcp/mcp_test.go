@@ -207,7 +207,8 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@upstash/context7-mcp"]},
     "remote": {"type": "remote", "command": ["npx"]},
-    "withEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "${TOKEN}"}}
+    "withAlias": {"type": "local", "command": ["npx"], "environment": {"CHILD_TOKEN": "{env:SOURCE_TOKEN}"}},
+    "literalEnv": {"type": "local", "command": ["npx"], "environment": {"TOKEN": "SECRET_CANARY"}}
   }
 }`), 0o600); err != nil {
 		t.Fatal(err)
@@ -217,24 +218,26 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(servers) != 1 ||
+	if len(servers) != 2 ||
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetOpenCode ||
 		servers[0].Scope != target.ScopeGlobal ||
 		servers[0].LivePath != livePath+"#/mcp/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
-		len(servers[0].Env) != 0 {
+		len(servers[0].Env) != 0 ||
+		servers[1].ResourceName != "withAlias" ||
+		servers[1].Env["CHILD_TOKEN"] != "SOURCE_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 OpenCode global live path", servers)
 	}
 	if len(skipped) != 2 {
 		t.Fatalf("skipped = %#v, want remote and env skips", skipped)
 	}
-	if skipped[0].LivePath != livePath+"#/mcp/remote" || skipped[0].Reason != "unsupported_mcp_transport" {
-		t.Fatalf("skipped[0] = %#v, want remote unsupported transport", skipped[0])
+	if skipped[0].LivePath != livePath+"#/mcp/literalEnv" || skipped[0].Reason != "secret_literal_forbidden" {
+		t.Fatalf("skipped[0] = %#v, want non-reference environment rejection", skipped[0])
 	}
-	if skipped[1].LivePath != livePath+"#/mcp/withEnv" || skipped[1].Reason != "unsupported_mcp_managed_field" {
-		t.Fatalf("skipped[1] = %#v, want env unsupported managed field", skipped[1])
+	if skipped[1].LivePath != livePath+"#/mcp/remote" || skipped[1].Reason != "unsupported_mcp_transport" {
+		t.Fatalf("skipped[1] = %#v, want remote unsupported transport", skipped[1])
 	}
 }
 

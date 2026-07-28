@@ -130,7 +130,6 @@ func TestMCPNoEnvProjectionInputsHaveOneConcreteRepresentation(t *testing.T) {
 		[]string{
 			"type AntigravityGlobalMCPServerProjection ",
 			"type OpenCodeProjectMCPServerProjection ",
-			"type OpenCodeGlobalMCPServerProjection ",
 			"type CodexProjectMCPServerProjection ",
 		},
 	)

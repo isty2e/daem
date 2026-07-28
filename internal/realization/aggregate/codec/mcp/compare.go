@@ -33,7 +33,7 @@ func compareOpenCodeProjectMCPServerCanonicalEntry(existing []byte, serverID str
 }
 
 func compareOpenCodeGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeOpenCodeProjectMCPServerEntry(canonical, serverID)
+	desired, err := decodeOpenCodeGlobalMCPServerEntry(canonical, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -104,7 +104,7 @@ func compareAntigravityGlobalMCPServerEntry(existing []byte, serverID string, de
 	return comparison, nil
 }
 
-func compareOpenCodeProjectMCPServerEntry(existing []byte, serverID string, desired OpenCodeMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
+func compareOpenCodeProjectMCPServerEntry(existing []byte, serverID string, desired OpenCodeProjectMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
 	existingEntry, ok, err := ExtractOpenCodeProjectMCPServerProjection(existing, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -120,7 +120,7 @@ func compareOpenCodeProjectMCPServerEntry(existing []byte, serverID string, desi
 	return comparison, nil
 }
 
-func compareOpenCodeGlobalMCPServerEntry(existing []byte, serverID string, desired OpenCodeMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
+func compareOpenCodeGlobalMCPServerEntry(existing []byte, serverID string, desired OpenCodeGlobalMCPServerEntry) (MCPProjectionCanonicalComparison, error) {
 	existingEntry, ok, err := ExtractOpenCodeGlobalMCPServerProjection(existing, serverID)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
@@ -132,7 +132,7 @@ func compareOpenCodeGlobalMCPServerEntry(existing []byte, serverID string, desir
 	if !ok {
 		return comparison, nil
 	}
-	comparison.Equivalent = openCodeProjectMCPServerEntriesEqual(existingEntry, desired)
+	comparison.Equivalent = openCodeGlobalMCPServerEntriesEqual(existingEntry, desired)
 	return comparison, nil
 }
 
@@ -263,12 +263,34 @@ func antigravityGlobalMCPServerEntriesEqual(left AntigravityGlobalMCPServerEntry
 	return true
 }
 
-func openCodeProjectMCPServerEntriesEqual(left OpenCodeMCPServerEntry, right OpenCodeMCPServerEntry) bool {
-	if left.Type != right.Type || len(left.Command) != len(right.Command) {
+func openCodeProjectMCPServerEntriesEqual(left OpenCodeProjectMCPServerEntry, right OpenCodeProjectMCPServerEntry) bool {
+	return openCodeMCPServerFieldsEqual(left.Type, left.Command, right.Type, right.Command)
+}
+
+func openCodeGlobalMCPServerEntriesEqual(left OpenCodeGlobalMCPServerEntry, right OpenCodeGlobalMCPServerEntry) bool {
+	if !openCodeMCPServerFieldsEqual(left.Type, left.Command, right.Type, right.Command) ||
+		len(left.Environment) != len(right.Environment) {
 		return false
 	}
-	for index := range left.Command {
-		if left.Command[index] != right.Command[index] {
+	for key, leftValue := range left.Environment {
+		if right.Environment[key] != leftValue {
+			return false
+		}
+	}
+	return true
+}
+
+func openCodeMCPServerFieldsEqual(
+	leftType string,
+	leftCommand []string,
+	rightType string,
+	rightCommand []string,
+) bool {
+	if leftType != rightType || len(leftCommand) != len(rightCommand) {
+		return false
+	}
+	for index := range leftCommand {
+		if leftCommand[index] != rightCommand[index] {
 			return false
 		}
 	}

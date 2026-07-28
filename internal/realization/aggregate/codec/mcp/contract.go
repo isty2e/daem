@@ -108,6 +108,16 @@ type ClaudeGlobalMCPServerProjection struct {
 	AdapterContract string
 }
 
+// OpenCodeGlobalMCPServerProjection is the normalized OpenCode default-global
+// local-server projection. Environment contains exact child-to-host-source references.
+type OpenCodeGlobalMCPServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	Environment     map[string]string
+	AdapterContract string
+}
+
 // MCPNoEnvServerProjection is the normalized input shared by MCP host surfaces
 // whose wire entry cannot carry environment bindings.
 type MCPNoEnvServerProjection struct {
@@ -141,10 +151,17 @@ type AntigravityGlobalMCPServerEntry struct {
 	Args    []string `json:"args"`
 }
 
-// OpenCodeMCPServerEntry is the canonical managed server entry inside OpenCode config JSON.
-type OpenCodeMCPServerEntry struct {
+// OpenCodeProjectMCPServerEntry is the canonical managed project server entry inside opencode.json.
+type OpenCodeProjectMCPServerEntry struct {
 	Type    string   `json:"type"`
 	Command []string `json:"command"`
+}
+
+// OpenCodeGlobalMCPServerEntry is the canonical managed default-global server entry.
+type OpenCodeGlobalMCPServerEntry struct {
+	Type        string            `json:"type"`
+	Command     []string          `json:"command"`
+	Environment map[string]string `json:"environment,omitempty"`
 }
 
 // CodexProjectMCPServerEntry is the canonical managed project server entry.

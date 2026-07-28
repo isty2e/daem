@@ -32,7 +32,7 @@ const (
 	OpenCodeProjectMCPConfigPath         = "opencode.json"
 	OpenCodeProjectMCPLocalCommandV1     = "opencode-project-mcp-local-command-v1"
 	OpenCodeGlobalMCPConfigPath          = "~/.config/opencode/opencode.json"
-	OpenCodeGlobalMCPLocalCommandV1      = "opencode-global-mcp-local-command-v1"
+	OpenCodeGlobalMCPLocalEnvV1          = "opencode-global-mcp-local-env-v1"
 	CodexProjectMCPConfigPath            = ".codex/config.toml"
 	CodexProjectMCPStdioCommandV1        = "codex-project-mcp-stdio-command-v1"
 	CodexGlobalMCPConfigPath             = "~/.codex/config.toml"
@@ -60,7 +60,7 @@ const (
 	MCPCodecClaudeGlobalStdioEnv     CodecContractID = ClaudeGlobalMCPStdioEnvAdapterV1
 	MCPCodecAntigravityGlobalCommand CodecContractID = AntigravityGlobalMCPCommandAdapterV1
 	MCPCodecOpenCodeProjectLocal     CodecContractID = OpenCodeProjectMCPLocalCommandV1
-	MCPCodecOpenCodeGlobalLocal      CodecContractID = OpenCodeGlobalMCPLocalCommandV1
+	MCPCodecOpenCodeGlobalLocalEnv   CodecContractID = OpenCodeGlobalMCPLocalEnvV1
 	MCPCodecCodexProjectStdioCommand CodecContractID = CodexProjectMCPStdioCommandV1
 	MCPCodecCodexGlobalStdioEnvVars  CodecContractID = CodexGlobalMCPStdioEnvVarsV1
 )

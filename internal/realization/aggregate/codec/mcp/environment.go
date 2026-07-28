@@ -3,9 +3,139 @@ package mcpcodec
 import (
 	"bytes"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 )
+
+func canonicalMCPBindingEnv(values map[string]desiredmcp.EnvReference) (map[string]string, error) {
+	env := make(map[string]string, len(values))
+	for name, reference := range values {
+		fromEnv := strings.TrimSpace(reference.FromEnv())
+		if fromEnv == "" {
+			return nil, fmt.Errorf("env.%s.from_env: required", name)
+		}
+		env[name] = "${" + fromEnv + "}"
+	}
+	return env, nil
+}
+
+func canonicalOpenCodeMCPBindingEnvironment(values map[string]desiredmcp.EnvReference) (map[string]string, error) {
+	environment := make(map[string]string, len(values))
+	for name, reference := range values {
+		fromEnv := strings.TrimSpace(reference.FromEnv())
+		if fromEnv == "" {
+			return nil, fmt.Errorf("env.%s.from_env: required", name)
+		}
+		environment[name] = "{env:" + fromEnv + "}"
+	}
+	return environment, nil
+}
+
+func canonicalMCPEnv(values map[string]string) (map[string]string, error) {
+	env := make(map[string]string, len(values))
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := validateEnvName(key, "env."+key); err != nil {
+			return nil, err
+		}
+		value := values[key]
+		if err := validateHostEnvReference(value, "env."+key); err != nil {
+			return nil, err
+		}
+		env[key] = value
+	}
+	return env, nil
+}
+
+func canonicalOpenCodeMCPEnvironment(values map[string]string) (map[string]string, error) {
+	environment := make(map[string]string, len(values))
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if err := validateEnvName(key, "environment."+key); err != nil {
+			return nil, err
+		}
+		value := values[key]
+		if err := validateOpenCodeHostEnvReference(value, "environment."+key); err != nil {
+			return nil, err
+		}
+		environment[key] = value
+	}
+	return environment, nil
+}
+
+func canonicalCodexGlobalMCPEnvVars(values []string, subject string) ([]string, error) {
+	seen := make(map[string]struct{}, len(values))
+	for index, value := range values {
+		if err := validateEnvName(value, fmt.Sprintf("%s[%d]", subject, index)); err != nil {
+			return nil, err
+		}
+		seen[value] = struct{}{}
+	}
+	envVars := make([]string, 0, len(seen))
+	for value := range seen {
+		envVars = append(envVars, value)
+	}
+	sort.Strings(envVars)
+	return envVars, nil
+}
+
+func validateEnvName(value string, subject string) error {
+	if value == "" || value[0] >= '0' && value[0] <= '9' {
+		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if (character >= 'A' && character <= 'Z') ||
+			(character >= 'a' && character <= 'z') ||
+			(character >= '0' && character <= '9') ||
+			character == '_' {
+			continue
+		}
+		return newMCPProjectionError(MCPProjectionReasonProjectionEquivalenceUndefined, subject, "env name is invalid")
+	}
+	return nil
+}
+
+func validateHostEnvReference(value string, subject string) error {
+	if !strings.HasPrefix(value, "${") || !strings.HasSuffix(value, "}") {
+		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must be a host env reference")
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	if err := validateEnvName(name, subject); err != nil {
+		return newMCPProjectionError(MCPProjectionReasonSecretLiteralForbidden, subject, "env value must reference a valid host env name")
+	}
+	return nil
+}
+
+func validateOpenCodeHostEnvReference(value string, subject string) error {
+	if !strings.HasPrefix(value, "{env:") || !strings.HasSuffix(value, "}") {
+		return newMCPProjectionError(
+			MCPProjectionReasonSecretLiteralForbidden,
+			subject,
+			"environment value must be an OpenCode host env reference",
+		)
+	}
+	name := strings.TrimSuffix(strings.TrimPrefix(value, "{env:"), "}")
+	if err := validateEnvName(name, subject); err != nil {
+		return newMCPProjectionError(
+			MCPProjectionReasonSecretLiteralForbidden,
+			subject,
+			"environment value must reference a valid host env name",
+		)
+	}
+	return nil
+}
 
 func decodeCodexGlobalMCPServerEntry(content []byte, serverID string) (CodexGlobalMCPServerEntry, error) {
 	if err := validateServerID(serverID); err != nil {

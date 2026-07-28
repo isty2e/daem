@@ -45,12 +45,13 @@ func validOpenCodeMCPProjection(serverID string) MCPNoEnvServerProjection {
 	}
 }
 
-func validOpenCodeGlobalMCPProjection(serverID string) MCPNoEnvServerProjection {
-	return MCPNoEnvServerProjection{
+func validOpenCodeGlobalMCPProjection(serverID string) OpenCodeGlobalMCPServerProjection {
+	return OpenCodeGlobalMCPServerProjection{
 		ServerID:        serverID,
 		Command:         "npx",
 		Args:            []string{},
-		AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+		Environment:     map[string]string{},
+		AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 	}
 }
 

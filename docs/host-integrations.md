@@ -155,10 +155,11 @@ configuration. Codex supports command/args project rows and explicit-global
 rows with optional same-name `env_vars`; Claude Code supports project rows with
 structured environment references and explicit-global rows with exact aliased
 `${SOURCE}` environment references.
-OpenCode supports project and explicit-global command rows, Antigravity CLI
-supports only the explicit-global command row, and Pi has no core standalone
-row. `import` can author these rows, and `apply --manage-existing` can register
-exact matching projections.
+OpenCode supports project command rows and explicit-global rows with exact
+aliased `{env:SOURCE}` environment references. Antigravity CLI supports only
+the explicit-global command row, and Pi has no core standalone row. `import`
+can author these rows, and `apply --manage-existing` can register exact
+matching projections.
 
 These rows do not own the executable, package, cache, credentials, trust,
 session, runtime health, effective merged host state, remote transports, or
@@ -181,6 +182,15 @@ compound templates, `user_config` interpolation, and malformed names are
 rejected. Claude Code 2.1.220 was observed to warn but still launch a server
 with an unexpanded placeholder when a source is absent, so the daem preflight
 is deliberately authoritative rather than relying on host rejection.
+
+OpenCode global environment support accepts exact child-to-source aliases.
+Daem renders each accepted mapping as `"CHILD": "{env:SOURCE}"` in the strict
+default-user `opencode.json` entry. Lock stores names only, and normal apply
+checks every source for fresh presence before mutation; an empty but present
+value is valid. OpenCode resolves the value when it loads the config. Literal
+values, shell-style `$NAME` or `${NAME}` forms, file interpolation, compound
+templates, malformed names, project-scope environment references, and JSONC
+authority are rejected.
 
 ### Delegated Executable Execution
 
@@ -458,8 +468,8 @@ contribution ownership.
   slice and explicit-global command/args plus same-name environment-reference
   slice, Claude project stdio and explicit-global command/args plus exact
   aliased environment-reference slices,
-  OpenCode project and
-  explicit-global command/args-only slices, and the Antigravity CLI
+  OpenCode project command/args and explicit-global command/args plus exact
+  aliased environment-reference slices, and the Antigravity CLI
   explicit-global command/args-only slice.
 - MCP runtime probes beyond the supported Claude Code project stdio and OpenCode
   project local-command stdio launch+initialize slices and their stdio

@@ -273,8 +273,9 @@ func aggregateLawMCPCanonical(
 			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
 		})
 	case aggregate.MCPPlacementOpenCodeGlobal:
-		canonical, err = mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{
-			ServerID: serverID, Command: command, Args: args, AdapterContract: aggregate.OpenCodeGlobalMCPLocalCommandV1,
+		canonical, err = mcpcodec.CanonicalOpenCodeGlobalMCPServerEntry(mcpcodec.OpenCodeGlobalMCPServerProjection{
+			ServerID: serverID, Command: command, Args: args,
+			AdapterContract: aggregate.OpenCodeGlobalMCPLocalEnvV1,
 		})
 	case aggregate.MCPPlacementCodexProject:
 		canonical, err = mcpcodec.CanonicalCodexProjectMCPServerEntry(mcpcodec.MCPNoEnvServerProjection{

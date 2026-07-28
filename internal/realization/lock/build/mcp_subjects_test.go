@@ -309,7 +309,7 @@ func TestBuildLocksOpenCodeProjectMCPServerWithoutDelegatePlan(t *testing.T) {
 		string(projection.CodecContractID()) != aggregate.OpenCodeProjectMCPLocalCommandV1 {
 		t.Fatalf("projection = %#v, want OpenCode project MCP aggregate contribution", projection)
 	}
-	var entry mcpcodec.OpenCodeMCPServerEntry
+	var entry mcpcodec.OpenCodeProjectMCPServerEntry
 	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
 		t.Fatalf("canonical projection is not JSON: %v", err)
 	}
@@ -360,10 +360,10 @@ func TestBuildLocksOpenCodeGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		projection.Scope() != target.ScopeGlobal ||
 		projection.AggregateRoot().String() != aggregate.OpenCodeGlobalMCPConfigPath ||
 		projection.ContentPath() != mcpcodec.OpenCodeGlobalMCPContentPath("context7") ||
-		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalCommandV1 {
+		string(projection.CodecContractID()) != aggregate.OpenCodeGlobalMCPLocalEnvV1 {
 		t.Fatalf("projection = %#v, want OpenCode global MCP aggregate contribution", projection)
 	}
-	var entry mcpcodec.OpenCodeMCPServerEntry
+	var entry mcpcodec.OpenCodeProjectMCPServerEntry
 	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
 		t.Fatalf("canonical projection is not JSON: %v", err)
 	}
@@ -523,6 +523,37 @@ func TestBuildLocksClaudeGlobalMCPEnvReferencesWithoutValues(t *testing.T) {
 	}
 	if len(entry.Env) != 1 || entry.Env["API_TOKEN"] != "${CONTEXT7_API_TOKEN}" {
 		t.Fatalf("canonical projection entry = %#v, want exact host environment reference", entry)
+	}
+	if strings.Contains(projection.CanonicalContribution(), secret) {
+		t.Fatalf("canonical projection leaked environment value: %s", projection.CanonicalContribution())
+	}
+}
+
+func TestBuildLocksOpenCodeGlobalMCPEnvReferencesWithoutValues(t *testing.T) {
+	const secret = "opencode-global-lock-secret"
+	t.Setenv("SOURCE_TOKEN", secret)
+	server := testMCPServerForPlacement(
+		t, "context7", target.TargetOpenCode, target.ScopeGlobal,
+		"npx", []string{"-y", "@upstash/context7-mcp"},
+		map[string]string{"CHILD_TOKEN": "SOURCE_TOKEN"},
+	)
+
+	file, err := buildWithTestOptions(context.Background(), lockEnvironment(t, desired.Spec{
+		MCPServers: []desiredmcp.Server{server},
+	}), nil, Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	if len(file.Locked.Subjects()) != 1 {
+		t.Fatalf("locked subjects = %#v, want one OpenCode global MCP subject", file.Locked.Subjects())
+	}
+	projection := mustAggregateContribution(t, file.Locked.Subjects()[0])
+	var entry mcpcodec.OpenCodeGlobalMCPServerEntry
+	if err := json.Unmarshal([]byte(projection.CanonicalContribution()), &entry); err != nil {
+		t.Fatalf("canonical projection is not JSON: %v", err)
+	}
+	if len(entry.Environment) != 1 || entry.Environment["CHILD_TOKEN"] != "{env:SOURCE_TOKEN}" {
+		t.Fatalf("canonical projection entry = %#v, want exact OpenCode host environment reference", entry)
 	}
 	if strings.Contains(projection.CanonicalContribution(), secret) {
 		t.Fatalf("canonical projection leaked environment value: %s", projection.CanonicalContribution())

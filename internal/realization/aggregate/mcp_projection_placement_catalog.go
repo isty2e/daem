@@ -84,9 +84,14 @@ var antigravityMCPComparedFields = []string{
 	"scope", "server_id", "target",
 }
 
-var openCodeMCPComparedFields = []string{
+var openCodeProjectMCPComparedFields = []string{
 	"adapter_contract", "command_argv", "config_path", "content_path",
 	"scope", "server_id", "target", "type",
+}
+
+var openCodeGlobalMCPComparedFields = []string{
+	"adapter_contract", "command_argv", "config_path", "content_path",
+	"environment", "scope", "server_id", "target", "type",
 }
 
 var codexProjectMCPComparedFields = []string{
@@ -156,7 +161,7 @@ var implementedMCPPlacements = []MCPPlacement{
 		ContentPathPrefix:      "/mcp",
 		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
 		CodecContractID:        MCPCodecOpenCodeProjectLocal,
-		ComparedFields:         openCodeMCPComparedFields,
+		ComparedFields:         openCodeProjectMCPComparedFields,
 		Absence:                MCPAbsenceRemoveBinding,
 		EnvReferenceMapping:    MCPEnvMappingUnsupported,
 		EnvReferenceResolution: MCPEnvResolutionUnavailable,
@@ -171,11 +176,11 @@ var implementedMCPPlacements = []MCPPlacement{
 		MergeUnit:              MCPMergeUnitServerEntry,
 		ContentPathPrefix:      "/mcp",
 		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
-		CodecContractID:        MCPCodecOpenCodeGlobalLocal,
-		ComparedFields:         openCodeMCPComparedFields,
+		CodecContractID:        MCPCodecOpenCodeGlobalLocalEnv,
+		ComparedFields:         openCodeGlobalMCPComparedFields,
 		Absence:                MCPAbsenceRemoveBinding,
-		EnvReferenceMapping:    MCPEnvMappingUnsupported,
-		EnvReferenceResolution: MCPEnvResolutionUnavailable,
+		EnvReferenceMapping:    MCPEnvMappingAliased,
+		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
 	}),
 	mustMCPPlacement(MCPPlacementInput{
 		ID:                     MCPPlacementCodexProject,

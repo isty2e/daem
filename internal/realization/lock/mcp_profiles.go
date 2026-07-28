@@ -124,7 +124,7 @@ var openCodeProjectMCPProjectionSpec = mcpProjectionLockSpec{
 var openCodeGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	Placement:                mustProfileMCPPlacement(target.TargetOpenCode, aggregate.MCPPlacementOpenCodeGlobal),
 	Label:                    "OpenCode global MCP",
-	LauncherDependencyPolicy: mcpProjectionRejectNonLauncherDependencies,
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
 	ReplayExclusions:         openCodeMCPReplayExclusions,
 	WritePreconditions: []string{
 		"adapter_contract_current",

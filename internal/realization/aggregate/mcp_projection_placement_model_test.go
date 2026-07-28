@@ -86,9 +86,9 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			wantConflictPath:  "~/.config/opencode/opencode.jsonc",
 			wantPathPrefix:    "/mcp",
 			wantContentPath:   "/mcp/context7",
-			wantCodec:         aggregate.MCPCodecOpenCodeGlobalLocal,
-			wantEnvMapping:    aggregate.MCPEnvMappingUnsupported,
-			wantEnvResolution: aggregate.MCPEnvResolutionUnavailable,
+			wantCodec:         aggregate.MCPCodecOpenCodeGlobalLocalEnv,
+			wantEnvMapping:    aggregate.MCPEnvMappingAliased,
+			wantEnvResolution: aggregate.MCPEnvResolutionHostRuntime,
 		},
 		{
 			name:              "codex project",

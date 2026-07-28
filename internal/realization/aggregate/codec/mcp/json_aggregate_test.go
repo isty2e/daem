@@ -257,7 +257,7 @@ func mcpJSONAggregateCases(t *testing.T) []mcpJSONAggregateCase {
 			extractBytes:     extractOpenCodeGlobalMCPServerProjectionBytes,
 			entryPresent:     openCodeGlobalMCPServerEntryPresent,
 			parentPresent:    openCodeGlobalMCPServersParentPresent,
-			unsupportedEntry: `{"type":"local","command":["npx"],"environment":{}}`,
+			unsupportedEntry: `{"type":"local","command":["npx"],"headers":{}}`,
 		},
 	}
 }
