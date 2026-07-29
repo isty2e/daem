@@ -171,6 +171,35 @@ func providerCarrierSubjects(planned commandPlan) map[string]struct{} {
 	return result
 }
 
+func requireSettledMCPProviderRelations(planned commandPlan) error {
+	unsettled := providerCarrierSubjects(planned)
+	for _, action := range planned.assessment.Reconciliation.Relations() {
+		carrier := action.CarrierIdentity().CarrierSubject().String()
+		if _, provider := unsettled[carrier]; !provider {
+			continue
+		}
+		if action.Kind() != reconcile.ActionNoOp {
+			return fmt.Errorf(
+				"MCP provider relation %q is not settled after prerequisite execution: kind=%s reason=%s",
+				action.Subject(),
+				action.Kind(),
+				action.Reason(),
+			)
+		}
+		delete(unsettled, carrier)
+	}
+	for _, prerequisite := range planned.assessment.MCPProviders {
+		carrier := prerequisite.Observation().Carrier().CarrierSubject().String()
+		if _, missing := unsettled[carrier]; missing {
+			return fmt.Errorf(
+				"MCP provider relation %q is absent after prerequisite execution",
+				prerequisite.Observation().Carrier().RelationSubject(),
+			)
+		}
+	}
+	return nil
+}
+
 func delegateFingerprintRows(
 	actions []reconcile.DelegateAction,
 ) []delegateFingerprintFacts {
@@ -422,6 +451,9 @@ func validatePostProviderPlan(planned commandPlan) error {
 		return err
 	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
+		return err
+	}
+	if err := requireSettledMCPProviderRelations(planned); err != nil {
 		return err
 	}
 	if err := rejectBlockedCarrierAdoptions(planned.assessment.Reconciliation); err != nil {

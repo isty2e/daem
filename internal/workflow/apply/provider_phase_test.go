@@ -9,8 +9,10 @@ import (
 	"strings"
 	"testing"
 
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
@@ -83,6 +85,103 @@ func TestExecuteDoesNotProjectPiMCPConfigWhenProviderPostconditionIsAbsent(t *te
 	}
 	if _, statErr := os.Lstat(configPath); !os.IsNotExist(statErr) {
 		t.Fatalf("Pi MCP config exists after failed provider postcondition: %v", statErr)
+	}
+}
+
+func TestValidatePostProviderPlanRequiresSettledProviderRelation(t *testing.T) {
+	root, manifestPath := writePiProviderMCPFixture(t)
+	initial, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("initial PlanWrite returned error: %v", err)
+	}
+	if _, err := ExecuteWithOptions(t.Context(), initial, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				writePiProviderInstallation(t, root, "2.15.0")
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	}); err != nil {
+		t.Fatalf("initial ExecuteWithOptions returned error: %v", err)
+	}
+
+	planned, err := PlanWrite(t.Context(), CommandInput{
+		ManifestPath: manifestPath,
+	})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	defer func() {
+		if err := planned.Close(); err != nil {
+			t.Fatalf("close prepared write: %v", err)
+		}
+	}()
+	postProviderPlan := planned.lifecycle.planned
+	if len(postProviderPlan.assessment.MCPProviders) != 1 {
+		t.Fatalf(
+			"MCP provider prerequisites = %#v, want one",
+			postProviderPlan.assessment.MCPProviders,
+		)
+	}
+
+	provider := postProviderPlan.assessment.MCPProviders[0].Observation().Carrier()
+	var providerAction reconcile.RelationAction
+	found := false
+	for _, action := range postProviderPlan.assessment.Reconciliation.Relations() {
+		if action.CarrierIdentity().ExactEqual(provider) {
+			providerAction = action
+			found = true
+			break
+		}
+	}
+	if !found || providerAction.Kind() != reconcile.ActionNoOp {
+		t.Fatalf(
+			"provider relation action = %#v found=%t, want settled no-op",
+			providerAction,
+			found,
+		)
+	}
+
+	unavailable, err := observerelation.NewInventory(observerelation.InventorySpec{
+		Availability: observerelation.InventoryUnavailable,
+		Freshness:    observerelation.EvidenceFresh,
+	})
+	if err != nil {
+		t.Fatalf("NewInventory returned error: %v", err)
+	}
+	degraded, err := reconcile.NewRelationAction(reconcile.RelationActionInput{
+		CarrierIdentity: providerAction.CarrierIdentity(),
+		RouteRequest:    providerAction.RouteRequest(),
+		Correlation: observerelation.Correlate(
+			providerAction.ExpectedRelation(),
+			unavailable,
+		),
+		RouteAdmission: providerAction.RouteAdmission(),
+	})
+	if err != nil {
+		t.Fatalf("NewRelationAction returned error: %v", err)
+	}
+	if degraded.Kind() != reconcile.ActionObserveOnly {
+		t.Fatalf("degraded relation kind = %q, want observe_only", degraded.Kind())
+	}
+
+	postProviderPlan.assessment.Reconciliation = reconciliationWithRelations(t, degraded)
+	if err := validatePostProviderPlan(postProviderPlan); err == nil ||
+		!strings.Contains(err.Error(), "not settled") ||
+		!strings.Contains(err.Error(), "observe_only") {
+		t.Fatalf(
+			"validatePostProviderPlan error = %v, want unsettled observe-only provider relation",
+			err,
+		)
+	}
+
+	postProviderPlan.assessment.Reconciliation = reconciliationWithRelations(t)
+	if err := validatePostProviderPlan(postProviderPlan); err == nil ||
+		!strings.Contains(err.Error(), "absent after prerequisite execution") {
+		t.Fatalf(
+			"validatePostProviderPlan error = %v, want missing provider relation",
+			err,
+		)
 	}
 }
 
