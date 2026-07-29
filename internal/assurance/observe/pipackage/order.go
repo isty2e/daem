@@ -21,36 +21,6 @@ type OrderInput struct {
 	Relations  []ScopedRelation
 }
 
-// PrecedenceChange records one managed/foreign pair whose relative physical
-// order changes under a fixed-slot permutation. It is evidence, not a policy
-// decision or mutation admission.
-type PrecedenceChange struct {
-	managedSubject      topology.SubjectID
-	foreignIdentity     hostrelation.HostLoadIdentity
-	managedWasBefore    bool
-	managedWillBeBefore bool
-}
-
-// ManagedSubject returns the exact correlated relation being moved.
-func (change PrecedenceChange) ManagedSubject() topology.SubjectID {
-	return change.managedSubject
-}
-
-// ForeignIdentity returns the uncorrelated Pi load identity being crossed.
-func (change PrecedenceChange) ForeignIdentity() hostrelation.HostLoadIdentity {
-	return change.foreignIdentity
-}
-
-// ManagedWasBefore reports the observed relative order.
-func (change PrecedenceChange) ManagedWasBefore() bool {
-	return change.managedWasBefore
-}
-
-// ManagedWillBeBefore reports the candidate relative order.
-func (change PrecedenceChange) ManagedWillBeBefore() bool {
-	return change.managedWillBeBefore
-}
-
 // OrderObservation owns one immutable baseline, its fixed-slot candidate, and
 // exact postcondition evidence for a selected Pi settings sequence.
 type OrderObservation struct {
@@ -60,7 +30,7 @@ type OrderObservation struct {
 	expectedSequence  observerelation.ObservedRelationSequence
 	candidate         []byte
 	changed           bool
-	precedenceChanges []PrecedenceChange
+	precedenceChanges []observerelation.PrecedenceChange
 }
 
 type orderSelection struct {
@@ -134,8 +104,8 @@ func (observation OrderObservation) Candidate() ([]byte, bool) {
 }
 
 // PrecedenceChanges returns deterministic managed-versus-foreign crossings.
-func (observation OrderObservation) PrecedenceChanges() []PrecedenceChange {
-	return append([]PrecedenceChange(nil), observation.precedenceChanges...)
+func (observation OrderObservation) PrecedenceChanges() []observerelation.PrecedenceChange {
+	return append([]observerelation.PrecedenceChange(nil), observation.precedenceChanges...)
 }
 
 // VerifyBaseline checks exact existence and content revision before mutation.
@@ -331,7 +301,7 @@ func observeOrder(
 	if err != nil {
 		return OrderObservation{}, err
 	}
-	order, changes, err := fixedSlotPermutation(selection.constraint, rows)
+	order, changes, err := observerelation.FixedSlotPermutation(selection.constraint, rows)
 	if err != nil {
 		return OrderObservation{}, err
 	}
@@ -391,69 +361,6 @@ func newObservedOrderSequence(
 		revision,
 		rows,
 	)
-}
-
-func fixedSlotPermutation(
-	constraint hostrelation.RelationOrderConstraint,
-	rows []observerelation.ObservedRelationRow,
-) ([]int, []PrecedenceChange, error) {
-	sourceBySubject := make(map[topology.SubjectID]int)
-	managedSlots := make([]int, 0)
-	for index, row := range rows {
-		subject, correlated := row.CorrelatedSubject()
-		if !correlated {
-			continue
-		}
-		sourceBySubject[subject] = index
-		managedSlots = append(managedSlots, index)
-	}
-
-	desiredSources := make([]int, 0, len(managedSlots))
-	for _, member := range constraint.Members() {
-		if source, present := sourceBySubject[member.Subject()]; present {
-			desiredSources = append(desiredSources, source)
-		}
-	}
-	if len(desiredSources) != len(managedSlots) {
-		return nil, nil, fmt.Errorf("Pi package order contains a correlated subject outside its constraint")
-	}
-
-	order := make([]int, len(rows))
-	for index := range order {
-		order[index] = index
-	}
-	for index, slot := range managedSlots {
-		order[slot] = desiredSources[index]
-	}
-	inverse := make([]int, len(order))
-	for destination, source := range order {
-		inverse[source] = destination
-	}
-
-	changes := make([]PrecedenceChange, 0)
-	for managedIndex, row := range rows {
-		subject, correlated := row.CorrelatedSubject()
-		if !correlated {
-			continue
-		}
-		for foreignIndex, foreign := range rows {
-			if _, foreignCorrelated := foreign.CorrelatedSubject(); foreignCorrelated {
-				continue
-			}
-			wasBefore := managedIndex < foreignIndex
-			willBeBefore := inverse[managedIndex] < inverse[foreignIndex]
-			if wasBefore == willBeBefore {
-				continue
-			}
-			changes = append(changes, PrecedenceChange{
-				managedSubject:      subject,
-				foreignIdentity:     foreign.HostLoadIdentity(),
-				managedWasBefore:    wasBefore,
-				managedWillBeBefore: willBeBefore,
-			})
-		}
-	}
-	return order, changes, nil
 }
 
 func inventoryFromContent(

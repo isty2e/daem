@@ -150,6 +150,55 @@ func TestObservedSequenceRequiresAuthorityRevisionAndDefensiveCopies(t *testing.
 	}
 }
 
+func TestFixedSlotPermutationPreservesForeignSlotsAndReportsCrossings(t *testing.T) {
+	alpha := mustObservedOrderMember(t, "alpha", "@acme/alpha")
+	beta := mustObservedOrderMember(t, "beta", "@acme/beta")
+	constraint, err := hostrelation.NewRelationOrderConstraint(
+		mustObservedOrderClassID(t),
+		"opencode-plugin-package-v1",
+		hostrelation.ConfigOrderOnly,
+		[]hostrelation.RelationOrderMember{alpha, beta},
+	)
+	if err != nil {
+		t.Fatalf("NewRelationOrderConstraint: %v", err)
+	}
+	foreign, err := observerelation.NewObservedRelationRow(
+		mustObservedLoadIdentity(t, "@foreign/tool"),
+	)
+	if err != nil {
+		t.Fatalf("NewObservedRelationRow: %v", err)
+	}
+	rows := []observerelation.ObservedRelationRow{
+		mustCorrelatedObservedRow(t, beta),
+		foreign,
+		mustCorrelatedObservedRow(t, alpha),
+	}
+
+	order, changes, err := observerelation.FixedSlotPermutation(constraint, rows)
+	if err != nil {
+		t.Fatalf("FixedSlotPermutation: %v", err)
+	}
+	wantOrder := []int{2, 1, 0}
+	for index, want := range wantOrder {
+		if order[index] != want {
+			t.Fatalf("order = %v, want %v", order, wantOrder)
+		}
+	}
+	if len(changes) != 2 {
+		t.Fatalf("precedence changes = %d, want 2", len(changes))
+	}
+	if changes[0].ManagedSubject() != beta.Subject() ||
+		!changes[0].ManagedWasBefore() ||
+		changes[0].ManagedWillBeBefore() {
+		t.Fatalf("first precedence change = %#v", changes[0])
+	}
+	if changes[1].ManagedSubject() != alpha.Subject() ||
+		changes[1].ManagedWasBefore() ||
+		!changes[1].ManagedWillBeBefore() {
+		t.Fatalf("second precedence change = %#v", changes[1])
+	}
+}
+
 func mustObservedSequence(
 	t *testing.T,
 	sequenceID string,

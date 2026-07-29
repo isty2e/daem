@@ -555,7 +555,7 @@ func decodePackageStrings(t *testing.T, content []byte) []string {
 	return document.Packages
 }
 
-func precedenceKeys(changes []observepipackage.PrecedenceChange) []string {
+func precedenceKeys(changes []observerelation.PrecedenceChange) []string {
 	result := make([]string, 0, len(changes))
 	for _, change := range changes {
 		result = append(
