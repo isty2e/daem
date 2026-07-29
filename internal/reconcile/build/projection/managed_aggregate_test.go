@@ -738,7 +738,7 @@ func aggregateDocumentForSelections(
 
 func aggregateLockedSection(t *testing.T, contracts ...lock.LockedSubjectContract) lock.LockedSection {
 	t.Helper()
-	section, err := lock.NewLockedSection(contracts)
+	section, err := lock.NewLockedSection(contracts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

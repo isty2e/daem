@@ -34,7 +34,7 @@ func TestLockedSectionRejectsDuplicateManagedPathOccupancyBeforeProfileAdmission
 			left, right := contracts[leftIndex], contracts[rightIndex]
 			var canonicalError string
 			for _, subjects := range [][]LockedSubjectContract{{right, left}, {left, right}} {
-				_, err := NewLockedSection(subjects)
+				_, err := NewLockedSection(subjects, nil)
 				if err == nil || !strings.Contains(err.Error(), "duplicate managed path occupancy") {
 					t.Fatalf("NewLockedSection error = %v, want duplicate managed path occupancy", err)
 				}
@@ -57,7 +57,7 @@ func TestLockedSectionRejectsInstructionsPathOutsideCurrentProfileRefinement(t *
 	contract := testPathProjectionContract(t, "review", "codex.project.instructions", "AGENTS.md")
 	supply := testExactSupplyContract(t, entity.KindInstructions, "review", artifact.ArtifactKindFile)
 
-	_, err := NewLockedSection([]LockedSubjectContract{supply, contract})
+	_, err := NewLockedSection([]LockedSubjectContract{supply, contract}, nil)
 	if err == nil || !strings.Contains(err.Error(), "is not selected by its consumers") {
 		t.Fatalf("NewLockedSection error = %v, want profile refinement diagnostic", err)
 	}
@@ -84,7 +84,7 @@ func TestLockedSectionIndexesCanonicalSubjectAndEntityViews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	section, err := NewLockedSection([]LockedSubjectContract{second, first})
+	section, err := NewLockedSection([]LockedSubjectContract{second, first}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestLockedSectionIndexesCanonicalSubjectAndEntityViews(t *testing.T) {
 func TestLockedSectionDoesNotDispatchUnknownAggregateToMCPRefinement(t *testing.T) {
 	contract := testAggregateProjectionContract(t, "review", "future.project.hook")
 
-	_, err := NewLockedSection([]LockedSubjectContract{contract})
+	_, err := NewLockedSection([]LockedSubjectContract{contract}, nil)
 	if err == nil || !strings.Contains(err.Error(), "subject has no current topology refinement") {
 		t.Fatalf("NewLockedSection error = %v, want unadmitted refinement diagnostic", err)
 	}

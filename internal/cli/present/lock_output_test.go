@@ -70,18 +70,25 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
 	}
 
 	want := `{
-  "schema_version": 2,
+  "schema_version": 3,
   "command": "lock",
   "mode": "dry-run",
   "manifest_path": "/repo/daem.toml",
   "lockfile_path": "/repo/daem.lock.toml",
   "previous_found": true,
   "entry_counts": {
-    "subjects": 4
+    "subjects": 4,
+    "order_constraints": 0
   },
   "change_counts": {
     "added": 3,
     "changed": 1,
+    "removed": 0,
+    "unchanged": 0
+  },
+  "order_change_counts": {
+    "added": 0,
+    "changed": 0,
     "removed": 0,
     "unchanged": 0
   },
@@ -226,7 +233,8 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
         ]
       }
     }
-  ]
+  ],
+  "order_constraint_changes": []
 }
 `
 	if stdout.String() != want {

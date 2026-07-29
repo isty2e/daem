@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -114,6 +115,12 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		if os.IsNotExist(err) {
 			return commandInputs{}, result, fmt.Errorf("read lockfile: %w; run lock before probing runtime readiness", err)
 		}
+		return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
+	}
+	if err := lock.ValidateExtensionOrderIdentities(
+		locked,
+		aggregatecodec.ExtensionOrderIdentityResolver(paths),
+	); err != nil {
 		return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
 	}
 	currentContract, err := currentMCPSubjectContract(server, binding)

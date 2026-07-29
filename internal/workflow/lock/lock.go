@@ -2,6 +2,7 @@ package lock
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -80,6 +82,7 @@ func RunLock(ctx context.Context, input LockInput) (Result, error) {
 			input.ManifestPath,
 			input.LockfilePath,
 			false,
+			true,
 			commandMaxParallelSourceOps(input.MaxParallelSourceOps),
 			input.SourceEvents,
 			input.LockEvents,
@@ -99,6 +102,7 @@ func RunOutdated(ctx context.Context, input OutdatedInput) (Result, error) {
 		input.ManifestPath,
 		input.LockfilePath,
 		false,
+		false,
 		commandMaxParallelSourceOps(input.MaxParallelSourceOps),
 		input.SourceEvents,
 		input.LockEvents,
@@ -115,6 +119,7 @@ func buildCommandResult(
 	manifestPath string,
 	lockfilePath string,
 	usePersistentCache bool,
+	allowPriorSchemaReplacement bool,
 	maxParallelSourceOps int,
 	sourceEvents acquisition.EventSink,
 	lockEvents ProgressEventSink,
@@ -140,21 +145,25 @@ func buildCommandResult(
 		return commandResult{}, errorContext
 	}
 
-	previousLockfile, previousMissing, err := loadOptionalLockfile(outputPath)
+	previousLockfile, previousMissing, err := loadOptionalLockfile(
+		outputPath,
+		allowPriorSchemaReplacement,
+	)
 	if err != nil {
 		errorContext.Err = fmt.Errorf("read lockfile: %w", err)
 		return commandResult{}, errorContext
 	}
 
 	snapshot, err := lockgenerate.Build(ctx, lockgenerate.Input{
-		Paths:                paths,
-		Environment:          environment,
-		UsePersistentCache:   usePersistentCache,
-		MaxParallelSourceOps: maxParallelSourceOps,
-		SourceEvents:         sourceEvents,
-		Events:               lockBuildProgressSink(lockEvents),
-		HookEncoder:          hookcodec.CanonicalHookContribution,
-		MCPEncoder:           mcpcodec.CanonicalMCPBindingContribution,
+		Paths:                  paths,
+		Environment:            environment,
+		UsePersistentCache:     usePersistentCache,
+		MaxParallelSourceOps:   maxParallelSourceOps,
+		SourceEvents:           sourceEvents,
+		Events:                 lockBuildProgressSink(lockEvents),
+		HookEncoder:            hookcodec.CanonicalHookContribution,
+		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
+		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	})
 	if err != nil {
 		errorContext.Err = err
@@ -190,11 +199,20 @@ func outputLockfilePath(inputPath string, paths daempaths.Paths) string {
 	return paths.LockfilePath
 }
 
-func loadOptionalLockfile(path string) (lock.File, bool, error) {
+func loadOptionalLockfile(
+	path string,
+	allowPriorSchemaReplacement bool,
+) (lock.File, bool, error) {
 	file, err := lockfile.Load(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return lock.File{Version: lock.CurrentVersion}, true, nil
+		}
+		var versionErr lockfile.UnsupportedVersionError
+		if allowPriorSchemaReplacement &&
+			errors.As(err, &versionErr) &&
+			versionErr.RelockSupported() {
+			return lock.File{Version: lock.CurrentVersion}, false, nil
 		}
 		return lock.File{}, false, err
 	}

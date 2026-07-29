@@ -158,6 +158,14 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
 	}
 	result.LockfileMissing = lockfileMissing
+	if !lockfileMissing {
+		if err := lock.ValidateExtensionOrderIdentities(
+			locked,
+			aggregatecodec.ExtensionOrderIdentityResolver(paths),
+		); err != nil {
+			return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
+		}
+	}
 
 	// Target selection and readiness share this command-local persistence epoch.
 	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)

@@ -438,7 +438,7 @@ func replaceLockedRepairContract(
 	if !replaced {
 		t.Fatalf("locked subject %q not found", original.SubjectID())
 	}
-	file.Locked, err = lock.NewLockedSection(subjects)
+	file.Locked, err = lock.NewLockedSection(subjects, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}

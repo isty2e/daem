@@ -19,6 +19,7 @@ type Options struct {
 	SourceEvents            acquisition.EventSink
 	HookContributionEncoder commandhook.ContributionEncoder
 	MCPContributionEncoder  refine.MCPContributionEncoder
+	ExtensionOrderIdentity  refine.ExtensionOrderIdentityResolver
 }
 
 // BuildWithOptions resolves lockable resources into a canonical lock file.
@@ -121,6 +122,14 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 		emitSnapshotValidationFailed(options.Events, err)
 		return lock.File{}, err
 	}
+	lockedExtensionOrder, err := refine.ExtensionOrderConstraints(
+		environment.Extensions(),
+		options.ExtensionOrderIdentity,
+	)
+	if err != nil {
+		emitSnapshotValidationFailed(options.Events, err)
+		return lock.File{}, err
+	}
 	lockedSubjects := make(
 		[]lock.LockedSubjectContract, 0,
 		len(lockedSkills)+len(lockedInstructions)+len(lockedHookAssets)+len(lockedHookAssetPaths)+len(lockedHooks)+
@@ -133,7 +142,7 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 	lockedSubjects = append(lockedSubjects, lockedHooks...)
 	lockedSubjects = append(lockedSubjects, lockedMCPSubjects...)
 	lockedSubjects = append(lockedSubjects, lockedExtensionSubjects...)
-	lockedSection, err := lock.NewLockedSection(lockedSubjects)
+	lockedSection, err := lock.NewLockedSection(lockedSubjects, lockedExtensionOrder)
 	if err != nil {
 		emitSnapshotValidationFailed(options.Events, err)
 		return lock.File{}, err

@@ -16,7 +16,7 @@ import (
 
 func TestLockedHookAssetProjectionRejectsExactModeOutsideFamilyPolicy(t *testing.T) {
 	supply, projection := testHookAssetExactModeContracts(t, true, 0o640)
-	if _, err := NewLockedSection([]LockedSubjectContract{supply, projection}); err == nil ||
+	if _, err := NewLockedSection([]LockedSubjectContract{supply, projection}, nil); err == nil ||
 		!strings.Contains(err.Error(), "must be 0600 or 0700") {
 		t.Fatalf("NewLockedSection error = %v, want HookAsset exact-mode policy rejection", err)
 	}
@@ -24,7 +24,7 @@ func TestLockedHookAssetProjectionRejectsExactModeOutsideFamilyPolicy(t *testing
 
 func TestLockedHookAssetProjectionCorrelatesExactModeWithFileUse(t *testing.T) {
 	supply, projection := testHookAssetExactModeContracts(t, true, 0o600)
-	if _, err := NewLockedSection([]LockedSubjectContract{supply, projection}); err == nil ||
+	if _, err := NewLockedSection([]LockedSubjectContract{supply, projection}, nil); err == nil ||
 		!strings.Contains(err.Error(), "does not match file use") {
 		t.Fatalf("NewLockedSection error = %v, want HookAsset file-use correlation rejection", err)
 	}

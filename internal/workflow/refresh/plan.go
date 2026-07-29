@@ -15,6 +15,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -242,6 +243,12 @@ func planAtPaths(
 	}
 	locked, err := lockfile.Load(paths.LockfilePath)
 	if err != nil {
+		return refusedPlan(result, ReasonLockUnavailable, err, "run daem lock for the selected manifest")
+	}
+	if err := lock.ValidateExtensionOrderIdentities(
+		locked,
+		aggregatecodec.ExtensionOrderIdentityResolver(paths),
+	); err != nil {
 		return refusedPlan(result, ReasonLockUnavailable, err, "run daem lock for the selected manifest")
 	}
 	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)

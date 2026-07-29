@@ -20,7 +20,7 @@ func ExtensionCarrierFile(
 	if err != nil {
 		t.Fatalf("refine.Extensions: %v", err)
 	}
-	section, err := lock.NewLockedSection(contracts)
+	section, err := lock.NewLockedSection(contracts, nil)
 	if err != nil {
 		t.Fatalf("lock.NewLockedSection: %v", err)
 	}

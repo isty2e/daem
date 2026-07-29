@@ -1,6 +1,11 @@
 package opencode
 
-import "fmt"
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/isty2e/daem/internal/target"
+)
 
 // ConfigKind identifies one OpenCode plugin contribution document.
 type ConfigKind string
@@ -43,4 +48,59 @@ func SelectName(kind ConfigKind, exists func(string) (bool, error)) (string, err
 		}
 	}
 	return candidates[0], nil
+}
+
+// ConfigDirectory returns the selected OpenCode config directory without
+// consulting process state. globalRoot is the complete OpenCode config root.
+func ConfigDirectory(
+	manifestRoot string,
+	globalRoot string,
+	scope target.Scope,
+) (string, error) {
+	switch scope {
+	case target.ScopeProject:
+		if err := validateAbsoluteCleanPath(
+			"OpenCode project manifest root",
+			manifestRoot,
+		); err != nil {
+			return "", err
+		}
+		return filepath.Join(manifestRoot, ".opencode"), nil
+	case target.ScopeGlobal:
+		if err := validateAbsoluteCleanPath(
+			"OpenCode global config root",
+			globalRoot,
+		); err != nil {
+			return "", err
+		}
+		return globalRoot, nil
+	default:
+		return "", fmt.Errorf(
+			"OpenCode plugin relation scope %q has no config directory",
+			scope,
+		)
+	}
+}
+
+// DefaultGlobalConfigRoot derives OpenCode's global config root from already
+// observed process roots.
+func DefaultGlobalConfigRoot(xdgConfigHome string, homeRoot string) (string, error) {
+	base := xdgConfigHome
+	if base == "" {
+		if err := validateAbsoluteCleanPath("user home", homeRoot); err != nil {
+			return "", err
+		}
+		base = filepath.Join(homeRoot, ".config")
+	}
+	if err := validateAbsoluteCleanPath("XDG config home", base); err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "opencode"), nil
+}
+
+func validateAbsoluteCleanPath(label string, value string) error {
+	if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value {
+		return fmt.Errorf("%s %q must be absolute and clean", label, value)
+	}
+	return nil
 }

@@ -235,6 +235,14 @@ func (constraint RelationOrderConstraint) Members() []RelationOrderMember {
 	return append([]RelationOrderMember(nil), constraint.members...)
 }
 
+// Equal reports complete semantic equality, including member order.
+func (constraint RelationOrderConstraint) Equal(other RelationOrderConstraint) bool {
+	return constraint.classID == other.classID &&
+		constraint.memberIdentityContract == other.memberIdentityContract &&
+		constraint.runtimeMeaning == other.runtimeMeaning &&
+		slices.Equal(constraint.members, other.members)
+}
+
 // Fingerprint returns a stable digest over the complete ordered constraint.
 func (constraint RelationOrderConstraint) Fingerprint() string {
 	if constraint.Validate() != nil {

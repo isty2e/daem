@@ -11,6 +11,29 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
+// UnsupportedVersionError reports a lock schema that this reader cannot use.
+type UnsupportedVersionError struct {
+	Found     int
+	Supported int
+}
+
+func (err UnsupportedVersionError) Error() string {
+	if err.RelockSupported() {
+		return fmt.Sprintf(
+			"unsupported lockfile version %d; run daem lock to regenerate schema version %d",
+			err.Found,
+			err.Supported,
+		)
+	}
+	return fmt.Sprintf("unsupported lockfile version %d", err.Found)
+}
+
+// RelockSupported reports whether the lock workflow may replace this exact
+// prior schema without interpreting its contents.
+func (err UnsupportedVersionError) RelockSupported() bool {
+	return err.Found == 3 && err.Supported == 4
+}
+
 // Load reads an daem.lock.toml file.
 func Load(path string) (lock.File, error) {
 	content, err := os.ReadFile(path)
@@ -24,11 +47,18 @@ func Load(path string) (lock.File, error) {
 	var header struct {
 		Version int `toml:"version"`
 	}
-	if _, err := toml.Decode(string(content), &header); err != nil {
+	headerMetadata, err := toml.Decode(string(content), &header)
+	if err != nil {
 		return lock.File{}, err
 	}
 	if header.Version != lock.CurrentVersion {
-		return lock.File{}, fmt.Errorf("unsupported lockfile version %d", header.Version)
+		return lock.File{}, UnsupportedVersionError{
+			Found:     header.Version,
+			Supported: lock.CurrentVersion,
+		}
+	}
+	if err := validateLockedShapes(&headerMetadata); err != nil {
+		return lock.File{}, err
 	}
 
 	var dto fileDTO
@@ -39,10 +69,6 @@ func Load(path string) (lock.File, error) {
 	if undecoded := metadata.Undecoded(); len(undecoded) > 0 {
 		return lock.File{}, fmt.Errorf("unknown lockfile key %q", undecoded[0].String())
 	}
-	if err := validateLockedShapes(&metadata); err != nil {
-		return lock.File{}, err
-	}
-
 	file, err := snapshotFromDTO(dto)
 	if err != nil {
 		return lock.File{}, err

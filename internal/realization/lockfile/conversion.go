@@ -12,7 +12,11 @@ func snapshotFromDTO(dto fileDTO) (lock.File, error) {
 	if err != nil {
 		return lock.File{}, err
 	}
-	locked, err := lock.NewLockedSection(subjects)
+	orderConstraints, err := orderConstraintsFromDTO(dto.Locked.OrderConstraints)
+	if err != nil {
+		return lock.File{}, err
+	}
+	locked, err := lock.NewLockedSection(subjects, orderConstraints)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -27,9 +31,16 @@ func dtoFromSnapshot(file lock.File) (fileDTO, error) {
 	if err != nil {
 		return fileDTO{}, err
 	}
+	orderConstraints, err := orderConstraintsToDTO(file.Locked.OrderConstraints())
+	if err != nil {
+		return fileDTO{}, err
+	}
 	return fileDTO{
 		Version: file.Version,
-		Locked:  lockedSectionDTO{Subjects: subjects},
+		Locked: lockedSectionDTO{
+			Subjects:         subjects,
+			OrderConstraints: orderConstraints,
+		},
 	}, nil
 }
 

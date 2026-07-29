@@ -507,7 +507,7 @@ func globalAggregateOwnershipInput(
 	if err != nil || !present {
 		t.Fatalf("ManagedAggregateContribution = %#v, %t, %v", contribution, present, err)
 	}
-	locked, err := lock.NewLockedSection([]lock.LockedSubjectContract{lockedContract})
+	locked, err := lock.NewLockedSection([]lock.LockedSubjectContract{lockedContract}, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}
@@ -545,7 +545,7 @@ func globalAggregateOwnershipInput(
 		fileMode = aggregate.DocumentFileMode
 		desired = nil
 		expected = nil
-		locked, err = lock.NewLockedSection(nil)
+		locked, err = lock.NewLockedSection(nil, nil)
 		if err != nil {
 			t.Fatalf("empty NewLockedSection returned error: %v", err)
 		}

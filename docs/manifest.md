@@ -1290,6 +1290,26 @@ Current lock behavior:
   ordered by `entity_id` and `subject_id`. Selector-backed Skill children carry
   `skill_set_member.declaration_identity`; direct Skills carry no declaration
   provenance facet.
+- Extension order is encoded separately as collection-owned
+  `[[locked.order_constraint]]` rows. Each row records one profile-defined
+  `class_id`, its host-load-identity `contract_version`, its
+  `runtime_meaning`, and ordered `member` rows containing the exact extension
+  relation `subject_id` plus canonical `host_load_identity`. Constraint rows
+  are sorted by class id; member rows preserve manifest order and are never
+  sorted by declaration id.
+- An order class is omitted when it has fewer than two locked members. A
+  persisted class must contain every locked member of that admitted class
+  exactly once. Duplicate host-load identities, dangling subjects,
+  cross-class members, and profile contract or runtime drift are rejected.
+  OpenCode currently locks configuration order; Pi locks runtime precedence.
+  Locking order does not record current host sequence, mutate host config, or
+  change extension subject or route identity.
+- Commands that consume a lock as current authority rederive every persisted
+  host-load identity from the locked carrier source and the selected manifest
+  context. A mismatch blocks `status`, `apply`, `refresh`, and `probe` until
+  `daem lock` regenerates the snapshot. `lock` and `outdated` deliberately
+  treat the previous snapshot as comparison input, so they can repair stale
+  path context rather than being blocked by it.
 - Each Skill locks one exact-Supply resource subject and one managed-path
   projection subject per distinct physical placement. Targets sharing the same
   profile placement coalesce into one projection with canonical
@@ -1303,20 +1323,26 @@ Current lock behavior:
   exact non-executable file-use contract and deterministic file materialization,
   plus one managed-file projection subject per distinct supported placement.
   Targets sharing a physical file coalesce into one canonical consumer set.
-  A schema-v3 Instructions Supply without at least one structurally valid file
+  A schema-v4 Instructions Supply without at least one structurally valid file
   projection is rejected; apply/status additionally require the lock projection
   set to equal the current manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
 - Lockfile rows are sorted by canonical `entity_id`, then `subject_id`.
-- Lockfile readers accept only schema version 3 and reject unsupported versions,
+- Lockfile readers accept only schema version 4 and reject unsupported versions,
   invalid UTF-8, unknown keys, incompatible TOML table shapes, duplicate subject
   identities, zero-facet subjects, unknown realization variants, invalid
   cross-facet correlation, unsupported exact-Supply family shapes, malformed
   exact identities or operation contracts, an `exact` managed-path projection
   without `exact_permission_mode`, and persisted values that would need
-  trimming, sorting, or deduplication to become canonical.
-- Schema version 3 does not admit `generated_at`; readers reject it as an
+  trimming, sorting, or deduplication to become canonical. Schema version 3 is
+  not interpreted: `status`, `apply`, and `outdated` direct the user to
+  regenerate it, while `daem lock` and transactional manifest authoring may
+  atomically replace it from the selected manifest without treating old rows
+  as current authority.
+- Schema version 4 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
+- The v4 change affects generated lockfiles only. The public manifest remains
+  schema version 1 and requires no authoring migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 

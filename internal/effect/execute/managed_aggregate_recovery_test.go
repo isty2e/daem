@@ -614,7 +614,7 @@ func managedMCPAggregateEffects(
 		desired = append(desired, item)
 		projectionContracts = append(projectionContracts, item.Contribution().Contract())
 	}
-	locked, err := lock.NewLockedSection(contracts)
+	locked, err := lock.NewLockedSection(contracts, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}
@@ -724,7 +724,7 @@ func managedLockedSection(
 	contracts ...lock.LockedSubjectContract,
 ) lock.LockedSection {
 	t.Helper()
-	locked, err := lock.NewLockedSection(contracts)
+	locked, err := lock.NewLockedSection(contracts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

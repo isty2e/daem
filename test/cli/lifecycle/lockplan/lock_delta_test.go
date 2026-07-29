@@ -120,7 +120,7 @@ func TestRunLockDryRunJSONReportsStructuredDelta(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal returned error: %v\nstdout = %s", err, stdout.String())
 	}
-	if payload.SchemaVersion != 2 || payload.Command != "lock" || payload.Mode != "dry-run" {
+	if payload.SchemaVersion != 3 || payload.Command != "lock" || payload.Mode != "dry-run" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ManifestPath != manifestPath || payload.LockfilePath != lockfilePath || !payload.PreviousFound {
