@@ -1,6 +1,7 @@
 package pipackage_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -117,6 +118,22 @@ func TestReadSettingsRejectsSymlinkAndNonRegularPath(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "regular file") {
 		t.Fatalf("directory ReadSettings error = %v", err)
+	}
+}
+
+func TestReadSettingsRejectsOversizedInput(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent", "settings.json")
+	content := bytes.Repeat([]byte(" "), observepipackage.MaximumSettingsBytes+1)
+	writeSettingsBytes(t, path, content)
+
+	_, err := observepipackage.ReadSettings(observepipackage.SettingsInput{
+		ConfigRoot: root + string(os.PathSeparator) + "agent",
+		WorkDir:    root,
+		Scope:      target.ScopeGlobal,
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized ReadSettings error = %v", err)
 	}
 }
 
