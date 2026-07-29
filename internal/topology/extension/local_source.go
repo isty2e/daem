@@ -33,6 +33,15 @@ type LocalSourceIdentity struct {
 	path string
 }
 
+// NewLocalSourceIdentity validates one already-resolved lexical absolute
+// carrier-local source identity.
+func NewLocalSourceIdentity(path string) (LocalSourceIdentity, error) {
+	if err := validateLocalSourceRoot("carrier local source identity", path); err != nil {
+		return LocalSourceIdentity{}, err
+	}
+	return LocalSourceIdentity{path: path}, nil
+}
+
 // Path returns the absolute clean lexical source path.
 func (identity LocalSourceIdentity) Path() string { return identity.path }
 
@@ -66,11 +75,7 @@ func (source CarrierSource) ResolveLocal(context LocalSourceContext) (LocalSourc
 	if !filepath.IsAbs(local) {
 		local = filepath.Join(context.baseRoot, local)
 	}
-	path := filepath.Clean(local)
-	if err := validateLocalSourceRoot("carrier local source identity", path); err != nil {
-		return LocalSourceIdentity{}, err
-	}
-	return LocalSourceIdentity{path: path}, nil
+	return NewLocalSourceIdentity(filepath.Clean(local))
 }
 
 func localSourcePath(source string) (string, error) {

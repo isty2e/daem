@@ -598,14 +598,12 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 			input.MCPServers[index].LivePath = filepath.Join(root, "live-mcp")
 		}
 	}
-	candidates, err := adopt.NewCandidateSet(
-		input.Sources,
-		input.Skills,
-		input.Hooks,
-		input.MCPServers,
-		nil,
-		nil,
-	)
+	candidates, err := adopt.NewCandidateSet(adopt.CandidateSetInput{
+		Sources:    input.Sources,
+		Skills:     input.Skills,
+		Hooks:      input.Hooks,
+		MCPServers: input.MCPServers,
+	})
 	if err != nil {
 		return adopt.Plan{}, err
 	}

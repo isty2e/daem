@@ -3,7 +3,10 @@ package clipresent
 import (
 	"encoding/json"
 	"io"
+	"path/filepath"
 
+	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/target"
 	authoringworkflow "github.com/isty2e/daem/internal/workflow/authoring"
 )
 
@@ -45,6 +48,7 @@ type ManifestAuthoringJSONChange struct {
 	Targets       []string                    `json:"targets,omitempty"`
 	Scope         string                      `json:"scope,omitempty"`
 	Source        string                      `json:"source,omitempty"`
+	Carrier       string                      `json:"carrier,omitempty"`
 	LivePath      string                      `json:"live_path,omitempty"`
 	RenderTo      string                      `json:"render_to,omitempty"`
 	Detail        string                      `json:"detail,omitempty"`
@@ -79,6 +83,7 @@ type ImportAuthoringJSONSummary struct {
 	Skills       int    `json:"skills"`
 	Hooks        int    `json:"hooks"`
 	MCPServers   int    `json:"mcp_servers"`
+	Extensions   int    `json:"extensions"`
 }
 
 type ImportAuthoringJSONScan struct {
@@ -250,4 +255,150 @@ func ImportManifestAuthoringJSON(input ImportManifestAuthoringJSONInput) Manifes
 		Skipped:       append([]ImportAuthoringJSONSkipped(nil), input.Skipped...),
 		MergeResults:  append([]ImportAuthoringJSONMerge(nil), input.MergeResults...),
 	}
+}
+
+func ImportPlanJSONOutput(mode string, plan adoptmodel.Plan) ManifestAuthoringJSONOutput {
+	return ImportManifestAuthoringJSON(ImportManifestAuthoringJSONInput{
+		Mode:          mode,
+		ManifestPath:  plan.Output(),
+		SourceDir:     plan.SourceDirectory().Root(),
+		ResourceCount: plan.ResourceCount(),
+		HasErrors:     plan.HasMergeConflicts(),
+		Changes:       importPlanJSONChanges(plan),
+		Summary:       importPlanJSONSummary(plan),
+		Scans:         importPlanJSONScans(plan.Scans()),
+		Skipped:       importPlanJSONSkipped(plan.Skipped()),
+		MergeResults:  importPlanJSONMergeResults(plan.MergeResults()),
+	})
+}
+
+func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
+	changes := make([]ManifestAuthoringJSONChange, 0, plan.ResourceCount())
+	for _, source := range plan.Sources() {
+		changes = append(changes, ManifestAuthoringJSONChange{
+			Operation:  "import",
+			ResourceID: authoringResourceID("instructions", source.ResourceName),
+			Resource:   authoringJSONResource("instructions", source.ResourceName),
+			Target:     string(source.Target),
+			Scope:      string(source.Scope),
+			Source:     filepath.ToSlash(source.SourcePath),
+			LivePath:   source.LivePath,
+			RenderTo:   source.RenderTo,
+		})
+	}
+	for _, skill := range plan.Skills() {
+		changes = append(changes, ManifestAuthoringJSONChange{
+			Operation:  "import",
+			ResourceID: authoringResourceID("skill", skill.ResourceName),
+			Resource:   authoringJSONResource("skill", skill.ResourceName),
+			Target:     string(skill.Target),
+			Targets:    importTargetStrings(skill.Targets),
+			Scope:      string(skill.Scope),
+			Source:     filepath.ToSlash(skill.SourcePath),
+			LivePath:   skill.LivePath,
+		})
+	}
+	for _, hook := range plan.Hooks() {
+		changes = append(changes, ManifestAuthoringJSONChange{
+			Operation:  "import",
+			ResourceID: authoringResourceID("hook", hook.ResourceName),
+			Resource:   authoringJSONResource("hook", hook.ResourceName),
+			Target:     string(hook.Target),
+			Scope:      string(hook.Scope),
+			LivePath:   hook.LivePath,
+			Detail:     hook.Event,
+		})
+	}
+	for _, server := range plan.MCPServers() {
+		changes = append(changes, ManifestAuthoringJSONChange{
+			Operation:  "import",
+			ResourceID: authoringResourceID("mcp_server", server.ResourceName),
+			Resource:   authoringJSONResource("mcp_server", server.ResourceName),
+			Target:     string(server.Target),
+			Scope:      string(server.Scope),
+			LivePath:   server.LivePath,
+			Detail:     server.Command,
+		})
+	}
+	for _, extension := range plan.Extensions() {
+		changes = append(changes, ManifestAuthoringJSONChange{
+			Operation:  "import",
+			ResourceID: authoringResourceID("extension", extension.ID().Name()),
+			Resource:   authoringJSONResource("extension", extension.ID().Name()),
+			Target:     string(extension.Target()),
+			Scope:      string(extension.Scope()),
+			Source:     extension.Source().Ref(),
+			Carrier:    string(extension.Carrier()),
+		})
+	}
+	return changes
+}
+
+func importPlanJSONSummary(plan adoptmodel.Plan) []ImportAuthoringJSONSummary {
+	summaryRows := plan.SummaryRows()
+	summary := make([]ImportAuthoringJSONSummary, 0, len(summaryRows))
+	for _, row := range summaryRows {
+		summary = append(summary, ImportAuthoringJSONSummary{
+			Target:       string(row.Target),
+			Scope:        string(row.Scope),
+			Instructions: row.Instructions,
+			Skills:       row.Skills,
+			Hooks:        row.Hooks,
+			MCPServers:   row.MCPServers,
+			Extensions:   row.Extensions,
+		})
+	}
+	return summary
+}
+
+func importPlanJSONScans(scans []adoptmodel.Scan) []ImportAuthoringJSONScan {
+	result := make([]ImportAuthoringJSONScan, 0, len(scans))
+	for _, scan := range scans {
+		result = append(result, ImportAuthoringJSONScan{
+			ResourceID: authoringResourceID(scan.ResourceKind, scan.ResourceName),
+			Resource:   authoringJSONResource(scan.ResourceKind, scan.ResourceName),
+			Target:     string(scan.Target),
+			Scope:      string(scan.Scope),
+			LivePath:   scan.LivePath,
+			Status:     scan.Status,
+			Entries:    scan.Entries,
+			Imported:   scan.Imported,
+			Skipped:    scan.Skipped,
+		})
+	}
+	return result
+}
+
+func importPlanJSONSkipped(skipped []adoptmodel.Skipped) []ImportAuthoringJSONSkipped {
+	result := make([]ImportAuthoringJSONSkipped, 0, len(skipped))
+	for _, item := range skipped {
+		result = append(result, ImportAuthoringJSONSkipped{
+			LivePath: item.LivePath,
+			Reason:   item.Reason,
+		})
+	}
+	return result
+}
+
+func importPlanJSONMergeResults(results []adoptmodel.MergeResult) []ImportAuthoringJSONMerge {
+	merges := make([]ImportAuthoringJSONMerge, 0, len(results))
+	for _, result := range results {
+		merges = append(merges, ImportAuthoringJSONMerge{
+			ResourceID: result.Resource,
+			Status:     string(result.Status),
+			Detail:     result.Detail,
+		})
+	}
+	return merges
+}
+
+func importTargetStrings(targets []target.Target) []string {
+	if len(targets) == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(targets))
+	for _, target := range targets {
+		values = append(values, string(target))
+	}
+	return values
 }

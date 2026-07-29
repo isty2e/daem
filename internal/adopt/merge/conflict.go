@@ -8,6 +8,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/desired/entity"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/profile"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -162,6 +163,66 @@ func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmod
 		}
 	}
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported mcp_server"}
+}
+
+func classifyImportExtensionMerge(
+	existing existingDeclarations,
+	imported desiredextension.Extension,
+) adoptmodel.MergeResult {
+	resource := "extension/" + imported.ID().Name()
+	for _, block := range existing.Extensions {
+		if block.Extension.ID != imported.ID().Name() {
+			continue
+		}
+		if sameImportedExtension(block.Extension, imported) {
+			return adoptmodel.MergeResult{
+				Resource: resource,
+				Status:   adoptmodel.MergeStatusNoop,
+				Detail:   "existing extension already matches imported exact relation",
+			}
+		}
+		return adoptmodel.MergeResult{
+			Resource: resource,
+			Status:   adoptmodel.MergeStatusConflict,
+			Detail:   "existing extension has the same id with a different exact relation",
+		}
+	}
+	for _, block := range existing.Extensions {
+		if sameImportedExtension(block.Extension, imported) {
+			return adoptmodel.MergeResult{
+				Resource: resource,
+				Status:   adoptmodel.MergeStatusConflict,
+				Detail:   "existing extension relation is already declared under a different id",
+			}
+		}
+	}
+	return adoptmodel.MergeResult{
+		Resource: resource,
+		Status:   adoptmodel.MergeStatusAdd,
+		Detail:   "insert imported extension in exact host order",
+	}
+}
+
+func sameImportedExtension(
+	existing declaration.Extension,
+	imported desiredextension.Extension,
+) bool {
+	if existing.Carrier != string(imported.Carrier()) ||
+		existing.Scope != string(imported.Scope()) ||
+		len(existing.Targets) != 1 ||
+		existing.Targets[0] != string(imported.Target()) {
+		return false
+	}
+	switch imported.Source().Kind() {
+	case desiredextension.SourceKindMarketplace:
+		return existing.Source.Marketplace == imported.Source().Ref() &&
+			existing.Source.HostSource == ""
+	case desiredextension.SourceKindHostSource:
+		return existing.Source.HostSource == imported.Source().Ref() &&
+			existing.Source.Marketplace == ""
+	default:
+		return false
+	}
 }
 
 func classifyImportTargets(resource string, existingTargets []string, importedTargets []targetpkg.Target) (adoptmodel.MergeResult, []targetpkg.Target) {

@@ -215,7 +215,10 @@ func testAdoptPlan(
 			skills[index].ContentHash = artifact.HashFileContent([]byte("mutation test skill"))
 		}
 	}
-	candidates, err := adoptmodel.NewCandidateSet(sources, skills, nil, nil, nil, nil)
+	candidates, err := adoptmodel.NewCandidateSet(adoptmodel.CandidateSetInput{
+		Sources: sources,
+		Skills:  skills,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

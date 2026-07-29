@@ -292,9 +292,10 @@ daem import --target <target> [--target <target> ...] [--manifest <path>]
 ```
 
 At least one target is required. Import observes supported live instruction,
-skill, hook, and standalone MCP forms and writes a new or explicitly merged
-manifest plus copied source material. It never writes the lockfile, statefile,
-managed host outputs, cache, or recovery journal.
+skill, hook, standalone MCP, and source-exact extension forms and writes a new
+or explicitly merged manifest plus copied source material. It never writes the
+lockfile, statefile, managed host outputs, carrier claims, cache, or recovery
+journal.
 
 `--source-dir` defaults to `<manifest-basename>.d` beside the selected manifest.
 A relative source directory must stay within the manifest directory and may not
@@ -313,12 +314,16 @@ scan, resource, and merge rows. JSON retains every typed row. After a successful
 write with imported resources, human output points to lock preview and then to
 `apply --manage-existing --dry-run` after the lockfile is written. The latter
 only previews registration of eligible exact matching live outputs; import does
-not register them and never recommends `--yes`. The current CLI does not yet
-author extension declarations through import. Exact extension import is a
-planned route for Codex, Claude Code, OpenCode, and Pi; Antigravity lacks
-recoverable source provenance. Until that route is implemented, an exact
-extension can be authored with `add extension`, locked, and handled through the
-separate manage-existing apply flow described below.
+not register them and never recommends `--yes`.
+
+Extension import covers Codex global, Claude Code project/global, OpenCode
+project/global, and Pi project/global exact source rows. Generated ids are
+deterministic, existing exact declarations retain their ids, and merge
+preserves existing manifest bytes and relative order. Conflicting ids,
+duplicate host load identities, or contradictory native and manifest order
+fail before mutation. Antigravity installed state does not retain enough source
+provenance to reconstruct a declaration, so those rows are reported as
+`source_provenance_unrecoverable` skips.
 
 ## `add`
 
@@ -486,6 +491,11 @@ fields:
 | `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
 | `has_errors`, optional `warnings` | result classification |
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
+
+Imported extension changes use `resource.kind = "extension"` and include the
+exact `carrier`, `target`, `scope`, and `source`. Import summary rows include an
+`extensions` count; scan rows identify their resource kind so extension
+inventory evidence is not reported as a skill scan.
 
 Human next-command prose is deliberately absent from schema `2`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.

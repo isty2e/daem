@@ -62,10 +62,10 @@ func ResolveSelectedCarrierSources(
 				err,
 			)
 		}
-		resolvedRef, err := selectedCarrierSourceRef(
+		resolvedRef, err := LocalSourceManifestReference(
+			identity,
 			paths.ManifestRoot,
 			value.Scope(),
-			identity.Path(),
 		)
 		if err != nil {
 			return desired.Environment{}, fmt.Errorf(
@@ -101,15 +101,32 @@ func ResolveSelectedCarrierSources(
 	return resolved, nil
 }
 
-func selectedCarrierSourceRef(
+// LocalSourceManifestReference projects one lexical local identity into the
+// selected manifest scope without changing the underlying source identity.
+func LocalSourceManifestReference(
+	identity extensiontopology.LocalSourceIdentity,
 	manifestRoot string,
 	scope target.Scope,
-	absoluteIdentity string,
 ) (string, error) {
-	if scope != target.ScopeProject {
-		return absoluteIdentity, nil
+	if identity.Path() == "" {
+		return "", fmt.Errorf("carrier local source identity is not initialized")
 	}
-	relative, err := filepath.Rel(manifestRoot, absoluteIdentity)
+	switch scope {
+	case target.ScopeGlobal:
+		return identity.Path(), nil
+	case target.ScopeProject:
+	default:
+		return "", fmt.Errorf("carrier local source scope %q is not supported", scope)
+	}
+	if manifestRoot == "" ||
+		!filepath.IsAbs(manifestRoot) ||
+		filepath.Clean(manifestRoot) != manifestRoot {
+		return "", fmt.Errorf(
+			"carrier local source manifest root %q must be absolute and clean",
+			manifestRoot,
+		)
+	}
+	relative, err := filepath.Rel(manifestRoot, identity.Path())
 	if err != nil {
 		return "", fmt.Errorf("derive project-local carrier source: %w", err)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
@@ -17,10 +18,25 @@ const (
 	declarationHookTypeCommand = "command"
 )
 
-func RenderManifestContent(sources []Source, skills []Skill, hooks []Hook, mcpServers []MCPServer) ([]byte, error) {
-	targets := make([]string, 0, len(sources)+len(skills)+len(hooks)+len(mcpServers))
-	targetSeen := make(map[targetpkg.Target]struct{}, len(sources)+len(skills)+len(hooks)+len(mcpServers))
-	body, targets, err := importManifestTables(sources, skills, hooks, mcpServers, targets, targetSeen)
+func RenderManifestContent(
+	sources []Source,
+	skills []Skill,
+	hooks []Hook,
+	mcpServers []MCPServer,
+	extensions []desiredextension.Extension,
+) ([]byte, error) {
+	resourceCount := len(sources) + len(skills) + len(hooks) + len(mcpServers) + len(extensions)
+	targets := make([]string, 0, resourceCount)
+	targetSeen := make(map[targetpkg.Target]struct{}, resourceCount)
+	body, targets, err := importManifestTables(
+		sources,
+		skills,
+		hooks,
+		mcpServers,
+		extensions,
+		targets,
+		targetSeen,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -28,11 +44,25 @@ func RenderManifestContent(sources []Source, skills []Skill, hooks []Hook, mcpSe
 	return declarationcodec.RenderImportManifest(targets, body)
 }
 
-func RenderManifestBodyContent(sources []Source, skills []Skill, hooks []Hook, mcpServers []MCPServer) ([]byte, error) {
-	if len(sources)+len(skills)+len(hooks)+len(mcpServers) == 0 {
+func RenderManifestBodyContent(
+	sources []Source,
+	skills []Skill,
+	hooks []Hook,
+	mcpServers []MCPServer,
+	extensions []desiredextension.Extension,
+) ([]byte, error) {
+	if len(sources)+len(skills)+len(hooks)+len(mcpServers)+len(extensions) == 0 {
 		return nil, nil
 	}
-	body, _, err := importManifestTables(sources, skills, hooks, mcpServers, nil, make(map[targetpkg.Target]struct{}))
+	body, _, err := importManifestTables(
+		sources,
+		skills,
+		hooks,
+		mcpServers,
+		extensions,
+		nil,
+		make(map[targetpkg.Target]struct{}),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +75,7 @@ func importManifestTables(
 	skills []Skill,
 	hooks []Hook,
 	mcpServers []MCPServer,
+	extensions []desiredextension.Extension,
 	targets []string,
 	targetSeen map[targetpkg.Target]struct{},
 ) (declarationcodec.ImportManifestBody, []string, error) {
@@ -175,6 +206,40 @@ func importManifestTables(
 			Env:       mcpServerEnvReferences(server.Env),
 		})
 	}
+	manifestExtensions := make([]declarationcodec.ImportManifestExtension, 0, len(extensions))
+	for index, extension := range extensions {
+		if err := extension.Validate(); err != nil {
+			return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf(
+				"imported extension %d: %w",
+				index,
+				err,
+			)
+		}
+		if _, ok := targetSeen[extension.Target()]; !ok {
+			targetSeen[extension.Target()] = struct{}{}
+			targets = append(targets, string(extension.Target()))
+		}
+		source := declarationcodec.ImportManifestExtensionSource{}
+		switch extension.Source().Kind() {
+		case desiredextension.SourceKindMarketplace:
+			source.Marketplace = extension.Source().Ref()
+		case desiredextension.SourceKindHostSource:
+			source.HostSource = extension.Source().Ref()
+		default:
+			return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf(
+				"imported extension %q has unsupported source kind %q",
+				extension.ID().Name(),
+				extension.Source().Kind(),
+			)
+		}
+		manifestExtensions = append(manifestExtensions, declarationcodec.ImportManifestExtension{
+			ID:      extension.ID().Name(),
+			Carrier: string(extension.Carrier()),
+			Targets: []string{string(extension.Target())},
+			Scope:   string(extension.Scope()),
+			Source:  source,
+		})
+	}
 
 	return declarationcodec.ImportManifestBody{
 		Instructions: instructions,
@@ -182,6 +247,7 @@ func importManifestTables(
 		Skills:       manifestSkills,
 		Hooks:        manifestHooks,
 		MCPServers:   manifestMCPServers,
+		Extensions:   manifestExtensions,
 	}, targets, nil
 }
 

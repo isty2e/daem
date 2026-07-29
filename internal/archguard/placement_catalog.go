@@ -225,6 +225,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/assurance/observe/live",
 			"internal/assurance/observe/lock",
 			"internal/assurance/observe/ownership",
+			"internal/assurance/observe/filesnapshot",
 			"internal/assurance/observe/relation/host",
 		},
 	},
@@ -253,6 +254,11 @@ var packagePlacementRows = []packagePlacementRow{
 		id:        "assurance.observation.codex",
 		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "Codex"),
 		packages:  []string{"internal/assurance/observe/codexplugin"},
+	},
+	{
+		id:        "assurance.observation.opencode",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationHost, "OpenCode"),
+		packages:  []string{"internal/assurance/observe/opencodeplugin"},
 	},
 	{
 		id:        "assurance.observation.pi",
@@ -380,6 +386,11 @@ var packagePlacementRows = []packagePlacementRow{
 		id:        "workflow.family.hook",
 		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "Hook"),
 		packages:  []string{"internal/adopt/hook"},
+	},
+	{
+		id:        "workflow.family.extension",
+		placement: specializedPlacement(affinityNone, roleWorkflowComposition, specializationFamily, "Extension"),
+		packages:  []string{"internal/adopt/extension"},
 	},
 	{
 		id:        "workflow.family.instructions",

@@ -3,6 +3,9 @@ package adopt
 import (
 	"encoding/json"
 	"fmt"
+
+	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 )
 
 // Plan is one complete, immutable adoption decision.
@@ -118,6 +121,21 @@ func (plan Plan) MCPServers() []MCPServer {
 	return plan.candidates.MCPServers()
 }
 
+// Extensions returns source-exact imported extension declarations.
+func (plan Plan) Extensions() []desiredextension.Extension {
+	return plan.candidates.Extensions()
+}
+
+// OrderedExtensions returns the complete merge-safe extension proposal.
+func (plan Plan) OrderedExtensions() []desiredextension.Extension {
+	return plan.candidates.OrderedExtensions()
+}
+
+// ExtensionResult returns the exact extension evidence and ordering proposal.
+func (plan Plan) ExtensionResult() adoptextension.Result {
+	return plan.candidates.ExtensionResult()
+}
+
 // Scans returns an owned copy of live scan observations.
 func (plan Plan) Scans() []Scan {
 	return plan.candidates.Scans()
@@ -147,6 +165,10 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 	if err := plan.Validate(); err != nil {
 		return nil, err
 	}
+	extensionIdentity, err := plan.ExtensionResult().IdentityBytes()
+	if err != nil {
+		return nil, fmt.Errorf("extension identity: %w", err)
+	}
 	return json.Marshal(struct {
 		Output          string
 		SourceDir       string
@@ -157,6 +179,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Skills          []Skill
 		Hooks           []Hook
 		MCPServers      []MCPServer
+		Extensions      json.RawMessage
 		Scans           []Scan
 		Skipped         []Skipped
 		MergeResults    []MergeResult
@@ -170,6 +193,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Skills:          plan.Skills(),
 		Hooks:           plan.Hooks(),
 		MCPServers:      plan.MCPServers(),
+		Extensions:      extensionIdentity,
 		Scans:           plan.Scans(),
 		Skipped:         plan.Skipped(),
 		MergeResults:    plan.MergeResults(),
@@ -213,6 +237,15 @@ func validateCandidatesAgainstRequest(request Request, candidates CandidateSet) 
 	}
 	for _, server := range candidates.mcpServers {
 		if err := validate("mcp server candidate", string(server.Target), string(server.Scope)); err != nil {
+			return err
+		}
+	}
+	for _, extension := range candidates.Extensions() {
+		if err := validate(
+			"extension candidate",
+			string(extension.Target()),
+			string(extension.Scope()),
+		); err != nil {
 			return err
 		}
 	}

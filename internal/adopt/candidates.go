@@ -4,80 +4,99 @@ import (
 	"fmt"
 	"strings"
 
+	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
+// CandidateSetInput names each independent import candidate and observation
+// axis.
+type CandidateSetInput struct {
+	Sources    []Source
+	Skills     []Skill
+	Hooks      []Hook
+	MCPServers []MCPServer
+	Extensions adoptextension.Result
+	Scans      []Scan
+	Skipped    []Skipped
+}
+
 // CandidateSet is one validated, immutable collection of live import facts.
 type CandidateSet struct {
-	sources    []Source
-	skills     []Skill
-	hooks      []Hook
-	mcpServers []MCPServer
-	scans      []Scan
-	skipped    []Skipped
+	sources         []Source
+	skills          []Skill
+	hooks           []Hook
+	mcpServers      []MCPServer
+	extensionResult adoptextension.Result
+	scans           []Scan
+	skipped         []Skipped
 }
 
 // NewCandidateSet validates and owns all candidate and observation facts.
-func NewCandidateSet(
-	sources []Source,
-	skills []Skill,
-	hooks []Hook,
-	mcpServers []MCPServer,
-	scans []Scan,
-	skipped []Skipped,
-) (CandidateSet, error) {
-	for index, source := range sources {
+func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
+	for index, source := range input.Sources {
 		if err := validateSource(source); err != nil {
 			return CandidateSet{}, fmt.Errorf("source candidate %d: %w", index, err)
 		}
 	}
-	for index, skill := range skills {
+	for index, skill := range input.Skills {
 		if err := validateSkill(skill); err != nil {
 			return CandidateSet{}, fmt.Errorf("skill candidate %d: %w", index, err)
 		}
 	}
-	for index, hook := range hooks {
+	for index, hook := range input.Hooks {
 		if err := validateHook(hook); err != nil {
 			return CandidateSet{}, fmt.Errorf("hook candidate %d: %w", index, err)
 		}
 	}
-	for index, server := range mcpServers {
+	for index, server := range input.MCPServers {
 		if err := validateMCPServer(server); err != nil {
 			return CandidateSet{}, fmt.Errorf("mcp server candidate %d: %w", index, err)
 		}
 	}
-	for index, scan := range scans {
+	for index, extension := range input.Extensions.Extensions() {
+		if err := extension.Validate(); err != nil {
+			return CandidateSet{}, fmt.Errorf(
+				"extension candidate %d: %w",
+				index,
+				err,
+			)
+		}
+	}
+	for index, scan := range input.Scans {
 		if err := validateScan(scan); err != nil {
 			return CandidateSet{}, fmt.Errorf("scan observation %d: %w", index, err)
 		}
 	}
-	for index, skip := range skipped {
+	for index, skip := range input.Skipped {
 		if strings.TrimSpace(skip.LivePath) == "" || strings.TrimSpace(skip.Reason) == "" {
 			return CandidateSet{}, fmt.Errorf("skipped observation %d requires live path and reason", index)
 		}
 	}
 
 	return CandidateSet{
-		sources:    cloneSources(sources),
-		skills:     cloneSkills(skills),
-		hooks:      cloneHooks(hooks),
-		mcpServers: cloneMCPServers(mcpServers),
-		scans:      cloneScans(scans),
-		skipped:    cloneSkipped(skipped),
+		sources:         cloneSources(input.Sources),
+		skills:          cloneSkills(input.Skills),
+		hooks:           cloneHooks(input.Hooks),
+		mcpServers:      cloneMCPServers(input.MCPServers),
+		extensionResult: input.Extensions,
+		scans:           cloneScans(input.Scans),
+		skipped:         cloneSkipped(input.Skipped),
 	}, nil
 }
 
 // Validate rejects zero or internally inconsistent candidate collections.
 func (candidates CandidateSet) Validate() error {
-	_, err := NewCandidateSet(
-		candidates.sources,
-		candidates.skills,
-		candidates.hooks,
-		candidates.mcpServers,
-		candidates.scans,
-		candidates.skipped,
-	)
+	_, err := NewCandidateSet(CandidateSetInput{
+		Sources:    candidates.sources,
+		Skills:     candidates.skills,
+		Hooks:      candidates.hooks,
+		MCPServers: candidates.mcpServers,
+		Extensions: candidates.extensionResult,
+		Scans:      candidates.scans,
+		Skipped:    candidates.skipped,
+	})
 	return err
 }
 
@@ -101,6 +120,22 @@ func (candidates CandidateSet) MCPServers() []MCPServer {
 	return cloneMCPServers(candidates.mcpServers)
 }
 
+// Extensions returns canonical exact extension declarations in proposal order.
+func (candidates CandidateSet) Extensions() []desiredextension.Extension {
+	return candidates.extensionResult.Extensions()
+}
+
+// OrderedExtensions returns the complete proposal including fixed existing
+// declarations needed for merge placement.
+func (candidates CandidateSet) OrderedExtensions() []desiredextension.Extension {
+	return candidates.extensionResult.OrderedExtensions()
+}
+
+// ExtensionResult returns the immutable exact-import order and evidence proposal.
+func (candidates CandidateSet) ExtensionResult() adoptextension.Result {
+	return candidates.extensionResult
+}
+
 // Scans returns an owned copy of live scan observations.
 func (candidates CandidateSet) Scans() []Scan {
 	return cloneScans(candidates.scans)
@@ -113,7 +148,11 @@ func (candidates CandidateSet) Skipped() []Skipped {
 
 // ResourceCount returns the number of importable resources.
 func (candidates CandidateSet) ResourceCount() int {
-	return len(candidates.sources) + len(candidates.skills) + len(candidates.hooks) + len(candidates.mcpServers)
+	return len(candidates.sources) +
+		len(candidates.skills) +
+		len(candidates.hooks) +
+		len(candidates.mcpServers) +
+		len(candidates.Extensions())
 }
 
 func validateSource(source Source) error {
@@ -205,8 +244,11 @@ func validateMCPServer(server MCPServer) error {
 }
 
 func validateScan(scan Scan) error {
-	if strings.TrimSpace(scan.ResourceName) == "" || strings.TrimSpace(scan.LivePath) == "" || strings.TrimSpace(scan.Status) == "" {
-		return fmt.Errorf("resource name, live path, and status are required")
+	if strings.TrimSpace(scan.ResourceKind) == "" ||
+		strings.TrimSpace(scan.ResourceName) == "" ||
+		strings.TrimSpace(scan.LivePath) == "" ||
+		strings.TrimSpace(scan.Status) == "" {
+		return fmt.Errorf("resource kind, resource name, live path, and status are required")
 	}
 	if err := validateTargetScope(scan.Target, scan.Scope); err != nil {
 		return err

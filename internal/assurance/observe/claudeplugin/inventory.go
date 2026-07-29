@@ -9,10 +9,15 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/target"
 )
 
-const installedPluginsVersion = 2
+const (
+	installedPluginsVersion      = 2
+	maximumInstalledPluginsBytes = 4 << 20
+)
 
 // InstalledInventoryInput identifies the passive Claude installed-plugin
 // relation source and the exact relations selected for correlation.
@@ -41,15 +46,15 @@ func ReadInstalledInventory(input InstalledInventoryInput) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, err
 	}
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	data, exists, err := filesnapshot.ReadRegularFile(path, maximumInstalledPluginsBytes)
+	if err != nil {
+		return Inventory{}, fmt.Errorf("read Claude installed plugin inventory %q: %w", path, err)
+	}
+	if !exists {
 		return NewInventory(InventorySpec{
 			Availability: relation.InventorySupported,
 			Freshness:    relation.EvidenceFresh,
 		})
-	}
-	if err != nil {
-		return Inventory{}, fmt.Errorf("read Claude installed plugin inventory %q: %w", path, err)
 	}
 
 	file, err := decodeInstalledPluginsFile(data)
@@ -134,6 +139,46 @@ func ReadInstalledInventory(input InstalledInventoryInput) (Inventory, error) {
 		Freshness:    relation.EvidenceFresh,
 		Rows:         rows,
 	})
+}
+
+// ExactSources returns the source-exact installed selectors for one daem
+// scope. Duplicate selected rows are ambiguous and fail closed.
+func (inventory Inventory) ExactSources(scope target.Scope) ([]string, error) {
+	hostScope, ok := hostScopeForTargetScope(scope)
+	if !ok {
+		return nil, fmt.Errorf("Claude installed inventory scope %q is not importable", scope)
+	}
+
+	sources := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, row := range inventory.rows {
+		if !row.sourceExact || row.scope != hostScope {
+			continue
+		}
+		source := string(row.relation.SubjectKey())
+		if _, duplicate := seen[source]; duplicate {
+			return nil, fmt.Errorf(
+				"Claude installed inventory contains duplicate %s rows for source %q",
+				hostScope,
+				source,
+			)
+		}
+		seen[source] = struct{}{}
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources, nil
+}
+
+func hostScopeForTargetScope(scope target.Scope) (HostScope, bool) {
+	switch scope {
+	case target.ScopeProject:
+		return HostScopeProject, true
+	case target.ScopeGlobal:
+		return HostScopeUser, true
+	default:
+		return "", false
+	}
 }
 
 // InstalledInventoryPath returns the exact host file consumed by

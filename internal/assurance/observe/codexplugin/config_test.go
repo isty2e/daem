@@ -3,6 +3,7 @@ package codexplugin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
@@ -242,6 +243,63 @@ enabled = false
 
 	if _, err := ObserveConfigFile(configPath); err == nil {
 		t.Fatalf("ObserveConfigFile returned nil error, want duplicate table TOML error")
+	}
+}
+
+func TestExactConfiguredSourcesRejectsUnsupportedAndMalformedSelectors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name: "unsupported row",
+			content: `[plugins."bad@market"]
+enabled = "yes"
+`,
+			want: "unsupported",
+		},
+		{
+			name: "malformed selector",
+			content: `[plugins.bad]
+enabled = true
+`,
+			want: "PLUGIN@MARKETPLACE",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			observation, err := ObserveConfigFile(writeCodexConfig(t, test.content))
+			if err != nil {
+				t.Fatalf("ObserveConfigFile: %v", err)
+			}
+			if _, err := ExactConfiguredSources(observation); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ExactConfiguredSources error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestObserveConfigFileRejectsSymlinkedAuthorityFile(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	targetPath := filepath.Join(root, "target.toml")
+	if err := os.WriteFile(targetPath, []byte(`[plugins."one@market"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.toml")
+	if err := os.Symlink(targetPath, configPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, err := ObserveConfigFile(configPath); err == nil ||
+		!strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ObserveConfigFile error = %v", err)
 	}
 }
 

@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,58 @@ func TestParseAndRemoveExactSourcePreservesJSONC(t *testing.T) {
 	}
 	if _, err := Parse(output); err != nil {
 		t.Fatalf("Parse(output): %v\n%s", err, output)
+	}
+}
+
+func TestParseAtDerivesOpenCodeLoadIdentityWithoutLosingExactSource(t *testing.T) {
+	t.Parallel()
+
+	configPath := filepath.Join(t.TempDir(), "opencode.jsonc")
+	document, err := ParseAt([]byte(`{
+  "plugin": [
+    "@acme/tool@1.2.3",
+    "@acme/tool-next@beta",
+    "./plugins/local.ts"
+  ]
+}`), configPath)
+	if err != nil {
+		t.Fatalf("ParseAt: %v", err)
+	}
+	entries := document.Entries()
+	if len(entries) != 3 {
+		t.Fatalf("Entries = %#v", entries)
+	}
+	if entries[0].Source() != "@acme/tool@1.2.3" ||
+		entries[0].HostLoadIdentity() != "@acme/tool" {
+		t.Fatalf("versioned entry = %#v", entries[0])
+	}
+	if entries[1].Source() != "@acme/tool-next@beta" ||
+		entries[1].HostLoadIdentity() != "@acme/tool-next" {
+		t.Fatalf("tagged entry = %#v", entries[1])
+	}
+	wantLocal := "file://" + filepath.ToSlash(
+		filepath.Join(filepath.Dir(configPath), "plugins", "local.ts"),
+	)
+	if entries[2].Source() != "./plugins/local.ts" ||
+		entries[2].HostLoadIdentity() != wantLocal {
+		t.Fatalf(
+			"local entry = (%q, %q), want exact source and load identity %q",
+			entries[2].Source(),
+			entries[2].HostLoadIdentity(),
+			wantLocal,
+		)
+	}
+}
+
+func TestParseAtRejectsUnsafePluginFileURL(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseAt(
+		[]byte(`{"plugin":["file://other-host/tmp/plugin.ts"]}`),
+		filepath.Join(t.TempDir(), "opencode.json"),
+	)
+	if err == nil || !strings.Contains(err.Error(), "unsupported authority") {
+		t.Fatalf("ParseAt error = %v", err)
 	}
 }
 

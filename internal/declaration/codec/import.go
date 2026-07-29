@@ -3,6 +3,7 @@ package codec
 import (
 	"bytes"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -70,6 +71,33 @@ type ImportManifestHookTargetOverride struct {
 	Condition string `toml:"if"`
 }
 
+// ImportManifestExtension is the exact host-relation row emitted by adoption.
+type ImportManifestExtension struct {
+	ID      string                        `toml:"id"`
+	Carrier string                        `toml:"carrier"`
+	Targets []string                      `toml:"targets"`
+	Scope   string                        `toml:"scope"`
+	Source  ImportManifestExtensionSource `toml:"source"`
+}
+
+// ImportManifestExtensionSource preserves exactly one host source namespace.
+type ImportManifestExtensionSource struct {
+	Marketplace string `toml:"marketplace,omitempty"`
+	HostSource  string `toml:"host_source,omitempty"`
+}
+
+// MarshalTOML preserves the manifest's single-namespace inline source form.
+func (source ImportManifestExtensionSource) MarshalTOML() ([]byte, error) {
+	switch {
+	case source.Marketplace != "" && source.HostSource == "":
+		return []byte("{ marketplace = " + strconv.Quote(source.Marketplace) + " }"), nil
+	case source.Marketplace == "" && source.HostSource != "":
+		return []byte("{ host_source = " + strconv.Quote(source.HostSource) + " }"), nil
+	default:
+		return nil, fmt.Errorf("extension source requires exactly one namespace")
+	}
+}
+
 // ImportManifestBody is the declaration-owned import-render view.
 type ImportManifestBody struct {
 	Instructions map[string]ImportManifestInstruction `toml:"instructions"`
@@ -77,6 +105,7 @@ type ImportManifestBody struct {
 	Skills       []ImportManifestSkill                `toml:"skill"`
 	Hooks        []ImportManifestHook                 `toml:"hook"`
 	MCPServers   []MCPServer                          `toml:"mcp_server"`
+	Extensions   []ImportManifestExtension            `toml:"extension"`
 }
 
 type importManifest struct {
@@ -114,7 +143,7 @@ func compactImportManifestBody(content []byte) []byte {
 	var output bytes.Buffer
 	for _, line := range lines {
 		switch strings.TrimSpace(string(line)) {
-		case "", "instructions = {}", "skill_group = []", "skill = []", "hook = []", "mcp_server = []":
+		case "", "instructions = {}", "skill_group = []", "skill = []", "hook = []", "mcp_server = []", "extension = []":
 			continue
 		default:
 			output.Write(line)

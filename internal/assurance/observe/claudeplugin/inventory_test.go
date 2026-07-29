@@ -80,6 +80,21 @@ func TestReadInstalledInventoryFiltersProjectRowsAndAttachesExactCorrelation(t *
 	}
 	assertState(t, observeclaudeplugin.Correlate(projectSubject, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
 	assertState(t, observeclaudeplugin.Correlate(globalSubject, inventory), observerelation.StateExactCorrelation, observerelation.ReasonNone)
+
+	projectSources, err := inventory.ExactSources(target.ScopeProject)
+	if err != nil {
+		t.Fatalf("ExactSources(project): %v", err)
+	}
+	if len(projectSources) != 1 || projectSources[0] != "context7@market" {
+		t.Fatalf("ExactSources(project) = %#v", projectSources)
+	}
+	globalSources, err := inventory.ExactSources(target.ScopeGlobal)
+	if err != nil {
+		t.Fatalf("ExactSources(global): %v", err)
+	}
+	if len(globalSources) != 1 || globalSources[0] != "context7@market" {
+		t.Fatalf("ExactSources(global) = %#v", globalSources)
+	}
 }
 
 func TestReadInstalledInventoryCanonicalizesProjectSymlinks(t *testing.T) {
@@ -172,6 +187,51 @@ func TestReadInstalledInventoryRejectsDuplicateFieldsInSelectedRows(t *testing.T
 	})
 	if err == nil || !strings.Contains(err.Error(), "duplicate JSON object key") {
 		t.Fatalf("error = %v, want selected-row duplicate-key rejection", err)
+	}
+}
+
+func TestExactSourcesRejectsDuplicateSelectedRows(t *testing.T) {
+	t.Parallel()
+
+	configRoot := t.TempDir()
+	writeInstalledPlugins(t, configRoot, `{
+  "version":2,
+  "plugins":{"selected@market":[{"scope":"user"},{"scope":"user"}]}
+}`)
+	inventory, err := observeclaudeplugin.ReadInstalledInventory(observeclaudeplugin.InstalledInventoryInput{
+		ConfigRoot:  configRoot,
+		ProjectRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("ReadInstalledInventory: %v", err)
+	}
+	if _, err := inventory.ExactSources(target.ScopeGlobal); err == nil ||
+		!strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("ExactSources error = %v", err)
+	}
+}
+
+func TestReadInstalledInventoryRejectsSymlinkedAuthorityFile(t *testing.T) {
+	t.Parallel()
+
+	configRoot := t.TempDir()
+	pluginsRoot := filepath.Join(configRoot, "plugins")
+	if err := os.MkdirAll(pluginsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	targetPath := filepath.Join(configRoot, "inventory.json")
+	if err := os.WriteFile(targetPath, []byte(`{"version":2,"plugins":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetPath, filepath.Join(pluginsRoot, "installed_plugins.json")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	_, err := observeclaudeplugin.ReadInstalledInventory(observeclaudeplugin.InstalledInventoryInput{
+		ConfigRoot:  configRoot,
+		ProjectRoot: t.TempDir(),
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("ReadInstalledInventory error = %v", err)
 	}
 }
 

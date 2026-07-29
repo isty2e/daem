@@ -120,6 +120,46 @@ func TestReadSettingsRejectsSymlinkAndNonRegularPath(t *testing.T) {
 	}
 }
 
+func TestInventoryEntriesPreserveStoredSourceAndClassifyLoadIdentity(t *testing.T) {
+	root := t.TempDir()
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	writeSettings(t, settingsPath, `{
+  "packages": [
+    "npm:@acme/tool@1.2.3",
+    "github:acme/tool#v2",
+    "../plugins/local"
+  ]
+}`)
+
+	inventory := mustReadSettings(t, observepipackage.SettingsInput{
+		ProjectRoot: root,
+		Scope:       target.ScopeProject,
+	})
+	entries, err := inventory.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("Entries = %#v", entries)
+	}
+	if entries[0].Source() != "npm:@acme/tool@1.2.3" ||
+		entries[0].HostLoadIdentity() != "npm:@acme/tool" {
+		t.Fatalf("npm entry = %#v", entries[0])
+	}
+	if entries[1].Source() != "github:acme/tool#v2" ||
+		!strings.HasPrefix(entries[1].HostLoadIdentity(), "git:") {
+		t.Fatalf("Git entry = %#v", entries[1])
+	}
+	localPath, ok := entries[2].LocalIdentity()
+	if !ok || localPath != filepath.Join(root, "plugins", "local") {
+		t.Fatalf("local identity = %q, %t", localPath, ok)
+	}
+	if entries[2].HostLoadIdentity() !=
+		"local:project:"+filepath.Join(root, "plugins", "local") {
+		t.Fatalf("local load identity = %q", entries[2].HostLoadIdentity())
+	}
+}
+
 func mustReadSettings(t *testing.T, input observepipackage.SettingsInput) observepipackage.Inventory {
 	t.Helper()
 	inventory, err := observepipackage.ReadSettings(input)

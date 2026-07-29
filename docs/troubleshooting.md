@@ -151,10 +151,11 @@ acceptable.
   unknown. Run `daem status`; do not infer absence from the error or delete
   state/registry files.
 
-The current `daem import` does not yet author extension declarations and is not
-a shortcut around these steps. Use `add extension` until exact extension import
-is implemented; imported desired state will still require lock and explicit
-manage-existing authority.
+`daem import` can author source-exact extension declarations for supported
+Codex, Claude Code, OpenCode, and Pi rows, but it is not a shortcut around
+these steps. Import writes no lock or management claim. Review the generated
+declaration, run `daem lock`, and use explicit `apply --manage-existing` only
+when the resulting exact relation is eligible and intended.
 
 ## Apply Was Interrupted
 

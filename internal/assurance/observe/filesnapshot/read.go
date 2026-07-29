@@ -1,0 +1,76 @@
+// Package filesnapshot reads bounded host-owned files without following
+// symlinks or accepting an identity change during the read.
+package filesnapshot
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+)
+
+// ReadRegularFile reads at most maximumBytes from path. A missing path returns
+// exists=false; every other non-regular or unstable state is an error.
+func ReadRegularFile(path string, maximumBytes int64) (content []byte, exists bool, err error) {
+	if maximumBytes <= 0 {
+		return nil, false, fmt.Errorf("maximum file size must be positive")
+	}
+
+	before, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if before.Mode()&os.ModeSymlink != 0 {
+		return nil, false, fmt.Errorf("file must not be a symlink")
+	}
+	if !before.Mode().IsRegular() {
+		return nil, false, fmt.Errorf("path must be a regular file")
+	}
+	if before.Size() > maximumBytes {
+		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumBytes)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer file.Close()
+
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	if !os.SameFile(before, opened) ||
+		before.Size() != opened.Size() ||
+		!before.ModTime().Equal(opened.ModTime()) {
+		return nil, false, fmt.Errorf("file changed while opening")
+	}
+
+	content, err = io.ReadAll(io.LimitReader(file, maximumBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(content)) > maximumBytes {
+		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumBytes)
+	}
+
+	afterOpen, err := file.Stat()
+	if err != nil {
+		return nil, false, err
+	}
+	afterPath, err := os.Lstat(path)
+	if err != nil {
+		return nil, false, fmt.Errorf("reinspect file: %w", err)
+	}
+	if afterPath.Mode()&os.ModeSymlink != 0 ||
+		!os.SameFile(opened, afterOpen) ||
+		!os.SameFile(opened, afterPath) ||
+		opened.Size() != afterOpen.Size() ||
+		!opened.ModTime().Equal(afterOpen.ModTime()) {
+		return nil, false, fmt.Errorf("file changed while reading")
+	}
+	return content, true, nil
+}

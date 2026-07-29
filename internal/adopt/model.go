@@ -49,6 +49,7 @@ type SummaryRow struct {
 	Skills       int
 	Hooks        int
 	MCPServers   int
+	Extensions   int
 }
 
 // Source is one imported instruction source file.
@@ -77,6 +78,7 @@ func UnsupportedSurfaceSkip(target targetpkg.Target, scope targetpkg.Scope, surf
 
 // Scan summarizes one scanned live resource root.
 type Scan struct {
+	ResourceKind string
 	ResourceName string
 	Target       targetpkg.Target
 	Scope        targetpkg.Scope
