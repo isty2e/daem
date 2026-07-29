@@ -42,6 +42,12 @@ repos:
         language: system
         pass_filenames: false
         files: '(^|/)([^/]+\.go|go\.(mod|sum))$'
+      - id: productive-api
+        name: productive exported API reachability
+        entry: tools/verify-productive-api.sh
+        language: system
+        pass_filenames: false
+        files: '(^|/)([^/]+\.go|go\.(mod|sum)|tools/verify-productive-api\.sh)$'
       - id: archguard
         name: architecture and documentation guards
         entry: go test ./internal/archguard -count=1
