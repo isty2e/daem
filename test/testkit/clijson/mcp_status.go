@@ -17,6 +17,7 @@ type MCPStatus struct {
 	ConfigPath             string               `json:"config_path"`
 	ContentPath            string               `json:"content_path"`
 	AdapterContractVersion string               `json:"adapter_contract_version"`
+	CurrentProviderVersion string               `json:"current_provider_version"`
 	Projection             []MCPStatusDimension `json:"projection_dimensions"`
 	Host                   []MCPStatusDimension `json:"host_dimensions"`
 	Delegate               []MCPStatusDimension `json:"delegate_dimensions"`

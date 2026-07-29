@@ -23,7 +23,7 @@ native commands and safety limits, see the
 | Skills | Yes | Yes | Yes | Yes | Yes |
 | Skill groups | Yes | Yes | Yes | Yes | Yes |
 | Command hooks | Yes | Yes | Report only | Report only | No |
-| MCP configuration | Project + global | Project + global | Project + global | No | Global only |
+| MCP configuration | Project + global | Project + global | Project + global | Project + global | Global only |
 | MCP startup test | No | Project only | Project only | No | No |
 | Run MCP on apply | No | Project only | No | No | No |
 
@@ -37,18 +37,25 @@ private-store, and delegated-route location together with the manifest
 selection. If the same skill name still exists at another modeled discovery
 root, `doctor`, `status`, and `apply` warn without deleting it.
 
-MCP configuration support manages the host's command and argument entry. Claude
-Code project and global rows also support structured child-to-source
-environment references, while Codex global rows support same-name references
-rendered as native `env_vars`. OpenCode global rows support child-to-source
-aliases rendered as exact `{env:SOURCE}` references. Antigravity CLI global
-rows support same-name ambient requirements; daem locks the names and checks
-current presence, but intentionally omits native `env` so the server inherits
-the environment of the Antigravity CLI process. Environment values stay
-runtime-only. Daem does not install the executable or package named by an MCP
-entry. Claude Code project MCP is the only current row where confirmed `apply`
-may run the locked command. `probe mcp-server` is a separate, explicit startup
-check for Claude Code and OpenCode project MCP entries.
+MCP configuration support manages the host's command and argument entry. Pi
+support is provider-mediated: the manifest must also declare the admitted
+`pi-mcp-adapter` package, and apply installs that package through Pi before
+writing `.pi/mcp.json` or the selected Pi agent-root `mcp.json`. `add
+mcp-server --target pi` authors both declarations when needed. Claude Code
+project and global rows also support structured child-to-source environment
+references, while Codex global rows support same-name references rendered as
+native `env_vars`. OpenCode global rows support child-to-source aliases
+rendered as exact `{env:SOURCE}` references. Antigravity CLI global rows
+support same-name ambient requirements; daem locks the names and checks current
+presence, but intentionally omits native `env` so the server inherits the
+environment of the Antigravity CLI process. Environment values stay
+runtime-only. Except for the separately declared Pi provider, daem does not
+install the executable or package named by an MCP entry. Claude Code project
+MCP is the only current row where confirmed `apply` may run the locked server
+command. `probe mcp-server` is a separate, explicit startup check for Claude
+Code and OpenCode project MCP entries. Pi provider installation and config
+convergence do not prove project trust, provider activation, server
+connectivity, authentication, or tool inventory.
 
 ## Plugins And Extensions
 
@@ -93,7 +100,8 @@ does not currently offer a general cleanup or prune operation for those files.
 - **OpenCode:** plugin sources and standalone MCP configuration are supported
   for project and global scope.
 - **Pi:** package-backed extensions are supported for project and global scope.
-  Pi has no supported core standalone MCP configuration row.
+  MCP configuration is supported through the explicitly declared
+  `pi-mcp-adapter` provider, not as a Pi core-native surface.
 - **Antigravity CLI:** only the CLI is covered, not the IDE. Plugin and MCP
   management are global. Exact installed-state detection and managed removal
   require a `PLUGIN@MARKETPLACE`-shaped source; other plugin sources cannot be

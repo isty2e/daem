@@ -355,6 +355,15 @@ executables use the manifest-only `command = { path = "/absolute/path" }`
 form; `daem import` also emits that form for supported host entries with an
 absolute command.
 
+For `--target pi`, add also ensures that one compatible explicit
+`pi-mcp-adapter` package is declared at the selected scope. The default provider
+selector is `npm:pi-mcp-adapter@^2.13.0`; the admitted profile accepts stable
+`2.x` versions from `2.13.0` onward and rejects unbounded selectors,
+prereleases, and major `3`. Project add may reuse one unambiguous explicit
+global provider and reports that sharing consequence. This authoring step still
+changes only the manifest and lockfile; apply owns delegated Pi installation
+and config projection.
+
 Extension source is one opaque operand validated against the selected target's
 supported carrier row. Registry and host-source spelling are not separate CLI
 ontologies. Global carrier mutation always requires explicit global scope.
@@ -393,6 +402,11 @@ Remove changes desired and locked state only. Host file deletion, config
 binding removal, and supported route effects are later apply work. It never
 means unconditional carrier uninstall, package/cache cleanup, credential
 deletion, trust reset, or contribution-level mutation.
+
+Removing a Pi MCP row retains its explicit provider extension. A later apply
+removes the managed Pi config contribution and reports any lower-layer fallback
+that becomes effective; remove the provider extension separately only when the
+package relation itself is also undesired.
 
 For extension rows, removal expresses desired relation absence. Manual deletion
 of the same row followed by `lock` produces the same later status/apply

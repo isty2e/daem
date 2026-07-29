@@ -53,7 +53,7 @@ targets = ["codex"]
 | `skill_group` | array of tables | no | Explicit or selector-backed skill groups under one source root. |
 | `hook` | array of tables | no | Hook resources. |
 | `hook_asset` | table of tables | no | Source-backed executable file assets referenced explicitly from supported Codex and Claude Code hook commands. |
-| `mcp_server` | array of tables | no | Narrow standalone stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, and Antigravity CLI explicit-global command/args plus same-name ambient environment requirements. |
+| `mcp_server` | array of tables | no | Narrow stdio MCP server relations for supported target/scope slices: Codex project command/args scope or explicit-global command/args plus same-name environment references, Claude Code project or explicit-global scope with structured environment references, OpenCode strict project command/args scope or explicit-global `type = "local"` command/args plus aliased environment references, Pi project or explicit-global scope mediated by an explicit admitted `pi-mcp-adapter` package, and Antigravity CLI explicit-global command/args plus same-name ambient environment requirements. |
 | `extension` | array of tables | no | Narrow host plugin/package carrier declaration for supported Codex explicit-global marketplace-selector rows, Claude Code project and explicit-global marketplace rows, OpenCode project/global host-source rows, Pi project/global package host-source rows, and Antigravity CLI explicit-global host-source rows. Codex project plugin scope is product `unsupported` with reason `host-unavailable` in the current native host route. Claude Code explicit-global plugin scope is public daem `scope = "global"` and projects to host `--scope user` only inside the supported delegated host route. Claude Code local plugin scope is product `deferred` with reason `not-modeled`. `add extension` and `remove extension` cover all five supported rows and update manifest plus lock only; `unmanage extension` releases exact daem management while retaining host state. Mutating `apply` may run only lifecycle routes supported for the exact target/scope/operation row. |
 
 Unimplemented executable lifecycle declaration families such as `[[local_parameter]]`,
@@ -684,7 +684,7 @@ or apply contracts.
 
 ## MCP Servers
 
-Standalone MCP servers are declared with `[[mcp_server]]`.
+MCP servers are declared with `[[mcp_server]]`.
 
 ```toml
 [[mcp_server]]
@@ -727,8 +727,7 @@ for it.
 form. Author an exact absolute path directly in the manifest, or obtain it
 through `daem import`.
 
-`[[mcp_server]]` is currently limited to seven standalone stdio
-exact-projection slices:
+`[[mcp_server]]` is currently limited to nine stdio exact-projection slices:
 
 - Codex project scope, rendered into project `.codex/config.toml` under
   `/mcp_servers/<name>` with `command` and `args` only.
@@ -745,11 +744,17 @@ exact-projection slices:
   `~/.config/opencode/opencode.json` as `type = "local"` with `command` and
   `args`, plus optional exact child-to-source environment references lowered to
   `{env:SOURCE}` strings.
+- Pi project scope, mediated by one explicitly declared admitted
+  `pi-mcp-adapter` package and rendered into project `.pi/mcp.json` under
+  `/mcpServers/<name>`.
+- Pi explicit global scope, mediated by the same provider contract and rendered
+  into `mcp.json` under the current Pi agent root, `~/.pi/agent` by default or
+  `PI_CODING_AGENT_DIR` when set.
 - Antigravity CLI explicit global scope, rendered into
   `~/.gemini/config/mcp_config.json` with `command` and `args` only; optional
   same-name ambient source names remain lock-only prerequisites.
 
-Any standalone MCP row that writes shared user-level global host config must
+Any core-native MCP row that writes shared user-level global host config must
 put `scope = "global"` directly on that `[[mcp_server]]` block. A top-level
 `[defaults].scope = "global"` value may default other resource families, but it
 does not authorize global MCP config mutation.
@@ -759,18 +764,49 @@ rendered into host config and modeled as a non-owned executable requirement, but
 they are not package installation, provisioning, runtime readiness, or cleanup
 syntax.
 
-Pi has no supported standalone `[[mcp_server]]` row. Current Pi MCP evidence is
-extension/package-backed and must stay provider-scoped; daem does not flatten
-Pi package or adapter MCP behavior into standalone MCP declarations. The same
-non-flattening rule applies to plugin-bundled MCP, skills, hooks,
-instructions, apps, commands, rules, and similar provider contributions: a
-source-declared contribution may be reported only as a provider-scoped
-diagnostic row with `provided_by`, kind/key, provenance, currentness, freshness,
-artifact identity, and reason qualifiers unless a future import/adopt route
-explicitly admits standalone ownership.
+Pi MCP is provider-mediated rather than core-native. Each Pi binding must
+correlate with one explicit `[[extension]]` using `carrier = "pi-package"`,
+target `pi`, the same scope or a reusable explicit-global scope, and an exact
+or caret-bounded `npm:pi-mcp-adapter@<version>` source. The current profile
+accepts canonical stable versions `>=2.13.0` and `<3.0.0`; `2.13.0` is the
+verified contract floor, while `2.15.0` is the deeply inspected artifact and
+not an exact-version ceiling. Unbounded selectors, tags, prereleases,
+below-floor versions, and the next major are rejected before mutation.
 
-`daem import` may generate `[[mcp_server]]` declarations only for those same
-supported standalone config rows. Import preserves accepted child-to-host env
+The provider relation and MCP projection remain separate lock subjects. Apply
+first establishes and freshly observes the selected Pi package relation and
+its exact installed package version, then writes only the selected
+`mcpServers/<name>` contribution. Project bindings select `.pi/mcp.json`;
+global bindings select `<Pi agent root>/mcp.json`. The provider may also read
+other shared, Pi-owned, and imported config layers documented in the
+[Host Integration Contract](host-integrations.md#mcp-server-config); daem
+observes those sources for same-name collision and fallback diagnostics but
+writes none of them.
+
+Pi entries accept canonical `command`, ordered `args`, exact child-to-source
+`${SOURCE}` environment aliases, `lifecycle = "lazy"`, and `disabled = false`.
+Those two semantic defaults may be omitted. Daem also accepts the provider's
+`mcp-servers` alias when it is unambiguous, parses JSONC, and rejects malformed,
+duplicate, conflicting-alias, credential-bearing, or unsupported managed
+fields. Environment values remain runtime-local. Config convergence does not
+prove Pi project trust, provider activation, server connectivity,
+authentication, runtime health, or discovered tools.
+
+Pi trust does not fully guard this provider boundary. A project-scoped package
+is ignored when the project is untrusted, but an installed global provider can
+still read project `.mcp.json` and `.pi/mcp.json`; eager entries there may
+execute before trust even under `pi --no-approve`. Daem authors only lazy
+entries and warns about the global sharing consequence, but it does not own or
+sanitize unowned project MCP files.
+
+This admission does not flatten arbitrary package-bundled MCP, skills, hooks,
+instructions, apps, commands, or rules into standalone declarations. Those
+contributions remain provider-scoped unless an exact profile separately admits
+their ownership.
+
+`daem import` may generate `[[mcp_server]]` declarations only for supported
+core-native config rows. It does not infer the explicit package relation needed
+for provider-mediated Pi MCP. Import preserves accepted child-to-host env
 bindings as references, skips unsupported or credential-bearing shapes, creates no source
 files, and never edits host MCP config, starts servers, probes runtime
 readiness, installs packages, or flattens plugin-bundled MCP contributions into
@@ -843,7 +879,8 @@ preserved inside the managed entry.
 `daem add mcp-server` and `daem remove mcp-server` are authoring helpers for the
 supported Codex project row, Codex explicit-global row, Claude Code project row,
 Claude Code explicit-global row, OpenCode project row, OpenCode explicit-global
-row, and Antigravity CLI explicit-global row. Omitted target/scope succeeds only
+row, Pi project row, Pi explicit-global row, and Antigravity CLI explicit-global
+row. Omitted target/scope succeeds only
 when manifest inheritance and supported-row compatibility identify one row.
 Claude global authoring requires
 `--target claude-code --scope global` because defaults do not authorize global
@@ -862,6 +899,14 @@ authoring requires `--target antigravity-cli --scope global` because defaults
 do not authorize global MCP. The helper creates a command/args row; add
 same-name environment references by editing the manifest directly. Import
 cannot infer them. Aliases and all remote/auth/tool-policy fields are rejected.
+Pi authoring requires `--target pi`, permits project scope or explicit
+`--scope global`, and creates both the MCP row and an explicit scoped
+`pi-mcp-adapter` package declaration when no compatible provider exists. A
+project binding prefers a project provider and may reuse one unambiguous
+explicit-global provider; a global binding requires a global provider.
+Ambiguous or incompatible providers fail before either manifest or lockfile
+changes. Removing the Pi MCP row retains its provider declaration so package
+lifecycle remains an explicit separate extension decision.
 Authoring helpers update the manifest and adjacent lockfile together;
 they do not write host config, start a server, install packages, remove
 credentials, or change approval/trust state.
@@ -1608,6 +1653,8 @@ yet:
   Claude Code project stdio and explicit-global command/args plus exact aliased
   environment-reference slices, OpenCode project command/args and
   explicit-global command/args plus exact aliased environment-reference slices,
+  Pi project and explicit-global provider-mediated command/args plus exact
+  aliased environment-reference slices,
   and Antigravity CLI explicit-global command/args plus same-name ambient
   environment-reference slice. The
   Claude slice renders one standalone server relation into the project
@@ -1635,6 +1682,11 @@ yet:
   `~/.gemini/config/mcp_config.json`, locks command/args plus symbolic source
   names while omitting native `env`, may report passive executable
   prerequisites, and has no delegated executable or runtime readiness claim.
+  The Pi slices require one explicit admitted `pi-mcp-adapter` provider, render
+  into project `.pi/mcp.json` or the current agent-root `mcp.json`, observe the
+  provider's effective six-layer config for collision and fallback, and keep
+  provider version, config convergence, project trust, and runtime readiness as
+  separate evidence.
   Import does not infer ambient names. Runtime startup, package/cache
   ownership, credential availability, approval/trust state, endpoint health,
   tool inventory, tool policy, and broader host config ownership remain outside
@@ -1646,6 +1698,8 @@ Minimal manifests are available at
 [`examples/codex-global-mcp-stdio.toml`](../examples/codex-global-mcp-stdio.toml),
 [`examples/opencode-project-mcp-stdio.toml`](../examples/opencode-project-mcp-stdio.toml),
 [`examples/opencode-global-mcp-stdio.toml`](../examples/opencode-global-mcp-stdio.toml),
+[`examples/pi-project-mcp-stdio.toml`](../examples/pi-project-mcp-stdio.toml),
+[`examples/pi-global-mcp-stdio.toml`](../examples/pi-global-mcp-stdio.toml),
 and
 [`examples/antigravity-global-mcp-stdio.toml`](../examples/antigravity-global-mcp-stdio.toml).
 

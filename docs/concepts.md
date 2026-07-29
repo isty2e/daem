@@ -20,7 +20,7 @@ before any host mutation happens.
 - skill groups
 - command hooks
 - hook assets
-- standalone MCP server bindings
+- MCP server bindings
 - extension carriers
 
 The parser is strict. Unknown keys, duplicate resource names, invalid target
@@ -272,15 +272,21 @@ asset locks exact source identity and creates its own managed-file projection;
 it does not turn arbitrary command strings into installable executables or infer
 files from the host's `PATH`. Hook and asset scope must agree.
 
-### Standalone MCP Servers
+### MCP Server Bindings
 
-Standalone MCP server declarations manage one supported host config binding for a
+MCP server declarations manage one supported host config binding for a
 stdio launch vector. The locked command and arguments describe how the host
 launches the server; they are not an executable provisioning plan. Removing the
 declaration and applying the result removes only the managed config relation, not
 packages, caches, credentials, trust state, logs, or other runtime residue.
 
-`daem probe mcp-server` can perform an explicit bounded runtime check for an
+Pi is the one current provider-mediated binding: an explicit `pi-package`
+extension supplies the admitted MCP config capability, while the MCP server
+subject still owns only its selected config contribution. Provider relation,
+installed version, effective merged config, project trust, and runtime
+readiness remain separate facts.
+
+`daem probe mcp-server` can perform an explicit bounded runtime check for a
 supported locked row. A prior successful probe or delegated attempt is historical
 evidence, never authority to skip fresh observation or claim current readiness.
 Current target and scope rows are listed in

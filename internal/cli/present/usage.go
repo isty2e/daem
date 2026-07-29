@@ -260,7 +260,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			{"extension", "Remove an extension row."},
 			{"instruction", "Remove an instruction declaration."},
 			{"hook", "Remove a hook declaration."},
-			{"mcp-server", "Remove a standalone MCP row."},
+			{"mcp-server", "Remove an MCP server row."},
 			{"skill", "Remove a skill or skill-group resource."},
 		}, "Omitted selectors remove an unambiguous whole resource. Remove writes by default; use --dry-run to preview."),
 		"unmanage": groupPage("daem unmanage", "release daem management while retaining host state", []helpRow{
@@ -373,7 +373,7 @@ func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRo
 		{"extension", "<id>", "remove an extension row and refresh the lockfile"},
 		{"instruction", "<name>", "remove an instruction and refresh the lockfile"},
 		{"hook", "<name>", "remove a hook and refresh the lockfile"},
-		{"mcp-server", "<name>", "remove a standalone MCP row and refresh the lockfile"},
+		{"mcp-server", "<name>", "remove an MCP server row and refresh the lockfile"},
 		{"skill", "<resource-key>", "remove a skill or skill-group resource and refresh the lockfile"},
 	}
 	for _, resource := range resources {

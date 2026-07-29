@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
@@ -33,6 +35,8 @@ type mcpPublicExampleCase struct {
 	filename         string
 	placementID      aggregate.MCPPlacementID
 	wantDelegateRuns int
+	providerSource   string
+	providerVersion  string
 }
 
 var mcpPublicExampleCases = []mcpPublicExampleCase{
@@ -43,6 +47,18 @@ var mcpPublicExampleCases = []mcpPublicExampleCase{
 	{filename: "codex-project-mcp-stdio.toml", placementID: aggregate.MCPPlacementCodexProject},
 	{filename: "opencode-global-mcp-stdio.toml", placementID: aggregate.MCPPlacementOpenCodeGlobal},
 	{filename: "opencode-project-mcp-stdio.toml", placementID: aggregate.MCPPlacementOpenCodeProject},
+	{
+		filename:        "pi-global-mcp-stdio.toml",
+		placementID:     aggregate.MCPPlacementPiGlobal,
+		providerSource:  "npm:pi-mcp-adapter@^2.13.0",
+		providerVersion: "2.15.0",
+	},
+	{
+		filename:        "pi-project-mcp-stdio.toml",
+		placementID:     aggregate.MCPPlacementPiProject,
+		providerSource:  "npm:pi-mcp-adapter@^2.13.0",
+		providerVersion: "2.15.0",
+	},
 }
 
 func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
@@ -64,21 +80,26 @@ func TestMCPPublicCLIExampleManifestsLockApplyAndReportStatus(t *testing.T) {
 			placement := operations.Placement()
 			testkit.WriteFile(t, project.root, "daem.toml", string(readRepoFile(t, "examples", test.filename)))
 
-			assertMCPPublicExampleDryRunLock(t, project, placement)
+			assertMCPPublicExampleDryRunLock(t, project, placement, test)
 			runMCPLock(t, project)
-			lockedProjection := assertMCPPublicExampleWrittenLock(t, project, placement)
+			lockedProjection := assertMCPPublicExampleWrittenLock(t, project, placement, test)
 
-			applyOutput := runMCPPublicExampleApply(t, project, placement, test.wantDelegateRuns)
+			applyOutput := runMCPPublicExampleApply(t, project, home, placement, test)
 			assertNoPublicMCPOutputLeaks(t, applyOutput)
 			assertMCPPublicExampleHostProjection(t, project.root, home, operations, lockedProjection)
 
-			statusOutput := runMCPPublicExampleStatus(t, project, placement)
+			statusOutput := runMCPPublicExampleStatus(t, project, placement, test)
 			assertNoPublicMCPOutputLeaks(t, statusOutput)
 		})
 	}
 }
 
-func assertMCPPublicExampleDryRunLock(t *testing.T, project mcpCLIProject, placement aggregate.MCPPlacement) {
+func assertMCPPublicExampleDryRunLock(
+	t *testing.T,
+	project mcpCLIProject,
+	placement aggregate.MCPPlacement,
+	test mcpPublicExampleCase,
+) {
 	t.Helper()
 	exitCode, stdout, stderr := runMCPCLI(t, "lock", "--manifest", project.manifestPath, "--dry-run", "--json")
 	if exitCode != 0 || stderr != "" {
@@ -88,10 +109,17 @@ func assertMCPPublicExampleDryRunLock(t *testing.T, project mcpCLIProject, place
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("decode lock dry-run JSON: %v\nstdout=%s", err, stdout)
 	}
-	if payload.EntryCounts.Subjects != 1 || len(payload.SubjectChanges) != 1 {
-		t.Fatalf("lock dry-run counts subjects=%d changes=%#v, want one subject only", payload.EntryCounts.Subjects, payload.SubjectChanges)
+	wantSubjects := 1
+	if test.providerSource != "" {
+		wantSubjects = 2
 	}
-	change := payload.SubjectChanges[0]
+	if payload.EntryCounts.Subjects != wantSubjects || len(payload.SubjectChanges) != wantSubjects {
+		t.Fatalf("lock dry-run counts subjects=%d changes=%#v, want %d subjects", payload.EntryCounts.Subjects, payload.SubjectChanges, wantSubjects)
+	}
+	change, found := mcpPublicExampleProjectionChange(payload.SubjectChanges)
+	if !found {
+		t.Fatalf("lock dry-run changes = %#v, want MCP projection subject", payload.SubjectChanges)
+	}
 	if change.Status != "added" || change.After == nil || change.After.Realization == nil {
 		t.Fatalf("lock dry-run subject change = %#v, want one added managed aggregate realization", change)
 	}
@@ -108,6 +136,7 @@ func assertMCPPublicExampleDryRunLock(t *testing.T, project mcpCLIProject, place
 		realization.ContentPath,
 		realization.AdapterContractVersion,
 	)
+	assertMCPPublicExampleDryRunProvider(t, payload.SubjectChanges, placement, test)
 	assertNoPublicMCPOutputLeaks(t, stdout)
 }
 
@@ -115,17 +144,38 @@ func assertMCPPublicExampleWrittenLock(
 	t *testing.T,
 	project mcpCLIProject,
 	placement aggregate.MCPPlacement,
+	test mcpPublicExampleCase,
 ) aggregate.ManagedContribution {
 	t.Helper()
 	locked, err := lockfile.Load(project.lockfilePath)
 	if err != nil {
 		t.Fatalf("load written lockfile: %v", err)
 	}
-	if len(locked.Locked.Subjects()) != 1 {
-		t.Fatalf("written lock subjects = %#v, want one", locked.Locked.Subjects())
+	wantSubjects := 1
+	if test.providerSource != "" {
+		wantSubjects = 2
+	}
+	if len(locked.Locked.Subjects()) != wantSubjects {
+		t.Fatalf("written lock subjects = %#v, want %d", locked.Locked.Subjects(), wantSubjects)
 	}
 	assertMCPPublicExampleFileExcludesSecret(t, project.lockfilePath)
-	contract := locked.Locked.Subjects()[0]
+	var contract lock.LockedSubjectContract
+	found := false
+	for _, candidate := range locked.Locked.Subjects() {
+		if candidate.SubjectID().Kind() == topology.SubjectProjection &&
+			candidate.EntityID().Name() == mcpPublicExampleServerID {
+			contract = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("written lock subjects = %#v, want MCP projection subject", locked.Locked.Subjects())
+	}
+	if test.providerSource != "" &&
+		!lockedEntitySubjectPresent(locked.Locked.Subjects(), mcpPublicExampleProviderID(placement), topology.SubjectHostRelation) {
+		t.Fatalf("written lock subjects = %#v, want explicit Pi provider relation", locked.Locked.Subjects())
+	}
 	contribution := testkit.LockedManagedAggregateContribution(t, contract)
 	if strings.TrimSpace(contribution.CanonicalContribution()) == "" {
 		t.Fatalf("written lock realization = %#v, want nonempty aggregate contribution", contribution)
@@ -186,11 +236,31 @@ func assertMCPPublicExampleProjectionIdentity(
 func runMCPPublicExampleApply(
 	t *testing.T,
 	project mcpCLIProject,
+	home string,
 	placement aggregate.MCPPlacement,
-	wantDelegateRuns int,
+	test mcpPublicExampleCase,
 ) string {
 	t.Helper()
 	delegateRuns := 0
+	var hostRouteRequests []subprocess.CommandRequest
+	hostRouteExecutor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
+			hostRouteRequests = append(hostRouteRequests, request)
+			if test.providerSource == "" {
+				t.Fatalf("placement %q unexpectedly invoked a host route", placement.ID())
+			}
+			assertMCPPublicExamplePiInstallRequest(t, request, project.root, placement, test.providerSource)
+			writeMCPPublicExamplePiProviderState(
+				t,
+				project.root,
+				home,
+				placement,
+				test.providerSource,
+				test.providerVersion,
+			)
+			return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+		},
+	})
 	exitCode, stdout, stderr := runMCPCLIWithOptions(t, []string{
 		"apply",
 		"--manifest", project.manifestPath,
@@ -202,23 +272,34 @@ func runMCPPublicExampleApply(
 			DelegateExecutor: delegate.NewExecutor(delegate.Options{
 				Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
 					delegateRuns++
-					if wantDelegateRuns == 0 {
+					if test.wantDelegateRuns == 0 {
 						t.Fatalf("placement %q unexpectedly invoked a delegate", placement.ID())
 					}
 					return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
 				},
 			}),
+			HostRouteExecutor: hostRouteExecutor,
 		},
 	})
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
-	if delegateRuns != wantDelegateRuns {
-		t.Fatalf("delegate runs = %d, want %d for placement %q", delegateRuns, wantDelegateRuns, placement.ID())
+	if delegateRuns != test.wantDelegateRuns {
+		t.Fatalf("delegate runs = %d, want %d for placement %q", delegateRuns, test.wantDelegateRuns, placement.ID())
+	}
+	wantHostRouteRuns := 0
+	if test.providerSource != "" {
+		wantHostRouteRuns = 1
+	}
+	if len(hostRouteRequests) != wantHostRouteRuns {
+		t.Fatalf("host route requests = %#v, want %d for placement %q", hostRouteRequests, wantHostRouteRuns, placement.ID())
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
 	if payload.HasErrors {
 		t.Fatalf("apply payload errors = %#v", payload.Errors)
+	}
+	if len(payload.HostRouteAttempts) != wantHostRouteRuns {
+		t.Fatalf("host route attempts = %#v, want %d for placement %q", payload.HostRouteAttempts, wantHostRouteRuns, placement.ID())
 	}
 	return stdout
 }
@@ -315,6 +396,7 @@ func runMCPPublicExampleStatus(
 	t *testing.T,
 	project mcpCLIProject,
 	placement aggregate.MCPPlacement,
+	test mcpPublicExampleCase,
 ) string {
 	t.Helper()
 	exitCode, stdout, stderr := runMCPCLI(
@@ -329,7 +411,7 @@ func runMCPPublicExampleStatus(
 		t.Fatalf("status exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodePlan(t, []byte(stdout))
-	assertMCPPublicExampleStatusPayload(t, payload, placement)
+	assertMCPPublicExampleStatusPayload(t, payload, placement, test)
 	return stdout
 }
 
@@ -337,6 +419,7 @@ func assertMCPPublicExampleStatusPayload(
 	t *testing.T,
 	payload clijson.Plan,
 	placement aggregate.MCPPlacement,
+	test mcpPublicExampleCase,
 ) {
 	t.Helper()
 	wantContentPath, err := placement.ContentPath(mcpPublicExampleServerID)
@@ -393,6 +476,93 @@ func assertMCPPublicExampleStatusPayload(
 	}
 	assertMCPJSONDimensionInGroup(t, payload, "projection", projectionDimension, "projected", "")
 	assertMCPJSONDimensionInGroup(t, payload, "host", "same_scope_ownership", "managed", "")
+	if test.providerVersion != "" {
+		if status.CurrentProviderVersion != test.providerVersion {
+			t.Fatalf("provider version = %q, want %q", status.CurrentProviderVersion, test.providerVersion)
+		}
+		assertMCPJSONDimensionInGroup(t, payload, "host", "provider_prerequisite", "current", "")
+	}
+}
+
+func mcpPublicExampleProjectionChange(
+	changes []clijson.LockSubjectChange,
+) (clijson.LockSubjectChange, bool) {
+	for _, change := range changes {
+		if change.Subject.Kind == string(topology.SubjectProjection) &&
+			change.Subject.Name == mcpPublicExampleServerID {
+			return change, true
+		}
+	}
+	return clijson.LockSubjectChange{}, false
+}
+
+func assertMCPPublicExampleDryRunProvider(
+	t *testing.T,
+	changes []clijson.LockSubjectChange,
+	placement aggregate.MCPPlacement,
+	test mcpPublicExampleCase,
+) {
+	t.Helper()
+	if test.providerSource == "" {
+		return
+	}
+	providerID := mcpPublicExampleProviderID(placement)
+	for _, change := range changes {
+		if change.Subject.Kind == string(topology.SubjectHostRelation) &&
+			change.Subject.Name == providerID &&
+			change.Status == "added" {
+			return
+		}
+	}
+	t.Fatalf("lock dry-run changes = %#v, want explicit provider relation %q", changes, providerID)
+}
+
+func mcpPublicExampleProviderID(placement aggregate.MCPPlacement) string {
+	return "pi-mcp-adapter-" + string(placement.Scope())
+}
+
+func assertMCPPublicExamplePiInstallRequest(
+	t *testing.T,
+	request subprocess.CommandRequest,
+	projectRoot string,
+	placement aggregate.MCPPlacement,
+	source string,
+) {
+	t.Helper()
+	wantArgs := []string{"install", source}
+	if placement.Scope() == target.ScopeProject {
+		wantArgs = append(wantArgs, "-l")
+	}
+	if request.Command != "pi" || !slices.Equal(request.Args, wantArgs) ||
+		request.WorkDir != projectRoot {
+		t.Fatalf("Pi provider request = %#v, want command=pi args=%v workdir=%q", request, wantArgs, projectRoot)
+	}
+}
+
+func writeMCPPublicExamplePiProviderState(
+	t *testing.T,
+	projectRoot string,
+	home string,
+	placement aggregate.MCPPlacement,
+	source string,
+	version string,
+) {
+	t.Helper()
+	base := filepath.Join(projectRoot, ".pi")
+	if placement.Scope() == target.ScopeGlobal {
+		base = filepath.Join(home, ".pi", "agent")
+	}
+	settings, err := json.Marshal(map[string][]string{"packages": {source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	testkit.WriteFile(t, base, "settings.json", string(settings)+"\n")
+	testkit.WriteFile(
+		t,
+		base,
+		filepath.Join("npm", "node_modules", "pi-mcp-adapter", "package.json"),
+		`{"name":"pi-mcp-adapter","version":"`+version+`"}`+"\n",
+	)
 }
 
 func readRepoFile(t *testing.T, parts ...string) []byte {
