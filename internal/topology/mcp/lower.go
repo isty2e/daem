@@ -8,6 +8,42 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
+// ProviderSelection carries the two canonical structural subjects required to
+// bind one provider contribution to an MCP projection. Provider-family
+// semantics remain owned by the selecting refinement boundary.
+type ProviderSelection struct {
+	provider     topology.SubjectID
+	contribution topology.SubjectID
+}
+
+// NewProviderSelection constructs one structural provider selection.
+func NewProviderSelection(
+	provider topology.SubjectID,
+	contribution topology.SubjectID,
+) (ProviderSelection, error) {
+	if err := provider.Validate(); err != nil {
+		return ProviderSelection{}, fmt.Errorf("MCP provider subject: %w", err)
+	}
+	if provider.Kind() != topology.SubjectCarrier {
+		return ProviderSelection{}, fmt.Errorf(
+			"MCP provider subject kind must be %q, got %q",
+			topology.SubjectCarrier,
+			provider.Kind(),
+		)
+	}
+	if err := contribution.Validate(); err != nil {
+		return ProviderSelection{}, fmt.Errorf("MCP contribution subject: %w", err)
+	}
+	if contribution.Kind() != topology.SubjectContribution {
+		return ProviderSelection{}, fmt.Errorf(
+			"MCP contribution subject kind must be %q, got %q",
+			topology.SubjectContribution,
+			contribution.Kind(),
+		)
+	}
+	return ProviderSelection{provider: provider, contribution: contribution}, nil
+}
+
 // Binding lowers one canonical MCP server binding into structural topology.
 func Binding(server desiredmcp.Server, binding desiredmcp.Binding) (topology.Graph, error) {
 	builder := newGraphBuilder()
@@ -17,12 +53,77 @@ func Binding(server desiredmcp.Server, binding desiredmcp.Binding) (topology.Gra
 	return topology.NewGraph(builder.subjectList(), builder.edgeList())
 }
 
+// BindingWithProvider lowers one binding together with its explicitly selected
+// provider contribution.
+func BindingWithProvider(
+	server desiredmcp.Server,
+	binding desiredmcp.Binding,
+	selection ProviderSelection,
+) (topology.Graph, error) {
+	builder := newGraphBuilder()
+	if err := builder.addBinding(server, binding, "mcp_server.binding"); err != nil {
+		return topology.Graph{}, err
+	}
+	projection, err := ProjectionSubject(binding.Target(), binding.Scope(), server.ID().Name())
+	if err != nil {
+		return topology.Graph{}, err
+	}
+	if err := builder.addProviderSelection(projection, selection, "mcp_server.binding.provider"); err != nil {
+		return topology.Graph{}, err
+	}
+	return topology.NewGraph(builder.subjectList(), builder.edgeList())
+}
+
 // Servers lowers canonical MCP server bindings into structural topology.
 func Servers(servers []desiredmcp.Server) (topology.Graph, error) {
+	return serversWithProviderSelections(servers, nil)
+}
+
+// ServersWithProviderSelections lowers canonical MCP bindings and the exact
+// provider contributions selected for provider-mediated projections. The map
+// key is the canonical MCP projection SubjectID.
+func ServersWithProviderSelections(
+	servers []desiredmcp.Server,
+	selections map[topology.SubjectID]ProviderSelection,
+) (topology.Graph, error) {
+	return serversWithProviderSelections(servers, selections)
+}
+
+func serversWithProviderSelections(
+	servers []desiredmcp.Server,
+	selections map[topology.SubjectID]ProviderSelection,
+) (topology.Graph, error) {
 	builder := newGraphBuilder()
+	consumedSelections := make(map[topology.SubjectID]struct{}, len(selections))
 	for index, server := range servers {
 		if err := builder.addServer(server, fmt.Sprintf("mcp_server[%d]", index)); err != nil {
 			return topology.Graph{}, err
+		}
+		for _, binding := range server.Bindings() {
+			projection, err := ProjectionSubject(binding.Target(), binding.Scope(), server.ID().Name())
+			if err != nil {
+				return topology.Graph{}, err
+			}
+			selection, selected := selections[projection]
+			if !selected {
+				continue
+			}
+			if err := builder.addProviderSelection(
+				projection,
+				selection,
+				fmt.Sprintf("mcp_server[%d].provider", index),
+			); err != nil {
+				return topology.Graph{}, err
+			}
+			consumedSelections[projection] = struct{}{}
+		}
+	}
+	for projection := range selections {
+		if _, consumed := consumedSelections[projection]; !consumed {
+			return topology.Graph{}, fmt.Errorf(
+				"MCP provider selection references unknown projection %q",
+				projection,
+			)
 		}
 	}
 	return topology.NewGraph(builder.subjectList(), builder.edgeList())
@@ -127,8 +228,43 @@ func (builder *graphBuilder) addEnvironmentReferences(stdio desiredmcp.Stdio, pr
 	return nil
 }
 
+func (builder *graphBuilder) addProviderSelection(
+	projection topology.SubjectID,
+	selection ProviderSelection,
+	context string,
+) error {
+	if !builder.hasSubject(projection) {
+		return fmt.Errorf("%s: projection %q is not part of the MCP graph", context, projection)
+	}
+	canonical, err := NewProviderSelection(selection.provider, selection.contribution)
+	if err != nil {
+		return fmt.Errorf("%s: %w", context, err)
+	}
+	if canonical != selection {
+		return fmt.Errorf("%s: MCP provider selection is not canonical", context)
+	}
+	builder.addSubject(selection.provider)
+	builder.addSubject(selection.contribution)
+	builder.addEdge(topology.NewEdge(
+		topology.EdgeProvidedBy,
+		selection.contribution,
+		selection.provider,
+	))
+	builder.addEdge(topology.NewEdge(
+		topology.EdgeBoundTo,
+		selection.contribution,
+		projection,
+	))
+	return nil
+}
+
 func (builder *graphBuilder) addSubject(subject topology.SubjectID) {
 	builder.subjects[subject] = struct{}{}
+}
+
+func (builder graphBuilder) hasSubject(subject topology.SubjectID) bool {
+	_, exists := builder.subjects[subject]
+	return exists
 }
 
 func (builder *graphBuilder) addEdge(edge topology.Edge) {

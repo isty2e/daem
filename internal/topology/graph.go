@@ -52,6 +52,22 @@ func (graph Graph) LauncherDependenciesOf(subject SubjectID) []SubjectID {
 	return graph.targetsFor(subject, EdgeLaunchesVia)
 }
 
+// ProviderOf returns the exact carrier provider of a contribution. Valid
+// graphs guarantee one provider for every contribution.
+func (graph Graph) ProviderOf(contribution SubjectID) (SubjectID, bool) {
+	providers := graph.targetsFor(contribution, EdgeProvidedBy)
+	if len(providers) != 1 {
+		return SubjectID{}, false
+	}
+	return providers[0], true
+}
+
+// BoundTargetsOf returns the projection or binding subjects to which one
+// structural provider or artifact subject is bound.
+func (graph Graph) BoundTargetsOf(subject SubjectID) []SubjectID {
+	return graph.targetsFor(subject, EdgeBoundTo)
+}
+
 // ConsumersOf returns direct consumed_by targets in deterministic order.
 func (graph Graph) ConsumersOf(subject SubjectID) []SubjectID {
 	return graph.targetsFor(subject, EdgeConsumedBy)

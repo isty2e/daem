@@ -13,6 +13,7 @@ import (
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 // OwnershipBasis records why daem owns the locked subject.
@@ -98,6 +99,7 @@ type LockedSubjectContractInput struct {
 	RepairRecipe              *skillrepair.Recipe
 	DelegatePlan              *realizationdelegate.DelegatePlan
 	MCPEnvironmentSources     []string
+	MCPProviderContribution   *extensiontopology.ContributionReference
 	SkillSetMemberCorrelation *SkillSetMemberCorrelation
 	Ownership                 OwnershipBasis
 	OnAbsent                  OnAbsentPolicy
@@ -118,6 +120,7 @@ type LockedSubjectContract struct {
 	repairRecipe              *skillrepair.Recipe
 	delegatePlan              *realizationdelegate.DelegatePlan
 	mcpEnvironmentSources     []string
+	mcpProviderContribution   *extensiontopology.ContributionReference
 	skillSetMemberCorrelation *SkillSetMemberCorrelation
 	ownership                 OwnershipBasis
 	onAbsent                  OnAbsentPolicy
@@ -169,6 +172,13 @@ func NewLockedSubjectContract(input LockedSubjectContractInput) (LockedSubjectCo
 		contract.delegatePlan = &plan
 	}
 	contract.mcpEnvironmentSources = normalizeStrings(input.MCPEnvironmentSources)
+	if input.MCPProviderContribution != nil {
+		if err := input.MCPProviderContribution.Validate(); err != nil {
+			return LockedSubjectContract{}, err
+		}
+		reference := *input.MCPProviderContribution
+		contract.mcpProviderContribution = &reference
+	}
 	if input.SkillSetMemberCorrelation != nil {
 		correlation, err := NewSkillSetMemberCorrelation(input.SkillSetMemberCorrelation.declarationIdentity)
 		if err != nil {
@@ -280,12 +290,6 @@ func (contract LockedSubjectContract) DelegatePlan() (realizationdelegate.Delega
 	return *contract.delegatePlan, true
 }
 
-// MCPEnvironmentSources returns the stable host environment names required by
-// an MCP projection. Values are never part of this locked facet.
-func (contract LockedSubjectContract) MCPEnvironmentSources() []string {
-	return append([]string(nil), contract.mcpEnvironmentSources...)
-}
-
 // SkillSetMemberCorrelation returns selector-member correlation when present.
 func (contract LockedSubjectContract) SkillSetMemberCorrelation() (SkillSetMemberCorrelation, bool) {
 	if contract.skillSetMemberCorrelation == nil {
@@ -344,6 +348,10 @@ func (contract LockedSubjectContract) Equal(other LockedSubjectContract) bool {
 		optionalSkillRepairRecipeEqual(contract.repairRecipe, other.repairRecipe) &&
 		optionalDelegatePlanEqual(contract.delegatePlan, other.delegatePlan) &&
 		slices.Equal(contract.mcpEnvironmentSources, other.mcpEnvironmentSources) &&
+		optionalMCPProviderContributionEqual(
+			contract.mcpProviderContribution,
+			other.mcpProviderContribution,
+		) &&
 		optionalSkillSetCorrelationEqual(contract.skillSetMemberCorrelation, other.skillSetMemberCorrelation) &&
 		contract.ownership == other.ownership &&
 		contract.onAbsent == other.onAbsent &&

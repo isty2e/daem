@@ -124,6 +124,94 @@ func TestProviderContributionIdentityIgnoresDiagnosticSourceMarker(t *testing.T)
 	}
 }
 
+func TestContributionReferenceRoundTripsWithoutProviderAuthorityDuplication(t *testing.T) {
+	provider := contributionProvider(t, "alpha@market")
+	contribution, err := extensiontopology.NewContribution(provider, extensiontopology.ContributionSpec{
+		Kind: "mcp-client",
+		Key:  "default",
+	})
+	if err != nil {
+		t.Fatalf("NewContribution returned error: %v", err)
+	}
+
+	reference := contribution.Reference()
+	if err := reference.Validate(); err != nil {
+		t.Fatalf("ContributionReference.Validate returned error: %v", err)
+	}
+	parsed, err := extensiontopology.ParseContributionReference(reference.SubjectID())
+	if err != nil {
+		t.Fatalf("ParseContributionReference returned error: %v", err)
+	}
+	if !parsed.Equal(reference) ||
+		parsed.ProviderSubjectID() != provider.SubjectID() ||
+		parsed.Kind() != "mcp-client" ||
+		parsed.Key() != "default" {
+		t.Fatalf("parsed reference = %#v, want lossless contribution identity", parsed)
+	}
+	if contribution.Provider().SubjectID() != parsed.ProviderSubjectID() {
+		t.Fatal("Contribution.Provider and parsed foreign key disagree")
+	}
+}
+
+func TestParseContributionReferenceRejectsForgedOrNonCanonicalIdentity(t *testing.T) {
+	provider := contributionProvider(t, "alpha@market")
+	contribution, err := extensiontopology.NewContribution(provider, extensiontopology.ContributionSpec{
+		Kind: "mcp-client",
+		Key:  "default",
+	})
+	if err != nil {
+		t.Fatalf("NewContribution returned error: %v", err)
+	}
+	canonical := contribution.SubjectID()
+
+	for _, test := range []struct {
+		name      string
+		namespace string
+		key       string
+	}{
+		{
+			name:      "wrong namespace",
+			namespace: provider.SubjectID().Namespace() + ".other",
+			key:       canonical.Key(),
+		},
+		{
+			name:      "reordered json",
+			namespace: canonical.Namespace(),
+			key:       `{"kind":"mcp-client","provider":"` + provider.SubjectID().String() + `","key":"default"}`,
+		},
+		{
+			name:      "unknown field",
+			namespace: canonical.Namespace(),
+			key:       strings.TrimSuffix(canonical.Key(), "}") + `,"version":"v1"}`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			subject, subjectErr := topology.NewSubjectID(
+				topology.SubjectContribution,
+				test.namespace,
+				test.key,
+			)
+			if subjectErr != nil {
+				t.Fatalf("NewSubjectID returned error: %v", subjectErr)
+			}
+			if _, parseErr := extensiontopology.ParseContributionReference(subject); parseErr == nil {
+				t.Fatalf("ParseContributionReference accepted %s", test.name)
+			}
+		})
+	}
+
+	resourceProvider, err := topology.NewSubjectID(topology.SubjectResource, "test", "provider")
+	if err != nil {
+		t.Fatalf("NewSubjectID returned error: %v", err)
+	}
+	if _, err := extensiontopology.NewContributionReference(
+		resourceProvider,
+		extensiontopology.ContributionSpec{Kind: "mcp-client", Key: "default"},
+	); err == nil {
+		t.Fatal("NewContributionReference accepted non-carrier provider")
+	}
+}
+
 func TestProviderContributionsRejectsUnsafeIdentityAndZeroProvider(t *testing.T) {
 	provider := contributionProvider(t, "alpha@market")
 	for _, spec := range []extensiontopology.ContributionSpec{

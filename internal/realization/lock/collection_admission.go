@@ -9,6 +9,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 type (
@@ -20,6 +21,8 @@ type lockedCollectionIndex struct {
 	exactSupplyByEntity         map[entity.ID]LockedSubjectContract
 	pathProjectionCountByEntity map[entity.ID]int
 	pathProjectionContracts     map[topology.SubjectID]LockedSubjectContract
+	delegatedCarriers           map[topology.SubjectID]extensiontopology.Carrier
+	mcpProviderContracts        []LockedSubjectContract
 }
 
 type managedPathOccupancy struct {
@@ -53,6 +56,8 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 	pathProjectionEntities := make(map[topology.SubjectID]entity.ID)
 	pathProjectionContracts := make(map[topology.SubjectID]LockedSubjectContract)
 	pathProjectionCountByEntity := make(map[entity.ID]int)
+	delegatedCarriers := make(map[topology.SubjectID]extensiontopology.Carrier)
+	mcpProviderContracts := make([]LockedSubjectContract, 0)
 
 	for _, subject := range subjects {
 		if existing, duplicate := seenSubjects[subject.SubjectID()]; duplicate {
@@ -64,6 +69,9 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 			)
 		}
 		seenSubjects[subject.SubjectID()] = subject.EntityID()
+		if _, selected := subject.MCPProviderContribution(); selected {
+			mcpProviderContracts = append(mcpProviderContracts, subject)
+		}
 		if _, supplied := subject.ExactSupply(); supplied {
 			exactSupplyByEntity[subject.EntityID()] = subject
 		}
@@ -125,6 +133,17 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 				)
 			}
 			seenRelations[key] = subject.SubjectID()
+			carrierKey, admitted, carrierErr := DelegatedRelationCarrierKey(subject)
+			if carrierErr != nil {
+				return lockedCollectionIndex{}, carrierErr
+			}
+			if admitted {
+				carrier, carrierErr := extensiontopology.NewCarrier(carrierKey)
+				if carrierErr != nil {
+					return lockedCollectionIndex{}, carrierErr
+				}
+				delegatedCarriers[carrier.SubjectID()] = carrier
+			}
 		}
 	}
 	for subjectID, entityID := range pathProjectionEntities {
@@ -153,6 +172,8 @@ func validateLockedCollection(subjects []LockedSubjectContract) (lockedCollectio
 		exactSupplyByEntity:         exactSupplyByEntity,
 		pathProjectionCountByEntity: pathProjectionCountByEntity,
 		pathProjectionContracts:     pathProjectionContracts,
+		delegatedCarriers:           delegatedCarriers,
+		mcpProviderContracts:        mcpProviderContracts,
 	}, nil
 }
 
@@ -160,6 +181,7 @@ func validateLockedCollectionAdmission(index lockedCollectionIndex) error {
 	for _, admit := range [...]lockedCollectionAdmission{
 		validateInstructionsPathProjectionCollection,
 		validateHookAssetPathProjectionCollection,
+		validateMCPProviderContributionCollection,
 	} {
 		if err := admit(index); err != nil {
 			return err

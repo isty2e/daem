@@ -16,4 +16,6 @@ var projectionNamespaceCatalog = [...]projectionNamespaceRow{
 	{target: target.TargetOpenCode, scope: target.ScopeGlobal, namespace: "opencode.global.mcp-server"},
 	{target: target.TargetCodex, scope: target.ScopeProject, namespace: "codex.project.mcp-server"},
 	{target: target.TargetCodex, scope: target.ScopeGlobal, namespace: "codex.global.mcp-server"},
+	{target: target.TargetPi, scope: target.ScopeProject, namespace: "pi.project.mcp-server"},
+	{target: target.TargetPi, scope: target.ScopeGlobal, namespace: "pi.global.mcp-server"},
 }

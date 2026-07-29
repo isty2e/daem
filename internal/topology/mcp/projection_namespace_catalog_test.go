@@ -18,6 +18,8 @@ func TestProjectionNamespaceCatalogIsCompleteAndUnique(t *testing.T) {
 		{target: target.TargetOpenCode, scope: target.ScopeGlobal}:       "opencode.global.mcp-server",
 		{target: target.TargetCodex, scope: target.ScopeProject}:         "codex.project.mcp-server",
 		{target: target.TargetCodex, scope: target.ScopeGlobal}:          "codex.global.mcp-server",
+		{target: target.TargetPi, scope: target.ScopeProject}:            "pi.project.mcp-server",
+		{target: target.TargetPi, scope: target.ScopeGlobal}:             "pi.global.mcp-server",
 	}
 	if len(projectionNamespaceCatalog) != len(want) {
 		t.Fatalf("catalog rows = %d, want %d", len(projectionNamespaceCatalog), len(want))

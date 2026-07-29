@@ -10,20 +10,21 @@ type lockedSectionDTO struct {
 }
 
 type lockedSubjectDTO struct {
-	EntityID              string                        `toml:"entity_id"`
-	SubjectID             string                        `toml:"subject_id"`
-	ExactSupply           *exactIdentityDTO             `toml:"exact_supply,omitempty"`
-	ExactFileUse          *exactFileUseDTO              `toml:"exact_file_use,omitempty"`
-	Realization           *realizationDTO               `toml:"realization,omitempty"`
-	Derivation            *derivationDTO                `toml:"derivation,omitempty"`
-	RepairRecipe          *repairRecipeDTO              `toml:"repair_recipe,omitempty"`
-	DelegatePlan          *delegatePlanDTO              `toml:"delegate_plan,omitempty"`
-	MCPEnvironmentSources []string                      `toml:"mcp_environment_sources,omitempty"`
-	SkillSetMember        *skillSetMemberCorrelationDTO `toml:"skill_set_member,omitempty"`
-	Ownership             string                        `toml:"ownership"`
-	OnAbsent              string                        `toml:"on_absent"`
-	Replay                replayCoverageDTO             `toml:"replay"`
-	Operations            []operationContractDTO        `toml:"operation"`
+	EntityID                string                        `toml:"entity_id"`
+	SubjectID               string                        `toml:"subject_id"`
+	ExactSupply             *exactIdentityDTO             `toml:"exact_supply,omitempty"`
+	ExactFileUse            *exactFileUseDTO              `toml:"exact_file_use,omitempty"`
+	Realization             *realizationDTO               `toml:"realization,omitempty"`
+	Derivation              *derivationDTO                `toml:"derivation,omitempty"`
+	RepairRecipe            *repairRecipeDTO              `toml:"repair_recipe,omitempty"`
+	DelegatePlan            *delegatePlanDTO              `toml:"delegate_plan,omitempty"`
+	MCPEnvironmentSources   []string                      `toml:"mcp_environment_sources,omitempty"`
+	MCPProviderContribution string                        `toml:"mcp_provider_contribution,omitempty"`
+	SkillSetMember          *skillSetMemberCorrelationDTO `toml:"skill_set_member,omitempty"`
+	Ownership               string                        `toml:"ownership"`
+	OnAbsent                string                        `toml:"on_absent"`
+	Replay                  replayCoverageDTO             `toml:"replay"`
+	Operations              []operationContractDTO        `toml:"operation"`
 }
 
 type exactIdentityDTO struct {

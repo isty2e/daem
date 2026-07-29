@@ -146,13 +146,13 @@ func TestBindingEdgeHuntAbsencePolicyIsPartOfServerOwnership(t *testing.T) {
 	}
 }
 
-func TestBindingEdgeHuntPlacementFailurePrecedesForeignOwnership(t *testing.T) {
+func TestBindingEdgeHuntPiPlacementStillRequiresExactServerOwnership(t *testing.T) {
 	owned := binding(t, target.TargetClaudeCode, target.ScopeProject, "npx", nil)
 	foreign := binding(t, target.TargetPi, target.ScopeProject, "npx", nil)
 	server := desiredtest.MCPServer(t, desiredmcp.Spec{Name: "server", Bindings: []desiredmcp.Binding{owned}})
 
-	if _, err := topologymcp.Binding(server, foreign); err == nil || !strings.Contains(err.Error(), "unsupported MCP target") {
-		t.Fatalf("Binding error = %v, want placement failure before ownership failure", err)
+	if _, err := topologymcp.Binding(server, foreign); err == nil || !strings.Contains(err.Error(), "binding is not owned") {
+		t.Fatalf("Binding error = %v, want exact binding ownership rejection", err)
 	}
 }
 

@@ -60,6 +60,8 @@ func TestProjectionSubjectOwnsCanonicalIdentityForEveryPlacement(t *testing.T) {
 		{name: "opencode global", selected: target.TargetOpenCode, scope: target.ScopeGlobal, namespace: "opencode.global.mcp-server"},
 		{name: "codex project", selected: target.TargetCodex, scope: target.ScopeProject, namespace: "codex.project.mcp-server"},
 		{name: "codex global", selected: target.TargetCodex, scope: target.ScopeGlobal, namespace: "codex.global.mcp-server"},
+		{name: "pi project", selected: target.TargetPi, scope: target.ScopeProject, namespace: "pi.project.mcp-server"},
+		{name: "pi global", selected: target.TargetPi, scope: target.ScopeGlobal, namespace: "pi.global.mcp-server"},
 	}
 
 	for _, test := range tests {
@@ -156,11 +158,6 @@ func TestServerRejectsUnsupportedPlacements(t *testing.T) {
 		wantText string
 	}{
 		{
-			name:     "unsupported target",
-			server:   ambientServer(t, "server", target.TargetPi, target.ScopeProject, "npx", nil, nil),
-			wantText: "unsupported MCP target",
-		},
-		{
 			name:     "unsupported scope",
 			server:   ambientServer(t, "server", target.TargetAntigravityCLI, target.ScopeProject, "npx", nil, nil),
 			wantText: "unsupported MCP scope",
@@ -197,7 +194,7 @@ func TestServerRepresentsEnvironmentReferenceIndependentlyOfRealizationCapabilit
 
 func TestProjectionSubjectRejectsUnsupportedRowsAndInvalidNames(t *testing.T) {
 	context7 := mustMCPServerID(t, "context7")
-	if _, err := topologymcp.ProjectionSubject(target.TargetPi, target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unsupported MCP target") {
+	if _, err := topologymcp.ProjectionSubject(target.Target("future"), target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unknown target") {
 		t.Fatalf("unsupported target error = %v", err)
 	}
 	if _, err := topologymcp.ProjectionSubject(target.TargetAntigravityCLI, target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unsupported MCP scope") {
