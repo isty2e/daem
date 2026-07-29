@@ -38,6 +38,7 @@ import (
 var (
 	ErrReadLockfile         = errors.New("read lockfile")
 	ErrRelationActionBlock  = errors.New("relation action blocked")
+	ErrRelationOrderBlock   = errors.New("relation order blocked")
 	ErrCarrierAdoptionBlock = errors.New("carrier adoption blocked")
 	ErrCarrierAbsenceBlock  = errors.New("carrier absence blocked")
 )
@@ -137,6 +138,9 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
+		return unavailablePreparedWrite(planned.result), err
+	}
+	if err := rejectBlockedRelationOrders(planned.assessment.Reconciliation); err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
 	if err := rejectBlockedCarrierAdoptions(planned.assessment.Reconciliation); err != nil {
@@ -289,6 +293,23 @@ func rejectBlockedRelationActions(result reconcile.Result) error {
 		action.Subject().Key(),
 		action.Kind(),
 		action.Reason(),
+	)
+}
+
+func rejectBlockedRelationOrders(result reconcile.Result) error {
+	decision, blocked := result.FirstBlockedRelationOrder()
+	if !blocked {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: target=%s scope=%s class=%s sequence=%s reason=%s detail=%s",
+		ErrRelationOrderBlock,
+		decision.Target(),
+		decision.Scope(),
+		decision.ClassID(),
+		decision.SequenceID(),
+		decision.Reason(),
+		decision.Detail(),
 	)
 }
 

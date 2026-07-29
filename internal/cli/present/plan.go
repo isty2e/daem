@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const planJSONSchemaVersion = 9
+const planJSONSchemaVersion = 10
 
 func PrintDryRunPlanWithOptions(output io.Writer, result reconcile.Result, options HumanOptions) {
 	PrintActionPlanWithOptions(output, "dry-run", result, options)
@@ -44,6 +44,7 @@ type planJSONOutput struct {
 	Actions           []planJSONAction            `json:"actions"`
 	DelegateActions   []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions   []relationActionJSON        `json:"relation_actions,omitempty"`
+	RelationOrders    []relationOrderJSON         `json:"relation_order_actions,omitempty"`
 	CarrierAdoptions  []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
 	CarrierAbsences   []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
 	HostRouteAttempts []hostRouteAttemptJSON      `json:"host_route_attempts,omitempty"`
@@ -149,6 +150,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		Actions:           planJSONActionsForPlan(reconciliation),
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),
+		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders()),
 		CarrierAdoptions:  carrierAdoptionJSONActions(reconciliation.CarrierAdoptions(), carrierAdoptionPlanned),
 		CarrierAbsences:   carrierAbsenceJSONActions(reconciliation.CarrierAbsences()),
 		HostRouteAttempts: hostRouteAttempts,

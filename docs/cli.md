@@ -218,12 +218,12 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `2` |
-| `lock`, `outdated` | Lock comparison | `2` |
+| `lock`, `outdated` | Lock comparison | `3` |
 | `list resources` | Resource inventory | `1` |
 | `list outputs` | Output inventory | `3` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `9` |
-| confirmed `apply` | Apply result | `13` |
+| `status`, `apply --dry-run` | Reconciliation plan | `10` |
+| confirmed `apply` | Apply result | `14` |
 | `recover` | Recovery plan/result | `3` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
@@ -654,7 +654,7 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending output action, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, blocked carrier-relation action, or carrier-adoption claim conflict |
+| `status --check` | lockfile present, no pending output action, and no blocked carrier-relation, extension-order, or carrier-adoption action | lockfile missing, pending output action, blocked carrier relation/order action, or carrier-adoption claim conflict |
 
 Warning-only diagnostics, selected missing carrier relations, and observe-only
 relation rows do not make `--check` fail. JSON and human modes use the same exit
@@ -708,11 +708,17 @@ residue class, failures, and a next action only when more work is needed.
 `--verbose` adds state/content paths, reason codes, selected source/ref, and
 bounded evidence. Raw subprocess output and secret values are never printed.
 
-Status and apply-dry-run JSON use plan schema version `9`. The document contains
+Status and apply-dry-run JSON use plan schema version `10`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
-actions, relation actions, carrier-adoption actions, carrier-absence actions,
-host-route attempt history, diagnostics, MCP status dimensions, and
-`has_errors`.
+actions, relation actions, physical extension-order actions, carrier-adoption
+actions, carrier-absence actions, host-route attempt history, diagnostics, MCP
+status dimensions, and `has_errors`. Each `relation_order_actions` row names
+one independently mutable physical sequence, its logical class, desired and
+observed managed members, foreign-row count, current revision, runtime meaning,
+and any typed `foreign_precedence_change` risks. OpenCode rows describe config
+order only; Pi rows describe runtime precedence. A carrier install or removal
+that must settle first is reported as `conditional_after_carrier_change`
+instead of an executable order mutation.
 
 Carrier-adoption rows expose the exact relation evidence, lifecycle blocker or
 eligibility, selected claim store, install/removal route identities, bounded
@@ -732,7 +738,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `13`. It adds executed action
+`apply --yes --json` uses result schema version `14`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
 carrier-absence outcomes, and final `has_errors`. Known mutation codes include

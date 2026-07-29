@@ -71,7 +71,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-	if payload.SchemaVersion != 13 || payload.Command != "apply" || payload.Mode != "write" {
+	if payload.SchemaVersion != 14 || payload.Command != "apply" || payload.Mode != "write" {
 		t.Fatalf("payload identity = %#v", payload)
 	}
 	if payload.ActionCount != 1 || payload.StatefilePath != filepath.Join(tempDir, ".daem", "state.json") {

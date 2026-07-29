@@ -107,6 +107,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
 		clipresent.PrintMCPStatusesWithOptions(stdout, mcpStatuses, humanOptions)
 		clipresent.PrintRelationActionsWithOptions(stdout, planning.Reconciliation.Relations(), humanOptions)
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, planning.Reconciliation.RelationOrders(), humanOptions)
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, planning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
 		clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
@@ -160,6 +161,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		}
 		fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
 		clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
+		clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
 		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
@@ -176,12 +178,15 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		return 1
 	}
 	relationActionsDisclosed := false
+	relationOrdersDisclosed := false
 	carrierAbsencesDisclosed := false
 	humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 	if interactiveConfirmation {
 		clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly))
 		clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
 		relationActionsDisclosed = true
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
+		relationOrdersDisclosed = true
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 		carrierAbsencesDisclosed = true
@@ -204,6 +209,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintDiagnosticsWithOptions(stdout, readinessPlanning.Diagnostics, humanOptions)
 		clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
 		relationActionsDisclosed = true
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
+		relationOrdersDisclosed = true
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 		carrierAbsencesDisclosed = true
@@ -285,6 +292,9 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 	if !relationActionsDisclosed {
 		clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
 	}
+	if !relationOrdersDisclosed {
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, result.Reconciliation.RelationOrders(), humanOptions)
+	}
 	if !carrierAbsencesDisclosed {
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, result.Reconciliation.CarrierAbsences(), humanOptions)
 	}
@@ -307,6 +317,11 @@ func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
 	}
 	for _, action := range planning.Reconciliation.Relations() {
 		if action.InvokesHostRoute() {
+			return true
+		}
+	}
+	for _, decision := range planning.Reconciliation.RelationOrders() {
+		if decision.RequiresMutation() {
 			return true
 		}
 	}

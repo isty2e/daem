@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 	"github.com/isty2e/daem/internal/target"
@@ -25,6 +26,7 @@ type ResultInput struct {
 	ManagedPaths     []ManagedPathDecision
 	Aggregates       []AggregateDecision
 	Relations        []RelationAction
+	RelationOrders   []RelationOrderDecision
 	CarrierAdoptions []carrieradoption.Action
 	CarrierAbsences  []carrierabsence.Action
 	Delegates        []DelegateAction
@@ -32,13 +34,14 @@ type ResultInput struct {
 
 // Result is the immutable, canonically ordered reconciliation result.
 type Result struct {
-	managedPaths []ManagedPathDecision
-	aggregates   []AggregateDecision
-	relations    []RelationAction
-	adoptions    []carrieradoption.Action
-	absences     []carrierabsence.Action
-	delegates    []DelegateAction
-	context      OperationContext
+	managedPaths   []ManagedPathDecision
+	aggregates     []AggregateDecision
+	relations      []RelationAction
+	relationOrders []RelationOrderDecision
+	adoptions      []carrieradoption.Action
+	absences       []carrierabsence.Action
+	delegates      []DelegateAction
+	context        OperationContext
 }
 
 // NewResult validates, orders, and defensively copies one complete
@@ -100,6 +103,49 @@ func NewResult(input ResultInput) (Result, error) {
 		}
 	}
 
+	canonicalRelationOrders := append([]RelationOrderDecision(nil), input.RelationOrders...)
+	for index, decision := range canonicalRelationOrders {
+		if err := decision.Validate(); err != nil {
+			return Result{}, fmt.Errorf("relation order decision[%d]: %w", index, err)
+		}
+	}
+	sort.SliceStable(canonicalRelationOrders, func(left int, right int) bool {
+		return canonicalRelationOrders[left].Compare(canonicalRelationOrders[right]) < 0
+	})
+	sequenceClasses := make(map[hostrelation.PhysicalSequenceID]hostrelation.OrderClassID)
+	for _, decision := range canonicalRelationOrders {
+		if previousClass, duplicate := sequenceClasses[decision.SequenceID()]; duplicate &&
+			previousClass != decision.ClassID() {
+			return Result{}, fmt.Errorf(
+				"relation order sequence %q is shared by classes %q and %q",
+				decision.SequenceID(),
+				previousClass,
+				decision.ClassID(),
+			)
+		}
+		sequenceClasses[decision.SequenceID()] = decision.ClassID()
+	}
+	for index := 1; index < len(canonicalRelationOrders); index++ {
+		previous := canonicalRelationOrders[index-1]
+		current := canonicalRelationOrders[index]
+		if previous.Compare(current) == 0 {
+			return Result{}, fmt.Errorf(
+				"duplicate relation order decision for class %q and sequence %q",
+				current.ClassID(),
+				current.SequenceID(),
+			)
+		}
+		if previous.ClassID() == current.ClassID() &&
+			(previous.Target() != current.Target() ||
+				previous.Scope() != current.Scope() ||
+				previous.ConstraintFingerprint() != current.ConstraintFingerprint()) {
+			return Result{}, fmt.Errorf(
+				"relation order class %q has inconsistent sequence decisions",
+				current.ClassID(),
+			)
+		}
+	}
+
 	canonicalAdoptions := append([]carrieradoption.Action(nil), input.CarrierAdoptions...)
 	for index, action := range canonicalAdoptions {
 		if err := action.Validate(); err != nil {
@@ -158,13 +204,14 @@ func NewResult(input ResultInput) (Result, error) {
 	}
 
 	return Result{
-		managedPaths: canonicalManagedPaths,
-		aggregates:   canonicalAggregates,
-		relations:    canonicalRelations,
-		adoptions:    canonicalAdoptions,
-		absences:     canonicalAbsences,
-		delegates:    canonicalDelegates,
-		context:      input.Context,
+		managedPaths:   canonicalManagedPaths,
+		aggregates:     canonicalAggregates,
+		relations:      canonicalRelations,
+		relationOrders: canonicalRelationOrders,
+		adoptions:      canonicalAdoptions,
+		absences:       canonicalAbsences,
+		delegates:      canonicalDelegates,
+		context:        input.Context,
 	}, nil
 }
 
@@ -181,6 +228,11 @@ func (result Result) Aggregates() []AggregateDecision {
 // Relations returns a defensive copy of canonical host-relation decisions.
 func (result Result) Relations() []RelationAction {
 	return append([]RelationAction(nil), result.relations...)
+}
+
+// RelationOrders returns a defensive copy of canonical physical-sequence decisions.
+func (result Result) RelationOrders() []RelationOrderDecision {
+	return append([]RelationOrderDecision(nil), result.relationOrders...)
 }
 
 // CarrierAdoptions returns a defensive copy of canonical adoption decisions.
@@ -203,13 +255,14 @@ func (result Result) Delegates() []DelegateAction {
 // sufficient.
 func (result Result) Clone() Result {
 	return Result{
-		managedPaths: result.ManagedPaths(),
-		aggregates:   result.Aggregates(),
-		relations:    result.Relations(),
-		adoptions:    result.CarrierAdoptions(),
-		absences:     result.CarrierAbsences(),
-		delegates:    result.Delegates(),
-		context:      result.context,
+		managedPaths:   result.ManagedPaths(),
+		aggregates:     result.Aggregates(),
+		relations:      result.Relations(),
+		relationOrders: result.RelationOrders(),
+		adoptions:      result.CarrierAdoptions(),
+		absences:       result.CarrierAbsences(),
+		delegates:      result.Delegates(),
+		context:        result.context,
 	}
 }
 

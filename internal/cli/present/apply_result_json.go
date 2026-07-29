@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 )
 
-const applyResultJSONSchemaVersion = 13
+const applyResultJSONSchemaVersion = 14
 
 type ApplyResultJSONInput struct {
 	ActionCount            int
@@ -37,6 +37,7 @@ type applyResultJSONOutput struct {
 	Actions           []planJSONAction            `json:"actions"`
 	DelegateActions   []delegateActionJSON        `json:"delegate_actions,omitempty"`
 	RelationActions   []relationActionJSON        `json:"relation_actions,omitempty"`
+	RelationOrders    []relationOrderJSON         `json:"relation_order_actions,omitempty"`
 	CarrierAdoptions  []carrierAdoptionActionJSON `json:"carrier_adoption_actions,omitempty"`
 	CarrierAbsences   []carrierAbsenceActionJSON  `json:"carrier_absence_actions,omitempty"`
 	DelegateAttempts  []delegateAttemptJSON       `json:"delegate_attempts,omitempty"`
@@ -65,6 +66,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		Actions:         planJSONActionsForPlan(input.Reconciliation),
 		DelegateActions: delegateJSONActions(input.Reconciliation.Delegates()),
 		RelationActions: relationJSONActions(relations),
+		RelationOrders:  relationOrderJSONActions(input.Reconciliation.RelationOrders()),
 		CarrierAdoptions: carrierAdoptionJSONActionsWithResults(
 			input.Reconciliation.CarrierAdoptions(),
 			applyResultCarrierAdoptionPhase(input.Err, input.ExecutionAttempted),
@@ -77,6 +79,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		Diagnostics:       planJSONDiagnostics(input.Diagnostics),
 		HasErrors: hasErrorDiagnostics(input.Diagnostics) ||
 			input.Reconciliation.HasBlockedRelations() ||
+			input.Reconciliation.HasBlockedRelationOrders() ||
 			input.Reconciliation.HasBlockedCarrierAdoptions() ||
 			input.Reconciliation.HasBlockedCarrierAbsences(),
 		Errors: []applyResultJSONError{},

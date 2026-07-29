@@ -43,8 +43,8 @@ func TestPlanJSONDisclosesExactStateOnlyCarrierAdoptionWithoutAuthorityOverclaim
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 9 || payload.HasErrors || len(payload.CarrierAdoptions) != 1 {
-		t.Fatalf("payload = %#v, want schema 9 with one nonblocking adoption", payload)
+	if payload.SchemaVersion != 10 || payload.HasErrors || len(payload.CarrierAdoptions) != 1 {
+		t.Fatalf("payload = %#v, want schema 10 with one nonblocking adoption", payload)
 	}
 	row := payload.CarrierAdoptions[0]
 	if row.Result != "eligible_exact_relation" ||
@@ -306,7 +306,7 @@ func TestApplyResultJSONDistinguishesCommittedAndFailedCarrierAdoption(t *testin
 			if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 				t.Fatalf("json.Unmarshal: %v", err)
 			}
-			if payload.SchemaVersion != 13 ||
+			if payload.SchemaVersion != 14 ||
 				payload.HasErrors != tt.wantErrors ||
 				len(payload.CarrierAdoptions) != 1 ||
 				payload.CarrierAdoptions[0].ClaimTransition != tt.wantTransition {
@@ -348,7 +348,7 @@ func TestApplyResultDistinguishesPendingInstallRecoveryFromExplicitAdoption(t *t
 	if err := json.Unmarshal(jsonOutput.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 13 || len(payload.CarrierAdoptions) != 1 {
+	if payload.SchemaVersion != 14 || len(payload.CarrierAdoptions) != 1 {
 		t.Fatalf("payload = %#v", payload)
 	}
 	row := payload.CarrierAdoptions[0]

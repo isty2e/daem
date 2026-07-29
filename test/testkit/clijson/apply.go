@@ -83,6 +83,7 @@ type ApplyResult struct {
 	} `json:"actions"`
 	DelegateActions   []DelegateAction        `json:"delegate_actions"`
 	RelationActions   []RelationAction        `json:"relation_actions"`
+	RelationOrders    []RelationOrderAction   `json:"relation_order_actions"`
 	CarrierAdoptions  []CarrierAdoptionAction `json:"carrier_adoption_actions"`
 	CarrierAbsences   []CarrierAbsenceAction  `json:"carrier_absence_actions"`
 	DelegateAttempts  []DelegateAttempt       `json:"delegate_attempts"`

@@ -41,6 +41,9 @@ func (result Result) HasErrors() bool {
 	if result.HasBlockedRelations() {
 		return true
 	}
+	if result.HasBlockedRelationOrders() {
+		return true
+	}
 	if result.HasBlockedCarrierAdoptions() {
 		return true
 	}
@@ -53,6 +56,27 @@ func (result Result) HasErrors() bool {
 		}
 	}
 	return false
+}
+
+// HasBlockedRelationOrders reports whether any physical sequence lacks a safe
+// current planning interpretation.
+func (result Result) HasBlockedRelationOrders() bool {
+	for _, decision := range result.relationOrders {
+		if decision.BlocksOrdinaryApply() {
+			return true
+		}
+	}
+	return false
+}
+
+// FirstBlockedRelationOrder returns the first canonical blocked sequence.
+func (result Result) FirstBlockedRelationOrder() (RelationOrderDecision, bool) {
+	for _, decision := range result.relationOrders {
+		if decision.BlocksOrdinaryApply() {
+			return decision, true
+		}
+	}
+	return RelationOrderDecision{}, false
 }
 
 // HasBlockedCarrierAdoptions reports whether adoption authority adds a block
@@ -200,6 +224,7 @@ func (result Result) ProjectionDecisionCount() int {
 func (result Result) DecisionCount() int {
 	return result.ProjectionDecisionCount() +
 		len(result.relations) +
+		len(result.relationOrders) +
 		len(result.adoptions) +
 		len(result.absences) +
 		len(result.delegates)
