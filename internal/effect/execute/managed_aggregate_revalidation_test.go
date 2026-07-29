@@ -36,11 +36,17 @@ func TestAggregateEffectRejectsDocumentAndModeChangesAfterPlanning(t *testing.T)
 
 func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T) {
 	root := t.TempDir()
-	preconditions, admitted, err := aggregate.OperationPreconditionsForCodec(
-		aggregate.OpenCodeProjectMCPLocalCommandV1,
-	)
+	placement, ok := aggregate.MCPPlacementForID(aggregate.MCPPlacementOpenCodeProject)
+	if !ok {
+		t.Fatal("OpenCode project MCP placement is missing")
+	}
+	contract, err := placement.ProjectionContract("context7")
 	if err != nil {
-		t.Fatalf("OperationPreconditionsForCodec returned error: %v", err)
+		t.Fatalf("ProjectionContract returned error: %v", err)
+	}
+	preconditions, admitted, err := aggregate.OperationPreconditionsForContract(contract)
+	if err != nil {
+		t.Fatalf("OperationPreconditionsForContract returned error: %v", err)
 	}
 	if !admitted || len(preconditions) != 1 {
 		t.Fatalf("preconditions = %#v, admitted = %t, want one", preconditions, admitted)

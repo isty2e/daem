@@ -20,6 +20,8 @@ const (
 	MCPPlacementOpenCodeGlobal    MCPPlacementID = "opencode.global.default-json"
 	MCPPlacementCodexProject      MCPPlacementID = "codex.project.project-config"
 	MCPPlacementCodexGlobal       MCPPlacementID = "codex.global.default-config"
+	MCPPlacementPiProject         MCPPlacementID = "pi.project.pi-config"
+	MCPPlacementPiGlobal          MCPPlacementID = "pi.global.agent-config"
 )
 
 const (
@@ -37,6 +39,9 @@ const (
 	CodexProjectMCPStdioCommandV1    = "codex-project-mcp-stdio-command-v1"
 	CodexGlobalMCPConfigPath         = "~/.codex/config.toml"
 	CodexGlobalMCPStdioEnvVarsV1     = "codex-global-mcp-stdio-env-vars-v1"
+	PiProjectMCPConfigPath           = ".pi/mcp.json"
+	PiGlobalMCPConfigPath            = "~/.pi/agent/mcp.json"
+	PiMCPAdapterStdioV1              = "pi-mcp-adapter-stdio-v1"
 
 	openCodeProjectMCPConflictPath = "opencode.jsonc"
 	openCodeGlobalMCPConflictPath  = "~/.config/opencode/opencode.jsonc"
@@ -53,6 +58,8 @@ const (
 	MCPConfigLayerOpenCodeGlobalDefaultJSON    MCPConfigLayer = "opencode-global-default-json"
 	MCPConfigLayerCodexProjectFile             MCPConfigLayer = "codex-project-config"
 	MCPConfigLayerCodexGlobalDefaultFile       MCPConfigLayer = "codex-user-default-config"
+	MCPConfigLayerPiProjectFile                MCPConfigLayer = "pi-project-config"
+	MCPConfigLayerPiGlobalAgentFile            MCPConfigLayer = "pi-global-agent-config"
 )
 
 const (
@@ -63,6 +70,7 @@ const (
 	MCPCodecOpenCodeGlobalLocalEnv      CodecContractID = OpenCodeGlobalMCPLocalEnvV1
 	MCPCodecCodexProjectStdioCommand    CodecContractID = CodexProjectMCPStdioCommandV1
 	MCPCodecCodexGlobalStdioEnvVars     CodecContractID = CodexGlobalMCPStdioEnvVarsV1
+	MCPCodecPiAdapterStdio              CodecContractID = PiMCPAdapterStdioV1
 )
 
 // MCPAbsencePolicy identifies the row-local behavior when the manifest declaration disappears.
@@ -167,21 +175,6 @@ func (placement MCPPlacement) Target() target.Target {
 // Scope returns the public manifest scope for this placement row.
 func (placement MCPPlacement) Scope() target.Scope {
 	return placement.scope
-}
-
-// ConfigLayer returns the internal host config layer for this placement row.
-func (placement MCPPlacement) ConfigLayer() MCPConfigLayer {
-	return placement.configLayer
-}
-
-// AggregateSpec returns the canonical aggregate ownership spec for this placement.
-func (placement MCPPlacement) AggregateSpec() MCPConfigAggregateSpec {
-	return placement.aggregateSpec
-}
-
-// AggregateRoot returns the host config aggregate root for this placement row.
-func (placement MCPPlacement) AggregateRoot() output.Destination {
-	return placement.aggregateSpec.Root()
 }
 
 // ConfigPath returns the host config path role for this placement row.
@@ -291,11 +284,6 @@ func (placement MCPPlacement) CodecContractID() CodecContractID {
 // ComparedFields returns the canonical exact-projection comparison field set.
 func (placement MCPPlacement) ComparedFields() []string {
 	return append([]string(nil), placement.comparedFields...)
-}
-
-// Absence returns the row-local absent-declaration policy.
-func (placement MCPPlacement) Absence() MCPAbsencePolicy {
-	return placement.absence
 }
 
 // EnvReferenceContract returns the exact symbolic environment-reference

@@ -11,7 +11,7 @@ The current product manages:
   and Antigravity CLI;
 - Agent Skills directories where the target exposes a known skill root;
 - supported Codex and Claude Code command-hook configuration;
-- supported standalone MCP configuration projections;
+- supported MCP configuration projections;
 - supported host-native extension relations through delegated host commands;
   and
 - the lockfile, managed-state file, cache, and recovery journal needed for
@@ -22,6 +22,11 @@ Support varies by target and resource. See
 the [Host Integration Contract](docs/host-integrations.md) for exact native
 routes and safety limits. Product operating-system and architecture support is
 independent; see [Platform Support](docs/platforms.md).
+
+Pi MCP configuration is supported through an explicit `pi-mcp-adapter`
+package declaration rather than a Pi core-native surface. See the
+[project](examples/pi-project-mcp-stdio.toml) and
+[global](examples/pi-global-mcp-stdio.toml) examples.
 
 ## How It Works
 

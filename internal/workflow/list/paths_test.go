@@ -102,8 +102,8 @@ source = { marketplace = "context7@market" }
 	})
 	assertLocationEntry(t, entries, locationExpectation{
 		target: target.TargetPi, scope: target.ScopeProject, resource: entity.KindMCPServer,
-		role: LocationRoleUnsupported, reason: "not-implemented",
-		selected: false, requested: true,
+		role: LocationRoleConfig, path: ".pi/mcp.json",
+		selected: true, requested: true,
 	})
 	for _, operation := range []profile.Operation{
 		profile.OperationInstall,

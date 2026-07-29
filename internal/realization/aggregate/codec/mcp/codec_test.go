@@ -111,7 +111,7 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 		"sibling": sibling,
 	} {
 		var err error
-		existing, err = operations.MergeCanonicalEntry(existing, serverID, canonical)
+		existing, err = operations.mergeCanonicalEntry(existing, serverID, canonical)
 		if err != nil {
 			t.Fatalf("MergeCanonicalEntry(%q): %v", serverID, err)
 		}
@@ -219,7 +219,7 @@ func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 		"beta":       betaCanonical,
 		"concurrent": concurrentCanonical,
 	} {
-		current, err = operations.MergeCanonicalEntry(current, serverID, canonical)
+		current, err = operations.mergeCanonicalEntry(current, serverID, canonical)
 		if err != nil {
 			t.Fatalf("MergeCanonicalEntry(%q): %v", serverID, err)
 		}
@@ -232,7 +232,7 @@ func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 		t.Fatal("restore removed a document containing a concurrent unmanaged sibling")
 	}
 	for _, serverID := range []string{"alpha", "beta"} {
-		present, err := operations.EntryPresent(restored.Document().Content(), serverID)
+		present, err := operations.entryPresent(restored.Document().Content(), serverID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -240,7 +240,7 @@ func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 			t.Fatalf("restore retained selected entry %q", serverID)
 		}
 	}
-	present, err := operations.EntryPresent(restored.Document().Content(), "concurrent")
+	present, err := operations.entryPresent(restored.Document().Content(), "concurrent")
 	if err != nil || !present {
 		t.Fatalf("concurrent sibling present = %t, error = %v", present, err)
 	}
@@ -323,7 +323,9 @@ func mcpCodecExclusiveSet(t *testing.T, contribution aggregate.ManagedContributi
 
 func mcpCodecServerID(t *testing.T, contribution aggregate.ManagedContribution) string {
 	t.Helper()
-	operations, ok := ImplementedMCPPlacementOperationsForCodecContract(contribution.CodecContractID())
+	operations, ok := ImplementedMCPPlacementOperationsForPlacement(
+		aggregate.MCPPlacementID(contribution.Address().PlacementID()),
+	)
 	if !ok {
 		t.Fatal("MCP placement operations are missing")
 	}

@@ -3,6 +3,7 @@ package projection
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
@@ -19,6 +20,8 @@ type AggregateInput struct {
 	Locked                 lock.LockedSection
 	Expected               []lock.LockedSubjectContract
 	Desired                []aggregate.SubjectContribution
+	Constraints            []AggregateSubjectConstraint
+	RemovalNotices         []AggregateRemovalNotice
 	States                 []durable.ManagedAggregateState
 	Evidence               []observe.AggregateEvidence
 	ObservationFailures    []observe.AggregateObservationFailure
@@ -28,6 +31,76 @@ type AggregateInput struct {
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	Codecs                 aggregate.CodecCatalog
+}
+
+// AggregateRemovalNotice carries operation-local post-removal evidence for one
+// managed subject. It is diagnostic only and grants no mutation authority.
+type AggregateRemovalNotice struct {
+	subject topology.SubjectID
+	detail  string
+}
+
+// NewAggregateRemovalNotice constructs one non-authoritative removal notice.
+func NewAggregateRemovalNotice(
+	subject topology.SubjectID,
+	detail string,
+) (AggregateRemovalNotice, error) {
+	if err := subject.Validate(); err != nil {
+		return AggregateRemovalNotice{}, fmt.Errorf("aggregate removal notice subject: %w", err)
+	}
+	if subject.Kind() != topology.SubjectProjection {
+		return AggregateRemovalNotice{}, fmt.Errorf(
+			"aggregate removal notice requires a projection subject",
+		)
+	}
+	if strings.TrimSpace(detail) == "" || strings.TrimSpace(detail) != detail {
+		return AggregateRemovalNotice{}, fmt.Errorf(
+			"aggregate removal notice detail must be non-empty and trimmed",
+		)
+	}
+	return AggregateRemovalNotice{subject: subject, detail: detail}, nil
+}
+
+func (notice AggregateRemovalNotice) Subject() topology.SubjectID { return notice.subject }
+func (notice AggregateRemovalNotice) Detail() string              { return notice.detail }
+
+// AggregateSubjectConstraint is one fresh external condition that blocks a
+// subject without changing its locked projection or granting mutation authority
+// to the condition's observer.
+type AggregateSubjectConstraint struct {
+	subject topology.SubjectID
+	reason  reconcile.ActionReason
+	detail  string
+}
+
+// NewAggregateSubjectConstraint constructs one normalized planning constraint.
+func NewAggregateSubjectConstraint(
+	subject topology.SubjectID,
+	reason reconcile.ActionReason,
+	detail string,
+) (AggregateSubjectConstraint, error) {
+	if err := subject.Validate(); err != nil {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint subject: %w", err)
+	}
+	if reason == "" {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint reason is required")
+	}
+	if detail == "" {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint detail is required")
+	}
+	return AggregateSubjectConstraint{subject: subject, reason: reason, detail: detail}, nil
+}
+
+func (constraint AggregateSubjectConstraint) Subject() topology.SubjectID {
+	return constraint.subject
+}
+
+func (constraint AggregateSubjectConstraint) Reason() reconcile.ActionReason {
+	return constraint.reason
+}
+
+func (constraint AggregateSubjectConstraint) Detail() string {
+	return constraint.detail
 }
 
 type aggregateGroupInput struct {
@@ -57,6 +130,14 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 		return nil, err
 	}
 	desired, err := desiredAggregateSubjects(input.Desired, expected, selection)
+	if err != nil {
+		return nil, err
+	}
+	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected)
+	if err != nil {
+		return nil, err
+	}
+	removalNotices, err := aggregateRemovalNoticeIndex(input.RemovalNotices)
 	if err != nil {
 		return nil, err
 	}
@@ -162,12 +243,122 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 		if err != nil {
 			return nil, err
 		}
+		applyAggregateRemovalNotices(&decision, removalNotices)
 		drafts = append(drafts, decision)
+	}
+	for subject, notice := range removalNotices {
+		if !notice.matched {
+			return nil, fmt.Errorf(
+				"aggregate removal notice subject %q has no selected aggregate state",
+				subject,
+			)
+		}
 	}
 	sort.SliceStable(drafts, func(left int, right int) bool {
 		return aggregateDecisionKey(drafts[left]) < aggregateDecisionKey(drafts[right])
 	})
 	return canonicalAggregateDecisions(drafts)
+}
+
+type indexedAggregateRemovalNotice struct {
+	detail  string
+	matched bool
+}
+
+func aggregateRemovalNoticeIndex(
+	notices []AggregateRemovalNotice,
+) (map[topology.SubjectID]*indexedAggregateRemovalNotice, error) {
+	result := make(
+		map[topology.SubjectID]*indexedAggregateRemovalNotice,
+		len(notices),
+	)
+	for index, notice := range notices {
+		if err := notice.Subject().Validate(); err != nil {
+			return nil, fmt.Errorf("aggregate removal notice[%d]: %w", index, err)
+		}
+		if strings.TrimSpace(notice.Detail()) == "" ||
+			strings.TrimSpace(notice.Detail()) != notice.Detail() {
+			return nil, fmt.Errorf(
+				"aggregate removal notice[%d] detail is invalid",
+				index,
+			)
+		}
+		if _, duplicate := result[notice.Subject()]; duplicate {
+			return nil, fmt.Errorf(
+				"duplicate aggregate removal notice for subject %q",
+				notice.Subject(),
+			)
+		}
+		result[notice.Subject()] = &indexedAggregateRemovalNotice{
+			detail: notice.Detail(),
+		}
+	}
+	return result, nil
+}
+
+func applyAggregateRemovalNotices(
+	decision *aggregateDecision,
+	notices map[topology.SubjectID]*indexedAggregateRemovalNotice,
+) {
+	for projectionIndex := range decision.projections {
+		projection := &decision.projections[projectionIndex]
+		for deltaIndex := range projection.deltas {
+			delta := &projection.deltas[deltaIndex]
+			notice, present := notices[delta.subject]
+			if !present {
+				continue
+			}
+			notice.matched = true
+			if delta.kind != reconcile.AggregateRemove {
+				continue
+			}
+			if delta.detail == "" {
+				delta.detail = notice.detail
+			} else {
+				delta.detail += "; " + notice.detail
+			}
+		}
+	}
+}
+
+func applyAggregateSubjectConstraints(
+	blocked []aggregateBlockedSubject,
+	constraints []AggregateSubjectConstraint,
+	expected map[topology.SubjectID]aggregate.SubjectContribution,
+) ([]aggregateBlockedSubject, error) {
+	alreadyBlocked := make(map[topology.SubjectID]struct{}, len(blocked))
+	for _, fact := range blocked {
+		alreadyBlocked[fact.item.SubjectID()] = struct{}{}
+	}
+	seenConstraints := make(map[topology.SubjectID]struct{}, len(constraints))
+	for index, constraint := range constraints {
+		if err := constraint.Subject().Validate(); err != nil {
+			return nil, fmt.Errorf("aggregate constraint[%d]: %w", index, err)
+		}
+		if constraint.Reason() == "" || constraint.Detail() == "" {
+			return nil, fmt.Errorf("aggregate constraint[%d] is incomplete", index)
+		}
+		subject := constraint.Subject()
+		if _, duplicate := seenConstraints[subject]; duplicate {
+			return nil, fmt.Errorf("duplicate aggregate constraint for subject %q", subject)
+		}
+		seenConstraints[subject] = struct{}{}
+		item, present := expected[subject]
+		if !present {
+			return nil, fmt.Errorf(
+				"aggregate constraint subject %q has no selected expectation",
+				subject,
+			)
+		}
+		if _, blockedByLock := alreadyBlocked[subject]; blockedByLock {
+			continue
+		}
+		blocked = append(blocked, aggregateBlockedSubject{
+			item: item, reason: constraint.Reason(), detail: constraint.Detail(),
+		})
+		alreadyBlocked[subject] = struct{}{}
+	}
+	return blocked, nil
 }
 
 func aggregateGroup(

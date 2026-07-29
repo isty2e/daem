@@ -1,0 +1,30 @@
+# Provider-mediated Pi global MCP example.
+#
+# Pi core does not own this MCP config surface. The explicit pi-mcp-adapter
+# package reads mcp.json from the Pi agent root, which defaults to ~/.pi/agent
+# and follows PI_CODING_AGENT_DIR when set. Daem installs the declared provider
+# through Pi before projecting the binding. It stores only the environment
+# source name and does not prove provider activation, server connectivity,
+# authentication, or discovered tools.
+# WARNING: a global provider can read project .mcp.json and .pi/mcp.json even
+# under pi --no-approve. Daem authors this entry as lazy, but unowned eager
+# project entries may execute before trust. Review those files separately.
+
+version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "pi-mcp-adapter-global"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "global"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
+
+[[mcp_server]]
+name = "context7"
+targets = ["pi"]
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { CONTEXT7_API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }

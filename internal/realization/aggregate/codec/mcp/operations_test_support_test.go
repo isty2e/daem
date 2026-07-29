@@ -9,5 +9,5 @@ func mcpPlacementOperationsForID(
 	if !ok {
 		return MCPPlacementOperations{}, false
 	}
-	return ImplementedMCPPlacementOperationsForCodecContract(placement.CodecContractID())
+	return ImplementedMCPPlacementOperationsForPlacement(placement.ID())
 }

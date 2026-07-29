@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -33,6 +34,8 @@ type Assessment struct {
 	AggregateEvidence      []observe.AggregateEvidence
 	AggregateFailures      []observe.AggregateObservationFailure
 	AggregatePreconditions []observe.AggregatePreconditionEvidence
+	MCPEffective           []mcpeffective.Observation
+	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
 	Owner                  stateauthority.Authority
@@ -172,25 +175,24 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-
-	managedPaths, aggregates, err := buildProjectionDecisions(projectionPlanningInput{
-		environment:            environment,
-		locked:                 locked.Locked,
-		selectedTargets:        selectedTargets,
-		supplyObservations:     supplyObservations,
-		managedPathStates:      managedInputs.states,
-		managedPathEvidence:    managedEvidence,
-		aggregateExpected:      aggregateInputs.expected,
-		aggregateDesired:       aggregateInputs.desired,
-		aggregateStates:        aggregateInputs.states,
-		aggregateEvidence:      aggregateInputs.evidence,
-		aggregateFailures:      aggregateInputs.failures,
-		aggregatePreconditions: aggregateInputs.preconditions,
-		manageUnmanagedMatches: manageUnmanagedMatches,
-		owner:                  owner,
-		ownership:              ownershipObservations,
-		codecs:                 codecs,
-	})
+	mcpEffective, err := observeProviderEffectiveMCP(
+		paths,
+		resolver,
+		locked,
+		currentState,
+		selection,
+		codecs,
+	)
+	if err != nil {
+		return Assessment{}, err
+	}
+	effectiveConstraints, err := providerEffectiveConstraints(mcpEffective.Current)
+	if err != nil {
+		return Assessment{}, err
+	}
+	effectiveRemovalNotices, err := providerEffectiveRemovalNotices(
+		mcpEffective.Retiring,
+	)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -213,6 +215,51 @@ func buildAssessment(
 	})
 	if err != nil {
 		return Assessment{}, newRelationReconciliationError(err)
+	}
+	mcpContracts, err := selectedMCPProjectionContracts(locked, selection)
+	if err != nil {
+		return Assessment{}, err
+	}
+	providerObservations, err := observeMCPProviders(ctx, paths, locked, mcpContracts)
+	if err != nil {
+		return Assessment{}, fmt.Errorf("observe MCP provider versions: %w", err)
+	}
+	providerPrerequisites, err := planMCPProviderPrerequisites(
+		locked,
+		providerObservations,
+		relationActions,
+	)
+	if err != nil {
+		return Assessment{}, fmt.Errorf("plan MCP provider prerequisites: %w", err)
+	}
+	providerConstraints, err := providerPrerequisiteConstraints(providerPrerequisites)
+	if err != nil {
+		return Assessment{}, err
+	}
+	aggregateConstraints := append(effectiveConstraints, providerConstraints...)
+
+	managedPaths, aggregates, err := buildProjectionDecisions(projectionPlanningInput{
+		environment:             environment,
+		locked:                  locked.Locked,
+		selectedTargets:         selectedTargets,
+		supplyObservations:      supplyObservations,
+		managedPathStates:       managedInputs.states,
+		managedPathEvidence:     managedEvidence,
+		aggregateExpected:       aggregateInputs.expected,
+		aggregateDesired:        aggregateInputs.desired,
+		aggregateConstraints:    aggregateConstraints,
+		aggregateRemovalNotices: effectiveRemovalNotices,
+		aggregateStates:         aggregateInputs.states,
+		aggregateEvidence:       aggregateInputs.evidence,
+		aggregateFailures:       aggregateInputs.failures,
+		aggregatePreconditions:  aggregateInputs.preconditions,
+		manageUnmanagedMatches:  manageUnmanagedMatches,
+		owner:                   owner,
+		ownership:               ownershipObservations,
+		codecs:                  codecs,
+	})
+	if err != nil {
+		return Assessment{}, err
 	}
 	carrierAdoptionActions, err := reconcilehostroute.BuildCarrierAdoptionActions(
 		reconcilehostroute.CarrierAdoptionInput{
@@ -272,6 +319,8 @@ func buildAssessment(
 		AggregateEvidence:      aggregateInputs.evidence,
 		AggregateFailures:      aggregateInputs.failures,
 		AggregatePreconditions: aggregateInputs.preconditions,
+		MCPEffective:           mcpEffective.Current,
+		MCPProviders:           providerPrerequisites,
 		Reconciliation:         result,
 		RelationObservations:   relationObservations,
 		Owner:                  owner,

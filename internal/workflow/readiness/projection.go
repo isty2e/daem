@@ -15,22 +15,24 @@ import (
 )
 
 type projectionPlanningInput struct {
-	environment            desired.Environment
-	locked                 lock.LockedSection
-	selectedTargets        reconcile.SelectedTargets
-	supplyObservations     []observe.ExactSupplyObservation
-	managedPathStates      []durable.ManagedPathState
-	managedPathEvidence    []observe.ManagedPathEvidence
-	aggregateExpected      []lock.LockedSubjectContract
-	aggregateDesired       []aggregate.SubjectContribution
-	aggregateStates        []durable.ManagedAggregateState
-	aggregateEvidence      []observe.AggregateEvidence
-	aggregateFailures      []observe.AggregateObservationFailure
-	aggregatePreconditions []observe.AggregatePreconditionEvidence
-	manageUnmanagedMatches bool
-	owner                  stateauthority.Authority
-	ownership              []observe.OwnershipObservation
-	codecs                 aggregate.CodecCatalog
+	environment             desired.Environment
+	locked                  lock.LockedSection
+	selectedTargets         reconcile.SelectedTargets
+	supplyObservations      []observe.ExactSupplyObservation
+	managedPathStates       []durable.ManagedPathState
+	managedPathEvidence     []observe.ManagedPathEvidence
+	aggregateExpected       []lock.LockedSubjectContract
+	aggregateDesired        []aggregate.SubjectContribution
+	aggregateConstraints    []reconcileprojection.AggregateSubjectConstraint
+	aggregateRemovalNotices []reconcileprojection.AggregateRemovalNotice
+	aggregateStates         []durable.ManagedAggregateState
+	aggregateEvidence       []observe.AggregateEvidence
+	aggregateFailures       []observe.AggregateObservationFailure
+	aggregatePreconditions  []observe.AggregatePreconditionEvidence
+	manageUnmanagedMatches  bool
+	owner                   stateauthority.Authority
+	ownership               []observe.OwnershipObservation
+	codecs                  aggregate.CodecCatalog
 }
 
 func buildProjectionDecisions(input projectionPlanningInput) (
@@ -54,7 +56,9 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 	}
 	aggregates, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
 		Locked: input.locked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
-		States: input.aggregateStates, Evidence: input.aggregateEvidence,
+		Constraints:    input.aggregateConstraints,
+		RemovalNotices: input.aggregateRemovalNotices,
+		States:         input.aggregateStates, Evidence: input.aggregateEvidence,
 		ObservationFailures:    input.aggregateFailures,
 		PreconditionEvidence:   input.aggregatePreconditions,
 		SelectedTargets:        input.selectedTargets,

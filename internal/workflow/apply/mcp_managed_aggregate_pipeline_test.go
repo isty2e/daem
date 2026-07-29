@@ -308,7 +308,7 @@ func assertMCPEntryCommand(
 	if !present {
 		t.Fatalf("placement operations %q are missing", placementID)
 	}
-	entry, present, err := operations.ExtractCanonicalEntry(content, serverID)
+	entry, present, err := mcptest.ExtractCanonicalEntry(operations, content, serverID)
 	if err != nil {
 		t.Fatalf("extract MCP entry %q: %v", serverID, err)
 	}
@@ -335,7 +335,7 @@ func assertMCPEntryAbsent(
 	if !present {
 		t.Fatalf("placement operations %q are missing", placementID)
 	}
-	_, present, err = operations.ExtractCanonicalEntry(content, serverID)
+	_, present, err = mcptest.ExtractCanonicalEntry(operations, content, serverID)
 	if err != nil {
 		t.Fatalf("extract MCP entry %q: %v", serverID, err)
 	}

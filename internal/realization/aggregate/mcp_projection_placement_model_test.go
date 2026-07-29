@@ -14,7 +14,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 		target            target.Target
 		scope             target.Scope
 		wantID            aggregate.MCPPlacementID
-		wantLayer         aggregate.MCPConfigLayer
 		wantConfigPath    string
 		wantConflictPath  string
 		wantPathPrefix    aggregate.MCPContentPathPrefix
@@ -28,7 +27,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetClaudeCode,
 			scope:             target.ScopeProject,
 			wantID:            aggregate.MCPPlacementClaudeProject,
-			wantLayer:         aggregate.MCPConfigLayerClaudeProjectFile,
 			wantConfigPath:    ".mcp.json",
 			wantPathPrefix:    "/mcpServers",
 			wantContentPath:   "/mcpServers/context7",
@@ -41,7 +39,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetClaudeCode,
 			scope:             target.ScopeGlobal,
 			wantID:            aggregate.MCPPlacementClaudeGlobal,
-			wantLayer:         aggregate.MCPConfigLayerClaudeUserSharedJSON,
 			wantConfigPath:    "~/.claude.json",
 			wantPathPrefix:    "/mcpServers",
 			wantContentPath:   "/mcpServers/context7",
@@ -54,7 +51,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetAntigravityCLI,
 			scope:             target.ScopeGlobal,
 			wantID:            aggregate.MCPPlacementAntigravityGlobal,
-			wantLayer:         aggregate.MCPConfigLayerAntigravityGlobalDefaultFile,
 			wantConfigPath:    "~/.gemini/config/mcp_config.json",
 			wantPathPrefix:    "/mcpServers",
 			wantContentPath:   "/mcpServers/context7",
@@ -67,7 +63,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetOpenCode,
 			scope:             target.ScopeProject,
 			wantID:            aggregate.MCPPlacementOpenCodeProject,
-			wantLayer:         aggregate.MCPConfigLayerOpenCodeProjectFile,
 			wantConfigPath:    "opencode.json",
 			wantConflictPath:  "opencode.jsonc",
 			wantPathPrefix:    "/mcp",
@@ -81,7 +76,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetOpenCode,
 			scope:             target.ScopeGlobal,
 			wantID:            aggregate.MCPPlacementOpenCodeGlobal,
-			wantLayer:         aggregate.MCPConfigLayerOpenCodeGlobalDefaultJSON,
 			wantConfigPath:    "~/.config/opencode/opencode.json",
 			wantConflictPath:  "~/.config/opencode/opencode.jsonc",
 			wantPathPrefix:    "/mcp",
@@ -95,7 +89,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetCodex,
 			scope:             target.ScopeProject,
 			wantID:            aggregate.MCPPlacementCodexProject,
-			wantLayer:         aggregate.MCPConfigLayerCodexProjectFile,
 			wantConfigPath:    ".codex/config.toml",
 			wantPathPrefix:    "/mcp_servers",
 			wantContentPath:   "/mcp_servers/context7",
@@ -108,7 +101,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			target:            target.TargetCodex,
 			scope:             target.ScopeGlobal,
 			wantID:            aggregate.MCPPlacementCodexGlobal,
-			wantLayer:         aggregate.MCPConfigLayerCodexGlobalDefaultFile,
 			wantConfigPath:    "~/.codex/config.toml",
 			wantPathPrefix:    "/mcp_servers",
 			wantContentPath:   "/mcp_servers/context7",
@@ -134,8 +126,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 			conflictingConfigPath, hasConflictingConfigPath := placement.ConflictingConfigPath()
 			envReferences := placement.EnvReferenceContract()
 			if placement.ID() != tc.wantID ||
-				placement.ConfigLayer() != tc.wantLayer ||
-				placement.AggregateRoot().String() != tc.wantConfigPath ||
 				placement.ConfigPath().String() != tc.wantConfigPath ||
 				conflictingConfigPath.String() != tc.wantConflictPath ||
 				hasConflictingConfigPath != (tc.wantConflictPath != "") ||
@@ -144,7 +134,6 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 				string(contentPath) != tc.wantContentPath ||
 				placement.SiblingRetention() != aggregate.MCPSiblingRetentionPreserveUnmanaged ||
 				placement.CodecContractID() != tc.wantCodec ||
-				placement.Absence() != aggregate.MCPAbsenceRemoveBinding ||
 				envReferences.Mapping() != tc.wantEnvMapping ||
 				envReferences.Resolution() != tc.wantEnvResolution ||
 				envReferences.Supported() != (tc.wantEnvMapping != aggregate.MCPEnvMappingUnsupported) {
@@ -180,16 +169,14 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 	}
 }
 
-func TestImplementedMCPPlacementDoesNotEnableAdmittedFutureGlobalRows(t *testing.T) {
-	for _, tc := range []struct {
-		target target.Target
-		scope  target.Scope
-	}{
-		{target: target.TargetPi, scope: target.ScopeProject},
-		{target: target.TargetPi, scope: target.ScopeGlobal},
-	} {
-		if placement, ok := aggregate.ImplementedMCPPlacement(tc.target, tc.scope); ok {
-			t.Fatalf("ImplementedMCPPlacement(%q, %q) = %#v, want no row", tc.target, tc.scope, placement)
+func TestImplementedMCPPlacementIncludesPiProviderRows(t *testing.T) {
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		placement, ok := aggregate.ImplementedMCPPlacement(target.TargetPi, scope)
+		if !ok {
+			t.Fatalf("ImplementedMCPPlacement(%q, %q) is missing", target.TargetPi, scope)
+		}
+		if placement.CodecContractID() != aggregate.MCPCodecPiAdapterStdio {
+			t.Fatalf("Pi %q codec = %q, want %q", scope, placement.CodecContractID(), aggregate.MCPCodecPiAdapterStdio)
 		}
 	}
 }

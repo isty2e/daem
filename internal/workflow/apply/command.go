@@ -261,6 +261,8 @@ func planReadinessAtPaths(
 		planning.AggregateEvidence,
 		planning.AggregateFailures,
 		planning.AggregatePreconditions,
+		planning.MCPEffective,
+		planning.MCPProviders,
 	)
 	if err != nil {
 		planned.result = result

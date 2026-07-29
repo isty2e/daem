@@ -43,7 +43,7 @@ func compareCLIMCPPlacementCanonicalEntry(
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}
-	return operations.CompareCanonicalEntry(content, serverID, canonical)
+	return mcptest.CompareCanonicalEntry(operations, content, serverID, canonical)
 }
 
 func assertMCPConfigEquivalent(t *testing.T, root string, serverID string, spec mcpManifestSpec) {

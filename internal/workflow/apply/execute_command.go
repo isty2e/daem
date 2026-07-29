@@ -216,6 +216,41 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	if carrierRemovalBaselineObserver == nil {
 		carrierRemovalBaselineObserver = passiveCarrierRemovalBaselineObserver(current.context.Paths)
 	}
+	executionOptions := runOptions{
+		ExecuteEvents:                  options.ExecuteEvents,
+		HostRouteExecutor:              options.HostRouteExecutor,
+		HostRouteObserver:              hostRouteObserver,
+		CarrierRemovalAdapter:          carrierRemovalAdapter,
+		CarrierRemovalObserver:         carrierRemovalObserver,
+		CarrierRemovalBaselineObserver: carrierRemovalBaselineObserver,
+		DelegateExecutor:               options.DelegateExecutor,
+		validateBeforeEffects:          validateBeforeEffects,
+		projectRoot:                    planned.projectRoot,
+	}
+
+	providerPhase, err := runMCPProviderPrerequisitePhase(
+		ctx,
+		&current,
+		currentInput,
+		execution,
+		execution.authorityEvidence,
+		effectPaths,
+		store,
+		leases,
+		revisions,
+		validateBeforeEffects,
+		executionOptions,
+		options.PlanWasDisclosed,
+	)
+	if err != nil {
+		current.result.HostRouteAttempts = providerPhase.attempts
+		return disclose(current), err
+	}
+	if providerPhase.rebound {
+		leases = providerPhase.leases
+		revisions = providerPhase.revisions
+		revisionBoundaryValidated = false
+	}
 
 	runResult, err := runWithOptions(
 		ctx,
@@ -224,21 +259,11 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		current.context.Lockfile,
 		current.context.Selection,
 		current.assessment,
-		runOptions{
-			ExecuteEvents:                  options.ExecuteEvents,
-			HostRouteExecutor:              options.HostRouteExecutor,
-			HostRouteObserver:              hostRouteObserver,
-			CarrierRemovalAdapter:          carrierRemovalAdapter,
-			CarrierRemovalObserver:         carrierRemovalObserver,
-			CarrierRemovalBaselineObserver: carrierRemovalBaselineObserver,
-			DelegateExecutor:               options.DelegateExecutor,
-			validateBeforeEffects:          validateBeforeEffects,
-			projectRoot:                    planned.projectRoot,
-		},
+		executionOptions,
 	)
 	if err != nil {
 		current.result.DelegateAttempts = runResult.DelegateAttempts
-		current.result.HostRouteAttempts = runResult.HostRouteAttempts
+		current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
 		committedAdoptions, _, adoptionErr := committedCarrierAdoptionClaims(
 			current.result.Reconciliation.CarrierAdoptions(),
 			runResult.State,
@@ -265,7 +290,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	current.result.ActionCount = runResult.ActionCount
 	current.result.StatefilePath = runResult.StatePath
 	current.result.DelegateAttempts = runResult.DelegateAttempts
-	current.result.HostRouteAttempts = runResult.HostRouteAttempts
+	current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
 	current.result.CarrierAdoptionResults = carrierAdoptionResults
 	return disclose(current), nil
 }

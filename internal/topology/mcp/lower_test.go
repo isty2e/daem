@@ -60,6 +60,8 @@ func TestProjectionSubjectOwnsCanonicalIdentityForEveryPlacement(t *testing.T) {
 		{name: "opencode global", selected: target.TargetOpenCode, scope: target.ScopeGlobal, namespace: "opencode.global.mcp-server"},
 		{name: "codex project", selected: target.TargetCodex, scope: target.ScopeProject, namespace: "codex.project.mcp-server"},
 		{name: "codex global", selected: target.TargetCodex, scope: target.ScopeGlobal, namespace: "codex.global.mcp-server"},
+		{name: "pi project", selected: target.TargetPi, scope: target.ScopeProject, namespace: "pi.project.mcp-server"},
+		{name: "pi global", selected: target.TargetPi, scope: target.ScopeGlobal, namespace: "pi.global.mcp-server"},
 	}
 
 	for _, test := range tests {
@@ -134,7 +136,7 @@ func TestServerLoweringIsDeterministicForUnorderedAndSharedFacts(t *testing.T) {
 func TestServersShareDependencyIdentityWithoutFlatteningProjections(t *testing.T) {
 	first := ambientServer(t, "alpha", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
 	second := ambientServer(t, "beta", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{second, first})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{second, first}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}
@@ -156,11 +158,6 @@ func TestServerRejectsUnsupportedPlacements(t *testing.T) {
 		wantText string
 	}{
 		{
-			name:     "unsupported target",
-			server:   ambientServer(t, "server", target.TargetPi, target.ScopeProject, "npx", nil, nil),
-			wantText: "unsupported MCP target",
-		},
-		{
 			name:     "unsupported scope",
 			server:   ambientServer(t, "server", target.TargetAntigravityCLI, target.ScopeProject, "npx", nil, nil),
 			wantText: "unsupported MCP scope",
@@ -169,7 +166,7 @@ func TestServerRejectsUnsupportedPlacements(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := topologymcp.Servers([]desiredmcp.Server{test.server})
+			_, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{test.server}, nil)
 			if err == nil || !strings.Contains(err.Error(), test.wantText) {
 				t.Fatalf("Server error = %v, want containing %q", err, test.wantText)
 			}
@@ -197,7 +194,7 @@ func TestServerRepresentsEnvironmentReferenceIndependentlyOfRealizationCapabilit
 
 func TestProjectionSubjectRejectsUnsupportedRowsAndInvalidNames(t *testing.T) {
 	context7 := mustMCPServerID(t, "context7")
-	if _, err := topologymcp.ProjectionSubject(target.TargetPi, target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unsupported MCP target") {
+	if _, err := topologymcp.ProjectionSubject(target.Target("future"), target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unknown target") {
 		t.Fatalf("unsupported target error = %v", err)
 	}
 	if _, err := topologymcp.ProjectionSubject(target.TargetAntigravityCLI, target.ScopeProject, context7.Name()); err == nil || !strings.Contains(err.Error(), "unsupported MCP scope") {
@@ -247,7 +244,7 @@ func TestBindingRejectsForeignBinding(t *testing.T) {
 
 func TestServersRejectDuplicateProjectionSubject(t *testing.T) {
 	server := ambientServer(t, "server", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
-	_, err := topologymcp.Servers([]desiredmcp.Server{server, server})
+	_, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server, server}, nil)
 	if err == nil || !strings.Contains(err.Error(), "duplicate MCP projection subject") {
 		t.Fatalf("Servers error = %v, want duplicate projection", err)
 	}
@@ -316,7 +313,7 @@ func mustEnvironmentReferenceSubject(t *testing.T, name string) topology.Subject
 
 func mustGraph(t *testing.T, server desiredmcp.Server) topology.Graph {
 	t.Helper()
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}

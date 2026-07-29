@@ -221,6 +221,23 @@ func TestPrintPlanUsesSubjectForAggregateProjectionDecisions(t *testing.T) {
 	}
 }
 
+func TestPrintPlanShowsNonAuthoritativeMCPRemovalDetailWithoutVerbose(t *testing.T) {
+	detail := "managed MCP config entry will be removed; an unowned lower fallback may become effective; runtime absence is not claimed"
+	planResult := mcpProjectionRemovalPlan(t, detail)
+
+	var stdout bytes.Buffer
+	PrintActionPlanWithOptions(
+		&stdout,
+		"dry-run",
+		planResult,
+		HumanOptions{},
+	)
+	if !strings.Contains(stdout.String(), "remove managed output") ||
+		!strings.Contains(stdout.String(), "detail: "+detail) {
+		t.Fatalf("stdout = %q, want visible removal detail", stdout.String())
+	}
+}
+
 func TestPrintPlansReportSafetyStates(t *testing.T) {
 	removed := newManagedPathPlanFixture(
 		t, "removed", "removed", target.ScopeProject, []target.Target{target.TargetCodex}, "state",

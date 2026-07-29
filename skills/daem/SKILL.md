@@ -52,6 +52,12 @@ For removal, obtain the exact resource key from `daem list resources`, then use
 `daem remove <resource> <resource-key>`. Skill groups are removed through
 `daem remove skill <resource-key>`.
 
+For Pi MCP, `daem add mcp-server --target pi` may author an explicit
+`pi-mcp-adapter` extension alongside the binding. Treat both declarations as
+intentional: removing the MCP row keeps the provider, and removing the provider
+is a separate extension lifecycle decision. Never describe this as Pi
+core-native MCP or infer trust/runtime readiness from successful projection.
+
 For extensions, distinguish two removal intents:
 
 - Use `daem remove extension` when the user wants the declared relation absent.

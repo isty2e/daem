@@ -28,7 +28,7 @@ func TestMCPPlacementOperationsFoldAndVerifyMixedMutations(t *testing.T) {
 			for _, serverID := range []string{"replace-me", "remove-me"} {
 				canonical := mustMutationCanonical(t, tc, serverID, "npx")
 				var err error
-				existing, err = operations.MergeCanonicalEntry(existing, serverID, canonical)
+				existing, err = operations.mergeCanonicalEntry(existing, serverID, canonical)
 				if err != nil {
 					t.Fatalf("seed %q: %v", serverID, err)
 				}
@@ -52,14 +52,14 @@ func TestMCPPlacementOperationsFoldAndVerifyMixedMutations(t *testing.T) {
 			if !bytes.Contains(folded, []byte(tc.secretText)) {
 				t.Fatalf("folded aggregate lost unmanaged secret canary: %s", folded)
 			}
-			if present, err := operations.EntryPresent(folded, "remove-me"); err != nil || present {
+			if present, err := operations.entryPresent(folded, "remove-me"); err != nil || present {
 				t.Fatalf("removed entry present = %t, err = %v", present, err)
 			}
 			for serverID, canonical := range map[string][]byte{
 				"replace-me": replacement,
 				"created":    created,
 			} {
-				comparison, err := operations.CompareCanonicalEntry(folded, serverID, canonical)
+				comparison, err := operations.compareCanonicalEntry(folded, serverID, canonical)
 				if err != nil || !comparison.Present || !comparison.Equivalent {
 					t.Fatalf("comparison %q = %#v, err = %v", serverID, comparison, err)
 				}
@@ -79,7 +79,7 @@ func TestMCPProjectionInsertRequiresReplacementAuthority(t *testing.T) {
 				t.Fatalf("placement operations %q missing", tc.placement)
 			}
 			original := mustMutationCanonical(t, tc, "same-name", "npx")
-			existing, err := operations.MergeCanonicalEntry(tc.initial, "same-name", original)
+			existing, err := operations.mergeCanonicalEntry(tc.initial, "same-name", original)
 			if err != nil {
 				t.Fatalf("seed existing entry: %v", err)
 			}

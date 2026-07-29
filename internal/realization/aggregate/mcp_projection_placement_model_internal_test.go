@@ -38,15 +38,15 @@ func TestValidateMCPPlacementCatalogRejectsDuplicateConfigPath(t *testing.T) {
 	}
 }
 
-func TestValidateMCPPlacementCatalogRejectsDuplicateCodecContract(t *testing.T) {
+func TestValidateMCPPlacementCatalogAllowsCodecContractSharedAcrossPlacements(t *testing.T) {
 	left := mustTestMCPPlacement(t, "left", target.TargetCodex, target.ScopeProject, "codex-left-config")
 	right := mustTestMCPPlacement(t, "right", target.TargetOpenCode, target.ScopeProject, "opencode-right-config")
 	right.aggregateSpec.root = outputtest.Parse(t, ".test/other-config")
 	right.codecContractID = left.codecContractID
 
 	err := validateMCPPlacementCatalog([]MCPPlacement{left, right})
-	if err == nil || !strings.Contains(err.Error(), "share codec contract") {
-		t.Fatalf("error = %v, want duplicate codec contract", err)
+	if err != nil {
+		t.Fatalf("shared codec contract returned error: %v", err)
 	}
 }
 

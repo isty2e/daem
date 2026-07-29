@@ -12,7 +12,6 @@ import (
 	payloadbuild "github.com/isty2e/daem/internal/effect/payload/build"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	outputmodel "github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -79,7 +78,7 @@ func BuildDryRunDiffs(
 			resultErr = errors.Join(resultErr, fmt.Errorf("release diff payloads: %w", cleanupErr))
 		}
 	}()
-	resolver := hostpath.NewResolver(paths.ManifestRoot).Resolve
+	resolver := destinationResolver(paths).Resolve
 
 	for _, decision := range decisions {
 		entityID, ok := topologyprojection.EntityID(decision.Subject())

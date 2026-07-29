@@ -340,7 +340,7 @@ func reconcileAggregatePreconditions(
 	selection aggregate.Selection,
 	evidence []observe.AggregatePreconditionEvidence,
 ) ([]aggregate.OperationPrecondition, reconcile.ActionReason, string, error) {
-	expected, admitted, err := aggregate.OperationPreconditionsForCodec(selection.CodecContractID())
+	expected, admitted, err := aggregate.OperationPreconditionsForSelection(selection)
 	if err != nil {
 		return nil, "", "", err
 	}

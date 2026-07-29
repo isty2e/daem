@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
@@ -30,6 +31,7 @@ type mcpProjectionLockSpec struct {
 	ReplayExclusions         []ReplayExclusion
 	WritePreconditions       []string
 	RemovePreconditions      []string
+	ProviderRequired         bool
 }
 
 // MCPProjectionSubjectInput carries facts already selected by Desired,
@@ -45,6 +47,45 @@ type MCPProjectionSubjectInput struct {
 	CanonicalProjection  string
 	DelegatePlan         *delegate.DelegatePlan
 	CredentialReferences []string
+	ProviderContribution *extensiontopology.ContributionReference
+}
+
+// MCPPlacementRequiresProviderContribution reports whether one admitted MCP
+// placement must be bound to an explicit provider contribution.
+func MCPPlacementRequiresProviderContribution(placementID aggregate.MCPPlacementID) (bool, error) {
+	spec, ok := mcpProjectionLockSpecFor(placementID)
+	if !ok {
+		return false, fmt.Errorf("unsupported MCP placement %q", placementID)
+	}
+	return spec.ProviderRequired, nil
+}
+
+// MCPEnvironmentSources returns the stable host environment names required by
+// an MCP projection. Values are never part of this locked facet.
+func (contract LockedSubjectContract) MCPEnvironmentSources() []string {
+	return append([]string(nil), contract.mcpEnvironmentSources...)
+}
+
+// MCPProviderContribution returns the exact selected provider contribution
+// foreign key when this MCP projection is provider-mediated.
+func (contract LockedSubjectContract) MCPProviderContribution() (
+	extensiontopology.ContributionReference,
+	bool,
+) {
+	if contract.mcpProviderContribution == nil {
+		return extensiontopology.ContributionReference{}, false
+	}
+	return *contract.mcpProviderContribution, true
+}
+
+func optionalMCPProviderContributionEqual(
+	left *extensiontopology.ContributionReference,
+	right *extensiontopology.ContributionReference,
+) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return left.Equal(*right)
 }
 
 // NewMCPProjectionSubjectContract constructs one standalone MCP aggregate subject.
@@ -88,6 +129,13 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 	if err := spec.validateCredentialDependencies(input.Graph, projectionSubject, input.CredentialReferences); err != nil {
 		return LockedSubjectContract{}, err
 	}
+	if err := spec.validateProviderContribution(
+		input.Graph,
+		projectionSubject,
+		input.ProviderContribution,
+	); err != nil {
+		return LockedSubjectContract{}, err
+	}
 	if err := validateMCPDelegatePlanCorrelation(
 		input.DelegatePlan,
 		input.LauncherCommand,
@@ -113,16 +161,71 @@ func NewMCPProjectionSubjectContract(input MCPProjectionSubjectInput) (LockedSub
 		return LockedSubjectContract{}, err
 	}
 	return NewLockedSubjectContract(LockedSubjectContractInput{
-		EntityID:              input.EntityID,
-		SubjectID:             projectionSubject,
-		Realization:           &realization,
-		DelegatePlan:          input.DelegatePlan,
-		MCPEnvironmentSources: input.CredentialReferences,
-		Ownership:             OwnershipManifest,
-		OnAbsent:              OnAbsentRemoveBinding,
-		Replay:                replay,
-		OperationContracts:    contracts,
+		EntityID:                input.EntityID,
+		SubjectID:               projectionSubject,
+		Realization:             &realization,
+		DelegatePlan:            input.DelegatePlan,
+		MCPEnvironmentSources:   input.CredentialReferences,
+		MCPProviderContribution: input.ProviderContribution,
+		Ownership:               OwnershipManifest,
+		OnAbsent:                OnAbsentRemoveBinding,
+		Replay:                  replay,
+		OperationContracts:      contracts,
 	})
+}
+
+func (spec mcpProjectionLockSpec) validateProviderContribution(
+	graph topology.Graph,
+	projection topology.SubjectID,
+	reference *extensiontopology.ContributionReference,
+) error {
+	if reference == nil {
+		if spec.ProviderRequired {
+			return fmt.Errorf("%s requires an explicit provider contribution", spec.label())
+		}
+		return nil
+	}
+	if !spec.ProviderRequired {
+		return fmt.Errorf("%s does not admit a provider contribution", spec.label())
+	}
+	if err := reference.Validate(); err != nil {
+		return fmt.Errorf("%s provider contribution: %w", spec.label(), err)
+	}
+	if reference.Kind() != "mcp-client" || reference.Key() != "default" {
+		return fmt.Errorf(
+			"%s provider contribution must be mcp-client/default",
+			spec.label(),
+		)
+	}
+	if !graph.Contains(reference.SubjectID()) ||
+		!graph.Contains(reference.ProviderSubjectID()) {
+		return fmt.Errorf(
+			"%s provider contribution %q or provider %q is missing",
+			spec.label(),
+			reference.SubjectID(),
+			reference.ProviderSubjectID(),
+		)
+	}
+	provider, ok := graph.ProviderOf(reference.SubjectID())
+	if !ok || provider != reference.ProviderSubjectID() {
+		return fmt.Errorf(
+			"%s contribution %q is not provided by %q",
+			spec.label(),
+			reference.SubjectID(),
+			reference.ProviderSubjectID(),
+		)
+	}
+	for _, bound := range graph.BoundTargetsOf(reference.SubjectID()) {
+		if bound == projection {
+			return nil
+		}
+	}
+	return fmt.Errorf(
+		"%s contribution %q is not bound to projection %q",
+		spec.label(),
+		reference.SubjectID(),
+		projection,
+	)
 }
 
 func validateMCPDelegatePlanCorrelation(
@@ -162,6 +265,8 @@ func mcpProjectionLockSpecFor(id aggregate.MCPPlacementID) (mcpProjectionLockSpe
 		openCodeGlobalMCPProjectionSpec,
 		codexProjectMCPProjectionSpec,
 		codexGlobalMCPProjectionSpec,
+		piProjectMCPProjectionSpec,
+		piGlobalMCPProjectionSpec,
 	} {
 		if spec.Placement.ID() == id {
 			return spec, true

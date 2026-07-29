@@ -53,6 +53,13 @@ func validateAdmittedMCPProjection(
 	if !ok {
 		return true, fmt.Errorf("MCP placement %q has no admitted lock refinement", profilePlacement.ID())
 	}
+	providerContribution, hasProviderContribution := contract.MCPProviderContribution()
+	if spec.ProviderRequired != hasProviderContribution {
+		if spec.ProviderRequired {
+			return true, fmt.Errorf("MCP placement %q requires a provider contribution", profilePlacement.ID())
+		}
+		return true, fmt.Errorf("MCP placement %q does not admit a provider contribution", profilePlacement.ID())
+	}
 	replay, err := spec.replayCoverage()
 	if err != nil {
 		return true, err
@@ -69,6 +76,9 @@ func validateAdmittedMCPProjection(
 		Replay:                replay,
 		OperationContracts:    operationContracts,
 	}
+	if hasProviderContribution {
+		input.MCPProviderContribution = &providerContribution
+	}
 	if delegatePlan, present := contract.DelegatePlan(); present {
 		input.DelegatePlan = &delegatePlan
 	}
@@ -80,4 +90,48 @@ func validateAdmittedMCPProjection(
 		return true, fmt.Errorf("MCP subject does not match the admitted lock refinement")
 	}
 	return true, nil
+}
+
+func validateMCPProviderContributionCollection(index lockedCollectionIndex) error {
+	for _, contract := range index.mcpProviderContracts {
+		reference, _ := contract.MCPProviderContribution()
+		carrier, exists := index.delegatedCarriers[reference.ProviderSubjectID()]
+		if !exists {
+			return fmt.Errorf(
+				"MCP projection %q selects missing or stale provider carrier %q",
+				contract.SubjectID(),
+				reference.ProviderSubjectID(),
+			)
+		}
+		placement, ok := aggregate.MCPPlacementForSubject(contract.SubjectID())
+		if !ok {
+			return fmt.Errorf(
+				"MCP projection %q with provider contribution has no admitted placement",
+				contract.SubjectID(),
+			)
+		}
+		if carrier.Key().Target() != placement.Target() {
+			return fmt.Errorf(
+				"MCP projection %q target %q does not match provider target %q",
+				contract.SubjectID(),
+				placement.Target(),
+				carrier.Key().Target(),
+			)
+		}
+		expected, admitted, err := profile.MCPProviderContributionForTarget(
+			placement.Target(),
+			carrier,
+		)
+		if err != nil {
+			return err
+		}
+		if !admitted || !expected.Reference().Equal(reference) {
+			return fmt.Errorf(
+				"MCP projection %q selects unavailable provider contribution %q",
+				contract.SubjectID(),
+				reference.SubjectID(),
+			)
+		}
+	}
+	return nil
 }

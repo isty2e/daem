@@ -52,6 +52,15 @@ type aggregateProjectionFingerprintFacts struct {
 	After    aggregateProjectionStateFingerprintFacts
 	Desired  []aggregateContributionFingerprintFacts
 	Previous []aggregateContributionFingerprintFacts
+	Subjects []aggregateSubjectFingerprintFacts
+}
+
+type aggregateSubjectFingerprintFacts struct {
+	Subject     topology.SubjectID
+	Kind        reconcile.AggregateDecisionKind
+	Reason      reconcile.ActionReason
+	Detail      string
+	MutatesHost bool
 }
 
 type aggregateProjectionStateFingerprintFacts struct {
@@ -91,10 +100,28 @@ func aggregateFingerprintRows(decisions []reconcile.AggregateDecision) []aggrega
 					CanonicalHash: string(artifact.HashFileContent([]byte(state.Contribution().CanonicalContribution()))),
 				})
 			}
+			for _, subject := range projection.SubjectDecisions() {
+				projectionRow.Subjects = append(
+					projectionRow.Subjects,
+					aggregateSubjectFingerprintFacts{
+						Subject:     subject.Subject(),
+						Kind:        subject.Kind(),
+						Reason:      subject.Reason(),
+						Detail:      subject.Detail(),
+						MutatesHost: subject.MutatesHost(),
+					},
+				)
+			}
 			sort.Slice(projectionRow.Previous, func(left int, right int) bool {
 				return topology.CompareSubjectID(
 					projectionRow.Previous[left].Subject,
 					projectionRow.Previous[right].Subject,
+				) < 0
+			})
+			sort.Slice(projectionRow.Subjects, func(left int, right int) bool {
+				return topology.CompareSubjectID(
+					projectionRow.Subjects[left].Subject,
+					projectionRow.Subjects[right].Subject,
 				) < 0
 			})
 			row.Projections = append(row.Projections, projectionRow)

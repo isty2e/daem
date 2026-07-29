@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-	"github.com/isty2e/daem/internal/output/hostpath"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -50,11 +49,8 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 		ctx,
 		journalPaths(paths),
 		journal.PlanLoadOptions{
-			Filesystem: storagecommit.Adapter{},
-			Resolver: hostpath.NewResolverWithManagedDataRoot(
-				paths.ManifestRoot,
-				paths.DataDir,
-			).Resolve,
+			Filesystem:        storagecommit.Adapter{},
+			Resolver:          destinationResolver(paths).Resolve,
 			OwnershipRegistry: ownershipRegistry.Load,
 			Codecs:            aggregatecodec.Catalog(),
 			StateCodec:        statefile.Codec{},
@@ -183,11 +179,8 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 		return nil
 	}
 	return execute.ExecuteRecoveryPlanWithOptions(ctx, current.plan, executePaths(effectPaths), execute.RecoveryOptions{
-		ValidateBeforeEffects: validateBeforeEffects,
-		Resolver: hostpath.NewResolverWithManagedDataRoot(
-			effectPaths.ManifestRoot,
-			effectPaths.DataDir,
-		).Resolve,
+		ValidateBeforeEffects:   validateBeforeEffects,
+		Resolver:                destinationResolver(effectPaths).Resolve,
 		OwnershipRegistryBinder: ownershipstore.BindRooted,
 		Codecs:                  aggregatecodec.Catalog(),
 		StateCodec:              statefile.Codec{},

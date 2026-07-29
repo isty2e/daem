@@ -231,7 +231,13 @@ var packagePlacementRows = []packagePlacementRow{
 	{
 		id:        "assurance.observation.mcp",
 		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationProtocol, "MCP"),
-		packages:  []string{"internal/assurance/runtimeprobe/mcp"},
+		packages: []string{
+			"internal/assurance/observe/mcp/effective",
+			"internal/assurance/observe/mcp/effective/host",
+			"internal/assurance/observe/mcp/provider",
+			"internal/assurance/observe/mcp/provider/host",
+			"internal/assurance/runtimeprobe/mcp",
+		},
 	},
 	{
 		id:        "assurance.observation.antigravity",
@@ -324,9 +330,15 @@ var packagePlacementRows = []packagePlacementRow{
 		placement: plainPlacement(affinityNone, roleActiveAdapter),
 		packages: []string{
 			"internal/output/hostpath",
+			"internal/output/hostpath/managed",
 			"internal/paths",
 			"internal/subprocess",
 		},
+	},
+	{
+		id:        "active.boundary.pi",
+		placement: specializedPlacement(affinityNone, roleActiveAdapter, specializationHost, "Pi"),
+		packages:  []string{"internal/output/hostpath/pi"},
 	},
 	{
 		id:        "declaration.workflow.toml",

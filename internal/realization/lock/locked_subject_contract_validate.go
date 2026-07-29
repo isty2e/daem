@@ -73,6 +73,9 @@ func (contract LockedSubjectContract) validate() error {
 	if err := contract.validateMCPEnvironmentSources(); err != nil {
 		return err
 	}
+	if err := contract.validateMCPProviderContribution(); err != nil {
+		return err
+	}
 	if contract.skillSetMemberCorrelation != nil {
 		if err := contract.validateSkillSetMemberCorrelation(); err != nil {
 			return err
@@ -101,6 +104,26 @@ func (contract LockedSubjectContract) validate() error {
 		if err := contract.validateOperationCompatibility(operationContract); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (contract LockedSubjectContract) validateMCPProviderContribution() error {
+	if contract.mcpProviderContribution == nil {
+		return nil
+	}
+	if err := contract.mcpProviderContribution.Validate(); err != nil {
+		return fmt.Errorf("MCP provider contribution: %w", err)
+	}
+	if contract.entityID.Kind() != entity.KindMCPServer ||
+		contract.subjectID.Kind() != topology.SubjectProjection {
+		return fmt.Errorf("MCP provider contribution requires an MCP projection subject")
+	}
+	if contract.realization == nil {
+		return fmt.Errorf("MCP provider contribution requires managed aggregate realization")
+	}
+	if _, ok := contract.realization.ManagedAggregateContribution(); !ok {
+		return fmt.Errorf("MCP provider contribution requires managed aggregate realization")
 	}
 	return nil
 }

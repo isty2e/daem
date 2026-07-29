@@ -503,7 +503,7 @@ func testLockedMCPSubject(t *testing.T, serverID string) lock.LockedSubjectContr
 	t.Helper()
 	server := testMCPServer(t, serverID, target.TargetClaudeCode, target.ScopeProject)
 	binding := server.Bindings()[0]
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
@@ -547,7 +547,7 @@ func testLockedMCPSubjectFor(
 ) lock.LockedSubjectContract {
 	t.Helper()
 	server := testMCPServer(t, serverID, selected, scope)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}

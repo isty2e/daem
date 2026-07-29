@@ -20,12 +20,15 @@ type LockedProjectionBatchInput struct {
 	Evidence      []observe.AggregateEvidence
 	Failures      []observe.AggregateObservationFailure
 	Preconditions []observe.AggregatePreconditionEvidence
+	Shadowing     map[topology.SubjectID]ShadowState
+	Providers     map[topology.SubjectID]ProviderPrerequisiteObservation
 }
 
 // LockedProjectionObservation correlates one locked MCP projection with
 // current passive evidence and separately classified attempt history.
 type LockedProjectionObservation struct {
 	current                AggregateProjectionObservation
+	provider               ProviderPrerequisiteObservation
 	lastDelegateAttempt    LastDelegateAttemptObservation
 	target                 target.Target
 	scope                  target.Scope
@@ -94,13 +97,18 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 			FailureReason:              projection.failureReason,
 			UnsupportedAlternateConfig: projection.unsupportedAlternateConfig,
 			Ownership:                  ownership,
-			Shadowing:                  ShadowUnknown,
+			Shadowing:                  shadowingForSubject(input.Shadowing, subject),
 		})
 		if err != nil {
 			return nil, err
 		}
+		provider, err := providerForContract(contract, input.Providers)
+		if err != nil {
+			return nil, fmt.Errorf("MCP projection %q provider evidence: %w", subject.Key(), err)
+		}
 		result = append(result, LockedProjectionObservation{
 			current:                current,
+			provider:               provider,
 			lastDelegateAttempt:    lastDelegateObservation,
 			target:                 contribution.Target(),
 			scope:                  contribution.Scope(),
@@ -110,6 +118,46 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		})
 	}
 	return result, nil
+}
+
+func providerForContract(
+	contract lock.LockedSubjectContract,
+	providers map[topology.SubjectID]ProviderPrerequisiteObservation,
+) (ProviderPrerequisiteObservation, error) {
+	subject := contract.SubjectID()
+	_, mediated := contract.MCPProviderContribution()
+	provider, present := providers[subject]
+	switch {
+	case mediated && !present:
+		return ProviderPrerequisiteObservation{}, fmt.Errorf(
+			"provider-mediated projection has no current provider evidence",
+		)
+	case !mediated && present:
+		return ProviderPrerequisiteObservation{}, fmt.Errorf(
+			"direct-host projection carries unexpected provider evidence",
+		)
+	case present:
+		if provider.State() == ProviderNotApplicable {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"provider-mediated projection cannot be not_applicable",
+			)
+		}
+		return provider, nil
+	default:
+		return NewProviderPrerequisiteObservation(ProviderPrerequisiteObservationInput{
+			State: ProviderNotApplicable,
+		})
+	}
+}
+
+func shadowingForSubject(
+	shadowing map[topology.SubjectID]ShadowState,
+	subject topology.SubjectID,
+) ShadowState {
+	if state, present := shadowing[subject]; present {
+		return state
+	}
+	return ShadowUnknown
 }
 
 func (observation LockedProjectionObservation) Subject() topology.SubjectID {
@@ -138,6 +186,10 @@ func (observation LockedProjectionObservation) AdapterContractVersion() aggregat
 
 func (observation LockedProjectionObservation) Current() AggregateProjectionObservation {
 	return observation.current
+}
+
+func (observation LockedProjectionObservation) Provider() ProviderPrerequisiteObservation {
+	return observation.provider
 }
 
 func (observation LockedProjectionObservation) LastDelegateAttempt() LastDelegateAttemptObservation {

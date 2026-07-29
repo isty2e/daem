@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 	"github.com/isty2e/daem/internal/topology"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 type applyFingerprintFacts struct {
@@ -25,6 +26,7 @@ type applyFingerprintFacts struct {
 	DelegateMode        reconcile.OperationContext
 	ManagedPaths        []managedPathFingerprintFacts
 	Aggregates          []aggregateFingerprintFacts
+	MCPProviders        []mcpProviderFingerprintFacts
 	RelationActions     []relationFingerprintFacts
 	CarrierAdoptions    []carrierAdoptionFingerprintFacts
 	CarrierAbsences     []carrierAbsenceFingerprintFacts
@@ -34,6 +36,19 @@ type applyFingerprintFacts struct {
 	GlobalCarrierClaims []carrierClaimFingerprintFacts
 	Diagnostics         []diagnosticFingerprintFacts
 	ProjectRoot         *projectRootFingerprintFacts
+}
+
+type mcpProviderFingerprintFacts struct {
+	Contribution  topology.SubjectID
+	Carrier       topology.SubjectID
+	Relation      topology.SubjectID
+	Consumers     []topology.SubjectID
+	State         string
+	Reason        string
+	Version       string
+	MappedCodec   string
+	RequiredCodec string
+	FailureDetail string
 }
 
 type ownershipOwnerFingerprintFacts struct {
@@ -151,8 +166,73 @@ func applyOperationFingerprint(
 		return mutation.OperationFingerprint{}, err
 	}
 	result := planned.result
-	relations := make([]relationFingerprintFacts, 0, len(planned.assessment.Reconciliation.Relations()))
-	for _, action := range planned.assessment.Reconciliation.Relations() {
+	relations := relationFingerprintRows(planned.assessment.Reconciliation.Relations())
+	carrierAbsences := carrierAbsenceFingerprintRows(
+		planned.assessment.Reconciliation.CarrierAbsences(),
+	)
+	carrierAdoptions := make(
+		[]carrierAdoptionFingerprintFacts,
+		0,
+		len(planned.assessment.Reconciliation.CarrierAdoptions()),
+	)
+	for _, action := range planned.assessment.Reconciliation.CarrierAdoptions() {
+		carrierAdoptions = append(carrierAdoptions, carrierAdoptionFingerprintFacts{
+			Subject:      action.Subject(),
+			Target:       string(action.Target()),
+			Scope:        string(action.Scope()),
+			Result:       action.Result(),
+			Blocker:      action.Lifecycle().Blocker(),
+			PlanIdentity: action.PlanIdentity(),
+		})
+	}
+
+	delegates := delegateFingerprintRows(result.Reconciliation.Delegates())
+
+	targets := planned.context.Selection.Targets()
+	targetValues := make([]string, 0, len(targets))
+	for _, selected := range targets {
+		targetValues = append(targetValues, string(selected))
+	}
+	ownershipFacts := ownershipFingerprintFacts(planned.assessment.Ownership)
+	carrierClaims := carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims)
+	managedPaths := managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths())
+	aggregates := aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates())
+	mcpProviders := mcpProviderFingerprintRows(planned.assessment.MCPProviders)
+	diagnostics := diagnosticFingerprintRows(result.Diagnostics)
+	canonical, err := json.Marshal(applyFingerprintFacts{
+		ManifestPath:     result.ManifestPath,
+		LockfilePath:     result.LockfilePath,
+		LockfileExplicit: result.LockfileExplicit,
+		Targets:          targetValues,
+		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
+		DelegateMode:     operationContext,
+		ManagedPaths:     managedPaths,
+		Aggregates:       aggregates,
+		MCPProviders:     mcpProviders,
+		RelationActions:  relations,
+		CarrierAdoptions: carrierAdoptions,
+		CarrierAbsences:  carrierAbsences,
+		DelegateActions:  delegates,
+		Owner: ownershipOwnerFingerprintFacts{
+			StatefileKey: planned.assessment.Owner.StatefileKey(),
+			ManifestPath: planned.assessment.Owner.ManifestPath(),
+		},
+		Ownership:           ownershipFacts,
+		GlobalCarrierClaims: carrierClaims,
+		Diagnostics:         diagnostics,
+		ProjectRoot:         projectRoot,
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
+	}
+	return mutation.NewOperationFingerprint(canonical), nil
+}
+
+func relationFingerprintRows(
+	actions []reconcile.RelationAction,
+) []relationFingerprintFacts {
+	relations := make([]relationFingerprintFacts, 0, len(actions))
+	for _, action := range actions {
 		admission := action.RouteAdmission()
 		relations = append(relations, relationFingerprintFacts{
 			Basis:                action.Basis(),
@@ -176,75 +256,32 @@ func applyOperationFingerprint(
 			ObservationPolicy:    admission.ObservationPolicy(),
 		})
 	}
-	carrierAbsences := carrierAbsenceFingerprintRows(
-		planned.assessment.Reconciliation.CarrierAbsences(),
-	)
-	carrierAdoptions := make(
-		[]carrierAdoptionFingerprintFacts,
-		0,
-		len(planned.assessment.Reconciliation.CarrierAdoptions()),
-	)
-	for _, action := range planned.assessment.Reconciliation.CarrierAdoptions() {
-		carrierAdoptions = append(carrierAdoptions, carrierAdoptionFingerprintFacts{
-			Subject:      action.Subject(),
-			Target:       string(action.Target()),
-			Scope:        string(action.Scope()),
-			Result:       action.Result(),
-			Blocker:      action.Lifecycle().Blocker(),
-			PlanIdentity: action.PlanIdentity(),
+	return relations
+}
+
+func mcpProviderFingerprintRows(
+	prerequisites []readiness.MCPProviderPrerequisite,
+) []mcpProviderFingerprintFacts {
+	rows := make([]mcpProviderFingerprintFacts, 0, len(prerequisites))
+	for _, prerequisite := range prerequisites {
+		observation := prerequisite.Observation()
+		rows = append(rows, mcpProviderFingerprintFacts{
+			Contribution:  observation.Contribution().SubjectID(),
+			Carrier:       observation.Carrier().CarrierSubject(),
+			Relation:      observation.Carrier().RelationSubject(),
+			Consumers:     observation.Consumers(),
+			State:         string(prerequisite.State()),
+			Reason:        string(prerequisite.Reason()),
+			Version:       observation.Version(),
+			MappedCodec:   string(observation.MappedCodec()),
+			RequiredCodec: string(prerequisite.RequiredCodec()),
+			FailureDetail: prerequisite.Detail(),
 		})
 	}
-
-	delegates := make([]delegateFingerprintFacts, 0, len(result.Reconciliation.Delegates()))
-	for _, action := range result.Reconciliation.Delegates() {
-		delegates = append(delegates, delegateFingerprintFacts{
-			Subject:      action.Subject(),
-			Target:       string(action.Target()),
-			Scope:        string(action.Scope()),
-			Plan:         delegatePlanFingerprint(action.Plan()),
-			Status:       action.Disposition(),
-			Outcome:      action.PolicyOutcome(),
-			Risks:        action.Risks(),
-			Dependencies: action.Dependencies(),
-		})
-	}
-
-	targets := planned.context.Selection.Targets()
-	targetValues := make([]string, 0, len(targets))
-	for _, selected := range targets {
-		targetValues = append(targetValues, string(selected))
-	}
-	ownershipFacts := ownershipFingerprintFacts(planned.assessment.Ownership)
-	carrierClaims := carrierClaimFingerprintRows(planned.assessment.GlobalCarrierClaims)
-	managedPaths := managedPathFingerprintRows(planned.assessment.Reconciliation.ManagedPaths())
-	aggregates := aggregateFingerprintRows(planned.assessment.Reconciliation.Aggregates())
-	diagnostics := diagnosticFingerprintRows(result.Diagnostics)
-	canonical, err := json.Marshal(applyFingerprintFacts{
-		ManifestPath:     result.ManifestPath,
-		LockfilePath:     result.LockfilePath,
-		LockfileExplicit: result.LockfileExplicit,
-		Targets:          targetValues,
-		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
-		DelegateMode:     operationContext,
-		ManagedPaths:     managedPaths,
-		Aggregates:       aggregates,
-		RelationActions:  relations,
-		CarrierAdoptions: carrierAdoptions,
-		CarrierAbsences:  carrierAbsences,
-		DelegateActions:  delegates,
-		Owner: ownershipOwnerFingerprintFacts{
-			StatefileKey: planned.assessment.Owner.StatefileKey(),
-			ManifestPath: planned.assessment.Owner.ManifestPath(),
-		},
-		Ownership:           ownershipFacts,
-		GlobalCarrierClaims: carrierClaims,
-		Diagnostics:         diagnostics,
-		ProjectRoot:         projectRoot,
+	sort.Slice(rows, func(left int, right int) bool {
+		return topology.CompareSubjectID(rows[left].Contribution, rows[right].Contribution) < 0
 	})
-	if err != nil {
-		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
-	}
-	return mutation.NewOperationFingerprint(canonical), nil
+	return rows
 }
 
 func diagnosticFingerprintRows(values []findings.Diagnostic) []diagnosticFingerprintFacts {

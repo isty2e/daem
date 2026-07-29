@@ -26,6 +26,7 @@ const (
 	MCPProjectionReasonSecretLiteralForbidden         MCPProjectionReasonCode = "SECRET_LITERAL_FORBIDDEN"
 	MCPProjectionReasonProjectionEquivalenceUndefined MCPProjectionReasonCode = "PROJECTION_EQUIVALENCE_UNDEFINED"
 	MCPProjectionReasonStaleAdapterContract           MCPProjectionReasonCode = "STALE_ADAPTER_CONTRACT"
+	MCPProjectionReasonProviderDocumentLossy          MCPProjectionReasonCode = "PROVIDER_DOCUMENT_LOSSY"
 )
 
 // MCPProjectionRejection reports one host MCP entry that exists but cannot be
@@ -188,6 +189,26 @@ type CodexGlobalMCPServerEntry struct {
 	EnvVars []string `toml:"env_vars,omitempty"`
 }
 
+// PiMCPAdapterServerProjection is the normalized project/global projection for
+// the admitted pi-mcp-adapter stdio profile.
+type PiMCPAdapterServerProjection struct {
+	ServerID        string
+	Command         string
+	Args            []string
+	Env             map[string]string
+	AdapterContract string
+}
+
+// PiMCPAdapterServerEntry is the canonical managed entry in a
+// pi-mcp-adapter-owned mcp.json document.
+type PiMCPAdapterServerEntry struct {
+	Command   string            `json:"command"`
+	Args      []string          `json:"args"`
+	Env       map[string]string `json:"env,omitempty"`
+	Lifecycle string            `json:"lifecycle"`
+	Disabled  bool              `json:"disabled"`
+}
+
 // ClaudeProjectMCPContentPath returns the managed JSON pointer for one server id.
 func ClaudeProjectMCPContentPath(serverID string) string {
 	return mcpProjectionSubject(aggregate.MCPPlacementClaudeProject, serverID)
@@ -221,6 +242,16 @@ func CodexProjectMCPContentPath(serverID string) string {
 // CodexGlobalMCPContentPath returns the managed TOML path for one server id.
 func CodexGlobalMCPContentPath(serverID string) string {
 	return mcpProjectionSubject(aggregate.MCPPlacementCodexGlobal, serverID)
+}
+
+// PiProjectMCPContentPath returns the project adapter JSON pointer for one server id.
+func PiProjectMCPContentPath(serverID string) string {
+	return mcpProjectionSubject(aggregate.MCPPlacementPiProject, serverID)
+}
+
+// PiGlobalMCPContentPath returns the global adapter JSON pointer for one server id.
+func PiGlobalMCPContentPath(serverID string) string {
+	return mcpProjectionSubject(aggregate.MCPPlacementPiGlobal, serverID)
 }
 
 func mcpProjectionSubject(placementID aggregate.MCPPlacementID, serverID string) string {

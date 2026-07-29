@@ -6,18 +6,22 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
+	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/delegate"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
 func TestMCPProjectionSubjectContractCoversEveryPlacement(t *testing.T) {
 	placements := aggregate.ImplementedMCPPlacements()
-	if len(placements) != 7 {
-		t.Fatalf("implemented placements = %d, want 7", len(placements))
+	if len(placements) != 9 {
+		t.Fatalf("implemented placements = %d, want 9", len(placements))
 	}
 	seenSubjects := make(map[topology.SubjectID]struct{}, len(placements))
 	for _, placement := range placements {
@@ -262,7 +266,7 @@ func testMCPProjectionInput(
 	credentials []string,
 ) MCPProjectionSubjectInput {
 	t.Helper()
-	return MCPProjectionSubjectInput{
+	input := MCPProjectionSubjectInput{
 		Graph:                testMCPProjectionGraph(t, placement, "npx", credentials),
 		EntityID:             mustContractEntityID(t, entity.KindMCPServer, "context7"),
 		PlacementID:          placement.ID(),
@@ -272,6 +276,12 @@ func testMCPProjectionInput(
 		CanonicalProjection:  `{"command":"npx"}`,
 		CredentialReferences: append([]string(nil), credentials...),
 	}
+	if placement.Target() == target.TargetPi {
+		contribution := testPiMCPProviderContribution(t, placement.Scope())
+		reference := contribution.Reference()
+		input.ProviderContribution = &reference
+	}
+	return input
 }
 
 func testMCPProjectionGraph(
@@ -303,7 +313,61 @@ func testMCPProjectionGraph(
 		subjects = append(subjects, credential)
 		edges = append(edges, topology.NewEdge(topology.EdgeDependsOn, projection, credential))
 	}
+	if placement.Target() == target.TargetPi {
+		contribution := testPiMCPProviderContribution(t, placement.Scope())
+		subjects = append(
+			subjects,
+			contribution.Provider().SubjectID(),
+			contribution.SubjectID(),
+		)
+		edges = append(
+			edges,
+			topology.NewEdge(
+				topology.EdgeProvidedBy,
+				contribution.SubjectID(),
+				contribution.Provider().SubjectID(),
+			),
+			topology.NewEdge(
+				topology.EdgeBoundTo,
+				contribution.SubjectID(),
+				projection,
+			),
+		)
+	}
 	return mustTopologyGraph(t, subjects, edges)
+}
+
+func testPiMCPProviderContribution(
+	t *testing.T,
+	scope target.Scope,
+) extensiontopology.Contribution {
+	t.Helper()
+	source := desiredtest.ExtensionSource(
+		t,
+		desiredextension.SourceKindHostSource,
+		"npm:pi-mcp-adapter@^2.13.0",
+	)
+	key, err := desiredextension.NewCarrierKey(
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		scope,
+		source,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carrier, err := extensiontopology.NewCarrier(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contribution, err := extensiontopology.NewContribution(
+		carrier,
+		extensiontopology.ContributionSpec{Kind: "mcp-client", Key: "default"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contribution
 }
 
 func mustTopologyGraph(t *testing.T, subjects []topology.SubjectID, edges []topology.Edge) topology.Graph {

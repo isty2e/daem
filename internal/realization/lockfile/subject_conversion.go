@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 func subjectsFromDTO(subjects []lockedSubjectDTO) ([]lock.LockedSubjectContract, error) {
@@ -76,6 +77,10 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("delegate_plan: %w", err)
 	}
+	providerContribution, err := mcpProviderContributionFromDTO(dto.MCPProviderContribution)
+	if err != nil {
+		return lock.LockedSubjectContract{}, fmt.Errorf("mcp_provider_contribution: %w", err)
+	}
 	correlation, err := skillSetMemberFromDTO(dto.SkillSetMember)
 	if err != nil {
 		return lock.LockedSubjectContract{}, fmt.Errorf("skill_set_member: %w", err)
@@ -98,6 +103,7 @@ func subjectFromDTO(dto lockedSubjectDTO) (lock.LockedSubjectContract, error) {
 		RepairRecipe:              recipe,
 		DelegatePlan:              delegatePlan,
 		MCPEnvironmentSources:     append([]string(nil), dto.MCPEnvironmentSources...),
+		MCPProviderContribution:   providerContribution,
 		SkillSetMemberCorrelation: correlation,
 		Ownership:                 lock.OwnershipBasis(dto.Ownership),
 		OnAbsent:                  lock.OnAbsentPolicy(dto.OnAbsent),
@@ -111,21 +117,47 @@ func subjectToDTO(contract lock.LockedSubjectContract) (lockedSubjectDTO, error)
 		return lockedSubjectDTO{}, fmt.Errorf("invalid locked subject identity")
 	}
 	return lockedSubjectDTO{
-		EntityID:              contract.EntityID().String(),
-		SubjectID:             contract.SubjectID().String(),
-		ExactSupply:           optionalExactIdentityToDTO(contract.ExactSupply()),
-		ExactFileUse:          exactFileUseToDTO(contract.ExactFileUse()),
-		Realization:           realizationToDTO(contract.Realization()),
-		Derivation:            derivationToDTO(contract.Derivation()),
-		RepairRecipe:          repairRecipeToDTO(contract.RepairRecipe()),
-		DelegatePlan:          delegatePlanToDTO(contract),
-		MCPEnvironmentSources: contract.MCPEnvironmentSources(),
-		SkillSetMember:        skillSetMemberToDTO(contract.SkillSetMemberCorrelation()),
-		Ownership:             string(contract.Ownership()),
-		OnAbsent:              string(contract.OnAbsent()),
-		Replay:                replayCoverageToDTO(contract.ReplayCoverage()),
-		Operations:            operationContractsToDTO(contract),
+		EntityID:                contract.EntityID().String(),
+		SubjectID:               contract.SubjectID().String(),
+		ExactSupply:             optionalExactIdentityToDTO(contract.ExactSupply()),
+		ExactFileUse:            exactFileUseToDTO(contract.ExactFileUse()),
+		Realization:             realizationToDTO(contract.Realization()),
+		Derivation:              derivationToDTO(contract.Derivation()),
+		RepairRecipe:            repairRecipeToDTO(contract.RepairRecipe()),
+		DelegatePlan:            delegatePlanToDTO(contract),
+		MCPEnvironmentSources:   contract.MCPEnvironmentSources(),
+		MCPProviderContribution: mcpProviderContributionToDTO(contract),
+		SkillSetMember:          skillSetMemberToDTO(contract.SkillSetMemberCorrelation()),
+		Ownership:               string(contract.Ownership()),
+		OnAbsent:                string(contract.OnAbsent()),
+		Replay:                  replayCoverageToDTO(contract.ReplayCoverage()),
+		Operations:              operationContractsToDTO(contract),
 	}, nil
+}
+
+func mcpProviderContributionFromDTO(
+	value string,
+) (*extensiontopology.ContributionReference, error) {
+	if value == "" {
+		return nil, nil
+	}
+	subject, err := topology.ParseSubjectID(value)
+	if err != nil {
+		return nil, err
+	}
+	reference, err := extensiontopology.ParseContributionReference(subject)
+	if err != nil {
+		return nil, err
+	}
+	return &reference, nil
+}
+
+func mcpProviderContributionToDTO(contract lock.LockedSubjectContract) string {
+	reference, present := contract.MCPProviderContribution()
+	if !present {
+		return ""
+	}
+	return reference.SubjectID().String()
 }
 
 func exactIdentityFromDTO(dto exactIdentityDTO) (artifact.ExactIdentity, error) {

@@ -44,7 +44,7 @@ func TestExtensionAuthoringRejectsCanonicalTextHazardsBeforeRendering(t *testing
 func TestMCPAuthoringInferenceDeduplicatesAndRejectsAmbiguousManifestTargets(t *testing.T) {
 	server, err := MCPServerFromAddRequest(
 		AddMCPServerRequest{Name: "context7", Command: "npx"},
-		declaration.ManifestHeader{Targets: []string{"pi", "codex", "codex"}},
+		declaration.ManifestHeader{Targets: []string{"codex", "codex"}},
 		daempaths.ManifestOriginExplicit,
 	)
 	if err != nil {

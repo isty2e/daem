@@ -59,11 +59,11 @@ implemented honestly or safely.
 | Skills | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Skill groups | `supported` | `supported` | `supported` | `supported` | `supported` |
 | Command hooks | `supported` | `supported` | `diagnostic` | `diagnostic` | `unsupported` |
-| Standalone MCP server config | `supported` project/global | `supported` project/global | `supported` project/global | `unsupported` core; `deferred` bundled | `supported` global |
+| MCP server config | `supported` project/global | `supported` project/global | `supported` project/global | `supported` project/global via explicit provider | `supported` global |
 | Delegated executable execution | `deferred` | `supported` project MCP | `deferred` | `deferred` | `deferred` |
 | Carrier declaration and relation diagnostics | `supported` global | `supported` project/global | `supported` project/global | `supported` project/global | `supported` global |
 | Passive carrier observation | `supported` global config | `supported` project/global | `supported` config project/global | `supported` package project/global | `supported` global selector |
-| Provider-scoped contribution diagnostics | `diagnostic` cache | `deferred` | `deferred` | `deferred` | `deferred` |
+| Provider-scoped contribution diagnostics | `diagnostic` cache | `deferred` | `deferred` | `supported` for admitted MCP provider | `deferred` |
 | Host-delegated carrier lifecycle routes | `supported` global | `supported` project/global | `supported` project/global | `supported` project/global | `supported` global |
 | Carrier destructive cleanup and prune | `blocked` | `blocked` | `blocked` | `blocked` | `blocked` |
 | Runtime probes | `deferred` | `explicit` project MCP | `explicit` project MCP | `deferred` | `deferred` |
@@ -89,8 +89,8 @@ details and retained effects are listed below.
 
 Destructive route behavior was last checked against Claude Code `2.1.216`,
 Codex `0.144.5`, OpenCode `1.18.4`, Pi `0.80.10`, and Antigravity CLI `1.1.4`.
-A 2026-07-28 non-destructive local smoke check used Claude Code `2.1.220`,
-Codex `0.145.0`, OpenCode `1.18.5`, Pi `0.82.0`, and Antigravity CLI `1.1.7`;
+A 2026-07-29 non-destructive local smoke check used Claude Code `2.1.220`,
+Codex `0.145.0`, OpenCode `1.18.7`, Pi `0.82.1`, and Antigravity CLI `1.1.8`;
 their expected default config paths remained available.
 
 The newer local version is not automatically unsupported, but config-path
@@ -148,7 +148,7 @@ Antigravity CLI direct hooks are unsupported. Daem does not infer or install
 undeclared scripts, directories, standalone tools, trust approval, or
 plugin-bundled hooks.
 
-### Standalone MCP Server Config
+### MCP Server Config
 
 Supported rows manage one bounded stdio entry while preserving unrelated host
 configuration. Codex supports command/args project rows and explicit-global
@@ -158,13 +158,18 @@ structured environment references and explicit-global rows with exact aliased
 OpenCode supports project command rows and explicit-global rows with exact
 aliased `{env:SOURCE}` environment references. Antigravity CLI supports an
 explicit-global command row with optional same-name ambient environment
-requirements, and Pi has no core standalone row. `import` can author observable
-command/args facts for these rows, and `apply --manage-existing` can register
-exact matching projections.
+requirements. Pi supports project and explicit-global rows through an explicit
+admitted `pi-mcp-adapter` package relation; this is provider-mediated support,
+not a Pi core-native config surface. `import` can author observable
+command/args facts for the core-native rows, but does not infer Pi's package
+relation. `apply --manage-existing` can register exact matching projections.
 
 These rows do not own the executable, package, cache, credentials, trust,
 session, runtime health, effective merged host state, remote transports, or
-plugin-bundled MCP. Removing a row reconciles only its managed config entry.
+plugin-bundled MCP. The explicit Pi provider relation is the narrow exception:
+its separate extension subject owns one delegated Pi package relation, while
+the MCP subject still owns only one config contribution. Removing a Pi MCP row
+reconciles only that contribution and retains the provider declaration.
 Target-specific paths and rejected fields are listed in the
 [Manifest Reference](manifest.md#mcp-servers).
 
@@ -205,6 +210,36 @@ cannot infer ambient intent from command/args-only native state, so it imports
 no environment references. Apply verifies the environment of its own process;
 it cannot prove the environment of a future independently launched
 Antigravity CLI process.
+
+Pi environment support accepts exact child-to-source aliases and renders
+`${SOURCE}` references into the selected provider config. Lock and durable
+state contain names only, while normal apply requires current source presence
+before any selected mutation. Pi project config is `.pi/mcp.json`; global
+config is `mcp.json` under the current Pi agent root. The provider also reads,
+in ascending precedence, `~/.config/mcp/mcp.json`, `~/.agents/mcp.json`,
+`~/.agents/mcp/mcp.json`, the agent-root `mcp.json`, project `.mcp.json`, and
+project `.pi/mcp.json`. Daem observes all active layers and explicit imports
+for same-name equivalence, shadowing, and lower fallback, but writes only the
+selected Pi-owned file. Host-config discovery is observed when enabled and is
+never silently enabled by daem.
+
+The admitted provider source is the npm package `pi-mcp-adapter` with a
+canonical exact or caret-bounded stable selector in `>=2.13.0` and `<3.0.0`.
+Version `2.13.0` is the verified profile floor. Version `2.15.0` is the deeply
+inspected source and registry artifact and was still the current stable release
+on 2026-07-29; it is not a hard ceiling. Apply observes the exact installed
+package version and maps any current in-range stable `2.x` version to this
+profile. Source tag, registry integrity, registry `gitHead`, dependency
+resolution, and installed version remain separate evidence.
+
+A 2026-07-29 disposable `pi 0.82.1` probe confirmed a material trust boundary:
+a project-scoped package is ignored under `--no-approve`, but an installed
+global `pi-mcp-adapter` still reads project MCP layers. An unowned project
+server marked `lifecycle = "eager"` executed its command before project trust
+even under `--no-approve`. Daem therefore warns when authoring a global
+provider, does not create eager entries, and never claims that Pi trust guards
+project MCP files from a global provider. Review unowned project MCP files
+before using the global package.
 
 ### Delegated Executable Execution
 
@@ -392,7 +427,7 @@ selected-source route. Pi direct extension remains deferred.
 | Host-delegated carrier lifecycle routes: explicit refresh | `supported` for OpenCode and Pi project/global host-source rows | OpenCode invokes `opencode plugin <host-source> --force` and adds `--global` only for explicit daem global scope. Pi invokes `pi update --extension <host-source>` for either public scope because the host has no update scope flag; it may inspect and update matching user and trusted-project package rows with the same identity. Neither host has an admitted refresh-specific outcome or version observer, so exit zero is reported only as `attempted_unverified`; Pi's selected-scope relation observer does not prove refresh convergence. History never suppresses a later explicit retry. Pi pins may remain fixed, local paths have no scheduled updater, Git updates may reset/clean and install dependencies, and trust refusal/no match remains a host failure. Ordinary apply/install never uses either refresh route. |
 | Passive carrier observation | `supported` for OpenCode plugin and Pi package relations; `deferred` for Pi direct extensions | OpenCode reads the selected project or default-global server and TUI config files, preferring `.json` over `.jsonc` per file kind, and correlates the exact host-source row. Pi reads only the selected project or global settings layer and correlates the exact npm, Git, or local package source. Authored Pi local-path aliases collapse before lock, while external settings still require the exact adapter-derived stored spelling. Malformed, ambiguous, wrong-scope, unsafe, or unreadable state is unavailable, never absence. Visibility alone is not ownership, trust, readiness, contribution inventory, or broad package/cache/store convergence. |
 | External carrier adoption | `supported` for OpenCode project/global exact source rows and Pi project/global exact stored-source rows | Manage-existing records a state-only claim only after the current source spelling, target, scope, claim store, and full future removal route remain eligible. Equivalent package names, Git identities, or external local-path spellings that differ from the expected stored row remain inexact and cannot be adopted. No OpenCode or Pi host command runs for claim acquisition. |
-| Provider-scoped contribution diagnostics and bundled MCP | `deferred` / `blocked`; no current enumeration | Any future diagnostic row must remain anchored to an admitted passive carrier and preserve `provided_by`. OpenCode native MCP and Pi extension-backed MCP are not standalone `[[mcp_server]]` support. |
+| Provider-scoped contribution diagnostics and bundled MCP | `supported` only for the admitted Pi MCP provider; otherwise `deferred` | The Pi `pi-mcp-adapter` package contributes one exact `mcp-client/default` capability correlated with each provider-mediated MCP lock subject. Current package version and provider-effective config are observed separately. OpenCode package-bundled MCP and every other Pi package contribution remain deferred and are not flattened into standalone resources. |
 | Carrier lifecycle routes: managed removal | `supported` for OpenCode and Pi project/global rows | OpenCode performs no host command: after exact managed authority and last-daem-consumer checks, it removes only the exact source row from the selected server/TUI JSON or JSONC files through per-file compare-and-swap. Partial multi-file success retains durable pending state and retries remaining rows; claim retirement requires fresh absence from every selected file. Pi invokes its selected-scope remove route and verifies relation plus source-kind-specific effects. The other scope, package/cache stores, local source directories, credentials, trust/session/runtime state, unrelated rows, and ambient global consumers remain outside the guarantee. |
 | Host-delegated carrier lifecycle routes: disable and ordinary update | `blocked` for ordinary mutation | Explicit refresh does not become ordinary apply update, and no per-contribution disable route is admitted. `opencode uninstall` targets the host program rather than one managed plugin relation. |
 | Carrier destructive cleanup and prune | `blocked` for ordinary mutation | Desired absence does not grant external-store prune, unrelated package/cache/store cleanup, trust/session deletion, or retained-state deletion. |
@@ -430,7 +465,7 @@ contribution ownership.
 | `add skill`, `remove skill` | Authoring helpers for direct `[[skill]]` declarations. |
 | `add skill-group` | Authoring helper for current `[[skill_group]]` declarations. |
 | `add hook`, `remove hook` | Authoring helpers for command-hook declarations; they do not infer hook scripts. `add hook` rejects Antigravity CLI hooks; `remove hook` can clean existing Antigravity CLI hook declarations from the manifest/lockfile without host mutation. |
-| `add mcp-server`, `remove mcp-server` | Authoring helpers for supported standalone stdio `[[mcp_server]]` rows. Target omission succeeds only when manifest inheritance and row compatibility identify one supported row. Explicit target/scope forms cover Claude Code project/global, Codex project/global, OpenCode project/global, and Antigravity CLI global rows; defaults never authorize global MCP. They update manifest and lockfile only; host config changes still require `apply`, and command/args authoring is not provisioning. |
+| `add mcp-server`, `remove mcp-server` | Authoring helpers for supported stdio `[[mcp_server]]` rows. Target omission succeeds only when manifest inheritance and row compatibility identify one supported row. Explicit target/scope forms cover Claude Code project/global, Codex project/global, OpenCode project/global, Pi project/global, and Antigravity CLI global rows; defaults never authorize global MCP. Pi add also authors one explicit admitted provider package when needed, while Pi remove retains it. They update manifest and lockfile only; host config and package effects still require `apply`, and command/args authoring is not executable provisioning. |
 | `add extension`, `remove extension` | Authoring helpers for all five supported carrier rows. Add accepts one opaque carrier-native source operand and validates it against target/scope; remove selects the globally unique id with optional safety filters. Both update manifest and lockfile only. Remove expresses desired relation absence; manual row omission plus lock is equivalent. A later confirmed apply executes only removal rows admitted above, currently Codex and selector-shaped Antigravity explicit-global plus Claude Code, OpenCode, and Pi project/global removal. |
 | `unmanage extension` | Supported for one exact extension id with optional target/scope safety filters. It atomically removes the declaration/current lock entry and exact daem claim while retaining host state; it supports dry-run/diff/JSON/verbose and has no per-host flags or `--yes`. |
 | `lock` | Resolves declared sources and writes current exact lockfile identities. The same floating declaration may resolve differently later; lock does not refresh host carrier state. |
@@ -484,7 +519,8 @@ contribution ownership.
   slice, Claude project stdio and explicit-global command/args plus exact
   aliased environment-reference slices,
   OpenCode project command/args and explicit-global command/args plus exact
-  aliased environment-reference slices, and the Antigravity CLI
+  aliased environment-reference slices, Pi project and explicit-global
+  provider-mediated stdio slices, and the Antigravity CLI
   explicit-global command/args plus same-name ambient slice.
 - MCP runtime probes beyond the supported Claude Code project stdio and OpenCode
   project local-command stdio launch+initialize slices and their stdio

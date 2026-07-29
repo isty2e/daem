@@ -192,7 +192,7 @@ func (effect AggregateEffect) validate() error {
 		!effect.evidence.Snapshot().Equal(effect.snapshot) {
 		return fmt.Errorf("aggregate effect evidence differs from planned before state")
 	}
-	expectedPreconditions, admitted, err := aggregate.OperationPreconditionsForCodec(effect.codecContractID)
+	expectedPreconditions, admitted, err := aggregate.OperationPreconditionsForSelection(selection)
 	if err != nil {
 		return err
 	}

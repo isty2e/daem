@@ -114,7 +114,7 @@ func mergeMCPPlacementCanonicalEntry(
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}
-	return operations.MergeCanonicalEntry(existing, serverID, canonical)
+	return mcptest.MergeCanonicalEntry(operations, existing, serverID, canonical)
 }
 
 func (fixture mcpProjectionApplyFixture) writeMCPConfig(t *testing.T, content []byte) {

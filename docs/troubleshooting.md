@@ -91,6 +91,37 @@ process environment. The error lists source names, never their values.
 Do not put secret values directly in the manifest. `status` and `doctor` remain
 point-in-time diagnostics and do not replace the apply-time gate.
 
+## Pi MCP Provider Or Config Is Not Current
+
+Pi MCP support is provided by the explicit `pi-mcp-adapter` extension in the
+same manifest. Start with:
+
+```bash
+daem status --target pi --verbose
+daem apply --target pi --dry-run --diff
+```
+
+- `provider_prerequisite` reports package presence and the freshly observed
+  exact version separately from config projection. Supported stable versions
+  are `>=2.13.0` and `<3.0.0`; `2.15.0` is the deeply inspected artifact, not a
+  permanently pinned version.
+- A project provider may require Pi project trust before it loads. A global
+  provider can read project MCP layers even under `pi --no-approve`; an
+  unowned eager entry may execute before trust. Daem authors lazy entries but
+  does not sanitize other project MCP files. Review `.mcp.json` and
+  `.pi/mcp.json` before using a global provider.
+- `effective_shadowing` names a higher-layer same-name definition. Review the
+  six provider layers in the Host Integration Contract; daem mutates only the
+  selected `.pi/mcp.json` or agent-root `mcp.json`.
+- After removing a managed binding, a lower unowned definition may become
+  effective. That is reported as fallback, not deleted.
+- If the package was manually removed or disabled, rerun the reviewed apply.
+  Historical install evidence never substitutes for fresh package and config
+  observation.
+
+Use `daem remove extension <provider-id>` only when the provider package itself
+is also undesired. Removing only the MCP row intentionally keeps the provider.
+
 ## External Carrier Is Present But Unclaimed
 
 An extension installed outside daem can be claimed only after its exact

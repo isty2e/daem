@@ -1,0 +1,26 @@
+# Provider-mediated Pi project MCP example.
+#
+# Pi core does not own this MCP config surface. The explicit pi-mcp-adapter
+# package reads project .pi/mcp.json after Pi trusts and loads the project.
+# Daem installs the declared provider through Pi before projecting the binding.
+# It does not prove project trust, provider activation, server connectivity,
+# authentication, or discovered tools.
+
+version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "pi-mcp-adapter-project"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
+
+[[mcp_server]]
+name = "context7"
+targets = ["pi"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@1.2.3"]
+env = { CONTEXT7_API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }

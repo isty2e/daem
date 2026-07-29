@@ -107,7 +107,7 @@ func (index aggregateObservationIndex) projection(
 func (index aggregateObservationIndex) unsupportedAlternateConfig(
 	contract aggregate.ProjectionContract,
 ) (bool, error) {
-	expected, admitted, err := aggregate.OperationPreconditionsForCodec(contract.CodecContractID())
+	expected, admitted, err := aggregate.OperationPreconditionsForContract(contract)
 	if err != nil {
 		return false, err
 	}

@@ -40,8 +40,9 @@ pre-commit run --all-files
 ```
 
 Pre-commit owns repository hygiene, canonical Go formatting, module tidiness,
-vet, and architecture/documentation guards. Run focused tests while editing,
-then use the remaining repository gates appropriate to the claim:
+vet, productive exported API reachability, and architecture/documentation
+guards. The productive API check requires `jq`. Run focused tests while
+editing, then use the remaining repository gates appropriate to the claim:
 
 ```bash
 go test -count=1 ./...

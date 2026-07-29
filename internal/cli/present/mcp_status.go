@@ -17,6 +17,7 @@ type MCPStatus struct {
 	ConfigPath             string               `json:"config_path"`
 	ContentPath            string               `json:"content_path"`
 	AdapterContractVersion string               `json:"adapter_contract_version"`
+	CurrentProviderVersion string               `json:"current_provider_version,omitempty"`
 	Projection             []MCPStatusDimension `json:"projection_dimensions,omitempty"`
 	Host                   []MCPStatusDimension `json:"host_dimensions,omitempty"`
 	Delegate               []MCPStatusDimension `json:"delegate_dimensions,omitempty"`
@@ -50,9 +51,10 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 	}
 	statuses := make([]MCPStatus, 0, len(observations))
 	for _, observation := range observations {
-		status, err := mcpStatusEvidence(
+		status, err := mcpStatusEvidenceWithProvider(
 			observation.Scope(),
 			observation.Current(),
+			observation.Provider(),
 			observation.LastDelegateAttempt(),
 			runtime,
 		)
@@ -70,6 +72,7 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 		status.ConfigPath = observation.ConfigPath().String()
 		status.ContentPath = string(observation.ContentPath())
 		status.AdapterContractVersion = string(observation.AdapterContractVersion())
+		status.CurrentProviderVersion = observation.Provider().Version()
 		statuses = append(statuses, status)
 	}
 	return statuses, nil
@@ -78,6 +81,35 @@ func MCPStatusesFrom(observations []mcpobserve.LockedProjectionObservation) ([]M
 func mcpStatusEvidence(
 	scope target.Scope,
 	current mcpobserve.AggregateProjectionObservation,
+	lastDelegateAttempt mcpobserve.LastDelegateAttemptObservation,
+	runtime runtimeprobe.Observation,
+) (MCPStatus, error) {
+	provider, err := mcpobserve.NewProviderPrerequisiteObservation(
+		mcpobserve.ProviderPrerequisiteObservationInput{
+			State: mcpobserve.ProviderNotApplicable,
+		},
+	)
+	if err != nil {
+		return MCPStatus{}, err
+	}
+	status, err := mcpStatusEvidenceWithProvider(
+		scope,
+		current,
+		provider,
+		lastDelegateAttempt,
+		runtime,
+	)
+	if err != nil {
+		return MCPStatus{}, err
+	}
+	status.Host = status.Host[:len(status.Host)-1]
+	return status, nil
+}
+
+func mcpStatusEvidenceWithProvider(
+	scope target.Scope,
+	current mcpobserve.AggregateProjectionObservation,
+	provider mcpobserve.ProviderPrerequisiteObservation,
 	lastDelegateAttempt mcpobserve.LastDelegateAttemptObservation,
 	runtime runtimeprobe.Observation,
 ) (MCPStatus, error) {
@@ -97,6 +129,7 @@ func mcpStatusEvidence(
 		Host: []MCPStatusDimension{
 			mcpStatusDimension("same_scope_ownership", string(current.Ownership.State), string(current.Ownership.Reason)),
 			mcpStatusDimension("effective_shadowing", string(current.Shadowing.State), string(current.Shadowing.Reason)),
+			mcpStatusDimension("provider_prerequisite", string(provider.State()), string(provider.Reason())),
 		},
 		Delegate: []MCPStatusDimension{
 			mcpStatusDimension("delegate_last_attempt", string(lastDelegateAttempt.State), string(lastDelegateAttempt.Reason)),
@@ -150,6 +183,9 @@ func PrintMCPStatusesWithOptions(output io.Writer, statuses []MCPStatus, options
 		)
 		if options.Verbose {
 			fmt.Fprintf(output, " config_path=%q content_path=%q adapter_contract=%q", status.ConfigPath, status.ContentPath, status.AdapterContractVersion)
+			if status.CurrentProviderVersion != "" {
+				fmt.Fprintf(output, " provider_version=%q", status.CurrentProviderVersion)
+			}
 		}
 		fmt.Fprintln(output)
 		printMCPStatusDimensionGroup(output, "projection", selectedMCPDimensions(status.Projection, options))

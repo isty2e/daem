@@ -36,16 +36,6 @@ func MCPPlacementForID(id MCPPlacementID) (MCPPlacement, bool) {
 	return MCPPlacement{}, false
 }
 
-// MCPPlacementForCodec returns the static placement row owning contractID.
-func MCPPlacementForCodec(contractID CodecContractID) (MCPPlacement, bool) {
-	for _, placement := range implementedMCPPlacements {
-		if placement.CodecContractID() == contractID {
-			return placement, true
-		}
-	}
-	return MCPPlacement{}, false
-}
-
 // ImplementedMCPPlacement returns the implemented placement for target/scope.
 func ImplementedMCPPlacement(selectedTarget target.Target, selectedScope target.Scope) (MCPPlacement, bool) {
 	for _, placement := range implementedMCPPlacements {
@@ -102,6 +92,11 @@ var codexProjectMCPComparedFields = []string{
 var codexGlobalMCPComparedFields = []string{
 	"adapter_contract", "args", "command", "config_path", "content_path",
 	"env_vars", "scope", "server_id", "target",
+}
+
+var piMCPComparedFields = []string{
+	"adapter_contract", "args", "command", "config_path", "content_path",
+	"disabled", "env", "lifecycle", "scope", "server_id", "target",
 }
 
 var implementedMCPPlacements = []MCPPlacement{
@@ -212,6 +207,36 @@ var implementedMCPPlacements = []MCPPlacement{
 		EnvReferenceMapping:    MCPEnvMappingSameName,
 		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
 	}),
+	mustMCPPlacement(MCPPlacementInput{
+		ID:                     MCPPlacementPiProject,
+		Target:                 target.TargetPi,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            MCPConfigLayerPiProjectFile,
+		ConfigPath:             PiProjectMCPConfigPath,
+		MergeUnit:              MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcpServers",
+		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        MCPCodecPiAdapterStdio,
+		ComparedFields:         piMCPComparedFields,
+		Absence:                MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    MCPEnvMappingAliased,
+		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
+	}),
+	mustMCPPlacement(MCPPlacementInput{
+		ID:                     MCPPlacementPiGlobal,
+		Target:                 target.TargetPi,
+		Scope:                  target.ScopeGlobal,
+		ConfigLayer:            MCPConfigLayerPiGlobalAgentFile,
+		ConfigPath:             PiGlobalMCPConfigPath,
+		MergeUnit:              MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcpServers",
+		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        MCPCodecPiAdapterStdio,
+		ComparedFields:         piMCPComparedFields,
+		Absence:                MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    MCPEnvMappingAliased,
+		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
+	}),
 }
 
 func init() {
@@ -225,7 +250,6 @@ func validateMCPPlacementCatalog(placements []MCPPlacement) error {
 	targetScopes := make(map[string]MCPPlacementID, len(placements))
 	configPaths := make(map[output.Destination]MCPPlacementID, len(placements))
 	conflictingConfigPaths := make(map[output.Destination]MCPPlacementID, len(placements))
-	codecContracts := make(map[CodecContractID]MCPPlacementID, len(placements))
 	for _, placement := range placements {
 		if err := placement.Validate(); err != nil {
 			return err
@@ -251,11 +275,6 @@ func validateMCPPlacementCatalog(placements []MCPPlacement) error {
 			}
 			conflictingConfigPaths[conflictingConfigPath] = placement.id
 		}
-		codecContractID := placement.CodecContractID()
-		if existing, ok := codecContracts[codecContractID]; ok {
-			return fmt.Errorf("MCP placements %q and %q share codec contract %q", existing, placement.id, codecContractID)
-		}
-		codecContracts[codecContractID] = placement.id
 	}
 	for _, placement := range placements {
 		conflictingConfigPath, hasConflict := placement.ConflictingConfigPath()

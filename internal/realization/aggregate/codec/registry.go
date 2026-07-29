@@ -27,6 +27,7 @@ func mustCatalog() aggregate.CodecCatalog {
 
 func buildCatalog() (aggregate.CodecCatalog, error) {
 	owners := make(map[aggregate.CodecContractID]string)
+	mcpContracts := make(map[aggregate.CodecContractID]struct{})
 	codecs := make([]aggregate.Codec, 0)
 	for _, placement := range aggregate.ImplementedHookPlacements() {
 		contractID := placement.CodecContractID()
@@ -38,6 +39,10 @@ func buildCatalog() (aggregate.CodecCatalog, error) {
 	}
 	for _, placement := range aggregate.ImplementedMCPPlacements() {
 		contractID := placement.CodecContractID()
+		if _, registered := mcpContracts[contractID]; registered {
+			continue
+		}
+		mcpContracts[contractID] = struct{}{}
 		codec, ok := mcpcodec.For(contractID)
 		if err := validateCodecRegistration(owners, "MCP", contractID, codec, ok); err != nil {
 			return aggregate.CodecCatalog{}, err

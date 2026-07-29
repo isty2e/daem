@@ -122,16 +122,23 @@ func (precondition OperationPrecondition) UnsatisfiedDetail() string {
 	}
 }
 
-// OperationPreconditionsForCodec returns the exact static operation
-// preconditions owned by an admitted codec profile.
-func OperationPreconditionsForCodec(
-	contractID CodecContractID,
+// OperationPreconditionsForContract returns the exact static operation
+// preconditions owned by one admitted projection placement.
+func OperationPreconditionsForContract(
+	contract ProjectionContract,
 ) ([]OperationPrecondition, bool, error) {
-	if _, ok := HookPlacementForCodec(contractID); ok {
+	if err := contract.Validate(); err != nil {
+		return nil, false, err
+	}
+	contractID := contract.CodecContractID()
+	if placement, ok := HookPlacementForCodec(contractID); ok {
+		if contract.Address().PlacementID() != string(placement.ID()) {
+			return nil, false, nil
+		}
 		return nil, true, nil
 	}
-	placement, ok := MCPPlacementForCodec(contractID)
-	if !ok {
+	placement, ok := MCPPlacementForID(MCPPlacementID(contract.Address().PlacementID()))
+	if !ok || placement.CodecContractID() != contractID {
 		return nil, false, nil
 	}
 	conflictingPath, ok := placement.ConflictingConfigPath()
@@ -148,6 +155,24 @@ func OperationPreconditionsForCodec(
 		return nil, false, err
 	}
 	return []OperationPrecondition{precondition}, true, nil
+}
+
+// OperationPreconditionsForSelection returns one placement's exact static
+// preconditions after rejecting cross-placement selections.
+func OperationPreconditionsForSelection(
+	selection Selection,
+) ([]OperationPrecondition, bool, error) {
+	contracts := selection.Contracts()
+	if len(contracts) == 0 {
+		return nil, false, fmt.Errorf("aggregate codec selection is required")
+	}
+	placementID := contracts[0].Address().PlacementID()
+	for _, contract := range contracts[1:] {
+		if contract.Address().PlacementID() != placementID {
+			return nil, false, fmt.Errorf("aggregate codec selection mixes placements")
+		}
+	}
+	return OperationPreconditionsForContract(contracts[0])
 }
 
 func newDocumentAddress(
@@ -210,8 +235,8 @@ func ValidateSubjectContract(subject topology.SubjectID, contract ProjectionCont
 		return nil
 	}
 
-	placement, ok := MCPPlacementForCodec(contract.CodecContractID())
-	if !ok {
+	placement, ok := MCPPlacementForID(MCPPlacementID(contract.Address().PlacementID()))
+	if !ok || placement.CodecContractID() != contract.CodecContractID() {
 		return fmt.Errorf("aggregate subject contract codec %q is not admitted", contract.CodecContractID())
 	}
 	serverID, ok := placement.ServerIDFromContentPath(contract.Address().ContentPath())

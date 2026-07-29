@@ -325,7 +325,7 @@ func claudeGlobalConfig(t *testing.T, canonical []byte) []byte {
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}
-	config, err := operations.MergeCanonicalEntry(nil, "context7", canonical)
+	config, err := mcptest.MergeCanonicalEntry(operations, nil, "context7", canonical)
 	if err != nil {
 		t.Fatalf("merge Claude global entry: %v", err)
 	}
