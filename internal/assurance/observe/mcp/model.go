@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"fmt"
+
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -33,6 +35,11 @@ const (
 	ReasonDelegateTimeout                ReasonCode = "DELEGATE_TIMEOUT"
 	ReasonDelegateRunnerError            ReasonCode = "DELEGATE_RUNNER_ERROR"
 	ReasonDelegateWorkDirAuthority       ReasonCode = "DELEGATE_WORKDIR_AUTHORITY"
+	ReasonProviderRelationInstall        ReasonCode = "PROVIDER_RELATION_INSTALL_REQUIRED"
+	ReasonProviderPackageAbsent          ReasonCode = "PROVIDER_PACKAGE_ABSENT"
+	ReasonProviderVersionUnobserved      ReasonCode = "PROVIDER_VERSION_UNOBSERVED"
+	ReasonProviderVersionIncompatible    ReasonCode = "PROVIDER_VERSION_INCOMPATIBLE"
+	ReasonProviderCodecMismatch          ReasonCode = "PROVIDER_CODEC_MISMATCH"
 )
 
 // ProjectionState classifies the passive project .mcp.json projection state.
@@ -89,6 +96,108 @@ const (
 	ResidueUnobserved         ResidueState = "residue_unobserved"
 	ResidueDeferred           ResidueState = "deferred"
 )
+
+// ProviderPrerequisiteState records current provider-package readiness
+// independently from managed config and runtime readiness.
+type ProviderPrerequisiteState string
+
+const (
+	ProviderNotApplicable  ProviderPrerequisiteState = "not_applicable"
+	ProviderCurrent        ProviderPrerequisiteState = "current"
+	ProviderInstallPending ProviderPrerequisiteState = "install_required"
+	ProviderBlocked        ProviderPrerequisiteState = "blocked"
+)
+
+// ProviderPrerequisiteObservationInput contains one already-normalized
+// provider prerequisite classification.
+type ProviderPrerequisiteObservationInput struct {
+	State   ProviderPrerequisiteState
+	Reason  ReasonCode
+	Version string
+}
+
+// ProviderPrerequisiteObservation is current provider-package evidence. An
+// exact version is reported only when it was freshly observed.
+type ProviderPrerequisiteObservation struct {
+	state   ProviderPrerequisiteState
+	reason  ReasonCode
+	version string
+}
+
+// NewProviderPrerequisiteObservation validates provider evidence without
+// importing provider-planning policy into the observation model.
+func NewProviderPrerequisiteObservation(
+	input ProviderPrerequisiteObservationInput,
+) (ProviderPrerequisiteObservation, error) {
+	switch input.State {
+	case ProviderNotApplicable:
+		if input.Reason != ReasonNone || input.Version != "" {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"non-provider MCP projection cannot carry provider evidence",
+			)
+		}
+	case ProviderCurrent:
+		if input.Reason != ReasonNone || input.Version == "" {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"current MCP provider requires only an exact version",
+			)
+		}
+	case ProviderInstallPending:
+		if input.Reason != ReasonProviderRelationInstall &&
+			input.Reason != ReasonProviderPackageAbsent {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"pending MCP provider has unsupported reason %q",
+				input.Reason,
+			)
+		}
+		if input.Version != "" {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"pending MCP provider cannot carry a version",
+			)
+		}
+	case ProviderBlocked:
+		if input.Reason != ReasonProviderVersionUnobserved &&
+			input.Reason != ReasonProviderVersionIncompatible &&
+			input.Reason != ReasonProviderCodecMismatch {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"blocked MCP provider has unsupported reason %q",
+				input.Reason,
+			)
+		}
+		if input.Reason == ReasonProviderVersionUnobserved && input.Version != "" {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"unobserved MCP provider cannot carry a version",
+			)
+		}
+		if input.Reason != ReasonProviderVersionUnobserved && input.Version == "" {
+			return ProviderPrerequisiteObservation{}, fmt.Errorf(
+				"incompatible MCP provider requires its exact observed version",
+			)
+		}
+	default:
+		return ProviderPrerequisiteObservation{}, fmt.Errorf(
+			"MCP provider prerequisite state %q is unsupported",
+			input.State,
+		)
+	}
+	return ProviderPrerequisiteObservation{
+		state:   input.State,
+		reason:  input.Reason,
+		version: input.Version,
+	}, nil
+}
+
+func (observation ProviderPrerequisiteObservation) State() ProviderPrerequisiteState {
+	return observation.state
+}
+
+func (observation ProviderPrerequisiteObservation) Reason() ReasonCode {
+	return observation.reason
+}
+
+func (observation ProviderPrerequisiteObservation) Version() string {
+	return observation.version
+}
 
 // AggregateProjectionObservationInput classifies one MCP status row from the
 // generic aggregate observer without rereading or reparsing host config.

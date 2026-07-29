@@ -23,12 +23,17 @@ func ClassifyMCPProjections(
 	failures []observe.AggregateObservationFailure,
 	preconditions []observe.AggregatePreconditionEvidence,
 	effective []mcpeffective.Observation,
+	providers []MCPProviderPrerequisite,
 ) ([]mcpobserve.LockedProjectionObservation, error) {
 	contracts, err := selectedMCPProjectionContracts(locked, selection)
 	if err != nil {
 		return nil, err
 	}
 	shadowing, err := effectiveShadowingBySubject(effective)
+	if err != nil {
+		return nil, err
+	}
+	providerEvidence, err := providerEvidenceBySubject(providers)
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +44,70 @@ func ClassifyMCPProjections(
 		Failures:      failures,
 		Preconditions: preconditions,
 		Shadowing:     shadowing,
+		Providers:     providerEvidence,
 	})
+}
+
+func providerEvidenceBySubject(
+	prerequisites []MCPProviderPrerequisite,
+) (map[topology.SubjectID]mcpobserve.ProviderPrerequisiteObservation, error) {
+	index, err := providerConsumerIndex(prerequisites)
+	if err != nil {
+		return nil, err
+	}
+	result := make(
+		map[topology.SubjectID]mcpobserve.ProviderPrerequisiteObservation,
+		len(index),
+	)
+	for subject, prerequisite := range index {
+		input := mcpobserve.ProviderPrerequisiteObservationInput{
+			Version: prerequisite.Observation().Version(),
+		}
+		switch prerequisite.State() {
+		case MCPProviderCurrent:
+			input.State = mcpobserve.ProviderCurrent
+		case MCPProviderInstallRequired:
+			input.State = mcpobserve.ProviderInstallPending
+			switch prerequisite.Reason() {
+			case MCPProviderReasonRelationInstall:
+				input.Reason = mcpobserve.ReasonProviderRelationInstall
+			case MCPProviderReasonPackageAbsent:
+				input.Reason = mcpobserve.ReasonProviderPackageAbsent
+			default:
+				return nil, fmt.Errorf(
+					"pending MCP provider has unsupported reason %q",
+					prerequisite.Reason(),
+				)
+			}
+			input.Version = ""
+		case MCPProviderBlocked:
+			input.State = mcpobserve.ProviderBlocked
+			switch prerequisite.Reason() {
+			case MCPProviderReasonVersionUnobserved:
+				input.Reason = mcpobserve.ReasonProviderVersionUnobserved
+			case MCPProviderReasonVersionIncompatible:
+				input.Reason = mcpobserve.ReasonProviderVersionIncompatible
+			case MCPProviderReasonCodecMismatch:
+				input.Reason = mcpobserve.ReasonProviderCodecMismatch
+			default:
+				return nil, fmt.Errorf(
+					"blocked MCP provider has unsupported reason %q",
+					prerequisite.Reason(),
+				)
+			}
+		default:
+			return nil, fmt.Errorf(
+				"MCP provider prerequisite has unsupported state %q",
+				prerequisite.State(),
+			)
+		}
+		observation, err := mcpobserve.NewProviderPrerequisiteObservation(input)
+		if err != nil {
+			return nil, fmt.Errorf("MCP provider evidence for %q: %w", subject, err)
+		}
+		result[subject] = observation
+	}
+	return result, nil
 }
 
 func effectiveShadowingBySubject(

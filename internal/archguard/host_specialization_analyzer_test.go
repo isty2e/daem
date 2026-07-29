@@ -104,6 +104,7 @@ func isGenericHostGuardPackage(packagePath string) bool {
 	}
 	for _, root := range []string{
 		"internal/assurance/observe/mcp/effective/host",
+		"internal/assurance/observe/mcp/provider/host",
 		"internal/output/hostpath",
 		"internal/workflow",
 		"internal/reconcile",

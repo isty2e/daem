@@ -12,6 +12,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 type projectRootFingerprintFacts struct {
@@ -34,6 +35,11 @@ func requiresProjectRootAuthority(planned commandPlan) bool {
 	for _, action := range planned.assessment.Reconciliation.Relations() {
 		if action.InvokesHostRoute() ||
 			isGlobalCarrierPromotionCandidate(planned.assessment.CurrentState, action) {
+			return true
+		}
+	}
+	for _, prerequisite := range planned.assessment.MCPProviders {
+		if prerequisite.State() == readiness.MCPProviderInstallRequired {
 			return true
 		}
 	}

@@ -17,6 +17,7 @@ const delegateRouteFamilyPrefix = "delegate-runner."
 type applyAuthorityEvidence struct {
 	domains              []mutation.Domain
 	revisions            []mutation.RevisionRequest
+	facts                []applyAuthorityFact
 	authorityFingerprint mutation.OperationFingerprint
 }
 
@@ -203,15 +204,23 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 	}
 	addRoute := func(target string, scope string, family string) error {
+		fact := applyAuthorityFact{
+			Kind: "route", Target: target, Scope: scope, Family: family,
+			Containment: mutation.RouteContainmentUnknown,
+		}
+		key := applyAuthorityFactKey(fact)
+		for _, existing := range facts {
+			if applyAuthorityFactKey(existing) == key {
+				return nil
+			}
+		}
 		domain, err := mutation.NewHostRouteDomain(mutation.HostRouteRequest{
 			Target: target, Scope: scope, Family: family, Containment: mutation.RouteContainmentUnknown,
 		})
 		if err != nil {
 			return err
 		}
-		facts = append(facts, applyAuthorityFact{
-			Kind: "route", Target: target, Scope: scope, Family: family, Containment: mutation.RouteContainmentUnknown,
-		})
+		facts = append(facts, fact)
 		domains = append(domains, domain)
 		return nil
 	}
@@ -231,6 +240,22 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 			if err := addRoute(string(action.Target()), string(action.Scope()), action.RouteRequest().RouteID()); err != nil {
 				return applyAuthorityEvidence{}, err
 			}
+		}
+	}
+	for _, prerequisite := range planned.assessment.MCPProviders {
+		action, present, err := prerequisite.InstallAction()
+		if err != nil {
+			return applyAuthorityEvidence{}, fmt.Errorf("derive MCP provider route authority: %w", err)
+		}
+		if !present {
+			continue
+		}
+		if err := addRoute(
+			string(action.Target()),
+			string(action.Scope()),
+			action.RouteRequest().RouteID(),
+		); err != nil {
+			return applyAuthorityEvidence{}, err
 		}
 	}
 	for _, action := range planned.assessment.Reconciliation.CarrierAbsences() {
@@ -276,6 +301,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	return applyAuthorityEvidence{
 		domains:              domains,
 		revisions:            sortedRevisionRequests(revisions),
+		facts:                append([]applyAuthorityFact(nil), facts...),
 		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
 	}, nil
 }

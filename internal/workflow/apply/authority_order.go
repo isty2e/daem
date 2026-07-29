@@ -90,3 +90,19 @@ func applyAuthorityFactKey(fact applyAuthorityFact) string {
 		fact.Target + "\x00" + fact.Scope + "\x00" + fact.Family + "\x00" +
 		strconv.Itoa(int(fact.Containment))
 }
+
+func authorityFactsCover(
+	available []applyAuthorityFact,
+	required []applyAuthorityFact,
+) bool {
+	index := make(map[string]struct{}, len(available))
+	for _, fact := range available {
+		index[applyAuthorityFactKey(fact)] = struct{}{}
+	}
+	for _, fact := range required {
+		if _, present := index[applyAuthorityFactKey(fact)]; !present {
+			return false
+		}
+	}
+	return true
+}
