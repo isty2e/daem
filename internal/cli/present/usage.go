@@ -321,7 +321,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 	pages["add mcp-server"] = leaf("daem add mcp-server", "daem add mcp-server <name> <command> [--arg <value> ...] [options]", "add a standalone stdio MCP server and refresh the lockfile",
 		[]helpRow{{"<name>", "Stable MCP server name."}, {"<command>", "Portable executable token; shell command strings are rejected."}},
 		[]helpRow{{"--arg <value>", "Ordered argv entry; repeat to preserve ordering and duplicates."}, workspace, mcpAuthoringTarget, mcpAuthoringScope, dryRun, diff, jsonOutputWithDiff, verbose},
-		[]helpRow{{"", "Admitted target/scope pairs: " + context.MCPAuthoringPlacements + "."}, {"", "Target omission succeeds only when the manifest identifies one admitted row."}, {"", "Environment mappings and non-stdio transports are manifest-only. Writes by default."}},
+		[]helpRow{{"", "Admitted target/scope pairs: " + context.MCPAuthoringPlacements + "."}, {"", "Target omission succeeds only when the manifest identifies one admitted row."}, {"", "For Pi, add also authors an explicit pi-mcp-adapter package at the selected scope when no compatible provider is declared; preview reports project trust or global sharing consequences."}, {"", "Environment mappings and non-stdio transports are manifest-only. Writes by default."}},
 		[]string{"daem add mcp-server context7 npx --arg -y --arg @upstash/context7-mcp", "daem add mcp-server local-mcp local-mcp-server --target codex --dry-run"}, manifestDocumentReference)
 	pages["probe mcp-server"] = leaf("daem probe mcp-server", "daem probe mcp-server <name> [--manifest <path>] [--target <target>] [--scope <scope>] [options]", "launch one locked MCP command and test runtime dimensions",
 		[]helpRow{{"<name>", "Locked MCP server name; target and scope are needed only when the name is ambiguous."}},
@@ -377,9 +377,14 @@ func addRemovalPages(pages map[string]helpPage, workspace helpRow, target helpRo
 		{"skill", "<resource-key>", "remove a skill or skill-group resource and refresh the lockfile"},
 	}
 	for _, resource := range resources {
+		rules := []helpRow{{"", "Omitted target and scope remove the unique whole resource; ambiguous matches require enough selectors to identify one row."}}
+		if resource.kind == "mcp-server" {
+			rules = append(rules, helpRow{"", "Removing a Pi MCP row keeps its explicit pi-mcp-adapter package declaration; remove that extension separately."})
+		}
+		rules = append(rules, helpRow{"", "Writes by default. Carrier uninstall effects remain apply work, not manifest authoring."})
 		pages["remove "+resource.kind] = leaf("daem remove "+resource.kind, "daem remove "+resource.kind+" "+resource.operand+" [options]", resource.summary,
 			[]helpRow{{resource.operand, "Stable key shown by daem list resources."}}, common,
-			[]helpRow{{"", "Omitted target and scope remove the unique whole resource; ambiguous matches require enough selectors to identify one row."}, {"", "Writes by default. Carrier uninstall effects remain apply work, not manifest authoring."}},
+			rules,
 			[]string{"daem remove " + resource.kind + " example", "daem remove " + resource.kind + " example --target codex --dry-run --diff"}, reference)
 	}
 }

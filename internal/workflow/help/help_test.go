@@ -26,6 +26,8 @@ func TestBuildUsageFactsReturnsStaticTargetInventory(t *testing.T) {
 		{Target: target.TargetOpenCode, Scope: target.ScopeGlobal},
 		{Target: target.TargetCodex, Scope: target.ScopeProject},
 		{Target: target.TargetCodex, Scope: target.ScopeGlobal},
+		{Target: target.TargetPi, Scope: target.ScopeProject},
+		{Target: target.TargetPi, Scope: target.ScopeGlobal},
 	}
 	if !reflect.DeepEqual(facts.MCPAuthoringPlacements, wantAuthoring) {
 		t.Fatalf("MCPAuthoringPlacements = %+v, want %+v", facts.MCPAuthoringPlacements, wantAuthoring)

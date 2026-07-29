@@ -34,10 +34,40 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 	if err != nil {
 		return Change{}, err
 	}
-
-	content, changeKind, err := ApplyAddMCPServerToManifest(document.Content, server, header)
+	serverKey, err := mcpServerAuthoringKeyFor(server, header, "incoming mcp_server")
 	if err != nil {
 		return Change{}, err
+	}
+	providerPlan, err := planMCPProviderAuthoring(
+		document.Content,
+		header,
+		serverKey.target,
+		serverKey.scope,
+	)
+	if err != nil {
+		return Change{}, err
+	}
+
+	content := document.Content
+	changeKind := ""
+	manifestBlocks := make([]string, 0, 2)
+	if providerPlan.extension != nil {
+		content, _, err = ApplyAddExtensionToManifest(content, *providerPlan.extension, header)
+		if err != nil {
+			return Change{}, err
+		}
+		manifestBlocks = append(
+			manifestBlocks,
+			strings.TrimRight(declarationcodec.RenderExtensionBlock(*providerPlan.extension), "\n"),
+		)
+		changeKind = "append extension and mcp_server resources"
+	}
+	content, mcpChangeKind, err := ApplyAddMCPServerToManifest(content, server, header)
+	if err != nil {
+		return Change{}, err
+	}
+	if changeKind == "" {
+		changeKind = mcpChangeKind
 	}
 	if err := document.validateResult(content); err != nil {
 		return Change{}, err
@@ -46,6 +76,11 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 	if err != nil {
 		return Change{}, err
 	}
+	warnings = append(warnings, providerPlan.warnings...)
+	manifestBlocks = append(
+		manifestBlocks,
+		strings.TrimRight(declarationcodec.RenderMCPServerBlock(server), "\n"),
+	)
 
 	return Change{
 		ManifestPath:  document.Path,
@@ -53,7 +88,7 @@ func BuildAddMCPServerChange(document ManifestDocument, request AddMCPServerRequ
 		Content:       content,
 		ResourceID:    name,
 		ChangeKind:    changeKind,
-		ManifestBlock: strings.TrimRight(declarationcodec.RenderMCPServerBlock(server), "\n"),
+		ManifestBlock: strings.Join(manifestBlocks, "\n\n"),
 		Warnings:      warnings,
 	}, nil
 }

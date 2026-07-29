@@ -16,11 +16,6 @@ func TestMCPServerFromAddRequestRejectsUnsupportedFirstSliceValues(t *testing.T)
 		want    string
 	}{
 		{
-			name:    "pi target",
-			request: AddMCPServerRequest{Name: "context7", Command: "npx", Targets: []string{"pi"}},
-			want:    "supports only --target claude-code, --target antigravity-cli, --target opencode, or --target codex",
-		},
-		{
 			name:    "antigravity missing scope",
 			request: AddMCPServerRequest{Name: "context7", Command: "npx", Targets: []string{"antigravity-cli"}},
 			want:    "requires --scope global for --target antigravity-cli",
@@ -137,7 +132,7 @@ func TestMCPAuthoringDerivesEveryTargetScopeFromCanonicalPlacementCatalog(t *tes
 		}
 	}
 
-	const want = "--target claude-code, --target antigravity-cli, --target opencode, or --target codex"
+	const want = "--target claude-code, --target antigravity-cli, --target opencode, --target codex, or --target pi"
 	if got := mcpAuthoringTargetOptions(); got != want {
 		t.Fatalf("mcpAuthoringTargetOptions = %q, want %q", got, want)
 	}

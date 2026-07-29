@@ -573,9 +573,9 @@ func TestRunRemoveMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 	}{
 		{
 			name: "unsupported target",
-			args: []string{"remove", "mcp-server", "context7", "--target", "pi", "--dry-run"},
-			want: "supports only --target claude-code, --target antigravity-cli, --target opencode, or --target codex",
-			code: 1,
+			args: []string{"remove", "mcp-server", "context7", "--target", "unknown-agent", "--dry-run"},
+			want: `unknown target "unknown-agent"`,
+			code: 2,
 		},
 		{
 			name: "multiple mcp targets",

@@ -278,8 +278,8 @@ command = "npx"
 	}{
 		{
 			name:    "unsupported target",
-			request: RemoveMCPServerRequest{Name: "context7", Targets: []string{"pi"}},
-			want:    "supports only --target claude-code, --target antigravity-cli, --target opencode, or --target codex",
+			request: RemoveMCPServerRequest{Name: "context7", Targets: []string{"unknown-agent"}},
+			want:    "supports only --target claude-code, --target antigravity-cli, --target opencode, --target codex, or --target pi",
 		},
 		{
 			name:    "invalid scope",

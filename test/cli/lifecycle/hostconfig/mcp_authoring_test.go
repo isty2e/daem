@@ -698,9 +698,9 @@ func TestRunAddMCPServerRejectsUnsupportedInputsBeforeWriting(t *testing.T) {
 		},
 		{
 			name: "unsupported target",
-			args: []string{"add", "mcp-server", "context7", "npx", "--target", "pi", "--dry-run"},
-			want: "supports only --target claude-code, --target antigravity-cli, --target opencode, or --target codex",
-			code: 1,
+			args: []string{"add", "mcp-server", "context7", "npx", "--target", "unknown-agent", "--dry-run"},
+			want: `unknown target "unknown-agent"`,
+			code: 2,
 		},
 		{
 			name: "antigravity missing explicit scope",
