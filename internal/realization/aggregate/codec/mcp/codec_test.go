@@ -323,7 +323,9 @@ func mcpCodecExclusiveSet(t *testing.T, contribution aggregate.ManagedContributi
 
 func mcpCodecServerID(t *testing.T, contribution aggregate.ManagedContribution) string {
 	t.Helper()
-	operations, ok := ImplementedMCPPlacementOperationsForCodecContract(contribution.CodecContractID())
+	operations, ok := ImplementedMCPPlacementOperationsForPlacement(
+		aggregate.MCPPlacementID(contribution.Address().PlacementID()),
+	)
 	if !ok {
 		t.Fatal("MCP placement operations are missing")
 	}

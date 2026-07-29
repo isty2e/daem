@@ -168,9 +168,9 @@ func freshMissingProjectionEvidence(
 		t.Fatalf("observe.NewAggregateEvidence returned error: %v", err)
 	}
 
-	expected, admitted, err := aggregate.OperationPreconditionsForCodec(projection.CodecContractID())
+	expected, admitted, err := aggregate.OperationPreconditionsForContract(projection)
 	if err != nil {
-		t.Fatalf("OperationPreconditionsForCodec returned error: %v", err)
+		t.Fatalf("OperationPreconditionsForContract returned error: %v", err)
 	}
 	if !admitted {
 		t.Fatalf("codec %q has no precondition profile", projection.CodecContractID())

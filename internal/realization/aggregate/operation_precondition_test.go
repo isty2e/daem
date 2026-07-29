@@ -8,14 +8,16 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestOperationPreconditionsForCodecMatchPlacementCatalog(t *testing.T) {
+func TestOperationPreconditionsForContractMatchPlacementCatalog(t *testing.T) {
 	for _, placement := range aggregate.ImplementedMCPPlacements() {
 		t.Run(string(placement.ID()), func(t *testing.T) {
-			preconditions, admitted, err := aggregate.OperationPreconditionsForCodec(
-				placement.CodecContractID(),
-			)
+			contract, err := placement.ProjectionContract("context7")
 			if err != nil {
-				t.Fatalf("OperationPreconditionsForCodec returned error: %v", err)
+				t.Fatalf("ProjectionContract returned error: %v", err)
+			}
+			preconditions, admitted, err := aggregate.OperationPreconditionsForContract(contract)
+			if err != nil {
+				t.Fatalf("OperationPreconditionsForContract returned error: %v", err)
 			}
 			if !admitted {
 				t.Fatal("implemented MCP codec has no operation-precondition profile")
@@ -63,7 +65,7 @@ func TestOperationPreconditionsForCodecMatchPlacementCatalog(t *testing.T) {
 	}
 }
 
-func TestOperationPreconditionsForCodecAdmitsHooksAndRejectsUnknownCodec(t *testing.T) {
+func TestOperationPreconditionsForContractAdmitsHooksAndRejectsZeroContract(t *testing.T) {
 	for _, location := range []struct {
 		target target.Target
 		scope  target.Scope
@@ -77,11 +79,15 @@ func TestOperationPreconditionsForCodecAdmitsHooksAndRejectsUnknownCodec(t *test
 		if !present {
 			t.Fatalf("HookPlacementFor(%q, %q) is missing", location.target, location.scope)
 		}
-		preconditions, admitted, err := aggregate.OperationPreconditionsForCodec(
-			placement.CodecContractID(),
+		contribution, err := placement.Contribution("format")
+		if err != nil {
+			t.Fatalf("Contribution(%q): %v", placement.ID(), err)
+		}
+		preconditions, admitted, err := aggregate.OperationPreconditionsForContract(
+			contribution.Contract(),
 		)
 		if err != nil {
-			t.Fatalf("OperationPreconditionsForCodec(%q): %v", placement.CodecContractID(), err)
+			t.Fatalf("OperationPreconditionsForContract(%q): %v", placement.CodecContractID(), err)
 		}
 		if !admitted || len(preconditions) != 0 {
 			t.Fatalf(
@@ -93,11 +99,13 @@ func TestOperationPreconditionsForCodecAdmitsHooksAndRejectsUnknownCodec(t *test
 		}
 	}
 
-	preconditions, admitted, err := aggregate.OperationPreconditionsForCodec("unknown-codec-v1")
-	if err != nil {
-		t.Fatalf("unknown codec returned error: %v", err)
+	preconditions, admitted, err := aggregate.OperationPreconditionsForContract(
+		aggregate.ProjectionContract{},
+	)
+	if err == nil {
+		t.Fatal("zero contract returned nil error")
 	}
 	if admitted || preconditions != nil {
-		t.Fatalf("unknown codec = %#v, %t, want unadmitted", preconditions, admitted)
+		t.Fatalf("zero contract = %#v, %t, want unadmitted", preconditions, admitted)
 	}
 }

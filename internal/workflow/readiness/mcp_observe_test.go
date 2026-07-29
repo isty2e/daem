@@ -13,8 +13,8 @@ import (
 
 func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *testing.T) {
 	root := t.TempDir()
-	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForCodecContract(
-		aggregate.MCPCodecOpenCodeProjectLocal,
+	operations, ok := mcpcodec.ImplementedMCPPlacementOperationsForPlacement(
+		aggregate.MCPPlacementOpenCodeProject,
 	)
 	if !ok {
 		t.Fatal("OpenCode project MCP placement operations are missing")
@@ -31,11 +31,13 @@ func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *te
 		t.Fatalf("write conflicting config: %v", err)
 	}
 
-	preconditions, admitted, err := aggregate.OperationPreconditionsForCodec(
-		operations.Placement().CodecContractID(),
-	)
+	contract, err := operations.Placement().ProjectionContract("context7")
 	if err != nil {
-		t.Fatalf("OperationPreconditionsForCodec: %v", err)
+		t.Fatalf("ProjectionContract: %v", err)
+	}
+	preconditions, admitted, err := aggregate.OperationPreconditionsForContract(contract)
+	if err != nil {
+		t.Fatalf("OperationPreconditionsForContract: %v", err)
 	}
 	if !admitted || len(preconditions) != 1 {
 		t.Fatalf("operation preconditions = %#v, %t, want one admitted row", preconditions, admitted)

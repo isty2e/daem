@@ -256,14 +256,28 @@ func (operations MCPPlacementOperations) ParentPresent(existing []byte) (bool, e
 	return operations.parentPresent(existing)
 }
 
-// ImplementedMCPPlacementOperationsForCodecContract returns the operation row for codecContractID.
-func ImplementedMCPPlacementOperationsForCodecContract(codecContractID aggregate.CodecContractID) (MCPPlacementOperations, bool) {
+// ImplementedMCPPlacementOperationsForPlacement returns the operation row for
+// one exact placement.
+func ImplementedMCPPlacementOperationsForPlacement(
+	placementID aggregate.MCPPlacementID,
+) (MCPPlacementOperations, bool) {
 	for _, operations := range implementedMCPPlacementOperationCatalog {
-		if operations.placement.CodecContractID() == codecContractID {
+		if operations.placement.ID() == placementID {
 			return operations, true
 		}
 	}
 	return MCPPlacementOperations{}, false
+}
+
+// MCPCodecContractImplemented reports whether at least one implemented
+// placement is backed by codecContractID.
+func MCPCodecContractImplemented(codecContractID aggregate.CodecContractID) bool {
+	for _, operations := range implementedMCPPlacementOperationCatalog {
+		if operations.placement.CodecContractID() == codecContractID {
+			return true
+		}
+	}
+	return false
 }
 
 func buildMCPPlacementOperationRows() []MCPPlacementOperations {

@@ -246,7 +246,7 @@ func observeAggregateDocuments(
 		if !ok {
 			return aggregateDocumentObservations{}, fmt.Errorf("aggregate codec %q is not admitted", selected.CodecContractID())
 		}
-		preconditions, admitted, err := aggregate.OperationPreconditionsForCodec(selected.CodecContractID())
+		preconditions, admitted, err := aggregate.OperationPreconditionsForSelection(selected)
 		if err != nil {
 			return aggregateDocumentObservations{}, err
 		}

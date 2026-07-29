@@ -10,7 +10,7 @@ import (
 )
 
 type mcpProjectionCodec struct {
-	operations MCPPlacementOperations
+	contractID aggregate.CodecContractID
 }
 
 type mcpSelectedProjection struct {
@@ -20,11 +20,10 @@ type mcpSelectedProjection struct {
 
 // For returns the MCP codec implementing contractID.
 func For(contractID aggregate.CodecContractID) (aggregate.Codec, bool) {
-	operations, ok := ImplementedMCPPlacementOperationsForCodecContract(contractID)
-	if !ok {
+	if !MCPCodecContractImplemented(contractID) {
 		return nil, false
 	}
-	return mcpProjectionCodec{operations: operations}, true
+	return mcpProjectionCodec{contractID: contractID}, true
 }
 
 // ValidateContribution rejects forged or non-renderable locked MCP content.
@@ -39,9 +38,21 @@ func (codec mcpProjectionCodec) ValidateContribution(contribution aggregate.Mana
 			codec.ContractID(),
 		)
 	}
-	operations, ok := ImplementedMCPPlacementOperationsForCodecContract(contribution.CodecContractID())
+	operations, ok := ImplementedMCPPlacementOperationsForPlacement(
+		aggregate.MCPPlacementID(contribution.Address().PlacementID()),
+	)
 	if !ok {
-		return fmt.Errorf("aggregate codec contract %q has no MCP placement", contribution.CodecContractID())
+		return fmt.Errorf(
+			"MCP contribution placement %q is not implemented",
+			contribution.Address().PlacementID(),
+		)
+	}
+	if operations.Placement().CodecContractID() != contribution.CodecContractID() {
+		return fmt.Errorf(
+			"MCP contribution placement %q does not implement codec contract %q",
+			contribution.Address().PlacementID(),
+			contribution.CodecContractID(),
+		)
 	}
 	serverID, ok := operations.ServerIDFromContentPath(contribution.Address().ContentPath())
 	if !ok {
@@ -90,16 +101,16 @@ func (codec mcpProjectionCodec) ValidateContribution(contribution aggregate.Mana
 }
 
 func (codec mcpProjectionCodec) ContractID() aggregate.CodecContractID {
-	return codec.operations.Placement().CodecContractID()
+	return codec.contractID
 }
 
 func (codec mcpProjectionCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
-	selected, failure := codec.selectedProjections(document, selection)
+	operations, selected, failure := codec.selectedProjections(document, selection)
 	if failure != nil {
 		return aggregate.Snapshot{}, failure
 	}
 	serverIDs := mcpSelectedServerIDs(selected)
-	observation, err := codec.operations.ObserveCanonicalEntries(document.Content(), serverIDs)
+	observation, err := operations.ObserveCanonicalEntries(document.Content(), serverIDs)
 	if err != nil {
 		return aggregate.Snapshot{}, mcpCodecFailure(err, aggregate.CodecFailureEquivalenceUndefined, "")
 	}
@@ -115,7 +126,7 @@ func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggrega
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
-	selected, failure := codec.selectedProjections(document, selection)
+	operations, selected, failure := codec.selectedProjections(document, selection)
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
@@ -130,15 +141,15 @@ func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggrega
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
-	content, err := codec.operations.FoldMutations(document.Content(), mutations)
+	content, err := operations.FoldMutations(document.Content(), mutations)
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
-	if err := codec.operations.VerifyMutations(content, mutations); err != nil {
+	if err := operations.VerifyMutations(content, mutations); err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
 	candidate := aggregate.ExistingDocument(content)
-	observation, err := codec.operations.ObserveCanonicalEntries(content, mcpSelectedServerIDs(selected))
+	observation, err := operations.ObserveCanonicalEntries(content, mcpSelectedServerIDs(selected))
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
@@ -158,7 +169,7 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
-	selected, failure := codec.selectedProjections(document, selection)
+	operations, selected, failure := codec.selectedProjections(document, selection)
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
@@ -192,7 +203,7 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 		}
 		mutations = append(mutations, mutation)
 	}
-	content, keepDocument, err := codec.operations.RestoreMutations(
+	content, keepDocument, err := operations.RestoreMutations(
 		document.Content(),
 		mutations,
 		parentExistedBefore,
@@ -204,7 +215,7 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 	if keepDocument {
 		candidate = aggregate.ExistingDocument(content)
 	}
-	observation, err := codec.operations.ObserveCanonicalEntries(
+	observation, err := operations.ObserveCanonicalEntries(
 		candidate.Content(),
 		mcpSelectedServerIDs(selected),
 	)
@@ -230,18 +241,38 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 func (codec mcpProjectionCodec) selectedProjections(
 	document aggregate.Document,
 	selection aggregate.Selection,
-) ([]mcpSelectedProjection, *aggregate.CodecFailure) {
+) (MCPPlacementOperations, []mcpSelectedProjection, *aggregate.CodecFailure) {
 	if err := document.Validate(); err != nil || selection.CodecContractID() != codec.ContractID() {
-		return nil, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
+		return MCPPlacementOperations{}, nil, mcpCodecFailure(
+			err,
+			aggregate.CodecFailureCanonicalInvalid,
+			"",
+		)
 	}
-	placement := codec.operations.Placement()
 	contracts := selection.Contracts()
+	if len(contracts) == 0 {
+		return MCPPlacementOperations{}, nil, mcpCodecFailure(
+			fmt.Errorf("MCP selection is empty"),
+			aggregate.CodecFailureCanonicalInvalid,
+			"",
+		)
+	}
+	placementID := aggregate.MCPPlacementID(contracts[0].Address().PlacementID())
+	operations, ok := ImplementedMCPPlacementOperationsForPlacement(placementID)
+	if !ok || operations.Placement().CodecContractID() != codec.ContractID() {
+		return MCPPlacementOperations{}, nil, mcpCodecFailure(
+			fmt.Errorf("MCP selection placement does not implement codec contract"),
+			aggregate.CodecFailureSelectedShapeUnsupported,
+			contracts[0].Address().ContentPath(),
+		)
+	}
+	placement := operations.Placement()
 	selected := make([]mcpSelectedProjection, 0, len(contracts))
 	for _, contract := range contracts {
 		address := contract.Address()
-		serverID, ok := codec.operations.ServerIDFromContentPath(address.ContentPath())
+		serverID, ok := operations.ServerIDFromContentPath(address.ContentPath())
 		if !ok {
-			return nil, mcpCodecFailure(
+			return MCPPlacementOperations{}, nil, mcpCodecFailure(
 				fmt.Errorf("MCP content path is outside its placement"),
 				aggregate.CodecFailureSelectedShapeUnsupported,
 				address.ContentPath(),
@@ -257,7 +288,7 @@ func (codec mcpProjectionCodec) selectedProjections(
 			contract.SiblingPreservation() != aggregate.PreserveSiblingsSemantic ||
 			contract.Equivalence() != aggregate.EquivalenceCanonicalSemantic ||
 			!slices.Equal(contract.ComparedFields(), placement.ComparedFields()) {
-			return nil, mcpCodecFailure(
+			return MCPPlacementOperations{}, nil, mcpCodecFailure(
 				fmt.Errorf("MCP projection contract differs from its placement"),
 				aggregate.CodecFailurePreservationUndefined,
 				address.ContentPath(),
@@ -265,7 +296,7 @@ func (codec mcpProjectionCodec) selectedProjections(
 		}
 		selected = append(selected, mcpSelectedProjection{contract: contract, serverID: serverID})
 	}
-	return selected, nil
+	return operations, selected, nil
 }
 
 func mcpMutationsForPlan(

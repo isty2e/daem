@@ -57,13 +57,13 @@ func TestImplementedMCPPlacementOperationsCoverImplementedPlacements(t *testing.
 				t.Fatalf("%s malformed path %q resolved to %q, %v", placement.ID(), malformed, serverID, ok)
 			}
 		}
-		byCodecContract, ok := ImplementedMCPPlacementOperationsForCodecContract(placement.CodecContractID())
-		if !ok || byCodecContract.Placement().ID() != placement.ID() {
-			t.Fatalf("lookup by codec contract %q = %q, %v; want %q", placement.CodecContractID(), byCodecContract.Placement().ID(), ok, placement.ID())
+		byPlacement, ok := ImplementedMCPPlacementOperationsForPlacement(placement.ID())
+		if !ok || byPlacement.Placement().ID() != placement.ID() {
+			t.Fatalf("lookup by placement %q = %q, %v; want %q", placement.ID(), byPlacement.Placement().ID(), ok, placement.ID())
 		}
 	}
-	if operations, ok := ImplementedMCPPlacementOperationsForCodecContract(aggregate.CodecContractID("unknown-codec")); ok || operations.Placement().ID() != "" {
-		t.Fatalf("unknown codec contract lookup = %q, %v; want missing", operations.Placement().ID(), ok)
+	if operations, ok := ImplementedMCPPlacementOperationsForPlacement(aggregate.MCPPlacementID("unknown-placement")); ok || operations.Placement().ID() != "" {
+		t.Fatalf("unknown placement lookup = %q, %v; want missing", operations.Placement().ID(), ok)
 	}
 }
 

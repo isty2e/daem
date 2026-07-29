@@ -341,7 +341,7 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 				entry.Path != document.AggregateRoot().String() || entry.ContentPath != string(contract.Address().ContentPath()) {
 				return fmt.Errorf("recovery entries[%d].aggregate: contract differs from path identity", index)
 			}
-			if _, ok, admissionErr := aggregate.OperationPreconditionsForCodec(contract.CodecContractID()); admissionErr != nil {
+			if _, ok, admissionErr := aggregate.OperationPreconditionsForContract(contract); admissionErr != nil {
 				return fmt.Errorf("recovery entries[%d].aggregate: %w", index, admissionErr)
 			} else if !ok {
 				return fmt.Errorf("recovery entries[%d].aggregate: codec %q is not admitted", index, contract.CodecContractID())

@@ -9,11 +9,5 @@ import (
 func OperationsForPlacementID(
 	id aggregate.MCPPlacementID,
 ) (mcpcodec.MCPPlacementOperations, bool) {
-	placement, ok := aggregate.MCPPlacementForID(id)
-	if !ok {
-		return mcpcodec.MCPPlacementOperations{}, false
-	}
-	return mcpcodec.ImplementedMCPPlacementOperationsForCodecContract(
-		placement.CodecContractID(),
-	)
+	return mcpcodec.ImplementedMCPPlacementOperationsForPlacement(id)
 }

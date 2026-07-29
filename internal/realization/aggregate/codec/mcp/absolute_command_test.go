@@ -46,7 +46,7 @@ func TestAbsoluteCommandPathRoundTripsEveryImplementedMCPPlacement(t *testing.T)
 			if err != nil {
 				t.Fatalf("CanonicalMCPBindingContribution returned error: %v", err)
 			}
-			operations, ok := ImplementedMCPPlacementOperationsForCodecContract(placement.CodecContractID())
+			operations, ok := ImplementedMCPPlacementOperationsForPlacement(placement.ID())
 			if !ok {
 				t.Fatalf("placement %q has no operations", placement.ID())
 			}
