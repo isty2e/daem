@@ -23,6 +23,7 @@ type ExecuteOptions struct {
 	CarrierRemovalObserver         CarrierRemovalObserver
 	CarrierRemovalBaselineObserver CarrierRemovalBaselineObserver
 	DelegateExecutor               delegate.Executor
+	RelationOrderRiskAuthorizer    RelationOrderRiskAuthorizer
 	PlanWasDisclosed               bool
 }
 
@@ -224,6 +225,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		CarrierRemovalObserver:         carrierRemovalObserver,
 		CarrierRemovalBaselineObserver: carrierRemovalBaselineObserver,
 		DelegateExecutor:               options.DelegateExecutor,
+		RelationOrderRiskAuthorizer:    options.RelationOrderRiskAuthorizer,
 		validateBeforeEffects:          validateBeforeEffects,
 		projectRoot:                    planned.projectRoot,
 	}
@@ -263,6 +265,10 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	)
 	if err != nil {
 		current.result.DelegateAttempts = runResult.DelegateAttempts
+		current.result.RelationOrderResults = runResult.RelationOrderResults
+		if runResult.ReconciliationUpdated {
+			current.result.Reconciliation = runResult.Reconciliation
+		}
 		current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
 		committedAdoptions, _, adoptionErr := committedCarrierAdoptionClaims(
 			current.result.Reconciliation.CarrierAdoptions(),
@@ -290,6 +296,10 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	current.result.ActionCount = runResult.ActionCount
 	current.result.StatefilePath = runResult.StatePath
 	current.result.DelegateAttempts = runResult.DelegateAttempts
+	current.result.RelationOrderResults = runResult.RelationOrderResults
+	if runResult.ReconciliationUpdated {
+		current.result.Reconciliation = runResult.Reconciliation
+	}
 	current.result.HostRouteAttempts = append(providerPhase.attempts, runResult.HostRouteAttempts...)
 	current.result.CarrierAdoptionResults = carrierAdoptionResults
 	return disclose(current), nil

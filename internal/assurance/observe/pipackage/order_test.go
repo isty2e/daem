@@ -79,7 +79,7 @@ func TestReadOrderBuildsLosslessFixedSlotCandidateAndRiskFacts(t *testing.T) {
 		t.Fatal("VerifyPostContent accepted the stale pre-mutation order")
 	}
 
-	changes := observation.PrecedenceChanges()
+	changes := observedPrecedenceChanges(t, input.Constraint, observation.Sequence())
 	if len(changes) != 2 {
 		t.Fatalf("precedence changes = %#v, want 2", changes)
 	}
@@ -277,13 +277,14 @@ func TestReadOrderKeepsZeroAndSingleManagedSequencesStable(t *testing.T) {
 				t.Fatalf("ReadOrder: %v", err)
 			}
 			candidate, _ := observation.Candidate()
+			changes := observedPrecedenceChanges(t, input.Constraint, observation.Sequence())
 			if observation.Changed() || string(candidate) != content ||
-				len(observation.PrecedenceChanges()) != 0 {
+				len(changes) != 0 {
 				t.Fatalf(
 					"stable order = changed:%t candidate:%q risks:%v",
 					observation.Changed(),
 					candidate,
-					observation.PrecedenceChanges(),
+					changes,
 				)
 			}
 		})
@@ -437,12 +438,20 @@ func TestReadOrderExhaustiveSmallSequencesPreserveFixedSlotsAndIdempotency(t *te
 				t.Fatalf("managed order = %v, want %v", managed, want)
 			}
 
-			firstRisks := precedenceKeys(observation.PrecedenceChanges())
+			firstRisks := precedenceKeys(observedPrecedenceChanges(
+				t,
+				input.Constraint,
+				observation.Sequence(),
+			))
 			sameBaseline, err := observepipackage.ReadOrder(input)
 			if err != nil {
 				t.Fatalf("same-baseline ReadOrder: %v", err)
 			}
-			if sameRisks := precedenceKeys(sameBaseline.PrecedenceChanges()); !slices.Equal(
+			if sameRisks := precedenceKeys(observedPrecedenceChanges(
+				t,
+				input.Constraint,
+				sameBaseline.Sequence(),
+			)); !slices.Equal(
 				sameRisks,
 				firstRisks,
 			) {
@@ -456,7 +465,7 @@ func TestReadOrderExhaustiveSmallSequencesPreserveFixedSlotsAndIdempotency(t *te
 			if repeated.Changed() {
 				t.Fatalf("candidate is not idempotent: %v", candidatePackages)
 			}
-			if len(repeated.PrecedenceChanges()) != 0 {
+			if len(observedPrecedenceChanges(t, input.Constraint, repeated.Sequence())) != 0 {
 				t.Fatalf("converged order retained risk facts: %v", firstRisks)
 			}
 		}
@@ -567,6 +576,22 @@ func precedenceKeys(changes []observerelation.PrecedenceChange) []string {
 		)
 	}
 	return result
+}
+
+func observedPrecedenceChanges(
+	t testing.TB,
+	constraint hostrelation.RelationOrderConstraint,
+	sequence observerelation.ObservedRelationSequence,
+) []observerelation.PrecedenceChange {
+	t.Helper()
+	_, changes, err := observerelation.FixedSlotPermutation(
+		constraint,
+		sequence.OrderedRows(),
+	)
+	if err != nil {
+		t.Fatalf("FixedSlotPermutation: %v", err)
+	}
+	return changes
 }
 
 func boolIndex(value bool) int {

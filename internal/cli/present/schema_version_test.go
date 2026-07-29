@@ -24,7 +24,7 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 		{name: "resource inventory", got: listResourcesJSONSchemaVersion, want: 1},
 		{name: "output inventory", got: listOutputsJSONSchemaVersion, want: 3},
 		{name: "reconciliation plan", got: planJSONSchemaVersion, want: 10},
-		{name: "apply result", got: applyResultJSONSchemaVersion, want: 14},
+		{name: "apply result", got: applyResultJSONSchemaVersion, want: 15},
 		{name: "recovery", got: recoveryJSONSchemaVersion, want: 3},
 		{name: "doctor", got: doctorJSONSchemaVersion, want: 1},
 		{name: "MCP probe", got: mcpProbeJSONSchemaVersion, want: 1},

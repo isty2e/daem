@@ -235,6 +235,23 @@ func (result Result) RelationOrders() []RelationOrderDecision {
 	return append([]RelationOrderDecision(nil), result.relationOrders...)
 }
 
+// WithRelationOrders replaces only physical-sequence decisions after a fresh
+// post-carrier observation while preserving every other planned family.
+func (result Result) WithRelationOrders(
+	decisions []RelationOrderDecision,
+) (Result, error) {
+	return NewResult(ResultInput{
+		Context:          result.context,
+		ManagedPaths:     result.ManagedPaths(),
+		Aggregates:       result.Aggregates(),
+		Relations:        result.Relations(),
+		RelationOrders:   decisions,
+		CarrierAdoptions: result.CarrierAdoptions(),
+		CarrierAbsences:  result.CarrierAbsences(),
+		Delegates:        result.Delegates(),
+	})
+}
+
 // CarrierAdoptions returns a defensive copy of canonical adoption decisions.
 func (result Result) CarrierAdoptions() []carrieradoption.Action {
 	return append([]carrieradoption.Action(nil), result.adoptions...)

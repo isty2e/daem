@@ -53,7 +53,7 @@ func TestPiOrderExecutePublishesExactCandidateAndIsRetryIdempotent(t *testing.T)
 			order := bindPiOrder(t, root, observation)
 			defer order.Close()
 
-			changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+			changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
@@ -76,7 +76,7 @@ func TestPiOrderExecutePublishesExactCandidateAndIsRetryIdempotent(t *testing.T)
 				t.Fatalf("mode = %o, want 640", info.Mode().Perm())
 			}
 
-			changed, err = order.Execute(t.Context(), storagecommit.Adapter{})
+			changed, err = order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 			if err != nil {
 				t.Fatalf("idempotent retry: %v", err)
 			}
@@ -107,7 +107,7 @@ func TestPiOrderExecuteRejectsConcurrentBaselineWithoutWriting(t *testing.T) {
 
 	concurrent := []byte(`{"packages":["npm:b@1","npm:concurrent@1","npm:a@1"]}`)
 	writePiOrderSettings(t, path, string(concurrent))
-	changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+	changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 	if err == nil || !strings.Contains(err.Error(), "baseline revision changed") {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestPiOrderExecuteDoesNotCreateMissingSettings(t *testing.T) {
 	order := bindPiOrder(t, root, observation)
 	defer order.Close()
 
-	changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+	changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 		order := bindPiOrder(t, root, observation)
 		defer order.Close()
 		store := rejectPiOrderReplaceStore{RootedStore: storagecommit.Adapter{}}
-		changed, err := order.Execute(t.Context(), store)
+		changed, err := order.Execute(t.Context(), store, nil)
 		if err == nil || !strings.Contains(err.Error(), "injected before visibility") {
 			t.Fatalf("Execute error = %v", err)
 		}
@@ -197,7 +197,7 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 		order := bindPiOrder(t, root, observation)
 		defer order.Close()
 		store := visiblePiOrderErrorStore{RootedStore: storagecommit.Adapter{}}
-		changed, err := order.Execute(t.Context(), store)
+		changed, err := order.Execute(t.Context(), store, nil)
 		if err == nil || !strings.Contains(err.Error(), "injected after visibility") {
 			t.Fatalf("Execute error = %v", err)
 		}
@@ -212,7 +212,7 @@ func TestPiOrderExecuteSurfacesWriteFailuresAndRecoversVisibleCandidate(t *testi
 		if string(got) != string(candidate) {
 			t.Fatalf("visible candidate = %q, want %q", got, candidate)
 		}
-		changed, err = order.Execute(t.Context(), storagecommit.Adapter{})
+		changed, err = order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 		if err != nil || changed {
 			t.Fatalf("retry = changed:%t error:%v", changed, err)
 		}
@@ -243,7 +243,7 @@ func TestPiOrderExecuteRejectsPostObservationMismatch(t *testing.T) {
 		content:     mismatch,
 	}
 
-	changed, err := order.Execute(t.Context(), store)
+	changed, err := order.Execute(t.Context(), store, nil)
 	if err == nil || !strings.Contains(err.Error(), "post-observation") {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -329,7 +329,7 @@ func TestPiOrderExecuteRejectsUnsafeConcurrentEntryChanges(t *testing.T) {
 			defer order.Close()
 			test.mutate(t, path)
 
-			changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+			changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 			if err == nil {
 				t.Fatal("Execute accepted an unsafe concurrent entry")
 			}
@@ -361,7 +361,7 @@ func TestPiOrderExecuteHonorsPreCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	changed, err := order.Execute(ctx, storagecommit.Adapter{})
+	changed, err := order.Execute(ctx, storagecommit.Adapter{}, nil)
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -399,7 +399,7 @@ func TestPiOrderExecuteRejectsMissingPostObservation(t *testing.T) {
 		path:        path,
 	}
 
-	changed, err := order.Execute(t.Context(), store)
+	changed, err := order.Execute(t.Context(), store, nil)
 	if err == nil || !strings.Contains(err.Error(), "post-observation") {
 		t.Fatalf("Execute error = %v", err)
 	}

@@ -166,6 +166,10 @@ func cloneCommandResult(result CommandResult) CommandResult {
 	cloned := result
 	cloned.Reconciliation = result.Reconciliation.Clone()
 	cloned.DelegateAttempts = append([]DelegateAttemptResult(nil), result.DelegateAttempts...)
+	cloned.RelationOrderResults = append(
+		[]RelationOrderExecutionResult(nil),
+		result.RelationOrderResults...,
+	)
 	cloned.HostRouteAttempts = append([]durableattempt.HostRouteAttempt(nil), result.HostRouteAttempts...)
 	cloned.CarrierAdoptionResults = append(
 		[]durablecarrier.ManagedCarrierClaim(nil),

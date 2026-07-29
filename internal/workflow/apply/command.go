@@ -60,6 +60,7 @@ type CommandResult struct {
 	Reconciliation         reconcile.Result
 	ReconciliationReady    bool
 	DelegateAttempts       []DelegateAttemptResult
+	RelationOrderResults   []RelationOrderExecutionResult
 	HostRouteAttempts      []durableattempt.HostRouteAttempt
 	CarrierAdoptionResults []durablecarrier.ManagedCarrierClaim
 	Diagnostics            []findings.Diagnostic

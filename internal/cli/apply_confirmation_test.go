@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/realization"
@@ -70,6 +72,87 @@ func TestRunApplyPromptCancellationDoesNotMutate(t *testing.T) {
 	}
 	assertCLIPathMissing(t, filepath.Join(tempDir, "AGENTS.md"))
 	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
+}
+
+func TestRelationOrderRiskAuthorizerRequiresFreshInteractiveDecision(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "accept", line: "yes\n", want: true},
+		{name: "decline", line: "no\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var disclosure bytes.Buffer
+			var prompt bytes.Buffer
+			closeCalls := 0
+			authorizer := newRelationOrderRiskAuthorizer(
+				&disclosure,
+				readyConfirmationBoundary(strings.NewReader(test.line), &prompt),
+				func() { closeCalls++ },
+				clipresent.HumanOptions{},
+			)
+
+			authorized, err := authorizer(
+				t.Context(),
+				applyworkflow.RelationOrderRiskExpansion{},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authorized != test.want || closeCalls != 1 {
+				t.Fatalf(
+					"authorized = %t closeCalls = %d, want %t and 1",
+					authorized,
+					closeCalls,
+					test.want,
+				)
+			}
+			if !strings.Contains(
+				disclosure.String(),
+				"extension order changed after carrier updates",
+			) {
+				t.Fatalf("disclosure = %q", disclosure.String())
+			}
+			if !strings.Contains(
+				prompt.String(),
+				"Proceed with updated apply plan? [y/N]:",
+			) {
+				t.Fatalf("prompt = %q", prompt.String())
+			}
+		})
+	}
+}
+
+func TestRelationOrderRiskAuthorizerDoesNotPromptAfterDisclosureFailure(t *testing.T) {
+	disclosureErr := errors.New("updated plan output closed")
+	stableOutput := &stableOutputWriter{output: errorWriter{err: disclosureErr}}
+	input := &countingReader{reader: strings.NewReader("yes\n")}
+	var prompt bytes.Buffer
+	confirmation := readyConfirmationBoundary(input, &prompt)
+	confirmation.disclosureError = func() error { return stableOutput.err }
+	authorizer := newRelationOrderRiskAuthorizer(
+		stableOutput,
+		confirmation,
+		nil,
+		clipresent.HumanOptions{},
+	)
+
+	authorized, err := authorizer(
+		t.Context(),
+		applyworkflow.RelationOrderRiskExpansion{},
+	)
+	if authorized || !errors.Is(err, disclosureErr) {
+		t.Fatalf("authorized = %t error = %v", authorized, err)
+	}
+	if input.reads != 0 || prompt.Len() != 0 {
+		t.Fatalf(
+			"input reads = %d prompt = %q, want no prompt after failed disclosure",
+			input.reads,
+			prompt.String(),
+		)
+	}
 }
 
 func TestRunApplyInteractivePlanErrorDoesNotPrompt(t *testing.T) {

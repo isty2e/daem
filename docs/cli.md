@@ -674,6 +674,16 @@ plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
 
+For locked Pi and OpenCode extension order, apply settles required carrier
+changes first, re-reads the selected host files, and plans from that fresh
+state. Pi package order is treated as runtime precedence. OpenCode plugin-array
+order is configuration order only. If the fresh plan introduces managed versus
+foreign precedence changes that were absent from the disclosed plan,
+interactive apply discloses those new risks and asks again. Non-interactive
+`--yes` stops instead of expanding consent. A declined or failed second
+confirmation leaves completed carrier work intact, performs no order write,
+and does not start later delegates.
+
 `--manage-existing` records exact-match unmanaged outputs as managed without
 rewriting them. This changes future deletion authority, so it is never implicit
 and never imports source material. It cannot transfer a path already owned by a
@@ -738,10 +748,16 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `14`. It adds executed action
+`apply --yes --json` uses result schema version `15`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
-carrier-absence outcomes, and final `has_errors`. Known mutation codes include
+carrier-absence outcomes, physical `relation_order_results`, and final
+`has_errors`. Each order result reports target, scope, class, physical sequence,
+`exact` / `converged` / `failed` / `not_attempted`, whether that sequence
+changed, and a failure detail when present. An earlier OpenCode
+document may remain converged when a later document fails; apply makes no
+cross-document rollback claim. Retry reobserves every selected sequence and
+continues idempotently from current files. Known mutation codes include
 `stale_snapshot`, `stale_plan`, `mutation_contended`, and
 `mutation_cancelled`.
 

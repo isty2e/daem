@@ -67,12 +67,6 @@ func TestReadOrderConvergesServerAndTUIIndependently(t *testing.T) {
 			if documents[0].Sequence().ClassID() != documents[1].Sequence().ClassID() {
 				t.Fatal("server and TUI lost their shared logical order class")
 			}
-			if len(documents[0].PrecedenceChanges()) != 2 {
-				t.Fatalf(
-					"server precedence changes = %d, want 2",
-					len(documents[0].PrecedenceChanges()),
-				)
-			}
 			serverCandidate, _ := documents[0].Candidate()
 			for _, retained := range []string{
 				"// retained server sibling",
@@ -269,8 +263,7 @@ func TestReadOrderFixedSlotProjectionIsExhaustiveForSmallSequences(t *testing.T)
 					{id: "beta", source: "beta@1"},
 				},
 			)
-			if repeated.Documents()[0].Changed() ||
-				len(repeated.Documents()[0].PrecedenceChanges()) != 0 {
+			if repeated.Documents()[0].Changed() {
 				t.Fatal("repeated projection was not idempotent")
 			}
 		})

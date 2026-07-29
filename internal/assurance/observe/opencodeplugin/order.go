@@ -67,12 +67,6 @@ func (observation DocumentOrderObservation) Candidate() ([]byte, bool) {
 	return bytes.Clone(observation.candidate), observation.document.exists
 }
 
-// PrecedenceChanges returns deterministic managed-versus-foreign crossings in
-// this physical document only.
-func (observation DocumentOrderObservation) PrecedenceChanges() []observerelation.PrecedenceChange {
-	return append([]observerelation.PrecedenceChange(nil), observation.precedenceChanges...)
-}
-
 // Validate rejects a zero or forged document observation.
 func (observation DocumentOrderObservation) Validate() error {
 	expected, err := observeDocument(observation.selection, observation.document)

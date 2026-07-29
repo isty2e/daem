@@ -1304,6 +1304,13 @@ Current lock behavior:
   OpenCode currently locks configuration order; Pi locks runtime precedence.
   Locking order does not record current host sequence, mutate host config, or
   change extension subject or route identity.
+- Confirmed apply settles selected carrier install/removal routes before
+  reobserving each locked order class. It then converges Pi's package sequence
+  or each selected OpenCode server/TUI plugin sequence independently. A newly
+  observed managed/foreign precedence change requires renewed interactive
+  confirmation; non-interactive apply stops. Partial multi-document success is
+  reported without rollback claims, and retry always derives work from fresh
+  host files rather than prior success evidence.
 - Commands that consume a lock as current authority rederive every persisted
   host-load identity from the locked carrier source and the selected manifest
   context. A mismatch blocks `status`, `apply`, `refresh`, and `probe` until

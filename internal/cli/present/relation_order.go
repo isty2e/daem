@@ -8,6 +8,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
 const foreignPrecedenceChangeRisk = "foreign_precedence_change"
@@ -44,6 +45,34 @@ type relationOrderRiskJSON struct {
 	ForeignIdentity     string           `json:"foreign_identity"`
 	ManagedWasBefore    bool             `json:"managed_was_before"`
 	ManagedWillBeBefore bool             `json:"managed_will_be_before"`
+}
+
+type relationOrderResultJSON struct {
+	Target     string `json:"target"`
+	Scope      string `json:"scope"`
+	ClassID    string `json:"class_id"`
+	SequenceID string `json:"sequence_id"`
+	Outcome    string `json:"outcome"`
+	Changed    bool   `json:"changed"`
+	Detail     string `json:"detail,omitempty"`
+}
+
+func relationOrderResultJSONRows(
+	results []applyworkflow.RelationOrderExecutionResult,
+) []relationOrderResultJSON {
+	rows := make([]relationOrderResultJSON, 0, len(results))
+	for _, result := range results {
+		rows = append(rows, relationOrderResultJSON{
+			Target:     string(result.Target()),
+			Scope:      string(result.Scope()),
+			ClassID:    string(result.ClassID()),
+			SequenceID: string(result.SequenceID()),
+			Outcome:    string(result.Outcome()),
+			Changed:    result.Changed(),
+			Detail:     result.Detail(),
+		})
+	}
+	return rows
 }
 
 func relationOrderJSONActions(
@@ -115,6 +144,35 @@ func PrintRelationOrderActionsWithOptions(
 			continue
 		}
 		printRelationOrderSummary(output, decision)
+	}
+}
+
+// PrintRelationOrderResults writes final post-carrier outcomes per physical
+// sequence, including honest partial failure and not-attempted states.
+func PrintRelationOrderResults(
+	output io.Writer,
+	results []applyworkflow.RelationOrderExecutionResult,
+) {
+	if len(results) == 0 {
+		return
+	}
+	fmt.Fprintf(output, "extension order results: %d sequences\n", len(results))
+	for _, result := range results {
+		fmt.Fprintf(
+			output,
+			"  - %s target=%s scope=%s sequence=%q",
+			strings.ReplaceAll(string(result.Outcome()), "_", " "),
+			result.Target(),
+			result.Scope(),
+			result.SequenceID(),
+		)
+		if result.Changed() {
+			fmt.Fprint(output, " changed=true")
+		}
+		if result.Detail() != "" {
+			fmt.Fprintf(output, ": %s", Escape(result.Detail()))
+		}
+		fmt.Fprintln(output)
 	}
 }
 

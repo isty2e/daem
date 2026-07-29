@@ -103,11 +103,6 @@ func (observation OrderObservation) Candidate() ([]byte, bool) {
 	return bytes.Clone(observation.candidate), observation.inventory.exists
 }
 
-// PrecedenceChanges returns deterministic managed-versus-foreign crossings.
-func (observation OrderObservation) PrecedenceChanges() []observerelation.PrecedenceChange {
-	return append([]observerelation.PrecedenceChange(nil), observation.precedenceChanges...)
-}
-
 // VerifyBaseline checks exact existence and content revision before mutation.
 func (observation OrderObservation) VerifyBaseline(content []byte, exists bool) error {
 	if exists != observation.inventory.exists {

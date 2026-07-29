@@ -33,12 +33,15 @@ import (
 )
 
 type runResult struct {
-	ActionCount         int
-	StatePath           string
-	State               durable.Snapshot
-	GlobalCarrierClaims durablecarrier.GlobalCarrierClaims
-	HostRouteAttempts   []durableattempt.HostRouteAttempt
-	DelegateAttempts    []DelegateAttemptResult
+	ActionCount           int
+	StatePath             string
+	State                 durable.Snapshot
+	GlobalCarrierClaims   durablecarrier.GlobalCarrierClaims
+	HostRouteAttempts     []durableattempt.HostRouteAttempt
+	DelegateAttempts      []DelegateAttemptResult
+	RelationOrderResults  []RelationOrderExecutionResult
+	Reconciliation        reconcile.Result
+	ReconciliationUpdated bool
 }
 
 type runOptions struct {
@@ -49,6 +52,7 @@ type runOptions struct {
 	CarrierRemovalObserver         CarrierRemovalObserver
 	CarrierRemovalBaselineObserver CarrierRemovalBaselineObserver
 	DelegateExecutor               delegate.Executor
+	RelationOrderRiskAuthorizer    RelationOrderRiskAuthorizer
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
 	projectRoot                    *rootedpath.CapturedRoot
 }
@@ -219,7 +223,7 @@ func managedPathPayloadSubjects(effects []execute.ManagedPathEffect) []topology.
 	return subjects
 }
 
-func runHostRoutesDelegatesAndPersistAttemptRecords(
+func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 	ctx context.Context,
 	paths daempaths.Paths,
 	locked lock.File,
@@ -254,6 +258,21 @@ func runHostRoutesDelegatesAndPersistAttemptRecords(
 		return result, hostRouteErr
 	}
 
+	orderResult, orderErr := runRelationOrderConvergence(
+		ctx,
+		paths,
+		locked,
+		reconciliation,
+		options,
+	)
+	result.RelationOrderResults = orderResult.results
+	result.Reconciliation = orderResult.reconciliation
+	result.ReconciliationUpdated = orderResult.updated
+	result.ActionCount += orderResult.actionCount
+	if orderErr != nil {
+		return result, orderErr
+	}
+
 	delegateResult, delegateErr := runDelegatesAndPersistAttemptRecords(
 		ctx,
 		paths,
@@ -261,11 +280,14 @@ func runHostRoutesDelegatesAndPersistAttemptRecords(
 		selection,
 		statePath,
 		nextState,
-		actionCount,
-		reconciliation.Delegates(),
+		result.ActionCount,
+		orderResult.reconciliation.Delegates(),
 		options,
 	)
 	delegateResult.HostRouteAttempts = hostRouteAttempts
 	delegateResult.GlobalCarrierClaims = nextGlobalClaims
+	delegateResult.RelationOrderResults = orderResult.results
+	delegateResult.Reconciliation = orderResult.reconciliation
+	delegateResult.ReconciliationUpdated = orderResult.updated
 	return delegateResult, delegateErr
 }

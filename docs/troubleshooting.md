@@ -157,6 +157,25 @@ these steps. Import writes no lock or management claim. Review the generated
 declaration, run `daem lock`, and use explicit `apply --manage-existing` only
 when the resulting exact relation is eligible and intended.
 
+## Extension Order Changed After Carrier Updates
+
+Pi package installation and OpenCode plugin edits can reveal an order that was
+not observable during the original apply preview. Daem re-reads those files
+after carrier work. If the new order introduces previously undisclosed
+managed/foreign precedence changes, interactive apply prints the updated
+sequence plan and asks `Proceed with updated apply plan?`.
+
+Non-interactive `apply --yes` stops instead. Inspect `daem apply --dry-run`,
+then rerun interactively if the revised precedence is acceptable. Do not infer
+that completed carrier work was rolled back. Daem does not start later
+delegates after this stop.
+
+If one OpenCode document converges and a later document fails, the result lists
+each physical sequence as `converged`, `failed`, or `not_attempted`. Preserve
+the selected files and recovery evidence, repair only the reported external
+cause, and rerun apply. Retry reobserves current files and does not trust a
+historical success row as convergence evidence.
+
 ## Apply Was Interrupted
 
 While a recovery journal is active, ordinary operations that could conflict

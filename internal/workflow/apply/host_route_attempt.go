@@ -16,6 +16,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -68,6 +69,18 @@ func runHostRoutesAndPersistAttemptRecords(
 	var stateAuthority *rootedpath.EntryAuthority
 	var err error
 	if len(records) != 0 || len(prepared) != 0 || len(globalPromotions) != 0 {
+		if options.validateBeforeEffects == nil {
+			return current, globalCarrierClaims, records, fmt.Errorf(
+				"host route effect validation is required",
+			)
+		}
+		emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
+		if err != nil {
+			return current, globalCarrierClaims, records, err
+		}
+		if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
+			return current, globalCarrierClaims, records, err
+		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}

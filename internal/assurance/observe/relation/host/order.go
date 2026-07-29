@@ -24,6 +24,18 @@ type OrderInput struct {
 	Constraint hostrelation.RelationOrderConstraint
 }
 
+// OrderAuthorityPath is one target-visible path whose existence or content can
+// affect selection and mutation of an admitted extension-order sequence.
+type OrderAuthorityPath struct {
+	path   string
+	target target.Target
+	scope  target.Scope
+}
+
+func (authority OrderAuthorityPath) Path() string          { return authority.path }
+func (authority OrderAuthorityPath) Target() target.Target { return authority.target }
+func (authority OrderAuthorityPath) Scope() target.Scope   { return authority.scope }
+
 // PhysicalOrderObservation owns one canonical current physical sequence.
 type PhysicalOrderObservation struct {
 	sequence relationobserve.ObservedRelationSequence
@@ -39,11 +51,84 @@ func (observation PhysicalOrderObservation) Sequence() relationobserve.ObservedR
 // this specialization owner.
 type OrderObservation struct {
 	physical []PhysicalOrderObservation
+	pi       *observepipackage.OrderObservation
+	openCode *observeopencode.OrderObservation
 }
 
 // Physical returns defensive copies in canonical physical-sequence order.
 func (observation OrderObservation) Physical() []PhysicalOrderObservation {
 	return append([]PhysicalOrderObservation(nil), observation.physical...)
+}
+
+// Pi returns the host-native Pi observation when Pi owns this order class.
+func (observation OrderObservation) Pi() (observepipackage.OrderObservation, bool) {
+	if observation.pi == nil {
+		return observepipackage.OrderObservation{}, false
+	}
+	return *observation.pi, true
+}
+
+// OpenCode returns the host-native OpenCode observation when OpenCode owns this
+// order class.
+func (observation OrderObservation) OpenCode() (observeopencode.OrderObservation, bool) {
+	if observation.openCode == nil {
+		return observeopencode.OrderObservation{}, false
+	}
+	return *observation.openCode, true
+}
+
+// OrderAuthorityPaths returns the complete static path set whose selection may
+// change before post-carrier reobservation.
+func OrderAuthorityPaths(input OrderInput) ([]OrderAuthorityPath, error) {
+	if err := input.Constraint.Validate(); err != nil {
+		return nil, fmt.Errorf("extension order constraint: %w", err)
+	}
+	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
+		input.Constraint.ClassID(),
+	)
+	if !admitted {
+		return nil, fmt.Errorf(
+			"locked extension order class %q has no unique profile owner",
+			input.Constraint.ClassID(),
+		)
+	}
+
+	var paths []string
+	switch selectedTarget {
+	case target.TargetPi:
+		path, err := observepipackage.SettingsPath(observepipackage.SettingsInput{
+			WorkDir:     input.Paths.ManifestRoot,
+			ProjectRoot: input.Paths.ManifestRoot,
+			Scope:       capability.Scope(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		paths = []string{path}
+	case target.TargetOpenCode:
+		var err error
+		paths, err = observeopencode.OrderAuthorityPaths(observeopencode.InventoryInput{
+			ManifestRoot: input.Paths.ManifestRoot,
+			Scope:        capability.Scope(),
+		})
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf(
+			"extension order class %q resolved to unsupported target %q",
+			input.Constraint.ClassID(),
+			selectedTarget,
+		)
+	}
+
+	result := make([]OrderAuthorityPath, 0, len(paths))
+	for _, path := range paths {
+		result = append(result, OrderAuthorityPath{
+			path: path, target: selectedTarget, scope: capability.Scope(),
+		})
+	}
+	return result, nil
 }
 
 // ObserveOrder dispatches one locked class to its admitted host observer and
@@ -63,6 +148,8 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	}
 
 	var physical []PhysicalOrderObservation
+	var piObservation *observepipackage.OrderObservation
+	var openCodeObservation *observeopencode.OrderObservation
 	switch selectedTarget {
 	case target.TargetPi:
 		relations, err := piOrderRelations(
@@ -89,6 +176,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 		physical = append(physical, PhysicalOrderObservation{
 			sequence: observation.Sequence(),
 		})
+		piObservation = &observation
 	case target.TargetOpenCode:
 		relations, err := openCodeOrderRelations(
 			input.Lockfile,
@@ -114,6 +202,7 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 				sequence: document.Sequence(),
 			})
 		}
+		openCodeObservation = &observation
 	default:
 		return OrderObservation{}, fmt.Errorf(
 			"extension order class %q resolved to unsupported target %q",
@@ -121,12 +210,19 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 			selectedTarget,
 		)
 	}
-	return newOrderObservation(capability, physical)
+	return newOrderObservation(
+		capability,
+		physical,
+		piObservation,
+		openCodeObservation,
+	)
 }
 
 func newOrderObservation(
 	capability profile.ExtensionOrderCapability,
 	values []PhysicalOrderObservation,
+	piObservation *observepipackage.OrderObservation,
+	openCodeObservation *observeopencode.OrderObservation,
 ) (OrderObservation, error) {
 	expectedIDs := capability.PhysicalSequenceIDs()
 	if len(values) != len(expectedIDs) {
@@ -159,7 +255,17 @@ func newOrderObservation(
 			)
 		}
 	}
-	return OrderObservation{physical: physical}, nil
+	if (piObservation == nil) == (openCodeObservation == nil) {
+		return OrderObservation{}, fmt.Errorf(
+			"extension order class %q requires exactly one host-native observation",
+			capability.ClassID(),
+		)
+	}
+	return OrderObservation{
+		physical: physical,
+		pi:       piObservation,
+		openCode: openCodeObservation,
+	}, nil
 }
 
 func piOrderRelations(

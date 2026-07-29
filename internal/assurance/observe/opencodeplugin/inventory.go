@@ -176,6 +176,34 @@ func configDirectory(input InventoryInput, scope target.Scope) (string, error) {
 	return opencodeconfig.ConfigDirectory(input.ManifestRoot, globalRoot, scope)
 }
 
+// OrderAuthorityPaths returns every config candidate whose presence can select
+// a different physical plugin sequence. Callers must protect the complete set
+// before a host route can create, remove, or replace one of the candidates.
+func OrderAuthorityPaths(input InventoryInput) ([]string, error) {
+	scope, err := target.ParseScope(string(input.Scope))
+	if err != nil {
+		return nil, fmt.Errorf("OpenCode plugin order authority scope: %w", err)
+	}
+	directory, err := configDirectory(input, scope)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, 4)
+	for _, kind := range []opencodeconfig.ConfigKind{
+		opencodeconfig.ConfigServer,
+		opencodeconfig.ConfigTUI,
+	} {
+		names, err := opencodeconfig.CandidateNames(kind)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			paths = append(paths, filepath.Join(directory, name))
+		}
+	}
+	return paths, nil
+}
+
 func selectConfigPath(
 	directory string,
 	kind opencodeconfig.ConfigKind,

@@ -106,11 +106,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
 	},
 	"internal/workflow/apply": {
-		reviewedValue:       24,
+		reviewedValue:       25,
 		owner:               "application use case",
-		reason:              "at 24 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
+		reason:              "at 25 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, post-carrier relation-order convergence, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
 		naturalSplit:        "separate apply phases into child workflows",
-		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer and obscure its single-use commit boundary",
+		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer, renewed confirmation callback, and effect validation boundary while obscuring the single-use commit sequence",
 	},
 	"internal/workflow/authoring": {
 		reviewedValue:       17,

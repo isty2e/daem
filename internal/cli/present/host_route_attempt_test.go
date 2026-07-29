@@ -90,8 +90,8 @@ func TestPrintApplyResultJSONHostRouteAttemptsAreHistoryOnlyDiagnostics(t *testi
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode apply result json: %v", err)
 	}
-	if payload.SchemaVersion != 14 {
-		t.Fatalf("schema_version = %d, want 14", payload.SchemaVersion)
+	if payload.SchemaVersion != 15 {
+		t.Fatalf("schema_version = %d, want 15", payload.SchemaVersion)
 	}
 	if len(payload.HostRouteAttempts) != 1 {
 		t.Fatalf("host_route_attempts = %#v, want one row", payload.HostRouteAttempts)

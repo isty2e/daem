@@ -145,6 +145,7 @@ type BoundOpenCodeOrder struct {
 func (order *BoundOpenCodeOrder) Execute(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
+	events OrderSequenceEventSink,
 ) (changedDocuments int, resultErr error) {
 	if order == nil || order.closed {
 		return 0, fmt.Errorf("bound OpenCode plugin order is unavailable")
@@ -163,6 +164,11 @@ func (order *BoundOpenCodeOrder) Execute(
 	}
 
 	for index, observation := range order.plan.observations {
+		sequenceID := observation.ExpectedSequence().SequenceID()
+		events.emit(OrderSequenceEvent{
+			Kind:       OrderSequenceStarted,
+			SequenceID: sequenceID,
+		})
 		changed, err := executeOpenCodeDocumentOrder(
 			ctx,
 			filesystem,
@@ -173,13 +179,25 @@ func (order *BoundOpenCodeOrder) Execute(
 			changedDocuments++
 		}
 		if err != nil {
-			return changedDocuments, fmt.Errorf(
+			wrapped := fmt.Errorf(
 				"converge OpenCode plugin order document[%d] %s: %w",
 				index,
 				observation.Kind(),
 				err,
 			)
+			events.emit(OrderSequenceEvent{
+				Kind:       OrderSequenceFailed,
+				SequenceID: sequenceID,
+				Changed:    changed,
+				Err:        wrapped,
+			})
+			return changedDocuments, wrapped
 		}
+		events.emit(OrderSequenceEvent{
+			Kind:       OrderSequenceDone,
+			SequenceID: sequenceID,
+			Changed:    changed,
+		})
 	}
 	return changedDocuments, nil
 }

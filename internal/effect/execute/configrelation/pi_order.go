@@ -108,7 +108,8 @@ type BoundPiOrder struct {
 func (order *BoundPiOrder) Execute(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
-) (bool, error) {
+	events OrderSequenceEventSink,
+) (changed bool, resultErr error) {
 	if order == nil || order.closed || order.authority == nil {
 		return false, fmt.Errorf("bound Pi package order is unavailable")
 	}
@@ -121,6 +122,20 @@ func (order *BoundPiOrder) Execute(
 	if err := order.plan.validate(); err != nil {
 		return false, err
 	}
+	sequenceID := order.plan.observation.ExpectedSequence().SequenceID()
+	events.emit(OrderSequenceEvent{Kind: OrderSequenceStarted, SequenceID: sequenceID})
+	defer func() {
+		event := OrderSequenceEvent{
+			Kind:       OrderSequenceDone,
+			SequenceID: sequenceID,
+			Changed:    changed,
+		}
+		if resultErr != nil {
+			event.Kind = OrderSequenceFailed
+			event.Err = resultErr
+		}
+		events.emit(event)
+	}()
 
 	capability, err := order.authority.Acquire()
 	if err != nil {
@@ -163,6 +178,7 @@ func (order *BoundPiOrder) Execute(
 	); err != nil {
 		return false, err
 	}
+	changed = true
 
 	postCapability, err := order.authority.Acquire()
 	if err != nil {

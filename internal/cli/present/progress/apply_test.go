@@ -10,6 +10,7 @@ import (
 	cliprogress "github.com/isty2e/daem/internal/cli/present/progress"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
@@ -49,6 +50,52 @@ func TestApplyProgressRendererSuppressesUntrustedErrors(t *testing.T) {
 	}
 	if !strings.Contains(got, ".codex/hooks.json") || !strings.Contains(got, ": failed") {
 		t.Fatalf("output = %q, want canonical label and failure state", got)
+	}
+}
+
+func TestApplyProgressRendererReportsPhysicalOrderSequenceOutcomes(t *testing.T) {
+	var output bytes.Buffer
+	renderer := cliprogress.NewApplyProgressRenderer(
+		cliprogress.ApplyProgressRendererOptions{Output: &output},
+	)
+	sink := renderer.Sink()
+	sequence, err := hostrelation.NewPhysicalSequenceID(
+		"opencode:project:server.plugins",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := &execute.RelationOrderEventFacts{
+		Target: target.TargetOpenCode, Scope: target.ScopeProject,
+		SequenceID: sequence,
+	}
+	sink(execute.Event{
+		Kind: execute.EventRelationOrderStarted, RelationOrder: facts,
+	})
+	facts.Changed = true
+	sink(execute.Event{
+		Kind: execute.EventRelationOrderDone, RelationOrder: facts,
+	})
+	facts.Changed = false
+	sink(execute.Event{
+		Kind:          execute.EventRelationOrderFailed,
+		RelationOrder: facts,
+		Err:           errors.New("secret host path"),
+	})
+	renderer.Close()
+
+	got := output.String()
+	for _, want := range []string{
+		"Applying extension order: opencode project opencode:project:server.plugins",
+		": converged",
+		": failed",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output = %q, want %q", got, want)
+		}
+	}
+	if strings.Contains(got, "secret host path") || strings.Contains(got, "%") {
+		t.Fatalf("output leaked details or invented percentage: %q", got)
 	}
 }
 

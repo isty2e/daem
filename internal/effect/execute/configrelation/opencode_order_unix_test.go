@@ -42,7 +42,7 @@ func TestOpenCodeOrderExecuteConvergesBothDocumentsAndIsRetryIdempotent(t *testi
 			order := bindOpenCodeOrder(t, root, observation)
 			defer order.Close()
 
-			changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+			changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
@@ -60,7 +60,7 @@ func TestOpenCodeOrderExecuteConvergesBothDocumentsAndIsRetryIdempotent(t *testi
 				}
 			}
 
-			changed, err = order.Execute(t.Context(), storagecommit.Adapter{})
+			changed, err = order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 			if err != nil {
 				t.Fatalf("idempotent retry: %v", err)
 			}
@@ -91,7 +91,7 @@ func TestOpenCodeOrderExecuteReportsPartialConvergenceAndFreshRetry(t *testing.T
 		RootedStore: storagecommit.Adapter{},
 		failAt:      2,
 	}
-	changed, err := order.Execute(t.Context(), store)
+	changed, err := order.Execute(t.Context(), store, nil)
 	if err == nil || !strings.Contains(err.Error(), "injected replacement failure") {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -120,7 +120,7 @@ func TestOpenCodeOrderExecuteReportsPartialConvergenceAndFreshRetry(t *testing.T
 	fresh := mustOpenCodeEffectObservation(t, input, directory, target.ScopeProject)
 	retry := bindOpenCodeOrder(t, root, fresh)
 	defer retry.Close()
-	changed, err = retry.Execute(t.Context(), storagecommit.Adapter{})
+	changed, err = retry.Execute(t.Context(), storagecommit.Adapter{}, nil)
 	if err != nil {
 		t.Fatalf("fresh retry: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestOpenCodeOrderExecuteStopsBeforeLaterDocumentOnFirstWriteFailure(t *test
 		failAt:      1,
 	}
 
-	changed, err := order.Execute(t.Context(), store)
+	changed, err := order.Execute(t.Context(), store, nil)
 	if err == nil || !strings.Contains(err.Error(), "injected replacement failure") {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -193,7 +193,7 @@ func TestOpenCodeOrderExecuteRecoversFromUnknownVisibilityOnRetry(t *testing.T) 
 		failAt:      1,
 	}
 
-	changed, err := order.Execute(t.Context(), store)
+	changed, err := order.Execute(t.Context(), store, nil)
 	if err == nil || !strings.Contains(err.Error(), "injected error after visibility") {
 		t.Fatalf("Execute error = %v", err)
 	}
@@ -216,7 +216,7 @@ func TestOpenCodeOrderExecuteRecoversFromUnknownVisibilityOnRetry(t *testing.T) 
 		t.Fatalf("TUI changed after server write error: %q", gotTUI)
 	}
 
-	changed, err = order.Execute(t.Context(), storagecommit.Adapter{})
+	changed, err = order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 	if err != nil {
 		t.Fatalf("same-observation retry: %v", err)
 	}
@@ -244,7 +244,7 @@ func TestOpenCodeOrderExecuteRejectsConcurrentBaselineAndDoesNotCreateMissingFil
 
 		concurrent := `{"plugin":["beta@1","concurrent@1","alpha@1"]}`
 		writeOpenCodeEffectDocument(t, serverPath, concurrent)
-		changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+		changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 		if err == nil || !strings.Contains(err.Error(), "baseline revision changed") {
 			t.Fatalf("Execute error = %v", err)
 		}
@@ -271,7 +271,7 @@ func TestOpenCodeOrderExecuteRejectsConcurrentBaselineAndDoesNotCreateMissingFil
 		)
 		order := bindOpenCodeOrder(t, root, observation)
 		defer order.Close()
-		changed, err := order.Execute(t.Context(), storagecommit.Adapter{})
+		changed, err := order.Execute(t.Context(), storagecommit.Adapter{}, nil)
 		if err != nil {
 			t.Fatalf("Execute: %v", err)
 		}
@@ -314,7 +314,7 @@ func TestOpenCodeOrderExecuteReportsVisiblePostMismatch(t *testing.T) {
 				content:     []byte(`{"plugin":["beta@1","foreign@1","alpha@1"]}`),
 			}
 
-			changed, err := order.Execute(t.Context(), store)
+			changed, err := order.Execute(t.Context(), store, nil)
 			if err == nil || !strings.Contains(err.Error(), "post-observation") {
 				t.Fatalf("Execute error = %v", err)
 			}
@@ -370,7 +370,7 @@ func TestOpenCodeOrderExecuteHonorsPreCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	changed, err := order.Execute(ctx, storagecommit.Adapter{})
+	changed, err := order.Execute(ctx, storagecommit.Adapter{}, nil)
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v", err)
 	}
