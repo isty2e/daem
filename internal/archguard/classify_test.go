@@ -34,13 +34,15 @@ func TestAnalyzeGoListReportClassifiesFixture(t *testing.T) {
 	}
 }
 
-func TestClassifyFindingsSeparatesViolationReviewAndWarningFindings(t *testing.T) {
+func TestClassifyFindingsSeparatesViolationReviewWatchpointAndWarningFindings(t *testing.T) {
 	violation := GuardrailFinding{Rule: ruleObserveReconciliationImport, PackagePath: "internal/assurance/observe/live"}
 	review := GuardrailFinding{Rule: ruleDensityReviewRequired, PackagePath: "internal/review"}
+	watchpoint := GuardrailFinding{Rule: ruleDensityWatchpoint, PackagePath: "internal/review"}
 	warning := GuardrailFinding{Rule: ruleDensityThreshold, PackagePath: "internal/example"}
 	report := classifyFindings([]rawFinding{
 		{finding: violation, disposition: findingDispositionViolation},
 		{finding: review, disposition: findingDispositionReviewRequired},
+		{finding: watchpoint, disposition: findingDispositionWatchpoint},
 		{finding: warning, disposition: findingDispositionWarning},
 		{finding: violation, disposition: findingDispositionViolation},
 	})
@@ -50,6 +52,9 @@ func TestClassifyFindingsSeparatesViolationReviewAndWarningFindings(t *testing.T
 	if len(report.DensityReviewRequirements) != 1 || report.DensityReviewRequirements[0] != review {
 		t.Fatalf("density review requirements = %+v, want one", report.DensityReviewRequirements)
 	}
+	if len(report.DensityWatchpoints) != 1 || report.DensityWatchpoints[0] != watchpoint {
+		t.Fatalf("density watchpoints = %+v, want one", report.DensityWatchpoints)
+	}
 	if len(report.DensityWarnings) != 1 || report.DensityWarnings[0] != warning {
 		t.Fatalf("density warnings = %+v, want one warning", report.DensityWarnings)
 	}
@@ -58,7 +63,7 @@ func TestClassifyFindingsSeparatesViolationReviewAndWarningFindings(t *testing.T
 	}
 }
 
-func TestAnalyzeReportClassifiesDensityWarningAndReviewGate(t *testing.T) {
+func TestAnalyzeReportClassifiesDensityWarningAndWatchpoint(t *testing.T) {
 	report := AnalyzeReport([]PackageRecord{
 		{
 			ImportPath: "example.com/project/internal/adopt",
@@ -76,14 +81,14 @@ func TestAnalyzeReportClassifiesDensityWarningAndReviewGate(t *testing.T) {
 			FileLineCounts: map[string]int{"huge.go": 501},
 		},
 	})
-	if len(report.DensityWarnings) != 3 {
-		t.Fatalf("density warnings = %+v, want package, production file, and test file warnings", report.DensityWarnings)
+	if len(report.DensityWarnings) != 1 {
+		t.Fatalf("density warnings = %+v, want one package warning", report.DensityWarnings)
 	}
 	if len(report.Violations) != 0 {
 		t.Fatalf("violations = %+v, numeric density alone must not be a semantic violation", report.Violations)
 	}
-	if len(report.DensityReviewRequirements) != 1 || report.DensityReviewRequirements[0].Rule != ruleDensityReviewRequired {
-		t.Fatalf("density review requirements = %+v, want one actionable review gate", report.DensityReviewRequirements)
+	if len(report.DensityWatchpoints) != 1 || report.DensityWatchpoints[0].Rule != ruleDensityWatchpoint {
+		t.Fatalf("density watchpoints = %+v, want one stronger review signal", report.DensityWatchpoints)
 	}
 }
 
@@ -118,6 +123,20 @@ func TestDensityReviewRequirementFailsBaselineWithoutSemanticViolation(t *testin
 	}
 }
 
+func TestDensityWatchpointDoesNotFailBaselineWithoutSemanticViolation(t *testing.T) {
+	report := Report{
+		DensityWatchpoints: []GuardrailFinding{{
+			Rule: ruleDensityWatchpoint,
+		}},
+	}
+	if report.HasFailures() {
+		t.Fatal("HasFailures returned true for a density watchpoint")
+	}
+	if len(report.Violations) != 0 {
+		t.Fatalf("violations = %+v, watchpoint must remain semantically distinct", report.Violations)
+	}
+}
+
 func TestFormatAnalysisReportNamesReviewRequirementSeparately(t *testing.T) {
 	report := FormatAnalysisReport(Report{
 		DensityReviewRequirements: []GuardrailFinding{{
@@ -133,5 +152,23 @@ func TestFormatAnalysisReportNamesReviewRequirementSeparately(t *testing.T) {
 	}
 	if strings.Contains(report, "topology violation(s)") {
 		t.Fatalf("report = %q, review gate must not be rendered as a topology violation", report)
+	}
+}
+
+func TestFormatAnalysisReportNamesWatchpointSeparately(t *testing.T) {
+	report := FormatAnalysisReport(Report{
+		DensityWatchpoints: []GuardrailFinding{{
+			Rule:        ruleDensityWatchpoint,
+			PackagePath: "internal/example",
+		}},
+	})
+	if !strings.Contains(report, "archguard: no topology violations reported") {
+		t.Fatalf("report = %q, want explicit absence of semantic violations", report)
+	}
+	if !strings.Contains(report, "archguard: 1 density watchpoint(s)") {
+		t.Fatalf("report = %q, want separately named watchpoint", report)
+	}
+	if strings.Contains(report, "topology violation(s)") {
+		t.Fatalf("report = %q, watchpoint must not be rendered as a topology violation", report)
 	}
 }

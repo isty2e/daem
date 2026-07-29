@@ -39,7 +39,9 @@ const (
 	ruleRetiredExecutePackage       = "retired-execute-package"
 	ruleCoreTerminalSideEffect      = "core-terminal-side-effect"
 	ruleDensityAdmissionInvalid     = "density-admission-invalid"
+	ruleDensityHardLimit            = "density-hard-limit"
 	ruleDensityReviewRequired       = "density-review-required"
+	ruleDensityWatchpoint           = "density-watchpoint"
 	ruleDensityThreshold            = "density-threshold"
 	ruleFutureMCPPluginMonolith     = "future-mcp-plugin-monolith"
 
@@ -51,6 +53,7 @@ type findingDisposition uint8
 const (
 	findingDispositionViolation findingDisposition = iota
 	findingDispositionReviewRequired
+	findingDispositionWatchpoint
 	findingDispositionWarning
 )
 
@@ -60,7 +63,7 @@ type rawFinding struct {
 }
 
 // AnalyzeRecords returns semantic topology violations for package records.
-// Use AnalyzeReport when density review requirements and warnings are relevant.
+// Use AnalyzeReport when density review requirements, watchpoints, and warnings are relevant.
 func AnalyzeRecords(records []PackageRecord) []GuardrailFinding {
 	report := AnalyzeReport(records)
 	return append([]GuardrailFinding(nil), report.Violations...)

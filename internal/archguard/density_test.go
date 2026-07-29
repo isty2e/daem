@@ -58,18 +58,18 @@ func TestReviewedPackageMayExceedNumericReviewThreshold(t *testing.T) {
 func TestReviewedProductionFileMayExceedNumericReviewThreshold(t *testing.T) {
 	const filePath = "internal/example/large.go"
 	admissions := map[string]densityReviewAdmission{
-		filePath: completeDensityAdmission(501, "production lines"),
+		filePath: completeDensityAdmission(1001, "production lines"),
 	}
 	report := classifyFindings(fileDensityFindings("internal/example", PackageRecord{
 		GoFiles:        []string{"large.go"},
-		FileLineCounts: map[string]int{"large.go": 501},
+		FileLineCounts: map[string]int{"large.go": 1001},
 	}, admissions))
 
 	if len(report.Violations) != 0 || len(report.DensityReviewRequirements) != 0 {
 		t.Fatalf("report = %+v, reviewed file density must not fail", report)
 	}
-	if len(report.DensityWarnings) != 1 {
-		t.Fatalf("density warnings = %+v, want retained pressure signal", report.DensityWarnings)
+	if len(report.DensityWatchpoints) != 1 {
+		t.Fatalf("density watchpoints = %+v, want retained pressure signal", report.DensityWatchpoints)
 	}
 }
 
@@ -84,8 +84,8 @@ func TestDensityAdmissionRequiresCounterfactualRationale(t *testing.T) {
 	if len(report.Violations) != 1 || report.Violations[0].Rule != ruleDensityAdmissionInvalid {
 		t.Fatalf("violations = %+v, want malformed admission failure", report.Violations)
 	}
-	if len(report.DensityReviewRequirements) != 0 {
-		t.Fatalf("density review requirements = %+v, malformed admission is a semantic contract failure", report.DensityReviewRequirements)
+	if len(report.DensityReviewRequirements) != 0 || len(report.DensityWatchpoints) != 0 {
+		t.Fatalf("density findings = %+v %+v, malformed admission is a semantic contract failure", report.DensityReviewRequirements, report.DensityWatchpoints)
 	}
 }
 
@@ -114,8 +114,12 @@ func TestDensityCountsCgoFilesAsProduction(t *testing.T) {
 	if len(report.PackageDensity) != 1 || report.PackageDensity[0].ProductionFiles != 26 {
 		t.Fatalf("package density = %+v, want 26 CGo production files", report.PackageDensity)
 	}
-	if len(report.DensityReviewRequirements) != 2 {
-		t.Fatalf("density review requirements = %+v, want package and CGo file review gates", report.DensityReviewRequirements)
+	if len(report.DensityReviewRequirements) != 1 || len(report.DensityWatchpoints) != 1 {
+		t.Fatalf(
+			"density review requirements = %+v, watchpoints = %+v, want package review and CGo file watchpoint",
+			report.DensityReviewRequirements,
+			report.DensityWatchpoints,
+		)
 	}
 }
 
@@ -137,20 +141,23 @@ func TestDensityThresholdBoundariesRemainReviewSignals(t *testing.T) {
 				PackagePath:     "internal/example",
 				ProductionFiles: testCase.files,
 			}, nil))
-			assertDensityClassification(t, report, testCase.warnings, testCase.reviews)
+			assertDensityClassification(t, report, testCase.warnings, 0, testCase.reviews, 0)
 		})
 	}
 
 	fileCases := []struct {
-		name     string
-		lines    int
-		warnings int
-		reviews  int
+		name        string
+		lines       int
+		watchpoints int
+		reviews     int
+		violations  int
 	}{
-		{name: "file below warning", lines: 350},
-		{name: "file enters warning", lines: 351, warnings: 1},
-		{name: "file at review boundary", lines: 500, warnings: 1},
-		{name: "file crosses review boundary", lines: 501, reviews: 1},
+		{name: "file below watchpoint", lines: 500},
+		{name: "file enters watchpoint", lines: 501, watchpoints: 1},
+		{name: "file at review boundary", lines: 1000, watchpoints: 1},
+		{name: "file crosses review boundary", lines: 1001, reviews: 1},
+		{name: "file at hard limit", lines: 5000, reviews: 1},
+		{name: "file crosses hard limit", lines: 5001, violations: 1},
 	}
 	for _, testCase := range fileCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -158,24 +165,55 @@ func TestDensityThresholdBoundariesRemainReviewSignals(t *testing.T) {
 				GoFiles:        []string{"example.go"},
 				FileLineCounts: map[string]int{"example.go": testCase.lines},
 			}, nil))
-			assertDensityClassification(t, report, testCase.warnings, testCase.reviews)
+			assertDensityClassification(t, report, 0, testCase.watchpoints, testCase.reviews, testCase.violations)
+		})
+	}
+
+	testFileCases := []struct {
+		name        string
+		lines       int
+		watchpoints int
+		violations  int
+	}{
+		{name: "test file at watchpoint boundary", lines: 1000},
+		{name: "test file crosses watchpoint boundary", lines: 1001, watchpoints: 1},
+		{name: "test file at hard limit", lines: 5000, watchpoints: 1},
+		{name: "test file crosses hard limit", lines: 5001, violations: 1},
+	}
+	for _, testCase := range testFileCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			report := classifyFindings(fileDensityFindings("internal/example", PackageRecord{
+				TestGoFiles:    []string{"example_test.go"},
+				FileLineCounts: map[string]int{"example_test.go": testCase.lines},
+			}, nil))
+			assertDensityClassification(t, report, 0, testCase.watchpoints, 0, testCase.violations)
 		})
 	}
 }
 
-func assertDensityClassification(t *testing.T, report Report, warnings int, reviews int) {
+func assertDensityClassification(
+	t *testing.T,
+	report Report,
+	warnings int,
+	watchpoints int,
+	reviews int,
+	violations int,
+) {
 	t.Helper()
-	if len(report.Violations) != 0 {
-		t.Fatalf("violations = %+v, numeric threshold must not create semantic invalidity", report.Violations)
+	if len(report.Violations) != violations {
+		t.Fatalf("violations = %+v, want %d", report.Violations, violations)
 	}
 	if len(report.DensityWarnings) != warnings {
 		t.Fatalf("density warnings = %+v, want %d", report.DensityWarnings, warnings)
 	}
+	if len(report.DensityWatchpoints) != watchpoints {
+		t.Fatalf("density watchpoints = %+v, want %d", report.DensityWatchpoints, watchpoints)
+	}
 	if len(report.DensityReviewRequirements) != reviews {
 		t.Fatalf("density review requirements = %+v, want %d", report.DensityReviewRequirements, reviews)
 	}
-	if report.HasFailures() != (reviews != 0) {
-		t.Fatalf("HasFailures = %v, want %v", report.HasFailures(), reviews != 0)
+	if report.HasFailures() != (reviews != 0 || violations != 0) {
+		t.Fatalf("HasFailures = %v, want %v", report.HasFailures(), reviews != 0 || violations != 0)
 	}
 }
 
@@ -205,13 +243,13 @@ func TestDensityAdmissionInventoryRejectsMissingAndStaleTargets(t *testing.T) {
 	}
 }
 
-func TestDensityAdmissionGrowthRemainsAReviewGate(t *testing.T) {
+func TestDensityAdmissionGrowthRequiresReview(t *testing.T) {
 	records := []PackageRecord{{
 		ImportPath:     "example.com/project/internal/example",
 		GoFiles:        []string{"large.go"},
-		FileLineCounts: map[string]int{"large.go": 502},
+		FileLineCounts: map[string]int{"large.go": 1002},
 	}}
-	admission := completeDensityAdmission(501, "production lines")
+	admission := completeDensityAdmission(1001, "production lines")
 	if violations := validateDensityAdmissionInventory(
 		records,
 		nil,
@@ -225,7 +263,7 @@ func TestDensityAdmissionGrowthRemainsAReviewGate(t *testing.T) {
 		map[string]densityReviewAdmission{"internal/example/large.go": admission},
 	))
 	if len(report.DensityReviewRequirements) != 1 || len(report.Violations) != 0 {
-		t.Fatalf("report = %+v, upward drift must require review without claiming semantic invalidity", report)
+		t.Fatalf("report = %+v, upward drift must require renewed review without claiming semantic invalidity", report)
 	}
 }
 

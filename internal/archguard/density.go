@@ -11,9 +11,10 @@ import (
 const (
 	densityProductionFileWarning = 18
 	densityProductionFileReview  = 25
-	densityProductionLineWarning = 350
-	densityProductionLineReview  = 500
-	densityTestLineWarning       = 350
+	densityProductionLineWatch   = 500
+	densityProductionLineReview  = 1000
+	densityTestLineWatch         = 1000
+	densityLineHardLimit         = 5000
 )
 
 type densityReviewAdmission struct {
@@ -220,6 +221,11 @@ func fileDensityFindings(
 	for _, fileName := range densityProductionFiles(record) {
 		filePath := filepath.ToSlash(filepath.Join(packagePath, fileName))
 		lines := lineCount(record, fileName)
+		if lines > densityLineHardLimit {
+			findings = append(findings, densityHardLimitFinding(packagePath, filePath, lines))
+			continue
+		}
+
 		reviewed := false
 		if admission, admitted := admissions[filePath]; admitted {
 			if err := admission.validate("production lines"); err != nil {
@@ -238,7 +244,7 @@ func fileDensityFindings(
 				reviewed = true
 			}
 		}
-		if lines <= densityProductionLineWarning {
+		if lines <= densityProductionLineWatch {
 			continue
 		}
 		if lines > densityProductionLineReview && !reviewed {
@@ -249,10 +255,10 @@ func fileDensityFindings(
 			))
 			continue
 		}
-		findings = append(findings, densityWarningFinding(
+		findings = append(findings, densityWatchpointFinding(
 			packagePath,
 			filePath,
-			fmt.Sprintf("production line count %d exceeds warning threshold %d", lines, densityProductionLineWarning),
+			fmt.Sprintf("production line count %d exceeds watchpoint threshold %d", lines, densityProductionLineWatch),
 		))
 	}
 
@@ -260,13 +266,17 @@ func fileDensityFindings(
 	for _, fileName := range sortedStrings(testFiles) {
 		filePath := filepath.ToSlash(filepath.Join(packagePath, fileName))
 		lines := lineCount(record, fileName)
-		if lines <= densityTestLineWarning {
+		if lines > densityLineHardLimit {
+			findings = append(findings, densityHardLimitFinding(packagePath, filePath, lines))
 			continue
 		}
-		findings = append(findings, densityWarningFinding(
+		if lines <= densityTestLineWatch {
+			continue
+		}
+		findings = append(findings, densityWatchpointFinding(
 			packagePath,
 			filePath,
-			fmt.Sprintf("test line count %d exceeds warning threshold %d", lines, densityTestLineWarning),
+			fmt.Sprintf("test line count %d exceeds watchpoint threshold %d", lines, densityTestLineWatch),
 		))
 	}
 
@@ -286,16 +296,42 @@ func densityAdmissionInvalidFinding(packagePath string, path string, detail stri
 	}
 }
 
+func densityHardLimitFinding(packagePath string, path string, lines int) rawFinding {
+	return rawFinding{
+		finding: GuardrailFinding{
+			Rule:        ruleDensityHardLimit,
+			PackagePath: packagePath,
+			Path:        path,
+			Reason:      "extreme file size exceeds the repository sanity ceiling",
+			Detail:      fmt.Sprintf("line count %d exceeds hard limit %d", lines, densityLineHardLimit),
+		},
+		disposition: findingDispositionViolation,
+	}
+}
+
 func densityReviewRequiredFinding(packagePath string, path string, detail string) rawFinding {
 	return rawFinding{
 		finding: GuardrailFinding{
 			Rule:        ruleDensityReviewRequired,
 			PackagePath: packagePath,
 			Path:        path,
-			Reason:      "density requires explicit ownership review; size alone does not prove invalidity",
+			Reason:      "extreme density requires explicit ownership review; size alone does not prove invalidity",
 			Detail:      detail,
 		},
 		disposition: findingDispositionReviewRequired,
+	}
+}
+
+func densityWatchpointFinding(packagePath string, path string, detail string) rawFinding {
+	return rawFinding{
+		finding: GuardrailFinding{
+			Rule:        ruleDensityWatchpoint,
+			PackagePath: packagePath,
+			Path:        path,
+			Reason:      "density is a stronger review watchpoint; size alone does not prove invalidity",
+			Detail:      detail,
+		},
+		disposition: findingDispositionWatchpoint,
 	}
 }
 

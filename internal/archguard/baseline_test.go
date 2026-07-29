@@ -21,6 +21,7 @@ func TestTopologyGuardBaseline(t *testing.T) {
 		t.Fatalf("archguard baseline has failures:\n%s", FormatAnalysisReport(report))
 	}
 	assertFindingMetadata(t, report.DensityReviewRequirements)
+	assertFindingMetadata(t, report.DensityWatchpoints)
 	assertFindingMetadata(t, report.DensityWarnings)
 	t.Logf("command: go test -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s", FormatAnalysisReport(report))
 }
