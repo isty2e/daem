@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -207,7 +208,10 @@ func observeNormalSource(
 	selection aggregate.Selection,
 	codec aggregate.Codec,
 ) observedNormalSource {
-	content, exists, readErr := readStableRegularFile(spec.path)
+	content, exists, readErr := filesnapshot.ReadRegularFile(
+		spec.path,
+		maximumConfigBytes,
+	)
 	if readErr != nil {
 		return observedNormalSource{
 			evidence: mustSourceObservation(mcpeffective.SourceObservationInput{

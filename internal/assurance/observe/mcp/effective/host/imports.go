@@ -5,8 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 )
+
+const maximumConfigBytes int64 = 4 << 20
 
 func observeImport(
 	kind importKind,
@@ -21,7 +24,10 @@ func observeImport(
 		return observeOpenCodeImport(id, precedence, homeDir, workDir, serverName, sourceKind)
 	}
 	for _, path := range importCandidates(kind, homeDir, workDir) {
-		content, exists, readErr := readStableRegularFile(path)
+		content, exists, readErr := filesnapshot.ReadRegularFile(
+			path,
+			maximumConfigBytes,
+		)
 		if readErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
@@ -81,7 +87,10 @@ func observeOpenCodeImport(
 		}), true
 	}
 	for _, path := range candidates {
-		content, exists, readErr := readStableRegularFile(path)
+		content, exists, readErr := filesnapshot.ReadRegularFile(
+			path,
+			maximumConfigBytes,
+		)
 		if readErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,

@@ -259,3 +259,54 @@ func TestMalformedExtensionInventoryProducesNoPartialManifest(t *testing.T) {
 		t.Fatalf("malformed extension import wrote manifest: %v", statErr)
 	}
 }
+
+func TestBuildPlanRejectsMultiTargetExtensionBeforeImportMerge(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-config"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "pi-global"))
+
+	output := filepath.Join(root, "daem.toml")
+	original := []byte(`version = 1
+targets = ["pi", "opencode"]
+
+[[extension]]
+id = "invalid-shared"
+carrier = "pi-package"
+targets = ["pi", "opencode"]
+scope = "project"
+source = { host_source = "npm:@acme/tool@1.2.3" }
+`)
+	if err := os.WriteFile(output, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adoptmodel.NewSourceDirectory(
+		output,
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := adoptmodel.NewRequest(
+		[]target.Target{target.TargetPi},
+		[]target.Scope{target.ScopeProject},
+		output,
+		sourceDirectory,
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = BuildPlan(context.Background(), request)
+	if err == nil || !strings.Contains(err.Error(), "supports exactly one target") {
+		t.Fatalf("BuildPlan error = %v, want multi-target extension rejection", err)
+	}
+	current, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatalf("rejected merge changed manifest:\n%s", current)
+	}
+}

@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
+
+const maximumInventoryBytes int64 = 4 << 20
 
 // Inventory is one immutable observation of the Antigravity import manifest.
 // Installed bundle state is read only when correlating a selected plugin.
@@ -28,7 +31,10 @@ func ReadInventory(paths HostPaths) (Inventory, error) {
 	if manifest == "" {
 		return Inventory{}, fmt.Errorf("Antigravity CLI host paths are unresolved")
 	}
-	content, exists, err := readStableRegularFile(manifest)
+	content, exists, err := filesnapshot.ReadRegularFile(
+		manifest,
+		maximumInventoryBytes,
+	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Antigravity CLI import manifest %q: %w", manifest, err)
 	}
