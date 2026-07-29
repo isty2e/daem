@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -33,6 +34,7 @@ type Assessment struct {
 	AggregateEvidence      []observe.AggregateEvidence
 	AggregateFailures      []observe.AggregateObservationFailure
 	AggregatePreconditions []observe.AggregatePreconditionEvidence
+	MCPEffective           []mcpeffective.Observation
 	Reconciliation         reconcile.Result
 	RelationObservations   relationobserve.Batch
 	Owner                  stateauthority.Authority
@@ -172,6 +174,14 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	mcpEffective, err := observeProviderEffectiveMCP(paths, resolver, locked, selection)
+	if err != nil {
+		return Assessment{}, err
+	}
+	effectiveConstraints, err := providerEffectiveConstraints(mcpEffective)
+	if err != nil {
+		return Assessment{}, err
+	}
 
 	managedPaths, aggregates, err := buildProjectionDecisions(projectionPlanningInput{
 		environment:            environment,
@@ -182,6 +192,7 @@ func buildAssessment(
 		managedPathEvidence:    managedEvidence,
 		aggregateExpected:      aggregateInputs.expected,
 		aggregateDesired:       aggregateInputs.desired,
+		aggregateConstraints:   effectiveConstraints,
 		aggregateStates:        aggregateInputs.states,
 		aggregateEvidence:      aggregateInputs.evidence,
 		aggregateFailures:      aggregateInputs.failures,
@@ -272,6 +283,7 @@ func buildAssessment(
 		AggregateEvidence:      aggregateInputs.evidence,
 		AggregateFailures:      aggregateInputs.failures,
 		AggregatePreconditions: aggregateInputs.preconditions,
+		MCPEffective:           mcpEffective,
 		Reconciliation:         result,
 		RelationObservations:   relationObservations,
 		Owner:                  owner,

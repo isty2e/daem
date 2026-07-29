@@ -1,4 +1,4 @@
-package refine_test
+package profile_test
 
 import (
 	"strings"
@@ -7,7 +7,7 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
-	"github.com/isty2e/daem/internal/realization/lock/refine"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
@@ -17,8 +17,9 @@ func TestSelectMCPProviderContributionUsesProjectFirstThenExplicitGlobalFallback
 	global := providerContribution(t, target.ScopeGlobal, "npm:pi-mcp-adapter@2.15.0")
 	binding := providerBinding(t, target.ScopeProject)
 
-	selected, err := refine.SelectMCPProviderContribution(
-		binding,
+	selected, err := profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{global, project},
 	)
 	if err != nil {
@@ -28,8 +29,9 @@ func TestSelectMCPProviderContributionUsesProjectFirstThenExplicitGlobalFallback
 		t.Fatalf("selected = %s, want project provider %s", selected.SubjectID(), project.SubjectID())
 	}
 
-	selected, err = refine.SelectMCPProviderContribution(
-		binding,
+	selected, err = profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{global},
 	)
 	if err != nil {
@@ -45,15 +47,17 @@ func TestSelectMCPProviderContributionRequiresGlobalForGlobalBinding(t *testing.
 	global := providerContribution(t, target.ScopeGlobal, "npm:pi-mcp-adapter@^2.13.0")
 	binding := providerBinding(t, target.ScopeGlobal)
 
-	selected, err := refine.SelectMCPProviderContribution(
-		binding,
+	selected, err := profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{project, global},
 	)
 	if err != nil || selected.SubjectID() != global.SubjectID() {
 		t.Fatalf("SelectMCPProviderContribution = %s, %v; want global", selected.SubjectID(), err)
 	}
-	if _, err := refine.SelectMCPProviderContribution(
-		binding,
+	if _, err := profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{project},
 	); err == nil || !strings.Contains(err.Error(), "cannot select a project-scoped provider") {
 		t.Fatalf("project-only global selection error = %v", err)
@@ -65,18 +69,20 @@ func TestSelectMCPProviderContributionRejectsMissingDuplicateAndAmbiguousCandida
 	first := providerContribution(t, target.ScopeProject, "npm:pi-mcp-adapter@^2.13.0")
 	second := providerContribution(t, target.ScopeProject, "npm:pi-mcp-adapter@2.15.0")
 
-	if _, err := refine.SelectMCPProviderContribution(binding, nil); err == nil ||
+	if _, err := profile.SelectMCPProviderContribution(binding.Target(), binding.Scope(), nil); err == nil ||
 		!strings.Contains(err.Error(), "requires one explicit compatible provider") {
 		t.Fatalf("missing provider error = %v", err)
 	}
-	if _, err := refine.SelectMCPProviderContribution(
-		binding,
+	if _, err := profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{first, first},
 	); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("duplicate provider error = %v", err)
 	}
-	if _, err := refine.SelectMCPProviderContribution(
-		binding,
+	if _, err := profile.SelectMCPProviderContribution(
+		binding.Target(),
+		binding.Scope(),
 		[]extensiontopology.Contribution{second, first},
 	); err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("ambiguous provider error = %v", err)

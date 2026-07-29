@@ -94,6 +94,11 @@ var codexGlobalMCPComparedFields = []string{
 	"env_vars", "scope", "server_id", "target",
 }
 
+var piMCPComparedFields = []string{
+	"adapter_contract", "args", "command", "config_path", "content_path",
+	"disabled", "env", "lifecycle", "scope", "server_id", "target",
+}
+
 var implementedMCPPlacements = []MCPPlacement{
 	mustMCPPlacement(MCPPlacementInput{
 		ID:                     MCPPlacementClaudeProject,
@@ -200,6 +205,36 @@ var implementedMCPPlacements = []MCPPlacement{
 		ComparedFields:         codexGlobalMCPComparedFields,
 		Absence:                MCPAbsenceRemoveBinding,
 		EnvReferenceMapping:    MCPEnvMappingSameName,
+		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
+	}),
+	mustMCPPlacement(MCPPlacementInput{
+		ID:                     MCPPlacementPiProject,
+		Target:                 target.TargetPi,
+		Scope:                  target.ScopeProject,
+		ConfigLayer:            MCPConfigLayerPiProjectFile,
+		ConfigPath:             PiProjectMCPConfigPath,
+		MergeUnit:              MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcpServers",
+		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        MCPCodecPiAdapterStdio,
+		ComparedFields:         piMCPComparedFields,
+		Absence:                MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    MCPEnvMappingAliased,
+		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
+	}),
+	mustMCPPlacement(MCPPlacementInput{
+		ID:                     MCPPlacementPiGlobal,
+		Target:                 target.TargetPi,
+		Scope:                  target.ScopeGlobal,
+		ConfigLayer:            MCPConfigLayerPiGlobalAgentFile,
+		ConfigPath:             PiGlobalMCPConfigPath,
+		MergeUnit:              MCPMergeUnitServerEntry,
+		ContentPathPrefix:      "/mcpServers",
+		SiblingRetention:       MCPSiblingRetentionPreserveUnmanaged,
+		CodecContractID:        MCPCodecPiAdapterStdio,
+		ComparedFields:         piMCPComparedFields,
+		Absence:                MCPAbsenceRemoveBinding,
+		EnvReferenceMapping:    MCPEnvMappingAliased,
 		EnvReferenceResolution: MCPEnvResolutionHostRuntime,
 	}),
 }

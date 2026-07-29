@@ -75,6 +75,7 @@ func buildManagedAggregatePlanningInputs(
 	}
 	mcpExpected, err := lockrefine.MCPSubjects(
 		environment.MCPServers(),
+		environment.Extensions(),
 		mcpEncoder,
 	)
 	if err != nil {

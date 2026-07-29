@@ -286,6 +286,12 @@ func aggregateLawMCPCanonical(
 			ServerID: serverID, Command: command, Args: args, EnvVars: []string{"CODEX_TOKEN"},
 			AdapterContract: aggregate.CodexGlobalMCPStdioEnvVarsV1,
 		})
+	case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
+		canonical, err = mcpcodec.CanonicalPiMCPAdapterServerEntry(mcpcodec.PiMCPAdapterServerProjection{
+			ServerID: serverID, Command: command, Args: args,
+			Env:             map[string]string{"API_TOKEN": "${CONTEXT7_API_TOKEN}"},
+			AdapterContract: aggregate.PiMCPAdapterStdioV1,
+		})
 	default:
 		t.Fatalf("unhandled MCP placement %q", placementID)
 	}

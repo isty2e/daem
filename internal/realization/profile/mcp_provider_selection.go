@@ -1,23 +1,26 @@
-package refine
+package profile
 
 import (
 	"fmt"
 	"sort"
 
-	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 // SelectMCPProviderContribution selects one explicit provider contribution for
-// a provider-mediated MCP binding. Candidates must already have passed the
-// provider profile's identity and contribution admission.
+// a provider-mediated MCP projection. Candidates must already have passed the
+// target profile's identity and contribution admission.
 func SelectMCPProviderContribution(
-	binding desiredmcp.Binding,
+	selectedTarget target.Target,
+	selectedScope target.Scope,
 	candidates []extensiontopology.Contribution,
 ) (extensiontopology.Contribution, error) {
-	if err := binding.Validate(); err != nil {
-		return extensiontopology.Contribution{}, fmt.Errorf("MCP provider selection binding: %w", err)
+	if _, err := target.ParseTarget(string(selectedTarget)); err != nil {
+		return extensiontopology.Contribution{}, fmt.Errorf("MCP provider selection target: %w", err)
+	}
+	if _, err := target.ParseScope(string(selectedScope)); err != nil {
+		return extensiontopology.Contribution{}, fmt.Errorf("MCP provider selection scope: %w", err)
 	}
 
 	ordered := append([]extensiontopology.Contribution(nil), candidates...)
@@ -37,12 +40,12 @@ func SelectMCPProviderContribution(
 			)
 		}
 		provider := candidate.Provider()
-		if provider.Key().Target() != binding.Target() {
+		if provider.Key().Target() != selectedTarget {
 			return extensiontopology.Contribution{}, fmt.Errorf(
 				"MCP provider %q targets %q, not binding target %q",
 				candidate.SubjectID(),
 				provider.Key().Target(),
-				binding.Target(),
+				selectedTarget,
 			)
 		}
 		identity := candidate.SubjectID().String()
@@ -68,38 +71,39 @@ func SelectMCPProviderContribution(
 		}
 	}
 
-	switch binding.Scope() {
+	switch selectedScope {
 	case target.ScopeProject:
 		if len(project) != 0 {
-			return requireUniqueMCPProviderContribution(binding, project)
+			return requireUniqueMCPProviderContribution(selectedTarget, selectedScope, project)
 		}
-		return requireUniqueMCPProviderContribution(binding, global)
+		return requireUniqueMCPProviderContribution(selectedTarget, selectedScope, global)
 	case target.ScopeGlobal:
 		if len(global) == 0 && len(project) != 0 {
 			return extensiontopology.Contribution{}, fmt.Errorf(
 				"global MCP binding for target %q cannot select a project-scoped provider",
-				binding.Target(),
+				selectedTarget,
 			)
 		}
-		return requireUniqueMCPProviderContribution(binding, global)
+		return requireUniqueMCPProviderContribution(selectedTarget, selectedScope, global)
 	default:
 		return extensiontopology.Contribution{}, fmt.Errorf(
 			"MCP binding has unsupported scope %q",
-			binding.Scope(),
+			selectedScope,
 		)
 	}
 }
 
 func requireUniqueMCPProviderContribution(
-	binding desiredmcp.Binding,
+	selectedTarget target.Target,
+	selectedScope target.Scope,
 	candidates []extensiontopology.Contribution,
 ) (extensiontopology.Contribution, error) {
 	switch len(candidates) {
 	case 0:
 		return extensiontopology.Contribution{}, fmt.Errorf(
 			"MCP binding for target=%q scope=%q requires one explicit compatible provider",
-			binding.Target(),
-			binding.Scope(),
+			selectedTarget,
+			selectedScope,
 		)
 	case 1:
 		return candidates[0], nil
@@ -110,8 +114,8 @@ func requireUniqueMCPProviderContribution(
 		}
 		return extensiontopology.Contribution{}, fmt.Errorf(
 			"MCP binding for target=%q scope=%q has ambiguous provider contributions %q",
-			binding.Target(),
-			binding.Scope(),
+			selectedTarget,
+			selectedScope,
 			identities,
 		)
 	}

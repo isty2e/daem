@@ -141,6 +141,29 @@ func CanonicalMCPBindingContribution(
 			EnvVars:         stdio.EnvironmentSourceNames(),
 			AdapterContract: adapterContract,
 		})
+	case aggregate.MCPPlacementPiProject, aggregate.MCPPlacementPiGlobal:
+		if err := requireMCPEnvReferenceCodecContract(
+			placement,
+			aggregate.MCPEnvMappingAliased,
+			aggregate.MCPEnvResolutionHostRuntime,
+		); err != nil {
+			return nil, err
+		}
+		env, err := canonicalMCPBindingEnv(stdio.Env())
+		if err != nil {
+			return nil, err
+		}
+		entry, err := canonicalPiMCPAdapterServerEntry(PiMCPAdapterServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            args,
+			Env:             env,
+			AdapterContract: adapterContract,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return canonicalJSON(entry)
 	default:
 		return nil, fmt.Errorf("unsupported MCP placement %q", placement.ID())
 	}

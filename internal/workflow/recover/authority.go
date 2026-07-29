@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
-	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -238,7 +237,7 @@ func resolveRecoveryGuardedDestinations(
 	paths daempaths.Paths,
 	actions []recovery.Action,
 ) (map[recoveryDestinationKey]string, error) {
-	resolver := hostpath.NewResolverWithManagedDataRoot(paths.ManifestRoot, paths.DataDir)
+	resolver := destinationResolver(paths)
 	resolved := make(map[recoveryDestinationKey]string)
 	occupancies := make(map[string]recoveryPhysicalOccupancy)
 	for _, action := range actions {

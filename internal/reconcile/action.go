@@ -30,6 +30,8 @@ const (
 	ReasonUnexpectedLockSubject       ActionReason = "unexpected_lock_subject"
 	ReasonAggregateLockBlocked        ActionReason = "aggregate_lock_blocked"
 	ReasonMissingLiveObservation      ActionReason = "missing_live_observation"
+	ReasonEffectiveStateConflict      ActionReason = "effective_state_conflict"
+	ReasonEffectiveStateUnobserved    ActionReason = "effective_state_unobserved"
 	ReasonUnmanagedOutputExists       ActionReason = "unmanaged_output_exists"
 	ReasonManagedExisting             ActionReason = "managed_existing"
 	ReasonDestinationConflict         ActionReason = "destination_conflict"
@@ -55,6 +57,8 @@ func validateActionReason(reason ActionReason) error {
 		ReasonUnexpectedLockSubject,
 		ReasonAggregateLockBlocked,
 		ReasonMissingLiveObservation,
+		ReasonEffectiveStateConflict,
+		ReasonEffectiveStateUnobserved,
 		ReasonUnmanagedOutputExists,
 		ReasonManagedExisting,
 		ReasonDestinationConflict,

@@ -151,3 +151,40 @@ func TestResolverUsesCurrentHomeOnEveryResolution(t *testing.T) {
 		t.Fatalf("home resolutions = %q, %q", first, second)
 	}
 }
+
+func TestResolverUsesOnlyMatchedValidatedDestinationOverride(t *testing.T) {
+	projectRoot := t.TempDir()
+	overrideRoot := t.TempDir()
+	selected := mustDestination(t, "~/.pi/agent/mcp.json")
+	other := mustDestination(t, "~/AGENTS.md")
+	resolver := NewResolver(projectRoot).WithDestinationOverride(
+		func(destination output.Destination) (string, bool, error) {
+			if destination != selected {
+				return "", false, nil
+			}
+			return filepath.Join(overrideRoot, "mcp.json"), true, nil
+		},
+	)
+
+	got, err := resolver.Resolve(selected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != filepath.Join(overrideRoot, "mcp.json") {
+		t.Fatalf("override path = %q", got)
+	}
+	if _, err := resolver.Resolve(other); err != nil {
+		t.Fatalf("unmatched destination did not fall back: %v", err)
+	}
+}
+
+func TestResolverRejectsInvalidMatchedDestinationOverride(t *testing.T) {
+	resolver := NewResolver(t.TempDir()).WithDestinationOverride(
+		func(output.Destination) (string, bool, error) {
+			return "relative", true, nil
+		},
+	)
+	if _, err := resolver.Resolve(mustDestination(t, "~/.pi/agent/mcp.json")); err == nil {
+		t.Fatal("Resolve accepted a relative destination override")
+	}
+}

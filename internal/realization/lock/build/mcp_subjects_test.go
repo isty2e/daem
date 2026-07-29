@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -18,6 +19,7 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
+	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
 func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *testing.T) {
@@ -216,6 +218,94 @@ func TestBuildLocksAntigravityGlobalMCPServerWithoutDelegatePlan(t *testing.T) {
 		if strings.Contains(projection.CanonicalContribution(), forbidden) {
 			t.Fatalf("canonical projection leaked forbidden value %q: %s", forbidden, projection.CanonicalContribution())
 		}
+	}
+}
+
+func TestBuildLocksPiMCPProjectionWithExactProviderForeignKey(t *testing.T) {
+	provider := testPiPackageExtension(
+		t,
+		"pi-mcp-adapter-project",
+		"npm:pi-mcp-adapter@^2.13.0",
+		target.ScopeProject,
+	)
+	server := testMCPServerForPlacement(
+		t,
+		"context7",
+		target.TargetPi,
+		target.ScopeProject,
+		"node",
+		[]string{"server.js"},
+		map[string]string{"API_TOKEN": "CONTEXT7_API_TOKEN"},
+	)
+	file, err := buildWithTestOptions(
+		context.Background(),
+		lockEnvironment(t, desired.Spec{
+			MCPServers: []desiredmcp.Server{server},
+			Extensions: []desiredextension.Extension{provider},
+		}),
+		nil,
+		Options{},
+	)
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	mcpSubjects := lockedSubjectsOfKind(file, entity.KindMCPServer)
+	extensionSubjects := lockedSubjectsOfKind(file, entity.KindExtension)
+	if len(mcpSubjects) != 1 || len(extensionSubjects) != 1 {
+		t.Fatalf(
+			"locked subjects = MCP %d extension %d, want one each",
+			len(mcpSubjects),
+			len(extensionSubjects),
+		)
+	}
+
+	reference, ok := mcpSubjects[0].MCPProviderContribution()
+	if !ok {
+		t.Fatal("Pi MCP projection is missing provider contribution")
+	}
+	expectedCarrier, err := extensiontopology.NewCarrier(provider.CarrierKey())
+	if err != nil {
+		t.Fatalf("NewCarrier returned error: %v", err)
+	}
+	if reference.ProviderSubjectID() != expectedCarrier.SubjectID() ||
+		reference.Kind() != "mcp-client" ||
+		reference.Key() != "default" {
+		t.Fatalf("provider reference = %#v, want mcp-client/default from exact carrier", reference)
+	}
+	projection := mustAggregateContribution(t, mcpSubjects[0])
+	if projection.AggregateRoot().String() != aggregate.PiProjectMCPConfigPath ||
+		projection.CodecContractID() != aggregate.MCPCodecPiAdapterStdio {
+		t.Fatalf("projection = %#v, want Pi project adapter projection", projection)
+	}
+	for _, forbidden := range []string{
+		"npm:pi-mcp-adapter",
+		"^2.13.0",
+		"2.15.0",
+	} {
+		if strings.Contains(projection.CanonicalContribution(), forbidden) {
+			t.Fatalf("MCP projection copied provider source/version %q", forbidden)
+		}
+	}
+}
+
+func TestBuildRejectsPiMCPWithoutExplicitCompatibleProvider(t *testing.T) {
+	server := testMCPServerForPlacement(
+		t,
+		"context7",
+		target.TargetPi,
+		target.ScopeProject,
+		"node",
+		[]string{"server.js"},
+		nil,
+	)
+	_, err := buildWithTestOptions(
+		context.Background(),
+		lockEnvironment(t, desired.Spec{MCPServers: []desiredmcp.Server{server}}),
+		nil,
+		Options{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "requires one explicit compatible provider") {
+		t.Fatalf("BuildWithOptions error = %v, want missing-provider diagnostic", err)
 	}
 }
 

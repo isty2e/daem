@@ -20,6 +20,8 @@ const (
 	MCPPlacementOpenCodeGlobal    MCPPlacementID = "opencode.global.default-json"
 	MCPPlacementCodexProject      MCPPlacementID = "codex.project.project-config"
 	MCPPlacementCodexGlobal       MCPPlacementID = "codex.global.default-config"
+	MCPPlacementPiProject         MCPPlacementID = "pi.project.pi-config"
+	MCPPlacementPiGlobal          MCPPlacementID = "pi.global.agent-config"
 )
 
 const (
@@ -37,6 +39,9 @@ const (
 	CodexProjectMCPStdioCommandV1    = "codex-project-mcp-stdio-command-v1"
 	CodexGlobalMCPConfigPath         = "~/.codex/config.toml"
 	CodexGlobalMCPStdioEnvVarsV1     = "codex-global-mcp-stdio-env-vars-v1"
+	PiProjectMCPConfigPath           = ".pi/mcp.json"
+	PiGlobalMCPConfigPath            = "~/.pi/agent/mcp.json"
+	PiMCPAdapterStdioV1              = "pi-mcp-adapter-stdio-v1"
 
 	openCodeProjectMCPConflictPath = "opencode.jsonc"
 	openCodeGlobalMCPConflictPath  = "~/.config/opencode/opencode.jsonc"
@@ -53,6 +58,8 @@ const (
 	MCPConfigLayerOpenCodeGlobalDefaultJSON    MCPConfigLayer = "opencode-global-default-json"
 	MCPConfigLayerCodexProjectFile             MCPConfigLayer = "codex-project-config"
 	MCPConfigLayerCodexGlobalDefaultFile       MCPConfigLayer = "codex-user-default-config"
+	MCPConfigLayerPiProjectFile                MCPConfigLayer = "pi-project-config"
+	MCPConfigLayerPiGlobalAgentFile            MCPConfigLayer = "pi-global-agent-config"
 )
 
 const (
@@ -63,6 +70,7 @@ const (
 	MCPCodecOpenCodeGlobalLocalEnv      CodecContractID = OpenCodeGlobalMCPLocalEnvV1
 	MCPCodecCodexProjectStdioCommand    CodecContractID = CodexProjectMCPStdioCommandV1
 	MCPCodecCodexGlobalStdioEnvVars     CodecContractID = CodexGlobalMCPStdioEnvVarsV1
+	MCPCodecPiAdapterStdio              CodecContractID = PiMCPAdapterStdioV1
 )
 
 // MCPAbsencePolicy identifies the row-local behavior when the manifest declaration disappears.

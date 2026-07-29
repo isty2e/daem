@@ -373,6 +373,14 @@ func buildMCPPlacementOperationRows() []MCPPlacementOperations {
 			entryPresent:          codexGlobalMCPServerEntryPresent,
 			parentPresent:         codexGlobalMCPServersParentPresent,
 		}),
+		mustMCPPlacementOperations(
+			aggregate.MCPPlacementPiProject,
+			newPiMCPPlacementCodec(aggregate.MCPPlacementPiProject).operationsInput(),
+		),
+		mustMCPPlacementOperations(
+			aggregate.MCPPlacementPiGlobal,
+			newPiMCPPlacementCodec(aggregate.MCPPlacementPiGlobal).operationsInput(),
+		),
 	}
 }
 

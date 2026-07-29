@@ -50,6 +50,16 @@ type MCPProjectionSubjectInput struct {
 	ProviderContribution *extensiontopology.ContributionReference
 }
 
+// MCPPlacementRequiresProviderContribution reports whether one admitted MCP
+// placement must be bound to an explicit provider contribution.
+func MCPPlacementRequiresProviderContribution(placementID aggregate.MCPPlacementID) (bool, error) {
+	spec, ok := mcpProjectionLockSpecFor(placementID)
+	if !ok {
+		return false, fmt.Errorf("unsupported MCP placement %q", placementID)
+	}
+	return spec.ProviderRequired, nil
+}
+
 // MCPEnvironmentSources returns the stable host environment names required by
 // an MCP projection. Values are never part of this locked facet.
 func (contract LockedSubjectContract) MCPEnvironmentSources() []string {
@@ -255,6 +265,8 @@ func mcpProjectionLockSpecFor(id aggregate.MCPPlacementID) (mcpProjectionLockSpe
 		openCodeGlobalMCPProjectionSpec,
 		codexProjectMCPProjectionSpec,
 		codexGlobalMCPProjectionSpec,
+		piProjectMCPProjectionSpec,
+		piGlobalMCPProjectionSpec,
 	} {
 		if spec.Placement.ID() == id {
 			return spec, true

@@ -109,6 +109,7 @@ func BuildWithOptions(ctx context.Context, environment desired.Environment, reso
 
 	lockedMCPSubjects, err := refine.MCPSubjects(
 		environment.MCPServers(),
+		environment.Extensions(),
 		options.MCPContributionEncoder,
 	)
 	if err != nil {

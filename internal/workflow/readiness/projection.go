@@ -23,6 +23,7 @@ type projectionPlanningInput struct {
 	managedPathEvidence    []observe.ManagedPathEvidence
 	aggregateExpected      []lock.LockedSubjectContract
 	aggregateDesired       []aggregate.SubjectContribution
+	aggregateConstraints   []reconcileprojection.AggregateSubjectConstraint
 	aggregateStates        []durable.ManagedAggregateState
 	aggregateEvidence      []observe.AggregateEvidence
 	aggregateFailures      []observe.AggregateObservationFailure
@@ -54,7 +55,8 @@ func buildProjectionDecisions(input projectionPlanningInput) (
 	}
 	aggregates, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
 		Locked: input.locked, Expected: input.aggregateExpected, Desired: input.aggregateDesired,
-		States: input.aggregateStates, Evidence: input.aggregateEvidence,
+		Constraints: input.aggregateConstraints,
+		States:      input.aggregateStates, Evidence: input.aggregateEvidence,
 		ObservationFailures:    input.aggregateFailures,
 		PreconditionEvidence:   input.aggregatePreconditions,
 		SelectedTargets:        input.selectedTargets,

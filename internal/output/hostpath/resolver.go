@@ -12,9 +12,15 @@ import (
 
 // Resolver expands canonical portable destinations using operation-selected roots.
 type Resolver struct {
-	projectRoot string
-	dataRoot    string
+	projectRoot         string
+	dataRoot            string
+	destinationOverride DestinationOverrideResolver
 }
+
+// DestinationOverrideResolver maps an exact canonical logical destination to a
+// host-selected physical path. The bool is false when normal root expansion
+// should continue.
+type DestinationOverrideResolver func(output.Destination) (string, bool, error)
 
 // NewResolver constructs a resolver with project and home roots.
 func NewResolver(projectRoot string) Resolver {
@@ -27,10 +33,29 @@ func NewResolverWithManagedDataRoot(projectRoot string, dataRoot string) Resolve
 	return Resolver{projectRoot: projectRoot, dataRoot: dataRoot}
 }
 
+// WithDestinationOverride returns a copy that consults one target-owned
+// physical-path policy before generic root expansion.
+func (resolver Resolver) WithDestinationOverride(override DestinationOverrideResolver) Resolver {
+	resolver.destinationOverride = override
+	return resolver
+}
+
 // Resolve expands a canonical portable destination without changing its identity.
 func (resolver Resolver) Resolve(destination output.Destination) (string, error) {
 	if err := destination.Validate(); err != nil {
 		return "", err
+	}
+	if resolver.destinationOverride != nil {
+		path, matched, err := resolver.destinationOverride(destination)
+		if err != nil {
+			return "", err
+		}
+		if matched {
+			if strings.TrimSpace(path) == "" || strings.TrimSpace(path) != path || !filepath.IsAbs(path) {
+				return "", fmt.Errorf("destination override for %q must return a trimmed absolute path", destination)
+			}
+			return filepath.Clean(path), nil
+		}
 	}
 	switch destination.RootRole() {
 	case output.RootHome:

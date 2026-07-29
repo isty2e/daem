@@ -4,12 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	mcpdelegate "github.com/isty2e/daem/internal/realization/delegate/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/target"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -60,6 +62,7 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 	for _, forbidden := range []string{
 		"literal-secret", "CONTEXT7_API_TOKEN_VALUE", "access_token", "refresh_token",
 		"mcp-needs-auth-cache", "Status: Connected", "[locked.subject.claim]", "config_path =",
+		"mcp_provider_contribution",
 	} {
 		if strings.Contains(rendered, forbidden) {
 			t.Fatalf("rendered lockfile leaked forbidden or legacy value %q:\n%s", forbidden, rendered)
@@ -87,6 +90,106 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 	}
 	if got := loaded.Locked.Subjects()[0].MCPEnvironmentSources(); len(got) != 1 || got[0] != "CONTEXT7_API_TOKEN" {
 		t.Fatalf("loaded MCP environment sources = %#v", got)
+	}
+}
+
+func TestMarshalAndLoadPiMCPProviderForeignKey(t *testing.T) {
+	provider := desiredtest.Extension(t, desiredextension.Spec{
+		Name:    "pi-mcp-adapter-project",
+		Carrier: desiredextension.CarrierPiPackage,
+		Target:  target.TargetPi,
+		Scope:   target.ScopeProject,
+		Source: desiredtest.ExtensionSource(
+			t,
+			desiredextension.SourceKindHostSource,
+			"npm:pi-mcp-adapter@^2.13.0",
+		),
+	})
+	transport := desiredtest.MCPStdio(
+		t,
+		desiredtest.MCPCommand(t, "node"),
+		[]string{"server.js"},
+		map[string]desiredmcp.EnvReference{
+			"API_TOKEN": desiredtest.MCPEnvReference(t, "CONTEXT7_API_TOKEN"),
+		},
+	)
+	binding := desiredtest.MCPBinding(
+		t,
+		target.TargetPi,
+		target.ScopeProject,
+		transport,
+		desiredmcp.OnAbsentRemoveBinding,
+	)
+	server := desiredtest.MCPServer(t, desiredmcp.Spec{
+		Name:     "context7",
+		Bindings: []desiredmcp.Binding{binding},
+	})
+	providerContracts, err := lockrefine.Extensions([]desiredextension.Extension{provider})
+	if err != nil {
+		t.Fatalf("Extensions returned error: %v", err)
+	}
+	mcpContracts, err := lockrefine.MCPSubjects(
+		[]desiredmcp.Server{server},
+		[]desiredextension.Extension{provider},
+		mcpcodec.CanonicalMCPBindingContribution,
+	)
+	if err != nil {
+		t.Fatalf("MCPSubjects returned error: %v", err)
+	}
+	if len(providerContracts) != 1 || len(mcpContracts) != 1 {
+		t.Fatalf(
+			"refined contracts = provider %d MCP %d, want one each",
+			len(providerContracts),
+			len(mcpContracts),
+		)
+	}
+	reference, present := mcpContracts[0].MCPProviderContribution()
+	if !present {
+		t.Fatal("Pi MCP contract is missing its provider contribution")
+	}
+	file := lockfileWithSubjects(t, providerContracts[0], mcpContracts[0])
+
+	content, err := Marshal(file)
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	rendered := string(content)
+	for _, fragment := range []string{
+		`mcp_provider_contribution = "` + reference.SubjectID().String() + `"`,
+		`placement_id = "pi.project.pi-config"`,
+		`codec_contract = "pi-mcp-adapter-stdio-v1"`,
+	} {
+		if !strings.Contains(rendered, fragment) {
+			t.Fatalf("rendered Pi lockfile is missing %q:\n%s", fragment, rendered)
+		}
+	}
+	providerLine := `mcp_provider_contribution = "` + reference.SubjectID().String() + `"`
+	if strings.Contains(providerLine, string(aggregate.MCPCodecPiAdapterStdio)) {
+		t.Fatalf("provider foreign key copied codec identity: %s", providerLine)
+	}
+
+	loaded, err := Load(writeLockfileText(t, rendered))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	assertLockedSubjectsEqual(t, loaded.Locked.Subjects(), file.Locked.Subjects())
+	var loadedReferenceFound bool
+	for _, subject := range loaded.Locked.Subjects() {
+		loadedReference, ok := subject.MCPProviderContribution()
+		if !ok {
+			continue
+		}
+		loadedReferenceFound = true
+		if !loadedReference.Equal(reference) {
+			t.Fatalf(
+				"loaded provider contribution = %q, want %q",
+				loadedReference.SubjectID(),
+				reference.SubjectID(),
+			)
+		}
+	}
+	if !loadedReferenceFound {
+		t.Fatal("loaded Pi MCP contract is missing its provider contribution")
 	}
 }
 

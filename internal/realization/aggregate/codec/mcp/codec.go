@@ -411,6 +411,8 @@ func mcpCodecFailure(
 			reason = aggregate.CodecFailureEquivalenceUndefined
 		case MCPProjectionReasonStaleAdapterContract:
 			reason = aggregate.CodecFailureCanonicalInvalid
+		case MCPProjectionReasonProviderDocumentLossy:
+			reason = aggregate.CodecFailurePreservationUndefined
 		}
 	}
 	failure, failureErr := aggregate.NewCodecFailure(reason, contentPath)

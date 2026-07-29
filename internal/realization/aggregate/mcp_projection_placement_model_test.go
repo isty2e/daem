@@ -180,16 +180,14 @@ func TestImplementedMCPPlacementsExposeCurrentRowsOnly(t *testing.T) {
 	}
 }
 
-func TestImplementedMCPPlacementDoesNotEnableAdmittedFutureGlobalRows(t *testing.T) {
-	for _, tc := range []struct {
-		target target.Target
-		scope  target.Scope
-	}{
-		{target: target.TargetPi, scope: target.ScopeProject},
-		{target: target.TargetPi, scope: target.ScopeGlobal},
-	} {
-		if placement, ok := aggregate.ImplementedMCPPlacement(tc.target, tc.scope); ok {
-			t.Fatalf("ImplementedMCPPlacement(%q, %q) = %#v, want no row", tc.target, tc.scope, placement)
+func TestImplementedMCPPlacementIncludesPiProviderRows(t *testing.T) {
+	for _, scope := range []target.Scope{target.ScopeProject, target.ScopeGlobal} {
+		placement, ok := aggregate.ImplementedMCPPlacement(target.TargetPi, scope)
+		if !ok {
+			t.Fatalf("ImplementedMCPPlacement(%q, %q) is missing", target.TargetPi, scope)
+		}
+		if placement.CodecContractID() != aggregate.MCPCodecPiAdapterStdio {
+			t.Fatalf("Pi %q codec = %q, want %q", scope, placement.CodecContractID(), aggregate.MCPCodecPiAdapterStdio)
 		}
 	}
 }

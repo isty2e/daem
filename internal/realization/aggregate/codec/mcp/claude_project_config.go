@@ -143,10 +143,18 @@ func claudeProjectMCPServersParentPresent(existing []byte) (bool, error) {
 }
 
 type mcpConfigSpec struct {
-	configPath  string
-	label       string
-	serversKey  string
-	serversPath string
+	configPath           string
+	label                string
+	serversKey           string
+	serversPath          string
+	documentPrecondition func([]byte, mcpConfigSpec) error
+}
+
+func (spec mcpConfigSpec) withDocumentPrecondition(
+	precondition func([]byte, mcpConfigSpec) error,
+) mcpConfigSpec {
+	spec.documentPrecondition = precondition
+	return spec
 }
 
 func claudeProjectMCPConfigSpec() mcpConfigSpec {
@@ -196,6 +204,11 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 	}
 	if content == nil {
 		return config, nil
+	}
+	if spec.documentPrecondition != nil {
+		if err := spec.documentPrecondition(content, spec); err != nil {
+			return mcpConfig{}, err
+		}
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
 		return mcpConfig{}, newMCPProjectionError(

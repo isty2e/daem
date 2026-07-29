@@ -1,4 +1,4 @@
-package status
+package recover
 
 import (
 	"github.com/isty2e/daem/internal/output/hostpath"

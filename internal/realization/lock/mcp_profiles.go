@@ -142,6 +142,62 @@ var openCodeGlobalMCPProjectionSpec = mcpProjectionLockSpec{
 	},
 }
 
+var piProjectMCPProjectionSpec = mcpProjectionLockSpec{
+	Placement:                mustProfileMCPPlacement(target.TargetPi, aggregate.MCPPlacementPiProject),
+	Label:                    "Pi project MCP through pi-mcp-adapter",
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
+	ReplayExclusions:         piMCPReplayExclusions,
+	ProviderRequired:         true,
+	WritePreconditions: []string{
+		"adapter_contract_current",
+		"provider_contribution_available",
+		"provider_version_compatible",
+		"effective_config_collision_free",
+		"managed_subtree_absent_or_managed",
+		"project_adapter_config_strict_json_or_missing",
+		"provider_jsonc_absent",
+		"unsupported_managed_fields_absent",
+	},
+	RemovePreconditions: []string{
+		"adapter_contract_current",
+		"provider_contribution_available",
+		"provider_version_compatible",
+		"effective_config_collision_free",
+		"managed_binding_baseline",
+		"project_adapter_config_strict_json",
+		"provider_jsonc_absent",
+		"unsupported_managed_fields_absent",
+	},
+}
+
+var piGlobalMCPProjectionSpec = mcpProjectionLockSpec{
+	Placement:                mustProfileMCPPlacement(target.TargetPi, aggregate.MCPPlacementPiGlobal),
+	Label:                    "Pi global MCP through pi-mcp-adapter",
+	LauncherDependencyPolicy: mcpProjectionAllowCredentialDependencies,
+	ReplayExclusions:         piMCPReplayExclusions,
+	ProviderRequired:         true,
+	WritePreconditions: []string{
+		"adapter_contract_current",
+		"provider_contribution_available",
+		"provider_version_compatible",
+		"effective_config_collision_free",
+		"managed_subtree_absent_or_managed",
+		"global_adapter_config_strict_json_or_missing",
+		"provider_jsonc_absent",
+		"unsupported_managed_fields_absent",
+	},
+	RemovePreconditions: []string{
+		"adapter_contract_current",
+		"provider_contribution_available",
+		"provider_version_compatible",
+		"effective_config_collision_free",
+		"managed_binding_baseline",
+		"global_adapter_config_strict_json",
+		"provider_jsonc_absent",
+		"unsupported_managed_fields_absent",
+	},
+}
+
 var antigravityGlobalMCPReplayExclusions = []ReplayExclusion{
 	{Component: "launcher executable and package manager state", Reason: ReplayExclusionRuntimeDependency},
 	{Component: "OAuth/session/auth cache state", Reason: ReplayExclusionOAuthSession},
@@ -194,4 +250,13 @@ var openCodeMCPReplayExclusions = []ReplayExclusion{
 	{Component: "runtime tool inventory", Reason: ReplayExclusionToolInventory},
 	{Component: "plugin or carrier installation", Reason: ReplayExclusionPluginCarrier},
 	{Component: "OpenCode effective merged config and admin overlays", Reason: ReplayExclusionHostApproval},
+}
+
+var piMCPReplayExclusions = []ReplayExclusion{
+	{Component: "pi-mcp-adapter package installation and exact current version", Reason: ReplayExclusionPluginCarrier},
+	{Component: "lower config layers, imports, and host config discovery", Reason: ReplayExclusionHostApproval},
+	{Component: "Pi project trust and global-provider pre-trust exposure", Reason: ReplayExclusionHostApproval},
+	{Component: "launcher executable and package manager state", Reason: ReplayExclusionRuntimeDependency},
+	{Component: "endpoint health and server startup", Reason: ReplayExclusionRuntimeReadiness},
+	{Component: "runtime tool inventory", Reason: ReplayExclusionToolInventory},
 }

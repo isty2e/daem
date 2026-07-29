@@ -19,6 +19,7 @@ type AggregateInput struct {
 	Locked                 lock.LockedSection
 	Expected               []lock.LockedSubjectContract
 	Desired                []aggregate.SubjectContribution
+	Constraints            []AggregateSubjectConstraint
 	States                 []durable.ManagedAggregateState
 	Evidence               []observe.AggregateEvidence
 	ObservationFailures    []observe.AggregateObservationFailure
@@ -28,6 +29,45 @@ type AggregateInput struct {
 	Owner                  stateauthority.Authority
 	Ownership              []observe.OwnershipObservation
 	Codecs                 aggregate.CodecCatalog
+}
+
+// AggregateSubjectConstraint is one fresh external condition that blocks a
+// subject without changing its locked projection or granting mutation authority
+// to the condition's observer.
+type AggregateSubjectConstraint struct {
+	subject topology.SubjectID
+	reason  reconcile.ActionReason
+	detail  string
+}
+
+// NewAggregateSubjectConstraint constructs one normalized planning constraint.
+func NewAggregateSubjectConstraint(
+	subject topology.SubjectID,
+	reason reconcile.ActionReason,
+	detail string,
+) (AggregateSubjectConstraint, error) {
+	if err := subject.Validate(); err != nil {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint subject: %w", err)
+	}
+	if reason == "" {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint reason is required")
+	}
+	if detail == "" {
+		return AggregateSubjectConstraint{}, fmt.Errorf("aggregate constraint detail is required")
+	}
+	return AggregateSubjectConstraint{subject: subject, reason: reason, detail: detail}, nil
+}
+
+func (constraint AggregateSubjectConstraint) Subject() topology.SubjectID {
+	return constraint.subject
+}
+
+func (constraint AggregateSubjectConstraint) Reason() reconcile.ActionReason {
+	return constraint.reason
+}
+
+func (constraint AggregateSubjectConstraint) Detail() string {
+	return constraint.detail
 }
 
 type aggregateGroupInput struct {
@@ -57,6 +97,10 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 		return nil, err
 	}
 	desired, err := desiredAggregateSubjects(input.Desired, expected, selection)
+	if err != nil {
+		return nil, err
+	}
+	blocked, err = applyAggregateSubjectConstraints(blocked, input.Constraints, expected)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +212,46 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 		return aggregateDecisionKey(drafts[left]) < aggregateDecisionKey(drafts[right])
 	})
 	return canonicalAggregateDecisions(drafts)
+}
+
+func applyAggregateSubjectConstraints(
+	blocked []aggregateBlockedSubject,
+	constraints []AggregateSubjectConstraint,
+	expected map[topology.SubjectID]aggregate.SubjectContribution,
+) ([]aggregateBlockedSubject, error) {
+	alreadyBlocked := make(map[topology.SubjectID]struct{}, len(blocked))
+	for _, fact := range blocked {
+		alreadyBlocked[fact.item.SubjectID()] = struct{}{}
+	}
+	seenConstraints := make(map[topology.SubjectID]struct{}, len(constraints))
+	for index, constraint := range constraints {
+		if err := constraint.Subject().Validate(); err != nil {
+			return nil, fmt.Errorf("aggregate constraint[%d]: %w", index, err)
+		}
+		if constraint.Reason() == "" || constraint.Detail() == "" {
+			return nil, fmt.Errorf("aggregate constraint[%d] is incomplete", index)
+		}
+		subject := constraint.Subject()
+		if _, duplicate := seenConstraints[subject]; duplicate {
+			return nil, fmt.Errorf("duplicate aggregate constraint for subject %q", subject)
+		}
+		seenConstraints[subject] = struct{}{}
+		item, present := expected[subject]
+		if !present {
+			return nil, fmt.Errorf(
+				"aggregate constraint subject %q has no selected expectation",
+				subject,
+			)
+		}
+		if _, blockedByLock := alreadyBlocked[subject]; blockedByLock {
+			continue
+		}
+		blocked = append(blocked, aggregateBlockedSubject{
+			item: item, reason: constraint.Reason(), detail: constraint.Detail(),
+		})
+		alreadyBlocked[subject] = struct{}{}
+	}
+	return blocked, nil
 }
 
 func aggregateGroup(

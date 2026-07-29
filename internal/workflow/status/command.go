@@ -88,6 +88,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		assessment.AggregateEvidence,
 		assessment.AggregateFailures,
 		assessment.AggregatePreconditions,
+		assessment.MCPEffective,
 	)
 	if err != nil {
 		return result, fmt.Errorf("inspect MCP projection status: %w", err)

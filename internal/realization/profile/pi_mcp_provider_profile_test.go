@@ -15,6 +15,7 @@ func TestPiMCPProviderContributionAdmitsOnlyExactNPMProviderIdentity(t *testing.
 	for _, sourceRef := range []string{
 		"npm:pi-mcp-adapter@^2.13.0",
 		"npm:pi-mcp-adapter@2.15.0",
+		"npm:pi-mcp-adapter@^2.99.0",
 	} {
 		carrier := piProviderProfileCarrier(t, target.ScopeProject, sourceRef)
 		contribution, admitted, err := profile.PiMCPProviderContribution(carrier)
@@ -36,6 +37,67 @@ func TestPiMCPProviderContributionAdmitsOnlyExactNPMProviderIdentity(t *testing.
 		carrier := piProviderProfileCarrier(t, target.ScopeProject, sourceRef)
 		if _, admitted, err := profile.PiMCPProviderContribution(carrier); err != nil || admitted {
 			t.Fatalf("PiMCPProviderContribution(%q) = admitted=%t err=%v, want unrelated", sourceRef, admitted, err)
+		}
+	}
+}
+
+func TestPiMCPProviderContributionRejectsUnboundedOrOutOfProfileSelectors(t *testing.T) {
+	for _, sourceRef := range []string{
+		"npm:pi-mcp-adapter",
+		"npm:pi-mcp-adapter@latest",
+		"npm:pi-mcp-adapter@*",
+		"npm:pi-mcp-adapter@^2.12.9",
+		"npm:pi-mcp-adapter@2.13.0-beta.1",
+		"npm:pi-mcp-adapter@^3.0.0",
+		"npm:pi-mcp-adapter@~2.15.0",
+	} {
+		carrier := piProviderProfileCarrier(t, target.ScopeProject, sourceRef)
+		if _, admitted, err := profile.PiMCPProviderContribution(carrier); err == nil || admitted {
+			t.Fatalf(
+				"PiMCPProviderContribution(%q) = admitted=%t err=%v, want rejection",
+				sourceRef,
+				admitted,
+				err,
+			)
+		}
+	}
+}
+
+func TestMCPProviderCodecForCurrentVersionMapsStableCompatibleFamily(t *testing.T) {
+	carrier := piProviderProfileCarrier(
+		t,
+		target.ScopeProject,
+		"npm:pi-mcp-adapter@^2.13.0",
+	)
+	contribution, admitted, err := profile.PiMCPProviderContribution(carrier)
+	if err != nil || !admitted {
+		t.Fatalf("PiMCPProviderContribution = admitted=%t err=%v", admitted, err)
+	}
+	for _, version := range []string{"2.13.0", "2.15.0", "2.99.7"} {
+		codec, err := profile.MCPProviderCodecForCurrentVersion(
+			target.TargetPi,
+			carrier,
+			contribution.Reference(),
+			version,
+		)
+		if err != nil || codec != "pi-mcp-adapter-stdio-v1" {
+			t.Fatalf("version %q codec = %q err=%v", version, codec, err)
+		}
+	}
+	for _, version := range []string{
+		"2.12.9",
+		"2.15.0-beta.1",
+		"3.0.0",
+		"v2.15.0",
+		"2.15",
+	} {
+		if _, err := profile.MCPProviderCodecForCurrentVersion(
+			target.TargetPi,
+			carrier,
+			contribution.Reference(),
+			version,
+		); err == nil {
+			t.Fatalf("version %q unexpectedly mapped", version)
 		}
 	}
 }

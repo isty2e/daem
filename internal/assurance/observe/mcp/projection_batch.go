@@ -20,6 +20,7 @@ type LockedProjectionBatchInput struct {
 	Evidence      []observe.AggregateEvidence
 	Failures      []observe.AggregateObservationFailure
 	Preconditions []observe.AggregatePreconditionEvidence
+	Shadowing     map[topology.SubjectID]ShadowState
 }
 
 // LockedProjectionObservation correlates one locked MCP projection with
@@ -94,7 +95,7 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 			FailureReason:              projection.failureReason,
 			UnsupportedAlternateConfig: projection.unsupportedAlternateConfig,
 			Ownership:                  ownership,
-			Shadowing:                  ShadowUnknown,
+			Shadowing:                  shadowingForSubject(input.Shadowing, subject),
 		})
 		if err != nil {
 			return nil, err
@@ -110,6 +111,16 @@ func ClassifyLockedProjections(input LockedProjectionBatchInput) ([]LockedProjec
 		})
 	}
 	return result, nil
+}
+
+func shadowingForSubject(
+	shadowing map[topology.SubjectID]ShadowState,
+	subject topology.SubjectID,
+) ShadowState {
+	if state, present := shadowing[subject]; present {
+		return state
+	}
+	return ShadowUnknown
 }
 
 func (observation LockedProjectionObservation) Subject() topology.SubjectID {

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -79,7 +80,10 @@ func SettingsPath(input SettingsInput) (string, error) {
 		}
 		return filepath.Join(root, ".pi", "settings.json"), nil
 	case target.ScopeGlobal:
-		root, err := piAgentRoot(input.ConfigRoot, input.WorkDir)
+		root, err := pihostpath.ResolveAgentRoot(pihostpath.AgentRootInput{
+			ExplicitRoot: input.ConfigRoot,
+			WorkDir:      input.WorkDir,
+		})
 		if err != nil {
 			return "", err
 		}
@@ -87,43 +91,6 @@ func SettingsPath(input SettingsInput) (string, error) {
 	default:
 		return "", fmt.Errorf("Pi package settings scope %q is not observable", scope)
 	}
-}
-
-func piAgentRoot(configRoot string, workDir string) (string, error) {
-	root := configRoot
-	if root == "" {
-		root = os.Getenv("PI_CODING_AGENT_DIR")
-	}
-	if root == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("resolve Pi config home: %w", err)
-		}
-		root = filepath.Join(home, ".pi", "agent")
-	}
-	if root == "~" || strings.HasPrefix(root, "~"+string(os.PathSeparator)) {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("expand Pi config home: %w", err)
-		}
-		if root == "~" {
-			root = home
-		} else {
-			root = filepath.Join(home, strings.TrimPrefix(root, "~"+string(os.PathSeparator)))
-		}
-	}
-	if !filepath.IsAbs(root) {
-		base := workDir
-		if base == "" {
-			var err error
-			base, err = os.Getwd()
-			if err != nil {
-				return "", fmt.Errorf("resolve Pi config working directory: %w", err)
-			}
-		}
-		root = filepath.Join(base, root)
-	}
-	return cleanAbsoluteRoot("Pi config root", root)
 }
 
 func cleanAbsoluteRoot(label string, root string) (string, error) {

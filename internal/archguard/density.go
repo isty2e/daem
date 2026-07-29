@@ -98,9 +98,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "phase packages would export transaction internals and make rollback ordering cross-package state",
 	},
 	"internal/realization/aggregate/codec/mcp": {
-		reviewedValue:       17,
+		reviewedValue:       18,
 		owner:               "MCP aggregate external protocol",
-		reason:              "at 17 production files, canonical entry, mutation fold, restore, compare, preservation, launch-vector decoding, and Codex global environment-reference normalization share one syntax boundary while capability admission remains profile-owned",
+		reason:              "at 18 production files, canonical entry, mutation fold, restore, compare, preservation, launch-vector decoding, Codex global environment-reference normalization, and the shared Pi adapter document codec form one syntax boundary while capability admission remains profile-owned",
 		naturalSplit:        "create one aggregate codec package per host",
 		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
 	},
@@ -112,9 +112,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer and obscure its single-use commit boundary",
 	},
 	"internal/workflow/authoring": {
-		reviewedValue:       16,
+		reviewedValue:       17,
 		owner:               "manifest, lock, and exact management-metadata authoring transaction",
-		reason:              "at 16 production files, request admission, exact management selection, optimistic revalidation, and recoverable metadata commit sequencing form one host-free authoring boundary",
+		reason:              "at 17 production files, request admission, explicit multi-resource provider authoring, exact management selection, optimistic revalidation, and recoverable metadata commit sequencing form one host-free authoring boundary",
 		naturalSplit:        "create a separate unmanage workflow or merge selection, plan, execution, and result files",
 		alternativeRejected: "a child workflow would reuse authoring in reverse dependency order, while file merging would couple independent identity, planning, publication, and output change triggers",
 	},

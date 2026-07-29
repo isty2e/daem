@@ -14,13 +14,16 @@ const (
 )
 
 var hostSpecializationOwners = map[string]string{
-	"internal/effect/execute/configrelation":   "private direct config-relation adapter owns host document selection and mutation syntax",
-	"internal/effect/execute/hostroute":        "private delegated-command adapter owns host argv and syntax",
-	"internal/realization/lock":                "locked realization owns static host profile and operation-contract variants",
-	"internal/assurance/observe/relation/host": "private relation-observation adapters own host inventory syntax",
-	"internal/topology/extension":              "extension lowerer owns declarative host relation namespaces and carrier-native structural source interpretation",
-	"internal/topology/hook":                   "hook lowerer owns complete desired target and scope projection namespaces",
-	"internal/topology/mcp":                    "MCP lowerer owns declarative projection namespaces",
+	"internal/effect/execute/configrelation":        "private direct config-relation adapter owns host document selection and mutation syntax",
+	"internal/effect/execute/hostroute":             "private delegated-command adapter owns host argv and syntax",
+	"internal/assurance/observe/mcp/effective/host": "private provider-effective MCP observer owns host source precedence, import syntax, and observation dispatch",
+	"internal/output/hostpath/managed":              "managed physical-path catalog selects admitted host root adapters",
+	"internal/output/hostpath/pi":                   "private Pi physical-root adapter owns host-selected path syntax",
+	"internal/realization/lock":                     "locked realization owns static host profile and operation-contract variants",
+	"internal/assurance/observe/relation/host":      "private relation-observation adapters own host inventory syntax",
+	"internal/topology/extension":                   "extension lowerer owns declarative host relation namespaces and carrier-native structural source interpretation",
+	"internal/topology/hook":                        "hook lowerer owns complete desired target and scope projection namespaces",
+	"internal/topology/mcp":                         "MCP lowerer owns declarative projection namespaces",
 }
 
 type testToolPackageKind string
