@@ -25,7 +25,9 @@ func observeImport(
 		if readErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
-				Shared: true, State: mcpeffective.SourceOpaque, Detail: readErr.Error(),
+				Shared: true, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                readErr.Error(),
 			}), true
 		}
 		if !exists {
@@ -43,13 +45,16 @@ func observeImport(
 		if err != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
-				Shared: true, State: mcpeffective.SourceOpaque, Detail: err.Error(),
+				Shared: true, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                err.Error(),
 			}), true
 		}
 		_, defines := names[serverName]
 		return mustSourceObservation(mcpeffective.SourceObservationInput{
 			ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
 			Shared: true, State: mcpeffective.SourceExact, DefinesSelectedName: defines,
+			DefinitionEquivalence: definitionEquivalenceForImportedName(defines),
 		}), true
 	}
 	return mcpeffective.SourceObservation{}, false
@@ -70,7 +75,9 @@ func observeOpenCodeImport(
 		return mustSourceObservation(mcpeffective.SourceObservationInput{
 			ID: id, Path: filepath.Join(workDir, "opencode.json"),
 			Kind: sourceKind, Precedence: precedence, Shared: true,
-			State: mcpeffective.SourceOpaque, Detail: candidateErr.Error(),
+			State:                 mcpeffective.SourceOpaque,
+			DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+			Detail:                candidateErr.Error(),
 		}), true
 	}
 	for _, path := range candidates {
@@ -78,7 +85,9 @@ func observeOpenCodeImport(
 		if readErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
-				Shared: true, State: mcpeffective.SourceOpaque, Detail: readErr.Error(),
+				Shared: true, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                readErr.Error(),
 			}), true
 		}
 		if !exists {
@@ -88,7 +97,9 @@ func observeOpenCodeImport(
 		if decodeErr != nil {
 			return mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: id, Path: path, Kind: sourceKind, Precedence: precedence,
-				Shared: true, State: mcpeffective.SourceOpaque, Detail: decodeErr.Error(),
+				Shared: true, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                decodeErr.Error(),
 			}), true
 		}
 		mergeOpenCodeEntries(merged, entries)
@@ -101,7 +112,17 @@ func observeOpenCodeImport(
 	return mustSourceObservation(mcpeffective.SourceObservationInput{
 		ID: id, Path: highestPath, Kind: sourceKind, Precedence: precedence,
 		Shared: true, State: mcpeffective.SourceExact, DefinesSelectedName: defines,
+		DefinitionEquivalence: definitionEquivalenceForImportedName(defines),
 	}), true
+}
+
+func definitionEquivalenceForImportedName(
+	defines bool,
+) mcpeffective.DefinitionEquivalence {
+	if defines {
+		return mcpeffective.DefinitionEquivalenceUnknown
+	}
+	return mcpeffective.DefinitionEquivalenceNotApplicable
 }
 
 func importCandidates(kind importKind, homeDir string, workDir string) []string {

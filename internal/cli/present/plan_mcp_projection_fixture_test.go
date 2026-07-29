@@ -3,6 +3,7 @@ package clipresent
 import (
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -66,6 +67,102 @@ func mcpProjectionPlan(t *testing.T) reconcile.Result {
 		SelectedTargets: selectedTargets,
 		Codecs:          aggregatecodec.Catalog(),
 	})
+	if err != nil {
+		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
+	}
+	return mustReconciliationPlan(t, nil, decisions)
+}
+
+func mcpProjectionRemovalPlan(t *testing.T, detail string) reconcile.Result {
+	t.Helper()
+	canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(
+		mcpcodec.ClaudeProjectMCPServerProjection{
+			ServerID:        "context7",
+			Command:         "npx",
+			AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
+		},
+	)
+	if err != nil {
+		t.Fatalf("CanonicalClaudeProjectMCPServerEntry returned error: %v", err)
+	}
+	contract := snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
+		PlacementID:         aggregate.MCPPlacementClaudeProject,
+		ServerID:            "context7",
+		LauncherCommand:     "npx",
+		CanonicalProjection: string(canonical),
+	})
+	contribution, present, err := contract.ManagedAggregateContribution()
+	if err != nil || !present {
+		t.Fatalf("ManagedAggregateContribution = %#v, %t, %v", contribution, present, err)
+	}
+	state, err := durable.NewManagedAggregateState(
+		contribution.SubjectID(),
+		contribution.Contribution(),
+	)
+	if err != nil {
+		t.Fatalf("NewManagedAggregateState returned error: %v", err)
+	}
+	operations, present := mcpcodec.ImplementedMCPPlacementOperationsForPlacement(
+		aggregate.MCPPlacementClaudeProject,
+	)
+	if !present {
+		t.Fatal("Claude project MCP operations are unavailable")
+	}
+	content, err := operations.MergeCanonicalEntry(
+		nil,
+		"context7",
+		canonical,
+	)
+	if err != nil {
+		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
+	}
+	document := aggregate.ExistingDocument(content)
+	projectionContract := contribution.Contribution().Contract()
+	selection, err := aggregate.NewSelection(
+		[]aggregate.ProjectionContract{projectionContract},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, present := aggregatecodec.Catalog().Lookup(selection.CodecContractID())
+	if !present {
+		t.Fatalf("codec %q is not admitted", selection.CodecContractID())
+	}
+	snapshot, failure := codec.Read(document, selection)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	evidence, err := observe.NewAggregateEvidence(
+		document,
+		snapshot,
+		aggregate.DocumentFileMode,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectedTargets, err := reconcile.NewSelectedTargets(
+		[]target.Target{target.TargetClaudeCode},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice, err := reconcileprojection.NewAggregateRemovalNotice(
+		contribution.SubjectID(),
+		detail,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := reconcileprojection.BuildAggregateDecisions(
+		reconcileprojection.AggregateInput{
+			Locked:          snapshottest.Section(t),
+			States:          []durable.ManagedAggregateState{state},
+			Evidence:        []observe.AggregateEvidence{evidence},
+			RemovalNotices:  []reconcileprojection.AggregateRemovalNotice{notice},
+			SelectedTargets: selectedTargets,
+			Codecs:          aggregatecodec.Catalog(),
+		},
+	)
 	if err != nil {
 		t.Fatalf("BuildAggregateDecisions returned error: %v", err)
 	}

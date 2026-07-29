@@ -46,28 +46,41 @@ const (
 	PrecedenceHigher   RelativePrecedence = "higher"
 )
 
+// DefinitionEquivalence classifies one exact same-name definition relative to
+// the selected managed contribution.
+type DefinitionEquivalence string
+
+const (
+	DefinitionEquivalenceNotApplicable DefinitionEquivalence = "not_applicable"
+	DefinitionEquivalenceEquivalent    DefinitionEquivalence = "equivalent"
+	DefinitionEquivalenceDifferent     DefinitionEquivalence = "different"
+	DefinitionEquivalenceUnknown       DefinitionEquivalence = "unknown"
+)
+
 // SourceObservationInput is constructor input for one active config source.
 type SourceObservationInput struct {
-	ID                  string
-	Path                string
-	Kind                SourceKind
-	Precedence          RelativePrecedence
-	Shared              bool
-	State               SourceState
-	DefinesSelectedName bool
-	Detail              string
+	ID                    string
+	Path                  string
+	Kind                  SourceKind
+	Precedence            RelativePrecedence
+	Shared                bool
+	State                 SourceState
+	DefinesSelectedName   bool
+	DefinitionEquivalence DefinitionEquivalence
+	Detail                string
 }
 
 // SourceObservation is redaction-safe provenance for one active config source.
 type SourceObservation struct {
-	id                  string
-	path                string
-	kind                SourceKind
-	precedence          RelativePrecedence
-	shared              bool
-	state               SourceState
-	definesSelectedName bool
-	detail              string
+	id                    string
+	path                  string
+	kind                  SourceKind
+	precedence            RelativePrecedence
+	shared                bool
+	state                 SourceState
+	definesSelectedName   bool
+	definitionEquivalence DefinitionEquivalence
+	detail                string
 }
 
 // NewSourceObservation validates and constructs one source observation.
@@ -102,6 +115,25 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 			input.ID,
 		)
 	}
+	switch {
+	case !input.DefinesSelectedName &&
+		input.DefinitionEquivalence != DefinitionEquivalenceNotApplicable:
+		return SourceObservation{}, fmt.Errorf(
+			"effective MCP source %q without a selected name requires not-applicable equivalence",
+			input.ID,
+		)
+	case input.DefinesSelectedName:
+		switch input.DefinitionEquivalence {
+		case DefinitionEquivalenceEquivalent,
+			DefinitionEquivalenceDifferent,
+			DefinitionEquivalenceUnknown:
+		default:
+			return SourceObservation{}, fmt.Errorf(
+				"effective MCP source %q with a selected name requires classified equivalence",
+				input.ID,
+			)
+		}
+	}
 	if input.State == SourceOpaque && strings.TrimSpace(input.Detail) == "" {
 		return SourceObservation{}, fmt.Errorf("opaque effective MCP source %q requires detail", input.ID)
 	}
@@ -112,14 +144,15 @@ func NewSourceObservation(input SourceObservationInput) (SourceObservation, erro
 		)
 	}
 	return SourceObservation{
-		id:                  input.ID,
-		path:                input.Path,
-		kind:                input.Kind,
-		precedence:          input.Precedence,
-		shared:              input.Shared,
-		state:               input.State,
-		definesSelectedName: input.DefinesSelectedName,
-		detail:              input.Detail,
+		id:                    input.ID,
+		path:                  input.Path,
+		kind:                  input.Kind,
+		precedence:            input.Precedence,
+		shared:                input.Shared,
+		state:                 input.State,
+		definesSelectedName:   input.DefinesSelectedName,
+		definitionEquivalence: input.DefinitionEquivalence,
+		detail:                input.Detail,
 	}, nil
 }
 
@@ -130,7 +163,11 @@ func (source SourceObservation) Precedence() RelativePrecedence { return source.
 func (source SourceObservation) Shared() bool                   { return source.shared }
 func (source SourceObservation) State() SourceState             { return source.state }
 func (source SourceObservation) DefinesSelectedName() bool      { return source.definesSelectedName }
-func (source SourceObservation) Detail() string                 { return source.detail }
+
+func (source SourceObservation) DefinitionEquivalence() DefinitionEquivalence {
+	return source.definitionEquivalence
+}
+func (source SourceObservation) Detail() string { return source.detail }
 
 // ObservationInput is constructor input for one provider-effective MCP name.
 type ObservationInput struct {
@@ -245,25 +282,75 @@ func (observation Observation) BlockingSources() []SourceObservation {
 // LowerFallbackPresent reports exact same-name content that may become
 // effective after the managed contribution is removed.
 func (observation Observation) LowerFallbackPresent() bool {
+	return len(observation.LowerFallbackSources()) > 0
+}
+
+// LowerFallbackSources returns exact lower-precedence same-name definitions in
+// provider observation order.
+func (observation Observation) LowerFallbackSources() []SourceObservation {
+	return observation.sameNameSourcesAt(PrecedenceLower)
+}
+
+// LowerFallbackEquivalence classifies the exact lower same-name definitions.
+// Mixed or incomparable definitions remain unknown rather than guessing which
+// unowned source the provider will ultimately select.
+func (observation Observation) LowerFallbackEquivalence() (DefinitionEquivalence, bool) {
+	var (
+		found      bool
+		equivalent bool
+		different  bool
+		unknown    bool
+	)
 	for _, source := range observation.sources {
-		if source.State() == SourceExact &&
-			source.DefinesSelectedName() &&
-			source.Precedence() == PrecedenceLower {
-			return true
+		if source.State() != SourceExact ||
+			!source.DefinesSelectedName() ||
+			source.Precedence() != PrecedenceLower {
+			continue
+		}
+		found = true
+		switch source.DefinitionEquivalence() {
+		case DefinitionEquivalenceEquivalent:
+			equivalent = true
+		case DefinitionEquivalenceDifferent:
+			different = true
+		case DefinitionEquivalenceUnknown:
+			unknown = true
 		}
 	}
-	return false
+	switch {
+	case !found:
+		return DefinitionEquivalenceNotApplicable, false
+	case unknown || (equivalent && different):
+		return DefinitionEquivalenceUnknown, true
+	case different:
+		return DefinitionEquivalenceDifferent, true
+	default:
+		return DefinitionEquivalenceEquivalent, true
+	}
 }
 
 // HigherConflictPresent reports exact same-name content above the selected
 // managed source.
 func (observation Observation) HigherConflictPresent() bool {
+	return len(observation.HigherConflictSources()) > 0
+}
+
+// HigherConflictSources returns exact higher-precedence same-name definitions
+// in provider observation order.
+func (observation Observation) HigherConflictSources() []SourceObservation {
+	return observation.sameNameSourcesAt(PrecedenceHigher)
+}
+
+func (observation Observation) sameNameSourcesAt(
+	precedence RelativePrecedence,
+) []SourceObservation {
+	result := make([]SourceObservation, 0)
 	for _, source := range observation.sources {
 		if source.State() == SourceExact &&
 			source.DefinesSelectedName() &&
-			source.Precedence() == PrecedenceHigher {
-			return true
+			source.Precedence() == precedence {
+			result = append(result, source)
 		}
 	}
-	return false
+	return result
 }

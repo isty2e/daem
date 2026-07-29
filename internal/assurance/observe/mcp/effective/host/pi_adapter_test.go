@@ -10,8 +10,9 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -24,8 +25,8 @@ func TestObservePiAdapterCoversSixOrderedNormalLayers(t *testing.T) {
 	writeEffectiveConfig(t, selectedPath, `{"mcpServers":{"context7":{"command":"node"}}}`)
 
 	observation := mustObservePiAdapter(t, PiAdapterInput{
-		Contract: piEffectiveContract(t, target.ScopeProject),
-		HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+		Projection: piEffectiveProjection(t, target.ScopeProject),
+		HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 	})
 	if observation.State() != mcpeffective.StateExact {
 		t.Fatalf("state = %q, want exact", observation.State())
@@ -50,6 +51,21 @@ func TestObservePiAdapterCoversSixOrderedNormalLayers(t *testing.T) {
 	if sources[5].Precedence() != mcpeffective.PrecedenceSelected ||
 		!sources[5].DefinesSelectedName() {
 		t.Fatalf("selected source = %#v, want exact selected definition", sources[5])
+	}
+}
+
+func TestObservePiAdapterRequiresRegisteredCodec(t *testing.T) {
+	root := t.TempDir()
+	selectedPath := filepath.Join(root, "project", ".pi", "mcp.json")
+	_, err := ObservePiAdapter(PiAdapterInput{
+		Projection:   piEffectiveProjection(t, target.ScopeProject),
+		HomeDir:      filepath.Join(root, "home"),
+		WorkDir:      filepath.Join(root, "project"),
+		AgentRoot:    filepath.Join(root, "home", ".pi", "agent"),
+		SelectedPath: selectedPath,
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires codec") {
+		t.Fatalf("ObservePiAdapter error = %v, want missing codec rejection", err)
 	}
 }
 
@@ -89,8 +105,8 @@ func TestObservePiAdapterBlocksSameNameInEveryOtherNormalLayer(t *testing.T) {
 			)
 
 			observation := mustObservePiAdapter(t, PiAdapterInput{
-				Contract: piEffectiveContract(t, target.ScopeProject),
-				HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+				Projection: piEffectiveProjection(t, target.ScopeProject),
+				HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 			})
 			if observation.State() != mcpeffective.StateConflicting || !observation.LowerFallbackPresent() {
 				t.Fatalf(
@@ -101,6 +117,96 @@ func TestObservePiAdapterBlocksSameNameInEveryOtherNormalLayer(t *testing.T) {
 			}
 			if len(observation.BlockingSources()) != 1 {
 				t.Fatalf("blocking sources = %#v, want one", observation.BlockingSources())
+			}
+		})
+	}
+}
+
+func TestObservePiAdapterClassifiesLowerFallbackEquivalence(t *testing.T) {
+	tests := []struct {
+		name        string
+		fallback    string
+		equivalence mcpeffective.DefinitionEquivalence
+	}{
+		{
+			name: "equivalent",
+			fallback: `{"mcpServers":{"context7":{
+				"command":"node",
+				"args":["server.js"],
+				"env":{},
+				"lifecycle":"lazy",
+				"disabled":false
+			}}}`,
+			equivalence: mcpeffective.DefinitionEquivalenceEquivalent,
+		},
+		{
+			name: "equivalent JSONC",
+			fallback: `{
+				// Provider-valid comments are irrelevant to semantic comparison.
+				"mcpServers": {
+					"context7": {
+						"command": "node",
+						"args": ["server.js"],
+					},
+				},
+			}`,
+			equivalence: mcpeffective.DefinitionEquivalenceEquivalent,
+		},
+		{
+			name: "materially different",
+			fallback: `{"mcpServers":{"context7":{
+				"command":"different",
+				"args":[],
+				"env":{},
+				"lifecycle":"lazy",
+				"disabled":false
+			}}}`,
+			equivalence: mcpeffective.DefinitionEquivalenceDifferent,
+		},
+		{
+			name: "provider-valid but incomparable",
+			fallback: `{"mcpServers":{"context7":{
+				"command":"node",
+				"args":["server.js"],
+				"env":{},
+				"lifecycle":"lazy",
+				"disabled":false,
+				"providerFutureField":true
+			}}}`,
+			equivalence: mcpeffective.DefinitionEquivalenceUnknown,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			homeDir := filepath.Join(root, "home")
+			workDir := filepath.Join(root, "project")
+			agentRoot := filepath.Join(homeDir, ".pi", "agent")
+			selectedPath := filepath.Join(workDir, ".pi", "mcp.json")
+			writeEffectiveConfig(
+				t,
+				selectedPath,
+				`{"mcpServers":{"context7":{"command":"node","args":["server.js"]}}}`,
+			)
+			writeEffectiveConfig(
+				t,
+				filepath.Join(homeDir, ".config", "mcp", "mcp.json"),
+				test.fallback,
+			)
+
+			observation := mustObservePiAdapter(t, PiAdapterInput{
+				Projection: piEffectiveProjection(t, target.ScopeProject),
+				HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot,
+				SelectedPath: selectedPath,
+			})
+			got, present := observation.LowerFallbackEquivalence()
+			if !present || got != test.equivalence {
+				t.Fatalf(
+					"lower fallback equivalence = %q/%t, want %q/true",
+					got,
+					present,
+					test.equivalence,
+				)
 			}
 		})
 	}
@@ -120,8 +226,8 @@ func TestObservePiAdapterClassifiesHigherProjectConflictForGlobalPlacement(t *te
 	)
 
 	observation := mustObservePiAdapter(t, PiAdapterInput{
-		Contract: piEffectiveContract(t, target.ScopeGlobal),
-		HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+		Projection: piEffectiveProjection(t, target.ScopeGlobal),
+		HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 	})
 	if observation.State() != mcpeffective.StateConflicting ||
 		!observation.HigherConflictPresent() ||
@@ -177,8 +283,8 @@ func TestObservePiAdapterObservesPerLayerImportsAndHostDiscovery(t *testing.T) {
 			)
 
 			observation := mustObservePiAdapter(t, PiAdapterInput{
-				Contract: piEffectiveContract(t, target.ScopeProject),
-				HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+				Projection: piEffectiveProjection(t, target.ScopeProject),
+				HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 			})
 			if observation.State() != mcpeffective.StateConflicting || !observation.LowerFallbackPresent() {
 				t.Fatalf(
@@ -209,8 +315,8 @@ func TestObservePiAdapterTreatsMissingImportAsExactAbsence(t *testing.T) {
 	}`)
 
 	observation := mustObservePiAdapter(t, PiAdapterInput{
-		Contract: piEffectiveContract(t, target.ScopeProject),
-		HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+		Projection: piEffectiveProjection(t, target.ScopeProject),
+		HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 	})
 	if observation.State() != mcpeffective.StateExact || len(observation.BlockingSources()) != 0 {
 		t.Fatalf("observation = %#v, want exact without blockers", observation)
@@ -263,8 +369,8 @@ func TestObservePiAdapterTurnsOpaqueActiveSourcesIntoBlockers(t *testing.T) {
 			writeEffectiveConfig(t, selectedPath, `{"mcpServers":{"context7":{"command":"node"}}}`)
 
 			observation := mustObservePiAdapter(t, PiAdapterInput{
-				Contract: piEffectiveContract(t, target.ScopeProject),
-				HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+				Projection: piEffectiveProjection(t, target.ScopeProject),
+				HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 			})
 			if observation.State() != mcpeffective.StateUnobservable {
 				t.Fatalf("state = %q, want unobservable", observation.State())
@@ -286,8 +392,8 @@ func TestObservePiAdapterCoalescesSharedAndCustomGlobalRoot(t *testing.T) {
 	writeEffectiveConfig(t, selectedPath, `{"mcpServers":{"context7":{"command":"node"}}}`)
 
 	observation := mustObservePiAdapter(t, PiAdapterInput{
-		Contract: piEffectiveContract(t, target.ScopeGlobal),
-		HomeDir:  homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+		Projection: piEffectiveProjection(t, target.ScopeGlobal),
+		HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
 	})
 	if observation.State() != mcpeffective.StateExact {
 		t.Fatalf("state = %q, want exact", observation.State())
@@ -306,7 +412,10 @@ func TestObservePiAdapterCoalescesSharedAndCustomGlobalRoot(t *testing.T) {
 	}
 }
 
-func piEffectiveContract(t *testing.T, scope target.Scope) lock.LockedSubjectContract {
+func piEffectiveProjection(
+	t *testing.T,
+	scope target.Scope,
+) aggregate.SubjectContribution {
 	t.Helper()
 	provider := desiredtest.Extension(t, desiredextension.Spec{
 		Name:    "pi-mcp-adapter-" + string(scope),
@@ -347,11 +456,16 @@ func piEffectiveContract(t *testing.T, scope target.Scope) lock.LockedSubjectCon
 	if len(contracts) != 1 {
 		t.Fatalf("MCP contracts = %d, want one", len(contracts))
 	}
-	return contracts[0]
+	projection, present, err := contracts[0].ManagedAggregateContribution()
+	if err != nil || !present {
+		t.Fatalf("ManagedAggregateContribution = present=%t err=%v", present, err)
+	}
+	return projection
 }
 
 func mustObservePiAdapter(t *testing.T, input PiAdapterInput) mcpeffective.Observation {
 	t.Helper()
+	input.Codecs = aggregatecodec.Catalog()
 	observation, err := ObservePiAdapter(input)
 	if err != nil {
 		t.Fatalf("ObservePiAdapter returned error: %v", err)

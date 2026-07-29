@@ -106,6 +106,9 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 			if decision.Detail() != "" {
 				fmt.Fprintf(output, "    detail: %s\n", decision.Detail())
 			}
+		} else if decision.Kind() == reconcile.AggregateRemove &&
+			decision.Detail() != "" {
+			fmt.Fprintf(output, "    detail: %s\n", decision.Detail())
 		}
 	}
 }

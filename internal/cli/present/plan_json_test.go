@@ -204,6 +204,34 @@ func TestPrintPlanJSONIncludesSubjectProjectionActions(t *testing.T) {
 	}
 }
 
+func TestPrintPlanJSONIncludesMCPRemovalDetail(t *testing.T) {
+	detail := "managed MCP config entry will be removed; runtime absence is not claimed"
+	var stdout bytes.Buffer
+	err := PrintPlanJSON(&stdout, PlanJSONInput{
+		Command:        "apply",
+		Mode:           "dry-run",
+		Reconciliation: mcpProjectionRemovalPlan(t, detail),
+	})
+	if err != nil {
+		t.Fatalf("PrintPlanJSON returned error: %v", err)
+	}
+
+	var payload struct {
+		Actions []struct {
+			Kind   string `json:"kind"`
+			Detail string `json:"detail"`
+		} `json:"actions"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode plan json: %v", err)
+	}
+	if len(payload.Actions) != 1 ||
+		payload.Actions[0].Kind != "delete" ||
+		payload.Actions[0].Detail != detail {
+		t.Fatalf("actions = %#v, want one detailed delete", payload.Actions)
+	}
+}
+
 func TestPrintPlanJSONIncludesRelationActions(t *testing.T) {
 	action := claudePluginCarrierAction(t, observeclaudeplugin.InventorySpec{
 		Availability: observerelation.InventorySupported,

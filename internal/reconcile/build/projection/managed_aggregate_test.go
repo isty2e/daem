@@ -123,6 +123,55 @@ func TestAggregatePlannerRemovesOneSubjectBeforeFinalProjectionCleanup(t *testin
 	}
 }
 
+func TestAggregatePlannerAnnotatesRemovalWithoutGrantingAuthority(t *testing.T) {
+	guard := aggregateHookContract(t, "guard", "echo guard")
+	item := aggregateItems(t, guard)[0]
+	state := aggregateStates(t, item)[0]
+	contract := item.Contribution().Contract()
+	notice, err := NewAggregateRemovalNotice(
+		guard.SubjectID(),
+		"an unowned lower fallback may become effective",
+	)
+	if err != nil {
+		t.Fatalf("NewAggregateRemovalNotice returned error: %v", err)
+	}
+	decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+		Locked:          aggregateLockedSection(t),
+		States:          []durable.ManagedAggregateState{state},
+		Evidence:        []observe.AggregateEvidence{aggregateEvidence(t, contract, aggregateDocumentFor(t, contract, []aggregate.SubjectContribution{item}))},
+		RemovalNotices:  []AggregateRemovalNotice{notice},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+	})
+	if err != nil {
+		t.Fatalf("buildAggregateDecisionsForTest returned error: %v", err)
+	}
+	result := mustReconciliationResult(t, nil, decisions)
+	subjectDecision := aggregateSubjectDecisionsBySubject(t, result.Decisions())[guard.SubjectID()]
+	if subjectDecision.Kind() != reconcile.AggregateRemove ||
+		subjectDecision.Detail() != notice.Detail() ||
+		!subjectDecision.MutatesHost() ||
+		!subjectDecision.MutatesState() {
+		t.Fatalf(
+			"annotated removal = kind %q detail %q host=%t state=%t",
+			subjectDecision.Kind(),
+			subjectDecision.Detail(),
+			subjectDecision.MutatesHost(),
+			subjectDecision.MutatesState(),
+		)
+	}
+
+	_, err = buildAggregateDecisionsForTest(AggregateInput{
+		Locked:          aggregateLockedSection(t),
+		States:          []durable.ManagedAggregateState{state},
+		Evidence:        []observe.AggregateEvidence{aggregateEvidence(t, contract, aggregateDocumentFor(t, contract, []aggregate.SubjectContribution{item}))},
+		RemovalNotices:  []AggregateRemovalNotice{notice, notice},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate aggregate removal notice") {
+		t.Fatalf("duplicate removal notice error = %v", err)
+	}
+}
+
 func TestAggregatePlannerBlocksUnmanagedOrDriftedHookProjection(t *testing.T) {
 	guard := aggregateHookContract(t, "guard", "echo guard")
 	desired := aggregateItems(t, guard)

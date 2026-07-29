@@ -7,7 +7,6 @@ import (
 
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	lock "github.com/isty2e/daem/internal/realization/lock"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
@@ -22,10 +21,11 @@ type observedNormalSource struct {
 	document normalDocument
 }
 
-// PiAdapterInput names the physical source roots used by one current provider
-// process. Inputs are explicit so tests never depend on the invoking machine.
+// PiAdapterInput names the physical source roots used by one admitted provider
+// projection. Inputs are explicit so tests never depend on the invoking machine.
 type PiAdapterInput struct {
-	Contract     lock.LockedSubjectContract
+	Projection   aggregate.SubjectContribution
+	Codecs       aggregate.CodecCatalog
 	HomeDir      string
 	WorkDir      string
 	AgentRoot    string
@@ -33,9 +33,10 @@ type PiAdapterInput struct {
 }
 
 // ObservePiAdapter reads the active pi-mcp-adapter config sources for one
-// locked projection. Shared and imported files remain passive evidence only.
+// admitted projection. Shared and imported files remain passive evidence only.
 func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
-	placement, ok := aggregate.MCPPlacementForSubject(input.Contract.SubjectID())
+	subject := input.Projection.SubjectID()
+	placement, ok := aggregate.MCPPlacementForSubject(subject)
 	if !ok ||
 		(placement.ID() != aggregate.MCPPlacementPiProject &&
 			placement.ID() != aggregate.MCPPlacementPiGlobal) {
@@ -43,13 +44,30 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 			"effective Pi MCP observation requires a Pi adapter projection",
 		)
 	}
-	provider, present := input.Contract.MCPProviderContribution()
-	if !present || provider.Kind() != "mcp-client" || provider.Key() != "default" {
+	contribution := input.Projection.Contribution()
+	if contribution.Contract().CodecContractID() != aggregate.MCPCodecPiAdapterStdio ||
+		contribution.Address().PlacementID() != string(placement.ID()) {
 		return mcpeffective.Observation{}, fmt.Errorf(
-			"effective Pi MCP observation requires mcp-client/default provider contribution",
+			"effective Pi MCP observation requires the admitted Pi adapter contract",
 		)
 	}
-	serverName, ok := topologymcp.ServerID(input.Contract.SubjectID())
+	codec, ok := input.Codecs.Lookup(contribution.CodecContractID())
+	if !ok {
+		return mcpeffective.Observation{}, fmt.Errorf(
+			"effective Pi MCP observation requires codec %q",
+			contribution.CodecContractID(),
+		)
+	}
+	selection, err := aggregate.NewSelection(
+		[]aggregate.ProjectionContract{contribution.Contract()},
+	)
+	if err != nil {
+		return mcpeffective.Observation{}, fmt.Errorf(
+			"effective Pi MCP projection selection: %w",
+			err,
+		)
+	}
+	serverName, ok := topologymcp.ServerID(subject)
 	if !ok {
 		return mcpeffective.Observation{}, fmt.Errorf("effective Pi MCP subject has no server identity")
 	}
@@ -90,7 +108,14 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 	hostConfigDiscovery := "off"
 	for index, spec := range specs {
 		precedence := relativePrecedence(index, selectedIndex)
-		observed := observeNormalSource(spec, precedence, serverName)
+		observed := observeNormalSource(
+			spec,
+			precedence,
+			serverName,
+			contribution,
+			selection,
+			codec,
+		)
 		sources = append(sources, observed.evidence)
 		documents = append(documents, observed)
 		if observed.evidence.State() == mcpeffective.SourceExact &&
@@ -139,7 +164,7 @@ func ObservePiAdapter(input PiAdapterInput) (mcpeffective.Observation, error) {
 		}
 	}
 	return mcpeffective.NewObservation(mcpeffective.ObservationInput{
-		Subject:      input.Contract.SubjectID(),
+		Subject:      subject,
 		ServerName:   serverName,
 		SelectedPath: selectedPath,
 		Sources:      sources,
@@ -178,13 +203,18 @@ func observeNormalSource(
 	spec normalSourceSpec,
 	precedence mcpeffective.RelativePrecedence,
 	serverName string,
+	contribution aggregate.ManagedContribution,
+	selection aggregate.Selection,
+	codec aggregate.Codec,
 ) observedNormalSource {
 	content, exists, readErr := readStableRegularFile(spec.path)
 	if readErr != nil {
 		return observedNormalSource{
 			evidence: mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: spec.id, Path: spec.path, Kind: mcpeffective.SourceNormal, Precedence: precedence,
-				Shared: spec.shared, State: mcpeffective.SourceOpaque, Detail: readErr.Error(),
+				Shared: spec.shared, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                readErr.Error(),
 			}),
 		}
 	}
@@ -193,6 +223,7 @@ func observeNormalSource(
 			evidence: mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: spec.id, Path: spec.path, Kind: mcpeffective.SourceNormal, Precedence: precedence,
 				Shared: spec.shared, State: mcpeffective.SourceAbsent,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
 			}),
 		}
 	}
@@ -201,18 +232,50 @@ func observeNormalSource(
 		return observedNormalSource{
 			evidence: mustSourceObservation(mcpeffective.SourceObservationInput{
 				ID: spec.id, Path: spec.path, Kind: mcpeffective.SourceNormal, Precedence: precedence,
-				Shared: spec.shared, State: mcpeffective.SourceOpaque, Detail: decodeErr.Error(),
+				Shared: spec.shared, State: mcpeffective.SourceOpaque,
+				DefinitionEquivalence: mcpeffective.DefinitionEquivalenceNotApplicable,
+				Detail:                decodeErr.Error(),
 			}),
 		}
 	}
 	_, defines := document.serverNames[serverName]
+	equivalence := mcpeffective.DefinitionEquivalenceNotApplicable
+	if defines {
+		equivalence = compareNormalDefinition(
+			document.standardized,
+			contribution,
+			selection,
+			codec,
+		)
+	}
 	return observedNormalSource{
 		evidence: mustSourceObservation(mcpeffective.SourceObservationInput{
 			ID: spec.id, Path: spec.path, Kind: mcpeffective.SourceNormal, Precedence: precedence,
 			Shared: spec.shared, State: mcpeffective.SourceExact, DefinesSelectedName: defines,
+			DefinitionEquivalence: equivalence,
 		}),
 		document: document,
 	}
+}
+
+func compareNormalDefinition(
+	document []byte,
+	contribution aggregate.ManagedContribution,
+	selection aggregate.Selection,
+	codec aggregate.Codec,
+) mcpeffective.DefinitionEquivalence {
+	snapshot, failure := codec.Read(aggregate.ExistingDocument(document), selection)
+	if failure != nil {
+		return mcpeffective.DefinitionEquivalenceUnknown
+	}
+	state, present := snapshot.State(contribution.Contract())
+	if !present || !state.Present() {
+		return mcpeffective.DefinitionEquivalenceUnknown
+	}
+	if state.CanonicalProjection() == contribution.CanonicalContribution() {
+		return mcpeffective.DefinitionEquivalenceEquivalent
+	}
+	return mcpeffective.DefinitionEquivalenceDifferent
 }
 
 func relativePrecedence(index int, selectedIndex int) mcpeffective.RelativePrecedence {

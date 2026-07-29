@@ -38,14 +38,18 @@ type normalDocument struct {
 	serverNames         map[string]struct{}
 	imports             []importKind
 	hostConfigDiscovery string
+	standardized        []byte
 }
 
 func decodeNormalDocument(content []byte) (normalDocument, error) {
-	root, err := decodeJSONCObject(content, "Pi MCP config")
+	root, standardized, err := decodeJSONCObjectDocument(content, "Pi MCP config")
 	if err != nil {
 		return normalDocument{}, err
 	}
-	result := normalDocument{serverNames: make(map[string]struct{})}
+	result := normalDocument{
+		serverNames:  make(map[string]struct{}),
+		standardized: standardized,
+	}
 	if root == nil {
 		return result, nil
 	}
@@ -238,24 +242,32 @@ func mergeOpenCodeEntries(
 }
 
 func decodeJSONCObject(content []byte, label string) (map[string]any, error) {
+	root, _, err := decodeJSONCObjectDocument(content, label)
+	return root, err
+}
+
+func decodeJSONCObjectDocument(
+	content []byte,
+	label string,
+) (map[string]any, []byte, error) {
 	standardized, err := hujson.Standardize(append([]byte(nil), content...))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := jsonstrict.Validate(standardized, label, maximumConfigDepth); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(standardized))
 	decoder.UseNumber()
 	var root any
 	if err := decoder.Decode(&root); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	object, ok := root.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("%s root must be an object", label)
+		return nil, nil, fmt.Errorf("%s root must be an object", label)
 	}
-	return object, nil
+	return object, standardized, nil
 }
 
 func nullishObjectField(

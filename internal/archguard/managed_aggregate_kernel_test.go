@@ -531,6 +531,9 @@ func managedAggregateWorkflowClassifications() map[string]managedAggregateWorkfl
 		"internal/workflow/readiness/mcp.go": {
 			reason: "MCP-specific assurance observation sequencing",
 		},
+		"internal/workflow/readiness/mcp_effective.go": {
+			reason: "correlates provider-effective MCP evidence with current and retiring aggregate projections",
+		},
 		"internal/workflow/readiness/mcp_provider.go": {
 			reason: "correlates provider evidence to aggregate subject constraints without owning codec semantics",
 		},

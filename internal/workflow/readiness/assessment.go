@@ -175,11 +175,24 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
-	mcpEffective, err := observeProviderEffectiveMCP(paths, resolver, locked, selection)
+	mcpEffective, err := observeProviderEffectiveMCP(
+		paths,
+		resolver,
+		locked,
+		currentState,
+		selection,
+		codecs,
+	)
 	if err != nil {
 		return Assessment{}, err
 	}
-	effectiveConstraints, err := providerEffectiveConstraints(mcpEffective)
+	effectiveConstraints, err := providerEffectiveConstraints(mcpEffective.Current)
+	if err != nil {
+		return Assessment{}, err
+	}
+	effectiveRemovalNotices, err := providerEffectiveRemovalNotices(
+		mcpEffective.Retiring,
+	)
 	if err != nil {
 		return Assessment{}, err
 	}
@@ -226,23 +239,24 @@ func buildAssessment(
 	aggregateConstraints := append(effectiveConstraints, providerConstraints...)
 
 	managedPaths, aggregates, err := buildProjectionDecisions(projectionPlanningInput{
-		environment:            environment,
-		locked:                 locked.Locked,
-		selectedTargets:        selectedTargets,
-		supplyObservations:     supplyObservations,
-		managedPathStates:      managedInputs.states,
-		managedPathEvidence:    managedEvidence,
-		aggregateExpected:      aggregateInputs.expected,
-		aggregateDesired:       aggregateInputs.desired,
-		aggregateConstraints:   aggregateConstraints,
-		aggregateStates:        aggregateInputs.states,
-		aggregateEvidence:      aggregateInputs.evidence,
-		aggregateFailures:      aggregateInputs.failures,
-		aggregatePreconditions: aggregateInputs.preconditions,
-		manageUnmanagedMatches: manageUnmanagedMatches,
-		owner:                  owner,
-		ownership:              ownershipObservations,
-		codecs:                 codecs,
+		environment:             environment,
+		locked:                  locked.Locked,
+		selectedTargets:         selectedTargets,
+		supplyObservations:      supplyObservations,
+		managedPathStates:       managedInputs.states,
+		managedPathEvidence:     managedEvidence,
+		aggregateExpected:       aggregateInputs.expected,
+		aggregateDesired:        aggregateInputs.desired,
+		aggregateConstraints:    aggregateConstraints,
+		aggregateRemovalNotices: effectiveRemovalNotices,
+		aggregateStates:         aggregateInputs.states,
+		aggregateEvidence:       aggregateInputs.evidence,
+		aggregateFailures:       aggregateInputs.failures,
+		aggregatePreconditions:  aggregateInputs.preconditions,
+		manageUnmanagedMatches:  manageUnmanagedMatches,
+		owner:                   owner,
+		ownership:               ownershipObservations,
+		codecs:                  codecs,
 	})
 	if err != nil {
 		return Assessment{}, err
@@ -305,7 +319,7 @@ func buildAssessment(
 		AggregateEvidence:      aggregateInputs.evidence,
 		AggregateFailures:      aggregateInputs.failures,
 		AggregatePreconditions: aggregateInputs.preconditions,
-		MCPEffective:           mcpEffective,
+		MCPEffective:           mcpEffective.Current,
 		MCPProviders:           providerPrerequisites,
 		Reconciliation:         result,
 		RelationObservations:   relationObservations,
