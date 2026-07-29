@@ -13,7 +13,9 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const maximumConfigBytes = 4 << 20
+// MaximumConfigBytes bounds one selected OpenCode config observation and its
+// corresponding rooted mutation read.
+const MaximumConfigBytes = 4 << 20
 
 // InventoryInput selects one OpenCode project or global config layer.
 type InventoryInput struct {
@@ -42,6 +44,8 @@ type Document struct {
 	exists   bool
 	revision string
 	entries  []Entry
+	content  []byte
+	parsed   opencodeconfig.Document
 }
 
 // Kind returns the selected server or TUI config family.
@@ -112,7 +116,7 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 		if err != nil {
 			return Inventory{}, err
 		}
-		content, exists, err := filesnapshot.ReadRegularFile(path, maximumConfigBytes)
+		content, exists, err := filesnapshot.ReadRegularFile(path, MaximumConfigBytes)
 		if err != nil {
 			return Inventory{}, fmt.Errorf("read OpenCode %s config %q: %w", kind, path, err)
 		}
@@ -121,6 +125,7 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 			path:     path,
 			exists:   exists,
 			revision: contentRevision(content),
+			content:  append([]byte(nil), content...),
 		}
 		if exists {
 			parsed, err := opencodeconfig.ParseAt(content, path)
@@ -135,6 +140,7 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 					hostLoadIdentity: row.HostLoadIdentity(),
 				})
 			}
+			document.parsed = parsed
 		}
 		documents = append(documents, document)
 	}

@@ -199,6 +199,34 @@ func TestFixedSlotPermutationPreservesForeignSlotsAndReportsCrossings(t *testing
 	}
 }
 
+func TestFixedSlotPermutationRejectsDuplicateLoadIdentity(t *testing.T) {
+	alpha := mustObservedOrderMember(t, "alpha", "@acme/alpha")
+	beta := mustObservedOrderMember(t, "beta", "@acme/beta")
+	constraint, err := hostrelation.NewRelationOrderConstraint(
+		mustObservedOrderClassID(t),
+		"opencode-plugin-package-v1",
+		hostrelation.ConfigOrderOnly,
+		[]hostrelation.RelationOrderMember{alpha, beta},
+	)
+	if err != nil {
+		t.Fatalf("NewRelationOrderConstraint: %v", err)
+	}
+	duplicate, err := observerelation.NewObservedRelationRow(alpha.HostLoadIdentity())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = observerelation.FixedSlotPermutation(
+		constraint,
+		[]observerelation.ObservedRelationRow{
+			mustCorrelatedObservedRow(t, alpha),
+			duplicate,
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "host load identity") {
+		t.Fatalf("FixedSlotPermutation error = %v", err)
+	}
+}
+
 func mustObservedSequence(
 	t *testing.T,
 	sequenceID string,

@@ -196,6 +196,119 @@ func TestRemoveExactSourcePreservesBytesOutsideSelectedElement(t *testing.T) {
 	}
 }
 
+func TestPermutePluginRowsPreservesJSONCSlotsAndTupleBytes(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`{
+  // sibling remains exact
+  "theme": "dark",
+  "plugin": [
+    /* slot zero */ ["beta@2", {"flag": true, "nested": [1, 2]}],
+    /* foreign slot */ "foreign@1",
+    /* slot two */ "alpha@1",
+  ],
+  "future": {"unknown": true},
+}
+`)
+	document, err := Parse(input)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	output, changed, err := document.PermutePluginRows([]int{2, 1, 0})
+	if err != nil {
+		t.Fatalf("PermutePluginRows: %v", err)
+	}
+	if !changed {
+		t.Fatal("PermutePluginRows changed = false, want true")
+	}
+	for _, retained := range []string{
+		"// sibling remains exact",
+		`"theme": "dark"`,
+		"/* slot zero */",
+		"/* foreign slot */",
+		"/* slot two */",
+		`["beta@2", {"flag": true, "nested": [1, 2]}]`,
+		`"future": {"unknown": true}`,
+	} {
+		if !bytes.Contains(output, []byte(retained)) {
+			t.Fatalf("output lost %q:\n%s", retained, output)
+		}
+	}
+	entries, err := Parse(output)
+	if err != nil {
+		t.Fatalf("Parse(output): %v", err)
+	}
+	got := entries.Entries()
+	if got[0].Source() != "alpha@1" ||
+		got[1].Source() != "foreign@1" ||
+		got[2].Source() != "beta@2" {
+		t.Fatalf("reordered entries = %#v", got)
+	}
+	repeated, repeatedChanged, err := entries.PermutePluginRows([]int{0, 1, 2})
+	if err != nil {
+		t.Fatalf("identity PermutePluginRows: %v", err)
+	}
+	if repeatedChanged || !bytes.Equal(repeated, output) {
+		t.Fatal("identity permutation changed reordered bytes")
+	}
+}
+
+func TestPermutePluginRowsRejectsInvalidPermutation(t *testing.T) {
+	t.Parallel()
+
+	document, err := Parse([]byte(`{"plugin":["alpha","beta"]}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	for name, order := range map[string][]int{
+		"short":     {0},
+		"duplicate": {0, 0},
+		"negative":  {-1, 0},
+		"large":     {0, 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if _, _, err := document.PermutePluginRows(order); err == nil {
+				t.Fatalf("PermutePluginRows(%v) succeeded", order)
+			}
+		})
+	}
+}
+
+func TestPermutePluginRowsPreservesEscapesCRLFAndUnicode(t *testing.T) {
+	t.Parallel()
+
+	input := []byte("{\r\n" +
+		"  \"plugin\": [\r\n" +
+		"    \"bet\\u0061@1\",\r\n" +
+		"    [\"./플러그인.ts\", {\"label\": \"한글\"}],\r\n" +
+		"  ],\r\n" +
+		"}\r\n")
+	document, err := ParseAt(input, filepath.Join(t.TempDir(), "opencode.jsonc"))
+	if err != nil {
+		t.Fatalf("ParseAt: %v", err)
+	}
+	output, changed, err := document.PermutePluginRows([]int{1, 0})
+	if err != nil {
+		t.Fatalf("PermutePluginRows: %v", err)
+	}
+	if !changed {
+		t.Fatal("PermutePluginRows changed = false, want true")
+	}
+	if !bytes.Contains(output, []byte(`"bet\u0061@1"`)) ||
+		!bytes.Contains(output, []byte(`["./플러그인.ts", {"label": "한글"}]`)) {
+		t.Fatalf("output normalized escaped or Unicode row bytes:\n%s", output)
+	}
+	if bytes.Count(output, []byte("\r\n")) != bytes.Count(input, []byte("\r\n")) {
+		t.Fatalf("output changed CRLF count:\n%q", output)
+	}
+	for index, value := range output {
+		if value == '\n' && (index == 0 || output[index-1] != '\r') {
+			t.Fatalf("output introduced bare LF at byte %d:\n%q", index, output)
+		}
+	}
+}
+
 func TestParseRejectsUnsupportedPluginShapes(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +323,7 @@ func TestParseRejectsUnsupportedPluginShapes(t *testing.T) {
 		"tuple options":          `{"plugin":[["alpha",true]]}`,
 		"blank source":           `{"plugin":[" "]}`,
 		"control source":         `{"plugin":["alpha\u0001"]}`,
+		"bidi source":            `{"plugin":["alpha\u202e"]}`,
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {

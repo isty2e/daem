@@ -250,11 +250,19 @@ func FixedSlotPermutation(
 	}
 
 	sourceBySubject := make(map[topology.SubjectID]int)
+	loadIdentities := make(map[hostrelation.HostLoadIdentity]struct{}, len(rows))
 	managedSlots := make([]int, 0)
 	for index, row := range rows {
 		if err := row.Validate(); err != nil {
 			return nil, nil, fmt.Errorf("fixed-slot relation row[%d]: %w", index, err)
 		}
+		if _, duplicate := loadIdentities[row.HostLoadIdentity()]; duplicate {
+			return nil, nil, fmt.Errorf(
+				"fixed-slot host load identity %q appears more than once",
+				row.HostLoadIdentity(),
+			)
+		}
+		loadIdentities[row.HostLoadIdentity()] = struct{}{}
 		subject, correlated := row.CorrelatedSubject()
 		if !correlated {
 			continue
