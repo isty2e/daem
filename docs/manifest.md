@@ -1619,7 +1619,9 @@ retaining host state. Neither desired absence nor unmanage grants prune,
 credential, trust, session, data, or contribution authority. Plugin-bundled
 contributions remain provider-scoped facts, not standalone `[[mcp_server]]`,
 `[[skill]]`, `[[hook]]`, instruction, command, rule, or app declarations.
-`daem import` does not import extension carriers in the current product slice.
+The current `daem import` does not yet author extension declarations. Exact
+extension import is planned for Codex, Claude Code, OpenCode, and Pi;
+Antigravity CLI inventory does not recover the exact source needed for import.
 External carrier adoption is an `apply --manage-existing` state-only claim
 transition and requires no additional manifest field. It requires a declared
 and locked relation, fresh source-exact passive correlation independent of

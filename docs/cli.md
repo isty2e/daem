@@ -313,9 +313,12 @@ scan, resource, and merge rows. JSON retains every typed row. After a successful
 write with imported resources, human output points to lock preview and then to
 `apply --manage-existing --dry-run` after the lockfile is written. The latter
 only previews registration of eligible exact matching live outputs; import does
-not register them and never recommends `--yes`. Import does not author extension
-carrier declarations. An already authored and locked source-exact carrier may
-instead use the separate manage-existing apply flow described below.
+not register them and never recommends `--yes`. The current CLI does not yet
+author extension declarations through import. Exact extension import is a
+planned route for Codex, Claude Code, OpenCode, and Pi; Antigravity lacks
+recoverable source provenance. Until that route is implemented, an exact
+extension can be authored with `add extension`, locked, and handled through the
+separate manage-existing apply flow described below.
 
 ## `add`
 

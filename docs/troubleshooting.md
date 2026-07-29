@@ -151,8 +151,10 @@ acceptable.
   unknown. Run `daem status`; do not infer absence from the error or delete
   state/registry files.
 
-`daem import` does not author extension carrier declarations and is not a
-shortcut around these steps.
+The current `daem import` does not yet author extension declarations and is not
+a shortcut around these steps. Use `add extension` until exact extension import
+is implemented; imported desired state will still require lock and explicit
+manage-existing authority.
 
 ## Apply Was Interrupted
 

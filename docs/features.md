@@ -70,6 +70,7 @@ the host, the native object may be called a plugin, package, or extension.
 | Refresh one | Global only | Project + global | Project + global | Project + global | Global only |
 | Remove managed | Global only | Project + global | Project + global | Project + global | Limited |
 | Adopt existing | Global only | Project + global | Project + global | Project + global | No |
+| Import installed | No | No | No | No | No |
 | List bundled features | Report only | No | No | No | No |
 | Delete leftover data | No | No | No | No | No |
 
@@ -88,6 +89,13 @@ stops daem management while leaving the host installation in place.
 Removal does not delete marketplaces, package caches, dependencies,
 credentials, trust decisions, sessions, logs, or unrelated host data. Daem
 does not currently offer a general cleanup or prune operation for those files.
+
+The current `import` command does not author extension declarations. Import is
+planned for exact installed relation data from Codex, Claude Code, OpenCode,
+and Pi without granting ownership or changing the host. Antigravity CLI cannot
+recover the exact marketplace/source from its installed inventory, so it will
+not be approximately imported. For now, use `add extension`, then use
+`apply --manage-existing` only for an exact existing relation.
 
 ### Host Notes
 
