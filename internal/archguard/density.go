@@ -77,11 +77,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "the split would duplicate schema and transaction authority; wire-neutral recovery algebra is already isolated",
 	},
 	"internal/realization/lock": {
-		reviewedValue:       21,
+		reviewedValue:       23,
 		owner:               "canonical Realization aggregate",
-		reason:              "at 21 production files, identity, admission, ordering, snapshot comparison, operation, and replay invariants form one closed aggregate after delegate-plan identity moved to its canonical owner",
-		naturalSplit:        "move realization variants into child packages",
-		alternativeRejected: "variant packages would require reverse imports or export aggregate-private construction rules",
+		reason:              "at 23 production files, subject identity, collection admission, cross-subject order validation and delta comparison, operation, and replay invariants form one closed aggregate",
+		naturalSplit:        "move locked order collection validation and order delta comparison into a child package",
+		alternativeRejected: "the child would import parent-owned File and LockedSubjectContract while the parent imported its validation and comparison results, creating a cycle or exporting aggregate-private construction rules",
 	},
 	"internal/cli/present": {
 		reviewedValue:       32,

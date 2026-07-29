@@ -130,7 +130,7 @@ func hookAggregateInsertionEffect(t *testing.T, before aggregate.Document) Aggre
 	if err != nil {
 		t.Fatalf("NewSubjectContribution returned error: %v", err)
 	}
-	locked, err := lock.NewLockedSection([]lock.LockedSubjectContract{lockedContract})
+	locked, err := lock.NewLockedSection([]lock.LockedSubjectContract{lockedContract}, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}

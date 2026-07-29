@@ -105,6 +105,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		input.ManifestPath,
 		input.LockfilePath,
 		true,
+		true,
 		commandMaxParallelSourceOps(input.MaxParallelSourceOps),
 		input.SourceEvents,
 		input.LockEvents,

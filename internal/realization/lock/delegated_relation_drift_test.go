@@ -123,7 +123,7 @@ func TestLockedSectionRejectsDelegatedCarrierRefinementDrift(t *testing.T) {
 			}
 			drifted := rebuildCarrierContractForTest(t, base, base.SubjectID(), test.relation, operations)
 
-			_, err := NewLockedSection([]LockedSubjectContract{drifted})
+			_, err := NewLockedSection([]LockedSubjectContract{drifted}, nil)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("NewLockedSection error = %v, want %q", err, test.want)
 			}
@@ -154,7 +154,7 @@ func TestLockedSectionRejectsUnknownDelegatedCarrierNamespace(t *testing.T) {
 		carrierOperationsForRelation(t, base, relation),
 	)
 
-	_, err = NewLockedSection([]LockedSubjectContract{drifted})
+	_, err = NewLockedSection([]LockedSubjectContract{drifted}, nil)
 	if err == nil || !strings.Contains(err.Error(), "subject has no current topology refinement") {
 		t.Fatalf("NewLockedSection error = %v, want unadmitted refinement diagnostic", err)
 	}

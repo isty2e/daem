@@ -15,7 +15,8 @@ type Lock struct {
 	LockfilePath  string `json:"lockfile_path"`
 	PreviousFound bool   `json:"previous_found"`
 	EntryCounts   struct {
-		Subjects int `json:"subjects"`
+		Subjects         int `json:"subjects"`
+		OrderConstraints int `json:"order_constraints"`
 	} `json:"entry_counts"`
 	ChangeCounts struct {
 		Added     int `json:"added"`
@@ -23,8 +24,34 @@ type Lock struct {
 		Removed   int `json:"removed"`
 		Unchanged int `json:"unchanged"`
 	} `json:"change_counts"`
-	HasChanges     bool                `json:"has_changes"`
-	SubjectChanges []LockSubjectChange `json:"subject_changes"`
+	OrderChangeCounts struct {
+		Added     int `json:"added"`
+		Changed   int `json:"changed"`
+		Removed   int `json:"removed"`
+		Unchanged int `json:"unchanged"`
+	} `json:"order_change_counts"`
+	HasChanges             bool                        `json:"has_changes"`
+	SubjectChanges         []LockSubjectChange         `json:"subject_changes"`
+	OrderConstraintChanges []LockOrderConstraintChange `json:"order_constraint_changes"`
+}
+
+type LockOrderConstraintChange struct {
+	Status  string               `json:"status"`
+	ClassID string               `json:"class_id"`
+	Before  *LockOrderConstraint `json:"before"`
+	After   *LockOrderConstraint `json:"after"`
+}
+
+type LockOrderConstraint struct {
+	ClassID         string            `json:"class_id"`
+	ContractVersion string            `json:"contract_version"`
+	RuntimeMeaning  string            `json:"runtime_meaning"`
+	Members         []LockOrderMember `json:"members"`
+}
+
+type LockOrderMember struct {
+	Subject          LockSubjectID `json:"subject"`
+	HostLoadIdentity string        `json:"host_load_identity"`
 }
 
 type LockSubjectChange struct {

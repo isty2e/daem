@@ -517,10 +517,12 @@ by default.
 persistent cache. Temporary resolution data is removed before exit. The same
 floating manifest can legitimately resolve to a different exact lock over time.
 
-Default output reports counts plus every added, changed, or removed identity.
-It omits unchanged identities, source ids, hashes, resolved refs, and full
-repair recipes. `--verbose` adds unchanged identities and bounded resolution
-evidence.
+Default output reports subject counts plus every added, changed, or removed
+subject identity. When extension order constraints exist, it also reports
+class-relative order counts and changed class ids. It omits unchanged
+identities, source ids, hashes, resolved refs, full repair recipes, and member
+details. `--verbose` adds unchanged identities, bounded resolution evidence,
+and before/after ordered members.
 
 Regenerating the lockfile removes entries no longer represented by the
 manifest. It does not inspect or delete host outputs; that belongs to status
@@ -539,13 +541,15 @@ every added, changed, or removed identity and the lock next step. `--verbose`
 adds checked current identities and bounded refs. `--check` exits `1` when any
 lock identity would change.
 
-Lock and outdated JSON schema version is `2`. It includes command/mode,
-manifest and derived lockfile paths, prior-lock presence, entry/change counts,
-`has_changes`, and typed subject changes over the generic locked-subject
-collection. Managed-path realizations include `exact_permission_mode` when and
-only when their permission policy is `exact`; the optional field representation
-preserves an explicit mode `0`. Full safe source ids and hashes are automation
-evidence and remain in JSON.
+Lock and outdated JSON schema version is `3`, a deliberate replacement of
+schema version `2` for extension-order output. It includes command/mode,
+manifest and derived lockfile paths, prior-lock presence, subject and order
+constraint entry/change counts, `has_changes`, typed subject changes, and
+ordered before/after extension members for each changed order class.
+Managed-path realizations include `exact_permission_mode` when and only when
+their permission policy is `exact`; the optional field representation preserves
+an explicit mode `0`. Full safe source ids and hashes are automation evidence
+and remain in JSON.
 
 ## `list`
 

@@ -147,44 +147,27 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 }
 
 func configDirectory(input InventoryInput, scope target.Scope) (string, error) {
-	switch scope {
-	case target.ScopeProject:
-		root := filepath.Clean(input.ManifestRoot)
-		if input.ManifestRoot == "" ||
-			!filepath.IsAbs(root) ||
-			root != input.ManifestRoot {
-			return "", fmt.Errorf(
-				"OpenCode project config requires an absolute clean manifest root",
-			)
-		}
-		return filepath.Join(root, ".opencode"), nil
-	case target.ScopeGlobal:
-		root := input.ConfigRoot
-		if root == "" {
-			root = os.Getenv("XDG_CONFIG_HOME")
-			if root == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return "", fmt.Errorf("resolve OpenCode user home: %w", err)
-				}
-				root = filepath.Join(home, ".config")
+	globalRoot := input.ConfigRoot
+	if scope == target.ScopeGlobal && globalRoot == "" {
+		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+		var home string
+		if xdgConfigHome == "" {
+			var err error
+			home, err = os.UserHomeDir()
+			if err != nil {
+				return "", fmt.Errorf("resolve OpenCode user home: %w", err)
 			}
-			root = filepath.Join(root, "opencode")
 		}
-		clean := filepath.Clean(root)
-		if !filepath.IsAbs(clean) || clean != root {
-			return "", fmt.Errorf(
-				"OpenCode config root %q must be absolute and clean",
-				root,
-			)
-		}
-		return clean, nil
-	default:
-		return "", fmt.Errorf(
-			"OpenCode plugin relation scope %q is not observable",
-			scope,
+		var err error
+		globalRoot, err = opencodeconfig.DefaultGlobalConfigRoot(
+			xdgConfigHome,
+			home,
 		)
+		if err != nil {
+			return "", err
+		}
 	}
+	return opencodeconfig.ConfigDirectory(input.ManifestRoot, globalRoot, scope)
 }
 
 func selectConfigPath(

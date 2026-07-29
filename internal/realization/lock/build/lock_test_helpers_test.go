@@ -9,12 +9,14 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
@@ -31,7 +33,14 @@ func buildWithTestOptions(
 ) (lock.File, error) {
 	options.HookContributionEncoder = hookcodec.CanonicalHookContribution
 	options.MCPContributionEncoder = mcpcodec.CanonicalMCPBindingContribution
+	options.ExtensionOrderIdentity = testExtensionOrderIdentity
 	return BuildWithOptions(ctx, environment, resolver, options)
+}
+
+func testExtensionOrderIdentity(
+	value extension.CarrierKey,
+) (hostrelation.HostLoadIdentity, error) {
+	return hostrelation.NewHostLoadIdentity(value.Source().Ref())
 }
 
 func lockEnvironment(t *testing.T, spec desired.Spec) desired.Environment {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
 )
@@ -28,6 +29,98 @@ func PrintDeltaSummaryWithOptions(output io.Writer, delta lock.Delta, options Hu
 	if options.Verbose {
 		printDeltaEntries(output, "unchanged", delta.EntriesWithStatus(lock.DeltaStatusUnchanged), options)
 	}
+	printOrderDeltaSummary(output, delta, options)
+}
+
+func printOrderDeltaSummary(output io.Writer, delta lock.Delta, options HumanOptions) {
+	counts := delta.OrderCounts()
+	if counts.Added+counts.Changed+counts.Removed+counts.Unchanged == 0 {
+		return
+	}
+	fmt.Fprintf(
+		output,
+		"lockfile order changes: added=%d changed=%d removed=%d unchanged=%d\n",
+		counts.Added,
+		counts.Changed,
+		counts.Removed,
+		counts.Unchanged,
+	)
+	printOrderDeltaEntries(
+		output,
+		"added",
+		delta.OrderEntriesWithStatus(lock.DeltaStatusAdded),
+		options,
+	)
+	printOrderDeltaEntries(
+		output,
+		"changed",
+		delta.OrderEntriesWithStatus(lock.DeltaStatusChanged),
+		options,
+	)
+	printOrderDeltaEntries(
+		output,
+		"removed",
+		delta.OrderEntriesWithStatus(lock.DeltaStatusRemoved),
+		options,
+	)
+	if options.Verbose {
+		printOrderDeltaEntries(
+			output,
+			"unchanged",
+			delta.OrderEntriesWithStatus(lock.DeltaStatusUnchanged),
+			options,
+		)
+	}
+}
+
+func printOrderDeltaEntries(
+	output io.Writer,
+	label string,
+	entries []lock.OrderDeltaEntry,
+	options HumanOptions,
+) {
+	if len(entries) == 0 {
+		return
+	}
+	fmt.Fprintf(output, "lockfile.order_constraint.%s:\n", label)
+	for _, entry := range entries {
+		fmt.Fprintf(output, "  - %s", entry.Key)
+		if !options.Verbose {
+			fmt.Fprintln(output)
+			continue
+		}
+		switch entry.Status {
+		case lock.DeltaStatusAdded:
+			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.After))
+		case lock.DeltaStatusRemoved:
+			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.Before))
+		case lock.DeltaStatusChanged:
+			fmt.Fprintf(
+				output,
+				" before=%s after=%s\n",
+				orderMemberSummary(entry.Before),
+				orderMemberSummary(entry.After),
+			)
+		default:
+			fmt.Fprintln(output)
+		}
+	}
+}
+
+func orderMemberSummary(constraint hostrelation.RelationOrderConstraint) string {
+	members := constraint.Members()
+	summary := make([]string, 0, len(members))
+	for _, member := range members {
+		summary = append(
+			summary,
+			fmt.Sprintf(
+				"%s=%s",
+				member.Subject().String(),
+				member.HostLoadIdentity(),
+			),
+		)
+	}
+	return strings.Join(summary, ",")
 }
 
 func printDeltaEntries(output io.Writer, label string, entries []lock.DeltaEntry, options HumanOptions) {

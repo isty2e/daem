@@ -12,7 +12,7 @@ import (
 )
 
 func TestSkillSetChildrenAllowsEmptyCurrentAndLockedSets(t *testing.T) {
-	section, err := NewLockedSection(nil)
+	section, err := NewLockedSection(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSkillSetChildrenRejectsDirectDeclarationCollision(t *testing.T) {
 
 func TestSkillSetChildrenRejectsCurrentSetWithoutLockedMembers(t *testing.T) {
 	set := testSkillSet(t, sourcetest.Local(t, "skills", source.LocalSourceModeVendor), []string{"glob:*"})
-	section, err := NewLockedSection(nil)
+	section, err := NewLockedSection(nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func correlatedSkillSubject(t *testing.T, set skill.SkillSet, name string) Locke
 
 func testLockedSection(t *testing.T, subjects ...LockedSubjectContract) LockedSection {
 	t.Helper()
-	section, err := NewLockedSection(subjects)
+	section, err := NewLockedSection(subjects, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

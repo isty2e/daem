@@ -363,6 +363,11 @@ func loadCommandInputsAtPaths(
 			return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
 		}
 		lockfileMissing = true
+	} else if err := lock.ValidateExtensionOrderIdentities(
+		locked,
+		aggregatecodec.ExtensionOrderIdentityResolver(paths),
+	); err != nil {
+		return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, err)
 	}
 
 	// Each planning pass owns one persistence epoch. Execute performs a new pass

@@ -26,7 +26,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 
 	rendered := string(content)
 	assertInOrder(t, rendered, []string{
-		"version = 3",
+		"version = 4",
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
@@ -40,7 +40,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 	})
 	for _, legacy := range []string{"[[locked.skill]]", "[[locked.hook]]", "[[locked.instructions]]", "declaration =", "skill_group_index"} {
 		if strings.Contains(rendered, legacy) {
-			t.Fatalf("rendered v3 lockfile contains legacy field %q:\n%s", legacy, rendered)
+			t.Fatalf("rendered v4 lockfile contains legacy field %q:\n%s", legacy, rendered)
 		}
 	}
 
@@ -84,7 +84,7 @@ func TestReplayCoverageDTOUsesCanonicalAbsentEmptyExclusions(t *testing.T) {
 	}
 }
 
-func TestLoadReencodesCanonicalV3BytesDeterministically(t *testing.T) {
+func TestLoadReencodesCanonicalV4BytesDeterministically(t *testing.T) {
 	file := lockfileWithSubjects(
 		t,
 		claudeProjectMCPSubjectContract(t),
@@ -302,7 +302,7 @@ func lockfileWithSubjects(
 	subjects ...lock.LockedSubjectContract,
 ) lock.File {
 	t.Helper()
-	locked, err := lock.NewLockedSection(subjects)
+	locked, err := lock.NewLockedSection(subjects, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}

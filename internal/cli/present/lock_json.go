@@ -6,26 +6,30 @@ import (
 
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const lockJSONSchemaVersion = 2
+const lockJSONSchemaVersion = 3
 
 type jsonOutput struct {
-	SchemaVersion  int                 `json:"schema_version"`
-	Command        string              `json:"command"`
-	Mode           string              `json:"mode"`
-	ManifestPath   string              `json:"manifest_path"`
-	LockfilePath   string              `json:"lockfile_path"`
-	PreviousFound  bool                `json:"previous_found"`
-	EntryCounts    jsonEntryCounts     `json:"entry_counts"`
-	ChangeCounts   jsonChangeCounts    `json:"change_counts"`
-	HasChanges     bool                `json:"has_changes"`
-	SubjectChanges []jsonSubjectChange `json:"subject_changes"`
+	SchemaVersion          int                         `json:"schema_version"`
+	Command                string                      `json:"command"`
+	Mode                   string                      `json:"mode"`
+	ManifestPath           string                      `json:"manifest_path"`
+	LockfilePath           string                      `json:"lockfile_path"`
+	PreviousFound          bool                        `json:"previous_found"`
+	EntryCounts            jsonEntryCounts             `json:"entry_counts"`
+	ChangeCounts           jsonChangeCounts            `json:"change_counts"`
+	OrderChangeCounts      jsonChangeCounts            `json:"order_change_counts"`
+	HasChanges             bool                        `json:"has_changes"`
+	SubjectChanges         []jsonSubjectChange         `json:"subject_changes"`
+	OrderConstraintChanges []jsonOrderConstraintChange `json:"order_constraint_changes"`
 }
 
 type jsonEntryCounts struct {
-	Subjects int `json:"subjects"`
+	Subjects         int `json:"subjects"`
+	OrderConstraints int `json:"order_constraints"`
 }
 
 type jsonChangeCounts struct {
@@ -40,6 +44,25 @@ type jsonSubjectChange struct {
 	Subject jsonSubjectID      `json:"subject"`
 	Before  *jsonLockedSubject `json:"before,omitempty"`
 	After   *jsonLockedSubject `json:"after,omitempty"`
+}
+
+type jsonOrderConstraintChange struct {
+	Status  lock.DeltaStatus     `json:"status"`
+	ClassID string               `json:"class_id"`
+	Before  *jsonOrderConstraint `json:"before,omitempty"`
+	After   *jsonOrderConstraint `json:"after,omitempty"`
+}
+
+type jsonOrderConstraint struct {
+	ClassID         string            `json:"class_id"`
+	ContractVersion string            `json:"contract_version"`
+	RuntimeMeaning  string            `json:"runtime_meaning"`
+	Members         []jsonOrderMember `json:"members"`
+}
+
+type jsonOrderMember struct {
+	Subject          jsonSubjectID `json:"subject"`
+	HostLoadIdentity string        `json:"host_load_identity"`
 }
 
 type jsonSubjectID struct {
@@ -124,16 +147,18 @@ type JSONInput struct {
 // PrintJSON writes the stable structured lock output payload.
 func PrintJSON(output io.Writer, input JSONInput) error {
 	payload := jsonOutput{
-		SchemaVersion:  lockJSONSchemaVersion,
-		Command:        input.Command,
-		Mode:           input.Mode,
-		ManifestPath:   input.ManifestPath,
-		LockfilePath:   input.LockfilePath,
-		PreviousFound:  input.PreviousFound,
-		EntryCounts:    jsonEntryCountsForFile(input.Lockfile),
-		ChangeCounts:   jsonChangeCountsForDelta(input.Delta),
-		HasChanges:     input.Delta.HasChanges(),
-		SubjectChanges: jsonSubjectChanges(input.Delta),
+		SchemaVersion:          lockJSONSchemaVersion,
+		Command:                input.Command,
+		Mode:                   input.Mode,
+		ManifestPath:           input.ManifestPath,
+		LockfilePath:           input.LockfilePath,
+		PreviousFound:          input.PreviousFound,
+		EntryCounts:            jsonEntryCountsForFile(input.Lockfile),
+		ChangeCounts:           jsonChangeCountsForDelta(input.Delta),
+		OrderChangeCounts:      jsonChangeCountsForOrderDelta(input.Delta),
+		HasChanges:             input.Delta.HasChanges(),
+		SubjectChanges:         jsonSubjectChanges(input.Delta),
+		OrderConstraintChanges: jsonOrderConstraintChanges(input.Delta),
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
@@ -141,11 +166,24 @@ func PrintJSON(output io.Writer, input JSONInput) error {
 }
 
 func jsonEntryCountsForFile(file lock.File) jsonEntryCounts {
-	return jsonEntryCounts{Subjects: file.Locked.Len()}
+	return jsonEntryCounts{
+		Subjects:         file.Locked.Len(),
+		OrderConstraints: file.Locked.OrderLen(),
+	}
 }
 
 func jsonChangeCountsForDelta(delta lock.Delta) jsonChangeCounts {
 	counts := delta.Counts()
+	return jsonChangeCounts{
+		Added:     counts.Added,
+		Changed:   counts.Changed,
+		Removed:   counts.Removed,
+		Unchanged: counts.Unchanged,
+	}
+}
+
+func jsonChangeCountsForOrderDelta(delta lock.Delta) jsonChangeCounts {
+	counts := delta.OrderCounts()
 	return jsonChangeCounts{
 		Added:     counts.Added,
 		Changed:   counts.Changed,
@@ -173,6 +211,46 @@ func jsonSubjectChanges(delta lock.Delta) []jsonSubjectChange {
 		changes = append(changes, change)
 	}
 	return changes
+}
+
+func jsonOrderConstraintChanges(delta lock.Delta) []jsonOrderConstraintChange {
+	entries := delta.OrderEntries()
+	changes := make([]jsonOrderConstraintChange, 0, len(entries))
+	for _, entry := range entries {
+		change := jsonOrderConstraintChange{
+			Status:  entry.Status,
+			ClassID: string(entry.Key),
+		}
+		if entry.Status != lock.DeltaStatusAdded {
+			before := jsonOrderConstraintFor(entry.Before)
+			change.Before = &before
+		}
+		if entry.Status != lock.DeltaStatusRemoved {
+			after := jsonOrderConstraintFor(entry.After)
+			change.After = &after
+		}
+		changes = append(changes, change)
+	}
+	return changes
+}
+
+func jsonOrderConstraintFor(
+	constraint hostrelation.RelationOrderConstraint,
+) jsonOrderConstraint {
+	members := constraint.Members()
+	projectedMembers := make([]jsonOrderMember, 0, len(members))
+	for _, member := range members {
+		projectedMembers = append(projectedMembers, jsonOrderMember{
+			Subject:          jsonSubjectIDFor(member.Subject()),
+			HostLoadIdentity: string(member.HostLoadIdentity()),
+		})
+	}
+	return jsonOrderConstraint{
+		ClassID:         string(constraint.ClassID()),
+		ContractVersion: constraint.MemberIdentityContract(),
+		RuntimeMeaning:  string(constraint.RuntimeMeaning()),
+		Members:         projectedMembers,
+	}
 }
 
 func jsonSubjectIDFor(id topology.SubjectID) jsonSubjectID {

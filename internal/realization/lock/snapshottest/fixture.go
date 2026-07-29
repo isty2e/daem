@@ -65,7 +65,7 @@ func ExactSupplyContract(t testing.TB, input ExactSupplyInput) lock.LockedSubjec
 func ExactSupply(t testing.TB, input ExactSupplyInput) lock.LockedSubjectContract {
 	t.Helper()
 	contract := ExactSupplyContract(t, input)
-	section, err := lock.NewLockedSection([]lock.LockedSubjectContract{contract})
+	section, err := lock.NewLockedSection([]lock.LockedSubjectContract{contract}, nil)
 	if err != nil {
 		t.Fatalf("lock.NewLockedSection: %v", err)
 	}
@@ -79,7 +79,7 @@ func ExactSupply(t testing.TB, input ExactSupplyInput) lock.LockedSubjectContrac
 // Section constructs one validated canonical subject collection.
 func Section(t testing.TB, subjects ...lock.LockedSubjectContract) lock.LockedSection {
 	t.Helper()
-	section, err := lock.NewLockedSection(subjects)
+	section, err := lock.NewLockedSection(subjects, nil)
 	if err != nil {
 		t.Fatalf("lock.NewLockedSection: %v", err)
 	}

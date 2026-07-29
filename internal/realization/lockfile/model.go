@@ -6,7 +6,20 @@ type fileDTO struct {
 }
 
 type lockedSectionDTO struct {
-	Subjects []lockedSubjectDTO `toml:"subject,omitempty"`
+	Subjects         []lockedSubjectDTO         `toml:"subject,omitempty"`
+	OrderConstraints []lockedOrderConstraintDTO `toml:"order_constraint,omitempty"`
+}
+
+type lockedOrderConstraintDTO struct {
+	ClassID         string                 `toml:"class_id"`
+	ContractVersion string                 `toml:"contract_version"`
+	RuntimeMeaning  string                 `toml:"runtime_meaning"`
+	Members         []lockedOrderMemberDTO `toml:"member"`
+}
+
+type lockedOrderMemberDTO struct {
+	SubjectID        string `toml:"subject_id"`
+	HostLoadIdentity string `toml:"host_load_identity"`
 }
 
 type lockedSubjectDTO struct {

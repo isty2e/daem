@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
@@ -83,11 +84,12 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		return LockfileChange{}, fmt.Errorf("invalid prospective manifest: %w", err)
 	}
 	snapshot, err := lockgenerate.Build(ctx, lockgenerate.Input{
-		Paths:              paths,
-		Environment:        environment,
-		UsePersistentCache: input.UsePersistentCache,
-		HookEncoder:        hookcodec.CanonicalHookContribution,
-		MCPEncoder:         mcpcodec.CanonicalMCPBindingContribution,
+		Paths:                  paths,
+		Environment:            environment,
+		UsePersistentCache:     input.UsePersistentCache,
+		HookEncoder:            hookcodec.CanonicalHookContribution,
+		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
+		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	})
 	if err != nil {
 		return LockfileChange{}, err

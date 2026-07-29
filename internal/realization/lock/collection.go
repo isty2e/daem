@@ -5,10 +5,11 @@ import (
 	"sort"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const currentVersion = 3
+const currentVersion = 4
 
 // CurrentVersion is the supported canonical lock snapshot version.
 const CurrentVersion = currentVersion
@@ -21,13 +22,19 @@ type File struct {
 
 // LockedSection is the one canonical, deterministically ordered locked-subject collection.
 type LockedSection struct {
-	subjects  []LockedSubjectContract
-	bySubject map[topology.SubjectID]int
-	byEntity  map[entity.ID][]int
+	subjects         []LockedSubjectContract
+	orderConstraints []hostrelation.RelationOrderConstraint
+	bySubject        map[topology.SubjectID]int
+	byEntity         map[entity.ID][]int
+	byOrderClass     map[hostrelation.OrderClassID]int
 }
 
-// NewLockedSection validates, sorts, and defensively copies one complete subject collection.
-func NewLockedSection(subjects []LockedSubjectContract) (LockedSection, error) {
+// NewLockedSection validates, sorts, and defensively copies one complete
+// subject and cross-subject order-constraint collection.
+func NewLockedSection(
+	subjects []LockedSubjectContract,
+	orderConstraints []hostrelation.RelationOrderConstraint,
+) (LockedSection, error) {
 	canonical := append([]LockedSubjectContract(nil), subjects...)
 	for index, subject := range canonical {
 		if err := subject.validate(); err != nil {
@@ -56,12 +63,42 @@ func NewLockedSection(subjects []LockedSubjectContract) (LockedSection, error) {
 		bySubject[subject.SubjectID()] = index
 		byEntity[subject.EntityID()] = append(byEntity[subject.EntityID()], index)
 	}
-	return LockedSection{subjects: canonical, bySubject: bySubject, byEntity: byEntity}, nil
+	canonicalOrder, byOrderClass, err := validateLockedOrderConstraints(
+		canonical,
+		bySubject,
+		orderConstraints,
+	)
+	if err != nil {
+		return LockedSection{}, err
+	}
+	return LockedSection{
+		subjects:         canonical,
+		orderConstraints: canonicalOrder,
+		bySubject:        bySubject,
+		byEntity:         byEntity,
+		byOrderClass:     byOrderClass,
+	}, nil
 }
 
 // Subjects returns a stable defensive copy of all locked subjects.
 func (section LockedSection) Subjects() []LockedSubjectContract {
 	return append([]LockedSubjectContract(nil), section.subjects...)
+}
+
+// OrderConstraints returns a stable defensive copy sorted by order class.
+func (section LockedSection) OrderConstraints() []hostrelation.RelationOrderConstraint {
+	return append([]hostrelation.RelationOrderConstraint(nil), section.orderConstraints...)
+}
+
+// OrderConstraint returns the one locked constraint for classID when present.
+func (section LockedSection) OrderConstraint(
+	classID hostrelation.OrderClassID,
+) (hostrelation.RelationOrderConstraint, bool) {
+	index, ok := section.byOrderClass[classID]
+	if !ok {
+		return hostrelation.RelationOrderConstraint{}, false
+	}
+	return section.orderConstraints[index], true
 }
 
 // Subject returns the one contract for id when present.
@@ -93,12 +130,18 @@ func (section LockedSection) ExactSupplySubject(id entity.ID) (LockedSubjectCont
 // Len returns the number of canonical locked subjects.
 func (section LockedSection) Len() int { return len(section.subjects) }
 
+// OrderLen returns the number of locked relative-order constraints.
+func (section LockedSection) OrderLen() int { return len(section.orderConstraints) }
+
 // Validate rejects malformed or non-canonical lock snapshots.
 func Validate(file File) error {
 	if file.Version != currentVersion {
 		return fmt.Errorf("unsupported lockfile version %d", file.Version)
 	}
-	canonical, err := NewLockedSection(file.Locked.subjects)
+	canonical, err := NewLockedSection(
+		file.Locked.subjects,
+		file.Locked.orderConstraints,
+	)
 	if err != nil {
 		return err
 	}
@@ -108,6 +151,17 @@ func Validate(file File) error {
 	for index, subject := range canonical.subjects {
 		if !subject.Equal(file.Locked.subjects[index]) {
 			return fmt.Errorf("locked subject collection is not in canonical order at index %d", index)
+		}
+	}
+	if canonical.OrderLen() != file.Locked.OrderLen() {
+		return fmt.Errorf("locked order-constraint collection length changed during validation")
+	}
+	for index, constraint := range canonical.orderConstraints {
+		if !constraint.Equal(file.Locked.orderConstraints[index]) {
+			return fmt.Errorf(
+				"locked order-constraint collection is not in canonical order at index %d",
+				index,
+			)
 		}
 	}
 	return nil
@@ -141,7 +195,8 @@ type DeltaCounts struct {
 
 // Delta compares two reproducible lock snapshots.
 type Delta struct {
-	entries []DeltaEntry
+	entries      []DeltaEntry
+	orderEntries []OrderDeltaEntry
 }
 
 // BuildDelta compares canonical lock snapshots by SubjectID.
@@ -175,7 +230,10 @@ func BuildDelta(before File, after File) Delta {
 			entries = append(entries, DeltaEntry{Status: DeltaStatusChanged, Key: key, Before: beforeSubject, After: afterSubject})
 		}
 	}
-	return Delta{entries: entries}
+	return Delta{
+		entries:      entries,
+		orderEntries: buildOrderDelta(before, after),
+	}
 }
 
 // Entries returns a stable copy of delta entries.
@@ -212,10 +270,16 @@ func (delta Delta) Counts() DeltaCounts {
 	return counts
 }
 
-// HasChanges reports whether the delta contains added, removed, or changed entries.
+// HasChanges reports whether any subject or relative-order constraint changed.
 func (delta Delta) HasChanges() bool {
 	counts := delta.Counts()
-	return counts.Added != 0 || counts.Removed != 0 || counts.Changed != 0
+	orderCounts := delta.OrderCounts()
+	return counts.Added != 0 ||
+		counts.Removed != 0 ||
+		counts.Changed != 0 ||
+		orderCounts.Added != 0 ||
+		orderCounts.Removed != 0 ||
+		orderCounts.Changed != 0
 }
 
 func subjectMap(file File) map[topology.SubjectID]LockedSubjectContract {

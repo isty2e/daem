@@ -52,7 +52,7 @@ func TestInstructionsPathProjectionContractsCoalesceSharedPhysicalFile(t *testin
 	}
 
 	supply := exactInstructionsSupplyContract(t, value.ID().Name(), "instructions/shared.md", "shared")
-	if _, err := lock.NewLockedSection(append([]lock.LockedSubjectContract{supply}, contracts...)); err != nil {
+	if _, err := lock.NewLockedSection(append([]lock.LockedSubjectContract{supply}, contracts...), nil); err != nil {
 		t.Fatalf("NewLockedSection rejected canonical Instructions projection: %v", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestInstructionsPathProjectionContractsCoalesceSharedPhysicalFile(t *testin
 func TestLockedSectionRejectsInstructionsSupplyWithoutProjection(t *testing.T) {
 	supply := exactInstructionsSupplyContract(t, "orphan", "instructions/orphan.md", "orphan")
 
-	_, err := lock.NewLockedSection([]lock.LockedSubjectContract{supply})
+	_, err := lock.NewLockedSection([]lock.LockedSubjectContract{supply}, nil)
 	if err == nil || !strings.Contains(err.Error(), "has no managed file projection") {
 		t.Fatalf("NewLockedSection error = %v, want missing Instructions projection diagnostic", err)
 	}

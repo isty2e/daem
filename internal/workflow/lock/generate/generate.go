@@ -20,14 +20,15 @@ import (
 // Input carries canonical desired facts and source-boundary options for one
 // prospective lock generation.
 type Input struct {
-	Paths                daempaths.Paths
-	Environment          desired.Environment
-	UsePersistentCache   bool
-	MaxParallelSourceOps int
-	SourceEvents         acquisition.EventSink
-	Events               lockbuild.EventSink
-	HookEncoder          commandhook.ContributionEncoder
-	MCPEncoder           lockrefine.MCPContributionEncoder
+	Paths                  daempaths.Paths
+	Environment            desired.Environment
+	UsePersistentCache     bool
+	MaxParallelSourceOps   int
+	SourceEvents           acquisition.EventSink
+	Events                 lockbuild.EventSink
+	HookEncoder            commandhook.ContributionEncoder
+	MCPEncoder             lockrefine.MCPContributionEncoder
+	ExtensionOrderIdentity lockrefine.ExtensionOrderIdentityResolver
 }
 
 // Result carries a generated canonical lock snapshot and its boundary
@@ -74,6 +75,7 @@ func Build(ctx context.Context, input Input) (Result, error) {
 		SourceEvents:            input.SourceEvents,
 		HookContributionEncoder: input.HookEncoder,
 		MCPContributionEncoder:  input.MCPEncoder,
+		ExtensionOrderIdentity:  input.ExtensionOrderIdentity,
 	})
 	if err != nil {
 		return Result{}, err

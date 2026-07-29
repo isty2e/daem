@@ -41,7 +41,7 @@ func TestManagedPathSubjectCorrelatesRealizationWithoutDuplicatingSupply(t *test
 	}
 
 	supply := testExactSupplyContract(t, entity.KindSkill, "oracle", artifact.ArtifactKindDirectory)
-	section, err := NewLockedSection([]LockedSubjectContract{projection, supply})
+	section, err := NewLockedSection([]LockedSubjectContract{projection, supply}, nil)
 	if err != nil {
 		t.Fatalf("NewLockedSection returned error: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestLockedSectionRejectsOrphanAndProfileDriftedSkillProjection(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := NewLockedSection([]LockedSubjectContract{projection}); err == nil || !strings.Contains(err.Error(), "no exact-Supply subject") {
+	if _, err := NewLockedSection([]LockedSubjectContract{projection}, nil); err == nil || !strings.Contains(err.Error(), "no exact-Supply subject") {
 		t.Fatalf("orphan projection error = %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestLockedSectionRejectsOrphanAndProfileDriftedSkillProjection(t *testing.T
 		t.Fatal(err)
 	}
 	supply := testExactSupplyContract(t, entity.KindSkill, "oracle", artifact.ArtifactKindDirectory)
-	if _, err := NewLockedSection([]LockedSubjectContract{supply, drifted}); err == nil || !strings.Contains(err.Error(), "canonical profile refinement") {
+	if _, err := NewLockedSection([]LockedSubjectContract{supply, drifted}, nil); err == nil || !strings.Contains(err.Error(), "canonical profile refinement") {
 		t.Fatalf("profile drift error = %v", err)
 	}
 }

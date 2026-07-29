@@ -115,6 +115,7 @@ func allowsConcreteAggregateCodec(packagePath string) bool {
 		"internal/workflow/lock",
 		"internal/workflow/probe",
 		"internal/workflow/recover",
+		"internal/workflow/refresh",
 		"internal/workflow/status",
 	} {
 		if isPackageOrChild(packagePath, root) {
