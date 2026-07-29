@@ -338,7 +338,11 @@ args = ["search.js"]
 }
 
 func TestExecuteInstallsGlobalPiMCPProviderAtCustomAgentRoot(t *testing.T) {
-	_, agentRoot, manifestPath := writeGlobalPiProviderMCPFixture(t)
+	root, agentRoot, manifestPath := writeGlobalPiProviderMCPFixture(t)
+	carrierRegistryPath := isolatedApplyCarrierRegistryPath(t, root)
+	if _, err := os.Lstat(carrierRegistryPath); !os.IsNotExist(err) {
+		t.Fatalf("isolated carrier registry existed before apply: %v", err)
+	}
 	var requests []subprocess.CommandRequest
 	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
 		Runner: func(_ context.Context, request subprocess.CommandRequest) subprocess.CommandResult {
@@ -384,6 +388,9 @@ func TestExecuteInstallsGlobalPiMCPProviderAtCustomAgentRoot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(agentRoot, "mcp.json")); err != nil {
 		t.Fatalf("global Pi MCP config was not projected at custom root: %v", err)
+	}
+	if _, err := os.Stat(carrierRegistryPath); err != nil {
+		t.Fatalf("global provider claim was not persisted in the isolated registry: %v", err)
 	}
 }
 
@@ -575,7 +582,7 @@ source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
 
 func writeGlobalPiProviderMCPFixture(t *testing.T) (string, string, string) {
 	t.Helper()
-	root := t.TempDir()
+	root := newApplyCarrierFixtureRoot(t)
 	agentRoot := filepath.Join(root, "custom-pi-agent")
 	t.Setenv("PI_CODING_AGENT_DIR", agentRoot)
 	manifestPath := filepath.Join(root, "daem.toml")

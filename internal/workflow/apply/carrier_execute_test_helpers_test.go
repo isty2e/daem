@@ -42,6 +42,31 @@ func newApplyCarrierFixtureRoot(t *testing.T) string {
 	return root
 }
 
+func isolatedApplyCarrierRegistryPath(t *testing.T, root string) string {
+	t.Helper()
+
+	resolved := applyTestPaths(t, root)
+	if resolved.CarrierClaimRegistryPath != filepath.Join(resolved.DataDir, "carriers", "claims.json") {
+		t.Fatalf(
+			"carrier claim registry = %q, want path correlated to isolated data dir %q",
+			resolved.CarrierClaimRegistryPath,
+			resolved.DataDir,
+		)
+	}
+	relative, err := filepath.Rel(root, resolved.CarrierClaimRegistryPath)
+	if err != nil {
+		t.Fatalf("relativize carrier claim registry to fixture root: %v", err)
+	}
+	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		t.Fatalf(
+			"carrier claim registry = %q, want path inside fixture root %q",
+			resolved.CarrierClaimRegistryPath,
+			root,
+		)
+	}
+	return resolved.CarrierClaimRegistryPath
+}
+
 func writeApplyClaudePluginCarrierCommandFixture(
 	t *testing.T,
 ) (string, string, string, observerelation.Batch, lock.File, realization.DelegatedRelation) {
