@@ -31,24 +31,16 @@ const (
 // VersionObservation is current, redaction-safe package identity evidence.
 // It grants no carrier relation, profile admission, or runtime authority.
 type VersionObservation struct {
-	state       VersionState
-	packageName string
-	version     string
-	path        string
-	detail      string
+	state   VersionState
+	version string
+	detail  string
 }
 
 // State returns whether exact current package metadata was observed.
 func (observation VersionObservation) State() VersionState { return observation.state }
 
-// PackageName returns the exact package.json name when State is VersionExact.
-func (observation VersionObservation) PackageName() string { return observation.packageName }
-
 // Version returns the exact package.json version when State is VersionExact.
 func (observation VersionObservation) Version() string { return observation.version }
-
-// Path returns the package directory inspected for this observation.
-func (observation VersionObservation) Path() string { return observation.path }
 
 // Detail returns a redaction-safe failure category for unobservable evidence.
 func (observation VersionObservation) Detail() string { return observation.detail }
@@ -62,55 +54,49 @@ func ObserveNPMVersion(
 	carrier extensiontopology.Carrier,
 ) VersionObservation {
 	if ctx == nil {
-		return unobservableVersion("", "observation context is required")
+		return unobservableVersion("observation context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return unobservableVersion("", "observation context is canceled")
+		return unobservableVersion("observation context is canceled")
 	}
 	if err := carrier.Validate(); err != nil {
-		return unobservableVersion("", "carrier identity is invalid")
+		return unobservableVersion("carrier identity is invalid")
 	}
 	source, err := extensiontopology.InterpretCarrierSource(carrier.Key())
 	if err != nil || source.Class() != extensiontopology.CarrierSourceNPM {
-		return unobservableVersion("", "carrier is not an observable npm package")
+		return unobservableVersion("carrier is not an observable npm package")
 	}
 	artifactPath, baseExists, err := managedArtifactPath(inventory, source)
 	if err != nil {
-		return unobservableVersion("", "package install path cannot be resolved")
+		return unobservableVersion("package install path cannot be resolved")
 	}
 	if !baseExists {
-		return VersionObservation{
-			state: VersionAbsent, packageName: source.Identity(), path: artifactPath,
-		}
+		return VersionObservation{state: VersionAbsent}
 	}
 	view, err := artifactaccess.OpenNoFollowView(artifactPath)
 	if errors.Is(err, fs.ErrNotExist) {
-		return VersionObservation{
-			state: VersionAbsent, packageName: source.Identity(), path: artifactPath,
-		}
+		return VersionObservation{state: VersionAbsent}
 	}
 	if err != nil {
-		return unobservableVersion(artifactPath, "package directory is unsafe or unreadable")
+		return unobservableVersion("package directory is unsafe or unreadable")
 	}
 	content, err := view.ReadFile(ctx, "package.json", maximumPackageManifestBytes)
 	if errors.Is(err, fs.ErrNotExist) {
-		return unobservableVersion(artifactPath, "package manifest is missing")
+		return unobservableVersion("package manifest is missing")
 	}
 	if err != nil {
-		return unobservableVersion(artifactPath, "package manifest is unsafe or unreadable")
+		return unobservableVersion("package manifest is unsafe or unreadable")
 	}
 	name, version, err := decodePackageManifest(content.Bytes())
 	if err != nil {
-		return unobservableVersion(artifactPath, "package manifest is malformed")
+		return unobservableVersion("package manifest is malformed")
 	}
 	if name != source.Identity() {
-		return unobservableVersion(artifactPath, "package manifest name does not match the declared package")
+		return unobservableVersion("package manifest name does not match the declared package")
 	}
 	return VersionObservation{
-		state:       VersionExact,
-		packageName: name,
-		version:     version,
-		path:        artifactPath,
+		state:   VersionExact,
+		version: version,
 	}
 }
 
@@ -138,10 +124,8 @@ func decodePackageManifest(content []byte) (string, string, error) {
 	return name, version, nil
 }
 
-func unobservableVersion(path string, detail string) VersionObservation {
+func unobservableVersion(detail string) VersionObservation {
 	return VersionObservation{
-		state:  VersionUnobservable,
-		path:   path,
-		detail: detail,
+		state: VersionUnobservable, detail: detail,
 	}
 }

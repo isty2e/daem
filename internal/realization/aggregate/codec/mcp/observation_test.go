@@ -16,7 +16,7 @@ func TestMCPPlacementOperationsObserveSelectedCanonicalEntries(t *testing.T) {
 				t.Fatalf("placement operations %q missing", test.placement)
 			}
 			canonical := mustMutationCanonical(t, test, "context7", "npx")
-			existing, err := operations.MergeCanonicalEntry(test.initial, "context7", canonical)
+			existing, err := operations.mergeCanonicalEntry(test.initial, "context7", canonical)
 			if err != nil {
 				t.Fatalf("seed canonical entry: %v", err)
 			}

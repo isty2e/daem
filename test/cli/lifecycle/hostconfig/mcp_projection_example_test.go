@@ -322,14 +322,14 @@ func assertMCPPublicExampleHostProjection(
 		t.Fatalf("host config %q contains resolved secret canary", hostConfigPath)
 	}
 	assertMCPPublicExampleFileExcludesSecret(t, filepath.Join(projectRoot, ".daem", "state.json"))
-	extracted, present, err := operations.ExtractCanonicalEntry(content, mcpPublicExampleServerID)
+	extracted, present, err := mcptest.ExtractCanonicalEntry(operations, content, mcpPublicExampleServerID)
 	if err != nil {
 		t.Fatalf("extract %q from placement %q: %v", mcpPublicExampleServerID, placement.ID(), err)
 	}
 	if !present || len(extracted) == 0 {
 		t.Fatalf("placement %q host config lacks a nonempty %q canonical entry", placement.ID(), mcpPublicExampleServerID)
 	}
-	comparison, err := operations.CompareCanonicalEntry(content, mcpPublicExampleServerID, []byte(locked.CanonicalContribution()))
+	comparison, err := mcptest.CompareCanonicalEntry(operations, content, mcpPublicExampleServerID, []byte(locked.CanonicalContribution()))
 	if err != nil {
 		t.Fatalf("compare placement %q host config with lock: %v", placement.ID(), err)
 	}

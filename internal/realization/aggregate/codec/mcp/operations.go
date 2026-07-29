@@ -171,11 +171,6 @@ func (operations MCPPlacementOperations) Placement() aggregate.MCPPlacement {
 	return operations.placement
 }
 
-// ContentPath returns the managed entry path for serverID inside this placement row.
-func (operations MCPPlacementOperations) ContentPath(serverID string) (aggregate.ContentPath, error) {
-	return operations.placement.ContentPath(serverID)
-}
-
 // ServerIDFromContentPath returns the stable server id represented by contentPath.
 func (operations MCPPlacementOperations) ServerIDFromContentPath(contentPath aggregate.ContentPath) (string, bool) {
 	return operations.placement.ServerIDFromContentPath(contentPath)
@@ -219,41 +214,6 @@ func (operations MCPPlacementOperations) ObserveCanonicalEntries(
 	serverIDs []string,
 ) (MCPProjectionObservation, error) {
 	return operations.observeCanonical(existing, append([]string(nil), serverIDs...))
-}
-
-// MergeCanonicalEntry returns a pure aggregate with canonical entry bytes upserted for serverID.
-func (operations MCPPlacementOperations) MergeCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
-	return operations.mergeCanonicalEntry(existing, serverID, canonical)
-}
-
-// RemoveProjection returns a pure aggregate with the managed server entry removed.
-func (operations MCPPlacementOperations) RemoveProjection(existing []byte, serverID string) ([]byte, error) {
-	return operations.removeProjection(existing, serverID)
-}
-
-// RestoreRemoveProjection returns rollback content for a remove-projection action.
-func (operations MCPPlacementOperations) RestoreRemoveProjection(existing []byte, serverID string, parentExistedBefore bool) ([]byte, bool, error) {
-	return operations.restoreRemove(existing, serverID, parentExistedBefore)
-}
-
-// ExtractCanonicalEntry returns canonical entry bytes for one managed server entry.
-func (operations MCPPlacementOperations) ExtractCanonicalEntry(existing []byte, serverID string) ([]byte, bool, error) {
-	return operations.extractCanonicalEntry(existing, serverID)
-}
-
-// CompareCanonicalEntry compares one managed server against locked canonical entry bytes.
-func (operations MCPPlacementOperations) CompareCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	return operations.compareCanonicalEntry(existing, serverID, canonical)
-}
-
-// EntryPresent reports whether the aggregate contains a server key, even if the entry is unsupported.
-func (operations MCPPlacementOperations) EntryPresent(existing []byte, serverID string) (bool, error) {
-	return operations.entryPresent(existing, serverID)
-}
-
-// ParentPresent reports whether the aggregate contains the managed parent object/table.
-func (operations MCPPlacementOperations) ParentPresent(existing []byte) (bool, error) {
-	return operations.parentPresent(existing)
 }
 
 // ImplementedMCPPlacementOperationsForPlacement returns the operation row for

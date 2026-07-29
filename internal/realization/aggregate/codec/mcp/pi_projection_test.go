@@ -63,7 +63,7 @@ func TestPiMCPAdapterDefaultedEntryNormalizesToCanonicalProfile(t *testing.T) {
 	operations := mustPiMCPPlacementOperations(t, aggregate.MCPPlacementPiProject)
 	document := []byte(`{"mcpServers":{"context7":{"command":"npx"}}}`)
 
-	canonical, present, err := operations.ExtractCanonicalEntry(document, "context7")
+	canonical, present, err := operations.extractCanonicalEntry(document, "context7")
 	if err != nil {
 		t.Fatalf("ExtractCanonicalEntry returned error: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestPiMCPAdapterMutationPreservesUnownedDocumentContent(t *testing.T) {
 	}`)
 	canonical := mustPiMCPAdapterCanonical(t, "context7")
 
-	merged, err := operations.MergeCanonicalEntry(existing, "context7", canonical)
+	merged, err := operations.mergeCanonicalEntry(existing, "context7", canonical)
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestPiMCPAdapterMutationPreservesUnownedDocumentContent(t *testing.T) {
 		}
 	}
 
-	removed, err := operations.RemoveProjection(merged, "context7")
+	removed, err := operations.removeProjection(merged, "context7")
 	if err != nil {
 		t.Fatalf("RemoveProjection returned error: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestPiMCPAdapterRejectsLossyDocumentsAliasesAndUnsupportedEntries(t *testin
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, _, err := operations.ExtractCanonicalEntry(tc.input, "context7")
+			_, _, err := operations.extractCanonicalEntry(tc.input, "context7")
 			assertMCPProjectionReason(t, err, tc.want)
 			if err != nil && strings.Contains(err.Error(), "SECRET_CANARY") {
 				t.Fatalf("error leaked secret canary: %q", err)
@@ -191,7 +191,7 @@ func TestPiMCPAdapterDoesNotMisclassifyWrongShapeJSONCAsLosslessProviderDocument
 		[]byte("[\n// comment\n]\n"),
 		[]byte("\"scalar\" // comment\n"),
 	} {
-		_, _, err := operations.ExtractCanonicalEntry(input, "context7")
+		_, _, err := operations.extractCanonicalEntry(input, "context7")
 		if err == nil {
 			t.Fatalf("ExtractCanonicalEntry(%q) returned nil error", input)
 		}

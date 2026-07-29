@@ -215,7 +215,7 @@ func TestMarshalAndLoadAntigravityAmbientEnvironmentSourcesWithoutNativeEnv(t *t
 		Name:     "context7",
 		Bindings: []desiredmcp.Binding{binding},
 	})
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}
@@ -367,7 +367,7 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 		desiredmcp.OnAbsentRemoveBinding,
 	)
 	server := desiredtest.MCPServer(t, desiredmcp.Spec{Name: serverName, Bindings: []desiredmcp.Binding{binding}})
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}

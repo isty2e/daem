@@ -136,5 +136,3 @@ func (observation Observation) MappedCodec() aggregate.CodecContractID {
 }
 
 func (observation Observation) Detail() string { return observation.detail }
-
-func (observation Observation) IsCurrent() bool { return observation.state == StateCurrent }

@@ -18,7 +18,7 @@ import (
 func claudeMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	t.Helper()
 	server, binding := mcpRecordServer(t, target.TargetClaudeCode, target.ScopeProject, true)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
@@ -51,7 +51,7 @@ func claudeMCPRecord(t *testing.T) lock.LockedSubjectContract {
 func antigravityMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	t.Helper()
 	server, _ := mcpRecordServer(t, target.TargetAntigravityCLI, target.ScopeGlobal, false)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}
@@ -71,7 +71,7 @@ func antigravityMCPRecord(t *testing.T) lock.LockedSubjectContract {
 func openCodeMCPRecord(t *testing.T) lock.LockedSubjectContract {
 	t.Helper()
 	server, _ := mcpRecordServer(t, target.TargetOpenCode, target.ScopeProject, false)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}

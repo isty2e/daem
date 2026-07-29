@@ -50,18 +50,18 @@ func TestAbsoluteCommandPathRoundTripsEveryImplementedMCPPlacement(t *testing.T)
 			if !ok {
 				t.Fatalf("placement %q has no operations", placement.ID())
 			}
-			document, err := operations.MergeCanonicalEntry(nil, serverID, canonical)
+			document, err := operations.mergeCanonicalEntry(nil, serverID, canonical)
 			if err != nil {
 				t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 			}
-			extracted, present, err := operations.ExtractCanonicalEntry(document, serverID)
+			extracted, present, err := operations.extractCanonicalEntry(document, serverID)
 			if err != nil {
 				t.Fatalf("ExtractCanonicalEntry returned error: %v", err)
 			}
 			if !present || !bytes.Equal(extracted, canonical) {
 				t.Fatalf("extracted = %q, present=%t, want canonical %q", extracted, present, canonical)
 			}
-			comparison, err := operations.CompareCanonicalEntry(document, serverID, canonical)
+			comparison, err := operations.compareCanonicalEntry(document, serverID, canonical)
 			if err != nil {
 				t.Fatalf("CompareCanonicalEntry returned error: %v", err)
 			}

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
 	"github.com/isty2e/daem/internal/target"
+	mcptest "github.com/isty2e/daem/test/testkit/mcp"
 )
 
 func mcpProjectionPlan(t *testing.T) reconcile.Result {
@@ -108,7 +109,8 @@ func mcpProjectionRemovalPlan(t *testing.T, detail string) reconcile.Result {
 	if !present {
 		t.Fatal("Claude project MCP operations are unavailable")
 	}
-	content, err := operations.MergeCanonicalEntry(
+	content, err := mcptest.MergeCanonicalEntry(
+		operations,
 		nil,
 		"context7",
 		canonical,

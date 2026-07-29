@@ -153,17 +153,13 @@ func CanonicalMCPBindingContribution(
 		if err != nil {
 			return nil, err
 		}
-		entry, err := canonicalPiMCPAdapterServerEntry(PiMCPAdapterServerProjection{
+		return CanonicalPiMCPAdapterServerEntry(PiMCPAdapterServerProjection{
 			ServerID:        serverID,
 			Command:         command,
 			Args:            args,
 			Env:             env,
 			AdapterContract: adapterContract,
 		})
-		if err != nil {
-			return nil, err
-		}
-		return canonicalJSON(entry)
 	default:
 		return nil, fmt.Errorf("unsupported MCP placement %q", placement.ID())
 	}

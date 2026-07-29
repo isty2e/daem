@@ -71,7 +71,7 @@ func AssertClaudeGlobalMCPConfigEquivalent(
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}
-	comparison, err := operations.CompareCanonicalEntry(content, serverID, canonical)
+	comparison, err := mcptest.CompareCanonicalEntry(operations, content, serverID, canonical)
 	if err != nil {
 		t.Fatalf("CompareClaudeGlobalMCPServerCanonicalEntry returned error: %v", err)
 	}

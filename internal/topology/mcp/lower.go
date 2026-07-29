@@ -53,32 +53,6 @@ func Binding(server desiredmcp.Server, binding desiredmcp.Binding) (topology.Gra
 	return topology.NewGraph(builder.subjectList(), builder.edgeList())
 }
 
-// BindingWithProvider lowers one binding together with its explicitly selected
-// provider contribution.
-func BindingWithProvider(
-	server desiredmcp.Server,
-	binding desiredmcp.Binding,
-	selection ProviderSelection,
-) (topology.Graph, error) {
-	builder := newGraphBuilder()
-	if err := builder.addBinding(server, binding, "mcp_server.binding"); err != nil {
-		return topology.Graph{}, err
-	}
-	projection, err := ProjectionSubject(binding.Target(), binding.Scope(), server.ID().Name())
-	if err != nil {
-		return topology.Graph{}, err
-	}
-	if err := builder.addProviderSelection(projection, selection, "mcp_server.binding.provider"); err != nil {
-		return topology.Graph{}, err
-	}
-	return topology.NewGraph(builder.subjectList(), builder.edgeList())
-}
-
-// Servers lowers canonical MCP server bindings into structural topology.
-func Servers(servers []desiredmcp.Server) (topology.Graph, error) {
-	return serversWithProviderSelections(servers, nil)
-}
-
 // ServersWithProviderSelections lowers canonical MCP bindings and the exact
 // provider contributions selected for provider-mediated projections. The map
 // key is the canonical MCP projection SubjectID.

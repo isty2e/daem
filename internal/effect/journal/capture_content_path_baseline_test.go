@@ -32,7 +32,7 @@ func TestRecoveryContentPathBaselineCacheReusesOneGlobalSnapshot(t *testing.T) {
 	if !ok {
 		t.Fatal("Claude global MCP placement operations missing")
 	}
-	before, err := operations.MergeCanonicalEntry(nil, "context7", canonical)
+	before, err := mcptest.MergeCanonicalEntry(operations, nil, "context7", canonical)
 	if err != nil {
 		t.Fatalf("merge baseline entry: %v", err)
 	}

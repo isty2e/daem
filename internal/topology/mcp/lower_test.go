@@ -136,7 +136,7 @@ func TestServerLoweringIsDeterministicForUnorderedAndSharedFacts(t *testing.T) {
 func TestServersShareDependencyIdentityWithoutFlatteningProjections(t *testing.T) {
 	first := ambientServer(t, "alpha", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
 	second := ambientServer(t, "beta", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
-	graph, err := topologymcp.Servers([]desiredmcp.Server{second, first})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{second, first}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestServerRejectsUnsupportedPlacements(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := topologymcp.Servers([]desiredmcp.Server{test.server})
+			_, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{test.server}, nil)
 			if err == nil || !strings.Contains(err.Error(), test.wantText) {
 				t.Fatalf("Server error = %v, want containing %q", err, test.wantText)
 			}
@@ -244,7 +244,7 @@ func TestBindingRejectsForeignBinding(t *testing.T) {
 
 func TestServersRejectDuplicateProjectionSubject(t *testing.T) {
 	server := ambientServer(t, "server", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
-	_, err := topologymcp.Servers([]desiredmcp.Server{server, server})
+	_, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server, server}, nil)
 	if err == nil || !strings.Contains(err.Error(), "duplicate MCP projection subject") {
 		t.Fatalf("Servers error = %v, want duplicate projection", err)
 	}
@@ -313,7 +313,7 @@ func mustEnvironmentReferenceSubject(t *testing.T, name string) topology.Subject
 
 func mustGraph(t *testing.T, server desiredmcp.Server) topology.Graph {
 	t.Helper()
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}

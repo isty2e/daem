@@ -26,7 +26,6 @@ func TestObserveNPMVersionClassifiesExactAbsentAndUnsafeArtifacts(t *testing.T) 
 	writePackageManifest(t, packagePath, `{"name":"pi-mcp-adapter","version":"2.15.0"}`)
 	exact := ObserveNPMVersion(context.Background(), inventory, carrier)
 	if exact.State() != VersionExact ||
-		exact.PackageName() != "pi-mcp-adapter" ||
 		exact.Version() != "2.15.0" {
 		t.Fatalf("exact observation = %#v", exact)
 	}

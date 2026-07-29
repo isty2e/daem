@@ -267,7 +267,7 @@ func testMCPRecord(t *testing.T, serverID string) lock.LockedSubjectContract {
 		Name:     serverID,
 		Bindings: []desiredmcp.Binding{binding},
 	})
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("MCPServer returned error: %v", err)
 	}

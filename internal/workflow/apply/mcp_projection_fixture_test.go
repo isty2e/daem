@@ -37,7 +37,7 @@ func compareApplyMCPPlacementCanonicalEntry(
 	if !ok {
 		t.Fatalf("MCP placement operations %q missing", id)
 	}
-	return operations.CompareCanonicalEntry(content, serverID, canonical)
+	return mcptest.CompareCanonicalEntry(operations, content, serverID, canonical)
 }
 
 func applyDelegateRunOptions(t *testing.T, paths daempaths.Paths, options runOptions) runOptions {

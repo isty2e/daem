@@ -16,7 +16,7 @@ func TestServersEdgeHuntSameDesiredIDAcrossPlacementsDoesNotCollide(t *testing.T
 	project := ambientServer(t, "shared", target.TargetClaudeCode, target.ScopeProject, "npx", nil, nil)
 	global := ambientServer(t, "shared", target.TargetCodex, target.ScopeGlobal, "npx", nil, nil)
 
-	graph, err := topologymcp.Servers([]desiredmcp.Server{global, project})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{global, project}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestServersEdgeHuntOneEntityLowersDistinctBindingsAndSharesOnlyEqualDepende
 		Bindings: []desiredmcp.Binding{codexProject, claudeGlobal, claudeProject},
 	})
 
-	graph, err := topologymcp.Servers([]desiredmcp.Server{server})
+	graph, err := topologymcp.ServersWithProviderSelections([]desiredmcp.Server{server}, nil)
 	if err != nil {
 		t.Fatalf("Servers returned error: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestBindingEdgeHuntPiPlacementStillRequiresExactServerOwnership(t *testing.
 }
 
 func TestServersEdgeHuntEmptyInputProducesValidEmptyGraph(t *testing.T) {
-	graph, err := topologymcp.Servers(nil)
+	graph, err := topologymcp.ServersWithProviderSelections(nil, nil)
 	if err != nil {
 		t.Fatalf("Servers(nil) returned error: %v", err)
 	}

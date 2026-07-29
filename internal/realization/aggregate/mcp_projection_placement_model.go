@@ -177,21 +177,6 @@ func (placement MCPPlacement) Scope() target.Scope {
 	return placement.scope
 }
 
-// ConfigLayer returns the internal host config layer for this placement row.
-func (placement MCPPlacement) ConfigLayer() MCPConfigLayer {
-	return placement.configLayer
-}
-
-// AggregateSpec returns the canonical aggregate ownership spec for this placement.
-func (placement MCPPlacement) AggregateSpec() MCPConfigAggregateSpec {
-	return placement.aggregateSpec
-}
-
-// AggregateRoot returns the host config aggregate root for this placement row.
-func (placement MCPPlacement) AggregateRoot() output.Destination {
-	return placement.aggregateSpec.Root()
-}
-
 // ConfigPath returns the host config path role for this placement row.
 func (placement MCPPlacement) ConfigPath() output.Destination {
 	return placement.aggregateSpec.Root()
@@ -299,11 +284,6 @@ func (placement MCPPlacement) CodecContractID() CodecContractID {
 // ComparedFields returns the canonical exact-projection comparison field set.
 func (placement MCPPlacement) ComparedFields() []string {
 	return append([]string(nil), placement.comparedFields...)
-}
-
-// Absence returns the row-local absent-declaration policy.
-func (placement MCPPlacement) Absence() MCPAbsencePolicy {
-	return placement.absence
 }
 
 // EnvReferenceContract returns the exact symbolic environment-reference

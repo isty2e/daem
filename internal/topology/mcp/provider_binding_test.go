@@ -4,8 +4,10 @@ import (
 	"testing"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
@@ -21,11 +23,14 @@ func TestBindingWithProviderRecordsExactProviderAndBindingEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewProviderSelection returned error: %v", err)
 	}
-	graph, err := topologymcp.BindingWithProvider(server, binding, selection)
-	if err != nil {
-		t.Fatalf("BindingWithProvider returned error: %v", err)
-	}
 	projection := projectionSubject(t, server, binding)
+	graph, err := topologymcp.ServersWithProviderSelections(
+		[]desiredmcp.Server{server},
+		map[topology.SubjectID]topologymcp.ProviderSelection{projection: selection},
+	)
+	if err != nil {
+		t.Fatalf("ServersWithProviderSelections returned error: %v", err)
+	}
 	provider, ok := graph.ProviderOf(contribution.SubjectID())
 	if !ok || provider != contribution.Provider().SubjectID() {
 		t.Fatalf("ProviderOf = %s, %t; want %s", provider, ok, contribution.Provider().SubjectID())

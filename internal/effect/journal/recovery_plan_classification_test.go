@@ -268,7 +268,7 @@ func TestExtractRecoveryObservationProjectionRequiresMatchingContractAddress(t *
 	if !ok {
 		t.Fatal("Claude project MCP placement operations missing")
 	}
-	content, err := operations.MergeCanonicalEntry(nil, "context7", canonical)
+	content, err := mcptest.MergeCanonicalEntry(operations, nil, "context7", canonical)
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}

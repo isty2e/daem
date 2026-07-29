@@ -33,7 +33,7 @@ func TestImplementedMCPPlacementOperationsCoverImplementedPlacements(t *testing.
 		}
 		seen[placement.ID()] = struct{}{}
 
-		contentPath, err := operation.ContentPath("context7")
+		contentPath, err := operation.Placement().ContentPath("context7")
 		if err != nil {
 			t.Fatalf("%s ContentPath returned error: %v", placement.ID(), err)
 		}
@@ -103,7 +103,12 @@ func TestJSONMCPConfigSpecsUsePlacementAggregateSpecRows(t *testing.T) {
 			}
 			if tc.spec.configPath != placement.ConfigPath().String() ||
 				tc.spec.serversPath != string(placement.ContentPathPrefix()) {
-				t.Fatalf("codec spec = %#v, placement = %#v", tc.spec, placement.AggregateSpec())
+				t.Fatalf(
+					"codec spec = %#v, placement root = %q, prefix = %q",
+					tc.spec,
+					placement.ConfigPath(),
+					placement.ContentPathPrefix(),
+				)
 			}
 		})
 	}
@@ -212,28 +217,28 @@ func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
 	}
 	existing := []byte(`{"mcpServers":{"sibling":{"type":"stdio","command":"node","args":["manual.js"],"env":{"TOKEN":"SECRET"}}}}`)
 
-	merged, err := operations.MergeCanonicalEntry(existing, "context7", canonical)
+	merged, err := operations.mergeCanonicalEntry(existing, "context7", canonical)
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
-	if present, err := operations.EntryPresent(merged, "context7"); err != nil || !present {
+	if present, err := operations.entryPresent(merged, "context7"); err != nil || !present {
 		t.Fatalf("EntryPresent = %v, %v; want present", present, err)
 	}
-	if parentPresent, err := operations.ParentPresent(merged); err != nil || !parentPresent {
+	if parentPresent, err := operations.parentPresent(merged); err != nil || !parentPresent {
 		t.Fatalf("ParentPresent = %v, %v; want present", parentPresent, err)
 	}
-	extracted, present, err := operations.ExtractCanonicalEntry(merged, "context7")
+	extracted, present, err := operations.extractCanonicalEntry(merged, "context7")
 	if err != nil || !present {
 		t.Fatalf("ExtractCanonicalEntry present = %v, err = %v", present, err)
 	}
-	comparison, err := operations.CompareCanonicalEntry(merged, "context7", canonical)
+	comparison, err := operations.compareCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
 		t.Fatalf("CompareCanonicalEntry returned error: %v", err)
 	}
 	if !comparison.Present || !comparison.Equivalent || comparison.ContentPath != "/mcpServers/context7" {
 		t.Fatalf("comparison = %#v, want present equivalent content path", comparison)
 	}
-	roundTripComparison, err := operations.CompareCanonicalEntry(merged, "context7", extracted)
+	roundTripComparison, err := operations.compareCanonicalEntry(merged, "context7", extracted)
 	if err != nil {
 		t.Fatalf("CompareCanonicalEntry on extracted content returned error: %v", err)
 	}
@@ -241,14 +246,14 @@ func TestMCPPlacementOperationsJSONPlacementRoundTrip(t *testing.T) {
 		t.Fatalf("round-trip comparison = %#v, want equivalent", roundTripComparison)
 	}
 
-	removed, err := operations.RemoveProjection(merged, "context7")
+	removed, err := operations.removeProjection(merged, "context7")
 	if err != nil {
 		t.Fatalf("RemoveProjection returned error: %v", err)
 	}
-	if present, err := operations.EntryPresent(removed, "context7"); err != nil || present {
+	if present, err := operations.entryPresent(removed, "context7"); err != nil || present {
 		t.Fatalf("EntryPresent after remove = %v, %v; want absent", present, err)
 	}
-	if present, err := operations.EntryPresent(removed, "sibling"); err != nil || !present {
+	if present, err := operations.entryPresent(removed, "sibling"); err != nil || !present {
 		t.Fatalf("EntryPresent sibling after remove = %v, %v; want present", present, err)
 	}
 }
@@ -263,25 +268,25 @@ func TestMCPPlacementOperationsPropagateInvalidServerIDAcrossOperations(t *testi
 		t.Fatalf("CanonicalClaudeProjectMCPServerEntry returned error: %v", err)
 	}
 	badServerID := "bad/id"
-	if _, err := operations.ContentPath(badServerID); err == nil {
+	if _, err := operations.Placement().ContentPath(badServerID); err == nil {
 		t.Fatal("ContentPath returned nil error for invalid server id")
 	}
 	if serverID, ok := operations.ServerIDFromContentPath(aggregate.ContentPath("/mcpServers/" + badServerID)); ok || serverID != "" {
 		t.Fatalf("ServerIDFromContentPath invalid id = %q, %v", serverID, ok)
 	}
-	if _, err := operations.MergeCanonicalEntry(nil, badServerID, canonical); err == nil {
+	if _, err := operations.mergeCanonicalEntry(nil, badServerID, canonical); err == nil {
 		t.Fatal("MergeCanonicalEntry returned nil error for invalid server id")
 	}
-	if _, err := operations.RemoveProjection(nil, badServerID); err == nil {
+	if _, err := operations.removeProjection(nil, badServerID); err == nil {
 		t.Fatal("RemoveProjection returned nil error for invalid server id")
 	}
-	if _, _, err := operations.ExtractCanonicalEntry(nil, badServerID); err == nil {
+	if _, _, err := operations.extractCanonicalEntry(nil, badServerID); err == nil {
 		t.Fatal("ExtractCanonicalEntry returned nil error for invalid server id")
 	}
-	if _, err := operations.CompareCanonicalEntry(nil, badServerID, canonical); err == nil {
+	if _, err := operations.compareCanonicalEntry(nil, badServerID, canonical); err == nil {
 		t.Fatal("CompareCanonicalEntry returned nil error for invalid server id")
 	}
-	if _, err := operations.EntryPresent(nil, badServerID); err == nil {
+	if _, err := operations.entryPresent(nil, badServerID); err == nil {
 		t.Fatal("EntryPresent returned nil error for invalid server id")
 	}
 }
@@ -306,7 +311,7 @@ command = "node"
 args = ["manual.js"]
 `)
 
-	merged, err := operations.MergeCanonicalEntry(existing, "context7", canonical)
+	merged, err := operations.mergeCanonicalEntry(existing, "context7", canonical)
 	if err != nil {
 		t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 	}
@@ -320,31 +325,31 @@ args = ["manual.js"]
 			t.Fatalf("merged = %s, want %q", merged, want)
 		}
 	}
-	extracted, present, err := operations.ExtractCanonicalEntry(merged, "context7")
+	extracted, present, err := operations.extractCanonicalEntry(merged, "context7")
 	if err != nil || !present {
 		t.Fatalf("ExtractCanonicalEntry present = %v, err = %v", present, err)
 	}
-	comparison, err := operations.CompareCanonicalEntry(merged, "context7", canonical)
+	comparison, err := operations.compareCanonicalEntry(merged, "context7", canonical)
 	if err != nil {
 		t.Fatalf("CompareCanonicalEntry returned error: %v", err)
 	}
 	if !comparison.Present || !comparison.Equivalent || comparison.ContentPath != "/mcp_servers/context7" {
 		t.Fatalf("comparison = %#v, want present equivalent content path", comparison)
 	}
-	if roundTripComparison, err := operations.CompareCanonicalEntry(merged, "context7", extracted); err != nil ||
+	if roundTripComparison, err := operations.compareCanonicalEntry(merged, "context7", extracted); err != nil ||
 		!roundTripComparison.Present ||
 		!roundTripComparison.Equivalent {
 		t.Fatalf("round-trip comparison = %#v, err = %v; want equivalent", roundTripComparison, err)
 	}
 
-	removed, keepFile, err := operations.RestoreRemoveProjection(merged, "context7", true)
+	removed, keepFile, err := operations.restoreRemove(merged, "context7", true)
 	if err != nil {
 		t.Fatalf("RestoreRemoveProjection returned error: %v", err)
 	}
 	if !keepFile || strings.Contains(string(removed), `[mcp_servers.context7]`) {
 		t.Fatalf("removed = %s, keepFile = %v; want sibling-only file", removed, keepFile)
 	}
-	if present, err := operations.EntryPresent(removed, "sibling"); err != nil || !present {
+	if present, err := operations.entryPresent(removed, "sibling"); err != nil || !present {
 		t.Fatalf("EntryPresent sibling after remove = %v, %v; want present", present, err)
 	}
 }
@@ -372,11 +377,11 @@ func TestMCPPlacementOperationsRestoreRemoveDropsEmptyParentWhenAbsentBefore(t *
 			if !ok {
 				t.Fatalf("%s operation row missing", tc.placement)
 			}
-			merged, err := operations.MergeCanonicalEntry(nil, "context7", tc.canonical)
+			merged, err := operations.mergeCanonicalEntry(nil, "context7", tc.canonical)
 			if err != nil {
 				t.Fatalf("MergeCanonicalEntry returned error: %v", err)
 			}
-			removed, keepFile, err := operations.RestoreRemoveProjection(merged, "context7", false)
+			removed, keepFile, err := operations.restoreRemove(merged, "context7", false)
 			if err != nil {
 				t.Fatalf("RestoreRemoveProjection returned error: %v", err)
 			}
@@ -397,7 +402,7 @@ func TestMCPPlacementOperationsDistinguishAbsentFromMalformedPresentEntry(t *tes
 		t.Fatalf("CanonicalCodexProjectMCPServerEntry returned error: %v", err)
 	}
 
-	comparison, err := operations.CompareCanonicalEntry(nil, "context7", canonical)
+	comparison, err := operations.compareCanonicalEntry(nil, "context7", canonical)
 	if err != nil {
 		t.Fatalf("CompareCanonicalEntry absent returned error: %v", err)
 	}
@@ -408,10 +413,10 @@ func TestMCPPlacementOperationsDistinguishAbsentFromMalformedPresentEntry(t *tes
 	malformedPresent := []byte(`[mcp_servers.context7]
 env = { API_TOKEN = "SECRET" }
 `)
-	if _, err := operations.CompareCanonicalEntry(malformedPresent, "context7", canonical); err == nil {
+	if _, err := operations.compareCanonicalEntry(malformedPresent, "context7", canonical); err == nil {
 		t.Fatal("CompareCanonicalEntry malformed present returned nil error")
 	}
-	if present, err := operations.EntryPresent(malformedPresent, "context7"); err != nil || !present {
+	if present, err := operations.entryPresent(malformedPresent, "context7"); err != nil || !present {
 		t.Fatalf("EntryPresent malformed present = %v, %v; want key present", present, err)
 	}
 }
