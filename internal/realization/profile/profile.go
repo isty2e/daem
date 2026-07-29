@@ -26,6 +26,7 @@ type TargetProfile struct {
 	mcpPlacements    []aggregate.MCPPlacement
 	mcpRuntimeProbes []MCPRuntimeProbeCapability
 	delegatedRoutes  []DelegatedRouteProfile
+	extensionOrders  []ExtensionOrderCapability
 }
 
 // Profile returns the finite static profile for one target. Unknown targets
@@ -45,6 +46,7 @@ func Profile(selectedTarget target.Target) TargetProfile {
 		mcpPlacements:    mcpPlacements,
 		mcpRuntimeProbes: profileMCPRuntimeProbeCapabilities(selectedTarget),
 		delegatedRoutes:  delegatedRoutes,
+		extensionOrders:  profileExtensionOrderCapabilities(selectedTarget),
 	}
 	profile.realizations = profileRealizations(supports, len(mcpPlacements), len(delegatedRoutes))
 	if _, err := target.ParseTarget(string(selectedTarget)); err == nil {
@@ -295,6 +297,23 @@ func (profile TargetProfile) DelegatedRoute(carrier desiredextension.Carrier) (D
 		}
 	}
 	return DelegatedRouteProfile{}, false
+}
+
+// ExtensionOrder returns the complete static order capability for one exact
+// carrier and scope. Absence means order is not admitted.
+func (profile TargetProfile) ExtensionOrder(
+	carrier desiredextension.Carrier,
+	scope target.Scope,
+) (ExtensionOrderCapability, bool) {
+	var selected ExtensionOrderCapability
+	count := 0
+	for _, capability := range profile.extensionOrders {
+		if capability.Carrier() == carrier && capability.Scope() == scope {
+			selected = capability
+			count++
+		}
+	}
+	return selected, count == 1
 }
 
 func profileSupports(selectedTarget target.Target) map[entity.Kind]Support {

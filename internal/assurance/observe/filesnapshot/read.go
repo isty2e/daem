@@ -1,16 +1,23 @@
-package host
+// Package filesnapshot reads bounded host-owned files without following
+// symlinks or accepting an identity change during the read.
+package filesnapshot
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
 )
 
-const maximumConfigBytes = 4 << 20
+// ReadRegularFile reads at most maximumBytes from path. A missing path returns
+// exists=false; every other non-regular or unstable state is an error.
+func ReadRegularFile(path string, maximumBytes int64) (content []byte, exists bool, err error) {
+	if maximumBytes <= 0 {
+		return nil, false, fmt.Errorf("maximum file size must be positive")
+	}
 
-func readStableRegularFile(path string) ([]byte, bool, error) {
 	before, err := os.Lstat(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil, false, nil
 	}
 	if err != nil {
@@ -22,8 +29,8 @@ func readStableRegularFile(path string) ([]byte, bool, error) {
 	if !before.Mode().IsRegular() {
 		return nil, false, fmt.Errorf("path must be a regular file")
 	}
-	if before.Size() > maximumConfigBytes {
-		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumConfigBytes)
+	if before.Size() > maximumBytes {
+		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumBytes)
 	}
 
 	file, err := os.Open(path)
@@ -41,12 +48,13 @@ func readStableRegularFile(path string) ([]byte, bool, error) {
 		!before.ModTime().Equal(opened.ModTime()) {
 		return nil, false, fmt.Errorf("file changed while opening")
 	}
-	content, err := io.ReadAll(io.LimitReader(file, maximumConfigBytes+1))
+
+	content, err = io.ReadAll(io.LimitReader(file, maximumBytes+1))
 	if err != nil {
 		return nil, false, err
 	}
-	if len(content) > maximumConfigBytes {
-		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumConfigBytes)
+	if int64(len(content)) > maximumBytes {
+		return nil, false, fmt.Errorf("file exceeds %d bytes", maximumBytes)
 	}
 
 	afterOpen, err := file.Stat()

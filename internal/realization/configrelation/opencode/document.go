@@ -11,28 +11,54 @@ import (
 // Document is one parsed OpenCode config document. It owns only the syntax and
 // exact plugin-row semantics needed for passive observation and safe removal.
 type Document struct {
-	content []byte
-	root    hujson.Value
-	entries []Entry
+	content    []byte
+	sourcePath string
+	root       hujson.Value
+	entries    []Entry
 }
 
 // Entry is one supported OpenCode plugin row.
 type Entry struct {
-	source string
+	source           string
+	hostLoadIdentity string
 }
 
 // Parse validates one OpenCode JSONC document without normalizing its bytes.
 func Parse(content []byte) (Document, error) {
+	return ParseAt(content, "")
+}
+
+// ParseAt validates one OpenCode JSONC document and resolves path-like plugin
+// rows relative to the config document that declared them.
+func ParseAt(content []byte, sourcePath string) (Document, error) {
 	owned := append([]byte(nil), content...)
 	root, err := hujson.Parse(owned)
 	if err != nil {
 		return Document{}, fmt.Errorf("parse OpenCode config JSONC: %w", err)
 	}
-	entries, err := pluginEntries(root)
+	entries, err := pluginEntries(root, sourcePath)
 	if err != nil {
 		return Document{}, err
 	}
-	return Document{content: owned, root: root, entries: entries}, nil
+	return Document{
+		content:    owned,
+		sourcePath: sourcePath,
+		root:       root,
+		entries:    entries,
+	}, nil
+}
+
+// Source returns the canonical source relation represented by this row.
+func (entry Entry) Source() string { return entry.source }
+
+// HostLoadIdentity returns the package or canonical file identity OpenCode
+// uses when later config layers override an earlier row.
+func (entry Entry) HostLoadIdentity() string { return entry.hostLoadIdentity }
+
+// Entries returns an immutable copy of the supported plugin rows in document
+// order.
+func (document Document) Entries() []Entry {
+	return append([]Entry(nil), document.entries...)
 }
 
 // ExactSourceCount returns the number of rows carrying source exactly.
@@ -76,7 +102,7 @@ func (document Document) RemoveExactSource(source string) ([]byte, bool, error) 
 		return nil, false, fmt.Errorf("OpenCode plugin row disappeared from parsed document")
 	}
 	for index, value := range pluginArray.Elements {
-		entry, err := pluginEntry(value)
+		entry, err := pluginEntry(value, document.sourcePath)
 		if err != nil {
 			return nil, false, err
 		}
@@ -123,7 +149,7 @@ func removeArrayElement(content []byte, array *hujson.Array, index int) ([]byte,
 	return output, nil
 }
 
-func pluginEntries(root hujson.Value) ([]Entry, error) {
+func pluginEntries(root hujson.Value, sourcePath string) ([]Entry, error) {
 	object, ok := root.Value.(*hujson.Object)
 	if !ok {
 		return nil, fmt.Errorf("OpenCode config root must be an object")
@@ -134,7 +160,7 @@ func pluginEntries(root hujson.Value) ([]Entry, error) {
 	}
 	entries := make([]Entry, 0, len(pluginArray.Elements))
 	for index, value := range pluginArray.Elements {
-		entry, err := pluginEntry(value)
+		entry, err := pluginEntry(value, sourcePath)
 		if err != nil {
 			return nil, fmt.Errorf("OpenCode plugin row[%d]: %w", index, err)
 		}
@@ -167,12 +193,12 @@ func uniquePluginArray(object *hujson.Object) (*hujson.Array, error) {
 	return selected, nil
 }
 
-func pluginEntry(value hujson.Value) (Entry, error) {
+func pluginEntry(value hujson.Value, sourcePath string) (Entry, error) {
 	if literal, ok := value.Value.(hujson.Literal); ok {
 		if literal.Kind() != '"' {
 			return Entry{}, fmt.Errorf("plugin row must be a string or [string, object]")
 		}
-		return newEntry(literal.String())
+		return newEntry(literal.String(), sourcePath)
 	}
 	tuple, ok := value.Value.(*hujson.Array)
 	if !ok || len(tuple.Elements) != 2 {
@@ -185,14 +211,18 @@ func pluginEntry(value hujson.Value) (Entry, error) {
 	if _, ok := tuple.Elements[1].Value.(*hujson.Object); !ok {
 		return Entry{}, fmt.Errorf("plugin tuple options must be an object")
 	}
-	return newEntry(source.String())
+	return newEntry(source.String(), sourcePath)
 }
 
-func newEntry(source string) (Entry, error) {
+func newEntry(source string, sourcePath string) (Entry, error) {
 	if err := validateSource(source); err != nil {
 		return Entry{}, err
 	}
-	return Entry{source: source}, nil
+	canonical, loadIdentity, err := pluginSourceIdentity(source, sourcePath)
+	if err != nil {
+		return Entry{}, err
+	}
+	return Entry{source: canonical, hostLoadIdentity: loadIdentity}, nil
 }
 
 func validateSource(source string) error {

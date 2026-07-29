@@ -26,14 +26,16 @@ func TestPlanOwnsBytesCollectionsAndIdentityDisclosure(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceContent := []byte("instructions\n")
-	candidates, err := NewCandidateSet([]Source{{
-		ResourceName: "instructions",
-		Target:       targetpkg.TargetCodex,
-		Scope:        targetpkg.ScopeProject,
-		LivePath:     "AGENTS.md",
-		SourcePath:   filepath.Join(root, "daem.d", "instructions.md"),
-		Content:      sourceContent,
-	}}, nil, nil, nil, nil, nil)
+	candidates, err := NewCandidateSet(CandidateSetInput{
+		Sources: []Source{{
+			ResourceName: "instructions",
+			Target:       targetpkg.TargetCodex,
+			Scope:        targetpkg.ScopeProject,
+			LivePath:     "AGENTS.md",
+			SourcePath:   filepath.Join(root, "daem.d", "instructions.md"),
+			Content:      sourceContent,
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +87,7 @@ func TestMergePlanOwnsOriginalBytesAndResults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := NewCandidateSet(nil, nil, nil, nil, nil, nil)
+	candidates, err := NewCandidateSet(CandidateSetInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,14 +129,16 @@ func TestPlanRejectsPartialAndOutOfSelectionFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := NewCandidateSet([]Source{{
-		ResourceName: "other-target",
-		Target:       targetpkg.TargetClaudeCode,
-		Scope:        targetpkg.ScopeProject,
-		LivePath:     "CLAUDE.md",
-		SourcePath:   filepath.Join(root, "daem.d", "instructions.md"),
-		Content:      []byte("instructions\n"),
-	}}, nil, nil, nil, nil, nil)
+	candidates, err := NewCandidateSet(CandidateSetInput{
+		Sources: []Source{{
+			ResourceName: "other-target",
+			Target:       targetpkg.TargetClaudeCode,
+			Scope:        targetpkg.ScopeProject,
+			LivePath:     "CLAUDE.md",
+			SourcePath:   filepath.Join(root, "daem.d", "instructions.md"),
+			Content:      []byte("instructions\n"),
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

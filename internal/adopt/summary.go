@@ -7,6 +7,7 @@ type importSummaryCounts struct {
 	Skills       int
 	Hooks        int
 	MCPServers   int
+	Extensions   int
 }
 
 type importSummaryKey struct {
@@ -47,6 +48,7 @@ func (plan Plan) SummaryRows() []SummaryRow {
 				Skills:       counts.Skills,
 				Hooks:        counts.Hooks,
 				MCPServers:   counts.MCPServers,
+				Extensions:   counts.Extensions,
 			})
 		}
 	}
@@ -83,6 +85,12 @@ func importSummaryRows(plan Plan) map[importSummaryKey]importSummaryCounts {
 		key := importSummaryKey{Target: server.Target, Scope: server.Scope}
 		counts := rows[key]
 		counts.MCPServers++
+		rows[key] = counts
+	}
+	for _, extension := range plan.candidates.Extensions() {
+		key := importSummaryKey{Target: extension.Target(), Scope: extension.Scope()}
+		counts := rows[key]
+		counts.Extensions++
 		rows[key] = counts
 	}
 	return rows

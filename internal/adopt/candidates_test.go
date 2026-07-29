@@ -41,10 +41,10 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		Args:         serverArgs,
 		Env:          serverEnv,
 	}}
-	candidates, err := NewCandidateSet(
-		sources,
-		skills,
-		[]Hook{{
+	candidates, err := NewCandidateSet(CandidateSetInput{
+		Sources: sources,
+		Skills:  skills,
+		Hooks: []Hook{{
 			ResourceName: "lint",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
@@ -52,8 +52,9 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 			Event:        "PreToolUse",
 			Command:      "lint",
 		}},
-		servers,
-		[]Scan{{
+		MCPServers: servers,
+		Scans: []Scan{{
+			ResourceKind: "skill",
 			ResourceName: "skill-root",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
@@ -62,8 +63,8 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 			Entries:      1,
 			Imported:     1,
 		}},
-		[]Skipped{{LivePath: "/host/empty", Reason: "empty"}},
-	)
+		Skipped: []Skipped{{LivePath: "/host/empty", Reason: "empty"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,34 +119,19 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 }
 
 func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
-	if _, err := NewCandidateSet(
-		[]Source{{ResourceName: "missing-content", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", SourcePath: "source"}},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-	); err == nil {
+	if _, err := NewCandidateSet(CandidateSetInput{
+		Sources: []Source{{ResourceName: "missing-content", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", SourcePath: "source"}},
+	}); err == nil {
 		t.Fatal("candidate set accepted a source without content")
 	}
-	if _, err := NewCandidateSet(
-		nil,
-		nil,
-		nil,
-		[]MCPServer{{ResourceName: "bad", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Command: "npx", Env: map[string]string{"TOKEN": ""}}},
-		nil,
-		nil,
-	); err == nil {
+	if _, err := NewCandidateSet(CandidateSetInput{
+		MCPServers: []MCPServer{{ResourceName: "bad", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Command: "npx", Env: map[string]string{"TOKEN": ""}}},
+	}); err == nil {
 		t.Fatal("candidate set accepted an empty environment reference")
 	}
-	if _, err := NewCandidateSet(
-		nil,
-		nil,
-		nil,
-		nil,
-		[]Scan{{ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1}},
-		nil,
-	); err == nil {
+	if _, err := NewCandidateSet(CandidateSetInput{
+		Scans: []Scan{{ResourceKind: "skill", ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1}},
+	}); err == nil {
 		t.Fatal("candidate set accepted impossible scan counts")
 	}
 
@@ -159,9 +145,8 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 		"control character":     artifact.ContentHash("sha256:" + strings.Repeat("0", 63) + "\n"),
 	} {
 		t.Run("skill content hash/"+name, func(t *testing.T) {
-			if _, err := NewCandidateSet(
-				nil,
-				[]Skill{{
+			if _, err := NewCandidateSet(CandidateSetInput{
+				Skills: []Skill{{
 					ResourceName: "review",
 					InstallName:  "review",
 					Target:       targetpkg.TargetCodex,
@@ -172,11 +157,7 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 					SourcePath:   "/workspace/daem.d/skills/review",
 					ContentHash:  contentHash,
 				}},
-				nil,
-				nil,
-				nil,
-				nil,
-			); err == nil {
+			}); err == nil {
 				t.Fatalf("candidate set accepted malformed skill content hash %q", contentHash)
 			}
 		})

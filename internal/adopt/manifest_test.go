@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -24,7 +25,15 @@ func TestImportManifestSkillGroupsUseSetIdentityAndProductTargetOrder(t *testing
 		},
 	}
 
-	body, _, err := importManifestTables(nil, skills, nil, nil, nil, make(map[targetpkg.Target]struct{}))
+	body, _, err := importManifestTables(
+		nil,
+		skills,
+		nil,
+		nil,
+		nil,
+		nil,
+		make(map[targetpkg.Target]struct{}),
+	)
 	if err != nil {
 		t.Fatalf("importManifestTables returned error: %v", err)
 	}
@@ -94,6 +103,7 @@ func TestImportManifestTablesRejectsDuplicateResourceIdentities(t *testing.T) {
 				nil,
 				test.mcpServers,
 				nil,
+				nil,
 				make(map[targetpkg.Target]struct{}),
 			)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
@@ -111,7 +121,7 @@ func TestImportManifestDirectSkillAndMergePreserveAuthoredOrder(t *testing.T) {
 		Scope:        targetpkg.ScopeGlobal,
 		SourcePath:   "skills/alpha",
 		Placements:   map[targetpkg.Target]string{targetpkg.TargetPi: "~/.agents/skills"},
-	}}, nil, nil, nil, make(map[targetpkg.Target]struct{}))
+	}}, nil, nil, nil, nil, make(map[targetpkg.Target]struct{}))
 	if err != nil {
 		t.Fatalf("importManifestTables returned error: %v", err)
 	}
@@ -144,11 +154,96 @@ func TestImportManifestDoesNotMergeSkillGroupsWithDifferentPlacementPolicies(t *
 			Placements: map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".claude/skills"},
 		},
 	}
-	body, _, err := importManifestTables(nil, skills, nil, nil, nil, make(map[targetpkg.Target]struct{}))
+	body, _, err := importManifestTables(
+		nil,
+		skills,
+		nil,
+		nil,
+		nil,
+		nil,
+		make(map[targetpkg.Target]struct{}),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(body.SkillGroups) != 2 {
 		t.Fatalf("skill groups = %#v, want two placement-distinct groups", body.SkillGroups)
 	}
+}
+
+func TestRenderManifestContentPreservesExactExtensionOrderAndSourceKind(t *testing.T) {
+	first := mustImportExtension(
+		t,
+		"pi-tools",
+		desiredextension.CarrierPiPackage,
+		targetpkg.TargetPi,
+		targetpkg.ScopeProject,
+		desiredextension.SourceKindHostSource,
+		"npm:@acme/tools@1.2.3",
+	)
+	second := mustImportExtension(
+		t,
+		"claude-review",
+		desiredextension.CarrierClaudeCodePlugin,
+		targetpkg.TargetClaudeCode,
+		targetpkg.ScopeGlobal,
+		desiredextension.SourceKindMarketplace,
+		"review@official",
+	)
+
+	content, err := RenderManifestContent(
+		nil,
+		nil,
+		nil,
+		nil,
+		[]desiredextension.Extension{first, second},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := string(content)
+	firstIndex := strings.Index(rendered, `id = "pi-tools"`)
+	secondIndex := strings.Index(rendered, `id = "claude-review"`)
+	if firstIndex < 0 || secondIndex < 0 || firstIndex >= secondIndex {
+		t.Fatalf("extension order was not preserved:\n%s", rendered)
+	}
+	for _, exact := range []string{
+		`source = { host_source = "npm:@acme/tools@1.2.3" }`,
+		`source = { marketplace = "review@official" }`,
+	} {
+		if !strings.Contains(rendered, exact) {
+			t.Fatalf("rendered manifest lacks %q:\n%s", exact, rendered)
+		}
+	}
+	if strings.Contains(rendered, `marketplace = ""`) ||
+		strings.Contains(rendered, `host_source = ""`) {
+		t.Fatalf("rendered manifest emitted an empty source namespace:\n%s", rendered)
+	}
+}
+
+func mustImportExtension(
+	t *testing.T,
+	id string,
+	carrier desiredextension.Carrier,
+	selectedTarget targetpkg.Target,
+	scope targetpkg.Scope,
+	sourceKind desiredextension.SourceKind,
+	sourceValue string,
+) desiredextension.Extension {
+	t.Helper()
+	source, err := desiredextension.NewSourceRef(sourceKind, sourceValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	extension, err := desiredextension.New(desiredextension.Spec{
+		Name:    id,
+		Carrier: carrier,
+		Target:  selectedTarget,
+		Scope:   scope,
+		Source:  source,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return extension
 }

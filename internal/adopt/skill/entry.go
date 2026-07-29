@@ -74,6 +74,7 @@ func newSkillRootScan(
 	skipped int,
 ) adopt.Scan {
 	return adopt.Scan{
+		ResourceKind: "skill",
 		ResourceName: importSkillRootScanResourceName,
 		Target:       target,
 		Scope:        scope,

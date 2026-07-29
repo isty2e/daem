@@ -2,13 +2,14 @@ package pipackage
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	"github.com/isty2e/daem/internal/target"
@@ -32,11 +33,62 @@ type Inventory struct {
 	scope        target.Scope
 	settingsPath string
 	settingsBase string
+	revision     string
 	sources      []string
 }
 
 // SettingsPath returns the exact passive authority path consumed by the read.
 func (inventory Inventory) SettingsPath() string { return inventory.settingsPath }
+
+// Scope returns the selected Pi settings scope.
+func (inventory Inventory) Scope() target.Scope { return inventory.scope }
+
+// Revision returns a content digest for the selected settings observation.
+func (inventory Inventory) Revision() string { return inventory.revision }
+
+// Entry is one exact stored Pi package row plus its parsed host identity.
+type Entry struct {
+	source           string
+	hostLoadIdentity string
+	localIdentity    string
+}
+
+// Source returns the exact spelling stored in the selected settings file.
+func (entry Entry) Source() string { return entry.source }
+
+// HostLoadIdentity returns the source-class-qualified identity used for
+// duplicate and order analysis.
+func (entry Entry) HostLoadIdentity() string { return entry.hostLoadIdentity }
+
+// LocalIdentity returns the lexical absolute local source identity when the
+// row is local.
+func (entry Entry) LocalIdentity() (string, bool) {
+	return entry.localIdentity, entry.localIdentity != ""
+}
+
+// Entries returns exact package rows in physical settings order.
+func (inventory Inventory) Entries() ([]Entry, error) {
+	entries := make([]Entry, 0, len(inventory.sources))
+	for index, source := range inventory.sources {
+		identity, err := sourceIdentityForSettings(
+			source,
+			inventory.settingsBase,
+			inventory.scope,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("parse Pi settings package source[%d]: %w", index, err)
+		}
+		entry := Entry{
+			source:           source,
+			hostLoadIdentity: identity.hostLoadIdentity(inventory.scope),
+		}
+		if identity.kind == sourceKindLocal {
+			entry.localIdentity = identity.key
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
 
 // ReadSettings reads only the selected settings file. A missing file is fresh
 // empty evidence; malformed, unstable, symlinked, or unreadable files are
@@ -46,7 +98,10 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, err
 	}
-	content, exists, err := readStableRegularFile(settingsPath)
+	content, exists, err := filesnapshot.ReadRegularFile(
+		settingsPath,
+		maximumSettingsBytes,
+	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Pi %s package settings %q: %w", input.Scope, settingsPath, err)
 	}
@@ -62,8 +117,14 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 		scope:        input.Scope,
 		settingsPath: settingsPath,
 		settingsBase: filepath.Dir(settingsPath),
+		revision:     settingsRevision(content),
 		sources:      append([]string(nil), sources...),
 	}, nil
+}
+
+func settingsRevision(content []byte) string {
+	digest := sha256.Sum256(content)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 // SettingsPath resolves the exact settings layer used by Pi package commands.
@@ -104,66 +165,6 @@ func cleanAbsoluteRoot(label string, root string) (string, error) {
 		return "", fmt.Errorf("%s must be absolute", label)
 	}
 	return filepath.Clean(root), nil
-}
-
-func readStableRegularFile(path string) ([]byte, bool, error) {
-	before, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	if before.Mode()&os.ModeSymlink != 0 {
-		return nil, false, fmt.Errorf("settings file must not be a symlink")
-	}
-	if !before.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("settings path must be a regular file")
-	}
-	if before.Size() > maximumSettingsBytes {
-		return nil, false, fmt.Errorf("settings file exceeds %d bytes", maximumSettingsBytes)
-	}
-
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, false, err
-	}
-	defer file.Close()
-
-	opened, err := file.Stat()
-	if err != nil {
-		return nil, false, err
-	}
-	if !os.SameFile(before, opened) {
-		return nil, false, fmt.Errorf("settings file changed while opening")
-	}
-	if before.Size() != opened.Size() || !before.ModTime().Equal(opened.ModTime()) {
-		return nil, false, fmt.Errorf("settings file changed while opening")
-	}
-	content, err := io.ReadAll(io.LimitReader(file, maximumSettingsBytes+1))
-	if err != nil {
-		return nil, false, err
-	}
-	if len(content) > maximumSettingsBytes {
-		return nil, false, fmt.Errorf("settings file exceeds %d bytes", maximumSettingsBytes)
-	}
-
-	afterOpen, err := file.Stat()
-	if err != nil {
-		return nil, false, err
-	}
-	afterPath, err := os.Lstat(path)
-	if err != nil {
-		return nil, false, fmt.Errorf("reinspect settings file: %w", err)
-	}
-	if afterPath.Mode()&os.ModeSymlink != 0 ||
-		!os.SameFile(opened, afterOpen) ||
-		!os.SameFile(opened, afterPath) ||
-		opened.Size() != afterOpen.Size() ||
-		!opened.ModTime().Equal(afterOpen.ModTime()) {
-		return nil, false, fmt.Errorf("settings file changed while reading")
-	}
-	return content, true, nil
 }
 
 func decodePackageSources(content []byte) ([]string, error) {

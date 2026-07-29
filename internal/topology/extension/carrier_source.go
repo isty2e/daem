@@ -226,6 +226,10 @@ func piSourceIsLocal(source string) bool {
 
 func gitSourceIdentity(source string) (CarrierSource, bool) {
 	value := strings.TrimSpace(source)
+	if strings.HasPrefix(value, "github:") {
+		repository, _ := splitGitRef(strings.TrimPrefix(value, "github:"))
+		return buildGitSource("github.com", repository)
+	}
 	hasGitPrefix := strings.HasPrefix(value, "git:")
 	if hasGitPrefix {
 		value = strings.TrimSpace(strings.TrimPrefix(value, "git:"))

@@ -303,5 +303,30 @@ func (profile TargetProfile) validate() error {
 			)
 		}
 	}
+	for _, capability := range profile.extensionOrders {
+		if err := capability.Validate(); err != nil {
+			return err
+		}
+		if !capability.Carrier().AdmitsTargetScope(
+			profile.selectedTarget,
+			capability.Scope(),
+		) {
+			return fmt.Errorf(
+				"extension order capability %q is not admitted by profile %q",
+				capability.ClassID(),
+				profile.selectedTarget,
+			)
+		}
+		if selected, ok := profile.ExtensionOrder(
+			capability.Carrier(),
+			capability.Scope(),
+		); !ok || selected.ClassID() != capability.ClassID() {
+			return fmt.Errorf(
+				"extension order capability %q is not uniquely selected by profile %q",
+				capability.ClassID(),
+				profile.selectedTarget,
+			)
+		}
+	}
 	return nil
 }

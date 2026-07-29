@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/target"
 )
 
 type ImportPlan struct {
@@ -28,6 +27,7 @@ type ImportSummary struct {
 	Skills       int
 	Hooks        int
 	MCPServers   int
+	Extensions   int
 	Skipped      int
 	Scans        int
 	Rows         []ImportSummaryRow
@@ -40,9 +40,11 @@ type ImportSummaryRow struct {
 	Skills       int
 	Hooks        int
 	MCPServers   int
+	Extensions   int
 }
 
 type ImportScan struct {
+	ResourceKind string
 	ResourceName string
 	Target       string
 	Scope        string
@@ -62,8 +64,10 @@ type ImportResource struct {
 	RenderTo   string
 	Event      string
 	Command    string
+	Carrier    string
 	Hook       bool
 	MCPServer  bool
+	Extension  bool
 }
 
 type ImportMergeResult struct {
@@ -96,10 +100,14 @@ func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options Human
 
 func printImportEvidence(output io.Writer, plan ImportPlan) {
 	for _, scan := range plan.Scans {
+		resource := scan.ResourceName
+		if scan.ResourceKind != "skill" {
+			resource = scan.ResourceKind + "/" + scan.ResourceName
+		}
 		fmt.Fprintf(
 			output,
 			"scan resource=%q target=%s scope=%s live=%q status=%s entries=%d imported=%d skipped=%d\n",
-			scan.ResourceName,
+			resource,
 			scan.Target,
 			scan.Scope,
 			scan.LivePath,
@@ -110,6 +118,18 @@ func printImportEvidence(output io.Writer, plan ImportPlan) {
 		)
 	}
 	for _, resource := range plan.Resources {
+		if resource.Extension {
+			fmt.Fprintf(
+				output,
+				"import resource=%q target=%s scope=%s carrier=%q source=%q\n",
+				resource.ResourceID,
+				resource.Target,
+				resource.Scope,
+				resource.Carrier,
+				resource.Source,
+			)
+			continue
+		}
 		if resource.MCPServer {
 			fmt.Fprintf(
 				output,
@@ -173,24 +193,26 @@ func printImportNextAction(output io.Writer, plan ImportPlan) {
 func printImportSummary(output io.Writer, plan ImportPlan) {
 	fmt.Fprintf(
 		output,
-		"summary: instructions=%d skills=%d hooks=%d mcp_servers=%d skipped=%d scans=%d\n",
+		"summary: instructions=%d skills=%d hooks=%d mcp_servers=%d extensions=%d skipped=%d scans=%d\n",
 		plan.Summary.Instructions,
 		plan.Summary.Skills,
 		plan.Summary.Hooks,
 		plan.Summary.MCPServers,
+		plan.Summary.Extensions,
 		plan.Summary.Skipped,
 		plan.Summary.Scans,
 	)
 	for _, row := range plan.Summary.Rows {
 		fmt.Fprintf(
 			output,
-			"summary target=%s scope=%s instructions=%d skills=%d hooks=%d mcp_servers=%d\n",
+			"summary target=%s scope=%s instructions=%d skills=%d hooks=%d mcp_servers=%d extensions=%d\n",
 			row.Target,
 			row.Scope,
 			row.Instructions,
 			row.Skills,
 			row.Hooks,
 			row.MCPServers,
+			row.Extensions,
 		)
 	}
 	fmt.Fprintf(output, "destination: manifest=%s source-dir=%s\n", Escape(plan.ManifestPath), Escape(plan.SourceDir))
@@ -218,6 +240,7 @@ func importSummaryFromAdoption(plan adoptmodel.Plan) ImportSummary {
 		Skills:       len(plan.Skills()),
 		Hooks:        len(plan.Hooks()),
 		MCPServers:   len(plan.MCPServers()),
+		Extensions:   len(plan.Extensions()),
 		Skipped:      len(plan.Skipped()),
 		Scans:        len(plan.Scans()),
 		Rows:         importSummaryRowsFromAdoption(plan.SummaryRows()),
@@ -234,6 +257,7 @@ func importSummaryRowsFromAdoption(rows []adoptmodel.SummaryRow) []ImportSummary
 			Skills:       row.Skills,
 			Hooks:        row.Hooks,
 			MCPServers:   row.MCPServers,
+			Extensions:   row.Extensions,
 		})
 	}
 	return result
@@ -243,6 +267,7 @@ func importScansFromAdoption(scans []adoptmodel.Scan) []ImportScan {
 	result := make([]ImportScan, 0, len(scans))
 	for _, scan := range scans {
 		result = append(result, ImportScan{
+			ResourceKind: scan.ResourceKind,
 			ResourceName: scan.ResourceName,
 			Target:       string(scan.Target),
 			Scope:        string(scan.Scope),
@@ -298,6 +323,16 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 			MCPServer:  true,
 		})
 	}
+	for _, extension := range plan.Extensions() {
+		resources = append(resources, ImportResource{
+			ResourceID: "extension/" + extension.ID().Name(),
+			Target:     string(extension.Target()),
+			Scope:      string(extension.Scope()),
+			Source:     extension.Source().Ref(),
+			Carrier:    string(extension.Carrier()),
+			Extension:  true,
+		})
+	}
 	return resources
 }
 
@@ -322,138 +357,4 @@ func importSkippedFromAdoption(skipped []adoptmodel.Skipped) []ImportSkipped {
 		})
 	}
 	return result
-}
-
-func ImportPlanJSONOutput(mode string, plan adoptmodel.Plan) ManifestAuthoringJSONOutput {
-	return ImportManifestAuthoringJSON(ImportManifestAuthoringJSONInput{
-		Mode:          mode,
-		ManifestPath:  plan.Output(),
-		SourceDir:     plan.SourceDirectory().Root(),
-		ResourceCount: plan.ResourceCount(),
-		HasErrors:     plan.HasMergeConflicts(),
-		Changes:       importPlanJSONChanges(plan),
-		Summary:       importPlanJSONSummary(plan),
-		Scans:         importPlanJSONScans(plan.Scans()),
-		Skipped:       importPlanJSONSkipped(plan.Skipped()),
-		MergeResults:  importPlanJSONMergeResults(plan.MergeResults()),
-	})
-}
-
-func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
-	changes := make([]ManifestAuthoringJSONChange, 0, plan.ResourceCount())
-	for _, source := range plan.Sources() {
-		changes = append(changes, ManifestAuthoringJSONChange{
-			Operation:  "import",
-			ResourceID: authoringResourceID("instructions", source.ResourceName),
-			Resource:   authoringJSONResource("instructions", source.ResourceName),
-			Target:     string(source.Target),
-			Scope:      string(source.Scope),
-			Source:     filepath.ToSlash(source.SourcePath),
-			LivePath:   source.LivePath,
-			RenderTo:   source.RenderTo,
-		})
-	}
-	for _, skill := range plan.Skills() {
-		changes = append(changes, ManifestAuthoringJSONChange{
-			Operation:  "import",
-			ResourceID: authoringResourceID("skill", skill.ResourceName),
-			Resource:   authoringJSONResource("skill", skill.ResourceName),
-			Target:     string(skill.Target),
-			Targets:    importTargetStrings(skill.Targets),
-			Scope:      string(skill.Scope),
-			Source:     filepath.ToSlash(skill.SourcePath),
-			LivePath:   skill.LivePath,
-		})
-	}
-	for _, hook := range plan.Hooks() {
-		changes = append(changes, ManifestAuthoringJSONChange{
-			Operation:  "import",
-			ResourceID: authoringResourceID("hook", hook.ResourceName),
-			Resource:   authoringJSONResource("hook", hook.ResourceName),
-			Target:     string(hook.Target),
-			Scope:      string(hook.Scope),
-			LivePath:   hook.LivePath,
-			Detail:     hook.Event,
-		})
-	}
-	for _, server := range plan.MCPServers() {
-		changes = append(changes, ManifestAuthoringJSONChange{
-			Operation:  "import",
-			ResourceID: authoringResourceID("mcp_server", server.ResourceName),
-			Resource:   authoringJSONResource("mcp_server", server.ResourceName),
-			Target:     string(server.Target),
-			Scope:      string(server.Scope),
-			LivePath:   server.LivePath,
-			Detail:     server.Command,
-		})
-	}
-	return changes
-}
-
-func importPlanJSONSummary(plan adoptmodel.Plan) []ImportAuthoringJSONSummary {
-	summaryRows := plan.SummaryRows()
-	summary := make([]ImportAuthoringJSONSummary, 0, len(summaryRows))
-	for _, row := range summaryRows {
-		summary = append(summary, ImportAuthoringJSONSummary{
-			Target:       string(row.Target),
-			Scope:        string(row.Scope),
-			Instructions: row.Instructions,
-			Skills:       row.Skills,
-			Hooks:        row.Hooks,
-			MCPServers:   row.MCPServers,
-		})
-	}
-	return summary
-}
-
-func importPlanJSONScans(scans []adoptmodel.Scan) []ImportAuthoringJSONScan {
-	result := make([]ImportAuthoringJSONScan, 0, len(scans))
-	for _, scan := range scans {
-		result = append(result, ImportAuthoringJSONScan{
-			ResourceID: authoringResourceID("skill", scan.ResourceName),
-			Resource:   authoringJSONResource("skill", scan.ResourceName),
-			Target:     string(scan.Target),
-			Scope:      string(scan.Scope),
-			LivePath:   scan.LivePath,
-			Status:     scan.Status,
-			Entries:    scan.Entries,
-			Imported:   scan.Imported,
-			Skipped:    scan.Skipped,
-		})
-	}
-	return result
-}
-
-func importPlanJSONSkipped(skipped []adoptmodel.Skipped) []ImportAuthoringJSONSkipped {
-	result := make([]ImportAuthoringJSONSkipped, 0, len(skipped))
-	for _, item := range skipped {
-		result = append(result, ImportAuthoringJSONSkipped{
-			LivePath: item.LivePath,
-			Reason:   item.Reason,
-		})
-	}
-	return result
-}
-
-func importPlanJSONMergeResults(results []adoptmodel.MergeResult) []ImportAuthoringJSONMerge {
-	merges := make([]ImportAuthoringJSONMerge, 0, len(results))
-	for _, result := range results {
-		merges = append(merges, ImportAuthoringJSONMerge{
-			ResourceID: result.Resource,
-			Status:     string(result.Status),
-			Detail:     result.Detail,
-		})
-	}
-	return merges
-}
-
-func importTargetStrings(targets []target.Target) []string {
-	if len(targets) == 0 {
-		return nil
-	}
-	values := make([]string, 0, len(targets))
-	for _, target := range targets {
-		values = append(values, string(target))
-	}
-	return values
 }

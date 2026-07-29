@@ -14,6 +14,7 @@ type existingDeclarations struct {
 	Skills       []declarationcodec.SkillBlock
 	Hooks        []declarationcodec.HookBlock
 	MCPServers   []declarationcodec.MCPServerBlock
+	Extensions   []declarationcodec.ExtensionBlock
 }
 
 func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
@@ -36,11 +37,16 @@ func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 	if err != nil {
 		return existingDeclarations{}, err
 	}
+	extensions, err := declarationcodec.ScanExtensionBlocks(content)
+	if err != nil {
+		return existingDeclarations{}, err
+	}
 	return existingDeclarations{
 		Instructions: instructions,
 		Skills:       skills,
 		Hooks:        hooks,
 		MCPServers:   mcpServers,
+		Extensions:   extensions,
 	}, nil
 }
 

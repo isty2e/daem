@@ -3,12 +3,16 @@ package antigravityplugin
 import (
 	"crypto/sha256"
 	"fmt"
+	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
+
+const maximumInventoryBytes int64 = 4 << 20
 
 // Inventory is one immutable observation of the Antigravity import manifest.
 // Installed bundle state is read only when correlating a selected plugin.
@@ -27,7 +31,10 @@ func ReadInventory(paths HostPaths) (Inventory, error) {
 	if manifest == "" {
 		return Inventory{}, fmt.Errorf("Antigravity CLI host paths are unresolved")
 	}
-	content, exists, err := readStableRegularFile(manifest)
+	content, exists, err := filesnapshot.ReadRegularFile(
+		manifest,
+		maximumInventoryBytes,
+	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Antigravity CLI import manifest %q: %w", manifest, err)
 	}
@@ -52,6 +59,33 @@ func (inventory Inventory) Equal(other Inventory) bool {
 	return inventory.manifest == other.manifest &&
 		inventory.exists == other.exists &&
 		inventory.fingerprint == other.fingerprint
+}
+
+// CompletePluginNames returns stable plugin-name diagnostics only when each
+// selected import row has one complete installed bundle. Names carry no source
+// provenance and therefore cannot become extension declarations.
+func (inventory Inventory) CompletePluginNames() ([]string, error) {
+	names := append([]string(nil), inventory.imports...)
+	sort.Strings(names)
+	for index, name := range names {
+		if index > 0 && name == names[index-1] {
+			return nil, fmt.Errorf(
+				"Antigravity CLI import manifest contains duplicate plugin %q",
+				name,
+			)
+		}
+		present, err := observePluginBundle(inventory.paths, name, true)
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			return nil, fmt.Errorf(
+				"Antigravity CLI plugin %q has a partial import/bundle relation",
+				name,
+			)
+		}
+	}
+	return names, nil
 }
 
 // CorrelateDesired classifies one desired plugin. The import row and installed

@@ -23,6 +23,27 @@ type sourceIdentity struct {
 	key  string
 }
 
+// HostLoadIdentityForInput derives Pi's source-class-qualified package
+// identity from one manifest-side source and command root.
+func HostLoadIdentityForInput(
+	source string,
+	commandRoot string,
+	scope target.Scope,
+) (string, error) {
+	identity, err := sourceIdentityForInput(source, commandRoot, scope)
+	if err != nil {
+		return "", err
+	}
+	return identity.hostLoadIdentity(scope), nil
+}
+
+func (identity sourceIdentity) hostLoadIdentity(scope target.Scope) string {
+	if identity.kind == sourceKindLocal {
+		return string(identity.kind) + ":" + string(scope) + ":" + identity.key
+	}
+	return string(identity.kind) + ":" + identity.key
+}
+
 func sourceIdentityForInput(source string, commandRoot string, scope target.Scope) (sourceIdentity, error) {
 	return parseSourceIdentity(source, commandRoot, scope)
 }

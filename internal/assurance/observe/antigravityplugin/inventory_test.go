@@ -106,6 +106,34 @@ func TestInventoryRejectsPartialDuplicateAndMismatchedRelations(t *testing.T) {
 	})
 }
 
+func TestCompletePluginNamesReturnsOnlyValidatedSourceInexactRows(t *testing.T) {
+	paths, _, _ := antigravityInventoryFixture(t, "guidance@google")
+	writeAntigravityImportManifest(
+		t,
+		paths,
+		`{"imports":[{"name":"tools"},{"name":"guidance"}]}`,
+	)
+	writeAntigravityPluginManifest(t, paths, "guidance", `{"name":"guidance"}`)
+	writeAntigravityPluginManifest(t, paths, "tools", `{"name":"tools"}`)
+
+	inventory := mustReadInventory(t, paths)
+	names, err := inventory.CompletePluginNames()
+	if err != nil {
+		t.Fatalf("CompletePluginNames: %v", err)
+	}
+	if len(names) != 2 || names[0] != "guidance" || names[1] != "tools" {
+		t.Fatalf("CompletePluginNames = %#v", names)
+	}
+
+	if err := os.Remove(mustPluginManifestPath(t, paths, "tools")); err != nil {
+		t.Fatal(err)
+	}
+	inventory = mustReadInventory(t, paths)
+	if _, err := inventory.CompletePluginNames(); err == nil {
+		t.Fatal("partial plugin relation was accepted as import diagnostic")
+	}
+}
+
 func TestRemovalCorrelationKeepsPartialStateLiveForRetry(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -178,6 +178,9 @@ func validateStaticCatalog() error {
 	if err := validateMCPRuntimeProbeCapabilityCatalog(mcpRuntimeProbeCapabilityCatalog); err != nil {
 		return err
 	}
+	if err := validateExtensionOrderCapabilityCatalog(extensionOrderCapabilityCatalog); err != nil {
+		return err
+	}
 	for _, selectedTarget := range target.SupportedTargets() {
 		facts, ok := supportCatalog[selectedTarget]
 		if !ok {

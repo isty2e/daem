@@ -4,10 +4,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
 	adoptmerge "github.com/isty2e/daem/internal/adopt/merge"
 	adoptskill "github.com/isty2e/daem/internal/adopt/skill"
+	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 )
 
 // BuildPlan scans selected live agent resources and produces a manifest import plan.
@@ -36,10 +41,25 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	}
 
 	var originalContent []byte
+	var existingExtensions []desiredextension.Extension
 	if merge {
 		originalContent, err = os.ReadFile(output)
 		if err != nil {
 			return adoptmodel.Plan{}, fmt.Errorf("read merge output manifest: %w", err)
+		}
+		extensionBlocks, err := declarationcodec.ScanExtensionBlocks(originalContent)
+		if err != nil {
+			return adoptmodel.Plan{}, fmt.Errorf("scan merge output extensions: %w", err)
+		}
+		if len(extensionBlocks) != 0 {
+			environment, err := declarationmanifest.Decode(originalContent)
+			if err != nil {
+				return adoptmodel.Plan{}, fmt.Errorf(
+					"decode merge output manifest extensions: %w",
+					err,
+				)
+			}
+			existingExtensions = environment.Extensions()
 		}
 	}
 	var sources []adoptmodel.Source
@@ -48,6 +68,34 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	var mcpServers []adoptmodel.MCPServer
 	var scans []adoptmodel.Scan
 	var skipped []adoptmodel.Skipped
+	extensionResult, err := adoptextension.Collect(adoptextension.Input{
+		ManifestRoot: filepath.Dir(output),
+		Targets:      request.Targets(),
+		Scopes:       request.Scopes(),
+		Existing:     existingExtensions,
+	})
+	if err != nil {
+		return adoptmodel.Plan{}, fmt.Errorf("import extensions: %w", err)
+	}
+	for _, scan := range extensionResult.Scans() {
+		scans = append(scans, adoptmodel.Scan{
+			ResourceKind: "extension",
+			ResourceName: "inventory",
+			Target:       scan.Target,
+			Scope:        scan.Scope,
+			LivePath:     scan.LivePath,
+			Status:       "observed",
+			Entries:      scan.Entries,
+			Imported:     scan.Imported,
+			Skipped:      scan.Skipped,
+		})
+	}
+	for _, skip := range extensionResult.Skipped() {
+		skipped = append(skipped, adoptmodel.Skipped{
+			LivePath: skip.LivePath,
+			Reason:   skip.Reason,
+		})
+	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	for _, target := range request.Targets() {
 		for _, scope := range request.Scopes() {
@@ -72,7 +120,15 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 		return adoptmodel.Plan{}, err
 	}
 
-	candidates, err := adoptmodel.NewCandidateSet(sources, skills, hooks, mcpServers, scans, skipped)
+	candidates, err := adoptmodel.NewCandidateSet(adoptmodel.CandidateSetInput{
+		Sources:    sources,
+		Skills:     skills,
+		Hooks:      hooks,
+		MCPServers: mcpServers,
+		Extensions: extensionResult,
+		Scans:      scans,
+		Skipped:    skipped,
+	})
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
@@ -131,7 +187,13 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	if merge {
 		return mergedPlan, nil
 	}
-	manifestContent, err := adoptmodel.RenderManifestContent(sources, skills, hooks, mcpServers)
+	manifestContent, err := adoptmodel.RenderManifestContent(
+		sources,
+		skills,
+		hooks,
+		mcpServers,
+		candidates.Extensions(),
+	)
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}

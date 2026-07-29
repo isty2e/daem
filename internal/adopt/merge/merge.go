@@ -5,6 +5,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -49,12 +50,18 @@ func IntoManifest(
 	skills := candidates.Skills()
 	hooks := candidates.Hooks()
 	mcpServers := candidates.MCPServers()
+	extensions := candidates.Extensions()
 	addSources := make([]adoptmodel.Source, 0, len(sources))
 	addSkills := make([]adoptmodel.Skill, 0, len(skills))
 	addHooks := make([]adoptmodel.Hook, 0, len(hooks))
 	addMCPServers := make([]adoptmodel.MCPServer, 0, len(mcpServers))
+	addExtensions := make([]desiredextension.Extension, 0, len(extensions))
 	targetActions := make([]importMergeTargetAction, 0)
-	mergeResults := make([]adoptmodel.MergeResult, 0, len(sources)+len(skills)+len(hooks)+len(mcpServers))
+	mergeResults := make(
+		[]adoptmodel.MergeResult,
+		0,
+		len(sources)+len(skills)+len(hooks)+len(mcpServers)+len(extensions),
+	)
 
 	for _, source := range sources {
 		action, missingTargets := classifyImportInstructionMerge(existing, source)
@@ -107,14 +114,29 @@ func IntoManifest(
 			addMCPServers = append(addMCPServers, server)
 		}
 	}
+	for _, extension := range extensions {
+		action := classifyImportExtensionMerge(existing, extension)
+		mergeResults = append(mergeResults, action)
+		if action.Status == adoptmodel.MergeStatusAdd {
+			addExtensions = append(addExtensions, extension)
+		}
+	}
+
+	filteredExtensionResult, err := candidates.ExtensionResult().WithExtensions(addExtensions)
+	if err != nil {
+		return adoptmodel.Plan{}, err
+	}
 
 	filteredCandidates, err := adoptmodel.NewCandidateSet(
-		addSources,
-		addSkills,
-		addHooks,
-		addMCPServers,
-		candidates.Scans(),
-		candidates.Skipped(),
+		adoptmodel.CandidateSetInput{
+			Sources:    addSources,
+			Skills:     addSkills,
+			Hooks:      addHooks,
+			MCPServers: addMCPServers,
+			Extensions: filteredExtensionResult,
+			Scans:      candidates.Scans(),
+			Skipped:    candidates.Skipped(),
+		},
 	)
 	if err != nil {
 		return adoptmodel.Plan{}, err
@@ -145,11 +167,25 @@ func IntoManifest(
 		_ = changeKind
 	}
 
-	body, err := adoptmodel.RenderManifestBodyContent(addSources, addSkills, addHooks, addMCPServers)
+	body, err := adoptmodel.RenderManifestBodyContent(
+		addSources,
+		addSkills,
+		addHooks,
+		addMCPServers,
+		nil,
+	)
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
 	content = declarationcodec.AppendImportManifestBody(content, body)
+	content, err = insertImportedExtensions(
+		content,
+		filteredExtensionResult.OrderedExtensions(),
+		addExtensions,
+	)
+	if err != nil {
+		return adoptmodel.Plan{}, err
+	}
 	if err := validateManifestSyntax(content); err != nil {
 		mergeResults = append(mergeResults, adoptmodel.MergeResult{
 			Resource: "manifest",
