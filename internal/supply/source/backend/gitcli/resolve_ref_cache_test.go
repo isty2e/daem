@@ -4,12 +4,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	artifactpkg "github.com/isty2e/daem/internal/supply/artifact"
 )
 
-func TestResolveReclonesStaleCacheDirectory(t *testing.T) {
+func TestResolveRejectsUnownedStaleCacheDirectory(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -30,13 +31,12 @@ func TestResolveReclonesStaleCacheDirectory(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolution, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
-	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
+	if err == nil || !strings.Contains(err.Error(), "cache authority record") {
+		t.Fatalf("Resolve error = %v, want unowned cache rejection", err)
 	}
-
-	if resolution.Identity().Kind() != artifactpkg.ArtifactKindDirectory {
-		t.Fatalf("Kind = %q, want directory", resolution.Identity().Kind())
+	if _, err := os.Stat(filepath.Join(staleRepoPath, "partial")); err != nil {
+		t.Fatalf("unowned cache entry was removed or changed: %v", err)
 	}
 }
 

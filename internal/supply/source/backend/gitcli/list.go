@@ -3,6 +3,7 @@ package gitcli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -16,7 +17,7 @@ func (resolver Resolver) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
 	options acquisition.OperationOptions,
-) (source.RootListing, error) {
+) (listing source.RootListing, returnErr error) {
 	if ctx == nil {
 		return source.RootListing{}, fmt.Errorf("git root listing context is required")
 	}
@@ -35,22 +36,29 @@ func (resolver Resolver) ListSourceRoot(
 
 	gitPath := gitSource.RepositoryPath().String()
 
-	repoPath, commit, err := resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
+	snapshot, err := resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
 	if err != nil {
 		return source.RootListing{}, err
 	}
-
-	objectName := gitObjectName(commit, gitPath)
-	objectKindOutput, err := resolver.gitOutput(ctx, repoPath, inspectObjectArgs(objectName)...)
+	handle, err := resolver.openVerifiedRepository(ctx, snapshot.repository)
 	if err != nil {
-		return source.RootListing{}, fmt.Errorf("git source path %q does not exist at %s", gitPath, commit)
+		return source.RootListing{}, err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, handle.Close())
+	}()
+
+	objectName := gitObjectName(snapshot.commit, gitPath)
+	objectKindOutput, err := handle.gitOutput(ctx, inspectObjectArgs(objectName)...)
+	if err != nil {
+		return source.RootListing{}, fmt.Errorf("git source path %q does not exist at %s", gitPath, snapshot.commit)
 	}
 
 	switch objectKind := strings.TrimSpace(objectKindOutput); objectKind {
 	case "tree":
-		childNames, err := resolver.listTreeDirectories(ctx, repoPath, objectName)
+		childNames, err := handle.listTreeDirectories(ctx, objectName)
 		if err != nil {
-			return source.RootListing{}, fmt.Errorf("list git source path %q at %s: %w", gitPath, commit, err)
+			return source.RootListing{}, fmt.Errorf("list git source path %q at %s: %w", gitPath, snapshot.commit, err)
 		}
 		if err := ctx.Err(); err != nil {
 			return source.RootListing{}, err
@@ -58,19 +66,24 @@ func (resolver Resolver) ListSourceRoot(
 
 		return source.NewRootListing(
 			sourceSpec,
-			artifact.ResolvedRef(commit),
+			artifact.ResolvedRef(snapshot.commit),
 			artifact.ArtifactKindDirectory,
 			childNames,
 		)
 	case "blob":
-		return source.NewRootListing(sourceSpec, artifact.ResolvedRef(commit), artifact.ArtifactKindFile, nil)
+		return source.NewRootListing(sourceSpec, artifact.ResolvedRef(snapshot.commit), artifact.ArtifactKindFile, nil)
 	default:
-		return source.RootListing{}, fmt.Errorf("git source path %q at %s has unsupported object kind %q", gitPath, commit, objectKind)
+		return source.RootListing{}, fmt.Errorf(
+			"git source path %q at %s has unsupported object kind %q",
+			gitPath,
+			snapshot.commit,
+			objectKind,
+		)
 	}
 }
 
-func (resolver Resolver) listTreeDirectories(ctx context.Context, repoPath string, objectName string) ([]string, error) {
-	output, err := resolver.gitBytes(ctx, repoPath, listTreeArgs(objectName)...)
+func (handle *repositoryHandle) listTreeDirectories(ctx context.Context, objectName string) ([]string, error) {
+	output, err := handle.gitBytes(ctx, listTreeArgs(objectName)...)
 	if err != nil {
 		return nil, err
 	}

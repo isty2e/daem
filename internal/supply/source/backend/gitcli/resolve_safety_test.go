@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -109,7 +110,50 @@ func TestExtractGitArchiveRejectsOversizedEntryWithoutPublication(t *testing.T) 
 	if runtime.GOOS == "windows" {
 		t.Skip("fake git archive executable uses a POSIX shell")
 	}
+	requireGit(t)
 	tempDir := t.TempDir()
+	repositoryRoot := filepath.Join(tempDir, "origin")
+	if err := os.MkdirAll(repositoryRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	origin := initGitRepository(t, repositoryRoot)
+	writeGitTestFile(t, origin, "SKILL.md", "---\nname: demo\n---\n")
+	commit := commitAll(t, origin, "initial skill")
+	sourceSpec := mustGitSource(t, origin, ".", commit)
+	sourceID, err := sourcepkg.SourceIDFor(sourceSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitSource, ok := sourceSpec.Git()
+	if !ok {
+		t.Fatal("source fixture is not Git")
+	}
+	cacheRoot := filepath.Join(tempDir, "cache")
+	resolver, err := NewResolver(cacheRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capturedCacheRoot, err := resolver.captureCacheRoot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capturedCacheRoot.Close()
+	repository, err := resolver.ensureRepository(
+		context.Background(),
+		capturedCacheRoot,
+		gitSource,
+		sourceSpec,
+		sourceID,
+		acquisition.OperationOptions{},
+	)
+	if err != nil {
+		t.Fatalf("prepare repository cache: %v", err)
+	}
+
+	realGit, err := exec.LookPath(gitExecutable)
+	if err != nil {
+		t.Fatal(err)
+	}
 	binDir := filepath.Join(tempDir, "bin")
 	if err := os.MkdirAll(binDir, 0o700); err != nil {
 		t.Fatal(err)
@@ -135,28 +179,21 @@ func TestExtractGitArchiveRejectsOversizedEntryWithoutPublication(t *testing.T) 
 		t.Fatal(err)
 	}
 	fakeGitPath := filepath.Join(binDir, gitExecutable)
-	if err := os.WriteFile(fakeGitPath, []byte("#!/bin/sh\n/bin/cat \"$DAEM_ARCHIVE_FIXTURE\"\n"), 0o700); err != nil {
+	fakeGit := "#!/bin/sh\n" + detectGitSubcommandShell + `
+if [ "$git_subcommand" = "archive" ]; then
+  /bin/cat "$DAEM_ARCHIVE_FIXTURE"
+  exit 0
+fi
+exec ` + shellQuoteForTest(realGit) + ` "$@"
+`
+	if err := os.WriteFile(fakeGitPath, []byte(fakeGit), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir)
 	t.Setenv("DAEM_ARCHIVE_FIXTURE", fixturePath)
-	cacheRoot := filepath.Join(tempDir, "cache")
-	resolver, err := NewResolver(cacheRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	commit := strings.Repeat("a", 40)
-	locator := "https://example.com/owner/repository.git"
-	sourceSpec := mustGitSource(t, locator, ".", commit)
-	sourceID, err := sourcepkg.SourceIDFor(sourceSpec)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = resolver.ensureArtifact(
+	_, _, _, err = resolver.ensureArtifact(
 		context.Background(),
-		locator,
-		tempDir,
+		repository,
 		commit,
 		".",
 		sourceSpec,
@@ -167,11 +204,14 @@ func TestExtractGitArchiveRejectsOversizedEntryWithoutPublication(t *testing.T) 
 	if !errors.As(err, &limitErr) || limitErr.Kind() != sourcearchive.LimitEntryBytes {
 		t.Fatalf("ensureArtifact error = %v, want entry-byte LimitError", err)
 	}
-	entryRoot := resolver.artifactEntryRoot(locator, commit, ".")
+	entryRoot := resolver.artifactEntryRoot(origin, commit, ".")
 	if _, statErr := os.Lstat(entryRoot); !os.IsNotExist(statErr) {
 		t.Fatalf("limit-failed Git entry was published: %v", statErr)
 	}
 	entries, readErr := os.ReadDir(filepath.Dir(entryRoot))
+	if os.IsNotExist(readErr) {
+		return
+	}
 	if readErr != nil {
 		t.Fatalf("read Git artifact parent: %v", readErr)
 	}
@@ -196,8 +236,8 @@ func TestResolveBadRepositoryReportsCloneContext(t *testing.T) {
 		t.Fatal("Resolve returned nil error")
 	}
 
-	if !strings.Contains(err.Error(), "clone git source") {
-		t.Fatalf("error = %q, want clone context", err)
+	if !strings.Contains(err.Error(), "fetch git source") {
+		t.Fatalf("error = %q, want fetch context", err)
 	}
 }
 

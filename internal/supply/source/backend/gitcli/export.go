@@ -19,46 +19,69 @@ import (
 
 func (resolver Resolver) ensureArtifact(
 	ctx context.Context,
-	url string,
-	repoPath string,
+	repository cachedRepository,
 	commit string,
 	gitPath string,
 	sourceSpec source.Source,
 	sourceID artifact.SourceID,
 	options acquisition.OperationOptions,
-) (string, error) {
+) (string, artifact.ContentHash, artifact.ArtifactKind, error) {
 	state, err := resolver.requireState()
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
-	key, err := cacheKeyForGitArtifact(url, commit, gitPath)
+	locator := repository.locator.String()
+	key, err := cacheKeyForGitArtifact(locator, commit, gitPath)
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 
-	entryRoot := resolver.artifactEntryRoot(url, commit, gitPath)
+	entryRoot := resolver.artifactEntryRoot(locator, commit, gitPath)
 	relativeContentPath := path.Join("content", gitPath)
 	if gitPath == "." {
 		relativeContentPath = "content"
 	}
 	spec, err := sourcecache.NewEntrySpec(key, relativeContentPath, "", "")
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
-	contentPath := filepath.Join(resolver.artifactRoot(url, commit, gitPath), filepath.FromSlash(gitPath))
+	contentPath := filepath.Join(resolver.artifactRoot(locator, commit, gitPath), filepath.FromSlash(gitPath))
 	if gitPath == "." {
-		contentPath = resolver.artifactRoot(url, commit, gitPath)
+		contentPath = resolver.artifactRoot(locator, commit, gitPath)
 	}
 
 	options.Emit(acquisition.EventCacheWait, sourceSpec, sourceID, artifact.ResolvedRef(commit), nil)
-	err = state.artifactLocker.Do(ctx, key, func() error {
-		published, err := sourcecache.PublishDirectoryOnce(ctx, entryRoot, spec, func(tempEntryRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
-			return resolver.buildArtifactEntry(ctx, repoPath, commit, gitPath, tempEntryRoot, sourceSpec, sourceID, options)
-		})
+	cacheRoot, err := resolver.captureCacheRoot(ctx)
+	if err != nil {
+		return "", "", "", err
+	}
+	var contentHash artifact.ContentHash
+	var contentKind artifact.ArtifactKind
+	lockErr := state.artifactLocker.DoRooted(ctx, cacheRoot, key, func() error {
+		verifiedHash, verifiedKind, published, err := sourcecache.PublishDirectoryOnceRooted(
+			ctx,
+			cacheRoot,
+			resolver.artifactEntryRelativeRoot(locator, commit, gitPath),
+			spec,
+			func(tempEntryRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+				return resolver.buildArtifactEntry(
+					ctx,
+					repository,
+					commit,
+					gitPath,
+					tempEntryRoot,
+					sourceSpec,
+					sourceID,
+					options,
+				)
+			},
+		)
 		if err != nil {
 			return fmt.Errorf("publish verified git artifact cache entry %q: %w", entryRoot, err)
 		}
+		contentHash = verifiedHash
+		contentKind = verifiedKind
 
 		if published {
 			options.Emit(acquisition.EventPublished, sourceSpec, sourceID, artifact.ResolvedRef(commit), nil)
@@ -67,16 +90,17 @@ func (resolver Resolver) ensureArtifact(
 		}
 		return nil
 	})
-	if err != nil {
-		return "", err
+	closeErr := cacheRoot.Close()
+	if lockErr != nil || closeErr != nil {
+		return "", "", "", errors.Join(lockErr, closeErr)
 	}
 
-	return contentPath, nil
+	return contentPath, contentHash, contentKind, nil
 }
 
 func (resolver Resolver) buildArtifactEntry(
 	ctx context.Context,
-	repoPath string,
+	repository cachedRepository,
 	commit string,
 	gitPath string,
 	entryRoot string,
@@ -90,7 +114,7 @@ func (resolver Resolver) buildArtifactEntry(
 	}
 
 	options.Emit(acquisition.EventExport, sourceSpec, sourceID, artifact.ResolvedRef(commit), nil)
-	if err := resolver.extractGitArchive(ctx, repoPath, commit, gitPath, contentRoot); err != nil {
+	if err := resolver.extractGitArchive(ctx, repository, commit, gitPath, contentRoot); err != nil {
 		return "", "", fmt.Errorf("export git source path %q at %s: %w", gitPath, commit, err)
 	}
 
@@ -119,10 +143,23 @@ func (resolver Resolver) buildArtifactEntry(
 	return contentHash, artifactKind, nil
 }
 
-func (resolver Resolver) extractGitArchive(ctx context.Context, repoPath string, commit string, gitPath string, outputRoot string) error {
-	command := exec.CommandContext(ctx, gitExecutable, archiveArgs(commit, gitPath)...)
-	command.Dir = repoPath
-	return extractGitArchiveCommand(ctx, command, outputRoot)
+func (resolver Resolver) extractGitArchive(
+	ctx context.Context,
+	repository cachedRepository,
+	commit string,
+	gitPath string,
+	outputRoot string,
+) error {
+	handle, err := resolver.openVerifiedRepository(ctx, repository)
+	if err != nil {
+		return err
+	}
+	command, finish, err := handle.prepareCommand(ctx, archiveArgs(commit, gitPath))
+	if err != nil {
+		return errors.Join(err, handle.Close())
+	}
+	runErr := extractGitArchiveCommand(ctx, command, outputRoot)
+	return errors.Join(runErr, finish(), handle.Close())
 }
 
 func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot string) error {

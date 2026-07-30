@@ -57,6 +57,18 @@ func (locator GitLocator) LocalPath() (string, bool) {
 	return locator.localPath, true
 }
 
+// Equivalent reports whether two canonical locators identify the same
+// repository address. Native paths and file URLs share their canonical local
+// path identity; network forms retain exact canonical spelling.
+func (locator GitLocator) Equivalent(other GitLocator) bool {
+	if locator.localPath != "" || other.localPath != "" {
+		return locator.localPath != "" &&
+			other.localPath != "" &&
+			locator.localPath == other.localPath
+	}
+	return locator.value != "" && locator.value == other.value
+}
+
 // GitRepositoryPath is a validated repository-relative POSIX tree path.
 type GitRepositoryPath struct {
 	value string

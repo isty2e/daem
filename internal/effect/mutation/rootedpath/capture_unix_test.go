@@ -218,6 +218,74 @@ func TestCapturedRootValidatesSelectedAliasStillNamesCapturedAuthority(t *testin
 	}
 }
 
+func TestCaptureRootNoFollowRejectsSelectedAndAncestorSymlinks(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve test root: %v", err)
+	}
+	physical := filepath.Join(parent, "physical")
+	if err := os.Mkdir(physical, 0o700); err != nil {
+		t.Fatalf("create physical root: %v", err)
+	}
+
+	selectedLink := filepath.Join(parent, "selected")
+	if err := os.Symlink(physical, selectedLink); err != nil {
+		t.Fatalf("create selected-root symlink: %v", err)
+	}
+	if _, err := CaptureRootNoFollow(selectedLink); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("selected-root symlink error = %v, want %s", err, FailureRootReplaced)
+	}
+
+	ancestorLink := filepath.Join(parent, "ancestor")
+	if err := os.Symlink(parent, ancestorLink); err != nil {
+		t.Fatalf("create ancestor symlink: %v", err)
+	}
+	if _, err := CaptureRootNoFollow(filepath.Join(ancestorLink, "physical")); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("ancestor symlink error = %v, want %s", err, FailureRootReplaced)
+	}
+
+	captured, err := CaptureRootNoFollow(physical)
+	if err != nil {
+		t.Fatalf("CaptureRootNoFollow physical root returned error: %v", err)
+	}
+	if err := captured.Close(); err != nil {
+		t.Fatalf("close no-follow root: %v", err)
+	}
+}
+
+func TestNoFollowWorkingDirectoryCapabilityRejectsSymlinkRetargetToSameObject(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("resolve test root: %v", err)
+	}
+	selected := filepath.Join(parent, "selected")
+	if err := os.Mkdir(selected, 0o700); err != nil {
+		t.Fatalf("create selected root: %v", err)
+	}
+	captured, err := CaptureRootNoFollow(selected)
+	if err != nil {
+		t.Fatalf("CaptureRootNoFollow returned error: %v", err)
+	}
+	defer captured.Close()
+
+	capability, err := captured.AcquireSelectedWorkingDirectory(selected)
+	if err != nil {
+		t.Fatalf("AcquireSelectedWorkingDirectory returned error: %v", err)
+	}
+	defer capability.Close()
+
+	moved := filepath.Join(parent, "moved")
+	if err := os.Rename(selected, moved); err != nil {
+		t.Fatalf("move selected root: %v", err)
+	}
+	if err := os.Symlink(moved, selected); err != nil {
+		t.Fatalf("replace selected root with symlink: %v", err)
+	}
+	if err := capability.Validate(); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("symlink retarget error = %v, want %s", err, FailureRootReplaced)
+	}
+}
+
 func TestSelectedWorkingDirectoryCapabilityRejectsRetargetedAlias(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "project")

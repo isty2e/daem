@@ -2,6 +2,7 @@ package gitcli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,23 +13,31 @@ import (
 
 func (resolver Resolver) resolveCommit(
 	ctx context.Context,
-	repoPath string,
+	repository cachedRepository,
 	selector source.GitRefSelector,
 	sourceSpec source.Source,
 	sourceID artifact.SourceID,
 	options acquisition.OperationOptions,
-) (string, error) {
+) (commit string, returnErr error) {
+	handle, err := resolver.openVerifiedRepository(ctx, repository)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, handle.Close())
+	}()
+
 	candidates := selector.ResolutionCandidates()
 	if selector.IsCommit() {
-		if commit, err := resolver.verifyCommit(ctx, repoPath, candidates[0]); err == nil {
+		if commit, err := handle.verifyCommit(ctx, candidates[0]); err == nil {
 			return validateResolvedCommit(sourceSpec, sourceID, commit)
 		}
 
 		options.Emit(acquisition.EventFetch, sourceSpec, sourceID, "", nil)
-		if err := resolver.runGit(ctx, repoPath, fetchCommitArgs(selector.String())...); err != nil {
+		if err := handle.runGit(ctx, fetchCommitArgs(selector.String())...); err != nil {
 			return "", fmt.Errorf("fetch git ref %s: %w", selector.Canonical(), err)
 		}
-		if commit, err := resolver.verifyCommit(ctx, repoPath, candidates[0]); err == nil {
+		if commit, err := handle.verifyCommit(ctx, candidates[0]); err == nil {
 			return validateResolvedCommit(sourceSpec, sourceID, commit)
 		}
 		return "", fmt.Errorf("resolve git ref %s: fetched object is not a commit", selector.Canonical())
@@ -36,7 +45,7 @@ func (resolver Resolver) resolveCommit(
 
 	resolved := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		commit, err := resolver.verifyCommit(ctx, repoPath, candidate)
+		commit, err := handle.verifyCommit(ctx, candidate)
 		if err == nil {
 			commit, err = validateResolvedCommit(sourceSpec, sourceID, commit)
 			if err != nil {
@@ -56,8 +65,8 @@ func (resolver Resolver) resolveCommit(
 	}
 }
 
-func (resolver Resolver) verifyCommit(ctx context.Context, repoPath string, objectName string) (string, error) {
-	commit, err := resolver.gitOutput(ctx, repoPath, verifyObjectArgs(objectName)...)
+func (handle *repositoryHandle) verifyCommit(ctx context.Context, objectName string) (string, error) {
+	commit, err := handle.gitOutput(ctx, verifyObjectArgs(objectName)...)
 	if err != nil {
 		return "", err
 	}

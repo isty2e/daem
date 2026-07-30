@@ -1,13 +1,31 @@
 package gitcli
 
-import "github.com/isty2e/daem/internal/supply/source"
+func initializeBareRepositoryArgs() []string {
+	return []string{"init", "--bare", "--quiet"}
+}
 
-func cloneArgs(gitSource source.GitSource, repoPath string) []string {
-	args := []string{"clone", "--no-checkout", "--filter=blob:none"}
-	if gitSource.Locator().IsNativeLocal() {
-		args = append(args, "--no-local")
-	}
-	return append(args, "--", gitSource.Locator().String(), repoPath)
+func addOriginArgs(locator string) []string {
+	return []string{"remote", "add", "origin", locator}
+}
+
+func inspectBareRepositoryArgs() []string {
+	return []string{"rev-parse", "--is-bare-repository"}
+}
+
+func inspectOriginArgs() []string {
+	return []string{"config", "--local", "--no-includes", "--get-all", "remote.origin.url"}
+}
+
+func inspectLocalConfigNamesArgs() []string {
+	return []string{"config", "--local", "--no-includes", "--name-only", "--get-regexp", ".*"}
+}
+
+func inspectOriginFetchArgs() []string {
+	return []string{"config", "--local", "--no-includes", "--get-all", "remote.origin.fetch"}
+}
+
+func inspectEffectiveOriginArgs() []string {
+	return []string{"remote", "get-url", "origin"}
 }
 
 func refreshArgs() []string {

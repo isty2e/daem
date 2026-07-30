@@ -9,7 +9,10 @@ import (
 
 type capturedRootPlatform struct{}
 
-func captureRootPlatform(selectedRoot string) (string, capturedRootPlatform, identityToken, identityToken, error) {
+func captureRootPlatform(
+	selectedRoot string,
+	_ rootSelectionMode,
+) (string, capturedRootPlatform, identityToken, identityToken, error) {
 	return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
 		FailureUnsupportedPlatform,
 		selectedRoot,

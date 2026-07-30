@@ -11,7 +11,10 @@ import (
 
 func TestRepositorySnapshotSessionCompletedCallWinsOverCanceledWait(t *testing.T) {
 	key := repositorySnapshotKey{locator: "https://example.test/repository.git", canonicalRef: "name:main"}
-	want := repositoryResolution{repoPath: "/cache/repository", commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	want := repositoryResolution{
+		repository: cachedRepository{path: "/cache/repository"},
+		commit:     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
 	for iteration := range 100 {
 		done := make(chan struct{})
 		call := &repositorySnapshotCall{done: done, resolution: want}
@@ -44,7 +47,10 @@ func TestRepositorySnapshotSessionFailureIsNotMemoized(t *testing.T) {
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("first resolve error = %v, want temporary failure", err)
 	}
-	want := repositoryResolution{repoPath: "/cache/repository", commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	want := repositoryResolution{
+		repository: cachedRepository{path: "/cache/repository"},
+		commit:     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
 	got, err := session.resolve(context.Background(), key, func() (repositoryResolution, error) {
 		calls++
 		return want, nil
@@ -59,7 +65,10 @@ func TestRepositorySnapshotSessionRegistersImmutableCommitAlias(t *testing.T) {
 	locator := "https://example.test/repository.git"
 	commit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	selectorKey := repositorySnapshotKey{locator: locator, canonicalRef: "branch:main"}
-	want := repositoryResolution{repoPath: "/cache/repository", commit: commit}
+	want := repositoryResolution{
+		repository: cachedRepository{path: "/cache/repository"},
+		commit:     commit,
+	}
 	if _, err := session.resolve(context.Background(), selectorKey, func() (repositoryResolution, error) {
 		return want, nil
 	}); err != nil {

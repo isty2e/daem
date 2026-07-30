@@ -25,7 +25,10 @@ type capturedRootPlatform struct {
 	directories []capturedDirectory
 }
 
-func captureRootPlatform(selectedRoot string) (string, capturedRootPlatform, identityToken, identityToken, error) {
+func captureRootPlatform(
+	selectedRoot string,
+	selectionMode rootSelectionMode,
+) (string, capturedRootPlatform, identityToken, identityToken, error) {
 	if strings.TrimSpace(selectedRoot) == "" {
 		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
 			FailureInvalidRoot,
@@ -51,16 +54,28 @@ func captureRootPlatform(selectedRoot string) (string, capturedRootPlatform, ide
 			err,
 		)
 	}
-	physicalRoot, err := filepath.EvalSymlinks(absoluteRoot)
-	if err != nil {
+	physicalRoot := filepath.Clean(absoluteRoot)
+	switch selectionMode {
+	case rootSelectionResolveAlias:
+		physicalRoot, err = filepath.EvalSymlinks(absoluteRoot)
+		if err != nil {
+			return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+				FailureRootUnavailable,
+				absoluteRoot,
+				"resolve selected root alias",
+				err,
+			)
+		}
+		physicalRoot = filepath.Clean(physicalRoot)
+	case rootSelectionNoFollow:
+	default:
 		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
-			FailureRootUnavailable,
+			FailureInvalidRoot,
 			absoluteRoot,
-			"resolve selected root alias",
-			err,
+			"root selection mode is invalid",
+			nil,
 		)
 	}
-	physicalRoot = filepath.Clean(physicalRoot)
 	platform, err := openPhysicalRootChain(physicalRoot)
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, err

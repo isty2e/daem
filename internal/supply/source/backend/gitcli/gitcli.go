@@ -34,7 +34,9 @@ type resolverState struct {
 	repoLocker     sourcecache.Locker
 	artifactLocker sourcecache.Locker
 
-	testAfterArchiveExtract func()
+	testAfterArchiveExtract     func()
+	testAfterArtifactEnsure     func()
+	testBeforeRepositoryCommand func()
 }
 
 // NewResolver constructs a Git CLI resolver rooted at cacheRoot.
@@ -49,7 +51,10 @@ func NewResolver(cacheRoot string) (Resolver, error) {
 		return Resolver{}, fmt.Errorf("resolve git source cache root %q: %w", root, err)
 	}
 
-	cleanRoot := filepath.Clean(absoluteRoot)
+	cleanRoot, err := canonicalGitCacheRoot(filepath.Clean(absoluteRoot))
+	if err != nil {
+		return Resolver{}, fmt.Errorf("resolve physical git source cache root %q: %w", root, err)
+	}
 	return Resolver{
 		state: &resolverState{
 			cacheRoot:      cleanRoot,
@@ -87,28 +92,43 @@ func (resolver Resolver) Resolve(
 
 	gitPath := gitSource.RepositoryPath().String()
 
-	repoPath, commit, err := resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
+	snapshot, err := resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
 	if err != nil {
 		return acquisition.Resolution{}, err
 	}
 
-	contentPath, err := resolver.ensureArtifact(ctx, gitSource.Locator().String(), repoPath, commit, gitPath, sourceSpec, sourceID, options)
+	contentPath, contentHash, contentKind, err := resolver.ensureArtifact(
+		ctx,
+		snapshot.repository,
+		snapshot.commit,
+		gitPath,
+		sourceSpec,
+		sourceID,
+		options,
+	)
 	if err != nil {
 		return acquisition.Resolution{}, err
+	}
+	if resolver.state != nil && resolver.state.testAfterArtifactEnsure != nil {
+		resolver.state.testAfterArtifactEnsure()
 	}
 
-	options.Emit(acquisition.EventHash, sourceSpec, sourceID, artifact.ResolvedRef(commit), nil)
-	view, err := access.OpenView(contentPath)
+	options.Emit(acquisition.EventHash, sourceSpec, sourceID, artifact.ResolvedRef(snapshot.commit), nil)
+	view, err := access.OpenNoFollowView(contentPath)
 	if err != nil {
 		return acquisition.Resolution{}, err
 	}
-	contentHash, err := view.Hash(ctx)
+	identity, err := artifact.NewExactIdentity(
+		sourceID,
+		artifact.ResolvedRef(snapshot.commit),
+		contentKind,
+		contentHash,
+	)
 	if err != nil {
 		return acquisition.Resolution{}, err
 	}
-	identity, err := artifact.NewExactIdentity(sourceID, artifact.ResolvedRef(commit), view.Kind(), contentHash)
-	if err != nil {
-		return acquisition.Resolution{}, err
+	if err := view.Verify(ctx, identity); err != nil {
+		return acquisition.Resolution{}, fmt.Errorf("verify published Git artifact view: %w", err)
 	}
 	return acquisition.NewResolution(sourceSpec, identity, view)
 }

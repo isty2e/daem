@@ -239,7 +239,7 @@ func TestConcurrentResolveAndListSourceRootDoesNotPublishListingArtifact(t *test
 	}
 }
 
-func TestResolveRecoversStalePartialArtifactUnderLock(t *testing.T) {
+func TestResolveRejectsUnownedPartialArtifactUnderLock(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -259,18 +259,18 @@ func TestResolveRecoversStalePartialArtifactUnderLock(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolved, err := resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
-	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
+	_, err = resolver.Resolve(context.Background(), mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
+	if err == nil || !strings.Contains(err.Error(), "completion record is missing") {
+		t.Fatalf("Resolve error = %v, want unowned partial-entry rejection", err)
 	}
 
 	if !cacheEntryExists(entryRoot) {
-		t.Fatalf("artifact entry %q was not published", entryRoot)
+		t.Fatalf("unowned artifact entry %q was removed", entryRoot)
 	}
-	if _, err := os.Lstat(filepath.Join(entryRoot, "partial.txt")); !os.IsNotExist(err) {
-		t.Fatalf("stale partial file still exists or stat failed unexpectedly: %v", err)
+	content, err := os.ReadFile(filepath.Join(entryRoot, "partial.txt"))
+	if err != nil || string(content) != "partial\n" {
+		t.Fatalf("unowned partial content = %q, %v, want preserved", content, err)
 	}
-	mustReadGitResolutionFile(t, resolved, "SKILL.md")
 }
 
 func TestResolveDoesNotRemoveCompleteArtifactOnReResolve(t *testing.T) {
