@@ -1304,6 +1304,14 @@ Current lock behavior:
   OpenCode currently locks configuration order; Pi locks runtime precedence.
   Locking order does not record current host sequence, mutate host config, or
   change extension subject or route identity.
+- Confirmed apply settles selected carrier install/removal routes before
+  reobserving each locked order class. It then converges Pi's package sequence
+  or each loaded OpenCode server/TUI JSON and JSONC plugin sequence
+  independently. A newly
+  observed managed/foreign precedence change requires renewed interactive
+  confirmation; non-interactive apply stops. Partial multi-document success is
+  reported without rollback claims, and retry always derives work from fresh
+  host files rather than prior success evidence.
 - Commands that consume a lock as current authority rederive every persisted
   host-load identity from the locked carrier source and the selected manifest
   context. A mismatch blocks `status`, `apply`, `refresh`, and `probe` until
@@ -1516,8 +1524,9 @@ source-inexact and does not independently establish marketplace provenance.
 Codex correlates the exact
 `[plugins."PLUGIN@MARKETPLACE"]` row in `$CODEX_HOME/config.toml`; cache and
 marketplace visibility are not relation evidence. OpenCode correlates the exact
-host-source row across the selected server and TUI JSON or JSONC documents,
-preferring `.json` over `.jsonc` per document kind. For selector-shaped
+host-source row across every existing server and TUI JSON and JSONC candidate
+in the selected layer. All four candidate paths remain observation and mutation
+authority even when some are absent. For selector-shaped
 Antigravity sources, daem correlates the plugin name across
 `~/.gemini/config/import_manifest.json` and
 `~/.gemini/config/plugins/<plugin>/plugin.json`; both must be consistently
@@ -1596,16 +1605,18 @@ retained. Daem does not prove ambient non-daem consumers or runtime
 unload/readiness.
 
 For OpenCode project and explicit-global rows, exact desired absence backed by
-a durable managed claim removes only the exact host-source row from the
-selected server and TUI config documents. This is direct structured-config
+a durable managed claim removes only the exact host-source row from every
+existing server and TUI JSON and JSONC candidate. This is direct structured-config
 actuation, not an `opencode` host command: `opencode uninstall` would remove the
-host program. Each selected file uses bounded JSONC parsing, retained-root
+host program. All four candidate paths are held as mutation authority; missing
+candidates are no-ops and are never created. Each existing file uses bounded
+JSONC parsing, retained-root
 authority, and compare-and-swap replacement while preserving comments,
 whitespace, tuple options, sibling rows, unknown fields, empty arrays, and the
 config file itself. A partial multi-file success retains durable pending state;
 retry treats already-absent rows as no-ops and continues the remaining files.
-The managed claim retires only after fresh absence from every selected
-document. The other scope, package-manager installations, `node_modules`,
+The managed claim retires only after fresh absence from every loaded candidate.
+The other scope, package-manager installations, `node_modules`,
 lockfiles, caches, local source directories, data, credentials, sessions,
 runtime activation, and unrelated config remain untouched. Default-global
 removal cannot prove ambient non-daem consumers, and custom

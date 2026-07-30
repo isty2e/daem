@@ -218,12 +218,12 @@ are unrelated and must not be compared as a product-wide sequence:
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `2` |
-| `lock`, `outdated` | Lock comparison | `2` |
+| `lock`, `outdated` | Lock comparison | `3` |
 | `list resources` | Resource inventory | `1` |
 | `list outputs` | Output inventory | `3` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `9` |
-| confirmed `apply` | Apply result | `13` |
+| `status`, `apply --dry-run` | Reconciliation plan | `10` |
+| confirmed `apply` | Apply result | `15` |
 | `recover` | Recovery plan/result | `3` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
@@ -654,11 +654,11 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending output action, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, blocked carrier-relation action, or carrier-adoption claim conflict |
+| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, non-exact extension order, blocked carrier relation, or carrier-adoption claim conflict |
 
 Warning-only diagnostics, selected missing carrier relations, and observe-only
-relation rows do not make `--check` fail. JSON and human modes use the same exit
-predicate.
+relation rows do not make `--check` fail. A normalize, conditional, or blocked
+extension-order row is non-clean. JSON and human modes use the same exit predicate.
 
 ## `apply`
 
@@ -673,6 +673,27 @@ Bare apply under the three-stream terminal contract discloses the same effect
 plan and asks once. Non-interactive apply requires `--yes`. Every selected
 supported config action and delegated route is ordinary apply work; there is no
 separate route-attempt mode.
+
+For locked Pi and OpenCode extension order, apply settles required carrier
+changes first, re-reads the selected host files, and plans from that fresh
+state. Pi package order is treated as runtime precedence. OpenCode plugin-array
+order is configuration order only. If the fresh plan introduces managed versus
+foreign precedence changes that were absent from the disclosed plan,
+interactive apply discloses those new risks and asks again. Non-interactive
+`--yes` stops instead of expanding consent. A declined or failed second
+confirmation leaves completed carrier work intact, performs no order write,
+and does not start later delegates.
+
+Before either the initial or renewed prompt, each precedence-risk row identifies
+the managed relation subject, the foreign host-load identity, and whether the
+managed row moves from before to after that foreign row or from after to before
+it. Confirmation authorizes exactly those bounded relations; a count alone is
+never treated as informed consent. Credential-free package identities are shown
+verbatim. An identity containing URL credentials, query or secret-assignment
+material, a local path, or more than 256 bytes is replaced by a deterministic
+`redacted:sha256:<digest>` label. JSON reports the same label and sets
+`foreign_identity_redacted` without changing the exact identity used for
+planning, comparison, or authorization.
 
 `--manage-existing` records exact-match unmanaged outputs as managed without
 rewriting them. This changes future deletion authority, so it is never implicit
@@ -708,11 +729,23 @@ residue class, failures, and a next action only when more work is needed.
 `--verbose` adds state/content paths, reason codes, selected source/ref, and
 bounded evidence. Raw subprocess output and secret values are never printed.
 
-Status and apply-dry-run JSON use plan schema version `9`. The document contains
+Status and apply-dry-run JSON use plan schema version `10`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
-actions, relation actions, carrier-adoption actions, carrier-absence actions,
-host-route attempt history, diagnostics, MCP status dimensions, and
-`has_errors`.
+actions, relation actions, physical extension-order actions, carrier-adoption
+actions, carrier-absence actions, host-route attempt history, diagnostics, MCP
+status dimensions, and `has_errors`. Each `relation_order_actions` row names
+one independently mutable physical sequence, its logical class, desired and
+observed managed members, foreign-row count, current revision, runtime meaning,
+and any typed `foreign_precedence_change` risks. OpenCode rows describe config
+order only; Pi rows describe runtime precedence. A carrier install or removal
+that must settle first is reported as `conditional_after_carrier_change`
+instead of an executable order mutation.
+
+Extension-order planning rejects, rather than truncates, any physical sequence
+over 4,096 rows, desired or observed managed membership over 1,024 rows, or
+projection with more than 16,384 possible managed/foreign precedence pairs.
+These checks run before pair enumeration and never grant mutation authority
+after a limit failure.
 
 Carrier-adoption rows expose the exact relation evidence, lifecycle blocker or
 eligibility, selected claim store, install/removal route identities, bounded
@@ -732,10 +765,16 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `13`. It adds executed action
+`apply --yes --json` uses result schema version `15`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
-carrier-absence outcomes, and final `has_errors`. Known mutation codes include
+carrier-absence outcomes, physical `relation_order_results`, and final
+`has_errors`. Each order result reports target, scope, class, physical sequence,
+`exact` / `converged` / `failed` / `not_attempted`, whether that sequence
+changed, and a failure detail when present. An earlier OpenCode
+document may remain converged when a later document fails; apply makes no
+cross-document rollback claim. Retry reobserves every selected sequence and
+continues idempotently from current files. Known mutation codes include
 `stale_snapshot`, `stale_plan`, `mutation_contended`, and
 `mutation_cancelled`.
 

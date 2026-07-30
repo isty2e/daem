@@ -204,6 +204,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/realization/configrelation/opencode"},
 	},
 	{
+		id:        "realization.codec.pi",
+		placement: specializedPlacement(affinityRealization, roleCodec, specializationHost, "Pi"),
+		packages:  []string{"internal/realization/configrelation/pi"},
+	},
+	{
 		id:        "realization.codec.lockfile",
 		placement: specializedPlacement(affinityRealization, roleCodec, specializationFormat, "lockfile"),
 		packages:  []string{"internal/realization/lockfile"},

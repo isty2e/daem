@@ -197,6 +197,7 @@ daem.
 - [Minimal Example](examples/daem.toml)
 - [Representative Project Example](examples/representative-project.toml)
 - [Skill Placement Example](examples/skill-placement.toml)
+- [Extension Order Example](examples/extension-order.toml)
 
 For development and verification guidance, see
 [Contributing](CONTRIBUTING.md).

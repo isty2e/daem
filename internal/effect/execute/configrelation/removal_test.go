@@ -11,8 +11,7 @@ import (
 
 func TestNewRemovalPlanSelectsExactOpenCodeAuthority(t *testing.T) {
 	root := t.TempDir()
-	server := filepath.Join(root, "opencode.jsonc")
-	tui := filepath.Join(root, "tui.json")
+	candidates := openCodeCandidateAuthorities(t, root, target.ScopeProject)
 	plan, err := NewRemovalPlan(RemovalInput{
 		Target:  target.TargetOpenCode,
 		Scope:   target.ScopeProject,
@@ -20,8 +19,10 @@ func TestNewRemovalPlanSelectsExactOpenCodeAuthority(t *testing.T) {
 		Source:  "@acme/remove",
 		AuthorityPaths: []observerelation.AuthorityPath{
 			authorityPath(t, filepath.Join(root, "ignored.json"), target.TargetClaudeCode, target.ScopeProject),
-			authorityPath(t, server, target.TargetOpenCode, target.ScopeProject),
-			authorityPath(t, tui, target.TargetOpenCode, target.ScopeProject),
+			candidates[0],
+			candidates[1],
+			candidates[2],
+			candidates[3],
 		},
 	})
 	if err != nil {
@@ -31,9 +32,11 @@ func TestNewRemovalPlanSelectsExactOpenCodeAuthority(t *testing.T) {
 		plan.target != target.TargetOpenCode ||
 		plan.scope != target.ScopeProject ||
 		plan.source != "@acme/remove" ||
-		len(plan.paths) != 2 ||
-		plan.paths[0] != server ||
-		plan.paths[1] != tui {
+		len(plan.paths) != 4 ||
+		plan.paths[0] != filepath.Join(root, "opencode.json") ||
+		plan.paths[1] != filepath.Join(root, "opencode.jsonc") ||
+		plan.paths[2] != filepath.Join(root, "tui.json") ||
+		plan.paths[3] != filepath.Join(root, "tui.jsonc") {
 		t.Fatalf("plan = %#v", plan)
 	}
 	if _, err := plan.PhysicalAuthority(); err != nil {
@@ -43,43 +46,29 @@ func TestNewRemovalPlanSelectsExactOpenCodeAuthority(t *testing.T) {
 
 func TestNewRemovalPlanRejectsIncompleteAmbiguousOrForeignAuthority(t *testing.T) {
 	root := t.TempDir()
-	server := authorityPath(
-		t,
-		filepath.Join(root, "opencode.json"),
-		target.TargetOpenCode,
-		target.ScopeGlobal,
-	)
-	tui := authorityPath(
-		t,
-		filepath.Join(root, "tui.jsonc"),
-		target.TargetOpenCode,
-		target.ScopeGlobal,
-	)
+	complete := openCodeCandidateAuthorities(t, root, target.ScopeGlobal)
 	for _, test := range []struct {
 		name  string
 		paths []observerelation.AuthorityPath
 	}{
-		{name: "missing TUI", paths: []observerelation.AuthorityPath{server}},
+		{name: "missing candidate", paths: complete[:3]},
 		{
 			name: "foreign basename",
-			paths: []observerelation.AuthorityPath{
-				server,
+			paths: append(
+				append([]observerelation.AuthorityPath(nil), complete[:3]...),
 				authorityPath(t, filepath.Join(root, "settings.json"), target.TargetOpenCode, target.ScopeGlobal),
-			},
+			),
 		},
 		{
-			name: "duplicate server",
-			paths: []observerelation.AuthorityPath{
-				server,
-				authorityPath(t, filepath.Join(root, "opencode.jsonc"), target.TargetOpenCode, target.ScopeGlobal),
-			},
+			name:  "duplicate candidate",
+			paths: append(append([]observerelation.AuthorityPath(nil), complete...), complete[0]),
 		},
 		{
 			name: "different roots",
-			paths: []observerelation.AuthorityPath{
-				server,
-				authorityPath(t, filepath.Join(root, "other", "tui.json"), target.TargetOpenCode, target.ScopeGlobal),
-			},
+			paths: append(
+				append([]observerelation.AuthorityPath(nil), complete[:3]...),
+				authorityPath(t, filepath.Join(root, "other", "tui.jsonc"), target.TargetOpenCode, target.ScopeGlobal),
+			),
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -101,10 +90,31 @@ func TestNewRemovalPlanRejectsIncompleteAmbiguousOrForeignAuthority(t *testing.T
 		Scope:          target.ScopeGlobal,
 		Carrier:        desiredextension.CarrierClaudeCodePlugin,
 		Source:         "@acme/remove",
-		AuthorityPaths: []observerelation.AuthorityPath{server, tui},
+		AuthorityPaths: complete,
 	}); err == nil {
 		t.Fatal("NewRemovalPlan accepted an unadmitted target/carrier pair")
 	}
+}
+
+func openCodeCandidateAuthorities(
+	t *testing.T,
+	root string,
+	scope target.Scope,
+) []observerelation.AuthorityPath {
+	t.Helper()
+	paths := make([]observerelation.AuthorityPath, 0, 4)
+	for _, name := range []string{
+		"opencode.json",
+		"opencode.jsonc",
+		"tui.json",
+		"tui.jsonc",
+	} {
+		paths = append(
+			paths,
+			authorityPath(t, filepath.Join(root, name), target.TargetOpenCode, scope),
+		)
+	}
+	return paths
 }
 
 func authorityPath(

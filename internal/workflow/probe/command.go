@@ -117,7 +117,8 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		}
 		return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
 	}
-	if err := lock.ValidateExtensionOrderIdentities(
+	if err := lockrefine.ValidateCurrentExtensionOrder(
+		environment.Extensions(),
 		locked,
 		aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	); err != nil {

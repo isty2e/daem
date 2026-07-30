@@ -17,30 +17,45 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 		scope          target.Scope
 		classID        string
 		sequenceIDs    []string
+		membership     SequenceMembershipContract
 		runtimeMeaning hostrelation.RuntimeMeaning
 	}{
 		{
 			target: target.TargetOpenCode, carrier: desiredextension.CarrierOpenCodePlugin,
 			scope: target.ScopeProject, classID: "extension:opencode:project:plugins",
-			sequenceIDs:    []string{"opencode:project:server.plugins", "opencode:project:tui.plugins"},
+			sequenceIDs: []string{
+				"opencode:project:server.json.plugins",
+				"opencode:project:server.jsonc.plugins",
+				"opencode:project:tui.json.plugins",
+				"opencode:project:tui.jsonc.plugins",
+			},
+			membership:     LoadedClassSubset,
 			runtimeMeaning: hostrelation.ConfigOrderOnly,
 		},
 		{
 			target: target.TargetOpenCode, carrier: desiredextension.CarrierOpenCodePlugin,
 			scope: target.ScopeGlobal, classID: "extension:opencode:global:plugins",
-			sequenceIDs:    []string{"opencode:global:server.plugins", "opencode:global:tui.plugins"},
+			sequenceIDs: []string{
+				"opencode:global:server.json.plugins",
+				"opencode:global:server.jsonc.plugins",
+				"opencode:global:tui.json.plugins",
+				"opencode:global:tui.jsonc.plugins",
+			},
+			membership:     LoadedClassSubset,
 			runtimeMeaning: hostrelation.ConfigOrderOnly,
 		},
 		{
 			target: target.TargetPi, carrier: desiredextension.CarrierPiPackage,
 			scope: target.ScopeProject, classID: "extension:pi:project:packages",
 			sequenceIDs:    []string{"pi:project:settings.packages"},
+			membership:     CompleteClassMembership,
 			runtimeMeaning: hostrelation.RuntimePrecedence,
 		},
 		{
 			target: target.TargetPi, carrier: desiredextension.CarrierPiPackage,
 			scope: target.ScopeGlobal, classID: "extension:pi:global:packages",
 			sequenceIDs:    []string{"pi:global:settings.packages"},
+			membership:     CompleteClassMembership,
 			runtimeMeaning: hostrelation.RuntimePrecedence,
 		},
 	}
@@ -52,6 +67,7 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 				t.Fatal("ExtensionOrder returned no capability")
 			}
 			if string(capability.ClassID()) != test.classID ||
+				capability.SequenceMembership() != test.membership ||
 				capability.RuntimeMeaning() != test.runtimeMeaning {
 				t.Fatalf("capability = %#v", capability)
 			}
@@ -95,12 +111,43 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 	}
 }
 
+func TestExtensionOrderCapabilityForClassReturnsUniqueCatalogOwner(t *testing.T) {
+	classID := mustOrderClassID("extension:opencode:project:plugins")
+	selectedTarget, capability, ok := ExtensionOrderCapabilityForClass(classID)
+	if !ok {
+		t.Fatal("ExtensionOrderCapabilityForClass returned no capability")
+	}
+	if selectedTarget != target.TargetOpenCode ||
+		capability.ClassID() != classID ||
+		capability.Scope() != target.ScopeProject ||
+		capability.Carrier() != desiredextension.CarrierOpenCodePlugin {
+		t.Fatalf(
+			"owner=%q capability=%#v",
+			selectedTarget,
+			capability,
+		)
+	}
+
+	unknown := mustOrderClassID("extension:unknown:project:plugins")
+	if selectedTarget, capability, ok := ExtensionOrderCapabilityForClass(unknown); ok ||
+		selectedTarget != "" ||
+		!reflect.DeepEqual(capability, ExtensionOrderCapability{}) {
+		t.Fatalf(
+			"unknown owner=%q capability=%#v ok=%t",
+			selectedTarget,
+			capability,
+			ok,
+		)
+	}
+}
+
 func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *testing.T) {
 	input := ExtensionOrderCapabilityInput{
 		Carrier:                desiredextension.CarrierOpenCodePlugin,
 		Scope:                  target.ScopeProject,
 		ClassID:                mustOrderClassID("extension:test:project:plugins"),
 		MemberIdentityContract: "test-member-v1",
+		SequenceMembership:     LoadedClassSubset,
 		PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 			mustPhysicalSequenceID("test:tui"),
 			mustPhysicalSequenceID("test:server"),
@@ -134,6 +181,7 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 		Scope:                  target.ScopeProject,
 		ClassID:                mustOrderClassID("extension:test:project:plugins"),
 		MemberIdentityContract: "test-member-v1",
+		SequenceMembership:     LoadedClassSubset,
 		PhysicalSequenceIDs:    []hostrelation.PhysicalSequenceID{mustPhysicalSequenceID("test:server")},
 		ObserverContract:       "test-observer-v1",
 		MutatorContract:        "test-mutator-v1",
@@ -143,6 +191,7 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 
 	for _, mutate := range []func(*ExtensionOrderCapabilityInput){
 		func(input *ExtensionOrderCapabilityInput) { input.MemberIdentityContract = "" },
+		func(input *ExtensionOrderCapabilityInput) { input.SequenceMembership = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.PhysicalSequenceIDs = nil },
 		func(input *ExtensionOrderCapabilityInput) { input.ObserverContract = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.MutatorContract = "" },

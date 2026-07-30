@@ -146,7 +146,7 @@ func (plan RemovalPlan) validate() error {
 	if plan.target != target.TargetOpenCode ||
 		plan.scope == "" ||
 		plan.source == "" ||
-		len(plan.paths) != 2 {
+		len(plan.paths) != 4 {
 		return fmt.Errorf("direct config relation removal plan is incomplete")
 	}
 	return nil
@@ -210,38 +210,56 @@ func selectOpenCodeConfigPaths(
 	authorityPaths []observerelation.AuthorityPath,
 	scope target.Scope,
 ) ([]string, error) {
-	byKind := make(map[opencodeconfig.ConfigKind]string, 2)
+	byName := make(map[string]string, 4)
+	root := ""
 	for _, authorityPath := range authorityPaths {
 		if authorityPath.Target() != target.TargetOpenCode ||
 			authorityPath.Scope() != scope {
 			continue
 		}
-		kind, admitted := openCodeConfigKindForName(filepath.Base(authorityPath.Path()))
+		name := filepath.Base(authorityPath.Path())
+		_, admitted := openCodeConfigKindForName(name)
 		if !admitted {
 			return nil, fmt.Errorf(
 				"OpenCode relation authority path %q is not a selected config document",
 				authorityPath.Path(),
 			)
 		}
-		if _, duplicate := byKind[kind]; duplicate {
+		if _, duplicate := byName[name]; duplicate {
 			return nil, fmt.Errorf(
-				"OpenCode relation authority contains multiple selected %s configs",
-				kind,
+				"OpenCode relation authority contains duplicate config candidate %q",
+				name,
 			)
 		}
-		byKind[kind] = authorityPath.Path()
+		candidateRoot := filepath.Dir(authorityPath.Path())
+		if root != "" && candidateRoot != root {
+			return nil, fmt.Errorf("OpenCode config candidates do not share one root")
+		}
+		root = candidateRoot
+		byName[name] = authorityPath.Path()
 	}
-	server, hasServer := byKind[opencodeconfig.ConfigServer]
-	tui, hasTUI := byKind[opencodeconfig.ConfigTUI]
-	if !hasServer || !hasTUI {
-		return nil, fmt.Errorf(
-			"OpenCode direct removal requires selected server and TUI config authority",
-		)
+
+	paths := make([]string, 0, 4)
+	for _, kind := range []opencodeconfig.ConfigKind{
+		opencodeconfig.ConfigServer,
+		opencodeconfig.ConfigTUI,
+	} {
+		names, err := opencodeconfig.CandidateNames(kind)
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range names {
+			path, present := byName[name]
+			if !present {
+				return nil, fmt.Errorf(
+					"OpenCode direct removal requires config candidate authority %q",
+					name,
+				)
+			}
+			paths = append(paths, path)
+		}
 	}
-	if filepath.Dir(server) != filepath.Dir(tui) {
-		return nil, fmt.Errorf("OpenCode selected config documents do not share one root")
-	}
-	return []string{server, tui}, nil
+	return paths, nil
 }
 
 func openCodeConfigKindForName(name string) (opencodeconfig.ConfigKind, bool) {

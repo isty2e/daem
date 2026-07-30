@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/realization"
@@ -70,6 +72,198 @@ func TestRunApplyPromptCancellationDoesNotMutate(t *testing.T) {
 	}
 	assertCLIPathMissing(t, filepath.Join(tempDir, "AGENTS.md"))
 	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
+}
+
+func TestRunApplyDisclosesConcreteExtensionOrderRisksBeforeConfirmation(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	manifestPath, settingsPath := writePiOrderConfirmationFixture(t, tempDir)
+	hostContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0","npm:@acme/alpha@1.0.0"]}`
+	writeApplyConfirmationFile(t, tempDir, ".pi/settings.json", hostContent)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", manifestPath, "--manage-existing",
+		},
+		interactiveRunOptions(strings.NewReader("no\n"), &stdout, &stderr),
+	)
+	if exitCode != 1 {
+		t.Fatalf(
+			"exitCode = %d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	for _, want := range []string{
+		`foreign="npm:@foreign/tool" managed_position=before -> after`,
+		`foreign="npm:@foreign/tool" managed_position=after -> before`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") ||
+		!strings.Contains(stderr.String(), "apply canceled") {
+		t.Fatalf("stderr = %q, want prompt and cancellation", stderr.String())
+	}
+	assertApplyConfirmationFileContent(t, settingsPath, hostContent)
+}
+
+func TestRunApplyDisclosesRenewedExtensionOrderRisksAfterCarrierChange(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	manifestPath, settingsPath := writePiOrderConfirmationFixture(t, tempDir)
+	initialContent := `{"packages":["npm:@acme/beta@1.0.0","../foreign-extension"]}`
+	postCarrierContent := `{"packages":["npm:@acme/beta@1.0.0","../foreign-extension","npm:@acme/alpha@1.0.0"]}`
+	writeApplyConfirmationFile(t, tempDir, ".pi/settings.json", initialContent)
+
+	var runnerCalls int
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options := interactiveRunOptions(
+		strings.NewReader("yes\nno\n"),
+		&stdout,
+		&stderr,
+	)
+	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+				runnerCalls++
+				writeApplyConfirmationFile(
+					t,
+					tempDir,
+					".pi/settings.json",
+					postCarrierContent,
+				)
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 0,
+				}
+			},
+		}),
+	}
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", manifestPath, "--manage-existing",
+		},
+		options,
+	)
+	if exitCode != 1 || runnerCalls == 0 {
+		t.Fatalf(
+			"exitCode=%d runnerCalls=%d stdout=%q stderr=%q",
+			exitCode,
+			runnerCalls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	for _, want := range []string{
+		"extension order changed after carrier updates: 2 new precedence risks",
+		`managed="host_relation/pi.package-carrier/beta" foreign="redacted:sha256:`,
+		`managed="host_relation/pi.package-carrier/alpha" foreign="redacted:sha256:`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "foreign-extension") ||
+		strings.Contains(stdout.String(), filepath.Join(tempDir, "foreign-extension")) {
+		t.Fatalf("stdout discloses local foreign identity:\n%s", stdout.String())
+	}
+	for _, want := range []string{
+		"Proceed with apply? [y/N]:",
+		"Proceed with updated apply plan? [y/N]:",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr lacks %q:\n%s", want, stderr.String())
+		}
+	}
+	assertApplyConfirmationFileContent(t, settingsPath, postCarrierContent)
+}
+
+func TestRelationOrderRiskAuthorizerRequiresFreshInteractiveDecision(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		line string
+		want bool
+	}{
+		{name: "accept", line: "yes\n", want: true},
+		{name: "decline", line: "no\n", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var disclosure bytes.Buffer
+			var prompt bytes.Buffer
+			closeCalls := 0
+			authorizer := newRelationOrderRiskAuthorizer(
+				&disclosure,
+				readyConfirmationBoundary(strings.NewReader(test.line), &prompt),
+				func() { closeCalls++ },
+				clipresent.HumanOptions{},
+			)
+
+			authorized, err := authorizer(
+				t.Context(),
+				applyworkflow.RelationOrderRiskExpansion{},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authorized != test.want || closeCalls != 1 {
+				t.Fatalf(
+					"authorized = %t closeCalls = %d, want %t and 1",
+					authorized,
+					closeCalls,
+					test.want,
+				)
+			}
+			if !strings.Contains(
+				disclosure.String(),
+				"extension order changed after carrier updates",
+			) {
+				t.Fatalf("disclosure = %q", disclosure.String())
+			}
+			if !strings.Contains(
+				prompt.String(),
+				"Proceed with updated apply plan? [y/N]:",
+			) {
+				t.Fatalf("prompt = %q", prompt.String())
+			}
+		})
+	}
+}
+
+func TestRelationOrderRiskAuthorizerDoesNotPromptAfterDisclosureFailure(t *testing.T) {
+	disclosureErr := errors.New("updated plan output closed")
+	stableOutput := &stableOutputWriter{output: errorWriter{err: disclosureErr}}
+	input := &countingReader{reader: strings.NewReader("yes\n")}
+	var prompt bytes.Buffer
+	confirmation := readyConfirmationBoundary(input, &prompt)
+	confirmation.disclosureError = func() error { return stableOutput.err }
+	authorizer := newRelationOrderRiskAuthorizer(
+		stableOutput,
+		confirmation,
+		nil,
+		clipresent.HumanOptions{},
+	)
+
+	authorized, err := authorizer(
+		t.Context(),
+		applyworkflow.RelationOrderRiskExpansion{},
+	)
+	if authorized || !errors.Is(err, disclosureErr) {
+		t.Fatalf("authorized = %t error = %v", authorized, err)
+	}
+	if input.reads != 0 || prompt.Len() != 0 {
+		t.Fatalf(
+			"input reads = %d prompt = %q, want no prompt after failed disclosure",
+			input.reads,
+			prompt.String(),
+		)
+	}
 }
 
 func TestRunApplyInteractivePlanErrorDoesNotPrompt(t *testing.T) {
@@ -274,6 +468,53 @@ args = ["--serve", "context7"]
 	}
 
 	return manifestPath, lockfilePath
+}
+
+func writePiOrderConfirmationFixture(t *testing.T, root string) (string, string) {
+	t.Helper()
+	manifestPath := filepath.Join(root, "daem.toml")
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	writeApplyConfirmationFile(t, root, "daem.toml", `
+version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "alpha"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/alpha@1.0.0" }
+
+[[extension]]
+id = "beta"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/beta@1.0.0" }
+`)
+	writeApplyConfirmationFile(
+		t,
+		root,
+		".pi/settings.json",
+		`{"packages":["npm:@acme/alpha@1.0.0","npm:@acme/beta@1.0.0"]}`,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithoutTerminal(
+		[]string{"lock", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"lock exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	return manifestPath, settingsPath
 }
 
 func writeApplyConfirmationFile(t *testing.T, root string, relativePath string, content string) {

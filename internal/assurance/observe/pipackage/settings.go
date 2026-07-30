@@ -1,23 +1,21 @@
 package pipackage
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
-	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
+	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"
 )
 
 const (
-	maximumSettingsBytes = 4 << 20
-	maximumSettingsDepth = 32
+	// MaximumSettingsBytes is the observation and mutation limit for Pi settings.
+	MaximumSettingsBytes = 4 << 20
 )
 
 // SettingsInput selects exactly one Pi package settings layer.
@@ -34,7 +32,9 @@ type Inventory struct {
 	settingsPath string
 	settingsBase string
 	revision     string
-	sources      []string
+	exists       bool
+	content      []byte
+	document     piconfig.Document
 }
 
 // SettingsPath returns the exact passive authority path consumed by the read.
@@ -68,8 +68,10 @@ func (entry Entry) LocalIdentity() (string, bool) {
 
 // Entries returns exact package rows in physical settings order.
 func (inventory Inventory) Entries() ([]Entry, error) {
-	entries := make([]Entry, 0, len(inventory.sources))
-	for index, source := range inventory.sources {
+	documentEntries := inventory.document.Entries()
+	entries := make([]Entry, 0, len(documentEntries))
+	for index, documentEntry := range documentEntries {
+		source := documentEntry.Source()
 		identity, err := sourceIdentityForSettings(
 			source,
 			inventory.settingsBase,
@@ -100,15 +102,15 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 	}
 	content, exists, err := filesnapshot.ReadRegularFile(
 		settingsPath,
-		maximumSettingsBytes,
+		MaximumSettingsBytes,
 	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Pi %s package settings %q: %w", input.Scope, settingsPath, err)
 	}
 
-	sources := []string(nil)
+	var document piconfig.Document
 	if exists {
-		sources, err = decodePackageSources(content)
+		document, err = piconfig.Parse(content)
 		if err != nil {
 			return Inventory{}, fmt.Errorf("decode Pi %s package settings %q: %w", input.Scope, settingsPath, err)
 		}
@@ -118,7 +120,9 @@ func ReadSettings(input SettingsInput) (Inventory, error) {
 		settingsPath: settingsPath,
 		settingsBase: filepath.Dir(settingsPath),
 		revision:     settingsRevision(content),
-		sources:      append([]string(nil), sources...),
+		exists:       exists,
+		content:      append([]byte(nil), content...),
+		document:     document,
 	}, nil
 }
 
@@ -167,67 +171,9 @@ func cleanAbsoluteRoot(label string, root string) (string, error) {
 	return filepath.Clean(root), nil
 }
 
-func decodePackageSources(content []byte) ([]string, error) {
-	if err := jsonstrict.Validate(content, "Pi settings", maximumSettingsDepth); err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.UseNumber()
-	var document map[string]json.RawMessage
-	if err := decoder.Decode(&document); err != nil {
-		return nil, err
-	}
-	rawPackages, present := document["packages"]
-	if !present {
-		return nil, nil
-	}
-	if bytes.Equal(bytes.TrimSpace(rawPackages), []byte("null")) {
-		return nil, fmt.Errorf("packages must be an array when present")
-	}
-	var entries []json.RawMessage
-	if err := json.Unmarshal(rawPackages, &entries); err != nil {
-		return nil, fmt.Errorf("packages: %w", err)
-	}
-
-	sources := make([]string, 0, len(entries))
-	for index, raw := range entries {
-		source, err := decodePackageSource(raw)
-		if err != nil {
-			return nil, fmt.Errorf("packages[%d]: %w", index, err)
-		}
-		sources = append(sources, source)
-	}
-	return sources, nil
-}
-
-func decodePackageSource(raw json.RawMessage) (string, error) {
-	var source string
-	if err := json.Unmarshal(raw, &source); err == nil {
-		return validateSourceText(source)
-	}
-
-	var entry map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return "", fmt.Errorf("must be a string or object with a source string")
-	}
-	rawSource, present := entry["source"]
-	if !present {
-		return "", fmt.Errorf("object source is required")
-	}
-	if err := json.Unmarshal(rawSource, &source); err != nil {
-		return "", fmt.Errorf("object source must be a string")
-	}
-	return validateSourceText(source)
-}
-
 func validateSourceText(source string) (string, error) {
-	if strings.TrimSpace(source) == "" || strings.TrimSpace(source) != source {
-		return "", fmt.Errorf("source must be non-empty and trimmed")
-	}
-	for _, character := range source {
-		if character < ' ' || character == 0x7f {
-			return "", fmt.Errorf("source must not contain control characters")
-		}
+	if err := piconfig.ValidatePackageSource(source); err != nil {
+		return "", err
 	}
 	return source, nil
 }

@@ -88,6 +88,7 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 	clipresent.PrintStatusLockOnlyResourcesWithOptions(stdout, clipresent.LockOnlyResourcesFrom(result.LockOnly), humanOptions)
 	clipresent.PrintMCPStatusesWithOptions(stdout, mcpStatuses, humanOptions)
 	clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
+	clipresent.PrintRelationOrderActionsWithOptions(stdout, result.Reconciliation.RelationOrders(), humanOptions)
 	clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, result.Reconciliation.CarrierAdoptions(), humanOptions)
 	clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, result.Reconciliation.CarrierAbsences(), humanOptions)
 	if err := clipresent.PrintHostRouteAttemptsWithOptions(stdout, result.HostRouteAttempts, humanOptions); err != nil {
@@ -108,6 +109,7 @@ func statusCheckExitCode(result statusworkflow.CommandResult, check bool) int {
 	}
 	if result.LockfileMissing || len(result.Reconciliation.PendingManagedPaths()) != 0 || len(result.Reconciliation.PendingAggregates()) != 0 ||
 		result.HasBlockedRelationActions() ||
+		result.Reconciliation.HasNonExactRelationOrders() ||
 		result.Reconciliation.HasBlockedCarrierAdoptions() ||
 		result.Reconciliation.HasBlockedCarrierAbsences() {
 		return 1

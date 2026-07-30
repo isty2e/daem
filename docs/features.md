@@ -99,6 +99,15 @@ those rows as skipped instead of approximating them. A later
 `apply --manage-existing` is still required to adopt an eligible exact
 relation.
 
+Manifest order is enforced only where the host has an admitted ordered
+sequence: Pi package order controls runtime precedence, while OpenCode plugin
+arrays expose configuration order only. Apply performs required plugin or
+package installation/removal, re-reads the selected files, and then converges
+those sequences. If that fresh observation reveals new interactions with
+unmanaged rows, an interactive run asks again; `--yes` fails closed. A later
+sequence can fail after an earlier one was changed, so results disclose partial
+convergence and retry from current state rather than promise rollback.
+
 ### Host Notes
 
 - **Codex:** plugin management is global because the current Codex plugin CLI

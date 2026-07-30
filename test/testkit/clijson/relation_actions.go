@@ -34,6 +34,59 @@ type RelationAction struct {
 	BlocksOrdinaryApply       bool     `json:"blocks_ordinary_apply"`
 }
 
+type RelationOrderMember struct {
+	Subject *struct {
+		Kind      string `json:"kind"`
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+	} `json:"subject"`
+	HostLoadIdentity string `json:"host_load_identity"`
+}
+
+type RelationOrderRisk struct {
+	Code           string `json:"code"`
+	ManagedSubject *struct {
+		Kind      string `json:"kind"`
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+	} `json:"managed_subject"`
+	ForeignIdentity         string `json:"foreign_identity"`
+	ForeignIdentityRedacted bool   `json:"foreign_identity_redacted"`
+	ManagedWasBefore        bool   `json:"managed_was_before"`
+	ManagedWillBeBefore     bool   `json:"managed_will_be_before"`
+}
+
+type RelationOrderAction struct {
+	Target                string                `json:"target"`
+	Scope                 string                `json:"scope"`
+	ClassID               string                `json:"class_id"`
+	SequenceID            string                `json:"sequence_id"`
+	RuntimeMeaning        string                `json:"runtime_meaning"`
+	ConstraintFingerprint string                `json:"constraint_fingerprint"`
+	Authority             string                `json:"authority"`
+	Revision              string                `json:"revision"`
+	Kind                  string                `json:"kind"`
+	Reason                string                `json:"reason"`
+	Detail                string                `json:"detail"`
+	DesiredMembers        []RelationOrderMember `json:"desired_members"`
+	ObservedMembers       []RelationOrderMember `json:"observed_members"`
+	MissingMembers        []RelationOrderMember `json:"missing_members"`
+	ForeignRowCount       int                   `json:"foreign_row_count"`
+	Risks                 []RelationOrderRisk   `json:"risks"`
+	BlocksOrdinaryApply   bool                  `json:"blocks_ordinary_apply"`
+	RequiresMutation      bool                  `json:"requires_mutation"`
+}
+
+type RelationOrderResult struct {
+	Target     string `json:"target"`
+	Scope      string `json:"scope"`
+	ClassID    string `json:"class_id"`
+	SequenceID string `json:"sequence_id"`
+	Outcome    string `json:"outcome"`
+	Changed    bool   `json:"changed"`
+	Detail     string `json:"detail"`
+}
+
 type CarrierAdoptionAction struct {
 	Kind    string `json:"kind"`
 	Subject *struct {
@@ -59,6 +112,7 @@ type CarrierAdoptionAction struct {
 	ClaimStore               string   `json:"claim_store"`
 	CurrentClaimProvenance   string   `json:"current_claim_provenance"`
 	ProposedClaimProvenance  string   `json:"proposed_claim_provenance"`
+	FinalClaimProvenance     string   `json:"final_claim_provenance"`
 	ClaimTransition          string   `json:"claim_transition"`
 	LifecycleEligible        bool     `json:"lifecycle_eligible"`
 	LifecycleBlocker         string   `json:"lifecycle_blocker"`

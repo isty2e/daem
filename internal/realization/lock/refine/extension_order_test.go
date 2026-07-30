@@ -7,6 +7,7 @@ import (
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -86,6 +87,156 @@ func TestExtensionOrderConstraintsWrapIdentityResolverFailure(t *testing.T) {
 	if !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "extension[0]") {
 		t.Fatalf("resolver error = %v", err)
 	}
+}
+
+func TestValidateCurrentExtensionOrderAcceptsExactManifestOrder(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+
+	if err := ValidateCurrentExtensionOrder(extensions, file, sourceRefOrderIdentity); err != nil {
+		t.Fatalf("ValidateCurrentExtensionOrder returned error: %v", err)
+	}
+}
+
+func TestValidateCurrentExtensionOrderRejectsReorderedManifest(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+	reordered := []desiredextension.Extension{extensions[1], extensions[0]}
+
+	err := ValidateCurrentExtensionOrder(reordered, file, sourceRefOrderIdentity)
+	if !errors.Is(err, ErrStaleExtensionOrder) ||
+		!strings.Contains(err.Error(), "run daem lock") {
+		t.Fatalf("reordered manifest error = %v", err)
+	}
+}
+
+func TestValidateCurrentExtensionOrderRejectsClassCountChange(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+
+	err := ValidateCurrentExtensionOrder(extensions[:1], file, sourceRefOrderIdentity)
+	if !errors.Is(err, ErrStaleExtensionOrder) ||
+		!strings.Contains(err.Error(), "manifest has 0 order classes but lockfile has 1") {
+		t.Fatalf("class count error = %v", err)
+	}
+}
+
+func TestValidateCurrentExtensionOrderRejectsMembershipIdentityAndClassDrift(
+	t *testing.T,
+) {
+	first := orderExtension(
+		t,
+		"first",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"one",
+	)
+	second := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"two",
+	)
+	third := orderExtension(
+		t,
+		"third",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"three",
+	)
+	secondWithChangedSource := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"two-changed",
+	)
+	openCodeSecond := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierOpenCodePlugin,
+		target.TargetOpenCode,
+		"two",
+	)
+
+	for _, test := range []struct {
+		name    string
+		locked  []desiredextension.Extension
+		current []desiredextension.Extension
+	}{
+		{
+			name:    "member added",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, second, third},
+		},
+		{
+			name:    "member removed",
+			locked:  []desiredextension.Extension{first, second, third},
+			current: []desiredextension.Extension{first, second},
+		},
+		{
+			name:    "source identity changed",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, secondWithChangedSource},
+		},
+		{
+			name:    "singleton became ordered class",
+			locked:  []desiredextension.Extension{first},
+			current: []desiredextension.Extension{first, second},
+		},
+		{
+			name:    "ordered class became singleton",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first},
+		},
+		{
+			name:    "member moved to another order class",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, openCodeSecond},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateCurrentExtensionOrder(
+				test.current,
+				extensionOrderFile(t, test.locked),
+				sourceRefOrderIdentity,
+			)
+			if !errors.Is(err, ErrStaleExtensionOrder) ||
+				!strings.Contains(err.Error(), "run daem lock") {
+				t.Fatalf("drift error = %v", err)
+			}
+		})
+	}
+}
+
+func extensionOrderFile(
+	t *testing.T,
+	extensions []desiredextension.Extension,
+) lock.File {
+	t.Helper()
+	subjects, err := Extensions(extensions)
+	if err != nil {
+		t.Fatalf("Extensions returned error: %v", err)
+	}
+	constraints, err := ExtensionOrderConstraints(extensions, sourceRefOrderIdentity)
+	if err != nil {
+		t.Fatalf("ExtensionOrderConstraints returned error: %v", err)
+	}
+	section, err := lock.NewLockedSection(subjects, constraints)
+	if err != nil {
+		t.Fatalf("NewLockedSection returned error: %v", err)
+	}
+	return lock.File{Version: lock.CurrentVersion, Locked: section}
 }
 
 func orderExtension(

@@ -343,7 +343,7 @@ func runAfterCarrierClaimRetirements(
 			HostRouteAttempts: removalResult.Attempts,
 		}, err
 	}
-	next, err := runHostRoutesDelegatesAndPersistAttemptRecords(
+	next, err := runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 		ctx,
 		paths,
 		locked,

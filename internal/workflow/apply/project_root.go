@@ -50,6 +50,11 @@ func requiresProjectRootAuthority(planned commandPlan) bool {
 			return true
 		}
 	}
+	if len(planned.assessment.Reconciliation.RelationOrders()) != 0 {
+		// Every order plan validates the selected root before either borrowing
+		// it for a project entry or capturing an independent global entry.
+		return true
+	}
 	for _, action := range planned.result.Reconciliation.Delegates() {
 		if action.SchedulesAttempt() && action.Scope() == target.ScopeProject {
 			return true

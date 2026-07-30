@@ -71,8 +71,10 @@ func Correlate(
 		return observerelation.CorrelationResult{}, fmt.Errorf("parse expected Pi source: %w", err)
 	}
 
-	rows := make([]observerelation.Row, 0, len(inventory.sources))
-	for index, source := range inventory.sources {
+	documentEntries := inventory.document.Entries()
+	rows := make([]observerelation.Row, 0, len(documentEntries))
+	for index, entry := range documentEntries {
+		source := entry.Source()
 		observedIdentity, err := sourceIdentityForSettings(source, inventory.settingsBase, inventory.scope)
 		if err != nil {
 			return observerelation.CorrelationResult{}, fmt.Errorf(

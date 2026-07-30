@@ -57,6 +57,12 @@ func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
 	renderer.mu.Lock()
 	defer renderer.mu.Unlock()
 	if event.TotalActions == 0 {
+		if event.RelationOrder == nil {
+			return
+		}
+	}
+	if event.RelationOrder != nil {
+		renderer.renderRelationOrder(event)
 		return
 	}
 	if event.Kind != execute.EventActionStarted && event.Kind != execute.EventActionDone && event.Kind != execute.EventActionFailed {
@@ -77,6 +83,32 @@ func (renderer *ApplyProgressRenderer) renderEvent(event execute.Event) {
 		line += ": " + label
 	}
 	if event.Err != nil {
+		line += ": failed"
+	}
+	renderer.line.write(line)
+}
+
+func (renderer *ApplyProgressRenderer) renderRelationOrder(event execute.Event) {
+	if event.Kind != execute.EventRelationOrderStarted &&
+		event.Kind != execute.EventRelationOrderDone &&
+		event.Kind != execute.EventRelationOrderFailed {
+		return
+	}
+	facts := event.RelationOrder
+	line := fmt.Sprintf(
+		"Applying extension order: %s %s %s",
+		facts.Target,
+		facts.Scope,
+		facts.SequenceID,
+	)
+	switch event.Kind {
+	case execute.EventRelationOrderDone:
+		if facts.Changed {
+			line += ": converged"
+		} else {
+			line += ": exact"
+		}
+	case execute.EventRelationOrderFailed:
 		line += ": failed"
 	}
 	renderer.line.write(line)

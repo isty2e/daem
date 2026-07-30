@@ -112,8 +112,8 @@ func TestPrintApplyResultJSONDelegateAttemptsAreHistoryOnlyDiagnostics(t *testin
 	if len(payload.DelegateAttempts) != 1 {
 		t.Fatalf("delegate_attempts = %#v, want one row", payload.DelegateAttempts)
 	}
-	if payload.SchemaVersion != 13 {
-		t.Fatalf("schema_version = %d, want 13 after finalized carrier-adoption disclosure", payload.SchemaVersion)
+	if payload.SchemaVersion != 15 {
+		t.Fatalf("schema_version = %d, want 15 after extension-order execution results", payload.SchemaVersion)
 	}
 	got := payload.DelegateAttempts[0]
 	if got.EvidenceKind != "last_attempt_diagnostics" ||

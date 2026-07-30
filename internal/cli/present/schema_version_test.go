@@ -1,10 +1,12 @@
 package clipresent
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,8 +25,8 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 		{name: "lock comparison", got: lockJSONSchemaVersion, want: 3},
 		{name: "resource inventory", got: listResourcesJSONSchemaVersion, want: 1},
 		{name: "output inventory", got: listOutputsJSONSchemaVersion, want: 3},
-		{name: "reconciliation plan", got: planJSONSchemaVersion, want: 9},
-		{name: "apply result", got: applyResultJSONSchemaVersion, want: 13},
+		{name: "reconciliation plan", got: planJSONSchemaVersion, want: 10},
+		{name: "apply result", got: applyResultJSONSchemaVersion, want: 15},
 		{name: "recovery", got: recoveryJSONSchemaVersion, want: 3},
 		{name: "doctor", got: doctorJSONSchemaVersion, want: 1},
 		{name: "MCP probe", got: mcpProbeJSONSchemaVersion, want: 1},
@@ -37,6 +39,23 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 				t.Fatalf("schema version = %d, want %d", test.got, test.want)
 			}
 		})
+	}
+}
+
+func TestCLIReferenceDocumentsApplyResultSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "..", "docs", "cli.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read CLI reference: %v", err)
+	}
+	want := fmt.Sprintf(
+		"| confirmed `apply` | Apply result | `%d` |",
+		applyResultJSONSchemaVersion,
+	)
+	if !strings.Contains(string(content), want) {
+		t.Fatalf("CLI reference is missing current apply schema row %q", want)
 	}
 }
 

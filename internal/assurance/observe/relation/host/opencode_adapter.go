@@ -47,9 +47,18 @@ func observeOpenCodePlugins(input Input, records []carrierRecord) (relationobser
 			return relationobserve.BatchSpec{}, err
 		}
 		documents := inventory.Documents()
-		for _, document := range documents {
+		authorityPaths, err := observeopencode.OrderAuthorityPaths(
+			observeopencode.InventoryInput{
+				ManifestRoot: input.Paths.ManifestRoot,
+				Scope:        scope,
+			},
+		)
+		if err != nil {
+			return relationobserve.BatchSpec{}, err
+		}
+		for _, path := range authorityPaths {
 			authorityPath, err := relationobserve.NewAuthorityPath(
-				document.Path(),
+				path,
 				target.TargetOpenCode,
 				scope,
 			)

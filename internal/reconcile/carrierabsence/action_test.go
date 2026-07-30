@@ -113,6 +113,16 @@ func TestActionClassifiesDesiredAndObservationMatrix(t *testing.T) {
 			if action.BlocksOrdinaryApply() != strings.HasPrefix(string(test.want), "block_") {
 				t.Fatalf("BlocksOrdinaryApply = %t for %q", action.BlocksOrdinaryApply(), test.want)
 			}
+			wantConfirmation := test.want == carrierabsence.DecisionRemove ||
+				test.want == carrierabsence.DecisionRetireAlreadyAbsent
+			if action.RequiresConfirmation() != wantConfirmation {
+				t.Fatalf(
+					"RequiresConfirmation = %t for %q, want %t",
+					action.RequiresConfirmation(),
+					test.want,
+					wantConfirmation,
+				)
+			}
 		})
 	}
 }
@@ -250,12 +260,14 @@ func TestActionSeparatesDirectProjectionFromHostInvocation(t *testing.T) {
 	}
 	if action.Decision() != carrierabsence.DecisionRemove ||
 		action.InvokesHostRoute() ||
-		!action.MutatesDirectProjection() {
+		!action.MutatesDirectProjection() ||
+		!action.RequiresConfirmation() {
 		t.Fatalf(
-			"direct action = decision %q host %t direct %t",
+			"direct action = decision %q host %t direct %t confirmation %t",
 			action.Decision(),
 			action.InvokesHostRoute(),
 			action.MutatesDirectProjection(),
+			action.RequiresConfirmation(),
 		)
 	}
 	if request, present := action.HostRouteRequest(); present {
@@ -292,14 +304,16 @@ func TestActionDistinguishesFreshAbsenceFromPendingRemovalSettlement(t *testing.
 		!action.VerifiesPendingRemoval() ||
 		action.StateOnly() ||
 		action.InvokesHostRoute() ||
-		!action.RetiresClaim() {
+		!action.RetiresClaim() ||
+		!action.RequiresConfirmation() {
 		t.Fatalf(
-			"pending absence = decision %q verify %t state-only %t invokes %t retires %t",
+			"pending absence = decision %q verify %t state-only %t invokes %t retires %t confirmation %t",
 			action.Decision(),
 			action.VerifiesPendingRemoval(),
 			action.StateOnly(),
 			action.InvokesHostRoute(),
 			action.RetiresClaim(),
+			action.RequiresConfirmation(),
 		)
 	}
 	if request, present := action.HostRouteRequest(); present {

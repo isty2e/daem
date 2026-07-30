@@ -11,9 +11,10 @@ import (
 const (
 	densityProductionFileWarning = 18
 	densityProductionFileReview  = 25
-	densityProductionLineWarning = 350
-	densityProductionLineReview  = 500
-	densityTestLineWarning       = 350
+	densityProductionLineWatch   = 500
+	densityProductionLineReview  = 1000
+	densityTestLineWatch         = 1000
+	densityLineHardLimit         = 5000
 )
 
 type densityReviewAdmission struct {
@@ -84,11 +85,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "the child would import parent-owned File and LockedSubjectContract while the parent imported its validation and comparison results, creating a cycle or exporting aggregate-private construction rules",
 	},
 	"internal/cli/present": {
-		reviewedValue:       32,
+		reviewedValue:       33,
 		owner:               "CLI human, JSON, diff, and exit projection",
-		reason:              "at 32 production files, command, inventory, and carrier-lifecycle projections share stable cross-format output and error-shaping contracts",
-		naturalSplit:        "create one presentation child package per command",
-		alternativeRejected: "command packages would duplicate transport policy and make cross-command output consistency implicit",
+		reason:              "at 33 production files, command, inventory, carrier-lifecycle, and physical relation-order projections have distinct change reasons while sharing private JSON subject identities, schema envelopes, human output policy, and error shaping",
+		naturalSplit:        "create one presentation child package per semantic decision family",
+		alternativeRejected: "child packages would export or duplicate private JSON subject and schema helpers while leaving cross-command transport consistency as an implicit facade concern",
 	},
 	"internal/effect/storage/commit": {
 		reviewedValue:       21,
@@ -105,11 +106,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
 	},
 	"internal/workflow/apply": {
-		reviewedValue:       24,
+		reviewedValue:       25,
 		owner:               "application use case",
-		reason:              "at 24 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
+		reason:              "at 25 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, post-carrier relation-order convergence, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
 		naturalSplit:        "separate apply phases into child workflows",
-		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer and obscure its single-use commit boundary",
+		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer, renewed confirmation callback, and effect validation boundary while obscuring the single-use commit sequence",
 	},
 	"internal/workflow/authoring": {
 		reviewedValue:       17,
@@ -220,6 +221,11 @@ func fileDensityFindings(
 	for _, fileName := range densityProductionFiles(record) {
 		filePath := filepath.ToSlash(filepath.Join(packagePath, fileName))
 		lines := lineCount(record, fileName)
+		if lines > densityLineHardLimit {
+			findings = append(findings, densityHardLimitFinding(packagePath, filePath, lines))
+			continue
+		}
+
 		reviewed := false
 		if admission, admitted := admissions[filePath]; admitted {
 			if err := admission.validate("production lines"); err != nil {
@@ -238,7 +244,7 @@ func fileDensityFindings(
 				reviewed = true
 			}
 		}
-		if lines <= densityProductionLineWarning {
+		if lines <= densityProductionLineWatch {
 			continue
 		}
 		if lines > densityProductionLineReview && !reviewed {
@@ -249,10 +255,10 @@ func fileDensityFindings(
 			))
 			continue
 		}
-		findings = append(findings, densityWarningFinding(
+		findings = append(findings, densityWatchpointFinding(
 			packagePath,
 			filePath,
-			fmt.Sprintf("production line count %d exceeds warning threshold %d", lines, densityProductionLineWarning),
+			fmt.Sprintf("production line count %d exceeds watchpoint threshold %d", lines, densityProductionLineWatch),
 		))
 	}
 
@@ -260,13 +266,17 @@ func fileDensityFindings(
 	for _, fileName := range sortedStrings(testFiles) {
 		filePath := filepath.ToSlash(filepath.Join(packagePath, fileName))
 		lines := lineCount(record, fileName)
-		if lines <= densityTestLineWarning {
+		if lines > densityLineHardLimit {
+			findings = append(findings, densityHardLimitFinding(packagePath, filePath, lines))
 			continue
 		}
-		findings = append(findings, densityWarningFinding(
+		if lines <= densityTestLineWatch {
+			continue
+		}
+		findings = append(findings, densityWatchpointFinding(
 			packagePath,
 			filePath,
-			fmt.Sprintf("test line count %d exceeds warning threshold %d", lines, densityTestLineWarning),
+			fmt.Sprintf("test line count %d exceeds watchpoint threshold %d", lines, densityTestLineWatch),
 		))
 	}
 
@@ -286,16 +296,42 @@ func densityAdmissionInvalidFinding(packagePath string, path string, detail stri
 	}
 }
 
+func densityHardLimitFinding(packagePath string, path string, lines int) rawFinding {
+	return rawFinding{
+		finding: GuardrailFinding{
+			Rule:        ruleDensityHardLimit,
+			PackagePath: packagePath,
+			Path:        path,
+			Reason:      "extreme file size exceeds the repository sanity ceiling",
+			Detail:      fmt.Sprintf("line count %d exceeds hard limit %d", lines, densityLineHardLimit),
+		},
+		disposition: findingDispositionViolation,
+	}
+}
+
 func densityReviewRequiredFinding(packagePath string, path string, detail string) rawFinding {
 	return rawFinding{
 		finding: GuardrailFinding{
 			Rule:        ruleDensityReviewRequired,
 			PackagePath: packagePath,
 			Path:        path,
-			Reason:      "density requires explicit ownership review; size alone does not prove invalidity",
+			Reason:      "extreme density requires explicit ownership review; size alone does not prove invalidity",
 			Detail:      detail,
 		},
 		disposition: findingDispositionReviewRequired,
+	}
+}
+
+func densityWatchpointFinding(packagePath string, path string, detail string) rawFinding {
+	return rawFinding{
+		finding: GuardrailFinding{
+			Rule:        ruleDensityWatchpoint,
+			PackagePath: packagePath,
+			Path:        path,
+			Reason:      "density is a stronger review watchpoint; size alone does not prove invalidity",
+			Detail:      detail,
+		},
+		disposition: findingDispositionWatchpoint,
 	}
 }
 

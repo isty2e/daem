@@ -11,6 +11,8 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
+var ErrStaleExtensionOrder = fmt.Errorf("locked extension order is stale")
+
 // ExtensionOrderIdentityResolver derives the canonical identity used by one
 // host order class. Host codecs own source interpretation; refinement accepts
 // only their already-normalized result.
@@ -117,4 +119,41 @@ func ExtensionOrderConstraints(
 		constraints = append(constraints, constraint)
 	}
 	return constraints, nil
+}
+
+// ValidateCurrentExtensionOrder requires the lock to preserve the exact
+// class-relative order currently selected by the manifest.
+func ValidateCurrentExtensionOrder(
+	extensions []desiredextension.Extension,
+	file lock.File,
+	resolveIdentity ExtensionOrderIdentityResolver,
+) error {
+	if err := lock.ValidateExtensionOrderIdentities(file, resolveIdentity); err != nil {
+		return err
+	}
+	current, err := ExtensionOrderConstraints(extensions, resolveIdentity)
+	if err != nil {
+		return fmt.Errorf("derive current extension order: %w", err)
+	}
+	locked := file.Locked.OrderConstraints()
+	if len(current) != len(locked) {
+		return fmt.Errorf(
+			"%w: manifest has %d order classes but lockfile has %d; run daem lock",
+			ErrStaleExtensionOrder,
+			len(current),
+			len(locked),
+		)
+	}
+	for index := range current {
+		if current[index].Equal(locked[index]) {
+			continue
+		}
+		return fmt.Errorf(
+			"%w: manifest order class %q does not match lockfile class %q; run daem lock",
+			ErrStaleExtensionOrder,
+			current[index].ClassID(),
+			locked[index].ClassID(),
+		)
+	}
+	return nil
 }

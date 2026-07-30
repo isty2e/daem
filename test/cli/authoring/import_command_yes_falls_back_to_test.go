@@ -249,6 +249,8 @@ func TestRunImportHelpShowsStaticWorkspaceContract(t *testing.T) {
 	for _, want := range []string{
 		"Without --manifest, non-merge import creates ./daem.toml",
 		"--merge uses existing-workspace selection",
+		"Extensions are imported only when daem can recover their exact install source",
+		"other observed extensions are reported and skipped",
 		"daem import --target codex",
 	} {
 		if !strings.Contains(normalizedHelp, want) {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -107,6 +108,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(planning.LockOnly))
 		clipresent.PrintMCPStatusesWithOptions(stdout, mcpStatuses, humanOptions)
 		clipresent.PrintRelationActionsWithOptions(stdout, planning.Reconciliation.Relations(), humanOptions)
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, planning.Reconciliation.RelationOrders(), humanOptions)
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, planning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
 		clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
@@ -160,6 +162,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		}
 		fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
 		clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
+		clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
 		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
@@ -176,12 +179,15 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		return 1
 	}
 	relationActionsDisclosed := false
+	relationOrdersDisclosed := false
 	carrierAbsencesDisclosed := false
 	humanOptions := clipresent.HumanOptions{Verbose: *verbose}
 	if interactiveConfirmation {
 		clipresent.PrintLockOnlyResourceSummary(stdout, clipresent.LockOnlyResourcesFrom(readinessPlanning.LockOnly))
 		clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
 		relationActionsDisclosed = true
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
+		relationOrdersDisclosed = true
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 		carrierAbsencesDisclosed = true
@@ -204,6 +210,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintDiagnosticsWithOptions(stdout, readinessPlanning.Diagnostics, humanOptions)
 		clipresent.PrintRelationActionsWithOptions(stdout, readinessPlanning.Reconciliation.Relations(), humanOptions)
 		relationActionsDisclosed = true
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, readinessPlanning.Reconciliation.RelationOrders(), humanOptions)
+		relationOrdersDisclosed = true
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAdoptions(), humanOptions)
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, readinessPlanning.Reconciliation.CarrierAbsences(), humanOptions)
 		carrierAbsencesDisclosed = true
@@ -214,6 +222,15 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 	executeOptions := options.applyExecuteOptions
 	executeOptions.ExecuteEvents = progress.Sink()
 	executeOptions.PlanWasDisclosed = interactiveConfirmation
+	executeOptions.RelationOrderRiskAuthorizer = nil
+	if interactiveConfirmation {
+		executeOptions.RelationOrderRiskAuthorizer = newRelationOrderRiskAuthorizer(
+			stdout,
+			options.confirmation,
+			progress.Close,
+			humanOptions,
+		)
+	}
 	result, err := applyworkflow.ExecuteWithOptions(options.context, readinessPlanning, executeOptions)
 	progress.Close()
 	delegateAttemptInputs := clipresent.DelegateAttemptInputsFrom(result.DelegateAttempts)
@@ -226,6 +243,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 				Reconciliation:         result.Reconciliation,
 				ExecutionAttempted:     true,
 				CarrierAdoptionResults: result.CarrierAdoptionResults,
+				RelationOrderResults:   result.RelationOrderResults,
 				HostRouteAttempts:      result.HostRouteAttempts,
 				MCPStatuses:            mcpStatuses,
 				Diagnostics:            result.Diagnostics,
@@ -246,6 +264,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			false,
 			humanOptions,
 		)
+		clipresent.PrintRelationOrderResults(stderr, result.RelationOrderResults)
 		if presentErr := clipresent.PrintHostRouteAttemptsWithOptions(stderr, result.HostRouteAttempts, humanOptions); presentErr != nil {
 			fmt.Fprintf(stderr, "apply diagnostics failed: %s\n", humanDiagnosticError(presentErr))
 		}
@@ -262,6 +281,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			Reconciliation:         result.Reconciliation,
 			ExecutionAttempted:     true,
 			CarrierAdoptionResults: result.CarrierAdoptionResults,
+			RelationOrderResults:   result.RelationOrderResults,
 			HostRouteAttempts:      result.HostRouteAttempts,
 			Diagnostics:            result.Diagnostics,
 		}
@@ -281,9 +301,13 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		true,
 		humanOptions,
 	)
+	clipresent.PrintRelationOrderResults(stdout, result.RelationOrderResults)
 	clipresent.PrintPlanResultWithOptions(stdout, result.Reconciliation, humanOptions)
 	if !relationActionsDisclosed {
 		clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
+	}
+	if !relationOrdersDisclosed {
+		clipresent.PrintRelationOrderActionsWithOptions(stdout, result.Reconciliation.RelationOrders(), humanOptions)
 	}
 	if !carrierAbsencesDisclosed {
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, result.Reconciliation.CarrierAbsences(), humanOptions)
@@ -301,6 +325,33 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 	return 0
 }
 
+func newRelationOrderRiskAuthorizer(
+	output io.Writer,
+	confirmation confirmationBoundary,
+	closeProgress func(),
+	humanOptions clipresent.HumanOptions,
+) applyworkflow.RelationOrderRiskAuthorizer {
+	return func(
+		_ context.Context,
+		expansion applyworkflow.RelationOrderRiskExpansion,
+	) (bool, error) {
+		if closeProgress != nil {
+			closeProgress()
+		}
+		fmt.Fprintf(
+			output,
+			"extension order changed after carrier updates: %d new precedence risks\n",
+			expansion.AddedRiskCount(),
+		)
+		clipresent.PrintRelationOrderActionsWithOptions(
+			output,
+			expansion.Decisions(),
+			humanOptions,
+		)
+		return confirmation.prompt("updated apply plan")
+	}
+}
+
 func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
 	if len(planning.Reconciliation.MutatingDecisions()) != 0 {
 		return true
@@ -310,8 +361,18 @@ func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
 			return true
 		}
 	}
+	for _, decision := range planning.Reconciliation.RelationOrders() {
+		if decision.RequiresMutation() {
+			return true
+		}
+	}
 	for _, action := range planning.Reconciliation.CarrierAdoptions() {
 		if action.StateOnly() {
+			return true
+		}
+	}
+	for _, action := range planning.Reconciliation.CarrierAbsences() {
+		if action.RequiresConfirmation() {
 			return true
 		}
 	}
@@ -330,5 +391,8 @@ func printApplyWorkflowHints(output io.Writer, manifestPath string, result apply
 	}
 	if errors.Is(err, applyworkflow.ErrReadLockfile) && errors.Is(err, os.ErrNotExist) {
 		printLockCommandHint(output, result.ManifestPath)
+	}
+	if errors.Is(err, applyworkflow.ErrRelationOrderRiskExpansion) {
+		fmt.Fprintln(output, "next: inspect daem apply --dry-run, then rerun interactively to authorize the updated extension order")
 	}
 }

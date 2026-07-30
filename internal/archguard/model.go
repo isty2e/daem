@@ -4,11 +4,13 @@ package archguard
 type Report struct {
 	Violations                []GuardrailFinding
 	DensityReviewRequirements []GuardrailFinding
+	DensityWatchpoints        []GuardrailFinding
 	DensityWarnings           []GuardrailFinding
 	PackageDensity            []PackageDensity
 }
 
-// HasFailures reports whether the guardrail baseline should fail.
+// HasFailures reports whether semantic violations or unreviewed extreme density
+// should fail the baseline. Ordinary density watchpoints remain non-blocking.
 func (report Report) HasFailures() bool {
 	return len(report.Violations) != 0 || len(report.DensityReviewRequirements) != 0
 }

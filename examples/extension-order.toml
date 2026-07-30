@@ -1,0 +1,35 @@
+# Declaration order is the desired relative order within each target and scope.
+# Pi package order affects runtime precedence. OpenCode plugin order is config
+# order only; daem does not claim that OpenCode resolves runtime conflicts by
+# array order. Unmanaged rows retain their physical slots during apply.
+
+version = 1
+targets = ["opencode", "pi"]
+
+[[extension]]
+id = "opencode-linter"
+carrier = "opencode-plugin"
+targets = ["opencode"]
+scope = "project"
+source = { host_source = "@acme/opencode-linter@1.2.3" }
+
+[[extension]]
+id = "opencode-formatter"
+carrier = "opencode-plugin"
+targets = ["opencode"]
+scope = "project"
+source = { host_source = "@acme/opencode-formatter@2.0.0" }
+
+[[extension]]
+id = "pi-linter"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/pi-linter@1.2.3" }
+
+[[extension]]
+id = "pi-formatter"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/pi-formatter@2.0.0" }

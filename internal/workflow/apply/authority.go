@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"sort"
 
+	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -127,6 +129,43 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 				string(authority.scope),
 			); err != nil {
 				return applyAuthorityEvidence{}, err
+			}
+		}
+	}
+	for _, constraint := range planned.context.Lockfile.Locked.OrderConstraints() {
+		selectedTarget, _, admitted := profile.ExtensionOrderCapabilityForClass(
+			constraint.ClassID(),
+		)
+		if !admitted || !planned.assessment.SelectedTargets.Contains(selectedTarget) {
+			continue
+		}
+		authorities, err := relationhost.OrderAuthorityPaths(relationhost.OrderInput{
+			Paths:      planned.context.Paths,
+			Lockfile:   planned.context.Lockfile,
+			Constraint: constraint,
+		})
+		if err != nil {
+			return applyAuthorityEvidence{}, fmt.Errorf(
+				"derive extension order authority for class %q: %w",
+				constraint.ClassID(),
+				err,
+			)
+		}
+		for _, authority := range authorities {
+			for _, effect := range []mutation.PathEffect{
+				mutation.PathEffectDirectoryEntry,
+				mutation.PathEffectReferent,
+			} {
+				if err := addPath(
+					"physical",
+					authority.Path(),
+					mutation.AccessExclusive,
+					effect,
+					string(authority.Target()),
+					string(authority.Scope()),
+				); err != nil {
+					return applyAuthorityEvidence{}, err
+				}
 			}
 		}
 	}

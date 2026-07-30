@@ -509,7 +509,7 @@ func TestDirectRemovalRequiresProjectRootAndExclusiveRelationAuthority(t *testin
 		[]carrierabsence.Action{fixture.action},
 		append(fixture.authorityPaths, foreign),
 	)
-	if len(facts) != 3 {
+	if len(facts) != 5 {
 		t.Fatalf("authority facts = %#v", facts)
 	}
 	for index, fact := range facts {
@@ -675,11 +675,16 @@ func newOpenCodeDirectWorkflowFixture(
 	); err != nil {
 		t.Fatal(err)
 	}
-	authorityPaths := make([]observerelation.AuthorityPath, 0, len(configPaths))
-	for _, path := range configPaths {
+	authorityPaths := make([]observerelation.AuthorityPath, 0, 4)
+	for _, name := range []string{
+		"opencode.json",
+		"opencode.jsonc",
+		"tui.json",
+		"tui.jsonc",
+	} {
 		authorityPaths = append(
 			authorityPaths,
-			newRelationAuthorityPath(t, path, scope),
+			newRelationAuthorityPath(t, filepath.Join(configRoot, name), scope),
 		)
 	}
 

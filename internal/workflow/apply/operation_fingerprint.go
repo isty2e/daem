@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 	"github.com/isty2e/daem/internal/topology"
@@ -28,6 +29,7 @@ type applyFingerprintFacts struct {
 	Aggregates          []aggregateFingerprintFacts
 	MCPProviders        []mcpProviderFingerprintFacts
 	RelationActions     []relationFingerprintFacts
+	RelationOrders      []relationOrderFingerprintFacts
 	CarrierAdoptions    []carrierAdoptionFingerprintFacts
 	CarrierAbsences     []carrierAbsenceFingerprintFacts
 	DelegateActions     []delegateFingerprintFacts
@@ -100,6 +102,37 @@ type relationFingerprintFacts struct {
 	ObservationPolicy    reconcile.RelationObservationPolicy
 }
 
+type relationOrderFingerprintFacts struct {
+	Target                string
+	Scope                 string
+	ClassID               string
+	SequenceID            string
+	RuntimeMeaning        string
+	ConstraintFingerprint string
+	Authority             string
+	Revision              string
+	Kind                  reconcile.RelationOrderDecisionKind
+	Reason                reconcile.RelationOrderReason
+	Detail                string
+	DesiredMembers        []relationOrderMemberFingerprintFacts
+	ObservedMembers       []relationOrderMemberFingerprintFacts
+	MissingMembers        []relationOrderMemberFingerprintFacts
+	ForeignRows           int
+	PrecedenceChanges     []relationOrderPrecedenceFingerprintFacts
+}
+
+type relationOrderMemberFingerprintFacts struct {
+	Subject          topology.SubjectID
+	HostLoadIdentity string
+}
+
+type relationOrderPrecedenceFingerprintFacts struct {
+	ManagedSubject      topology.SubjectID
+	ForeignIdentity     string
+	ManagedWasBefore    bool
+	ManagedWillBeBefore bool
+}
+
 type carrierAdoptionFingerprintFacts struct {
 	Subject      topology.SubjectID
 	Target       string
@@ -167,6 +200,9 @@ func applyOperationFingerprint(
 	}
 	result := planned.result
 	relations := relationFingerprintRows(planned.assessment.Reconciliation.Relations())
+	relationOrders := relationOrderFingerprintRows(
+		planned.assessment.Reconciliation.RelationOrders(),
+	)
 	carrierAbsences := carrierAbsenceFingerprintRows(
 		planned.assessment.Reconciliation.CarrierAbsences(),
 	)
@@ -210,6 +246,7 @@ func applyOperationFingerprint(
 		Aggregates:       aggregates,
 		MCPProviders:     mcpProviders,
 		RelationActions:  relations,
+		RelationOrders:   relationOrders,
 		CarrierAdoptions: carrierAdoptions,
 		CarrierAbsences:  carrierAbsences,
 		DelegateActions:  delegates,
@@ -226,6 +263,63 @@ func applyOperationFingerprint(
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
 	}
 	return mutation.NewOperationFingerprint(canonical), nil
+}
+
+func relationOrderFingerprintRows(
+	decisions []reconcile.RelationOrderDecision,
+) []relationOrderFingerprintFacts {
+	rows := make([]relationOrderFingerprintFacts, 0, len(decisions))
+	for _, decision := range decisions {
+		rows = append(rows, relationOrderFingerprintFacts{
+			Target:                string(decision.Target()),
+			Scope:                 string(decision.Scope()),
+			ClassID:               string(decision.ClassID()),
+			SequenceID:            string(decision.SequenceID()),
+			RuntimeMeaning:        string(decision.RuntimeMeaning()),
+			ConstraintFingerprint: decision.ConstraintFingerprint(),
+			Authority:             string(decision.Authority()),
+			Revision:              string(decision.Revision()),
+			Kind:                  decision.Kind(),
+			Reason:                decision.Reason(),
+			Detail:                decision.Detail(),
+			DesiredMembers:        relationOrderMemberFingerprintRows(decision.DesiredMembers()),
+			ObservedMembers:       relationOrderMemberFingerprintRows(decision.ObservedMembers()),
+			MissingMembers:        relationOrderMemberFingerprintRows(decision.MissingMembers()),
+			ForeignRows:           decision.ForeignRowCount(),
+			PrecedenceChanges: relationOrderPrecedenceFingerprintRows(
+				decision.PrecedenceChanges(),
+			),
+		})
+	}
+	return rows
+}
+
+func relationOrderMemberFingerprintRows(
+	members []hostrelation.RelationOrderMember,
+) []relationOrderMemberFingerprintFacts {
+	rows := make([]relationOrderMemberFingerprintFacts, 0, len(members))
+	for _, member := range members {
+		rows = append(rows, relationOrderMemberFingerprintFacts{
+			Subject:          member.Subject(),
+			HostLoadIdentity: string(member.HostLoadIdentity()),
+		})
+	}
+	return rows
+}
+
+func relationOrderPrecedenceFingerprintRows(
+	changes []observerelation.PrecedenceChange,
+) []relationOrderPrecedenceFingerprintFacts {
+	rows := make([]relationOrderPrecedenceFingerprintFacts, 0, len(changes))
+	for _, change := range changes {
+		rows = append(rows, relationOrderPrecedenceFingerprintFacts{
+			ManagedSubject:      change.ManagedSubject(),
+			ForeignIdentity:     string(change.ForeignIdentity()),
+			ManagedWasBefore:    change.ManagedWasBefore(),
+			ManagedWillBeBefore: change.ManagedWillBeBefore(),
+		})
+	}
+	return rows
 }
 
 func relationFingerprintRows(

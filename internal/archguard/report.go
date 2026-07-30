@@ -26,6 +26,10 @@ func FormatAnalysisReport(report Report) string {
 		writeFindings(&builder, "density review required", report.DensityReviewRequirements)
 	}
 
+	if len(report.DensityWatchpoints) != 0 {
+		writeFindings(&builder, "density watchpoint", report.DensityWatchpoints)
+	}
+
 	if len(report.DensityWarnings) != 0 {
 		writeFindings(&builder, "density warning", report.DensityWarnings)
 	}

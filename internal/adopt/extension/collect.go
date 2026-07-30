@@ -2,6 +2,7 @@ package extension
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	observepi "github.com/isty2e/daem/internal/assurance/observe/pipackage"
@@ -253,8 +254,13 @@ func newCarrierKey(
 func openCodeSequenceID(
 	capability profile.ExtensionOrderCapability,
 	kind opencodeconfig.ConfigKind,
+	path string,
 ) (hostrelation.PhysicalSequenceID, error) {
-	suffix := ":" + string(kind) + ".plugins"
+	variant := strings.TrimPrefix(filepath.Ext(path), ".")
+	if variant != "json" && variant != "jsonc" {
+		return "", fmt.Errorf("OpenCode extension order config %q has unsupported variant", path)
+	}
+	suffix := ":" + string(kind) + "." + variant + ".plugins"
 	for _, sequenceID := range capability.PhysicalSequenceIDs() {
 		if strings.HasSuffix(string(sequenceID), suffix) {
 			return sequenceID, nil

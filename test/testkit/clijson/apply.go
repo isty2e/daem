@@ -81,14 +81,16 @@ type ApplyResult struct {
 			FileMode         uint32   `json:"file_mode"`
 		} `json:"previous_state"`
 	} `json:"actions"`
-	DelegateActions   []DelegateAction        `json:"delegate_actions"`
-	RelationActions   []RelationAction        `json:"relation_actions"`
-	CarrierAdoptions  []CarrierAdoptionAction `json:"carrier_adoption_actions"`
-	CarrierAbsences   []CarrierAbsenceAction  `json:"carrier_absence_actions"`
-	DelegateAttempts  []DelegateAttempt       `json:"delegate_attempts"`
-	HostRouteAttempts []HostRouteAttempt      `json:"host_route_attempts"`
-	MCPStatuses       []MCPStatus             `json:"mcp_statuses"`
-	Diagnostics       []struct {
+	DelegateActions      []DelegateAction        `json:"delegate_actions"`
+	RelationActions      []RelationAction        `json:"relation_actions"`
+	RelationOrders       []RelationOrderAction   `json:"relation_order_actions"`
+	RelationOrderResults []RelationOrderResult   `json:"relation_order_results"`
+	CarrierAdoptions     []CarrierAdoptionAction `json:"carrier_adoption_actions"`
+	CarrierAbsences      []CarrierAbsenceAction  `json:"carrier_absence_actions"`
+	DelegateAttempts     []DelegateAttempt       `json:"delegate_attempts"`
+	HostRouteAttempts    []HostRouteAttempt      `json:"host_route_attempts"`
+	MCPStatuses          []MCPStatus             `json:"mcp_statuses"`
+	Diagnostics          []struct {
 		Severity   string `json:"severity"`
 		Code       string `json:"code"`
 		ResourceID string `json:"resource_id"`

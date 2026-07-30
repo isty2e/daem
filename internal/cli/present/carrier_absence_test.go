@@ -56,8 +56,8 @@ func TestPlanJSONDisclosesBlockedCarrierAbsenceWithoutExecutionClaim(t *testing.
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 9 || !payload.HasErrors || len(payload.CarrierAbsences) != 1 {
-		t.Fatalf("payload = %#v, want schema 9 with one blocking carrier absence", payload)
+	if payload.SchemaVersion != 10 || !payload.HasErrors || len(payload.CarrierAbsences) != 1 {
+		t.Fatalf("payload = %#v, want schema 10 with one blocking carrier absence", payload)
 	}
 	got := payload.CarrierAbsences[0]
 	if got.Kind != "carrier_absence" ||

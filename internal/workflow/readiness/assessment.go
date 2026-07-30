@@ -289,6 +289,16 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("plan carrier absences: %w", err)
 	}
+	relationOrderDecisions, err := observeExtensionOrders(
+		paths,
+		locked,
+		selectedTargets,
+		relationActions,
+		carrierAbsenceActions,
+	)
+	if err != nil {
+		return Assessment{}, fmt.Errorf("plan extension order: %w", err)
+	}
 	delegateActions, err := reconcilehostroute.BuildDelegateActions(reconcilehostroute.DelegateInput{
 		Locked:              locked,
 		SelectedTargets:     selectedTargets,
@@ -303,6 +313,7 @@ func buildAssessment(
 		ManagedPaths:     managedPaths,
 		Aggregates:       aggregates,
 		Relations:        relationActions,
+		RelationOrders:   relationOrderDecisions,
 		CarrierAdoptions: carrierAdoptionActions,
 		CarrierAbsences:  carrierAbsenceActions,
 		Delegates:        delegateActions,
