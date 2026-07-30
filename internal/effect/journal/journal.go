@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+var errRecoveryJournalStateCodecRequired = errors.New("recovery journal state codec is required")
 
 func recoveryJournalAuthorityFingerprint(
 	journal recoveryJournal,
@@ -80,7 +83,7 @@ func encodeRecoveryJournalSnapshots(
 	stateEncoder durable.SnapshotEncoder,
 ) ([]byte, []byte, error) {
 	if stateEncoder == nil {
-		return nil, nil, fmt.Errorf("recovery journal state codec is required")
+		return nil, nil, errRecoveryJournalStateCodecRequired
 	}
 	before, err := stateEncoder.Encode(beforeSnapshot)
 	if err != nil {
@@ -139,6 +142,18 @@ func loadRecoveryJournal(
 	if err != nil {
 		return recoveryJournal{}, fmt.Errorf("read recovery journal: %w", err)
 	}
+	return decodeRecoveryJournalSnapshot(snapshot, path, stateCodec)
+}
+
+func decodeRecoveryJournalSnapshot(
+	snapshot mutationfs.RegularFileSnapshot,
+	path string,
+	stateCodec durable.SnapshotCodec,
+) (recoveryJournal, error) {
+	if snapshot.Identity() == nil ||
+		snapshot.Identity().Kind() != mutationfs.EntryKindFile {
+		return recoveryJournal{}, fmt.Errorf("recovery journal snapshot is uninitialized")
+	}
 	if mode := snapshot.Mode().Perm(); mode != recoveryJournalMode {
 		return recoveryJournal{}, fmt.Errorf(
 			"recovery journal %q permissions are %04o, want %04o",
@@ -172,7 +187,7 @@ func loadRecoveryJournal(
 		return recoveryJournal{}, err
 	}
 	if stateCodec == nil {
-		return recoveryJournal{}, fmt.Errorf("recovery journal state codec is required")
+		return recoveryJournal{}, errRecoveryJournalStateCodecRequired
 	}
 	before, err := stateCodec.Decode(persisted.StatefileBefore)
 	if err != nil {
@@ -277,7 +292,7 @@ func consumeRecoveryJournalJSONValue(decoder *json.Decoder, depth int) error {
 
 func validateRecoveryJournal(journal recoveryJournal, stateEncoder durable.SnapshotEncoder) error {
 	if stateEncoder == nil {
-		return fmt.Errorf("recovery journal state codec is required")
+		return errRecoveryJournalStateCodecRequired
 	}
 	if err := validateRecoveryJournalEnvelope(journal); err != nil {
 		return err

@@ -5,16 +5,27 @@ import (
 	"strings"
 )
 
-// Residue is one private retired journal whose loaded journal content
-// independently reproduces the identity encoded by its name.
+type residueProof uint8
+
+const (
+	residueProofInvalid residueProof = iota
+	residueProofPhysical
+	residueProofJournal
+)
+
+// Residue is one private retired-journal observation. Physical evidence alone
+// carries no cleanup authority; a prepared control additionally requires the
+// residue journal to reproduce the complete recorded identity.
 type Residue struct {
 	name            Name
 	journalIdentity Identity
+	proof           residueProof
 }
 
-// ValidateResidue correlates one stable residue entry with identity derived
-// independently from its validated journal content.
-func ValidateResidue(evidence EntryEvidence, journalIdentity Identity) (Residue, error) {
+// ValidatePartialResidue validates only the physical residue shape. This form
+// is admissible solely when a durable finalizing control already grants exact
+// cleanup authority.
+func ValidatePartialResidue(evidence EntryEvidence) (Residue, error) {
 	name := InspectName(evidence.name)
 	if name.kind != NameResidue {
 		return Residue{}, fmt.Errorf(
@@ -25,16 +36,49 @@ func ValidateResidue(evidence EntryEvidence, journalIdentity Identity) (Residue,
 	if err := validatePrivateDirectory(evidence, "retirement artifact"); err != nil {
 		return Residue{}, err
 	}
+	return Residue{name: name, proof: residueProofPhysical}, nil
+}
+
+// ValidateResidue correlates one stable residue entry with identity derived
+// independently from its validated journal content.
+func ValidateResidue(evidence EntryEvidence, journalIdentity Identity) (Residue, error) {
+	residue, err := ValidatePartialResidue(evidence)
+	if err != nil {
+		return Residue{}, err
+	}
 	if !journalIdentity.valid() {
 		return Residue{}, fmt.Errorf("journal retirement residue identity is uninitialized")
 	}
-	if !name.BelongsTo(journalIdentity) {
+	if !residue.name.BelongsTo(journalIdentity) {
 		return Residue{}, fmt.Errorf(
 			"journal retirement residue %q does not match its loaded journal identity",
 			evidence.name,
 		)
 	}
-	return Residue{name: name, journalIdentity: journalIdentity}, nil
+	residue.journalIdentity = journalIdentity
+	residue.proof = residueProofJournal
+	return residue, nil
+}
+
+func (residue Residue) valid() bool {
+	if residue.name.kind != NameResidue || !residue.name.valid() {
+		return false
+	}
+	switch residue.proof {
+	case residueProofPhysical:
+		return !residue.journalIdentity.valid()
+	case residueProofJournal:
+		return residue.journalIdentity.valid() &&
+			residue.name.BelongsTo(residue.journalIdentity)
+	default:
+		return false
+	}
+}
+
+func (residue Residue) independentlyMatches(identity Identity) bool {
+	return residue.valid() &&
+		residue.proof == residueProofJournal &&
+		residue.journalIdentity.Equal(identity)
 }
 
 // Garbage is one validated, inert post-finalization GC directory.

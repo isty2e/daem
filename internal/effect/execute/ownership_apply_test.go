@@ -119,7 +119,7 @@ func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.
 	if _, statErr := os.Stat(fixture.hostConfigPath); statErr != nil {
 		t.Fatalf("host config stat returned error after binder refusal: %v", statErr)
 	}
-	if err := journal.EnsureNoActive(input.Paths.RecoveryDir); err == nil {
+	if err := journal.RequireNoInterruptedApply(t.Context(), input.Paths.RecoveryDir); err == nil {
 		t.Fatal("missing recovery binder removed active recovery evidence")
 	}
 }

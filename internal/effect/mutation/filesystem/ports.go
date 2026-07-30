@@ -13,6 +13,12 @@ type PathReader interface {
 	ReadRegularFileSnapshotUpTo(ctx context.Context, path string, maximumBytes int64) (RegularFileSnapshot, error)
 }
 
+// DirectoryReader captures one stable immediate-child inventory without
+// interpreting entry names or traversing children.
+type DirectoryReader interface {
+	SnapshotDirectory(ctx context.Context, path string) (DirectorySnapshot, error)
+}
+
 // PathCommitter performs guarded stable publication on operation-selected
 // paths. Paths are supplied by an outer boundary; this port never selects one.
 type PathCommitter interface {
@@ -100,6 +106,7 @@ type RootedStore interface {
 // Reader is the complete bounded observation subset used by Effect packages.
 type Reader interface {
 	PathReader
+	DirectoryReader
 	RootedReader
 }
 
@@ -107,5 +114,6 @@ type Reader interface {
 // operations. It has no path selection, arbitrary traversal, or policy API.
 type Store interface {
 	PathStore
+	DirectoryReader
 	RootedStore
 }

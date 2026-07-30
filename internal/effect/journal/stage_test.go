@@ -88,13 +88,13 @@ func TestCaptureJournalLeavesPrivateResidueUntouchedWhenActiveEvidenceBlocksCapt
 		durable.Snapshot{},
 		durable.Snapshot{},
 		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: testStateCodec(),
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
 		},
 	)
-	if err == nil || !strings.Contains(err.Error(), "interrupted apply operation found") {
-		t.Fatalf("CaptureJournalWithOptions error = %v, want active recovery rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "recovery inventory is blocked") {
+		t.Fatalf("CaptureJournalWithOptions error = %v, want malformed recovery rejection", err)
 	}
 	for _, path := range []string{privatePath, activePath} {
 		if _, statErr := os.Lstat(path); statErr != nil {
@@ -132,9 +132,9 @@ func TestCaptureJournalPublicationFailureFollowsVisibilityClassification(t *test
 				beforeStatefile(),
 				afterStatefile(),
 				CaptureOptions{
-					Filesystem:   filesystem,
-					Resolver:     func(output.Destination) (string, error) { return "", nil },
-					StateEncoder: testStateCodec(),
+					Filesystem: filesystem,
+					Resolver:   func(output.Destination) (string, error) { return "", nil },
+					StateCodec: testStateCodec(),
 				},
 			)
 			if err == nil || !strings.Contains(err.Error(), "commit recovery journal") {
@@ -187,7 +187,7 @@ func TestCaptureJournalRejectsMismatchedOperationAuthorityBeforeConstruction(t *
 		CaptureOptions{
 			Filesystem:         journalTestFilesystem(),
 			Resolver:           func(output.Destination) (string, error) { return "", nil },
-			StateEncoder:       testStateCodec(),
+			StateCodec:         testStateCodec(),
 			OperationAuthority: authority,
 		},
 	)

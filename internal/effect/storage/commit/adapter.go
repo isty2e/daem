@@ -30,7 +30,14 @@ func (Adapter) ReadRegularFileSnapshotUpTo(
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
-	return mutationfs.NewRegularFileSnapshot(snapshot.Content(), snapshot.Mode()), nil
+	return snapshot, nil
+}
+
+func (Adapter) SnapshotDirectory(
+	ctx context.Context,
+	path string,
+) (mutationfs.DirectorySnapshot, error) {
+	return SnapshotDirectory(ctx, path)
 }
 
 func (Adapter) PrepareCommitParent(ctx context.Context, path string) error {

@@ -118,7 +118,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             resolver,
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	)
 	if err != nil {

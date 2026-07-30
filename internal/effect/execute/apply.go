@@ -273,7 +273,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			OperationAuthority:        mutationAuthority.recoveryJournal,
 			RootedCapability:          mutationAuthority.rootedJournalCapability,
 			Codecs:                    input.Codecs,
-			StateEncoder:              input.StateCodec,
+			StateCodec:                input.StateCodec,
 		},
 	)
 	if err != nil {

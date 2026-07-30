@@ -3,12 +3,11 @@ package journal
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
@@ -29,6 +28,44 @@ type PlanLoadOptions struct {
 	StateCodec        durable.SnapshotCodec
 	StateReader       durable.SnapshotReader
 	Filesystem        mutationfs.Reader
+}
+
+// LoadCleanupPlanWithOptions returns only cleanup authority selected by the
+// canonical recovery-root inventory. Active recovery remains exposed by the
+// existing active-plan loaders rather than being wrapped or re-exported.
+func LoadCleanupPlanWithOptions(
+	ctx context.Context,
+	paths Paths,
+	options PlanLoadOptions,
+) (retirement.CleanupPlan, error) {
+	if options.Filesystem == nil {
+		return retirement.CleanupPlan{}, fmt.Errorf("recovery plan filesystem is required")
+	}
+	inventory, err := loadRecoveryRootInventory(
+		ctx,
+		paths.RecoveryDir,
+		inventoryOptionsFromPlan(options),
+	)
+	if err != nil {
+		return retirement.CleanupPlan{}, err
+	}
+	switch inventory.decision.State() {
+	case retirement.StateRetained, retirement.StateFinalizing:
+		cleanup, ok := inventory.decision.CleanupPlan()
+		if !ok {
+			return retirement.CleanupPlan{}, fmt.Errorf(
+				"journal cleanup classification has no cleanup plan",
+			)
+		}
+		return cleanup, nil
+	case retirement.StateBlocked:
+		return retirement.CleanupPlan{}, fmt.Errorf(
+			"recovery inventory is blocked: %s",
+			inventory.decision.Detail(),
+		)
+	default:
+		return retirement.CleanupPlan{}, fmt.Errorf("no journal cleanup plan")
+	}
 }
 
 // LoadActivePlanWithOptions classifies the active journal using any supplied
@@ -67,40 +104,50 @@ func loadActivePlan(
 	selected *[]EntrySelection,
 	options PlanLoadOptions,
 ) (recovery.Plan, error) {
-	if options.RootedCapability != nil && options.Resolver == nil {
-		return recovery.Plan{}, fmt.Errorf("recovery plan rooted capability requires a destination resolver")
-	}
-	if options.Filesystem == nil {
-		return recovery.Plan{}, fmt.Errorf("recovery plan filesystem is required")
-	}
-	operations, err := activeRecoveryOperations(paths.RecoveryDir)
-	if err != nil {
+	if err := validatePlanLoadOptions(options); err != nil {
 		return recovery.Plan{}, err
 	}
-	if len(operations) == 0 {
-		return recovery.Plan{}, fmt.Errorf("no active recovery journal")
-	}
-	if len(operations) > 1 {
-		return recovery.Plan{}, fmt.Errorf("multiple active recovery journals found")
-	}
-
-	operationID := operations[0]
-	operationDir, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(paths.RecoveryDir, operationID))
-	if err != nil {
-		return recovery.Plan{}, fmt.Errorf("canonicalize active recovery operation: %w", err)
-	}
-	journal, err := loadRecoveryJournal(
+	inventory, err := loadRecoveryRootInventory(
 		ctx,
-		options.Filesystem,
-		filepath.Join(operationDir, recoveryJournalFileName),
-		options.StateCodec,
+		paths.RecoveryDir,
+		inventoryOptionsFromPlan(options),
 	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if journal.OperationID != operationID {
-		return recovery.Plan{}, fmt.Errorf("recovery journal operation_id %q does not match directory %q", journal.OperationID, operationID)
+	return loadActivePlanFromInventory(
+		ctx,
+		paths,
+		suppliedState,
+		selected,
+		options,
+		inventory,
+	)
+}
+
+func loadActivePlanFromInventory(
+	ctx context.Context,
+	paths Paths,
+	suppliedState *durable.Snapshot,
+	selected *[]EntrySelection,
+	options PlanLoadOptions,
+	inventory recoveryRootInventory,
+) (recovery.Plan, error) {
+	switch inventory.decision.State() {
+	case retirement.StateActive, retirement.StatePrepared:
+	case retirement.StateBlocked:
+		return recovery.Plan{}, fmt.Errorf(
+			"recovery inventory is blocked: %s",
+			inventory.decision.Detail(),
+		)
+	default:
+		return recovery.Plan{}, fmt.Errorf("no active recovery journal")
 	}
+	if inventory.active == nil {
+		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
+	}
+	operationDir := inventory.active.operationDir
+	journal := inventory.active.journal
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
@@ -167,11 +214,12 @@ func loadActivePlan(
 		operationDir,
 		planningEntries,
 	)
-	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, options.StateCodec)
-	if err != nil {
-		return recovery.Plan{}, err
-	}
-	authority, err := canonicalRecoveryAuthority(journal, operationDir, claimTransitions, fingerprint)
+	authority, err := canonicalRecoveryAuthority(
+		journal,
+		operationDir,
+		claimTransitions,
+		inventory.active.identity.JournalAuthorityFingerprint(),
+	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
@@ -187,6 +235,23 @@ func loadActivePlan(
 		canonicalRecoveryBackupEvidence(backupObservations),
 		registry,
 	)
+}
+
+func validatePlanLoadOptions(options PlanLoadOptions) error {
+	if options.RootedCapability != nil && options.Resolver == nil {
+		return fmt.Errorf("recovery plan rooted capability requires a destination resolver")
+	}
+	if options.Filesystem == nil {
+		return fmt.Errorf("recovery plan filesystem is required")
+	}
+	return nil
+}
+
+func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
+	return inventoryOptions{
+		Filesystem: options.Filesystem,
+		StateCodec: options.StateCodec,
+	}
 }
 
 func selectedRecoveryEntryIndexes(entries []recoveryEntry, selected []EntrySelection) ([]int, error) {

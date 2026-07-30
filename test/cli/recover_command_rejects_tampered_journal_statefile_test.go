@@ -115,7 +115,7 @@ func TestRunRecoverRejectsMissingAndMultipleActiveJournals(t *testing.T) {
 		}
 	})
 
-	t.Run("multiple", func(t *testing.T) {
+	t.Run("additional malformed operation", func(t *testing.T) {
 		tempDir := t.TempDir()
 		manifestPath := filepath.Join(tempDir, "daem.toml")
 		paths, _, _, _, _ := captureCLIRecoveryUpdateJournal(t, manifestPath)
@@ -133,8 +133,9 @@ func TestRunRecoverRejectsMissingAndMultipleActiveJournals(t *testing.T) {
 		if stdout.Len() != 0 {
 			t.Fatalf("stdout = %q, want empty", stdout.String())
 		}
-		if !strings.Contains(stderr.String(), "multiple active recovery journals found") {
-			t.Fatalf("stderr = %q, want multiple active recovery diagnostic", stderr.String())
+		if !strings.Contains(stderr.String(), "recovery inventory is blocked") ||
+			!strings.Contains(stderr.String(), "has no journal.json") {
+			t.Fatalf("stderr = %q, want malformed recovery diagnostic", stderr.String())
 		}
 	})
 }

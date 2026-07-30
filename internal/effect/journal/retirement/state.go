@@ -74,8 +74,7 @@ func Classify(evidence LayoutEvidence) Decision {
 
 	seenArtifacts := make(map[string]struct{}, len(evidence.residues)+len(evidence.garbage))
 	for _, residue := range evidence.residues {
-		if residue.name.kind != NameResidue || !residue.journalIdentity.valid() ||
-			!residue.name.BelongsTo(residue.journalIdentity) {
+		if !residue.valid() {
 			return blocked("retirement inventory contains an uninitialized residue")
 		}
 		if _, duplicate := seenArtifacts[residue.name.value]; duplicate {
@@ -132,13 +131,16 @@ func Classify(evidence LayoutEvidence) Decision {
 		return Decision{state: StatePrepared}
 	case len(evidence.active) == 0 && len(evidence.controls) == 1:
 		if len(evidence.residues) == 1 &&
-			!evidence.residues[0].journalIdentity.Equal(control.record.identity) {
+			!evidence.residues[0].name.BelongsTo(control.record.identity) {
 			return blocked("journal retirement residue does not match its control")
 		}
 		switch control.record.phase {
 		case PhasePrepared:
 			if len(evidence.residues) != 1 {
 				return blocked("prepared retirement control requires its journal residue")
+			}
+			if !evidence.residues[0].independentlyMatches(control.record.identity) {
+				return blocked("prepared retirement residue does not independently reproduce its control identity")
 			}
 			return cleanupDecision(StateRetained, control, true)
 		case PhaseFinalizing:

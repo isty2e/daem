@@ -88,7 +88,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		Mode:             input.Mode,
 		Timeout:          input.Timeout,
 	}
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return commandInputs{}, result, err
 	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {

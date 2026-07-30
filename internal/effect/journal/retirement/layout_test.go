@@ -351,6 +351,39 @@ func TestValidateResidueRequiresPrivateEntryAndIndependentJournalIdentity(t *tes
 	}
 }
 
+func TestValidatePartialResidueCarriesNoIndependentJournalProof(t *testing.T) {
+	identity := mustIdentity(t, testOperationID, testFingerprint)
+	residue, err := ValidatePartialResidue(mustEntry(
+		t,
+		identity.ResidueName(),
+		EntryDirectory,
+		DirectoryMode,
+		true,
+		0,
+	))
+	if err != nil {
+		t.Fatalf("ValidatePartialResidue returned error: %v", err)
+	}
+	if !residue.valid() || residue.proof != residueProofPhysical ||
+		residue.journalIdentity.valid() {
+		t.Fatalf("partial residue = %#v, want physical evidence only", residue)
+	}
+
+	tests := []EntryEvidence{
+		mustEntry(t, identity.ControlName(), EntryDirectory, DirectoryMode, true, 0),
+		mustEntry(t, identity.ResidueName(), EntrySymlink, DirectoryMode, true, 0),
+		mustEntry(t, identity.ResidueName(), EntryDirectory, 0o755, true, 0),
+		mustEntry(t, identity.ResidueName(), EntryDirectory, DirectoryMode, false, 0),
+	}
+	for index, evidence := range tests {
+		t.Run(fmt.Sprintf("reject_%d", index), func(t *testing.T) {
+			if _, err := ValidatePartialResidue(evidence); err == nil {
+				t.Fatalf("ValidatePartialResidue(%#v) succeeded", evidence)
+			}
+		})
+	}
+}
+
 func TestValidateGarbageRequiresPrivateGCEntry(t *testing.T) {
 	identity := mustIdentity(t, testOperationID, testFingerprint)
 	garbage, err := ValidateGarbage(mustEntry(
@@ -389,6 +422,7 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 	prepared := mustControl(t, mustRecord(t, testOperationID, testFingerprint, PhasePrepared))
 	finalizing := mustControl(t, mustRecord(t, testOperationID, testFingerprint, PhaseFinalizing))
 	residue := mustResidue(t, identity)
+	partialResidue := mustPartialResidue(t, identity)
 	gc := mustGarbage(t, identity.GCName())
 	otherGC := mustGarbage(t, other.GCName())
 
@@ -450,7 +484,7 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 			name: "finalizing partial residue",
 			evidence: layoutInput{
 				Controls: []Control{finalizing},
-				Residues: []Residue{residue},
+				Residues: []Residue{partialResidue},
 			},
 			state:          StateFinalizing,
 			hasCleanup:     true,
@@ -523,6 +557,7 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 		PhasePrepared,
 	))
 	residue := mustResidue(t, identity)
+	partialResidue := mustPartialResidue(t, identity)
 	otherResidue := mustResidue(t, other)
 	gc := mustGarbage(t, identity.GCName())
 
@@ -574,6 +609,13 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 		{
 			name:     "prepared control without residue",
 			evidence: layoutInput{Controls: []Control{prepared}},
+		},
+		{
+			name: "prepared control with partial residue",
+			evidence: layoutInput{
+				Controls: []Control{prepared},
+				Residues: []Residue{partialResidue},
+			},
 		},
 		{
 			name: "prepared control residue mismatch",
@@ -833,6 +875,23 @@ func mustResidue(t *testing.T, identity Identity) Residue {
 	), identity)
 	if err != nil {
 		t.Fatalf("ValidateResidue returned error: %v", err)
+	}
+	return residue
+}
+
+func mustPartialResidue(t *testing.T, identity Identity) Residue {
+	t.Helper()
+
+	residue, err := ValidatePartialResidue(mustEntry(
+		t,
+		identity.ResidueName(),
+		EntryDirectory,
+		DirectoryMode,
+		true,
+		0,
+	))
+	if err != nil {
+		t.Fatalf("ValidatePartialResidue returned error: %v", err)
 	}
 	return residue
 }

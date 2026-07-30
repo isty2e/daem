@@ -138,7 +138,7 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

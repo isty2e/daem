@@ -47,7 +47,7 @@ func TestBuildCommandPlanDefaultsProjectScopeAndDedupesTargets(t *testing.T) {
 	}
 }
 
-func TestBuildCommandPlanRefusesActiveRecoveryBeforeLiveScan(t *testing.T) {
+func TestBuildCommandPlanRefusesMalformedRecoveryBeforeLiveScan(t *testing.T) {
 	root := t.TempDir()
 	outputPath := filepath.Join(root, "daem.toml")
 	if err := os.MkdirAll(filepath.Join(root, ".daem", "recovery", "active-operation"), 0o700); err != nil {
@@ -61,14 +61,14 @@ func TestBuildCommandPlanRefusesActiveRecoveryBeforeLiveScan(t *testing.T) {
 		TargetValues: []string{"codex"},
 		ManifestPath: outputPath,
 	})
-	if err == nil || !strings.Contains(err.Error(), "daem recover --dry-run") {
-		t.Fatalf("BuildCommandPlan error = %v, want active recovery refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "recovery inventory is blocked") {
+		t.Fatalf("BuildCommandPlan error = %v, want malformed recovery refusal", err)
 	}
 	if result.OutputPath() != outputPath {
 		t.Fatalf("OutputPath = %q, want resolved request path %q", result.OutputPath(), outputPath)
 	}
 	if len(result.AdoptionPlan().Scans()) != 0 {
-		t.Fatalf("active recovery plan scanned live paths: %#v", result.AdoptionPlan().Scans())
+		t.Fatalf("blocked recovery plan scanned live paths: %#v", result.AdoptionPlan().Scans())
 	}
 }
 

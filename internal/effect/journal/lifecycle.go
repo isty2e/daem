@@ -5,52 +5,47 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sort"
-	"strings"
 
+	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
-func EnsureNoActive(recoveryRoot string) error {
-	operations, err := activeRecoveryOperations(recoveryRoot)
+// RequireNoInterruptedApply applies the canonical recovery-root readiness
+// policy through the production filesystem and state codecs.
+func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
+	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
+		Filesystem: storagecommit.Adapter{},
+		StateCodec: statefile.Codec{},
+	})
+}
+
+// ensureNoActive permits mutation only when the canonical recovery inventory
+// is clean or contains inert finalized GC residue.
+func ensureNoActive(
+	ctx context.Context,
+	recoveryRoot string,
+	options inventoryOptions,
+) error {
+	inventory, err := loadRecoveryRootInventory(ctx, recoveryRoot, options)
 	if err != nil {
 		return err
 	}
-	if len(operations) == 0 {
+	switch inventory.decision.State() {
+	case retirement.StateClean, retirement.StateFinalized:
 		return nil
+	case retirement.StateActive,
+		retirement.StatePrepared,
+		retirement.StateRetained,
+		retirement.StateFinalizing:
+		return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
+	case retirement.StateBlocked:
+		return fmt.Errorf("recovery inventory is blocked: %s", inventory.decision.Detail())
+	default:
+		return fmt.Errorf("recovery inventory classification is invalid")
 	}
-	if len(operations) > 1 {
-		return fmt.Errorf("multiple interrupted apply operations found; run: daem recover --dry-run")
-	}
-
-	return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
-}
-
-func activeRecoveryOperations(recoveryRoot string) ([]string, error) {
-	entries, err := os.ReadDir(recoveryRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("read recovery directory: %w", err)
-	}
-
-	operations := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if !isSafeRecoveryOperationID(entry.Name()) {
-			return nil, fmt.Errorf("recovery operation id %q must be a safe path component", entry.Name())
-		}
-		operations = append(operations, entry.Name())
-	}
-	sort.Strings(operations)
-
-	return operations, nil
 }
 
 func isSafeRecoveryOperationID(value string) bool {

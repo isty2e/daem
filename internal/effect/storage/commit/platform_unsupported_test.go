@@ -40,6 +40,10 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			_, readErr := ReadRegularFileSnapshotUpTo(context.Background(), path, 64)
 			return readErr
 		}},
+		{name: "snapshot directory", run: func() error {
+			_, readErr := SnapshotDirectory(context.Background(), path)
+			return readErr
+		}},
 		{name: "file create", run: func() error {
 			return CommitFile(context.Background(), request)
 		}},

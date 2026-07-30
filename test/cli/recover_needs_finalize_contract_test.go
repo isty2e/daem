@@ -166,7 +166,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 			ManagedPathMutations: []journal.ManagedPathMutation{managedMutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{managedEvidence},
 			Resolver:             resolver.Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

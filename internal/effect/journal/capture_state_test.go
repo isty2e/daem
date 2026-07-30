@@ -13,6 +13,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -145,18 +146,25 @@ func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             func(output.Destination) (string, error) { return hostPath, nil },
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	)
 	if err == nil || !strings.Contains(err.Error(), "missing state observation") {
 		t.Fatalf("CaptureJournal error = %v, want missing previous identity", err)
 	}
-	operations, listErr := activeRecoveryOperations(paths.RecoveryDir)
-	if listErr != nil {
-		t.Fatalf("activeRecoveryOperations returned error: %v", listErr)
+	inventory, inventoryErr := loadRecoveryRootInventory(
+		t.Context(),
+		paths.RecoveryDir,
+		inventoryOptions{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		},
+	)
+	if inventoryErr != nil {
+		t.Fatalf("loadRecoveryRootInventory returned error: %v", inventoryErr)
 	}
-	if len(operations) != 0 {
-		t.Fatalf("active recovery operations = %#v, want none", operations)
+	if inventory.decision.State() != retirement.StateClean {
+		t.Fatalf("recovery inventory state = %q, want clean", inventory.decision.State())
 	}
 	got, readErr := os.ReadFile(hostPath)
 	if readErr != nil {
@@ -220,7 +228,7 @@ func TestCaptureJournalRecordsCurrentPhysicalFileMode(t *testing.T) {
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             func(output.Destination) (string, error) { return hostPath, nil },
-			StateEncoder:         stateEncoder,
+			StateCodec:           stateEncoder,
 		},
 	)
 	if err != nil {
@@ -269,7 +277,7 @@ func TestCaptureJournalWithOptionsRejectsMissingResolverBeforeFilesystemWork(t *
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
 		durable.EmptySnapshot(),
-		CaptureOptions{StateEncoder: testStateCodec()},
+		CaptureOptions{StateCodec: testStateCodec()},
 	)
 	if err == nil || !strings.Contains(err.Error(), "destination resolver is required") {
 		t.Fatalf("error = %v, want missing resolver", err)
@@ -310,8 +318,8 @@ func TestCaptureJournalWithOptionsRejectsMissingFilesystemBeforeFilesystemWork(t
 		durable.EmptySnapshot(),
 		durable.EmptySnapshot(),
 		CaptureOptions{
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: testStateCodec(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
 		},
 	)
 	if err == nil || !strings.Contains(err.Error(), "filesystem is required") {
@@ -333,9 +341,9 @@ func TestCaptureJournalWithOptionsRejectsStateEncodingFailureBeforeFilesystemWor
 		durable.EmptySnapshot(),
 		durable.EmptySnapshot(),
 		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: failingStateCodec{encodeErr: codecErr},
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: failingStateCodec{encodeErr: codecErr},
 		},
 	)
 	if !errors.Is(err, codecErr) {
@@ -356,9 +364,9 @@ func TestCaptureJournalWithOptionsRejectsInvalidStateEncodingBeforeFilesystemWor
 		durable.EmptySnapshot(),
 		durable.EmptySnapshot(),
 		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: invalidStateEncoder{},
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: invalidStateEncoder{},
 		},
 	)
 	if err == nil || !strings.Contains(err.Error(), "statefile_before is not valid JSON") {
@@ -381,9 +389,9 @@ func TestCaptureJournalWithOptionsRejectsAfterStateEncodingFailureBeforeFilesyst
 		durable.EmptySnapshot(),
 		durable.EmptySnapshot(),
 		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: encoder,
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: encoder,
 		},
 	)
 	if !errors.Is(err, codecErr) || !strings.Contains(err.Error(), "statefile_after") {

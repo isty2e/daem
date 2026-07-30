@@ -35,7 +35,7 @@ func TestRunContinuesEnvironmentChecksWhenExplicitManifestIsMissing(t *testing.T
 	}
 }
 
-func TestRunRefusesActiveRecoveryBeforeDiagnosticChecks(t *testing.T) {
+func TestRunRefusesMalformedRecoveryBeforeDiagnosticChecks(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "daem.toml")
 	if err := os.MkdirAll(filepath.Join(root, ".daem", "recovery", "active-operation"), 0o700); err != nil {
@@ -49,11 +49,11 @@ func TestRunRefusesActiveRecoveryBeforeDiagnosticChecks(t *testing.T) {
 		TargetExplicit:   true,
 		TargetValues:     []string{"codex"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "daem recover --dry-run") {
-		t.Fatalf("Run error = %v, want active recovery refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "recovery inventory is blocked") {
+		t.Fatalf("Run error = %v, want malformed recovery refusal", err)
 	}
 	if len(result.Checks) != 0 {
-		t.Fatalf("active recovery ran diagnostic checks: %#v", result.Checks)
+		t.Fatalf("blocked recovery ran diagnostic checks: %#v", result.Checks)
 	}
 	assertManifestStageCounts(t, counts, manifestStageCounts{})
 }

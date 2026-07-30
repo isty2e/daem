@@ -17,6 +17,7 @@ const (
 	entryKindRegular
 	entryKindDirectory
 	entryKindSymlink
+	entryKindSpecial
 )
 
 const (
@@ -57,6 +58,8 @@ func (identity EntryIdentity) Kind() mutationfs.EntryKind {
 		return mutationfs.EntryKindDirectory
 	case entryKindSymlink:
 		return mutationfs.EntryKindSymlink
+	case entryKindSpecial:
+		return mutationfs.EntryKindSpecial
 	default:
 		return mutationfs.EntryKindInvalid
 	}

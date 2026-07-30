@@ -38,7 +38,7 @@ func (anchor *anchoredParent) observe(name string, path string) (EntryIdentity, 
 		return EntryIdentity{}, unix.Stat_t{}, err
 	}
 	identity := identityFromStat(path, &stat)
-	if !identity.valid() {
+	if !identity.valid() || identity.kind == entryKindSpecial {
 		return EntryIdentity{}, unix.Stat_t{}, unsupported(fmt.Sprintf("unsupported entry kind at %q", path), nil)
 	}
 	return identity, stat, nil
@@ -130,7 +130,7 @@ func kindFromStat(stat *unix.Stat_t) entryKind {
 	case unix.S_IFLNK:
 		return entryKindSymlink
 	default:
-		return entryKindInvalid
+		return entryKindSpecial
 	}
 }
 
@@ -145,6 +145,10 @@ func readDirectoryNames(fd int, path string) ([]string, error) {
 	duplicate, err := unix.Dup(fd)
 	if err != nil {
 		return nil, err
+	}
+	if _, err := unix.Seek(duplicate, 0, 0); err != nil {
+		_ = unix.Close(duplicate)
+		return nil, fmt.Errorf("rewind directory descriptor for %q: %w", path, err)
 	}
 	directory := os.NewFile(uintptr(duplicate), path)
 	if directory == nil {
@@ -199,6 +203,17 @@ func unsupportedOperationError(detail string, err error) error {
 }
 
 func observeAt(parentFD int, name string, path string) (EntryIdentity, unix.Stat_t, error) {
+	identity, stat, err := observeAnyAt(parentFD, name, path)
+	if err != nil {
+		return EntryIdentity{}, unix.Stat_t{}, err
+	}
+	if identity.kind == entryKindSpecial {
+		return EntryIdentity{}, unix.Stat_t{}, unsupported(fmt.Sprintf("unsupported entry kind at %q", path), nil)
+	}
+	return identity, stat, nil
+}
+
+func observeAnyAt(parentFD int, name string, path string) (EntryIdentity, unix.Stat_t, error) {
 	var stat unix.Stat_t
 	if err := unix.Fstatat(parentFD, name, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return EntryIdentity{}, unix.Stat_t{}, err

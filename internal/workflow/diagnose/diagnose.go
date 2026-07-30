@@ -61,7 +61,7 @@ func Run(ctx context.Context, input Input, admission platformsupport.Admission) 
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
 		return result, err
 	}
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return result, err
 	}
 

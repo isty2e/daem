@@ -116,6 +116,17 @@ func ReadRegularFileSnapshotUpTo(
 	return mutationfs.RegularFileSnapshot{}, newUnsupportedPlatformFailure(path)
 }
 
+// SnapshotDirectory returns unsupported_guarantee without reading.
+func SnapshotDirectory(
+	_ context.Context,
+	path string,
+) (mutationfs.DirectorySnapshot, error) {
+	if err := validateCommitPath(path); err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return mutationfs.DirectorySnapshot{}, newUnsupportedPlatformFailure(path)
+}
+
 // ReadRootedRegularFile returns unsupported_guarantee without reading.
 func ReadRootedRegularFile(
 	_ context.Context,

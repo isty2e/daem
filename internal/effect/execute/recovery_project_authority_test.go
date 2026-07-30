@@ -521,7 +521,7 @@ func newProjectPathRecoveryFixture(
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,
 			Resolver:             destinationResolver(paths),
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	); err != nil {
 		t.Fatalf("CaptureJournalWithOptions returned error: %v", err)

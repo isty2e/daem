@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/output"
 )
 
 func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
@@ -32,29 +36,51 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	if _, statErr := os.Stat(operationDir); statErr != nil {
 		t.Fatalf("corrupt recovery evidence was not retained: %v", statErr)
 	}
-	if err := EnsureNoActive(recoveryRoot); err == nil {
+	if err := ensureNoActive(t.Context(), recoveryRoot, inventoryOptions{
+		Filesystem: journalTestFilesystem(),
+		StateCodec: testStateCodec(),
+	}); err == nil {
 		t.Fatal("EnsureNoActive ignored corrupt active evidence")
 	}
 }
 
-func TestActiveRecoveryOperationsIgnorePrivateResidue(t *testing.T) {
+func TestRecoveryInventoryIgnoresUnrelatedHiddenEntries(t *testing.T) {
 	recoveryRoot := t.TempDir()
-	for _, name := range []string{".daem-tombstone-residue", ".private-build-residue"} {
+	for _, name := range []string{".private-build-residue", ".foreign-private-file"} {
 		if err := os.Mkdir(filepath.Join(recoveryRoot, name), 0o700); err != nil {
 			t.Fatalf("Mkdir(%q) returned error: %v", name, err)
 		}
 	}
 	operationID := "20260711T120000.000000000Z-apply"
-	if err := os.Mkdir(filepath.Join(recoveryRoot, operationID), 0o700); err != nil {
-		t.Fatalf("Mkdir active operation returned error: %v", err)
+	if _, err := CaptureJournalWithOptions(
+		t.Context(),
+		Paths{RecoveryDir: recoveryRoot},
+		operationID,
+		time.Date(2026, time.July, 11, 12, 0, 0, 0, time.UTC),
+		beforeStatefile(),
+		afterStatefile(),
+		CaptureOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver: func(output.Destination) (string, error) {
+				return "", nil
+			},
+			StateCodec: testStateCodec(),
+		},
+	); err != nil {
+		t.Fatalf("CaptureJournalWithOptions: %v", err)
 	}
 
-	operations, err := activeRecoveryOperations(recoveryRoot)
+	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+		Filesystem: journalTestFilesystem(),
+		StateCodec: testStateCodec(),
+	})
 	if err != nil {
-		t.Fatalf("activeRecoveryOperations returned error: %v", err)
+		t.Fatalf("loadRecoveryRootInventory returned error: %v", err)
 	}
-	if len(operations) != 1 || operations[0] != operationID {
-		t.Fatalf("operations = %v, want only %q", operations, operationID)
+	if inventory.decision.State() != retirement.StateActive ||
+		inventory.active == nil ||
+		inventory.active.identity.OperationID() != operationID {
+		t.Fatalf("inventory = %#v, want active %q", inventory, operationID)
 	}
 }
 
@@ -75,15 +101,22 @@ func TestSafeRecoveryOperationIDRejectsRetirementNamespaces(t *testing.T) {
 	}
 }
 
-func TestActiveRecoveryOperationsFailsClosedOnRetirementControl(t *testing.T) {
+func TestRecoveryInventoryFailsClosedOnMalformedRetirementControl(t *testing.T) {
 	recoveryRoot := t.TempDir()
 	controlName := "retirement-v1-" + strings.Repeat("a", 64)
 	if err := os.Mkdir(filepath.Join(recoveryRoot, controlName), 0o700); err != nil {
 		t.Fatalf("Mkdir retirement control returned error: %v", err)
 	}
 
-	operations, err := activeRecoveryOperations(recoveryRoot)
-	if err == nil || !strings.Contains(err.Error(), controlName) {
-		t.Fatalf("activeRecoveryOperations = %v, %v, want fail-closed control diagnostic", operations, err)
+	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+		Filesystem: journalTestFilesystem(),
+		StateCodec: testStateCodec(),
+	})
+	if err != nil {
+		t.Fatalf("loadRecoveryRootInventory returned error: %v", err)
+	}
+	if !inventory.decision.Blocked() ||
+		!strings.Contains(inventory.decision.Detail(), controlName) {
+		t.Fatalf("inventory = %#v, want fail-closed control diagnostic", inventory)
 	}
 }

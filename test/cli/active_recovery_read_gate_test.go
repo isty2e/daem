@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/test/testkit"
 )
 
-func TestImportModesRefuseActiveRecoveryBeforeLiveScan(t *testing.T) {
+func TestImportModesRefuseMalformedRecoveryBeforeLiveScan(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		args []string
@@ -35,7 +35,7 @@ func TestImportModesRefuseActiveRecoveryBeforeLiveScan(t *testing.T) {
 			if exitCode != 1 {
 				t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want 1", exitCode, stdout.String(), stderr.String())
 			}
-			assertActiveRecoveryRefusal(t, stdout.String(), stderr.String())
+			assertMalformedRecoveryRefusal(t, stdout.String(), stderr.String())
 			if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
 				t.Fatalf("manifest exists or stat failed unexpectedly: %v", err)
 			}
@@ -46,7 +46,7 @@ func TestImportModesRefuseActiveRecoveryBeforeLiveScan(t *testing.T) {
 	}
 }
 
-func TestDoctorPresentationsRefuseActiveRecoveryBeforeHostChecks(t *testing.T) {
+func TestDoctorPresentationsRefuseMalformedRecoveryBeforeHostChecks(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		args []string
@@ -68,7 +68,7 @@ func TestDoctorPresentationsRefuseActiveRecoveryBeforeHostChecks(t *testing.T) {
 			if exitCode != 1 {
 				t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want 1", exitCode, stdout.String(), stderr.String())
 			}
-			assertActiveRecoveryRefusal(t, stdout.String(), stderr.String())
+			assertMalformedRecoveryRefusal(t, stdout.String(), stderr.String())
 		})
 	}
 }
@@ -113,12 +113,12 @@ func createActiveRecoveryMarker(t *testing.T, root string) {
 	}
 }
 
-func assertActiveRecoveryRefusal(t *testing.T, stdout string, stderr string) {
+func assertMalformedRecoveryRefusal(t *testing.T, stdout string, stderr string) {
 	t.Helper()
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	for _, want := range []string{"interrupted apply operation found", "daem recover --dry-run"} {
+	for _, want := range []string{"recovery inventory is blocked", "has no journal.json"} {
 		if !strings.Contains(stderr, want) {
 			t.Fatalf("stderr = %q, want %q", stderr, want)
 		}

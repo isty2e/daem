@@ -841,7 +841,7 @@ func newGlobalFileRecoveryFixture(
 			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             resolver.Resolve,
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	); err != nil {
 		t.Fatalf("capture recovery journal: %v", err)

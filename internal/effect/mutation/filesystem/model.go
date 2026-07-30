@@ -17,6 +17,7 @@ const (
 	EntryKindFile      EntryKind = "file"
 	EntryKindDirectory EntryKind = "directory"
 	EntryKindSymlink   EntryKind = "symlink"
+	EntryKindSpecial   EntryKind = "special"
 )
 
 // EntryIdentity is operation-local evidence returned by a filesystem
@@ -29,16 +30,207 @@ type EntryIdentity interface {
 // RegularFileSnapshot is immutable content and mode from one identity-stable,
 // no-follow regular-file read.
 type RegularFileSnapshot struct {
-	content []byte
-	mode    fs.FileMode
+	content  []byte
+	mode     fs.FileMode
+	identity EntryIdentity
 }
 
-// NewRegularFileSnapshot constructs an immutable file snapshot.
-func NewRegularFileSnapshot(content []byte, mode fs.FileMode) RegularFileSnapshot {
-	return RegularFileSnapshot{
-		content: slices.Clone(content),
-		mode:    mode.Perm(),
+// DirectoryEntrySnapshot is one immutable no-follow observation immediately
+// below a directory. Identity is ephemeral evidence, not mutation authority.
+type DirectoryEntrySnapshot struct {
+	name     string
+	identity EntryIdentity
+	mode     fs.FileMode
+	owned    bool
+	size     int64
+}
+
+// NewDirectoryEntrySnapshot constructs one normalized directory-entry
+// observation from boundary-established facts.
+func NewDirectoryEntrySnapshot(
+	name string,
+	identity EntryIdentity,
+	mode fs.FileMode,
+	owned bool,
+	size int64,
+) (DirectoryEntrySnapshot, error) {
+	if name == "" || name == "." || name == ".." ||
+		strings.ContainsRune(name, '/') || strings.ContainsRune(name, '\x00') {
+		return DirectoryEntrySnapshot{}, fmt.Errorf("directory entry name %q is not canonical", name)
 	}
+	if identity == nil || identity.Kind() == EntryKindInvalid {
+		return DirectoryEntrySnapshot{}, fmt.Errorf("directory entry %q identity is required", name)
+	}
+	if mode&^fs.ModePerm != 0 {
+		return DirectoryEntrySnapshot{}, fmt.Errorf("directory entry %q mode must contain permission bits only", name)
+	}
+	if size < 0 {
+		return DirectoryEntrySnapshot{}, fmt.Errorf("directory entry %q size must not be negative", name)
+	}
+	return DirectoryEntrySnapshot{
+		name:     name,
+		identity: identity,
+		mode:     mode.Perm(),
+		owned:    owned,
+		size:     size,
+	}, nil
+}
+
+// Name returns the single observed entry component.
+func (snapshot DirectoryEntrySnapshot) Name() string {
+	return snapshot.name
+}
+
+// Identity returns ephemeral no-follow identity evidence.
+func (snapshot DirectoryEntrySnapshot) Identity() EntryIdentity {
+	return snapshot.identity
+}
+
+// Kind returns the no-follow structural form.
+func (snapshot DirectoryEntrySnapshot) Kind() EntryKind {
+	if snapshot.identity == nil {
+		return EntryKindInvalid
+	}
+	return snapshot.identity.Kind()
+}
+
+// Mode returns observed permission bits.
+func (snapshot DirectoryEntrySnapshot) Mode() fs.FileMode {
+	return snapshot.mode
+}
+
+// OwnedByInvoker reports whether the entry owner matched the invoking user.
+func (snapshot DirectoryEntrySnapshot) OwnedByInvoker() bool {
+	return snapshot.owned
+}
+
+// Size returns the no-follow stat size.
+func (snapshot DirectoryEntrySnapshot) Size() int64 {
+	return snapshot.size
+}
+
+// DirectorySnapshot is one stable immediate-child inventory. It deliberately
+// carries no traversal or artifact semantics.
+type DirectorySnapshot struct {
+	rootIdentity EntryIdentity
+	rootMode     fs.FileMode
+	rootOwned    bool
+	entries      []DirectoryEntrySnapshot
+	initialized  bool
+}
+
+// NewDirectorySnapshot constructs a canonical lexical directory inventory.
+func NewDirectorySnapshot(
+	rootIdentity EntryIdentity,
+	rootMode fs.FileMode,
+	rootOwned bool,
+	entries []DirectoryEntrySnapshot,
+) (DirectorySnapshot, error) {
+	if rootIdentity == nil || rootIdentity.Kind() != EntryKindDirectory {
+		return DirectorySnapshot{}, fmt.Errorf("directory snapshot root identity must describe a directory")
+	}
+	if rootMode&^fs.ModePerm != 0 {
+		return DirectorySnapshot{}, fmt.Errorf("directory snapshot root mode must contain permission bits only")
+	}
+	cloned := append([]DirectoryEntrySnapshot(nil), entries...)
+	slices.SortFunc(cloned, func(left DirectoryEntrySnapshot, right DirectoryEntrySnapshot) int {
+		return strings.Compare(left.name, right.name)
+	})
+	for index, entry := range cloned {
+		normalized, err := NewDirectoryEntrySnapshot(
+			entry.name,
+			entry.identity,
+			entry.mode,
+			entry.owned,
+			entry.size,
+		)
+		if err != nil {
+			return DirectorySnapshot{}, fmt.Errorf("directory snapshot entries[%d]: %w", index, err)
+		}
+		cloned[index] = normalized
+		if index > 0 && cloned[index-1].name == normalized.name {
+			return DirectorySnapshot{}, fmt.Errorf("directory snapshot contains duplicate entry %q", normalized.name)
+		}
+	}
+	return DirectorySnapshot{
+		rootIdentity: rootIdentity,
+		rootMode:     rootMode.Perm(),
+		rootOwned:    rootOwned,
+		entries:      cloned,
+		initialized:  true,
+	}, nil
+}
+
+// RootIdentity returns the observed directory identity.
+func (snapshot DirectorySnapshot) RootIdentity() EntryIdentity {
+	if !snapshot.initialized {
+		return nil
+	}
+	return snapshot.rootIdentity
+}
+
+// RootMode returns the observed directory permission bits.
+func (snapshot DirectorySnapshot) RootMode() fs.FileMode {
+	if !snapshot.initialized {
+		return 0
+	}
+	return snapshot.rootMode
+}
+
+// RootOwnedByInvoker reports whether the root owner matched the invoking user.
+func (snapshot DirectorySnapshot) RootOwnedByInvoker() bool {
+	return snapshot.initialized && snapshot.rootOwned
+}
+
+// Entries returns an owned copy in lexical name order.
+func (snapshot DirectorySnapshot) Entries() []DirectoryEntrySnapshot {
+	if !snapshot.initialized {
+		return nil
+	}
+	return append([]DirectoryEntrySnapshot(nil), snapshot.entries...)
+}
+
+// Equal reports whether two snapshots contain the same complete observation.
+func (snapshot DirectorySnapshot) Equal(other DirectorySnapshot) bool {
+	if !snapshot.initialized || !other.initialized ||
+		snapshot.rootIdentity == nil || other.rootIdentity == nil ||
+		!snapshot.rootIdentity.Equal(other.rootIdentity) ||
+		snapshot.rootMode != other.rootMode ||
+		snapshot.rootOwned != other.rootOwned ||
+		len(snapshot.entries) != len(other.entries) {
+		return false
+	}
+	for index, entry := range snapshot.entries {
+		candidate := other.entries[index]
+		if entry.name != candidate.name ||
+			entry.identity == nil || candidate.identity == nil ||
+			!entry.identity.Equal(candidate.identity) ||
+			entry.mode != candidate.mode ||
+			entry.owned != candidate.owned ||
+			entry.size != candidate.size {
+			return false
+		}
+	}
+	return true
+}
+
+// NewRegularFileSnapshot constructs an immutable identity-bound file snapshot.
+func NewRegularFileSnapshot(
+	content []byte,
+	mode fs.FileMode,
+	identity EntryIdentity,
+) (RegularFileSnapshot, error) {
+	if identity == nil || identity.Kind() != EntryKindFile {
+		return RegularFileSnapshot{}, fmt.Errorf("regular file snapshot requires a file identity")
+	}
+	if mode&^fs.ModePerm != 0 {
+		return RegularFileSnapshot{}, fmt.Errorf("regular file snapshot mode must contain permission bits only")
+	}
+	return RegularFileSnapshot{
+		content:  slices.Clone(content),
+		mode:     mode.Perm(),
+		identity: identity,
+	}, nil
 }
 
 // Content returns an owned copy of the observed file bytes.
@@ -49,6 +241,12 @@ func (snapshot RegularFileSnapshot) Content() []byte {
 // Mode returns the observed permission bits.
 func (snapshot RegularFileSnapshot) Mode() fs.FileMode {
 	return snapshot.mode
+}
+
+// Identity returns the no-follow entry identity observed by the same stable
+// read as Content and Mode.
+func (snapshot RegularFileSnapshot) Identity() EntryIdentity {
+	return snapshot.identity
 }
 
 // TreeRelativePath is one canonical component sequence below a private tree

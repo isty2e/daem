@@ -56,7 +56,7 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return CommandPlan{request: request}, err
 	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {

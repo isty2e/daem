@@ -71,11 +71,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "phase packages would expose private transaction state and weaken the single ordered effect boundary",
 	},
 	"internal/effect/journal": {
-		reviewedValue:       18,
+		reviewedValue:       19,
 		owner:               "journal-v7 persistence transaction",
-		reason:              "at 18 production files, capture, backup identity, and active lifecycle evolve atomically under one private wire schema",
-		naturalSplit:        "separate capture and lifecycle persistence packages",
-		alternativeRejected: "the split would duplicate schema and transaction authority; wire-neutral recovery algebra is already isolated",
+		reason:              "at 19 production files, capture, backup identity, closed recovery-root inventory, retirement selection, and active lifecycle evolve atomically under one private wire schema and physical authority boundary",
+		naturalSplit:        "move recovery-root inventory into an observation child package",
+		alternativeRejected: "the child would need parent-owned journal decoding while the parent consumed its classification, forcing a cycle or exporting private wire and authority facts; wire-neutral recovery and retirement algebras are already isolated",
 	},
 	"internal/realization/lock": {
 		reviewedValue:       23,
@@ -92,11 +92,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "child packages would export or duplicate private JSON subject and schema helpers while leaving cross-command transport consistency as an implicit facade concern",
 	},
 	"internal/effect/storage/commit": {
-		reviewedValue:       21,
+		reviewedValue:       22,
 		owner:               "guarded filesystem commit adapter",
-		reason:              "at 21 production files, commit phases, entry identity, visibility, residue, and rollback share one platform-selected transaction",
-		naturalSplit:        "separate commit phases into child packages",
-		alternativeRejected: "phase packages would export transaction internals and make rollback ordering cross-package state",
+		reason:              "at 22 production files, commit phases, no-follow entry and directory snapshots, identity revalidation, visibility, residue, and rollback share one platform-selected transaction",
+		naturalSplit:        "move stable read observations into a child adapter package",
+		alternativeRejected: "the child would duplicate platform identity and descriptor-anchor logic or export transaction internals shared with guarded mutation and rollback",
 	},
 	"internal/realization/aggregate/codec/mcp": {
 		reviewedValue:       18,
