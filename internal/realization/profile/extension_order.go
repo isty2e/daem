@@ -21,6 +21,24 @@ const (
 	piOrderCodecV1                = "pi-package-list-v1"
 )
 
+// SequenceMembershipContract defines whether each physical sequence must
+// contain every logical class member or may load an independent subset.
+type SequenceMembershipContract string
+
+const (
+	CompleteClassMembership SequenceMembershipContract = "complete_class_membership"
+	LoadedClassSubset       SequenceMembershipContract = "loaded_class_subset"
+)
+
+func (contract SequenceMembershipContract) validate() error {
+	switch contract {
+	case CompleteClassMembership, LoadedClassSubset:
+		return nil
+	default:
+		return fmt.Errorf("unsupported extension order sequence membership contract %q", contract)
+	}
+}
+
 // ExtensionOrderCapabilityInput carries the complete static contract for one
 // carrier/scope-relative order class.
 type ExtensionOrderCapabilityInput struct {
@@ -28,6 +46,7 @@ type ExtensionOrderCapabilityInput struct {
 	Scope                  target.Scope
 	ClassID                hostrelation.OrderClassID
 	MemberIdentityContract string
+	SequenceMembership     SequenceMembershipContract
 	PhysicalSequenceIDs    []hostrelation.PhysicalSequenceID
 	ObserverContract       string
 	MutatorContract        string
@@ -42,6 +61,7 @@ type ExtensionOrderCapability struct {
 	scope                  target.Scope
 	classID                hostrelation.OrderClassID
 	memberIdentityContract string
+	sequenceMembership     SequenceMembershipContract
 	physicalSequenceIDs    []hostrelation.PhysicalSequenceID
 	observerContract       string
 	mutatorContract        string
@@ -63,6 +83,9 @@ func NewExtensionOrderCapability(
 		return ExtensionOrderCapability{}, err
 	}
 	if err := input.RuntimeMeaning.Validate(); err != nil {
+		return ExtensionOrderCapability{}, err
+	}
+	if err := input.SequenceMembership.validate(); err != nil {
 		return ExtensionOrderCapability{}, err
 	}
 	for _, field := range []struct {
@@ -108,6 +131,7 @@ func NewExtensionOrderCapability(
 		scope:                  input.Scope,
 		classID:                input.ClassID,
 		memberIdentityContract: input.MemberIdentityContract,
+		sequenceMembership:     input.SequenceMembership,
 		physicalSequenceIDs:    sequenceIDs,
 		observerContract:       input.ObserverContract,
 		mutatorContract:        input.MutatorContract,
@@ -123,6 +147,7 @@ func (capability ExtensionOrderCapability) Validate() error {
 		Scope:                  capability.scope,
 		ClassID:                capability.classID,
 		MemberIdentityContract: capability.memberIdentityContract,
+		SequenceMembership:     capability.sequenceMembership,
 		PhysicalSequenceIDs:    capability.physicalSequenceIDs,
 		ObserverContract:       capability.observerContract,
 		MutatorContract:        capability.mutatorContract,
@@ -136,6 +161,7 @@ func (capability ExtensionOrderCapability) Validate() error {
 		capability.scope != canonical.scope ||
 		capability.classID != canonical.classID ||
 		capability.memberIdentityContract != canonical.memberIdentityContract ||
+		capability.sequenceMembership != canonical.sequenceMembership ||
 		!slices.Equal(capability.physicalSequenceIDs, canonical.physicalSequenceIDs) ||
 		capability.observerContract != canonical.observerContract ||
 		capability.mutatorContract != canonical.mutatorContract ||
@@ -160,6 +186,10 @@ func (capability ExtensionOrderCapability) MemberIdentityContract() string {
 	return capability.memberIdentityContract
 }
 
+func (capability ExtensionOrderCapability) SequenceMembership() SequenceMembershipContract {
+	return capability.sequenceMembership
+}
+
 func (capability ExtensionOrderCapability) PhysicalSequenceIDs() []hostrelation.PhysicalSequenceID {
 	return append([]hostrelation.PhysicalSequenceID(nil), capability.physicalSequenceIDs...)
 }
@@ -181,6 +211,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			Scope:                  target.ScopeProject,
 			ClassID:                mustOrderClassID("extension:opencode:project:plugins"),
 			MemberIdentityContract: openCodeOrderMemberIdentityV1,
+			SequenceMembership:     LoadedClassSubset,
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("opencode:project:server.plugins"),
 				mustPhysicalSequenceID("opencode:project:tui.plugins"),
@@ -198,6 +229,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			Scope:                  target.ScopeGlobal,
 			ClassID:                mustOrderClassID("extension:opencode:global:plugins"),
 			MemberIdentityContract: openCodeOrderMemberIdentityV1,
+			SequenceMembership:     LoadedClassSubset,
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("opencode:global:server.plugins"),
 				mustPhysicalSequenceID("opencode:global:tui.plugins"),
@@ -215,6 +247,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			Scope:                  target.ScopeProject,
 			ClassID:                mustOrderClassID("extension:pi:project:packages"),
 			MemberIdentityContract: piOrderMemberIdentityV1,
+			SequenceMembership:     CompleteClassMembership,
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("pi:project:settings.packages"),
 			},
@@ -231,6 +264,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			Scope:                  target.ScopeGlobal,
 			ClassID:                mustOrderClassID("extension:pi:global:packages"),
 			MemberIdentityContract: piOrderMemberIdentityV1,
+			SequenceMembership:     CompleteClassMembership,
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("pi:global:settings.packages"),
 			},

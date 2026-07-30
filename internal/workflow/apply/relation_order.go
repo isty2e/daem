@@ -16,6 +16,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
 var (
@@ -149,22 +150,18 @@ func runRelationOrderConvergence(
 			}
 			continue
 		}
-		classDecisions := make([]reconcile.RelationOrderDecision, 0, len(observation.Physical()))
-		for _, physical := range observation.Physical() {
-			decision, err := reconcile.NewRelationOrderDecision(
-				reconcile.RelationOrderDecisionInput{
-					Target:     selectedTarget,
-					Scope:      capability.Scope(),
-					Constraint: constraint,
-					Sequence:   physical.Sequence(),
-				},
-			)
-			if err != nil {
-				return relationOrderRunResult{}, err
-			}
-			classDecisions = append(classDecisions, decision)
-			freshDecisions = append(freshDecisions, decision)
+		classDecisions, err := readiness.DecideExtensionOrderObservation(
+			selectedTarget,
+			capability,
+			constraint,
+			observation,
+			nil,
+			nil,
+		)
+		if err != nil {
+			return relationOrderRunResult{}, err
 		}
+		freshDecisions = append(freshDecisions, classDecisions...)
 		observed = append(observed, observedOrderClass{
 			observation: observation,
 			decisions:   classDecisions,

@@ -115,6 +115,38 @@ func TestObserveExtensionOrdersPlansOpenCodeDocumentsIndependently(t *testing.T)
 	}
 }
 
+func TestObserveExtensionOrdersProjectsOpenCodeOrderOntoTUIOnlyMembership(t *testing.T) {
+	root := t.TempDir()
+	writeReadinessFile(
+		t,
+		filepath.Join(root, ".opencode", "tui.json"),
+		[]byte(`{"plugin":["beta@2","foreign@1","alpha@1"]}`),
+	)
+	locked := readinessOpenCodeOrderLock(t, root)
+	selected, err := reconcile.NewSelectedTargets([]target.Target{target.TargetOpenCode})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decisions, err := observeExtensionOrders(
+		daempaths.Paths{ManifestRoot: root},
+		locked,
+		selected,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("observeExtensionOrders: %v", err)
+	}
+	if len(decisions) != 1 ||
+		decisions[0].SequenceID() != "opencode:project:tui.plugins" ||
+		decisions[0].Kind() != reconcile.OrderNormalize ||
+		decisions[0].Reason() != reconcile.OrderReasonNone ||
+		len(decisions[0].DesiredMembers()) != 2 {
+		t.Fatalf("decisions = %#v, want one TUI normalization", decisions)
+	}
+}
+
 func TestObserveExtensionOrdersSkipsUnselectedOrderClass(t *testing.T) {
 	root := t.TempDir()
 	locked := readinessPiOrderLock(t, root)

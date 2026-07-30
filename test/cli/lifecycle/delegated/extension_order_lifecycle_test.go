@@ -160,6 +160,58 @@ func TestOpenCodeExtensionImportLockApplyAndRetryConvergesBothConfigOrders(t *te
 	}
 }
 
+func TestOpenCodeTUIOnlyExtensionOrderDoesNotCreateServerConfig(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	serverPath := filepath.Join(tempDir, ".opencode", "opencode.json")
+	tuiPath := filepath.Join(tempDir, ".opencode", "tui.json")
+	alpha := "@acme/alpha@1.0.0"
+	beta := "@acme/beta@1.0.0"
+	foreign := "@acme/foreign@1.0.0"
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/tui.json",
+		`{"plugin":["`+alpha+`","`+beta+`"],"retained":true}`,
+	)
+	runExtensionOrderCLI(
+		t,
+		[]string{
+			"import", "--target", "opencode", "--scope", "project",
+			"--manifest", manifestPath,
+		},
+	)
+	runExtensionOrderLock(t, manifestPath)
+
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/tui.json",
+		`{"plugin":["`+beta+`","`+foreign+`","`+alpha+`"],"retained":true}`,
+	)
+	dryRun := runExtensionOrderPlan(t, "apply", manifestPath, "--manage-existing")
+	if dryRun.HasErrors ||
+		len(dryRun.RelationOrders) != 1 ||
+		dryRun.RelationOrders[0].SequenceID != "opencode:project:tui.plugins" ||
+		dryRun.RelationOrders[0].Kind != "normalize" {
+		t.Fatalf("TUI-only dry-run = %#v", dryRun.RelationOrders)
+	}
+
+	applied := runExtensionOrderApply(t, manifestPath, "--manage-existing")
+	if len(applied.RelationOrderResults) != 1 ||
+		applied.RelationOrderResults[0].SequenceID != "opencode:project:tui.plugins" ||
+		applied.RelationOrderResults[0].Outcome != "converged" {
+		t.Fatalf("TUI-only apply = %#v", applied.RelationOrderResults)
+	}
+	testkit.AssertPathMissing(t, serverPath)
+	tui := string(testkit.ReadFile(t, tuiPath))
+	assertOrderedText(t, tui, alpha, foreign, beta)
+	if !strings.Contains(tui, `"retained":true`) {
+		t.Fatalf("TUI sibling field was not retained: %s", tui)
+	}
+}
+
 func TestPiGlobalExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
 	tempDir := t.TempDir()
 	testkit.SetDefaultRootEnv(t, tempDir)
