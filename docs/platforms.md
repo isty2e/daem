@@ -66,4 +66,5 @@ does not authorize durable mutation there.
 Platform admission does not weaken filesystem-specific caveats. In particular,
 network filesystems such as NFS may not provide the same crash-durability and
 cross-process exclusion guarantees as a tested local filesystem even on an
-admitted OS/architecture row.
+admitted OS/architecture row. The same caveat applies to journal-retirement
+control publication, residue cleanup, and control-to-GC finalization.

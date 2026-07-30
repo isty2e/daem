@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -196,7 +197,11 @@ func TestPreparedRecoveryBlockedPlanConsumesWithoutEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if classification := prepared.Disclosure().Classification(); classification != recovery.ClassificationBlocked {
+	active, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !ok {
+		t.Fatal("blocked prepared recovery did not disclose an active plan")
+	}
+	if classification := active.Classification(); classification != recovery.ClassificationBlocked {
 		t.Fatalf("classification = %q, want blocked", classification)
 	}
 
@@ -241,7 +246,11 @@ func TestPreparedRecoveryDisclosureMutationCannotAlterExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	disclosed := prepared.Disclosure()
-	actions := disclosed.Actions()
+	active, ok := journal.ActiveRecoveryPlan(disclosed)
+	if !ok {
+		t.Fatal("prepared recovery did not disclose an active plan")
+	}
+	actions := active.Actions()
 	if len(actions) == 0 {
 		t.Fatal("disclosure has no recovery actions")
 	}
@@ -254,7 +263,11 @@ func TestPreparedRecoveryDisclosureMutationCannotAlterExecution(t *testing.T) {
 		*actions[0].ExpectedAfter.PathMode = recovery.PermissionMode(0o777)
 	}
 
-	fresh := prepared.Disclosure().Actions()
+	freshPlan, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !ok {
+		t.Fatal("prepared recovery did not retain an active disclosure")
+	}
+	fresh := freshPlan.Actions()
 	if fresh[0].Destination == "mutated" || fresh[0].ConsumerTargets[0] != target.TargetCodex {
 		t.Fatalf("mutated disclosure leaked into prepared recovery: %#v", fresh[0])
 	}

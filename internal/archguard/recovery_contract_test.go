@@ -15,7 +15,21 @@ import (
 
 func TestRecoveryClassificationDocumentationMatchesTypedConstants(t *testing.T) {
 	root := findRepoRoot(t)
-	canonical := recoveryClassificationValuesFromGo(t, filepath.Join(root, "internal", "effect", "journal", "recovery", "model.go"))
+	active := typedStringConstantValuesFromGo(
+		t,
+		filepath.Join(root, "internal", "effect", "journal", "recovery", "model.go"),
+		"Classification",
+	)
+	cleanup := typedStringConstantValuesFromGo(
+		t,
+		filepath.Join(root, "internal", "effect", "journal", "retirement", "cleanup.go"),
+		"CleanupClassification",
+	)
+	blocked := slices.Index(active, "blocked")
+	if blocked < 0 {
+		t.Fatal("active recovery classifications do not contain blocked")
+	}
+	canonical := slices.Concat(active[:blocked], cleanup, active[blocked:])
 	documented := recoveryClassificationValuesFromDocs(t, filepath.Join(root, "docs", "cli.md"))
 
 	if !slices.Equal(documented, canonical) {
@@ -427,7 +441,11 @@ func namedFunction(t *testing.T, file *ast.File, name string) *ast.FuncDecl {
 	return nil
 }
 
-func recoveryClassificationValuesFromGo(t *testing.T, path string) []string {
+func typedStringConstantValuesFromGo(
+	t *testing.T,
+	path string,
+	typeName string,
+) []string {
 	t.Helper()
 
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
@@ -444,23 +462,23 @@ func recoveryClassificationValuesFromGo(t *testing.T, path string) []string {
 		}
 		for _, spec := range general.Specs {
 			valueSpec, ok := spec.(*ast.ValueSpec)
-			if !ok || !isNamedType(valueSpec.Type, "Classification") {
+			if !ok || !isNamedType(valueSpec.Type, typeName) {
 				continue
 			}
 			if len(valueSpec.Values) != len(valueSpec.Names) {
-				t.Fatalf("Classification declaration %v does not use one explicit value per name", valueSpec.Names)
+				t.Fatalf("%s declaration %v does not use one explicit value per name", typeName, valueSpec.Names)
 			}
 			for _, expression := range valueSpec.Values {
 				literal, ok := expression.(*ast.BasicLit)
 				if !ok || literal.Kind != token.STRING {
-					t.Fatalf("Classification value %T is not an explicit string literal", expression)
+					t.Fatalf("%s value %T is not an explicit string literal", typeName, expression)
 				}
 				value, err := strconv.Unquote(literal.Value)
 				if err != nil {
-					t.Fatalf("Unquote Classification value %q returned error: %v", literal.Value, err)
+					t.Fatalf("Unquote %s value %q returned error: %v", typeName, literal.Value, err)
 				}
 				if _, duplicate := seen[value]; duplicate {
-					t.Fatalf("duplicate typed Classification value %q", value)
+					t.Fatalf("duplicate typed %s value %q", typeName, value)
 				}
 				seen[value] = struct{}{}
 				values = append(values, value)
@@ -468,7 +486,7 @@ func recoveryClassificationValuesFromGo(t *testing.T, path string) []string {
 		}
 	}
 	if len(values) == 0 {
-		t.Fatal("no typed Classification string constants found")
+		t.Fatalf("no typed %s string constants found", typeName)
 	}
 
 	return values

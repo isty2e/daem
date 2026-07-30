@@ -28,7 +28,7 @@ func TestRecordGoldenEncodingAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode returned error: %v", err)
 	}
-	if !decoded.Identity().Equal(record.Identity()) || decoded.Phase() != record.Phase() {
+	if !decoded.Identity().equal(record.Identity()) || decoded.Phase() != record.Phase() {
 		t.Fatalf("Decode = %#v, want %#v", decoded, record)
 	}
 }
@@ -47,8 +47,8 @@ func TestRecordPhaseAdvancePreservesIdentityAndNames(t *testing.T) {
 	if finalizing.Phase() != PhaseFinalizing || again.Phase() != PhaseFinalizing {
 		t.Fatalf("finalizing phases = %q and %q", finalizing.Phase(), again.Phase())
 	}
-	if !prepared.Identity().Equal(finalizing.Identity()) ||
-		!finalizing.Identity().Equal(again.Identity()) {
+	if !prepared.Identity().equal(finalizing.Identity()) ||
+		!finalizing.Identity().equal(again.Identity()) {
 		t.Fatal("phase advance changed immutable identity")
 	}
 	if prepared.Identity().ControlName() != finalizing.Identity().ControlName() ||

@@ -1,5 +1,7 @@
 package retirement
 
+import "fmt"
+
 // CleanupClassification is the public recovery classification reserved for
 // cleanup-only journal retirement.
 type CleanupClassification string
@@ -67,9 +69,18 @@ func (authority CleanupAuthority) RequiresPhaseAdvance() bool {
 	return authority.record.phase == PhasePrepared
 }
 
-// FinalizingRecord returns the exact record required before physical cleanup.
-func (authority CleanupAuthority) FinalizingRecord() (Record, error) {
-	return authority.record.Finalizing()
+// CurrentRecord returns the exact durable record selected by this authority.
+func (authority CleanupAuthority) CurrentRecord() (Record, error) {
+	if !authority.valid() {
+		return Record{}, fmt.Errorf("journal cleanup authority is uninitialized")
+	}
+	return authority.record, nil
+}
+
+func (authority CleanupAuthority) equal(other CleanupAuthority) bool {
+	return authority.valid() && other.valid() &&
+		authority.record.Equal(other.record) &&
+		authority.residuePresent == other.residuePresent
 }
 
 // CleanupPlan is the sole cleanup-only recovery prescription.
@@ -100,4 +111,10 @@ func (plan CleanupPlan) Action() CleanupActionKind {
 // Authority returns semantic identity without physical mutation capability.
 func (plan CleanupPlan) Authority() CleanupAuthority {
 	return plan.authority
+}
+
+// SameExecutionAuthority reports whether two plans authorize the same cleanup
+// phase and exact retirement artifacts.
+func (plan CleanupPlan) SameExecutionAuthority(other CleanupPlan) bool {
+	return plan.valid() && other.valid() && plan.authority.equal(other.authority)
 }

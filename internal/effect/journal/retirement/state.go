@@ -122,7 +122,7 @@ func Classify(evidence LayoutEvidence) Decision {
 	case len(evidence.active) == 1 && len(evidence.controls) == 0 && len(evidence.residues) == 0:
 		return Decision{state: StateActive}
 	case len(evidence.active) == 1 && len(evidence.controls) == 1 && len(evidence.residues) == 0:
-		if !active.Equal(control.record.identity) {
+		if !active.equal(control.record.identity) {
 			return blocked("active journal and retirement control identities do not match")
 		}
 		if control.record.phase != PhasePrepared {
@@ -182,8 +182,8 @@ func matchingGC(
 		case control.record.identity.valid() && artifact.name.BelongsTo(control.record.identity):
 			return true
 		case len(residues) == 1:
-			digest, _ := residues[0].name.Digest()
-			gcDigest, _ := artifact.name.Digest()
+			digest, _ := residues[0].name.digestValue()
+			gcDigest, _ := artifact.name.digestValue()
 			if digest == gcDigest {
 				return true
 			}
@@ -227,11 +227,6 @@ func (decision Decision) State() State {
 		return StateBlocked
 	}
 	return decision.state
-}
-
-// Blocked reports whether the inventory cannot be safely interpreted.
-func (decision Decision) Blocked() bool {
-	return !decision.valid() || decision.state == StateBlocked
 }
 
 // Detail returns a deterministic blocker diagnostic.

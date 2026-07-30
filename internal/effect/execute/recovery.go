@@ -149,16 +149,20 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err := executeRecoveryPlanEffects(ctx, plan, paths, options); err != nil {
 		return err
 	}
-	rootErr := authority.validateProjectSelection(paths.ManifestRoot)
-	removeErr := authority.removeRecoveryJournal(ctx)
-	if removeErr != nil {
-		removeErr = fmt.Errorf("remove recovery journal: %w", removeErr)
+	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
 	}
-	return errors.Join(
-		rootErr,
-		removeErr,
-		authority.validateProjectSelection(paths.ManifestRoot),
-	)
+	retirementPlan, err := reloadRecoveryPlanAfterEffects(ctx, plan, options, authority)
+	if err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
+	}
+	if err := authority.retireActiveJournal(ctx, paths, retirementPlan); err != nil {
+		return fmt.Errorf("retire recovery journal: %w", err)
+	}
+	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
+	}
+	return nil
 }
 
 func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths Paths, options RecoveryOptions) error {
@@ -214,15 +218,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		plan,
 		options,
 		physicalAuthority,
-		journal.PlanLoadOptions{
-			Filesystem:        options.Filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(options.Resolver),
-			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
-			Codecs:            options.Codecs,
-			StateCodec:        options.StateCodec,
-			StateReader:       options.StateReader,
-		},
+		recoveryPlanLoadOptions(options, authority),
 	)
 	if err != nil {
 		return err
@@ -252,6 +248,48 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 	}
 }
 
+func recoveryPlanLoadOptions(
+	options RecoveryOptions,
+	authority *mutationAuthority,
+) journal.PlanLoadOptions {
+	return journal.PlanLoadOptions{
+		Filesystem:        options.Filesystem,
+		RootedCapability:  authority.rootedJournalCapability,
+		Resolver:          authority.rootedJournalResolver(options.Resolver),
+		OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
+		Codecs:            options.Codecs,
+		StateCodec:        options.StateCodec,
+		StateReader:       options.StateReader,
+	}
+}
+
+func reloadRecoveryPlanAfterEffects(
+	ctx context.Context,
+	expected recovery.Plan,
+	options RecoveryOptions,
+	authority *mutationAuthority,
+) (recovery.Plan, error) {
+	current, err := options.reloadPlan(ctx, recoveryPlanLoadOptions(options, authority))
+	if err != nil {
+		return recovery.Plan{}, fmt.Errorf("reload recovery plan after effects: %w", err)
+	}
+	if err := requireSameActiveJournal(expected, current, "after effects"); err != nil {
+		return recovery.Plan{}, err
+	}
+	if current.Blocked() || current.HasErrors() {
+		return recovery.Plan{}, fmt.Errorf("recovery is blocked by current evidence")
+	}
+	switch current.Classification() {
+	case recovery.ClassificationCleanBefore, recovery.ClassificationCleanAfter:
+		return current, nil
+	default:
+		return recovery.Plan{}, fmt.Errorf(
+			"recovery effects left journal classified as %q",
+			current.Classification(),
+		)
+	}
+}
+
 func recoveryPlanBeforeEffects(
 	ctx context.Context,
 	plan recovery.Plan,
@@ -269,19 +307,8 @@ func recoveryPlanBeforeEffects(
 	if err != nil {
 		return recovery.Plan{}, fmt.Errorf("reload recovery plan before effects: %w", err)
 	}
-	if current.OperationID() != plan.OperationID() || current.OperationDir() != plan.OperationDir() {
-		return recovery.Plan{}, fmt.Errorf("active recovery operation changed before effects")
-	}
-	expectedJournal, err := plan.JournalAuthorityFingerprint()
-	if err != nil {
-		return recovery.Plan{}, fmt.Errorf("fingerprint expected recovery journal: %w", err)
-	}
-	currentJournal, err := current.JournalAuthorityFingerprint()
-	if err != nil {
-		return recovery.Plan{}, fmt.Errorf("fingerprint current recovery journal: %w", err)
-	}
-	if currentJournal != expectedJournal {
-		return recovery.Plan{}, fmt.Errorf("durable recovery journal changed before effects")
+	if err := requireSameActiveJournal(plan, current, "before effects"); err != nil {
+		return recovery.Plan{}, err
 	}
 	if current.Blocked() || current.HasErrors() {
 		return recovery.Plan{}, fmt.Errorf("recovery is blocked by current evidence")
@@ -290,6 +317,29 @@ func recoveryPlanBeforeEffects(
 		return recovery.Plan{}, fmt.Errorf("recovery execution authority changed before effects")
 	}
 	return current, nil
+}
+
+func requireSameActiveJournal(
+	expected recovery.Plan,
+	current recovery.Plan,
+	phase string,
+) error {
+	if current.OperationID() != expected.OperationID() ||
+		current.OperationDir() != expected.OperationDir() {
+		return fmt.Errorf("active recovery operation changed %s", phase)
+	}
+	expectedJournal, err := expected.JournalAuthorityFingerprint()
+	if err != nil {
+		return fmt.Errorf("fingerprint expected recovery journal: %w", err)
+	}
+	currentJournal, err := current.JournalAuthorityFingerprint()
+	if err != nil {
+		return fmt.Errorf("fingerprint current recovery journal: %w", err)
+	}
+	if currentJournal != expectedJournal {
+		return fmt.Errorf("durable recovery journal changed %s", phase)
+	}
+	return nil
 }
 
 func executeRecoveryRollbackEffects(

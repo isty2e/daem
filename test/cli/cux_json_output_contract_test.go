@@ -68,8 +68,10 @@ func TestCUXRecoverYesJSONReportsWriteResult(t *testing.T) {
 	testkit.WriteFile(t, root, "AGENTS.md", "new instructions\n")
 
 	payload := runCUXJSON(t, []string{"recover", "--manifest", manifestPath, "--yes", "--json"})
-	assertCUXJSONHeader(t, payload, 3, "recover", "write")
-	if payload["has_errors"] != false || payload["classification"] != "needs_rollback" {
+	assertCUXJSONHeader(t, payload, 4, "recover", "write")
+	if payload["authority_kind"] != "active_journal" ||
+		payload["has_errors"] != false ||
+		payload["classification"] != "needs_rollback" {
 		t.Fatalf("payload = %#v, want successful recovery result", payload)
 	}
 }

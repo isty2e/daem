@@ -224,7 +224,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `10` |
 | confirmed `apply` | Apply result | `15` |
-| `recover` | Recovery plan/result | `3` |
+| `recover` | Recovery plan/result | `4` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `1` |
@@ -799,13 +799,14 @@ root. This cwd binding is not a sandbox for other host-command effects.
 daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]
 ```
 
-Recovery classifies and resolves one active interrupted operation. Bare recover
+Recovery classifies and resolves one interrupted apply operation or finishes
+the exact retained cleanup of an already retired apply journal. Bare recover
 uses the shared three-stream terminal contract and asks after disclosing the
 current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
-derived state/recovery paths. It handles apply recovery journals only; an
-interrupted manifest metadata file-set transaction is recovered by retrying the
-exact authoring or `unmanage` write.
+derived state/recovery paths. An interrupted manifest metadata file-set
+transaction remains a separate protocol recovered by retrying the exact
+authoring or `unmanage` write.
 
 | Classification | Meaning |
 | --- | --- |
@@ -813,26 +814,40 @@ exact authoring or `unmanage` write.
 | `clean_after` | Host paths, state, and ownership all match the committed post-operation state; only journal cleanup remains. |
 | `needs_rollback` | The interrupted operation can be restored to its pre-operation state from verified journal evidence. |
 | `needs_finalize` | Host paths and state are committed, but prepared ownership claims still need finalization. |
+| `retained_cleanup_residue` | The active journal is already retired; only its exact correlated retirement residue and control remain to be finalized. |
 | `blocked` | Current evidence cannot be safely reconciled with either legal operation state. |
 
-Recovery validates guarded host and statefile observations, backup identity,
-candidate fingerprint, and the full lease set again before writing. A prior
-dry-run grants no execution authority. Blocked or stale recovery keeps the
-journal and writes nothing.
+Active-journal recovery validates guarded host and statefile observations,
+backup identity, candidate fingerprint, and the full lease set again before
+writing. Cleanup-only recovery acquires and revalidates only the selected
+recovery root, retirement control, residue, and final GC name; it does not read
+or mutate host destinations, the statefile, ownership registry, manifest, or
+lockfile. Both forms replan after acquiring authority. A prior dry-run grants
+no execution authority. Blocked or stale recovery keeps the current evidence
+and writes nothing.
 
-Default output shows classification, operation identity, every action,
-destination/content subject, blocker, and recovery limitation. It omits backup
-paths/hashes and journal layout. `--verbose` adds operation directory, backup
-facts, reasons, and action detail.
+For active recovery, default output shows classification, operation identity,
+every action, destination/content subject, blocker, and recovery limitation.
+It omits backup paths/hashes and journal layout; `--verbose` adds operation
+directory, backup facts, reasons, and action detail. Cleanup-only output shows
+only `retained_cleanup_residue`, the operation identity,
+`finalize_journal_cleanup`, and the no-host/state/ownership limitation. It does
+not expose private control, residue, or GC paths, including in verbose mode.
 
-Recovery JSON schema version is `3` for both `--dry-run --json` and
-`--yes --json`. It contains command/mode, operation id/directory,
-classification, action count, typed actions, `has_errors`, and optional errors.
-Each action preserves its canonical identity: resource-owned actions report
-`resource` and singular `target`, while subject-owned managed paths report
-`subject`, the complete `targets` consumer set, and `content_kind` without
-inventing a primary target. Entity-backed projection subjects also report the
-correlated resource identity for user-facing attribution.
+Recovery JSON schema version is `4` for both `--dry-run --json` and
+`--yes --json`. Every result declares `authority_kind` as `active_journal` or
+`journal_cleanup`. Active-journal output preserves its populated operation
+directory and typed action facts: resource-owned actions report `resource` and
+singular `target`, while subject-owned managed paths report `subject`, the
+complete `targets` consumer set, and `content_kind` without inventing a primary
+target. Entity-backed projection subjects also report the correlated resource
+identity for user-facing attribution.
+
+Cleanup-only output contains the operation id, classification
+`retained_cleanup_residue`, and exactly one action whose only field is
+`kind = "finalize_journal_cleanup"`. It omits `operation_dir` and all
+resource, subject, target, scope, destination, content, backup, and detail
+fields instead of emitting synthetic empty active-plan placeholders.
 
 ## `doctor`
 

@@ -7,13 +7,37 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-const recoveryJSONSchemaVersion = 3
+const recoveryJSONSchemaVersion = 4
 
-func PrintRecoverPlanWithOptions(output io.Writer, plan recovery.Plan, options HumanOptions) {
+func PrintRecoverPlanWithOptions(
+	output io.Writer,
+	disclosure journal.RecoverablePlan,
+	options HumanOptions,
+) {
+	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
+		printActiveRecoverPlan(output, plan, options)
+		return
+	}
+	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {
+		fmt.Fprintf(output, "recover: %s\n", plan.Classification())
+		fmt.Fprintf(output, "operation: %s\n", plan.Authority().OperationID())
+		fmt.Fprintln(output, plan.Action())
+		fmt.Fprintln(output, "journal cleanup only; host, statefile, and ownership data are unchanged")
+		return
+	}
+	fmt.Fprintln(output, "recover: invalid")
+}
+
+func printActiveRecoverPlan(
+	output io.Writer,
+	plan recovery.Plan,
+	options HumanOptions,
+) {
 	fmt.Fprintf(output, "recover: %s\n", plan.Classification())
 	if len(plan.Actions()) == 0 {
 		fmt.Fprintln(output, "nothing to recover")
@@ -83,34 +107,35 @@ func recoveryTargetLabel(action recovery.Action) (string, string) {
 }
 
 type recoveryPlanJSONOutput struct {
-	SchemaVersion  int                      `json:"schema_version"`
-	Command        string                   `json:"command"`
-	Mode           string                   `json:"mode"`
-	OperationID    string                   `json:"operation_id"`
-	OperationDir   string                   `json:"operation_dir"`
-	Classification string                   `json:"classification"`
-	ActionCount    int                      `json:"action_count"`
-	HasErrors      bool                     `json:"has_errors"`
-	Actions        []recoveryPlanJSONAction `json:"actions"`
-	Errors         []string                 `json:"errors,omitempty"`
+	SchemaVersion  int                           `json:"schema_version"`
+	Command        string                        `json:"command"`
+	Mode           string                        `json:"mode"`
+	AuthorityKind  journal.RecoveryAuthorityKind `json:"authority_kind"`
+	OperationID    string                        `json:"operation_id"`
+	OperationDir   string                        `json:"operation_dir,omitempty"`
+	Classification string                        `json:"classification"`
+	ActionCount    int                           `json:"action_count"`
+	HasErrors      bool                          `json:"has_errors"`
+	Actions        []recoveryPlanJSONAction      `json:"actions"`
+	Errors         []string                      `json:"errors,omitempty"`
 }
 
 type recoveryPlanJSONAction struct {
-	Kind        string                  `json:"kind"`
-	Reason      string                  `json:"reason"`
-	Subject     *planJSONSubject        `json:"subject,omitempty"`
-	ResourceID  string                  `json:"resource_id"`
-	Resource    recoverPlanJSONResource `json:"resource"`
-	Target      string                  `json:"target,omitempty"`
-	Targets     []string                `json:"targets,omitempty"`
-	Scope       string                  `json:"scope"`
-	Destination string                  `json:"destination"`
-	ContentPath string                  `json:"content_path,omitempty"`
-	ContentKind string                  `json:"content_kind,omitempty"`
-	BackupPath  string                  `json:"backup_path"`
-	BackupHash  string                  `json:"backup_hash"`
-	BackupKind  string                  `json:"backup_kind"`
-	Detail      string                  `json:"detail"`
+	Kind        string                   `json:"kind"`
+	Reason      string                   `json:"reason,omitempty"`
+	Subject     *planJSONSubject         `json:"subject,omitempty"`
+	ResourceID  string                   `json:"resource_id,omitempty"`
+	Resource    *recoverPlanJSONResource `json:"resource,omitempty"`
+	Target      string                   `json:"target,omitempty"`
+	Targets     []string                 `json:"targets,omitempty"`
+	Scope       string                   `json:"scope,omitempty"`
+	Destination string                   `json:"destination,omitempty"`
+	ContentPath string                   `json:"content_path,omitempty"`
+	ContentKind string                   `json:"content_kind,omitempty"`
+	BackupPath  string                   `json:"backup_path,omitempty"`
+	BackupHash  string                   `json:"backup_hash,omitempty"`
+	BackupKind  string                   `json:"backup_kind,omitempty"`
+	Detail      string                   `json:"detail,omitempty"`
 }
 
 type recoverPlanJSONResource struct {
@@ -118,18 +143,15 @@ type recoverPlanJSONResource struct {
 	Name string `json:"name"`
 }
 
-func PrintRecoverResultJSON(output io.Writer, mode string, plan recovery.Plan, resultErr error) error {
-	actions := plan.Actions()
-	payload := recoveryPlanJSONOutput{
-		SchemaVersion:  recoveryJSONSchemaVersion,
-		Command:        "recover",
-		Mode:           mode,
-		OperationID:    plan.OperationID(),
-		OperationDir:   plan.OperationDir(),
-		Classification: string(plan.Classification()),
-		ActionCount:    len(actions),
-		HasErrors:      plan.HasErrors(),
-		Actions:        recoveryPlanJSONActions(actions),
+func PrintRecoverResultJSON(
+	output io.Writer,
+	mode string,
+	disclosure journal.RecoverablePlan,
+	resultErr error,
+) error {
+	payload, err := recoveryJSONPayload(mode, disclosure)
+	if err != nil {
+		return err
 	}
 	if resultErr != nil {
 		payload.HasErrors = true
@@ -139,6 +161,42 @@ func PrintRecoverResultJSON(output io.Writer, mode string, plan recovery.Plan, r
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)
+}
+
+func recoveryJSONPayload(
+	mode string,
+	disclosure journal.RecoverablePlan,
+) (recoveryPlanJSONOutput, error) {
+	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
+		actions := plan.Actions()
+		return recoveryPlanJSONOutput{
+			SchemaVersion:  recoveryJSONSchemaVersion,
+			Command:        "recover",
+			Mode:           mode,
+			AuthorityKind:  disclosure.AuthorityKind(),
+			OperationID:    plan.OperationID(),
+			OperationDir:   plan.OperationDir(),
+			Classification: string(plan.Classification()),
+			ActionCount:    len(actions),
+			HasErrors:      plan.HasErrors(),
+			Actions:        recoveryPlanJSONActions(actions),
+		}, nil
+	}
+	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {
+		return recoveryPlanJSONOutput{
+			SchemaVersion:  recoveryJSONSchemaVersion,
+			Command:        "recover",
+			Mode:           mode,
+			AuthorityKind:  disclosure.AuthorityKind(),
+			OperationID:    plan.Authority().OperationID(),
+			Classification: string(plan.Classification()),
+			ActionCount:    1,
+			Actions: []recoveryPlanJSONAction{{
+				Kind: string(plan.Action()),
+			}},
+		}, nil
+	}
+	return recoveryPlanJSONOutput{}, fmt.Errorf("recovery disclosure is uninitialized")
 }
 
 func recoveryPlanJSONActions(actions []recovery.Action) []recoveryPlanJSONAction {
@@ -155,12 +213,19 @@ func recoveryPlanJSONActions(actions []recovery.Action) []recoveryPlanJSONAction
 		for _, value := range action.ConsumerTargets {
 			consumerTargets = append(consumerTargets, string(value))
 		}
+		var resource *recoverPlanJSONResource
+		if entityID != (entity.ID{}) {
+			resource = &recoverPlanJSONResource{
+				Kind: string(entityID.Kind()),
+				Name: entityID.Name(),
+			}
+		}
 		result = append(result, recoveryPlanJSONAction{
 			Kind:        string(action.Kind),
 			Reason:      action.Reason,
 			Subject:     planJSONSubjectFor(subject),
 			ResourceID:  recoveryEntityIDString(entityID),
-			Resource:    recoverPlanJSONResource{Kind: string(entityID.Kind()), Name: entityID.Name()},
+			Resource:    resource,
 			Target:      string(action.Target),
 			Targets:     consumerTargets,
 			Scope:       string(action.Scope),

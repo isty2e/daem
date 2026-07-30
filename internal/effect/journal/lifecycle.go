@@ -2,14 +2,10 @@ package journal
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
@@ -50,26 +46,4 @@ func ensureNoActive(
 
 func isSafeRecoveryOperationID(value string) bool {
 	return retirement.ValidateOperationID(value) == nil
-}
-
-// RemoveJournal removes one recovery operation through retained root authority.
-func RemoveJournal(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	capability rootedpath.CommitCapability,
-) error {
-	if filesystem == nil {
-		return fmt.Errorf("recovery journal filesystem is required")
-	}
-	if capability == nil {
-		return fmt.Errorf("recovery journal capability is required")
-	}
-	expected, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if errors.Is(err, os.ErrNotExist) {
-		return capability.Close()
-	}
-	if err != nil {
-		return errors.Join(err, capability.Close())
-	}
-	return filesystem.RemoveRootedEntry(ctx, capability, expected)
 }

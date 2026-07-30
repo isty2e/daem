@@ -195,6 +195,13 @@ non-interactive environment. Recovery may clean up a completed journal, roll
 back guarded changes, or finish ownership finalization. Do not edit host files,
 the statefile, shared ownership data, or the journal while recovery is pending.
 
+If the plan reports `retained_cleanup_residue`, host, statefile, and ownership
+recovery is already complete. The only legal action is
+`finalize_journal_cleanup` over the exact correlated retirement artifacts.
+Review the dry-run and rerun recovery; do not delete hidden residue or the
+visible retirement control manually. A stale, replaced, malformed, or
+cross-paired artifact is intentionally refused instead of being guessed safe.
+
 ## Manifest Metadata Update Was Interrupted
 
 An interrupted `add`, `remove`, or `unmanage` write may leave a recoverable

@@ -78,7 +78,7 @@ func (residue Residue) valid() bool {
 func (residue Residue) independentlyMatches(identity Identity) bool {
 	return residue.valid() &&
 		residue.proof == residueProofJournal &&
-		residue.journalIdentity.Equal(identity)
+		residue.journalIdentity.equal(identity)
 }
 
 // Garbage is one validated, inert post-finalization GC directory.
@@ -125,7 +125,7 @@ func BlockerForName(name Name) (Blocker, bool) {
 		}, true
 	}
 	switch name.kind {
-	case NameLegacyTombstone:
+	case nameLegacyTombstone:
 		return Blocker{
 			name: name.value,
 			detail: fmt.Sprintf(
@@ -133,7 +133,7 @@ func BlockerForName(name Name) (Blocker, bool) {
 				name.value,
 			),
 		}, true
-	case NameMalformed:
+	case nameMalformed:
 		return Blocker{
 			name:   name.value,
 			detail: fmt.Sprintf("malformed reserved journal retirement entry %q", name.value),

@@ -129,11 +129,10 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			if err != nil {
 				t.Fatalf("loadRecoveryRootInventory: %v", err)
 			}
-			if inventory.decision.Blocked() || inventory.decision.State() != test.want {
+			if inventory.decision.State() != test.want {
 				t.Fatalf(
-					"decision = state %q blocked=%t detail=%q, want %q",
+					"decision = state %q detail=%q, want %q",
 					inventory.decision.State(),
-					inventory.decision.Blocked(),
 					inventory.decision.Detail(),
 					test.want,
 				)
@@ -144,7 +143,8 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			}
 			if test.want == retirement.StateActive || test.want == retirement.StatePrepared {
 				if inventory.active == nil ||
-					!inventory.active.identity.Equal(identity) {
+					inventory.active.identity.OperationID() != identity.OperationID() ||
+					inventory.active.identity.JournalAuthorityFingerprint() != identity.JournalAuthorityFingerprint() {
 					t.Fatalf("active evidence = %#v, want identity %#v", inventory.active, identity)
 				}
 			} else if inventory.active != nil {
@@ -162,14 +162,21 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			if !test.wantCleanup {
 				return
 			}
-			cleanup, err := LoadCleanupPlanWithOptions(t.Context(), Paths{
+			recoverable, err := LoadRecoverablePlanWithOptions(t.Context(), Paths{
 				RecoveryDir: recoveryRoot,
 			}, PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
 			})
 			if err != nil {
-				t.Fatalf("LoadCleanupPlanWithOptions: %v", err)
+				t.Fatalf("LoadRecoverablePlanWithOptions: %v", err)
+			}
+			cleanup, ok := JournalCleanupPlan(recoverable)
+			if !ok {
+				t.Fatalf(
+					"authority kind = %q, want journal cleanup",
+					recoverable.AuthorityKind(),
+				)
 			}
 			if cleanup.Authority().OperationID() != identity.OperationID() ||
 				cleanup.Authority().JournalAuthorityFingerprint() !=
@@ -312,22 +319,21 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				t.Fatalf("loadRecoveryRootInventory: %v", err)
 			}
 			if test.allowLoad {
-				if inventory.decision.Blocked() ||
-					inventory.decision.State() != retirement.StateFinalizing {
+				if inventory.decision.State() != retirement.StateFinalizing {
 					t.Fatalf("valid temporary decision = %#v", inventory.decision)
 				}
 				return
 			}
-			if !inventory.decision.Blocked() ||
+			if inventory.decision.State() != retirement.StateBlocked ||
 				!strings.Contains(inventory.decision.Detail(), test.want) {
 				t.Fatalf(
-					"decision = blocked=%t detail=%q, want %q",
-					inventory.decision.Blocked(),
+					"decision = state=%q detail=%q, want %q",
+					inventory.decision.State(),
 					inventory.decision.Detail(),
 					test.want,
 				)
 			}
-			if _, err := LoadCleanupPlanWithOptions(
+			if _, err := LoadRecoverablePlanWithOptions(
 				t.Context(),
 				Paths{RecoveryDir: recoveryRoot},
 				PlanLoadOptions{
@@ -335,7 +341,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 					StateCodec: testStateCodec(),
 				},
 			); err == nil || !strings.Contains(err.Error(), test.want) {
-				t.Fatalf("LoadCleanupPlanWithOptions error = %v, want %q", err, test.want)
+				t.Fatalf("LoadRecoverablePlanWithOptions error = %v, want %q", err, test.want)
 			}
 		})
 	}

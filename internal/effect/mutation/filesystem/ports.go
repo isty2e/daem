@@ -121,7 +121,7 @@ type PathStore interface {
 	PathCommitter
 }
 
-// RootedStore is the retained-root subset needed by host mutation execution.
+// RootedStore is the retained-root subset needed by effect execution.
 type RootedStore interface {
 	RootedReader
 	RootedCommitter

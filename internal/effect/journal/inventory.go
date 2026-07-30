@@ -25,6 +25,7 @@ type recoveryRootInventory struct {
 	decision retirement.Decision
 	active   *activeJournalEvidence
 	root     mutationfs.DirectorySnapshot
+	control  *mutationfs.DirectorySnapshot
 }
 
 type activeJournalEvidence struct {
@@ -101,8 +102,9 @@ func loadRecoveryRootInventory(
 	}
 
 	controls := make([]retirement.Control, 0, len(controlEntries))
+	controlSnapshots := make([]mutationfs.DirectorySnapshot, 0, len(controlEntries))
 	for _, entry := range controlEntries {
-		control, loadErr := loadRetirementControl(
+		control, snapshot, loadErr := loadRetirementControl(
 			ctx,
 			physicalRoot,
 			entry,
@@ -116,6 +118,7 @@ func loadRecoveryRootInventory(
 			continue
 		}
 		controls = append(controls, control)
+		controlSnapshots = append(controlSnapshots, snapshot)
 	}
 
 	activeIdentities := make([]retirement.Identity, 0, len(activeEntries))
@@ -221,7 +224,17 @@ func loadRecoveryRootInventory(
 	default:
 		active = nil
 	}
-	return recoveryRootInventory{decision: decision, active: active, root: root}, nil
+	var control *mutationfs.DirectorySnapshot
+	if len(controlSnapshots) == 1 {
+		snapshot := controlSnapshots[0]
+		control = &snapshot
+	}
+	return recoveryRootInventory{
+		decision: decision,
+		active:   active,
+		root:     root,
+		control:  control,
+	}, nil
 }
 
 func emptyRecoveryRootInventory() recoveryRootInventory {
@@ -241,10 +254,10 @@ func loadRetirementControl(
 	recoveryRoot string,
 	entry mutationfs.DirectoryEntrySnapshot,
 	filesystem mutationfs.Reader,
-) (retirement.Control, error) {
+) (retirement.Control, mutationfs.DirectorySnapshot, error) {
 	directoryEvidence, err := retirementEvidence(entry)
 	if err != nil {
-		return retirement.Control{}, err
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, err
 	}
 	if entry.Kind() != mutationfs.EntryKindDirectory ||
 		!entry.OwnedByInvoker() ||
@@ -252,19 +265,23 @@ func loadRetirementControl(
 		_, validationErr := retirement.ValidateControl(retirement.ControlEvidence{
 			Directory: directoryEvidence,
 		})
-		return retirement.Control{}, validationErr
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, validationErr
 	}
 
 	controlPath := filepath.Join(recoveryRoot, entry.Name())
 	before, err := filesystem.SnapshotDirectory(ctx, controlPath)
 	if err != nil {
-		return retirement.Control{}, fmt.Errorf("snapshot retirement control %q: %w", entry.Name(), err)
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"snapshot retirement control %q: %w",
+			entry.Name(),
+			err,
+		)
 	}
 	if before.RootIdentity() == nil ||
 		!before.RootIdentity().Equal(entry.Identity()) ||
 		before.RootMode() != entry.Mode() ||
 		before.RootOwnedByInvoker() != entry.OwnedByInvoker() {
-		return retirement.Control{}, fmt.Errorf(
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 			"retirement control %q changed before inspection",
 			entry.Name(),
 		)
@@ -275,7 +292,7 @@ func loadRetirementControl(
 	for _, child := range before.Entries() {
 		childEvidence, evidenceErr := retirementEvidence(child)
 		if evidenceErr != nil {
-			return retirement.Control{}, evidenceErr
+			return retirement.Control{}, mutationfs.DirectorySnapshot{}, evidenceErr
 		}
 		children = append(children, childEvidence)
 		if child.Name() != retirement.RecordFileName ||
@@ -291,14 +308,14 @@ func loadRetirementControl(
 			retirement.MaximumRecordBytes,
 		)
 		if readErr != nil {
-			return retirement.Control{}, fmt.Errorf(
+			return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 				"read retirement control %q: %w",
 				entry.Name(),
 				readErr,
 			)
 		}
 		if snapshot.Identity() == nil || !snapshot.Identity().Equal(child.Identity()) {
-			return retirement.Control{}, fmt.Errorf(
+			return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 				"retirement record in %q changed while reading",
 				entry.Name(),
 			)
@@ -308,19 +325,27 @@ func loadRetirementControl(
 
 	after, err := filesystem.SnapshotDirectory(ctx, controlPath)
 	if err != nil {
-		return retirement.Control{}, fmt.Errorf("revalidate retirement control %q: %w", entry.Name(), err)
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"revalidate retirement control %q: %w",
+			entry.Name(),
+			err,
+		)
 	}
 	if !before.Equal(after) {
-		return retirement.Control{}, fmt.Errorf(
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 			"retirement control %q changed while inspecting",
 			entry.Name(),
 		)
 	}
-	return retirement.ValidateControl(retirement.ControlEvidence{
+	control, err := retirement.ValidateControl(retirement.ControlEvidence{
 		Directory:     directoryEvidence,
 		Children:      children,
 		RecordContent: recordContent,
 	})
+	if err != nil {
+		return retirement.Control{}, mutationfs.DirectorySnapshot{}, err
+	}
+	return control, before, nil
 }
 
 func loadActiveJournalEvidence(

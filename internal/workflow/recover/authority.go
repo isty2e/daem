@@ -8,7 +8,9 @@ import (
 	"strconv"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
@@ -78,6 +80,16 @@ type recoveryFingerprintFacts struct {
 	ClaimTransitions            []journalClaimTransitionFingerprint
 }
 
+type cleanupFingerprintFacts struct {
+	RecoveryDir                 string
+	OperationID                 string
+	Classification              retirement.CleanupClassification
+	Action                      retirement.CleanupActionKind
+	JournalAuthorityFingerprint string
+	Phase                       retirement.Phase
+	ResiduePresent              bool
+}
+
 type journalClaimTransitionFingerprint struct {
 	Kind              string
 	Path              string
@@ -87,7 +99,39 @@ type journalClaimTransitionFingerprint struct {
 	OperationID       string
 }
 
-func recoveryOperationFingerprint(paths daempaths.Paths, plan recovery.Plan) (mutation.OperationFingerprint, error) {
+func recoveryOperationFingerprint(
+	paths daempaths.Paths,
+	selection journal.RecoverablePlan,
+) (mutation.OperationFingerprint, error) {
+	switch selection.AuthorityKind() {
+	case journal.RecoveryAuthorityActiveJournal:
+		plan, ok := journal.ActiveRecoveryPlan(selection)
+		if !ok {
+			return mutation.OperationFingerprint{}, fmt.Errorf(
+				"active recovery selection is unavailable",
+			)
+		}
+		return activeRecoveryOperationFingerprint(paths, plan)
+	case journal.RecoveryAuthorityJournalCleanup:
+		plan, ok := journal.JournalCleanupPlan(selection)
+		if !ok {
+			return mutation.OperationFingerprint{}, fmt.Errorf(
+				"journal cleanup selection is unavailable",
+			)
+		}
+		return cleanupRecoveryOperationFingerprint(paths, plan)
+	default:
+		return mutation.OperationFingerprint{}, fmt.Errorf(
+			"recovery authority kind %q is unsupported",
+			selection.AuthorityKind(),
+		)
+	}
+}
+
+func activeRecoveryOperationFingerprint(
+	paths daempaths.Paths,
+	plan recovery.Plan,
+) (mutation.OperationFingerprint, error) {
 	journalAuthorityFingerprint, err := plan.JournalAuthorityFingerprint()
 	if err != nil {
 		return mutation.OperationFingerprint{}, err
@@ -126,6 +170,29 @@ func recoveryOperationFingerprint(paths daempaths.Paths, plan recovery.Plan) (mu
 	return mutation.NewOperationFingerprint(canonical), nil
 }
 
+func cleanupRecoveryOperationFingerprint(
+	paths daempaths.Paths,
+	plan retirement.CleanupPlan,
+) (mutation.OperationFingerprint, error) {
+	authority := plan.Authority()
+	canonical, err := json.Marshal(cleanupFingerprintFacts{
+		RecoveryDir:                 paths.RecoveryDir,
+		OperationID:                 authority.OperationID(),
+		Classification:              plan.Classification(),
+		Action:                      plan.Action(),
+		JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
+		Phase:                       authority.Phase(),
+		ResiduePresent:              authority.ResiduePresent(),
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf(
+			"fingerprint journal cleanup plan: %w",
+			err,
+		)
+	}
+	return mutation.NewOperationFingerprint(canonical), nil
+}
+
 func transitionOperationID(transition ownershipmutation.ClaimTransition) string {
 	if claim, present := transition.Prepared().Get(); present {
 		return claim.OperationID()
@@ -133,7 +200,39 @@ func transitionOperationID(transition ownershipmutation.ClaimTransition) string 
 	return ""
 }
 
-func buildRecoveryAuthorityEvidence(paths daempaths.Paths, plan recovery.Plan) (recoveryAuthorityEvidence, error) {
+func buildRecoveryAuthorityEvidence(
+	paths daempaths.Paths,
+	selection journal.RecoverablePlan,
+) (recoveryAuthorityEvidence, error) {
+	switch selection.AuthorityKind() {
+	case journal.RecoveryAuthorityActiveJournal:
+		plan, ok := journal.ActiveRecoveryPlan(selection)
+		if !ok {
+			return recoveryAuthorityEvidence{}, fmt.Errorf(
+				"active recovery selection is unavailable",
+			)
+		}
+		return buildActiveRecoveryAuthorityEvidence(paths, plan)
+	case journal.RecoveryAuthorityJournalCleanup:
+		plan, ok := journal.JournalCleanupPlan(selection)
+		if !ok {
+			return recoveryAuthorityEvidence{}, fmt.Errorf(
+				"journal cleanup selection is unavailable",
+			)
+		}
+		return buildCleanupRecoveryAuthorityEvidence(paths, plan)
+	default:
+		return recoveryAuthorityEvidence{}, fmt.Errorf(
+			"recovery authority kind %q is unsupported",
+			selection.AuthorityKind(),
+		)
+	}
+}
+
+func buildActiveRecoveryAuthorityEvidence(
+	paths daempaths.Paths,
+	plan recovery.Plan,
+) (recoveryAuthorityEvidence, error) {
 	facts := make([]recoveryAuthorityFact, 0)
 	domains := make([]mutation.Domain, 0)
 	revisions := make(map[string]mutation.RevisionRequest)
@@ -225,6 +324,69 @@ func buildRecoveryAuthorityEvidence(paths daempaths.Paths, plan recovery.Plan) (
 	canonical, err := json.Marshal(facts)
 	if err != nil {
 		return recoveryAuthorityEvidence{}, fmt.Errorf("fingerprint recovery authority: %w", err)
+	}
+	return recoveryAuthorityEvidence{
+		domains:              domains,
+		revisions:            recoverySortedRevisionRequests(revisions),
+		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
+	}, nil
+}
+
+func buildCleanupRecoveryAuthorityEvidence(
+	paths daempaths.Paths,
+	plan retirement.CleanupPlan,
+) (recoveryAuthorityEvidence, error) {
+	authority := plan.Authority()
+	recoveryPaths := []string{
+		paths.RecoveryDir,
+		filepath.Join(paths.RecoveryDir, authority.ControlName()),
+		filepath.Join(
+			paths.RecoveryDir,
+			authority.ControlName(),
+			retirement.RecordFileName,
+		),
+		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
+		filepath.Join(paths.RecoveryDir, authority.GCName()),
+	}
+	facts := make([]recoveryAuthorityFact, 0, len(recoveryPaths)*2)
+	domains := make([]mutation.Domain, 0, len(recoveryPaths)*2)
+	revisions := make(map[string]mutation.RevisionRequest, len(recoveryPaths)*2)
+	for _, path := range recoveryPaths {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+				Path:   path,
+				Access: mutation.AccessExclusive,
+				Effect: effect,
+			})
+			if err != nil {
+				return recoveryAuthorityEvidence{}, err
+			}
+			facts = append(facts, recoveryAuthorityFact{
+				Kind:   "logical",
+				Path:   path,
+				Access: mutation.AccessExclusive,
+				Effect: effect,
+			})
+			domains = append(domains, domain)
+			revisions[recoveryRevisionKey(path, effect)] = mutation.RevisionRequest{
+				Path:   path,
+				Effect: effect,
+			}
+		}
+	}
+	sort.Slice(facts, func(left int, right int) bool {
+		return recoveryAuthorityFactKey(facts[left]) <
+			recoveryAuthorityFactKey(facts[right])
+	})
+	canonical, err := json.Marshal(facts)
+	if err != nil {
+		return recoveryAuthorityEvidence{}, fmt.Errorf(
+			"fingerprint journal cleanup authority: %w",
+			err,
+		)
 	}
 	return recoveryAuthorityEvidence{
 		domains:              domains,

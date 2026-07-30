@@ -181,6 +181,20 @@ Mutating `apply` commits a complete recovery journal before it reserves a new
 global claim or mutates host files or state. Under ordinary local-filesystem
 process failures, `recover` can classify the journal and clean it up, roll back
 guarded changes, or finish claim finalization after host and state commit.
+Journal removal itself is also recoverable. Daem first publishes a correlated
+retirement control, renames the exact active journal to a private residue,
+advances the control to finalizing, removes the exact residue, and only then
+retires the control to inert GC. A restart observes the durable phase rather
+than trusting a prior command's success.
+
+Once the active journal has become retained cleanup residue, ordinary
+workflows do not finalize it implicitly. `daem recover --dry-run` reports
+`retained_cleanup_residue` with one `finalize_journal_cleanup` action.
+Confirmed recovery then uses only recovery-root/control/residue authority; it
+does not inspect or mutate host outputs, state, ownership, manifest, or
+lockfile. Malformed, unmatched, legacy, or replaced retirement evidence fails
+closed.
+
 Stable-storage guarantees across an OS crash or power loss are platform-scoped.
 They are current only for operation and local-filesystem rows with native
 evidence; compile-only and unsupported rows are not promoted into a guarantee.

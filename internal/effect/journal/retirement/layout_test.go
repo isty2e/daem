@@ -25,7 +25,7 @@ func TestValidateControlAdmitsCanonicalRecordAndRegularTemporaries(t *testing.T)
 				mustEntry(t, ".daem-tmp-new", EntryRegular, RecordMode, true, MaximumRecordBytes),
 			)
 
-			if !control.Record().Identity().Equal(record.Identity()) ||
+			if !control.Record().Identity().equal(record.Identity()) ||
 				control.Record().Phase() != phase {
 				t.Fatalf("control record = %#v, want %#v", control.Record(), record)
 			}
@@ -325,7 +325,7 @@ func TestValidateResidueRequiresPrivateEntryAndIndependentJournalIdentity(t *tes
 		t.Fatalf("ValidateResidue returned error: %v", err)
 	}
 	if residue.name.value != identity.ResidueName() ||
-		!residue.journalIdentity.Equal(identity) {
+		!residue.journalIdentity.equal(identity) {
 		t.Fatalf("residue = %#v, want exact identity %#v", residue, identity)
 	}
 
@@ -503,8 +503,8 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			decision := Classify(completeLayout(test.evidence))
-			if decision.Blocked() || decision.State() != test.state {
-				t.Fatalf("decision = state %q blocked=%t detail=%q, want %q", decision.State(), decision.Blocked(), decision.Detail(), test.state)
+			if decision.State() != test.state {
+				t.Fatalf("decision = state %q detail=%q, want %q", decision.State(), decision.Detail(), test.state)
 			}
 			plan, hasCleanup := decision.CleanupPlan()
 			if hasCleanup != test.hasCleanup {
@@ -533,12 +533,16 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 			if authority.RequiresPhaseAdvance() != test.requiresAdvance {
 				t.Fatalf("RequiresPhaseAdvance = %t, want %t", authority.RequiresPhaseAdvance(), test.requiresAdvance)
 			}
-			finalizingRecord, err := authority.FinalizingRecord()
+			currentRecord, err := authority.CurrentRecord()
 			if err != nil {
-				t.Fatalf("FinalizingRecord returned error: %v", err)
+				t.Fatalf("CurrentRecord returned error: %v", err)
+			}
+			finalizingRecord, err := currentRecord.Finalizing()
+			if err != nil {
+				t.Fatalf("Record.Finalizing returned error: %v", err)
 			}
 			if finalizingRecord.Phase() != PhaseFinalizing ||
-				!finalizingRecord.Identity().Equal(identity) {
+				!finalizingRecord.Identity().equal(identity) {
 				t.Fatalf("finalizing record = %#v", finalizingRecord)
 			}
 		})
@@ -677,9 +681,9 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			decision := Classify(completeLayout(test.evidence))
-			if !decision.Blocked() || decision.State() != StateBlocked ||
+			if decision.State() != StateBlocked ||
 				strings.TrimSpace(decision.Detail()) == "" {
-				t.Fatalf("decision = state %q blocked=%t detail=%q, want blocked diagnostic", decision.State(), decision.Blocked(), decision.Detail())
+				t.Fatalf("decision = state %q detail=%q, want blocked diagnostic", decision.State(), decision.Detail())
 			}
 			if _, ok := decision.CleanupPlan(); ok {
 				t.Fatal("blocked decision exposed cleanup authority")
@@ -716,24 +720,23 @@ func TestClassifyUsesDeterministicBlockerDetail(t *testing.T) {
 		t.Fatalf("NewBlocker(alpha) returned error: %v", err)
 	}
 	decision := Classify(completeLayout(layoutInput{Blockers: []Blocker{zeta, alpha}}))
-	if !decision.Blocked() || decision.Detail() != "alpha failure" {
+	if decision.State() != StateBlocked || decision.Detail() != "alpha failure" {
 		t.Fatalf("decision = %#v, want deterministic alpha blocker", decision)
 	}
 }
 
 func TestZeroAndForgedDecisionsFailClosed(t *testing.T) {
 	incomplete := Classify(LayoutEvidence{})
-	if !incomplete.Blocked() || !strings.Contains(incomplete.Detail(), "incomplete") {
+	if incomplete.State() != StateBlocked || !strings.Contains(incomplete.Detail(), "incomplete") {
 		t.Fatalf("incomplete layout decision = %#v, want fail-closed diagnostic", incomplete)
 	}
 
 	var zero Decision
-	if !zero.Blocked() || zero.State() != StateBlocked ||
+	if zero.State() != StateBlocked ||
 		!strings.Contains(zero.Detail(), "uninitialized") {
 		t.Fatalf(
-			"zero decision = state %q blocked=%t detail=%q",
+			"zero decision = state %q detail=%q",
 			zero.State(),
-			zero.Blocked(),
 			zero.Detail(),
 		)
 	}
@@ -749,8 +752,8 @@ func TestZeroAndForgedDecisionsFailClosed(t *testing.T) {
 			zeroPlan.Action(),
 		)
 	}
-	if _, err := zeroPlan.Authority().FinalizingRecord(); err == nil {
-		t.Fatal("zero cleanup authority produced a finalizing record")
+	if _, err := zeroPlan.Authority().CurrentRecord(); err == nil {
+		t.Fatal("zero cleanup authority exposed a current record")
 	}
 
 	forgedGarbage := Garbage{name: Name{
@@ -759,7 +762,7 @@ func TestZeroAndForgedDecisionsFailClosed(t *testing.T) {
 		digest: "short",
 	}}
 	decision := Classify(completeLayout(layoutInput{Garbage: []Garbage{forgedGarbage}}))
-	if !decision.Blocked() {
+	if decision.State() != StateBlocked {
 		t.Fatalf("forged GC decision = %#v, want blocked", decision)
 	}
 }
@@ -771,7 +774,7 @@ func TestLayoutEvidenceOwnsBoundarySlices(t *testing.T) {
 	active[0] = Identity{}
 
 	decision := Classify(evidence)
-	if decision.Blocked() || decision.State() != StateActive {
+	if decision.State() != StateActive {
 		t.Fatalf("decision after caller mutation = %#v, want stable active state", decision)
 	}
 }

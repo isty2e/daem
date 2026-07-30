@@ -115,7 +115,7 @@ func TestRecoveryInventoryFailsClosedOnMalformedRetirementControl(t *testing.T) 
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory returned error: %v", err)
 	}
-	if !inventory.decision.Blocked() ||
+	if inventory.decision.State() != retirement.StateBlocked ||
 		!strings.Contains(inventory.decision.Detail(), controlName) {
 		t.Fatalf("inventory = %#v, want fail-closed control diagnostic", inventory)
 	}

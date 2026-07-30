@@ -80,6 +80,13 @@ func (record Record) Phase() Phase {
 	return record.phase
 }
 
+// Equal reports whether two records carry the same durable retirement facts.
+func (record Record) Equal(other Record) bool {
+	return record.valid() && other.valid() &&
+		record.identity.equal(other.identity) &&
+		record.phase == other.phase
+}
+
 // Finalizing returns the idempotent finalizing form of this record.
 func (record Record) Finalizing() (Record, error) {
 	if !record.valid() {

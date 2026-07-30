@@ -8,8 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/output"
 )
 
 func TestRecoveryRootInventoryBlocksMultiplePhysicalAuthorities(t *testing.T) {
@@ -294,7 +297,7 @@ func TestRecoveryRootInventoryBlocksUnownedReservedEntryEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if !inventory.decision.Blocked() ||
+	if inventory.decision.State() != retirement.StateBlocked ||
 		!strings.Contains(inventory.decision.Detail(), "not owned by the invoking user") {
 		t.Fatalf("decision = %#v, want unowned-entry blocker", inventory.decision)
 	}
@@ -304,17 +307,41 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 	t.Run("active excludes cleanup", func(t *testing.T) {
 		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 		captureInventoryJournal(t, recoveryRoot, "active-plan-selection")
+		validationCalls := 0
 
-		_, err := LoadCleanupPlanWithOptions(
+		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
 			Paths{RecoveryDir: recoveryRoot},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
+				StateReader: func(context.Context) (durable.Snapshot, error) {
+					return beforeStatefile(), nil
+				},
+				ValidateBeforeActiveObservation: func(context.Context) error {
+					validationCalls++
+					return nil
+				},
 			},
 		)
-		if err == nil || !strings.Contains(err.Error(), "no journal cleanup plan") {
-			t.Fatalf("LoadCleanupPlanWithOptions error = %v, want no cleanup authority", err)
+		if err != nil {
+			t.Fatalf("LoadRecoverablePlanWithOptions: %v", err)
+		}
+		if plan.AuthorityKind() != RecoveryAuthorityActiveJournal {
+			t.Fatalf(
+				"authority kind = %q, want %q",
+				plan.AuthorityKind(),
+				RecoveryAuthorityActiveJournal,
+			)
+		}
+		if _, ok := ActiveRecoveryPlan(plan); !ok {
+			t.Fatal("active plan is unavailable")
+		}
+		if _, ok := JournalCleanupPlan(plan); ok {
+			t.Fatal("active selection exposed cleanup plan")
+		}
+		if validationCalls != 1 {
+			t.Fatalf("active-observation validation calls = %d, want 1", validationCalls)
 		}
 	})
 
@@ -323,17 +350,45 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 		identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-plan-selection")
 		writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
 		renameInventoryJournalToResidue(t, result, identity)
+		validationCalls := 0
 
-		_, err := LoadActivePlanWithOptions(
+		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
 			Paths{RecoveryDir: recoveryRoot},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
+				RootedCapability: func(output.Destination) (
+					rootedpath.CommitCapability,
+					bool,
+					error,
+				) {
+					return nil, false, errors.New("cleanup selected active capability")
+				},
+				ValidateBeforeActiveObservation: func(context.Context) error {
+					validationCalls++
+					return errors.New("cleanup selected active observation")
+				},
 			},
 		)
-		if err == nil || !strings.Contains(err.Error(), "no active recovery journal") {
-			t.Fatalf("LoadActivePlanWithOptions error = %v, want no active authority", err)
+		if err != nil {
+			t.Fatalf("LoadRecoverablePlanWithOptions: %v", err)
+		}
+		if plan.AuthorityKind() != RecoveryAuthorityJournalCleanup {
+			t.Fatalf(
+				"authority kind = %q, want %q",
+				plan.AuthorityKind(),
+				RecoveryAuthorityJournalCleanup,
+			)
+		}
+		if _, ok := JournalCleanupPlan(plan); !ok {
+			t.Fatal("cleanup plan is unavailable")
+		}
+		if _, ok := ActiveRecoveryPlan(plan); ok {
+			t.Fatal("cleanup selection exposed active plan")
+		}
+		if validationCalls != 0 {
+			t.Fatalf("cleanup active-observation validation calls = %d, want 0", validationCalls)
 		}
 	})
 }
@@ -422,12 +477,11 @@ func assertRecoveryInventoryBlocked(t *testing.T, recoveryRoot string, want stri
 	if err != nil {
 		t.Fatalf("loadRecoveryRootInventory: %v", err)
 	}
-	if !inventory.decision.Blocked() ||
+	if inventory.decision.State() != retirement.StateBlocked ||
 		!strings.Contains(inventory.decision.Detail(), want) {
 		t.Fatalf(
-			"decision = state %q blocked=%t detail=%q, want %q",
+			"decision = state %q detail=%q, want %q",
 			inventory.decision.State(),
-			inventory.decision.Blocked(),
 			inventory.decision.Detail(),
 			want,
 		)

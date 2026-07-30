@@ -4,7 +4,7 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
@@ -25,7 +25,7 @@ const (
 )
 
 type recoveryPreparation struct {
-	plan              recovery.Plan
+	plan              journal.RecoverablePlan
 	paths             daempaths.Paths
 	input             PlanInput
 	operationEvidence mutation.OperationFingerprint
@@ -37,7 +37,7 @@ type recoveryPreparation struct {
 // operation and its evidence exactly once. Value copies remain aliases of one
 // shared lifecycle and cannot duplicate execution authority.
 type PreparedRecovery struct {
-	disclosure recovery.Plan
+	disclosure journal.RecoverablePlan
 	lifecycle  *preparedRecoveryLifecycle
 }
 
@@ -57,11 +57,11 @@ func newPreparedRecovery(planned recoveryPreparation) *PreparedRecovery {
 	}
 }
 
-// Disclosure returns an independent recovery-plan snapshot for presentation.
+// Disclosure returns an independent recovery snapshot for presentation.
 // It grants no authority to execute the disclosed actions.
-func (prepared *PreparedRecovery) Disclosure() recovery.Plan {
+func (prepared *PreparedRecovery) Disclosure() journal.RecoverablePlan {
 	if prepared == nil || prepared.lifecycle == nil {
-		return recovery.Plan{}
+		return nil
 	}
 
 	prepared.lifecycle.mu.Lock()

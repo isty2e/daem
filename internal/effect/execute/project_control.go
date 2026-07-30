@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -116,14 +117,23 @@ func commitRootedControlFile(
 	return filesystem.ReplaceRootedFile(ctx, capability, content, mode, expected)
 }
 
-func (authority *mutationAuthority) removeRecoveryJournal(ctx context.Context) error {
-	if authority == nil || authority.filesystem == nil ||
-		authority.recoveryJournal == nil {
-		return fmt.Errorf("recovery journal authority is unavailable")
+func (authority *mutationAuthority) retireActiveJournal(
+	ctx context.Context,
+	paths Paths,
+	plan recovery.Plan,
+) (returnErr error) {
+	if authority == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	capability, err := authority.recoveryJournal.Acquire()
-	if err != nil {
+	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return err
 	}
-	return journal.RemoveJournal(ctx, authority.filesystem, capability)
+	root, err := rootedpath.CaptureRoot(paths.RecoveryDir)
+	if err != nil {
+		return fmt.Errorf("capture recovery root for journal retirement: %w", err)
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, root.Close())
+	}()
+	return journal.RetireActiveJournal(ctx, plan, root, authority.filesystem)
 }

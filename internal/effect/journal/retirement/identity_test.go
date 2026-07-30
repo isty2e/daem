@@ -102,11 +102,11 @@ func TestInspectNameClassifiesReservedAndUnrelatedNames(t *testing.T) {
 		{name: identity.ControlName(), kind: NameControl, hasDigest: true, belongs: true, isReserved: true},
 		{name: identity.ResidueName(), kind: NameResidue, hasDigest: true, belongs: true, isReserved: true},
 		{name: identity.GCName(), kind: NameGC, hasDigest: true, belongs: true, isReserved: true},
-		{name: "retirement-v1-short", kind: NameMalformed, isReserved: true},
-		{name: "retirement-v2-" + testDigest, kind: NameMalformed, isReserved: true},
-		{name: ".daem-journal-residue-v1-" + strings.ToUpper(testDigest), kind: NameMalformed, isReserved: true},
-		{name: ".daem-journal-gc-v2-" + testDigest, kind: NameMalformed, isReserved: true},
-		{name: ".daem-tombstone-legacy", kind: NameLegacyTombstone, isReserved: true},
+		{name: "retirement-v1-short", kind: nameMalformed, isReserved: true},
+		{name: "retirement-v2-" + testDigest, kind: nameMalformed, isReserved: true},
+		{name: ".daem-journal-residue-v1-" + strings.ToUpper(testDigest), kind: nameMalformed, isReserved: true},
+		{name: ".daem-journal-gc-v2-" + testDigest, kind: nameMalformed, isReserved: true},
+		{name: ".daem-tombstone-legacy", kind: nameLegacyTombstone, isReserved: true},
 		{name: ".unrelated-hidden", kind: NameUnrelated},
 		{name: "ordinary-operation", kind: NameUnrelated},
 	}
@@ -117,18 +117,18 @@ func TestInspectNameClassifiesReservedAndUnrelatedNames(t *testing.T) {
 			if got := name.Kind(); got != test.kind {
 				t.Fatalf("Kind = %q, want %q", got, test.kind)
 			}
-			if got := name.Value(); got != test.name {
-				t.Fatalf("Value = %q, want %q", got, test.name)
+			if name.value != test.name {
+				t.Fatalf("value = %q, want %q", name.value, test.name)
 			}
-			digest, hasDigest := name.Digest()
+			digest, hasDigest := name.digestValue()
 			if hasDigest != test.hasDigest {
 				t.Fatalf("Digest present = %t, want %t (digest %q)", hasDigest, test.hasDigest, digest)
 			}
 			if got := name.BelongsTo(identity); got != test.belongs {
 				t.Fatalf("BelongsTo = %t, want %t", got, test.belongs)
 			}
-			if got := IsReservedName(test.name); got != test.isReserved {
-				t.Fatalf("IsReservedName = %t, want %t", got, test.isReserved)
+			if got := isReservedName(test.name); got != test.isReserved {
+				t.Fatalf("isReservedName = %t, want %t", got, test.isReserved)
 			}
 		})
 	}
@@ -161,7 +161,7 @@ func TestIdentityValidationRejectsForgedDigest(t *testing.T) {
 	if identity.valid() {
 		t.Fatal("identity with forged digest remained valid")
 	}
-	if identity.Equal(identity) {
+	if identity.equal(identity) {
 		t.Fatal("identity with forged digest compared equal")
 	}
 	if InspectName("retirement-v1-" + strings.Repeat("0", 64)).BelongsTo(identity) {
@@ -178,7 +178,7 @@ func TestNameValidationRejectsForgedNormalizedValue(t *testing.T) {
 		kind:   NameGC,
 		digest: testDigest,
 	}
-	if digest, ok := forged.Digest(); ok || digest != "" {
+	if digest, ok := forged.digestValue(); ok || digest != "" {
 		t.Fatalf("forged Name.Digest = %q, %t", digest, ok)
 	}
 	if blocker, ok := BlockerForName(Name{}); !ok ||

@@ -154,7 +154,7 @@ Use `--json` for automation. Warnings do not fail doctor; errors do.
 
 ## 7. Recover An Interrupted Apply
 
-When apply leaves an active recovery journal, inspect it first:
+When apply leaves interrupted recovery evidence, inspect it first:
 
 ```bash
 daem recover --dry-run

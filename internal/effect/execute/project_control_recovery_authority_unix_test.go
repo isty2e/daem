@@ -21,9 +21,8 @@ func TestRecoveryCleanupRejectsProjectRootReplacementWithoutTouchingReplacement(
 	))
 	movedRoot := fixture.projectRoot + "-moved"
 	const replacementContent = "replacement\n"
-	filesystem := &rootSwapOnJournalRemovalStore{
-		Store:       testFilesystem(),
-		journalPath: fixture.plan.OperationDir(),
+	filesystem := &rootSwapOnJournalGCCleanupStore{
+		Store: testFilesystem(),
 		swap: func() {
 			replaceSelectedRoot(t, fixture.projectRoot, movedRoot)
 			writeRecoveryTestFile(

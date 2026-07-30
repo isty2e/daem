@@ -17,7 +17,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 	flags := newCommandFlagSet([]string{"recover"}, stderr)
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
-	dryRun := flags.Bool("dry-run", false, "classify active recovery journal without writing")
+	dryRun := flags.Bool("dry-run", false, "classify interrupted recovery evidence without writing")
 	jsonOutput := flags.Bool("json", false, "emit structured JSON output with --dry-run")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
 	yes := flags.Bool("yes", false, "execute recovery without an interactive prompt")

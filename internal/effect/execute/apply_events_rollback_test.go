@@ -315,7 +315,7 @@ func TestApplyWithOptionsJournalCleanupFailureDoesNotRollbackAfterStatefileWrite
 		_ = os.Chmod(fixture.paths.RecoveryDir, 0o700)
 	})
 
-	if err == nil || !strings.Contains(err.Error(), "remove recovery journal") {
+	if err == nil || !strings.Contains(err.Error(), "retire recovery journal") {
 		t.Fatalf("result = %#v, error = %v, want cleanup failure", result, err)
 	}
 	assertEventKinds(t, events, []EventKind{

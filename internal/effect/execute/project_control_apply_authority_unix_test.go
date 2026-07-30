@@ -141,7 +141,7 @@ func TestApplyRetainsJournalWhenProjectRootIsReplacedBeforeCleanup(t *testing.T)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
 		t.Fatalf("ApplyWithOptions error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
-	if !strings.Contains(err.Error(), "remove recovery journal") {
+	if !strings.Contains(err.Error(), "retire recovery journal") {
 		t.Fatalf("ApplyWithOptions error = %v, want cleanup refusal", err)
 	}
 	assertHostFileContent(t, movedFixturePath(fixture, movedRoot, fixture.hostPath("CREATE.md")), "created\n")
@@ -214,7 +214,7 @@ func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
 	action := fixture.createAction("create", "CREATE.md", "created\n")
 	movedRoot := fixture.root + "-moved"
 	input := fixture.input([]applyEventAction{action})
-	filesystem := &rootSwapAfterProjectJournalRemovalStore{
+	filesystem := &rootSwapAfterProjectJournalGCCleanupStore{
 		Store: input.Filesystem,
 		swap: func() {
 			replaceSelectedRoot(t, fixture.root, movedRoot)
@@ -233,7 +233,7 @@ func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
 		t.Fatalf("ApplyWithOptions error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
-	if !strings.Contains(err.Error(), "recovery journal removed") {
+	if !strings.Contains(err.Error(), "recovery journal retired") {
 		t.Fatalf("ApplyWithOptions error = %v, want exact cleanup outcome", err)
 	}
 	if filesystem.swapCount() != 1 {

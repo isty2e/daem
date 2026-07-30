@@ -52,7 +52,7 @@ func ValidateOperationID(value string) error {
 	if value == "" || value == "." || value == ".." {
 		return fmt.Errorf("operation id must be a non-empty safe path component")
 	}
-	if strings.HasPrefix(value, ".") || IsReservedName(value) {
+	if strings.HasPrefix(value, ".") || isReservedName(value) {
 		return fmt.Errorf("operation id %q uses a reserved recovery name", value)
 	}
 	for _, char := range value {
@@ -108,8 +108,7 @@ func (identity Identity) JournalAuthorityFingerprint() string {
 	return identity.journalAuthorityFingerprint
 }
 
-// Equal reports whether two values carry identical immutable correlation.
-func (identity Identity) Equal(other Identity) bool {
+func (identity Identity) equal(other Identity) bool {
 	return identity == other && identity.valid()
 }
 
@@ -158,8 +157,8 @@ const (
 	NameControl         NameKind = "control"
 	NameResidue         NameKind = "residue"
 	NameGC              NameKind = "gc"
-	NameLegacyTombstone NameKind = "legacy_tombstone"
-	NameMalformed       NameKind = "malformed_reserved"
+	nameLegacyTombstone NameKind = "legacy_tombstone"
+	nameMalformed       NameKind = "malformed_reserved"
 )
 
 // Name is one normalized recovery-root entry-name observation.
@@ -179,9 +178,9 @@ func InspectName(value string) Name {
 	case strings.HasPrefix(value, gcPrefix):
 		return inspectDigestName(value, gcPrefix, NameGC)
 	case strings.HasPrefix(value, legacyTombstonePrefix):
-		return Name{value: value, kind: NameLegacyTombstone}
-	case IsReservedName(value):
-		return Name{value: value, kind: NameMalformed}
+		return Name{value: value, kind: nameLegacyTombstone}
+	case isReservedName(value):
+		return Name{value: value, kind: nameMalformed}
 	default:
 		return Name{value: value, kind: NameUnrelated}
 	}
@@ -190,23 +189,16 @@ func InspectName(value string) Name {
 func inspectDigestName(value string, prefix string, kind NameKind) Name {
 	digest := strings.TrimPrefix(value, prefix)
 	if !isLowerHex(digest, sha256.Size*2) {
-		return Name{value: value, kind: NameMalformed}
+		return Name{value: value, kind: nameMalformed}
 	}
 	return Name{value: value, kind: kind, digest: digest}
 }
 
-// IsReservedName reports whether a name occupies any version of the journal
-// retirement or legacy tombstone namespace.
-func IsReservedName(value string) bool {
+func isReservedName(value string) bool {
 	return strings.HasPrefix(value, visibleRetirementPrefix) ||
 		strings.HasPrefix(value, hiddenResidueFamilyPrefix) ||
 		strings.HasPrefix(value, hiddenGCFamilyPrefix) ||
 		strings.HasPrefix(value, legacyTombstonePrefix)
-}
-
-// Value returns the observed directory-entry name.
-func (name Name) Value() string {
-	return name.value
 }
 
 // Kind returns the normalized entry-name classification.
@@ -214,8 +206,7 @@ func (name Name) Kind() NameKind {
 	return name.kind
 }
 
-// Digest returns the valid artifact digest, when the name carries one.
-func (name Name) Digest() (string, bool) {
+func (name Name) digestValue() (string, bool) {
 	if !name.valid() {
 		return "", false
 	}
@@ -234,7 +225,7 @@ func (name Name) valid() bool {
 // BelongsTo reports whether a valid retirement artifact name carries the
 // supplied identity digest.
 func (name Name) BelongsTo(identity Identity) bool {
-	digest, ok := name.Digest()
+	digest, ok := name.digestValue()
 	return ok && identity.valid() && digest == identity.digest
 }
 
