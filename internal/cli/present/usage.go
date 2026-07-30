@@ -284,7 +284,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]string{"daem init", "daem init --manifest ~/.config/daem/daem.toml"}, cliDocumentReference),
 		"import": leaf("daem import", "daem import --target <target> [--target <target> ...] [options]", "build desired state from existing agent configuration", nil,
 			[]helpRow{workspace, target, scope, {"--source-dir <path>", "Destination for copied instruction sources."}, {"--merge", "Merge into an existing selected manifest instead of creating a new one."}, dryRun, diff, jsonOutputWithDiff, verbose},
-			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}},
+			[]helpRow{{"", "At least one --target is required. Import targets: " + context.ImportTargets + "."}, {"", "Extensions are imported only when daem can recover their exact install source; other observed extensions are reported and skipped."}, {"", "Without --manifest, non-merge import creates ./daem.toml; --merge uses existing-workspace selection."}},
 			[]string{"daem import --target codex", "daem import --target codex --target claude-code --dry-run --diff"}, cliDocumentReference),
 		"lock": leaf("daem lock", "daem lock [--manifest <path>] [--dry-run] [--json|--verbose]", "resolve the manifest into an exact lockfile", nil,
 			[]helpRow{workspace, dryRun, jsonOutput, verbose},

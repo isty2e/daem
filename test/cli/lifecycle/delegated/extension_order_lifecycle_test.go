@@ -70,6 +70,17 @@ func TestPiExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
 	assertOrderResults(t, applied, "pi", 1, "converged", true)
 	assertOrderedText(t, string(testkit.ReadFile(t, settingsPath)), alpha, foreign, beta)
 
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".pi/settings.json",
+		`{"packages":["`+beta+`","`+foreign+`","`+alpha+`"]}`,
+	)
+	check := runExtensionOrderStatusCheck(t, manifestPath)
+	assertOrderPlan(t, check, "pi", "runtime-precedence", 1)
+	reapplied := runExtensionOrderApply(t, manifestPath)
+	assertOrderResults(t, reapplied, "pi", 1, "converged", true)
+
 	retry := runExtensionOrderApply(t, manifestPath)
 	assertOrderResults(t, retry, "pi", 1, "exact", false)
 	assertOrderedText(t, string(testkit.ReadFile(t, settingsPath)), alpha, foreign, beta)
@@ -149,6 +160,113 @@ func TestOpenCodeExtensionImportLockApplyAndRetryConvergesBothConfigOrders(t *te
 	}
 }
 
+func TestPiGlobalExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	agentRoot := filepath.Join(tempDir, "pi-agent")
+	t.Setenv("PI_CODING_AGENT_DIR", agentRoot)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	settingsPath := filepath.Join(agentRoot, "settings.json")
+	alpha := "npm:@acme/alpha@1.0.0"
+	beta := "npm:@acme/beta@1.0.0"
+	foreign := "npm:@acme/foreign@1.0.0"
+	testkit.WriteFile(
+		t,
+		agentRoot,
+		"settings.json",
+		`{"packages":["`+alpha+`","`+beta+`"]}`,
+	)
+
+	runExtensionOrderCLI(
+		t,
+		[]string{
+			"import", "--target", "pi", "--scope", "global",
+			"--manifest", manifestPath,
+		},
+	)
+	runExtensionOrderLock(t, manifestPath)
+	testkit.WriteFile(
+		t,
+		agentRoot,
+		"settings.json",
+		`{"packages":["`+beta+`","`+foreign+`","`+alpha+`"]}`,
+	)
+
+	dryRun := runExtensionOrderPlan(t, "apply", manifestPath, "--manage-existing")
+	if dryRun.HasErrors {
+		t.Fatalf("global Pi manage-existing dry-run has errors: %#v", dryRun)
+	}
+	assertOrderPlan(t, dryRun, "pi", "runtime-precedence", 1)
+
+	applied := runExtensionOrderApply(t, manifestPath, "--manage-existing")
+	assertOrderResults(t, applied, "pi", 1, "converged", true)
+	assertOrderedText(t, string(testkit.ReadFile(t, settingsPath)), alpha, foreign, beta)
+
+	retry := runExtensionOrderApply(t, manifestPath)
+	assertOrderResults(t, retry, "pi", 1, "exact", false)
+}
+
+func TestOpenCodeGlobalExtensionImportLockApplyAndRetryConvergesBothConfigOrders(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	configRoot := filepath.Join(tempDir, "config", "opencode")
+	configPath := filepath.Join(configRoot, "opencode.json")
+	tuiPath := filepath.Join(configRoot, "tui.jsonc")
+	alpha := "@acme/alpha@1.0.0"
+	beta := "@acme/beta@1.0.0"
+	foreign := "@acme/foreign@1.0.0"
+	testkit.WriteFile(
+		t,
+		configRoot,
+		"opencode.json",
+		`{"plugin":["`+alpha+`","`+beta+`"],"theme":"night"}`,
+	)
+	testkit.WriteFile(
+		t,
+		configRoot,
+		"tui.jsonc",
+		`{"plugin":["`+alpha+`","`+beta+`"],"scroll_speed":3}`,
+	)
+
+	runExtensionOrderCLI(
+		t,
+		[]string{
+			"import", "--target", "opencode", "--scope", "global",
+			"--manifest", manifestPath,
+		},
+	)
+	runExtensionOrderLock(t, manifestPath)
+	testkit.WriteFile(
+		t,
+		configRoot,
+		"opencode.json",
+		`{"plugin":["`+beta+`","`+foreign+`","`+alpha+`"],"theme":"night"}`,
+	)
+	testkit.WriteFile(
+		t,
+		configRoot,
+		"tui.jsonc",
+		`{"plugin":["`+beta+`","`+foreign+`","`+alpha+`"],"scroll_speed":3}`,
+	)
+
+	dryRun := runExtensionOrderPlan(t, "apply", manifestPath, "--manage-existing")
+	if dryRun.HasErrors {
+		t.Fatalf("global OpenCode manage-existing dry-run has errors: %#v", dryRun)
+	}
+	assertOrderPlan(t, dryRun, "opencode", "config-order-only", 2)
+
+	applied := runExtensionOrderApply(t, manifestPath, "--manage-existing")
+	assertOrderResults(t, applied, "opencode", 2, "converged", true)
+	assertOrderedText(t, string(testkit.ReadFile(t, configPath)), alpha, foreign, beta)
+	assertOrderedText(t, string(testkit.ReadFile(t, tuiPath)), alpha, foreign, beta)
+
+	retry := runExtensionOrderApply(t, manifestPath)
+	assertOrderResults(t, retry, "opencode", 2, "exact", false)
+}
+
 func runExtensionOrderLock(t *testing.T, manifestPath string) clijson.Lock {
 	t.Helper()
 	var stdout bytes.Buffer
@@ -181,6 +299,26 @@ func runExtensionOrderPlan(
 	exitCode := testkit.RunVerboseCLI(args, &stdout, &stderr)
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("%s exitCode=%d stdout=%q stderr=%q", command, exitCode, stdout.String(), stderr.String())
+	}
+	return clijson.DecodePlan(t, stdout.Bytes())
+}
+
+func runExtensionOrderStatusCheck(t *testing.T, manifestPath string) clijson.Plan {
+	t.Helper()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"status", "--manifest", manifestPath, "--check", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 || stderr.Len() != 0 {
+		t.Fatalf(
+			"status --check exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
 	}
 	return clijson.DecodePlan(t, stdout.Bytes())
 }

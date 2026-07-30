@@ -384,6 +384,24 @@ func relationOrderTestLock(
 	selectedTarget target.Target,
 	sourceValues []string,
 ) lock.File {
+	return relationOrderTestLockAtScope(
+		t,
+		root,
+		carrier,
+		selectedTarget,
+		target.ScopeProject,
+		sourceValues,
+	)
+}
+
+func relationOrderTestLockAtScope(
+	t testing.TB,
+	root string,
+	carrier desiredextension.Carrier,
+	selectedTarget target.Target,
+	scope target.Scope,
+	sourceValues []string,
+) lock.File {
 	t.Helper()
 	extensions := make([]desiredextension.Extension, 0, len(sourceValues))
 	for index, value := range sourceValues {
@@ -398,7 +416,7 @@ func relationOrderTestLock(
 			Name:    string(rune('a' + index)),
 			Carrier: carrier,
 			Target:  selectedTarget,
-			Scope:   target.ScopeProject,
+			Scope:   scope,
 			Source:  source,
 		})
 		if err != nil {

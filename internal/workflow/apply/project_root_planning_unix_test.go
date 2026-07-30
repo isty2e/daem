@@ -43,6 +43,36 @@ func TestProjectRelationOrderRequiresRetainedProjectRoot(t *testing.T) {
 	}
 }
 
+func TestGlobalRelationOrderRequiresRetainedSelectedRoot(t *testing.T) {
+	root := t.TempDir()
+	agentRoot := filepath.Join(root, "pi-agent")
+	t.Setenv("PI_CODING_AGENT_DIR", agentRoot)
+	locked := relationOrderTestLockAtScope(
+		t,
+		root,
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		target.ScopeGlobal,
+		[]string{"npm:a@1", "npm:b@1"},
+	)
+	writeRelationOrderTestFile(
+		t,
+		filepath.Join(agentRoot, "settings.json"),
+		`{"packages":["npm:b@1","npm:a@1"]}`,
+	)
+	reconciliation := relationOrderTestReconciliation(
+		t,
+		daempaths.Paths{ManifestRoot: root},
+		locked,
+		nil,
+	)
+	if !requiresProjectRootAuthority(commandPlan{
+		assessment: readiness.Assessment{Reconciliation: reconciliation},
+	}) {
+		t.Fatal("global extension order did not retain selected-root authority")
+	}
+}
+
 func TestPlanWriteCapturesProjectRootBeforeManifestLoad(t *testing.T) {
 	root, manifestPath, lockfilePath, missingInventory, _, _ := writeApplyCodexPluginCarrierCommandFixture(t)
 	manifestContent, err := os.ReadFile(manifestPath)

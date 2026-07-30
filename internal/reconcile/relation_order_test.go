@@ -110,6 +110,68 @@ func TestRelationOrderDecisionClassifiesExactNormalizeAndCarrierConditions(t *te
 	}
 }
 
+func TestResultReportsEveryNonExactRelationOrder(t *testing.T) {
+	alpha := orderTestMember(t, "alpha", "pkg:alpha")
+	beta := orderTestMember(t, "beta", "pkg:beta")
+	constraint := orderTestConstraint(t, "extension:pi:project:packages", alpha, beta)
+	tests := []struct {
+		name     string
+		rows     []observerelation.ObservedRelationRow
+		installs []topology.SubjectID
+	}{
+		{
+			name: "exact",
+			rows: []observerelation.ObservedRelationRow{
+				orderTestRow(t, alpha),
+				orderTestRow(t, beta),
+			},
+		},
+		{
+			name: "normalize",
+			rows: []observerelation.ObservedRelationRow{
+				orderTestRow(t, beta),
+				orderTestRow(t, alpha),
+			},
+		},
+		{
+			name:     "conditional",
+			rows:     []observerelation.ObservedRelationRow{orderTestRow(t, alpha)},
+			installs: []topology.SubjectID{beta.Subject()},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			decision := orderTestDecision(t, RelationOrderDecisionInput{
+				Target:     target.TargetPi,
+				Scope:      target.ScopeProject,
+				Constraint: constraint,
+				Sequence: orderTestSequence(
+					t,
+					constraint,
+					"pi:project:settings.packages",
+					test.rows,
+				),
+				PendingInstalls: test.installs,
+			})
+			result, err := NewResult(ResultInput{
+				Context:        ContextInspect,
+				RelationOrders: []RelationOrderDecision{decision},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantNonExact := test.name != "exact"
+			if result.HasNonExactRelationOrders() != wantNonExact {
+				t.Fatalf(
+					"HasNonExactRelationOrders = %t, want %t",
+					result.HasNonExactRelationOrders(),
+					wantNonExact,
+				)
+			}
+		})
+	}
+}
+
 func TestRelationOrderDecisionBlocksUnexplainedMembershipAndIdentityDrift(t *testing.T) {
 	alpha := orderTestMember(t, "alpha", "pkg:alpha")
 	beta := orderTestMember(t, "beta", "pkg:beta")

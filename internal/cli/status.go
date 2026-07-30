@@ -109,7 +109,7 @@ func statusCheckExitCode(result statusworkflow.CommandResult, check bool) int {
 	}
 	if result.LockfileMissing || len(result.Reconciliation.PendingManagedPaths()) != 0 || len(result.Reconciliation.PendingAggregates()) != 0 ||
 		result.HasBlockedRelationActions() ||
-		result.Reconciliation.HasBlockedRelationOrders() ||
+		result.Reconciliation.HasNonExactRelationOrders() ||
 		result.Reconciliation.HasBlockedCarrierAdoptions() ||
 		result.Reconciliation.HasBlockedCarrierAbsences() {
 		return 1

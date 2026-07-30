@@ -371,6 +371,12 @@ func (decision RelationOrderDecision) RequiresMutation() bool {
 	return decision.kind == OrderNormalize
 }
 
+// IsExact reports whether the selected physical sequence already satisfies
+// the complete locked order constraint.
+func (decision RelationOrderDecision) IsExact() bool {
+	return decision.kind == OrderExact
+}
+
 func canonicalOrderSubjects(label string, values []topology.SubjectID) ([]topology.SubjectID, error) {
 	canonical := append([]topology.SubjectID(nil), values...)
 	slices.SortFunc(canonical, topology.CompareSubjectID)

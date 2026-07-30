@@ -1,10 +1,12 @@
 package clipresent
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,6 +39,23 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 				t.Fatalf("schema version = %d, want %d", test.got, test.want)
 			}
 		})
+	}
+}
+
+func TestCLIReferenceDocumentsApplyResultSchemaVersion(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join("..", "..", "..", "docs", "cli.md")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read CLI reference: %v", err)
+	}
+	want := fmt.Sprintf(
+		"| confirmed `apply` | Apply result | `%d` |",
+		applyResultJSONSchemaVersion,
+	)
+	if !strings.Contains(string(content), want) {
+		t.Fatalf("CLI reference is missing current apply schema row %q", want)
 	}
 }
 

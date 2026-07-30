@@ -223,7 +223,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list outputs` | Output inventory | `3` |
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `10` |
-| confirmed `apply` | Apply result | `14` |
+| confirmed `apply` | Apply result | `15` |
 | `recover` | Recovery plan/result | `3` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
@@ -654,11 +654,11 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending output action, and no blocked carrier-relation, extension-order, or carrier-adoption action | lockfile missing, pending output action, blocked carrier relation/order action, or carrier-adoption claim conflict |
+| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, non-exact extension order, blocked carrier relation, or carrier-adoption claim conflict |
 
 Warning-only diagnostics, selected missing carrier relations, and observe-only
-relation rows do not make `--check` fail. JSON and human modes use the same exit
-predicate.
+relation rows do not make `--check` fail. A normalize, conditional, or blocked
+extension-order row is non-clean. JSON and human modes use the same exit predicate.
 
 ## `apply`
 
