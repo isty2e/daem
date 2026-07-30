@@ -125,6 +125,52 @@ func TestNewGitSourceCanonicalizesAcceptedForms(t *testing.T) {
 	}
 }
 
+func TestGitLocatorEquivalentUsesCanonicalLocalIdentity(t *testing.T) {
+	t.Parallel()
+
+	localPath, err := filepath.Abs("repo with space")
+	if err != nil {
+		t.Fatalf("Abs returned error: %v", err)
+	}
+	native, err := ParseGitLocator(localPath)
+	if err != nil {
+		t.Fatalf("ParseGitLocator native path returned error: %v", err)
+	}
+	fileURL, err := ParseGitLocator((&url.URL{Scheme: "file", Path: filepath.ToSlash(localPath)}).String())
+	if err != nil {
+		t.Fatalf("ParseGitLocator file URL returned error: %v", err)
+	}
+	otherLocal, err := ParseGitLocator(localPath + "-other")
+	if err != nil {
+		t.Fatalf("ParseGitLocator other local path returned error: %v", err)
+	}
+	network, err := ParseGitLocator("https://example.com/acme/repo.git")
+	if err != nil {
+		t.Fatalf("ParseGitLocator network URL returned error: %v", err)
+	}
+	sameNetwork, err := ParseGitLocator("https://example.com/acme/repo.git")
+	if err != nil {
+		t.Fatalf("ParseGitLocator matching network URL returned error: %v", err)
+	}
+	otherNetwork, err := ParseGitLocator("https://example.com/acme/other.git")
+	if err != nil {
+		t.Fatalf("ParseGitLocator other network URL returned error: %v", err)
+	}
+
+	if !native.Equivalent(fileURL) || !fileURL.Equivalent(native) {
+		t.Fatal("native path and equivalent file URL did not compare equal")
+	}
+	if native.Equivalent(otherLocal) {
+		t.Fatal("different local repository paths compared equal")
+	}
+	if !network.Equivalent(sameNetwork) {
+		t.Fatal("identical network locators did not compare equal")
+	}
+	if network.Equivalent(otherNetwork) {
+		t.Fatal("different network locators compared equal")
+	}
+}
+
 func TestNewGitSourceRejectsInvalidBoundaryValuesWithoutEchoingThem(t *testing.T) {
 	t.Parallel()
 

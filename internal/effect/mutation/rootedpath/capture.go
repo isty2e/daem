@@ -12,16 +12,35 @@ import (
 // root. It issues destination-bound capabilities but owns no host payload or
 // workflow sequencing.
 type CapturedRoot struct {
-	mu        sync.Mutex
-	authority Authority
-	platform  capturedRootPlatform
-	closed    bool
+	mu            sync.Mutex
+	authority     Authority
+	platform      capturedRootPlatform
+	selectionMode rootSelectionMode
+	closed        bool
 }
+
+type rootSelectionMode uint8
+
+const (
+	rootSelectionInvalid rootSelectionMode = iota
+	rootSelectionResolveAlias
+	rootSelectionNoFollow
+)
 
 // CaptureRoot resolves a selected root alias once and retains a native witness
 // for the resulting physical directory.
 func CaptureRoot(selectedRoot string) (*CapturedRoot, error) {
-	physicalRoot, platform, object, mount, err := captureRootPlatform(selectedRoot)
+	return captureRoot(selectedRoot, rootSelectionResolveAlias)
+}
+
+// CaptureRootNoFollow retains a native witness only when every selected path
+// component is a directory rather than a symbolic link.
+func CaptureRootNoFollow(selectedRoot string) (*CapturedRoot, error) {
+	return captureRoot(selectedRoot, rootSelectionNoFollow)
+}
+
+func captureRoot(selectedRoot string, selectionMode rootSelectionMode) (*CapturedRoot, error) {
+	physicalRoot, platform, object, mount, err := captureRootPlatform(selectedRoot, selectionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +49,11 @@ func CaptureRoot(selectedRoot string) (*CapturedRoot, error) {
 		_ = closeCapturedRootPlatform(&platform)
 		return nil, err
 	}
-	return &CapturedRoot{authority: authority, platform: platform}, nil
+	return &CapturedRoot{
+		authority:     authority,
+		platform:      platform,
+		selectionMode: selectionMode,
+	}, nil
 }
 
 // CaptureDestination binds one absolute destination to the nearest existing
@@ -122,11 +145,15 @@ func (root *CapturedRoot) ValidateSelection(selectedRoot string) error {
 	if err != nil {
 		return err
 	}
-	return validateSelectionAgainstAuthority(expected, selectedRoot)
+	return validateSelectionAgainstAuthority(expected, selectedRoot, root.selectionMode)
 }
 
-func validateSelectionAgainstAuthority(expected Authority, selectedRoot string) error {
-	current, err := CaptureRoot(selectedRoot)
+func validateSelectionAgainstAuthority(
+	expected Authority,
+	selectedRoot string,
+	selectionMode rootSelectionMode,
+) error {
+	current, err := captureRoot(selectedRoot, selectionMode)
 	if err != nil {
 		return err
 	}
@@ -234,9 +261,10 @@ func (root *CapturedRoot) acquireWorkingDirectory(selectedRoot string) (WorkingD
 		return nil, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "duplicate captured root witness", err)
 	}
 	capability := &workingDirectoryCapability{
-		authority:    root.authority,
-		platform:     platform,
-		selectedRoot: selectedRoot,
+		authority:     root.authority,
+		platform:      platform,
+		selectedRoot:  selectedRoot,
+		selectionMode: root.selectionMode,
 	}
 	if err := validateCapturedRootPlatform(&capability.platform); err != nil {
 		_ = capability.Close()
@@ -268,11 +296,12 @@ type commitCapability struct {
 }
 
 type workingDirectoryCapability struct {
-	mu           sync.Mutex
-	authority    Authority
-	platform     capturedRootPlatform
-	selectedRoot string
-	closed       bool
+	mu            sync.Mutex
+	authority     Authority
+	platform      capturedRootPlatform
+	selectedRoot  string
+	selectionMode rootSelectionMode
+	closed        bool
 }
 
 func (capability *workingDirectoryCapability) Validate() error {
@@ -336,7 +365,11 @@ func (capability *workingDirectoryCapability) validateLocked() error {
 		return err
 	}
 	if capability.selectedRoot != "" {
-		return validateSelectionAgainstAuthority(capability.authority, capability.selectedRoot)
+		return validateSelectionAgainstAuthority(
+			capability.authority,
+			capability.selectedRoot,
+			capability.selectionMode,
+		)
 	}
 	return nil
 }

@@ -110,38 +110,44 @@ func TestResolvePrunesDeletedTagFromRepositoryCache(t *testing.T) {
 	}
 }
 
-func TestNativeLocalCloneDoesNotHardlinkSourceObjects(t *testing.T) {
+func TestNativeLocalRepositoryCacheIsIndependentBareRepository(t *testing.T) {
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
 	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\n---\n")
 	commit := commitAll(t, repoPath, "initial skill")
 
-	gitSource, ok := mustGitSource(t, repoPath, ".", commit).Git()
-	if !ok {
-		t.Fatal("source is not git")
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
 	}
-	clonePath := filepath.Join(tempDir, "clone")
-	command := exec.Command(gitExecutable, cloneArgs(gitSource, clonePath)...)
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git clone failed: %v\n%s", err, output)
+	if _, err := resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, ".", commit),
+		noOperationOptions,
+	); err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	cachePath := resolver.repositoryPath(repoPath)
+	if output := strings.TrimSpace(runGitTestCommand(t, cachePath, "rev-parse", "--is-bare-repository")); output != "true" {
+		t.Fatalf("repository cache bare state = %q, want true", output)
 	}
 
 	sourceObject := filepath.Join(repoPath, ".git", "objects", commit[:2], commit[2:])
-	cloneObject := filepath.Join(clonePath, ".git", "objects", commit[:2], commit[2:])
+	cacheObject := filepath.Join(cachePath, "objects", commit[:2], commit[2:])
 	sourceInfo, sourceErr := os.Stat(sourceObject)
-	cloneInfo, cloneErr := os.Stat(cloneObject)
-	if sourceErr == nil && cloneErr == nil && os.SameFile(sourceInfo, cloneInfo) {
-		t.Fatal("native local clone hardlinked a source object")
+	cacheInfo, cacheErr := os.Stat(cacheObject)
+	if sourceErr == nil && cacheErr == nil && os.SameFile(sourceInfo, cacheInfo) {
+		t.Fatal("native local repository cache hardlinked a source object")
 	}
 
 	if err := os.RemoveAll(repoPath); err != nil {
 		t.Fatalf("RemoveAll source repository returned error: %v", err)
 	}
 	verify := exec.Command(gitExecutable, "cat-file", "-e", commit+"^{commit}")
-	verify.Dir = clonePath
+	verify.Dir = cachePath
 	if output, err := verify.CombinedOutput(); err != nil {
-		t.Fatalf("cloned repository lost commit after source removal: %v\n%s", err, output)
+		t.Fatalf("repository cache lost commit after source removal: %v\n%s", err, output)
 	}
 }
 
@@ -180,6 +186,7 @@ func TestResolveRejectsBundleFileBeforeGitProcessLaunch(t *testing.T) {
 }
 
 func TestResolveRejectsInvalidGitCommitOutputBeforeArtifactExport(t *testing.T) {
+	requireGit(t)
 	requestedCommit := strings.Repeat("a", 40)
 	for _, test := range []struct {
 		name       string
@@ -198,22 +205,37 @@ func TestResolveRejectsInvalidGitCommitOutputBeforeArtifactExport(t *testing.T) 
 			}
 			locator := filepath.Join(tempDir, "origin")
 			sourceSpec := mustGitSource(t, locator, ".", requestedCommit)
-			if err := os.MkdirAll(filepath.Join(resolver.repositoryPath(locator), ".git"), 0o700); err != nil {
-				t.Fatalf("create cached repository marker: %v", err)
+			cachePath := resolver.repositoryPath(locator)
+			if err := os.MkdirAll(cachePath, 0o700); err != nil {
+				t.Fatalf("create cached repository: %v", err)
 			}
+			runGitTestCommand(t, cachePath, "init", "--bare", "--quiet")
+			runGitTestCommand(t, cachePath, "remote", "add", "origin", locator)
+			writeRepositoryAuthorityRecordForTest(t, resolver, locator)
 
 			binDir := filepath.Join(tempDir, "bin")
 			if err := os.MkdirAll(binDir, 0o700); err != nil {
 				t.Fatalf("create fake git directory: %v", err)
 			}
+			realGit, err := exec.LookPath(gitExecutable)
+			if err != nil {
+				t.Fatalf("resolve real git: %v", err)
+			}
 			archiveMarker := filepath.Join(tempDir, "archive-invoked")
-			fakeGit := `#!/bin/sh
-case "$1" in
+			fakeGit := "#!/bin/sh\n" + detectGitSubcommandShell + `
+case "$git_subcommand" in
 fetch)
   exit 0
   ;;
 rev-parse)
-  printf '%s' "$DAEM_FAKE_GIT_OUTPUT"
+  case " $* " in
+  *" --is-bare-repository "*)
+    exec ` + shellQuoteForTest(realGit) + ` "$@"
+    ;;
+  *)
+    printf '%s' "$DAEM_FAKE_GIT_OUTPUT"
+    ;;
+  esac
   exit 0
   ;;
 archive)
@@ -221,7 +243,7 @@ archive)
   exit 97
   ;;
 *)
-  exit 98
+  exec ` + shellQuoteForTest(realGit) + ` "$@"
   ;;
 esac
 `

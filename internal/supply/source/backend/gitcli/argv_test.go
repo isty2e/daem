@@ -1,6 +1,7 @@
 package gitcli
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -10,17 +11,9 @@ import (
 func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 	t.Parallel()
 
-	networkSource, ok := mustGitSource(t, "https://example.com/acme/repo.git", ".", "main").Git()
-	if !ok {
-		t.Fatal("network source is not git")
-	}
 	localPath, err := filepath.Abs("repo")
 	if err != nil {
 		t.Fatalf("Abs returned error: %v", err)
-	}
-	localSource, ok := mustGitSource(t, localPath, ".", "main").Git()
-	if !ok {
-		t.Fatal("local source is not git")
 	}
 	commit := strings.Repeat("a", 40)
 
@@ -30,14 +23,39 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 		want []string
 	}{
 		{
-			name: "network clone",
-			got:  cloneArgs(networkSource, "/cache/repo"),
-			want: []string{"clone", "--no-checkout", "--filter=blob:none", "--", "https://example.com/acme/repo.git", "/cache/repo"},
+			name: "bare repository initialization",
+			got:  initializeBareRepositoryArgs(),
+			want: []string{"init", "--bare", "--quiet"},
 		},
 		{
-			name: "native local clone",
-			got:  cloneArgs(localSource, "/cache/repo"),
-			want: []string{"clone", "--no-checkout", "--filter=blob:none", "--no-local", "--", localSource.Locator().String(), "/cache/repo"},
+			name: "origin declaration",
+			got:  addOriginArgs(localPath),
+			want: []string{"remote", "add", "origin", localPath},
+		},
+		{
+			name: "bare repository inspection",
+			got:  inspectBareRepositoryArgs(),
+			want: []string{"rev-parse", "--is-bare-repository"},
+		},
+		{
+			name: "origin inspection",
+			got:  inspectOriginArgs(),
+			want: []string{"config", "--local", "--no-includes", "--get-all", "remote.origin.url"},
+		},
+		{
+			name: "local config name inspection",
+			got:  inspectLocalConfigNamesArgs(),
+			want: []string{"config", "--local", "--no-includes", "--name-only", "--get-regexp", ".*"},
+		},
+		{
+			name: "origin fetch inspection",
+			got:  inspectOriginFetchArgs(),
+			want: []string{"config", "--local", "--no-includes", "--get-all", "remote.origin.fetch"},
+		},
+		{
+			name: "effective origin inspection",
+			got:  inspectEffectiveOriginArgs(),
+			want: []string{"remote", "get-url", "origin"},
 		},
 		{
 			name: "advertised ref refresh",
@@ -79,5 +97,45 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 				t.Fatalf("argv = %#v, want %#v", testCase.got, testCase.want)
 			}
 		})
+	}
+}
+
+func TestRepositoryGitCommandArgsFixRepositoryAndDisableCachePolicy(t *testing.T) {
+	t.Parallel()
+
+	got := repositoryGitCommandArgs([]string{"fetch", "--", "origin"})
+	want := []string{
+		"--no-replace-objects",
+		"--git-dir=.",
+		"-c",
+		"core.hooksPath=" + os.DevNull,
+		"fetch",
+		"--",
+		"origin",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repositoryGitCommandArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRepositoryGitCommandEnvironmentDropsRepositorySelectors(t *testing.T) {
+	t.Parallel()
+
+	got := repositoryGitCommandEnvironment([]string{
+		"HOME=/home/operator",
+		"GIT_DIR=/attacker",
+		"GIT_COMMON_DIR=/attacker",
+		"GIT_OBJECT_DIRECTORY=/attacker/objects",
+		"GIT_ALTERNATE_OBJECT_DIRECTORIES=/attacker/alternate",
+		"GIT_IMPLICIT_WORK_TREE=1",
+		"GIT_WORK_TREE=/attacker",
+		"GIT_SSH_COMMAND=ssh -i /operator/key",
+	})
+	want := []string{
+		"HOME=/home/operator",
+		"GIT_SSH_COMMAND=ssh -i /operator/key",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("repositoryGitCommandEnvironment() = %#v, want %#v", got, want)
 	}
 }

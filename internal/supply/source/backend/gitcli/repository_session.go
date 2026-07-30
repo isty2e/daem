@@ -146,6 +146,6 @@ func (resolver Resolver) PrepareRepositorySnapshot(
 		return err
 	}
 
-	_, _, err = resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
+	_, err = resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
 	return err
 }
