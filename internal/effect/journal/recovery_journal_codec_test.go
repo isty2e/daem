@@ -308,6 +308,253 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 	}
 }
 
+func TestLoadRecoveryJournalRequiresEntryFieldPresence(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := []struct {
+		name   string
+		parent string
+		child  string
+	}{
+		{name: "subject", parent: "subject"},
+		{name: "scope", parent: "scope"},
+		{name: "path", parent: "path"},
+		{name: "before", parent: "before"},
+		{name: "expected_after", parent: "expected_after"},
+		{name: "state_before", parent: "state_before"},
+		{name: "state_expected_after", parent: "state_expected_after"},
+		{name: "before.existed", parent: "before", child: "existed"},
+		{name: "expected_after.existed", parent: "expected_after", child: "existed"},
+		{name: "state_before.managed", parent: "state_before", child: "managed"},
+		{
+			name:   "state_expected_after.managed",
+			parent: "state_expected_after",
+			child:  "managed",
+		},
+	}
+	for _, field := range fields {
+		for _, state := range []struct {
+			name   string
+			asNull bool
+			want   string
+		}{
+			{name: "missing", want: "is required"},
+			{name: "null", asNull: true, want: "must not be null"},
+		} {
+			t.Run(field.name+"/"+state.name, func(t *testing.T) {
+				mutated := mutateRecoveryEntryField(
+					t,
+					content,
+					field.parent,
+					field.child,
+					state.asNull,
+				)
+				loadErr, planErr := malformedRecoveryJournalErrors(t, mutated)
+				fieldName := field.parent
+				if field.child != "" {
+					fieldName = field.child
+				}
+				for label, err := range map[string]error{
+					"load": loadErr,
+					"plan": planErr,
+				} {
+					if err == nil ||
+						!strings.Contains(err.Error(), `field "`+fieldName+`"`) ||
+						!strings.Contains(err.Error(), state.want) {
+						t.Fatalf(
+							"%s error = %v, want field %q %s",
+							label,
+							err,
+							fieldName,
+							state.want,
+						)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestRecoveryJournalRequiredZeroFieldsRoundTrip(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   []byte
+		roundTrip func([]byte) ([]byte, error)
+	}{
+		{
+			name:    "before absent",
+			content: []byte(`{"existed":false}`),
+			roundTrip: func(content []byte) ([]byte, error) {
+				var value recoveryBeforePathDTO
+				if err := json.Unmarshal(content, &value); err != nil {
+					return nil, err
+				}
+				return json.Marshal(value)
+			},
+		},
+		{
+			name:    "expected absent",
+			content: []byte(`{"existed":false}`),
+			roundTrip: func(content []byte) ([]byte, error) {
+				var value recoveryExpectedPathDTO
+				if err := json.Unmarshal(content, &value); err != nil {
+					return nil, err
+				}
+				return json.Marshal(value)
+			},
+		},
+		{
+			name:    "unmanaged membership",
+			content: []byte(`{"managed":false}`),
+			roundTrip: func(content []byte) ([]byte, error) {
+				var value recoveryManagedMembership
+				if err := json.Unmarshal(content, &value); err != nil {
+					return nil, err
+				}
+				return json.Marshal(value)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			roundTrip, err := test.roundTrip(test.content)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(roundTrip, test.content) {
+				t.Fatalf("round trip = %s, want %s", roundTrip, test.content)
+			}
+		})
+	}
+}
+
+func TestRecoveryJournalPresenceDecoderPreservesNestedUnknownFieldRejection(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(document["entries"], &entries); err != nil {
+		t.Fatal(err)
+	}
+	var before map[string]json.RawMessage
+	if err := json.Unmarshal(entries[0]["before"], &before); err != nil {
+		t.Fatal(err)
+	}
+	before["unexpected"] = json.RawMessage(`true`)
+	entries[0]["before"], err = json.Marshal(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document["entries"], err = json.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutated, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	loadErr, _ := malformedRecoveryJournalErrors(t, mutated)
+	if loadErr == nil || !strings.Contains(loadErr.Error(), `unknown field "unexpected"`) {
+		t.Fatalf("load error = %v, want nested unknown-field rejection", loadErr)
+	}
+}
+
+func mutateRecoveryEntryField(
+	t *testing.T,
+	content []byte,
+	parent string,
+	child string,
+	asNull bool,
+) []byte {
+	t.Helper()
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(document["entries"], &entries); err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("entry count = %d, want 1", len(entries))
+	}
+	target := entries[0]
+	field := parent
+	if child != "" {
+		var nested map[string]json.RawMessage
+		if err := json.Unmarshal(target[parent], &nested); err != nil {
+			t.Fatal(err)
+		}
+		target = nested
+		field = child
+	}
+	if asNull {
+		target[field] = json.RawMessage(`null`)
+	} else {
+		delete(target, field)
+	}
+	if child != "" {
+		entries[0][parent] = mustMarshalRecoveryJSON(t, target)
+	}
+	document["entries"] = mustMarshalRecoveryJSON(t, entries)
+	return mustMarshalRecoveryJSON(t, document)
+}
+
+func mustMarshalRecoveryJSON(t *testing.T, value any) []byte {
+	t.Helper()
+	content, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+func malformedRecoveryJournalErrors(
+	t *testing.T,
+	content []byte,
+) (error, error) {
+	t.Helper()
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recoveryRoot := filepath.Join(directory, "recovery")
+	operationDir := filepath.Join(recoveryRoot, testOperationID)
+	if err := os.MkdirAll(operationDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(operationDir, recoveryJournalFileName)
+	if err := os.WriteFile(journalPath, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+	_, loadErr := loadRecoveryJournal(
+		t.Context(),
+		journalTestFilesystem(),
+		journalPath,
+		testStateCodec(),
+	)
+	plan, planErr := LoadRecoverablePlanWithOptions(
+		t.Context(),
+		Paths{RecoveryDir: recoveryRoot},
+		PlanLoadOptions{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		},
+	)
+	if plan != nil {
+		t.Fatalf("malformed recovery journal produced plan %#v", plan)
+	}
+	return loadErr, planErr
+}
+
 func TestLoadRecoveryJournalRejectsOversizedJournal(t *testing.T) {
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
