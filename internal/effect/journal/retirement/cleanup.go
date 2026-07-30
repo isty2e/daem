@@ -1,0 +1,103 @@
+package retirement
+
+// CleanupClassification is the public recovery classification reserved for
+// cleanup-only journal retirement.
+type CleanupClassification string
+
+// CleanupActionKind is the public recovery action reserved for cleanup-only
+// journal retirement.
+type CleanupActionKind string
+
+const (
+	ClassificationRetainedCleanupResidue CleanupClassification = "retained_cleanup_residue"
+	ActionFinalizeJournalCleanup         CleanupActionKind     = "finalize_journal_cleanup"
+)
+
+// CleanupAuthority carries only exact journal-retirement semantic identity.
+// It grants no filesystem authority by itself.
+type CleanupAuthority struct {
+	record         Record
+	residuePresent bool
+}
+
+func (authority CleanupAuthority) valid() bool {
+	if !authority.record.valid() {
+		return false
+	}
+	return authority.record.phase != PhasePrepared || authority.residuePresent
+}
+
+// OperationID returns the exact correlated operation.
+func (authority CleanupAuthority) OperationID() string {
+	return authority.record.identity.operationID
+}
+
+// JournalAuthorityFingerprint returns complete journal correlation.
+func (authority CleanupAuthority) JournalAuthorityFingerprint() string {
+	return authority.record.identity.journalAuthorityFingerprint
+}
+
+// Phase returns the currently durable cleanup phase.
+func (authority CleanupAuthority) Phase() Phase {
+	return authority.record.phase
+}
+
+// ControlName returns the only control entry this semantic authority may cover.
+func (authority CleanupAuthority) ControlName() string {
+	return authority.record.identity.ControlName()
+}
+
+// ResidueName returns the only journal residue this authority may cover.
+func (authority CleanupAuthority) ResidueName() string {
+	return authority.record.identity.ResidueName()
+}
+
+// GCName returns the only final GC name this authority may cover.
+func (authority CleanupAuthority) GCName() string {
+	return authority.record.identity.GCName()
+}
+
+// ResiduePresent reports the classified residue observation.
+func (authority CleanupAuthority) ResiduePresent() bool {
+	return authority.residuePresent
+}
+
+// RequiresPhaseAdvance reports whether cleanup must first persist finalizing.
+func (authority CleanupAuthority) RequiresPhaseAdvance() bool {
+	return authority.record.phase == PhasePrepared
+}
+
+// FinalizingRecord returns the exact record required before physical cleanup.
+func (authority CleanupAuthority) FinalizingRecord() (Record, error) {
+	return authority.record.Finalizing()
+}
+
+// CleanupPlan is the sole cleanup-only recovery prescription.
+type CleanupPlan struct {
+	authority CleanupAuthority
+}
+
+func (plan CleanupPlan) valid() bool {
+	return plan.authority.valid()
+}
+
+// Classification returns the stable public cleanup classification.
+func (plan CleanupPlan) Classification() CleanupClassification {
+	if !plan.valid() {
+		return ""
+	}
+	return ClassificationRetainedCleanupResidue
+}
+
+// Action returns the stable public cleanup action.
+func (plan CleanupPlan) Action() CleanupActionKind {
+	if !plan.valid() {
+		return ""
+	}
+	return ActionFinalizeJournalCleanup
+}
+
+// Authority returns semantic identity without physical mutation capability.
+func (plan CleanupPlan) Authority() CleanupAuthority {
+	return plan.authority
+}

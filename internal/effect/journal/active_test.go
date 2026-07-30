@@ -57,3 +57,33 @@ func TestActiveRecoveryOperationsIgnorePrivateResidue(t *testing.T) {
 		t.Fatalf("operations = %v, want only %q", operations, operationID)
 	}
 }
+
+func TestSafeRecoveryOperationIDRejectsRetirementNamespaces(t *testing.T) {
+	for _, operationID := range []string{
+		"retirement-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"retirement-future",
+		".daem-journal-residue-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		".daem-journal-gc-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		".daem-tombstone-legacy",
+	} {
+		if isSafeRecoveryOperationID(operationID) {
+			t.Fatalf("isSafeRecoveryOperationID(%q) = true", operationID)
+		}
+	}
+	if !isSafeRecoveryOperationID("20260730T120000.000000000Z-apply") {
+		t.Fatal("ordinary generated operation id was rejected")
+	}
+}
+
+func TestActiveRecoveryOperationsFailsClosedOnRetirementControl(t *testing.T) {
+	recoveryRoot := t.TempDir()
+	controlName := "retirement-v1-" + strings.Repeat("a", 64)
+	if err := os.Mkdir(filepath.Join(recoveryRoot, controlName), 0o700); err != nil {
+		t.Fatalf("Mkdir retirement control returned error: %v", err)
+	}
+
+	operations, err := activeRecoveryOperations(recoveryRoot)
+	if err == nil || !strings.Contains(err.Error(), controlName) {
+		t.Fatalf("activeRecoveryOperations = %v, %v, want fail-closed control diagnostic", operations, err)
+	}
+}

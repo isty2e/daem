@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -53,21 +54,7 @@ func activeRecoveryOperations(recoveryRoot string) ([]string, error) {
 }
 
 func isSafeRecoveryOperationID(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	for _, char := range value {
-		switch {
-		case char >= 'a' && char <= 'z':
-		case char >= 'A' && char <= 'Z':
-		case char >= '0' && char <= '9':
-		case char == '-', char == '_', char == '.':
-		default:
-			return false
-		}
-	}
-
-	return true
+	return retirement.ValidateOperationID(value) == nil
 }
 
 // RemoveJournal removes one recovery operation through retained root authority.

@@ -57,6 +57,43 @@ func TestAnalyzeRecordsKeepsJournalRecoveryPureAndWireNeutral(t *testing.T) {
 	}
 }
 
+func TestAnalyzeRecordsKeepsJournalRetirementPureAndEffectFree(t *testing.T) {
+	allowed := AnalyzeRecords([]PackageRecord{{
+		ImportPath: "example.com/project/internal/effect/journal/retirement",
+		Imports: []string{
+			"crypto/sha256",
+			"encoding/json",
+			"io/fs",
+			"example.com/project/internal/encoding/jsonstrict",
+		},
+	}})
+	if len(allowed) != 0 {
+		t.Fatalf("reviewed journal retirement imports produced violations: %v", allowed)
+	}
+
+	report := FormatReport(AnalyzeRecords([]PackageRecord{{
+		ImportPath: "example.com/project/internal/effect/journal/retirement",
+		Imports: []string{
+			"context",
+			"os",
+			"example.com/project/internal/effect/journal/recovery",
+			"example.com/project/internal/effect/storage/commit",
+			"example.com/project/internal/workflow/recover",
+		},
+	}}))
+	for _, want := range []string{
+		"journal-retirement-boundary-import: internal/effect/journal/retirement -> context",
+		"journal-retirement-boundary-import: internal/effect/journal/retirement -> os",
+		"journal-retirement-boundary-import: internal/effect/journal/retirement -> internal/effect/journal/recovery",
+		"journal-retirement-boundary-import: internal/effect/journal/retirement -> internal/effect/storage/commit",
+		"journal-retirement-boundary-import: internal/effect/journal/retirement -> internal/workflow/recover",
+	} {
+		if !strings.Contains(report, want) {
+			t.Fatalf("report = %q, want %q", report, want)
+		}
+	}
+}
+
 func TestAnalyzeRecordsAllowsCLIPlatformAdmissionQuery(t *testing.T) {
 	records := []PackageRecord{
 		{
