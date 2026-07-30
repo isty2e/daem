@@ -67,10 +67,10 @@ func commitRootedEntryRenameWithFaults(
 		))
 	}
 
+	sourceFD := -1
 	var sourceMode fs.FileMode
 	err = faults.run(ctx, phaseRevalidateEntry, func() error {
-		_, stat, observeErr := requireOwnedExpectedEntry(
-			anchor,
+		fd, stat, observeErr := anchor.openExpected(
 			anchor.base,
 			request.sourcePath,
 			request.expected,
@@ -78,12 +78,14 @@ func commitRootedEntryRenameWithFaults(
 		if observeErr != nil {
 			return observeErr
 		}
+		sourceFD = fd
 		sourceMode = fs.FileMode(stat.Mode).Perm()
 		return nil
 	})
 	if err != nil {
 		return fail(failureBeforeVisibility(phaseRevalidateEntry, request.sourcePath, err))
 	}
+	defer unix.Close(sourceFD)
 	if err := anchor.verifyChain(); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.sourcePath, err))
 	}
