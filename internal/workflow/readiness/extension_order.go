@@ -223,8 +223,10 @@ func blockedOrderDecisions(
 				Scope:      capability.Scope(),
 				Constraint: constraint,
 				SequenceID: sequenceID,
-				Reason:     reconcile.OrderReasonObservationUnavailable,
-				Detail:     observationErr.Error(),
+				Reason: reconcile.RelationOrderObservationFailureReason(
+					observationErr,
+				),
+				Detail: observationErr.Error(),
 			},
 		)
 		if err != nil {

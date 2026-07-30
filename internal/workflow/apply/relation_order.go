@@ -139,8 +139,10 @@ func runRelationOrderConvergence(
 						Scope:      capability.Scope(),
 						Constraint: constraint,
 						SequenceID: sequenceID,
-						Reason:     reconcile.OrderReasonObservationUnavailable,
-						Detail:     err.Error(),
+						Reason: reconcile.RelationOrderObservationFailureReason(
+							err,
+						),
+						Detail: err.Error(),
 					},
 				)
 				if blockErr != nil {

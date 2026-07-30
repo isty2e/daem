@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -34,6 +35,7 @@ const (
 	OrderReasonLoadIdentityMismatch   RelationOrderReason = "load_identity_mismatch"
 	OrderReasonConflictingCarrierPlan RelationOrderReason = "conflicting_carrier_plan"
 	OrderReasonObservationUnavailable RelationOrderReason = "observation_unavailable"
+	OrderReasonResourceLimitExceeded  RelationOrderReason = "resource_limit_exceeded"
 )
 
 // RelationOrderDecisionInput carries one locked desired order, one fresh
@@ -154,7 +156,9 @@ func NewBlockedRelationOrderDecision(
 	if err := input.SequenceID.Validate(); err != nil {
 		return RelationOrderDecision{}, fmt.Errorf("blocked relation order sequence: %w", err)
 	}
-	if input.Reason != OrderReasonObservationUnavailable {
+	switch input.Reason {
+	case OrderReasonObservationUnavailable, OrderReasonResourceLimitExceeded:
+	default:
 		return RelationOrderDecision{}, fmt.Errorf(
 			"blocked relation order reason %q is unsupported without sequence evidence",
 			input.Reason,
@@ -172,6 +176,15 @@ func NewBlockedRelationOrderDecision(
 		reason:     input.Reason,
 		detail:     input.Detail,
 	}, nil
+}
+
+// RelationOrderObservationFailureReason maps one observation-boundary failure
+// into the closed planner reason retained by human and JSON projections.
+func RelationOrderObservationFailureReason(err error) RelationOrderReason {
+	if errors.Is(err, observerelation.ErrOrderLimitExceeded) {
+		return OrderReasonResourceLimitExceeded
+	}
+	return OrderReasonObservationUnavailable
 }
 
 func (decision *RelationOrderDecision) classify() error {

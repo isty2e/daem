@@ -440,6 +440,17 @@ func TestApplyRejectsOversizedExtensionOrderWithoutMutation(t *testing.T) {
 	}
 	testkit.WriteFile(t, tempDir, ".pi/settings.json", string(hostContent))
 
+	status := runExtensionOrderPlan(t, "status", manifestPath)
+	if len(status.RelationOrders) != 1 ||
+		status.RelationOrders[0].Kind != "blocked" ||
+		status.RelationOrders[0].Reason != "resource_limit_exceeded" ||
+		!strings.Contains(
+			status.RelationOrders[0].Detail,
+			"observed_rows observed=4097 limit=4096",
+		) {
+		t.Fatalf("oversized status relation order = %#v", status.RelationOrders)
+	}
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exitCode := testkit.RunVerboseCLI(

@@ -233,6 +233,38 @@ func TestPrintRelationOrderActionsDisclosesTypedObservationBlock(t *testing.T) {
 	}
 }
 
+func TestRelationOrderJSONDisclosesTypedResourceLimitBlock(t *testing.T) {
+	constraint := presentOrderConstraint(
+		t,
+		target.TargetPi,
+		hostrelation.RuntimePrecedence,
+	)
+	sequenceID, err := hostrelation.NewPhysicalSequenceID("pi:project:settings.packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := reconcile.NewBlockedRelationOrderDecision(
+		reconcile.BlockedRelationOrderDecisionInput{
+			Target:     target.TargetPi,
+			Scope:      target.ScopeProject,
+			Constraint: constraint,
+			SequenceID: sequenceID,
+			Reason:     reconcile.OrderReasonResourceLimitExceeded,
+			Detail:     "extension order resource limit exceeded: observed_rows observed=4097 limit=4096",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := relationOrderJSONActions([]reconcile.RelationOrderDecision{decision})
+	if len(rows) != 1 ||
+		rows[0].Kind != string(reconcile.OrderBlocked) ||
+		rows[0].Reason != string(reconcile.OrderReasonResourceLimitExceeded) ||
+		!strings.Contains(rows[0].Detail, "observed_rows observed=4097 limit=4096") {
+		t.Fatalf("resource-limit JSON row = %#v", rows)
+	}
+}
+
 func presentRelationOrderDecision(
 	t testing.TB,
 	selectedTarget target.Target,

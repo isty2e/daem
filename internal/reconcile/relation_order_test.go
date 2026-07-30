@@ -1,6 +1,8 @@
 package reconcile
 
 import (
+	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -309,6 +311,48 @@ func TestBlockedRelationOrderDecisionCarriesNoFabricatedRevision(t *testing.T) {
 		decision.Revision() != "" ||
 		decision.Detail() != "settings file is malformed" {
 		t.Fatalf("blocked decision=%#v", decision)
+	}
+	if err := decision.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+}
+
+func TestRelationOrderObservationFailureReasonPreservesResourceLimits(t *testing.T) {
+	limitErr := fmt.Errorf(
+		"observe Pi order: %w",
+		observerelation.ErrOrderLimitExceeded,
+	)
+	if got := RelationOrderObservationFailureReason(limitErr); got != OrderReasonResourceLimitExceeded {
+		t.Fatalf("resource limit reason = %q", got)
+	}
+	if got := RelationOrderObservationFailureReason(errors.New("settings malformed")); got != OrderReasonObservationUnavailable {
+		t.Fatalf("generic observation reason = %q", got)
+	}
+}
+
+func TestBlockedRelationOrderDecisionAcceptsResourceLimitReason(t *testing.T) {
+	alpha := orderTestMember(t, "alpha", "pkg:alpha")
+	beta := orderTestMember(t, "beta", "pkg:beta")
+	constraint := orderTestConstraint(t, "extension:pi:project:packages", alpha, beta)
+	sequenceID, err := hostrelation.NewPhysicalSequenceID("pi:project:settings.packages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decision, err := NewBlockedRelationOrderDecision(BlockedRelationOrderDecisionInput{
+		Target:     target.TargetPi,
+		Scope:      target.ScopeProject,
+		Constraint: constraint,
+		SequenceID: sequenceID,
+		Reason:     OrderReasonResourceLimitExceeded,
+		Detail:     "extension order resource limit exceeded: observed_rows observed=4097 limit=4096",
+	})
+	if err != nil {
+		t.Fatalf("NewBlockedRelationOrderDecision: %v", err)
+	}
+	if decision.Reason() != OrderReasonResourceLimitExceeded ||
+		!decision.BlocksOrdinaryApply() ||
+		decision.HasCurrentSequence() {
+		t.Fatalf("resource-limit decision = %#v", decision)
 	}
 	if err := decision.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
