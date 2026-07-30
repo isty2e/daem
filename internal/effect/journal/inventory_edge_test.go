@@ -423,8 +423,9 @@ type unownedEntryFilesystem struct {
 func (filesystem *unownedEntryFilesystem) SnapshotDirectory(
 	ctx context.Context,
 	path string,
+	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
-	snapshot, err := filesystem.Store.SnapshotDirectory(ctx, path)
+	snapshot, err := filesystem.Store.SnapshotDirectory(ctx, path, maximumEntries)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, err
 	}

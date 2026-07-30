@@ -63,6 +63,47 @@ func TestRegularFileSnapshotOwnsContentAndMode(t *testing.T) {
 	}
 }
 
+func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
+	for _, test := range []struct {
+		entries int
+		depth   int
+		bytes   int64
+	}{
+		{entries: 0, depth: 0, bytes: 1},
+		{entries: 1, depth: -1, bytes: 1},
+		{entries: 1, depth: 0, bytes: 0},
+	} {
+		if _, err := NewTreeTraversalLimits(
+			test.entries,
+			test.depth,
+			test.bytes,
+		); err == nil {
+			t.Fatalf(
+				"NewTreeTraversalLimits(%d, %d, %d) succeeded",
+				test.entries,
+				test.depth,
+				test.bytes,
+			)
+		}
+	}
+	limits, err := NewTreeTraversalLimits(3, 0, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if limits.MaximumEntries() != 3 ||
+		limits.MaximumDepth() != 0 ||
+		limits.MaximumBytes() != 7 ||
+		limits.Validate() != nil {
+		t.Fatalf(
+			"limits = (%d, %d, %d), validation=%v",
+			limits.MaximumEntries(),
+			limits.MaximumDepth(),
+			limits.MaximumBytes(),
+			limits.Validate(),
+		)
+	}
+}
+
 func TestDirectorySnapshotNormalizesAndOwnsEntries(t *testing.T) {
 	root := testEntryIdentity{value: "root", kind: EntryKindDirectory}
 	second, err := NewDirectoryEntrySnapshot(

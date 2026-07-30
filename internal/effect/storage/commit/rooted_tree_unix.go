@@ -335,6 +335,7 @@ func (prepared *PreparedRootedTree) cleanupStageLocked(ctx context.Context, faul
 			prepared.stageName,
 			prepared.stagePath,
 			observed,
+			prepared.anchor.capability,
 		) != nil:
 			residue = append(residue, prepared.stagePath)
 		case syncDirectory(prepared.anchor.parentFD()) != nil:

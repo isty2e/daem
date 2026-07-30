@@ -27,6 +27,70 @@ type EntryIdentity interface {
 	Kind() EntryKind
 }
 
+// TreeTraversalLimits bounds one recursive filesystem observation. Entry
+// cardinality is global across the tree and depth counts directories below the
+// selected root.
+type TreeTraversalLimits struct {
+	maximumEntries int
+	maximumDepth   int
+	maximumBytes   int64
+}
+
+// NewTreeTraversalLimits constructs finite traversal bounds. Entry and byte
+// cardinality must be positive; zero depth permits only the selected root's
+// direct entries.
+func NewTreeTraversalLimits(
+	maximumEntries int,
+	maximumDepth int,
+	maximumBytes int64,
+) (TreeTraversalLimits, error) {
+	if maximumEntries <= 0 {
+		return TreeTraversalLimits{}, fmt.Errorf(
+			"tree traversal maximum entries must be positive",
+		)
+	}
+	if maximumDepth < 0 {
+		return TreeTraversalLimits{}, fmt.Errorf(
+			"tree traversal maximum depth must not be negative",
+		)
+	}
+	if maximumBytes <= 0 {
+		return TreeTraversalLimits{}, fmt.Errorf(
+			"tree traversal maximum bytes must be positive",
+		)
+	}
+	return TreeTraversalLimits{
+		maximumEntries: maximumEntries,
+		maximumDepth:   maximumDepth,
+		maximumBytes:   maximumBytes,
+	}, nil
+}
+
+// MaximumEntries returns the global entry-cardinality bound.
+func (limits TreeTraversalLimits) MaximumEntries() int {
+	return limits.maximumEntries
+}
+
+// MaximumDepth returns the maximum descendant-directory depth.
+func (limits TreeTraversalLimits) MaximumDepth() int {
+	return limits.maximumDepth
+}
+
+// MaximumBytes returns the global regular-file byte bound.
+func (limits TreeTraversalLimits) MaximumBytes() int64 {
+	return limits.maximumBytes
+}
+
+// Validate rejects an uninitialized traversal limit.
+func (limits TreeTraversalLimits) Validate() error {
+	_, err := NewTreeTraversalLimits(
+		limits.maximumEntries,
+		limits.maximumDepth,
+		limits.maximumBytes,
+	)
+	return err
+}
+
 // CommitOutcomeState is the strongest namespace conclusion established by one
 // guarded commit attempt. It describes storage visibility only; semantic
 // owners decide what the visible entry means.

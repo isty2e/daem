@@ -250,7 +250,12 @@ func captureRootedExistingWithCapability(
 		before.Kind = recovery.PathKindFile
 	case mutationfs.EntryKindDirectory:
 		sink := newRootedTreeBackupSink(ctx, absoluteBackupPath)
-		if _, err := filesystem.SnapshotRootedDirectory(ctx, capability, sink); err != nil {
+		if _, err := filesystem.SnapshotRootedDirectory(
+			ctx,
+			capability,
+			recoveryTreeTraversalLimits(),
+			sink,
+		); err != nil {
 			return recovery.BeforePathState{}, backupIndex, err
 		}
 		capturedHash, err := sink.hash()

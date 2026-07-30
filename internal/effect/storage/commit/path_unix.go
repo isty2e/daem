@@ -3,10 +3,12 @@
 package commit
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 
@@ -141,7 +143,18 @@ func validateOwnedStat(path string, stat *unix.Stat_t) error {
 	return nil
 }
 
-func readDirectoryNames(fd int, path string) ([]string, error) {
+func readDirectoryNames(
+	ctx context.Context,
+	fd int,
+	path string,
+	maximumEntries int,
+) ([]string, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("directory enumeration context is required")
+	}
+	if maximumEntries < 0 {
+		return nil, fmt.Errorf("directory enumeration maximum entries must not be negative")
+	}
 	duplicate, err := unix.Dup(fd)
 	if err != nil {
 		return nil, err
@@ -155,7 +168,39 @@ func readDirectoryNames(fd int, path string) ([]string, error) {
 		_ = unix.Close(duplicate)
 		return nil, fmt.Errorf("wrap directory descriptor for %q", path)
 	}
-	names, readErr := directory.Readdirnames(-1)
+	names := make([]string, 0, min(maximumEntries, 256))
+	var readErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			readErr = err
+			break
+		}
+		batchMaximum := 256
+		if remaining := maximumEntries - len(names); remaining < batchMaximum {
+			batchMaximum = remaining + 1
+		}
+		batch, err := directory.Readdirnames(batchMaximum)
+		names = append(names, batch...)
+		if len(names) > maximumEntries {
+			readErr = fmt.Errorf(
+				"directory %q exceeds %d entries",
+				path,
+				maximumEntries,
+			)
+			break
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			readErr = err
+			break
+		}
+		if len(batch) == 0 {
+			readErr = fmt.Errorf("directory enumeration made no progress for %q", path)
+			break
+		}
+	}
 	closeErr := directory.Close()
 	if readErr != nil {
 		return nil, readErr

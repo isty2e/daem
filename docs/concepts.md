@@ -213,9 +213,21 @@ See [Platform Support](platforms.md).
 Daem refuses input statefiles larger than 16 MiB before planning and refuses
 recovery journals larger than 64 MiB. Individual regular-file recovery backups
 larger than 128 MiB are refused before the covered host mutation; produced
-state and journal documents are also size-checked before publication. Directory
-backup is streamed, but its required recovery-storage space remains
-proportional to the managed directory.
+state and journal documents are also size-checked before publication. Recovery
+inventory admits at most 4,096 immediate recovery-root entries, 100,000 entries
+inside one journal directory, and 64 entries inside one retirement control.
+Managed directory snapshots are streamed but stop at 100,000 entries, 64
+descendant-directory levels, or 4 GiB of observed regular-file content.
+Retirement-control snapshots permit no descendant directory and at most 1 MiB
+of regular-file content.
+
+Before advancing a prepared retirement control or deleting the first residue
+child, daem performs a complete metadata-only preflight with the same entry and
+depth bounds. Every traversed directory must remain on the captured mount;
+FIFO, socket, and device children fail closed without deleting an earlier
+sibling. Symbolic links are never followed: cleanup revalidates and removes
+only the link itself. Directory backup storage remains proportional to the
+managed directory within these limits.
 
 Recovery is intentionally narrow. It handles one interrupted operation for the
 selected manifest path set; it is not a snapshot, profile, or historical restore

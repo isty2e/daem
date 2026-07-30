@@ -41,7 +41,7 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			return readErr
 		}},
 		{name: "snapshot directory", run: func() error {
-			_, readErr := SnapshotDirectory(context.Background(), path)
+			_, readErr := SnapshotDirectory(context.Background(), path, 16)
 			return readErr
 		}},
 		{name: "file create", run: func() error {

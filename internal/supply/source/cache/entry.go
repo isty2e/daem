@@ -24,9 +24,24 @@ const (
 	completionRecordName    = ".daem-complete"
 	completionRecordVersion = 1
 	maximumCompletionBytes  = 16 * 1024
+	maximumCacheTreeEntries = 100_000
+	maximumCacheTreeDepth   = 64
+	maximumCacheTreeBytes   = 4 << 30
 )
 
 var ErrInvalidEntry = errors.New("invalid cache entry")
+
+func cacheTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		maximumCacheTreeEntries,
+		maximumCacheTreeDepth,
+		maximumCacheTreeBytes,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limits
+}
 
 // EntrySpec identifies one cache entry and any caller-known content identity.
 type EntrySpec struct {

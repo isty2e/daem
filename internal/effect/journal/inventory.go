@@ -35,6 +35,41 @@ type activeJournalEvidence struct {
 	operationDir      string
 }
 
+const (
+	maximumRecoveryRootEntries        = 4_096
+	maximumRecoveryJournalEntries     = 100_000
+	maximumRetirementControlEntries   = 64
+	maximumRecoveryTreeEntries        = 100_000
+	maximumRecoveryTreeDepth          = 64
+	maximumRecoveryTreeBytes          = 4 << 30
+	maximumRetirementControlTreeDepth = 0
+	maximumRetirementControlTreeBytes = 1 << 20
+)
+
+func recoveryTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		maximumRecoveryTreeEntries,
+		maximumRecoveryTreeDepth,
+		maximumRecoveryTreeBytes,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limits
+}
+
+func retirementControlTraversalLimits() mutationfs.TreeTraversalLimits {
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		maximumRetirementControlEntries,
+		maximumRetirementControlTreeDepth,
+		maximumRetirementControlTreeBytes,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limits
+}
+
 func loadRecoveryRootInventory(
 	ctx context.Context,
 	recoveryRoot string,
@@ -54,7 +89,11 @@ func loadRecoveryRootInventory(
 		return recoveryRootInventory{}, fmt.Errorf("canonicalize recovery directory: %w", err)
 	}
 
-	root, err := options.Filesystem.SnapshotDirectory(ctx, physicalRoot)
+	root, err := options.Filesystem.SnapshotDirectory(
+		ctx,
+		physicalRoot,
+		maximumRecoveryRootEntries,
+	)
 	if errors.Is(err, os.ErrNotExist) {
 		return emptyRecoveryRootInventory(), nil
 	}
@@ -200,7 +239,11 @@ func loadRecoveryRootInventory(
 		garbage = append(garbage, artifact)
 	}
 
-	currentRoot, err := options.Filesystem.SnapshotDirectory(ctx, physicalRoot)
+	currentRoot, err := options.Filesystem.SnapshotDirectory(
+		ctx,
+		physicalRoot,
+		maximumRecoveryRootEntries,
+	)
 	if err != nil {
 		return recoveryRootInventory{}, fmt.Errorf("revalidate recovery directory: %w", err)
 	}
@@ -270,7 +313,11 @@ func loadRetirementControl(
 	}
 
 	controlPath := filepath.Join(recoveryRoot, entry.Name())
-	before, err := filesystem.SnapshotDirectory(ctx, controlPath)
+	before, err := filesystem.SnapshotDirectory(
+		ctx,
+		controlPath,
+		maximumRetirementControlEntries,
+	)
 	if err != nil {
 		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 			"snapshot retirement control %q: %w",
@@ -324,7 +371,11 @@ func loadRetirementControl(
 		recordContent = snapshot.Content()
 	}
 
-	after, err := filesystem.SnapshotDirectory(ctx, controlPath)
+	after, err := filesystem.SnapshotDirectory(
+		ctx,
+		controlPath,
+		maximumRetirementControlEntries,
+	)
 	if err != nil {
 		return retirement.Control{}, mutationfs.DirectorySnapshot{}, fmt.Errorf(
 			"revalidate retirement control %q: %w",
@@ -414,7 +465,11 @@ func loadJournalDirectoryEvidence(
 			retirement.DirectoryMode,
 		)
 	}
-	before, err := options.Filesystem.SnapshotDirectory(ctx, directoryPath)
+	before, err := options.Filesystem.SnapshotDirectory(
+		ctx,
+		directoryPath,
+		maximumRecoveryJournalEntries,
+	)
 	if err != nil {
 		return activeJournalEvidence{}, fmt.Errorf(
 			"snapshot recovery journal entry %q: %w",
@@ -492,7 +547,11 @@ func loadJournalDirectoryEvidence(
 		)
 	}
 
-	after, err := options.Filesystem.SnapshotDirectory(ctx, directoryPath)
+	after, err := options.Filesystem.SnapshotDirectory(
+		ctx,
+		directoryPath,
+		maximumRecoveryJournalEntries,
+	)
 	if err != nil {
 		return activeJournalEvidence{}, fmt.Errorf(
 			"revalidate recovery journal entry %q: %w",

@@ -16,6 +16,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"golang.org/x/sys/unix"
 )
 
 func TestRetireActiveJournalUsesCanonicalProtocolAndRejectsStaleReplay(t *testing.T) {
@@ -298,6 +299,41 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 		t.Fatalf("FinalizeJournalCleanup: %v", err)
 	}
 	assertRetirementState(t, recoveryRoot, retirement.StateClean)
+}
+
+func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-special-residue")
+	writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
+	renameInventoryJournalToResidue(t, result, identity)
+	residue := filepath.Join(recoveryRoot, identity.ResidueName())
+	preserved := filepath.Join(residue, "a-preserved")
+	if err := os.WriteFile(preserved, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	special := filepath.Join(residue, "z-special")
+	if err := unix.Mkfifo(special, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+	root := captureRetirementTestRoot(t, recoveryRoot)
+	err := FinalizeJournalCleanup(t.Context(), plan, root, filesystem)
+	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
+		t.Fatalf("FinalizeJournalCleanup error = %v, want special-entry rejection", err)
+	}
+	if len(filesystem.operations) != 0 {
+		t.Fatalf("operations = %v, want no phase advance or cleanup", filesystem.operations)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateRetained)
+	content, readErr := os.ReadFile(preserved)
+	if readErr != nil || string(content) != "keep" {
+		t.Fatalf("preserved child content = %q err=%v, want keep", content, readErr)
+	}
+	if info, statErr := os.Lstat(special); statErr != nil || info.Mode()&os.ModeNamedPipe == 0 {
+		t.Fatalf("special child changed: info=%v err=%v", info, statErr)
+	}
 }
 
 func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {

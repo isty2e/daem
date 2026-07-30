@@ -347,6 +347,13 @@ func executeRetirement(
 		); err != nil {
 			return fmt.Errorf("verify prepared journal retirement control: %w", err)
 		}
+		if err := requireRetirementResidueTree(
+			ctx,
+			filesystem,
+			bindings.residue,
+		); err != nil {
+			return fmt.Errorf("verify journal retirement residue before finalizing: %w", err)
+		}
 		if err := advanceRetirementRecord(ctx, filesystem, execution.record, bindings.record); err != nil {
 			return err
 		}
@@ -575,19 +582,11 @@ func (sink *retirementControlSnapshotSink) VisitDirectory(
 	path mutationfs.TreeRelativePath,
 	mode fs.FileMode,
 ) error {
-	evidence, err := retirement.NewEntryEvidence(
+	return fmt.Errorf(
+		"journal retirement control contains unexpected directory %q with mode %04o",
 		path.Path(),
-		retirement.EntryDirectory,
 		mode.Perm(),
-		true,
-		0,
 	)
-	if err != nil {
-		sink.failure = errors.Join(sink.failure, err)
-		return nil
-	}
-	sink.children = append(sink.children, evidence)
-	return nil
 }
 
 func (sink *retirementControlSnapshotSink) VisitRegularFile(
@@ -596,6 +595,13 @@ func (sink *retirementControlSnapshotSink) VisitRegularFile(
 	size int64,
 	content io.Reader,
 ) error {
+	if size > retirement.MaximumRecordBytes {
+		return fmt.Errorf(
+			"journal retirement control file %q exceeds %d bytes",
+			path.Path(),
+			retirement.MaximumRecordBytes,
+		)
+	}
 	evidence, err := retirement.NewEntryEvidence(
 		path.Path(),
 		retirement.EntryRegular,
@@ -670,8 +676,33 @@ func requireRetirementControl(
 		expected:    expected,
 		controlName: expected.Identity().ControlName(),
 	}
-	_, snapshotErr := filesystem.SnapshotRootedDirectory(ctx, capability, sink)
+	_, snapshotErr := filesystem.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		retirementControlTraversalLimits(),
+		sink,
+	)
 	return errors.Join(snapshotErr, sink.validate(), capability.Close())
+}
+
+func requireRetirementResidueTree(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+) error {
+	if authority == nil {
+		return fmt.Errorf("journal retirement residue authority is required")
+	}
+	capability, err := authority.Acquire()
+	if err != nil {
+		return err
+	}
+	_, validateErr := filesystem.ValidateRootedDirectoryTree(
+		ctx,
+		capability,
+		recoveryTreeTraversalLimits(),
+	)
+	return errors.Join(validateErr, capability.Close())
 }
 
 func readRetirementRecord(

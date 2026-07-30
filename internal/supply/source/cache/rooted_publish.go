@@ -171,7 +171,12 @@ func publishPrivateBuildStage(
 			if err := stage.validate(ctx); err != nil {
 				return err
 			}
-			_, err = storagecommit.SnapshotRootedDirectory(ctx, sourceCapability, sink)
+			_, err = storagecommit.SnapshotRootedDirectory(
+				ctx,
+				sourceCapability,
+				cacheTreeTraversalLimits(),
+				sink,
+			)
 			if err != nil {
 				return err
 			}
@@ -288,7 +293,12 @@ func (stage *privateBuildStage) contentIdentity(
 	if err := stage.validate(ctx); err != nil {
 		return "", "", err
 	}
-	_, err = storagecommit.SnapshotRootedDirectory(ctx, capability, sink)
+	_, err = storagecommit.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		cacheTreeTraversalLimits(),
+		sink,
+	)
 	if err != nil {
 		return "", "", err
 	}

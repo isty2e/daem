@@ -5,6 +5,7 @@ package commit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,7 +27,7 @@ func TestSnapshotDirectoryReportsImmediateNoFollowFacts(t *testing.T) {
 		t.Fatalf("create fifo: %v", err)
 	}
 
-	snapshot, err := SnapshotDirectory(t.Context(), root)
+	snapshot, err := SnapshotDirectory(t.Context(), root, 16)
 	if err != nil {
 		t.Fatalf("SnapshotDirectory: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestSnapshotDirectoryRejectsConcurrentEntrySetChange(t *testing.T) {
 	root := canonicalTempDir(t)
 	writeTestFile(t, filepath.Join(root, "before"), "before", 0o600)
 	var actionErr error
-	_, err := snapshotDirectoryWithFaults(t.Context(), root, faultPlan{actions: map[phase]func(){
+	_, err := snapshotDirectoryWithFaults(t.Context(), root, 16, faultPlan{actions: map[phase]func(){
 		phaseReadPayload: func() {
 			actionErr = os.Rename(
 				filepath.Join(root, "before"),
@@ -95,7 +96,7 @@ func TestSnapshotDirectoryRejectsConcurrentEntryIdentityChange(t *testing.T) {
 	path := filepath.Join(root, "entry")
 	writeTestFile(t, path, "before", 0o600)
 	var actionErr error
-	_, err := snapshotDirectoryWithFaults(t.Context(), root, faultPlan{actions: map[phase]func(){
+	_, err := snapshotDirectoryWithFaults(t.Context(), root, 16, faultPlan{actions: map[phase]func(){
 		phaseRevalidateEntry: func() {
 			actionErr = os.Remove(path)
 			if actionErr == nil {
@@ -118,7 +119,7 @@ func TestSnapshotDirectoryRejectsMissingNonDirectoryAndSymlinkRoot(t *testing.T)
 		t.Fatalf("create root symlink: %v", err)
 	}
 	for _, path := range []string{filepath.Join(root, "missing"), file, link} {
-		if _, err := SnapshotDirectory(t.Context(), path); err == nil {
+		if _, err := SnapshotDirectory(t.Context(), path, 16); err == nil {
 			t.Fatalf("SnapshotDirectory(%q) succeeded", path)
 		}
 	}
@@ -128,11 +129,68 @@ func TestSnapshotDirectoryCancellationReturnsNoSnapshot(t *testing.T) {
 	root := canonicalTempDir(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	snapshot, err := SnapshotDirectory(ctx, root)
+	snapshot, err := SnapshotDirectory(ctx, root, 16)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context cancellation", err)
 	}
 	if snapshot.RootIdentity() != nil || snapshot.Entries() != nil {
 		t.Fatal("cancelled directory snapshot exposed facts")
 	}
+}
+
+func TestSnapshotDirectoryEnforcesExactEntryBound(t *testing.T) {
+	root := canonicalTempDir(t)
+	for index := range 3 {
+		writeTestFile(
+			t,
+			filepath.Join(root, fmt.Sprintf("entry-%d", index)),
+			"payload",
+			0o600,
+		)
+	}
+	if _, err := SnapshotDirectory(t.Context(), root, 3); err != nil {
+		t.Fatalf("SnapshotDirectory at exact bound: %v", err)
+	}
+	if _, err := SnapshotDirectory(t.Context(), root, 2); err == nil {
+		t.Fatal("SnapshotDirectory above bound succeeded")
+	}
+}
+
+func TestReadDirectoryNamesCancelsBetweenBatches(t *testing.T) {
+	root := canonicalTempDir(t)
+	for index := range 300 {
+		writeTestFile(
+			t,
+			filepath.Join(root, fmt.Sprintf("entry-%03d", index)),
+			"",
+			0o600,
+		)
+	}
+	directory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer directory.Close()
+
+	ctx := &cancelAfterErrChecksContext{
+		Context: t.Context(),
+		allowed: 1,
+	}
+	if _, err := readDirectoryNames(ctx, int(directory.Fd()), root, 300); !errors.Is(err, context.Canceled) {
+		t.Fatalf("readDirectoryNames error = %v, want cancellation", err)
+	}
+}
+
+type cancelAfterErrChecksContext struct {
+	context.Context
+	allowed int
+	checks  int
+}
+
+func (ctx *cancelAfterErrChecksContext) Err() error {
+	ctx.checks++
+	if ctx.checks > ctx.allowed {
+		return context.Canceled
+	}
+	return ctx.Context.Err()
 }

@@ -132,7 +132,13 @@ func ReadRegularFileSnapshotUpTo(
 func SnapshotDirectory(
 	_ context.Context,
 	path string,
+	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"directory snapshot maximum entries must be positive",
+		)
+	}
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.DirectorySnapshot{}, err
 	}
@@ -171,8 +177,28 @@ func ReadRootedRegularFileUpTo(
 func SnapshotRootedDirectory(
 	_ context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	_ mutationfs.RootedTreeSnapshotSink,
 ) (EntryIdentity, error) {
+	if err := limits.Validate(); err != nil {
+		return EntryIdentity{}, err
+	}
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return EntryIdentity{}, err
+	}
+	return EntryIdentity{}, newUnsupportedPlatformFailure(path)
+}
+
+// ValidateRootedDirectoryTree returns unsupported_guarantee without reading.
+func ValidateRootedDirectoryTree(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+) (EntryIdentity, error) {
+	if err := limits.Validate(); err != nil {
+		return EntryIdentity{}, err
+	}
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return EntryIdentity{}, err

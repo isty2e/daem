@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
 
@@ -89,7 +90,14 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 	}
 
 	err = faults.run(ctx, phaseCleanupTombstone, func() error {
-		return removeEntryAt(ctx, anchor.parentFD(), tombstoneName, tombstonePath, tombstoneIdentity)
+		return removeEntryAt(
+			ctx,
+			anchor.parentFD(),
+			tombstoneName,
+			tombstonePath,
+			tombstoneIdentity,
+			request.capability,
+		)
 	})
 	if err != nil {
 		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, tombstonePath)
@@ -160,8 +168,23 @@ func unusedSiblingName(parentFD int, prefix string) (string, error) {
 	return "", fmt.Errorf("could not allocate a collision-free tombstone name")
 }
 
-func removeEntryAt(ctx context.Context, parentFD int, name string, path string, expected EntryIdentity) error {
-	return removeEntryAtWithFaults(ctx, parentFD, name, path, expected, faultPlan{})
+func removeEntryAt(
+	ctx context.Context,
+	parentFD int,
+	name string,
+	path string,
+	expected EntryIdentity,
+	capability rootedpath.CommitCapability,
+) error {
+	return removeEntryAtWithFaults(
+		ctx,
+		parentFD,
+		name,
+		path,
+		expected,
+		capability,
+		faultPlan{},
+	)
 }
 
 func removeEntryAtWithFaults(
@@ -170,6 +193,7 @@ func removeEntryAtWithFaults(
 	name string,
 	path string,
 	expected EntryIdentity,
+	capability rootedpath.CommitCapability,
 	faults faultPlan,
 ) error {
 	if err := ctx.Err(); err != nil {
@@ -194,7 +218,42 @@ func removeEntryAtWithFaults(
 		if err != nil {
 			return err
 		}
-		err = removeDirectoryContentsWithFaults(ctx, fd, path, faults)
+		validateMount, err := removalMountValidator(capability, fd)
+		if err != nil {
+			_ = unix.Close(fd)
+			return err
+		}
+		preflightBudget, err := newTreeTraversalBudget(
+			defaultTreeTraversalLimits(),
+		)
+		if err == nil {
+			err = validateDirectoryEntries(
+				ctx,
+				validateMount,
+				fd,
+				path,
+				0,
+				preflightBudget,
+			)
+		}
+		if err == nil {
+			cleanupBudget, budgetErr := newTreeTraversalBudget(
+				defaultTreeTraversalLimits(),
+			)
+			if budgetErr != nil {
+				err = budgetErr
+			} else {
+				err = removeDirectoryContentsWithFaults(
+					ctx,
+					validateMount,
+					fd,
+					path,
+					0,
+					cleanupBudget,
+					faults,
+				)
+			}
+		}
 		_ = unix.Close(fd)
 		if err != nil {
 			return err
@@ -215,12 +274,32 @@ func removeEntryAtWithFaults(
 
 func removeDirectoryContentsWithFaults(
 	ctx context.Context,
+	validateMount func(uintptr) error,
 	directoryFD int,
 	path string,
+	depth int,
+	budget *treeTraversalBudget,
 	faults faultPlan,
 ) error {
-	names, err := readDirectoryNames(directoryFD, path)
+	if validateMount == nil {
+		return fmt.Errorf("directory mount validator is required")
+	}
+	if err := validateMount(uintptr(directoryFD)); err != nil {
+		return err
+	}
+	if err := budget.admitDepth(depth); err != nil {
+		return err
+	}
+	names, err := readDirectoryNames(
+		ctx,
+		directoryFD,
+		path,
+		budget.remainingEntries(),
+	)
 	if err != nil {
+		return err
+	}
+	if err := budget.admitEntries(len(names)); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -245,7 +324,19 @@ func removeDirectoryContentsWithFaults(
 			if err != nil {
 				return err
 			}
-			err = removeDirectoryContentsWithFaults(ctx, fd, entryPath, faults)
+			if err := validateMount(uintptr(fd)); err != nil {
+				_ = unix.Close(fd)
+				return err
+			}
+			err = removeDirectoryContentsWithFaults(
+				ctx,
+				validateMount,
+				fd,
+				entryPath,
+				depth+1,
+				budget,
+				faults,
+			)
 			_ = unix.Close(fd)
 			if err != nil {
 				return err
@@ -263,7 +354,42 @@ func removeDirectoryContentsWithFaults(
 			if err := unix.Unlinkat(directoryFD, name, unix.AT_REMOVEDIR); err != nil {
 				return err
 			}
-		case entryKindRegular, entryKindSymlink:
+		case entryKindRegular:
+			fd, err := openExpectedAt(directoryFD, name, entryPath, identity)
+			if err != nil {
+				return err
+			}
+			if err := validateMount(uintptr(fd)); err != nil {
+				_ = unix.Close(fd)
+				return err
+			}
+			if err := verifySnapshotEntry(
+				directoryFD,
+				name,
+				fd,
+				entryPath,
+				identity,
+			); err != nil {
+				_ = unix.Close(fd)
+				return err
+			}
+			if err := unix.Close(fd); err != nil {
+				return err
+			}
+			current, _, err := observeAt(directoryFD, name, entryPath)
+			if err != nil {
+				return err
+			}
+			if !identity.sameEntry(current) {
+				return fmt.Errorf("entry identity changed before cleanup at %q", entryPath)
+			}
+			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+				return err
+			}
+			if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
+				return err
+			}
+		case entryKindSymlink:
 			current, _, err := observeAt(directoryFD, name, entryPath)
 			if err != nil {
 				return err
@@ -282,6 +408,26 @@ func removeDirectoryContentsWithFaults(
 		}
 	}
 	return nil
+}
+
+func removalMountValidator(
+	capability rootedpath.CommitCapability,
+	rootFD int,
+) (func(uintptr) error, error) {
+	if capability != nil {
+		if err := capability.ValidateDirectoryHandle(uintptr(rootFD)); err != nil {
+			return nil, err
+		}
+		return capability.ValidateDirectoryHandle, nil
+	}
+	boundary, err := rootedpath.CaptureDirectoryMountBoundary(uintptr(rootFD))
+	if err != nil {
+		return nil, err
+	}
+	if err := boundary.ValidateDirectoryHandle(uintptr(rootFD)); err != nil {
+		return nil, err
+	}
+	return boundary.ValidateDirectoryHandle, nil
 }
 
 func prepareRemovalDirectory(

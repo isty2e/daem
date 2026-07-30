@@ -237,6 +237,7 @@ func commitRootedEntryCleanupWithFaults(
 		anchor.base,
 		request.path,
 		request.expected,
+		request.capability,
 		faults,
 	)
 	if err != nil {

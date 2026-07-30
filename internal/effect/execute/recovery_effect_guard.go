@@ -279,7 +279,12 @@ func stageRootedRollbackDestinations(
 		return rollbackEntriesForStageActions(baseline, actions), nil
 	case mutationfs.EntryKindDirectory:
 		sink := newRollbackTreeBackupSink(backupPath)
-		captured, err := authority.filesystem.SnapshotRootedDirectory(ctx, capability, sink)
+		captured, err := authority.filesystem.SnapshotRootedDirectory(
+			ctx,
+			capability,
+			managedTreeTraversalLimits(),
+			sink,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("stage rooted rollback directory %q: %w", destination.logical, err)
 		}
@@ -377,7 +382,12 @@ func observeRecoveryWholePathState(
 		}, captured, nil
 	case mutationfs.EntryKindDirectory:
 		sink := newManagedPathHashSink(ctx)
-		captured, err := authority.filesystem.SnapshotRootedDirectory(ctx, capability, sink)
+		captured, err := authority.filesystem.SnapshotRootedDirectory(
+			ctx,
+			capability,
+			managedTreeTraversalLimits(),
+			sink,
+		)
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
 		}

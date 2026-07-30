@@ -36,8 +36,9 @@ func (Adapter) ReadRegularFileSnapshotUpTo(
 func (Adapter) SnapshotDirectory(
 	ctx context.Context,
 	path string,
+	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
-	return SnapshotDirectory(ctx, path)
+	return SnapshotDirectory(ctx, path, maximumEntries)
 }
 
 func (Adapter) PrepareCommitParent(ctx context.Context, path string) error {
@@ -135,9 +136,18 @@ func (Adapter) ReadRootedRegularFileUpTo(
 func (Adapter) SnapshotRootedDirectory(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	sink mutationfs.RootedTreeSnapshotSink,
 ) (mutationfs.EntryIdentity, error) {
-	return SnapshotRootedDirectory(ctx, capability, sink)
+	return SnapshotRootedDirectory(ctx, capability, limits, sink)
+}
+
+func (Adapter) ValidateRootedDirectoryTree(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+) (mutationfs.EntryIdentity, error) {
+	return ValidateRootedDirectoryTree(ctx, capability, limits)
 }
 
 func (Adapter) CreateRootedFile(

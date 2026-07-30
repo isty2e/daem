@@ -460,6 +460,38 @@ func TestRootedEntryCleanupRemovesExactRegularFile(t *testing.T) {
 	}
 }
 
+func TestRootedEntryCleanupPreflightsSpecialChildrenBeforeDeletingSiblings(t *testing.T) {
+	root := canonicalTempDir(t)
+	residue := filepath.Join(root, ".retained")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	preserved := filepath.Join(residue, "a-preserved")
+	writeTestFile(t, preserved, "keep", 0o600)
+	special := filepath.Join(residue, "z-special")
+	if err := unix.Mkfifo(special, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".retained")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRootedEntryCleanup(capability, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := CommitRootedEntryCleanup(t.Context(), request)
+	assertFailure(t, err, failureUnsupportedGuarantee, phaseCleanupEntry)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeUncommitted)
+	assertFile(t, preserved, "keep", 0o600)
+	if info, statErr := os.Lstat(special); statErr != nil || info.Mode()&fs.ModeNamedPipe == 0 {
+		t.Fatalf("special child changed: info=%v err=%v", info, statErr)
+	}
+}
+
 func TestRootedEntryCleanupFaultClassification(t *testing.T) {
 	tests := []struct {
 		name          string

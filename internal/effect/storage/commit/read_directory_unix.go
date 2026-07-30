@@ -18,15 +18,24 @@ import (
 func SnapshotDirectory(
 	ctx context.Context,
 	path string,
+	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
-	return snapshotDirectoryWithFaults(ctx, path, faultPlan{})
+	return snapshotDirectoryWithFaults(ctx, path, maximumEntries, faultPlan{})
 }
 
 func snapshotDirectoryWithFaults(
 	ctx context.Context,
 	path string,
+	maximumEntries int,
 	faults faultPlan,
 ) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(
+			phaseValidate,
+			path,
+			fmt.Errorf("directory snapshot maximum entries must be positive"),
+		)
+	}
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
@@ -60,7 +69,7 @@ func snapshotDirectoryWithFaults(
 	}
 	defer unix.Close(directoryFD)
 
-	names, err := readDirectoryNames(directoryFD, path)
+	names, err := readDirectoryNames(ctx, directoryFD, path, maximumEntries)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
@@ -92,7 +101,7 @@ func snapshotDirectoryWithFaults(
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
 
-	currentNames, err := readDirectoryNames(directoryFD, path)
+	currentNames, err := readDirectoryNames(ctx, directoryFD, path, maximumEntries)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}

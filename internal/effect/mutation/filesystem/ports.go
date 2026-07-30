@@ -16,7 +16,11 @@ type PathReader interface {
 // DirectoryReader captures one stable immediate-child inventory without
 // interpreting entry names or traversing children.
 type DirectoryReader interface {
-	SnapshotDirectory(ctx context.Context, path string) (DirectorySnapshot, error)
+	SnapshotDirectory(
+		ctx context.Context,
+		path string,
+		maximumEntries int,
+	) (DirectorySnapshot, error)
 }
 
 // PathCommitter performs guarded stable publication on operation-selected
@@ -59,7 +63,13 @@ type RootedReader interface {
 	SnapshotRootedDirectory(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
+		limits TreeTraversalLimits,
 		sink RootedTreeSnapshotSink,
+	) (EntryIdentity, error)
+	ValidateRootedDirectoryTree(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		limits TreeTraversalLimits,
 	) (EntryIdentity, error)
 }
 
