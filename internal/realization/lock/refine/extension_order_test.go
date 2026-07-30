@@ -130,6 +130,95 @@ func TestValidateCurrentExtensionOrderRejectsClassCountChange(t *testing.T) {
 	}
 }
 
+func TestValidateCurrentExtensionOrderRejectsMembershipIdentityAndClassDrift(
+	t *testing.T,
+) {
+	first := orderExtension(
+		t,
+		"first",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"one",
+	)
+	second := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"two",
+	)
+	third := orderExtension(
+		t,
+		"third",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"three",
+	)
+	secondWithChangedSource := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		"two-changed",
+	)
+	openCodeSecond := orderExtension(
+		t,
+		"second",
+		desiredextension.CarrierOpenCodePlugin,
+		target.TargetOpenCode,
+		"two",
+	)
+
+	for _, test := range []struct {
+		name    string
+		locked  []desiredextension.Extension
+		current []desiredextension.Extension
+	}{
+		{
+			name:    "member added",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, second, third},
+		},
+		{
+			name:    "member removed",
+			locked:  []desiredextension.Extension{first, second, third},
+			current: []desiredextension.Extension{first, second},
+		},
+		{
+			name:    "source identity changed",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, secondWithChangedSource},
+		},
+		{
+			name:    "singleton became ordered class",
+			locked:  []desiredextension.Extension{first},
+			current: []desiredextension.Extension{first, second},
+		},
+		{
+			name:    "ordered class became singleton",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first},
+		},
+		{
+			name:    "member moved to another order class",
+			locked:  []desiredextension.Extension{first, second},
+			current: []desiredextension.Extension{first, openCodeSecond},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateCurrentExtensionOrder(
+				test.current,
+				extensionOrderFile(t, test.locked),
+				sourceRefOrderIdentity,
+			)
+			if !errors.Is(err, ErrStaleExtensionOrder) ||
+				!strings.Contains(err.Error(), "run daem lock") {
+				t.Fatalf("drift error = %v", err)
+			}
+		})
+	}
+}
+
 func extensionOrderFile(
 	t *testing.T,
 	extensions []desiredextension.Extension,

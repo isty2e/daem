@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -86,6 +87,40 @@ func TestPiExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
 	retry := runExtensionOrderApply(t, manifestPath)
 	assertOrderResults(t, retry, "pi", 1, "exact", false)
 	assertOrderedText(t, string(testkit.ReadFile(t, settingsPath)), alpha, foreign, beta)
+}
+
+func TestExtensionAuthoringRefreshesOrderConstraintsAcrossSingletonTransitions(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	testkit.WriteFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"pi\"]\n")
+
+	runExtensionOrderCLI(t, []string{
+		"add", "extension", "alpha", "npm:@acme/alpha@1.0.0",
+		"--manifest", manifestPath, "--target", "pi",
+	})
+	assertLockedOrderMemberNames(t, lockfilePath, nil)
+
+	runExtensionOrderCLI(t, []string{
+		"add", "extension", "beta", "npm:@acme/beta@1.0.0",
+		"--manifest", manifestPath, "--target", "pi",
+	})
+	assertLockedOrderMemberNames(t, lockfilePath, []string{"alpha", "beta"})
+
+	runExtensionOrderCLI(t, []string{
+		"remove", "extension", "alpha",
+		"--manifest", manifestPath, "--target", "pi",
+	})
+	assertLockedOrderMemberNames(t, lockfilePath, nil)
+
+	runExtensionOrderCLI(t, []string{
+		"add", "extension", "alpha", "npm:@acme/alpha@1.0.0",
+		"--manifest", manifestPath, "--target", "pi",
+	})
+	assertLockedOrderMemberNames(t, lockfilePath, []string{"beta", "alpha"})
 }
 
 func TestOpenCodeExtensionImportLockApplyAndRetryConvergesBothConfigOrders(t *testing.T) {
@@ -634,5 +669,36 @@ func assertOrderedText(t *testing.T, content string, values ...string) {
 			t.Fatalf("value %q is not after prior values in %s", value, content)
 		}
 		previous = index
+	}
+}
+
+func assertLockedOrderMemberNames(
+	t *testing.T,
+	lockfilePath string,
+	want []string,
+) {
+	t.Helper()
+	file, err := lockfile.Load(lockfilePath)
+	if err != nil {
+		t.Fatalf("load lockfile: %v", err)
+	}
+	constraints := file.Locked.OrderConstraints()
+	if len(want) == 0 {
+		if len(constraints) != 0 {
+			t.Fatalf("order constraints = %#v, want none", constraints)
+		}
+		return
+	}
+	if len(constraints) != 1 {
+		t.Fatalf("order constraints = %#v, want one", constraints)
+	}
+	members := constraints[0].Members()
+	if len(members) != len(want) {
+		t.Fatalf("order members = %#v, want %v", members, want)
+	}
+	for index, name := range want {
+		if got := members[index].Subject().Key(); got != name {
+			t.Fatalf("order member[%d] = %q, want %q", index, got, name)
+		}
 	}
 }
