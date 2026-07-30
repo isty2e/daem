@@ -287,6 +287,12 @@ func (action Action) RetiresClaim() bool {
 		action.decision == DecisionVerifyPendingRemoval
 }
 
+// RequiresConfirmation reports whether apply can change host state or retire
+// durable claim authority while converging this absence action.
+func (action Action) RequiresConfirmation() bool {
+	return action.RetiresClaim()
+}
+
 // StateOnly reports whether claim retirement requires no host invocation.
 func (action Action) StateOnly() bool {
 	return action.decision == DecisionRetireAlreadyAbsent

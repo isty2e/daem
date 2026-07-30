@@ -371,6 +371,11 @@ func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
 			return true
 		}
 	}
+	for _, action := range planning.Reconciliation.CarrierAbsences() {
+		if action.RequiresConfirmation() {
+			return true
+		}
+	}
 	for _, action := range planning.Reconciliation.Delegates() {
 		if action.SchedulesAttempt() {
 			return true

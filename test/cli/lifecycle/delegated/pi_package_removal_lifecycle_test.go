@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
@@ -60,6 +62,69 @@ func TestPiPackageDesiredAbsenceRemovesExactManagedSource(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestPiPackageHostRemovalRequiresInteractiveConfirmation(t *testing.T) {
+	fixture := newPiRemovalLifecycleFixture(
+		t,
+		target.ScopeProject,
+		"npm",
+		func(string) string { return "npm:pi-tools@1.2.3" },
+	)
+	fixture.install(t)
+	fixture.removeDeclaration(t)
+	requestCount := len(fixture.requests)
+
+	exitCode, stdout, stderr := fixture.runApplyDeclined(t)
+	if exitCode != 1 ||
+		!strings.Contains(stdout, "carrier absence") ||
+		!strings.Contains(stderr, "Proceed with apply? [y/N]:") ||
+		!strings.Contains(stderr, "apply canceled") {
+		t.Fatalf(
+			"declined removal exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout,
+			stderr,
+		)
+	}
+	if len(fixture.requests) != requestCount {
+		t.Fatalf("declined removal invoked host route: %#v", fixture.requests)
+	}
+	fixture.assertClaimCount(t, 1)
+	if got := readPiPackageSettings(t, fixture.selectedSettings); !slices.Contains(
+		got,
+		fixture.selectedStoredRef,
+	) {
+		t.Fatalf("declined removal changed selected settings: %#v", got)
+	}
+}
+
+func TestPiPackageStateOnlyRetirementRequiresInteractiveConfirmation(t *testing.T) {
+	fixture := newPiRemovalLifecycleFixture(
+		t,
+		target.ScopeProject,
+		"npm",
+		func(string) string { return "npm:pi-tools@1.2.3" },
+	)
+	fixture.install(t)
+	fixture.removeDeclaration(t)
+	fixture.makeSelectedSourceAbsent(t)
+	requestCount := len(fixture.requests)
+
+	exitCode, _, stderr := fixture.runApplyDeclined(t)
+	if exitCode != 1 ||
+		!strings.Contains(stderr, "Proceed with apply? [y/N]:") ||
+		!strings.Contains(stderr, "apply canceled") {
+		t.Fatalf(
+			"declined retirement exitCode=%d stderr=%q",
+			exitCode,
+			stderr,
+		)
+	}
+	if len(fixture.requests) != requestCount {
+		t.Fatalf("state-only retirement invoked host route: %#v", fixture.requests)
+	}
+	fixture.assertClaimCount(t, 1)
 }
 
 type piRemovalLifecycleFixture struct {
@@ -239,6 +304,47 @@ func (fixture *piRemovalLifecycleFixture) runApplyWithRunner(
 		clipkg.RunOptions{
 			Stdout: &stdout,
 			Stderr: &stderr,
+			ApplyExecuteOptions: applyworkflow.ExecuteOptions{
+				HostRouteExecutor: executor,
+			},
+		},
+	)
+	return exitCode, stdout.String(), stderr.String()
+}
+
+func (fixture *piRemovalLifecycleFixture) runApplyDeclined(
+	t *testing.T,
+) (int, string, string) {
+	t.Helper()
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(
+			_ context.Context,
+			request subprocess.CommandRequest,
+		) subprocess.CommandResult {
+			fixture.requests = append(fixture.requests, request)
+			return subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 0,
+			}
+		},
+	})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLIWithOptions(
+		[]string{"apply", "--manifest", fixture.manifestPath},
+		clipkg.RunOptions{
+			Stdin:            strings.NewReader("no\n"),
+			Stdout:           &stdout,
+			Stderr:           &stderr,
+			StdinIsTerminal:  true,
+			StdoutIsTerminal: true,
+			StderrIsTerminal: true,
+			ReadConfirmationLine: func(
+				_ context.Context,
+				_ io.Reader,
+				_ int,
+			) (string, error) {
+				return "no", nil
+			},
 			ApplyExecuteOptions: applyworkflow.ExecuteOptions{
 				HostRouteExecutor: executor,
 			},
