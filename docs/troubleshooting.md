@@ -163,7 +163,9 @@ Pi package installation and OpenCode plugin edits can reveal an order that was
 not observable during the original apply preview. Daem re-reads those files
 after carrier work. If the new order introduces previously undisclosed
 managed/foreign precedence changes, interactive apply prints the updated
-sequence plan and asks `Proceed with updated apply plan?`.
+sequence plan and asks `Proceed with updated apply plan?`. Each disclosed risk
+names the managed relation, the foreign host-load identity, and the managed
+row's before-to-after or after-to-before movement relative to that foreign row.
 
 Non-interactive `apply --yes` stops instead. Inspect `daem apply --dry-run`,
 then rerun interactively if the revised precedence is acceptable. Do not infer

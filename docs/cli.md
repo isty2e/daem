@@ -684,6 +684,12 @@ interactive apply discloses those new risks and asks again. Non-interactive
 confirmation leaves completed carrier work intact, performs no order write,
 and does not start later delegates.
 
+Before either the initial or renewed prompt, each precedence-risk row identifies
+the managed relation subject, the foreign host-load identity, and whether the
+managed row moves from before to after that foreign row or from after to before
+it. Confirmation authorizes exactly those bounded relations; a count alone is
+never treated as informed consent.
+
 `--manage-existing` records exact-match unmanaged outputs as managed without
 rewriting them. This changes future deletion authority, so it is never implicit
 and never imports source material. It cannot transfer a path already owned by a

@@ -80,8 +80,9 @@ func relationOrderJSONActions(
 ) []relationOrderJSON {
 	result := make([]relationOrderJSON, 0, len(decisions))
 	for _, decision := range decisions {
-		risks := make([]relationOrderRiskJSON, 0, len(decision.PrecedenceChanges()))
-		for _, change := range decision.PrecedenceChanges() {
+		precedenceChanges := decision.PrecedenceChanges()
+		risks := make([]relationOrderRiskJSON, 0, len(precedenceChanges))
+		for _, change := range precedenceChanges {
 			risks = append(risks, relationOrderRiskJSON{
 				Code:                foreignPrecedenceChangeRisk,
 				ManagedSubject:      planJSONSubjectFor(change.ManagedSubject()),
@@ -200,13 +201,6 @@ func printRelationOrderSummary(
 			decision.Scope(),
 			decision.SequenceID(),
 		)
-		if count := len(decision.PrecedenceChanges()); count != 0 {
-			fmt.Fprintf(
-				output,
-				"    includes %d managed/foreign precedence changes\n",
-				count,
-			)
-		}
 	case reconcile.OrderConditionalAfterCarrierChange:
 		fmt.Fprintf(
 			output,
@@ -232,6 +226,7 @@ func printRelationOrderSummary(
 			detail,
 		)
 	}
+	printRelationOrderRiskDetails(output, decision)
 }
 
 func printVerboseRelationOrder(
@@ -240,7 +235,7 @@ func printVerboseRelationOrder(
 ) {
 	fmt.Fprintf(
 		output,
-		"  - kind=%s target=%s scope=%s class=%q sequence=%q runtime_meaning=%s authority=%q revision=%q constraint_fingerprint=%q reason=%s detail=%q desired=%q observed=%q missing=%q foreign_rows=%d risks=%q blocks_ordinary_apply=%t requires_mutation=%t\n",
+		"  - kind=%s target=%s scope=%s class=%q sequence=%q runtime_meaning=%s authority=%q revision=%q constraint_fingerprint=%q reason=%s detail=%q desired=%q observed=%q missing=%q foreign_rows=%d blocks_ordinary_apply=%t requires_mutation=%t\n",
 		decision.Kind(),
 		decision.Target(),
 		decision.Scope(),
@@ -256,10 +251,10 @@ func printVerboseRelationOrder(
 		relationOrderMemberIdentities(decision.ObservedMembers()),
 		relationOrderMemberIdentities(decision.MissingMembers()),
 		decision.ForeignRowCount(),
-		relationOrderRiskSummaries(decision),
 		decision.BlocksOrdinaryApply(),
 		decision.RequiresMutation(),
 	)
+	printRelationOrderRiskDetails(output, decision)
 }
 
 func relationOrderMeaning(meaning hostrelation.RuntimeMeaning) string {
@@ -286,17 +281,36 @@ func relationOrderMemberIdentities(
 	return result
 }
 
-func relationOrderRiskSummaries(decision reconcile.RelationOrderDecision) []string {
-	result := make([]string, 0, len(decision.PrecedenceChanges()))
-	for _, change := range decision.PrecedenceChanges() {
-		result = append(
-			result,
-			foreignPrecedenceChangeRisk+":"+
-				topologySubjectString(change.ManagedSubject())+":"+
-				string(change.ForeignIdentity()),
+func printRelationOrderRiskDetails(
+	output io.Writer,
+	decision reconcile.RelationOrderDecision,
+) {
+	changes := decision.PrecedenceChanges()
+	if len(changes) == 0 {
+		return
+	}
+	fmt.Fprintf(
+		output,
+		"    includes %d managed/foreign precedence changes:\n",
+		len(changes),
+	)
+	for _, change := range changes {
+		fmt.Fprintf(
+			output,
+			"      - managed=%q foreign=%q managed_position=%s -> %s\n",
+			Escape(topologySubjectString(change.ManagedSubject())),
+			Escape(string(change.ForeignIdentity())),
+			relationOrderPosition(change.ManagedWasBefore()),
+			relationOrderPosition(change.ManagedWillBeBefore()),
 		)
 	}
-	return result
+}
+
+func relationOrderPosition(managedBeforeForeign bool) string {
+	if managedBeforeForeign {
+		return "before"
+	}
+	return "after"
 }
 
 func topologySubjectString(subject topology.SubjectID) string {

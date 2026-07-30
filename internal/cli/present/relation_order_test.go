@@ -33,6 +33,10 @@ func TestRelationOrderJSONDisclosesPhysicalSequenceAndForeignRisk(t *testing.T) 
 		row.ForeignRowCount != 1 ||
 		len(row.Risks) != 2 ||
 		row.Risks[0].Code != foreignPrecedenceChangeRisk ||
+		!row.Risks[0].ManagedWasBefore ||
+		row.Risks[0].ManagedWillBeBefore ||
+		row.Risks[1].ManagedWasBefore ||
+		!row.Risks[1].ManagedWillBeBefore ||
 		!row.RequiresMutation ||
 		row.BlocksOrdinaryApply {
 		t.Fatalf("row = %#v", row)
@@ -107,11 +111,90 @@ func TestPrintRelationOrderActionsDistinguishesRuntimeAndConfigOrder(t *testing.
 	for _, want := range []string{
 		"runtime extension precedence",
 		"extension config order",
-		"includes 2 managed/foreign precedence changes",
+		"includes 2 managed/foreign precedence changes:",
+		`managed="host_relation/test.extension/beta" foreign="foreign" managed_position=before -> after`,
+		`managed="host_relation/test.extension/alpha" foreign="foreign" managed_position=after -> before`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("output lacks %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestPrintVerboseRelationOrderActionsDisclosesConcretePrecedenceChanges(
+	t *testing.T,
+) {
+	decision := presentRelationOrderDecision(
+		t,
+		target.TargetPi,
+		hostrelation.RuntimePrecedence,
+	)
+	var output bytes.Buffer
+	PrintRelationOrderActionsWithOptions(
+		&output,
+		[]reconcile.RelationOrderDecision{decision},
+		HumanOptions{Verbose: true},
+	)
+	text := output.String()
+	for _, want := range []string{
+		"includes 2 managed/foreign precedence changes:",
+		`managed="host_relation/test.extension/beta" foreign="foreign" managed_position=before -> after`,
+		`managed="host_relation/test.extension/alpha" foreign="foreign" managed_position=after -> before`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("verbose output lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestPrintRelationOrderActionsDisclosesEveryForeignCrossingInStableOrder(
+	t *testing.T,
+) {
+	decision := presentRelationOrderDecisionWithForeignIdentities(
+		t,
+		target.TargetPi,
+		hostrelation.RuntimePrecedence,
+		[]string{"foreign-one", "foreign-two"},
+	)
+	var output bytes.Buffer
+	PrintRelationOrderActionsWithOptions(
+		&output,
+		[]reconcile.RelationOrderDecision{decision},
+		HumanOptions{},
+	)
+	text := output.String()
+	wantInOrder := []string{
+		`managed="host_relation/test.extension/beta" foreign="foreign-one" managed_position=before -> after`,
+		`managed="host_relation/test.extension/beta" foreign="foreign-two" managed_position=before -> after`,
+		`managed="host_relation/test.extension/alpha" foreign="foreign-one" managed_position=after -> before`,
+		`managed="host_relation/test.extension/alpha" foreign="foreign-two" managed_position=after -> before`,
+	}
+	previous := -1
+	for _, want := range wantInOrder {
+		index := strings.Index(text, want)
+		if index <= previous {
+			t.Fatalf("risk %q is missing or out of order:\n%s", want, text)
+		}
+		previous = index
+	}
+}
+
+func TestPrintRelationOrderActionsDoesNotInventZeroRiskDetails(t *testing.T) {
+	decision := presentRelationOrderDecisionWithoutForeign(
+		t,
+		target.TargetPi,
+		hostrelation.RuntimePrecedence,
+	)
+	var output bytes.Buffer
+	PrintRelationOrderActionsWithOptions(
+		&output,
+		[]reconcile.RelationOrderDecision{decision},
+		HumanOptions{},
+	)
+	if text := output.String(); !strings.Contains(text, "normalize runtime extension precedence") ||
+		strings.Contains(text, "managed_position=") ||
+		strings.Contains(text, "precedence changes") {
+		t.Fatalf("zero-risk output = %q", text)
 	}
 }
 
@@ -155,22 +238,51 @@ func presentRelationOrderDecision(
 	selectedTarget target.Target,
 	meaning hostrelation.RuntimeMeaning,
 ) reconcile.RelationOrderDecision {
+	return presentRelationOrderDecisionWithForeignIdentities(
+		t,
+		selectedTarget,
+		meaning,
+		[]string{"foreign"},
+	)
+}
+
+func presentRelationOrderDecisionWithoutForeign(
+	t testing.TB,
+	selectedTarget target.Target,
+	meaning hostrelation.RuntimeMeaning,
+) reconcile.RelationOrderDecision {
+	return presentRelationOrderDecisionWithForeignIdentities(
+		t,
+		selectedTarget,
+		meaning,
+		nil,
+	)
+}
+
+func presentRelationOrderDecisionWithForeignIdentities(
+	t testing.TB,
+	selectedTarget target.Target,
+	meaning hostrelation.RuntimeMeaning,
+	foreignIdentities []string,
+) reconcile.RelationOrderDecision {
 	t.Helper()
 	constraint := presentOrderConstraint(t, selectedTarget, meaning)
 	members := constraint.Members()
-	foreignIdentity, err := hostrelation.NewHostLoadIdentity("foreign")
-	if err != nil {
-		t.Fatal(err)
-	}
-	foreign, err := observerelation.NewObservedRelationRow(foreignIdentity)
-	if err != nil {
-		t.Fatal(err)
-	}
 	rows := []observerelation.ObservedRelationRow{
 		presentOrderRow(t, members[1]),
-		foreign,
-		presentOrderRow(t, members[0]),
 	}
+	for _, foreignIdentityValue := range foreignIdentities {
+		foreignIdentity, err := hostrelation.NewHostLoadIdentity(foreignIdentityValue)
+		if err != nil {
+			t.Fatal(err)
+		}
+		foreign, err := observerelation.NewObservedRelationRow(foreignIdentity)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows = append(rows, foreign)
+	}
+	rows = append(rows, presentOrderRow(t, members[0]))
 	classPrefix := string(selectedTarget)
 	sequenceSuffix := "settings.packages"
 	if selectedTarget == target.TargetOpenCode {

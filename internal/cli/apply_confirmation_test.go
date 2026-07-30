@@ -74,6 +74,113 @@ func TestRunApplyPromptCancellationDoesNotMutate(t *testing.T) {
 	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
 }
 
+func TestRunApplyDisclosesConcreteExtensionOrderRisksBeforeConfirmation(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	manifestPath, settingsPath := writePiOrderConfirmationFixture(t, tempDir)
+	hostContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0","npm:@acme/alpha@1.0.0"]}`
+	writeApplyConfirmationFile(t, tempDir, ".pi/settings.json", hostContent)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", manifestPath, "--manage-existing",
+		},
+		interactiveRunOptions(strings.NewReader("no\n"), &stdout, &stderr),
+	)
+	if exitCode != 1 {
+		t.Fatalf(
+			"exitCode = %d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	for _, want := range []string{
+		`foreign="npm:@foreign/tool" managed_position=before -> after`,
+		`foreign="npm:@foreign/tool" managed_position=after -> before`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") ||
+		!strings.Contains(stderr.String(), "apply canceled") {
+		t.Fatalf("stderr = %q, want prompt and cancellation", stderr.String())
+	}
+	assertApplyConfirmationFileContent(t, settingsPath, hostContent)
+}
+
+func TestRunApplyDisclosesRenewedExtensionOrderRisksAfterCarrierChange(
+	t *testing.T,
+) {
+	tempDir := t.TempDir()
+	manifestPath, settingsPath := writePiOrderConfirmationFixture(t, tempDir)
+	initialContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0"]}`
+	postCarrierContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0","npm:@acme/alpha@1.0.0"]}`
+	writeApplyConfirmationFile(t, tempDir, ".pi/settings.json", initialContent)
+
+	var runnerCalls int
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options := interactiveRunOptions(
+		strings.NewReader("yes\nno\n"),
+		&stdout,
+		&stderr,
+	)
+	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+				runnerCalls++
+				writeApplyConfirmationFile(
+					t,
+					tempDir,
+					".pi/settings.json",
+					postCarrierContent,
+				)
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 0,
+				}
+			},
+		}),
+	}
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", manifestPath, "--manage-existing",
+		},
+		options,
+	)
+	if exitCode != 1 || runnerCalls == 0 {
+		t.Fatalf(
+			"exitCode=%d runnerCalls=%d stdout=%q stderr=%q",
+			exitCode,
+			runnerCalls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	for _, want := range []string{
+		"extension order changed after carrier updates: 2 new precedence risks",
+		`managed="host_relation/pi.package-carrier/beta" foreign="npm:@foreign/tool" managed_position=before -> after`,
+		`managed="host_relation/pi.package-carrier/alpha" foreign="npm:@foreign/tool" managed_position=after -> before`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout lacks %q:\n%s", want, stdout.String())
+		}
+	}
+	for _, want := range []string{
+		"Proceed with apply? [y/N]:",
+		"Proceed with updated apply plan? [y/N]:",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr lacks %q:\n%s", want, stderr.String())
+		}
+	}
+	assertApplyConfirmationFileContent(t, settingsPath, postCarrierContent)
+}
+
 func TestRelationOrderRiskAuthorizerRequiresFreshInteractiveDecision(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -357,6 +464,53 @@ args = ["--serve", "context7"]
 	}
 
 	return manifestPath, lockfilePath
+}
+
+func writePiOrderConfirmationFixture(t *testing.T, root string) (string, string) {
+	t.Helper()
+	manifestPath := filepath.Join(root, "daem.toml")
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	writeApplyConfirmationFile(t, root, "daem.toml", `
+version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "alpha"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/alpha@1.0.0" }
+
+[[extension]]
+id = "beta"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:@acme/beta@1.0.0" }
+`)
+	writeApplyConfirmationFile(
+		t,
+		root,
+		".pi/settings.json",
+		`{"packages":["npm:@acme/alpha@1.0.0","npm:@acme/beta@1.0.0"]}`,
+	)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runWithoutTerminal(
+		[]string{"lock", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"lock exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	return manifestPath, settingsPath
 }
 
 func writeApplyConfirmationFile(t *testing.T, root string, relativePath string, content string) {
