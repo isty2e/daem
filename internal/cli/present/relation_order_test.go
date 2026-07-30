@@ -124,6 +124,57 @@ func TestRelationOrderRiskDisclosureRedactsUnsafeIdentityAcrossFormats(
 	}
 }
 
+func TestRelationOrderRiskDisclosureEscapesSafeIdentityAcrossFormats(
+	t *testing.T,
+) {
+	const safeIdentity = `npm:quote"and\slash`
+	decision := presentRelationOrderDecisionWithForeignIdentities(
+		t,
+		target.TargetPi,
+		hostrelation.RuntimePrecedence,
+		[]string{safeIdentity},
+	)
+	rows := relationOrderJSONActions([]reconcile.RelationOrderDecision{decision})
+	if len(rows) != 1 || len(rows[0].Risks) != 2 {
+		t.Fatalf("rows = %#v", rows)
+	}
+	for _, risk := range rows[0].Risks {
+		if risk.ForeignIdentity != safeIdentity || risk.ForeignIdentityRedacted {
+			t.Fatalf("risk = %#v", risk)
+		}
+	}
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded []relationOrderJSON
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("decode JSON projection: %v\n%s", err, encoded)
+	}
+	if len(decoded) != 1 || len(decoded[0].Risks) != 2 ||
+		decoded[0].Risks[0].ForeignIdentity != safeIdentity {
+		t.Fatalf("decoded projection = %#v", decoded)
+	}
+
+	for _, options := range []HumanOptions{
+		{},
+		{Verbose: true},
+	} {
+		var output bytes.Buffer
+		PrintRelationOrderActionsWithOptions(
+			&output,
+			[]reconcile.RelationOrderDecision{decision},
+			options,
+		)
+		if text := output.String(); !strings.Contains(
+			text,
+			`foreign="npm:quote\"and\\\\slash"`,
+		) {
+			t.Fatalf("human output = %q", text)
+		}
+	}
+}
+
 func TestRelationOrderJSONDisclosesPhysicalSequenceAndForeignRisk(t *testing.T) {
 	decision := presentRelationOrderDecision(
 		t,
