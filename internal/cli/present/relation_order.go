@@ -21,8 +21,12 @@ const (
 	maxRelationOrderIdentityDisclosureBytes = 256
 )
 
-var relationOrderSecretAssignmentPattern = regexp.MustCompile(
-	`(?i)(^|[:/?#&;,\s])(token|secret|password|api[-_]?key)\s*[:=]`,
+var relationOrderAssignmentPattern = regexp.MustCompile(
+	`(?i)(^|[:/?#&;,\s])[a-z][a-z0-9_-]{0,63}\s*=`,
+)
+
+var relationOrderSecretColonPattern = regexp.MustCompile(
+	`(?i)(^|[:/?#&;,\s])(token|secret|password|auth|authorization|credential|api[-_]?key|access[-_]?key|client[-_]?secret|private[-_]?key)\s*:`,
 )
 
 type relationOrderJSON struct {
@@ -365,7 +369,8 @@ func relationOrderIdentityRequiresRedaction(value string) bool {
 		isWindowsAbsolutePath(value) ||
 		strings.Contains(value, "?") ||
 		hasURLUserInfo(value) ||
-		relationOrderSecretAssignmentPattern.MatchString(value) {
+		relationOrderAssignmentPattern.MatchString(value) ||
+		relationOrderSecretColonPattern.MatchString(value) {
 		return true
 	}
 	parsed, err := url.Parse(value)

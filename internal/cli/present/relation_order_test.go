@@ -25,6 +25,7 @@ func TestRelationOrderIdentityDisclosurePreservesOnlySafeBoundedIdentities(
 		redacted bool
 	}{
 		{name: "npm package", value: "npm:@acme/tool"},
+		{name: "npm selector", value: "npm:@acme/tool@>=1.0.0"},
 		{name: "credential-free git URL", value: "git:https://example.test/acme/tool.git"},
 		{name: "quotes and backslashes", value: `npm:quote"and\slash`},
 		{name: "URL userinfo", value: "https://user:secret@example.test/plugin", redacted: true},
@@ -32,6 +33,8 @@ func TestRelationOrderIdentityDisclosurePreservesOnlySafeBoundedIdentities(
 		{name: "URL query", value: "https://example.test/plugin?token=secret", redacted: true},
 		{name: "encoded secret fragment", value: "https://example.test/plugin#token%3Dsecret", redacted: true},
 		{name: "secret assignment", value: "npm:tool#api_key=secret", redacted: true},
+		{name: "generic assignment", value: "npm:tool;credential=secret", redacted: true},
+		{name: "secret colon", value: "npm:tool;authorization:Bearer-secret", redacted: true},
 		{name: "absolute path", value: "/Users/alice/private/plugin.ts", redacted: true},
 		{name: "file URL", value: "file:///Users/alice/private/plugin.ts", redacted: true},
 		{name: "nested file URL", value: "git:file:///Users/alice/private/plugin.ts", redacted: true},
