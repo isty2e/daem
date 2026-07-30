@@ -235,6 +235,11 @@ func (constraint RelationOrderConstraint) Members() []RelationOrderMember {
 	return append([]RelationOrderMember(nil), constraint.members...)
 }
 
+// MemberCount returns the logical class cardinality without copying members.
+func (constraint RelationOrderConstraint) MemberCount() int {
+	return len(constraint.members)
+}
+
 // Equal reports complete semantic equality, including member order.
 func (constraint RelationOrderConstraint) Equal(other RelationOrderConstraint) bool {
 	return constraint.classID == other.classID &&

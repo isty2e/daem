@@ -1,6 +1,8 @@
 package relation_test
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -227,6 +229,168 @@ func TestFixedSlotPermutationRejectsDuplicateLoadIdentity(t *testing.T) {
 	}
 }
 
+func TestObservedRelationSequenceEnforcesRowLimit(t *testing.T) {
+	for _, rowCount := range []int{
+		0,
+		1,
+		observerelation.MaximumOrderRows - 1,
+		observerelation.MaximumOrderRows,
+		observerelation.MaximumOrderRows + 1,
+	} {
+		t.Run(fmt.Sprintf("rows_%d", rowCount), func(t *testing.T) {
+			rows := orderLimitForeignRows(t, rowCount)
+			_, err := newObservedSequence("opencode:project:server.plugins", rows)
+			if rowCount <= observerelation.MaximumOrderRows {
+				if err != nil {
+					t.Fatalf("NewObservedRelationSequence: %v", err)
+				}
+				return
+			}
+			assertOrderLimitError(
+				t,
+				err,
+				observerelation.OrderLimitObservedRows,
+				rowCount,
+				observerelation.MaximumOrderRows,
+			)
+		})
+	}
+}
+
+func TestOrderConstraintEnforcesManagedMemberLimit(t *testing.T) {
+	for _, memberCount := range []int{
+		observerelation.MaximumOrderMembers - 1,
+		observerelation.MaximumOrderMembers,
+		observerelation.MaximumOrderMembers + 1,
+	} {
+		t.Run(fmt.Sprintf("members_%d", memberCount), func(t *testing.T) {
+			constraint, _ := orderLimitFixture(t, memberCount, 0, false)
+			err := observerelation.ValidateOrderConstraintBudget(constraint)
+			if memberCount <= observerelation.MaximumOrderMembers {
+				if err != nil {
+					t.Fatalf("ValidateOrderConstraintBudget: %v", err)
+				}
+				return
+			}
+			assertOrderLimitError(
+				t,
+				err,
+				observerelation.OrderLimitManagedMembers,
+				memberCount,
+				observerelation.MaximumOrderMembers,
+			)
+		})
+	}
+}
+
+func TestFixedSlotPermutationEnforcesObservedManagedMemberLimit(t *testing.T) {
+	constraint, rows := orderLimitFixture(
+		t,
+		observerelation.MaximumOrderMembers,
+		1,
+		false,
+	)
+	extraMember := orderLimitMember(t, observerelation.MaximumOrderMembers)
+	foreignRows := append(
+		[]observerelation.ObservedRelationRow(nil),
+		rows[observerelation.MaximumOrderMembers:]...,
+	)
+	rows = append(
+		rows[:observerelation.MaximumOrderMembers],
+		mustOrderLimitCorrelatedRow(t, extraMember),
+	)
+	rows = append(rows, foreignRows...)
+
+	_, _, err := observerelation.FixedSlotPermutation(constraint, rows)
+	assertOrderLimitError(
+		t,
+		err,
+		observerelation.OrderLimitManagedMembers,
+		observerelation.MaximumOrderMembers+1,
+		observerelation.MaximumOrderMembers,
+	)
+}
+
+func TestFixedSlotPermutationEnforcesPrecedencePairLimit(t *testing.T) {
+	tests := []struct {
+		name         string
+		managedCount int
+		foreignCount int
+		wantPairs    int
+		wantError    bool
+	}{
+		{
+			name:         "n_minus_1",
+			managedCount: 127,
+			foreignCount: 129,
+			wantPairs:    observerelation.MaximumOrderPrecedencePairs - 1,
+		},
+		{
+			name:         "n",
+			managedCount: 128,
+			foreignCount: 128,
+			wantPairs:    observerelation.MaximumOrderPrecedencePairs,
+		},
+		{
+			name:         "n_plus_1",
+			managedCount: 5,
+			foreignCount: 3_277,
+			wantPairs:    observerelation.MaximumOrderPrecedencePairs + 1,
+			wantError:    true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			constraint, rows := orderLimitFixture(
+				t,
+				test.managedCount,
+				test.foreignCount,
+				false,
+			)
+			_, _, err := observerelation.FixedSlotPermutation(constraint, rows)
+			if !test.wantError {
+				if err != nil {
+					t.Fatalf("FixedSlotPermutation: %v", err)
+				}
+				return
+			}
+			assertOrderLimitError(
+				t,
+				err,
+				observerelation.OrderLimitPrecedencePairs,
+				test.wantPairs,
+				observerelation.MaximumOrderPrecedencePairs,
+			)
+		})
+	}
+}
+
+func TestFixedSlotPermutationAdmitsMaximumPrecedenceChanges(t *testing.T) {
+	constraint, rows := orderLimitFixture(t, 128, 128, true)
+
+	_, changes, err := observerelation.FixedSlotPermutation(constraint, rows)
+	if err != nil {
+		t.Fatalf("FixedSlotPermutation: %v", err)
+	}
+	if len(changes) != observerelation.MaximumOrderPrecedencePairs {
+		t.Fatalf(
+			"precedence changes = %d, want %d",
+			len(changes),
+			observerelation.MaximumOrderPrecedencePairs,
+		)
+	}
+}
+
+func BenchmarkFixedSlotPermutationAtPrecedenceLimit(b *testing.B) {
+	constraint, rows := orderLimitFixture(b, 128, 128, true)
+	b.ResetTimer()
+	for range b.N {
+		if _, _, err := observerelation.FixedSlotPermutation(constraint, rows); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 func mustObservedSequence(
 	t *testing.T,
 	sequenceID string,
@@ -344,4 +508,134 @@ func mustObservedRevision(t *testing.T) observerelation.SequenceRevision {
 		t.Fatalf("NewSequenceRevision: %v", err)
 	}
 	return revision
+}
+
+func orderLimitFixture(
+	tb testing.TB,
+	managedCount int,
+	foreignCount int,
+	reverse bool,
+) (hostrelation.RelationOrderConstraint, []observerelation.ObservedRelationRow) {
+	tb.Helper()
+	members := make([]hostrelation.RelationOrderMember, managedCount)
+	for index := range members {
+		members[index] = orderLimitMember(tb, index)
+	}
+	desiredMembers := append([]hostrelation.RelationOrderMember(nil), members...)
+	if reverse {
+		for left, right := 0, len(desiredMembers)-1; left < right; left, right = left+1, right-1 {
+			desiredMembers[left], desiredMembers[right] = desiredMembers[right], desiredMembers[left]
+		}
+	}
+	constraint, err := hostrelation.NewRelationOrderConstraint(
+		mustOrderClassIDWithoutTest(),
+		"opencode-plugin-package-v1",
+		hostrelation.ConfigOrderOnly,
+		desiredMembers,
+	)
+	if err != nil {
+		tb.Fatalf("NewRelationOrderConstraint: %v", err)
+	}
+
+	rows := make([]observerelation.ObservedRelationRow, 0, managedCount+foreignCount)
+	split := managedCount
+	if reverse {
+		split = managedCount / 2
+	}
+	for _, member := range members[:split] {
+		rows = append(rows, mustOrderLimitCorrelatedRow(tb, member))
+	}
+	rows = append(rows, orderLimitForeignRows(tb, foreignCount)...)
+	for _, member := range members[split:] {
+		rows = append(rows, mustOrderLimitCorrelatedRow(tb, member))
+	}
+	return constraint, rows
+}
+
+func orderLimitMember(tb testing.TB, index int) hostrelation.RelationOrderMember {
+	tb.Helper()
+	subject, err := topology.NewSubjectID(
+		topology.SubjectHostRelation,
+		"opencode.plugin-carrier",
+		fmt.Sprintf("member-%04d", index),
+	)
+	if err != nil {
+		tb.Fatalf("topology.NewSubjectID: %v", err)
+	}
+	identity, err := hostrelation.NewHostLoadIdentity(fmt.Sprintf("@managed/pkg-%04d", index))
+	if err != nil {
+		tb.Fatalf("NewHostLoadIdentity: %v", err)
+	}
+	member, err := hostrelation.NewRelationOrderMember(subject, identity)
+	if err != nil {
+		tb.Fatalf("NewRelationOrderMember: %v", err)
+	}
+	return member
+}
+
+func orderLimitForeignRows(
+	tb testing.TB,
+	count int,
+) []observerelation.ObservedRelationRow {
+	tb.Helper()
+	rows := make([]observerelation.ObservedRelationRow, count)
+	for index := range rows {
+		identity, err := hostrelation.NewHostLoadIdentity(
+			fmt.Sprintf("@foreign/pkg-%04d", index),
+		)
+		if err != nil {
+			tb.Fatalf("NewHostLoadIdentity: %v", err)
+		}
+		row, err := observerelation.NewObservedRelationRow(identity)
+		if err != nil {
+			tb.Fatalf("NewObservedRelationRow: %v", err)
+		}
+		rows[index] = row
+	}
+	return rows
+}
+
+func mustOrderLimitCorrelatedRow(
+	tb testing.TB,
+	member hostrelation.RelationOrderMember,
+) observerelation.ObservedRelationRow {
+	tb.Helper()
+	row, err := observerelation.NewCorrelatedObservedRelationRow(
+		member.HostLoadIdentity(),
+		member.Subject(),
+	)
+	if err != nil {
+		tb.Fatalf("NewCorrelatedObservedRelationRow: %v", err)
+	}
+	return row
+}
+
+func assertOrderLimitError(
+	t *testing.T,
+	err error,
+	wantKind observerelation.OrderLimitKind,
+	wantObserved int,
+	wantLimit int,
+) {
+	t.Helper()
+	if !errors.Is(err, observerelation.ErrOrderLimitExceeded) {
+		t.Fatalf("error = %v, want ErrOrderLimitExceeded", err)
+	}
+	var limitError *observerelation.OrderLimitError
+	if !errors.As(err, &limitError) {
+		t.Fatalf("error = %T %v, want *OrderLimitError", err, err)
+	}
+	if limitError.Kind() != wantKind ||
+		limitError.Observed() != wantObserved ||
+		limitError.Limit() != wantLimit {
+		t.Fatalf(
+			"limit error = %s observed=%d limit=%d, want %s observed=%d limit=%d",
+			limitError.Kind(),
+			limitError.Observed(),
+			limitError.Limit(),
+			wantKind,
+			wantObserved,
+			wantLimit,
+		)
+	}
 }

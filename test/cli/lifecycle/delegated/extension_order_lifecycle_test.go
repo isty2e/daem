@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -413,6 +415,51 @@ func TestApplyRejectsManifestOrderChangedAfterLock(t *testing.T) {
 		)
 	}
 	testkit.AssertFileContent(t, settingsPath, hostContent)
+}
+
+func TestApplyRejectsOversizedExtensionOrderWithoutMutation(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	settingsPath := filepath.Join(tempDir, ".pi", "settings.json")
+	alpha := "npm:@acme/alpha@1.0.0"
+	beta := "npm:@acme/beta@1.0.0"
+	testkit.WriteFile(t, tempDir, "daem.toml", piOrderManifest(alpha, beta))
+	runExtensionOrderLock(t, manifestPath)
+
+	packages := make([]string, 0, 4_097)
+	packages = append(packages, alpha, beta)
+	for index := 0; len(packages) <= 4_096; index++ {
+		packages = append(packages, fmt.Sprintf("npm:@foreign/pkg-%04d@1.0.0", index))
+	}
+	hostContent, err := json.Marshal(struct {
+		Packages []string `json:"packages"`
+	}{Packages: packages})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	testkit.WriteFile(t, tempDir, ".pi/settings.json", string(hostContent))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"apply", "--manifest", manifestPath, "--yes", "--manage-existing",
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 ||
+		!strings.Contains(stderr.String(), "extension order resource limit exceeded") ||
+		!strings.Contains(stderr.String(), "observed_rows") {
+		t.Fatalf(
+			"oversized apply exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	testkit.AssertFileContent(t, settingsPath, string(hostContent))
 }
 
 func piOrderManifest(first string, second string) string {

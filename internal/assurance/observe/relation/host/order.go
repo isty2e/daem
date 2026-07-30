@@ -137,6 +137,9 @@ func ObserveOrder(input OrderInput) (OrderObservation, error) {
 	if err := input.Constraint.Validate(); err != nil {
 		return OrderObservation{}, fmt.Errorf("extension order constraint: %w", err)
 	}
+	if err := relationobserve.ValidateOrderConstraintBudget(input.Constraint); err != nil {
+		return OrderObservation{}, err
+	}
 	selectedTarget, capability, admitted := profile.ExtensionOrderCapabilityForClass(
 		input.Constraint.ClassID(),
 	)

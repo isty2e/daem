@@ -730,6 +730,12 @@ order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
 
+Extension-order planning rejects, rather than truncates, any physical sequence
+over 4,096 rows, desired or observed managed membership over 1,024 rows, or
+projection with more than 16,384 possible managed/foreign precedence pairs.
+These checks run before pair enumeration and never grant mutation authority
+after a limit failure.
+
 Carrier-adoption rows expose the exact relation evidence, lifecycle blocker or
 eligibility, selected claim store, install/removal route identities, bounded
 effects and non-claims, and `claim_transition`. An eligible dry-run uses
