@@ -133,7 +133,17 @@ func PrepareRootedTree(
 
 // Commit publishes the prepared tree exactly once and consumes its capability.
 func (prepared *PreparedRootedTree) Commit(ctx context.Context) error {
-	return commitPreparedRootedTreeWithFaults(ctx, prepared, faultPlan{})
+	_, err := prepared.CommitWithOutcome(ctx)
+	return err
+}
+
+// CommitWithOutcome publishes the prepared tree and reports the strongest
+// stable namespace conclusion plus any retained private stage name.
+func (prepared *PreparedRootedTree) CommitWithOutcome(
+	ctx context.Context,
+) (mutationfs.CommitOutcome, error) {
+	err := commitPreparedRootedTreeWithFaults(ctx, prepared, faultPlan{})
+	return outcomeFromError(err), err
 }
 
 func commitPreparedRootedTreeWithFaults(

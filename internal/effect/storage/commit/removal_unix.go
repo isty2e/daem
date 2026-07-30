@@ -161,6 +161,17 @@ func unusedSiblingName(parentFD int, prefix string) (string, error) {
 }
 
 func removeEntryAt(ctx context.Context, parentFD int, name string, path string, expected EntryIdentity) error {
+	return removeEntryAtWithFaults(ctx, parentFD, name, path, expected, faultPlan{})
+}
+
+func removeEntryAtWithFaults(
+	ctx context.Context,
+	parentFD int,
+	name string,
+	path string,
+	expected EntryIdentity,
+	faults faultPlan,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -183,7 +194,7 @@ func removeEntryAt(ctx context.Context, parentFD int, name string, path string, 
 		if err != nil {
 			return err
 		}
-		err = removeDirectoryContents(ctx, fd, path)
+		err = removeDirectoryContentsWithFaults(ctx, fd, path, faults)
 		_ = unix.Close(fd)
 		if err != nil {
 			return err
@@ -196,10 +207,18 @@ func removeEntryAt(ctx context.Context, parentFD int, name string, path string, 
 			return fmt.Errorf("directory identity changed before cleanup at %q", path)
 		}
 	}
+	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+		return err
+	}
 	return unix.Unlinkat(parentFD, name, removalFlags(observed.kind))
 }
 
-func removeDirectoryContents(ctx context.Context, directoryFD int, path string) error {
+func removeDirectoryContentsWithFaults(
+	ctx context.Context,
+	directoryFD int,
+	path string,
+	faults faultPlan,
+) error {
 	names, err := readDirectoryNames(directoryFD, path)
 	if err != nil {
 		return err
@@ -226,7 +245,7 @@ func removeDirectoryContents(ctx context.Context, directoryFD int, path string) 
 			if err != nil {
 				return err
 			}
-			err = removeDirectoryContents(ctx, fd, entryPath)
+			err = removeDirectoryContentsWithFaults(ctx, fd, entryPath, faults)
 			_ = unix.Close(fd)
 			if err != nil {
 				return err
@@ -238,6 +257,9 @@ func removeDirectoryContents(ctx context.Context, directoryFD int, path string) 
 			if !identity.sameObject(current) {
 				return fmt.Errorf("directory identity changed before cleanup at %q", entryPath)
 			}
+			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+				return err
+			}
 			if err := unix.Unlinkat(directoryFD, name, unix.AT_REMOVEDIR); err != nil {
 				return err
 			}
@@ -248,6 +270,9 @@ func removeDirectoryContents(ctx context.Context, directoryFD int, path string) 
 			}
 			if !identity.sameEntry(current) {
 				return fmt.Errorf("entry identity changed before cleanup at %q", entryPath)
+			}
+			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+				return err
 			}
 			if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
 				return err

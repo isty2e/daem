@@ -3,6 +3,8 @@ package commit
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"sort"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
@@ -103,4 +105,70 @@ func failureBeforeVisibility(failedPhase phase, path string, cause error) error 
 		kind = failureUnsupportedGuarantee
 	}
 	return newFailure(kind, failedPhase, path, cause)
+}
+
+func outcomeFromError(err error) mutationfs.CommitOutcome {
+	if err == nil {
+		return mustCommitOutcome(mutationfs.CommitOutcomeComplete, nil)
+	}
+
+	var concrete *failure
+	if !errors.As(err, &concrete) {
+		return mustCommitOutcome(mutationfs.CommitOutcomeIndeterminate, nil)
+	}
+
+	retainedNames := retainedSiblingNames(concrete.path, concrete.residue)
+	switch concrete.kind {
+	case failureUncommitted, failureUnsupportedGuarantee:
+		if len(retainedNames) != 0 {
+			return mustCommitOutcome(
+				mutationfs.CommitOutcomeRetainedRecoverable,
+				retainedNames,
+			)
+		}
+		return mustCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
+	case failureRetainedResidue:
+		if len(retainedNames) == 0 {
+			return mustCommitOutcome(mutationfs.CommitOutcomeIndeterminate, nil)
+		}
+		return mustCommitOutcome(
+			mutationfs.CommitOutcomeRetainedRecoverable,
+			retainedNames,
+		)
+	case failureIndeterminateCommit:
+		return mustCommitOutcome(
+			mutationfs.CommitOutcomeIndeterminate,
+			retainedNames,
+		)
+	default:
+		return mustCommitOutcome(mutationfs.CommitOutcomeIndeterminate, nil)
+	}
+}
+
+func mustCommitOutcome(
+	state mutationfs.CommitOutcomeState,
+	retainedNames []string,
+) mutationfs.CommitOutcome {
+	outcome, err := mutationfs.NewCommitOutcome(state, retainedNames)
+	if err != nil {
+		panic(fmt.Sprintf("construct storage commit outcome: %v", err))
+	}
+	return outcome
+}
+
+func retainedSiblingNames(primaryPath string, paths []string) []string {
+	parent := filepath.Dir(primaryPath)
+	names := make([]string, 0, len(paths))
+	for _, path := range deduplicateStrings(paths) {
+		if filepath.Dir(path) != parent {
+			continue
+		}
+		name := filepath.Base(path)
+		if name == "" || name == "." || name == string(filepath.Separator) {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

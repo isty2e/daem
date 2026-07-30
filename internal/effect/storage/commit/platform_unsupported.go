@@ -80,6 +80,18 @@ func (prepared *PreparedRootedTree) Commit(_ context.Context) error {
 	return newUnsupportedPlatformFailure(path)
 }
 
+// CommitWithOutcome returns unsupported_guarantee without effects.
+func (prepared *PreparedRootedTree) CommitWithOutcome(
+	_ context.Context,
+) (mutationfs.CommitOutcome, error) {
+	path := ""
+	if prepared != nil {
+		path = prepared.destination
+	}
+	err := newUnsupportedPlatformFailure(path)
+	return outcomeFromError(err), err
+}
+
 // Abort has no resources to release on an unsupported platform.
 func (*PreparedRootedTree) Abort(_ context.Context) error {
 	return nil
@@ -187,6 +199,30 @@ func CommitLogicalRemoval(_ context.Context, request LogicalRemoval) error {
 		defer request.capability.Close()
 	}
 	return newUnsupportedPlatformFailure(request.path)
+}
+
+// CommitRootedEntryRename returns unsupported_guarantee without effects.
+func CommitRootedEntryRename(
+	_ context.Context,
+	request RootedEntryRename,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.sourcePath)
+	return outcomeFromError(err), err
+}
+
+// CommitRootedEntryCleanup returns unsupported_guarantee without effects.
+func CommitRootedEntryCleanup(
+	_ context.Context,
+	request RootedEntryCleanup,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.path)
+	return outcomeFromError(err), err
 }
 
 func newUnsupportedPlatformFailure(path string) error {

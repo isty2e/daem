@@ -63,6 +63,23 @@ func (prepared *journalPublishFailingPreparedTree) Commit(ctx context.Context) e
 	return prepared.failure
 }
 
+func (prepared *journalPublishFailingPreparedTree) CommitWithOutcome(
+	ctx context.Context,
+) (mutationfs.CommitOutcome, error) {
+	err := prepared.Commit(ctx)
+	kind, _ := mutationfs.FailureKindOf(err)
+	state := mutationfs.CommitOutcomeIndeterminate
+	if kind == mutationfs.FailureUncommitted ||
+		kind == mutationfs.FailureUnsupportedGuarantee {
+		state = mutationfs.CommitOutcomeUncommitted
+	}
+	outcome, outcomeErr := mutationfs.NewCommitOutcome(state, nil)
+	if outcomeErr != nil {
+		panic(outcomeErr)
+	}
+	return outcome, err
+}
+
 func (prepared *journalPublishFailingPreparedTree) Abort(ctx context.Context) error {
 	return prepared.prepared.Abort(ctx)
 }

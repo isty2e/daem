@@ -232,3 +232,63 @@ func TestFailureVisibilityClassificationIsConservative(t *testing.T) {
 		})
 	}
 }
+
+func TestCommitOutcomeEnforcesStateAndRetainedNameContract(t *testing.T) {
+	retained := []string{".stage-b", ".stage-a"}
+	outcome, err := NewCommitOutcome(CommitOutcomeRetainedRecoverable, retained)
+	if err != nil {
+		t.Fatalf("NewCommitOutcome: %v", err)
+	}
+	retained[0] = ".changed"
+
+	if got := outcome.State(); got != CommitOutcomeRetainedRecoverable {
+		t.Fatalf("State = %q, want %q", got, CommitOutcomeRetainedRecoverable)
+	}
+	names := outcome.RetainedNames()
+	if len(names) != 2 || names[0] != ".stage-a" || names[1] != ".stage-b" {
+		t.Fatalf("RetainedNames = %q, want lexical private names", names)
+	}
+	names[0] = ".changed-again"
+	if got := outcome.RetainedNames()[0]; got != ".stage-a" {
+		t.Fatalf("RetainedNames after caller mutation = %q, want %q", got, ".stage-a")
+	}
+
+	for _, test := range []struct {
+		name     string
+		state    CommitOutcomeState
+		retained []string
+	}{
+		{name: "missing state"},
+		{name: "unknown state", state: "unknown"},
+		{name: "uncommitted residue", state: CommitOutcomeUncommitted, retained: []string{".stage"}},
+		{name: "complete residue", state: CommitOutcomeComplete, retained: []string{".stage"}},
+		{name: "retained without residue", state: CommitOutcomeRetainedRecoverable},
+		{name: "empty name", state: CommitOutcomeIndeterminate, retained: []string{""}},
+		{name: "dot name", state: CommitOutcomeIndeterminate, retained: []string{"."}},
+		{name: "parent name", state: CommitOutcomeIndeterminate, retained: []string{".."}},
+		{name: "nested name", state: CommitOutcomeIndeterminate, retained: []string{"nested/stage"}},
+		{name: "duplicate name", state: CommitOutcomeIndeterminate, retained: []string{".stage", ".stage"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := NewCommitOutcome(test.state, test.retained); err == nil {
+				t.Fatal("NewCommitOutcome succeeded")
+			}
+		})
+	}
+
+	for _, state := range []CommitOutcomeState{
+		CommitOutcomeUncommitted,
+		CommitOutcomeIndeterminate,
+		CommitOutcomeComplete,
+	} {
+		if _, err := NewCommitOutcome(state, nil); err != nil {
+			t.Fatalf("NewCommitOutcome(%q, nil): %v", state, err)
+		}
+	}
+	if _, err := NewCommitOutcome(
+		CommitOutcomeIndeterminate,
+		[]string{`legal-on-unix\entry`},
+	); err != nil {
+		t.Fatalf("NewCommitOutcome rejected opaque same-parent name: %v", err)
+	}
+}

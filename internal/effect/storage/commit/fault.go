@@ -31,6 +31,7 @@ const (
 	phaseSyncTreeDirectory phase = "sync_tree_directory"
 	phaseCommitTombstone   phase = "commit_tombstone"
 	phaseCleanupTombstone  phase = "cleanup_tombstone"
+	phaseCleanupEntry      phase = "cleanup_entry"
 	phaseSyncCleanupParent phase = "sync_cleanup_parent"
 	phaseUnsupported       phase = "unsupported_platform"
 )

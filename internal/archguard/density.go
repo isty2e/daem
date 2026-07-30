@@ -92,9 +92,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "child packages would export or duplicate private JSON subject and schema helpers while leaving cross-command transport consistency as an implicit facade concern",
 	},
 	"internal/effect/storage/commit": {
-		reviewedValue:       22,
+		reviewedValue:       23,
 		owner:               "guarded filesystem commit adapter",
-		reason:              "at 22 production files, commit phases, no-follow entry and directory snapshots, identity revalidation, visibility, residue, and rollback share one platform-selected transaction",
+		reason:              "at 23 production files, commit phases, no-follow entry and directory snapshots, exact same-parent rename and cleanup, identity revalidation, visibility, residue, and rollback share one platform-selected transaction",
 		naturalSplit:        "move stable read observations into a child adapter package",
 		alternativeRejected: "the child would duplicate platform identity and descriptor-anchor logic or export transaction internals shared with guarded mutation and rollback",
 	},

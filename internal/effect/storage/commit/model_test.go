@@ -36,6 +36,28 @@ func TestEntryIdentityKindMapsCanonicalForms(t *testing.T) {
 	}
 }
 
+func TestCommitOutcomeRetainsOnlySameParentEntryNames(t *testing.T) {
+	t.Parallel()
+
+	err := newFailure(
+		failureRetainedResidue,
+		phaseCleanupTemporary,
+		"/root/parent/record",
+		errors.New("cleanup failed"),
+		"/root/parent/.temporary",
+		"/root/parent/child/.temporary",
+		"/root/.temporary",
+	)
+	outcome := outcomeFromError(err)
+	if got := outcome.State(); got != mutationfs.CommitOutcomeRetainedRecoverable {
+		t.Fatalf("outcome state = %q, want %q", got, mutationfs.CommitOutcomeRetainedRecoverable)
+	}
+	retained := outcome.RetainedNames()
+	if len(retained) != 1 || retained[0] != ".temporary" {
+		t.Fatalf("retained names = %v, want same-parent temporary only", retained)
+	}
+}
+
 func TestNewFileCreateRejectsInvalidPathsAndModes(t *testing.T) {
 	t.Parallel()
 

@@ -27,6 +27,84 @@ type EntryIdentity interface {
 	Kind() EntryKind
 }
 
+// CommitOutcomeState is the strongest namespace conclusion established by one
+// guarded commit attempt. It describes storage visibility only; semantic
+// owners decide what the visible entry means.
+type CommitOutcomeState string
+
+const (
+	CommitOutcomeUncommitted         CommitOutcomeState = "uncommitted"
+	CommitOutcomeIndeterminate       CommitOutcomeState = "indeterminate"
+	CommitOutcomeRetainedRecoverable CommitOutcomeState = "retained_recoverable"
+	CommitOutcomeComplete            CommitOutcomeState = "complete"
+)
+
+// CommitOutcome reports stable storage state without exposing physical paths
+// or platform errno policy. RetainedNames are same-parent entry names that a
+// semantic owner may classify through fresh observation.
+type CommitOutcome struct {
+	state         CommitOutcomeState
+	retainedNames []string
+}
+
+// NewCommitOutcome constructs one canonical storage conclusion.
+func NewCommitOutcome(
+	state CommitOutcomeState,
+	retainedNames []string,
+) (CommitOutcome, error) {
+	switch state {
+	case CommitOutcomeUncommitted, CommitOutcomeIndeterminate,
+		CommitOutcomeRetainedRecoverable, CommitOutcomeComplete:
+	default:
+		return CommitOutcome{}, fmt.Errorf("unsupported commit outcome state %q", state)
+	}
+
+	names := slices.Clone(retainedNames)
+	slices.Sort(names)
+	for index, name := range names {
+		if name == "" || name == "." || name == ".." ||
+			strings.ContainsRune(name, '/') || strings.ContainsRune(name, '\x00') {
+			return CommitOutcome{}, fmt.Errorf(
+				"commit outcome retained name %q is not one path component",
+				name,
+			)
+		}
+		if index > 0 && names[index-1] == name {
+			return CommitOutcome{}, fmt.Errorf(
+				"commit outcome contains duplicate retained name %q",
+				name,
+			)
+		}
+	}
+	switch state {
+	case CommitOutcomeUncommitted, CommitOutcomeComplete:
+		if len(names) != 0 {
+			return CommitOutcome{}, fmt.Errorf(
+				"commit outcome %q cannot retain entries",
+				state,
+			)
+		}
+	case CommitOutcomeRetainedRecoverable:
+		if len(names) == 0 {
+			return CommitOutcome{}, fmt.Errorf(
+				"commit outcome %q requires retained entries",
+				state,
+			)
+		}
+	}
+	return CommitOutcome{state: state, retainedNames: names}, nil
+}
+
+// State returns the strongest established namespace conclusion.
+func (outcome CommitOutcome) State() CommitOutcomeState {
+	return outcome.state
+}
+
+// RetainedNames returns an owned copy in lexical order.
+func (outcome CommitOutcome) RetainedNames() []string {
+	return slices.Clone(outcome.retainedNames)
+}
+
 // RegularFileSnapshot is immutable content and mode from one identity-stable,
 // no-follow regular-file read.
 type RegularFileSnapshot struct {
@@ -304,5 +382,6 @@ type RootedTreeWriter interface {
 // until Commit or Abort consumes it.
 type PreparedRootedTree interface {
 	Commit(ctx context.Context) error
+	CommitWithOutcome(ctx context.Context) (CommitOutcome, error)
 	Abort(ctx context.Context) error
 }

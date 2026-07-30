@@ -91,6 +91,30 @@ type RootedCommitter interface {
 	) (PreparedRootedTree, error)
 }
 
+// RootedEntryCommitter performs exact same-parent entry operations through
+// retained-root authority. It does not select names or interpret their
+// semantics, and every method consumes the supplied capability.
+type RootedEntryCommitter interface {
+	RenameRootedEntry(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		destinationName string,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+	ReplaceRootedFileWithOutcome(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		content []byte,
+		mode fs.FileMode,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+	CleanupRootedEntry(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+}
+
 // PathStore is the direct-path subset needed by outer-boundary persistence.
 type PathStore interface {
 	PathReader
@@ -101,6 +125,7 @@ type PathStore interface {
 type RootedStore interface {
 	RootedReader
 	RootedCommitter
+	RootedEntryCommitter
 }
 
 // Reader is the complete bounded observation subset used by Effect packages.
