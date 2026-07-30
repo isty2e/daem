@@ -187,6 +187,12 @@ advances the control to finalizing, removes the exact residue, and only then
 retires the control to inert GC. A restart observes the durable phase rather
 than trusting a prior command's success.
 
+Once the control-to-GC rename is durable, semantic recovery is complete.
+Physical GC removal is best effort: interruption may leave private
+retirement-control metadata, but not the retired journal or its backups. That
+GC-only residue does not block later commands or recreate recovery authority,
+and daem does not infer restart-time deletion authority from its name alone.
+
 Once the active journal has become retained cleanup residue, ordinary
 workflows do not finalize it implicitly. `daem recover --dry-run` reports
 `retained_cleanup_residue` with one `finalize_journal_cleanup` action.

@@ -202,6 +202,13 @@ Review the dry-run and rerun recovery; do not delete hidden residue or the
 visible retirement control manually. A stale, replaced, malformed, or
 cross-paired artifact is intentionally refused instead of being guessed safe.
 
+If a command reports `journal retirement committed; hidden GC cleanup
+incomplete`, the journal residue was already removed and its absence made
+durable. A private GC directory may remain with retirement-control metadata,
+not journal backups. It is inert and does not block later commands. Daem does
+not automatically sweep it after restart because the hidden name alone grants
+no deletion authority.
+
 ## Manifest Metadata Update Was Interrupted
 
 An interrupted `add`, `remove`, or `unmanage` write may leave a recoverable
