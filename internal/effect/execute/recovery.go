@@ -76,6 +76,7 @@ func (backup recoveryBackup) copyDirectory(
 // before recovery's first filesystem effect.
 type RecoveryOptions struct {
 	ValidateBeforeEffects   func(context.Context, mutation.PhysicalAuthoritySet) error
+	ActiveJournalAuthority  journal.ActiveJournalAuthority
 	Resolver                DestinationResolver
 	Codecs                  aggregate.CodecCatalog
 	OwnershipRegistryBinder ownershipmutation.RootedRegistryBinder
@@ -110,6 +111,9 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	}
 	if options.Filesystem == nil {
 		return fmt.Errorf("recovery filesystem is required")
+	}
+	if err := options.ActiveJournalAuthority.Validate(); err != nil {
+		return err
 	}
 	if options.reloadPlan == nil {
 		options.reloadPlan = func(
@@ -146,6 +150,12 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err := authority.bindRecoveryJournal(paths.ManifestRoot, plan.OperationDir()); err != nil {
 		return err
 	}
+	if err := authority.setActiveJournalAuthority(options.ActiveJournalAuthority); err != nil {
+		return err
+	}
+	if err := authority.validateActiveJournalAuthority(ctx); err != nil {
+		return err
+	}
 	if err := executeRecoveryPlanEffects(ctx, plan, paths, options); err != nil {
 		return err
 	}
@@ -156,7 +166,12 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
 	}
-	if err := authority.retireActiveJournal(ctx, paths, retirementPlan); err != nil {
+	if err := authority.retireActiveJournal(
+		ctx,
+		paths,
+		retirementPlan,
+		options.StateCodec,
+	); err != nil {
 		return fmt.Errorf("retire recovery journal: %w", err)
 	}
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {

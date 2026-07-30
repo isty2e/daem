@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -27,9 +28,11 @@ const (
 )
 
 type retirementExecution struct {
-	record     retirement.Record
-	activePath string
-	start      retirementStart
+	record             retirement.Record
+	activePath         string
+	activeAuthority    ActiveJournalAuthority
+	journalFingerprint string
+	start              retirementStart
 }
 
 func (execution retirementExecution) valid() bool {
@@ -39,13 +42,19 @@ func (execution retirementExecution) valid() bool {
 	switch execution.start {
 	case retirementStartActive:
 		return execution.activePath != "" &&
+			execution.activeAuthority.valid() &&
+			execution.journalFingerprint != "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartPrepared:
 		return execution.activePath == "" &&
+			!execution.activeAuthority.valid() &&
+			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartFinalizingWithResidue,
 		retirementStartFinalizingWithoutResidue:
 		return execution.activePath == "" &&
+			!execution.activeAuthority.valid() &&
+			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhaseFinalizing
 	default:
 		return false
@@ -66,11 +75,12 @@ func (execution retirementExecution) hasResidue() bool {
 }
 
 type retirementBindings struct {
-	active  *rootedpath.EntryAuthority
-	control *rootedpath.EntryAuthority
-	record  *rootedpath.EntryAuthority
-	residue *rootedpath.EntryAuthority
-	garbage *rootedpath.EntryAuthority
+	active       *rootedpath.EntryAuthority
+	activeRecord *rootedpath.EntryAuthority
+	control      *rootedpath.EntryAuthority
+	record       *rootedpath.EntryAuthority
+	residue      *rootedpath.EntryAuthority
+	garbage      *rootedpath.EntryAuthority
 }
 
 // RetireActiveJournal advances one clean active journal through the canonical
@@ -80,14 +90,22 @@ type retirementBindings struct {
 func RetireActiveJournal(
 	ctx context.Context,
 	plan recovery.Plan,
+	activeAuthority ActiveJournalAuthority,
 	root *rootedpath.CapturedRoot,
 	filesystem mutationfs.RootedStore,
+	stateCodec durable.SnapshotCodec,
 ) error {
 	if filesystem == nil {
 		return fmt.Errorf("journal retirement filesystem is required")
 	}
 	if root == nil {
 		return fmt.Errorf("journal retirement root authority is required")
+	}
+	if err := activeAuthority.Validate(); err != nil {
+		return err
+	}
+	if stateCodec == nil {
+		return fmt.Errorf("journal retirement state codec is required")
 	}
 	if plan.Blocked() || plan.HasErrors() {
 		return fmt.Errorf("active recovery plan is not clean enough to retire")
@@ -124,9 +142,11 @@ func RetireActiveJournal(
 	}
 
 	execution := retirementExecution{
-		record:     record,
-		activePath: activePath,
-		start:      retirementStartActive,
+		record:             record,
+		activePath:         activePath,
+		activeAuthority:    activeAuthority,
+		journalFingerprint: fingerprint,
+		start:              retirementStartActive,
 	}
 	bindings, err := bindRetirement(
 		root,
@@ -136,7 +156,7 @@ func RetireActiveJournal(
 		return err
 	}
 	defer bindings.close()
-	return executeRetirement(ctx, filesystem, execution, bindings)
+	return executeRetirement(ctx, filesystem, stateCodec, execution, bindings)
 }
 
 // FinalizeJournalCleanup resumes only the exact cleanup phase selected by a
@@ -180,7 +200,7 @@ func FinalizeJournalCleanup(
 		return err
 	}
 	defer bindings.close()
-	return executeRetirement(ctx, filesystem, execution, bindings)
+	return executeRetirement(ctx, filesystem, nil, execution, bindings)
 }
 
 func bindRetirement(
@@ -197,17 +217,19 @@ func bindRetirement(
 	recoveryRoot := authority.PhysicalRoot()
 	identity := execution.record.Identity()
 	paths := struct {
-		active  string
-		control string
-		record  string
-		residue string
-		garbage string
+		active       string
+		activeRecord string
+		control      string
+		record       string
+		residue      string
+		garbage      string
 	}{
-		active:  execution.activePath,
-		control: filepath.Join(recoveryRoot, identity.ControlName()),
-		record:  filepath.Join(recoveryRoot, identity.ControlName(), retirement.RecordFileName),
-		residue: filepath.Join(recoveryRoot, identity.ResidueName()),
-		garbage: filepath.Join(recoveryRoot, identity.GCName()),
+		active:       execution.activePath,
+		activeRecord: filepath.Join(execution.activePath, recoveryJournalFileName),
+		control:      filepath.Join(recoveryRoot, identity.ControlName()),
+		record:       filepath.Join(recoveryRoot, identity.ControlName(), retirement.RecordFileName),
+		residue:      filepath.Join(recoveryRoot, identity.ResidueName()),
+		garbage:      filepath.Join(recoveryRoot, identity.GCName()),
 	}
 
 	var bindings retirementBindings
@@ -218,6 +240,13 @@ func bindRetirement(
 		bindings.active, err = bind(paths.active)
 		if err != nil {
 			return retirementBindings{}, fmt.Errorf("bind active recovery journal: %w", err)
+		}
+		bindings.activeRecord, err = bind(paths.activeRecord)
+		if err != nil {
+			return retirementBindings{}, errors.Join(
+				fmt.Errorf("bind active recovery journal record: %w", err),
+				bindings.close(),
+			)
 		}
 	}
 	if bindings.control, err = bind(paths.control); err != nil {
@@ -250,6 +279,7 @@ func bindRetirement(
 func executeRetirement(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,
+	stateCodec durable.SnapshotCodec,
 	execution retirementExecution,
 	bindings retirementBindings,
 ) error {
@@ -272,6 +302,12 @@ func executeRetirement(
 		if err != nil {
 			return err
 		}
+		if !execution.activeAuthority.matches(activeIdentity) {
+			return errors.Join(
+				fmt.Errorf("active recovery journal identity changed before retirement"),
+				activeCapability.Close(),
+			)
+		}
 		activeCapabilityOpen := true
 		defer func() {
 			if activeCapabilityOpen {
@@ -279,6 +315,15 @@ func executeRetirement(
 			}
 		}()
 		if err := ensurePreparedControl(ctx, filesystem, execution.record, bindings); err != nil {
+			return err
+		}
+		if err := requireActiveJournalFingerprint(
+			ctx,
+			filesystem,
+			bindings.activeRecord,
+			execution.journalFingerprint,
+			stateCodec,
+		); err != nil {
 			return err
 		}
 		activeCapabilityOpen = false
@@ -346,6 +391,59 @@ func executeRetirement(
 		return fmt.Errorf("journal retirement committed; hidden GC cleanup incomplete: %w", err)
 	}
 	return nil
+}
+
+func requireActiveJournalFingerprint(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	expected string,
+	stateCodec durable.SnapshotCodec,
+) error {
+	if authority == nil {
+		return fmt.Errorf("active recovery journal record authority is required")
+	}
+	if expected == "" {
+		return fmt.Errorf("active recovery journal fingerprint is required")
+	}
+	if stateCodec == nil {
+		return fmt.Errorf("active recovery journal state codec is required")
+	}
+	capability, err := authority.Acquire()
+	if err != nil {
+		return err
+	}
+	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(
+		ctx,
+		capability,
+		maximumRecoveryJournalBytes,
+	)
+	if readErr != nil {
+		return errors.Join(readErr, capability.Close())
+	}
+	snapshot, err := mutationfs.NewRegularFileSnapshot(content, mode, identity)
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	journal, err := decodeRecoveryJournalSnapshot(
+		snapshot,
+		recoveryJournalFileName,
+		stateCodec,
+	)
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, stateCodec)
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	if fingerprint != expected {
+		return errors.Join(
+			fmt.Errorf("active recovery journal changed before retirement"),
+			capability.Close(),
+		)
+	}
+	return capability.Close()
 }
 
 func ensurePreparedControl(
@@ -738,6 +836,7 @@ func (bindings *retirementBindings) close() error {
 	var err error
 	for _, authority := range []*rootedpath.EntryAuthority{
 		bindings.active,
+		bindings.activeRecord,
 		bindings.control,
 		bindings.record,
 		bindings.residue,

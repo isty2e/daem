@@ -60,16 +60,18 @@ type RecoverablePlan interface {
 }
 
 type activeRecoverablePlan struct {
-	plan      recovery.Plan
-	inventory recoverableInventoryAuthority
+	plan              recovery.Plan
+	physicalAuthority ActiveJournalAuthority
+	inventory         recoverableInventoryAuthority
 }
 
 func (activeRecoverablePlan) recoverablePlan() {}
 
 func (plan activeRecoverablePlan) Clone() RecoverablePlan {
 	return activeRecoverablePlan{
-		plan:      plan.plan.Clone(),
-		inventory: plan.inventory.clone(),
+		plan:              plan.plan.Clone(),
+		physicalAuthority: plan.physicalAuthority,
+		inventory:         plan.inventory.clone(),
 	}
 }
 
@@ -89,6 +91,7 @@ func (plan activeRecoverablePlan) SameExecutionAuthority(other RecoverablePlan) 
 	typed, ok := other.(activeRecoverablePlan)
 	return ok &&
 		plan.plan.SameExecutionAuthority(typed.plan) &&
+		plan.physicalAuthority.equal(typed.physicalAuthority) &&
 		plan.inventory.equal(typed.inventory)
 }
 
@@ -187,6 +190,18 @@ func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
 	return active.plan.Clone(), true
 }
 
+// ActiveRecoveryJournalAuthority returns operation-local physical evidence for
+// only an active-journal recovery selection.
+func ActiveRecoveryJournalAuthority(
+	recoverable RecoverablePlan,
+) (ActiveJournalAuthority, bool) {
+	active, ok := recoverable.(activeRecoverablePlan)
+	if !ok || !active.physicalAuthority.valid() {
+		return ActiveJournalAuthority{}, false
+	}
+	return active.physicalAuthority, true
+}
+
 // JournalCleanupPlan returns the immutable cleanup plan for only that variant.
 func JournalCleanupPlan(recoverable RecoverablePlan) (retirement.CleanupPlan, bool) {
 	cleanup, ok := recoverable.(cleanupRecoverablePlan)
@@ -238,8 +253,9 @@ func LoadRecoverablePlanWithOptions(
 			return nil, err
 		}
 		return activeRecoverablePlan{
-			plan:      plan.Clone(),
-			inventory: authority,
+			plan:              plan.Clone(),
+			physicalAuthority: inventory.active.physicalAuthority,
+			inventory:         authority,
 		}, nil
 	case retirement.StateRetained, retirement.StateFinalizing:
 		plan, ok := inventory.decision.CleanupPlan()

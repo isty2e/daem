@@ -98,7 +98,7 @@ func TestGlobalOwnershipRecoveryRequiresReaderAndBinderBeforeEffects(t *testing.
 	if err != nil {
 		t.Fatalf("LoadActivePlanWithOptions with reader returned error: %v", err)
 	}
-	err = ExecuteRecoveryPlanWithOptions(
+	err = executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		input.Paths,
@@ -286,7 +286,7 @@ func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t 
 	if recoveryPlan.Classification() != recovery.ClassificationNeedsFinalize {
 		t.Fatalf("classification = %q, want needs_finalize", recoveryPlan.Classification())
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		input.Paths,
@@ -330,7 +330,7 @@ func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *tes
 	if recoveryPlan.Classification() != recovery.ClassificationNeedsFinalize {
 		t.Fatalf("classification = %q, want needs_finalize", recoveryPlan.Classification())
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		input.Paths,
@@ -371,7 +371,7 @@ func TestGlobalOwnershipCancellationAfterFinalizationLeavesCleanAfterJournal(t *
 	if recoveryPlan.Classification() != recovery.ClassificationCleanAfter {
 		t.Fatalf("classification = %q, want clean_after", recoveryPlan.Classification())
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		input.Paths,
@@ -452,7 +452,7 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 	if finalizable.Classification() != recovery.ClassificationNeedsFinalize {
 		t.Fatalf("classification = %q, want needs_finalize", finalizable.Classification())
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		finalizable,
 		input.Paths,

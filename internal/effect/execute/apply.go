@@ -281,6 +281,10 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, fmt.Errorf("capture recovery journal: %w", err)
 	}
+	if err := mutationAuthority.captureActiveJournalAuthority(ctx); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, err
+	}
 	events.emit(EventJournalCaptured, EventStageJournalCapture, nil, nil)
 	if err := prepareClaimTransitions(ctx, registryStore, claimTransitions); err != nil {
 		rollbackErr := rollbackClaimsToBefore(context.WithoutCancel(ctx), registryStore, claimTransitions)
@@ -304,6 +308,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			mutationAuthority,
 			events,
 			loadRetirementPlan,
+			input.StateCodec,
 		)
 		if cleanupErr != nil {
 			return ApplyResult{}, fmt.Errorf("%w; retire recovery journal failed: %v; run: daem recover --dry-run", err, cleanupErr)
@@ -341,6 +346,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			mutationAuthority,
 			events,
 			loadRetirementPlan,
+			input.StateCodec,
 		)
 		if cleanupErr != nil {
 			return ApplyResult{}, fmt.Errorf("%w; retire recovery journal failed: %v", err, cleanupErr)
@@ -457,6 +463,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 		mutationAuthority,
 		events,
 		loadRetirementPlan,
+		input.StateCodec,
 	); err != nil {
 		return committedResult, fmt.Errorf("retire recovery journal: %w; run: daem recover --dry-run", err)
 	}
@@ -516,6 +523,7 @@ func retireRecoveryJournalWithEvents(
 	authority *mutationAuthority,
 	events applyEventEmitter,
 	loadPlan activeRetirementPlanLoader,
+	stateCodec durable.SnapshotCodec,
 ) error {
 	events.emit(EventJournalCleanupStarted, EventStageJournalCleanup, nil, nil)
 	if loadPlan == nil {
@@ -529,7 +537,7 @@ func retireRecoveryJournalWithEvents(
 	}
 	plan, err := loadPlan(ctx)
 	if err == nil {
-		err = authority.retireActiveJournal(ctx, paths, plan)
+		err = authority.retireActiveJournal(ctx, paths, plan, stateCodec)
 	}
 	if err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)

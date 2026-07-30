@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,7 +25,7 @@ func TestRetireActiveJournalUsesCanonicalProtocolAndRejectsStaleReplay(t *testin
 	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	if err := RetireActiveJournal(t.Context(), plan, root, filesystem); err != nil {
+	if err := retireActiveJournalForTest(t.Context(), plan, root, filesystem); err != nil {
 		t.Fatalf("RetireActiveJournal: %v", err)
 	}
 	wantOperations := []string{
@@ -41,7 +42,7 @@ func TestRetireActiveJournalUsesCanonicalProtocolAndRejectsStaleReplay(t *testin
 	assertRetirementState(t, recoveryRoot, retirement.StateClean)
 
 	filesystem.operations = nil
-	err := RetireActiveJournal(t.Context(), plan, root, filesystem)
+	err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
 	if err == nil || !strings.Contains(err.Error(), "active recovery journal") {
 		t.Fatalf("stale RetireActiveJournal error = %v, want active-journal refusal", err)
 	}
@@ -49,6 +50,108 @@ func TestRetireActiveJournalUsesCanonicalProtocolAndRejectsStaleReplay(t *testin
 		t.Fatalf("stale replay operations = %v, want none", filesystem.operations)
 	}
 	assertRetirementState(t, recoveryRoot, retirement.StateClean)
+}
+
+func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	_, result := captureInventoryJournal(t, recoveryRoot, "retire-replaced")
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+	activeAuthority, err := activeJournalAuthorityForTest(
+		t.Context(),
+		plan,
+		filesystem,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := captureRetirementTestRoot(t, recoveryRoot)
+
+	content, err := os.ReadFile(result.JournalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := filepath.Join(filepath.Dir(recoveryRoot), "original-active")
+	if err := os.Rename(plan.OperationDir(), original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(plan.OperationDir(), retirement.DirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(result.JournalPath, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+
+	err = RetireActiveJournal(
+		t.Context(),
+		plan,
+		activeAuthority,
+		root,
+		filesystem,
+		testStateCodec(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "identity changed") {
+		t.Fatalf("RetireActiveJournal error = %v, want identity-change rejection", err)
+	}
+	if len(filesystem.operations) != 0 {
+		t.Fatalf("operations = %v, want none", filesystem.operations)
+	}
+	if _, err := os.Lstat(result.JournalPath); err != nil {
+		t.Fatalf("replacement was changed: %v", err)
+	}
+}
+
+func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	_, result := captureInventoryJournal(t, recoveryRoot, "retire-content-drift")
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+	activeAuthority, err := activeJournalAuthorityForTest(
+		t.Context(),
+		plan,
+		filesystem,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem.afterOperation = func(operation string) {
+		if operation != "publish_control" {
+			return
+		}
+		content, readErr := os.ReadFile(result.JournalPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		changed := bytes.Replace(
+			content,
+			[]byte("2026-07-30T12:00:00Z"),
+			[]byte("2026-07-30T12:00:01Z"),
+			1,
+		)
+		if bytes.Equal(content, changed) {
+			t.Fatal("journal fixture did not contain expected created_at")
+		}
+		if writeErr := os.WriteFile(result.JournalPath, changed, recoveryJournalMode); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+	}
+	root := captureRetirementTestRoot(t, recoveryRoot)
+
+	err = RetireActiveJournal(
+		t.Context(),
+		plan,
+		activeAuthority,
+		root,
+		filesystem,
+		testStateCodec(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "changed before retirement") {
+		t.Fatalf("RetireActiveJournal error = %v, want fingerprint-change rejection", err)
+	}
+	if !slices.Equal(filesystem.operations, []string{"publish_control"}) {
+		t.Fatalf("operations = %v, want prepared control only", filesystem.operations)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateBlocked)
 }
 
 func TestRetireActiveJournalUsesCapturedPhysicalRootForSelectedAlias(t *testing.T) {
@@ -66,7 +169,7 @@ func TestRetireActiveJournalUsesCapturedPhysicalRootForSelectedAlias(t *testing.
 	plan := loadCleanActiveRetirementPlan(t, physicalRoot, filesystem)
 	root := captureRetirementTestRoot(t, selectedRoot)
 
-	if err := RetireActiveJournal(t.Context(), plan, root, filesystem); err != nil {
+	if err := retireActiveJournalForTest(t.Context(), plan, root, filesystem); err != nil {
 		t.Fatalf("RetireActiveJournal through alias: %v", err)
 	}
 	assertRetirementState(t, physicalRoot, retirement.StateClean)
@@ -83,7 +186,7 @@ func TestRetireActiveJournalRejectsMismatchedCapturedRootBeforeEffects(t *testin
 	}
 	root := captureRetirementTestRoot(t, otherRoot)
 
-	err := RetireActiveJournal(t.Context(), plan, root, filesystem)
+	err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
 	if err == nil || !strings.Contains(err.Error(), "does not match its operation id") {
 		t.Fatalf("RetireActiveJournal error = %v, want root mismatch", err)
 	}
@@ -101,7 +204,7 @@ func TestRetireActiveJournalResumesPreparedControl(t *testing.T) {
 	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	if err := RetireActiveJournal(t.Context(), plan, root, filesystem); err != nil {
+	if err := retireActiveJournalForTest(t.Context(), plan, root, filesystem); err != nil {
 		t.Fatalf("RetireActiveJournal: %v", err)
 	}
 	wantOperations := []string{
@@ -130,7 +233,7 @@ func TestRetirementRevalidatesExactControlBeforeEffects(t *testing.T) {
 		}
 		root := captureRetirementTestRoot(t, recoveryRoot)
 
-		err := RetireActiveJournal(t.Context(), plan, root, filesystem)
+		err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
 		if err == nil || !strings.Contains(err.Error(), "unexpected child") {
 			t.Fatalf("RetireActiveJournal error = %v, want foreign-child rejection", err)
 		}
@@ -276,7 +379,7 @@ func TestRetirementDoesNotCleanGCAfterControlRenameReportsFailure(t *testing.T) 
 	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	err := RetireActiveJournal(t.Context(), plan, root, filesystem)
+	err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
 	if err == nil || !strings.Contains(err.Error(), "injected rename_control failure") {
 		t.Fatalf("RetireActiveJournal error = %v, want injected rename failure", err)
 	}
@@ -344,7 +447,7 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 			plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
-			err := RetireActiveJournal(t.Context(), plan, root, filesystem)
+			err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
 			if err == nil || !strings.Contains(err.Error(), "injected") {
 				t.Fatalf("RetireActiveJournal error = %v, want injected failure", err)
 			}
@@ -355,7 +458,7 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 			}
 			filesystem.failAfter = ""
 			if test.wantState == retirement.StatePrepared {
-				if err := RetireActiveJournal(t.Context(), plan, root, filesystem); err != nil {
+				if err := retireActiveJournalForTest(t.Context(), plan, root, filesystem); err != nil {
 					t.Fatalf("resume active retirement: %v", err)
 				}
 			} else {
@@ -395,7 +498,7 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 			plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
-			err := RetireActiveJournal(ctx, plan, root, filesystem)
+			err := retireActiveJournalForTest(ctx, plan, root, filesystem)
 			if test.operation == "cleanup_gc" {
 				if err != nil {
 					t.Fatalf("RetireActiveJournal after final cleanup: %v", err)
@@ -408,7 +511,7 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 			switch test.wantState {
 			case retirement.StatePrepared:
 				fresh := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
-				if err := RetireActiveJournal(t.Context(), fresh, root, filesystem); err != nil {
+				if err := retireActiveJournalForTest(t.Context(), fresh, root, filesystem); err != nil {
 					t.Fatalf("resume active retirement: %v", err)
 				}
 			case retirement.StateRetained, retirement.StateFinalizing:
@@ -449,6 +552,45 @@ func loadCleanActiveRetirementPlan(
 		t.Fatalf("classification = %q, want clean_before", plan.Classification())
 	}
 	return plan
+}
+
+func retireActiveJournalForTest(
+	ctx context.Context,
+	plan recovery.Plan,
+	root *rootedpath.CapturedRoot,
+	filesystem mutationfs.Store,
+) error {
+	authority, err := activeJournalAuthorityForTest(ctx, plan, filesystem)
+	if err != nil {
+		return err
+	}
+	return RetireActiveJournal(
+		ctx,
+		plan,
+		authority,
+		root,
+		filesystem,
+		testStateCodec(),
+	)
+}
+
+func activeJournalAuthorityForTest(
+	ctx context.Context,
+	plan recovery.Plan,
+	filesystem mutationfs.Store,
+) (ActiveJournalAuthority, error) {
+	identity, err := filesystem.CaptureEntryIdentity(ctx, plan.OperationDir())
+	if err != nil {
+		return ActiveJournalAuthority{}, fmt.Errorf(
+			"capture active recovery journal identity: %w",
+			err,
+		)
+	}
+	authority, err := newActiveJournalAuthority(identity)
+	if err != nil {
+		return ActiveJournalAuthority{}, err
+	}
+	return authority, nil
 }
 
 func loadCleanupRetirementPlan(
@@ -517,11 +659,12 @@ func assertRetirementState(t *testing.T, recoveryRoot string, want retirement.St
 
 type retirementRecordingFilesystem struct {
 	mutationfs.Store
-	operations  []string
-	failBefore  string
-	failAfter   string
-	cancelAfter string
-	cancel      context.CancelFunc
+	operations     []string
+	failBefore     string
+	failAfter      string
+	cancelAfter    string
+	cancel         context.CancelFunc
+	afterOperation func(string)
 }
 
 func (filesystem *retirementRecordingFilesystem) PrepareRootedTree(
@@ -656,6 +799,9 @@ func (prepared retirementRecordingPreparedTree) CommitWithOutcome(
 }
 
 func (filesystem *retirementRecordingFilesystem) cancelAfterOperation(operation string) {
+	if filesystem.afterOperation != nil {
+		filesystem.afterOperation(operation)
+	}
 	if filesystem.cancelAfter != operation || filesystem.cancel == nil {
 		return
 	}

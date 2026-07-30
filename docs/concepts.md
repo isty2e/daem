@@ -185,7 +185,12 @@ Journal removal itself is also recoverable. Daem first publishes a correlated
 retirement control, renames the exact active journal to a private residue,
 advances the control to finalizing, removes the exact residue, and only then
 retires the control to inert GC. A restart observes the durable phase rather
-than trusting a prior command's success.
+than trusting a prior command's success. The active directory identity selected
+for execution remains bound through retirement, and daem decodes and
+fingerprints `journal.json` again after publishing the prepared control and
+before renaming the directory. Identity or content drift fails closed. As with
+other guarded filesystem effects, this is not an atomic compare-and-rename
+against a non-daem writer racing after the final validation.
 
 Once the control-to-GC rename is durable, semantic recovery is complete.
 Physical GC removal is best effort: interruption may leave private

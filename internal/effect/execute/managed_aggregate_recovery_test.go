@@ -325,7 +325,7 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 	}
 
 	beforeHostActions := 0
-	err = ExecuteRecoveryPlanWithOptions(context.Background(), recoveryPlan, paths, RecoveryOptions{
+	err = executeRecoveryPlanWithOptionsForTest(context.Background(), recoveryPlan, paths, RecoveryOptions{
 		Resolver:    destinationResolver(paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(paths.StatefilePath),
@@ -352,7 +352,7 @@ func TestRecoveryRequiresAggregateCodecCatalogBeforeHostEffects(t *testing.T) {
 		t.Fatalf("blocked recovery journal entries = %d, error = %v; want retained evidence", len(entries), err)
 	}
 
-	if err := ExecuteRecoveryPlanWithOptions(context.Background(), recoveryPlan, paths, RecoveryOptions{
+	if err := executeRecoveryPlanWithOptionsForTest(context.Background(), recoveryPlan, paths, RecoveryOptions{
 		Resolver:    destinationResolver(paths),
 		Codecs:      testAggregateCodecs(),
 		StateCodec:  testStateCodec(),

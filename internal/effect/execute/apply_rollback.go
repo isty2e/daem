@@ -168,11 +168,12 @@ func applyRecoveryErrorWithEvents(
 				loadOptions,
 			)
 		},
-		mutationAuthority: authority,
-		Resolver:          authority.lexical,
-		Codecs:            codecs,
-		StateCodec:        stateCodec,
-		Filesystem:        authority.filesystem,
+		mutationAuthority:      authority,
+		ActiveJournalAuthority: authority.activeJournalAuthority,
+		Resolver:               authority.lexical,
+		Codecs:                 codecs,
+		StateCodec:             stateCodec,
+		Filesystem:             authority.filesystem,
 	}); err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
@@ -195,6 +196,7 @@ func applyRecoveryErrorWithEvents(
 		authority,
 		events,
 		loadRetirementPlan,
+		stateCodec,
 	); err != nil {
 		return fmt.Errorf("%w; host changes rolled back; retire recovery journal failed: %v; run: daem recover --dry-run", primary, err)
 	}

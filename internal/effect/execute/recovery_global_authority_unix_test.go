@@ -85,7 +85,7 @@ func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) 
 					}
 				}
 
-				if err := ExecuteRecoveryPlanWithOptions(
+				if err := executeRecoveryPlanWithOptionsForTest(
 					context.Background(),
 					fixture.plan,
 					fixture.paths,
@@ -432,7 +432,7 @@ func TestRecoveryRejectsDirectFileChangeAfterFinalReloadWithoutOverwritingIt(t *
 	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	fixture := newGlobalFileRecoveryFixture(t, destination, true)
 	external := []byte("external after final reload\n")
-	err := ExecuteRecoveryPlanWithOptions(
+	err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		fixture.plan,
 		fixture.paths,

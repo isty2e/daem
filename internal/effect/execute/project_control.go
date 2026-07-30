@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -40,6 +41,51 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 	}
 	authority.recoveryJournal = destination
 	return nil
+}
+
+func (authority *mutationAuthority) captureActiveJournalAuthority(
+	ctx context.Context,
+) error {
+	if authority == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery journal retirement authority is unavailable")
+	}
+	captured, err := journal.CaptureActiveJournalAuthority(
+		ctx,
+		authority.filesystem,
+		authority.recoveryJournal,
+	)
+	if err != nil {
+		return fmt.Errorf("capture active recovery journal authority: %w", err)
+	}
+	authority.activeJournalAuthority = captured
+	return nil
+}
+
+func (authority *mutationAuthority) setActiveJournalAuthority(
+	active journal.ActiveJournalAuthority,
+) error {
+	if authority == nil {
+		return fmt.Errorf("recovery journal retirement authority is unavailable")
+	}
+	if err := active.Validate(); err != nil {
+		return err
+	}
+	authority.activeJournalAuthority = active
+	return nil
+}
+
+func (authority *mutationAuthority) validateActiveJournalAuthority(
+	ctx context.Context,
+) error {
+	if authority == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery journal retirement authority is unavailable")
+	}
+	return journal.ValidateActiveJournalAuthority(
+		ctx,
+		authority.filesystem,
+		authority.recoveryJournal,
+		authority.activeJournalAuthority,
+	)
 }
 
 func (authority *mutationAuthority) bindProjectControlEntry(
@@ -121,6 +167,7 @@ func (authority *mutationAuthority) retireActiveJournal(
 	ctx context.Context,
 	paths Paths,
 	plan recovery.Plan,
+	stateCodec durable.SnapshotCodec,
 ) (returnErr error) {
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
@@ -135,5 +182,12 @@ func (authority *mutationAuthority) retireActiveJournal(
 	defer func() {
 		returnErr = errors.Join(returnErr, root.Close())
 	}()
-	return journal.RetireActiveJournal(ctx, plan, root, authority.filesystem)
+	return journal.RetireActiveJournal(
+		ctx,
+		plan,
+		authority.activeJournalAuthority,
+		root,
+		authority.filesystem,
+		stateCodec,
+	)
 }

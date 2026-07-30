@@ -199,7 +199,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadActivePlan returned error: %v", err)
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		paths,

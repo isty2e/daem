@@ -29,9 +29,10 @@ type recoveryRootInventory struct {
 }
 
 type activeJournalEvidence struct {
-	identity     retirement.Identity
-	journal      recoveryJournal
-	operationDir string
+	identity          retirement.Identity
+	physicalAuthority ActiveJournalAuthority
+	journal           recoveryJournal
+	operationDir      string
 }
 
 func loadRecoveryRootInventory(
@@ -483,6 +484,13 @@ func loadJournalDirectoryEvidence(
 	if err != nil {
 		return activeJournalEvidence{}, fmt.Errorf("derive recovery journal retirement identity: %w", err)
 	}
+	physicalAuthority, err := newActiveJournalAuthority(entry.Identity())
+	if err != nil {
+		return activeJournalEvidence{}, fmt.Errorf(
+			"derive active journal physical authority: %w",
+			err,
+		)
+	}
 
 	after, err := options.Filesystem.SnapshotDirectory(ctx, directoryPath)
 	if err != nil {
@@ -499,9 +507,10 @@ func loadJournalDirectoryEvidence(
 		)
 	}
 	return activeJournalEvidence{
-		identity:     identity,
-		journal:      journal,
-		operationDir: directoryPath,
+		identity:          identity,
+		physicalAuthority: physicalAuthority,
+		journal:           journal,
+		operationDir:      directoryPath,
 	}, nil
 }
 

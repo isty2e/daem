@@ -33,7 +33,7 @@ func TestRecoveryCleanupRejectsProjectRootReplacementWithoutTouchingReplacement(
 		},
 	}
 
-	err := ExecuteRecoveryPlanWithOptions(
+	err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		fixture.plan,
 		fixture.paths,

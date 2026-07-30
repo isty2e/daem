@@ -205,12 +205,17 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 		if !ok {
 			return fmt.Errorf("active recovery selection is unavailable")
 		}
+		activeAuthority, ok := journal.ActiveRecoveryJournalAuthority(current.plan)
+		if !ok {
+			return fmt.Errorf("active recovery journal authority is unavailable")
+		}
 		return execute.ExecuteRecoveryPlanWithOptions(
 			ctx,
 			active,
 			executePaths(effectPaths),
 			execute.RecoveryOptions{
 				ValidateBeforeEffects:   validateBeforeActiveEffects,
+				ActiveJournalAuthority:  activeAuthority,
 				Resolver:                destinationResolver(effectPaths).Resolve,
 				OwnershipRegistryBinder: ownershipstore.BindRooted,
 				Codecs:                  aggregatecodec.Catalog(),
