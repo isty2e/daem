@@ -2,6 +2,8 @@ package clipresent
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,6 +14,115 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
+
+func TestRelationOrderIdentityDisclosurePreservesOnlySafeBoundedIdentities(
+	t *testing.T,
+) {
+	longIdentity := strings.Repeat("a", maxRelationOrderIdentityDisclosureBytes+1)
+	for _, test := range []struct {
+		name     string
+		value    string
+		redacted bool
+	}{
+		{name: "npm package", value: "npm:@acme/tool"},
+		{name: "credential-free git URL", value: "git:https://example.test/acme/tool.git"},
+		{name: "quotes and backslashes", value: `npm:quote"and\slash`},
+		{name: "URL userinfo", value: "https://user:secret@example.test/plugin", redacted: true},
+		{name: "nested URL userinfo", value: "git:https://user:secret@example.test/plugin", redacted: true},
+		{name: "URL query", value: "https://example.test/plugin?token=secret", redacted: true},
+		{name: "encoded secret fragment", value: "https://example.test/plugin#token%3Dsecret", redacted: true},
+		{name: "secret assignment", value: "npm:tool#api_key=secret", redacted: true},
+		{name: "absolute path", value: "/Users/alice/private/plugin.ts", redacted: true},
+		{name: "file URL", value: "file:///Users/alice/private/plugin.ts", redacted: true},
+		{name: "nested file URL", value: "git:file:///Users/alice/private/plugin.ts", redacted: true},
+		{name: "local identity", value: "local:project:/Users/alice/private/plugin.ts", redacted: true},
+		{name: "relative path", value: "../private/plugin.ts", redacted: true},
+		{name: "Windows path", value: `C:\Users\alice\private\plugin.ts`, redacted: true},
+		{name: "overlong", value: longIdentity, redacted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			disclosure := relationOrderIdentityDisclosureFor(test.value)
+			if disclosure.Redacted() != test.redacted {
+				t.Fatalf(
+					"Redacted() = %t, want %t for %q",
+					disclosure.Redacted(),
+					test.redacted,
+					test.value,
+				)
+			}
+			if !test.redacted {
+				if disclosure.Value() != test.value {
+					t.Fatalf("Value() = %q, want %q", disclosure.Value(), test.value)
+				}
+				return
+			}
+			digest := sha256.Sum256([]byte(test.value))
+			want := "redacted:sha256:" + hex.EncodeToString(digest[:])
+			if disclosure.Value() != want ||
+				relationOrderIdentityDisclosureFor(test.value).Value() != want ||
+				strings.Contains(disclosure.Value(), test.value) {
+				t.Fatalf("redacted disclosure = %#v, want %q", disclosure, want)
+			}
+		})
+	}
+}
+
+func TestRelationOrderRiskDisclosureRedactsUnsafeIdentityAcrossFormats(
+	t *testing.T,
+) {
+	const unsafeIdentity = "https://user:secret@example.test/plugin?token=secret"
+	decision := presentRelationOrderDecisionWithForeignIdentities(
+		t,
+		target.TargetOpenCode,
+		hostrelation.ConfigOrderOnly,
+		[]string{unsafeIdentity},
+	)
+	wantIdentity := relationOrderIdentityDisclosureFor(unsafeIdentity).Value()
+	if changes := decision.PrecedenceChanges(); len(changes) != 2 ||
+		string(changes[0].ForeignIdentity()) != unsafeIdentity {
+		t.Fatalf("canonical decision identity changed before projection: %#v", changes)
+	}
+
+	rows := relationOrderJSONActions([]reconcile.RelationOrderDecision{decision})
+	if len(rows) != 1 || len(rows[0].Risks) != 2 {
+		t.Fatalf("rows = %#v", rows)
+	}
+	for _, risk := range rows[0].Risks {
+		if risk.ForeignIdentity != wantIdentity || !risk.ForeignIdentityRedacted {
+			t.Fatalf("risk = %#v", risk)
+		}
+	}
+	encoded, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(unsafeIdentity)) ||
+		bytes.Contains(encoded, []byte("secret")) {
+		t.Fatalf("JSON discloses unsafe identity: %s", encoded)
+	}
+
+	for _, options := range []HumanOptions{
+		{},
+		{Verbose: true},
+	} {
+		var output bytes.Buffer
+		PrintRelationOrderActionsWithOptions(
+			&output,
+			[]reconcile.RelationOrderDecision{decision},
+			options,
+		)
+		text := output.String()
+		if !strings.Contains(text, `foreign="`+wantIdentity+`"`) ||
+			strings.Contains(text, unsafeIdentity) ||
+			strings.Contains(text, "secret") {
+			t.Fatalf("human output = %q", text)
+		}
+	}
+	if changes := decision.PrecedenceChanges(); len(changes) != 2 ||
+		string(changes[0].ForeignIdentity()) != unsafeIdentity {
+		t.Fatalf("canonical decision identity changed after projection: %#v", changes)
+	}
+}
 
 func TestRelationOrderJSONDisclosesPhysicalSequenceAndForeignRisk(t *testing.T) {
 	decision := presentRelationOrderDecision(
@@ -33,6 +144,7 @@ func TestRelationOrderJSONDisclosesPhysicalSequenceAndForeignRisk(t *testing.T) 
 		row.ForeignRowCount != 1 ||
 		len(row.Risks) != 2 ||
 		row.Risks[0].Code != foreignPrecedenceChangeRisk ||
+		row.Risks[0].ForeignIdentityRedacted ||
 		!row.Risks[0].ManagedWasBefore ||
 		row.Risks[0].ManagedWillBeBefore ||
 		row.Risks[1].ManagedWasBefore ||

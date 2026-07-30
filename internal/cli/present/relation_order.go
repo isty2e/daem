@@ -1,8 +1,13 @@
 package clipresent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
+	"path/filepath"
+	"regexp"
 	"strings"
 
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -11,7 +16,14 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
-const foreignPrecedenceChangeRisk = "foreign_precedence_change"
+const (
+	foreignPrecedenceChangeRisk             = "foreign_precedence_change"
+	maxRelationOrderIdentityDisclosureBytes = 256
+)
+
+var relationOrderSecretAssignmentPattern = regexp.MustCompile(
+	`(?i)(^|[:/?#&;,\s])(token|secret|password|api[-_]?key)\s*[:=]`,
+)
 
 type relationOrderJSON struct {
 	Target                string                    `json:"target"`
@@ -40,11 +52,12 @@ type relationOrderMemberJSON struct {
 }
 
 type relationOrderRiskJSON struct {
-	Code                string           `json:"code"`
-	ManagedSubject      *planJSONSubject `json:"managed_subject,omitempty"`
-	ForeignIdentity     string           `json:"foreign_identity"`
-	ManagedWasBefore    bool             `json:"managed_was_before"`
-	ManagedWillBeBefore bool             `json:"managed_will_be_before"`
+	Code                    string           `json:"code"`
+	ManagedSubject          *planJSONSubject `json:"managed_subject,omitempty"`
+	ForeignIdentity         string           `json:"foreign_identity"`
+	ForeignIdentityRedacted bool             `json:"foreign_identity_redacted,omitempty"`
+	ManagedWasBefore        bool             `json:"managed_was_before"`
+	ManagedWillBeBefore     bool             `json:"managed_will_be_before"`
 }
 
 type relationOrderResultJSON struct {
@@ -83,12 +96,16 @@ func relationOrderJSONActions(
 		precedenceChanges := decision.PrecedenceChanges()
 		risks := make([]relationOrderRiskJSON, 0, len(precedenceChanges))
 		for _, change := range precedenceChanges {
+			foreignIdentity := relationOrderIdentityDisclosureFor(
+				string(change.ForeignIdentity()),
+			)
 			risks = append(risks, relationOrderRiskJSON{
-				Code:                foreignPrecedenceChangeRisk,
-				ManagedSubject:      planJSONSubjectFor(change.ManagedSubject()),
-				ForeignIdentity:     string(change.ForeignIdentity()),
-				ManagedWasBefore:    change.ManagedWasBefore(),
-				ManagedWillBeBefore: change.ManagedWillBeBefore(),
+				Code:                    foreignPrecedenceChangeRisk,
+				ManagedSubject:          planJSONSubjectFor(change.ManagedSubject()),
+				ForeignIdentity:         foreignIdentity.Value(),
+				ForeignIdentityRedacted: foreignIdentity.Redacted(),
+				ManagedWasBefore:        change.ManagedWasBefore(),
+				ManagedWillBeBefore:     change.ManagedWillBeBefore(),
 			})
 		}
 		result = append(result, relationOrderJSON{
@@ -295,15 +312,108 @@ func printRelationOrderRiskDetails(
 		len(changes),
 	)
 	for _, change := range changes {
+		foreignIdentity := relationOrderIdentityDisclosureFor(
+			string(change.ForeignIdentity()),
+		)
 		fmt.Fprintf(
 			output,
 			"      - managed=%q foreign=%q managed_position=%s -> %s\n",
 			Escape(topologySubjectString(change.ManagedSubject())),
-			Escape(string(change.ForeignIdentity())),
+			Escape(foreignIdentity.Value()),
 			relationOrderPosition(change.ManagedWasBefore()),
 			relationOrderPosition(change.ManagedWillBeBefore()),
 		)
 	}
+}
+
+type relationOrderIdentityDisclosure struct {
+	value    string
+	redacted bool
+}
+
+func relationOrderIdentityDisclosureFor(
+	value string,
+) relationOrderIdentityDisclosure {
+	if !relationOrderIdentityRequiresRedaction(value) {
+		return relationOrderIdentityDisclosure{value: value}
+	}
+	digest := sha256.Sum256([]byte(value))
+	return relationOrderIdentityDisclosure{
+		value:    "redacted:sha256:" + hex.EncodeToString(digest[:]),
+		redacted: true,
+	}
+}
+
+func (disclosure relationOrderIdentityDisclosure) Value() string {
+	return disclosure.value
+}
+
+func (disclosure relationOrderIdentityDisclosure) Redacted() bool {
+	return disclosure.redacted
+}
+
+func relationOrderIdentityRequiresRedaction(value string) bool {
+	if len(value) > maxRelationOrderIdentityDisclosureBytes {
+		return true
+	}
+	lowerValue := strings.ToLower(value)
+	if filepath.IsAbs(value) ||
+		strings.HasPrefix(lowerValue, "file:") ||
+		strings.Contains(lowerValue, ":file:") ||
+		strings.HasPrefix(lowerValue, "local:") ||
+		hasLocalPathPrefix(value) ||
+		isWindowsAbsolutePath(value) ||
+		strings.Contains(value, "?") ||
+		hasURLUserInfo(value) ||
+		relationOrderSecretAssignmentPattern.MatchString(value) {
+		return true
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return strings.Contains(value, "://")
+	}
+	return parsed.User != nil ||
+		parsed.RawQuery != "" ||
+		strings.Contains(parsed.Fragment, "=") ||
+		strings.Contains(strings.ToLower(value), "%3d")
+}
+
+func hasLocalPathPrefix(value string) bool {
+	for _, prefix := range []string{
+		"./", "../", "~/", `.\`, `..\`, `~\`, `\\`,
+	} {
+		if strings.HasPrefix(value, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasURLUserInfo(value string) bool {
+	remaining := value
+	for {
+		marker := strings.Index(remaining, "://")
+		if marker < 0 {
+			return false
+		}
+		authority := remaining[marker+3:]
+		if end := strings.IndexAny(authority, "/?#"); end >= 0 {
+			authority = authority[:end]
+		}
+		if strings.Contains(authority, "@") {
+			return true
+		}
+		remaining = remaining[marker+3:]
+	}
+}
+
+func isWindowsAbsolutePath(value string) bool {
+	if len(value) < 3 || value[1] != ':' ||
+		(value[2] != '/' && value[2] != '\\') {
+		return false
+	}
+	drive := value[0]
+	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }
 
 func relationOrderPosition(managedBeforeForeign bool) string {

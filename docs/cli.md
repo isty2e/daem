@@ -688,7 +688,12 @@ Before either the initial or renewed prompt, each precedence-risk row identifies
 the managed relation subject, the foreign host-load identity, and whether the
 managed row moves from before to after that foreign row or from after to before
 it. Confirmation authorizes exactly those bounded relations; a count alone is
-never treated as informed consent.
+never treated as informed consent. Credential-free package identities are shown
+verbatim. An identity containing URL credentials, query or secret-assignment
+material, a local path, or more than 256 bytes is replaced by a deterministic
+`redacted:sha256:<digest>` label. JSON reports the same label and sets
+`foreign_identity_redacted` without changing the exact identity used for
+planning, comparison, or authorization.
 
 `--manage-existing` records exact-match unmanaged outputs as managed without
 rewriting them. This changes future deletion authority, so it is never implicit

@@ -50,9 +50,10 @@ type RelationOrderRisk struct {
 		Namespace string `json:"namespace"`
 		Name      string `json:"name"`
 	} `json:"managed_subject"`
-	ForeignIdentity     string `json:"foreign_identity"`
-	ManagedWasBefore    bool   `json:"managed_was_before"`
-	ManagedWillBeBefore bool   `json:"managed_will_be_before"`
+	ForeignIdentity         string `json:"foreign_identity"`
+	ForeignIdentityRedacted bool   `json:"foreign_identity_redacted"`
+	ManagedWasBefore        bool   `json:"managed_was_before"`
+	ManagedWillBeBefore     bool   `json:"managed_will_be_before"`
 }
 
 type RelationOrderAction struct {

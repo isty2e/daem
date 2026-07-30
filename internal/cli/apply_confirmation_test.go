@@ -118,8 +118,8 @@ func TestRunApplyDisclosesRenewedExtensionOrderRisksAfterCarrierChange(
 ) {
 	tempDir := t.TempDir()
 	manifestPath, settingsPath := writePiOrderConfirmationFixture(t, tempDir)
-	initialContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0"]}`
-	postCarrierContent := `{"packages":["npm:@acme/beta@1.0.0","npm:@foreign/tool@1.0.0","npm:@acme/alpha@1.0.0"]}`
+	initialContent := `{"packages":["npm:@acme/beta@1.0.0","../foreign-extension"]}`
+	postCarrierContent := `{"packages":["npm:@acme/beta@1.0.0","../foreign-extension","npm:@acme/alpha@1.0.0"]}`
 	writeApplyConfirmationFile(t, tempDir, ".pi/settings.json", initialContent)
 
 	var runnerCalls int
@@ -163,12 +163,16 @@ func TestRunApplyDisclosesRenewedExtensionOrderRisksAfterCarrierChange(
 	}
 	for _, want := range []string{
 		"extension order changed after carrier updates: 2 new precedence risks",
-		`managed="host_relation/pi.package-carrier/beta" foreign="npm:@foreign/tool" managed_position=before -> after`,
-		`managed="host_relation/pi.package-carrier/alpha" foreign="npm:@foreign/tool" managed_position=after -> before`,
+		`managed="host_relation/pi.package-carrier/beta" foreign="redacted:sha256:`,
+		`managed="host_relation/pi.package-carrier/alpha" foreign="redacted:sha256:`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout lacks %q:\n%s", want, stdout.String())
 		}
+	}
+	if strings.Contains(stdout.String(), "foreign-extension") ||
+		strings.Contains(stdout.String(), filepath.Join(tempDir, "foreign-extension")) {
+		t.Fatalf("stdout discloses local foreign identity:\n%s", stdout.String())
 	}
 	for _, want := range []string{
 		"Proceed with apply? [y/N]:",

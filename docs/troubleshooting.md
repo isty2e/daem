@@ -166,6 +166,9 @@ managed/foreign precedence changes, interactive apply prints the updated
 sequence plan and asks `Proceed with updated apply plan?`. Each disclosed risk
 names the managed relation, the foreign host-load identity, and the managed
 row's before-to-after or after-to-before movement relative to that foreign row.
+Unsafe or machine-local identities appear as deterministic
+`redacted:sha256:<digest>` labels; the label still correlates repeated risks
+without printing credentials, query material, or local paths.
 
 Non-interactive `apply --yes` stops instead. Inspect `daem apply --dry-run`,
 then rerun interactively if the revised precedence is acceptable. Do not infer
