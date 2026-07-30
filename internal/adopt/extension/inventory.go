@@ -3,6 +3,7 @@ package extension
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	observeantigravity "github.com/isty2e/daem/internal/assurance/observe/antigravityplugin"
 	observeclaude "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
@@ -151,12 +152,17 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			}
 			rows = append(rows, row)
 		}
-		sequenceID, err := openCodeSequenceID(capability, document.Kind())
+		sequenceID, err := openCodeSequenceID(
+			capability,
+			document.Kind(),
+			document.Path(),
+		)
 		if err != nil {
 			return err
 		}
 		authority, err := relationobserve.NewSequenceAuthority(
-			"opencode:" + string(scope) + ":" + string(document.Kind()),
+			"opencode:" + string(scope) + ":" + string(document.Kind()) +
+				"." + strings.TrimPrefix(filepath.Ext(document.Path()), "."),
 		)
 		if err != nil {
 			return err

@@ -3,6 +3,7 @@ package opencodeplugin
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -14,15 +15,15 @@ import (
 )
 
 // OrderInput selects one OpenCode scope, its exact desired order, and the
-// relations eligible for correlation in both selected physical documents.
+// relations eligible for correlation in every loaded physical document.
 type OrderInput struct {
 	Inventory  InventoryInput
 	Constraint hostrelation.RelationOrderConstraint
 	Relations  []ScopedRelation
 }
 
-// DocumentOrderObservation owns one selected document baseline, fixed-slot
-// candidate, and exact postcondition. Server and TUI remain independent values.
+// DocumentOrderObservation owns one loaded candidate baseline, fixed-slot
+// candidate, and exact postcondition.
 type DocumentOrderObservation struct {
 	selection         orderSelection
 	document          Document
@@ -137,15 +138,15 @@ func (observation DocumentOrderObservation) VerifyPostContent(
 	return nil
 }
 
-// OrderObservation owns both independently mutable OpenCode physical sequences.
+// OrderObservation owns every independently mutable loaded OpenCode sequence.
 type OrderObservation struct {
 	selection orderSelection
 	inventory Inventory
 	documents []DocumentOrderObservation
 }
 
-// ReadOrder observes both selected OpenCode documents once and derives their
-// independent fixed-slot normalization candidates.
+// ReadOrder observes all loaded OpenCode documents once and derives independent
+// fixed-slot normalization candidates.
 func ReadOrder(input OrderInput) (OrderObservation, error) {
 	inventory, err := ReadInventory(input.Inventory)
 	if err != nil {
@@ -189,7 +190,7 @@ func (observation OrderObservation) Scope() target.Scope {
 	return observation.selection.scope
 }
 
-// Documents returns server then TUI observations as independent values.
+// Documents returns server then TUI candidate observations in stable order.
 func (observation OrderObservation) Documents() []DocumentOrderObservation {
 	return append([]DocumentOrderObservation(nil), observation.documents...)
 }
@@ -203,12 +204,8 @@ func observeOrder(
 			"OpenCode plugin order inventory does not match selected scope and directory",
 		)
 	}
-	if len(inventory.documents) != 2 ||
-		inventory.documents[0].kind != opencodeconfig.ConfigServer ||
-		inventory.documents[1].kind != opencodeconfig.ConfigTUI {
-		return OrderObservation{}, fmt.Errorf(
-			"OpenCode plugin order inventory must contain server then TUI documents",
-		)
+	if err := validateOrderInventory(inventory); err != nil {
+		return OrderObservation{}, err
 	}
 	documents := make([]DocumentOrderObservation, 0, len(inventory.documents))
 	for _, document := range inventory.documents {
@@ -223,6 +220,51 @@ func observeOrder(
 		inventory: inventory,
 		documents: documents,
 	}, nil
+}
+
+func validateOrderInventory(inventory Inventory) error {
+	index := 0
+	for _, kind := range []opencodeconfig.ConfigKind{
+		opencodeconfig.ConfigServer,
+		opencodeconfig.ConfigTUI,
+	} {
+		names, err := opencodeconfig.CandidateNames(kind)
+		if err != nil {
+			return err
+		}
+		seen := 0
+		for index < len(inventory.documents) && inventory.documents[index].kind == kind {
+			document := inventory.documents[index]
+			if seen >= len(names) ||
+				document.path != filepath.Join(inventory.directory, names[seen]) {
+				if seen == 0 && len(names) > 1 &&
+					document.path == filepath.Join(inventory.directory, names[1]) {
+					seen = 1
+				} else {
+					return fmt.Errorf(
+						"OpenCode plugin order inventory has non-canonical %s candidate order",
+						kind,
+					)
+				}
+			}
+			if !document.exists && (seen != 0 || index+1 < len(inventory.documents) &&
+				inventory.documents[index+1].kind == kind) {
+				return fmt.Errorf(
+					"OpenCode plugin order inventory has non-canonical absent %s candidate",
+					kind,
+				)
+			}
+			seen++
+			index++
+		}
+		if seen == 0 {
+			return fmt.Errorf("OpenCode plugin order inventory has no %s candidate", kind)
+		}
+	}
+	if index != len(inventory.documents) {
+		return fmt.Errorf("OpenCode plugin order inventory has unexpected candidate documents")
+	}
+	return nil
 }
 
 func observeDocument(
@@ -315,12 +357,13 @@ func newObservedOrderSequence(
 	document Document,
 	rows []observerelation.ObservedRelationRow,
 ) (observerelation.ObservedRelationSequence, error) {
-	sequenceID, err := sequenceIDForKind(selection.capability, document.kind)
+	sequenceID, err := sequenceIDForDocument(selection.capability, document)
 	if err != nil {
 		return observerelation.ObservedRelationSequence{}, err
 	}
 	authority, err := observerelation.NewSequenceAuthority(
-		"opencode:" + string(selection.scope) + ":" + string(document.kind) + ".plugins",
+		"opencode:" + string(selection.scope) + ":" +
+			string(document.kind) + "." + configVariant(document.path) + ".plugins",
 	)
 	if err != nil {
 		return observerelation.ObservedRelationSequence{}, err
@@ -338,20 +381,36 @@ func newObservedOrderSequence(
 	)
 }
 
-func sequenceIDForKind(
+func sequenceIDForDocument(
 	capability profile.ExtensionOrderCapability,
-	kind opencodeconfig.ConfigKind,
+	document Document,
 ) (hostrelation.PhysicalSequenceID, error) {
-	suffix := ":" + string(kind) + ".plugins"
+	variant := configVariant(document.path)
+	if variant == "" {
+		return "", fmt.Errorf("OpenCode plugin order document has unsupported config variant")
+	}
+	suffix := ":" + string(document.kind) + "." + variant + ".plugins"
 	for _, sequenceID := range capability.PhysicalSequenceIDs() {
 		if strings.HasSuffix(string(sequenceID), suffix) {
 			return sequenceID, nil
 		}
 	}
 	return "", fmt.Errorf(
-		"OpenCode plugin order capability has no %s physical sequence",
-		kind,
+		"OpenCode plugin order capability has no %s %s physical sequence",
+		document.kind,
+		variant,
 	)
+}
+
+func configVariant(path string) string {
+	switch filepath.Ext(path) {
+	case ".json":
+		return "json"
+	case ".jsonc":
+		return "jsonc"
+	default:
+		return ""
+	}
 }
 
 func documentFromContent(
@@ -359,28 +418,12 @@ func documentFromContent(
 	content []byte,
 	exists bool,
 ) (Document, error) {
-	document := Document{
-		kind:     baseline.kind,
-		path:     baseline.path,
-		exists:   exists,
-		revision: contentRevision(content),
-		content:  bytes.Clone(content),
-	}
-	if !exists {
-		return document, nil
-	}
-	parsed, err := opencodeconfig.ParseAt(content, baseline.path)
-	if err != nil {
-		return Document{}, err
-	}
-	for _, entry := range parsed.Entries() {
-		document.entries = append(document.entries, Entry{
-			source:           entry.Source(),
-			hostLoadIdentity: entry.HostLoadIdentity(),
-		})
-	}
-	document.parsed = parsed
-	return document, nil
+	return documentFromSnapshot(
+		baseline.kind,
+		baseline.path,
+		bytes.Clone(content),
+		exists,
+	)
 }
 
 func equalObservedSequence(

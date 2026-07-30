@@ -133,16 +133,18 @@ func TestObserveOpenCodePluginsUsesSelectedScopeAndConfigKinds(t *testing.T) {
 		spec.Correlations[0].Result.State() != relationobserve.StateExactCorrelation {
 		t.Fatalf("OpenCode correlations = %#v, want one source-exact logical row", spec.Correlations)
 	}
-	if len(spec.AuthorityPaths) != 2 {
-		t.Fatalf("OpenCode authority paths = %#v, want server and TUI paths", spec.AuthorityPaths)
+	if len(spec.AuthorityPaths) != 4 {
+		t.Fatalf("OpenCode authority paths = %#v, want every config candidate", spec.AuthorityPaths)
 	}
 	gotPaths := map[string]target.Scope{}
 	for _, path := range spec.AuthorityPaths {
 		gotPaths[path.Path()] = path.Scope()
 	}
 	for _, path := range []string{
+		filepath.Join(projectConfig, "opencode.json"),
 		filepath.Join(projectConfig, "opencode.jsonc"),
 		filepath.Join(projectConfig, "tui.json"),
+		filepath.Join(projectConfig, "tui.jsonc"),
 	} {
 		if gotPaths[path] != target.ScopeProject {
 			t.Fatalf("OpenCode authority path %q scope = %q, want project", path, gotPaths[path])
@@ -150,7 +152,7 @@ func TestObserveOpenCodePluginsUsesSelectedScopeAndConfigKinds(t *testing.T) {
 	}
 }
 
-func TestObserveOpenCodePluginsSelectsJSONBeforeJSONC(t *testing.T) {
+func TestObserveOpenCodePluginsCombinesJSONAndJSONC(t *testing.T) {
 	root := t.TempDir()
 	configRoot := filepath.Join(root, ".opencode")
 	if err := os.MkdirAll(configRoot, 0o755); err != nil {
@@ -183,11 +185,13 @@ func TestObserveOpenCodePluginsSelectsJSONBeforeJSONC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observeOpenCodePlugins: %v", err)
 	}
-	if got := spec.Correlations[0].Result.State(); got != relationobserve.StateMissing {
-		t.Fatalf("OpenCode shadow correlation = %q, want missing", got)
+	if got := spec.Correlations[0].Result.State(); got != relationobserve.StateExactCorrelation {
+		t.Fatalf("OpenCode JSONC correlation = %q, want exact", got)
 	}
-	if spec.AuthorityPaths[0].Path() != filepath.Join(configRoot, "opencode.json") {
-		t.Fatalf("selected server path = %q, want opencode.json", spec.AuthorityPaths[0].Path())
+	if len(spec.AuthorityPaths) != 4 ||
+		spec.AuthorityPaths[0].Path() != filepath.Join(configRoot, "opencode.json") ||
+		spec.AuthorityPaths[1].Path() != filepath.Join(configRoot, "opencode.jsonc") {
+		t.Fatalf("server candidate authority = %#v", spec.AuthorityPaths)
 	}
 }
 

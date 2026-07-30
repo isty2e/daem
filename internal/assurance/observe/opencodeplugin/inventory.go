@@ -3,7 +3,6 @@ package opencodeplugin
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -89,14 +88,16 @@ func (inventory Inventory) Scope() target.Scope { return inventory.scope }
 // Directory returns the selected OpenCode config directory.
 func (inventory Inventory) Directory() string { return inventory.directory }
 
-// Documents returns the selected server and TUI observations in stable order.
+// Documents returns every loaded server and TUI candidate in stable order.
+// When a kind has no loaded candidate, its default JSON path is represented as
+// one absent document.
 func (inventory Inventory) Documents() []Document {
 	return append([]Document(nil), inventory.documents...)
 }
 
-// ReadInventory selects and parses the OpenCode server and TUI documents once.
-// Missing selected files are fresh empty observations; malformed or unstable
-// selected files fail closed.
+// ReadInventory reads every OpenCode server and TUI candidate that the host
+// loads. A kind with no existing candidate retains its default JSON path as an
+// absent observation. Malformed or unstable candidates fail closed.
 func ReadInventory(input InventoryInput) (Inventory, error) {
 	scope, err := target.ParseScope(string(input.Scope))
 	if err != nil {
@@ -107,42 +108,16 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 		return Inventory{}, err
 	}
 
-	documents := make([]Document, 0, 2)
+	documents := make([]Document, 0, 4)
 	for _, kind := range []opencodeconfig.ConfigKind{
 		opencodeconfig.ConfigServer,
 		opencodeconfig.ConfigTUI,
 	} {
-		path, err := selectConfigPath(directory, kind)
+		selected, err := readConfigDocuments(directory, kind)
 		if err != nil {
 			return Inventory{}, err
 		}
-		content, exists, err := filesnapshot.ReadRegularFile(path, MaximumConfigBytes)
-		if err != nil {
-			return Inventory{}, fmt.Errorf("read OpenCode %s config %q: %w", kind, path, err)
-		}
-		document := Document{
-			kind:     kind,
-			path:     path,
-			exists:   exists,
-			revision: contentRevision(content),
-			content:  append([]byte(nil), content...),
-		}
-		if exists {
-			parsed, err := opencodeconfig.ParseAt(content, path)
-			if err != nil {
-				return Inventory{}, fmt.Errorf("observe OpenCode %s config %q: %w", kind, path, err)
-			}
-			rows := parsed.Entries()
-			document.entries = make([]Entry, 0, len(rows))
-			for _, row := range rows {
-				document.entries = append(document.entries, Entry{
-					source:           row.Source(),
-					hostLoadIdentity: row.HostLoadIdentity(),
-				})
-			}
-			document.parsed = parsed
-		}
-		documents = append(documents, document)
+		documents = append(documents, selected...)
 	}
 
 	return Inventory{
@@ -150,6 +125,71 @@ func ReadInventory(input InventoryInput) (Inventory, error) {
 		directory: directory,
 		documents: documents,
 	}, nil
+}
+
+func readConfigDocuments(
+	directory string,
+	kind opencodeconfig.ConfigKind,
+) ([]Document, error) {
+	names, err := opencodeconfig.CandidateNames(kind)
+	if err != nil {
+		return nil, err
+	}
+	documents := make([]Document, 0, len(names))
+	var defaultDocument Document
+	for index, name := range names {
+		path := filepath.Join(directory, name)
+		content, exists, err := filesnapshot.ReadRegularFile(path, MaximumConfigBytes)
+		if err != nil {
+			return nil, fmt.Errorf("read OpenCode %s config %q: %w", kind, path, err)
+		}
+		document, err := documentFromSnapshot(kind, path, content, exists)
+		if err != nil {
+			return nil, err
+		}
+		if index == 0 {
+			defaultDocument = document
+		}
+		if exists {
+			documents = append(documents, document)
+		}
+	}
+	if len(documents) == 0 {
+		documents = append(documents, defaultDocument)
+	}
+	return documents, nil
+}
+
+func documentFromSnapshot(
+	kind opencodeconfig.ConfigKind,
+	path string,
+	content []byte,
+	exists bool,
+) (Document, error) {
+	document := Document{
+		kind:     kind,
+		path:     path,
+		exists:   exists,
+		revision: contentRevision(content),
+		content:  append([]byte(nil), content...),
+	}
+	if !exists {
+		return document, nil
+	}
+	parsed, err := opencodeconfig.ParseAt(content, path)
+	if err != nil {
+		return Document{}, fmt.Errorf("observe OpenCode %s config %q: %w", kind, path, err)
+	}
+	rows := parsed.Entries()
+	document.entries = make([]Entry, 0, len(rows))
+	for _, row := range rows {
+		document.entries = append(document.entries, Entry{
+			source:           row.Source(),
+			hostLoadIdentity: row.HostLoadIdentity(),
+		})
+	}
+	document.parsed = parsed
+	return document, nil
 }
 
 func configDirectory(input InventoryInput, scope target.Scope) (string, error) {
@@ -202,27 +242,6 @@ func OrderAuthorityPaths(input InventoryInput) ([]string, error) {
 		}
 	}
 	return paths, nil
-}
-
-func selectConfigPath(
-	directory string,
-	kind opencodeconfig.ConfigKind,
-) (string, error) {
-	name, err := opencodeconfig.SelectName(kind, func(name string) (bool, error) {
-		_, err := os.Lstat(filepath.Join(directory, name))
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, os.ErrNotExist):
-			return false, nil
-		default:
-			return false, err
-		}
-	})
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(directory, name), nil
 }
 
 func contentRevision(content []byte) string {

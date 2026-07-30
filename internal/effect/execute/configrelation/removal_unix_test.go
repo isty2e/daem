@@ -10,10 +10,68 @@ import (
 	"strings"
 	"testing"
 
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/target"
 )
+
+func TestBoundRemovalRemovesSourceFromEveryLoadedCandidate(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"opencode.json", "opencode.jsonc"} {
+		if err := os.WriteFile(
+			filepath.Join(root, name),
+			[]byte(`{"plugin":["@acme/remove","@acme/keep"]}`),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := NewRemovalPlan(RemovalInput{
+		Target:         target.TargetOpenCode,
+		Scope:          target.ScopeProject,
+		Carrier:        desiredextension.CarrierOpenCodePlugin,
+		Source:         "@acme/remove",
+		AuthorityPaths: openCodeCandidateAuthorities(t, root, target.ScopeProject),
+	})
+	if err != nil {
+		t.Fatalf("NewRemovalPlan: %v", err)
+	}
+	selected, err := rootedpath.CaptureRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer selected.Close()
+	bound, err := plan.Bind(selected, root)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	defer bound.Close()
+
+	changed, err := bound.Execute(t.Context(), storagecommit.Adapter{})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if changed != 2 {
+		t.Fatalf("changed documents = %d, want 2", changed)
+	}
+	for _, name := range []string{"opencode.json", "opencode.jsonc"} {
+		content, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(content), "@acme/remove") ||
+			!strings.Contains(string(content), "@acme/keep") {
+			t.Fatalf("%s content = %q", name, content)
+		}
+	}
+	for _, name := range []string{"tui.json", "tui.jsonc"} {
+		if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+			t.Fatalf("missing candidate %s was created: %v", name, err)
+		}
+	}
+}
 
 func TestRemoveExactSourcePreservesUnrelatedJSONCBytesAndMode(t *testing.T) {
 	root := t.TempDir()

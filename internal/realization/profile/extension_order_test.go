@@ -23,14 +23,24 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 		{
 			target: target.TargetOpenCode, carrier: desiredextension.CarrierOpenCodePlugin,
 			scope: target.ScopeProject, classID: "extension:opencode:project:plugins",
-			sequenceIDs:    []string{"opencode:project:server.plugins", "opencode:project:tui.plugins"},
+			sequenceIDs: []string{
+				"opencode:project:server.json.plugins",
+				"opencode:project:server.jsonc.plugins",
+				"opencode:project:tui.json.plugins",
+				"opencode:project:tui.jsonc.plugins",
+			},
 			membership:     LoadedClassSubset,
 			runtimeMeaning: hostrelation.ConfigOrderOnly,
 		},
 		{
 			target: target.TargetOpenCode, carrier: desiredextension.CarrierOpenCodePlugin,
 			scope: target.ScopeGlobal, classID: "extension:opencode:global:plugins",
-			sequenceIDs:    []string{"opencode:global:server.plugins", "opencode:global:tui.plugins"},
+			sequenceIDs: []string{
+				"opencode:global:server.json.plugins",
+				"opencode:global:server.jsonc.plugins",
+				"opencode:global:tui.json.plugins",
+				"opencode:global:tui.jsonc.plugins",
+			},
 			membership:     LoadedClassSubset,
 			runtimeMeaning: hostrelation.ConfigOrderOnly,
 		},

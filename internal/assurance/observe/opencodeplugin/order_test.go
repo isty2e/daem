@@ -93,6 +93,60 @@ func TestReadOrderConvergesServerAndTUIIndependently(t *testing.T) {
 	}
 }
 
+func TestReadOrderConvergesJSONAndJSONCAsIndependentSequences(t *testing.T) {
+	input, directory := openCodeOrderInventory(t, target.ScopeProject)
+	writeOpenCodeOrderDocument(
+		t,
+		filepath.Join(directory, "opencode.json"),
+		`{"plugin":["alpha@1","beta@1"],"variant":"json"}`,
+	)
+	writeOpenCodeOrderDocument(
+		t,
+		filepath.Join(directory, "opencode.jsonc"),
+		`{"plugin":["beta@1","foreign@1","alpha@1"],"variant":"jsonc"}`,
+	)
+
+	observation := mustOpenCodeOrderObservation(
+		t,
+		input,
+		directory,
+		target.ScopeProject,
+		[]openCodeOrderSpec{
+			{id: "alpha", source: "alpha@1"},
+			{id: "beta", source: "beta@1"},
+		},
+	)
+	documents := observation.Documents()
+	if len(documents) != 3 ||
+		documents[0].Sequence().SequenceID() != "opencode:project:server.json.plugins" ||
+		documents[1].Sequence().SequenceID() != "opencode:project:server.jsonc.plugins" ||
+		documents[2].Sequence().SequenceID() != "opencode:project:tui.json.plugins" {
+		t.Fatalf("documents = %#v", documents)
+	}
+	if documents[0].Changed() || !documents[1].Changed() || documents[2].Changed() {
+		t.Fatalf(
+			"changed = json:%t jsonc:%t tui:%t",
+			documents[0].Changed(),
+			documents[1].Changed(),
+			documents[2].Changed(),
+		)
+	}
+	candidate, exists := documents[1].Candidate()
+	if !exists {
+		t.Fatal("JSONC candidate lost existence")
+	}
+	parsed, err := opencodeconfig.ParseAt(candidate, documents[1].Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := entrySources(parsed.Entries()); !slices.Equal(
+		got,
+		[]string{"alpha@1", "foreign@1", "beta@1"},
+	) {
+		t.Fatalf("JSONC sources = %v", got)
+	}
+}
+
 func TestReadOrderTreatsMissingOrAbsentPluginDocumentsAsEmptyNoops(t *testing.T) {
 	input, directory := openCodeOrderInventory(t, target.ScopeProject)
 	writeOpenCodeOrderDocument(

@@ -28,28 +28,6 @@ func CandidateNames(kind ConfigKind) ([]string, error) {
 	}
 }
 
-// SelectName mirrors OpenCode install selection: first existing candidate, or
-// the JSON candidate when neither file exists.
-func SelectName(kind ConfigKind, exists func(string) (bool, error)) (string, error) {
-	if exists == nil {
-		return "", fmt.Errorf("OpenCode config existence observer is required")
-	}
-	candidates, err := CandidateNames(kind)
-	if err != nil {
-		return "", err
-	}
-	for _, candidate := range candidates {
-		present, err := exists(candidate)
-		if err != nil {
-			return "", fmt.Errorf("inspect OpenCode config candidate %q: %w", candidate, err)
-		}
-		if present {
-			return candidate, nil
-		}
-	}
-	return candidates[0], nil
-}
-
 // ConfigDirectory returns the selected OpenCode config directory without
 // consulting process state. globalRoot is the complete OpenCode config root.
 func ConfigDirectory(

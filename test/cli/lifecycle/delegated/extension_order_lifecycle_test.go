@@ -193,14 +193,14 @@ func TestOpenCodeTUIOnlyExtensionOrderDoesNotCreateServerConfig(t *testing.T) {
 	dryRun := runExtensionOrderPlan(t, "apply", manifestPath, "--manage-existing")
 	if dryRun.HasErrors ||
 		len(dryRun.RelationOrders) != 1 ||
-		dryRun.RelationOrders[0].SequenceID != "opencode:project:tui.plugins" ||
+		dryRun.RelationOrders[0].SequenceID != "opencode:project:tui.json.plugins" ||
 		dryRun.RelationOrders[0].Kind != "normalize" {
 		t.Fatalf("TUI-only dry-run = %#v", dryRun.RelationOrders)
 	}
 
 	applied := runExtensionOrderApply(t, manifestPath, "--manage-existing")
 	if len(applied.RelationOrderResults) != 1 ||
-		applied.RelationOrderResults[0].SequenceID != "opencode:project:tui.plugins" ||
+		applied.RelationOrderResults[0].SequenceID != "opencode:project:tui.json.plugins" ||
 		applied.RelationOrderResults[0].Outcome != "converged" {
 		t.Fatalf("TUI-only apply = %#v", applied.RelationOrderResults)
 	}
@@ -210,6 +210,66 @@ func TestOpenCodeTUIOnlyExtensionOrderDoesNotCreateServerConfig(t *testing.T) {
 	if !strings.Contains(tui, `"retained":true`) {
 		t.Fatalf("TUI sibling field was not retained: %s", tui)
 	}
+}
+
+func TestOpenCodeJSONAndJSONCExtensionOrdersConvergeIndependently(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	jsonPath := filepath.Join(tempDir, ".opencode", "opencode.json")
+	jsoncPath := filepath.Join(tempDir, ".opencode", "opencode.jsonc")
+	alpha := "@acme/alpha@1.0.0"
+	beta := "@acme/beta@1.0.0"
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/opencode.json",
+		`{"plugin":["`+alpha+`","`+beta+`"],"variant":"json"}`,
+	)
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/opencode.jsonc",
+		`{"plugin":["`+alpha+`","`+beta+`"],"variant":"jsonc"}`,
+	)
+	runExtensionOrderCLI(
+		t,
+		[]string{
+			"import", "--target", "opencode", "--scope", "project",
+			"--manifest", manifestPath,
+		},
+	)
+	runExtensionOrderLock(t, manifestPath)
+
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/opencode.json",
+		`{"plugin":["`+beta+`","json-foreign","`+alpha+`"],"variant":"json"}`,
+	)
+	testkit.WriteFile(
+		t,
+		tempDir,
+		".opencode/opencode.jsonc",
+		`{"plugin":["`+beta+`","jsonc-foreign","`+alpha+`"],"variant":"jsonc"}`,
+	)
+	dryRun := runExtensionOrderPlan(t, "apply", manifestPath, "--manage-existing")
+	if dryRun.HasErrors || len(dryRun.RelationOrders) != 2 {
+		t.Fatalf("dual-config dry-run = %#v", dryRun.RelationOrders)
+	}
+	if dryRun.RelationOrders[0].SequenceID != "opencode:project:server.json.plugins" ||
+		dryRun.RelationOrders[1].SequenceID != "opencode:project:server.jsonc.plugins" {
+		t.Fatalf("dual-config sequence IDs = %#v", dryRun.RelationOrders)
+	}
+
+	applied := runExtensionOrderApply(t, manifestPath, "--manage-existing")
+	if len(applied.RelationOrderResults) != 2 {
+		t.Fatalf("dual-config results = %#v", applied.RelationOrderResults)
+	}
+	assertOrderedText(t, string(testkit.ReadFile(t, jsonPath)), alpha, "json-foreign", beta)
+	assertOrderedText(t, string(testkit.ReadFile(t, jsoncPath)), alpha, "jsonc-foreign", beta)
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, ".opencode", "tui.json"))
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, ".opencode", "tui.jsonc"))
 }
 
 func TestPiGlobalExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {

@@ -225,18 +225,40 @@ func newOrderObservation(
 	openCodeObservation *observeopencode.OrderObservation,
 ) (OrderObservation, error) {
 	expectedIDs := capability.PhysicalSequenceIDs()
-	if len(values) != len(expectedIDs) {
+	switch capability.SequenceMembership() {
+	case profile.CompleteClassMembership:
+		if len(values) != len(expectedIDs) {
+			return OrderObservation{}, fmt.Errorf(
+				"extension order class %q observed %d physical sequences, want %d",
+				capability.ClassID(),
+				len(values),
+				len(expectedIDs),
+			)
+		}
+	case profile.LoadedClassSubset:
+		if len(values) == 0 || len(values) > len(expectedIDs) {
+			return OrderObservation{}, fmt.Errorf(
+				"extension order class %q observed %d physical sequences outside candidate bound %d",
+				capability.ClassID(),
+				len(values),
+				len(expectedIDs),
+			)
+		}
+	default:
 		return OrderObservation{}, fmt.Errorf(
-			"extension order class %q observed %d physical sequences, want %d",
+			"extension order class %q has unsupported sequence membership contract %q",
 			capability.ClassID(),
-			len(values),
-			len(expectedIDs),
+			capability.SequenceMembership(),
 		)
 	}
 	physical := append([]PhysicalOrderObservation(nil), values...)
 	slices.SortFunc(physical, func(left, right PhysicalOrderObservation) int {
 		return cmp.Compare(left.sequence.SequenceID(), right.sequence.SequenceID())
 	})
+	allowedIDs := make(map[hostrelation.PhysicalSequenceID]struct{}, len(expectedIDs))
+	for _, sequenceID := range expectedIDs {
+		allowedIDs[sequenceID] = struct{}{}
+	}
 	for index, observation := range physical {
 		if observation.sequence.ClassID() != capability.ClassID() {
 			return OrderObservation{}, fmt.Errorf(
@@ -246,13 +268,31 @@ func newOrderObservation(
 				capability.ClassID(),
 			)
 		}
-		if observation.sequence.SequenceID() != expectedIDs[index] {
+		if _, admitted := allowedIDs[observation.sequence.SequenceID()]; !admitted {
 			return OrderObservation{}, fmt.Errorf(
-				"extension order sequence[%d] is %q, want %q",
+				"extension order sequence[%d] %q is not an admitted physical candidate",
 				index,
 				observation.sequence.SequenceID(),
-				expectedIDs[index],
 			)
+		}
+		if index != 0 &&
+			physical[index-1].sequence.SequenceID() == observation.sequence.SequenceID() {
+			return OrderObservation{}, fmt.Errorf(
+				"extension order sequence %q appears more than once",
+				observation.sequence.SequenceID(),
+			)
+		}
+	}
+	if capability.SequenceMembership() == profile.CompleteClassMembership {
+		for index, observation := range physical {
+			if observation.sequence.SequenceID() != expectedIDs[index] {
+				return OrderObservation{}, fmt.Errorf(
+					"extension order sequence[%d] is %q, want %q",
+					index,
+					observation.sequence.SequenceID(),
+					expectedIDs[index],
+				)
+			}
 		}
 	}
 	if (piObservation == nil) == (openCodeObservation == nil) {

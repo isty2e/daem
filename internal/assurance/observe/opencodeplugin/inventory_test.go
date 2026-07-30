@@ -67,6 +67,54 @@ func TestReadInventoryPreservesPhysicalRowsAndLoadIdentity(t *testing.T) {
 	}
 }
 
+func TestReadInventoryObservesEveryExistingJSONAndJSONCCandidate(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configDirectory := filepath.Join(root, ".opencode")
+	for name, content := range map[string]string{
+		"opencode.json":  `{"plugin":["server-json"]}`,
+		"opencode.jsonc": `{"plugin":["server-jsonc"]}`,
+		"tui.json":       `{"plugin":["tui-json"]}`,
+		"tui.jsonc":      `{"plugin":["tui-jsonc"]}`,
+	} {
+		if err := os.MkdirAll(configDirectory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(
+			filepath.Join(configDirectory, name),
+			[]byte(content),
+			0o600,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	inventory, err := observeopencode.ReadInventory(observeopencode.InventoryInput{
+		ManifestRoot: root,
+		Scope:        target.ScopeProject,
+	})
+	if err != nil {
+		t.Fatalf("ReadInventory: %v", err)
+	}
+	documents := inventory.Documents()
+	if len(documents) != 4 {
+		t.Fatalf("Documents = %#v, want four loaded candidates", documents)
+	}
+	for index, name := range []string{
+		"opencode.json",
+		"opencode.jsonc",
+		"tui.json",
+		"tui.jsonc",
+	} {
+		if documents[index].Path() != filepath.Join(configDirectory, name) ||
+			!documents[index].Exists() ||
+			len(documents[index].Entries()) != 1 {
+			t.Fatalf("document[%d] = %#v", index, documents[index])
+		}
+	}
+}
+
 func TestReadInventoryFailsClosedForSelectedSymlink(t *testing.T) {
 	t.Parallel()
 

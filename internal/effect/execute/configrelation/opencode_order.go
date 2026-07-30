@@ -11,11 +11,10 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
-	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/target"
 )
 
-// OpenCodeOrderPlan is one pair of exact observed server/TUI order candidates.
+// OpenCodeOrderPlan owns the exact observed loaded config candidates.
 // It carries no planner policy, ownership claim, or plugin lifecycle authority.
 type OpenCodeOrderPlan struct {
 	observations []observeopencode.DocumentOrderObservation
@@ -24,7 +23,7 @@ type OpenCodeOrderPlan struct {
 }
 
 // NewOpenCodeOrderPlan admits one canonical OpenCode order observation for
-// independent compare-and-swap execution in stable server-then-TUI order.
+// independent compare-and-swap execution in stable candidate order.
 func NewOpenCodeOrderPlan(
 	observation observeopencode.OrderObservation,
 ) (OpenCodeOrderPlan, error) {
@@ -32,14 +31,13 @@ func NewOpenCodeOrderPlan(
 		return OpenCodeOrderPlan{}, fmt.Errorf("OpenCode plugin order plan: %w", err)
 	}
 	documents := observation.Documents()
-	if len(documents) != 2 ||
-		documents[0].Kind() != opencodeconfig.ConfigServer ||
-		documents[1].Kind() != opencodeconfig.ConfigTUI {
+	if len(documents) < 2 {
 		return OpenCodeOrderPlan{}, fmt.Errorf(
-			"OpenCode plugin order plan requires server then TUI observations",
+			"OpenCode plugin order plan requires server and TUI observations",
 		)
 	}
 	paths := make([]string, 0, len(documents))
+	seenPaths := make(map[string]struct{}, len(documents))
 	for index, document := range documents {
 		path := document.Path()
 		if !filepath.IsAbs(path) || filepath.Clean(path) != path {
@@ -54,12 +52,21 @@ func NewOpenCodeOrderPlan(
 				index,
 			)
 		}
+		if _, duplicate := seenPaths[path]; duplicate {
+			return OpenCodeOrderPlan{}, fmt.Errorf(
+				"OpenCode plugin order document path %q appears more than once",
+				path,
+			)
+		}
+		seenPaths[path] = struct{}{}
 		paths = append(paths, path)
 	}
-	if filepath.Dir(paths[0]) != filepath.Dir(paths[1]) {
-		return OpenCodeOrderPlan{}, fmt.Errorf(
-			"OpenCode plugin order documents do not share one selected config root",
-		)
+	for _, path := range paths[1:] {
+		if filepath.Dir(paths[0]) != filepath.Dir(path) {
+			return OpenCodeOrderPlan{}, fmt.Errorf(
+				"OpenCode plugin order documents do not share one selected config root",
+			)
+		}
 	}
 	return OpenCodeOrderPlan{
 		observations: documents,
@@ -68,7 +75,7 @@ func NewOpenCodeOrderPlan(
 	}, nil
 }
 
-// PhysicalAuthority returns both independently selected config paths.
+// PhysicalAuthority returns every independently selected loaded config path.
 func (plan OpenCodeOrderPlan) PhysicalAuthority() (mutation.PhysicalAuthoritySet, error) {
 	if err := plan.validate(); err != nil {
 		return mutation.PhysicalAuthoritySet{}, err
@@ -84,7 +91,7 @@ func (plan OpenCodeOrderPlan) PhysicalAuthority() (mutation.PhysicalAuthoritySet
 	return mutation.NewPhysicalAuthoritySet(requests...)
 }
 
-// Bind captures retained-root authority for both selected config documents.
+// Bind captures retained-root authority for every selected config document.
 func (plan OpenCodeOrderPlan) Bind(
 	selectedRoot *rootedpath.CapturedRoot,
 	selectedRootPath string,
@@ -111,7 +118,7 @@ func (plan OpenCodeOrderPlan) Bind(
 }
 
 func (plan OpenCodeOrderPlan) validate() error {
-	if len(plan.observations) != 2 ||
+	if len(plan.observations) < 2 ||
 		len(plan.paths) != len(plan.observations) ||
 		plan.scope == "" {
 		return fmt.Errorf("OpenCode plugin order plan is incomplete")
@@ -139,9 +146,10 @@ type BoundOpenCodeOrder struct {
 	closed      bool
 }
 
-// Execute converges server then TUI and stops on the first failure. The changed
-// count reports writes known to have become visible; a replacement error may
-// leave visibility unknown and is never upgraded to verified convergence.
+// Execute converges server candidates then TUI candidates and stops on the
+// first failure. The changed count reports writes known to have become visible;
+// a replacement error may leave visibility unknown and is never upgraded to
+// verified convergence.
 func (order *BoundOpenCodeOrder) Execute(
 	ctx context.Context,
 	filesystem mutationfs.RootedStore,

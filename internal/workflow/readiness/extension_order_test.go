@@ -109,8 +109,8 @@ func TestObserveExtensionOrdersPlansOpenCodeDocumentsIndependently(t *testing.T)
 	for _, decision := range decisions {
 		kinds[string(decision.SequenceID())] = decision.Kind()
 	}
-	if kinds["opencode:project:server.plugins"] != reconcile.OrderNormalize ||
-		kinds["opencode:project:tui.plugins"] != reconcile.OrderExact {
+	if kinds["opencode:project:server.json.plugins"] != reconcile.OrderNormalize ||
+		kinds["opencode:project:tui.json.plugins"] != reconcile.OrderExact {
 		t.Fatalf("sequence kinds = %#v", kinds)
 	}
 }
@@ -139,7 +139,7 @@ func TestObserveExtensionOrdersProjectsOpenCodeOrderOntoTUIOnlyMembership(t *tes
 		t.Fatalf("observeExtensionOrders: %v", err)
 	}
 	if len(decisions) != 1 ||
-		decisions[0].SequenceID() != "opencode:project:tui.plugins" ||
+		decisions[0].SequenceID() != "opencode:project:tui.json.plugins" ||
 		decisions[0].Kind() != reconcile.OrderNormalize ||
 		decisions[0].Reason() != reconcile.OrderReasonNone ||
 		len(decisions[0].DesiredMembers()) != 2 {

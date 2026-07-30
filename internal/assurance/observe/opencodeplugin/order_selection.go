@@ -80,9 +80,9 @@ func newOrderSelection(
 			scope,
 		)
 	}
-	if len(capability.PhysicalSequenceIDs()) != 2 {
+	if len(capability.PhysicalSequenceIDs()) != 4 {
 		return orderSelection{}, fmt.Errorf(
-			"OpenCode %s plugin order requires two physical sequences",
+			"OpenCode %s plugin order requires four candidate physical sequences",
 			scope,
 		)
 	}
