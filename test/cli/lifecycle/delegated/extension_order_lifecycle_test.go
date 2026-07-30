@@ -267,6 +267,62 @@ func TestOpenCodeGlobalExtensionImportLockApplyAndRetryConvergesBothConfigOrders
 	assertOrderResults(t, retry, "opencode", 2, "exact", false)
 }
 
+func TestApplyRejectsManifestOrderChangedAfterLock(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.SetDefaultRootEnv(t, tempDir)
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	settingsPath := filepath.Join(tempDir, ".pi", "settings.json")
+	alpha := "npm:@acme/alpha@1.0.0"
+	beta := "npm:@acme/beta@1.0.0"
+	testkit.WriteFile(t, tempDir, "daem.toml", piOrderManifest(alpha, beta))
+	runExtensionOrderLock(t, manifestPath)
+
+	testkit.WriteFile(t, tempDir, "daem.toml", piOrderManifest(beta, alpha))
+	hostContent := `{"packages":["` + beta + `","` + alpha + `"]}`
+	testkit.WriteFile(t, tempDir, ".pi/settings.json", hostContent)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"apply", "--manifest", manifestPath, "--yes", "--manage-existing",
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 ||
+		!strings.Contains(stderr.String(), "locked extension order is stale") ||
+		!strings.Contains(stderr.String(), "run daem lock") {
+		t.Fatalf(
+			"stale apply exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	testkit.AssertFileContent(t, settingsPath, hostContent)
+}
+
+func piOrderManifest(first string, second string) string {
+	return `version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "first"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "` + first + `" }
+
+[[extension]]
+id = "second"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "` + second + `" }
+`
+}
+
 func runExtensionOrderLock(t *testing.T, manifestPath string) clijson.Lock {
 	t.Helper()
 	var stdout bytes.Buffer

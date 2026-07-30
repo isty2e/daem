@@ -28,6 +28,7 @@ import (
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
@@ -385,7 +386,8 @@ func loadCommandInputsAtPaths(
 			return commandContext{}, result, fmt.Errorf("%w: %w", ErrReadLockfile, lockfileErr)
 		}
 		lockfileMissing = true
-	} else if err := lock.ValidateExtensionOrderIdentities(
+	} else if err := lockrefine.ValidateCurrentExtensionOrder(
+		environment.Extensions(),
 		locked,
 		aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	); err != nil {

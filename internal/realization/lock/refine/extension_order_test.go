@@ -7,6 +7,7 @@ import (
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -86,6 +87,67 @@ func TestExtensionOrderConstraintsWrapIdentityResolverFailure(t *testing.T) {
 	if !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "extension[0]") {
 		t.Fatalf("resolver error = %v", err)
 	}
+}
+
+func TestValidateCurrentExtensionOrderAcceptsExactManifestOrder(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+
+	if err := ValidateCurrentExtensionOrder(extensions, file, sourceRefOrderIdentity); err != nil {
+		t.Fatalf("ValidateCurrentExtensionOrder returned error: %v", err)
+	}
+}
+
+func TestValidateCurrentExtensionOrderRejectsReorderedManifest(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+	reordered := []desiredextension.Extension{extensions[1], extensions[0]}
+
+	err := ValidateCurrentExtensionOrder(reordered, file, sourceRefOrderIdentity)
+	if !errors.Is(err, ErrStaleExtensionOrder) ||
+		!strings.Contains(err.Error(), "run daem lock") {
+		t.Fatalf("reordered manifest error = %v", err)
+	}
+}
+
+func TestValidateCurrentExtensionOrderRejectsClassCountChange(t *testing.T) {
+	extensions := []desiredextension.Extension{
+		orderExtension(t, "first", desiredextension.CarrierPiPackage, target.TargetPi, "one"),
+		orderExtension(t, "second", desiredextension.CarrierPiPackage, target.TargetPi, "two"),
+	}
+	file := extensionOrderFile(t, extensions)
+
+	err := ValidateCurrentExtensionOrder(extensions[:1], file, sourceRefOrderIdentity)
+	if !errors.Is(err, ErrStaleExtensionOrder) ||
+		!strings.Contains(err.Error(), "manifest has 0 order classes but lockfile has 1") {
+		t.Fatalf("class count error = %v", err)
+	}
+}
+
+func extensionOrderFile(
+	t *testing.T,
+	extensions []desiredextension.Extension,
+) lock.File {
+	t.Helper()
+	subjects, err := Extensions(extensions)
+	if err != nil {
+		t.Fatalf("Extensions returned error: %v", err)
+	}
+	constraints, err := ExtensionOrderConstraints(extensions, sourceRefOrderIdentity)
+	if err != nil {
+		t.Fatalf("ExtensionOrderConstraints returned error: %v", err)
+	}
+	section, err := lock.NewLockedSection(subjects, constraints)
+	if err != nil {
+		t.Fatalf("NewLockedSection returned error: %v", err)
+	}
+	return lock.File{Version: lock.CurrentVersion, Locked: section}
 }
 
 func orderExtension(

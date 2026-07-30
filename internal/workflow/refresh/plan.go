@@ -245,7 +245,8 @@ func planAtPaths(
 	if err != nil {
 		return refusedPlan(result, ReasonLockUnavailable, err, "run daem lock for the selected manifest")
 	}
-	if err := lock.ValidateExtensionOrderIdentities(
+	if err := refine.ValidateCurrentExtensionOrder(
+		environment.Extensions(),
 		locked,
 		aggregatecodec.ExtensionOrderIdentityResolver(paths),
 	); err != nil {
