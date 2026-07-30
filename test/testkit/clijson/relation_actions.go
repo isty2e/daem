@@ -76,6 +76,16 @@ type RelationOrderAction struct {
 	RequiresMutation      bool                  `json:"requires_mutation"`
 }
 
+type RelationOrderResult struct {
+	Target     string `json:"target"`
+	Scope      string `json:"scope"`
+	ClassID    string `json:"class_id"`
+	SequenceID string `json:"sequence_id"`
+	Outcome    string `json:"outcome"`
+	Changed    bool   `json:"changed"`
+	Detail     string `json:"detail"`
+}
+
 type CarrierAdoptionAction struct {
 	Kind    string `json:"kind"`
 	Subject *struct {
@@ -101,6 +111,7 @@ type CarrierAdoptionAction struct {
 	ClaimStore               string   `json:"claim_store"`
 	CurrentClaimProvenance   string   `json:"current_claim_provenance"`
 	ProposedClaimProvenance  string   `json:"proposed_claim_provenance"`
+	FinalClaimProvenance     string   `json:"final_claim_provenance"`
 	ClaimTransition          string   `json:"claim_transition"`
 	LifecycleEligible        bool     `json:"lifecycle_eligible"`
 	LifecycleBlocker         string   `json:"lifecycle_blocker"`

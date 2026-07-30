@@ -303,7 +303,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]string{"daem version", "daem version --json"}, cliDocumentReference),
 		"apply": leaf("daem apply", "daem apply [--manifest <path>] [--target <target> ...] [options]", "reconcile the locked environment", nil,
 			[]helpRow{workspace, target, {"--manage-existing", "Record exact-match unmanaged outputs or eligible external carriers as managed."}, dryRun, yes, diff, jsonOutputWithDiff, verbose},
-			[]helpRow{{"", "Bare apply requires terminal stdin/stdout/stderr, discloses effects to stdout, then prompts on stderr."}, {"", "Non-interactive apply requires --yes. --json requires --dry-run or --yes."}, {"", "All admitted host and delegated routes are ordinary selected apply work."}},
+			[]helpRow{{"", "Bare apply requires terminal stdin/stdout/stderr, discloses effects to stdout, then prompts on stderr."}, {"", "Non-interactive apply requires --yes. --json requires --dry-run or --yes."}, {"", "All admitted host and delegated routes are ordinary selected apply work."}, {"", "After extension install or removal, apply rereads order. New managed/foreign precedence changes require fresh interactive confirmation."}},
 			[]string{"daem apply --dry-run --diff", "daem apply --target codex --yes --json"}, cliDocumentReference),
 		"recover": leaf("daem recover", "daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]", "resolve an interrupted operation", nil,
 			[]helpRow{workspace, dryRun, yes, jsonOutput, verbose},

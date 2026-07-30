@@ -50,6 +50,11 @@ func requiresProjectRootAuthority(planned commandPlan) bool {
 			return true
 		}
 	}
+	for _, decision := range planned.assessment.Reconciliation.RelationOrders() {
+		if decision.Scope() == target.ScopeProject {
+			return true
+		}
+	}
 	for _, action := range planned.result.Reconciliation.Delegates() {
 		if action.SchedulesAttempt() && action.Scope() == target.ScopeProject {
 			return true
