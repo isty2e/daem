@@ -43,13 +43,20 @@ Cross-built binaries keep help, executable identity, and diagnostics available.
 build facts only; it does not turn a compile-only build into a supported
 product. `daem doctor` reports the exact running `GOOS/GOARCH`, its verification
 class, and the admitted targets; it exits nonzero on a not-admitted platform.
+Doctor validates target selection and resolves the selected manifest path so
+that path errors remain actionable. After successful path resolution on a
+not-admitted platform, it emits only the platform finding and stops before
+file-set, recovery, manifest, environment, or host inspection. If path
+resolution itself fails, the platform and path findings are both reported.
+This diagnostic exception grants no storage or mutation capability.
 
 The platform-gated command families `add`, `apply`, `import`, `init`, `lock`,
-`outdated`, `recover`, and `remove` reject a not-admitted platform before path
-resolution, manifest or cache access, confirmation, host writes, or delegated
-command execution. `outdated` remains read-only with respect to desired and host
-state, but it consumes the same path and source-cache semantics. Dry-run forms
-use the same gate because planning depends on the same platform contracts.
+`outdated`, `recover`, `refresh`, and `remove` reject a not-admitted platform
+before path resolution, manifest or cache access, confirmation, host writes,
+or delegated command execution. `outdated` remains read-only with respect to
+desired and host state, but it consumes the same path and source-cache
+semantics. Dry-run forms use the same gate because planning depends on the same
+platform contracts.
 
 `list`, `status`, and explicit `probe` behavior are not a partial unsupported-
 platform product mode. Their existing lower-level adapters continue to fail

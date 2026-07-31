@@ -15,6 +15,16 @@ daem apply --dry-run --diff
 host state. See the [CLI Reference](cli.md) for JSON output and exact exit-code
 behavior.
 
+## Unsupported Platform
+
+On a not-admitted operating-system/architecture pair, use `daem doctor` or
+`daem doctor --json` for the platform diagnosis. Doctor resolves the selected
+manifest path but intentionally stops before reading file-set transactions,
+recovery journals, manifests, environment prerequisites, or host state. A
+path-resolution failure is reported alongside the platform error. This does
+not make apply, recovery, or other storage-backed workflows available; run
+those commands on a target admitted by [Platform Support](platforms.md).
+
 ## `ownership_conflict`
 
 Another manifest owns the same whole output or an overlapping config

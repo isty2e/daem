@@ -40,7 +40,9 @@ On an unsupported platform, all help and version routes remain available and
 `import`, `init`, `lock`, `outdated`, `recover`, `refresh`, and `remove` fail
 before path resolution or effects, including in dry-run mode. Their normal
 command errors use stderr; `doctor --json` is the structured platform
-diagnostic.
+diagnostic. Doctor resolves its selected manifest path, then stops before
+storage, manifest, environment, or host checks on a not-admitted platform; see
+[Platform Support](platforms.md) for the exact contract.
 
 ## Workspace Selection
 
@@ -868,6 +870,11 @@ Doctor is passive. It never launches host CLIs, package managers, plugins, MCP
 servers, credential helpers, or network probes. It checks modeled paths,
 permissions, executable discovery, capability support, local skill
 compatibility, and available passive readiness facts.
+
+On a not-admitted platform, doctor reports one platform error after successful
+path resolution and does not attempt the checks above. A path-resolution error
+is reported alongside the platform error. Human and JSON forms use the same
+finding and exit with status `1`.
 
 Doctor refuses human and JSON diagnostics while an interrupted apply journal is
 active, before reading live host or target configuration. Run
