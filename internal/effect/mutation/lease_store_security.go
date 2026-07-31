@@ -1,15 +1,47 @@
+//go:build !darwin && !linux
+
 package mutation
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gofrs/flock"
 )
 
+type fallbackLeaseNamespace struct {
+	root string
+}
+
+type fallbackLeaseRecord struct {
+	file *flock.Flock
+}
+
+func initialLeaseRootIdentity(_ string, root string) (canonicalPath, error) {
+	return canonicalPathIdentity(root, PathEffectReferent)
+}
+
+func (store Store) openLeaseNamespace() (preparedLeaseNamespace, error) {
+	if err := store.preparePath(); err != nil {
+		return nil, err
+	}
+	return &fallbackLeaseNamespace{root: store.root}, nil
+}
+
 func (store Store) prepare() error {
+	namespace, err := store.openLeaseNamespace()
+	if err != nil {
+		return err
+	}
+	return namespace.Close()
+}
+
+func (store Store) preparePath() error {
 	if strings.TrimSpace(store.root) == "" || store.maximum <= 0 || store.interval <= 0 {
 		return fmt.Errorf("mutation lease store is not initialized")
 	}
@@ -36,8 +68,55 @@ func (store Store) prepare() error {
 	return nil
 }
 
-func (store Store) matchesRootIdentity(identity canonicalPath) bool {
-	return identity.keyPath == store.rootKey && identity.witness == store.rootWitness
+func (namespace *fallbackLeaseNamespace) Acquire(
+	ctx context.Context,
+	name string,
+	access AccessMode,
+	interval time.Duration,
+) (leaseRecord, bool, error) {
+	lockPath := filepath.Join(namespace.root, name)
+	if err := validateLockRecord(lockPath); err != nil {
+		return nil, false, err
+	}
+	file := flock.New(lockPath, flock.SetPermissions(0o600))
+	locked, err := acquireFallbackFlock(ctx, file, access, interval)
+	if err != nil || !locked {
+		return nil, locked, err
+	}
+	if err := secureAcquiredLockRecord(lockPath, file); err != nil {
+		return nil, false, errors.Join(err, file.Unlock())
+	}
+	return fallbackLeaseRecord{file: file}, true, nil
+}
+
+func (namespace *fallbackLeaseNamespace) ValidateCurrent() error {
+	if namespace == nil || namespace.root == "" {
+		return fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	return nil
+}
+
+func (namespace *fallbackLeaseNamespace) Close() error {
+	return nil
+}
+
+func (record fallbackLeaseRecord) Unlock() error {
+	if record.file == nil {
+		return nil
+	}
+	return record.file.Unlock()
+}
+
+func acquireFallbackFlock(
+	ctx context.Context,
+	file *flock.Flock,
+	access AccessMode,
+	interval time.Duration,
+) (bool, error) {
+	if access == AccessShared {
+		return file.TryRLockContext(ctx, interval)
+	}
+	return file.TryLockContext(ctx, interval)
 }
 
 func ensureBaseDirectory(path string) error {

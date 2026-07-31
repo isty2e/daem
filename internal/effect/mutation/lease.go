@@ -12,8 +12,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/gofrs/flock"
 )
 
 const (
@@ -62,7 +60,7 @@ func NewStore(dataDir string) (Store, error) {
 		return Store{}, fmt.Errorf("resolve mutation lease data directory: %w", err)
 	}
 	root := filepath.Join(identity.accessPath, "locks", "mutation", "v1")
-	rootIdentity, err := canonicalPathIdentity(root, PathEffectReferent)
+	rootIdentity, err := initialLeaseRootIdentity(identity.accessPath, root)
 	if err != nil {
 		return Store{}, fmt.Errorf("resolve mutation lease root: %w", err)
 	}
@@ -83,6 +81,10 @@ func (store Store) DataDir() string {
 	return store.dataDir
 }
 
+func (store Store) matchesRootIdentity(identity canonicalPath) bool {
+	return identity.keyPath == store.rootKey && identity.witness == store.rootWitness
+}
+
 type normalizedDomain struct {
 	key    string
 	label  string
@@ -91,17 +93,33 @@ type normalizedDomain struct {
 
 type heldLease struct {
 	domain normalizedDomain
-	file   *flock.Flock
+	record leaseRecord
+}
+
+type leaseRecord interface {
+	Unlock() error
+}
+
+type preparedLeaseNamespace interface {
+	Acquire(
+		context.Context,
+		string,
+		AccessMode,
+		time.Duration,
+	) (leaseRecord, bool, error)
+	ValidateCurrent() error
+	Close() error
 }
 
 // LeaseSet owns one acquired mutation domain set.
 type LeaseSet struct {
-	domains  []Domain
-	held     []heldLease
-	mu       sync.RWMutex
-	once     sync.Once
-	released bool
-	err      error
+	domains   []Domain
+	held      []heldLease
+	namespace preparedLeaseNamespace
+	mu        sync.RWMutex
+	once      sync.Once
+	released  bool
+	err       error
 }
 
 // Acquire normalizes and acquires one complete mutation domain set.
@@ -119,38 +137,39 @@ func (store Store) Acquire(ctx context.Context, domains ...Domain) (*LeaseSet, e
 	if err != nil {
 		return nil, err
 	}
-	if err := store.prepare(); err != nil {
+	namespace, err := store.openLeaseNamespace()
+	if err != nil {
 		return nil, err
 	}
 
 	waitContext, cancel := context.WithTimeout(ctx, store.maximum)
 	defer cancel()
 	set := &LeaseSet{
-		domains: append([]Domain(nil), domains...),
-		held:    make([]heldLease, 0, len(normalized)),
+		domains:   append([]Domain(nil), domains...),
+		held:      make([]heldLease, 0, len(normalized)),
+		namespace: namespace,
 	}
 	for _, domain := range normalized {
-		lockPath := filepath.Join(store.root, lockRecordName(domain.key))
-		if err := validateLockRecord(lockPath); err != nil {
-			return nil, errors.Join(err, set.Release())
-		}
-		lockFile := flock.New(lockPath, flock.SetPermissions(0o600))
-		locked, lockErr := acquireFlock(waitContext, lockFile, domain.access, store.interval)
-		if lockErr != nil || !locked {
+		record, locked, lockErr := namespace.Acquire(
+			waitContext,
+			lockRecordName(domain.key),
+			domain.access,
+			store.interval,
+		)
+		if lockErr != nil {
 			releaseErr := set.Release()
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return nil, errors.Join(CancellationError{domain: domain.label, cause: ctxErr}, releaseErr)
 			}
-			if errors.Is(lockErr, context.DeadlineExceeded) || !locked {
+			if errors.Is(lockErr, context.DeadlineExceeded) {
 				return nil, errors.Join(ContentionError{domain: domain.label}, releaseErr)
 			}
 			return nil, errors.Join(fmt.Errorf("acquire mutation domain %s: %w", domain.label, lockErr), releaseErr)
 		}
-		if err := secureAcquiredLockRecord(lockPath, lockFile); err != nil {
-			unlockErr := lockFile.Unlock()
-			return nil, errors.Join(fmt.Errorf("secure mutation lock record for %s: %w", domain.label, err), unlockErr, set.Release())
+		if !locked {
+			return nil, errors.Join(ContentionError{domain: domain.label}, set.Release())
 		}
-		set.held = append(set.held, heldLease{domain: domain, file: lockFile})
+		set.held = append(set.held, heldLease{domain: domain, record: record})
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, errors.Join(CancellationError{domain: domain.label, cause: ctxErr}, set.Release())
 		}
@@ -170,6 +189,12 @@ func (set *LeaseSet) DomainsMatchCurrent(ctx context.Context) (bool, error) {
 	defer set.mu.RUnlock()
 	if set.released || len(set.held) == 0 || len(set.domains) == 0 {
 		return false, fmt.Errorf("mutation lease set is not active")
+	}
+	if set.namespace == nil {
+		return false, fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	if err := set.namespace.ValidateCurrent(); err != nil {
+		return false, fmt.Errorf("validate mutation lease namespace: %w", err)
 	}
 	for _, domain := range set.domains {
 		if err := ctx.Err(); err != nil {
@@ -196,21 +221,19 @@ func (set *LeaseSet) Release() error {
 		defer set.mu.Unlock()
 		failures := make([]error, 0)
 		for index := len(set.held) - 1; index >= 0; index-- {
-			if err := set.held[index].file.Unlock(); err != nil {
+			if err := set.held[index].record.Unlock(); err != nil {
 				failures = append(failures, fmt.Errorf("release mutation domain %s: %w", set.held[index].domain.label, err))
+			}
+		}
+		if set.namespace != nil {
+			if err := set.namespace.Close(); err != nil {
+				failures = append(failures, fmt.Errorf("release mutation lease namespace: %w", err))
 			}
 		}
 		set.released = true
 		set.err = errors.Join(failures...)
 	})
 	return set.err
-}
-
-func acquireFlock(ctx context.Context, file *flock.Flock, access AccessMode, interval time.Duration) (bool, error) {
-	if access == AccessShared {
-		return file.TryRLockContext(ctx, interval)
-	}
-	return file.TryLockContext(ctx, interval)
 }
 
 func lockRecordName(key string) string {

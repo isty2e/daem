@@ -2,10 +2,12 @@ package mutation
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestStoreRejectsSelfOverlapAndUnsafeLockRecord(t *testing.T) {
@@ -58,6 +60,118 @@ func TestLeaseReleaseIsIdempotentAndRecordsRemain(t *testing.T) {
 	}
 	if len(entries) == 0 {
 		t.Fatal("release unlinked every lock record")
+	}
+}
+
+func TestIndependentStoresSerializeSameProcessExclusiveLeases(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(t.TempDir(), "resource")
+	firstStore := mutationTestStoreAt(t, dataDir)
+	first, err := firstStore.Acquire(
+		context.Background(),
+		mutationTestLogicalDomain(t, path, AccessExclusive),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+
+	secondStore := mutationTestStoreAt(t, dataDir)
+	secondStore.maximum = 50 * time.Millisecond
+	_, err = secondStore.Acquire(
+		context.Background(),
+		mutationTestLogicalDomain(t, path, AccessExclusive),
+	)
+	var contention ContentionError
+	if !errors.As(err, &contention) {
+		t.Fatalf("same-process exclusive contention error = %v", err)
+	}
+}
+
+func TestIndependentStoresShareSameProcessSharedLeaseUntilLastRelease(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(t.TempDir(), "resource")
+	firstStore := mutationTestStoreAt(t, dataDir)
+	first, err := firstStore.Acquire(
+		context.Background(),
+		mutationTestLogicalDomain(t, path, AccessShared),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+
+	secondStore := mutationTestStoreAt(t, dataDir)
+	second, err := secondStore.Acquire(
+		context.Background(),
+		mutationTestLogicalDomain(t, path, AccessShared),
+	)
+	if err != nil {
+		t.Fatalf("same-process shared acquisition error: %v", err)
+	}
+	defer second.Release()
+
+	probe := mutationTestStoreAt(t, dataDir)
+	probe.maximum = 50 * time.Millisecond
+	exclusive := mutationTestLogicalDomain(t, path, AccessExclusive)
+	if _, err := probe.Acquire(context.Background(), exclusive); err == nil {
+		t.Fatal("exclusive lease bypassed two same-process shared holders")
+	}
+	if err := first.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := probe.Acquire(context.Background(), exclusive); err == nil {
+		t.Fatal("exclusive lease bypassed remaining same-process shared holder")
+	}
+	if err := second.Release(); err != nil {
+		t.Fatal(err)
+	}
+	acquired, err := probe.Acquire(context.Background(), exclusive)
+	if err != nil {
+		t.Fatalf("exclusive acquisition after final shared release: %v", err)
+	}
+	if err := acquired.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIndependentStoresSerializeIdenticalNestedDomainSets(t *testing.T) {
+	dataDir := t.TempDir()
+	recoveryDir := filepath.Join(t.TempDir(), "recovery")
+	paths := []string{
+		recoveryDir,
+		filepath.Join(recoveryDir, "control"),
+		filepath.Join(recoveryDir, "control", "record.json"),
+		filepath.Join(recoveryDir, "residue"),
+		filepath.Join(recoveryDir, "garbage"),
+	}
+	domains := make([]Domain, 0, len(paths)*2)
+	for _, path := range paths {
+		for _, effect := range []PathEffect{PathEffectDirectoryEntry, PathEffectReferent} {
+			domain, err := NewLogicalPathDomain(LogicalPathRequest{
+				Path:   path,
+				Access: AccessExclusive,
+				Effect: effect,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			domains = append(domains, domain)
+		}
+	}
+
+	firstStore := mutationTestStoreAt(t, dataDir)
+	first, err := firstStore.Acquire(context.Background(), domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Release()
+	secondStore := mutationTestStoreAt(t, dataDir)
+	secondStore.maximum = 50 * time.Millisecond
+	_, err = secondStore.Acquire(context.Background(), domains...)
+	var contention ContentionError
+	if !errors.As(err, &contention) {
+		t.Fatalf("same-process nested-domain contention error = %v", err)
 	}
 }
 
