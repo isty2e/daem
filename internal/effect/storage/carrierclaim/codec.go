@@ -7,6 +7,7 @@ import (
 	"io"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -30,8 +31,13 @@ type claimDTO struct {
 }
 
 type authorityDTO struct {
-	StatefileKey string `json:"statefile_key"`
-	ManifestPath string `json:"manifest_path"`
+	StatefileAuthority pathAuthorityDTO `json:"statefile_authority"`
+	ManifestPath       string           `json:"manifest_path"`
+}
+
+type pathAuthorityDTO struct {
+	Key     string `json:"key"`
+	Witness string `json:"semantics_witness"`
 }
 
 type identityDTO struct {
@@ -87,9 +93,13 @@ func persistedClaim(claim durablecarrier.ManagedCarrierClaim) claimDTO {
 	key := identity.Carrier().Key()
 	relation := identity.ExpectedRelation()
 	request := claim.InstallRequest()
+	statefile := claim.Owner().StatefileAuthority()
 	return claimDTO{
 		Owner: authorityDTO{
-			StatefileKey: claim.Owner().StatefileKey(),
+			StatefileAuthority: pathAuthorityDTO{
+				Key:     statefile.Key(),
+				Witness: statefile.Witness(),
+			},
 			ManifestPath: claim.Owner().ManifestPath(),
 		},
 		Identity: identityDTO{
@@ -148,7 +158,7 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 	}
 	if persisted.Version != currentVersion {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
-			"unsupported carrier claim registry version %d",
+			"unsupported carrier claim registry version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed carriers before upgrading",
 			persisted.Version,
 		)
 	}
@@ -167,10 +177,14 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 }
 
 func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error) {
-	owner, err := stateauthority.New(
-		persisted.Owner.StatefileKey,
-		persisted.Owner.ManifestPath,
+	statefile, err := pathauthority.NewExact(
+		persisted.Owner.StatefileAuthority.Key,
+		persisted.Owner.StatefileAuthority.Witness,
 	)
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("owner statefile authority: %w", err)
+	}
+	owner, err := stateauthority.New(statefile, persisted.Owner.ManifestPath)
 	if err != nil {
 		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("owner: %w", err)
 	}

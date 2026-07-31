@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -43,12 +46,84 @@ func TestStoreRoundTripUsesPrivateDeterministicSchema(t *testing.T) {
 		t.Fatalf("registry mode = %04o, want 0600", info.Mode().Perm())
 	}
 	first, _ := os.ReadFile(registryStore.Path())
+	for _, fragment := range []string{`"version": 2`, `"path_authority"`, `"statefile_authority"`, `"semantics_witness"`} {
+		if !strings.Contains(string(first), fragment) {
+			t.Fatalf("registry missing current authority field %q:\n%s", fragment, first)
+		}
+	}
+	for _, forbidden := range []string{`"path":`, `"statefile_key":`} {
+		if strings.Contains(string(first), forbidden) {
+			t.Fatalf("registry retained legacy authority field %q:\n%s", forbidden, first)
+		}
+	}
 	if _, err := registryStore.Apply(context.Background(), claim.Address(), replacement, replacement); err != nil {
 		t.Fatalf("idempotent Store.Apply returned error: %v", err)
 	}
 	second, _ := os.ReadFile(registryStore.Path())
 	if string(first) != string(second) {
 		t.Fatalf("idempotent registry bytes changed:\nfirst=%s\nsecond=%s", first, second)
+	}
+}
+
+func TestStoreLoadRejectsStaleFilesystemSemanticsWitness(t *testing.T) {
+	root := canonicalTestRoot(t)
+	registryStore := mustStore(t, filepath.Join(root, "data", "ownership", "claims.json"))
+	claim := testActiveClaim(t, root, "owner", filepath.Join(root, "host", "AGENTS.md"), "")
+	replacement, _ := ownership.PresentClaim(claim)
+	if _, err := registryStore.Apply(
+		context.Background(),
+		claim.Address(),
+		ownership.NoClaim(),
+		replacement,
+	); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(registryStore.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*claimRecord)
+	}{
+		{
+			name: "managed path",
+			mutate: func(record *claimRecord) {
+				record.PathAuthority.Witness = alternateSemanticsWitness(
+					record.PathAuthority.Key,
+					record.PathAuthority.Witness,
+				)
+			},
+		},
+		{
+			name: "owner statefile",
+			mutate: func(record *claimRecord) {
+				record.StatefileAuthority.Witness = alternateSemanticsWitness(
+					record.StatefileAuthority.Key,
+					record.StatefileAuthority.Witness,
+				)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var persisted file
+			if err := json.Unmarshal(content, &persisted); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(&persisted.Claims[0])
+			mutated, err := json.MarshalIndent(persisted, "", "  ")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(registryStore.Path(), mutated, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := registryStore.Load(context.Background()); err == nil ||
+				!strings.Contains(err.Error(), "is not current") {
+				t.Fatalf("Store.Load error = %v, want stale semantics refusal", err)
+			}
+		})
 	}
 }
 
@@ -95,10 +170,37 @@ func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 		name    string
 		content string
 	}{
-		{name: "unknown field", content: `{"version":1,"claims":[],"future":true}`},
-		{name: "wrong version", content: `{"version":2,"claims":[]}`},
-		{name: "multiple values", content: `{"version":1,"claims":[]} {"version":1,"claims":[]}`},
-		{name: "active operation", content: fmt.Sprintf(`{"version":1,"claims":[{"path":%q,"statefile_key":%q,"manifest_path":%q,"state":"active","operation_id":"op"}]}`, filepath.Join(root, "host"), filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))},
+		{name: "unknown field", content: `{"version":2,"claims":[],"future":true}`},
+		{name: "legacy version", content: `{"version":1,"claims":[]}`},
+		{name: "missing claims", content: `{"version":2}`},
+		{name: "multiple values", content: `{"version":2,"claims":[]} {"version":2,"claims":[]}`},
+		{
+			name: "missing path witness",
+			content: fmt.Sprintf(
+				`{"version":2,"claims":[{"path_authority":{"key":%q},"statefile_authority":{"key":%q,"semantics_witness":"exact-v1:"},"manifest_path":%q,"state":"active"}]}`,
+				filepath.Join(root, "host"),
+				filepath.Join(root, "state.json"),
+				filepath.Join(root, "daem.toml"),
+			),
+		},
+		{
+			name: "unknown statefile witness",
+			content: fmt.Sprintf(
+				`{"version":2,"claims":[{"path_authority":{"key":%q,"semantics_witness":"exact-v1:"},"statefile_authority":{"key":%q,"semantics_witness":"future-v1:"},"manifest_path":%q,"state":"active"}]}`,
+				filepath.Join(root, "host"),
+				filepath.Join(root, "state.json"),
+				filepath.Join(root, "daem.toml"),
+			),
+		},
+		{
+			name: "active operation",
+			content: fmt.Sprintf(
+				`{"version":2,"claims":[{"path_authority":{"key":%q,"semantics_witness":"exact-v1:"},"statefile_authority":{"key":%q,"semantics_witness":"exact-v1:"},"manifest_path":%q,"state":"active","operation_id":"op"}]}`,
+				filepath.Join(root, "host"),
+				filepath.Join(root, "state.json"),
+				filepath.Join(root, "daem.toml"),
+			),
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -110,7 +212,7 @@ func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 			}
 		})
 	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"claims":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":2,"claims":[]}`), 0o644); err != nil {
 		t.Fatalf("write exposed fixture: %v", err)
 	}
 	if err := os.Chmod(path, 0o644); err != nil {
@@ -132,7 +234,7 @@ func TestStoreRejectsAmbiguousAndOversizedRegistry(t *testing.T) {
 	}{
 		{
 			name:    "duplicate authority key",
-			content: []byte(`{"version":1,"claims":[],"claims":[]}`),
+			content: []byte(`{"version":2,"claims":[],"claims":[]}`),
 			want:    "duplicate object key",
 		},
 		{
@@ -297,12 +399,22 @@ func canonicalTestRoot(t *testing.T) string {
 
 func testActiveClaim(t *testing.T, root string, ownerName string, path string, contentPath string) ownership.Claim {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(filepath.Clean(path), contentPath)
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("observe managed address authority: %v", err)
+	}
+	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	authority, err := stateauthority.New(
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(
 		filepath.Join(root, ownerName, ".daem", "state.json"),
+	)
+	if err != nil {
+		t.Fatalf("observe statefile authority: %v", err)
+	}
+	authority, err := stateauthority.New(
+		statefileAuthority.Exact(),
 		filepath.Join(root, ownerName, "daem.toml"),
 	)
 	if err != nil {
@@ -313,4 +425,11 @@ func testActiveClaim(t *testing.T, root string, ownerName string, path string, c
 		t.Fatalf("NewActiveClaim returned error: %v", err)
 	}
 	return claim
+}
+
+func alternateSemanticsWitness(key string, current string) string {
+	if current != "exact-v1:" {
+		return pathtest.Exact(key).Witness()
+	}
+	return pathtest.DarwinCaseSensitive(key).Witness()
 }

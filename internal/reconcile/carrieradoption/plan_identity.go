@@ -9,6 +9,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -37,51 +38,56 @@ type operationFingerprint struct {
 	Recovery             lock.OperationRecoveryClass
 }
 
+type pathAuthorityFingerprint struct {
+	Key              string
+	SemanticsWitness string
+}
+
 type claimFingerprint struct {
-	OwnerStatefileKey  string
-	OwnerManifestPath  string
-	CarrierSubject     topology.SubjectID
-	RelationSubject    topology.SubjectID
-	RelationSubjectKey string
-	ManagedInstanceKey string
-	SourceNamespace    string
-	InstallRequest     realizationdelegate.Request
-	Provenance         durablecarrier.ClaimProvenance
+	OwnerStatefileAuthority pathAuthorityFingerprint
+	OwnerManifestPath       string
+	CarrierSubject          topology.SubjectID
+	RelationSubject         topology.SubjectID
+	RelationSubjectKey      string
+	ManagedInstanceKey      string
+	SourceNamespace         string
+	InstallRequest          realizationdelegate.Request
+	Provenance              durablecarrier.ClaimProvenance
 }
 
 type planFingerprint struct {
-	OwnerStatefileKey    string
-	OwnerManifestPath    string
-	CarrierSubject       topology.SubjectID
-	RelationSubject      topology.SubjectID
-	Target               target.Target
-	Scope                target.Scope
-	SourceNamespace      string
-	RelationSubjectKey   string
-	ManagedInstanceKey   string
-	AcquisitionRequest   realizationdelegate.Request
-	ObservationState     observerelation.CorrelationState
-	ObservationReason    observerelation.ReasonCode
-	EvidenceAvailability observerelation.InventoryAvailability
-	EvidenceFreshness    observerelation.EvidenceFreshness
-	Rows                 []rowFingerprint
-	Watchpoints          []observerelation.Watchpoint
-	Claims               []claimFingerprint
-	Install              operationFingerprint
-	InstallRoute         InstallRouteStatus
-	RemovalStatus        string
-	Removal              operationFingerprint
-	RemovalRequest       realizationdelegate.Request
-	PreservesShared      bool
-	RemovedEffects       []string
-	RetainedEffects      []string
-	RemovalNonClaims     []string
-	ClaimStore           ClaimStore
-	StoreAvailable       bool
-	LifecycleBlocker     LifecycleBlocker
-	ManageExisting       bool
-	Result               Result
-	ProposedClaim        *claimFingerprint
+	OwnerStatefileAuthority pathAuthorityFingerprint
+	OwnerManifestPath       string
+	CarrierSubject          topology.SubjectID
+	RelationSubject         topology.SubjectID
+	Target                  target.Target
+	Scope                   target.Scope
+	SourceNamespace         string
+	RelationSubjectKey      string
+	ManagedInstanceKey      string
+	AcquisitionRequest      realizationdelegate.Request
+	ObservationState        observerelation.CorrelationState
+	ObservationReason       observerelation.ReasonCode
+	EvidenceAvailability    observerelation.InventoryAvailability
+	EvidenceFreshness       observerelation.EvidenceFreshness
+	Rows                    []rowFingerprint
+	Watchpoints             []observerelation.Watchpoint
+	Claims                  []claimFingerprint
+	Install                 operationFingerprint
+	InstallRoute            InstallRouteStatus
+	RemovalStatus           string
+	Removal                 operationFingerprint
+	RemovalRequest          realizationdelegate.Request
+	PreservesShared         bool
+	RemovedEffects          []string
+	RetainedEffects         []string
+	RemovalNonClaims        []string
+	ClaimStore              ClaimStore
+	StoreAvailable          bool
+	LifecycleBlocker        LifecycleBlocker
+	ManageExisting          bool
+	Result                  Result
+	ProposedClaim           *claimFingerprint
 }
 
 func planIdentityFor(action Action) (PlanIdentity, error) {
@@ -97,38 +103,38 @@ func planIdentityFor(action Action) (PlanIdentity, error) {
 		proposed = &value
 	}
 	canonical, err := json.Marshal(planFingerprint{
-		OwnerStatefileKey:    action.owner.StatefileKey(),
-		OwnerManifestPath:    action.owner.ManifestPath(),
-		CarrierSubject:       action.identity.CarrierSubject(),
-		RelationSubject:      action.identity.RelationSubject(),
-		Target:               action.identity.Target(),
-		Scope:                action.identity.Scope(),
-		SourceNamespace:      action.identity.SourceNamespace(),
-		RelationSubjectKey:   string(expected.SubjectKey()),
-		ManagedInstanceKey:   string(expected.ManagedInstanceKey()),
-		AcquisitionRequest:   action.acquisition,
-		ObservationState:     action.observation.State(),
-		ObservationReason:    action.observation.Reason(),
-		EvidenceAvailability: action.observation.EvidenceAvailability(),
-		EvidenceFreshness:    action.observation.EvidenceFreshness(),
-		Rows:                 rowFingerprints(action.observation.Rows()),
-		Watchpoints:          action.observation.Watchpoints(),
-		Claims:               claims,
-		Install:              operationFingerprintFor(action.lifecycle.InstallOperation()),
-		InstallRoute:         action.lifecycle.InstallRouteStatus(),
-		RemovalStatus:        string(removal.Status()),
-		Removal:              operationFingerprintFor(removal.Operation()),
-		RemovalRequest:       removal.Request(),
-		PreservesShared:      removal.PreservesSharedCarrier(),
-		RemovedEffects:       removal.RemovedEffects(),
-		RetainedEffects:      removal.RetainedEffects(),
-		RemovalNonClaims:     removal.NonClaims(),
-		ClaimStore:           action.lifecycle.ClaimStore(),
-		StoreAvailable:       action.lifecycle.StoreAvailable(),
-		LifecycleBlocker:     action.lifecycle.Blocker(),
-		ManageExisting:       action.manageExisting,
-		Result:               action.result,
-		ProposedClaim:        proposed,
+		OwnerStatefileAuthority: statefileAuthorityFingerprintFor(action.owner),
+		OwnerManifestPath:       action.owner.ManifestPath(),
+		CarrierSubject:          action.identity.CarrierSubject(),
+		RelationSubject:         action.identity.RelationSubject(),
+		Target:                  action.identity.Target(),
+		Scope:                   action.identity.Scope(),
+		SourceNamespace:         action.identity.SourceNamespace(),
+		RelationSubjectKey:      string(expected.SubjectKey()),
+		ManagedInstanceKey:      string(expected.ManagedInstanceKey()),
+		AcquisitionRequest:      action.acquisition,
+		ObservationState:        action.observation.State(),
+		ObservationReason:       action.observation.Reason(),
+		EvidenceAvailability:    action.observation.EvidenceAvailability(),
+		EvidenceFreshness:       action.observation.EvidenceFreshness(),
+		Rows:                    rowFingerprints(action.observation.Rows()),
+		Watchpoints:             action.observation.Watchpoints(),
+		Claims:                  claims,
+		Install:                 operationFingerprintFor(action.lifecycle.InstallOperation()),
+		InstallRoute:            action.lifecycle.InstallRouteStatus(),
+		RemovalStatus:           string(removal.Status()),
+		Removal:                 operationFingerprintFor(removal.Operation()),
+		RemovalRequest:          removal.Request(),
+		PreservesShared:         removal.PreservesSharedCarrier(),
+		RemovedEffects:          removal.RemovedEffects(),
+		RetainedEffects:         removal.RetainedEffects(),
+		RemovalNonClaims:        removal.NonClaims(),
+		ClaimStore:              action.lifecycle.ClaimStore(),
+		StoreAvailable:          action.lifecycle.StoreAvailable(),
+		LifecycleBlocker:        action.lifecycle.Blocker(),
+		ManageExisting:          action.manageExisting,
+		Result:                  action.result,
+		ProposedClaim:           proposed,
 	})
 	if err != nil {
 		return "", fmt.Errorf("encode carrier adoption plan identity: %w", err)
@@ -154,19 +160,27 @@ func operationFingerprintFor(operation lock.OperationContract) operationFingerpr
 	}
 }
 
+func statefileAuthorityFingerprintFor(authority stateauthority.Authority) pathAuthorityFingerprint {
+	exact := authority.StatefileAuthority()
+	return pathAuthorityFingerprint{
+		Key:              exact.Key(),
+		SemanticsWitness: exact.Witness(),
+	}
+}
+
 func claimFingerprintFor(claim durablecarrier.ManagedCarrierClaim) claimFingerprint {
 	identity := claim.Identity()
 	expected := identity.ExpectedRelation()
 	return claimFingerprint{
-		OwnerStatefileKey:  claim.Owner().StatefileKey(),
-		OwnerManifestPath:  claim.Owner().ManifestPath(),
-		CarrierSubject:     identity.CarrierSubject(),
-		RelationSubject:    identity.RelationSubject(),
-		RelationSubjectKey: string(expected.SubjectKey()),
-		ManagedInstanceKey: string(expected.ManagedInstanceKey()),
-		SourceNamespace:    identity.SourceNamespace(),
-		InstallRequest:     claim.InstallRequest(),
-		Provenance:         claim.Provenance(),
+		OwnerStatefileAuthority: statefileAuthorityFingerprintFor(claim.Owner()),
+		OwnerManifestPath:       claim.Owner().ManifestPath(),
+		CarrierSubject:          identity.CarrierSubject(),
+		RelationSubject:         identity.RelationSubject(),
+		RelationSubjectKey:      string(expected.SubjectKey()),
+		ManagedInstanceKey:      string(expected.ManagedInstanceKey()),
+		SourceNamespace:         identity.SourceNamespace(),
+		InstallRequest:          claim.InstallRequest(),
+		Provenance:              claim.Provenance(),
 	}
 }
 

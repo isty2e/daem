@@ -118,7 +118,7 @@ func TestSnapshotPreparedCarrierInstallIsExactAndIdempotent(t *testing.T) {
 		t.Fatalf("idempotent prepare = (%#v, %t, %v)", again, changed, err)
 	}
 
-	otherOwner, err := stateauthority.New(owner.StatefileKey(), root+"/other.toml")
+	otherOwner, err := stateauthority.New(owner.StatefileAuthority(), root+"/other.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestSnapshotRetiresOnlyExactCompletedPendingCarrierInstall(t *testing.T) {
 		t.Fatalf("idempotent retire = (%#v, %t, %v)", again, changed, err)
 	}
 
-	otherOwner, err := stateauthority.New(owner.StatefileKey(), root+"/other.toml")
+	otherOwner, err := stateauthority.New(owner.StatefileAuthority(), root+"/other.toml")
 	if err != nil {
 		t.Fatal(err)
 	}

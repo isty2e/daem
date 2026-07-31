@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -92,10 +93,11 @@ func mustAuthority(
 	manifestName string,
 ) stateauthority.Authority {
 	t.Helper()
-	authority, err := stateauthority.New(
+	authority, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, manifestName),
-	)
+	),
+
+		filepath.Join(root, manifestName))
 	if err != nil {
 		t.Fatal(err)
 	}

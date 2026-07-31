@@ -16,13 +16,6 @@ type ActiveJournalAuthority struct {
 	identity mutationfs.EntryIdentity
 }
 
-// LegacyJournalAuthority is operation-local physical evidence for the
-// released v0.1 tombstone selected by one cleanup plan. It is never durable
-// authority and cannot select a path.
-type LegacyJournalAuthority struct {
-	identity mutationfs.EntryIdentity
-}
-
 func newActiveJournalAuthority(
 	identity mutationfs.EntryIdentity,
 ) (ActiveJournalAuthority, error) {
@@ -32,17 +25,6 @@ func newActiveJournalAuthority(
 		)
 	}
 	return ActiveJournalAuthority{identity: identity}, nil
-}
-
-func newLegacyJournalAuthority(
-	identity mutationfs.EntryIdentity,
-) (LegacyJournalAuthority, error) {
-	if identity == nil || identity.Kind() != mutationfs.EntryKindDirectory {
-		return LegacyJournalAuthority{}, fmt.Errorf(
-			"legacy journal authority requires a directory identity",
-		)
-	}
-	return LegacyJournalAuthority{identity: identity}, nil
 }
 
 // CaptureActiveJournalAuthority binds current physical evidence to an
@@ -130,43 +112,4 @@ func (authority ActiveJournalAuthority) matches(
 	return authority.valid() &&
 		identity != nil &&
 		authority.identity.Equal(identity)
-}
-
-// Validate rejects zero or non-directory legacy physical evidence.
-func (authority LegacyJournalAuthority) Validate() error {
-	if !authority.valid() {
-		return fmt.Errorf("legacy journal authority is uninitialized")
-	}
-	return nil
-}
-
-func (authority LegacyJournalAuthority) valid() bool {
-	return authority.identity != nil &&
-		authority.identity.Kind() == mutationfs.EntryKindDirectory
-}
-
-func (authority LegacyJournalAuthority) equal(
-	other LegacyJournalAuthority,
-) bool {
-	return authority.valid() &&
-		other.valid() &&
-		authority.identity.Equal(other.identity)
-}
-
-func (authority LegacyJournalAuthority) matches(
-	identity mutationfs.EntryIdentity,
-) bool {
-	return authority.valid() &&
-		identity != nil &&
-		authority.identity.Equal(identity)
-}
-
-func sameOptionalLegacyJournalAuthority(
-	left LegacyJournalAuthority,
-	right LegacyJournalAuthority,
-) bool {
-	if left.valid() != right.valid() {
-		return false
-	}
-	return !left.valid() || left.equal(right)
 }

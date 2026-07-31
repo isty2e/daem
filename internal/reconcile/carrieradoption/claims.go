@@ -1,7 +1,6 @@
 package carrieradoption
 
 import (
-	"cmp"
 	"fmt"
 	"sort"
 
@@ -9,7 +8,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
-	"github.com/isty2e/daem/internal/topology"
 )
 
 func relevantCarrierAdoptionClaims(
@@ -74,13 +72,12 @@ func assessClaims(
 
 func canonicalClaims(values []durablecarrier.ManagedCarrierClaim) ([]durablecarrier.ManagedCarrierClaim, error) {
 	claims := append([]durablecarrier.ManagedCarrierClaim(nil), values...)
-	seen := make(map[string]struct{}, len(claims))
+	seen := make(map[durablecarrier.CarrierFactKey]struct{}, len(claims))
 	for index, claim := range claims {
 		if err := claim.Validate(); err != nil {
 			return nil, fmt.Errorf("carrier adoption claim[%d]: %w", index, err)
 		}
-		key := claim.Owner().StatefileKey() + "\x00" +
-			claim.Identity().RelationSubject().String()
+		key := claim.FactKey()
 		if _, duplicate := seen[key]; duplicate {
 			return nil, fmt.Errorf(
 				"carrier adoption claim[%d] duplicates one owner relation",
@@ -90,16 +87,7 @@ func canonicalClaims(values []durablecarrier.ManagedCarrierClaim) ([]durablecarr
 		seen[key] = struct{}{}
 	}
 	sort.Slice(claims, func(left int, right int) bool {
-		if order := cmp.Compare(
-			claims[left].Owner().StatefileKey(),
-			claims[right].Owner().StatefileKey(),
-		); order != 0 {
-			return order < 0
-		}
-		return topology.CompareSubjectID(
-			claims[left].Identity().RelationSubject(),
-			claims[right].Identity().RelationSubject(),
-		) < 0
+		return claims[left].Compare(claims[right]) < 0
 	})
 	return claims, nil
 }

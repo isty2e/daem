@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -30,7 +31,7 @@ func TestCarrierFactKeyRejectsZeroAndForgedValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	absoluteStatefile := filepath.Join(t.TempDir(), "state.json")
-	canonicalKey, err := stateauthority.NewKey(absoluteStatefile)
+	canonicalKey, err := stateauthority.NewKey(pathtest.Exact(absoluteStatefile))
 	if err != nil {
 		t.Fatal(err)
 	}

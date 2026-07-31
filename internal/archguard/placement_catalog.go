@@ -143,6 +143,7 @@ var packagePlacementRows = []packagePlacementRow{
 		id:        "stable.value",
 		placement: plainPlacement(affinityNone, roleStableValue),
 		packages: []string{
+			"internal/assurance/pathauthority",
 			"internal/assurance/stateauthority",
 			"internal/findings",
 			"internal/output",
@@ -430,6 +431,11 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/releaseartifact",
 			"internal/releaseartifact/cmd/releasepack",
 		},
+	},
+	{
+		id:        "test-support.assurance",
+		placement: plainPlacement(affinityAssurance, roleTestSupport),
+		packages:  []string{"internal/assurance/pathauthority/pathtest"},
 	},
 	{
 		id:        "test-support.desired",

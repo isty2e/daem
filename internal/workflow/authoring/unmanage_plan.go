@@ -53,11 +53,11 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, fmt.Errorf("invalid manifest: %w", err)
 	}
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(document.Paths.StatefilePath)
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(document.Paths.StatefilePath)
 	if err != nil {
 		return unmanageCandidate{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := stateauthority.New(statefileKey, document.Path)
+	owner, err := stateauthority.New(statefileAuthority.Exact(), document.Path)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}

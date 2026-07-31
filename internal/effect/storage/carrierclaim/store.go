@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 const (
-	currentVersion           = 1
+	currentVersion           = 2
 	maximumRegistryBytes     = 16 << 20
 	maximumRegistryJSONDepth = 64
 )
@@ -64,12 +65,46 @@ func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims
 			snapshot.Mode().Perm(),
 		)
 	}
-	return decode(snapshot.Content())
+	registry, err := decode(snapshot.Content())
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	if err := validateCurrentAuthorities(ctx, registry); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	return registry, nil
+}
+
+func validateCurrentAuthorities(
+	ctx context.Context,
+	registry durablecarrier.GlobalCarrierClaims,
+) error {
+	for index, claim := range registry.Claims() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, err := mutation.ObservePersistedDirectoryEntryAuthority(
+			claim.Owner().StatefileKey(),
+		)
+		if err != nil {
+			return fmt.Errorf("observe carrier claim registry claims[%d] statefile authority: %w", index, err)
+		}
+		if !current.Exact().Equal(claim.Owner().StatefileAuthority()) {
+			return fmt.Errorf(
+				"carrier claim registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
+				index,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				current.Exact().Key(),
+				current.Exact().Witness(),
+			)
+		}
+	}
+	return nil
 }
 
 // LoadForSelectedAuthority loads the full registry, validates claims for the
-// selected manifest, and rejects foreign claims ambiguous under the legacy
-// Darwin-wide case fold.
+// selected manifest against exact versioned path authority.
 func (store Store) LoadForSelectedAuthority(
 	ctx context.Context,
 	statefilePath string,
@@ -86,7 +121,7 @@ func (store Store) LoadForSelectedAuthority(
 			err,
 		)
 	}
-	if err := validateSelectedAuthority(registry, authority, manifestPath); err != nil {
+	if err := validateSelectedAuthority(registry, authority.Exact(), manifestPath); err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
 	return registry, nil
@@ -94,42 +129,21 @@ func (store Store) LoadForSelectedAuthority(
 
 func validateSelectedAuthority(
 	registry durablecarrier.GlobalCarrierClaims,
-	authority mutation.PersistedDirectoryEntryAuthority,
+	authority pathauthority.Exact,
 	manifestPath string,
 ) error {
-	return validateSelectedAuthorityWith(
-		registry,
-		manifestPath,
-		authority.ValidatePersistedKey,
-		authority.RejectLegacyPersistedKey,
-	)
-}
-
-func validateSelectedAuthorityWith(
-	registry durablecarrier.GlobalCarrierClaims,
-	manifestPath string,
-	validatePersisted func(string) error,
-	rejectLegacy func(string) error,
-) error {
-	if validatePersisted == nil || rejectLegacy == nil {
-		return fmt.Errorf("carrier-authority validators are required")
-	}
 	for index, claim := range registry.Claims() {
 		if claim.Owner().ManifestPath() != manifestPath {
-			if err := rejectLegacy(claim.Owner().StatefileKey()); err != nil {
-				return fmt.Errorf(
-					"carrier claim registry claim[%d] has ambiguous legacy state authority: %w",
-					index,
-					err,
-				)
-			}
 			continue
 		}
-		if err := validatePersisted(claim.Owner().StatefileKey()); err != nil {
+		if !claim.Owner().StatefileAuthority().Equal(authority) {
 			return fmt.Errorf(
-				"carrier claim registry claim[%d] for selected manifest has incompatible state authority: %w",
+				"carrier claim registry claim[%d] for selected manifest has state authority %q with semantics %q, want %q with semantics %q",
 				index,
-				err,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				authority.Key(),
+				authority.Witness(),
 			)
 		}
 	}

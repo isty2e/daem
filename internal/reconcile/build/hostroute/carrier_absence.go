@@ -107,14 +107,14 @@ func BuildCarrierAbsenceActions(input CarrierAbsenceInput) ([]carrierabsence.Act
 }
 
 type carrierOwnerRelationKey struct {
-	statefileKey string
-	subject      topology.SubjectID
+	statefileAuthority stateauthority.Key
+	subject            topology.SubjectID
 }
 
 func carrierClaimKey(claim durablecarrier.ManagedCarrierClaim) carrierOwnerRelationKey {
 	return carrierOwnerRelationKey{
-		statefileKey: claim.Owner().StatefileKey(),
-		subject:      claim.Identity().RelationSubject(),
+		statefileAuthority: claim.Owner().Key(),
+		subject:            claim.Identity().RelationSubject(),
 	}
 }
 
@@ -134,7 +134,7 @@ func canonicalCarrierClaims(
 			}
 			return nil, fmt.Errorf(
 				"carrier absence claims conflict for owner %q relation %q",
-				key.statefileKey,
+				key.statefileAuthority.String(),
 				key.subject,
 			)
 		}
@@ -142,8 +142,8 @@ func canonicalCarrierClaims(
 		canonical = append(canonical, claim)
 	}
 	sort.Slice(canonical, func(left int, right int) bool {
-		if canonical[left].Owner().StatefileKey() != canonical[right].Owner().StatefileKey() {
-			return canonical[left].Owner().StatefileKey() < canonical[right].Owner().StatefileKey()
+		if order := canonical[left].Owner().Key().Compare(canonical[right].Owner().Key()); order != 0 {
+			return order < 0
 		}
 		return topology.CompareSubjectID(
 			canonical[left].Identity().RelationSubject(),

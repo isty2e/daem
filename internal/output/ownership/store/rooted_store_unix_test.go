@@ -4,9 +4,11 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -61,6 +63,34 @@ func TestRootedStoreKeepsRegistryOnCapturedDataRootAfterAliasRetarget(t *testing
 	}
 	if got, present := loaded.Exact(claim.Address()); !present || !got.Equal(claim) {
 		t.Fatal("rooted registry load lost the claim written below captured data A")
+	}
+	registryPath := filepath.Join(dataA, "ownership", "claims.json")
+	content, err := os.ReadFile(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted file
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	persisted.Claims[0].PathAuthority.Witness = alternateSemanticsWitness(
+		persisted.Claims[0].PathAuthority.Key,
+		persisted.Claims[0].PathAuthority.Witness,
+	)
+	content, err = json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registryPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryStore.Load(context.Background()); err == nil ||
+		!strings.Contains(err.Error(), "is not current") {
+		t.Fatalf("rooted Store.Load error = %v, want stale semantics refusal", err)
+	}
+	if _, err := registryStore.Apply(context.Background(), claim.Address(), value, value); err == nil ||
+		!strings.Contains(err.Error(), "is not current") {
+		t.Fatalf("rooted Store.Apply error = %v, want stale semantics refusal", err)
 	}
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()

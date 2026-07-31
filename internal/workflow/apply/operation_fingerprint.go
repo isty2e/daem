@@ -8,6 +8,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/observe"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -53,24 +54,29 @@ type mcpProviderFingerprintFacts struct {
 	FailureDetail string
 }
 
+type pathAuthorityFingerprintFacts struct {
+	Key              string
+	SemanticsWitness string
+}
+
 type ownershipOwnerFingerprintFacts struct {
-	StatefileKey string
-	ManifestPath string
+	StatefileAuthority pathAuthorityFingerprintFacts
+	ManifestPath       string
 }
 
 type ownershipObservationFingerprintFacts struct {
-	Destination       string
-	ContentPath       string
-	Path              string
-	ClaimPresent      bool
-	ClaimStatefileKey string
-	ClaimManifestPath string
-	ClaimState        string
-	ClaimOperationID  string
+	Destination             string
+	ContentPath             string
+	PathAuthority           pathAuthorityFingerprintFacts
+	ClaimPresent            bool
+	ClaimStatefileAuthority pathAuthorityFingerprintFacts
+	ClaimManifestPath       string
+	ClaimState              string
+	ClaimOperationID        string
 }
 
 type carrierClaimFingerprintFacts struct {
-	StatefileKey       string
+	StatefileAuthority pathAuthorityFingerprintFacts
 	ManifestPath       string
 	CarrierSubject     topology.SubjectID
 	RelationSubject    topology.SubjectID
@@ -251,7 +257,9 @@ func applyOperationFingerprint(
 		CarrierAbsences:  carrierAbsences,
 		DelegateActions:  delegates,
 		Owner: ownershipOwnerFingerprintFacts{
-			StatefileKey: planned.assessment.Owner.StatefileKey(),
+			StatefileAuthority: pathAuthorityFingerprintFactsFor(
+				planned.assessment.Owner.StatefileAuthority(),
+			),
 			ManifestPath: planned.assessment.Owner.ManifestPath(),
 		},
 		Ownership:           ownershipFacts,
@@ -263,6 +271,15 @@ func applyOperationFingerprint(
 		return mutation.OperationFingerprint{}, fmt.Errorf("fingerprint apply plan: %w", err)
 	}
 	return mutation.NewOperationFingerprint(canonical), nil
+}
+
+func pathAuthorityFingerprintFactsFor(
+	authority pathauthority.Exact,
+) pathAuthorityFingerprintFacts {
+	return pathAuthorityFingerprintFacts{
+		Key:              authority.Key(),
+		SemanticsWitness: authority.Witness(),
+	}
 }
 
 func relationOrderFingerprintRows(
@@ -442,7 +459,7 @@ func carrierClaimFingerprintRows(
 		identity := claim.Identity()
 		relation := identity.ExpectedRelation()
 		rows = append(rows, carrierClaimFingerprintFacts{
-			StatefileKey:       claim.Owner().StatefileKey(),
+			StatefileAuthority: pathAuthorityFingerprintFactsFor(claim.Owner().StatefileAuthority()),
 			ManifestPath:       claim.Owner().ManifestPath(),
 			CarrierSubject:     identity.CarrierSubject(),
 			RelationSubject:    identity.RelationSubject(),
@@ -463,11 +480,15 @@ func ownershipFingerprintFacts(
 		fact := ownershipObservationFingerprintFacts{
 			Destination: observation.Destination.String(),
 			ContentPath: string(observation.ContentPath),
-			Path:        observation.Address.Path(),
+			PathAuthority: pathAuthorityFingerprintFactsFor(
+				observation.Address.PathAuthority(),
+			),
 		}
 		if claim, present := observation.Claim.Get(); present {
 			fact.ClaimPresent = true
-			fact.ClaimStatefileKey = claim.Owner().StatefileKey()
+			fact.ClaimStatefileAuthority = pathAuthorityFingerprintFactsFor(
+				claim.Owner().StatefileAuthority(),
+			)
 			fact.ClaimManifestPath = claim.Owner().ManifestPath()
 			fact.ClaimState = string(claim.State())
 			fact.ClaimOperationID = claim.OperationID()
@@ -475,8 +496,11 @@ func ownershipFingerprintFacts(
 		facts = append(facts, fact)
 	}
 	sort.Slice(facts, func(left int, right int) bool {
-		if facts[left].Path != facts[right].Path {
-			return facts[left].Path < facts[right].Path
+		if facts[left].PathAuthority.Key != facts[right].PathAuthority.Key {
+			return facts[left].PathAuthority.Key < facts[right].PathAuthority.Key
+		}
+		if facts[left].PathAuthority.SemanticsWitness != facts[right].PathAuthority.SemanticsWitness {
+			return facts[left].PathAuthority.SemanticsWitness < facts[right].PathAuthority.SemanticsWitness
 		}
 		return facts[left].ContentPath < facts[right].ContentPath
 	})

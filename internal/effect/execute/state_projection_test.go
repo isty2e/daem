@@ -93,7 +93,7 @@ func testAuthority(t *testing.T) stateauthority.Authority {
 	t.Helper()
 	root := t.TempDir()
 	owner, err := stateauthority.New(
-		filepath.Join(root, "state.json"),
+		mustObservedPathAuthority(t, filepath.Join(root, "state.json")),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {

@@ -279,53 +279,6 @@ func TestDarwinNativeExistingNormalizationAliasUsesStoredSpelling(t *testing.T) 
 	}
 }
 
-func TestDarwinNativeLegacyNormalizationAliasKeyIsRejected(t *testing.T) {
-	root := t.TempDir()
-	composed := filepath.Join(root, "Caf\u00e9")
-	decomposed := filepath.Join(root, "Cafe\u0301")
-	if err := os.WriteFile(composed, []byte("content"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(decomposed); err != nil {
-		if os.IsNotExist(err) {
-			t.Skip("temporary filesystem does not resolve the tested normalization alias")
-		}
-		t.Fatal(err)
-	}
-
-	for _, candidate := range []string{composed, decomposed} {
-		authority, err := ObservePersistedDirectoryEntryAuthority(candidate)
-		if err != nil {
-			t.Fatal(err)
-		}
-		selection, err := selectPath(candidate, PathEffectDirectoryEntry)
-		if err != nil {
-			t.Fatal(err)
-		}
-		legacy := strings.ToLower(selectedAccessPath(selection))
-		if legacy == authority.CurrentKey() {
-			continue
-		}
-		err = authority.ValidatePersistedKey(legacy)
-		if err == nil || !strings.Contains(err.Error(), "legacy Darwin-wide case fold") ||
-			!strings.Contains(err.Error(), "docs/troubleshooting.md#legacy-darwin-path-authority") {
-			t.Fatalf("legacy normalization alias error = %v", err)
-		}
-		return
-	}
-	t.Skip("temporary filesystem reports the same bytes for both tested normalization spellings")
-}
-
-func TestPlatformLegacyDirectoryEntryKeyClassifiesSensitiveFold(t *testing.T) {
-	selection := pathSelection{anchorPath: "/Volumes/CaseSensitive/Project/State.json"}
-	current := selectedAccessPath(selection)
-	legacy := strings.ToLower(current)
-	classified := platformLegacyDirectoryEntryKey(selection, current)
-	if classified != legacy {
-		t.Fatalf("legacy key = %q, want %q against %q", classified, legacy, current)
-	}
-}
-
 func TestDarwinNativeCaseSensitiveDirectoryKeepsDistinctEntriesWhenAvailable(t *testing.T) {
 	root := t.TempDir()
 	mode, err := darwinDirectoryCaseSemantics(root)
@@ -376,20 +329,9 @@ func TestDarwinNativeMissingSuffixInheritsDeepestExistingDirectorySemantics(t *t
 	}
 }
 
-func TestPersistedDirectoryEntryKeyMismatchDiagnosesLegacyDarwinFold(t *testing.T) {
-	current := "/Volumes/CaseSensitive/Project/.daem/State.json"
-	legacy := strings.ToLower(current)
-	err := persistedDirectoryEntryKeyMismatch(current, legacy, true)
-	if err == nil || !strings.Contains(err.Error(), "legacy Darwin-wide case fold") ||
-		!strings.Contains(err.Error(), "docs/troubleshooting.md#legacy-darwin-path-authority") ||
-		!strings.Contains(err.Error(), "do not edit or delete daem state manually") {
-		t.Fatalf("legacy validation error = %v", err)
-	}
-}
-
 func TestPersistedDirectoryEntryAuthorityRejectsZeroObservation(t *testing.T) {
-	err := (PersistedDirectoryEntryAuthority{}).ValidatePersistedKey("/persisted")
-	if err == nil || !strings.Contains(err.Error(), "current path authority key is required") {
+	err := (PersistedDirectoryEntryAuthority{}).validate()
+	if err == nil || !strings.Contains(err.Error(), "exact path authority key is required") {
 		t.Fatalf("zero authority error = %v", err)
 	}
 }

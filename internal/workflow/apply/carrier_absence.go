@@ -23,7 +23,7 @@ import (
 )
 
 type carrierAbsenceFingerprintFacts struct {
-	StatefileKey           string
+	StatefileAuthority     pathAuthorityFingerprintFacts
 	ManifestPath           string
 	CarrierSubject         topology.SubjectID
 	RelationSubject        topology.SubjectID
@@ -58,7 +58,7 @@ type carrierAbsenceFingerprintFacts struct {
 }
 
 type carrierConsumerFingerprintFacts struct {
-	StatefileKey       string
+	StatefileAuthority pathAuthorityFingerprintFacts
 	ManifestPath       string
 	RelationSubject    topology.SubjectID
 	ManagedInstanceKey string
@@ -101,7 +101,7 @@ func carrierAbsenceFingerprintRows(
 		expected := identity.ExpectedRelation()
 		route := action.RouteAdmission()
 		fact := carrierAbsenceFingerprintFacts{
-			StatefileKey:           claim.Owner().StatefileKey(),
+			StatefileAuthority:     pathAuthorityFingerprintFactsFor(claim.Owner().StatefileAuthority()),
 			ManifestPath:           claim.Owner().ManifestPath(),
 			CarrierSubject:         identity.CarrierSubject(),
 			RelationSubject:        identity.RelationSubject(),
@@ -179,7 +179,7 @@ func carrierConsumerFingerprintRows(
 	rows := make([]carrierConsumerFingerprintFacts, 0, len(consumers))
 	for _, consumer := range consumers {
 		rows = append(rows, carrierConsumerFingerprintFacts{
-			StatefileKey:       consumer.Owner().StatefileKey(),
+			StatefileAuthority: pathAuthorityFingerprintFactsFor(consumer.Owner().StatefileAuthority()),
 			ManifestPath:       consumer.Owner().ManifestPath(),
 			RelationSubject:    consumer.RelationSubject(),
 			ManagedInstanceKey: string(consumer.ManagedInstanceKey()),

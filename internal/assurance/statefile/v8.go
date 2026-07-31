@@ -22,7 +22,7 @@ const (
 	statefileMode                   = os.FileMode(0o600)
 )
 
-// Load reads one strict v7 statefile into canonical durable state.
+// Load reads one strict current statefile into canonical durable state.
 func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	content, err := readStatefile(ctx, path)
 	if err != nil {
@@ -42,7 +42,7 @@ func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	return snapshot, nil
 }
 
-// LoadOptional reads v7 state or returns the canonical empty snapshot.
+// LoadOptional reads current state or returns the canonical empty snapshot.
 func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 	snapshot, err := Load(ctx, path)
 	if err == nil {
@@ -54,7 +54,7 @@ func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 	return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
 }
 
-// Decode decodes one strict v7 state JSON value.
+// Decode decodes one strict current state JSON value.
 func Decode(content []byte) (durable.Snapshot, error) {
 	if int64(len(content)) > maximumStatefileBytes {
 		return durable.Snapshot{}, fmt.Errorf("statefile exceeds %d bytes", maximumStatefileBytes)
@@ -69,7 +69,7 @@ func Decode(content []byte) (durable.Snapshot, error) {
 		return durable.Snapshot{}, err
 	}
 	if envelope.Version != snapshotVersion {
-		return durable.Snapshot{}, fmt.Errorf("unsupported statefile version %d", envelope.Version)
+		return durable.Snapshot{}, unsupportedStatefileVersion(envelope.Version)
 	}
 	var persisted snapshotDTO
 	decoder := json.NewDecoder(bytes.NewReader(content))
@@ -86,7 +86,14 @@ func Decode(content []byte) (durable.Snapshot, error) {
 	return persisted.canonical()
 }
 
-// Marshal renders one canonical Snapshot as deterministic v7 JSON.
+func unsupportedStatefileVersion(version int) error {
+	return fmt.Errorf(
+		"unsupported statefile version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed state before upgrading",
+		version,
+	)
+}
+
+// Marshal renders one canonical Snapshot as deterministic current JSON.
 func Marshal(snapshot durable.Snapshot) ([]byte, error) {
 	if err := validateSnapshotForPersistence(snapshot); err != nil {
 		return nil, err
@@ -130,32 +137,32 @@ func validateLoadedStateAuthority(
 	authority mutation.PersistedDirectoryEntryAuthority,
 ) error {
 	for index, pending := range snapshot.PendingCarrierInstalls() {
-		if err := authority.ValidatePersistedKey(pending.Owner().StatefileKey()); err != nil {
+		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"pending_carrier_installs[%d] belongs to foreign statefile authority %q: %w",
+				"pending_carrier_installs[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
 				pending.Owner().StatefileKey(),
-				err,
+				pending.Owner().StatefileAuthority().Witness(),
 			)
 		}
 	}
 	for index, pending := range snapshot.PendingCarrierRemovals() {
-		if err := authority.ValidatePersistedKey(pending.Owner().StatefileKey()); err != nil {
+		if !authority.Exact().Equal(pending.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"pending_carrier_removals[%d] belongs to foreign statefile authority %q: %w",
+				"pending_carrier_removals[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
 				pending.Owner().StatefileKey(),
-				err,
+				pending.Owner().StatefileAuthority().Witness(),
 			)
 		}
 	}
 	for index, claim := range snapshot.ManagedCarrierClaims() {
-		if err := authority.ValidatePersistedKey(claim.Owner().StatefileKey()); err != nil {
+		if !authority.Exact().Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"managed_carrier_claims[%d] belongs to foreign statefile authority %q: %w",
+				"managed_carrier_claims[%d] belongs to foreign statefile authority %q with semantics %q",
 				index,
 				claim.Owner().StatefileKey(),
-				err,
+				claim.Owner().StatefileAuthority().Witness(),
 			)
 		}
 	}

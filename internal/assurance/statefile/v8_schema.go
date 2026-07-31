@@ -1,6 +1,6 @@
 package statefile
 
-const snapshotVersion = 7
+const snapshotVersion = 8
 
 type snapshotDTO struct {
 	Version                   int                        `json:"version"`
@@ -48,8 +48,13 @@ type managedAggregateDTO struct {
 }
 
 type stateAuthorityDTO struct {
-	StatefileKey string `json:"statefile_key"`
-	ManifestPath string `json:"manifest_path"`
+	StatefileAuthority pathAuthorityDTO `json:"statefile_authority"`
+	ManifestPath       string           `json:"manifest_path"`
+}
+
+type pathAuthorityDTO struct {
+	Key     string `json:"key"`
+	Witness string `json:"semantics_witness"`
 }
 
 type managedCarrierIdentityDTO struct {

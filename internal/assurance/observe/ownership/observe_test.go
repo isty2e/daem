@@ -1,13 +1,13 @@
 package ownership
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -37,12 +37,13 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"codex"})
 	physical := filepath.Join(realHome, ".codex", "config.toml")
-	canonical, err := mutation.CanonicalDirectoryEntryKey(physical)
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
 	if err != nil {
-		t.Fatalf("canonicalize fixture: %v", err)
+		t.Fatalf("observe fixture authority: %v", err)
 	}
-	parentAddress, _ := outputownership.NewManagedAddress(canonical, "/mcp_servers")
-	foreign, _ := stateauthority.New(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
+	canonical := pathAuthority.Exact().Key()
+	parentAddress, _ := outputownership.NewManagedAddress(pathAuthority.Exact(), "/mcp_servers")
+	foreign, _ := stateauthority.New(pathtest.Exact(filepath.Join(root, "foreign", "state.json")), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
 	operations, admitted := mcptest.OperationsForPlacementID(
@@ -88,19 +89,19 @@ func TestValidateRegistryStateAuthorityRejectsSelectedManifestForeignKey(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := stateauthority.New(authority.CurrentKey(), manifestPath)
+	owner, err := stateauthority.New(authority.Exact(), manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	persistedOwner, err := stateauthority.New(
-		filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json"),
+		pathtest.Exact(filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json")),
 		manifestPath,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	address, err := outputownership.NewManagedAddress(
-		filepath.Join(string(filepath.Separator), "managed", "output"),
+		pathtest.Exact(filepath.Join(string(filepath.Separator), "managed", "output")),
 		"",
 	)
 	if err != nil {
@@ -114,56 +115,10 @@ func TestValidateRegistryStateAuthorityRejectsSelectedManifestForeignKey(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateRegistryStateAuthority(registry, owner, authority); err == nil ||
-		!strings.Contains(err.Error(), "does not match current filesystem authority") ||
+	if err := validateRegistryStateAuthority(registry, owner); err == nil ||
+		!strings.Contains(err.Error(), "for selected manifest has state authority") ||
 		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
 		t.Fatalf("registry authority error = %v", err)
-	}
-}
-
-func TestValidateRegistryStateAuthorityRejectsLegacyKeyAcrossDiagnosticProvenance(t *testing.T) {
-	statefilePath := filepath.Join(t.TempDir(), "State.json")
-	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	owner, err := stateauthority.New(authority.CurrentKey(), "/selected/daem.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyOwner, err := stateauthority.New("/legacy/state.json", "/alias/daem.toml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	address, err := outputownership.NewManagedAddress("/managed/output", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	claim, err := outputownership.NewActiveClaim(address, legacyOwner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry, err := outputownership.NewRegistry([]outputownership.Claim{claim})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = validateRegistryStateAuthorityWith(
-		registry,
-		owner,
-		func(string) error {
-			t.Fatal("foreign-provenance claim reached exact validator")
-			return nil
-		},
-		func(persisted string) error {
-			if persisted != legacyOwner.StatefileKey() {
-				t.Fatalf("legacy validator key = %q", persisted)
-			}
-			return fmt.Errorf("legacy authority")
-		},
-	)
-	if err == nil || !strings.Contains(err.Error(), "ambiguous legacy state authority") {
-		t.Fatalf("registry legacy authority error = %v", err)
 	}
 }
 

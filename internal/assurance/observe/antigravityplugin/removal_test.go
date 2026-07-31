@@ -8,6 +8,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -150,10 +151,11 @@ func mustAntigravityPendingRemoval(
 		t.Fatal("Antigravity extension did not produce managed carrier identity")
 	}
 	installRequest := mustAntigravityInstallRequest(t, contracts[0])
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}

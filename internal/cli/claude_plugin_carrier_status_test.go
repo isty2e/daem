@@ -6,6 +6,7 @@ import (
 
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
@@ -111,10 +112,11 @@ func TestStatusCheckExitCodeFailsForCarrierAdoptionClaimConflict(t *testing.T) {
 		t.Fatalf("DelegatedOperationRequest: %v", err)
 	}
 	otherRoot := t.TempDir()
-	otherOwner, err := stateauthority.New(
+	otherOwner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(otherRoot, ".daem", "state.json"),
-		filepath.Join(otherRoot, "other.toml"),
-	)
+	),
+
+		filepath.Join(otherRoot, "other.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}
@@ -198,10 +200,11 @@ func cliClaudePluginCarrierAdoptionAction(
 		t.Fatalf("NewSelectedTargets: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}
@@ -267,10 +270,11 @@ func cliClaudePluginCarrierCommandResultForSubject(
 		t.Fatalf("observerelation.NewBatch returned error: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

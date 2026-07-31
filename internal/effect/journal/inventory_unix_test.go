@@ -3,8 +3,6 @@
 package journal
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -50,36 +48,4 @@ func TestRecoveryRootInventoryBlocksSpecialControlTemporary(t *testing.T) {
 	}
 
 	assertRecoveryInventoryBlocked(t, recoveryRoot, "must be a no-follow regular file")
-}
-
-func TestRecoveryRootInventoryBlocksSpecialChildInLegacyTombstone(t *testing.T) {
-	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
-	_, result := captureInventoryJournal(t, recoveryRoot, "legacy-special-child")
-	legacy := renameInventoryJournalToLegacy(t, result, "7")
-	special := filepath.Join(legacy, "foreign-fifo")
-	if err := unix.Mkfifo(special, uint32(retirement.RecordMode)); err != nil {
-		t.Fatalf("create legacy tombstone FIFO: %v", err)
-	}
-
-	assertRecoveryInventoryBlocked(t, recoveryRoot, "unsupported entry")
-	if info, err := os.Lstat(special); err != nil || info.Mode()&os.ModeNamedPipe == 0 {
-		t.Fatalf("legacy special child changed: info=%v err=%v", info, err)
-	}
-}
-
-func TestRecoveryRootInventoryBlocksOverdeepLegacyTombstone(t *testing.T) {
-	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
-	_, result := captureInventoryJournal(t, recoveryRoot, "legacy-overdeep-tree")
-	deepest := renameInventoryJournalToLegacy(t, result, "8")
-	for index := 0; index <= maximumRecoveryTreeDepth; index++ {
-		deepest = filepath.Join(deepest, fmt.Sprintf("depth-%02d", index))
-		if err := os.Mkdir(deepest, retirement.DirectoryMode); err != nil {
-			t.Fatalf("create depth %d: %v", index, err)
-		}
-	}
-
-	assertRecoveryInventoryBlocked(t, recoveryRoot, "maximum depth")
-	if _, err := os.Lstat(deepest); err != nil {
-		t.Fatalf("legacy deep tree changed: %v", err)
-	}
 }

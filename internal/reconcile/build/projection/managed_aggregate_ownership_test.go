@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -189,10 +190,11 @@ func aggregateOwnershipAuthority(
 	name string,
 ) stateauthority.Authority {
 	t.Helper()
-	authority, err := stateauthority.New(
+	authority, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, name, "state.json"),
-		filepath.Join(root, name+".toml"),
-	)
+	),
+
+		filepath.Join(root, name+".toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
@@ -210,10 +212,11 @@ func aggregateOwnershipObservation(
 	document := address.Document()
 	destination := document.AggregateRoot()
 	contentPath := output.ContentPath(address.ContentPath())
-	managedAddress, err := ownership.NewManagedAddress(
+	managedAddress, err := ownership.NewManagedAddress(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
-		string(contentPath),
-	)
+	),
+
+		string(contentPath))
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -255,10 +258,11 @@ func aggregateOverlappingObservation(
 	destination output.Destination,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(
+	address, err := ownership.NewManagedAddress(pathtest.Exact(
 		filepath.Join(root, "home", ".claude.json"),
-		"/mcpServers",
-	)
+	),
+
+		"/mcpServers")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}

@@ -56,11 +56,11 @@ func Build(input Input) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := stateauthority.New(statefileAuthority.CurrentKey(), input.Paths.ManifestPath)
+	owner, err := stateauthority.New(statefileAuthority.Exact(), input.Paths.ManifestPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("construct state authority: %w", err)
 	}
-	if err := validateRegistryStateAuthority(input.Registry, owner, statefileAuthority); err != nil {
+	if err := validateRegistryStateAuthority(input.Registry, owner); err != nil {
 		return Result{}, err
 	}
 
@@ -143,41 +143,19 @@ func Build(input Input) (Result, error) {
 func validateRegistryStateAuthority(
 	registry outputownership.Registry,
 	owner stateauthority.Authority,
-	authority mutation.PersistedDirectoryEntryAuthority,
 ) error {
-	return validateRegistryStateAuthorityWith(
-		registry,
-		owner,
-		authority.ValidatePersistedKey,
-		authority.RejectLegacyPersistedKey,
-	)
-}
-
-func validateRegistryStateAuthorityWith(
-	registry outputownership.Registry,
-	owner stateauthority.Authority,
-	validatePersisted func(string) error,
-	rejectLegacy func(string) error,
-) error {
-	if validatePersisted == nil || rejectLegacy == nil {
-		return fmt.Errorf("ownership-authority validators are required")
-	}
 	for index, claim := range registry.Claims() {
 		if claim.Owner().ManifestPath() != owner.ManifestPath() {
-			if err := rejectLegacy(claim.Owner().StatefileKey()); err != nil {
-				return fmt.Errorf(
-					"ownership registry claim[%d] has ambiguous legacy state authority: %w",
-					index,
-					err,
-				)
-			}
 			continue
 		}
-		if err := validatePersisted(claim.Owner().StatefileKey()); err != nil {
+		if !claim.Owner().Equal(owner) {
 			return fmt.Errorf(
-				"ownership registry claim[%d] for selected manifest has incompatible state authority: %w",
+				"ownership registry claim[%d] for selected manifest has state authority %q with semantics %q, want %q with semantics %q",
 				index,
-				err,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				owner.StatefileKey(),
+				owner.StatefileAuthority().Witness(),
 			)
 		}
 	}
@@ -212,12 +190,9 @@ func addObservation(
 	if err != nil {
 		return fmt.Errorf("canonicalize ownership destination %q: %w", destination, err)
 	}
-	address, err := outputownership.NewManagedAddress(authority.CurrentKey(), string(contentPath))
+	address, err := outputownership.NewManagedAddress(authority.Exact(), string(contentPath))
 	if err != nil {
 		return fmt.Errorf("construct ownership address for %q: %w", destination, err)
-	}
-	if err := rejectLegacyOwnershipAddress(registry, address, authority); err != nil {
-		return fmt.Errorf("validate ownership address for %q: %w", destination, err)
 	}
 	claimValue := outputownership.NoClaim()
 	if claim, present := registry.Conflict(address); present {
@@ -228,44 +203,6 @@ func addObservation(
 		ContentPath: contentPath,
 		Address:     address,
 		Claim:       claimValue,
-	}
-	return nil
-}
-
-func rejectLegacyOwnershipAddress(
-	registry outputownership.Registry,
-	current outputownership.ManagedAddress,
-	authority mutation.PersistedDirectoryEntryAuthority,
-) error {
-	return rejectLegacyOwnershipAddressWith(
-		registry,
-		current,
-		authority.RejectLegacyPersistedKey,
-	)
-}
-
-func rejectLegacyOwnershipAddressWith(
-	registry outputownership.Registry,
-	current outputownership.ManagedAddress,
-	rejectLegacy func(string) error,
-) error {
-	if rejectLegacy == nil {
-		return fmt.Errorf("legacy ownership-address validator is required")
-	}
-	for _, claim := range registry.Claims() {
-		rebased, err := outputownership.NewManagedAddress(
-			current.Path(),
-			claim.Address().ContentPath(),
-		)
-		if err != nil {
-			return err
-		}
-		if !rebased.Overlaps(current) {
-			continue
-		}
-		if err := rejectLegacy(claim.Address().Path()); err != nil {
-			return err
-		}
 	}
 	return nil
 }

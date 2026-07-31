@@ -158,21 +158,21 @@ func (occupancy CarrierOccupancy) IsOnlyDaemKnownConsumer(candidate CarrierConsu
 }
 
 type carrierConsumerKey struct {
-	statefileKey       string
+	statefileAuthority stateauthority.Key
 	relationSubject    topology.SubjectID
 	managedInstanceKey hostrelation.ManagedInstanceKey
 }
 
 func carrierConsumerKeyFor(consumer CarrierConsumer) carrierConsumerKey {
 	return carrierConsumerKey{
-		statefileKey:       consumer.owner.StatefileKey(),
+		statefileAuthority: consumer.owner.Key(),
 		relationSubject:    consumer.relationSubject,
 		managedInstanceKey: consumer.managedInstanceKey,
 	}
 }
 
 func compareCarrierConsumer(left CarrierConsumer, right CarrierConsumer) int {
-	if order := cmp.Compare(left.owner.StatefileKey(), right.owner.StatefileKey()); order != 0 {
+	if order := left.owner.Key().Compare(right.owner.Key()); order != 0 {
 		return order
 	}
 	if order := cmp.Compare(left.relationSubject.Namespace(), right.relationSubject.Namespace()); order != 0 {

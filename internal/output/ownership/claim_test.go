@@ -51,7 +51,10 @@ func TestClaimConflictsIgnoreIdenticalContentAndSubjectConcepts(t *testing.T) {
 
 func mustAuthority(t *testing.T, statefilePath string, manifestPath string) stateauthority.Authority {
 	t.Helper()
-	authority, err := stateauthority.New(filepath.Clean(statefilePath), filepath.Clean(manifestPath))
+	authority, err := stateauthority.New(
+		mustPathAuthority(t, filepath.Clean(statefilePath)),
+		filepath.Clean(manifestPath),
+	)
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

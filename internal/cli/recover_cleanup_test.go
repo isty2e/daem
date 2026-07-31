@@ -421,87 +421,59 @@ func TestRunRecoverCleanupGarbageCollectionFailureIsPathNeutral(t *testing.T) {
 	}
 }
 
-func TestRunRecoverLegacyTombstoneDryRunAndConfirmedMigration(t *testing.T) {
-	fixture := writeRecoverLegacyCLIFixture(t)
+func TestRunRecoverBlocksPre10JournalTombstoneBeforeEffects(t *testing.T) {
+	fixture := writeRecoverConfirmationFixture(t)
+	paths, err := daempaths.Resolve(fixture.manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyDir := filepath.Join(
+		paths.RecoveryDir,
+		".daem-tombstone-"+strings.Repeat("a", 32),
+	)
+	if err := os.Rename(fixture.operationDir, legacyDir); err != nil {
+		t.Fatal(err)
+	}
 	hostBefore := readCLIRecoveryFile(t, fixture.hostPath)
-	stateBefore := readCLIRecoveryFile(t, fixture.paths.StatefilePath)
+	stateBefore := readCLIRecoveryFile(t, paths.StatefilePath)
 
-	t.Run("dry run", func(t *testing.T) {
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		exitCode := RunWithOptions(
-			[]string{"recover", "--dry-run", "--json", "--manifest", fixture.manifestPath},
-			RunOptions{Stdout: &stdout, Stderr: &stderr},
-		)
-		if exitCode != 0 || stderr.Len() != 0 {
-			t.Fatalf(
-				"exitCode = %d stdout = %q stderr = %q",
-				exitCode,
-				stdout.String(),
-				stderr.String(),
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "dry run", args: []string{"recover", "--dry-run", "--json"}},
+		{name: "confirmed", args: []string{"recover", "--yes", "--json"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			args := append(test.args, "--manifest", fixture.manifestPath)
+			exitCode := RunWithOptions(
+				args,
+				RunOptions{Stdout: &stdout, Stderr: &stderr},
 			)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-			t.Fatalf("decode recovery JSON: %v", err)
-		}
-		if payload["authority_kind"] != "journal_cleanup" ||
-			payload["operation_id"] != fixture.operationID ||
-			payload["classification"] != "legacy_tombstone_migration" ||
-			payload["action_count"] != float64(1) {
-			t.Fatalf("legacy migration JSON = %#v", payload)
-		}
-		actions, ok := payload["actions"].([]any)
-		if !ok || len(actions) != 1 {
-			t.Fatalf("legacy migration actions = %#v", payload["actions"])
-		}
-		action, ok := actions[0].(map[string]any)
-		if !ok {
-			t.Fatalf("legacy migration action = %#v, want object", actions[0])
-		}
-		assertJSONKeys(t, action, []string{"kind"})
-		if action["kind"] != "migrate_legacy_journal_tombstone" {
-			t.Fatalf("legacy migration action = %#v", action)
-		}
-		if strings.Contains(stdout.String(), ".daem-tombstone-") ||
-			strings.Contains(stdout.String(), fixture.paths.RecoveryDir) {
-			t.Fatalf("legacy migration JSON exposed private path: %s", stdout.String())
-		}
-		if _, err := os.Lstat(fixture.legacyDir); err != nil {
-			t.Fatalf("dry-run changed legacy tombstone: %v", err)
-		}
-	})
-
-	t.Run("confirmed", func(t *testing.T) {
-		var stdout bytes.Buffer
-		var stderr bytes.Buffer
-		exitCode := RunWithOptions(
-			[]string{"recover", "--yes", "--json", "--manifest", fixture.manifestPath},
-			RunOptions{Stdout: &stdout, Stderr: &stderr},
-		)
-		if exitCode != 0 || stderr.Len() != 0 {
-			t.Fatalf(
-				"exitCode = %d stdout = %q stderr = %q",
-				exitCode,
-				stdout.String(),
-				stderr.String(),
-			)
-		}
-		if strings.Contains(stdout.String(), ".daem-tombstone-") ||
-			strings.Contains(stdout.String(), fixture.paths.RecoveryDir) {
-			t.Fatalf("confirmed legacy migration JSON exposed private path: %s", stdout.String())
-		}
-		fixture.assertCleanupAbsent(t)
-		if _, err := os.Lstat(fixture.legacyDir); !os.IsNotExist(err) {
-			t.Fatalf("legacy tombstone exists or stat failed unexpectedly: %v", err)
-		}
-		if got := readCLIRecoveryFile(t, fixture.hostPath); !bytes.Equal(got, hostBefore) {
-			t.Fatalf("host content changed to %q, want %q", got, hostBefore)
-		}
-		if got := readCLIRecoveryFile(t, fixture.paths.StatefilePath); !bytes.Equal(got, stateBefore) {
-			t.Fatalf("statefile changed to %q, want %q", got, stateBefore)
-		}
-	})
+			if exitCode != 1 || stdout.Len() != 0 ||
+				!strings.Contains(stderr.String(), "unsupported authority schema") ||
+				!strings.Contains(stderr.String(), "use the daem version that wrote it") {
+				t.Fatalf(
+					"exitCode = %d stdout = %q stderr = %q",
+					exitCode,
+					stdout.String(),
+					stderr.String(),
+				)
+			}
+			if _, err := os.Lstat(legacyDir); err != nil {
+				t.Fatalf("blocked recovery changed legacy tombstone: %v", err)
+			}
+			if got := readCLIRecoveryFile(t, fixture.hostPath); !bytes.Equal(got, hostBefore) {
+				t.Fatalf("host content changed to %q, want %q", got, hostBefore)
+			}
+			if got := readCLIRecoveryFile(t, paths.StatefilePath); !bytes.Equal(got, stateBefore) {
+				t.Fatalf("statefile changed to %q, want %q", got, stateBefore)
+			}
+		})
+	}
 }
 
 type recoverCleanupCLIFixture struct {
@@ -511,11 +483,6 @@ type recoverCleanupCLIFixture struct {
 	controlDir  string
 	residueDir  string
 	garbageDir  string
-}
-
-type recoverLegacyCLIFixture struct {
-	recoverCleanupCLIFixture
-	legacyDir string
 }
 
 type failNthCleanupStore struct {
@@ -619,66 +586,6 @@ func writeRecoverCleanupCLIFixture(
 		controlDir:                 controlDir,
 		residueDir:                 residueDir,
 		garbageDir:                 filepath.Join(paths.RecoveryDir, identity.GCName()),
-	}
-}
-
-func writeRecoverLegacyCLIFixture(t *testing.T) recoverLegacyCLIFixture {
-	t.Helper()
-	fixture := writeRecoverConfirmationFixture(t)
-	paths, err := daempaths.Resolve(fixture.manifestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prepared, err := recoverworkflow.Plan(t.Context(), recoverworkflow.PlanInput{
-		ManifestPath: fixture.manifestPath,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	active, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
-	if !ok {
-		t.Fatalf(
-			"authority kind = %q, want active journal",
-			prepared.Disclosure().AuthorityKind(),
-		)
-	}
-	if err := prepared.Close(); err != nil {
-		t.Fatal(err)
-	}
-	fingerprint, err := active.JournalAuthorityFingerprint()
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity, err := retirement.NewIdentity(active.OperationID(), fingerprint)
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacyDir := filepath.Join(
-		paths.RecoveryDir,
-		".daem-tombstone-"+strings.Repeat("a", 32),
-	)
-	if err := os.Rename(fixture.operationDir, legacyDir); err != nil {
-		t.Fatal(err)
-	}
-	return recoverLegacyCLIFixture{
-		recoverCleanupCLIFixture: recoverCleanupCLIFixture{
-			recoverConfirmationFixture: fixture,
-			paths:                      paths,
-			operationID:                active.OperationID(),
-			controlDir: filepath.Join(
-				paths.RecoveryDir,
-				identity.ControlName(),
-			),
-			residueDir: filepath.Join(
-				paths.RecoveryDir,
-				identity.ResidueName(),
-			),
-			garbageDir: filepath.Join(
-				paths.RecoveryDir,
-				identity.GCName(),
-			),
-		},
-		legacyDir: legacyDir,
 	}
 }
 

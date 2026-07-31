@@ -75,18 +75,12 @@ func TestRecoveryJournalWritesSubjectWithoutLegacyResourceField(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalRejectsVersionSixResourceIdentity(t *testing.T) {
+func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 7`), []byte(`"version": 6`), 1)
-	content = bytes.Replace(
-		content,
-		[]byte(`"subject": {`),
-		[]byte(`"resource": {"kind": "hook", "name": "format"}, "subject": {`),
-		1,
-	)
+	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +95,7 @@ func TestRecoveryJournalRejectsVersionSixResourceIdentity(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalRejectsResourceFieldInVersionSeven(t *testing.T) {
+func TestRecoveryJournalRejectsResourceFieldInVersionEight(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
@@ -183,17 +177,17 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "old journal version",
+			name: "pre-authority-witness journal version",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.Version = 5
+				candidate.Version = 7
 			},
-			want: "unsupported recovery journal version 5",
+			want: "unsupported recovery journal version 7",
 		},
 		{
 			name: "old nested state version",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 1`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 1`, 1),
 				)
 			},
 			want: "statefile_before: unsupported statefile version 1",
@@ -201,7 +195,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		{
 			name: "missing nested state families",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.StatefileBefore = json.RawMessage(`{"version":7}`)
+				candidate.StatefileBefore = json.RawMessage(`{"version":8}`)
 			},
 			want: "requires every durable fact-family array",
 		},
@@ -209,7 +203,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			name: "duplicate nested state key",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 7, "version": 7`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 8, "version": 8`, 1),
 				)
 			},
 			want: "duplicate object key",
@@ -225,7 +219,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			name: "unknown nested state field",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 7, "ready": true`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 8, "ready": true`, 1),
 				)
 			},
 			want: "unknown field",
@@ -353,8 +347,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 7`,
-				`"version": 7, "version": 7`,
+				`"version": 8`,
+				`"version": 8, "version": 8`,
 				1,
 			),
 		},

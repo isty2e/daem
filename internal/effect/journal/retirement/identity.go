@@ -157,7 +157,7 @@ const (
 	NameControl         NameKind = "control"
 	NameResidue         NameKind = "residue"
 	NameGC              NameKind = "gc"
-	NameLegacyTombstone NameKind = "legacy_tombstone"
+	nameLegacyTombstone NameKind = "legacy_tombstone"
 	nameMalformed       NameKind = "malformed_reserved"
 )
 
@@ -180,7 +180,7 @@ func InspectName(value string) Name {
 	case strings.HasPrefix(value, legacyTombstonePrefix):
 		suffix := strings.TrimPrefix(value, legacyTombstonePrefix)
 		if isLowerHex(suffix, 32) {
-			return Name{value: value, kind: NameLegacyTombstone}
+			return Name{value: value, kind: nameLegacyTombstone}
 		}
 		return Name{value: value, kind: nameMalformed}
 	case isReservedName(value):

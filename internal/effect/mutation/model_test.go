@@ -243,21 +243,17 @@ func TestPlatformPathIdentityUsesObservedHostContract(t *testing.T) {
 	}
 }
 
-func TestPersistedDirectoryEntryAuthorityIgnoresExactAndForeignKeys(t *testing.T) {
+func TestPersistedDirectoryEntryAuthorityCarriesExactObservation(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "State.json")
 	authority, err := ObservePersistedDirectoryEntryAuthority(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := authority.RejectLegacyPersistedKey(authority.CurrentKey()); err != nil {
-		t.Fatalf("exact key returned error: %v", err)
+	if authority.Exact().IsZero() {
+		t.Fatal("observed exact authority is zero")
 	}
-	foreign := filepath.Join(string(filepath.Separator), "foreign", "state.json")
-	if foreign == authority.CurrentKey() {
-		t.Fatal("foreign fixture unexpectedly equals current key")
-	}
-	if err := authority.RejectLegacyPersistedKey(foreign); err != nil {
-		t.Fatalf("foreign key returned legacy error: %v", err)
+	if err := authority.Exact().Validate(); err != nil {
+		t.Fatalf("exact authority is invalid: %v", err)
 	}
 }
 

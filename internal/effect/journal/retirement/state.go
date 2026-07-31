@@ -12,7 +12,6 @@ type LayoutEvidence struct {
 	active      []Identity
 	controls    []Control
 	residues    []Residue
-	legacy      []LegacyResidue
 	garbage     []Garbage
 	blockers    []Blocker
 	initialized bool
@@ -25,7 +24,6 @@ func NewLayoutEvidence(
 	active []Identity,
 	controls []Control,
 	residues []Residue,
-	legacy []LegacyResidue,
 	garbage []Garbage,
 	blockers []Blocker,
 ) LayoutEvidence {
@@ -33,7 +31,6 @@ func NewLayoutEvidence(
 		active:      append([]Identity(nil), active...),
 		controls:    append([]Control(nil), controls...),
 		residues:    append([]Residue(nil), residues...),
-		legacy:      append([]LegacyResidue(nil), legacy...),
 		garbage:     append([]Garbage(nil), garbage...),
 		blockers:    append([]Blocker(nil), blockers...),
 		initialized: true,
@@ -44,15 +41,13 @@ func NewLayoutEvidence(
 type State string
 
 const (
-	StateClean           State = "clean"
-	StateActive          State = "active"
-	StatePrepared        State = "prepared"
-	StateRetained        State = "retained"
-	StateFinalizing      State = "finalizing"
-	StateFinalized       State = "finalized"
-	StateLegacyMigration State = "legacy_migration"
-	StateLegacyPrepared  State = "legacy_prepared"
-	StateBlocked         State = "blocked"
+	StateClean      State = "clean"
+	StateActive     State = "active"
+	StatePrepared   State = "prepared"
+	StateRetained   State = "retained"
+	StateFinalizing State = "finalizing"
+	StateFinalized  State = "finalized"
+	StateBlocked    State = "blocked"
 )
 
 // Decision is one canonical layout classification.
@@ -76,14 +71,7 @@ func Classify(evidence LayoutEvidence) Decision {
 	if len(evidence.controls) > 1 {
 		return blocked("multiple journal retirement controls found")
 	}
-	if len(evidence.legacy) > 1 {
-		return blocked("multiple legacy journal tombstones found")
-	}
-
-	seenArtifacts := make(
-		map[string]struct{},
-		len(evidence.residues)+len(evidence.legacy)+len(evidence.garbage),
-	)
+	seenArtifacts := make(map[string]struct{}, len(evidence.residues)+len(evidence.garbage))
 	for _, residue := range evidence.residues {
 		if !residue.valid() {
 			return blocked("retirement inventory contains an uninitialized residue")
@@ -92,15 +80,6 @@ func Classify(evidence LayoutEvidence) Decision {
 			return blocked(fmt.Sprintf("duplicate retirement artifact %q", residue.name.value))
 		}
 		seenArtifacts[residue.name.value] = struct{}{}
-	}
-	for _, legacy := range evidence.legacy {
-		if !legacy.valid() {
-			return blocked("retirement inventory contains an uninitialized legacy tombstone")
-		}
-		if _, duplicate := seenArtifacts[legacy.name.value]; duplicate {
-			return blocked(fmt.Sprintf("duplicate retirement artifact %q", legacy.name.value))
-		}
-		seenArtifacts[legacy.name.value] = struct{}{}
 	}
 	for _, garbage := range evidence.garbage {
 		if garbage.name.kind != NameGC || !garbage.name.valid() {
@@ -129,28 +108,19 @@ func Classify(evidence LayoutEvidence) Decision {
 			return blocked("journal retirement control is uninitialized")
 		}
 	}
-	if matchingGC(active, control, evidence.residues, evidence.legacy, evidence.garbage) {
+	if matchingGC(active, control, evidence.residues, evidence.garbage) {
 		return blocked("current journal retirement identity also has finalized GC residue")
 	}
 
 	switch {
-	case len(evidence.active) == 0 &&
-		len(evidence.controls) == 0 &&
-		len(evidence.residues) == 0 &&
-		len(evidence.legacy) == 0:
+	case len(evidence.active) == 0 && len(evidence.controls) == 0 && len(evidence.residues) == 0:
 		if len(evidence.garbage) != 0 {
 			return Decision{state: StateFinalized}
 		}
 		return Decision{state: StateClean}
-	case len(evidence.active) == 1 &&
-		len(evidence.controls) == 0 &&
-		len(evidence.residues) == 0 &&
-		len(evidence.legacy) == 0:
+	case len(evidence.active) == 1 && len(evidence.controls) == 0 && len(evidence.residues) == 0:
 		return Decision{state: StateActive}
-	case len(evidence.active) == 1 &&
-		len(evidence.controls) == 1 &&
-		len(evidence.residues) == 0 &&
-		len(evidence.legacy) == 0:
+	case len(evidence.active) == 1 && len(evidence.controls) == 1 && len(evidence.residues) == 0:
 		if !active.equal(control.record.identity) {
 			return blocked("active journal and retirement control identities do not match")
 		}
@@ -158,26 +128,7 @@ func Classify(evidence LayoutEvidence) Decision {
 			return blocked("active journal control must remain in prepared phase")
 		}
 		return Decision{state: StatePrepared}
-	case len(evidence.active) == 0 &&
-		len(evidence.controls) == 0 &&
-		len(evidence.residues) == 0 &&
-		len(evidence.legacy) == 1:
-		return legacyCleanupDecision(StateLegacyMigration, evidence.legacy[0])
-	case len(evidence.active) == 0 &&
-		len(evidence.controls) == 1 &&
-		len(evidence.residues) == 0 &&
-		len(evidence.legacy) == 1:
-		legacy := evidence.legacy[0]
-		if !legacy.journalIdentity.equal(control.record.identity) {
-			return blocked("legacy journal tombstone does not match its retirement control")
-		}
-		if control.record.phase != PhasePrepared {
-			return blocked("legacy journal tombstone control must remain in prepared phase")
-		}
-		return legacyCleanupDecision(StateLegacyPrepared, legacy)
-	case len(evidence.active) == 0 &&
-		len(evidence.controls) == 1 &&
-		len(evidence.legacy) == 0:
+	case len(evidence.active) == 0 && len(evidence.controls) == 1:
 		if len(evidence.residues) == 1 &&
 			!evidence.residues[0].name.BelongsTo(control.record.identity) {
 			return blocked("journal retirement residue does not match its control")
@@ -221,7 +172,6 @@ func matchingGC(
 	active Identity,
 	control Control,
 	residues []Residue,
-	legacy []LegacyResidue,
 	garbage []Garbage,
 ) bool {
 	for _, artifact := range garbage {
@@ -236,10 +186,6 @@ func matchingGC(
 			if digest == gcDigest {
 				return true
 			}
-		case len(legacy) == 1 &&
-			legacy[0].journalIdentity.valid() &&
-			artifact.name.BelongsTo(legacy[0].journalIdentity):
-			return true
 		}
 	}
 	return false
@@ -261,34 +207,11 @@ func cleanupDecision(state State, control Control, residuePresent bool) Decision
 	return Decision{state: state, cleanup: &plan}
 }
 
-func legacyCleanupDecision(state State, legacy LegacyResidue) Decision {
-	if !legacy.valid() {
-		return blocked("legacy journal tombstone cleanup authority is uninitialized")
-	}
-	record, err := NewRecord(
-		legacy.journalIdentity.OperationID(),
-		legacy.journalIdentity.JournalAuthorityFingerprint(),
-		PhasePrepared,
-	)
-	if err != nil {
-		return blocked("legacy journal tombstone cleanup authority is invalid")
-	}
-	authority := CleanupAuthority{
-		record:              record,
-		legacyTombstoneName: legacy.name.value,
-	}
-	if !authority.valid() {
-		return blocked("legacy journal tombstone cleanup authority is uninitialized")
-	}
-	plan := CleanupPlan{authority: authority}
-	return Decision{state: state, cleanup: &plan}
-}
-
 func (decision Decision) valid() bool {
 	switch decision.state {
 	case StateClean, StateActive, StatePrepared, StateFinalized:
 		return decision.cleanup == nil && decision.detail == ""
-	case StateRetained, StateFinalizing, StateLegacyMigration, StateLegacyPrepared:
+	case StateRetained, StateFinalizing:
 		return decision.cleanup != nil && decision.cleanup.valid() && decision.detail == ""
 	case StateBlocked:
 		return decision.cleanup == nil && strings.TrimSpace(decision.detail) != ""
@@ -313,9 +236,8 @@ func (decision Decision) Detail() string {
 	return decision.detail
 }
 
-// CleanupPlan returns cleanup-only semantic authority for retained,
-// finalizing, and validated legacy-migration states. Physical root and entry
-// capabilities remain external.
+// CleanupPlan returns cleanup-only semantic authority for retained and
+// finalizing states. Physical root and entry capabilities remain external.
 func (decision Decision) CleanupPlan() (CleanupPlan, bool) {
 	if !decision.valid() || decision.cleanup == nil {
 		return CleanupPlan{}, false

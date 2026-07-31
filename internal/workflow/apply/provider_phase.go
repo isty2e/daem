@@ -122,7 +122,9 @@ func providerStableFingerprint(
 			planned.result.Reconciliation.Delegates(),
 		),
 		Owner: ownershipOwnerFingerprintFacts{
-			StatefileKey: planned.assessment.Owner.StatefileKey(),
+			StatefileAuthority: pathAuthorityFingerprintFactsFor(
+				planned.assessment.Owner.StatefileAuthority(),
+			),
 			ManifestPath: planned.assessment.Owner.ManifestPath(),
 		},
 		Ownership:   ownershipFingerprintFacts(planned.assessment.Ownership),

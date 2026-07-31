@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -135,19 +134,11 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 	if err != nil {
 		t.Fatalf("Resolve host destination returned error: %v", err)
 	}
-	canonicalHostPath, err := mutation.CanonicalDirectoryEntryKey(hostPath)
-	if err != nil {
-		t.Fatalf("CanonicalDirectoryEntryKey host returned error: %v", err)
-	}
-	address, err := ownership.NewManagedAddress(canonicalHostPath, "")
+	address, err := ownership.NewManagedAddress(testkit.MustObservedPathAuthority(t, hostPath), "")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(paths.StatefilePath)
-	if err != nil {
-		t.Fatalf("CanonicalDirectoryEntryKey statefile returned error: %v", err)
-	}
-	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(testkit.MustObservedPathAuthority(t, paths.StatefilePath), paths.ManifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -37,7 +38,7 @@ func (persisted snapshotDTO) canonical() (durable.Snapshot, error) {
 		persisted.ManagedCarrierClaims == nil ||
 		persisted.DelegateAttempts == nil ||
 		persisted.HostRouteAttempts == nil {
-		return durable.Snapshot{}, fmt.Errorf("statefile v7 requires every durable fact-family array")
+		return durable.Snapshot{}, fmt.Errorf("statefile v8 requires every durable fact-family array")
 	}
 	input := durable.SnapshotInput{
 		ManagedPaths:           make([]durable.ManagedPathState, 0, len(persisted.ManagedPaths)),
@@ -181,7 +182,14 @@ func (persisted managedAggregateDTO) canonical() (durable.ManagedAggregateState,
 }
 
 func (persisted stateAuthorityDTO) canonical() (stateauthority.Authority, error) {
-	return stateauthority.New(persisted.StatefileKey, persisted.ManifestPath)
+	exact, err := pathauthority.NewExact(
+		persisted.StatefileAuthority.Key,
+		persisted.StatefileAuthority.Witness,
+	)
+	if err != nil {
+		return stateauthority.Authority{}, err
+	}
+	return stateauthority.New(exact, persisted.ManifestPath)
 }
 
 func (persisted managedCarrierIdentityDTO) canonical() (durablecarrier.ManagedCarrierIdentity, error) {

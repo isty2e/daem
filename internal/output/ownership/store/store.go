@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -22,7 +23,7 @@ import (
 )
 
 const (
-	currentVersion                    = 1
+	currentVersion                    = 2
 	maximumOwnershipRegistryBytes     = 16 << 20
 	maximumOwnershipRegistryJSONDepth = 64
 )
@@ -114,7 +115,60 @@ func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	return decode(snapshot.Content())
+	return decodeCurrentRegistry(ctx, snapshot.Content())
+}
+
+func decodeCurrentRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
+	registry, err := decode(content)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	if err := validateCurrentAuthorities(ctx, registry); err != nil {
+		return ownership.Registry{}, err
+	}
+	return registry, nil
+}
+
+func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry) error {
+	for index, claim := range registry.Claims() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		currentPath, err := mutation.ObservePersistedDirectoryEntryAuthority(
+			claim.Address().Path(),
+		)
+		if err != nil {
+			return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
+		}
+		if !currentPath.Exact().Equal(claim.Address().PathAuthority()) {
+			return fmt.Errorf(
+				"ownership registry claims[%d] path authority %q with semantics %q is not current; observed %q with semantics %q",
+				index,
+				claim.Address().Path(),
+				claim.Address().PathAuthority().Witness(),
+				currentPath.Exact().Key(),
+				currentPath.Exact().Witness(),
+			)
+		}
+
+		currentStatefile, err := mutation.ObservePersistedDirectoryEntryAuthority(
+			claim.Owner().StatefileKey(),
+		)
+		if err != nil {
+			return fmt.Errorf("observe ownership registry claims[%d] statefile authority: %w", index, err)
+		}
+		if !currentStatefile.Exact().Equal(claim.Owner().StatefileAuthority()) {
+			return fmt.Errorf(
+				"ownership registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
+				index,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				currentStatefile.Exact().Key(),
+				currentStatefile.Exact().Witness(),
+			)
+		}
+	}
+	return nil
 }
 
 func (store Store) loadRooted(ctx context.Context) (ownership.Registry, error) {
@@ -144,7 +198,7 @@ func (store Store) loadRooted(ctx context.Context) (ownership.Registry, error) {
 			mode.Perm(),
 		)
 	}
-	return decode(content)
+	return decodeCurrentRegistry(ctx, content)
 }
 
 // Apply writes one exact expected-before transition without changing unrelated claims.
@@ -243,7 +297,7 @@ func (store Store) loadForCommit(
 				mode.Perm(),
 			)
 		}
-		registry, err := decode(content)
+		registry, err := decodeCurrentRegistry(ctx, content)
 		if err != nil {
 			_ = capability.Close()
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
@@ -270,12 +324,17 @@ type file struct {
 }
 
 type claimRecord struct {
-	Path         string `json:"path"`
-	ContentPath  string `json:"content_path,omitempty"`
-	StatefileKey string `json:"statefile_key"`
-	ManifestPath string `json:"manifest_path"`
-	State        string `json:"state"`
-	OperationID  string `json:"operation_id,omitempty"`
+	PathAuthority      pathAuthorityRecord `json:"path_authority"`
+	ContentPath        string              `json:"content_path,omitempty"`
+	StatefileAuthority pathAuthorityRecord `json:"statefile_authority"`
+	ManifestPath       string              `json:"manifest_path"`
+	State              string              `json:"state"`
+	OperationID        string              `json:"operation_id,omitempty"`
+}
+
+type pathAuthorityRecord struct {
+	Key     string `json:"key"`
+	Witness string `json:"semantics_witness"`
 }
 
 func decode(content []byte) (ownership.Registry, error) {
@@ -298,16 +357,36 @@ func decode(content []byte) (ownership.Registry, error) {
 		return ownership.Registry{}, fmt.Errorf("decode ownership registry trailer: %w", err)
 	}
 	if persisted.Version != currentVersion {
-		return ownership.Registry{}, fmt.Errorf("unsupported ownership registry version %d", persisted.Version)
+		return ownership.Registry{}, fmt.Errorf(
+			"unsupported ownership registry version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed ownership before upgrading",
+			persisted.Version,
+		)
+	}
+	if persisted.Claims == nil {
+		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
 	}
 
 	claims := make([]ownership.Claim, 0, len(persisted.Claims))
 	for index, record := range persisted.Claims {
-		address, err := ownership.NewManagedAddress(record.Path, record.ContentPath)
+		path, err := pathauthority.NewExact(
+			record.PathAuthority.Key,
+			record.PathAuthority.Witness,
+		)
+		if err != nil {
+			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] path authority: %w", index, err)
+		}
+		address, err := ownership.NewManagedAddress(path, record.ContentPath)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] address: %w", index, err)
 		}
-		authority, err := stateauthority.New(record.StatefileKey, record.ManifestPath)
+		statefile, err := pathauthority.NewExact(
+			record.StatefileAuthority.Key,
+			record.StatefileAuthority.Witness,
+		)
+		if err != nil {
+			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] statefile authority: %w", index, err)
+		}
+		authority, err := stateauthority.New(statefile, record.ManifestPath)
 		if err != nil {
 			return ownership.Registry{}, fmt.Errorf("ownership registry claims[%d] owner: %w", index, err)
 		}
@@ -339,10 +418,18 @@ func encode(registry ownership.Registry) ([]byte, error) {
 	})
 	persisted := file{Version: currentVersion, Claims: make([]claimRecord, 0, len(claims))}
 	for _, claim := range claims {
+		path := claim.Address().PathAuthority()
+		statefile := claim.Owner().StatefileAuthority()
 		persisted.Claims = append(persisted.Claims, claimRecord{
-			Path:         claim.Address().Path(),
-			ContentPath:  claim.Address().ContentPath(),
-			StatefileKey: claim.Owner().StatefileKey(),
+			PathAuthority: pathAuthorityRecord{
+				Key:     path.Key(),
+				Witness: path.Witness(),
+			},
+			ContentPath: claim.Address().ContentPath(),
+			StatefileAuthority: pathAuthorityRecord{
+				Key:     statefile.Key(),
+				Witness: statefile.Witness(),
+			},
 			ManifestPath: claim.Owner().ManifestPath(),
 			State:        string(claim.State()),
 			OperationID:  claim.OperationID(),

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -53,6 +54,31 @@ func TestRecoveryClaimTransitionsRejectsZeroTransition(t *testing.T) {
 	}
 }
 
+func TestRecoveryClaimTransitionsRejectMissingAndUnknownPathAuthorityWitness(t *testing.T) {
+	entry := globalAcquireRecoveryEntry(t)
+	transition, _, _ := testAcquireTransition(t, entry)
+	persisted, err := recoveryClaimTransitions([]ownershipmutation.ClaimTransition{transition})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	missing := append([]recoveryClaimTransition(nil), persisted...)
+	missing[0].Prepared.PathAuthority = nil
+	if _, err := canonicalClaimTransitions(missing); err == nil ||
+		!strings.Contains(err.Error(), "requires path_authority") {
+		t.Fatalf("missing path authority error = %v", err)
+	}
+
+	unknown := append([]recoveryClaimTransition(nil), persisted...)
+	unknownPath := *unknown[0].Prepared.PathAuthority
+	unknownPath.Witness = "future-v1:"
+	unknown[0].Prepared.PathAuthority = &unknownPath
+	if _, err := canonicalClaimTransitions(unknown); err == nil ||
+		!strings.Contains(err.Error(), "unsupported path authority semantics witness") {
+		t.Fatalf("unknown path witness error = %v", err)
+	}
+}
+
 func TestValidateRecoveryClaimAuthoritiesRejectsForeignKeyBeforeObservation(t *testing.T) {
 	entry := globalAcquireRecoveryEntry(t)
 	transition, _, _ := testAcquireTransition(t, entry)
@@ -64,7 +90,7 @@ func TestValidateRecoveryClaimAuthoritiesRejectsForeignKeyBeforeObservation(t *t
 	if err := validateRecoveryClaimAuthorities(
 		[]ownershipmutation.ClaimTransition{transition},
 		authority,
-	); err == nil || !strings.Contains(err.Error(), "does not match current filesystem authority") ||
+	); err == nil || !strings.Contains(err.Error(), "incompatible state authority") ||
 		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
 		t.Fatalf("recovery authority error = %v", err)
 	}
@@ -132,7 +158,10 @@ func TestBuildRecoveryPlanBlocksForeignAcquireClaim(t *testing.T) {
 	entry := globalAcquireRecoveryEntry(t)
 	journal := recoveryJournalFor(entry)
 	transition, _, _ := testAcquireTransition(t, entry)
-	foreignOwner, err := stateauthority.New("/tmp/foreign-state.json", "/tmp/foreign-daem.toml")
+	foreignOwner, err := stateauthority.New(
+		mustObservedPathAuthority(t, "/tmp/foreign-state.json"),
+		"/tmp/foreign-daem.toml",
+	)
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
@@ -160,11 +189,11 @@ func TestBuildRecoveryPlanClassifiesReleaseFinalization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CanonicalDirectoryEntryKey returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(canonicalPath, entry.ContentPath)
+	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	owner, err := stateauthority.New("/tmp/daem-state.json", "/tmp/daem.toml")
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, "/tmp/daem-state.json"), "/tmp/daem.toml")
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
@@ -214,11 +243,11 @@ func testAcquireTransition(t *testing.T, entry recoveryEntry) (ownershipmutation
 	if err != nil {
 		t.Fatalf("CanonicalDirectoryEntryKey returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(canonicalPath, entry.ContentPath)
+	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, canonicalPath), entry.ContentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	owner, err := stateauthority.New("/tmp/daem-state.json", "/tmp/daem.toml")
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, "/tmp/daem-state.json"), "/tmp/daem.toml")
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
@@ -250,4 +279,13 @@ func mustRegistry(t *testing.T, claims ...ownership.Claim) ownership.Registry {
 		t.Fatalf("NewRegistry returned error: %v", err)
 	}
 	return registry
+}
+
+func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
 }

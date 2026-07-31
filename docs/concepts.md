@@ -208,18 +208,13 @@ Confirmed recovery then uses only recovery-root/control/residue authority; it
 does not inspect or mutate host outputs, state, ownership, manifest, or
 lockfile.
 
-Daem also recognizes the exact tombstone layout released by v0.1: an
-invoking-user owned private directory named `.daem-tombstone-` followed by
-exactly 32 lowercase hexadecimal characters. A single candidate with a
-bounded, mount-confined tree and a complete valid v7 journal is reported as
-`legacy_tombstone_migration`. The operation identity comes from the decoded
-journal, never the random name suffix. Confirmed recovery first publishes
-correlated prepared control, revalidates the selected directory and journal
-content, renames that exact directory into the canonical residue namespace,
-and then reuses normal cleanup. A matching prepared control resumes the same
-migration. Malformed names, invalid journals, unsafe or over-limit trees,
-multiple candidates, canonical/legacy cross-products, mismatched control, and
-replaced evidence fail closed.
+Pre-1.0 `.daem-tombstone-<32 lowercase hex>` directories use an obsolete
+recovery-authority schema. Current daem recognizes the exact old name only to
+block safely; it does not inspect, migrate, rename, or delete the directory.
+Other names in the `.daem-tombstone-` namespace are blocked as malformed. Use
+the daem version that wrote a valid old tombstone to finish recovery before
+upgrading. Never discard one without independently confirming that no
+interrupted apply or backup remains.
 
 Stable-storage guarantees across an OS crash or power loss are platform-scoped.
 They are current only for operation and local-filesystem rows with native

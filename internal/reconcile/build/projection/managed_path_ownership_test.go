@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -19,7 +20,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(pathtest.Exact(filepath.Join(root, "state.json")), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,21 +106,23 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	requester, err := stateauthority.New(
+	requester, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, "requester-state.json"),
-		filepath.Join(root, "requester.toml"),
-	)
+	),
+
+		filepath.Join(root, "requester.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	foreign, err := stateauthority.New(
+	foreign, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, "foreign-state.json"),
-		filepath.Join(root, "foreign.toml"),
-	)
+	),
+
+		filepath.Join(root, "foreign.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	address, err := ownership.NewManagedAddress(filepath.Join(root, "AGENTS.md"), "")
+	address, err := ownership.NewManagedAddress(pathtest.Exact(filepath.Join(root, "AGENTS.md")), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +162,7 @@ func planningManagedPathOwnershipObservation(
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(path, "")
+	address, err := ownership.NewManagedAddress(pathtest.Exact(path), "")
 	if err != nil {
 		t.Fatal(err)
 	}

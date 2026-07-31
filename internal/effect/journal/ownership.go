@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -20,13 +21,18 @@ type recoveryClaimTransition struct {
 }
 
 type recoveryClaimValue struct {
-	Present      bool   `json:"present"`
-	Path         string `json:"path,omitempty"`
-	ContentPath  string `json:"content_path,omitempty"`
-	StatefileKey string `json:"statefile_key,omitempty"`
-	ManifestPath string `json:"manifest_path,omitempty"`
-	State        string `json:"state,omitempty"`
-	OperationID  string `json:"operation_id,omitempty"`
+	Present            bool              `json:"present"`
+	PathAuthority      *pathAuthorityDTO `json:"path_authority,omitempty"`
+	ContentPath        string            `json:"content_path,omitempty"`
+	StatefileAuthority *pathAuthorityDTO `json:"statefile_authority,omitempty"`
+	ManifestPath       string            `json:"manifest_path,omitempty"`
+	State              string            `json:"state,omitempty"`
+	OperationID        string            `json:"operation_id,omitempty"`
+}
+
+type pathAuthorityDTO struct {
+	Key     string `json:"key"`
+	Witness string `json:"semantics_witness"`
 }
 
 func recoveryClaimTransitions(transitions []ownershipmutation.ClaimTransition) ([]recoveryClaimTransition, error) {
@@ -98,11 +104,12 @@ func validateRecoveryClaimAuthorities(
 	authority mutation.PersistedDirectoryEntryAuthority,
 ) error {
 	for index, transition := range transitions {
-		if err := authority.ValidatePersistedKey(transition.Owner().StatefileKey()); err != nil {
+		if !authority.Exact().Equal(transition.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
-				"recovery claim_transitions[%d] has incompatible state authority: %w",
+				"recovery claim_transitions[%d] has incompatible state authority %q with semantics %q",
 				index,
-				err,
+				transition.Owner().StatefileKey(),
+				transition.Owner().StatefileAuthority().Witness(),
 			)
 		}
 	}
@@ -148,21 +155,13 @@ func validateRecoveryClaimCoverage(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(authority.CurrentKey(), entry.ContentPath)
+		address, err := ownership.NewManagedAddress(authority.Exact(), entry.ContentPath)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
 		key := ownershipAddressKey(address)
 		transition, present := remaining[key]
 		if !present {
-			if err := rejectLegacyRecoveryClaimAddress(
-				address,
-				authority,
-				transitions,
-				remaining,
-			); err != nil {
-				return fmt.Errorf("recovery entries[%d]: %w", index, err)
-			}
 			return fmt.Errorf("recovery entries[%d] global output has no exact ownership transition", index)
 		}
 		matches, err := recoveryEntryAllowsTransition(entry, transition.Kind())
@@ -182,48 +181,6 @@ func validateRecoveryClaimCoverage(
 	}
 	if len(remaining) != 0 {
 		return fmt.Errorf("recovery journal has ownership transition without a global output entry")
-	}
-	return nil
-}
-
-func rejectLegacyRecoveryClaimAddress(
-	current ownership.ManagedAddress,
-	authority mutation.PersistedDirectoryEntryAuthority,
-	transitions []ownershipmutation.ClaimTransition,
-	remaining map[string]ownershipmutation.ClaimTransition,
-) error {
-	return rejectLegacyRecoveryClaimAddressWith(
-		current,
-		transitions,
-		remaining,
-		authority.RejectLegacyPersistedKey,
-	)
-}
-
-func rejectLegacyRecoveryClaimAddressWith(
-	current ownership.ManagedAddress,
-	transitions []ownershipmutation.ClaimTransition,
-	remaining map[string]ownershipmutation.ClaimTransition,
-	rejectLegacy func(string) error,
-) error {
-	if rejectLegacy == nil {
-		return fmt.Errorf("legacy recovery-address validator is required")
-	}
-	for index, transition := range transitions {
-		candidate := transition.Address()
-		if _, present := remaining[ownershipAddressKey(candidate)]; !present {
-			continue
-		}
-		rebased, err := ownership.NewManagedAddress(current.Path(), candidate.ContentPath())
-		if err != nil {
-			return fmt.Errorf("recovery claim_transitions[%d] address: %w", index, err)
-		}
-		if !rebased.Overlaps(current) {
-			continue
-		}
-		if err := rejectLegacy(candidate.Path()); err != nil {
-			return fmt.Errorf("recovery claim_transitions[%d] path authority: %w", index, err)
-		}
 	}
 	return nil
 }
@@ -271,7 +228,7 @@ func recoveryEntryTransitionKind(entry recoveryEntry) (ownershipmutation.Transit
 }
 
 func ownershipAddressKey(address ownership.ManagedAddress) string {
-	return address.Path() + "\x00" + address.ContentPath()
+	return address.Path() + "\x00" + address.PathAuthority().Witness() + "\x00" + address.ContentPath()
 }
 
 func canonicalTransition(
@@ -291,25 +248,58 @@ func recoveryClaimValueFrom(value ownership.ClaimValue) (recoveryClaimValue, err
 	if err := claim.Validate(); err != nil {
 		return recoveryClaimValue{}, err
 	}
+	path := claim.Address().PathAuthority()
+	statefile := claim.Owner().StatefileAuthority()
 	return recoveryClaimValue{
-		Present: true, Path: claim.Address().Path(), ContentPath: claim.Address().ContentPath(),
-		StatefileKey: claim.Owner().StatefileKey(), ManifestPath: claim.Owner().ManifestPath(),
-		State: string(claim.State()), OperationID: claim.OperationID(),
+		Present: true,
+		PathAuthority: &pathAuthorityDTO{
+			Key:     path.Key(),
+			Witness: path.Witness(),
+		},
+		ContentPath: claim.Address().ContentPath(),
+		StatefileAuthority: &pathAuthorityDTO{
+			Key:     statefile.Key(),
+			Witness: statefile.Witness(),
+		},
+		ManifestPath: claim.Owner().ManifestPath(),
+		State:        string(claim.State()),
+		OperationID:  claim.OperationID(),
 	}, nil
 }
 
 func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error) {
 	if !record.Present {
-		if record.Path != "" || record.ContentPath != "" || record.StatefileKey != "" || record.ManifestPath != "" || record.State != "" || record.OperationID != "" {
+		if record.PathAuthority != nil || record.ContentPath != "" ||
+			record.StatefileAuthority != nil ||
+			record.ManifestPath != "" || record.State != "" || record.OperationID != "" {
 			return ownership.ClaimValue{}, fmt.Errorf("absent claim must not retain claim fields")
 		}
 		return ownership.NoClaim(), nil
 	}
-	address, err := ownership.NewManagedAddress(record.Path, record.ContentPath)
+	if record.PathAuthority == nil || record.StatefileAuthority == nil {
+		return ownership.ClaimValue{}, fmt.Errorf(
+			"present claim requires path_authority and statefile_authority",
+		)
+	}
+	path, err := pathauthority.NewExact(
+		record.PathAuthority.Key,
+		record.PathAuthority.Witness,
+	)
+	if err != nil {
+		return ownership.ClaimValue{}, fmt.Errorf("path authority: %w", err)
+	}
+	address, err := ownership.NewManagedAddress(path, record.ContentPath)
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}
-	owner, err := stateauthority.New(record.StatefileKey, record.ManifestPath)
+	statefile, err := pathauthority.NewExact(
+		record.StatefileAuthority.Key,
+		record.StatefileAuthority.Witness,
+	)
+	if err != nil {
+		return ownership.ClaimValue{}, fmt.Errorf("statefile authority: %w", err)
+	}
+	owner, err := stateauthority.New(statefile, record.ManifestPath)
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}
@@ -334,7 +324,10 @@ func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error
 func recoveryTransitionAddress(transition recoveryClaimTransition) (string, string) {
 	for _, value := range []recoveryClaimValue{transition.Prepared, transition.Before, transition.After} {
 		if value.Present {
-			return value.Path, value.ContentPath
+			if value.PathAuthority == nil {
+				return "", value.ContentPath
+			}
+			return value.PathAuthority.Key + "\x00" + value.PathAuthority.Witness, value.ContentPath
 		}
 	}
 	return "", ""

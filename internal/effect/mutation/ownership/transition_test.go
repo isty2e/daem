@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
@@ -298,7 +299,7 @@ func TestAcquireTransitionRejectsUnsafeOperationIdentity(t *testing.T) {
 
 func mustAddress(t *testing.T, path string, contentPath string) outputownership.ManagedAddress {
 	t.Helper()
-	address, err := outputownership.NewManagedAddress(path, contentPath)
+	address, err := outputownership.NewManagedAddress(pathtest.Exact(path), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -307,7 +308,7 @@ func mustAddress(t *testing.T, path string, contentPath string) outputownership.
 
 func mustAuthority(t *testing.T, statefilePath string, manifestPath string) stateauthority.Authority {
 	t.Helper()
-	authority, err := stateauthority.New(statefilePath, manifestPath)
+	authority, err := stateauthority.New(pathtest.Exact(statefilePath), manifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

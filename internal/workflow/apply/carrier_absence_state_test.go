@@ -167,7 +167,7 @@ func seedApplyCarrierClaimWithProvenance(
 	if err != nil {
 		t.Fatalf("canonicalize statefile key: %v", err)
 	}
-	owner, err := stateauthority.New(statefileKey, manifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, statefileKey), manifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}

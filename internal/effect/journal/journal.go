@@ -42,7 +42,7 @@ func recoveryJournalAuthorityFingerprint(
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 7
+	recoveryJournalVersion            = 8
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.
@@ -201,7 +201,10 @@ func decodeRecoveryJournalSnapshot(
 		return recoveryJournal{}, err
 	}
 	if envelope.Version != recoveryJournalVersion {
-		return recoveryJournal{}, fmt.Errorf("unsupported recovery journal version %d", envelope.Version)
+		return recoveryJournal{}, fmt.Errorf(
+			"unsupported recovery journal version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover before upgrading and never discard it without confirming no interrupted apply remains",
+			envelope.Version,
+		)
 	}
 
 	var persisted recoveryJournalDTO
