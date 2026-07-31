@@ -21,7 +21,11 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 		t.Fatalf("MkdirAll returned error: %v", err)
 	}
 	journalPath := filepath.Join(operationDir, recoveryJournalFileName)
-	if err := os.WriteFile(journalPath, []byte(`{"version":7,"unexpected":true}`), 0o600); err != nil {
+	if err := os.WriteFile(
+		journalPath,
+		[]byte(`{"version":7,"entries":[],"unexpected":true}`),
+		0o600,
+	); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 

@@ -159,7 +159,7 @@ func loadRecoveryRootInventory(
 		return recoveryRootInventory{}, fmt.Errorf("recovery inventory filesystem is required")
 	}
 	if strings.TrimSpace(recoveryRoot) == "" {
-		return emptyRecoveryRootInventory(), nil
+		return recoveryRootInventory{}, fmt.Errorf("recovery directory is required")
 	}
 	physicalRoot, err := mutation.CanonicalDirectoryEntryPath(recoveryRoot)
 	if err != nil {

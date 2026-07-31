@@ -415,6 +415,18 @@ func TestRecoveryRootInventoryPropagatesCapabilityAndCancellationErrors(t *testi
 	}
 }
 
+func TestRecoveryRootInventoryRejectsBlankRecoveryDirectory(t *testing.T) {
+	for _, recoveryRoot := range []string{"", " \t\n"} {
+		_, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+			Filesystem: journalTestFilesystem(),
+			StateCodec: testStateCodec(),
+		})
+		if err == nil || !strings.Contains(err.Error(), "recovery directory is required") {
+			t.Fatalf("recovery root %q error = %v, want required-directory rejection", recoveryRoot, err)
+		}
+	}
+}
+
 type unownedEntryFilesystem struct {
 	mutationfs.Store
 	name string

@@ -2,6 +2,7 @@ package journal
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ func TestRecoverySubjectsRemainDisjointCorrelationKeys(t *testing.T) {
 }
 
 func TestLoadActivePlanRequiresResolverForRootedAuthority(t *testing.T) {
+	paths := Paths{RecoveryDir: filepath.Join(t.TempDir(), "recovery")}
 	resolver := func(output.Destination) (string, error) {
 		return "/unused", nil
 	}
@@ -40,14 +42,14 @@ func TestLoadActivePlanRequiresResolverForRootedAuthority(t *testing.T) {
 	}
 	if _, err := LoadActivePlanWithOptions(
 		context.Background(),
-		Paths{},
+		paths,
 		PlanLoadOptions{Filesystem: journalTestFilesystem(), Resolver: resolver},
 	); err == nil || !strings.Contains(err.Error(), "no active recovery journal") {
 		t.Fatalf("resolver-only LoadActivePlanWithOptions error = %v, want ordinary plan lookup", err)
 	}
 	_, err := LoadActivePlanWithOptions(
 		context.Background(),
-		Paths{},
+		paths,
 		PlanLoadOptions{RootedCapability: capability},
 	)
 	if err == nil || !strings.Contains(err.Error(), "requires a destination resolver") {

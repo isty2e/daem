@@ -262,6 +262,84 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 	}
 }
 
+func TestLoadRecoveryJournalRequiresTopLevelEntriesPresence(t *testing.T) {
+	entry := recoveryEntryFor(
+		"global",
+		"~/.codex/AGENTS.md",
+		testBeforeHash,
+		testAfterHash,
+		testBackupPath,
+	)
+	journal := recoveryJournalFor(entry)
+	content, err := marshalRecoveryJournal(journal, testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		entries json.RawMessage
+		omit    bool
+		wantErr string
+	}{
+		{
+			name:    "missing",
+			omit:    true,
+			wantErr: `recovery journal field "entries" is required`,
+		},
+		{
+			name:    "explicit null",
+			entries: json.RawMessage(`null`),
+		},
+		{
+			name:    "explicit empty array",
+			entries: json.RawMessage(`[]`),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := make(map[string]json.RawMessage, len(document))
+			for name, value := range document {
+				candidate[name] = append(json.RawMessage(nil), value...)
+			}
+			if test.omit {
+				delete(candidate, "entries")
+			} else {
+				candidate["entries"] = test.entries
+			}
+			mutated := mustMarshalRecoveryJSON(t, candidate)
+
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, recoveryJournalFileName)
+			if err := os.WriteFile(path, mutated, recoveryJournalMode); err != nil {
+				t.Fatal(err)
+			}
+			_, err = loadRecoveryJournal(
+				t.Context(),
+				journalTestFilesystem(),
+				path,
+				testStateCodec(),
+			)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("loadRecoveryJournal: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("loadRecoveryJournal error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {

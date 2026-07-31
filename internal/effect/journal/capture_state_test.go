@@ -86,6 +86,27 @@ func TestCaptureRecoveryStateBeforeRejectsPreviousHashMismatch(t *testing.T) {
 	}
 }
 
+func TestCaptureJournalRejectsBlankRecoveryDirectory(t *testing.T) {
+	_, err := CaptureJournalWithOptions(
+		t.Context(),
+		Paths{},
+		"blank-recovery-root",
+		time.Date(2026, time.July, 31, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		durable.EmptySnapshot(),
+		CaptureOptions{
+			Resolver: func(output.Destination) (string, error) {
+				return "", errors.New("resolver must not run")
+			},
+			StateCodec: testStateCodec(),
+			Filesystem: journalTestFilesystem(),
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "recovery directory is required") {
+		t.Fatalf("CaptureJournalWithOptions error = %v, want required-directory rejection", err)
+	}
+}
+
 func TestCaptureJournalMissingPreviousIdentityLeavesNoActiveJournalOrHostEffect(t *testing.T) {
 	root := t.TempDir()
 	hostPath := filepath.Join(root, "CLAUDE.md")

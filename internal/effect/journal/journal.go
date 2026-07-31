@@ -63,6 +63,30 @@ type recoveryJournalDTO struct {
 	ClaimTransitions      []recoveryClaimTransition      `json:"claim_transitions,omitempty"`
 }
 
+func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
+	if persisted == nil {
+		return fmt.Errorf("recovery journal destination is nil")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &fields); err != nil {
+		return fmt.Errorf("recovery journal must be a JSON object: %w", err)
+	}
+	if fields == nil {
+		return fmt.Errorf("recovery journal must be a JSON object")
+	}
+	if _, present := fields["entries"]; !present {
+		return fmt.Errorf(`recovery journal field "entries" is required`)
+	}
+
+	type wire recoveryJournalDTO
+	var decoded wire
+	if err := decodeRecoveryJSONStrict(content, &decoded); err != nil {
+		return err
+	}
+	*persisted = recoveryJournalDTO(decoded)
+	return nil
+}
+
 func marshalRecoveryJournalWithStateContent(
 	journal recoveryJournal,
 	statefileBefore []byte,
