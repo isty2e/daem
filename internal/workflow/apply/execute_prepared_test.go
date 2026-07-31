@@ -135,6 +135,56 @@ func TestExecuteWithOptionsRejectsChangedDisclosedPlanBeforeEffects(t *testing.T
 	}
 }
 
+func TestExecuteWithOptionsRejectsDeclarationRevisionChangeAfterDisclosure(
+	t *testing.T,
+) {
+	for _, selected := range []string{"manifest", "lockfile"} {
+		t.Run(selected, func(t *testing.T) {
+			tempDir := t.TempDir()
+			paths := applyTestPaths(t, tempDir)
+			writeApplyManifestFile(t, paths.ManifestPath)
+			sourcePath := filepath.Join(tempDir, "instructions", "AGENTS.md")
+			writeApplyFile(t, sourcePath, "unchanged\n")
+			writeApplyLockfile(t, paths.LockfilePath, applyInstructionLockfile(
+				t,
+				"project",
+				"local:instructions/AGENTS.md?mode=vendor",
+				hashApplyPath(t, sourcePath),
+			))
+			planned, err := PlanWrite(t.Context(), CommandInput{
+				ManifestPath: paths.ManifestPath,
+				LockfilePath: paths.LockfilePath,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			selectedPath := paths.ManifestPath
+			if selected == "lockfile" {
+				selectedPath = paths.LockfilePath
+			}
+			content, err := os.ReadFile(selectedPath)
+			if err != nil {
+				t.Fatalf("read selected declaration: %v", err)
+			}
+			writeApplyFile(t, selectedPath, string(content)+"\n# changed after disclosure\n")
+
+			_, err = ExecuteWithOptions(
+				t.Context(),
+				planned,
+				ExecuteOptions{PlanWasDisclosed: true},
+			)
+			var stale mutation.StalePlanError
+			if !errors.As(err, &stale) {
+				t.Fatalf("ExecuteWithOptions error = %v, want StalePlanError", err)
+			}
+			if _, statErr := os.Stat(filepath.Join(tempDir, "AGENTS.md")); !os.IsNotExist(statErr) {
+				t.Fatalf("destination stat error = %v, want absent", statErr)
+			}
+		})
+	}
+}
+
 func TestExecuteWithOptionsRejectsIdenticalReplacementRootAfterDisclosure(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "project")

@@ -95,6 +95,34 @@ func captureApplyProjectRootForTest(t *testing.T, planned *commandPlan) {
 	}
 }
 
+func testApplyExecutionGuard(
+	t *testing.T,
+	paths daempaths.Paths,
+) applyExecutionGuard {
+	t.Helper()
+	manifestPath := paths.ManifestPath
+	lockfilePath := paths.LockfilePath
+	if manifestPath == "" {
+		manifestPath = lockfilePath
+	}
+	if lockfilePath == "" {
+		lockfilePath = manifestPath
+	}
+	if manifestPath == "" {
+		manifestPath = filepath.Join(t.TempDir(), "stable-declaration")
+		lockfilePath = manifestPath
+	}
+	revisions, err := captureDeclarationRevisions(
+		t.Context(),
+		manifestPath,
+		lockfilePath,
+	)
+	if err != nil {
+		t.Fatalf("capture test apply execution guard: %v", err)
+	}
+	return newApplyExecutionGuard(revisions, false)
+}
+
 func applyTestPaths(t *testing.T, root string) daempaths.Paths {
 	t.Helper()
 

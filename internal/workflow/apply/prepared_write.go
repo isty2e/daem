@@ -40,21 +40,23 @@ type PreparedWrite struct {
 }
 
 type preparedWriteLifecycle struct {
-	mu                sync.Mutex
-	state             preparedWriteState
-	planned           commandPlan
-	request           CommandInput
-	operationContext  reconcile.OperationContext
-	operationEvidence mutation.OperationFingerprint
-	authorityEvidence applyAuthorityEvidence
+	mu                   sync.Mutex
+	state                preparedWriteState
+	planned              commandPlan
+	request              CommandInput
+	operationContext     reconcile.OperationContext
+	operationEvidence    mutation.OperationFingerprint
+	authorityEvidence    applyAuthorityEvidence
+	declarationRevisions mutation.RevisionSet
 }
 
 type preparedExecution struct {
-	planned           commandPlan
-	request           CommandInput
-	operationContext  reconcile.OperationContext
-	operationEvidence mutation.OperationFingerprint
-	authorityEvidence applyAuthorityEvidence
+	planned              commandPlan
+	request              CommandInput
+	operationContext     reconcile.OperationContext
+	operationEvidence    mutation.OperationFingerprint
+	authorityEvidence    applyAuthorityEvidence
+	declarationRevisions mutation.RevisionSet
 }
 
 func newDryRunPlan(planned commandPlan) DryRunPlan {
@@ -79,16 +81,18 @@ func newPreparedWrite(
 	operationContext reconcile.OperationContext,
 	operationEvidence mutation.OperationFingerprint,
 	authorityEvidence applyAuthorityEvidence,
+	declarationRevisions mutation.RevisionSet,
 ) *PreparedWrite {
 	return &PreparedWrite{
 		CommandResult: cloneCommandResult(planned.result),
 		lifecycle: &preparedWriteLifecycle{
-			state:             preparedWriteReady,
-			planned:           planned,
-			request:           request,
-			operationContext:  operationContext,
-			operationEvidence: operationEvidence,
-			authorityEvidence: authorityEvidence,
+			state:                preparedWriteReady,
+			planned:              planned,
+			request:              request,
+			operationContext:     operationContext,
+			operationEvidence:    operationEvidence,
+			authorityEvidence:    authorityEvidence,
+			declarationRevisions: declarationRevisions,
 		},
 	}
 }
@@ -105,17 +109,19 @@ func (prepared *PreparedWrite) beginExecution() (preparedExecution, error) {
 	switch lifecycle.state {
 	case preparedWriteReady:
 		execution := preparedExecution{
-			planned:           lifecycle.planned,
-			request:           cloneCommandInput(lifecycle.request),
-			operationContext:  lifecycle.operationContext,
-			operationEvidence: lifecycle.operationEvidence,
-			authorityEvidence: lifecycle.authorityEvidence,
+			planned:              lifecycle.planned,
+			request:              cloneCommandInput(lifecycle.request),
+			operationContext:     lifecycle.operationContext,
+			operationEvidence:    lifecycle.operationEvidence,
+			authorityEvidence:    lifecycle.authorityEvidence,
+			declarationRevisions: lifecycle.declarationRevisions,
 		}
 		lifecycle.state = preparedWriteConsumed
 		lifecycle.planned = commandPlan{}
 		lifecycle.request = CommandInput{}
 		lifecycle.operationEvidence = mutation.OperationFingerprint{}
 		lifecycle.authorityEvidence = applyAuthorityEvidence{}
+		lifecycle.declarationRevisions = mutation.RevisionSet{}
 		return execution, nil
 	case preparedWriteClosed:
 		return preparedExecution{}, ErrPreparedWriteClosed
@@ -145,6 +151,7 @@ func (prepared *PreparedWrite) Close() error {
 	lifecycle.request = CommandInput{}
 	lifecycle.operationEvidence = mutation.OperationFingerprint{}
 	lifecycle.authorityEvidence = applyAuthorityEvidence{}
+	lifecycle.declarationRevisions = mutation.RevisionSet{}
 	lifecycle.mu.Unlock()
 
 	return closeCommandPlan(&planned)

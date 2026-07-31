@@ -35,10 +35,10 @@ type providerStableFingerprintFacts struct {
 }
 
 type providerPhaseExecution struct {
-	attempts  []durableattempt.HostRouteAttempt
-	leases    *mutation.LeaseSet
-	revisions mutation.RevisionSet
-	rebound   bool
+	attempts             []durableattempt.HostRouteAttempt
+	leases               *mutation.LeaseSet
+	firstEffectRevisions mutation.RevisionSet
+	rebound              bool
 }
 
 func providerInstallActions(
@@ -228,12 +228,15 @@ func runMCPProviderPrerequisitePhase(
 	effectPaths daempaths.Paths,
 	store mutation.Store,
 	leases *mutation.LeaseSet,
-	revisions mutation.RevisionSet,
-	validateBeforeEffects func(context.Context, mutation.PhysicalAuthoritySet) error,
+	firstEffectRevisions mutation.RevisionSet,
+	executionGuard applyExecutionGuard,
 	options runOptions,
 	planWasDisclosed bool,
 ) (providerPhaseExecution, error) {
-	result := providerPhaseExecution{leases: leases, revisions: revisions}
+	result := providerPhaseExecution{
+		leases:               leases,
+		firstEffectRevisions: firstEffectRevisions,
+	}
 	actions, err := providerInstallActions(current.assessment.MCPProviders)
 	if err != nil {
 		return result, fmt.Errorf("resolve MCP provider prerequisite actions: %w", err)
@@ -245,27 +248,26 @@ func runMCPProviderPrerequisitePhase(
 	if err != nil {
 		return result, err
 	}
-	emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
-	if err != nil {
-		return result, err
-	}
-	if err := validateBeforeEffects(ctx, emptyAuthority); err != nil {
-		return result, err
-	}
-	_, _, attempts, err := runHostRoutesAndPersistAttemptRecords(
-		ctx,
-		effectPaths,
-		current.context.Lockfile,
-		current.assessment.StatePath,
-		current.assessment.CurrentState,
-		current.assessment.Owner,
-		current.assessment.GlobalCarrierClaims,
-		actions,
-		options,
-	)
-	result.attempts = attempts
-	if err != nil {
-		return result, err
+	providerState := current.assessment.CurrentState
+	providerClaims := current.assessment.GlobalCarrierClaims
+	for _, action := range actions {
+		nextState, nextClaims, attempts, routeErr := runHostRoutesAndPersistAttemptRecords(
+			ctx,
+			effectPaths,
+			current.context.Lockfile,
+			current.assessment.StatePath,
+			providerState,
+			current.assessment.Owner,
+			providerClaims,
+			[]reconcile.RelationAction{action},
+			options,
+		)
+		providerState = nextState
+		providerClaims = nextClaims
+		result.attempts = append(result.attempts, attempts...)
+		if routeErr != nil {
+			return result, routeErr
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -279,6 +281,12 @@ func runMCPProviderPrerequisitePhase(
 	// post-effect plan must come from the host rather than replaying
 	// caller-supplied pre-effect evidence.
 	currentInput.RelationObservations = nil
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"post-provider replan",
+	); err != nil {
+		return result, err
+	}
 	refreshed, err := planReadinessAtPaths(
 		ctx,
 		currentInput,
@@ -338,8 +346,17 @@ func runMCPProviderPrerequisitePhase(
 			err,
 		)
 	}
-	reboundRevisions, err := mutation.CaptureRevisionSet(ctx, refreshedAuthority.revisions...)
+	reboundFirstEffectRevisions, err := mutation.CaptureRevisionSet(
+		ctx,
+		refreshedAuthority.firstEffectRevisions...,
+	)
 	if err != nil {
+		return result, err
+	}
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"post-provider leased replan",
+	); err != nil {
 		return result, err
 	}
 
@@ -394,7 +411,7 @@ func runMCPProviderPrerequisitePhase(
 			nil,
 		)
 	}
-	if matches, err := reboundRevisions.MatchesCurrent(ctx); err != nil {
+	if matches, err := reboundFirstEffectRevisions.MatchesCurrent(ctx); err != nil {
 		return result, err
 	} else if !matches {
 		return result, providerPhaseStale(
@@ -427,9 +444,15 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"final MCP provider replan",
+	); err != nil {
+		return result, err
+	}
 	*current = underLease
 	result.leases = reboundLeases
-	result.revisions = reboundRevisions
+	result.firstEffectRevisions = reboundFirstEffectRevisions
 	releaseRebound = false
 	return result, nil
 }

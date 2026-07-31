@@ -192,5 +192,6 @@ func preparedWriteForLifecycleTest(planned commandPlan) *PreparedWrite {
 		reconcile.ContextApply,
 		mutation.OperationFingerprint{},
 		applyAuthorityEvidence{},
+		mutation.RevisionSet{},
 	)
 }

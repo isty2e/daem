@@ -52,6 +52,9 @@ func applyDelegateRunOptions(t *testing.T, paths daempaths.Paths, options runOpt
 		}
 	})
 	options.projectRoot = root
+	if !options.executionGuard.valid {
+		options.executionGuard = testApplyExecutionGuard(t, paths)
+	}
 	return options
 }
 

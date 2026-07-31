@@ -74,7 +74,7 @@ func TestApplyAuthorityCoversEveryOpenCodeOrderSelectorCandidate(t *testing.T) {
 			Path: path, Effect: mutation.PathEffectReferent,
 		}] = false
 	}
-	for _, request := range evidence.revisions {
+	for _, request := range evidence.firstEffectRevisions {
 		if _, expected := want[request]; expected {
 			want[request] = true
 		}
@@ -111,7 +111,9 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	projectRoot := captureRelationOrderTestRoot(t, root)
 	defer projectRoot.Close()
 	options := runOptions{
-		projectRoot: projectRoot,
+		projectRoot:       projectRoot,
+		executionGuard:    testApplyExecutionGuard(t, paths),
+		orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 		validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 			return nil
 		},
@@ -174,7 +176,7 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	) (bool, error) {
 		authorized++
 		if expansion.AddedRiskCount() != 2 ||
-			len(expansion.Decisions()) != 1 {
+			len(expansion.Deltas()) != 1 {
 			t.Fatalf("risk expansion = %#v", expansion)
 		}
 		return true, nil
@@ -244,7 +246,9 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 		locked,
 		initial,
 		runOptions{
-			projectRoot: projectRoot,
+			projectRoot:       projectRoot,
+			executionGuard:    testApplyExecutionGuard(t, paths),
+			orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 			validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 				return nil
 			},
@@ -361,6 +365,7 @@ func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
 		0,
 		reconciliation,
 		runOptions{
+			orderRiskBaseline: newRelationOrderRiskBaseline(reconciliation.RelationOrders()),
 			DelegateExecutor: delegate.NewExecutor(delegate.Options{
 				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
 					runnerCalled = true

@@ -1,14 +1,17 @@
 package apply
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
 
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/configrelation"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -16,6 +19,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -59,19 +63,79 @@ func (result RelationOrderExecutionResult) Outcome() RelationOrderOutcome { retu
 func (result RelationOrderExecutionResult) Changed() bool                 { return result.changed }
 func (result RelationOrderExecutionResult) Detail() string                { return result.detail }
 
-// RelationOrderRiskExpansion is the bounded post-route plan fragment that
-// introduces foreign-precedence changes not present in the authorized plan.
-type RelationOrderRiskExpansion struct {
-	decisions      []reconcile.RelationOrderDecision
-	addedRiskCount int
+// RelationOrderRiskDelta is one immutable physical-sequence fragment containing
+// only precedence changes absent from the authorized baseline.
+type RelationOrderRiskDelta struct {
+	target         target.Target
+	scope          target.Scope
+	classID        hostrelation.OrderClassID
+	sequenceID     hostrelation.PhysicalSequenceID
+	runtimeMeaning hostrelation.RuntimeMeaning
+	changes        []observerelation.PrecedenceChange
 }
 
-func (expansion RelationOrderRiskExpansion) Decisions() []reconcile.RelationOrderDecision {
-	return append([]reconcile.RelationOrderDecision(nil), expansion.decisions...)
+func newRelationOrderRiskDelta(
+	decision reconcile.RelationOrderDecision,
+	changes []observerelation.PrecedenceChange,
+) RelationOrderRiskDelta {
+	return RelationOrderRiskDelta{
+		target:         decision.Target(),
+		scope:          decision.Scope(),
+		classID:        decision.ClassID(),
+		sequenceID:     decision.SequenceID(),
+		runtimeMeaning: decision.RuntimeMeaning(),
+		changes: append(
+			[]observerelation.PrecedenceChange(nil),
+			changes...,
+		),
+	}
+}
+
+func (delta RelationOrderRiskDelta) Target() target.Target { return delta.target }
+
+func (delta RelationOrderRiskDelta) Scope() target.Scope { return delta.scope }
+
+func (delta RelationOrderRiskDelta) ClassID() hostrelation.OrderClassID {
+	return delta.classID
+}
+
+func (delta RelationOrderRiskDelta) SequenceID() hostrelation.PhysicalSequenceID {
+	return delta.sequenceID
+}
+
+func (delta RelationOrderRiskDelta) RuntimeMeaning() hostrelation.RuntimeMeaning {
+	return delta.runtimeMeaning
+}
+
+func (delta RelationOrderRiskDelta) PrecedenceChanges() []observerelation.PrecedenceChange {
+	return append([]observerelation.PrecedenceChange(nil), delta.changes...)
+}
+
+func (delta RelationOrderRiskDelta) clone() RelationOrderRiskDelta {
+	delta.changes = delta.PrecedenceChanges()
+	return delta
+}
+
+// RelationOrderRiskExpansion is the exact bounded post-route risk delta that
+// introduces foreign-precedence changes absent from the authorized plan.
+type RelationOrderRiskExpansion struct {
+	deltas []RelationOrderRiskDelta
+}
+
+func (expansion RelationOrderRiskExpansion) Deltas() []RelationOrderRiskDelta {
+	result := make([]RelationOrderRiskDelta, len(expansion.deltas))
+	for index, delta := range expansion.deltas {
+		result[index] = delta.clone()
+	}
+	return result
 }
 
 func (expansion RelationOrderRiskExpansion) AddedRiskCount() int {
-	return expansion.addedRiskCount
+	count := 0
+	for _, delta := range expansion.deltas {
+		count += len(delta.changes)
+	}
+	return count
 }
 
 // RelationOrderRiskAuthorizer obtains renewed consent for a post-carrier risk
@@ -82,10 +146,11 @@ type RelationOrderRiskAuthorizer func(
 ) (bool, error)
 
 type relationOrderRunResult struct {
-	reconciliation reconcile.Result
-	results        []RelationOrderExecutionResult
-	actionCount    int
-	updated        bool
+	reconciliation  reconcile.Result
+	results         []RelationOrderExecutionResult
+	actionCount     int
+	updated         bool
+	planFingerprint mutation.OperationFingerprint
 }
 
 type observedOrderClass struct {
@@ -102,7 +167,14 @@ func runRelationOrderConvergence(
 ) (relationOrderRunResult, error) {
 	initial := reconciliation.RelationOrders()
 	if len(initial) == 0 {
-		return relationOrderRunResult{reconciliation: reconciliation}, nil
+		fingerprint, err := remainingExecutionFingerprint(reconciliation)
+		return relationOrderRunResult{
+			reconciliation:  reconciliation,
+			planFingerprint: fingerprint,
+		}, err
+	}
+	if err := options.orderRiskBaseline.validate(); err != nil {
+		return relationOrderRunResult{}, err
 	}
 
 	selectedClasses := make(map[hostrelation.OrderClassID]struct{})
@@ -185,17 +257,21 @@ func runRelationOrderConvergence(
 		results:        initialOrderExecutionResults(freshDecisions),
 		updated:        true,
 	}
+	result.planFingerprint, err = remainingExecutionFingerprint(fresh)
+	if err != nil {
+		return result, err
+	}
 	if err := rejectBlockedRelationOrders(fresh); err != nil {
 		return result, err
 	}
 
-	expansion := expandedOrderRisk(initial, freshDecisions)
-	if expansion.addedRiskCount != 0 {
+	expansion := options.orderRiskBaseline.expansion(freshDecisions)
+	if expansion.AddedRiskCount() != 0 {
 		if options.RelationOrderRiskAuthorizer == nil {
 			return result, fmt.Errorf(
 				"%w: %d newly discovered managed/foreign precedence changes; rerun interactively or inspect a fresh dry-run",
 				ErrRelationOrderRiskExpansion,
-				expansion.addedRiskCount,
+				expansion.AddedRiskCount(),
 			)
 		}
 		authorized, err := options.RelationOrderRiskAuthorizer(ctx, expansion)
@@ -204,6 +280,18 @@ func runRelationOrderConvergence(
 		}
 		if !authorized {
 			return result, ErrRelationOrderNotAuthorized
+		}
+		actualFingerprint, fingerprintErr := remainingExecutionFingerprint(fresh)
+		if fingerprintErr != nil {
+			return result, fingerprintErr
+		}
+		if err := options.executionGuard.requirePlanCurrent(
+			ctx,
+			result.planFingerprint,
+			actualFingerprint,
+			"renewed extension order authorization",
+		); err != nil {
+			return result, err
 		}
 	}
 
@@ -247,9 +335,13 @@ func runRelationOrderConvergence(
 			},
 		)
 		closeErr := bound.Close()
+		declarationErr := options.executionGuard.requireDeclarationsCurrent(
+			ctx,
+			"after extension order execution",
+		)
 		result.actionCount += changed
-		if executeErr != nil || closeErr != nil {
-			return result, errors.Join(executeErr, closeErr)
+		if executeErr != nil || closeErr != nil || declarationErr != nil {
+			return result, errors.Join(executeErr, closeErr, declarationErr)
 		}
 		for _, decision := range class.decisions {
 			index := resultBySequence[decision.SequenceID()]
@@ -359,57 +451,74 @@ func relationOrderDecisionForSequence(
 type relationOrderRiskKey struct {
 	classID           hostrelation.OrderClassID
 	sequenceID        hostrelation.PhysicalSequenceID
-	managedSubject    string
-	foreignIdentity   string
+	managedSubject    topology.SubjectID
+	foreignIdentity   hostrelation.HostLoadIdentity
 	managedWasBefore  bool
 	managedWillBefore bool
 }
 
-func expandedOrderRisk(
-	initial []reconcile.RelationOrderDecision,
-	fresh []reconcile.RelationOrderDecision,
-) RelationOrderRiskExpansion {
+// relationOrderRiskBaseline is the immutable set of precedence risks accepted
+// with the original private apply plan. Its zero value is invalid; a
+// constructed empty baseline authorizes no risks.
+type relationOrderRiskBaseline struct {
+	authorized map[relationOrderRiskKey]struct{}
+}
+
+func newRelationOrderRiskBaseline(
+	decisions []reconcile.RelationOrderDecision,
+) relationOrderRiskBaseline {
 	authorized := make(map[relationOrderRiskKey]struct{})
-	for _, decision := range initial {
+	for _, decision := range decisions {
 		for _, change := range decision.PrecedenceChanges() {
 			authorized[relationOrderRiskKey{
 				classID:           decision.ClassID(),
 				sequenceID:        decision.SequenceID(),
-				managedSubject:    change.ManagedSubject().String(),
-				foreignIdentity:   string(change.ForeignIdentity()),
+				managedSubject:    change.ManagedSubject(),
+				foreignIdentity:   change.ForeignIdentity(),
 				managedWasBefore:  change.ManagedWasBefore(),
 				managedWillBefore: change.ManagedWillBeBefore(),
 			}] = struct{}{}
 		}
 	}
-	var expanded []reconcile.RelationOrderDecision
-	count := 0
+	return relationOrderRiskBaseline{authorized: authorized}
+}
+
+func (baseline relationOrderRiskBaseline) validate() error {
+	if baseline.authorized == nil {
+		return fmt.Errorf("relation order risk baseline is required")
+	}
+	return nil
+}
+
+func (baseline relationOrderRiskBaseline) expansion(
+	fresh []reconcile.RelationOrderDecision,
+) RelationOrderRiskExpansion {
+	var deltas []RelationOrderRiskDelta
 	for _, decision := range fresh {
-		addedForDecision := false
+		var added []observerelation.PrecedenceChange
 		for _, change := range decision.PrecedenceChanges() {
 			key := relationOrderRiskKey{
 				classID:           decision.ClassID(),
 				sequenceID:        decision.SequenceID(),
-				managedSubject:    change.ManagedSubject().String(),
-				foreignIdentity:   string(change.ForeignIdentity()),
+				managedSubject:    change.ManagedSubject(),
+				foreignIdentity:   change.ForeignIdentity(),
 				managedWasBefore:  change.ManagedWasBefore(),
 				managedWillBefore: change.ManagedWillBeBefore(),
 			}
-			if _, present := authorized[key]; present {
+			if _, present := baseline.authorized[key]; present {
 				continue
 			}
-			count++
-			addedForDecision = true
+			added = append(added, change)
 		}
-		if addedForDecision {
-			expanded = append(expanded, decision)
+		if len(added) != 0 {
+			deltas = append(deltas, newRelationOrderRiskDelta(decision, added))
 		}
 	}
-	slices.SortFunc(expanded, func(left, right reconcile.RelationOrderDecision) int {
-		return left.Compare(right)
+	slices.SortFunc(deltas, func(left, right RelationOrderRiskDelta) int {
+		if left.classID != right.classID {
+			return cmp.Compare(left.classID, right.classID)
+		}
+		return cmp.Compare(left.sequenceID, right.sequenceID)
 	})
-	return RelationOrderRiskExpansion{
-		decisions:      expanded,
-		addedRiskCount: count,
-	}
+	return RelationOrderRiskExpansion{deltas: deltas}
 }

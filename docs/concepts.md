@@ -225,12 +225,14 @@ Stable-storage guarantees across an OS crash or power loss are platform-scoped.
 They are current only for operation and local-filesystem rows with native
 evidence; compile-only and unsupported rows are not promoted into a guarantee.
 See [Platform Support](platforms.md).
-Daem refuses input statefiles larger than 16 MiB before planning and refuses
-recovery journals larger than 64 MiB. Individual regular-file recovery backups
-larger than 128 MiB are refused before the covered host mutation; produced
-state and journal documents are also size-checked before publication. Recovery
-inventory admits at most 4,096 immediate recovery-root entries, 100,000 entries
-inside one journal directory, and 64 entries inside one retirement control.
+Write-mode apply planning refuses a selected manifest or lockfile larger than
+64 MiB before decoding it. Daem refuses input statefiles larger than 16 MiB
+before planning and refuses recovery journals larger than 64 MiB. Individual
+regular-file recovery backups larger than 128 MiB are refused before the
+covered host mutation; produced state and journal documents are also
+size-checked before publication. Recovery inventory admits at most 4,096
+immediate recovery-root entries, 100,000 entries inside one journal directory,
+and 64 entries inside one retirement control.
 Managed directory snapshots are streamed but stop at 100,000 entries, 64
 descendant-directory levels, or 4 GiB of observed regular-file content.
 Retirement-control snapshots permit no descendant directory and at most 1 MiB

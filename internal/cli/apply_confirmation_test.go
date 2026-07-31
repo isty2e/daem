@@ -126,10 +126,11 @@ func TestRunApplyDisclosesRenewedExtensionOrderRisksAfterCarrierChange(
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	options := interactiveRunOptions(
-		strings.NewReader("yes\nno\n"),
+		strings.NewReader(""),
 		&stdout,
 		&stderr,
 	)
+	options.ReadConfirmationLine = confirmationAnswerSequence("yes", "no")
 	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
 		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
 			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
