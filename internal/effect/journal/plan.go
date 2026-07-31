@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
@@ -403,6 +404,18 @@ func loadActivePlanFromInventory(
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
+	}
+	if len(claimTransitions) != 0 {
+		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
+		if err != nil {
+			return recovery.Plan{}, fmt.Errorf("canonicalize recovery state authority: %w", err)
+		}
+		if err := validateRecoveryClaimAuthorities(
+			claimTransitions,
+			statefileAuthority,
+		); err != nil {
+			return recovery.Plan{}, err
+		}
 	}
 	resolver := options.Resolver
 	if err := validateRecoveryClaimCoverage(journal.Entries, claimTransitions, resolver); err != nil {

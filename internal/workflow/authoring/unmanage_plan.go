@@ -69,7 +69,11 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
-	registry, err := registryStore.Load(ctx)
+	registry, err := registryStore.LoadForSelectedAuthority(
+		ctx,
+		document.Paths.StatefilePath,
+		document.Path,
+	)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}

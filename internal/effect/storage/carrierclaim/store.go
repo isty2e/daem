@@ -67,6 +67,75 @@ func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims
 	return decode(snapshot.Content())
 }
 
+// LoadForSelectedAuthority loads the full registry, validates claims for the
+// selected manifest, and rejects foreign claims ambiguous under the legacy
+// Darwin-wide case fold.
+func (store Store) LoadForSelectedAuthority(
+	ctx context.Context,
+	statefilePath string,
+	manifestPath string,
+) (durablecarrier.GlobalCarrierClaims, error) {
+	registry, err := store.Load(ctx)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
+			"canonicalize selected carrier state authority: %w",
+			err,
+		)
+	}
+	if err := validateSelectedAuthority(registry, authority, manifestPath); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	return registry, nil
+}
+
+func validateSelectedAuthority(
+	registry durablecarrier.GlobalCarrierClaims,
+	authority mutation.PersistedDirectoryEntryAuthority,
+	manifestPath string,
+) error {
+	return validateSelectedAuthorityWith(
+		registry,
+		manifestPath,
+		authority.ValidatePersistedKey,
+		authority.RejectLegacyPersistedKey,
+	)
+}
+
+func validateSelectedAuthorityWith(
+	registry durablecarrier.GlobalCarrierClaims,
+	manifestPath string,
+	validatePersisted func(string) error,
+	rejectLegacy func(string) error,
+) error {
+	if validatePersisted == nil || rejectLegacy == nil {
+		return fmt.Errorf("carrier-authority validators are required")
+	}
+	for index, claim := range registry.Claims() {
+		if claim.Owner().ManifestPath() != manifestPath {
+			if err := rejectLegacy(claim.Owner().StatefileKey()); err != nil {
+				return fmt.Errorf(
+					"carrier claim registry claim[%d] has ambiguous legacy state authority: %w",
+					index,
+					err,
+				)
+			}
+			continue
+		}
+		if err := validatePersisted(claim.Owner().StatefileKey()); err != nil {
+			return fmt.Errorf(
+				"carrier claim registry claim[%d] for selected manifest has incompatible state authority: %w",
+				index,
+				err,
+			)
+		}
+	}
+	return nil
+}
+
 // Upsert writes one exact claim through entry-identity compare-and-swap.
 func (store Store) Upsert(
 	ctx context.Context,

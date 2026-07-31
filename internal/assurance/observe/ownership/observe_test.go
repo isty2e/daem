@@ -1,8 +1,10 @@
 package ownership
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -76,6 +78,92 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	observedClaim, present := observation.Claim.Get()
 	if !present || !observedClaim.Equal(claim) {
 		t.Fatal("overlapping parent claim was not observed")
+	}
+}
+
+func TestValidateRegistryStateAuthorityRejectsSelectedManifestForeignKey(t *testing.T) {
+	manifestPath := filepath.Join(string(filepath.Separator), "project", "daem.toml")
+	statefilePath := filepath.Join(t.TempDir(), "State.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(authority.CurrentKey(), manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedOwner, err := stateauthority.New(
+		filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json"),
+		manifestPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := outputownership.NewManagedAddress(
+		filepath.Join(string(filepath.Separator), "managed", "output"),
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := outputownership.NewActiveClaim(address, persistedOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := outputownership.NewRegistry([]outputownership.Claim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRegistryStateAuthority(registry, owner, authority); err == nil ||
+		!strings.Contains(err.Error(), "does not match current filesystem authority") ||
+		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
+		t.Fatalf("registry authority error = %v", err)
+	}
+}
+
+func TestValidateRegistryStateAuthorityRejectsLegacyKeyAcrossDiagnosticProvenance(t *testing.T) {
+	statefilePath := filepath.Join(t.TempDir(), "State.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(authority.CurrentKey(), "/selected/daem.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyOwner, err := stateauthority.New("/legacy/state.json", "/alias/daem.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := outputownership.NewManagedAddress("/managed/output", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := outputownership.NewActiveClaim(address, legacyOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := outputownership.NewRegistry([]outputownership.Claim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = validateRegistryStateAuthorityWith(
+		registry,
+		owner,
+		func(string) error {
+			t.Fatal("foreign-provenance claim reached exact validator")
+			return nil
+		},
+		func(persisted string) error {
+			if persisted != legacyOwner.StatefileKey() {
+				t.Fatalf("legacy validator key = %q", persisted)
+			}
+			return fmt.Errorf("legacy authority")
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous legacy state authority") {
+		t.Fatalf("registry legacy authority error = %v", err)
 	}
 }
 

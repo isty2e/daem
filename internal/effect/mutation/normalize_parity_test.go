@@ -71,7 +71,7 @@ func TestNormalizeDomainsIsInputOrderInvariant(t *testing.T) {
 }
 
 func TestNormalizeDomainsAncestorSubsumptionIsComponentAndAccessAware(t *testing.T) {
-	root := normalizePlatformPathKey(t.TempDir())
+	root := mustMutationTestCanonicalPath(t.TempDir()).keyPath
 	store := mutationTestStore(t)
 	exclusive := directMutationPathDomain(filepath.Join(root, "a"), domainLogicalPath, AccessExclusive, "", "")
 	sharedMiddle := directMutationPathDomain(filepath.Join(root, "a", "middle"), domainLogicalPath, AccessShared, "", "")
@@ -103,7 +103,7 @@ func TestNormalizeDomainsAncestorSubsumptionIsComponentAndAccessAware(t *testing
 }
 
 func TestNormalizeDomainsNestedExclusiveAncestorsAreOrderIndependent(t *testing.T) {
-	root := normalizePlatformPathKey(t.TempDir())
+	root := mustMutationTestCanonicalPath(t.TempDir()).keyPath
 	store := mutationTestStore(t)
 	top := directMutationPathDomain(filepath.Join(root, "top"), domainLogicalPath, AccessExclusive, "", "")
 	middle := directMutationPathDomain(filepath.Join(root, "top", "middle"), domainLogicalPath, AccessExclusive, "", "")
@@ -137,7 +137,7 @@ func TestNormalizeDomainsNestedExclusiveAncestorsAreOrderIndependent(t *testing.
 }
 
 func TestNormalizeDomainsEmitsCompleteSharedAncestorUnionAcrossBranches(t *testing.T) {
-	root := normalizePlatformPathKey(t.TempDir())
+	root := mustMutationTestCanonicalPath(t.TempDir()).keyPath
 	store := mutationTestStore(t)
 	left := directMutationPathDomain(filepath.Join(root, "tree", "left", "leaf"), domainLogicalPath, AccessShared, "", "")
 	right := directMutationPathDomain(filepath.Join(root, "tree", "right", "leaf"), domainLogicalPath, AccessShared, "", "")
@@ -168,7 +168,7 @@ func TestNormalizeDomainsEmitsCompleteSharedAncestorUnionAcrossBranches(t *testi
 }
 
 func TestNormalizeDomainsHandlesWideAndDeepPathSets(t *testing.T) {
-	root := normalizePlatformPathKey(t.TempDir())
+	root := mustMutationTestCanonicalPath(t.TempDir()).keyPath
 	store := mutationTestStore(t)
 
 	const wideCount = 4096
@@ -276,7 +276,8 @@ func directMutationPathDomain(path string, kind domainKind, access AccessMode, t
 	return Domain{
 		kind:          kind,
 		access:        access,
-		canonicalPath: normalizePlatformPathKey(filepath.Clean(path)),
+		canonicalPath: filepath.Clean(path),
+		pathWitness:   "test-synthetic-v1:",
 		requestedPath: filepath.Clean(path),
 		effect:        PathEffectDirectoryEntry,
 		target:        target,

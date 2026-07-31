@@ -30,10 +30,14 @@ func (store Store) prepare() error {
 	if err != nil {
 		return fmt.Errorf("verify mutation lease store: %w", err)
 	}
-	if identity.keyPath != store.rootKey {
+	if !store.matchesRootIdentity(identity) {
 		return fmt.Errorf("mutation lease store identity changed")
 	}
 	return nil
+}
+
+func (store Store) matchesRootIdentity(identity canonicalPath) bool {
+	return identity.keyPath == store.rootKey && identity.witness == store.rootWitness
 }
 
 func ensureBaseDirectory(path string) error {

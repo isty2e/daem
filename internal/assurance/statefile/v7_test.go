@@ -689,6 +689,36 @@ func TestLoadValidatesCarrierAuthorityAgainstSelectedPath(t *testing.T) {
 	}
 }
 
+func TestValidateLoadedStateAuthorityRejectsForeignPersistedKey(t *testing.T) {
+	statefilePath := filepath.Join(t.TempDir(), "State.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedKey := filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json")
+	identity, request := testV7CarrierIdentity(t, "context7", "context7@official")
+	owner, err := stateauthority.New(persistedKey, filepath.Join(string(filepath.Separator), "project", "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := durablecarrier.NewPendingCarrierInstall(owner, identity, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := durable.NewSnapshot(durable.SnapshotInput{
+		PendingCarrierInstalls: []durablecarrier.PendingCarrierInstall{pending},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateLoadedStateAuthority(snapshot, authority)
+	if err == nil || !strings.Contains(err.Error(), "foreign statefile authority") ||
+		!strings.Contains(err.Error(), "does not match current filesystem authority") ||
+		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
+		t.Fatalf("authority validation error = %v", err)
+	}
+}
+
 func TestLoadRequiresContextBeforePathInspection(t *testing.T) {
 	_, err := Load(nil, filepath.Join(t.TempDir(), "missing.json"))
 	if err == nil || !strings.Contains(err.Error(), "statefile context is required") {

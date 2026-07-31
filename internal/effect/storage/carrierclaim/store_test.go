@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -504,4 +506,58 @@ func testGlobalClaimWithProvenance(
 		t.Fatal(err)
 	}
 	return claim
+}
+
+func TestValidateSelectedAuthorityRejectsForeignKeyBeforeCarrierUse(t *testing.T) {
+	manifestPath := filepath.Join(string(filepath.Separator), "selected", "daem.toml")
+	claim := testGlobalClaim(
+		t,
+		"context7",
+		"context7@official",
+		filepath.Join(string(filepath.Separator), "selected"),
+	)
+	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statefilePath := filepath.Join(string(filepath.Separator), "selected", ".daem", "other-state.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSelectedAuthority(registry, authority, manifestPath); err == nil ||
+		!strings.Contains(err.Error(), "does not match current filesystem authority") ||
+		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
+		t.Fatalf("selected authority error = %v", err)
+	}
+}
+
+func TestValidateSelectedAuthorityRejectsLegacyKeyAcrossDiagnosticProvenance(t *testing.T) {
+	claim := testGlobalClaim(
+		t,
+		"context7",
+		"context7@official",
+		filepath.Join(string(filepath.Separator), "legacy"),
+	)
+	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateSelectedAuthorityWith(
+		registry,
+		"/selected/daem.toml",
+		func(string) error {
+			t.Fatal("foreign-provenance claim reached exact validator")
+			return nil
+		},
+		func(persisted string) error {
+			if persisted != claim.Owner().StatefileKey() {
+				t.Fatalf("legacy validator key = %q", persisted)
+			}
+			return fmt.Errorf("legacy authority")
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous legacy state authority") {
+		t.Fatalf("carrier legacy authority error = %v", err)
+	}
 }

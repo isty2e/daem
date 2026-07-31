@@ -32,11 +32,11 @@ func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
-	canonicalKey, err := mutation.CanonicalDirectoryEntryKey(path)
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("canonicalize statefile authority key: %w", err)
 	}
-	if err := validateLoadedStateAuthority(snapshot, canonicalKey); err != nil {
+	if err := validateLoadedStateAuthority(snapshot, authority); err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
 	return snapshot, nil
@@ -125,31 +125,37 @@ func readStatefile(ctx context.Context, path string) ([]byte, error) {
 	return snapshot.Content(), nil
 }
 
-func validateLoadedStateAuthority(snapshot durable.Snapshot, canonicalPath string) error {
+func validateLoadedStateAuthority(
+	snapshot durable.Snapshot,
+	authority mutation.PersistedDirectoryEntryAuthority,
+) error {
 	for index, pending := range snapshot.PendingCarrierInstalls() {
-		if pending.Owner().StatefileKey() != canonicalPath {
+		if err := authority.ValidatePersistedKey(pending.Owner().StatefileKey()); err != nil {
 			return fmt.Errorf(
-				"pending_carrier_installs[%d] belongs to foreign statefile authority %q",
+				"pending_carrier_installs[%d] belongs to foreign statefile authority %q: %w",
 				index,
 				pending.Owner().StatefileKey(),
+				err,
 			)
 		}
 	}
 	for index, pending := range snapshot.PendingCarrierRemovals() {
-		if pending.Owner().StatefileKey() != canonicalPath {
+		if err := authority.ValidatePersistedKey(pending.Owner().StatefileKey()); err != nil {
 			return fmt.Errorf(
-				"pending_carrier_removals[%d] belongs to foreign statefile authority %q",
+				"pending_carrier_removals[%d] belongs to foreign statefile authority %q: %w",
 				index,
 				pending.Owner().StatefileKey(),
+				err,
 			)
 		}
 	}
 	for index, claim := range snapshot.ManagedCarrierClaims() {
-		if claim.Owner().StatefileKey() != canonicalPath {
+		if err := authority.ValidatePersistedKey(claim.Owner().StatefileKey()); err != nil {
 			return fmt.Errorf(
-				"managed_carrier_claims[%d] belongs to foreign statefile authority %q",
+				"managed_carrier_claims[%d] belongs to foreign statefile authority %q: %w",
 				index,
 				claim.Owner().StatefileKey(),
+				err,
 			)
 		}
 	}

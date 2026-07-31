@@ -93,6 +93,22 @@ func canonicalClaimTransitions(persisted []recoveryClaimTransition) ([]ownership
 	return transitions, nil
 }
 
+func validateRecoveryClaimAuthorities(
+	transitions []ownershipmutation.ClaimTransition,
+	authority mutation.PersistedDirectoryEntryAuthority,
+) error {
+	for index, transition := range transitions {
+		if err := authority.ValidatePersistedKey(transition.Owner().StatefileKey()); err != nil {
+			return fmt.Errorf(
+				"recovery claim_transitions[%d] has incompatible state authority: %w",
+				index,
+				err,
+			)
+		}
+	}
+	return nil
+}
+
 func validateRecoveryClaimCoverage(
 	entries []recoveryEntry,
 	transitions []ownershipmutation.ClaimTransition,
@@ -128,17 +144,25 @@ func validateRecoveryClaimCoverage(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
 		}
-		canonical, err := mutation.CanonicalDirectoryEntryKey(physical)
+		authority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(canonical, entry.ContentPath)
+		address, err := ownership.NewManagedAddress(authority.CurrentKey(), entry.ContentPath)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
 		key := ownershipAddressKey(address)
 		transition, present := remaining[key]
 		if !present {
+			if err := rejectLegacyRecoveryClaimAddress(
+				address,
+				authority,
+				transitions,
+				remaining,
+			); err != nil {
+				return fmt.Errorf("recovery entries[%d]: %w", index, err)
+			}
 			return fmt.Errorf("recovery entries[%d] global output has no exact ownership transition", index)
 		}
 		matches, err := recoveryEntryAllowsTransition(entry, transition.Kind())
@@ -158,6 +182,48 @@ func validateRecoveryClaimCoverage(
 	}
 	if len(remaining) != 0 {
 		return fmt.Errorf("recovery journal has ownership transition without a global output entry")
+	}
+	return nil
+}
+
+func rejectLegacyRecoveryClaimAddress(
+	current ownership.ManagedAddress,
+	authority mutation.PersistedDirectoryEntryAuthority,
+	transitions []ownershipmutation.ClaimTransition,
+	remaining map[string]ownershipmutation.ClaimTransition,
+) error {
+	return rejectLegacyRecoveryClaimAddressWith(
+		current,
+		transitions,
+		remaining,
+		authority.RejectLegacyPersistedKey,
+	)
+}
+
+func rejectLegacyRecoveryClaimAddressWith(
+	current ownership.ManagedAddress,
+	transitions []ownershipmutation.ClaimTransition,
+	remaining map[string]ownershipmutation.ClaimTransition,
+	rejectLegacy func(string) error,
+) error {
+	if rejectLegacy == nil {
+		return fmt.Errorf("legacy recovery-address validator is required")
+	}
+	for index, transition := range transitions {
+		candidate := transition.Address()
+		if _, present := remaining[ownershipAddressKey(candidate)]; !present {
+			continue
+		}
+		rebased, err := ownership.NewManagedAddress(current.Path(), candidate.ContentPath())
+		if err != nil {
+			return fmt.Errorf("recovery claim_transitions[%d] address: %w", index, err)
+		}
+		if !rebased.Overlaps(current) {
+			continue
+		}
+		if err := rejectLegacy(candidate.Path()); err != nil {
+			return fmt.Errorf("recovery claim_transitions[%d] path authority: %w", index, err)
+		}
 	}
 	return nil
 }

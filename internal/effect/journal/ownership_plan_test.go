@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,6 +50,23 @@ func TestRecoveryClaimTransitionsRejectsZeroTransition(t *testing.T) {
 	if _, err := recoveryClaimTransitions([]ownershipmutation.ClaimTransition{{}}); err == nil ||
 		!strings.Contains(err.Error(), "unsupported ownership transition kind") {
 		t.Fatalf("zero transition error = %v", err)
+	}
+}
+
+func TestValidateRecoveryClaimAuthoritiesRejectsForeignKeyBeforeObservation(t *testing.T) {
+	entry := globalAcquireRecoveryEntry(t)
+	transition, _, _ := testAcquireTransition(t, entry)
+	statefilePath := filepath.Join(t.TempDir(), "other-state.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRecoveryClaimAuthorities(
+		[]ownershipmutation.ClaimTransition{transition},
+		authority,
+	); err == nil || !strings.Contains(err.Error(), "does not match current filesystem authority") ||
+		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
+		t.Fatalf("recovery authority error = %v", err)
 	}
 }
 

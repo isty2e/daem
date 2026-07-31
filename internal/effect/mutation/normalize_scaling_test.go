@@ -15,7 +15,7 @@ func TestNormalizeDomainsWideAllocationGrowthIsSubquadratic(t *testing.T) {
 		allocationMeasurementRuns = 5
 	)
 
-	root := normalizePlatformPathKey(t.TempDir())
+	root := mustMutationTestCanonicalPath(t.TempDir()).keyPath
 	store := mutationTestStore(t)
 	small := normalizationScalingWideDomains(root, smallDomainCount)
 	large := normalizationScalingWideDomains(root, smallDomainCount*wideMultiplier)
@@ -56,7 +56,7 @@ func TestNormalizeDomainsWideAllocationGrowthIsSubquadratic(t *testing.T) {
 func BenchmarkNormalizeDomainsWide(b *testing.B) {
 	for _, domainCount := range []int{128, 512, 2048, 8192} {
 		b.Run(fmt.Sprintf("domains=%d", domainCount), func(b *testing.B) {
-			root := normalizePlatformPathKey(b.TempDir())
+			root := mustMutationTestCanonicalPath(b.TempDir()).keyPath
 			benchmarkNormalizeDomains(b, normalizationScalingWideDomains(root, domainCount))
 		})
 	}
@@ -65,7 +65,7 @@ func BenchmarkNormalizeDomainsWide(b *testing.B) {
 func BenchmarkNormalizeDomainsDeep(b *testing.B) {
 	for _, domainCount := range []int{16, 64, 256} {
 		b.Run(fmt.Sprintf("domains=%d", domainCount), func(b *testing.B) {
-			root := normalizePlatformPathKey(b.TempDir())
+			root := mustMutationTestCanonicalPath(b.TempDir()).keyPath
 			benchmarkNormalizeDomains(b, normalizationScalingDeepDomains(root, domainCount))
 		})
 	}
@@ -74,7 +74,7 @@ func BenchmarkNormalizeDomainsDeep(b *testing.B) {
 func BenchmarkNormalizeDomainsMixed(b *testing.B) {
 	for _, distinctPathCount := range []int{128, 512, 2048} {
 		b.Run(fmt.Sprintf("paths=%d", distinctPathCount), func(b *testing.B) {
-			root := normalizePlatformPathKey(b.TempDir())
+			root := mustMutationTestCanonicalPath(b.TempDir()).keyPath
 			benchmarkNormalizeDomains(b, normalizationScalingMixedDomains(root, distinctPathCount))
 		})
 	}

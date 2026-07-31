@@ -43,7 +43,11 @@ func loadPersistenceEpoch(
 	if err != nil {
 		return PersistenceEpoch{}, err
 	}
-	globalCarrierClaims, err := carrierClaimsStore.Load(ctx)
+	globalCarrierClaims, err := carrierClaimsStore.LoadForSelectedAuthority(
+		ctx,
+		paths.StatefilePath,
+		paths.ManifestPath,
+	)
 	if err != nil {
 		return PersistenceEpoch{}, err
 	}
