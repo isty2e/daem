@@ -229,6 +229,14 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 		if !ok {
 			return fmt.Errorf("journal cleanup selection is unavailable")
 		}
+		legacyAuthority, hasLegacyAuthority := journal.LegacyRecoveryJournalAuthority(
+			current.plan,
+		)
+		if cleanup.Authority().RequiresLegacyMigration() && !hasLegacyAuthority {
+			return fmt.Errorf(
+				"legacy journal migration physical authority is unavailable",
+			)
+		}
 		return execute.ExecuteJournalCleanupWithOptions(
 			ctx,
 			cleanup,
@@ -236,8 +244,10 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 				RecoveryDir: effectPaths.RecoveryDir,
 			},
 			execute.JournalCleanupOptions{
-				ValidateBeforeEffects: validateCurrentAuthority,
-				Filesystem:            storagecommit.Adapter{},
+				ValidateBeforeEffects:  validateCurrentAuthority,
+				Filesystem:             storagecommit.Adapter{},
+				LegacyJournalAuthority: legacyAuthority,
+				StateCodec:             statefile.Codec{},
 			},
 		)
 	default:

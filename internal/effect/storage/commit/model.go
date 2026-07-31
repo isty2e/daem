@@ -346,6 +346,17 @@ func validateExpectedIdentity(path string, expected EntryIdentity, kind entryKin
 }
 
 func validateCommitPath(path string) error {
+	if err := validateRootedPath(path); err != nil {
+		return err
+	}
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
+		return fmt.Errorf("path uses a reserved storage commit name")
+	}
+	return nil
+}
+
+func validateRootedPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
@@ -360,10 +371,6 @@ func validateCommitPath(path string) error {
 	}
 	if filepath.Dir(path) == path {
 		return fmt.Errorf("filesystem root is not a valid commit path")
-	}
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
-		return fmt.Errorf("path uses a reserved storage commit name")
 	}
 	return nil
 }
@@ -396,7 +403,7 @@ func rootedCapabilityPath(capability rootedpath.CommitCapability) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := validateCommitPath(path); err != nil {
+	if err := validateRootedPath(path); err != nil {
 		return "", err
 	}
 	return path, nil

@@ -5,8 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -22,6 +20,7 @@ type retirementStart uint8
 const (
 	retirementStartInvalid retirementStart = iota
 	retirementStartActive
+	retirementStartLegacy
 	retirementStartPrepared
 	retirementStartFinalizingWithResidue
 	retirementStartFinalizingWithoutResidue
@@ -31,6 +30,8 @@ type retirementExecution struct {
 	record             retirement.Record
 	activePath         string
 	activeAuthority    ActiveJournalAuthority
+	legacyPath         string
+	legacyAuthority    LegacyJournalAuthority
 	journalFingerprint string
 	start              retirementStart
 }
@@ -43,17 +44,30 @@ func (execution retirementExecution) valid() bool {
 	case retirementStartActive:
 		return execution.activePath != "" &&
 			execution.activeAuthority.valid() &&
+			execution.legacyPath == "" &&
+			!execution.legacyAuthority.valid() &&
+			execution.journalFingerprint != "" &&
+			execution.record.Phase() == retirement.PhasePrepared
+	case retirementStartLegacy:
+		return execution.activePath == "" &&
+			!execution.activeAuthority.valid() &&
+			execution.legacyPath != "" &&
+			execution.legacyAuthority.valid() &&
 			execution.journalFingerprint != "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartPrepared:
 		return execution.activePath == "" &&
 			!execution.activeAuthority.valid() &&
+			execution.legacyPath == "" &&
+			!execution.legacyAuthority.valid() &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartFinalizingWithResidue,
 		retirementStartFinalizingWithoutResidue:
 		return execution.activePath == "" &&
 			!execution.activeAuthority.valid() &&
+			execution.legacyPath == "" &&
+			!execution.legacyAuthority.valid() &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhaseFinalizing
 	default:
@@ -61,12 +75,9 @@ func (execution retirementExecution) valid() bool {
 	}
 }
 
-func (execution retirementExecution) publishesControl() bool {
-	return execution.start == retirementStartActive
-}
-
 func (execution retirementExecution) advancesPhase() bool {
 	return execution.start == retirementStartActive ||
+		execution.start == retirementStartLegacy ||
 		execution.start == retirementStartPrepared
 }
 
@@ -74,9 +85,15 @@ func (execution retirementExecution) hasResidue() bool {
 	return execution.start != retirementStartFinalizingWithoutResidue
 }
 
+func (execution retirementExecution) migratesLegacy() bool {
+	return execution.start == retirementStartLegacy
+}
+
 type retirementBindings struct {
 	active       *rootedpath.EntryAuthority
 	activeRecord *rootedpath.EntryAuthority
+	legacy       *rootedpath.EntryAuthority
+	legacyRecord *rootedpath.EntryAuthority
 	control      *rootedpath.EntryAuthority
 	record       *rootedpath.EntryAuthority
 	residue      *rootedpath.EntryAuthority
@@ -166,8 +183,10 @@ func RetireActiveJournal(
 func FinalizeJournalCleanup(
 	ctx context.Context,
 	plan retirement.CleanupPlan,
+	legacyAuthority LegacyJournalAuthority,
 	root *rootedpath.CapturedRoot,
 	filesystem mutationfs.RootedStore,
+	stateCodec durable.SnapshotCodec,
 ) error {
 	if filesystem == nil {
 		return fmt.Errorf("journal cleanup filesystem is required")
@@ -180,17 +199,43 @@ func FinalizeJournalCleanup(
 	if err != nil {
 		return err
 	}
+	if authority.RequiresLegacyMigration() {
+		if err := legacyAuthority.Validate(); err != nil {
+			return err
+		}
+		if stateCodec == nil {
+			return fmt.Errorf("legacy journal migration state codec is required")
+		}
+	} else if legacyAuthority.valid() {
+		return fmt.Errorf(
+			"journal cleanup received unexpected legacy physical authority",
+		)
+	}
 
 	start := retirementStartFinalizingWithoutResidue
 	switch {
+	case authority.RequiresLegacyMigration():
+		start = retirementStartLegacy
 	case authority.RequiresPhaseAdvance():
 		start = retirementStartPrepared
 	case authority.ResiduePresent():
 		start = retirementStartFinalizingWithResidue
 	}
+	rootAuthority, err := root.Authority()
+	if err != nil {
+		return fmt.Errorf("read journal cleanup root authority: %w", err)
+	}
 	execution := retirementExecution{
 		record: record,
 		start:  start,
+	}
+	if authority.RequiresLegacyMigration() {
+		execution.legacyPath = filepath.Join(
+			rootAuthority.PhysicalRoot(),
+			authority.LegacyTombstoneName(),
+		)
+		execution.legacyAuthority = legacyAuthority
+		execution.journalFingerprint = authority.JournalAuthorityFingerprint()
 	}
 	bindings, err := bindRetirement(
 		root,
@@ -200,7 +245,7 @@ func FinalizeJournalCleanup(
 		return err
 	}
 	defer bindings.close()
-	return executeRetirement(ctx, filesystem, nil, execution, bindings)
+	return executeRetirement(ctx, filesystem, stateCodec, execution, bindings)
 }
 
 func bindRetirement(
@@ -219,6 +264,8 @@ func bindRetirement(
 	paths := struct {
 		active       string
 		activeRecord string
+		legacy       string
+		legacyRecord string
 		control      string
 		record       string
 		residue      string
@@ -226,6 +273,8 @@ func bindRetirement(
 	}{
 		active:       execution.activePath,
 		activeRecord: filepath.Join(execution.activePath, recoveryJournalFileName),
+		legacy:       execution.legacyPath,
+		legacyRecord: filepath.Join(execution.legacyPath, recoveryJournalFileName),
 		control:      filepath.Join(recoveryRoot, identity.ControlName()),
 		record:       filepath.Join(recoveryRoot, identity.ControlName(), retirement.RecordFileName),
 		residue:      filepath.Join(recoveryRoot, identity.ResidueName()),
@@ -245,6 +294,22 @@ func bindRetirement(
 		if err != nil {
 			return retirementBindings{}, errors.Join(
 				fmt.Errorf("bind active recovery journal record: %w", err),
+				bindings.close(),
+			)
+		}
+	}
+	if paths.legacy != "" {
+		bindings.legacy, err = bind(paths.legacy)
+		if err != nil {
+			return retirementBindings{}, errors.Join(
+				fmt.Errorf("bind legacy journal tombstone: %w", err),
+				bindings.close(),
+			)
+		}
+		bindings.legacyRecord, err = bind(paths.legacyRecord)
+		if err != nil {
+			return retirementBindings{}, errors.Join(
+				fmt.Errorf("bind legacy journal tombstone record: %w", err),
 				bindings.close(),
 			)
 		}
@@ -292,7 +357,7 @@ func executeRetirement(
 	if !execution.valid() {
 		return fmt.Errorf("journal retirement execution is uninitialized")
 	}
-	if execution.publishesControl() {
+	if execution.start == retirementStartActive {
 		activeCapability, activeIdentity, err := captureRetirementEntry(
 			ctx,
 			filesystem,
@@ -317,12 +382,13 @@ func executeRetirement(
 		if err := ensurePreparedControl(ctx, filesystem, execution.record, bindings); err != nil {
 			return err
 		}
-		if err := requireActiveJournalFingerprint(
+		if err := requireJournalFingerprint(
 			ctx,
 			filesystem,
 			bindings.activeRecord,
 			execution.journalFingerprint,
 			stateCodec,
+			"active recovery journal",
 		); err != nil {
 			return err
 		}
@@ -334,6 +400,62 @@ func executeRetirement(
 			activeIdentity,
 			execution.record.Identity().ResidueName(),
 			"active recovery journal",
+		); err != nil {
+			return err
+		}
+	}
+	if execution.migratesLegacy() {
+		legacyCapability, legacyIdentity, err := captureRetirementEntry(
+			ctx,
+			filesystem,
+			bindings.legacy,
+			"legacy journal tombstone",
+		)
+		if err != nil {
+			return err
+		}
+		if !execution.legacyAuthority.matches(legacyIdentity) {
+			return errors.Join(
+				fmt.Errorf(
+					"legacy journal tombstone identity changed before migration",
+				),
+				legacyCapability.Close(),
+			)
+		}
+		legacyCapabilityOpen := true
+		defer func() {
+			if legacyCapabilityOpen {
+				_ = legacyCapability.Close()
+			}
+		}()
+		if err := requireRetirementResidueTree(
+			ctx,
+			filesystem,
+			bindings.legacy,
+		); err != nil {
+			return fmt.Errorf("verify legacy journal tombstone before migration: %w", err)
+		}
+		if err := ensurePreparedControl(ctx, filesystem, execution.record, bindings); err != nil {
+			return err
+		}
+		if err := requireJournalFingerprint(
+			ctx,
+			filesystem,
+			bindings.legacyRecord,
+			execution.journalFingerprint,
+			stateCodec,
+			"legacy journal tombstone",
+		); err != nil {
+			return err
+		}
+		legacyCapabilityOpen = false
+		if err := renameCapturedRetirementEntry(
+			ctx,
+			filesystem,
+			legacyCapability,
+			legacyIdentity,
+			execution.record.Identity().ResidueName(),
+			"legacy journal tombstone",
 		); err != nil {
 			return err
 		}
@@ -398,59 +520,6 @@ func executeRetirement(
 		return fmt.Errorf("journal retirement committed; hidden GC cleanup incomplete: %w", err)
 	}
 	return nil
-}
-
-func requireActiveJournalFingerprint(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	expected string,
-	stateCodec durable.SnapshotCodec,
-) error {
-	if authority == nil {
-		return fmt.Errorf("active recovery journal record authority is required")
-	}
-	if expected == "" {
-		return fmt.Errorf("active recovery journal fingerprint is required")
-	}
-	if stateCodec == nil {
-		return fmt.Errorf("active recovery journal state codec is required")
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return err
-	}
-	content, mode, identity, readErr := filesystem.ReadRootedRegularFileUpTo(
-		ctx,
-		capability,
-		maximumRecoveryJournalBytes,
-	)
-	if readErr != nil {
-		return errors.Join(readErr, capability.Close())
-	}
-	snapshot, err := mutationfs.NewRegularFileSnapshot(content, mode, identity)
-	if err != nil {
-		return errors.Join(err, capability.Close())
-	}
-	journal, err := decodeRecoveryJournalSnapshot(
-		snapshot,
-		recoveryJournalFileName,
-		stateCodec,
-	)
-	if err != nil {
-		return errors.Join(err, capability.Close())
-	}
-	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, stateCodec)
-	if err != nil {
-		return errors.Join(err, capability.Close())
-	}
-	if fingerprint != expected {
-		return errors.Join(
-			fmt.Errorf("active recovery journal changed before retirement"),
-			capability.Close(),
-		)
-	}
-	return capability.Close()
 }
 
 func ensurePreparedControl(
@@ -560,197 +629,6 @@ func advanceRetirementRecord(
 		)
 	}
 	return nil
-}
-
-type retirementControlSnapshotSink struct {
-	expected      retirement.Record
-	controlName   string
-	rootSeen      bool
-	rootMode      fs.FileMode
-	children      []retirement.EntryEvidence
-	recordContent []byte
-	failure       error
-}
-
-func (sink *retirementControlSnapshotSink) VisitRoot(mode fs.FileMode) error {
-	sink.rootSeen = true
-	sink.rootMode = mode.Perm()
-	return nil
-}
-
-func (sink *retirementControlSnapshotSink) VisitDirectory(
-	path mutationfs.TreeRelativePath,
-	mode fs.FileMode,
-) error {
-	return fmt.Errorf(
-		"journal retirement control contains unexpected directory %q with mode %04o",
-		path.Path(),
-		mode.Perm(),
-	)
-}
-
-func (sink *retirementControlSnapshotSink) VisitRegularFile(
-	path mutationfs.TreeRelativePath,
-	mode fs.FileMode,
-	size int64,
-	content io.Reader,
-) error {
-	if size > retirement.MaximumRecordBytes {
-		return fmt.Errorf(
-			"journal retirement control file %q exceeds %d bytes",
-			path.Path(),
-			retirement.MaximumRecordBytes,
-		)
-	}
-	evidence, err := retirement.NewEntryEvidence(
-		path.Path(),
-		retirement.EntryRegular,
-		mode.Perm(),
-		true,
-		size,
-	)
-	if err != nil {
-		sink.failure = errors.Join(sink.failure, err)
-	}
-	sink.children = append(sink.children, evidence)
-
-	if path.Path() == retirement.RecordFileName {
-		limited := io.LimitReader(content, retirement.MaximumRecordBytes+1)
-		value, readErr := io.ReadAll(limited)
-		if readErr != nil {
-			return readErr
-		}
-		sink.recordContent = value
-	}
-	if _, err := io.Copy(io.Discard, content); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (sink *retirementControlSnapshotSink) validate() error {
-	if sink.failure != nil {
-		return sink.failure
-	}
-	if !sink.rootSeen {
-		return fmt.Errorf("journal retirement control root is missing")
-	}
-	directory, err := retirement.NewEntryEvidence(
-		sink.controlName,
-		retirement.EntryDirectory,
-		sink.rootMode,
-		true,
-		0,
-	)
-	if err != nil {
-		return err
-	}
-	control, err := retirement.ValidateControl(retirement.ControlEvidence{
-		Directory:     directory,
-		Children:      sink.children,
-		RecordContent: sink.recordContent,
-	})
-	if err != nil {
-		return err
-	}
-	if !control.Record().Equal(sink.expected) {
-		return fmt.Errorf("journal retirement record changed")
-	}
-	return nil
-}
-
-func requireRetirementControl(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	expected retirement.Record,
-) error {
-	if authority == nil {
-		return fmt.Errorf("journal retirement control authority is required")
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return err
-	}
-	sink := &retirementControlSnapshotSink{
-		expected:    expected,
-		controlName: expected.Identity().ControlName(),
-	}
-	_, snapshotErr := filesystem.SnapshotRootedDirectory(
-		ctx,
-		capability,
-		retirementControlTraversalLimits(),
-		sink,
-	)
-	return errors.Join(snapshotErr, sink.validate(), capability.Close())
-}
-
-func requireRetirementResidueTree(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-) error {
-	if authority == nil {
-		return fmt.Errorf("journal retirement residue authority is required")
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return err
-	}
-	_, validateErr := filesystem.ValidateRootedDirectoryTree(
-		ctx,
-		capability,
-		recoveryTreeTraversalLimits(),
-	)
-	return errors.Join(validateErr, capability.Close())
-}
-
-func readRetirementRecord(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	expected retirement.Record,
-) (
-	rootedpath.CommitCapability,
-	mutationfs.EntryIdentity,
-	error,
-) {
-	if authority == nil {
-		return nil, nil, fmt.Errorf("journal retirement record authority is required")
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return nil, nil, err
-	}
-	content, mode, identity, err := filesystem.ReadRootedRegularFileUpTo(
-		ctx,
-		capability,
-		retirement.MaximumRecordBytes,
-	)
-	if err != nil {
-		return nil, nil, errors.Join(err, capability.Close())
-	}
-	if mode != retirement.RecordMode {
-		return nil, nil, errors.Join(
-			fmt.Errorf(
-				"journal retirement record mode is %04o, want %04o",
-				mode.Perm(),
-				retirement.RecordMode,
-			),
-			capability.Close(),
-		)
-	}
-	observed, err := retirement.Decode(content)
-	if err != nil {
-		return nil, nil, errors.Join(err, capability.Close())
-	}
-	if !observed.Equal(expected) {
-		return nil, nil, errors.Join(
-			fmt.Errorf("journal retirement record changed"),
-			capability.Close(),
-		)
-	}
-	return capability, identity, nil
 }
 
 func renameRetirementEntry(
@@ -868,6 +746,8 @@ func (bindings *retirementBindings) close() error {
 	for _, authority := range []*rootedpath.EntryAuthority{
 		bindings.active,
 		bindings.activeRecord,
+		bindings.legacy,
+		bindings.legacyRecord,
 		bindings.control,
 		bindings.record,
 		bindings.residue,

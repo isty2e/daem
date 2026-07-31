@@ -815,6 +815,7 @@ authoring or `unmanage` write.
 | `needs_rollback` | The interrupted operation can be restored to its pre-operation state from verified journal evidence. |
 | `needs_finalize` | Host paths and state are committed, but prepared ownership claims still need finalization. |
 | `retained_cleanup_residue` | The active journal is already retired; only its exact correlated retirement residue and control remain to be finalized. |
+| `legacy_tombstone_migration` | One validated v0.1 tombstone can be converted into canonical cleanup residue without touching host, statefile, or ownership data. |
 | `blocked` | Current evidence cannot be safely reconciled with either legal operation state. |
 
 Active-journal recovery validates guarded host and statefile observations,
@@ -830,9 +831,11 @@ For active recovery, default output shows classification, operation identity,
 every action, destination/content subject, blocker, and recovery limitation.
 It omits backup paths/hashes and journal layout; `--verbose` adds operation
 directory, backup facts, reasons, and action detail. Cleanup-only output shows
-only `retained_cleanup_residue`, the operation identity,
-`finalize_journal_cleanup`, and the no-host/state/ownership limitation. It does
-not expose private control, residue, or GC paths, including in verbose mode.
+`retained_cleanup_residue` with `finalize_journal_cleanup`, or
+`legacy_tombstone_migration` with `migrate_legacy_journal_tombstone`, plus the
+operation identity and no-host/state/ownership limitation. The disclosed
+cleanup plan and action payload do not expose private tombstone, control,
+residue, or GC paths, including in verbose mode.
 
 Recovery JSON schema version is `4` for both `--dry-run --json` and
 `--yes --json`. Every result declares `authority_kind` as `active_journal` or
@@ -843,9 +846,10 @@ complete `targets` consumer set, and `content_kind` without inventing a primary
 target. Entity-backed projection subjects also report the correlated resource
 identity for user-facing attribution.
 
-Cleanup-only output contains the operation id, classification
-`retained_cleanup_residue`, and exactly one action whose only field is
-`kind = "finalize_journal_cleanup"`. It omits `operation_dir` and all
+Cleanup-only output contains the operation id, its cleanup classification, and
+exactly one action whose only field is either
+`kind = "finalize_journal_cleanup"` or
+`kind = "migrate_legacy_journal_tombstone"`. It omits `operation_dir` and all
 resource, subject, target, scope, destination, content, backup, and detail
 fields instead of emitting synthetic empty active-plan placeholders.
 

@@ -202,6 +202,24 @@ Review the dry-run and rerun recovery; do not delete hidden residue or the
 visible retirement control manually. A stale, replaced, malformed, or
 cross-paired artifact is intentionally refused instead of being guessed safe.
 
+If the plan reports `legacy_tombstone_migration`, daem found one invoking-user
+owned v0.1 `.daem-tombstone-<32 lowercase hex>` directory with mode `0700`, a
+bounded no-follow tree that stays on the selected filesystem, and a complete
+valid v7 `journal.json` with mode `0600`. Review the dry-run and rerun recovery.
+Daem derives the operation identity from journal content, publishes correlated
+control, revalidates the selected directory and journal, then converts it to
+canonical cleanup residue. It does not infer identity from the random suffix
+or touch host, statefile, or ownership data during this migration.
+
+Short, uppercase, malformed, non-private, unreadable, invalid, multiple, or
+conflicting tombstones are not automatic migration candidates. Trees that
+cross a mount boundary, contain special files, exceed traversal bounds, or
+contain entries owned by another user are also rejected. Do not rename one to
+make it match or delete it merely from its prefix. Preserve a copy of the
+recovery root and inspect the journal and conflicting retirement evidence.
+Remove an artifact manually only after independently proving that no recovery
+or backup data is still required.
+
 If a command reports `journal retirement committed; hidden GC cleanup
 incomplete`, the journal residue was already removed and its absence made
 durable. A private GC directory may remain with retirement-control metadata,

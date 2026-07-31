@@ -11,6 +11,7 @@ type layoutInput struct {
 	Active   []Identity
 	Controls []Control
 	Residues []Residue
+	Legacy   []LegacyResidue
 	Garbage  []Garbage
 	Blockers []Blocker
 }
@@ -351,6 +352,46 @@ func TestValidateResidueRequiresPrivateEntryAndIndependentJournalIdentity(t *tes
 	}
 }
 
+func TestValidateLegacyResidueRequiresReleasedNameAndIndependentJournalIdentity(t *testing.T) {
+	identity := mustIdentity(t, testOperationID, testFingerprint)
+	legacyName := ".daem-tombstone-" + strings.Repeat("a", 32)
+	legacy, err := ValidateLegacyResidue(mustEntry(
+		t,
+		legacyName,
+		EntryDirectory,
+		DirectoryMode,
+		true,
+		0,
+	), identity)
+	if err != nil {
+		t.Fatalf("ValidateLegacyResidue returned error: %v", err)
+	}
+	if legacy.name.value != legacyName ||
+		!legacy.journalIdentity.equal(identity) {
+		t.Fatalf("legacy residue = %#v, want exact identity %#v", legacy, identity)
+	}
+
+	tests := []EntryEvidence{
+		mustEntry(t, ".daem-tombstone-short", EntryDirectory, DirectoryMode, true, 0),
+		mustEntry(t, legacyName, EntrySymlink, DirectoryMode, true, 0),
+		mustEntry(t, legacyName, EntryDirectory, 0o755, true, 0),
+		mustEntry(t, legacyName, EntryDirectory, DirectoryMode, false, 0),
+	}
+	for index, evidence := range tests {
+		t.Run(fmt.Sprintf("reject_%d", index), func(t *testing.T) {
+			if _, err := ValidateLegacyResidue(evidence, identity); err == nil {
+				t.Fatalf("ValidateLegacyResidue(%#v) succeeded", evidence)
+			}
+		})
+	}
+	if _, err := ValidateLegacyResidue(
+		mustEntry(t, legacyName, EntryDirectory, DirectoryMode, true, 0),
+		Identity{},
+	); err == nil {
+		t.Fatal("ValidateLegacyResidue accepted uninitialized journal identity")
+	}
+}
+
 func TestValidatePartialResidueCarriesNoIndependentJournalProof(t *testing.T) {
 	identity := mustIdentity(t, testOperationID, testFingerprint)
 	residue, err := ValidatePartialResidue(mustEntry(
@@ -423,6 +464,7 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 	finalizing := mustControl(t, mustRecord(t, testOperationID, testFingerprint, PhaseFinalizing))
 	residue := mustResidue(t, identity)
 	partialResidue := mustPartialResidue(t, identity)
+	legacy := mustLegacyResidue(t, identity, "a")
 	gc := mustGarbage(t, identity.GCName())
 	otherGC := mustGarbage(t, other.GCName())
 
@@ -433,6 +475,7 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 		hasCleanup      bool
 		residuePresent  bool
 		requiresAdvance bool
+		legacyMigration bool
 	}{
 		{name: "clean", state: StateClean},
 		{name: "finalized", evidence: layoutInput{Garbage: []Garbage{gc}}, state: StateFinalized},
@@ -498,6 +541,27 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 			state:      StateFinalizing,
 			hasCleanup: true,
 		},
+		{
+			name: "legacy migration",
+			evidence: layoutInput{
+				Legacy: []LegacyResidue{legacy},
+			},
+			state:           StateLegacyMigration,
+			hasCleanup:      true,
+			requiresAdvance: true,
+			legacyMigration: true,
+		},
+		{
+			name: "prepared legacy migration",
+			evidence: layoutInput{
+				Controls: []Control{prepared},
+				Legacy:   []LegacyResidue{legacy},
+			},
+			state:           StateLegacyPrepared,
+			hasCleanup:      true,
+			requiresAdvance: true,
+			legacyMigration: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -513,10 +577,16 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 			if !hasCleanup {
 				return
 			}
-			if plan.Classification() != ClassificationRetainedCleanupResidue {
+			wantClassification := ClassificationRetainedCleanupResidue
+			wantAction := ActionFinalizeJournalCleanup
+			if test.legacyMigration {
+				wantClassification = ClassificationLegacyTombstoneMigration
+				wantAction = ActionMigrateLegacyJournalTombstone
+			}
+			if plan.Classification() != wantClassification {
 				t.Fatalf("classification = %q", plan.Classification())
 			}
-			if plan.Action() != ActionFinalizeJournalCleanup {
+			if plan.Action() != wantAction {
 				t.Fatalf("action = %q", plan.Action())
 			}
 			authority := plan.Authority()
@@ -532,6 +602,21 @@ func TestClassifyAdmittedStatesAndCleanupAuthority(t *testing.T) {
 			}
 			if authority.RequiresPhaseAdvance() != test.requiresAdvance {
 				t.Fatalf("RequiresPhaseAdvance = %t, want %t", authority.RequiresPhaseAdvance(), test.requiresAdvance)
+			}
+			if authority.RequiresLegacyMigration() != test.legacyMigration {
+				t.Fatalf(
+					"RequiresLegacyMigration = %t, want %t",
+					authority.RequiresLegacyMigration(),
+					test.legacyMigration,
+				)
+			}
+			if test.legacyMigration &&
+				authority.LegacyTombstoneName() != legacy.name.value {
+				t.Fatalf(
+					"LegacyTombstoneName = %q, want %q",
+					authority.LegacyTombstoneName(),
+					legacy.name.value,
+				)
 			}
 			currentRecord, err := authority.CurrentRecord()
 			if err != nil {
@@ -563,6 +648,8 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 	residue := mustResidue(t, identity)
 	partialResidue := mustPartialResidue(t, identity)
 	otherResidue := mustResidue(t, other)
+	legacy := mustLegacyResidue(t, identity, "a")
+	otherLegacy := mustLegacyResidue(t, other, "b")
 	gc := mustGarbage(t, identity.GCName())
 
 	tests := []struct {
@@ -580,6 +667,10 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 		{
 			name:     "multiple residues",
 			evidence: layoutInput{Residues: []Residue{residue, otherResidue}},
+		},
+		{
+			name:     "multiple legacy tombstones",
+			evidence: layoutInput{Legacy: []LegacyResidue{legacy, otherLegacy}},
 		},
 		{
 			name: "active control mismatch",
@@ -611,6 +702,13 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 			},
 		},
 		{
+			name: "active and legacy tombstone",
+			evidence: layoutInput{
+				Active: []Identity{identity},
+				Legacy: []LegacyResidue{legacy},
+			},
+		},
+		{
 			name:     "prepared control without residue",
 			evidence: layoutInput{Controls: []Control{prepared}},
 		},
@@ -629,6 +727,27 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 			},
 		},
 		{
+			name: "prepared control legacy mismatch",
+			evidence: layoutInput{
+				Controls: []Control{prepared},
+				Legacy:   []LegacyResidue{otherLegacy},
+			},
+		},
+		{
+			name: "finalizing control with legacy",
+			evidence: layoutInput{
+				Controls: []Control{finalizing},
+				Legacy:   []LegacyResidue{legacy},
+			},
+		},
+		{
+			name: "canonical residue and legacy",
+			evidence: layoutInput{
+				Residues: []Residue{residue},
+				Legacy:   []LegacyResidue{legacy},
+			},
+		},
+		{
 			name:     "residue without control",
 			evidence: layoutInput{Residues: []Residue{residue}},
 		},
@@ -644,6 +763,13 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 			evidence: layoutInput{
 				Residues: []Residue{residue},
 				Garbage:  []Garbage{gc},
+			},
+		},
+		{
+			name: "legacy and matching GC",
+			evidence: layoutInput{
+				Legacy:  []LegacyResidue{legacy},
+				Garbage: []Garbage{gc},
 			},
 		},
 		{
@@ -671,6 +797,12 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 			},
 		},
 		{
+			name: "uninitialized legacy",
+			evidence: layoutInput{
+				Legacy: []LegacyResidue{{}},
+			},
+		},
+		{
 			name: "uninitialized GC",
 			evidence: layoutInput{
 				Garbage: []Garbage{{}},
@@ -693,10 +825,16 @@ func TestClassifyBlocksUnadmittedStateCrossProducts(t *testing.T) {
 }
 
 func TestBlockerForNameFailsClosedOnlyForReservedEvidence(t *testing.T) {
-	legacy := InspectName(".daem-tombstone-orphan")
+	legacy := InspectName(".daem-tombstone-" + strings.Repeat("a", 32))
 	blocker, ok := BlockerForName(legacy)
-	if !ok || !strings.Contains(blocker.detail, "manual remediation") {
-		t.Fatalf("legacy blocker = %#v, %t", blocker, ok)
+	if ok {
+		t.Fatalf("valid legacy migration candidate produced blocker %#v", blocker)
+	}
+
+	malformedLegacy := InspectName(".daem-tombstone-orphan")
+	if blocker, ok = BlockerForName(malformedLegacy); !ok ||
+		!strings.Contains(blocker.detail, "malformed") {
+		t.Fatalf("malformed legacy blocker = %#v, %t", blocker, ok)
 	}
 
 	malformed := InspectName("retirement-v1-short")
@@ -770,7 +908,7 @@ func TestZeroAndForgedDecisionsFailClosed(t *testing.T) {
 func TestLayoutEvidenceOwnsBoundarySlices(t *testing.T) {
 	identity := mustIdentity(t, testOperationID, testFingerprint)
 	active := []Identity{identity}
-	evidence := NewLayoutEvidence(active, nil, nil, nil, nil)
+	evidence := NewLayoutEvidence(active, nil, nil, nil, nil, nil)
 	active[0] = Identity{}
 
 	decision := Classify(evidence)
@@ -826,6 +964,7 @@ func completeLayout(input layoutInput) LayoutEvidence {
 		input.Active,
 		input.Controls,
 		input.Residues,
+		input.Legacy,
 		input.Garbage,
 		input.Blockers,
 	)
@@ -897,6 +1036,27 @@ func mustPartialResidue(t *testing.T, identity Identity) Residue {
 		t.Fatalf("ValidatePartialResidue returned error: %v", err)
 	}
 	return residue
+}
+
+func mustLegacyResidue(
+	t *testing.T,
+	identity Identity,
+	digestCharacter string,
+) LegacyResidue {
+	t.Helper()
+
+	legacy, err := ValidateLegacyResidue(mustEntry(
+		t,
+		".daem-tombstone-"+strings.Repeat(digestCharacter, 32),
+		EntryDirectory,
+		DirectoryMode,
+		true,
+		0,
+	), identity)
+	if err != nil {
+		t.Fatalf("ValidateLegacyResidue returned error: %v", err)
+	}
+	return legacy
 }
 
 func mustGarbage(t *testing.T, name string) Garbage {

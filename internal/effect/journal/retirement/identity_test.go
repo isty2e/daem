@@ -106,7 +106,9 @@ func TestInspectNameClassifiesReservedAndUnrelatedNames(t *testing.T) {
 		{name: "retirement-v2-" + testDigest, kind: nameMalformed, isReserved: true},
 		{name: ".daem-journal-residue-v1-" + strings.ToUpper(testDigest), kind: nameMalformed, isReserved: true},
 		{name: ".daem-journal-gc-v2-" + testDigest, kind: nameMalformed, isReserved: true},
-		{name: ".daem-tombstone-legacy", kind: nameLegacyTombstone, isReserved: true},
+		{name: ".daem-tombstone-" + strings.Repeat("a", 32), kind: NameLegacyTombstone, isReserved: true},
+		{name: ".daem-tombstone-legacy", kind: nameMalformed, isReserved: true},
+		{name: ".daem-tombstone-" + strings.Repeat("A", 32), kind: nameMalformed, isReserved: true},
 		{name: ".unrelated-hidden", kind: NameUnrelated},
 		{name: "ordinary-operation", kind: NameUnrelated},
 	}

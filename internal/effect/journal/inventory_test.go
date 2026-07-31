@@ -61,6 +61,29 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			want: retirement.StatePrepared,
 		},
 		{
+			name: "legacy migration",
+			setup: func(t *testing.T, root string) retirement.Identity {
+				t.Helper()
+				identity, result := captureInventoryJournal(t, root, "inventory-legacy")
+				renameInventoryJournalToLegacy(t, result, "a")
+				return identity
+			},
+			want:        retirement.StateLegacyMigration,
+			wantCleanup: true,
+		},
+		{
+			name: "prepared legacy migration",
+			setup: func(t *testing.T, root string) retirement.Identity {
+				t.Helper()
+				identity, result := captureInventoryJournal(t, root, "inventory-legacy-prepared")
+				writeInventoryControl(t, root, identity, retirement.PhasePrepared)
+				renameInventoryJournalToLegacy(t, result, "b")
+				return identity
+			},
+			want:        retirement.StateLegacyPrepared,
+			wantCleanup: true,
+		},
+		{
 			name: "retained",
 			setup: func(t *testing.T, root string) retirement.Identity {
 				t.Helper()
@@ -195,11 +218,93 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 		allowLoad bool
 	}{
 		{
-			name: "legacy tombstone",
+			name: "malformed legacy tombstone",
 			setup: func(t *testing.T, root string) {
 				mkdirPrivate(t, filepath.Join(root, ".daem-tombstone-legacy"))
 			},
-			want: "manual remediation",
+			want: "malformed reserved",
+		},
+		{
+			name: "legacy tombstone symlink",
+			setup: func(t *testing.T, root string) {
+				mkdirPrivate(t, root)
+				if err := os.Symlink(
+					"missing",
+					filepath.Join(
+						root,
+						".daem-tombstone-"+strings.Repeat("a", 32),
+					),
+				); err != nil {
+					t.Fatalf("create legacy tombstone symlink: %v", err)
+				}
+			},
+			want: "must be a no-follow directory",
+		},
+		{
+			name: "legacy tombstone wrong mode",
+			setup: func(t *testing.T, root string) {
+				_, result := captureInventoryJournal(t, root, "legacy-wrong-mode")
+				legacy := renameInventoryJournalToLegacy(t, result, "b")
+				if err := os.Chmod(legacy, 0o755); err != nil {
+					t.Fatalf("change legacy tombstone mode: %v", err)
+				}
+			},
+			want: "permissions are 0755, want 0700",
+		},
+		{
+			name: "legacy tombstone invalid journal",
+			setup: func(t *testing.T, root string) {
+				_, result := captureInventoryJournal(t, root, "legacy-invalid-journal")
+				legacy := renameInventoryJournalToLegacy(t, result, "c")
+				writePrivateFile(
+					t,
+					filepath.Join(legacy, recoveryJournalFileName),
+					[]byte(`{"schema_version":7}`),
+				)
+			},
+			want: "unsupported recovery journal version 0",
+		},
+		{
+			name: "multiple legacy tombstones",
+			setup: func(t *testing.T, root string) {
+				_, first := captureInventoryJournal(t, root, "legacy-multiple-first")
+				renameInventoryJournalToLegacy(t, first, "d")
+				otherRoot := filepath.Join(filepath.Dir(root), "other-recovery")
+				_, second := captureInventoryJournal(
+					t,
+					otherRoot,
+					"legacy-multiple-second",
+				)
+				otherLegacy := renameInventoryJournalToLegacy(t, second, "e")
+				if err := os.Rename(
+					otherLegacy,
+					filepath.Join(root, filepath.Base(otherLegacy)),
+				); err != nil {
+					t.Fatalf("move second legacy tombstone: %v", err)
+				}
+			},
+			want: "multiple legacy journal tombstones",
+		},
+		{
+			name: "prepared control legacy mismatch",
+			setup: func(t *testing.T, root string) {
+				first, firstResult := captureInventoryJournal(
+					t,
+					root,
+					"legacy-control-first",
+				)
+				if err := os.RemoveAll(firstResult.Directory); err != nil {
+					t.Fatalf("remove first active journal: %v", err)
+				}
+				_, secondResult := captureInventoryJournal(
+					t,
+					root,
+					"legacy-control-second",
+				)
+				writeInventoryControl(t, root, first, retirement.PhasePrepared)
+				renameInventoryJournalToLegacy(t, secondResult, "f")
+			},
+			want: "does not match its retirement control",
 		},
 		{
 			name: "foreign visible file",
@@ -475,6 +580,23 @@ func renameInventoryJournalToResidue(
 		t.Fatalf("rename active journal to residue: %v", err)
 	}
 	return residue
+}
+
+func renameInventoryJournalToLegacy(
+	t *testing.T,
+	result CaptureResult,
+	digestCharacter string,
+) string {
+	t.Helper()
+
+	legacy := filepath.Join(
+		filepath.Dir(result.Directory),
+		".daem-tombstone-"+strings.Repeat(digestCharacter, 32),
+	)
+	if err := os.Rename(result.Directory, legacy); err != nil {
+		t.Fatalf("rename active journal to legacy tombstone: %v", err)
+	}
+	return legacy
 }
 
 func mkdirPrivate(t *testing.T, path string) {

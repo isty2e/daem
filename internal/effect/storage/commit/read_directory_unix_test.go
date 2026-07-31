@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
 
@@ -70,6 +72,46 @@ func TestSnapshotDirectoryReportsImmediateNoFollowFacts(t *testing.T) {
 				expected.size,
 			)
 		}
+	}
+}
+
+func TestSnapshotRootedDirectoryEntriesAdmitsExactReservedArtifact(t *testing.T) {
+	root := canonicalTempDir(t)
+	legacy := filepath.Join(root, ".daem-tombstone-"+strings.Repeat("a", 32))
+	if err := os.Mkdir(legacy, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(legacy, "journal.json"), "{}", 0o600)
+
+	if _, err := SnapshotDirectory(t.Context(), legacy, 16); err == nil {
+		t.Fatal("unrooted snapshot admitted reserved artifact")
+	}
+
+	captured, err := rootedpath.CaptureRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = captured.Close() })
+	authority, err := rootedpath.BindSelectedEntryAuthority(captured, root, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = authority.Close() })
+	capability, err := authority.Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer capability.Close()
+
+	snapshot, err := SnapshotRootedDirectoryEntries(t.Context(), capability, 16)
+	if err != nil {
+		t.Fatalf("SnapshotRootedDirectoryEntries: %v", err)
+	}
+	entries := snapshot.Entries()
+	if len(entries) != 1 ||
+		entries[0].Name() != "journal.json" ||
+		entries[0].Kind() != mutationfs.EntryKindFile {
+		t.Fatalf("entries = %#v, want exact journal entry", entries)
 	}
 }
 

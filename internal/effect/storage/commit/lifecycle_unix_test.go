@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -44,6 +45,43 @@ func TestRootedEntryRenamePublishesExactSiblingAndOutcome(t *testing.T) {
 	assertClosedRootedCapability(t, capability)
 	if _, err := os.Lstat(source); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("source Lstat error = %v, want not exist", err)
+	}
+	assertFile(t, filepath.Join(root, ".retained", "journal.json"), "journal", 0o600)
+}
+
+func TestRootedEntryRenameAdmitsExactReservedSourceWithoutWeakeningUnrootedAPI(
+	t *testing.T,
+) {
+	root := canonicalTempDir(t)
+	sourceName := ".daem-tombstone-" + strings.Repeat("a", 32)
+	source := filepath.Join(root, sourceName)
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatalf("create reserved source: %v", err)
+	}
+	writeTestFile(t, filepath.Join(source, "journal.json"), "journal", 0o600)
+
+	if _, err := CaptureEntryIdentity(t.Context(), source); err == nil {
+		t.Fatal("unrooted identity capture admitted reserved source")
+	}
+
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, sourceName)
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture exact reserved source identity: %v", err)
+	}
+	request, err := NewRootedEntryRename(capability, ".retained", expected)
+	if err != nil {
+		t.Fatalf("NewRootedEntryRename: %v", err)
+	}
+	outcome, err := CommitRootedEntryRename(t.Context(), request)
+	if err != nil {
+		t.Fatalf("CommitRootedEntryRename: %v", err)
+	}
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeComplete)
+	assertClosedRootedCapability(t, capability)
+	if _, err := os.Lstat(source); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("reserved source Lstat error = %v, want not exist", err)
 	}
 	assertFile(t, filepath.Join(root, ".retained", "journal.json"), "journal", 0o600)
 }

@@ -133,6 +133,14 @@ func (Adapter) ReadRootedRegularFileUpTo(
 	return content, mode, identity, err
 }
 
+func (Adapter) SnapshotRootedDirectoryEntries(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	return SnapshotRootedDirectoryEntries(ctx, capability, maximumEntries)
+}
+
 func (Adapter) SnapshotRootedDirectory(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,

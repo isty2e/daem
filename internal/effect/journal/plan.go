@@ -96,8 +96,9 @@ func (plan activeRecoverablePlan) SameExecutionAuthority(other RecoverablePlan) 
 }
 
 type cleanupRecoverablePlan struct {
-	plan      retirement.CleanupPlan
-	inventory recoverableInventoryAuthority
+	plan            retirement.CleanupPlan
+	legacyAuthority LegacyJournalAuthority
+	inventory       recoverableInventoryAuthority
 }
 
 func (cleanupRecoverablePlan) recoverablePlan() {}
@@ -123,6 +124,10 @@ func (plan cleanupRecoverablePlan) SameExecutionAuthority(other RecoverablePlan)
 	typed, ok := other.(cleanupRecoverablePlan)
 	return ok &&
 		plan.plan.SameExecutionAuthority(typed.plan) &&
+		sameOptionalLegacyJournalAuthority(
+			plan.legacyAuthority,
+			typed.legacyAuthority,
+		) &&
 		plan.inventory.equal(typed.inventory)
 }
 
@@ -211,6 +216,20 @@ func JournalCleanupPlan(recoverable RecoverablePlan) (retirement.CleanupPlan, bo
 	return cleanup.plan, true
 }
 
+// LegacyRecoveryJournalAuthority returns planning-time physical evidence only
+// for a validated legacy-tombstone migration.
+func LegacyRecoveryJournalAuthority(
+	recoverable RecoverablePlan,
+) (LegacyJournalAuthority, bool) {
+	cleanup, ok := recoverable.(cleanupRecoverablePlan)
+	if !ok ||
+		!cleanup.plan.Authority().RequiresLegacyMigration() ||
+		!cleanup.legacyAuthority.valid() {
+		return LegacyJournalAuthority{}, false
+	}
+	return cleanup.legacyAuthority, true
+}
+
 // LoadRecoverablePlanWithOptions selects exactly one active-journal or
 // cleanup-only plan from a single stable recovery-root inventory.
 func LoadRecoverablePlanWithOptions(
@@ -257,20 +276,34 @@ func LoadRecoverablePlanWithOptions(
 			physicalAuthority: inventory.active.physicalAuthority,
 			inventory:         authority,
 		}, nil
-	case retirement.StateRetained, retirement.StateFinalizing:
+	case retirement.StateRetained,
+		retirement.StateFinalizing,
+		retirement.StateLegacyMigration,
+		retirement.StateLegacyPrepared:
 		plan, ok := inventory.decision.CleanupPlan()
 		if !ok {
 			return nil, fmt.Errorf(
 				"journal cleanup classification has no cleanup plan",
 			)
 		}
-		authority, err := newRecoverableInventoryAuthority(inventory, true)
+		requireControl := inventory.decision.State() != retirement.StateLegacyMigration
+		authority, err := newRecoverableInventoryAuthority(inventory, requireControl)
 		if err != nil {
 			return nil, err
 		}
+		var legacyAuthority LegacyJournalAuthority
+		if plan.Authority().RequiresLegacyMigration() {
+			if inventory.legacy == nil {
+				return nil, fmt.Errorf(
+					"legacy journal migration classification has no physical authority",
+				)
+			}
+			legacyAuthority = inventory.legacy.physicalAuthority
+		}
 		return cleanupRecoverablePlan{
-			plan:      plan,
-			inventory: authority,
+			plan:            plan,
+			legacyAuthority: legacyAuthority,
+			inventory:       authority,
 		}, nil
 	case retirement.StateBlocked:
 		return nil, fmt.Errorf(

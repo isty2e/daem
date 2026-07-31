@@ -11,20 +11,31 @@ type CleanupClassification string
 type CleanupActionKind string
 
 const (
-	ClassificationRetainedCleanupResidue CleanupClassification = "retained_cleanup_residue"
-	ActionFinalizeJournalCleanup         CleanupActionKind     = "finalize_journal_cleanup"
+	ClassificationRetainedCleanupResidue   CleanupClassification = "retained_cleanup_residue"
+	ClassificationLegacyTombstoneMigration CleanupClassification = "legacy_tombstone_migration"
+	ActionFinalizeJournalCleanup           CleanupActionKind     = "finalize_journal_cleanup"
+	ActionMigrateLegacyJournalTombstone    CleanupActionKind     = "migrate_legacy_journal_tombstone"
 )
 
-// CleanupAuthority carries only exact journal-retirement semantic identity.
-// It grants no filesystem authority by itself.
+// CleanupAuthority carries exact journal-retirement semantic identity and, for
+// legacy migration, the validated source entry name. It carries no physical
+// entry identity or filesystem capability.
 type CleanupAuthority struct {
-	record         Record
-	residuePresent bool
+	record              Record
+	residuePresent      bool
+	legacyTombstoneName string
 }
 
 func (authority CleanupAuthority) valid() bool {
 	if !authority.record.valid() {
 		return false
+	}
+	if authority.legacyTombstoneName != "" {
+		name := InspectName(authority.legacyTombstoneName)
+		return name.kind == NameLegacyTombstone &&
+			name.valid() &&
+			authority.record.phase == PhasePrepared &&
+			!authority.residuePresent
 	}
 	return authority.record.phase != PhasePrepared || authority.residuePresent
 }
@@ -64,6 +75,20 @@ func (authority CleanupAuthority) ResiduePresent() bool {
 	return authority.residuePresent
 }
 
+// RequiresLegacyMigration reports whether cleanup must first convert a
+// validated v0.1 tombstone into the canonical residue namespace.
+func (authority CleanupAuthority) RequiresLegacyMigration() bool {
+	return authority.valid() && authority.legacyTombstoneName != ""
+}
+
+// LegacyTombstoneName returns the exact validated v0.1 source entry.
+func (authority CleanupAuthority) LegacyTombstoneName() string {
+	if !authority.RequiresLegacyMigration() {
+		return ""
+	}
+	return authority.legacyTombstoneName
+}
+
 // RequiresPhaseAdvance reports whether cleanup must first persist finalizing.
 func (authority CleanupAuthority) RequiresPhaseAdvance() bool {
 	return authority.record.phase == PhasePrepared
@@ -80,7 +105,8 @@ func (authority CleanupAuthority) CurrentRecord() (Record, error) {
 func (authority CleanupAuthority) equal(other CleanupAuthority) bool {
 	return authority.valid() && other.valid() &&
 		authority.record.Equal(other.record) &&
-		authority.residuePresent == other.residuePresent
+		authority.residuePresent == other.residuePresent &&
+		authority.legacyTombstoneName == other.legacyTombstoneName
 }
 
 // CleanupPlan is the sole cleanup-only recovery prescription.
@@ -97,6 +123,9 @@ func (plan CleanupPlan) Classification() CleanupClassification {
 	if !plan.valid() {
 		return ""
 	}
+	if plan.authority.RequiresLegacyMigration() {
+		return ClassificationLegacyTombstoneMigration
+	}
 	return ClassificationRetainedCleanupResidue
 }
 
@@ -104,6 +133,9 @@ func (plan CleanupPlan) Classification() CleanupClassification {
 func (plan CleanupPlan) Action() CleanupActionKind {
 	if !plan.valid() {
 		return ""
+	}
+	if plan.authority.RequiresLegacyMigration() {
+		return ActionMigrateLegacyJournalTombstone
 	}
 	return ActionFinalizeJournalCleanup
 }

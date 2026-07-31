@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -29,11 +30,14 @@ func (paths JournalCleanupPaths) validate() error {
 	return nil
 }
 
-// JournalCleanupOptions supplies only the last-safe-point validator and
-// recovery-root filesystem needed by cleanup-only recovery.
+// JournalCleanupOptions supplies only recovery-root effect authority plus the
+// pure codec needed to revalidate a legacy journal before migration. It grants
+// no host, statefile, or ownership read/write authority.
 type JournalCleanupOptions struct {
-	ValidateBeforeEffects func(context.Context) error
-	Filesystem            mutationfs.RootedStore
+	ValidateBeforeEffects  func(context.Context) error
+	Filesystem             mutationfs.RootedStore
+	LegacyJournalAuthority journal.LegacyJournalAuthority
+	StateCodec             durable.SnapshotCodec
 }
 
 // ExecuteJournalCleanupWithOptions finalizes one cleanup-only plan without
@@ -71,5 +75,12 @@ func ExecuteJournalCleanupWithOptions(
 			return err
 		}
 	}
-	return journal.FinalizeJournalCleanup(ctx, plan, root, options.Filesystem)
+	return journal.FinalizeJournalCleanup(
+		ctx,
+		plan,
+		options.LegacyJournalAuthority,
+		root,
+		options.Filesystem,
+		options.StateCodec,
+	)
 }

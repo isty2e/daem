@@ -60,6 +60,11 @@ type RootedReader interface {
 		capability rootedpath.CommitCapability,
 		maximumBytes int64,
 	) ([]byte, fs.FileMode, EntryIdentity, error)
+	SnapshotRootedDirectoryEntries(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		maximumEntries int,
+	) (DirectorySnapshot, error)
 	SnapshotRootedDirectory(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,

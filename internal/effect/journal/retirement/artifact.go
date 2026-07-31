@@ -22,6 +22,47 @@ type Residue struct {
 	proof           residueProof
 }
 
+// LegacyResidue is one released v0.1 tombstone whose exact retirement
+// identity was reproduced independently from its complete journal.
+type LegacyResidue struct {
+	name            Name
+	journalIdentity Identity
+}
+
+// ValidateLegacyResidue correlates a stable released tombstone entry with
+// identity derived from its validated journal content. The random legacy
+// suffix carries no semantic authority.
+func ValidateLegacyResidue(
+	evidence EntryEvidence,
+	journalIdentity Identity,
+) (LegacyResidue, error) {
+	name := InspectName(evidence.name)
+	if name.kind != NameLegacyTombstone {
+		return LegacyResidue{}, fmt.Errorf(
+			"entry %q is not a released legacy journal tombstone name",
+			evidence.name,
+		)
+	}
+	if err := validatePrivateDirectory(evidence, "legacy journal tombstone"); err != nil {
+		return LegacyResidue{}, err
+	}
+	if !journalIdentity.valid() {
+		return LegacyResidue{}, fmt.Errorf(
+			"legacy journal tombstone identity is uninitialized",
+		)
+	}
+	return LegacyResidue{
+		name:            name,
+		journalIdentity: journalIdentity,
+	}, nil
+}
+
+func (residue LegacyResidue) valid() bool {
+	return residue.name.kind == NameLegacyTombstone &&
+		residue.name.valid() &&
+		residue.journalIdentity.valid()
+}
+
 // ValidatePartialResidue validates only the physical residue shape. This form
 // is admissible solely when a durable finalizing control already grants exact
 // cleanup authority.
@@ -115,8 +156,8 @@ func NewBlocker(name string, detail string) (Blocker, error) {
 	return Blocker{name: name, detail: detail}, nil
 }
 
-// BlockerForName maps legacy and malformed reserved names to fail-closed
-// facts. Unrelated hidden names remain unrelated.
+// BlockerForName maps malformed reserved names to fail-closed facts. A valid
+// released legacy tombstone requires content inspection before classification.
 func BlockerForName(name Name) (Blocker, bool) {
 	if !name.valid() {
 		return Blocker{
@@ -125,14 +166,6 @@ func BlockerForName(name Name) (Blocker, bool) {
 		}, true
 	}
 	switch name.kind {
-	case nameLegacyTombstone:
-		return Blocker{
-			name: name.value,
-			detail: fmt.Sprintf(
-				"legacy journal tombstone %q requires manual remediation",
-				name.value,
-			),
-		}, true
 	case nameMalformed:
 		return Blocker{
 			name:   name.value,

@@ -35,7 +35,9 @@ func ensureNoActive(
 	case retirement.StateActive,
 		retirement.StatePrepared,
 		retirement.StateRetained,
-		retirement.StateFinalizing:
+		retirement.StateFinalizing,
+		retirement.StateLegacyMigration,
+		retirement.StateLegacyPrepared:
 		return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
 	case retirement.StateBlocked:
 		return fmt.Errorf("recovery inventory is blocked: %s", inventory.decision.Detail())

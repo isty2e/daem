@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
 
@@ -23,10 +24,47 @@ func SnapshotDirectory(
 	return snapshotDirectoryWithFaults(ctx, path, maximumEntries, faultPlan{})
 }
 
+// SnapshotRootedDirectoryEntries returns a stable immediate-child inventory
+// through exact retained-root authority. Unlike the unrooted path API, the
+// selected final name may belong to a reserved storage namespace.
+func SnapshotRootedDirectoryEntries(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return snapshotDirectoryWithCapability(
+		ctx,
+		path,
+		maximumEntries,
+		capability,
+		faultPlan{},
+	)
+}
+
 func snapshotDirectoryWithFaults(
 	ctx context.Context,
 	path string,
 	maximumEntries int,
+	faults faultPlan,
+) (mutationfs.DirectorySnapshot, error) {
+	return snapshotDirectoryWithCapability(
+		ctx,
+		path,
+		maximumEntries,
+		nil,
+		faults,
+	)
+}
+
+func snapshotDirectoryWithCapability(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+	capability rootedpath.CommitCapability,
 	faults faultPlan,
 ) (mutationfs.DirectorySnapshot, error) {
 	if maximumEntries <= 0 {
@@ -36,13 +74,17 @@ func snapshotDirectoryWithFaults(
 			fmt.Errorf("directory snapshot maximum entries must be positive"),
 		)
 	}
-	if err := validateCommitPath(path); err != nil {
+	if capability == nil {
+		if err := validateCommitPath(path); err != nil {
+			return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, err)
+		}
+	} else if err := validateRootedCapability(path, capability); err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
-	anchor, err := openCommitParent(path, nil, false)
+	anchor, err := openCommitParent(path, capability, false)
 	if anchor != nil {
 		defer anchor.close()
 	}
@@ -68,6 +110,15 @@ func snapshotDirectoryWithFaults(
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}
 	defer unix.Close(directoryFD)
+	if capability != nil {
+		if err := capability.ValidateDirectoryHandle(uintptr(directoryFD)); err != nil {
+			return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(
+				phaseValidate,
+				path,
+				err,
+			)
+		}
+	}
 
 	names, err := readDirectoryNames(ctx, directoryFD, path, maximumEntries)
 	if err != nil {

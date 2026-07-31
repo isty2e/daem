@@ -88,6 +88,7 @@ type cleanupFingerprintFacts struct {
 	JournalAuthorityFingerprint string
 	Phase                       retirement.Phase
 	ResiduePresent              bool
+	LegacyTombstoneName         string
 }
 
 type journalClaimTransitionFingerprint struct {
@@ -183,6 +184,7 @@ func cleanupRecoveryOperationFingerprint(
 		JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
 		Phase:                       authority.Phase(),
 		ResiduePresent:              authority.ResiduePresent(),
+		LegacyTombstoneName:         authority.LegacyTombstoneName(),
 	})
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf(
@@ -347,6 +349,12 @@ func buildCleanupRecoveryAuthorityEvidence(
 		),
 		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
 		filepath.Join(paths.RecoveryDir, authority.GCName()),
+	}
+	if authority.RequiresLegacyMigration() {
+		recoveryPaths = append(
+			recoveryPaths,
+			filepath.Join(paths.RecoveryDir, authority.LegacyTombstoneName()),
+		)
 	}
 	facts := make([]recoveryAuthorityFact, 0, len(recoveryPaths)*2)
 	domains := make([]mutation.Domain, 0, len(recoveryPaths)*2)

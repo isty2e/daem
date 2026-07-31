@@ -146,7 +146,7 @@ func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testin
 		filesystem,
 		testStateCodec(),
 	)
-	if err == nil || !strings.Contains(err.Error(), "changed before retirement") {
+	if err == nil || !strings.Contains(err.Error(), "changed before visibility transition") {
 		t.Fatalf("RetireActiveJournal error = %v, want fingerprint-change rejection", err)
 	}
 	if !slices.Equal(filesystem.operations, []string{"publish_control"}) {
@@ -262,7 +262,14 @@ func TestRetirementRevalidatesExactControlBeforeEffects(t *testing.T) {
 		}
 		root := captureRetirementTestRoot(t, recoveryRoot)
 
-		err := FinalizeJournalCleanup(t.Context(), plan, root, filesystem)
+		err := FinalizeJournalCleanup(
+			t.Context(),
+			plan,
+			LegacyJournalAuthority{},
+			root,
+			filesystem,
+			nil,
+		)
 		if err == nil || !strings.Contains(err.Error(), "unexpected child") {
 			t.Fatalf("FinalizeJournalCleanup error = %v, want foreign-child rejection", err)
 		}
@@ -295,7 +302,14 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	if err := FinalizeJournalCleanup(t.Context(), plan, root, filesystem); err != nil {
+	if err := FinalizeJournalCleanup(
+		t.Context(),
+		plan,
+		LegacyJournalAuthority{},
+		root,
+		filesystem,
+		nil,
+	); err != nil {
 		t.Fatalf("FinalizeJournalCleanup: %v", err)
 	}
 	assertRetirementState(t, recoveryRoot, retirement.StateClean)
@@ -319,7 +333,14 @@ func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testin
 	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
-	err := FinalizeJournalCleanup(t.Context(), plan, root, filesystem)
+	err := FinalizeJournalCleanup(
+		t.Context(),
+		plan,
+		LegacyJournalAuthority{},
+		root,
+		filesystem,
+		nil,
+	)
 	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
 		t.Fatalf("FinalizeJournalCleanup error = %v, want special-entry rejection", err)
 	}
@@ -390,7 +411,14 @@ func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
 			plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
-			if err := FinalizeJournalCleanup(t.Context(), plan, root, filesystem); err != nil {
+			if err := FinalizeJournalCleanup(
+				t.Context(),
+				plan,
+				LegacyJournalAuthority{},
+				root,
+				filesystem,
+				nil,
+			); err != nil {
 				t.Fatalf("FinalizeJournalCleanup: %v", err)
 			}
 			if !slices.Equal(filesystem.operations, test.wantOperations) {
@@ -499,7 +527,14 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 				}
 			} else {
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := FinalizeJournalCleanup(t.Context(), cleanup, root, filesystem); err != nil {
+				if err := FinalizeJournalCleanup(
+					t.Context(),
+					cleanup,
+					LegacyJournalAuthority{},
+					root,
+					filesystem,
+					nil,
+				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
 				}
 			}
@@ -552,7 +587,14 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 				}
 			case retirement.StateRetained, retirement.StateFinalizing:
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := FinalizeJournalCleanup(t.Context(), cleanup, root, filesystem); err != nil {
+				if err := FinalizeJournalCleanup(
+					t.Context(),
+					cleanup,
+					LegacyJournalAuthority{},
+					root,
+					filesystem,
+					nil,
+				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
 				}
 			default:
@@ -656,6 +698,38 @@ func loadCleanupRetirementPlan(
 	return plan
 }
 
+func loadLegacyCleanupRetirementPlan(
+	t *testing.T,
+	recoveryRoot string,
+	filesystem mutationfs.Store,
+) (retirement.CleanupPlan, LegacyJournalAuthority) {
+	t.Helper()
+	recoverable, err := LoadRecoverablePlanWithOptions(
+		t.Context(),
+		Paths{RecoveryDir: recoveryRoot},
+		PlanLoadOptions{
+			Filesystem: filesystem,
+			StateCodec: testStateCodec(),
+		},
+	)
+	if err != nil {
+		t.Fatalf("LoadRecoverablePlanWithOptions: %v", err)
+	}
+	plan, ok := JournalCleanupPlan(recoverable)
+	if !ok || !plan.Authority().RequiresLegacyMigration() {
+		t.Fatalf(
+			"authority kind = %q action=%q, want legacy journal migration",
+			recoverable.AuthorityKind(),
+			plan.Action(),
+		)
+	}
+	authority, ok := LegacyRecoveryJournalAuthority(recoverable)
+	if !ok {
+		t.Fatal("legacy recovery journal authority is unavailable")
+	}
+	return plan, authority
+}
+
 func captureRetirementTestRoot(t *testing.T, recoveryRoot string) *rootedpath.CapturedRoot {
 	t.Helper()
 	root, err := rootedpath.CaptureRoot(recoveryRoot)
@@ -731,9 +805,16 @@ func (filesystem *retirementRecordingFilesystem) RenameRootedEntry(
 	destinationName string,
 	expected mutationfs.EntryIdentity,
 ) (mutationfs.CommitOutcome, error) {
+	sourcePath, err := capability.Destination().LexicalPath()
+	if err != nil {
+		return mutationfs.CommitOutcome{}, errors.Join(err, capability.Close())
+	}
 	operation := "rename_active"
-	if strings.HasPrefix(destinationName, ".daem-journal-gc-") {
+	switch {
+	case strings.HasPrefix(destinationName, ".daem-journal-gc-"):
 		operation = "rename_control"
+	case strings.HasPrefix(filepath.Base(sourcePath), ".daem-tombstone-"):
+		operation = "rename_legacy"
 	}
 	filesystem.operations = append(filesystem.operations, operation)
 	outcome, err := filesystem.Store.RenameRootedEntry(

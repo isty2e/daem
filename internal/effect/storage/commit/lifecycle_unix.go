@@ -286,9 +286,6 @@ func commitRootedEntryCleanupWithFaults(
 }
 
 func validateRootedEntryRename(request RootedEntryRename) error {
-	if err := validateCommitPath(request.sourcePath); err != nil {
-		return err
-	}
 	if err := validateRootedCapability(request.sourcePath, request.capability); err != nil {
 		return err
 	}

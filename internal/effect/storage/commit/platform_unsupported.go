@@ -173,6 +173,25 @@ func ReadRootedRegularFileUpTo(
 	return nil, 0, EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// SnapshotRootedDirectoryEntries returns unsupported_guarantee without
+// reading.
+func SnapshotRootedDirectoryEntries(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"rooted directory snapshot maximum entries must be positive",
+		)
+	}
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return mutationfs.DirectorySnapshot{}, newUnsupportedPlatformFailure(path)
+}
+
 // SnapshotRootedDirectory returns unsupported_guarantee without reading.
 func SnapshotRootedDirectory(
 	_ context.Context,
