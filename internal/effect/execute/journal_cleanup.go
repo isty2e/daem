@@ -60,6 +60,10 @@ func ExecuteJournalCleanupWithOptions(
 	if plan.Classification() == "" || plan.Action() == "" {
 		return fmt.Errorf("journal cleanup plan is uninitialized")
 	}
+	action := plan.Action()
+	defer func() {
+		returnErr = journal.WrapCleanupFailure(action, returnErr)
+	}()
 	if options.Filesystem == nil {
 		return fmt.Errorf("journal cleanup filesystem is required")
 	}

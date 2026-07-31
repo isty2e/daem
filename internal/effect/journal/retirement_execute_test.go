@@ -444,8 +444,11 @@ func TestRetirementDoesNotCleanGCAfterControlRenameReportsFailure(t *testing.T) 
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
 	err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
-	if err == nil || !strings.Contains(err.Error(), "injected rename_control failure") {
-		t.Fatalf("RetireActiveJournal error = %v, want injected rename failure", err)
+	const want = "journal retirement committed; hidden GC cleanup did not complete successfully; no recovery action remains"
+	if err == nil ||
+		!IsRetirementFinalizedWithGCResidue(err) ||
+		err.Error() != want {
+		t.Fatalf("RetireActiveJournal error = %v, want finalized GC residue", err)
 	}
 	if slices.Contains(filesystem.operations, "cleanup_gc") {
 		t.Fatalf("operations = %v, must not clean GC after rename failure", filesystem.operations)
@@ -455,10 +458,11 @@ func TestRetirementDoesNotCleanGCAfterControlRenameReportsFailure(t *testing.T) 
 
 func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testing.T) {
 	tests := []struct {
-		name      string
-		operation string
-		wantState retirement.State
-		resume    bool
+		name          string
+		operation     string
+		wantState     retirement.State
+		resume        bool
+		wantFinalized bool
 	}{
 		{
 			name:      "prepared control publication",
@@ -485,14 +489,16 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 			resume:    true,
 		},
 		{
-			name:      "control to GC rename",
-			operation: "rename_control",
-			wantState: retirement.StateFinalized,
+			name:          "control to GC rename",
+			operation:     "rename_control",
+			wantState:     retirement.StateFinalized,
+			wantFinalized: true,
 		},
 		{
-			name:      "physical GC cleanup",
-			operation: "cleanup_gc",
-			wantState: retirement.StateFinalized,
+			name:          "physical GC cleanup",
+			operation:     "cleanup_gc",
+			wantState:     retirement.StateFinalized,
+			wantFinalized: true,
 		},
 	}
 
@@ -512,7 +518,15 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
 			err := retireActiveJournalForTest(t.Context(), plan, root, filesystem)
-			if err == nil || !strings.Contains(err.Error(), "injected") {
+			if err == nil {
+				t.Fatal("RetireActiveJournal returned nil, want failure")
+			}
+			if test.wantFinalized {
+				const want = "journal retirement committed; hidden GC cleanup did not complete successfully; no recovery action remains"
+				if !IsRetirementFinalizedWithGCResidue(err) || err.Error() != want {
+					t.Fatalf("RetireActiveJournal error = %v, want finalized GC residue", err)
+				}
+			} else if !strings.Contains(err.Error(), "injected") {
 				t.Fatalf("RetireActiveJournal error = %v, want injected failure", err)
 			}
 			assertRetirementState(t, recoveryRoot, test.wantState)
@@ -827,6 +841,9 @@ func (filesystem *retirementRecordingFilesystem) RenameRootedEntry(
 		filesystem.cancelAfterOperation(operation)
 	}
 	if err == nil && filesystem.failAfter == operation {
+		if operation == "rename_control" {
+			return outcome, fmt.Errorf("injected %s failure", operation)
+		}
 		return injectedRetirementFailure(operation, destinationName)
 	}
 	return outcome, err

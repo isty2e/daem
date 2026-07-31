@@ -198,7 +198,11 @@ func applyRecoveryErrorWithEvents(
 		loadRetirementPlan,
 		stateCodec,
 	); err != nil {
-		return fmt.Errorf("%w; host changes rolled back; retire recovery journal failed: %v; run: daem recover --dry-run", primary, err)
+		return fmt.Errorf(
+			"%w; host changes rolled back; retire recovery journal failed: %v",
+			primary,
+			retirementFailureWithRemediation(err),
+		)
 	}
 	return fmt.Errorf("%w; host changes rolled back", primary)
 }

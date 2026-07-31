@@ -23,7 +23,7 @@ belongs in [Platform Support](platforms.md).
 | Diagnose | `probe` | Run one explicitly authorized active runtime check. |
 | Operate | `refresh` | Refresh one exact declared and locked host extension relation. |
 | Reconcile | `apply` | Reconcile the locked environment. |
-| Reconcile | `recover` | Resolve one interrupted operation. |
+| Reconcile | `recover` | Recover one operation or finish its retained journal cleanup. |
 
 `help`, `-h`, `--help`, and `--version` are meta surfaces. Use
 `daem help <command>` and `daem help <group> <resource>` for progressively
@@ -854,6 +854,14 @@ exactly one action whose only field is either
 `kind = "migrate_legacy_journal_tombstone"`. It omits `operation_dir` and all
 resource, subject, target, scope, destination, content, backup, and detail
 fields instead of emitting synthetic empty active-plan placeholders.
+
+Cleanup execution failures use the same path-neutral semantic error in human
+and JSON output. The error names the cleanup action and either
+`phase=execution` or `phase=garbage_collection`; it does not include retirement
+paths or wrapped filesystem errors. A garbage-collection failure occurs after
+semantic retirement has committed. It remains a command failure, but no
+recovery action remains and later commands are not blocked by the private GC
+residue.
 
 ## `doctor`
 

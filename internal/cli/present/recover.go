@@ -155,12 +155,28 @@ func PrintRecoverResultJSON(
 	}
 	if resultErr != nil {
 		payload.HasErrors = true
-		payload.Errors = []string{resultErr.Error()}
+		payload.Errors = []string{RecoverResultError(disclosure, resultErr).Error()}
 	}
 
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)
+}
+
+// RecoverResultError applies the recovery authority's semantic error
+// projection. Active recovery retains its intentionally detailed errors;
+// cleanup-only recovery exposes only typed phase and action facts.
+func RecoverResultError(
+	disclosure journal.RecoverablePlan,
+	resultErr error,
+) error {
+	if resultErr == nil {
+		return nil
+	}
+	if cleanup, ok := journal.JournalCleanupPlan(disclosure); ok {
+		return journal.WrapCleanupFailure(cleanup.Action(), resultErr)
+	}
+	return resultErr
 }
 
 func recoveryJSONPayload(

@@ -142,7 +142,7 @@ convergence and retry from current state rather than promise rollback.
 | Refresh one extension | `daem refresh extension <id>` |
 | Test MCP startup | `daem probe mcp-server <id>` |
 | Diagnose configuration | `daem doctor` |
-| Recover interrupted apply | `daem recover` |
+| Recover or clean journal | `daem recover` |
 
 `add` and `remove` update the manifest and lockfile together. They do not alter
 agent configuration until `apply`. A project declaration never authorizes

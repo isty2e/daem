@@ -99,6 +99,11 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 	if err != nil {
 		return err
 	}
+	if cleanup, ok := journal.JournalCleanupPlan(execution.plan); ok {
+		defer func() {
+			returnErr = journal.WrapCleanupFailure(cleanup.Action(), returnErr)
+		}()
+	}
 	if ctx == nil {
 		return fmt.Errorf("recovery context is required")
 	}

@@ -181,6 +181,16 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 			if !test.ready && !strings.Contains(readinessErr.Error(), "daem recover --dry-run") {
 				t.Fatalf("EnsureNoActive error = %v, want recovery remediation", readinessErr)
 			}
+			if !test.ready {
+				want := "journal cleanup is incomplete; run: daem recover --dry-run"
+				if test.want == retirement.StateActive ||
+					test.want == retirement.StatePrepared {
+					want = "interrupted apply operation found; run: daem recover --dry-run"
+				}
+				if readinessErr.Error() != want {
+					t.Fatalf("EnsureNoActive error = %q, want %q", readinessErr, want)
+				}
+			}
 
 			if !test.wantCleanup {
 				return

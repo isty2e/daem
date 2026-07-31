@@ -502,7 +502,7 @@ func executeRetirement(
 			return err
 		}
 	}
-	if err := renameRetirementEntry(
+	if err := renameRetirementControl(
 		ctx,
 		filesystem,
 		bindings.control,
@@ -517,7 +517,7 @@ func executeRetirement(
 		bindings.garbage,
 		"journal retirement GC residue",
 	); err != nil {
-		return fmt.Errorf("journal retirement committed; hidden GC cleanup incomplete: %w", err)
+		return finalizedWithGCResidue(err)
 	}
 	return nil
 }
@@ -655,6 +655,43 @@ func renameRetirementEntry(
 		destinationName,
 		label,
 	)
+}
+
+func renameRetirementControl(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	control *rootedpath.EntryAuthority,
+	destinationName string,
+	label string,
+) error {
+	capability, identity, err := captureRetirementEntry(
+		ctx,
+		filesystem,
+		control,
+		label,
+	)
+	if err != nil {
+		return err
+	}
+	outcome, err := filesystem.RenameRootedEntry(
+		ctx,
+		capability,
+		destinationName,
+		identity,
+	)
+	if err == nil {
+		return nil
+	}
+	failure := fmt.Errorf(
+		"retire %s (%s): %w",
+		label,
+		commitOutcomeDetail(outcome),
+		err,
+	)
+	if outcome.State() == mutationfs.CommitOutcomeComplete {
+		return finalizedWithGCResidue(failure)
+	}
+	return failure
 }
 
 func captureRetirementEntry(

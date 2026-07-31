@@ -4,12 +4,14 @@ package execute
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -144,6 +146,9 @@ func TestApplyRetainsJournalWhenProjectRootIsReplacedBeforeCleanup(t *testing.T)
 	if !strings.Contains(err.Error(), "retire recovery journal") {
 		t.Fatalf("ApplyWithOptions error = %v, want cleanup refusal", err)
 	}
+	if !strings.Contains(err.Error(), "run: daem recover --dry-run") {
+		t.Fatalf("ApplyWithOptions error = %v, want pre-commit recovery guidance", err)
+	}
 	assertHostFileContent(t, movedFixturePath(fixture, movedRoot, fixture.hostPath("CREATE.md")), "created\n")
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 	if _, loadErr := statefile.Load(
@@ -264,4 +269,63 @@ func TestApplyRejectsProjectRootReplacementAfterJournalCleanup(t *testing.T) {
 		t.Fatalf("events = %#v, want rooted journal cleanup success", events)
 	}
 	assertNoEventKind(t, events, EventJournalCleanupFailed)
+}
+
+func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	input := fixture.input([]applyEventAction{action})
+	filesystem := &failProjectJournalGCCleanupStore{Store: input.Filesystem}
+	input.Filesystem = filesystem
+	var events []Event
+
+	result, err := ApplyWithOptions(
+		t.Context(),
+		input,
+		ApplyOptions{Events: func(event Event) {
+			events = append(events, event)
+		}},
+	)
+	const want = "journal retirement committed; hidden GC cleanup did not complete successfully; no recovery action remains"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("ApplyWithOptions error = %v, want finalized GC failure", err)
+	}
+	if strings.Contains(err.Error(), "daem recover") ||
+		strings.Contains(err.Error(), fixture.paths.RecoveryDir) ||
+		strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("ApplyWithOptions exposed impossible or private remediation: %v", err)
+	}
+	if filesystem.attempts != 1 {
+		t.Fatalf("GC cleanup attempts = %d, want 1", filesystem.attempts)
+	}
+	assertCommittedApplyResult(
+		t,
+		result,
+		fixture.paths.StatefilePath,
+		fixture.paths.StatefilePath,
+		1,
+	)
+	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
+	if !containsApplyEventKind(events, EventJournalCleanupFailed) {
+		t.Fatalf("events = %#v, want journal cleanup failure", events)
+	}
+	assertNoEventKind(t, events, EventJournalCleaned)
+
+	_, loadErr := journal.LoadRecoverablePlanWithOptions(
+		t.Context(),
+		journal.Paths{RecoveryDir: fixture.paths.RecoveryDir},
+		journal.PlanLoadOptions{
+			Filesystem: filesystem,
+			StateCodec: statefile.Codec{},
+		},
+	)
+	if !errors.Is(loadErr, journal.ErrNoRecoverableJournal) {
+		t.Fatalf("LoadRecoverablePlanWithOptions error = %v, want no recoverable journal", loadErr)
+	}
+	if readinessErr := journal.RequireNoInterruptedApply(
+		t.Context(),
+		fixture.paths.RecoveryDir,
+	); readinessErr != nil {
+		t.Fatalf("finalized GC residue blocked later work: %v", readinessErr)
+	}
 }

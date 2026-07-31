@@ -73,6 +73,56 @@ func TestDoctorPresentationsRefuseMalformedRecoveryBeforeHostChecks(t *testing.T
 	}
 }
 
+func TestImportAndDoctorRefuseValidActiveRecoveryBeforeLiveScan(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		args    []string
+	}{
+		{name: "import human", command: "import", args: []string{"--target", "codex", "--merge", "--dry-run"}},
+		{name: "import JSON", command: "import", args: []string{"--target", "codex", "--merge", "--dry-run", "--json"}},
+		{name: "doctor human", command: "doctor", args: []string{"--target", "codex"}},
+		{name: "doctor JSON", command: "doctor", args: []string{"--target", "codex", "--json"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			testkit.WithWorkingDirectory(t, root)
+			manifestPath := filepath.Join(root, "daem.toml")
+			testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+			captureCLIRecoveryUpdateJournal(t, manifestPath)
+			args := append(
+				[]string{test.command, "--manifest", manifestPath},
+				test.args...,
+			)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+
+			exitCode := testkit.RunVerboseCLI(args, &stdout, &stderr)
+			if exitCode != 1 {
+				t.Fatalf(
+					"exitCode = %d stdout = %q stderr = %q, want 1",
+					exitCode,
+					stdout.String(),
+					stderr.String(),
+				)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", stdout.String())
+			}
+			want := test.command +
+				" failed: interrupted apply operation found; run: daem recover --dry-run\n"
+			if stderr.String() != want {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+			}
+			if _, err := os.Stat(filepath.Join(root, "daem.imported.d")); !os.IsNotExist(err) {
+				t.Fatalf("live import output exists or stat failed unexpectedly: %v", err)
+			}
+		})
+	}
+}
+
 func TestLockAndOutdatedRemainAvailableDuringActiveRecovery(t *testing.T) {
 	root := t.TempDir()
 	testkit.WithWorkingDirectory(t, root)

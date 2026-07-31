@@ -311,7 +311,11 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			input.StateCodec,
 		)
 		if cleanupErr != nil {
-			return ApplyResult{}, fmt.Errorf("%w; retire recovery journal failed: %v; run: daem recover --dry-run", err, cleanupErr)
+			return ApplyResult{}, fmt.Errorf(
+				"%w; retire recovery journal failed: %v",
+				err,
+				retirementFailureWithRemediation(cleanupErr),
+			)
 		}
 		return ApplyResult{}, err
 	}
@@ -349,7 +353,11 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			input.StateCodec,
 		)
 		if cleanupErr != nil {
-			return ApplyResult{}, fmt.Errorf("%w; retire recovery journal failed: %v", err, cleanupErr)
+			return ApplyResult{}, fmt.Errorf(
+				"%w; retire recovery journal failed: %v",
+				err,
+				retirementFailureWithRemediation(cleanupErr),
+			)
 		}
 		return ApplyResult{}, err
 	}
@@ -465,7 +473,10 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 		loadRetirementPlan,
 		input.StateCodec,
 	); err != nil {
-		return committedResult, fmt.Errorf("retire recovery journal: %w; run: daem recover --dry-run", err)
+		return committedResult, fmt.Errorf(
+			"retire recovery journal: %w",
+			retirementFailureWithRemediation(err),
+		)
 	}
 	if err := mutationAuthority.validateProjectSelection(input.Paths.ManifestRoot); err != nil {
 		return committedResult, fmt.Errorf(
@@ -516,6 +527,13 @@ func (emitter applyEventEmitter) emit(kind EventKind, stage EventStage, action *
 }
 
 type activeRetirementPlanLoader func(context.Context) (recovery.Plan, error)
+
+func retirementFailureWithRemediation(err error) error {
+	if err == nil || journal.IsRetirementFinalizedWithGCResidue(err) {
+		return err
+	}
+	return fmt.Errorf("%w; run: daem recover --dry-run", err)
+}
 
 func retireRecoveryJournalWithEvents(
 	ctx context.Context,

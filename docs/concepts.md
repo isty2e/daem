@@ -197,6 +197,9 @@ Physical GC removal is best effort: interruption may leave private
 retirement-control metadata, but not the retired journal or its backups. That
 GC-only residue does not block later commands or recreate recovery authority,
 and daem does not infer restart-time deletion authority from its name alone.
+Failure after this boundary is reported as non-success without recommending
+another recovery action: a new `recover` plan cannot be constructed from
+GC-only residue.
 
 Once the active journal has become retained cleanup residue, ordinary
 workflows do not finalize it implicitly. `daem recover --dry-run` reports
@@ -241,9 +244,9 @@ sibling. Symbolic links are never followed: cleanup revalidates and removes
 only the link itself. Directory backup storage remains proportional to the
 managed directory within these limits.
 
-Recovery is intentionally narrow. It handles one interrupted operation for the
-selected manifest path set; it is not a snapshot, profile, or historical restore
-surface.
+Recovery is intentionally narrow. It handles one active operation or the exact
+retained cleanup selected for the manifest path set; it is not a snapshot,
+profile, or historical restore surface.
 
 ## Managed Resource Types
 

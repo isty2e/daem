@@ -334,8 +334,19 @@ func TestCleanupOnlyRecoveryHonorsCancellationBeforeEffects(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if err := Execute(ctx, prepared); !errors.Is(err, context.Canceled) {
+	err = Execute(ctx, prepared)
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v, want context.Canceled", err)
+	}
+	var failure *journal.CleanupFailure
+	if !errors.As(err, &failure) ||
+		failure.Action() != retirement.ActionFinalizeJournalCleanup ||
+		failure.Phase() != journal.CleanupFailurePhaseExecution {
+		t.Fatalf("Execute error = %v, want typed cleanup cancellation", err)
+	}
+	const want = "journal cleanup failed: phase=execution action=finalize_journal_cleanup"
+	if err.Error() != want {
+		t.Fatalf("Execute error = %q, want %q", err, want)
 	}
 	assertRecoverPathPresent(t, fixture.controlDir)
 	assertRecoverPathPresent(t, fixture.residueDir)

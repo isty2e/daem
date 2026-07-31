@@ -230,12 +230,15 @@ recovery root and inspect the journal and conflicting retirement evidence.
 Remove an artifact manually only after independently proving that no recovery
 or backup data is still required.
 
-If a command reports `journal retirement committed; hidden GC cleanup
-incomplete`, the journal residue was already removed and its absence made
-durable. A private GC directory may remain with retirement-control metadata,
-not journal backups. It is inert and does not block later commands. Daem does
-not automatically sweep it after restart because the hidden name alone grants
-no deletion authority.
+If a command reports `journal retirement committed; hidden GC cleanup did not
+complete successfully; no recovery action remains`, the journal residue was
+already removed and semantic retirement completed. A private GC directory may
+remain with retirement-control metadata, not journal backups. The command
+still exits unsuccessfully so the physical cleanup failure remains visible,
+but `daem recover` has no legal plan for GC-only residue and later commands are
+not blocked. Daem does not automatically sweep the directory after restart
+because the hidden name alone grants no deletion authority. Do not delete it
+solely from its name.
 
 ## Manifest Metadata Update Was Interrupted
 

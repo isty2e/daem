@@ -5,6 +5,7 @@ package execute
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,6 +113,36 @@ func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) CleanupRootedEntry(
 
 func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) swapCount() int {
 	return filesystem.swaps
+}
+
+type failProjectJournalGCCleanupStore struct {
+	mutationfs.Store
+	attempts int
+}
+
+func (filesystem *failProjectJournalGCCleanupStore) CleanupRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	if capability != nil {
+		path, err := capability.Destination().LexicalPath()
+		if err == nil && strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-") {
+			filesystem.attempts++
+			outcome, outcomeErr := mutationfs.NewCommitOutcome(
+				mutationfs.CommitOutcomeUncommitted,
+				nil,
+			)
+			if outcomeErr != nil {
+				panic(outcomeErr)
+			}
+			return outcome, errors.Join(
+				fmt.Errorf("remove private path %s: permission denied", path),
+				capability.Close(),
+			)
+		}
+	}
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
 }
 
 type rootSwapBeforeRootedTreeStore struct {
