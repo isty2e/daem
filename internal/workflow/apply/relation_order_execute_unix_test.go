@@ -74,7 +74,7 @@ func TestApplyAuthorityCoversEveryOpenCodeOrderSelectorCandidate(t *testing.T) {
 			Path: path, Effect: mutation.PathEffectReferent,
 		}] = false
 	}
-	for _, request := range evidence.revisions {
+	for _, request := range evidence.firstEffectRevisions {
 		if _, expected := want[request]; expected {
 			want[request] = true
 		}

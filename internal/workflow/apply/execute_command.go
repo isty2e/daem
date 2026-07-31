@@ -67,6 +67,16 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
 	}
+	executionGuard := newApplyExecutionGuard(
+		execution.declarationRevisions,
+		options.PlanWasDisclosed,
+	)
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"prepared apply plan",
+	); err != nil {
+		return disclose(planned), err
+	}
 	if err := preflightMCPEnvironmentSources(
 		ctx,
 		planned.context.RuntimeEnvironment,
@@ -104,24 +114,23 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	if _, err := projectRootFingerprint(planned); err != nil {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
 	}
-	revisions, err := mutation.CaptureRevisionSet(ctx, execution.authorityEvidence.revisions...)
-	if err != nil {
-		return disclose(planned), err
-	}
-	executionGuard := newApplyExecutionGuard(
-		execution.declarationRevisions,
-		options.PlanWasDisclosed,
-	)
-	if err := executionGuard.requireDeclarationsCurrent(
+	firstEffectRevisions, err := mutation.CaptureRevisionSet(
 		ctx,
-		"prepared apply plan",
-	); err != nil {
+		execution.authorityEvidence.firstEffectRevisions...,
+	)
+	if err != nil {
 		return disclose(planned), err
 	}
 
 	currentInput := cloneCommandInput(execution.request)
 	if options.RelationObservations != nil {
 		currentInput.RelationObservations = options.RelationObservations
+	}
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"initial apply replan",
+	); err != nil {
+		return disclose(planned), err
 	}
 	current, err := planReadinessAtPaths(ctx, currentInput, execution.operationContext, planned.context.Paths)
 	if err != nil {
@@ -155,7 +164,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		!execution.authorityEvidence.authorityFingerprint.Equal(currentAuthority.authorityFingerprint) {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
 	}
-	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
+	if matches, err := firstEffectRevisions.MatchesCurrent(ctx); err != nil {
 		return disclose(current), err
 	} else if !matches {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
@@ -192,7 +201,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 			return err
 		}
 		if !revisionBoundaryValidated {
-			matches, err := revisions.MatchesCurrent(ctx)
+			matches, err := firstEffectRevisions.MatchesCurrent(ctx)
 			if err != nil {
 				return err
 			}
@@ -267,7 +276,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		effectPaths,
 		store,
 		leases,
-		revisions,
+		firstEffectRevisions,
 		executionGuard,
 		executionOptions,
 		options.PlanWasDisclosed,
@@ -278,7 +287,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	}
 	if providerPhase.rebound {
 		leases = providerPhase.leases
-		revisions = providerPhase.revisions
+		firstEffectRevisions = providerPhase.firstEffectRevisions
 		revisionBoundaryValidated = false
 	}
 

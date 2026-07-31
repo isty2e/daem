@@ -17,8 +17,9 @@ import (
 const delegateRouteFamilyPrefix = "delegate-runner."
 
 type applyAuthorityEvidence struct {
-	domains              []mutation.Domain
-	revisions            []mutation.RevisionRequest
+	domains []mutation.Domain
+	// Declaration revisions are owned by PreparedWrite's bounded witness.
+	firstEffectRevisions []mutation.RevisionRequest
 	facts                []applyAuthorityFact
 	authorityFingerprint mutation.OperationFingerprint
 }
@@ -47,7 +48,11 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	result := planned.result
 	facts := make([]applyAuthorityFact, 0)
 	domains := make([]mutation.Domain, 0)
-	revisions := make(map[string]mutation.RevisionRequest)
+	firstEffectRevisions := make(map[string]mutation.RevisionRequest)
+	declarationPaths := map[string]struct{}{
+		result.ManifestPath: {},
+		result.LockfilePath: {},
+	}
 	physicalOccupancies := make(physicalOccupancyIndex)
 	addPath := func(kind string, path string, access mutation.AccessMode, effect mutation.PathEffect, target string, scope string) error {
 		fact := applyAuthorityFact{Kind: kind, Path: path, Access: access, Effect: effect, Target: target, Scope: scope}
@@ -65,7 +70,12 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		}
 		facts = append(facts, fact)
 		domains = append(domains, domain)
-		revisions[revisionRequestKey(path, effect)] = mutation.RevisionRequest{Path: path, Effect: effect}
+		if _, declaration := declarationPaths[path]; !declaration {
+			firstEffectRevisions[revisionRequestKey(path, effect)] = mutation.RevisionRequest{
+				Path:   path,
+				Effect: effect,
+			}
+		}
 		return nil
 	}
 	addLogicalPair := func(path string, entryAccess mutation.AccessMode, referentAccess mutation.AccessMode) error {
@@ -339,7 +349,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	}
 	return applyAuthorityEvidence{
 		domains:              domains,
-		revisions:            sortedRevisionRequests(revisions),
+		firstEffectRevisions: sortedRevisionRequests(firstEffectRevisions),
 		facts:                append([]applyAuthorityFact(nil), facts...),
 		authorityFingerprint: mutation.NewOperationFingerprint(canonical),
 	}, nil

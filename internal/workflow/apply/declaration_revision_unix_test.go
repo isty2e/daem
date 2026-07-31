@@ -61,3 +61,61 @@ func TestPlanWriteRejectsOversizedManifestBeforeLoading(t *testing.T) {
 		t.Fatalf("PlanWrite error = %v, want size rejection", err)
 	}
 }
+
+func TestExecuteRejectsDirectoryDeclarationWithoutTraversingChildren(t *testing.T) {
+	for _, selected := range []string{"manifest", "lockfile"} {
+		t.Run(selected, func(t *testing.T) {
+			root := t.TempDir()
+			paths := applyTestPaths(t, root)
+			writeApplyManifestFile(t, paths.ManifestPath)
+			sourcePath := filepath.Join(root, "instructions", "AGENTS.md")
+			writeApplyFile(t, sourcePath, "unchanged\n")
+			writeApplyLockfile(t, paths.LockfilePath, applyInstructionLockfile(
+				t,
+				"project",
+				"local:instructions/AGENTS.md?mode=vendor",
+				hashApplyPath(t, sourcePath),
+			))
+			prepared, err := PlanWrite(t.Context(), CommandInput{
+				ManifestPath: paths.ManifestPath,
+				LockfilePath: paths.LockfilePath,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			selectedPath := paths.ManifestPath
+			if selected == "lockfile" {
+				selectedPath = paths.LockfilePath
+			}
+			if err := os.Remove(selectedPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(selectedPath, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			fifoPath := filepath.Join(selectedPath, "must-not-be-visited")
+			if err := unix.Mkfifo(fifoPath, 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = ExecuteWithOptions(
+				t.Context(),
+				prepared,
+				ExecuteOptions{PlanWasDisclosed: true},
+			)
+			if err == nil {
+				t.Fatal("ExecuteWithOptions accepted a directory declaration")
+			}
+			if !strings.Contains(err.Error(), "must be absent or resolve to a regular file") {
+				t.Fatalf(
+					"ExecuteWithOptions error = %v, want bounded regular-file diagnostic",
+					err,
+				)
+			}
+			if strings.Contains(err.Error(), fifoPath) {
+				t.Fatalf("ExecuteWithOptions traversed nested FIFO: %v", err)
+			}
+		})
+	}
+}

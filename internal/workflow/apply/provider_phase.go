@@ -35,10 +35,10 @@ type providerStableFingerprintFacts struct {
 }
 
 type providerPhaseExecution struct {
-	attempts  []durableattempt.HostRouteAttempt
-	leases    *mutation.LeaseSet
-	revisions mutation.RevisionSet
-	rebound   bool
+	attempts             []durableattempt.HostRouteAttempt
+	leases               *mutation.LeaseSet
+	firstEffectRevisions mutation.RevisionSet
+	rebound              bool
 }
 
 func providerInstallActions(
@@ -228,12 +228,15 @@ func runMCPProviderPrerequisitePhase(
 	effectPaths daempaths.Paths,
 	store mutation.Store,
 	leases *mutation.LeaseSet,
-	revisions mutation.RevisionSet,
+	firstEffectRevisions mutation.RevisionSet,
 	executionGuard applyExecutionGuard,
 	options runOptions,
 	planWasDisclosed bool,
 ) (providerPhaseExecution, error) {
-	result := providerPhaseExecution{leases: leases, revisions: revisions}
+	result := providerPhaseExecution{
+		leases:               leases,
+		firstEffectRevisions: firstEffectRevisions,
+	}
 	actions, err := providerInstallActions(current.assessment.MCPProviders)
 	if err != nil {
 		return result, fmt.Errorf("resolve MCP provider prerequisite actions: %w", err)
@@ -278,6 +281,12 @@ func runMCPProviderPrerequisitePhase(
 	// post-effect plan must come from the host rather than replaying
 	// caller-supplied pre-effect evidence.
 	currentInput.RelationObservations = nil
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"post-provider replan",
+	); err != nil {
+		return result, err
+	}
 	refreshed, err := planReadinessAtPaths(
 		ctx,
 		currentInput,
@@ -337,8 +346,17 @@ func runMCPProviderPrerequisitePhase(
 			err,
 		)
 	}
-	reboundRevisions, err := mutation.CaptureRevisionSet(ctx, refreshedAuthority.revisions...)
+	reboundFirstEffectRevisions, err := mutation.CaptureRevisionSet(
+		ctx,
+		refreshedAuthority.firstEffectRevisions...,
+	)
 	if err != nil {
+		return result, err
+	}
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"post-provider leased replan",
+	); err != nil {
 		return result, err
 	}
 
@@ -393,7 +411,7 @@ func runMCPProviderPrerequisitePhase(
 			nil,
 		)
 	}
-	if matches, err := reboundRevisions.MatchesCurrent(ctx); err != nil {
+	if matches, err := reboundFirstEffectRevisions.MatchesCurrent(ctx); err != nil {
 		return result, err
 	} else if !matches {
 		return result, providerPhaseStale(
@@ -434,7 +452,7 @@ func runMCPProviderPrerequisitePhase(
 	}
 	*current = underLease
 	result.leases = reboundLeases
-	result.revisions = reboundRevisions
+	result.firstEffectRevisions = reboundFirstEffectRevisions
 	releaseRebound = false
 	return result, nil
 }

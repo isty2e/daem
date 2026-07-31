@@ -49,19 +49,38 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if len(evidence.domains) != 13 {
 		t.Fatalf("domain count = %d, want 13", len(evidence.domains))
 	}
-	if len(evidence.revisions) != 13 {
-		t.Fatalf("revision count = %d, want 13: %#v", len(evidence.revisions), evidence.revisions)
+	if len(evidence.firstEffectRevisions) != 9 {
+		t.Fatalf(
+			"first-effect revision count = %d, want 9: %#v",
+			len(evidence.firstEffectRevisions),
+			evidence.firstEffectRevisions,
+		)
 	}
 	metadataTransactionPath, err := transaction.FileSetAuthorityPath(planned.context.Paths.StateDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	declarationAuthority := map[mutation.RevisionRequest]bool{
+		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectDirectoryEntry}: false,
+		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectReferent}:       false,
+		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectDirectoryEntry}: false,
+		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectReferent}:       false,
+	}
+	for _, fact := range evidence.facts {
+		request := mutation.RevisionRequest{Path: fact.Path, Effect: fact.Effect}
+		if _, expected := declarationAuthority[request]; expected &&
+			fact.Kind == "logical" &&
+			fact.Access == mutation.AccessShared {
+			declarationAuthority[request] = true
+		}
+	}
+	for request, found := range declarationAuthority {
+		if !found {
+			t.Fatalf("missing declaration authority fact %#v", request)
+		}
+	}
 
 	want := map[mutation.RevisionRequest]bool{
-		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectDirectoryEntry}:                                                false,
-		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectReferent}:                                                      false,
-		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectDirectoryEntry}:                                                false,
-		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectReferent}:                                                      false,
 		{Path: planned.result.StatefilePath, Effect: mutation.PathEffectDirectoryEntry}:                                               false,
 		{Path: planned.result.StatefilePath, Effect: mutation.PathEffectReferent}:                                                     false,
 		{Path: planned.context.Paths.RecoveryDir, Effect: mutation.PathEffectDirectoryEntry}:                                          false,
@@ -72,7 +91,11 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		{Path: filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"), Effect: mutation.PathEffectDirectoryEntry}: false,
 		{Path: filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"), Effect: mutation.PathEffectReferent}:       false,
 	}
-	for _, request := range evidence.revisions {
+	for _, request := range evidence.firstEffectRevisions {
+		if request.Path == planned.result.ManifestPath ||
+			request.Path == planned.result.LockfilePath {
+			t.Fatalf("declaration leaked into generic first-effect revisions: %#v", request)
+		}
 		if _, ok := want[request]; !ok {
 			t.Fatalf("unexpected revision request %#v", request)
 		}
@@ -451,7 +474,7 @@ func TestBuildApplyAuthorityEvidenceRevisesRelationObservationPaths(t *testing.T
 		mutation.PathEffectDirectoryEntry: false,
 		mutation.PathEffectReferent:       false,
 	}
-	for _, request := range evidence.revisions {
+	for _, request := range evidence.firstEffectRevisions {
 		if request.Path == inventoryPath {
 			want[request.Effect] = true
 		}
