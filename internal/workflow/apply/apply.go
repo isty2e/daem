@@ -53,6 +53,7 @@ type runOptions struct {
 	CarrierRemovalBaselineObserver CarrierRemovalBaselineObserver
 	DelegateExecutor               delegate.Executor
 	RelationOrderRiskAuthorizer    RelationOrderRiskAuthorizer
+	orderRiskBaseline              relationOrderRiskBaseline
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
 	projectRoot                    *rootedpath.CapturedRoot
 }

@@ -226,8 +226,11 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		CarrierRemovalBaselineObserver: carrierRemovalBaselineObserver,
 		DelegateExecutor:               options.DelegateExecutor,
 		RelationOrderRiskAuthorizer:    options.RelationOrderRiskAuthorizer,
-		validateBeforeEffects:          validateBeforeEffects,
-		projectRoot:                    planned.projectRoot,
+		orderRiskBaseline: newRelationOrderRiskBaseline(
+			planned.assessment.Reconciliation.RelationOrders(),
+		),
+		validateBeforeEffects: validateBeforeEffects,
+		projectRoot:           planned.projectRoot,
 	}
 
 	providerPhase, err := runMCPProviderPrerequisitePhase(

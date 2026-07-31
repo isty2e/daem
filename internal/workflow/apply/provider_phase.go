@@ -252,6 +252,24 @@ func runMCPProviderPrerequisitePhase(
 	if err := validateBeforeEffects(ctx, emptyAuthority); err != nil {
 		return result, err
 	}
+	declarationRevisions, err := captureProviderDeclarationRevisions(ctx, *current)
+	if err != nil {
+		return result, fmt.Errorf("capture pre-provider declaration revisions: %w", err)
+	}
+	requireDeclarationsCurrent := func() error {
+		matches, err := declarationRevisions.MatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return providerPhaseStale(
+				planWasDisclosed,
+				"manifest or lockfile changed during MCP provider prerequisite",
+				nil,
+			)
+		}
+		return nil
+	}
 	_, _, attempts, err := runHostRoutesAndPersistAttemptRecords(
 		ctx,
 		effectPaths,
@@ -268,6 +286,9 @@ func runMCPProviderPrerequisitePhase(
 		return result, err
 	}
 	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := requireDeclarationsCurrent(); err != nil {
 		return result, err
 	}
 	if err := leases.Release(); err != nil {
@@ -427,11 +448,35 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
+	if err := requireDeclarationsCurrent(); err != nil {
+		return result, err
+	}
 	*current = underLease
 	result.leases = reboundLeases
 	result.revisions = reboundRevisions
 	releaseRebound = false
 	return result, nil
+}
+
+func captureProviderDeclarationRevisions(
+	ctx context.Context,
+	planned commandPlan,
+) (mutation.RevisionSet, error) {
+	requests := make([]mutation.RevisionRequest, 0, 4)
+	for _, path := range []string{
+		planned.result.ManifestPath,
+		planned.result.LockfilePath,
+	} {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			requests = append(requests, mutation.RevisionRequest{
+				Path: path, Effect: effect,
+			})
+		}
+	}
+	return mutation.CaptureRevisionSet(ctx, requests...)
 }
 
 func providerPhaseStale(disclosed bool, message string, cause error) error {

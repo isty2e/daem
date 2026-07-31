@@ -16,6 +16,7 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -104,6 +105,9 @@ func runRelationOrderConvergence(
 	if len(initial) == 0 {
 		return relationOrderRunResult{reconciliation: reconciliation}, nil
 	}
+	if err := options.orderRiskBaseline.validate(); err != nil {
+		return relationOrderRunResult{}, err
+	}
 
 	selectedClasses := make(map[hostrelation.OrderClassID]struct{})
 	for _, decision := range initial {
@@ -189,7 +193,7 @@ func runRelationOrderConvergence(
 		return result, err
 	}
 
-	expansion := expandedOrderRisk(initial, freshDecisions)
+	expansion := options.orderRiskBaseline.expansion(freshDecisions)
 	if expansion.addedRiskCount != 0 {
 		if options.RelationOrderRiskAuthorizer == nil {
 			return result, fmt.Errorf(
@@ -359,29 +363,48 @@ func relationOrderDecisionForSequence(
 type relationOrderRiskKey struct {
 	classID           hostrelation.OrderClassID
 	sequenceID        hostrelation.PhysicalSequenceID
-	managedSubject    string
-	foreignIdentity   string
+	managedSubject    topology.SubjectID
+	foreignIdentity   hostrelation.HostLoadIdentity
 	managedWasBefore  bool
 	managedWillBefore bool
 }
 
-func expandedOrderRisk(
-	initial []reconcile.RelationOrderDecision,
-	fresh []reconcile.RelationOrderDecision,
-) RelationOrderRiskExpansion {
+// relationOrderRiskBaseline is the immutable set of precedence risks accepted
+// with the original private apply plan. Its zero value is invalid; a
+// constructed empty baseline authorizes no risks.
+type relationOrderRiskBaseline struct {
+	authorized map[relationOrderRiskKey]struct{}
+}
+
+func newRelationOrderRiskBaseline(
+	decisions []reconcile.RelationOrderDecision,
+) relationOrderRiskBaseline {
 	authorized := make(map[relationOrderRiskKey]struct{})
-	for _, decision := range initial {
+	for _, decision := range decisions {
 		for _, change := range decision.PrecedenceChanges() {
 			authorized[relationOrderRiskKey{
 				classID:           decision.ClassID(),
 				sequenceID:        decision.SequenceID(),
-				managedSubject:    change.ManagedSubject().String(),
-				foreignIdentity:   string(change.ForeignIdentity()),
+				managedSubject:    change.ManagedSubject(),
+				foreignIdentity:   change.ForeignIdentity(),
 				managedWasBefore:  change.ManagedWasBefore(),
 				managedWillBefore: change.ManagedWillBeBefore(),
 			}] = struct{}{}
 		}
 	}
+	return relationOrderRiskBaseline{authorized: authorized}
+}
+
+func (baseline relationOrderRiskBaseline) validate() error {
+	if baseline.authorized == nil {
+		return fmt.Errorf("relation order risk baseline is required")
+	}
+	return nil
+}
+
+func (baseline relationOrderRiskBaseline) expansion(
+	fresh []reconcile.RelationOrderDecision,
+) RelationOrderRiskExpansion {
 	var expanded []reconcile.RelationOrderDecision
 	count := 0
 	for _, decision := range fresh {
@@ -390,12 +413,12 @@ func expandedOrderRisk(
 			key := relationOrderRiskKey{
 				classID:           decision.ClassID(),
 				sequenceID:        decision.SequenceID(),
-				managedSubject:    change.ManagedSubject().String(),
-				foreignIdentity:   string(change.ForeignIdentity()),
+				managedSubject:    change.ManagedSubject(),
+				foreignIdentity:   change.ForeignIdentity(),
 				managedWasBefore:  change.ManagedWasBefore(),
 				managedWillBefore: change.ManagedWillBeBefore(),
 			}
-			if _, present := authorized[key]; present {
+			if _, present := baseline.authorized[key]; present {
 				continue
 			}
 			count++

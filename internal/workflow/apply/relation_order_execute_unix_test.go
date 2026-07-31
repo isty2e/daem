@@ -111,7 +111,8 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	projectRoot := captureRelationOrderTestRoot(t, root)
 	defer projectRoot.Close()
 	options := runOptions{
-		projectRoot: projectRoot,
+		projectRoot:       projectRoot,
+		orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 		validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 			return nil
 		},
@@ -244,7 +245,8 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 		locked,
 		initial,
 		runOptions{
-			projectRoot: projectRoot,
+			projectRoot:       projectRoot,
+			orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 			validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 				return nil
 			},
@@ -361,6 +363,7 @@ func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
 		0,
 		reconciliation,
 		runOptions{
+			orderRiskBaseline: newRelationOrderRiskBaseline(reconciliation.RelationOrders()),
 			DelegateExecutor: delegate.NewExecutor(delegate.Options{
 				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
 					runnerCalled = true
