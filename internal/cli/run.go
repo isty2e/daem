@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/platformsupport"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
+	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 )
 
@@ -27,6 +28,7 @@ type RunOptions struct {
 	ReadConfirmationLine  func(context.Context, io.Reader, int) (string, error)
 	ApplyExecuteOptions   applyworkflow.ExecuteOptions
 	ProbeExecutor         probeworkflow.RuntimeProbeExecutor
+	RecoverExecuteOptions recoverworkflow.ExecuteOptions
 	RefreshPlanOptions    refreshworkflow.PlanOptions
 	RefreshExecuteOptions refreshworkflow.ExecuteOptions
 	HelpWidth             int
@@ -38,6 +40,7 @@ type commandOptions struct {
 	confirmation          confirmationBoundary
 	applyExecuteOptions   applyworkflow.ExecuteOptions
 	probeExecutor         probeworkflow.RuntimeProbeExecutor
+	recoverExecuteOptions recoverworkflow.ExecuteOptions
 	refreshPlanOptions    refreshworkflow.PlanOptions
 	refreshExecuteOptions refreshworkflow.ExecuteOptions
 	platformAdmission     platformsupport.Admission
@@ -103,6 +106,7 @@ func RunWithOptions(args []string, options RunOptions) int {
 		},
 		applyExecuteOptions:   options.ApplyExecuteOptions,
 		probeExecutor:         options.ProbeExecutor,
+		recoverExecuteOptions: options.RecoverExecuteOptions,
 		refreshPlanOptions:    options.RefreshPlanOptions,
 		refreshExecuteOptions: options.RefreshExecuteOptions,
 		platformAdmission:     platformsupport.Current(),

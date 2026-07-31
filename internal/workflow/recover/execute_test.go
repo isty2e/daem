@@ -52,7 +52,7 @@ func TestExecuteRejectsActiveJournalReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Execute(context.Background(), prepared)
+	err = Execute(context.Background(), prepared, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -81,7 +81,7 @@ func TestExecuteReplansAndRestoresCurrentRecoveryPlan(t *testing.T) {
 	if active.Classification() != recovery.ClassificationNeedsRollback {
 		t.Fatalf("classification = %q", active.Classification())
 	}
-	if err := Execute(context.Background(), planned); err != nil {
+	if err := Execute(context.Background(), planned, ExecuteOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(fixture.hostPath)
@@ -105,7 +105,7 @@ func TestExecuteRejectsRecoveryDriftAndRetainsJournal(t *testing.T) {
 	dirty := []byte("neither before nor expected after\n")
 	writeRecoverTestFile(t, fixture.hostPath, dirty)
 
-	err = Execute(context.Background(), planned)
+	err = Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -180,7 +180,7 @@ func TestExecuteRejectsStatefileAfterAuthorityDrift(t *testing.T) {
 		t.Fatal("statefile_after drift retained the disclosed recovery operation fingerprint")
 	}
 
-	err = Execute(context.Background(), planned)
+	err = Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -211,7 +211,7 @@ func TestActiveJournalRetirementRevalidatesGuardedHostPaths(t *testing.T) {
 	}
 	writeRecoverTestFile(t, fixture.hostPath, fixture.newContent)
 
-	err = Execute(context.Background(), planned)
+	err = Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -264,7 +264,7 @@ func TestCleanupOnlyRecoveryUsesOnlyRetirementAuthority(t *testing.T) {
 		}
 	}
 
-	if err := Execute(t.Context(), prepared); err != nil {
+	if err := Execute(t.Context(), prepared, ExecuteOptions{}); err != nil {
 		t.Fatalf("Execute cleanup-only recovery: %v", err)
 	}
 	assertRecoverPathAbsent(t, fixture.controlDir)
@@ -293,7 +293,7 @@ func TestCleanupOnlyRecoveryRejectsStaleRecordBeforeEffects(t *testing.T) {
 	}
 	writeRetirementRecord(t, fixture.recordPath, finalizing)
 
-	err = Execute(t.Context(), prepared)
+	err = Execute(t.Context(), prepared, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -313,10 +313,10 @@ func TestCleanupOnlyRecoveryRejectsDuplicatePreparedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Execute(t.Context(), first); err != nil {
+	if err := Execute(t.Context(), first, ExecuteOptions{}); err != nil {
 		t.Fatalf("first Execute: %v", err)
 	}
-	err = Execute(t.Context(), second)
+	err = Execute(t.Context(), second, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("second Execute error = %v, want StaleSnapshotError", err)
@@ -334,7 +334,7 @@ func TestCleanupOnlyRecoveryHonorsCancellationBeforeEffects(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err = Execute(ctx, prepared)
+	err = Execute(ctx, prepared, ExecuteOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v, want context.Canceled", err)
 	}
@@ -421,7 +421,7 @@ func TestCleanupOnlyRecoveryRejectsPhysicalAndNamespaceDrift(t *testing.T) {
 			}
 			test.drift(t, fixture)
 
-			err = Execute(t.Context(), prepared)
+			err = Execute(t.Context(), prepared, ExecuteOptions{})
 			var stale mutation.StaleSnapshotError
 			if !errors.As(err, &stale) {
 				t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -449,7 +449,7 @@ func TestCleanupOnlyRecoverySerializesIndependentPreparedPlans(t *testing.T) {
 	for _, prepared := range []*PreparedRecovery{first, second} {
 		go func(prepared *PreparedRecovery) {
 			<-start
-			results <- Execute(ctx, prepared)
+			results <- Execute(ctx, prepared, ExecuteOptions{})
 		}(prepared)
 	}
 	close(start)
@@ -574,7 +574,7 @@ func TestCleanupOnlyRecoveryRejectsNewlyBlockedEvidenceBeforeEffects(t *testing.
 			}
 			test.drift(t, fixture)
 
-			err = Execute(t.Context(), prepared)
+			err = Execute(t.Context(), prepared, ExecuteOptions{})
 			var stale mutation.StaleSnapshotError
 			if !errors.As(err, &stale) {
 				t.Fatalf("Execute error = %v, want StaleSnapshotError", err)

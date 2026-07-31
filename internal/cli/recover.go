@@ -102,7 +102,11 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 		}
 	}
 	if *yes || interactiveConfirmation {
-		executeErr := recoverworkflow.Execute(options.context, prepared)
+		executeErr := recoverworkflow.Execute(
+			options.context,
+			prepared,
+			options.recoverExecuteOptions,
+		)
 		if *jsonOutput {
 			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, executeErr); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))

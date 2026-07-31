@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
@@ -20,6 +21,12 @@ import (
 
 type PlanInput struct {
 	ManifestPath string
+}
+
+// ExecuteOptions supplies effect-boundary dependencies without changing
+// recovery planning, authority acquisition, or revalidation.
+type ExecuteOptions struct {
+	Filesystem mutationfs.Store
 }
 
 // Plan prepares one pointer-owned recovery capability. Its Disclosure method
@@ -94,7 +101,12 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 	return planned, nil
 }
 
-func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) {
+// Execute executes one prepared recovery with explicit effect dependencies.
+func Execute(
+	ctx context.Context,
+	prepared *PreparedRecovery,
+	options ExecuteOptions,
+) (returnErr error) {
 	execution, err := prepared.beginExecution()
 	if err != nil {
 		return err
@@ -112,6 +124,10 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 	}
 	if execution.plan.Blocked() || execution.plan.HasErrors() {
 		return fmt.Errorf("recovery is blocked")
+	}
+	filesystem := options.Filesystem
+	if filesystem == nil {
+		filesystem = storagecommit.Adapter{}
 	}
 	visibleOperation, err := recoveryOperationFingerprint(execution.paths, execution.plan)
 	if err != nil || !execution.operationEvidence.Equal(visibleOperation) {
@@ -226,7 +242,7 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 				Codecs:                  aggregatecodec.Catalog(),
 				StateCodec:              statefile.Codec{},
 				StateReader:             stateReaderForPath(effectPaths.StatefilePath),
-				Filesystem:              storagecommit.Adapter{},
+				Filesystem:              filesystem,
 			},
 		)
 	case journal.RecoveryAuthorityJournalCleanup:
@@ -250,7 +266,7 @@ func Execute(ctx context.Context, prepared *PreparedRecovery) (returnErr error) 
 			},
 			execute.JournalCleanupOptions{
 				ValidateBeforeEffects:  validateCurrentAuthority,
-				Filesystem:             storagecommit.Adapter{},
+				Filesystem:             filesystem,
 				LegacyJournalAuthority: legacyAuthority,
 				StateCodec:             statefile.Codec{},
 			},
