@@ -337,6 +337,103 @@ args = ["search.js"]
 	}
 }
 
+func TestExecuteStopsProviderRoutesAfterDeclarationChanges(t *testing.T) {
+	root := newApplyCarrierFixtureRoot(t)
+	agentRoot := filepath.Join(root, "custom-pi-agent")
+	t.Setenv("PI_CODING_AGENT_DIR", agentRoot)
+	manifestPath := filepath.Join(root, "daem.toml")
+	writeApplyFile(t, manifestPath, `version = 1
+targets = ["pi"]
+
+[[extension]]
+id = "pi-mcp-adapter-project"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "project"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
+
+[[extension]]
+id = "pi-mcp-adapter-global"
+carrier = "pi-package"
+targets = ["pi"]
+scope = "global"
+source = { host_source = "npm:pi-mcp-adapter@^2.13.0" }
+
+[[mcp_server]]
+name = "project-context"
+targets = ["pi"]
+scope = "project"
+transport = "stdio"
+command = "node"
+args = ["project.js"]
+
+[[mcp_server]]
+name = "global-context"
+targets = ["pi"]
+scope = "global"
+transport = "stdio"
+command = "node"
+args = ["global.js"]
+`)
+	if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{
+		ManifestPath: manifestPath,
+	}); err != nil {
+		t.Fatalf("RunLock returned error: %v", err)
+	}
+	planned, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+
+	calls := 0
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+			calls++
+			writePiProviderInstallation(t, root, "2.15.0")
+			writeApplyFile(
+				t,
+				filepath.Join(agentRoot, "settings.json"),
+				`{"packages":["`+piProviderSource+`"]}`,
+			)
+			writeApplyFile(
+				t,
+				filepath.Join(
+					agentRoot,
+					"npm",
+					"node_modules",
+					"pi-mcp-adapter",
+					"package.json",
+				),
+				`{"name":"pi-mcp-adapter","version":"2.15.0"}`,
+			)
+			content, readErr := os.ReadFile(manifestPath)
+			if readErr != nil {
+				t.Fatalf("read manifest: %v", readErr)
+			}
+			writeApplyFile(t, manifestPath, string(content)+"\n# changed between routes\n")
+			return subprocess.CommandResult{
+				Started: true, HasExitCode: true, ExitCode: 0,
+			}
+		},
+	})
+
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		PlanWasDisclosed:  true,
+		HostRouteExecutor: executor,
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteWithOptions error = %v, want stale disclosed plan", err)
+	}
+	if calls != 1 || len(result.HostRouteAttempts) != 1 {
+		t.Fatalf(
+			"provider calls=%d attempts=%#v, want one route before stale stop",
+			calls,
+			result.HostRouteAttempts,
+		)
+	}
+}
+
 func TestExecuteInstallsGlobalPiMCPProviderAtCustomAgentRoot(t *testing.T) {
 	root, agentRoot, manifestPath := writeGlobalPiProviderMCPFixture(t)
 	carrierRegistryPath := isolatedApplyCarrierRegistryPath(t, root)

@@ -301,7 +301,12 @@ func TestExecuteAllContinuesAfterFailureAndReturnsAllAttemptRecords(t *testing.T
 		},
 	})
 
-	record, err := executor.ExecuteAll(context.Background(), []reconcile.DelegateAction{failingAction, succeedingAction}, testWorkingDirectoryBinderForAction(t))
+	record, err := executeAllForTest(
+		context.Background(),
+		executor,
+		[]reconcile.DelegateAction{failingAction, succeedingAction},
+		testWorkingDirectoryBinderForAction(t),
+	)
 
 	if err == nil {
 		t.Fatal("ExecuteAll error = nil, want failure after executing all actions")
@@ -325,7 +330,12 @@ func TestExecuteAllReportsBlockedActionAsError(t *testing.T) {
 	})
 	executor := NewExecutor(Options{})
 
-	record, err := executor.ExecuteAll(context.Background(), []reconcile.DelegateAction{action}, testWorkingDirectoryBinderForAction(t))
+	record, err := executeAllForTest(
+		context.Background(),
+		executor,
+		[]reconcile.DelegateAction{action},
+		testWorkingDirectoryBinderForAction(t),
+	)
 
 	if err == nil {
 		t.Fatal("ExecuteAll error = nil, want blocked execution error")
@@ -371,7 +381,12 @@ func TestExecuteAllSelectsWorkingDirectoryAuthorityPerAction(t *testing.T) {
 		return nil
 	}
 
-	records, err := executor.ExecuteAll(context.Background(), actions, bindForAction)
+	records, err := executeAllForTest(
+		context.Background(),
+		executor,
+		actions,
+		bindForAction,
+	)
 
 	if err == nil {
 		t.Fatal("ExecuteAll error = nil, want second action authority failure")
@@ -386,4 +401,21 @@ func TestExecuteAllSelectsWorkingDirectoryAuthorityPerAction(t *testing.T) {
 		records[1].Reason() != ReasonWorkDirAuthority {
 		t.Fatalf("records = %#v, want success then workdir authority failure", records)
 	}
+}
+
+func executeAllForTest(
+	ctx context.Context,
+	executor Executor,
+	actions []reconcile.DelegateAction,
+	bindForAction BinderForAction,
+) ([]AttemptRecord, error) {
+	records := make([]AttemptRecord, 0, len(actions))
+	for _, action := range actions {
+		var bind subprocess.WorkingDirectoryBinder
+		if bindForAction != nil {
+			bind = bindForAction(action)
+		}
+		records = append(records, executor.Execute(ctx, action, bind))
+	}
+	return records, FailedAttemptError(records)
 }

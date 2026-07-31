@@ -124,6 +124,8 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
 	}
+	// Root authority must precede every declaration read, including revision
+	// hashing, so planning never adopts a replacement project root.
 	root, rootCaptureErr := captureProjectRootAuthorityBeforeLoad(paths)
 	defer func() {
 		if root != nil {
@@ -132,6 +134,21 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 			}
 		}
 	}()
+	lockfilePath, err := selectedLockfilePath(paths, input.LockfilePath)
+	if err != nil {
+		return unavailablePreparedWrite(CommandResult{}), err
+	}
+	declarationRevisions, err := captureDeclarationRevisions(
+		ctx,
+		paths.ManifestPath,
+		lockfilePath,
+	)
+	if err != nil {
+		return unavailablePreparedWrite(CommandResult{}), fmt.Errorf(
+			"capture pre-plan apply declaration revisions: %w",
+			err,
+		)
+	}
 	planned, err := planReadinessAtPaths(ctx, input, operationContext, paths)
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
@@ -182,6 +199,24 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		closeErr := closeCommandPlan(&planned)
 		return unavailablePreparedWrite(planned.result), errors.Join(err, closeErr)
 	}
+	declarationsCurrent, err := declarationRevisions.MatchesCurrent(ctx)
+	if err != nil {
+		closeErr := closeCommandPlan(&planned)
+		return unavailablePreparedWrite(planned.result), errors.Join(
+			fmt.Errorf("revalidate apply declarations after planning: %w", err),
+			closeErr,
+		)
+	}
+	if !declarationsCurrent {
+		closeErr := closeCommandPlan(&planned)
+		return unavailablePreparedWrite(planned.result), errors.Join(
+			staleApplyError(
+				false,
+				errors.New("manifest or selected lockfile changed while planning"),
+			),
+			closeErr,
+		)
+	}
 
 	return newPreparedWrite(
 		planned,
@@ -189,6 +224,7 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 		operationContext,
 		operationEvidence,
 		authorityEvidence,
+		declarationRevisions,
 	), nil
 }
 

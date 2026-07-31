@@ -229,6 +229,7 @@ func runMCPProviderPrerequisitePhase(
 	store mutation.Store,
 	leases *mutation.LeaseSet,
 	revisions mutation.RevisionSet,
+	executionGuard applyExecutionGuard,
 	validateBeforeEffects func(context.Context, mutation.PhysicalAuthoritySet) error,
 	options runOptions,
 	planWasDisclosed bool,
@@ -252,43 +253,33 @@ func runMCPProviderPrerequisitePhase(
 	if err := validateBeforeEffects(ctx, emptyAuthority); err != nil {
 		return result, err
 	}
-	declarationRevisions, err := captureProviderDeclarationRevisions(ctx, *current)
-	if err != nil {
-		return result, fmt.Errorf("capture pre-provider declaration revisions: %w", err)
-	}
-	requireDeclarationsCurrent := func() error {
-		matches, err := declarationRevisions.MatchesCurrent(ctx)
-		if err != nil {
-			return err
+	providerState := current.assessment.CurrentState
+	providerClaims := current.assessment.GlobalCarrierClaims
+	for index, action := range actions {
+		phase := fmt.Sprintf("MCP provider prerequisite route[%d]", index)
+		if err := executionGuard.requireDeclarationsCurrent(ctx, "before "+phase); err != nil {
+			return result, err
 		}
-		if !matches {
-			return providerPhaseStale(
-				planWasDisclosed,
-				"manifest or lockfile changed during MCP provider prerequisite",
-				nil,
-			)
+		nextState, nextClaims, attempts, routeErr := runHostRoutesAndPersistAttemptRecords(
+			ctx,
+			effectPaths,
+			current.context.Lockfile,
+			current.assessment.StatePath,
+			providerState,
+			current.assessment.Owner,
+			providerClaims,
+			[]reconcile.RelationAction{action},
+			options,
+		)
+		providerState = nextState
+		providerClaims = nextClaims
+		result.attempts = append(result.attempts, attempts...)
+		declarationErr := executionGuard.requireDeclarationsCurrent(ctx, "after "+phase)
+		if routeErr != nil || declarationErr != nil {
+			return result, errors.Join(routeErr, declarationErr)
 		}
-		return nil
-	}
-	_, _, attempts, err := runHostRoutesAndPersistAttemptRecords(
-		ctx,
-		effectPaths,
-		current.context.Lockfile,
-		current.assessment.StatePath,
-		current.assessment.CurrentState,
-		current.assessment.Owner,
-		current.assessment.GlobalCarrierClaims,
-		actions,
-		options,
-	)
-	result.attempts = attempts
-	if err != nil {
-		return result, err
 	}
 	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	if err := requireDeclarationsCurrent(); err != nil {
 		return result, err
 	}
 	if err := leases.Release(); err != nil {
@@ -448,7 +439,10 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
-	if err := requireDeclarationsCurrent(); err != nil {
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"final MCP provider replan",
+	); err != nil {
 		return result, err
 	}
 	*current = underLease
@@ -456,27 +450,6 @@ func runMCPProviderPrerequisitePhase(
 	result.revisions = reboundRevisions
 	releaseRebound = false
 	return result, nil
-}
-
-func captureProviderDeclarationRevisions(
-	ctx context.Context,
-	planned commandPlan,
-) (mutation.RevisionSet, error) {
-	requests := make([]mutation.RevisionRequest, 0, 4)
-	for _, path := range []string{
-		planned.result.ManifestPath,
-		planned.result.LockfilePath,
-	} {
-		for _, effect := range []mutation.PathEffect{
-			mutation.PathEffectDirectoryEntry,
-			mutation.PathEffectReferent,
-		} {
-			requests = append(requests, mutation.RevisionRequest{
-				Path: path, Effect: effect,
-			})
-		}
-	}
-	return mutation.CaptureRevisionSet(ctx, requests...)
 }
 
 func providerPhaseStale(disclosed bool, message string, cause error) error {

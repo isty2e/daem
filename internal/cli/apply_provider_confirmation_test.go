@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,10 +98,11 @@ func TestRunApplyInteractiveRenewsConsentAfterProviderOrderRiskExpansion(t *test
 
 	runnerCalls := 0
 	options := interactiveRunOptions(
-		strings.NewReader("yes\nno\n"),
+		strings.NewReader(""),
 		&stdout,
 		&stderr,
 	)
+	options.ReadConfirmationLine = confirmationAnswerSequence("yes", "no")
 	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
 		HostRouteExecutor: fixture.providerExecutor(t, &runnerCalls),
 	}
@@ -142,11 +145,251 @@ func TestRunApplyInteractiveRenewsConsentAfterProviderOrderRiskExpansion(t *test
 	fixture.assertSettings(t, fixture.postProviderContent)
 }
 
+func TestRunApplyInteractiveAcceptsRenewedProviderOrderRisk(t *testing.T) {
+	fixture := writeApplyProviderConfirmationFixture(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := runWithoutTerminal(
+		[]string{"lock", "--manifest", fixture.manifestPath},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"lock exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	runnerCalls := 0
+	options := interactiveRunOptions(
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	options.ReadConfirmationLine = confirmationAnswerSequence("yes", "yes")
+	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
+		HostRouteExecutor: fixture.providerExecutor(t, &runnerCalls),
+	}
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", fixture.manifestPath, "--manage-existing",
+		},
+		options,
+	)
+	if exitCode != 0 || runnerCalls != 1 {
+		t.Fatalf(
+			"exitCode=%d runnerCalls=%d stdout=%q stderr=%q",
+			exitCode,
+			runnerCalls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(stdout.String(), "applied:") ||
+		!strings.Contains(stderr.String(), "Proceed with updated apply plan? [y/N]:") {
+		t.Fatalf(
+			"renewed success output incomplete: stdout=%q stderr=%q",
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	fixture.assertSettings(t, fixture.convergedContent)
+}
+
+func TestRunApplyYesJSONReportsProviderOrderRiskExpansion(t *testing.T) {
+	fixture := writeApplyProviderConfirmationFixture(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := runWithoutTerminal(
+		[]string{"lock", "--manifest", fixture.manifestPath},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"lock exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	runnerCalls := 0
+	exitCode := RunWithOptions(
+		[]string{
+			"apply",
+			"--manifest",
+			fixture.manifestPath,
+			"--manage-existing",
+			"--yes",
+			"--json",
+		},
+		RunOptions{
+			Context: t.Context(),
+			Stdout:  &stdout,
+			Stderr:  &stderr,
+			ApplyExecuteOptions: applyworkflow.ExecuteOptions{
+				HostRouteExecutor: fixture.providerExecutor(t, &runnerCalls),
+			},
+		},
+	)
+	if exitCode != 1 || runnerCalls != 1 || stderr.Len() != 0 {
+		t.Fatalf(
+			"exitCode=%d runnerCalls=%d stdout=%q stderr=%q",
+			exitCode,
+			runnerCalls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var payload struct {
+		HasErrors bool `json:"has_errors"`
+		Errors    []struct {
+			Message string `json:"message"`
+		} `json:"errors"`
+		HostRouteAttempts []json.RawMessage `json:"host_route_attempts"`
+		RelationOrders    []struct {
+			Risks []struct {
+				ForeignIdentity string `json:"foreign_identity"`
+			} `json:"risks"`
+		} `json:"relation_order_actions"`
+		DelegateAttempts []json.RawMessage `json:"delegate_attempts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode apply JSON: %v\n%s", err, stdout.String())
+	}
+	if !payload.HasErrors ||
+		len(payload.Errors) != 1 ||
+		!strings.Contains(
+			payload.Errors[0].Message,
+			"extension order risk expanded after carrier changes",
+		) ||
+		len(payload.HostRouteAttempts) != 1 ||
+		len(payload.RelationOrders) != 1 ||
+		len(payload.RelationOrders[0].Risks) != 2 ||
+		len(payload.DelegateAttempts) != 0 {
+		t.Fatalf("apply JSON payload = %#v", payload)
+	}
+	for _, risk := range payload.RelationOrders[0].Risks {
+		if !strings.HasPrefix(risk.ForeignIdentity, "redacted:sha256:") {
+			t.Fatalf("unredacted provider order risk = %#v", risk)
+		}
+	}
+	if strings.Contains(stdout.String(), "foreign-extension") {
+		t.Fatalf("apply JSON disclosed local identity: %s", stdout.String())
+	}
+	fixture.assertSettings(t, fixture.postProviderContent)
+}
+
+func TestRunApplyRejectsDeclarationChangeDuringRenewedConsent(t *testing.T) {
+	fixture := writeApplyProviderConfirmationFixture(t)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := runWithoutTerminal(
+		[]string{"lock", "--manifest", fixture.manifestPath},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"lock exitCode=%d stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	stdout.Reset()
+	stderr.Reset()
+
+	confirmationReads := 0
+	options := interactiveRunOptions(
+		strings.NewReader(""),
+		&stdout,
+		&stderr,
+	)
+	answers := confirmationAnswerSequence("yes", "yes")
+	options.ReadConfirmationLine = func(
+		ctx context.Context,
+		input io.Reader,
+		maximumBytes int,
+	) (string, error) {
+		line, err := answers(ctx, input, maximumBytes)
+		confirmationReads++
+		if confirmationReads == 2 {
+			content, readErr := os.ReadFile(fixture.manifestPath)
+			if readErr != nil {
+				t.Fatalf("read manifest during confirmation: %v", readErr)
+			}
+			writeApplyConfirmationFile(
+				t,
+				fixture.root,
+				"daem.toml",
+				string(content)+"\n# changed during renewed consent\n",
+			)
+		}
+		return line, err
+	}
+	runnerCalls := 0
+	options.ApplyExecuteOptions = applyworkflow.ExecuteOptions{
+		HostRouteExecutor: fixture.providerExecutor(t, &runnerCalls),
+	}
+	exitCode := RunWithOptions(
+		[]string{
+			"apply", "--manifest", fixture.manifestPath, "--manage-existing",
+		},
+		options,
+	)
+	if exitCode != 1 || runnerCalls != 1 || confirmationReads != 2 {
+		t.Fatalf(
+			"exitCode=%d runnerCalls=%d confirmations=%d stdout=%q stderr=%q",
+			exitCode,
+			runnerCalls,
+			confirmationReads,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(stderr.String(), "stale_plan") ||
+		strings.Contains(stdout.String(), "applied:") {
+		t.Fatalf(
+			"stale renewed consent output mismatch: stdout=%q stderr=%q",
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	fixture.assertSettings(t, fixture.postProviderContent)
+}
+
+func confirmationAnswerSequence(
+	answers ...string,
+) func(context.Context, io.Reader, int) (string, error) {
+	next := 0
+	return func(ctx context.Context, _ io.Reader, maximumBytes int) (string, error) {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		if next >= len(answers) {
+			return "", io.EOF
+		}
+		answer := answers[next]
+		next++
+		if len(answer) > maximumBytes {
+			return "", io.ErrShortBuffer
+		}
+		return answer, nil
+	}
+}
+
 type applyProviderConfirmationFixture struct {
 	root                string
 	manifestPath        string
 	settingsPath        string
 	postProviderContent string
+	convergedContent    string
 }
 
 func writeApplyProviderConfirmationFixture(t *testing.T) applyProviderConfirmationFixture {
@@ -193,6 +436,8 @@ args = ["server.js"]
 		settingsPath: filepath.Join(root, ".pi", "settings.json"),
 		postProviderContent: `{"packages":["` + betaSource + `","` +
 			foreignSource + `","` + providerSource + `"]}`,
+		convergedContent: `{"packages":["` + providerSource + `","` +
+			foreignSource + `","` + betaSource + `"]}`,
 	}
 }
 

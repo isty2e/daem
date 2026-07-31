@@ -112,6 +112,7 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	defer projectRoot.Close()
 	options := runOptions{
 		projectRoot:       projectRoot,
+		executionGuard:    testApplyExecutionGuard(t, paths),
 		orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 		validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 			return nil
@@ -175,7 +176,7 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 	) (bool, error) {
 		authorized++
 		if expansion.AddedRiskCount() != 2 ||
-			len(expansion.Decisions()) != 1 {
+			len(expansion.Deltas()) != 1 {
 			t.Fatalf("risk expansion = %#v", expansion)
 		}
 		return true, nil
@@ -246,6 +247,7 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 		initial,
 		runOptions{
 			projectRoot:       projectRoot,
+			executionGuard:    testApplyExecutionGuard(t, paths),
 			orderRiskBaseline: newRelationOrderRiskBaseline(initial.RelationOrders()),
 			validateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
 				return nil

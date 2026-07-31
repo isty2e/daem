@@ -343,9 +343,9 @@ func newRelationOrderRiskAuthorizer(
 			"extension order changed after carrier updates: %d new precedence risks\n",
 			expansion.AddedRiskCount(),
 		)
-		clipresent.PrintRelationOrderActionsWithOptions(
+		clipresent.PrintRelationOrderRiskDeltasWithOptions(
 			output,
-			expansion.Decisions(),
+			expansion.Deltas(),
 			humanOptions,
 		)
 		return confirmation.prompt("updated apply plan")

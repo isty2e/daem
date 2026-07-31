@@ -69,29 +69,19 @@ func (executor Executor) Execute(
 	return newAttemptRecord(action, status, reason, result)
 }
 
-// ExecuteAll executes actions in order and returns sanitized attempt records for every action.
-func (executor Executor) ExecuteAll(
-	ctx context.Context,
-	actions []reconcile.DelegateAction,
-	bindForAction BinderForAction,
-) ([]AttemptRecord, error) {
-	records := make([]AttemptRecord, 0, len(actions))
+// FailedAttemptError returns one combined execution error for failed records,
+// or nil when every attempt succeeded or was skipped.
+func FailedAttemptError(records []AttemptRecord) error {
 	failures := make([]AttemptRecord, 0)
-	for _, action := range actions {
-		var bind subprocess.WorkingDirectoryBinder
-		if bindForAction != nil {
-			bind = bindForAction(action)
-		}
-		result := executor.Execute(ctx, action, bind)
-		records = append(records, result)
-		if result.Failed() {
-			failures = append(failures, result)
+	for _, record := range records {
+		if record.Failed() {
+			failures = append(failures, record)
 		}
 	}
-	if len(failures) != 0 {
-		return records, ExecutionError{records: failures}
+	if len(failures) == 0 {
+		return nil
 	}
-	return records, nil
+	return ExecutionError{records: failures}
 }
 
 func (executor Executor) withDefaults() Executor {

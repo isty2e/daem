@@ -109,7 +109,12 @@ func TestExecutionErrorSummaryDoesNotIncludeSecretOutput(t *testing.T) {
 		},
 	})
 
-	record, err := executor.ExecuteAll(context.Background(), []reconcile.DelegateAction{action}, testWorkingDirectoryBinderForAction(t))
+	record, err := executeAllForTest(
+		context.Background(),
+		executor,
+		[]reconcile.DelegateAction{action},
+		testWorkingDirectoryBinderForAction(t),
+	)
 
 	if err == nil {
 		t.Fatal("ExecuteAll error = nil, want secret-bearing failure")

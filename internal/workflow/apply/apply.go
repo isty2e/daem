@@ -54,6 +54,7 @@ type runOptions struct {
 	DelegateExecutor               delegate.Executor
 	RelationOrderRiskAuthorizer    RelationOrderRiskAuthorizer
 	orderRiskBaseline              relationOrderRiskBaseline
+	executionGuard                 applyExecutionGuard
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
 	projectRoot                    *rootedpath.CapturedRoot
 }
@@ -282,7 +283,8 @@ func runHostRoutesOrderDelegatesAndPersistAttemptRecords(
 		statePath,
 		nextState,
 		result.ActionCount,
-		orderResult.reconciliation.Delegates(),
+		orderResult.reconciliation,
+		orderResult.planFingerprint,
 		options,
 	)
 	delegateResult.HostRouteAttempts = hostRouteAttempts

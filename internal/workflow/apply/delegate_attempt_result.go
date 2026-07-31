@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -83,9 +84,11 @@ func runDelegatesAndPersistAttemptRecords(
 	statePath string,
 	current durable.Snapshot,
 	actionCount int,
-	delegateActions []reconcile.DelegateAction,
+	reconciliation reconcile.Result,
+	expectedPlanFingerprint mutation.OperationFingerprint,
 	options runOptions,
 ) (runResult, error) {
+	delegateActions := reconciliation.Delegates()
 	var stateAuthority *rootedpath.EntryAuthority
 	if delegateActionsRequireAttemptPersistence(delegateActions) {
 		if options.projectRoot == nil {
@@ -115,11 +118,45 @@ func runDelegatesAndPersistAttemptRecords(
 		}
 		defer stateAuthority.Close()
 	}
-	delegateAttempts, delegateErr := options.DelegateExecutor.ExecuteAll(
-		ctx,
-		delegateActions,
-		delegateWorkingDirectoryBinderForAction(options, paths.ManifestRoot),
+	var delegateAttempts []delegate.AttemptRecord
+	var declarationErr error
+	bindForAction := delegateWorkingDirectoryBinderForAction(
+		options,
+		paths.ManifestRoot,
 	)
+	for index, action := range delegateActions {
+		actualPlanFingerprint, err := remainingExecutionFingerprint(reconciliation)
+		if err != nil {
+			declarationErr = err
+			break
+		}
+		phase := fmt.Sprintf("delegate route[%d]", index)
+		if err := options.executionGuard.requirePlanCurrent(
+			ctx,
+			expectedPlanFingerprint,
+			actualPlanFingerprint,
+			"before "+phase,
+		); err != nil {
+			declarationErr = err
+			break
+		}
+		var bind subprocess.WorkingDirectoryBinder
+		if bindForAction != nil {
+			bind = bindForAction(action)
+		}
+		delegateAttempts = append(
+			delegateAttempts,
+			options.DelegateExecutor.Execute(ctx, action, bind),
+		)
+		declarationErr = options.executionGuard.requireDeclarationsCurrent(
+			ctx,
+			"after "+phase,
+		)
+		if declarationErr != nil {
+			break
+		}
+	}
+	delegateErr := delegate.FailedAttemptError(delegateAttempts)
 	rootErr := validateDelegateProjectRoot(options, paths.ManifestRoot, delegateActions)
 	summaries := defaultPostAttemptSummaries(locked, delegateAttempts)
 	if rootErr == nil {
@@ -128,10 +165,14 @@ func runDelegatesAndPersistAttemptRecords(
 	delegateResults, resultErr := delegateAttemptResults(delegateAttempts, summaries)
 	if resultErr != nil {
 		return runResult{
-			ActionCount: actionCount,
-			StatePath:   statePath,
-			State:       current,
-		}, errors.Join(delegateErr, fmt.Errorf("compose delegate attempt result: %w", resultErr))
+				ActionCount: actionCount,
+				StatePath:   statePath,
+				State:       current,
+			}, errors.Join(
+				delegateErr,
+				declarationErr,
+				fmt.Errorf("compose delegate attempt result: %w", resultErr),
+			)
 	}
 	if rootErr != nil {
 		return runResult{
@@ -139,16 +180,20 @@ func runDelegatesAndPersistAttemptRecords(
 			StatePath:        statePath,
 			State:            current,
 			DelegateAttempts: delegateResults,
-		}, errors.Join(delegateErr, rootErr)
+		}, errors.Join(delegateErr, declarationErr, rootErr)
 	}
 	persistedAttempts, attemptErr := durableAttemptsFromDelegateResults(delegateResults, time.Now().UTC())
 	if attemptErr != nil {
 		return runResult{
-			ActionCount:      actionCount,
-			StatePath:        statePath,
-			State:            current,
-			DelegateAttempts: delegateResults,
-		}, errors.Join(delegateErr, fmt.Errorf("compose durable delegate attempt: %w", attemptErr))
+				ActionCount:      actionCount,
+				StatePath:        statePath,
+				State:            current,
+				DelegateAttempts: delegateResults,
+			}, errors.Join(
+				delegateErr,
+				declarationErr,
+				fmt.Errorf("compose durable delegate attempt: %w", attemptErr),
+			)
 	}
 	if len(persistedAttempts) == 0 {
 		return runResult{
@@ -156,7 +201,7 @@ func runDelegatesAndPersistAttemptRecords(
 			StatePath:        statePath,
 			State:            current,
 			DelegateAttempts: delegateResults,
-		}, delegateErr
+		}, errors.Join(delegateErr, declarationErr)
 	}
 	nextState, persistErr := execute.CommitDelegateAttempts(
 		ctx,
@@ -176,7 +221,7 @@ func runDelegatesAndPersistAttemptRecords(
 	if persistErr != nil {
 		persistErr = fmt.Errorf("persist delegate attempt record: %w", persistErr)
 	}
-	return result, errors.Join(delegateErr, persistErr, rootErr)
+	return result, errors.Join(delegateErr, declarationErr, persistErr, rootErr)
 }
 
 func delegateActionsRequireAttemptPersistence(actions []reconcile.DelegateAction) bool {

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
@@ -169,6 +170,46 @@ func PrintRelationOrderActionsWithOptions(
 	}
 }
 
+// PrintRelationOrderRiskDeltasWithOptions discloses only precedence changes
+// newly introduced after the original apply authorization.
+func PrintRelationOrderRiskDeltasWithOptions(
+	output io.Writer,
+	deltas []applyworkflow.RelationOrderRiskDelta,
+	options HumanOptions,
+) {
+	if len(deltas) == 0 {
+		return
+	}
+	fmt.Fprintf(output, "extension order risk delta: %d sequences\n", len(deltas))
+	for _, delta := range deltas {
+		if options.Verbose {
+			fmt.Fprintf(
+				output,
+				"  - target=%s scope=%s class=%q sequence=%q runtime_meaning=%s\n",
+				delta.Target(),
+				delta.Scope(),
+				delta.ClassID(),
+				delta.SequenceID(),
+				delta.RuntimeMeaning(),
+			)
+		} else {
+			fmt.Fprintf(
+				output,
+				"  - new %s risks target=%s scope=%s sequence=%q\n",
+				relationOrderMeaning(delta.RuntimeMeaning()),
+				delta.Target(),
+				delta.Scope(),
+				delta.SequenceID(),
+			)
+		}
+		printRelationOrderRiskChanges(
+			output,
+			delta.PrecedenceChanges(),
+			"adds",
+		)
+	}
+}
+
 // PrintRelationOrderResults writes final post-carrier outcomes per physical
 // sequence, including honest partial failure and not-attempted states.
 func PrintRelationOrderResults(
@@ -306,13 +347,25 @@ func printRelationOrderRiskDetails(
 	output io.Writer,
 	decision reconcile.RelationOrderDecision,
 ) {
-	changes := decision.PrecedenceChanges()
+	printRelationOrderRiskChanges(
+		output,
+		decision.PrecedenceChanges(),
+		"includes",
+	)
+}
+
+func printRelationOrderRiskChanges(
+	output io.Writer,
+	changes []observerelation.PrecedenceChange,
+	verb string,
+) {
 	if len(changes) == 0 {
 		return
 	}
 	fmt.Fprintf(
 		output,
-		"    includes %d managed/foreign precedence changes:\n",
+		"    %s %d managed/foreign precedence changes:\n",
+		verb,
 		len(changes),
 	)
 	for _, change := range changes {

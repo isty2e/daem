@@ -56,11 +56,58 @@ func TestRelationOrderRiskBaselineComparesExactRiskIdentity(t *testing.T) {
 		`{"packages":["npm:b@1","npm:foreign-b@1","npm:a@1"]}`,
 	)
 	expansion := baseline.expansion(changedIdentity)
-	if expansion.AddedRiskCount() != 2 || len(expansion.Decisions()) != 1 {
+	if expansion.AddedRiskCount() != 2 || len(expansion.Deltas()) != 1 {
 		t.Fatalf(
 			"changed foreign identity expansion = %#v, want two risks in one decision",
 			expansion,
 		)
+	}
+}
+
+func TestRelationOrderRiskExpansionContainsOnlyNewPrecedencePairs(t *testing.T) {
+	root := t.TempDir()
+	paths := daempaths.Paths{ManifestRoot: root}
+	locked := relationOrderTestLock(
+		t,
+		root,
+		desiredextension.CarrierPiPackage,
+		target.TargetPi,
+		[]string{"npm:a@1", "npm:b@1"},
+	)
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	decisionsForContent := func(content string) []reconcile.RelationOrderDecision {
+		t.Helper()
+		writeRelationOrderTestFile(t, settingsPath, content)
+		return relationOrderTestReconciliation(t, paths, locked, nil).RelationOrders()
+	}
+
+	baseline := newRelationOrderRiskBaseline(decisionsForContent(
+		`{"packages":["npm:b@1","npm:foreign-a@1","npm:a@1","npm:foreign-b@1"]}`,
+	))
+	expansion := baseline.expansion(decisionsForContent(
+		`{"packages":["npm:b@1","npm:foreign-a@1","npm:foreign-b@1","npm:a@1"]}`,
+	))
+	deltas := expansion.Deltas()
+	if expansion.AddedRiskCount() != 2 || len(deltas) != 1 {
+		t.Fatalf("expansion = %#v, want one delta with two new risks", expansion)
+	}
+	changes := deltas[0].PrecedenceChanges()
+	if len(changes) != 2 {
+		t.Fatalf("delta changes = %#v, want two", changes)
+	}
+	for _, change := range changes {
+		if change.ForeignIdentity() != "npm:foreign-b" {
+			t.Fatalf(
+				"delta included previously authorized risk for %q",
+				change.ForeignIdentity(),
+			)
+		}
+	}
+
+	changes[0] = changes[1]
+	if got := expansion.Deltas()[0].PrecedenceChanges(); len(got) != 2 ||
+		got[0].ManagedSubject() == got[1].ManagedSubject() {
+		t.Fatalf("risk delta leaked mutable precedence storage: %#v", got)
 	}
 }
 

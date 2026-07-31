@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -158,7 +159,7 @@ func TestExecuteProviderRiskExpansionRequiresFreshAuthorization(t *testing.T) {
 				) (bool, error) {
 					authorizationCalls++
 					if expansion.AddedRiskCount() != 2 ||
-						len(expansion.Decisions()) != 1 {
+						len(expansion.Deltas()) != 1 {
 						t.Fatalf("risk expansion = %#v, want two risks in one decision", expansion)
 					}
 					return test.authorize, test.authorizationErr
@@ -297,6 +298,345 @@ func TestExecuteProviderReplanRejectsStaleDeclarationBeforeOrderAuthorization(
 	}
 }
 
+func TestExecuteProviderReplanRejectsDeclarationChangeDuringRenewedConsent(
+	t *testing.T,
+) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*testing.T, providerOrderAuthorizationFixture)
+	}{
+		{
+			name: "manifest",
+			mutate: func(t *testing.T, fixture providerOrderAuthorizationFixture) {
+				content, err := os.ReadFile(fixture.manifestPath)
+				if err != nil {
+					t.Fatalf("read manifest: %v", err)
+				}
+				changed := strings.Replace(
+					string(content),
+					"must-not-run-daem-test",
+					"changed-after-authorization",
+					1,
+				)
+				if changed == string(content) {
+					t.Fatal("manifest fixture lacks delegated command")
+				}
+				writeApplyFile(t, fixture.manifestPath, changed)
+			},
+		},
+		{
+			name: "lockfile",
+			mutate: func(t *testing.T, fixture providerOrderAuthorizationFixture) {
+				content, err := os.ReadFile(fixture.lockfilePath)
+				if err != nil {
+					t.Fatalf("read lockfile: %v", err)
+				}
+				writeApplyFile(t, fixture.lockfilePath, string(content)+"\n# changed\n")
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := writeProviderOrderAuthorizationFixtureWithDelegate(t)
+			planned := fixture.initialPlan(t)
+			providerCalls := 0
+			delegateCalls := 0
+			authorizationCalls := 0
+			result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+				PlanWasDisclosed: true,
+				HostRouteExecutor: fixture.providerExecutor(
+					t,
+					&providerCalls,
+					fixture.postProviderContent,
+				),
+				DelegateExecutor: delegate.NewExecutor(delegate.Options{
+					Runner: func(
+						context.Context,
+						subprocess.CommandRequest,
+					) subprocess.CommandResult {
+						delegateCalls++
+						return subprocess.CommandResult{
+							Started: true, HasExitCode: true, ExitCode: 0,
+						}
+					},
+				}),
+				RelationOrderRiskAuthorizer: func(
+					context.Context,
+					RelationOrderRiskExpansion,
+				) (bool, error) {
+					authorizationCalls++
+					test.mutate(t, fixture)
+					return true, nil
+				},
+			})
+			var stale mutation.StalePlanError
+			if !errors.As(err, &stale) {
+				t.Fatalf("ExecuteWithOptions error = %v, want stale disclosed plan", err)
+			}
+			if providerCalls != 1 || authorizationCalls != 1 || delegateCalls != 0 ||
+				len(result.HostRouteAttempts) != 1 ||
+				len(result.DelegateAttempts) != 0 ||
+				len(result.RelationOrderResults) != 1 ||
+				result.RelationOrderResults[0].Outcome() != RelationOrderNotAttempted {
+				t.Fatalf(
+					"provider=%d authorize=%d delegate=%d host_attempts=%#v delegate_attempts=%#v orders=%#v",
+					providerCalls,
+					authorizationCalls,
+					delegateCalls,
+					result.HostRouteAttempts,
+					result.DelegateAttempts,
+					result.RelationOrderResults,
+				)
+			}
+			fixture.assertSettings(t, fixture.postProviderContent)
+		})
+	}
+}
+
+func TestExecuteProviderRouteFailurePreservesStaleDeclarationEvidence(
+	t *testing.T,
+) {
+	fixture := writeProviderOrderAuthorizationFixture(t)
+	planned := fixture.initialPlan(t)
+	providerCalls := 0
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		PlanWasDisclosed: true,
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(
+				context.Context,
+				subprocess.CommandRequest,
+			) subprocess.CommandResult {
+				providerCalls++
+				content, readErr := os.ReadFile(fixture.manifestPath)
+				if readErr != nil {
+					t.Fatalf("read manifest during failed provider route: %v", readErr)
+				}
+				writeApplyFile(
+					t,
+					fixture.manifestPath,
+					string(content)+"\n# changed during failed provider route\n",
+				)
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 1,
+				}
+			},
+		}),
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) ||
+		!strings.Contains(err.Error(), "host route attempt failed") {
+		t.Fatalf(
+			"ExecuteWithOptions error = %v, want stale plan joined with route failure",
+			err,
+		)
+	}
+	if providerCalls != 1 || len(result.HostRouteAttempts) != 1 {
+		t.Fatalf(
+			"provider calls=%d attempts=%#v, want one retained failed attempt",
+			providerCalls,
+			result.HostRouteAttempts,
+		)
+	}
+	fixture.assertSettings(t, fixture.initialContent)
+}
+
+func TestExecuteRejectsDeclarationChangeBetweenOrderAndDelegate(
+	t *testing.T,
+) {
+	fixture := writeProviderOrderAuthorizationFixtureWithDelegate(t)
+	planned := fixture.initialPlan(t)
+	providerCalls := 0
+	delegateCalls := 0
+	orderCompleted := 0
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		PlanWasDisclosed: true,
+		HostRouteExecutor: fixture.providerExecutor(
+			t,
+			&providerCalls,
+			fixture.postProviderContent,
+		),
+		RelationOrderRiskAuthorizer: func(
+			context.Context,
+			RelationOrderRiskExpansion,
+		) (bool, error) {
+			return true, nil
+		},
+		ExecuteEvents: func(event execute.Event) {
+			if event.Kind != execute.EventRelationOrderDone {
+				return
+			}
+			orderCompleted++
+			content, readErr := os.ReadFile(fixture.manifestPath)
+			if readErr != nil {
+				t.Fatalf("read manifest after order convergence: %v", readErr)
+			}
+			writeApplyFile(
+				t,
+				fixture.manifestPath,
+				string(content)+"\n# changed before delegate\n",
+			)
+		},
+		DelegateExecutor: delegate.NewExecutor(delegate.Options{
+			Runner: func(
+				context.Context,
+				subprocess.CommandRequest,
+			) subprocess.CommandResult {
+				delegateCalls++
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 0,
+				}
+			},
+		}),
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteWithOptions error = %v, want stale disclosed plan", err)
+	}
+	if providerCalls != 1 || orderCompleted != 1 || delegateCalls != 0 ||
+		len(result.HostRouteAttempts) != 1 ||
+		len(result.RelationOrderResults) != 1 ||
+		result.RelationOrderResults[0].Outcome() != RelationOrderConverged ||
+		len(result.DelegateAttempts) != 0 {
+		t.Fatalf(
+			"provider=%d order_done=%d delegate=%d host_attempts=%#v orders=%#v delegates=%#v",
+			providerCalls,
+			orderCompleted,
+			delegateCalls,
+			result.HostRouteAttempts,
+			result.RelationOrderResults,
+			result.DelegateAttempts,
+		)
+	}
+	fixture.assertSettings(t, fixture.convergedContent)
+}
+
+func TestExecutePreservesAttemptWhenDeclarationChangesDuringDelegate(
+	t *testing.T,
+) {
+	fixture := writeProviderOrderAuthorizationFixtureWithDelegate(t)
+	planned := fixture.initialPlan(t)
+	providerCalls := 0
+	delegateCalls := 0
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		PlanWasDisclosed: true,
+		HostRouteExecutor: fixture.providerExecutor(
+			t,
+			&providerCalls,
+			fixture.postProviderContent,
+		),
+		RelationOrderRiskAuthorizer: func(
+			context.Context,
+			RelationOrderRiskExpansion,
+		) (bool, error) {
+			return true, nil
+		},
+		DelegateExecutor: delegate.NewExecutor(delegate.Options{
+			Runner: func(
+				context.Context,
+				subprocess.CommandRequest,
+			) subprocess.CommandResult {
+				delegateCalls++
+				content, readErr := os.ReadFile(fixture.manifestPath)
+				if readErr != nil {
+					t.Fatalf("read manifest during delegate attempt: %v", readErr)
+				}
+				writeApplyFile(
+					t,
+					fixture.manifestPath,
+					string(content)+"\n# changed during delegate attempt\n",
+				)
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 0,
+				}
+			},
+		}),
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteWithOptions error = %v, want stale disclosed plan", err)
+	}
+	if providerCalls != 1 || delegateCalls != 1 ||
+		len(result.HostRouteAttempts) != 1 ||
+		len(result.RelationOrderResults) != 1 ||
+		result.RelationOrderResults[0].Outcome() != RelationOrderConverged ||
+		len(result.DelegateAttempts) != 1 {
+		t.Fatalf(
+			"provider=%d delegate=%d host_attempts=%#v orders=%#v delegates=%#v",
+			providerCalls,
+			delegateCalls,
+			result.HostRouteAttempts,
+			result.RelationOrderResults,
+			result.DelegateAttempts,
+		)
+	}
+	fixture.assertSettings(t, fixture.convergedContent)
+}
+
+func TestExecuteStopsDelegatesAfterDeclarationChanges(t *testing.T) {
+	fixture := writeProviderOrderAuthorizationFixtureWithTwoDelegates(t)
+	planned := fixture.initialPlan(t)
+	if len(planned.Reconciliation.Delegates()) != 2 {
+		t.Fatalf(
+			"initial delegates = %#v, want two delegated actions",
+			planned.Reconciliation.Delegates(),
+		)
+	}
+	providerCalls := 0
+	delegateCalls := 0
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		PlanWasDisclosed: true,
+		HostRouteExecutor: fixture.providerExecutor(
+			t,
+			&providerCalls,
+			fixture.postProviderContent,
+		),
+		RelationOrderRiskAuthorizer: func(
+			context.Context,
+			RelationOrderRiskExpansion,
+		) (bool, error) {
+			return true, nil
+		},
+		DelegateExecutor: delegate.NewExecutor(delegate.Options{
+			Runner: func(
+				context.Context,
+				subprocess.CommandRequest,
+			) subprocess.CommandResult {
+				delegateCalls++
+				content, readErr := os.ReadFile(fixture.manifestPath)
+				if readErr != nil {
+					t.Fatalf("read manifest during delegate attempt: %v", readErr)
+				}
+				writeApplyFile(
+					t,
+					fixture.manifestPath,
+					string(content)+"\n# changed after first delegate\n",
+				)
+				return subprocess.CommandResult{
+					Started: true, HasExitCode: true, ExitCode: 0,
+				}
+			},
+		}),
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteWithOptions error = %v, want stale disclosed plan", err)
+	}
+	if providerCalls != 1 || delegateCalls != 1 ||
+		len(result.HostRouteAttempts) != 1 ||
+		len(result.RelationOrderResults) != 1 ||
+		result.RelationOrderResults[0].Outcome() != RelationOrderConverged ||
+		len(result.DelegateAttempts) != 1 {
+		t.Fatalf(
+			"provider=%d delegate=%d host_attempts=%#v orders=%#v delegates=%#v",
+			providerCalls,
+			delegateCalls,
+			result.HostRouteAttempts,
+			result.RelationOrderResults,
+			result.DelegateAttempts,
+		)
+	}
+	fixture.assertSettings(t, fixture.convergedContent)
+}
+
 type providerOrderAuthorizationFixture struct {
 	root                string
 	manifestPath        string
@@ -304,6 +644,7 @@ type providerOrderAuthorizationFixture struct {
 	settingsPath        string
 	betaSource          string
 	foreignSource       string
+	initialContent      string
 	postProviderContent string
 	convergedContent    string
 }
@@ -320,6 +661,34 @@ func writeProviderOrderAuthorizationFixtureWithDelegate(
 	t.Helper()
 
 	return writeProviderOrderAuthorizationFixtureWithOptions(t, true)
+}
+
+func writeProviderOrderAuthorizationFixtureWithTwoDelegates(
+	t *testing.T,
+) providerOrderAuthorizationFixture {
+	t.Helper()
+
+	fixture := writeProviderOrderAuthorizationFixtureWithDelegate(t)
+	content, err := os.ReadFile(fixture.manifestPath)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	writeApplyFile(t, fixture.manifestPath, string(content)+`
+
+[[mcp_server]]
+name = "delegated-second"
+targets = ["claude-code"]
+scope = "project"
+transport = "stdio"
+command = "must-not-run-second-daem-test"
+args = ["--serve"]
+`)
+	if _, err := workflowlock.RunLock(t.Context(), workflowlock.LockInput{
+		ManifestPath: fixture.manifestPath,
+	}); err != nil {
+		t.Fatalf("RunLock returned error: %v", err)
+	}
+	return fixture
 }
 
 func writeProviderOrderAuthorizationFixtureWithOptions(
@@ -389,6 +758,7 @@ args = ["server.js"]
 		settingsPath:        settingsPath,
 		betaSource:          betaSource,
 		foreignSource:       foreignSource,
+		initialContent:      initialContent,
 		postProviderContent: `{"packages":["` + betaSource + `","` + foreignSource + `","` + piProviderSource + `"]}`,
 		convergedContent:    `{"packages":["` + piProviderSource + `","` + foreignSource + `","` + betaSource + `"]}`,
 	}

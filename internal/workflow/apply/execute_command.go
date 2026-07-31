@@ -2,6 +2,7 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -106,6 +108,16 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	if err != nil {
 		return disclose(planned), err
 	}
+	executionGuard := newApplyExecutionGuard(
+		execution.declarationRevisions,
+		options.PlanWasDisclosed,
+	)
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"prepared apply plan",
+	); err != nil {
+		return disclose(planned), err
+	}
 
 	currentInput := cloneCommandInput(execution.request)
 	if options.RelationObservations != nil {
@@ -148,6 +160,12 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	} else if !matches {
 		return disclose(current), staleApplyError(options.PlanWasDisclosed, nil)
 	}
+	if err := executionGuard.requireDeclarationsCurrent(
+		ctx,
+		"initial apply revalidation",
+	); err != nil {
+		return disclose(current), err
+	}
 	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
 		return disclose(current), err
 	} else if !matches {
@@ -167,6 +185,12 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	// project-root checks, while direct file mutations add effect-local CAS.
 	revisionBoundaryValidated := false
 	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
+		if err := executionGuard.requireDeclarationsCurrent(
+			ctx,
+			"apply effect validation",
+		); err != nil {
+			return err
+		}
 		if !revisionBoundaryValidated {
 			matches, err := revisions.MatchesCurrent(ctx)
 			if err != nil {
@@ -229,6 +253,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		orderRiskBaseline: newRelationOrderRiskBaseline(
 			planned.assessment.Reconciliation.RelationOrders(),
 		),
+		executionGuard:        executionGuard,
 		validateBeforeEffects: validateBeforeEffects,
 		projectRoot:           planned.projectRoot,
 	}
@@ -243,6 +268,7 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		store,
 		leases,
 		revisions,
+		executionGuard,
 		validateBeforeEffects,
 		executionOptions,
 		options.PlanWasDisclosed,
@@ -314,4 +340,103 @@ func staleApplyError(disclosed bool, cause error) error {
 		stale = mutation.StalePlanError{}
 	}
 	return errors.Join(stale, cause)
+}
+
+type applyExecutionGuard struct {
+	declarationRevisions mutation.RevisionSet
+	planWasDisclosed     bool
+	valid                bool
+}
+
+func newApplyExecutionGuard(
+	revisions mutation.RevisionSet,
+	planWasDisclosed bool,
+) applyExecutionGuard {
+	return applyExecutionGuard{
+		declarationRevisions: revisions,
+		planWasDisclosed:     planWasDisclosed,
+		valid:                true,
+	}
+}
+
+func captureDeclarationRevisions(
+	ctx context.Context,
+	manifestPath string,
+	lockfilePath string,
+) (mutation.RevisionSet, error) {
+	requests := make([]mutation.RevisionRequest, 0, 4)
+	for _, path := range []string{manifestPath, lockfilePath} {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			requests = append(requests, mutation.RevisionRequest{
+				Path: path, Effect: effect,
+			})
+		}
+	}
+	return mutation.CaptureRevisionSet(ctx, requests...)
+}
+
+func (guard applyExecutionGuard) requireDeclarationsCurrent(
+	ctx context.Context,
+	phase string,
+) error {
+	if !guard.valid {
+		return fmt.Errorf("apply execution guard is required")
+	}
+	matches, err := guard.declarationRevisions.MatchesCurrent(ctx)
+	if err != nil {
+		return err
+	}
+	if matches {
+		return nil
+	}
+	return staleApplyError(
+		guard.planWasDisclosed,
+		errors.New(phase+": manifest or selected lockfile changed"),
+	)
+}
+
+func (guard applyExecutionGuard) requirePlanCurrent(
+	ctx context.Context,
+	expected mutation.OperationFingerprint,
+	actual mutation.OperationFingerprint,
+	phase string,
+) error {
+	if err := guard.requireDeclarationsCurrent(ctx, phase); err != nil {
+		return err
+	}
+	if expected.Equal(actual) {
+		return nil
+	}
+	return staleApplyError(
+		guard.planWasDisclosed,
+		errors.New(phase+": remaining execution plan changed"),
+	)
+}
+
+type remainingExecutionFingerprintFacts struct {
+	RelationOrders  []relationOrderFingerprintFacts
+	DelegateActions []delegateFingerprintFacts
+}
+
+func remainingExecutionFingerprint(
+	reconciliation reconcile.Result,
+) (mutation.OperationFingerprint, error) {
+	canonical, err := json.Marshal(remainingExecutionFingerprintFacts{
+		RelationOrders: relationOrderFingerprintRows(
+			reconciliation.RelationOrders(),
+		),
+		DelegateActions: delegateFingerprintRows(
+			reconciliation.Delegates(),
+		),
+	})
+	if err != nil {
+		return mutation.OperationFingerprint{}, fmt.Errorf(
+			"fingerprint remaining apply execution: %w",
+			err,
+		)
+	}
+	return mutation.NewOperationFingerprint(canonical), nil
 }
