@@ -19,13 +19,21 @@ func TestRecoveryRootInventoryBlocksMultiplePhysicalAuthorities(t *testing.T) {
 	t.Run("active journals", func(t *testing.T) {
 		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 		_, first := captureInventoryJournal(t, recoveryRoot, "multiple-active-first")
-		holdingPath := filepath.Join(t.TempDir(), filepath.Base(first.Directory))
-		if err := os.Rename(first.Directory, holdingPath); err != nil {
+		firstHoldingPath := filepath.Join(t.TempDir(), filepath.Base(first.Directory))
+		if err := os.Rename(first.Directory, firstHoldingPath); err != nil {
 			t.Fatalf("hold first active journal: %v", err)
 		}
-		captureInventoryJournal(t, recoveryRoot, "multiple-active-second")
-		if err := os.Rename(holdingPath, first.Directory); err != nil {
+		_, second := captureInventoryJournal(t, recoveryRoot, "multiple-active-second")
+		secondHoldingPath := filepath.Join(t.TempDir(), filepath.Base(second.Directory))
+		if err := os.Rename(second.Directory, secondHoldingPath); err != nil {
+			t.Fatalf("hold second active journal: %v", err)
+		}
+		captureInventoryJournal(t, recoveryRoot, "multiple-active-third")
+		if err := os.Rename(firstHoldingPath, first.Directory); err != nil {
 			t.Fatalf("restore first active journal: %v", err)
+		}
+		if err := os.Rename(secondHoldingPath, second.Directory); err != nil {
+			t.Fatalf("restore second active journal: %v", err)
 		}
 
 		assertRecoveryInventoryCardinalityBlocked(
@@ -39,8 +47,10 @@ func TestRecoveryRootInventoryBlocksMultiplePhysicalAuthorities(t *testing.T) {
 		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 		first := inventoryTestIdentity(t, "multiple-control-first", "a")
 		second := inventoryTestIdentity(t, "multiple-control-second", "b")
+		third := inventoryTestIdentity(t, "multiple-control-third", "3")
 		writeInventoryControl(t, recoveryRoot, first, retirement.PhasePrepared)
 		writeInventoryControl(t, recoveryRoot, second, retirement.PhaseFinalizing)
+		writeInventoryControl(t, recoveryRoot, third, retirement.PhasePrepared)
 
 		assertRecoveryInventoryCardinalityBlocked(
 			t,
@@ -458,19 +468,19 @@ func (filesystem *cardinalityBoundInventoryFilesystem) SnapshotDirectory(
 	}
 	if path != filesystem.rootPath {
 		filesystem.nestedSnapshots++
-		return mutationfs.DirectorySnapshot{}, errors.New("nested inventory read is forbidden")
+		return filesystem.Store.SnapshotDirectory(ctx, path, maximumEntries)
 	}
 	filesystem.rootSnapshots++
 	return filesystem.Store.SnapshotDirectory(ctx, path, maximumEntries)
 }
 
 func (filesystem *cardinalityBoundInventoryFilesystem) ReadRegularFileSnapshotUpTo(
-	context.Context,
-	string,
-	int64,
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
 ) (mutationfs.RegularFileSnapshot, error) {
 	filesystem.regularFileReads++
-	return mutationfs.RegularFileSnapshot{}, errors.New("regular-file inventory read is forbidden")
+	return filesystem.Store.ReadRegularFileSnapshotUpTo(ctx, path, maximumBytes)
 }
 
 func (filesystem *unownedEntryFilesystem) SnapshotDirectory(
@@ -568,8 +578,8 @@ func assertRecoveryInventoryCardinalityBlocked(
 		)
 	}
 	if filesystem.rootSnapshots != 2 ||
-		filesystem.nestedSnapshots != 0 ||
-		filesystem.regularFileReads != 0 {
+		filesystem.nestedSnapshots != 4 ||
+		filesystem.regularFileReads != 2 {
 		t.Fatalf(
 			"inventory reads = root snapshots %d nested snapshots %d regular files %d",
 			filesystem.rootSnapshots,

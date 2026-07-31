@@ -220,26 +220,6 @@ func loadRecoveryRootInventory(
 			))
 		}
 	}
-	if len(activeEntries) > 1 {
-		blockers = append(
-			blockers,
-			mustInventoryBlocker(
-				activeEntries[0].Name(),
-				"multiple active recovery journals found",
-			),
-		)
-		activeEntries = nil
-	}
-	if len(controlEntries) > 1 {
-		blockers = append(
-			blockers,
-			mustInventoryBlocker(
-				controlEntries[0].Name(),
-				"multiple journal retirement controls found",
-			),
-		)
-		controlEntries = nil
-	}
 	if len(legacyEntries) > 1 {
 		blockers = append(
 			blockers,
@@ -251,9 +231,13 @@ func loadRecoveryRootInventory(
 		legacyEntries = nil
 	}
 
+	observeNested := len(blockers) == 0
 	controls := make([]retirement.Control, 0, len(controlEntries))
 	controlSnapshots := make([]mutationfs.DirectorySnapshot, 0, len(controlEntries))
 	for _, entry := range controlEntries {
+		if !observeNested {
+			break
+		}
 		control, snapshot, loadErr := loadRetirementControl(
 			ctx,
 			physicalRoot,
@@ -265,15 +249,23 @@ func loadRecoveryRootInventory(
 				return recoveryRootInventory{}, loadErr
 			}
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
-			continue
+			observeNested = false
+			break
 		}
 		controls = append(controls, control)
 		controlSnapshots = append(controlSnapshots, snapshot)
+		if len(controls) > 1 {
+			observeNested = false
+			break
+		}
 	}
 
 	activeIdentities := make([]retirement.Identity, 0, len(activeEntries))
 	var active *activeJournalEvidence
 	for _, entry := range activeEntries {
+		if !observeNested {
+			break
+		}
 		loaded, loadErr := loadActiveJournalEvidence(
 			ctx,
 			physicalRoot,
@@ -285,7 +277,8 @@ func loadRecoveryRootInventory(
 				return recoveryRootInventory{}, loadErr
 			}
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
-			continue
+			observeNested = false
+			break
 		}
 		physicalAuthority, authorityErr := newActiveJournalAuthority(entry.Identity())
 		if authorityErr != nil {
@@ -293,7 +286,8 @@ func loadRecoveryRootInventory(
 				blockers,
 				mustInventoryBlocker(entry.Name(), authorityErr.Error()),
 			)
-			continue
+			observeNested = false
+			break
 		}
 		activeIdentities = append(activeIdentities, loaded.identity)
 		if active == nil {
@@ -303,15 +297,23 @@ func loadRecoveryRootInventory(
 			}
 			active = &candidate
 		}
+		if len(activeIdentities) > 1 {
+			observeNested = false
+			break
+		}
 	}
 
 	legacyResidues := make([]retirement.LegacyResidue, 0, len(legacyEntries))
 	var legacy *legacyJournalEvidence
 	for _, entry := range legacyEntries {
+		if !observeNested {
+			break
+		}
 		evidence, evidenceErr := retirementEvidence(entry)
 		if evidenceErr != nil {
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), evidenceErr.Error()))
-			continue
+			observeNested = false
+			break
 		}
 		loaded, loadErr := loadLegacyJournalEvidence(
 			ctx,
@@ -324,7 +326,8 @@ func loadRecoveryRootInventory(
 				return recoveryRootInventory{}, loadErr
 			}
 			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
-			continue
+			observeNested = false
+			break
 		}
 		correlated, correlateErr := retirement.ValidateLegacyResidue(
 			evidence,
@@ -335,7 +338,8 @@ func loadRecoveryRootInventory(
 				blockers,
 				mustInventoryBlocker(entry.Name(), correlateErr.Error()),
 			)
-			continue
+			observeNested = false
+			break
 		}
 		physicalAuthority, authorityErr := newLegacyJournalAuthority(entry.Identity())
 		if authorityErr != nil {
@@ -343,7 +347,8 @@ func loadRecoveryRootInventory(
 				blockers,
 				mustInventoryBlocker(entry.Name(), authorityErr.Error()),
 			)
-			continue
+			observeNested = false
+			break
 		}
 		legacyResidues = append(legacyResidues, correlated)
 		if legacy == nil {
@@ -366,7 +371,8 @@ func loadRecoveryRootInventory(
 			continue
 		}
 
-		if len(controls) == 1 &&
+		if observeNested &&
+			len(controls) == 1 &&
 			controls[0].Record().Phase() == retirement.PhasePrepared &&
 			retirement.InspectName(entry.Name()).BelongsTo(controls[0].Record().Identity()) {
 			loaded, loadErr := loadResidueJournalEvidence(
