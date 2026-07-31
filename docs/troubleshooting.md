@@ -15,6 +15,16 @@ daem apply --dry-run --diff
 host state. See the [CLI Reference](cli.md) for JSON output and exact exit-code
 behavior.
 
+## Unsupported Platform
+
+On a not-admitted operating-system/architecture pair, use `daem doctor` or
+`daem doctor --json` for the platform diagnosis. Doctor resolves the selected
+manifest path but intentionally stops before reading file-set transactions,
+recovery journals, manifests, environment prerequisites, or host state. A
+path-resolution failure is reported alongside the platform error. This does
+not make apply, recovery, or other storage-backed workflows available; run
+those commands on a target admitted by [Platform Support](platforms.md).
+
 ## `ownership_conflict`
 
 Another manifest owns the same whole output or an overlapping config
@@ -195,6 +205,41 @@ non-interactive environment. Recovery may clean up a completed journal, roll
 back guarded changes, or finish ownership finalization. Do not edit host files,
 the statefile, shared ownership data, or the journal while recovery is pending.
 
+If the plan reports `retained_cleanup_residue`, host, statefile, and ownership
+recovery is already complete. The only legal action is
+`finalize_journal_cleanup` over the exact correlated retirement artifacts.
+Review the dry-run and rerun recovery; do not delete hidden residue or the
+visible retirement control manually. A stale, replaced, malformed, or
+cross-paired artifact is intentionally refused instead of being guessed safe.
+
+If the plan reports `legacy_tombstone_migration`, daem found one invoking-user
+owned v0.1 `.daem-tombstone-<32 lowercase hex>` directory with mode `0700`, a
+bounded no-follow tree that stays on the selected filesystem, and a complete
+valid v7 `journal.json` with mode `0600`. Review the dry-run and rerun recovery.
+Daem derives the operation identity from journal content, publishes correlated
+control, revalidates the selected directory and journal, then converts it to
+canonical cleanup residue. It does not infer identity from the random suffix
+or touch host, statefile, or ownership data during this migration.
+
+Short, uppercase, malformed, non-private, unreadable, invalid, multiple, or
+conflicting tombstones are not automatic migration candidates. Trees that
+cross a mount boundary, contain special files, exceed traversal bounds, or
+contain entries owned by another user are also rejected. Do not rename one to
+make it match or delete it merely from its prefix. Preserve a copy of the
+recovery root and inspect the journal and conflicting retirement evidence.
+Remove an artifact manually only after independently proving that no recovery
+or backup data is still required.
+
+If a command reports `journal retirement committed; hidden GC cleanup did not
+complete successfully; no recovery action remains`, the journal residue was
+already removed and semantic retirement completed. A private GC directory may
+remain with retirement-control metadata, not journal backups. The command
+still exits unsuccessfully so the physical cleanup failure remains visible,
+but `daem recover` has no legal plan for GC-only residue and later commands are
+not blocked. Daem does not automatically sweep the directory after restart
+because the hidden name alone grants no deletion authority. Do not delete it
+solely from its name.
+
 ## Manifest Metadata Update Was Interrupted
 
 An interrupted `add`, `remove`, or `unmanage` write may leave a recoverable
@@ -216,6 +261,10 @@ recovery authority or cannot be classified as a recorded before/after image,
 do not delete the reported `metadata-transaction` directory or edit the
 recorded files independently. Preserve the diagnostic and the selected project
 state for manual inspection.
+
+If apply-journal recovery or incomplete journal cleanup is also present, run
+`daem recover` first. An `unmanage` retry will not inspect or repair the
+metadata transaction until that journal authority is clear.
 
 ## Lockfile Is Missing Or Stale
 

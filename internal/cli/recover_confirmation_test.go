@@ -211,7 +211,7 @@ func writeRecoverConfirmationFixture(t *testing.T) recoverConfirmationFixture {
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

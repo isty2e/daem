@@ -234,7 +234,7 @@ func planAtPaths(
 			"retry the interrupted authoring or unmanage operation before refreshing a carrier",
 		)
 	}
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return refusedPlan(result, ReasonMutationAuthority, err, "run daem recover before refreshing a carrier")
 	}
 	environment, err := declarationmanifest.LoadSelected(paths)

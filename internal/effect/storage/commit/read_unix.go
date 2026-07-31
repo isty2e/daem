@@ -25,11 +25,11 @@ func ReadRegularFile(ctx context.Context, path string) ([]byte, fs.FileMode, err
 // ReadRegularFileSnapshot returns content and mode from the same
 // identity-stable, no-follow read.
 func ReadRegularFileSnapshot(ctx context.Context, path string) (mutationfs.RegularFileSnapshot, error) {
-	content, mode, _, err := readRegularFileSnapshotWithFaults(ctx, path, nil, 0, faultPlan{})
+	content, mode, identity, err := readRegularFileSnapshotWithFaults(ctx, path, nil, 0, faultPlan{})
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
-	return newRegularFileSnapshot(content, mode), nil
+	return newRegularFileSnapshot(content, mode, identity)
 }
 
 // ReadRegularFileSnapshotUpTo returns an identity-stable, no-follow snapshot
@@ -42,11 +42,11 @@ func ReadRegularFileSnapshotUpTo(
 	if maximumBytes <= 0 {
 		return mutationfs.RegularFileSnapshot{}, fmt.Errorf("regular file snapshot maximum bytes must be positive")
 	}
-	content, mode, _, err := readRegularFileSnapshotWithFaults(ctx, path, nil, maximumBytes, faultPlan{})
+	content, mode, identity, err := readRegularFileSnapshotWithFaults(ctx, path, nil, maximumBytes, faultPlan{})
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
-	return newRegularFileSnapshot(content, mode), nil
+	return newRegularFileSnapshot(content, mode, identity)
 }
 
 // ReadRootedRegularFile returns content, mode, and identity from one rooted
@@ -186,6 +186,10 @@ func readRegularFileSnapshotWithFaults(
 	return content.Bytes(), fs.FileMode(final.Mode).Perm(), expected, nil
 }
 
-func newRegularFileSnapshot(content []byte, mode fs.FileMode) mutationfs.RegularFileSnapshot {
-	return mutationfs.NewRegularFileSnapshot(content, mode)
+func newRegularFileSnapshot(
+	content []byte,
+	mode fs.FileMode,
+	identity EntryIdentity,
+) (mutationfs.RegularFileSnapshot, error) {
+	return mutationfs.NewRegularFileSnapshot(content, mode, identity)
 }

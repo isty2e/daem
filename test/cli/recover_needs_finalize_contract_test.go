@@ -67,7 +67,10 @@ func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
 		t.Fatalf("JSON stderr = %q, want empty", jsonStderr.String())
 	}
 	payload := decodeRecoverJSONTestPayload(t, jsonStdout.Bytes())
-	if payload.SchemaVersion != 3 || payload.Command != "recover" || payload.Mode != "dry-run" {
+	if payload.SchemaVersion != 4 ||
+		payload.Command != "recover" ||
+		payload.Mode != "dry-run" ||
+		payload.AuthorityKind != "active_journal" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.Classification != "needs_finalize" || payload.HasErrors {
@@ -166,7 +169,7 @@ func captureCLIRecoveryNeedsFinalizeJournal(t *testing.T, manifestPath string) d
 			ManagedPathMutations: []journal.ManagedPathMutation{managedMutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{managedEvidence},
 			Resolver:             resolver.Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

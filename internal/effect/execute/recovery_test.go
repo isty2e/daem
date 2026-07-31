@@ -118,7 +118,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             resolver,
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	}
 	canceledContext, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := ExecuteRecoveryPlanWithOptions(canceledContext, plan, paths, RecoveryOptions{}); !errors.Is(err, context.Canceled) {
+	if err := executeRecoveryPlanWithOptionsForTest(canceledContext, plan, paths, RecoveryOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled ExecuteRecoveryPlan error = %v", err)
 	}
 	if _, err := os.Stat(result.Directory); err != nil {
@@ -154,7 +154,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	}
 	validationErr := errors.New("recovery authority changed")
 	validationCalls := 0
-	if err := ExecuteRecoveryPlanWithOptions(context.Background(), plan, paths, RecoveryOptions{
+	if err := executeRecoveryPlanWithOptionsForTest(context.Background(), plan, paths, RecoveryOptions{
 		Resolver:    destinationResolver(paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(paths.StatefilePath),
@@ -180,7 +180,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		t.Fatalf("validation failure removed journal evidence: %v", err)
 	}
 	externalContent := []byte("external instructions\n")
-	if err := ExecuteRecoveryPlanWithOptions(context.Background(), plan, paths, RecoveryOptions{
+	if err := executeRecoveryPlanWithOptionsForTest(context.Background(), plan, paths, RecoveryOptions{
 		Resolver:    destinationResolver(paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(paths.StatefilePath),
@@ -205,7 +205,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 	if _, err := os.Stat(result.Directory); err != nil {
 		t.Fatalf("validation-time drift removed journal evidence: %v", err)
 	}
-	if err := ExecuteRecoveryPlanWithOptions(context.Background(), plan, paths, RecoveryOptions{
+	if err := executeRecoveryPlanWithOptionsForTest(context.Background(), plan, paths, RecoveryOptions{
 		Resolver:    destinationResolver(paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(paths.StatefilePath),
@@ -236,7 +236,7 @@ func TestCaptureLoadAndExecuteRollback(t *testing.T) {
 		t.Fatalf("restore expected-after hook asset: %v", err)
 	}
 
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		plan,
 		paths,

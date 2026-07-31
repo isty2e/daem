@@ -58,10 +58,15 @@ func Run(ctx context.Context, input Input, admission platformsupport.Admission) 
 		return result, nil
 	}
 	result.ManifestPath = paths.ManifestPath
+	if !admission.IsAdmitted() {
+		result.Checks = []findings.Check{platformCheck}
+		result.HasErrors = true
+		return result, nil
+	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
 		return result, err
 	}
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return result, err
 	}
 

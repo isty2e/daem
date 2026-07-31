@@ -37,7 +37,7 @@ type CaptureOptions struct {
 	OperationAuthority        *rootedpath.EntryAuthority
 	RootedCapability          RootedCapabilityResolver
 	Codecs                    aggregate.CodecCatalog
-	StateEncoder              durable.SnapshotEncoder
+	StateCodec                durable.SnapshotCodec
 	Filesystem                mutationfs.Store
 }
 
@@ -55,8 +55,8 @@ func CaptureJournalWithOptions(
 	if options.Resolver == nil {
 		return CaptureResult{}, fmt.Errorf("recovery journal destination resolver is required")
 	}
-	if options.StateEncoder == nil {
-		return CaptureResult{}, fmt.Errorf("recovery journal state codec is required")
+	if options.StateCodec == nil {
+		return CaptureResult{}, errRecoveryJournalStateCodecRequired
 	}
 	if options.Filesystem == nil {
 		return CaptureResult{}, fmt.Errorf("recovery journal filesystem is required")
@@ -64,12 +64,15 @@ func CaptureJournalWithOptions(
 	statefileBefore, statefileAfter, err := encodeRecoveryJournalSnapshots(
 		currentState,
 		nextState,
-		options.StateEncoder,
+		options.StateCodec,
 	)
 	if err != nil {
 		return CaptureResult{}, err
 	}
-	if err := EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := ensureNoActive(ctx, paths.RecoveryDir, inventoryOptions{
+		Filesystem: options.Filesystem,
+		StateCodec: options.StateCodec,
+	}); err != nil {
 		return CaptureResult{}, err
 	}
 	if !isSafeRecoveryOperationID(operationID) {

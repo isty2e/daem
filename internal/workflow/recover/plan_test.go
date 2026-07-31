@@ -14,7 +14,7 @@ func TestPlanDoesNotReadManifestAsRecoveryAuthority(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Plan returned nil error")
 	}
-	if !strings.Contains(err.Error(), "no active recovery journal") {
+	if !strings.Contains(err.Error(), "no recoverable journal operation") {
 		t.Fatalf("error = %v, want recovery journal diagnostic", err)
 	}
 	if strings.Contains(err.Error(), "manifest") {

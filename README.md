@@ -143,7 +143,7 @@ state/cache directories. Imported durable source material defaults to
 | Inspect | `list`, `status`, `version` | Enumerate resources, convergence, and executable identity |
 | Diagnose | `doctor`, `probe` | Check passive prerequisites or explicit runtime evidence |
 | Operate | `refresh extension` | Refresh one explicitly selected supported host extension |
-| Reconcile | `apply`, `recover` | Apply desired state or resolve an interrupted operation |
+| Reconcile | `apply`, `recover` | Apply desired state, recover an operation, or finish journal cleanup |
 
 Run `daem help <command>` for scoped usage. Advanced resource fields belong in
 the manifest rather than an expanding flag surface.

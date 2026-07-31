@@ -448,6 +448,28 @@ func TestCommitCapabilityRejectsDescendantMountCrossing(t *testing.T) {
 	}
 }
 
+func TestDirectoryMountBoundaryRejectsForeignMount(t *testing.T) {
+	root := t.TempDir()
+	rootDirectory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootDirectory.Close()
+	boundary, err := CaptureDirectoryMountBoundary(rootDirectory.Fd())
+	if err != nil {
+		t.Fatalf("CaptureDirectoryMountBoundary: %v", err)
+	}
+
+	foreign, err := os.Open("/dev")
+	if err != nil {
+		t.Skipf("open foreign mount: %v", err)
+	}
+	defer foreign.Close()
+	if err := boundary.ValidateDirectoryHandle(foreign.Fd()); !hasFailureKind(err, FailureMountChanged) {
+		t.Fatalf("foreign mount validation error = %v, want %s", err, FailureMountChanged)
+	}
+}
+
 func TestClosedCapturedRootCannotIssueCapability(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {

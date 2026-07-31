@@ -34,7 +34,12 @@ func TestSnapshotRootedDirectoryStreamsStableCanonicalTree(t *testing.T) {
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, ".agents/tree")
 	sink := newHashingRootedTreeSink()
-	if _, err := SnapshotRootedDirectory(context.Background(), capability, sink); err != nil {
+	if _, err := SnapshotRootedDirectory(
+		context.Background(),
+		capability,
+		defaultTreeTraversalLimits(),
+		sink,
+	); err != nil {
 		t.Fatalf("SnapshotRootedDirectory returned error: %v", err)
 	}
 	if err := capability.Validate(); err != nil {
@@ -77,7 +82,12 @@ func TestSnapshotRootedDirectoryRejectsFinalAndDescendantSymlinks(t *testing.T) 
 		captured := captureRootForCommitTest(t, root)
 		capability := rootedCapabilityForCommitTest(t, captured, ".agents/tree")
 		defer capability.Close()
-		_, err := SnapshotRootedDirectory(context.Background(), capability, newHashingRootedTreeSink())
+		_, err := SnapshotRootedDirectory(
+			context.Background(),
+			capability,
+			defaultTreeTraversalLimits(),
+			newHashingRootedTreeSink(),
+		)
 		if !hasRootedPathFailureKind(err, rootedpath.FailureFinalSymlink) {
 			t.Fatalf("error = %v, want %s", err, rootedpath.FailureFinalSymlink)
 		}
@@ -95,7 +105,12 @@ func TestSnapshotRootedDirectoryRejectsFinalAndDescendantSymlinks(t *testing.T) 
 		captured := captureRootForCommitTest(t, root)
 		capability := rootedCapabilityForCommitTest(t, captured, ".agents/tree")
 		defer capability.Close()
-		_, err := SnapshotRootedDirectory(context.Background(), capability, newHashingRootedTreeSink())
+		_, err := SnapshotRootedDirectory(
+			context.Background(),
+			capability,
+			defaultTreeTraversalLimits(),
+			newHashingRootedTreeSink(),
+		)
 		if err == nil {
 			t.Fatal("descendant symlink snapshot returned nil error")
 		}
@@ -106,7 +121,12 @@ func TestSnapshotRootedDirectoryRejectsPartialConsumerAndInPlaceMutation(t *test
 	t.Run("partial consumer", func(t *testing.T) {
 		_, capability := rootedTreeReadFixture(t, "payload")
 		defer capability.Close()
-		_, err := SnapshotRootedDirectory(context.Background(), capability, partialRootedTreeSink{})
+		_, err := SnapshotRootedDirectory(
+			context.Background(),
+			capability,
+			defaultTreeTraversalLimits(),
+			partialRootedTreeSink{},
+		)
 		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("consumed 0 of 7 bytes")) {
 			t.Fatalf("error = %v, want incomplete-consumption failure", err)
 		}
@@ -116,7 +136,12 @@ func TestSnapshotRootedDirectoryRejectsPartialConsumerAndInPlaceMutation(t *test
 		root, capability := rootedTreeReadFixture(t, "payload")
 		defer capability.Close()
 		sink := &mutatingRootedTreeSink{path: filepath.Join(root, ".agents", "tree", "entry")}
-		_, err := SnapshotRootedDirectory(context.Background(), capability, sink)
+		_, err := SnapshotRootedDirectory(
+			context.Background(),
+			capability,
+			defaultTreeTraversalLimits(),
+			sink,
+		)
 		if err == nil || !bytes.Contains([]byte(err.Error()), []byte("identity changed")) {
 			t.Fatalf("error = %v, want identity-change failure", err)
 		}
@@ -148,13 +173,121 @@ func TestSnapshotRootedDirectoryDetectsAncestorReplacement(t *testing.T) {
 		}
 		return os.Mkdir(filepath.Join(root, ".agents"), 0o700)
 	}
-	_, err := SnapshotRootedDirectory(context.Background(), capability, sink)
+	_, err := SnapshotRootedDirectory(
+		context.Background(),
+		capability,
+		defaultTreeTraversalLimits(),
+		sink,
+	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorChanged) {
 		t.Fatalf("error = %v, want %s", err, rootedpath.FailureAncestorChanged)
 	}
 	if _, statErr := os.Lstat(filepath.Join(root, ".agents", "tree")); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("replacement ancestor unexpectedly contains tree: %v", statErr)
 	}
+}
+
+func TestSnapshotRootedDirectoryEnforcesTraversalLimits(t *testing.T) {
+	t.Run("entries", func(t *testing.T) {
+		root, capability := rootedTreeReadFixture(t, "payload")
+		defer capability.Close()
+		writeTestFile(
+			t,
+			filepath.Join(root, ".agents", "tree", "second"),
+			"x",
+			0o600,
+		)
+		limits := mustTreeTraversalLimits(t, 1, 1, 64)
+		if _, err := SnapshotRootedDirectory(
+			t.Context(),
+			capability,
+			limits,
+			newHashingRootedTreeSink(),
+		); err == nil {
+			t.Fatal("entry limit was not enforced")
+		}
+	})
+
+	t.Run("depth", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "project")
+		destination := filepath.Join(root, ".agents", "tree")
+		if err := os.MkdirAll(filepath.Join(destination, "one", "two"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		captured := captureRootForCommitTest(t, root)
+		capability := rootedCapabilityForCommitTest(t, captured, ".agents/tree")
+		defer capability.Close()
+		limits := mustTreeTraversalLimits(t, 3, 1, 64)
+		if _, err := SnapshotRootedDirectory(
+			t.Context(),
+			capability,
+			limits,
+			newHashingRootedTreeSink(),
+		); err == nil {
+			t.Fatal("depth limit was not enforced")
+		}
+	})
+
+	t.Run("bytes exact and exceeded", func(t *testing.T) {
+		_, capability := rootedTreeReadFixture(t, "payload")
+		defer capability.Close()
+		exact := mustTreeTraversalLimits(t, 1, 0, 7)
+		if _, err := SnapshotRootedDirectory(
+			t.Context(),
+			capability,
+			exact,
+			newHashingRootedTreeSink(),
+		); err != nil {
+			t.Fatalf("exact byte limit failed: %v", err)
+		}
+		exceeded := mustTreeTraversalLimits(t, 1, 0, 6)
+		if _, err := SnapshotRootedDirectory(
+			t.Context(),
+			capability,
+			exceeded,
+			newHashingRootedTreeSink(),
+		); err == nil {
+			t.Fatal("byte limit was not enforced")
+		}
+	})
+
+	t.Run("concurrent growth remains bounded", func(t *testing.T) {
+		root, capability := rootedTreeReadFixture(t, "payload")
+		defer capability.Close()
+		sink := &growingRootedTreeSink{
+			path: filepath.Join(root, ".agents", "tree", "entry"),
+		}
+		limits := mustTreeTraversalLimits(t, 1, 0, 7)
+		if _, err := SnapshotRootedDirectory(
+			t.Context(),
+			capability,
+			limits,
+			sink,
+		); err == nil {
+			t.Fatal("concurrent growth was not rejected")
+		}
+		if sink.bytesRead != 7 {
+			t.Fatalf("sink read %d bytes, want observed 7-byte bound", sink.bytesRead)
+		}
+	})
+}
+
+func mustTreeTraversalLimits(
+	t *testing.T,
+	maximumEntries int,
+	maximumDepth int,
+	maximumBytes int64,
+) mutationfs.TreeTraversalLimits {
+	t.Helper()
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		maximumEntries,
+		maximumDepth,
+		maximumBytes,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limits
 }
 
 type hashingRootedTreeSink struct {
@@ -235,6 +368,37 @@ func (sink *mutatingRootedTreeSink) VisitRegularFile(
 		return err
 	}
 	return os.WriteFile(sink.path, []byte("changed"), 0o600)
+}
+
+type growingRootedTreeSink struct {
+	path      string
+	bytesRead int
+}
+
+func (*growingRootedTreeSink) VisitRoot(os.FileMode) error { return nil }
+
+func (*growingRootedTreeSink) VisitDirectory(mutationfs.TreeRelativePath, os.FileMode) error {
+	return nil
+}
+
+func (sink *growingRootedTreeSink) VisitRegularFile(
+	_ mutationfs.TreeRelativePath,
+	_ os.FileMode,
+	_ int64,
+	content io.Reader,
+) error {
+	file, err := os.OpenFile(sink.path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	_, writeErr := file.Write(bytes.Repeat([]byte("x"), 1<<20))
+	closeErr := file.Close()
+	if writeErr != nil || closeErr != nil {
+		return errors.Join(writeErr, closeErr)
+	}
+	value, err := io.ReadAll(content)
+	sink.bytesRead = len(value)
+	return err
 }
 
 func rootedTreeReadFixture(t *testing.T, content string) (string, rootedpath.CommitCapability) {

@@ -17,7 +17,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 	flags := newCommandFlagSet([]string{"recover"}, stderr)
 
 	manifestPath := flags.String("manifest", "", "path to daem.toml")
-	dryRun := flags.Bool("dry-run", false, "classify active recovery journal without writing")
+	dryRun := flags.Bool("dry-run", false, "classify recovery or cleanup evidence without writing")
 	jsonOutput := flags.Bool("json", false, "emit structured JSON output with --dry-run")
 	verbose := flags.Bool("verbose", false, "emit additional human-readable evidence")
 	yes := flags.Bool("yes", false, "execute recovery without an interactive prompt")
@@ -102,7 +102,11 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 		}
 	}
 	if *yes || interactiveConfirmation {
-		executeErr := recoverworkflow.Execute(options.context, prepared)
+		executeErr := recoverworkflow.Execute(
+			options.context,
+			prepared,
+			options.recoverExecuteOptions,
+		)
 		if *jsonOutput {
 			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, executeErr); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
@@ -114,7 +118,11 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			return 0
 		}
 		if executeErr != nil {
-			fmt.Fprintf(stderr, "recover failed: %s\n", humanDiagnosticError(executeErr))
+			fmt.Fprintf(
+				stderr,
+				"recover failed: %s\n",
+				humanDiagnosticError(clipresent.RecoverResultError(plan, executeErr)),
+			)
 			return 1
 		}
 		fmt.Fprintln(stdout, "recovery completed")

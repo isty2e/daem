@@ -20,6 +20,7 @@ import (
 func SnapshotRootedDirectory(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	sink mutationfs.RootedTreeSnapshotSink,
 ) (EntryIdentity, error) {
 	path, err := rootedCapabilityPath(capability)
@@ -33,6 +34,10 @@ func SnapshotRootedDirectory(
 			path,
 			fmt.Errorf("rooted tree snapshot sink is required"),
 		)
+	}
+	budget, err := newTreeTraversalBudget(limits)
+	if err != nil {
+		return EntryIdentity{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return EntryIdentity{}, failureBeforeVisibility(phaseValidate, path, err)
@@ -73,7 +78,16 @@ func SnapshotRootedDirectory(
 	if err := sink.VisitRoot(fs.FileMode(stat.Mode).Perm()); err != nil {
 		return EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
-	if err := snapshotRootedDirectoryEntries(ctx, capability, sink, directoryFD, path, nil); err != nil {
+	if err := snapshotRootedDirectoryEntries(
+		ctx,
+		capability,
+		sink,
+		directoryFD,
+		path,
+		nil,
+		0,
+		budget,
+	); err != nil {
 		return EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, err)
 	}
 	if err := verifySnapshotEntry(anchor.parentFD(), anchor.base, directoryFD, path, expected); err != nil {
@@ -92,9 +106,22 @@ func snapshotRootedDirectoryEntries(
 	directoryFD int,
 	directoryPath string,
 	components []string,
+	depth int,
+	budget *treeTraversalBudget,
 ) error {
-	names, err := readDirectoryNames(directoryFD, directoryPath)
+	if err := budget.admitDepth(depth); err != nil {
+		return err
+	}
+	names, err := readDirectoryNames(
+		ctx,
+		directoryFD,
+		directoryPath,
+		budget.remainingEntries(),
+	)
 	if err != nil {
+		return err
+	}
+	if err := budget.admitEntries(len(names)); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -135,6 +162,8 @@ func snapshotRootedDirectoryEntries(
 				entryFD,
 				entryPath,
 				append(append([]string(nil), components...), name),
+				depth+1,
+				budget,
 			)
 			if err == nil {
 				err = verifySnapshotEntry(directoryFD, name, entryFD, entryPath, identity)
@@ -147,6 +176,9 @@ func snapshotRootedDirectoryEntries(
 				return closeErr
 			}
 		case entryKindRegular:
+			if err := budget.admitBytes(stat.Size); err != nil {
+				return err
+			}
 			entryFD, err := openExpectedAt(directoryFD, name, entryPath, identity)
 			if err != nil {
 				return err
@@ -155,7 +187,11 @@ func snapshotRootedDirectoryEntries(
 				_ = unix.Close(entryFD)
 				return err
 			}
-			reader := &rootedSnapshotFileReader{ctx: ctx, fd: entryFD}
+			reader := &rootedSnapshotFileReader{
+				ctx:       ctx,
+				fd:        entryFD,
+				remaining: stat.Size,
+			}
 			err = sink.VisitRegularFile(
 				relative,
 				fs.FileMode(stat.Mode).Perm(),
@@ -170,9 +206,9 @@ func snapshotRootedDirectoryEntries(
 					entryPath,
 				)
 			}
-			if err == nil && !reader.eof {
+			if err == nil {
 				var extra [1]byte
-				count, readErr := reader.Read(extra[:])
+				count, readErr := reader.readRaw(extra[:])
 				if count != 0 || readErr != io.EOF {
 					if readErr == nil {
 						readErr = fmt.Errorf("content exceeds observed size %d", stat.Size)
@@ -219,10 +255,10 @@ func verifySnapshotEntry(parentFD int, name string, entryFD int, path string, ex
 }
 
 type rootedSnapshotFileReader struct {
-	ctx   context.Context
-	fd    int
-	count int64
-	eof   bool
+	ctx       context.Context
+	fd        int
+	count     int64
+	remaining int64
 }
 
 func (reader *rootedSnapshotFileReader) Read(payload []byte) (int, error) {
@@ -232,14 +268,28 @@ func (reader *rootedSnapshotFileReader) Read(payload []byte) (int, error) {
 	if len(payload) == 0 {
 		return 0, nil
 	}
+	if reader.remaining == 0 {
+		return 0, io.EOF
+	}
+	if int64(len(payload)) > reader.remaining {
+		payload = payload[:reader.remaining]
+	}
+	count, err := reader.readRaw(payload)
+	reader.count += int64(count)
+	reader.remaining -= int64(count)
+	return count, err
+}
+
+func (reader *rootedSnapshotFileReader) readRaw(payload []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
 	for {
 		count, err := unix.Read(reader.fd, payload)
 		if err == unix.EINTR {
 			continue
 		}
-		reader.count += int64(count)
 		if count == 0 && err == nil {
-			reader.eof = true
 			return 0, io.EOF
 		}
 		return count, err

@@ -181,6 +181,46 @@ Mutating `apply` commits a complete recovery journal before it reserves a new
 global claim or mutates host files or state. Under ordinary local-filesystem
 process failures, `recover` can classify the journal and clean it up, roll back
 guarded changes, or finish claim finalization after host and state commit.
+Journal removal itself is also recoverable. Daem first publishes a correlated
+retirement control, renames the exact active journal to a private residue,
+advances the control to finalizing, removes the exact residue, and only then
+retires the control to inert GC. A restart observes the durable phase rather
+than trusting a prior command's success. The active directory identity selected
+for execution remains bound through retirement, and daem decodes and
+fingerprints `journal.json` again after publishing the prepared control and
+before renaming the directory. Identity or content drift fails closed. As with
+other guarded filesystem effects, this is not an atomic compare-and-rename
+against a non-daem writer racing after the final validation.
+
+Once the control-to-GC rename is durable, semantic recovery is complete.
+Physical GC removal is best effort: interruption may leave private
+retirement-control metadata, but not the retired journal or its backups. That
+GC-only residue does not block later commands or recreate recovery authority,
+and daem does not infer restart-time deletion authority from its name alone.
+Failure after this boundary is reported as non-success without recommending
+another recovery action: a new `recover` plan cannot be constructed from
+GC-only residue.
+
+Once the active journal has become retained cleanup residue, ordinary
+workflows do not finalize it implicitly. `daem recover --dry-run` reports
+`retained_cleanup_residue` with one `finalize_journal_cleanup` action.
+Confirmed recovery then uses only recovery-root/control/residue authority; it
+does not inspect or mutate host outputs, state, ownership, manifest, or
+lockfile.
+
+Daem also recognizes the exact tombstone layout released by v0.1: an
+invoking-user owned private directory named `.daem-tombstone-` followed by
+exactly 32 lowercase hexadecimal characters. A single candidate with a
+bounded, mount-confined tree and a complete valid v7 journal is reported as
+`legacy_tombstone_migration`. The operation identity comes from the decoded
+journal, never the random name suffix. Confirmed recovery first publishes
+correlated prepared control, revalidates the selected directory and journal
+content, renames that exact directory into the canonical residue namespace,
+and then reuses normal cleanup. A matching prepared control resumes the same
+migration. Malformed names, invalid journals, unsafe or over-limit trees,
+multiple candidates, canonical/legacy cross-products, mismatched control, and
+replaced evidence fail closed.
+
 Stable-storage guarantees across an OS crash or power loss are platform-scoped.
 They are current only for operation and local-filesystem rows with native
 evidence; compile-only and unsupported rows are not promoted into a guarantee.
@@ -188,13 +228,25 @@ See [Platform Support](platforms.md).
 Daem refuses input statefiles larger than 16 MiB before planning and refuses
 recovery journals larger than 64 MiB. Individual regular-file recovery backups
 larger than 128 MiB are refused before the covered host mutation; produced
-state and journal documents are also size-checked before publication. Directory
-backup is streamed, but its required recovery-storage space remains
-proportional to the managed directory.
+state and journal documents are also size-checked before publication. Recovery
+inventory admits at most 4,096 immediate recovery-root entries, 100,000 entries
+inside one journal directory, and 64 entries inside one retirement control.
+Managed directory snapshots are streamed but stop at 100,000 entries, 64
+descendant-directory levels, or 4 GiB of observed regular-file content.
+Retirement-control snapshots permit no descendant directory and at most 1 MiB
+of regular-file content.
 
-Recovery is intentionally narrow. It handles one interrupted operation for the
-selected manifest path set; it is not a snapshot, profile, or historical restore
-surface.
+Before advancing a prepared retirement control or deleting the first residue
+child, daem performs a complete metadata-only preflight with the same entry and
+depth bounds. Every traversed directory must remain on the captured mount;
+FIFO, socket, and device children fail closed without deleting an earlier
+sibling. Symbolic links are never followed: cleanup revalidates and removes
+only the link itself. Directory backup storage remains proportional to the
+managed directory within these limits.
+
+Recovery is intentionally narrow. It handles one active operation or the exact
+retained cleanup selected for the manifest path set; it is not a snapshot,
+profile, or historical restore surface.
 
 ## Managed Resource Types
 

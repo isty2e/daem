@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/findings"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/platformsupport"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
+	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
 
 func TestRunContinuesEnvironmentChecksWhenExplicitManifestIsMissing(t *testing.T) {
@@ -35,7 +37,7 @@ func TestRunContinuesEnvironmentChecksWhenExplicitManifestIsMissing(t *testing.T
 	}
 }
 
-func TestRunRefusesActiveRecoveryBeforeDiagnosticChecks(t *testing.T) {
+func TestRunRefusesMalformedRecoveryBeforeDiagnosticChecks(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "daem.toml")
 	if err := os.MkdirAll(filepath.Join(root, ".daem", "recovery", "active-operation"), 0o700); err != nil {
@@ -49,22 +51,23 @@ func TestRunRefusesActiveRecoveryBeforeDiagnosticChecks(t *testing.T) {
 		TargetExplicit:   true,
 		TargetValues:     []string{"codex"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "daem recover --dry-run") {
-		t.Fatalf("Run error = %v, want active recovery refusal", err)
+	if err == nil || !strings.Contains(err.Error(), "recovery inventory is blocked") {
+		t.Fatalf("Run error = %v, want malformed recovery refusal", err)
 	}
 	if len(result.Checks) != 0 {
-		t.Fatalf("active recovery ran diagnostic checks: %#v", result.Checks)
+		t.Fatalf("blocked recovery ran diagnostic checks: %#v", result.Checks)
 	}
 	assertManifestStageCounts(t, counts, manifestStageCounts{})
 }
 
-func TestRunKeepsPlatformAdmissionIndependentFromManifestFailure(t *testing.T) {
+func TestRunUnsupportedPlatformReportsResolvedManifestWithoutReadingIt(t *testing.T) {
 	admission, err := platformsupport.Lookup("windows", "amd64")
 	if err != nil {
 		t.Fatalf("Lookup returned error: %v", err)
 	}
+	manifestPath := filepath.Join(t.TempDir(), "missing.toml")
 	result, err := Run(context.Background(), Input{
-		ManifestPath:     filepath.Join(t.TempDir(), "missing.toml"),
+		ManifestPath:     manifestPath,
 		ManifestExplicit: true,
 		TargetExplicit:   true,
 		TargetValues:     []string{"codex"},
@@ -76,44 +79,100 @@ func TestRunKeepsPlatformAdmissionIndependentFromManifestFailure(t *testing.T) {
 	if !ok || platform.Severity != findings.SeverityError || !strings.Contains(platform.Detail, "windows/amd64") {
 		t.Fatalf("platform check = %#v", platform)
 	}
-	manifest, ok := checkNamed(result.Checks, "manifest")
-	if !ok || manifest.Severity != findings.SeverityError {
-		t.Fatalf("manifest check = %#v", manifest)
+	if len(result.Checks) != 1 || hasCheckNamed(result.Checks, "manifest") {
+		t.Fatalf("checks = %#v, want platform only", result.Checks)
+	}
+	absoluteManifestPath, err := filepath.Abs(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ManifestPath != absoluteManifestPath {
+		t.Fatalf(
+			"ManifestPath = %q, want %q",
+			result.ManifestPath,
+			absoluteManifestPath,
+		)
 	}
 	if !result.HasErrors {
 		t.Fatal("HasErrors = false")
 	}
 }
 
-func TestRunKeepsPlatformAdmissionIndependentFromMalformedManifest(t *testing.T) {
+func TestRunUnsupportedPlatformStopsBeforeManifestAndStorageGates(t *testing.T) {
 	configureDoctorEnvironment(t)
-	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
-	if err := os.WriteFile(manifestPath, []byte("targets = [\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	admission, err := platformsupport.Lookup("windows", "amd64")
 	if err != nil {
 		t.Fatalf("Lookup returned error: %v", err)
 	}
-	result, err := Run(context.Background(), Input{
-		ManifestPath:     manifestPath,
-		ManifestExplicit: true,
-		TargetExplicit:   true,
-		TargetValues:     []string{"codex"},
-	}, admission)
-	if err != nil {
-		t.Fatalf("Run returned error: %v", err)
+
+	tests := []struct {
+		name  string
+		setup func(*testing.T, daempaths.Paths)
+	}{
+		{
+			name: "interrupted metadata transaction",
+			setup: func(t *testing.T, paths daempaths.Paths) {
+				t.Helper()
+				metadatatx.WriteInterrupted(t, paths.StateDir)
+			},
+		},
+		{
+			name: "blocked recovery inventory",
+			setup: func(t *testing.T, paths daempaths.Paths) {
+				t.Helper()
+				if err := os.MkdirAll(
+					filepath.Join(paths.RecoveryDir, "active-operation"),
+					0o700,
+				); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	}
-	platform, platformFound := checkNamed(result.Checks, "platform")
-	manifest, manifestFound := checkNamed(result.Checks, "manifest")
-	if !platformFound || platform.Severity != findings.SeverityError || !strings.Contains(platform.Detail, "windows/amd64") {
-		t.Fatalf("platform check = %#v", platform)
-	}
-	if !manifestFound || manifest.Severity != findings.SeverityError || !strings.Contains(manifest.Detail, "parse "+manifestPath) {
-		t.Fatalf("manifest check = %#v", manifest)
-	}
-	if !result.HasErrors {
-		t.Fatal("HasErrors = false")
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifestPath := filepath.Join(t.TempDir(), "daem.toml")
+			if err := os.WriteFile(manifestPath, []byte("targets = [\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			paths, err := daempaths.Resolve(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.setup(t, paths)
+			counts, _ := installCountingManifestLoader(t)
+
+			result, err := Run(context.Background(), Input{
+				ManifestPath:     manifestPath,
+				ManifestExplicit: true,
+				TargetExplicit:   true,
+				TargetValues:     []string{"codex"},
+			}, admission)
+			if err != nil {
+				t.Fatalf("Run returned error: %v", err)
+			}
+			assertManifestStageCounts(t, counts, manifestStageCounts{})
+			if result.ManifestPath != paths.ManifestPath {
+				t.Fatalf(
+					"ManifestPath = %q, want resolved path %q",
+					result.ManifestPath,
+					paths.ManifestPath,
+				)
+			}
+			if len(result.Checks) != 1 {
+				t.Fatalf("checks = %#v, want platform only", result.Checks)
+			}
+			platform, found := checkNamed(result.Checks, "platform")
+			if !found ||
+				platform.Severity != findings.SeverityError ||
+				!strings.Contains(platform.Detail, "windows/amd64") {
+				t.Fatalf("platform check = %#v", platform)
+			}
+			if !result.HasErrors {
+				t.Fatal("HasErrors = false")
+			}
+		})
 	}
 }
 

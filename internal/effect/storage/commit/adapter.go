@@ -30,7 +30,15 @@ func (Adapter) ReadRegularFileSnapshotUpTo(
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
-	return mutationfs.NewRegularFileSnapshot(snapshot.Content(), snapshot.Mode()), nil
+	return snapshot, nil
+}
+
+func (Adapter) SnapshotDirectory(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	return SnapshotDirectory(ctx, path, maximumEntries)
 }
 
 func (Adapter) PrepareCommitParent(ctx context.Context, path string) error {
@@ -125,12 +133,29 @@ func (Adapter) ReadRootedRegularFileUpTo(
 	return content, mode, identity, err
 }
 
+func (Adapter) SnapshotRootedDirectoryEntries(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	return SnapshotRootedDirectoryEntries(ctx, capability, maximumEntries)
+}
+
 func (Adapter) SnapshotRootedDirectory(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	sink mutationfs.RootedTreeSnapshotSink,
 ) (mutationfs.EntryIdentity, error) {
-	return SnapshotRootedDirectory(ctx, capability, sink)
+	return SnapshotRootedDirectory(ctx, capability, limits, sink)
+}
+
+func (Adapter) ValidateRootedDirectoryTree(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+) (mutationfs.EntryIdentity, error) {
+	return ValidateRootedDirectoryTree(ctx, capability, limits)
 }
 
 func (Adapter) CreateRootedFile(
@@ -165,6 +190,17 @@ func (Adapter) ReplaceRootedFile(
 	return CommitFile(ctx, request)
 }
 
+func (adapter Adapter) ReplaceRootedFileWithOutcome(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	content []byte,
+	mode fs.FileMode,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	err := adapter.ReplaceRootedFile(ctx, capability, content, mode, expected)
+	return outcomeFromError(err), err
+}
+
 func (Adapter) RemoveRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
@@ -179,6 +215,55 @@ func (Adapter) RemoveRootedEntry(
 		return errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
 	}
 	return CommitLogicalRemoval(ctx, request)
+}
+
+func (Adapter) RenameRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	destinationName string,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	request, err := NewRootedEntryRename(capability, destinationName, identity)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	return CommitRootedEntryRename(ctx, request)
+}
+
+func (Adapter) CleanupRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	request, err := NewRootedEntryCleanup(capability, identity)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	return CommitRootedEntryCleanup(ctx, request)
 }
 
 func (Adapter) PrepareRootedTree(

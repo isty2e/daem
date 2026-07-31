@@ -162,7 +162,12 @@ func observeRootedRecoveryCapability(
 			return base
 		}
 		sink := newRootedTreeHashSink(ctx)
-		if _, err := filesystem.SnapshotRootedDirectory(ctx, capability, sink); err != nil {
+		if _, err := filesystem.SnapshotRootedDirectory(
+			ctx,
+			capability,
+			recoveryTreeTraversalLimits(),
+			sink,
+		); err != nil {
 			base.Error = fmt.Sprintf("hash rooted destination: %v", err)
 			return base
 		}

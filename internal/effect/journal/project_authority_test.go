@@ -47,7 +47,7 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 			ProjectRoot:          captured,
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 			Resolver: func(output.Destination) (string, error) {
 				return hostPath, nil
 			},
@@ -108,7 +108,7 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 			ProjectRoot:          captured,
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 			Resolver: func(output.Destination) (string, error) {
 				return hostPath, nil
 			},

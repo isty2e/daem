@@ -23,7 +23,7 @@ belongs in [Platform Support](platforms.md).
 | Diagnose | `probe` | Run one explicitly authorized active runtime check. |
 | Operate | `refresh` | Refresh one exact declared and locked host extension relation. |
 | Reconcile | `apply` | Reconcile the locked environment. |
-| Reconcile | `recover` | Resolve one interrupted operation. |
+| Reconcile | `recover` | Recover one operation or finish its retained journal cleanup. |
 
 `help`, `-h`, `--help`, and `--version` are meta surfaces. Use
 `daem help <command>` and `daem help <group> <resource>` for progressively
@@ -40,7 +40,9 @@ On an unsupported platform, all help and version routes remain available and
 `import`, `init`, `lock`, `outdated`, `recover`, `refresh`, and `remove` fail
 before path resolution or effects, including in dry-run mode. Their normal
 command errors use stderr; `doctor --json` is the structured platform
-diagnostic.
+diagnostic. Doctor resolves its selected manifest path, then stops before
+storage, manifest, environment, or host checks on a not-admitted platform; see
+[Platform Support](platforms.md) for the exact contract.
 
 ## Workspace Selection
 
@@ -224,7 +226,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `10` |
 | confirmed `apply` | Apply result | `15` |
-| `recover` | Recovery plan/result | `3` |
+| `recover` | Recovery plan/result | `4` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `1` |
@@ -471,6 +473,12 @@ after every affected manifest/lock/state/registry owner commits. `not_present`
 is a successful claim no-op only when a selected declaration was removed in
 the same transaction; if both declaration and claim are absent, no result
 envelope is created and the command exits `1`.
+
+Both dry-run and write refuse before reading selected metadata while an active
+apply recovery or incomplete journal cleanup remains. Write mode checks the
+same recovery fence again under mutation authority before recovering a
+metadata transaction, rebuilding the candidate, or committing. Run
+`daem recover` first, then retry the exact `unmanage extension` command.
 
 An interrupted write leaves a recoverable metadata transaction marker. Other
 manifest/lock/state consumers fail closed while it exists; rerunning the exact
@@ -799,13 +807,14 @@ root. This cwd binding is not a sandbox for other host-command effects.
 daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]
 ```
 
-Recovery classifies and resolves one active interrupted operation. Bare recover
+Recovery classifies and resolves one interrupted apply operation or finishes
+the exact retained cleanup of an already retired apply journal. Bare recover
 uses the shared three-stream terminal contract and asks after disclosing the
 current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
-derived state/recovery paths. It handles apply recovery journals only; an
-interrupted manifest metadata file-set transaction is recovered by retrying the
-exact authoring or `unmanage` write.
+derived state/recovery paths. An interrupted manifest metadata file-set
+transaction remains a separate protocol recovered by retrying the exact
+authoring or `unmanage` write.
 
 | Classification | Meaning |
 | --- | --- |
@@ -813,26 +822,52 @@ exact authoring or `unmanage` write.
 | `clean_after` | Host paths, state, and ownership all match the committed post-operation state; only journal cleanup remains. |
 | `needs_rollback` | The interrupted operation can be restored to its pre-operation state from verified journal evidence. |
 | `needs_finalize` | Host paths and state are committed, but prepared ownership claims still need finalization. |
+| `retained_cleanup_residue` | The active journal is already retired; only its exact correlated retirement residue and control remain to be finalized. |
+| `legacy_tombstone_migration` | One validated v0.1 tombstone can be converted into canonical cleanup residue without touching host, statefile, or ownership data. |
 | `blocked` | Current evidence cannot be safely reconciled with either legal operation state. |
 
-Recovery validates guarded host and statefile observations, backup identity,
-candidate fingerprint, and the full lease set again before writing. A prior
-dry-run grants no execution authority. Blocked or stale recovery keeps the
-journal and writes nothing.
+Active-journal recovery validates guarded host and statefile observations,
+backup identity, candidate fingerprint, and the full lease set again before
+writing. Cleanup-only recovery acquires and revalidates only the selected
+recovery root, retirement control, residue, and final GC name; it does not read
+or mutate host destinations, the statefile, ownership registry, manifest, or
+lockfile. Both forms replan after acquiring authority. A prior dry-run grants
+no execution authority. Blocked or stale recovery keeps the current evidence
+and writes nothing.
 
-Default output shows classification, operation identity, every action,
-destination/content subject, blocker, and recovery limitation. It omits backup
-paths/hashes and journal layout. `--verbose` adds operation directory, backup
-facts, reasons, and action detail.
+For active recovery, default output shows classification, operation identity,
+every action, destination/content subject, blocker, and recovery limitation.
+It omits backup paths/hashes and journal layout; `--verbose` adds operation
+directory, backup facts, reasons, and action detail. Cleanup-only output shows
+`retained_cleanup_residue` with `finalize_journal_cleanup`, or
+`legacy_tombstone_migration` with `migrate_legacy_journal_tombstone`, plus the
+operation identity and no-host/state/ownership limitation. The disclosed
+cleanup plan and action payload do not expose private tombstone, control,
+residue, or GC paths, including in verbose mode.
 
-Recovery JSON schema version is `3` for both `--dry-run --json` and
-`--yes --json`. It contains command/mode, operation id/directory,
-classification, action count, typed actions, `has_errors`, and optional errors.
-Each action preserves its canonical identity: resource-owned actions report
-`resource` and singular `target`, while subject-owned managed paths report
-`subject`, the complete `targets` consumer set, and `content_kind` without
-inventing a primary target. Entity-backed projection subjects also report the
-correlated resource identity for user-facing attribution.
+Recovery JSON schema version is `4` for both `--dry-run --json` and
+`--yes --json`. Every result declares `authority_kind` as `active_journal` or
+`journal_cleanup`. Active-journal output preserves its populated operation
+directory and typed action facts: resource-owned actions report `resource` and
+singular `target`, while subject-owned managed paths report `subject`, the
+complete `targets` consumer set, and `content_kind` without inventing a primary
+target. Entity-backed projection subjects also report the correlated resource
+identity for user-facing attribution.
+
+Cleanup-only output contains the operation id, its cleanup classification, and
+exactly one action whose only field is either
+`kind = "finalize_journal_cleanup"` or
+`kind = "migrate_legacy_journal_tombstone"`. It omits `operation_dir` and all
+resource, subject, target, scope, destination, content, backup, and detail
+fields instead of emitting synthetic empty active-plan placeholders.
+
+Cleanup execution failures use the same path-neutral semantic error in human
+and JSON output. The error names the cleanup action and either
+`phase=execution` or `phase=garbage_collection`; it does not include retirement
+paths or wrapped filesystem errors. A garbage-collection failure occurs after
+semantic retirement has committed. It remains a command failure, but no
+recovery action remains and later commands are not blocked by the private GC
+residue.
 
 ## `doctor`
 
@@ -849,6 +884,11 @@ Doctor is passive. It never launches host CLIs, package managers, plugins, MCP
 servers, credential helpers, or network probes. It checks modeled paths,
 permissions, executable discovery, capability support, local skill
 compatibility, and available passive readiness facts.
+
+On a not-admitted platform, doctor reports one platform error after successful
+path resolution and does not attempt the checks above. A path-resolution error
+is reported alongside the platform error. Human and JSON forms use the same
+finding and exit with status `1`.
 
 Doctor refuses human and JSON diagnostics while an interrupted apply journal is
 active, before reading live host or target configuration. Run

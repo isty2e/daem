@@ -36,7 +36,11 @@ func captureEntryIdentity(
 	path string,
 	capability rootedpath.CommitCapability,
 ) (EntryIdentity, error) {
-	if err := validateCommitPath(path); err != nil {
+	if capability == nil {
+		if err := validateCommitPath(path); err != nil {
+			return EntryIdentity{}, err
+		}
+	} else if err := validateRootedCapability(path, capability); err != nil {
 		return EntryIdentity{}, err
 	}
 	if err := (faultPlan{}).check(ctx, phaseCaptureIdentity); err != nil {

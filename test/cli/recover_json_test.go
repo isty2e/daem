@@ -16,6 +16,7 @@ type recoverJSONTestPayload struct {
 	SchemaVersion  int    `json:"schema_version"`
 	Command        string `json:"command"`
 	Mode           string `json:"mode"`
+	AuthorityKind  string `json:"authority_kind"`
 	OperationID    string `json:"operation_id"`
 	OperationDir   string `json:"operation_dir"`
 	Classification string `json:"classification"`
@@ -60,7 +61,9 @@ func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing
 		t.Fatalf("recover exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
-	if payload.SchemaVersion != 3 || len(payload.Actions) != 1 {
+	if payload.SchemaVersion != 4 ||
+		payload.AuthorityKind != "active_journal" ||
+		len(payload.Actions) != 1 {
 		t.Fatalf("payload = %#v", payload)
 	}
 	action := payload.Actions[0]
@@ -93,7 +96,10 @@ func TestRunRecoverDryRunJSONReportsRollbackPlan(t *testing.T) {
 	}
 
 	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
-	if payload.SchemaVersion != 3 || payload.Command != "recover" || payload.Mode != "dry-run" {
+	if payload.SchemaVersion != 4 ||
+		payload.Command != "recover" ||
+		payload.Mode != "dry-run" ||
+		payload.AuthorityKind != "active_journal" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.Classification != "needs_rollback" || payload.HasErrors {

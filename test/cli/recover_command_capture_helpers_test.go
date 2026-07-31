@@ -176,7 +176,7 @@ func captureCLIManagedPathJournal(
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(paths.ManifestRoot).Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {
@@ -255,7 +255,7 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             hostpath.NewResolver(paths.ManifestRoot).Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

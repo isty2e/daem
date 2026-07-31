@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -44,6 +45,7 @@ type mutationAuthority struct {
 	projectAuthority          rootedpath.Authority
 	projectStatefile          *rootedpath.EntryAuthority
 	recoveryJournal           *rootedpath.EntryAuthority
+	activeJournalAuthority    journal.ActiveJournalAuthority
 	globalDestinationBindings map[output.Destination]globalDestinationBinding
 	physicalAuthorityRequests []mutation.PhysicalAuthorityRequest
 	retainedGlobalRoots       []*rootedpath.CapturedRoot
@@ -439,6 +441,7 @@ func (authority *mutationAuthority) close() error {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal authority: %w", err))
 	}
 	authority.recoveryJournal = nil
+	authority.activeJournalAuthority = journal.ActiveJournalAuthority{}
 	for destination := range authority.globalDestinationBindings {
 		delete(authority.globalDestinationBindings, destination)
 	}

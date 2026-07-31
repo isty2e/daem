@@ -367,7 +367,7 @@ func loadCommandInputsAtPaths(
 		StatefilePath:    paths.StatefilePath,
 	}
 
-	if err := journal.EnsureNoActive(paths.RecoveryDir); err != nil {
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return commandContext{}, result, err
 	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {

@@ -40,6 +40,10 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			_, readErr := ReadRegularFileSnapshotUpTo(context.Background(), path, 64)
 			return readErr
 		}},
+		{name: "snapshot directory", run: func() error {
+			_, readErr := SnapshotDirectory(context.Background(), path, 16)
+			return readErr
+		}},
 		{name: "file create", run: func() error {
 			return CommitFile(context.Background(), request)
 		}},
@@ -51,6 +55,25 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 		}},
 		{name: "logical removal", run: func() error {
 			return CommitLogicalRemoval(context.Background(), LogicalRemoval{path: path})
+		}},
+		{name: "rooted entry rename", run: func() error {
+			_, renameErr := CommitRootedEntryRename(
+				context.Background(),
+				RootedEntryRename{sourcePath: path},
+			)
+			return renameErr
+		}},
+		{name: "rooted entry cleanup", run: func() error {
+			_, cleanupErr := CommitRootedEntryCleanup(
+				context.Background(),
+				RootedEntryCleanup{path: path},
+			)
+			return cleanupErr
+		}},
+		{name: "prepared rooted tree outcome", run: func() error {
+			prepared := &PreparedRootedTree{destination: treePath}
+			_, commitErr := prepared.CommitWithOutcome(context.Background())
+			return commitErr
 		}},
 	}
 	for _, test := range tests {

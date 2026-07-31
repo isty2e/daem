@@ -13,6 +13,16 @@ type PathReader interface {
 	ReadRegularFileSnapshotUpTo(ctx context.Context, path string, maximumBytes int64) (RegularFileSnapshot, error)
 }
 
+// DirectoryReader captures one stable immediate-child inventory without
+// interpreting entry names or traversing children.
+type DirectoryReader interface {
+	SnapshotDirectory(
+		ctx context.Context,
+		path string,
+		maximumEntries int,
+	) (DirectorySnapshot, error)
+}
+
 // PathCommitter performs guarded stable publication on operation-selected
 // paths. Paths are supplied by an outer boundary; this port never selects one.
 type PathCommitter interface {
@@ -50,10 +60,21 @@ type RootedReader interface {
 		capability rootedpath.CommitCapability,
 		maximumBytes int64,
 	) ([]byte, fs.FileMode, EntryIdentity, error)
+	SnapshotRootedDirectoryEntries(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		maximumEntries int,
+	) (DirectorySnapshot, error)
 	SnapshotRootedDirectory(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
+		limits TreeTraversalLimits,
 		sink RootedTreeSnapshotSink,
+	) (EntryIdentity, error)
+	ValidateRootedDirectoryTree(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		limits TreeTraversalLimits,
 	) (EntryIdentity, error)
 }
 
@@ -85,21 +106,47 @@ type RootedCommitter interface {
 	) (PreparedRootedTree, error)
 }
 
+// RootedEntryCommitter performs exact same-parent entry operations through
+// retained-root authority. It does not select names or interpret their
+// semantics, and every method consumes the supplied capability.
+type RootedEntryCommitter interface {
+	RenameRootedEntry(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		destinationName string,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+	ReplaceRootedFileWithOutcome(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		content []byte,
+		mode fs.FileMode,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+	CleanupRootedEntry(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+	) (CommitOutcome, error)
+}
+
 // PathStore is the direct-path subset needed by outer-boundary persistence.
 type PathStore interface {
 	PathReader
 	PathCommitter
 }
 
-// RootedStore is the retained-root subset needed by host mutation execution.
+// RootedStore is the retained-root subset needed by effect execution.
 type RootedStore interface {
 	RootedReader
 	RootedCommitter
+	RootedEntryCommitter
 }
 
 // Reader is the complete bounded observation subset used by Effect packages.
 type Reader interface {
 	PathReader
+	DirectoryReader
 	RootedReader
 }
 
@@ -107,5 +154,6 @@ type Reader interface {
 // operations. It has no path selection, arbitrary traversal, or policy API.
 type Store interface {
 	PathStore
+	DirectoryReader
 	RootedStore
 }

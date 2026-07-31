@@ -63,6 +63,23 @@ func (prepared *journalPublishFailingPreparedTree) Commit(ctx context.Context) e
 	return prepared.failure
 }
 
+func (prepared *journalPublishFailingPreparedTree) CommitWithOutcome(
+	ctx context.Context,
+) (mutationfs.CommitOutcome, error) {
+	err := prepared.Commit(ctx)
+	kind, _ := mutationfs.FailureKindOf(err)
+	state := mutationfs.CommitOutcomeIndeterminate
+	if kind == mutationfs.FailureUncommitted ||
+		kind == mutationfs.FailureUnsupportedGuarantee {
+		state = mutationfs.CommitOutcomeUncommitted
+	}
+	outcome, outcomeErr := mutationfs.NewCommitOutcome(state, nil)
+	if outcomeErr != nil {
+		panic(outcomeErr)
+	}
+	return outcome, err
+}
+
 func (prepared *journalPublishFailingPreparedTree) Abort(ctx context.Context) error {
 	return prepared.prepared.Abort(ctx)
 }
@@ -88,13 +105,13 @@ func TestCaptureJournalLeavesPrivateResidueUntouchedWhenActiveEvidenceBlocksCapt
 		durable.Snapshot{},
 		durable.Snapshot{},
 		CaptureOptions{
-			Filesystem:   journalTestFilesystem(),
-			Resolver:     func(output.Destination) (string, error) { return "", nil },
-			StateEncoder: testStateCodec(),
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
 		},
 	)
-	if err == nil || !strings.Contains(err.Error(), "interrupted apply operation found") {
-		t.Fatalf("CaptureJournalWithOptions error = %v, want active recovery rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "recovery inventory is blocked") {
+		t.Fatalf("CaptureJournalWithOptions error = %v, want malformed recovery rejection", err)
 	}
 	for _, path := range []string{privatePath, activePath} {
 		if _, statErr := os.Lstat(path); statErr != nil {
@@ -132,9 +149,9 @@ func TestCaptureJournalPublicationFailureFollowsVisibilityClassification(t *test
 				beforeStatefile(),
 				afterStatefile(),
 				CaptureOptions{
-					Filesystem:   filesystem,
-					Resolver:     func(output.Destination) (string, error) { return "", nil },
-					StateEncoder: testStateCodec(),
+					Filesystem: filesystem,
+					Resolver:   func(output.Destination) (string, error) { return "", nil },
+					StateCodec: testStateCodec(),
 				},
 			)
 			if err == nil || !strings.Contains(err.Error(), "commit recovery journal") {
@@ -187,7 +204,7 @@ func TestCaptureJournalRejectsMismatchedOperationAuthorityBeforeConstruction(t *
 		CaptureOptions{
 			Filesystem:         journalTestFilesystem(),
 			Resolver:           func(output.Destination) (string, error) { return "", nil },
-			StateEncoder:       testStateCodec(),
+			StateCodec:         testStateCodec(),
 			OperationAuthority: authority,
 		},
 	)

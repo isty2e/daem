@@ -5,8 +5,10 @@ package execute
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -50,59 +52,97 @@ func assertActiveRecoveryOperationCount(t *testing.T, recoveryDir string, want i
 	}
 }
 
-type rootSwapOnJournalRemovalStore struct {
-	mutationfs.Store
-	journalPath string
-	swap        func()
-	once        sync.Once
-	swaps       int
-}
-
-func (filesystem *rootSwapOnJournalRemovalStore) RemoveRootedEntry(
-	ctx context.Context,
-	capability rootedpath.CommitCapability,
-	expected mutationfs.EntryIdentity,
-) error {
-	if capability != nil {
-		path, err := capability.Destination().LexicalPath()
-		if err == nil && filepath.Clean(path) == filepath.Clean(filesystem.journalPath) {
-			filesystem.once.Do(func() {
-				filesystem.swaps++
-				filesystem.swap()
-			})
-		}
-	}
-	return filesystem.Store.RemoveRootedEntry(ctx, capability, expected)
-}
-
-func (filesystem *rootSwapOnJournalRemovalStore) swapCount() int {
-	return filesystem.swaps
-}
-
-type rootSwapAfterProjectJournalRemovalStore struct {
+type rootSwapOnJournalGCCleanupStore struct {
 	mutationfs.Store
 	swap  func()
 	once  sync.Once
 	swaps int
 }
 
-func (filesystem *rootSwapAfterProjectJournalRemovalStore) RemoveRootedEntry(
+func (filesystem *rootSwapOnJournalGCCleanupStore) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
-) error {
-	if err := filesystem.Store.RemoveRootedEntry(ctx, capability, expected); err != nil {
-		return err
+) (mutationfs.CommitOutcome, error) {
+	if capability != nil {
+		path, err := capability.Destination().LexicalPath()
+		if err == nil && strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-") {
+			filesystem.once.Do(func() {
+				filesystem.swaps++
+				filesystem.swap()
+			})
+		}
 	}
-	filesystem.once.Do(func() {
-		filesystem.swaps++
-		filesystem.swap()
-	})
-	return nil
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
 }
 
-func (filesystem *rootSwapAfterProjectJournalRemovalStore) swapCount() int {
+func (filesystem *rootSwapOnJournalGCCleanupStore) swapCount() int {
 	return filesystem.swaps
+}
+
+type rootSwapAfterProjectJournalGCCleanupStore struct {
+	mutationfs.Store
+	swap  func()
+	once  sync.Once
+	swaps int
+}
+
+func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) CleanupRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	isJournalGC := false
+	if capability != nil {
+		path, pathErr := capability.Destination().LexicalPath()
+		isJournalGC = pathErr == nil &&
+			strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-")
+	}
+	outcome, err := filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+	if err != nil {
+		return outcome, err
+	}
+	if isJournalGC {
+		filesystem.once.Do(func() {
+			filesystem.swaps++
+			filesystem.swap()
+		})
+	}
+	return outcome, nil
+}
+
+func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) swapCount() int {
+	return filesystem.swaps
+}
+
+type failProjectJournalGCCleanupStore struct {
+	mutationfs.Store
+	attempts int
+}
+
+func (filesystem *failProjectJournalGCCleanupStore) CleanupRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	if capability != nil {
+		path, err := capability.Destination().LexicalPath()
+		if err == nil && strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-") {
+			filesystem.attempts++
+			outcome, outcomeErr := mutationfs.NewCommitOutcome(
+				mutationfs.CommitOutcomeUncommitted,
+				nil,
+			)
+			if outcomeErr != nil {
+				panic(outcomeErr)
+			}
+			return outcome, errors.Join(
+				fmt.Errorf("remove private path %s: permission denied", path),
+				capability.Close(),
+			)
+		}
+	}
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
 }
 
 type rootSwapBeforeRootedTreeStore struct {

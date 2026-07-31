@@ -37,7 +37,7 @@ func TestRecoveryRejectsMissingDestinationResolverBeforeEffects(t *testing.T) {
 		"AGENTS.md",
 	))
 
-	err := ExecuteRecoveryPlanWithOptions(
+	err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		fixture.plan,
 		fixture.paths,
@@ -93,7 +93,7 @@ func TestRecoveryRejectsMissingStatePersistenceBeforeEffects(t *testing.T) {
 				"AGENTS.md",
 			))
 
-			err := ExecuteRecoveryPlanWithOptions(
+			err := executeRecoveryPlanWithOptionsForTest(
 				context.Background(),
 				fixture.plan,
 				fixture.paths,
@@ -120,7 +120,7 @@ func TestRecoveryRetainsEvidenceWhenStateReaderFailsBeforeEffects(t *testing.T) 
 	))
 	readerErr := errors.New("injected state read failure")
 
-	err := ExecuteRecoveryPlanWithOptions(
+	err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		fixture.plan,
 		fixture.paths,
@@ -152,7 +152,7 @@ func TestRecoveryRejectsDurableJournalDriftAfterFinalValidation(t *testing.T) {
 	))
 	journalPath := filepath.Join(fixture.plan.OperationDir(), "journal.json")
 
-	err := ExecuteRecoveryPlanWithOptions(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
+	err := executeRecoveryPlanWithOptionsForTest(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
 		Resolver:    destinationResolver(fixture.paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(fixture.paths.StatefilePath),
@@ -195,7 +195,7 @@ func TestRecoveryRejectsProjectRootReplacementAfterFinalReload(t *testing.T) {
 	))
 	movedRoot := fixture.projectRoot + "-moved"
 
-	err := ExecuteRecoveryPlanWithOptions(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
+	err := executeRecoveryPlanWithOptionsForTest(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
 		Resolver:    destinationResolver(fixture.paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(fixture.paths.StatefilePath),
@@ -231,7 +231,7 @@ func TestRecoveryRejectsProjectAncestorSymlinkAfterFinalReload(t *testing.T) {
 	moved := filepath.Join(fixture.projectRoot, ".agents", "skills-original")
 	outsideContent := []byte("outside sentinel\n")
 
-	err := ExecuteRecoveryPlanWithOptions(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
+	err := executeRecoveryPlanWithOptionsForTest(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
 		Resolver:    destinationResolver(fixture.paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(fixture.paths.StatefilePath),
@@ -270,7 +270,7 @@ func TestRecoveryFailureRollsBackPriorProjectWritesThroughRootAuthority(t *testi
 	)
 	tamperedDestination := ""
 
-	err := ExecuteRecoveryPlanWithOptions(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
+	err := executeRecoveryPlanWithOptionsForTest(context.Background(), fixture.plan, fixture.paths, RecoveryOptions{
 		Resolver:    destinationResolver(fixture.paths),
 		StateCodec:  testStateCodec(),
 		StateReader: testStateReader(fixture.paths.StatefilePath),
@@ -521,7 +521,7 @@ func newProjectPathRecoveryFixture(
 			ManagedPathMutations: mutations,
 			ManagedPathEvidence:  evidence,
 			Resolver:             destinationResolver(paths),
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	); err != nil {
 		t.Fatalf("CaptureJournalWithOptions returned error: %v", err)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
 func readRegularFileWithFaults(ctx context.Context, path string, faults faultPlan) ([]byte, os.FileMode, error) {
@@ -44,6 +46,9 @@ func TestReadRegularFileSnapshotOwnsContentAndMode(t *testing.T) {
 	}
 	if snapshot.Mode().Perm() != 0o640 {
 		t.Fatalf("snapshot mode = %04o, want 0640", snapshot.Mode().Perm())
+	}
+	if snapshot.Identity() == nil || snapshot.Identity().Kind() != mutationfs.EntryKindFile {
+		t.Fatalf("snapshot identity = %#v, want regular-file identity", snapshot.Identity())
 	}
 }
 

@@ -73,7 +73,12 @@ func verifyRootedDirectory(
 	defer capability.Close()
 
 	sink := newRootedEntryVerificationSink(ctx, spec)
-	_, err = storagecommit.SnapshotRootedDirectory(ctx, capability, sink)
+	_, err = storagecommit.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		cacheTreeTraversalLimits(),
+		sink,
+	)
 	if err != nil {
 		if fsErr := ctx.Err(); fsErr != nil {
 			return rootedEntryUnknown, "", "", fsErr

@@ -8,20 +8,21 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func TestExecuteRejectsNilAndUnavailablePreparedRecoveries(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		err := Execute(context.Background(), nil)
+		err := Execute(context.Background(), nil, ExecuteOptions{})
 		if !errors.Is(err, ErrPreparedRecoveryUnavailable) {
 			t.Fatalf("Execute error = %v, want ErrPreparedRecoveryUnavailable", err)
 		}
 	})
 
 	t.Run("zero value", func(t *testing.T) {
-		err := Execute(context.Background(), &PreparedRecovery{})
+		err := Execute(context.Background(), &PreparedRecovery{}, ExecuteOptions{})
 		if !errors.Is(err, ErrPreparedRecoveryUnavailable) {
 			t.Fatalf("Execute error = %v, want ErrPreparedRecoveryUnavailable", err)
 		}
@@ -41,7 +42,7 @@ func TestPreparedRecoveryClosePreventsExecution(t *testing.T) {
 		t.Fatalf("second Close returned error: %v", err)
 	}
 
-	err = Execute(context.Background(), prepared)
+	err = Execute(context.Background(), prepared, ExecuteOptions{})
 	if !errors.Is(err, ErrPreparedRecoveryClosed) {
 		t.Fatalf("Execute error = %v, want ErrPreparedRecoveryClosed", err)
 	}
@@ -66,7 +67,7 @@ func TestPreparedRecoveryCopiesShareOneLifecycle(t *testing.T) {
 	if err := duplicate.Close(); err != nil {
 		t.Fatalf("duplicate Close returned error: %v", err)
 	}
-	if err := Execute(context.Background(), prepared); !errors.Is(err, ErrPreparedRecoveryClosed) {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); !errors.Is(err, ErrPreparedRecoveryClosed) {
 		t.Fatalf("original Execute error = %v, want ErrPreparedRecoveryClosed", err)
 	}
 	if content, readErr := os.ReadFile(fixture.hostPath); readErr != nil {
@@ -85,10 +86,10 @@ func TestPreparedRecoveryConsumesExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Execute(context.Background(), prepared); err != nil {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); err != nil {
 		t.Fatalf("first Execute returned error: %v", err)
 	}
-	if err := Execute(context.Background(), prepared); !errors.Is(err, ErrPreparedRecoveryConsumed) {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); !errors.Is(err, ErrPreparedRecoveryConsumed) {
 		t.Fatalf("second Execute error = %v, want ErrPreparedRecoveryConsumed", err)
 	}
 }
@@ -108,7 +109,7 @@ func TestPreparedRecoverySerializesConcurrentExecute(t *testing.T) {
 		go func() {
 			ready.Done()
 			<-start
-			errorsByAttempt <- Execute(context.Background(), prepared)
+			errorsByAttempt <- Execute(context.Background(), prepared, ExecuteOptions{})
 		}()
 	}
 	ready.Wait()
@@ -143,7 +144,7 @@ func TestPreparedRecoverySerializesCloseAgainstExecute(t *testing.T) {
 	closeResult := make(chan error, 1)
 	go func() {
 		<-start
-		executeResult <- Execute(context.Background(), prepared)
+		executeResult <- Execute(context.Background(), prepared, ExecuteOptions{})
 	}()
 	go func() {
 		<-start
@@ -172,10 +173,10 @@ func TestPreparedRecoveryCancellationConsumesWithoutEffects(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := Execute(ctx, prepared); !errors.Is(err, context.Canceled) {
+	if err := Execute(ctx, prepared, ExecuteOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v, want context.Canceled", err)
 	}
-	if err := Execute(context.Background(), prepared); !errors.Is(err, ErrPreparedRecoveryConsumed) {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); !errors.Is(err, ErrPreparedRecoveryConsumed) {
 		t.Fatalf("second Execute error = %v, want ErrPreparedRecoveryConsumed", err)
 	}
 	if content, readErr := os.ReadFile(fixture.hostPath); readErr != nil {
@@ -196,14 +197,18 @@ func TestPreparedRecoveryBlockedPlanConsumesWithoutEffects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if classification := prepared.Disclosure().Classification(); classification != recovery.ClassificationBlocked {
+	active, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !ok {
+		t.Fatal("blocked prepared recovery did not disclose an active plan")
+	}
+	if classification := active.Classification(); classification != recovery.ClassificationBlocked {
 		t.Fatalf("classification = %q, want blocked", classification)
 	}
 
-	if err := Execute(context.Background(), prepared); err == nil || !strings.Contains(err.Error(), "recovery is blocked") {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); err == nil || !strings.Contains(err.Error(), "recovery is blocked") {
 		t.Fatalf("Execute error = %v, want blocked recovery", err)
 	}
-	if err := Execute(context.Background(), prepared); !errors.Is(err, ErrPreparedRecoveryConsumed) {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); !errors.Is(err, ErrPreparedRecoveryConsumed) {
 		t.Fatalf("second Execute error = %v, want ErrPreparedRecoveryConsumed", err)
 	}
 	if content, readErr := os.ReadFile(fixture.hostPath); readErr != nil {
@@ -226,10 +231,10 @@ func TestPreparedRecoveryPreservesContextPrecedenceOverBlockedPlan(t *testing.T)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if err := Execute(ctx, prepared); !errors.Is(err, context.Canceled) {
+	if err := Execute(ctx, prepared, ExecuteOptions{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v, want context.Canceled", err)
 	}
-	if err := Execute(context.Background(), prepared); !errors.Is(err, ErrPreparedRecoveryConsumed) {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); !errors.Is(err, ErrPreparedRecoveryConsumed) {
 		t.Fatalf("second Execute error = %v, want ErrPreparedRecoveryConsumed", err)
 	}
 }
@@ -241,7 +246,11 @@ func TestPreparedRecoveryDisclosureMutationCannotAlterExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	disclosed := prepared.Disclosure()
-	actions := disclosed.Actions()
+	active, ok := journal.ActiveRecoveryPlan(disclosed)
+	if !ok {
+		t.Fatal("prepared recovery did not disclose an active plan")
+	}
+	actions := active.Actions()
 	if len(actions) == 0 {
 		t.Fatal("disclosure has no recovery actions")
 	}
@@ -254,11 +263,15 @@ func TestPreparedRecoveryDisclosureMutationCannotAlterExecution(t *testing.T) {
 		*actions[0].ExpectedAfter.PathMode = recovery.PermissionMode(0o777)
 	}
 
-	fresh := prepared.Disclosure().Actions()
+	freshPlan, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !ok {
+		t.Fatal("prepared recovery did not retain an active disclosure")
+	}
+	fresh := freshPlan.Actions()
 	if fresh[0].Destination == "mutated" || fresh[0].ConsumerTargets[0] != target.TargetCodex {
 		t.Fatalf("mutated disclosure leaked into prepared recovery: %#v", fresh[0])
 	}
-	if err := Execute(context.Background(), prepared); err != nil {
+	if err := Execute(context.Background(), prepared, ExecuteOptions{}); err != nil {
 		t.Fatalf("Execute after disclosure mutation returned error: %v", err)
 	}
 	content, err := os.ReadFile(fixture.hostPath)

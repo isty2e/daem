@@ -2,13 +2,13 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output"
@@ -17,6 +17,10 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
+
+// ErrNoRecoverableJournal reports that the recovery root has no active or
+// cleanup-only operation.
+var ErrNoRecoverableJournal = errors.New("no recoverable journal operation")
 
 // PlanLoadOptions supplies effect-time authority for final recovery
 // classification. Rooted capabilities and the ownership reader are borrowed
@@ -29,6 +33,286 @@ type PlanLoadOptions struct {
 	StateCodec        durable.SnapshotCodec
 	StateReader       durable.SnapshotReader
 	Filesystem        mutationfs.Reader
+	// ValidateBeforeActiveObservation runs after one recovery-root inventory
+	// selects active-journal recovery and before host, state, or ownership
+	// observation. Cleanup-only selection never invokes it.
+	ValidateBeforeActiveObservation func(context.Context) error
+}
+
+// RecoveryAuthorityKind identifies the exact journal authority selected for
+// explicit recovery.
+type RecoveryAuthorityKind string
+
+const (
+	RecoveryAuthorityActiveJournal  RecoveryAuthorityKind = "active_journal"
+	RecoveryAuthorityJournalCleanup RecoveryAuthorityKind = "journal_cleanup"
+)
+
+// RecoverablePlan is one opaque active-journal or cleanup-only recovery
+// selection. Only this package can construct a variant.
+type RecoverablePlan interface {
+	recoverablePlan()
+	Clone() RecoverablePlan
+	AuthorityKind() RecoveryAuthorityKind
+	Blocked() bool
+	HasErrors() bool
+	SameExecutionAuthority(RecoverablePlan) bool
+}
+
+type activeRecoverablePlan struct {
+	plan              recovery.Plan
+	physicalAuthority ActiveJournalAuthority
+	inventory         recoverableInventoryAuthority
+}
+
+func (activeRecoverablePlan) recoverablePlan() {}
+
+func (plan activeRecoverablePlan) Clone() RecoverablePlan {
+	return activeRecoverablePlan{
+		plan:              plan.plan.Clone(),
+		physicalAuthority: plan.physicalAuthority,
+		inventory:         plan.inventory.clone(),
+	}
+}
+
+func (activeRecoverablePlan) AuthorityKind() RecoveryAuthorityKind {
+	return RecoveryAuthorityActiveJournal
+}
+
+func (plan activeRecoverablePlan) Blocked() bool {
+	return plan.plan.Blocked()
+}
+
+func (plan activeRecoverablePlan) HasErrors() bool {
+	return plan.plan.HasErrors()
+}
+
+func (plan activeRecoverablePlan) SameExecutionAuthority(other RecoverablePlan) bool {
+	typed, ok := other.(activeRecoverablePlan)
+	return ok &&
+		plan.plan.SameExecutionAuthority(typed.plan) &&
+		plan.physicalAuthority.equal(typed.physicalAuthority) &&
+		plan.inventory.equal(typed.inventory)
+}
+
+type cleanupRecoverablePlan struct {
+	plan            retirement.CleanupPlan
+	legacyAuthority LegacyJournalAuthority
+	inventory       recoverableInventoryAuthority
+}
+
+func (cleanupRecoverablePlan) recoverablePlan() {}
+
+func (plan cleanupRecoverablePlan) Clone() RecoverablePlan {
+	plan.inventory = plan.inventory.clone()
+	return plan
+}
+
+func (cleanupRecoverablePlan) AuthorityKind() RecoveryAuthorityKind {
+	return RecoveryAuthorityJournalCleanup
+}
+
+func (cleanupRecoverablePlan) Blocked() bool {
+	return false
+}
+
+func (cleanupRecoverablePlan) HasErrors() bool {
+	return false
+}
+
+func (plan cleanupRecoverablePlan) SameExecutionAuthority(other RecoverablePlan) bool {
+	typed, ok := other.(cleanupRecoverablePlan)
+	return ok &&
+		plan.plan.SameExecutionAuthority(typed.plan) &&
+		sameOptionalLegacyJournalAuthority(
+			plan.legacyAuthority,
+			typed.legacyAuthority,
+		) &&
+		plan.inventory.equal(typed.inventory)
+}
+
+type recoverableInventoryAuthority struct {
+	root    mutationfs.DirectorySnapshot
+	control *mutationfs.DirectorySnapshot
+}
+
+func newRecoverableInventoryAuthority(
+	inventory recoveryRootInventory,
+	requireControl bool,
+) (recoverableInventoryAuthority, error) {
+	if inventory.root.RootIdentity() == nil {
+		return recoverableInventoryAuthority{}, fmt.Errorf(
+			"recovery-root inventory authority is uninitialized",
+		)
+	}
+	if requireControl && inventory.control == nil {
+		return recoverableInventoryAuthority{}, fmt.Errorf(
+			"recovery control inventory authority is unavailable",
+		)
+	}
+	if inventory.control != nil && inventory.control.RootIdentity() == nil {
+		return recoverableInventoryAuthority{}, fmt.Errorf(
+			"recovery control inventory authority is uninitialized",
+		)
+	}
+	return recoverableInventoryAuthority{
+		root:    inventory.root,
+		control: cloneDirectorySnapshot(inventory.control),
+	}, nil
+}
+
+func (authority recoverableInventoryAuthority) clone() recoverableInventoryAuthority {
+	authority.control = cloneDirectorySnapshot(authority.control)
+	return authority
+}
+
+func (authority recoverableInventoryAuthority) equal(
+	other recoverableInventoryAuthority,
+) bool {
+	if !authority.root.Equal(other.root) ||
+		(authority.control == nil) != (other.control == nil) {
+		return false
+	}
+	return authority.control == nil || authority.control.Equal(*other.control)
+}
+
+func cloneDirectorySnapshot(
+	snapshot *mutationfs.DirectorySnapshot,
+) *mutationfs.DirectorySnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	cloned := *snapshot
+	return &cloned
+}
+
+// ActiveRecoveryPlan returns a defensive active plan for only that variant.
+func ActiveRecoveryPlan(recoverable RecoverablePlan) (recovery.Plan, bool) {
+	active, ok := recoverable.(activeRecoverablePlan)
+	if !ok {
+		return recovery.Plan{}, false
+	}
+	return active.plan.Clone(), true
+}
+
+// ActiveRecoveryJournalAuthority returns operation-local physical evidence for
+// only an active-journal recovery selection.
+func ActiveRecoveryJournalAuthority(
+	recoverable RecoverablePlan,
+) (ActiveJournalAuthority, bool) {
+	active, ok := recoverable.(activeRecoverablePlan)
+	if !ok || !active.physicalAuthority.valid() {
+		return ActiveJournalAuthority{}, false
+	}
+	return active.physicalAuthority, true
+}
+
+// JournalCleanupPlan returns the immutable cleanup plan for only that variant.
+func JournalCleanupPlan(recoverable RecoverablePlan) (retirement.CleanupPlan, bool) {
+	cleanup, ok := recoverable.(cleanupRecoverablePlan)
+	if !ok {
+		return retirement.CleanupPlan{}, false
+	}
+	return cleanup.plan, true
+}
+
+// LegacyRecoveryJournalAuthority returns planning-time physical evidence only
+// for a validated legacy-tombstone migration.
+func LegacyRecoveryJournalAuthority(
+	recoverable RecoverablePlan,
+) (LegacyJournalAuthority, bool) {
+	cleanup, ok := recoverable.(cleanupRecoverablePlan)
+	if !ok ||
+		!cleanup.plan.Authority().RequiresLegacyMigration() ||
+		!cleanup.legacyAuthority.valid() {
+		return LegacyJournalAuthority{}, false
+	}
+	return cleanup.legacyAuthority, true
+}
+
+// LoadRecoverablePlanWithOptions selects exactly one active-journal or
+// cleanup-only plan from a single stable recovery-root inventory.
+func LoadRecoverablePlanWithOptions(
+	ctx context.Context,
+	paths Paths,
+	options PlanLoadOptions,
+) (RecoverablePlan, error) {
+	if err := validatePlanLoadFilesystem(options); err != nil {
+		return nil, err
+	}
+	inventory, err := loadRecoveryRootInventory(
+		ctx,
+		paths.RecoveryDir,
+		inventoryOptionsFromPlan(options),
+	)
+	if err != nil {
+		return nil, err
+	}
+	switch inventory.decision.State() {
+	case retirement.StateActive, retirement.StatePrepared:
+		if err := validateActivePlanLoadOptions(options); err != nil {
+			return nil, err
+		}
+		plan, err := loadActivePlanFromInventory(
+			ctx,
+			paths,
+			nil,
+			nil,
+			options,
+			inventory,
+		)
+		if err != nil {
+			return nil, err
+		}
+		authority, err := newRecoverableInventoryAuthority(
+			inventory,
+			inventory.decision.State() == retirement.StatePrepared,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return activeRecoverablePlan{
+			plan:              plan.Clone(),
+			physicalAuthority: inventory.active.physicalAuthority,
+			inventory:         authority,
+		}, nil
+	case retirement.StateRetained,
+		retirement.StateFinalizing,
+		retirement.StateLegacyMigration,
+		retirement.StateLegacyPrepared:
+		plan, ok := inventory.decision.CleanupPlan()
+		if !ok {
+			return nil, fmt.Errorf(
+				"journal cleanup classification has no cleanup plan",
+			)
+		}
+		requireControl := inventory.decision.State() != retirement.StateLegacyMigration
+		authority, err := newRecoverableInventoryAuthority(inventory, requireControl)
+		if err != nil {
+			return nil, err
+		}
+		var legacyAuthority LegacyJournalAuthority
+		if plan.Authority().RequiresLegacyMigration() {
+			if inventory.legacy == nil {
+				return nil, fmt.Errorf(
+					"legacy journal migration classification has no physical authority",
+				)
+			}
+			legacyAuthority = inventory.legacy.physicalAuthority
+		}
+		return cleanupRecoverablePlan{
+			plan:            plan,
+			legacyAuthority: legacyAuthority,
+			inventory:       authority,
+		}, nil
+	case retirement.StateBlocked:
+		return nil, fmt.Errorf(
+			"recovery inventory is blocked: %s",
+			inventory.decision.Detail(),
+		)
+	default:
+		return nil, ErrNoRecoverableJournal
+	}
 }
 
 // LoadActivePlanWithOptions classifies the active journal using any supplied
@@ -67,40 +351,55 @@ func loadActivePlan(
 	selected *[]EntrySelection,
 	options PlanLoadOptions,
 ) (recovery.Plan, error) {
-	if options.RootedCapability != nil && options.Resolver == nil {
-		return recovery.Plan{}, fmt.Errorf("recovery plan rooted capability requires a destination resolver")
-	}
-	if options.Filesystem == nil {
-		return recovery.Plan{}, fmt.Errorf("recovery plan filesystem is required")
-	}
-	operations, err := activeRecoveryOperations(paths.RecoveryDir)
-	if err != nil {
+	if err := validateActivePlanLoadOptions(options); err != nil {
 		return recovery.Plan{}, err
 	}
-	if len(operations) == 0 {
-		return recovery.Plan{}, fmt.Errorf("no active recovery journal")
-	}
-	if len(operations) > 1 {
-		return recovery.Plan{}, fmt.Errorf("multiple active recovery journals found")
-	}
-
-	operationID := operations[0]
-	operationDir, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(paths.RecoveryDir, operationID))
-	if err != nil {
-		return recovery.Plan{}, fmt.Errorf("canonicalize active recovery operation: %w", err)
-	}
-	journal, err := loadRecoveryJournal(
+	inventory, err := loadRecoveryRootInventory(
 		ctx,
-		options.Filesystem,
-		filepath.Join(operationDir, recoveryJournalFileName),
-		options.StateCodec,
+		paths.RecoveryDir,
+		inventoryOptionsFromPlan(options),
 	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if journal.OperationID != operationID {
-		return recovery.Plan{}, fmt.Errorf("recovery journal operation_id %q does not match directory %q", journal.OperationID, operationID)
+	return loadActivePlanFromInventory(
+		ctx,
+		paths,
+		suppliedState,
+		selected,
+		options,
+		inventory,
+	)
+}
+
+func loadActivePlanFromInventory(
+	ctx context.Context,
+	paths Paths,
+	suppliedState *durable.Snapshot,
+	selected *[]EntrySelection,
+	options PlanLoadOptions,
+	inventory recoveryRootInventory,
+) (recovery.Plan, error) {
+	switch inventory.decision.State() {
+	case retirement.StateActive, retirement.StatePrepared:
+	case retirement.StateBlocked:
+		return recovery.Plan{}, fmt.Errorf(
+			"recovery inventory is blocked: %s",
+			inventory.decision.Detail(),
+		)
+	default:
+		return recovery.Plan{}, fmt.Errorf("no active recovery journal")
 	}
+	if inventory.active == nil {
+		return recovery.Plan{}, fmt.Errorf("active recovery inventory is incomplete")
+	}
+	if options.ValidateBeforeActiveObservation != nil {
+		if err := options.ValidateBeforeActiveObservation(ctx); err != nil {
+			return recovery.Plan{}, err
+		}
+	}
+	operationDir := inventory.active.operationDir
+	journal := inventory.active.journal
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
@@ -167,11 +466,12 @@ func loadActivePlan(
 		operationDir,
 		planningEntries,
 	)
-	fingerprint, err := recoveryJournalAuthorityFingerprint(journal, options.StateCodec)
-	if err != nil {
-		return recovery.Plan{}, err
-	}
-	authority, err := canonicalRecoveryAuthority(journal, operationDir, claimTransitions, fingerprint)
+	authority, err := canonicalRecoveryAuthority(
+		journal,
+		operationDir,
+		claimTransitions,
+		inventory.active.identity.JournalAuthorityFingerprint(),
+	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
@@ -187,6 +487,27 @@ func loadActivePlan(
 		canonicalRecoveryBackupEvidence(backupObservations),
 		registry,
 	)
+}
+
+func validateActivePlanLoadOptions(options PlanLoadOptions) error {
+	if options.RootedCapability != nil && options.Resolver == nil {
+		return fmt.Errorf("recovery plan rooted capability requires a destination resolver")
+	}
+	return validatePlanLoadFilesystem(options)
+}
+
+func validatePlanLoadFilesystem(options PlanLoadOptions) error {
+	if options.Filesystem == nil {
+		return fmt.Errorf("recovery plan filesystem is required")
+	}
+	return nil
+}
+
+func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
+	return inventoryOptions{
+		Filesystem: options.Filesystem,
+		StateCodec: options.StateCodec,
+	}
 }
 
 func selectedRecoveryEntryIndexes(entries []recoveryEntry, selected []EntrySelection) ([]int, error) {

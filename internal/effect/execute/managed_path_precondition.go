@@ -25,6 +25,24 @@ type managedPathPrecondition struct {
 	consumed    bool
 }
 
+const (
+	maximumManagedTreeEntries = 100_000
+	maximumManagedTreeDepth   = 64
+	maximumManagedTreeBytes   = 4 << 30
+)
+
+func managedTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		maximumManagedTreeEntries,
+		maximumManagedTreeDepth,
+		maximumManagedTreeBytes,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limits
+}
+
 func captureManagedPathPrecondition(
 	ctx context.Context,
 	authority *mutationAuthority,
@@ -125,7 +143,12 @@ func captureRootedManagedPathPrecondition(
 		return fail(fmt.Errorf("managed destination %q content kind %q is unsupported", destination.logical, contentKind))
 	}
 	sink := newManagedPathHashSink(ctx)
-	identity, err := authority.filesystem.SnapshotRootedDirectory(ctx, capability, sink)
+	identity, err := authority.filesystem.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		managedTreeTraversalLimits(),
+		sink,
+	)
 	if err != nil {
 		return fail(err)
 	}

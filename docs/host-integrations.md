@@ -479,7 +479,7 @@ contribution ownership.
 | `apply --manage-existing` | Registers exact-match state ownership for supported managed outputs and MCP projections; mode-sensitive outputs such as hook assets must also match their required file mode. It also acquires a state-only external carrier claim for the seven source-exact Claude Code, Codex, OpenCode, and Pi rows described above after full lifecycle revalidation. |
 | `doctor` | Capability, environment, and passive prerequisite diagnostics; no runtime probes or host mutation. |
 | `import` | Imports modeled target-visible roots, supported standalone MCP rows, and source-exact extension rows into manifest-owned declarations without creating host ownership. Extension import covers Codex global plus Claude Code, OpenCode, and Pi project/global rows; Antigravity rows are skipped because installed state lacks recoverable source provenance. External carrier adoption remains a separate `apply --manage-existing` path after lock. |
-| `recover` | Recovery journal replay for interrupted apply transactions. |
+| `recover` | Active-operation recovery or exact retained journal cleanup. |
 
 ## Deferred Product Surfaces
 

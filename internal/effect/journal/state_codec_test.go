@@ -39,10 +39,18 @@ func (encoder *countingStateEncoder) Encode(snapshot durable.Snapshot) ([]byte, 
 	return testStateCodec().Encode(snapshot)
 }
 
+func (*countingStateEncoder) Decode(content []byte) (durable.Snapshot, error) {
+	return testStateCodec().Decode(content)
+}
+
 type invalidStateEncoder struct{}
 
 func (invalidStateEncoder) Encode(durable.Snapshot) ([]byte, error) {
 	return []byte("not-json"), nil
+}
+
+func (invalidStateEncoder) Decode(content []byte) (durable.Snapshot, error) {
+	return testStateCodec().Decode(content)
 }
 
 type failAtCallStateEncoder struct {
@@ -59,6 +67,10 @@ func (encoder *failAtCallStateEncoder) Encode(snapshot durable.Snapshot) ([]byte
 	return testStateCodec().Encode(snapshot)
 }
 
+func (*failAtCallStateEncoder) Decode(content []byte) (durable.Snapshot, error) {
+	return testStateCodec().Decode(content)
+}
+
 type reusingBufferStateEncoder struct {
 	buffer []byte
 }
@@ -70,6 +82,10 @@ func (encoder *reusingBufferStateEncoder) Encode(snapshot durable.Snapshot) ([]b
 	}
 	encoder.buffer = append(encoder.buffer[:0], content...)
 	return encoder.buffer, nil
+}
+
+func (*reusingBufferStateEncoder) Decode(content []byte) (durable.Snapshot, error) {
+	return testStateCodec().Decode(content)
 }
 
 func testStateReader(path string) durable.SnapshotReader {

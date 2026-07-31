@@ -80,6 +80,18 @@ func (prepared *PreparedRootedTree) Commit(_ context.Context) error {
 	return newUnsupportedPlatformFailure(path)
 }
 
+// CommitWithOutcome returns unsupported_guarantee without effects.
+func (prepared *PreparedRootedTree) CommitWithOutcome(
+	_ context.Context,
+) (mutationfs.CommitOutcome, error) {
+	path := ""
+	if prepared != nil {
+		path = prepared.destination
+	}
+	err := newUnsupportedPlatformFailure(path)
+	return outcomeFromError(err), err
+}
+
 // Abort has no resources to release on an unsupported platform.
 func (*PreparedRootedTree) Abort(_ context.Context) error {
 	return nil
@@ -116,6 +128,23 @@ func ReadRegularFileSnapshotUpTo(
 	return mutationfs.RegularFileSnapshot{}, newUnsupportedPlatformFailure(path)
 }
 
+// SnapshotDirectory returns unsupported_guarantee without reading.
+func SnapshotDirectory(
+	_ context.Context,
+	path string,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"directory snapshot maximum entries must be positive",
+		)
+	}
+	if err := validateCommitPath(path); err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return mutationfs.DirectorySnapshot{}, newUnsupportedPlatformFailure(path)
+}
+
 // ReadRootedRegularFile returns unsupported_guarantee without reading.
 func ReadRootedRegularFile(
 	_ context.Context,
@@ -144,12 +173,51 @@ func ReadRootedRegularFileUpTo(
 	return nil, 0, EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// SnapshotRootedDirectoryEntries returns unsupported_guarantee without
+// reading.
+func SnapshotRootedDirectoryEntries(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if maximumEntries <= 0 {
+		return mutationfs.DirectorySnapshot{}, fmt.Errorf(
+			"rooted directory snapshot maximum entries must be positive",
+		)
+	}
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return mutationfs.DirectorySnapshot{}, newUnsupportedPlatformFailure(path)
+}
+
 // SnapshotRootedDirectory returns unsupported_guarantee without reading.
 func SnapshotRootedDirectory(
 	_ context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	_ mutationfs.RootedTreeSnapshotSink,
 ) (EntryIdentity, error) {
+	if err := limits.Validate(); err != nil {
+		return EntryIdentity{}, err
+	}
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return EntryIdentity{}, err
+	}
+	return EntryIdentity{}, newUnsupportedPlatformFailure(path)
+}
+
+// ValidateRootedDirectoryTree returns unsupported_guarantee without reading.
+func ValidateRootedDirectoryTree(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+) (EntryIdentity, error) {
+	if err := limits.Validate(); err != nil {
+		return EntryIdentity{}, err
+	}
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return EntryIdentity{}, err
@@ -176,6 +244,30 @@ func CommitLogicalRemoval(_ context.Context, request LogicalRemoval) error {
 		defer request.capability.Close()
 	}
 	return newUnsupportedPlatformFailure(request.path)
+}
+
+// CommitRootedEntryRename returns unsupported_guarantee without effects.
+func CommitRootedEntryRename(
+	_ context.Context,
+	request RootedEntryRename,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.sourcePath)
+	return outcomeFromError(err), err
+}
+
+// CommitRootedEntryCleanup returns unsupported_guarantee without effects.
+func CommitRootedEntryCleanup(
+	_ context.Context,
+	request RootedEntryCleanup,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.path)
+	return outcomeFromError(err), err
 }
 
 func newUnsupportedPlatformFailure(path string) error {

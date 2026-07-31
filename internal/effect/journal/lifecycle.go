@@ -4,90 +4,160 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"sort"
-	"strings"
 
-	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
-func EnsureNoActive(recoveryRoot string) error {
-	operations, err := activeRecoveryOperations(recoveryRoot)
+// RequireNoInterruptedApply applies the canonical recovery-root readiness
+// policy through the production filesystem and state codecs.
+func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
+	return ensureNoActive(ctx, recoveryRoot, inventoryOptions{
+		Filesystem: storagecommit.Adapter{},
+		StateCodec: statefile.Codec{},
+	})
+}
+
+// ensureNoActive permits mutation only when the canonical recovery inventory
+// is clean or contains inert finalized GC residue.
+func ensureNoActive(
+	ctx context.Context,
+	recoveryRoot string,
+	options inventoryOptions,
+) error {
+	inventory, err := loadRecoveryRootInventory(ctx, recoveryRoot, options)
 	if err != nil {
 		return err
 	}
-	if len(operations) == 0 {
+	switch inventory.decision.State() {
+	case retirement.StateClean, retirement.StateFinalized:
 		return nil
+	case retirement.StateActive, retirement.StatePrepared:
+		return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
+	case retirement.StateRetained,
+		retirement.StateFinalizing,
+		retirement.StateLegacyMigration,
+		retirement.StateLegacyPrepared:
+		return fmt.Errorf("journal cleanup is incomplete; run: daem recover --dry-run")
+	case retirement.StateBlocked:
+		return fmt.Errorf("recovery inventory is blocked: %s", inventory.decision.Detail())
+	default:
+		return fmt.Errorf("recovery inventory classification is invalid")
 	}
-	if len(operations) > 1 {
-		return fmt.Errorf("multiple interrupted apply operations found; run: daem recover --dry-run")
-	}
-
-	return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
-}
-
-func activeRecoveryOperations(recoveryRoot string) ([]string, error) {
-	entries, err := os.ReadDir(recoveryRoot)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-
-		return nil, fmt.Errorf("read recovery directory: %w", err)
-	}
-
-	operations := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		if !isSafeRecoveryOperationID(entry.Name()) {
-			return nil, fmt.Errorf("recovery operation id %q must be a safe path component", entry.Name())
-		}
-		operations = append(operations, entry.Name())
-	}
-	sort.Strings(operations)
-
-	return operations, nil
 }
 
 func isSafeRecoveryOperationID(value string) bool {
-	if value == "" || value == "." || value == ".." {
-		return false
-	}
-	for _, char := range value {
-		switch {
-		case char >= 'a' && char <= 'z':
-		case char >= 'A' && char <= 'Z':
-		case char >= '0' && char <= '9':
-		case char == '-', char == '_', char == '.':
-		default:
-			return false
-		}
-	}
-
-	return true
+	return retirement.ValidateOperationID(value) == nil
 }
 
-// RemoveJournal removes one recovery operation through retained root authority.
-func RemoveJournal(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	capability rootedpath.CommitCapability,
+// CleanupFailurePhase identifies the semantic phase in which one cleanup-only
+// recovery action failed.
+type CleanupFailurePhase string
+
+const (
+	CleanupFailurePhaseExecution         CleanupFailurePhase = "execution"
+	CleanupFailurePhaseGarbageCollection CleanupFailurePhase = "garbage_collection"
+)
+
+type finalizedGCResidueError struct {
+	cause error
+}
+
+func (failure *finalizedGCResidueError) Error() string {
+	return "journal retirement committed; hidden GC cleanup did not complete successfully; no recovery action remains"
+}
+
+func (failure *finalizedGCResidueError) Unwrap() error {
+	return failure.cause
+}
+
+// IsRetirementFinalizedWithGCResidue reports whether semantic journal
+// retirement completed before a later GC step failed.
+func IsRetirementFinalizedWithGCResidue(err error) bool {
+	var failure *finalizedGCResidueError
+	return errors.As(err, &failure)
+}
+
+func finalizedWithGCResidue(cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &finalizedGCResidueError{cause: cause}
+}
+
+// CleanupFailure is the path-neutral result of one failed cleanup-only
+// recovery action. Cause remains available for internal inspection but is not
+// included in Error.
+type CleanupFailure struct {
+	action retirement.CleanupActionKind
+	phase  CleanupFailurePhase
+	cause  error
+}
+
+// Action returns the exact cleanup action selected by the recovery plan.
+func (failure *CleanupFailure) Action() retirement.CleanupActionKind {
+	if failure == nil {
+		return ""
+	}
+	return failure.action
+}
+
+// Phase returns the semantic phase in which execution failed.
+func (failure *CleanupFailure) Phase() CleanupFailurePhase {
+	if failure == nil {
+		return ""
+	}
+	return failure.phase
+}
+
+func (failure *CleanupFailure) Error() string {
+	if failure == nil {
+		return "journal cleanup failed"
+	}
+	switch failure.phase {
+	case CleanupFailurePhaseGarbageCollection:
+		return fmt.Sprintf(
+			"journal cleanup incomplete: phase=%s action=%s; semantic retirement is committed and no recovery action remains",
+			failure.phase,
+			failure.action,
+		)
+	default:
+		return fmt.Sprintf(
+			"journal cleanup failed: phase=%s action=%s",
+			failure.phase,
+			failure.action,
+		)
+	}
+}
+
+func (failure *CleanupFailure) Unwrap() error {
+	if failure == nil {
+		return nil
+	}
+	return failure.cause
+}
+
+// WrapCleanupFailure normalizes one cleanup-only execution error without
+// exposing its boundary-specific cause.
+func WrapCleanupFailure(
+	action retirement.CleanupActionKind,
+	err error,
 ) error {
-	if filesystem == nil {
-		return fmt.Errorf("recovery journal filesystem is required")
+	if err == nil {
+		return nil
 	}
-	if capability == nil {
-		return fmt.Errorf("recovery journal capability is required")
+	var existing *CleanupFailure
+	if errors.As(err, &existing) && existing.Action() == action {
+		return err
 	}
-	expected, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
-	if errors.Is(err, os.ErrNotExist) {
-		return capability.Close()
+	phase := CleanupFailurePhaseExecution
+	if IsRetirementFinalizedWithGCResidue(err) {
+		phase = CleanupFailurePhaseGarbageCollection
 	}
-	if err != nil {
-		return errors.Join(err, capability.Close())
+	return &CleanupFailure{
+		action: action,
+		phase:  phase,
+		cause:  err,
 	}
-	return filesystem.RemoveRootedEntry(ctx, capability, expected)
 }

@@ -20,18 +20,13 @@ func validateApplyRecoveryPrepared(
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
 ) error {
-	plan, err := journal.LoadActivePlanForStateWithOptions(
+	plan, err := loadApplyActivePlanForState(
 		ctx,
-		paths.journalPaths(),
+		paths,
 		currentState,
-		journal.PlanLoadOptions{
-			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
-			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
-			Codecs:            codecs,
-			StateCodec:        stateCodec,
-		},
+		authority,
+		stateCodec,
+		codecs,
 	)
 	if err != nil {
 		return err
@@ -56,6 +51,60 @@ func validateApplyRecoveryPrepared(
 	default:
 		return fmt.Errorf("captured recovery journal classified as %q before host effects", plan.Classification())
 	}
+}
+
+func loadApplyActivePlanForState(
+	ctx context.Context,
+	paths Paths,
+	currentState durable.Snapshot,
+	authority *mutationAuthority,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+) (recovery.Plan, error) {
+	if authority == nil {
+		return recovery.Plan{}, fmt.Errorf("apply mutation authority is unavailable")
+	}
+	return journal.LoadActivePlanForStateWithOptions(
+		ctx,
+		paths.journalPaths(),
+		currentState,
+		journal.PlanLoadOptions{
+			Filesystem:        authority.filesystem,
+			RootedCapability:  authority.rootedJournalCapability,
+			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
+			Codecs:            codecs,
+			StateCodec:        stateCodec,
+		},
+	)
+}
+
+func loadApplyActivePlanForStateEntries(
+	ctx context.Context,
+	paths Paths,
+	currentState durable.Snapshot,
+	selected []journal.EntrySelection,
+	authority *mutationAuthority,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+) (recovery.Plan, error) {
+	if authority == nil {
+		return recovery.Plan{}, fmt.Errorf("apply mutation authority is unavailable")
+	}
+	return journal.LoadActivePlanForStateEntriesWithOptions(
+		ctx,
+		paths.journalPaths(),
+		currentState,
+		selected,
+		journal.PlanLoadOptions{
+			Filesystem:        authority.filesystem,
+			RootedCapability:  authority.rootedJournalCapability,
+			Resolver:          authority.rootedJournalResolver(authority.lexical),
+			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
+			Codecs:            codecs,
+			StateCodec:        stateCodec,
+		},
+	)
 }
 
 func applyRecoveryErrorWithEvents(
@@ -119,22 +168,41 @@ func applyRecoveryErrorWithEvents(
 				loadOptions,
 			)
 		},
-		mutationAuthority: authority,
-		Resolver:          authority.lexical,
-		Codecs:            codecs,
-		StateCodec:        stateCodec,
-		Filesystem:        authority.filesystem,
+		mutationAuthority:      authority,
+		ActiveJournalAuthority: authority.activeJournalAuthority,
+		Resolver:               authority.lexical,
+		Codecs:                 codecs,
+		StateCodec:             stateCodec,
+		Filesystem:             authority.filesystem,
 	}); err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
 	events.emit(EventRollbackRestored, EventStageRollbackRestore, nil, nil)
-	if err := removeRecoveryJournalWithEvents(
+	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
+		return loadApplyActivePlanForStateEntries(
+			ctx,
+			paths,
+			currentState,
+			rollbackEntries,
+			authority,
+			stateCodec,
+			codecs,
+		)
+	}
+	if err := retireRecoveryJournalWithEvents(
 		recoveryCtx,
+		paths,
 		authority,
 		events,
+		loadRetirementPlan,
+		stateCodec,
 	); err != nil {
-		return fmt.Errorf("%w; host changes rolled back; remove recovery journal failed: %v; run: daem recover --dry-run", primary, err)
+		return fmt.Errorf(
+			"%w; host changes rolled back; retire recovery journal failed: %v",
+			primary,
+			retirementFailureWithRemediation(err),
+		)
 	}
 	return fmt.Errorf("%w; host changes rolled back", primary)
 }

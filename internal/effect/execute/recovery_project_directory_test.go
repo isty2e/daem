@@ -166,7 +166,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			Resolver:             destinationResolver(paths),
-			StateEncoder:         testStateCodec(),
+			StateCodec:           testStateCodec(),
 		},
 	); err != nil {
 		t.Fatalf("CaptureJournal returned error: %v", err)
@@ -199,7 +199,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadActivePlan returned error: %v", err)
 	}
-	if err := ExecuteRecoveryPlanWithOptions(
+	if err := executeRecoveryPlanWithOptionsForTest(
 		context.Background(),
 		recoveryPlan,
 		paths,

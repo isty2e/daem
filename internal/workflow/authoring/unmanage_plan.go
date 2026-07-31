@@ -11,6 +11,7 @@ import (
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -31,6 +32,7 @@ type unmanageCandidate struct {
 func buildUnmanageCandidate(
 	ctx context.Context,
 	request UnmanageExtensionRequest,
+	paths daempaths.Paths,
 	buildLockfile bool,
 ) (unmanageCandidate, error) {
 	if ctx == nil {
@@ -43,7 +45,7 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
-	document, err := LoadManifestDocument(request.ManifestPath)
+	document, err := loadManifestDocument(paths)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}

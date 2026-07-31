@@ -69,7 +69,7 @@ func PrintUsage(output io.Writer, context UsageContext) {
 		"  unmanage   Stop managing an extension while retaining host state.",
 		"Reconcile",
 		"  apply      Reconcile the locked environment.",
-		"  recover    Resolve an interrupted operation.",
+		"  recover    Recover an operation or finish journal cleanup.",
 		"",
 		"First project: daem init",
 		"Existing setup: daem import --target <target>",
@@ -305,9 +305,9 @@ func helpPages(context UsageContext) map[string]helpPage {
 			[]helpRow{workspace, target, {"--manage-existing", "Record exact-match unmanaged outputs or eligible external carriers as managed."}, dryRun, yes, diff, jsonOutputWithDiff, verbose},
 			[]helpRow{{"", "Bare apply requires terminal stdin/stdout/stderr, discloses effects to stdout, then prompts on stderr."}, {"", "Non-interactive apply requires --yes. --json requires --dry-run or --yes."}, {"", "All admitted host and delegated routes are ordinary selected apply work."}, {"", "After extension install or removal, apply rereads order. New managed/foreign precedence changes require fresh interactive confirmation."}},
 			[]string{"daem apply --dry-run --diff", "daem apply --target codex --yes --json"}, cliDocumentReference),
-		"recover": leaf("daem recover", "daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]", "resolve an interrupted operation", nil,
+		"recover": leaf("daem recover", "daem recover [--manifest <path>] [--dry-run|--yes] [--json|--verbose]", "recover an operation or finish journal cleanup", nil,
 			[]helpRow{workspace, dryRun, yes, jsonOutput, verbose},
-			[]helpRow{{"", "Bare recover requires terminal stdin/stdout/stderr and confirms after stdout disclosure."}, {"", "Non-interactive recovery requires --yes. --json requires --dry-run or --yes."}},
+			[]helpRow{{"", "Bare recover requires terminal stdin/stdout/stderr and confirms after stdout disclosure."}, {"", "Non-interactive recovery requires --yes. --json requires --dry-run or --yes."}, {"", "Cleanup-only recovery never reads or mutates host, statefile, or ownership data."}},
 			[]string{"daem recover --dry-run", "daem recover --yes"}, cliDocumentReference),
 		"doctor": leaf("daem doctor", "daem doctor [--manifest <path>] [--target <target> ...|--all-targets] [--json|--verbose]", "check passive environment prerequisites", nil,
 			[]helpRow{workspace, target, {"--all-targets", "Check every supported target; mutually exclusive with --target."}, jsonOutput, verbose},
@@ -336,7 +336,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 	pages["unmanage extension"] = leaf("daem unmanage extension", "daem unmanage extension <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "release one exact extension relation while retaining host state",
 		[]helpRow{{"<id>", "Exact extension id; no bulk or wildcard selection."}},
 		[]helpRow{workspace, {"--target <target>", "Require the selected extension to use this exact target."}, {"--scope <scope>", "Require the selected extension to use this exact scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
-		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
+		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Unmanage refuses while apply recovery or journal cleanup remains."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
 		[]string{"daem unmanage extension context7 --dry-run --diff", "daem unmanage extension formatter --target opencode --scope project"}, cliDocumentReference)
 	return pages
 }

@@ -291,7 +291,7 @@ func writeInterruptedRecoveryFixture(t *testing.T, root string, home string) int
 			ManagedPathMutations: []journal.ManagedPathMutation{managedMutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{managedEvidence},
 			Resolver:             hostpath.NewResolver(root).Resolve,
-			StateEncoder:         statefile.Codec{},
+			StateCodec:           statefile.Codec{},
 		},
 	)
 	if err != nil {

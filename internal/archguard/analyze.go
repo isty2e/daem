@@ -11,6 +11,7 @@ const (
 	ruleWorkflowNestedImport        = "workflow-nested-import"
 	rulePathsInternalImport         = "paths-internal-import"
 	ruleJournalRecoveryImport       = "journal-recovery-boundary-import"
+	ruleJournalRetirementImport     = "journal-retirement-boundary-import"
 	ruleManifestBridgeImport        = "manifest-bridge-import"
 	ruleWorkflowReverseImport       = "workflow-reverse-import"
 	rulePresentWorkflowImport       = "present-workflow-import"
@@ -131,6 +132,20 @@ func analyzeImports(packagePath string, imports []string) []GuardrailFinding {
 				PackagePath: packagePath,
 				ImportPath:  reportedImportPath,
 				Detail:      "journal/recovery owns wire-neutral pure recovery authority and may import only its reviewed canonical value dependencies",
+			})
+		}
+
+		if packagePath == "internal/effect/journal/retirement" &&
+			!isAllowedJournalRetirementImport(importPath, importInternalPath, isInternal) {
+			reportedImportPath := importPath
+			if isInternal {
+				reportedImportPath = importInternalPath
+			}
+			violations = append(violations, GuardrailFinding{
+				Rule:        ruleJournalRetirementImport,
+				PackagePath: packagePath,
+				ImportPath:  reportedImportPath,
+				Detail:      "journal/retirement owns pure names, records, states, and cleanup semantics; filesystem, workflow, presentation, and active recovery authority stay outside",
 			})
 		}
 
@@ -341,6 +356,26 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 	}
 	switch importPath {
 	case "fmt", "io/fs", "path", "slices", "strings":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedJournalRetirementImport(importPath string, internalImport string, isInternal bool) bool {
+	if isInternal {
+		return internalImport == "internal/encoding/jsonstrict"
+	}
+	switch importPath {
+	case "bytes",
+		"crypto/sha256",
+		"encoding/json",
+		"fmt",
+		"io",
+		"io/fs",
+		"slices",
+		"strconv",
+		"strings":
 		return true
 	default:
 		return false

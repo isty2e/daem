@@ -106,7 +106,12 @@ func validatePreparedTreeRequest(request PreparedTreeCommit) error {
 }
 
 func syncPreparedDirectory(ctx context.Context, directoryFD int, path string, faults faultPlan) error {
-	names, err := readDirectoryNames(directoryFD, path)
+	names, err := readDirectoryNames(
+		ctx,
+		directoryFD,
+		path,
+		defaultTreeTraversalMaximumEntries,
+	)
 	if err != nil {
 		return atPhase(phaseValidate, err)
 	}

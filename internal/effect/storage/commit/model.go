@@ -17,6 +17,7 @@ const (
 	entryKindRegular
 	entryKindDirectory
 	entryKindSymlink
+	entryKindSpecial
 )
 
 const (
@@ -57,6 +58,8 @@ func (identity EntryIdentity) Kind() mutationfs.EntryKind {
 		return mutationfs.EntryKindDirectory
 	case entryKindSymlink:
 		return mutationfs.EntryKindSymlink
+	case entryKindSpecial:
+		return mutationfs.EntryKindSpecial
 	default:
 		return mutationfs.EntryKindInvalid
 	}
@@ -215,6 +218,83 @@ type LogicalRemoval struct {
 	capability rootedpath.CommitCapability
 }
 
+// RootedEntryRename is one exact, no-replace same-parent namespace transition.
+// The destination name has no storage or domain meaning at this boundary.
+type RootedEntryRename struct {
+	sourcePath      string
+	destinationName string
+	expected        EntryIdentity
+	capability      rootedpath.CommitCapability
+}
+
+// NewRootedEntryRename constructs an identity-guarded sibling rename. The
+// caller retains capability ownership on construction error; commit consumes
+// it on every attempt.
+func NewRootedEntryRename(
+	capability rootedpath.CommitCapability,
+	destinationName string,
+	expected EntryIdentity,
+) (RootedEntryRename, error) {
+	sourcePath, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return RootedEntryRename{}, err
+	}
+	if err := validateSiblingName(destinationName); err != nil {
+		return RootedEntryRename{}, fmt.Errorf("destination name: %w", err)
+	}
+	if filepath.Base(sourcePath) == destinationName {
+		return RootedEntryRename{}, fmt.Errorf("source and destination names must differ")
+	}
+	if !expected.valid() || expected.path != sourcePath {
+		return RootedEntryRename{}, fmt.Errorf("expected identity must describe %q", sourcePath)
+	}
+	switch expected.kind {
+	case entryKindRegular, entryKindDirectory:
+	default:
+		return RootedEntryRename{}, fmt.Errorf("expected identity has unsupported entry kind")
+	}
+	return RootedEntryRename{
+		sourcePath:      sourcePath,
+		destinationName: destinationName,
+		expected:        expected,
+		capability:      capability,
+	}, nil
+}
+
+// RootedEntryCleanup is one exact identity-guarded removal under retained-root
+// authority. It does not create an intermediate tombstone.
+type RootedEntryCleanup struct {
+	path       string
+	expected   EntryIdentity
+	capability rootedpath.CommitCapability
+}
+
+// NewRootedEntryCleanup constructs exact cleanup of a regular file or
+// directory. The caller retains capability ownership on construction error;
+// commit consumes it on every attempt.
+func NewRootedEntryCleanup(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+) (RootedEntryCleanup, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return RootedEntryCleanup{}, err
+	}
+	if !expected.valid() || expected.path != path {
+		return RootedEntryCleanup{}, fmt.Errorf("expected identity must describe %q", path)
+	}
+	switch expected.kind {
+	case entryKindRegular, entryKindDirectory:
+	default:
+		return RootedEntryCleanup{}, fmt.Errorf("expected identity has unsupported entry kind")
+	}
+	return RootedEntryCleanup{
+		path:       path,
+		expected:   expected,
+		capability: capability,
+	}, nil
+}
+
 // NewRootedLogicalRemoval constructs a rooted removal of an expected regular
 // file or directory. Rooted final-entry symlinks are never admitted. On
 // success, CommitLogicalRemoval owns and consumes the capability; on error,
@@ -266,6 +346,17 @@ func validateExpectedIdentity(path string, expected EntryIdentity, kind entryKin
 }
 
 func validateCommitPath(path string) error {
+	if err := validateRootedPath(path); err != nil {
+		return err
+	}
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
+		return fmt.Errorf("path uses a reserved storage commit name")
+	}
+	return nil
+}
+
+func validateRootedPath(path string) error {
 	if path == "" {
 		return fmt.Errorf("path is required")
 	}
@@ -281,9 +372,15 @@ func validateCommitPath(path string) error {
 	if filepath.Dir(path) == path {
 		return fmt.Errorf("filesystem root is not a valid commit path")
 	}
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
-		return fmt.Errorf("path uses a reserved storage commit name")
+	return nil
+}
+
+func validateSiblingName(name string) error {
+	if name == "" || name == "." || name == ".." {
+		return fmt.Errorf("sibling name must be a non-empty path component")
+	}
+	if strings.ContainsRune(name, '\x00') || filepath.Base(name) != name {
+		return fmt.Errorf("sibling name must be one canonical path component")
 	}
 	return nil
 }
@@ -306,7 +403,7 @@ func rootedCapabilityPath(capability rootedpath.CommitCapability) (string, error
 	if err != nil {
 		return "", err
 	}
-	if err := validateCommitPath(path); err != nil {
+	if err := validateRootedPath(path); err != nil {
 		return "", err
 	}
 	return path, nil
