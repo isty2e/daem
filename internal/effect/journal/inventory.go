@@ -220,6 +220,26 @@ func loadRecoveryRootInventory(
 			))
 		}
 	}
+	if len(activeEntries) > 1 {
+		blockers = append(
+			blockers,
+			mustInventoryBlocker(
+				activeEntries[0].Name(),
+				"multiple active recovery journals found",
+			),
+		)
+		activeEntries = nil
+	}
+	if len(controlEntries) > 1 {
+		blockers = append(
+			blockers,
+			mustInventoryBlocker(
+				controlEntries[0].Name(),
+				"multiple journal retirement controls found",
+			),
+		)
+		controlEntries = nil
+	}
 	if len(legacyEntries) > 1 {
 		blockers = append(
 			blockers,

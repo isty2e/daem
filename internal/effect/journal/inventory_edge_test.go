@@ -28,7 +28,11 @@ func TestRecoveryRootInventoryBlocksMultiplePhysicalAuthorities(t *testing.T) {
 			t.Fatalf("restore first active journal: %v", err)
 		}
 
-		assertRecoveryInventoryBlocked(t, recoveryRoot, "multiple active recovery journals")
+		assertRecoveryInventoryCardinalityBlocked(
+			t,
+			recoveryRoot,
+			"multiple active recovery journals",
+		)
 	})
 
 	t.Run("controls", func(t *testing.T) {
@@ -38,7 +42,11 @@ func TestRecoveryRootInventoryBlocksMultiplePhysicalAuthorities(t *testing.T) {
 		writeInventoryControl(t, recoveryRoot, first, retirement.PhasePrepared)
 		writeInventoryControl(t, recoveryRoot, second, retirement.PhaseFinalizing)
 
-		assertRecoveryInventoryBlocked(t, recoveryRoot, "multiple journal retirement controls")
+		assertRecoveryInventoryCardinalityBlocked(
+			t,
+			recoveryRoot,
+			"multiple journal retirement controls",
+		)
 	})
 
 	t.Run("residues", func(t *testing.T) {
@@ -432,6 +440,39 @@ type unownedEntryFilesystem struct {
 	name string
 }
 
+type cardinalityBoundInventoryFilesystem struct {
+	mutationfs.Store
+	rootPath         string
+	rootSnapshots    int
+	nestedSnapshots  int
+	regularFileReads int
+}
+
+func (filesystem *cardinalityBoundInventoryFilesystem) SnapshotDirectory(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if filesystem.rootPath == "" {
+		filesystem.rootPath = path
+	}
+	if path != filesystem.rootPath {
+		filesystem.nestedSnapshots++
+		return mutationfs.DirectorySnapshot{}, errors.New("nested inventory read is forbidden")
+	}
+	filesystem.rootSnapshots++
+	return filesystem.Store.SnapshotDirectory(ctx, path, maximumEntries)
+}
+
+func (filesystem *cardinalityBoundInventoryFilesystem) ReadRegularFileSnapshotUpTo(
+	context.Context,
+	string,
+	int64,
+) (mutationfs.RegularFileSnapshot, error) {
+	filesystem.regularFileReads++
+	return mutationfs.RegularFileSnapshot{}, errors.New("regular-file inventory read is forbidden")
+}
+
 func (filesystem *unownedEntryFilesystem) SnapshotDirectory(
 	ctx context.Context,
 	path string,
@@ -497,6 +538,43 @@ func assertRecoveryInventoryBlocked(t *testing.T, recoveryRoot string, want stri
 			inventory.decision.State(),
 			inventory.decision.Detail(),
 			want,
+		)
+	}
+}
+
+func assertRecoveryInventoryCardinalityBlocked(
+	t *testing.T,
+	recoveryRoot string,
+	want string,
+) {
+	t.Helper()
+	filesystem := &cardinalityBoundInventoryFilesystem{
+		Store: journalTestFilesystem(),
+	}
+	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+		Filesystem: filesystem,
+		StateCodec: testStateCodec(),
+	})
+	if err != nil {
+		t.Fatalf("loadRecoveryRootInventory: %v", err)
+	}
+	if inventory.decision.State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.decision.Detail(), want) {
+		t.Fatalf(
+			"decision = state %q detail=%q, want %q",
+			inventory.decision.State(),
+			inventory.decision.Detail(),
+			want,
+		)
+	}
+	if filesystem.rootSnapshots != 2 ||
+		filesystem.nestedSnapshots != 0 ||
+		filesystem.regularFileReads != 0 {
+		t.Fatalf(
+			"inventory reads = root snapshots %d nested snapshots %d regular files %d",
+			filesystem.rootSnapshots,
+			filesystem.nestedSnapshots,
+			filesystem.regularFileReads,
 		)
 	}
 }
