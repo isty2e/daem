@@ -262,6 +262,10 @@ do not delete the reported `metadata-transaction` directory or edit the
 recorded files independently. Preserve the diagnostic and the selected project
 state for manual inspection.
 
+If apply-journal recovery or incomplete journal cleanup is also present, run
+`daem recover` first. An `unmanage` retry will not inspect or repair the
+metadata transaction until that journal authority is clear.
+
 ## Lockfile Is Missing Or Stale
 
 Direct manifest edits and imports require an explicit lock refresh:

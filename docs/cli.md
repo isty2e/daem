@@ -474,6 +474,12 @@ is a successful claim no-op only when a selected declaration was removed in
 the same transaction; if both declaration and claim are absent, no result
 envelope is created and the command exits `1`.
 
+Both dry-run and write refuse before reading selected metadata while an active
+apply recovery or incomplete journal cleanup remains. Write mode checks the
+same recovery fence again under mutation authority before recovering a
+metadata transaction, rebuilding the candidate, or committing. Run
+`daem recover` first, then retry the exact `unmanage extension` command.
+
 An interrupted write leaves a recoverable metadata transaction marker. Other
 manifest/lock/state consumers fail closed while it exists; rerunning the exact
 `unmanage extension` write recovers under the same complete authority set

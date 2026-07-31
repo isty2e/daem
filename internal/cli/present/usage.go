@@ -336,7 +336,7 @@ func helpPages(context UsageContext) map[string]helpPage {
 	pages["unmanage extension"] = leaf("daem unmanage extension", "daem unmanage extension <id> [--manifest <path>] [--target <target>] [--scope <scope>] [--dry-run] [--diff] [--json|--verbose]", "release one exact extension relation while retaining host state",
 		[]helpRow{{"<id>", "Exact extension id; no bulk or wildcard selection."}},
 		[]helpRow{workspace, {"--target <target>", "Require the selected extension to use this exact target."}, {"--scope <scope>", "Require the selected extension to use this exact scope."}, dryRun, diff, jsonOutputWithDiff, verbose},
-		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
+		[]helpRow{{"", "Unmanage removes the declaration when present, refreshes the lockfile, and releases only the exact daem claim."}, {"", "It never invokes a host route and always retains host state. Global ambient or manual consumers remain unobservable."}, {"", "Unmanage refuses while apply recovery or journal cleanup remains."}, {"", "Writes by default. Target and scope are safety filters, not redirection."}},
 		[]string{"daem unmanage extension context7 --dry-run --diff", "daem unmanage extension formatter --target opencode --scope project"}, cliDocumentReference)
 	return pages
 }

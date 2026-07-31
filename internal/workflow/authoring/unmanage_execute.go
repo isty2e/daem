@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -23,20 +24,30 @@ func UnmanageExtension(
 		return UnmanageExtensionResult{}, err
 	}
 	request = validated
+	if ctx == nil {
+		return UnmanageExtensionResult{}, fmt.Errorf("unmanage context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return UnmanageExtensionResult{}, err
+	}
+	paths, err := daempaths.Resolve(request.ManifestPath)
+	if err != nil {
+		return UnmanageExtensionResult{}, err
+	}
+	request.ManifestPath = paths.ManifestPath
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
+		return UnmanageExtensionResult{}, err
+	}
 	if request.Mode == UnmanageModeDryRun {
-		if err := requireClearManifestFileSet(ctx, request.ManifestPath); err != nil {
+		if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
 			return UnmanageExtensionResult{}, err
 		}
 	} else {
-		paths, err := daempaths.Resolve(request.ManifestPath)
-		if err != nil {
-			return UnmanageExtensionResult{}, err
-		}
 		lockfilePath := request.LockfilePath
 		if lockfilePath == "" {
 			lockfilePath = paths.LockfilePath
 		}
-		if err := recoverMetadataFileSetBeforeRead(ctx, paths, []string{
+		if err := recoverUnmanageFileSetBeforeRead(ctx, paths, []string{
 			paths.ManifestPath,
 			lockfilePath,
 			paths.StatefilePath,
@@ -46,7 +57,7 @@ func UnmanageExtension(
 		}
 	}
 	buildLockfile := request.Mode == UnmanageModeDryRun
-	optimistic, err := buildUnmanageCandidate(ctx, request, buildLockfile)
+	optimistic, err := buildUnmanageCandidate(ctx, request, paths, buildLockfile)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -54,6 +65,54 @@ func UnmanageExtension(
 		return resultFromCandidate(optimistic, false), nil
 	}
 	return commitUnmanageCandidate(ctx, optimistic)
+}
+
+func recoverUnmanageFileSetBeforeRead(
+	ctx context.Context,
+	paths daempaths.Paths,
+	targetPaths []string,
+) (returnErr error) {
+	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err == nil {
+		return nil
+	}
+	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
+	if err != nil {
+		return err
+	}
+	domains, err := unmanageMutationDomains(
+		targetPaths,
+		markerPath,
+		nil,
+		paths.RecoveryDir,
+	)
+	if err != nil {
+		return err
+	}
+	store, err := mutation.NewStore(paths.DataDir)
+	if err != nil {
+		return err
+	}
+	leases, err := store.Acquire(ctx, domains...)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := leases.Release(); err != nil {
+			returnErr = errors.Join(returnErr, err)
+		}
+	}()
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return err
+	} else if !matches {
+		return mutation.StaleSnapshotError{}
+	}
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
+		return err
+	}
+	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
+		return err
+	}
+	return transaction.RequireClearFileSet(ctx, paths.StateDir)
 }
 
 func commitUnmanageCandidate(
@@ -71,7 +130,12 @@ func commitUnmanageCandidate(
 		paths.StatefilePath,
 		paths.CarrierClaimRegistryPath,
 	}
-	domains, err := metadataMutationDomains(targetPaths, markerPath, optimistic.localPaths)
+	domains, err := unmanageMutationDomains(
+		targetPaths,
+		markerPath,
+		optimistic.localPaths,
+		paths.RecoveryDir,
+	)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -93,17 +157,30 @@ func commitUnmanageCandidate(
 	} else if !matches {
 		return UnmanageExtensionResult{}, mutation.StaleSnapshotError{}
 	}
+	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
+		return UnmanageExtensionResult{}, err
+	}
 	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
 	revisions, err := mutation.CaptureRevisionSet(
 		ctx,
-		revisionRequests(targetPaths, markerPath, optimistic.localPaths)...,
+		unmanageRevisionRequests(
+			targetPaths,
+			markerPath,
+			optimistic.localPaths,
+			paths.RecoveryDir,
+		)...,
 	)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	current, err := buildUnmanageCandidate(ctx, optimistic.request, true)
+	current, err := buildUnmanageCandidate(
+		ctx,
+		optimistic.request,
+		paths,
+		true,
+	)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -183,12 +260,17 @@ func fileTargets(current unmanageCandidate) ([]transaction.FileTarget, error) {
 	return targets, nil
 }
 
-func revisionRequests(
+func unmanageRevisionRequests(
 	targetPaths []string,
 	markerPath string,
 	localPaths []string,
+	recoveryDir string,
 ) []mutation.RevisionRequest {
-	requests := make([]mutation.RevisionRequest, 0, len(targetPaths)*2+1+len(localPaths))
+	requests := make(
+		[]mutation.RevisionRequest,
+		0,
+		len(targetPaths)*2+3+len(localPaths),
+	)
 	for _, path := range targetPaths {
 		requests = append(
 			requests,
@@ -199,12 +281,48 @@ func revisionRequests(
 	requests = append(requests, mutation.RevisionRequest{
 		Path: markerPath, Effect: mutation.PathEffectDirectoryEntry,
 	})
+	requests = append(
+		requests,
+		mutation.RevisionRequest{
+			Path: recoveryDir, Effect: mutation.PathEffectDirectoryEntry,
+		},
+		mutation.RevisionRequest{
+			Path: recoveryDir, Effect: mutation.PathEffectReferent,
+		},
+	)
 	for _, path := range localPaths {
 		requests = append(requests, mutation.RevisionRequest{
 			Path: path, Effect: mutation.PathEffectReferent,
 		})
 	}
 	return requests
+}
+
+func unmanageMutationDomains(
+	targetPaths []string,
+	markerPath string,
+	localPaths []string,
+	recoveryDir string,
+) ([]mutation.Domain, error) {
+	domains, err := metadataMutationDomains(targetPaths, markerPath, localPaths)
+	if err != nil {
+		return nil, err
+	}
+	for _, effect := range []mutation.PathEffect{
+		mutation.PathEffectDirectoryEntry,
+		mutation.PathEffectReferent,
+	} {
+		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+			Path:   recoveryDir,
+			Access: mutation.AccessShared,
+			Effect: effect,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build unmanage recovery domain: %w", err)
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }
 
 func resultFromCandidate(current unmanageCandidate, committed bool) UnmanageExtensionResult {

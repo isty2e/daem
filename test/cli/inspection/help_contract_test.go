@@ -44,7 +44,7 @@ func TestHelpContractCoversEveryRetainedCommandAtSupportedWidths(t *testing.T) {
 		{topic: []string{"remove", "hook"}, usage: "Usage: daem remove hook <name>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
 		{topic: []string{"remove", "mcp-server"}, usage: "Usage: daem remove mcp-server <name>", lineBudget: 46, required: []string{"daem list resources", "Carrier uninstall effects"}},
 		{topic: []string{"remove", "skill"}, usage: "Usage: daem remove skill <resource-key>", lineBudget: 46, required: []string{"daem list resources", "ambiguous matches"}},
-		{topic: []string{"unmanage", "extension"}, usage: "Usage: daem unmanage extension <id>", lineBudget: 46, required: []string{"--target <target>", "--scope <scope>", "always retains host state", "ambient or manual consumers remain unobservable"}, forbidden: []string{"--yes", "--prune", "--uninstall"}},
+		{topic: []string{"unmanage", "extension"}, usage: "Usage: daem unmanage extension <id>", lineBudget: 46, required: []string{"--target <target>", "--scope <scope>", "always retains host state", "ambient or manual consumers remain unobservable", "apply recovery or journal cleanup"}, forbidden: []string{"--yes", "--prune", "--uninstall"}},
 		{topic: []string{"list", "resources"}, usage: "Usage: daem list resources", lineBudget: 46, required: []string{"stable remove keys", "--target codex --json"}},
 		{topic: []string{"list", "outputs"}, usage: "Usage: daem list outputs", lineBudget: 46, required: []string{"ownership inventory", "use daem status"}},
 		{topic: []string{"list", "paths"}, usage: "Usage: daem list paths", lineBudget: 46, required: []string{"agent paths", "static and read-only"}},
