@@ -230,7 +230,6 @@ func runMCPProviderPrerequisitePhase(
 	leases *mutation.LeaseSet,
 	revisions mutation.RevisionSet,
 	executionGuard applyExecutionGuard,
-	validateBeforeEffects func(context.Context, mutation.PhysicalAuthoritySet) error,
 	options runOptions,
 	planWasDisclosed bool,
 ) (providerPhaseExecution, error) {
@@ -246,20 +245,9 @@ func runMCPProviderPrerequisitePhase(
 	if err != nil {
 		return result, err
 	}
-	emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
-	if err != nil {
-		return result, err
-	}
-	if err := validateBeforeEffects(ctx, emptyAuthority); err != nil {
-		return result, err
-	}
 	providerState := current.assessment.CurrentState
 	providerClaims := current.assessment.GlobalCarrierClaims
-	for index, action := range actions {
-		phase := fmt.Sprintf("MCP provider prerequisite route[%d]", index)
-		if err := executionGuard.requireDeclarationsCurrent(ctx, "before "+phase); err != nil {
-			return result, err
-		}
+	for _, action := range actions {
 		nextState, nextClaims, attempts, routeErr := runHostRoutesAndPersistAttemptRecords(
 			ctx,
 			effectPaths,
@@ -274,9 +262,8 @@ func runMCPProviderPrerequisitePhase(
 		providerState = nextState
 		providerClaims = nextClaims
 		result.attempts = append(result.attempts, attempts...)
-		declarationErr := executionGuard.requireDeclarationsCurrent(ctx, "after "+phase)
-		if routeErr != nil || declarationErr != nil {
-			return result, errors.Join(routeErr, declarationErr)
+		if routeErr != nil {
+			return result, routeErr
 		}
 	}
 	if err := ctx.Err(); err != nil {

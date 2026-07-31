@@ -303,18 +303,6 @@ func runRelationOrderConvergence(
 		if !relationOrderMutationRequired(class.decisions) {
 			continue
 		}
-		actualFingerprint, fingerprintErr := remainingExecutionFingerprint(fresh)
-		if fingerprintErr != nil {
-			return result, fingerprintErr
-		}
-		if err := options.executionGuard.requirePlanCurrent(
-			ctx,
-			result.planFingerprint,
-			actualFingerprint,
-			"extension order execution",
-		); err != nil {
-			return result, err
-		}
 		plan, err := configrelation.NewOrderPlan(class.observation)
 		if err != nil {
 			return result, err

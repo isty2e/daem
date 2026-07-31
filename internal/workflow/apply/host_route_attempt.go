@@ -36,7 +36,26 @@ func runHostRoutesAndPersistAttemptRecords(
 	globalCarrierClaims durablecarrier.GlobalCarrierClaims,
 	relationActions []reconciliation.RelationAction,
 	options runOptions,
-) (durable.Snapshot, durablecarrier.GlobalCarrierClaims, []durableattempt.HostRouteAttempt, error) {
+) (
+	resultState durable.Snapshot,
+	resultClaims durablecarrier.GlobalCarrierClaims,
+	resultRecords []durableattempt.HostRouteAttempt,
+	returnErr error,
+) {
+	attemptedPhase := ""
+	defer func() {
+		if attemptedPhase == "" {
+			return
+		}
+		returnErr = errors.Join(
+			returnErr,
+			options.executionGuard.requireDeclarationsCurrent(
+				ctx,
+				"after "+attemptedPhase,
+			),
+		)
+	}()
+
 	records := make([]durableattempt.HostRouteAttempt, 0)
 	failures := make([]durableattempt.HostRouteAttempt, 0)
 	prepared := make([]preparedHostRoute, 0)
@@ -66,20 +85,21 @@ func runHostRoutesAndPersistAttemptRecords(
 	}
 
 	nextState := current
+	emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
+	if err != nil {
+		return current, globalCarrierClaims, records, err
+	}
 	var stateAuthority *rootedpath.EntryAuthority
-	var err error
 	if len(records) != 0 || len(prepared) != 0 || len(globalPromotions) != 0 {
 		if options.validateBeforeEffects == nil {
 			return current, globalCarrierClaims, records, fmt.Errorf(
 				"host route effect validation is required",
 			)
 		}
-		emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
-		if err != nil {
-			return current, globalCarrierClaims, records, err
-		}
-		if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
-			return current, globalCarrierClaims, records, err
+		if len(records) != 0 || len(globalPromotions) != 0 {
+			if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
+				return current, globalCarrierClaims, records, err
+			}
 		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
@@ -127,9 +147,17 @@ func runHostRoutesAndPersistAttemptRecords(
 		)
 	}
 
-	for _, item := range prepared {
+	for index, item := range prepared {
+		phase := fmt.Sprintf("host route[%d]", index)
+		if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				err,
+			)
+		}
 		binding, bindErr := acquireHostRouteWorkingDirectory(options, paths.ManifestRoot)
 		if bindErr != nil {
+			attemptedPhase = phase
 			attempt := options.HostRouteExecutor.ExecuteInWorkingDirectory(
 				ctx,
 				item.command.AttemptRequest(),
@@ -153,7 +181,10 @@ func runHostRoutesAndPersistAttemptRecords(
 			}
 			records = append(records, record)
 			failures = append(failures, record)
-			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), bindErr)
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				bindErr,
+			)
 		}
 		var err error
 		nextState, err = execute.CommitPendingCarrierInstalls(
@@ -169,6 +200,7 @@ func runHostRoutesAndPersistAttemptRecords(
 			_ = binding.Close()
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist pending carrier install: %w", err))
 		}
+		attemptedPhase = phase
 		attempt, bindingReleaseErr := executeHostRouteAttempt(
 			ctx,
 			options.HostRouteExecutor,
@@ -384,6 +416,17 @@ func runHostRoutesAndPersistAttemptRecords(
 		}
 		if bindingReleaseErr != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("release unused host route working-directory authority: %w", bindingReleaseErr))
+		}
+		declarationErr := options.executionGuard.requireDeclarationsCurrent(
+			ctx,
+			"after "+phase,
+		)
+		attemptedPhase = ""
+		if declarationErr != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				declarationErr,
+			)
 		}
 	}
 	return nextState, globalCarrierClaims, records, hostRouteFailuresError(failures)

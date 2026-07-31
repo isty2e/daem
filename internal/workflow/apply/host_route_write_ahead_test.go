@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	lockbuild "github.com/isty2e/daem/internal/realization/lock/build"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
@@ -72,6 +75,112 @@ func TestHostRouteWriteAheadCarrierFactIsScopedToCurrentInvocation(t *testing.T)
 	}
 	if invocations != 2 {
 		t.Fatalf("host route invocations = %d, want 2", invocations)
+	}
+}
+
+func TestHostRouteStopsAfterDeclarationChangeAndPreservesAttempt(t *testing.T) {
+	assertHostRouteDeclarationChange(t, "manifest", 0, false)
+}
+
+func TestHostRouteStopsAfterLockfileChangeAndPreservesAttempt(t *testing.T) {
+	assertHostRouteDeclarationChange(t, "lockfile", 0, false)
+}
+
+func TestFailedHostRouteReportsDeclarationChangeAndPreservesAttempt(t *testing.T) {
+	assertHostRouteDeclarationChange(t, "manifest", 1, true)
+}
+
+func assertHostRouteDeclarationChange(
+	t *testing.T,
+	selectedDeclaration string,
+	exitCode int,
+	wantRouteFailure bool,
+) {
+	t.Helper()
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	lockfilePath := filepath.Join(root, "daem.lock.toml")
+	statePath := filepath.Join(root, ".daem", "state.json")
+	writeApplyFile(t, manifestPath, "version = 1\ntargets = [\"claude-code\"]\n")
+
+	environment := desiredtest.Environment(t, desired.Spec{
+		Targets:  []target.Target{target.TargetClaudeCode},
+		Defaults: desiredtest.Defaults(t, target.ScopeProject, skill.InstallModeCopy),
+		Extensions: []extension.Extension{
+			writeAheadClaudeExtension(t, "first-plugin", "first@market", target.ScopeProject),
+			writeAheadClaudeExtension(t, "second-plugin", "second@market", target.ScopeGlobal),
+		},
+	})
+	locked, err := lockbuild.BuildWithOptions(t.Context(), environment, nil, lockbuild.Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions returned error: %v", err)
+	}
+	writeApplyLockfile(t, lockfilePath, locked)
+
+	missing := applyClaudePluginCarrierInventory(t, observeclaudeplugin.InventorySpec{
+		Availability: observerelation.InventorySupported,
+		Freshness:    observerelation.EvidenceFresh,
+	})
+	missingObservations := applyClaudeObservationBatchForLocked(t, locked, missing)
+	invocations := 0
+	selectedPath := manifestPath
+	if selectedDeclaration == "lockfile" {
+		selectedPath = lockfilePath
+	}
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+			invocations++
+			if invocations == 1 {
+				content, readErr := os.ReadFile(selectedPath)
+				if readErr != nil {
+					t.Fatalf("read %s during first route: %v", selectedDeclaration, readErr)
+				}
+				writeApplyFile(t, selectedPath, string(content)+"# changed during route\n")
+			}
+			return subprocess.CommandResult{
+				Started:     true,
+				HasExitCode: true,
+				ExitCode:    exitCode,
+			}
+		},
+	})
+
+	planned, err := PlanWrite(t.Context(), CommandInput{
+		ManifestPath:         manifestPath,
+		LockfilePath:         lockfilePath,
+		TargetValues:         []string{"claude-code"},
+		RelationObservations: &missingObservations,
+	})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		RelationObservations: &missingObservations,
+		HostRouteExecutor:    executor,
+		PlanWasDisclosed:     true,
+	})
+	var stale mutation.StalePlanError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteWithOptions error = %v, want StalePlanError", err)
+	}
+	var routeFailure hostRouteExecutionError
+	if got := errors.As(err, &routeFailure); got != wantRouteFailure {
+		t.Fatalf(
+			"ExecuteWithOptions host-route failure = %t, want %t: %v",
+			got,
+			wantRouteFailure,
+			err,
+		)
+	}
+	if invocations != 1 {
+		t.Fatalf("host route invocations = %d, want first route only", invocations)
+	}
+	if len(result.HostRouteAttempts) != 1 {
+		t.Fatalf("result attempts = %#v, want first route evidence", result.HostRouteAttempts)
+	}
+	state := loadApplyStatefile(t, statePath)
+	if len(state.HostRouteAttempts()) != 1 {
+		t.Fatalf("state attempts = %#v, want first route evidence", state.HostRouteAttempts())
 	}
 }
 

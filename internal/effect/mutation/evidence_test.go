@@ -64,6 +64,99 @@ func TestRevisionSetRejectsInvalidStateAndCancellation(t *testing.T) {
 	}
 }
 
+func TestBoundedFileRevisionSetTracksRegularFilesAliasesAndAbsence(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	alias := filepath.Join(root, "selected")
+	missing := filepath.Join(root, "missing")
+	if err := os.WriteFile(first, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(first, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	set, err := CaptureBoundedFileRevisionSet(
+		t.Context(),
+		4,
+		alias,
+		missing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || !matches {
+		t.Fatalf("MatchesCurrent() = %t, %v; want true", matches, err)
+	}
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(second, alias); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || matches {
+		t.Fatalf("alias replacement match = %t, %v; want false", matches, err)
+	}
+}
+
+func TestBoundedFileRevisionSetRejectsDirectoriesAndOversizedFiles(t *testing.T) {
+	root := t.TempDir()
+	if _, err := CaptureBoundedFileRevisionSet(t.Context(), 4, root); err == nil {
+		t.Fatal("bounded file revision accepted a directory")
+	}
+
+	path := filepath.Join(root, "oversized")
+	if err := os.WriteFile(path, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CaptureBoundedFileRevisionSet(t.Context(), 4, path); err == nil {
+		t.Fatal("bounded file revision accepted an oversized file")
+	}
+}
+
+func TestBoundedFileRevisionSetDetectsContentChangeAndMissingFileCreation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "selected")
+	missing := filepath.Join(root, "missing")
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	set, err := CaptureBoundedFileRevisionSet(t.Context(), 4, path, missing)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(path, []byte("diff"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || matches {
+		t.Fatalf("content-change match = %t, %v; want false", matches, err)
+	}
+
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(missing, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || matches {
+		t.Fatalf("missing-file creation match = %t, %v; want false", matches, err)
+	}
+}
+
+func TestBoundedFileRevisionSetRejectsInvalidInput(t *testing.T) {
+	if _, err := CaptureBoundedFileRevisionSet(t.Context(), 0, "value"); err == nil {
+		t.Fatal("bounded file revision accepted a zero byte limit")
+	}
+	if _, err := CaptureBoundedFileRevisionSet(t.Context(), 1); err == nil {
+		t.Fatal("bounded file revision accepted an empty path set")
+	}
+}
+
 func TestStaleSnapshotErrorHasStableTypeAndSafeMessage(t *testing.T) {
 	err := error(StaleSnapshotError{})
 	var stale StaleSnapshotError

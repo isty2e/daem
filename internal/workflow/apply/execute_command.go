@@ -269,7 +269,6 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		leases,
 		revisions,
 		executionGuard,
-		validateBeforeEffects,
 		executionOptions,
 		options.PlanWasDisclosed,
 	)
@@ -348,6 +347,8 @@ type applyExecutionGuard struct {
 	valid                bool
 }
 
+const maximumApplyDeclarationBytes int64 = 64 << 20
+
 func newApplyExecutionGuard(
 	revisions mutation.RevisionSet,
 	planWasDisclosed bool,
@@ -364,18 +365,12 @@ func captureDeclarationRevisions(
 	manifestPath string,
 	lockfilePath string,
 ) (mutation.RevisionSet, error) {
-	requests := make([]mutation.RevisionRequest, 0, 4)
-	for _, path := range []string{manifestPath, lockfilePath} {
-		for _, effect := range []mutation.PathEffect{
-			mutation.PathEffectDirectoryEntry,
-			mutation.PathEffectReferent,
-		} {
-			requests = append(requests, mutation.RevisionRequest{
-				Path: path, Effect: effect,
-			})
-		}
-	}
-	return mutation.CaptureRevisionSet(ctx, requests...)
+	return mutation.CaptureBoundedFileRevisionSet(
+		ctx,
+		maximumApplyDeclarationBytes,
+		manifestPath,
+		lockfilePath,
+	)
 }
 
 func (guard applyExecutionGuard) requireDeclarationsCurrent(

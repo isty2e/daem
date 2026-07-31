@@ -120,21 +120,30 @@ func runDelegatesAndPersistAttemptRecords(
 	}
 	var delegateAttempts []delegate.AttemptRecord
 	var declarationErr error
+	if len(delegateActions) != 0 {
+		actualPlanFingerprint, err := remainingExecutionFingerprint(reconciliation)
+		if err != nil {
+			declarationErr = err
+		} else {
+			declarationErr = options.executionGuard.requirePlanCurrent(
+				ctx,
+				expectedPlanFingerprint,
+				actualPlanFingerprint,
+				"delegate execution plan",
+			)
+		}
+	}
 	bindForAction := delegateWorkingDirectoryBinderForAction(
 		options,
 		paths.ManifestRoot,
 	)
 	for index, action := range delegateActions {
-		actualPlanFingerprint, err := remainingExecutionFingerprint(reconciliation)
-		if err != nil {
-			declarationErr = err
+		if declarationErr != nil {
 			break
 		}
 		phase := fmt.Sprintf("delegate route[%d]", index)
-		if err := options.executionGuard.requirePlanCurrent(
+		if err := options.executionGuard.requireDeclarationsCurrent(
 			ctx,
-			expectedPlanFingerprint,
-			actualPlanFingerprint,
 			"before "+phase,
 		); err != nil {
 			declarationErr = err

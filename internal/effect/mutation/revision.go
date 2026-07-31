@@ -26,6 +26,9 @@ const (
 type RevisionRequest struct {
 	Path   string
 	Effect PathEffect
+
+	maximumRegularFileBytes int64
+	requireBoundedFile      bool
 }
 
 // SnapshotRevision is immutable evidence for one filesystem observation.
@@ -46,6 +49,19 @@ func (revision SnapshotRevision) Equal(other SnapshotRevision) bool {
 
 // CaptureRevision captures a context-aware immutable filesystem revision.
 func CaptureRevision(ctx context.Context, request RevisionRequest) (SnapshotRevision, error) {
+	return captureRevision(ctx, request, nil)
+}
+
+type revisionFileCacheEntry struct {
+	info     os.FileInfo
+	revision SnapshotRevision
+}
+
+func captureRevision(
+	ctx context.Context,
+	request RevisionRequest,
+	fileCache map[string]revisionFileCacheEntry,
+) (SnapshotRevision, error) {
 	if ctx == nil {
 		return SnapshotRevision{}, fmt.Errorf("mutation revision context is required")
 	}
@@ -79,12 +95,49 @@ func CaptureRevision(ctx context.Context, request RevisionRequest) (SnapshotRevi
 		writeRevisionRecord(hasher, "symlink", target)
 		return newSnapshotRevision(revisionSymlink, identity.keyPath, hasher), nil
 	case info.Mode().IsRegular():
+		if request.requireBoundedFile && info.Size() > request.maximumRegularFileBytes {
+			return SnapshotRevision{}, fmt.Errorf(
+				"mutation revision file %q exceeds %d bytes",
+				request.Path,
+				request.maximumRegularFileBytes,
+			)
+		}
+		if request.requireBoundedFile {
+			if cached, ok := fileCache[identity.keyPath]; ok &&
+				sameRevisionFileInfo(cached.info, info) {
+				return cached.revision, nil
+			}
+		}
 		hasher := newRevisionHasher(identity.keyPath, revisionFile)
-		if err := hashRevisionFile(ctx, hasher, identity.accessPath, ".", info); err != nil {
+		maximumBytes := int64(0)
+		if request.requireBoundedFile {
+			maximumBytes = request.maximumRegularFileBytes
+		}
+		if err := hashRevisionFile(
+			ctx,
+			hasher,
+			identity.accessPath,
+			".",
+			info,
+			maximumBytes,
+		); err != nil {
 			return SnapshotRevision{}, err
 		}
-		return newSnapshotRevision(revisionFile, identity.keyPath, hasher), nil
+		revision := newSnapshotRevision(revisionFile, identity.keyPath, hasher)
+		if request.requireBoundedFile && fileCache != nil {
+			fileCache[identity.keyPath] = revisionFileCacheEntry{
+				info:     info,
+				revision: revision,
+			}
+		}
+		return revision, nil
 	case info.IsDir():
+		if request.requireBoundedFile {
+			return SnapshotRevision{}, fmt.Errorf(
+				"mutation revision path %q must be absent or resolve to a regular file",
+				request.Path,
+			)
+		}
 		hasher := newRevisionHasher(identity.keyPath, revisionDirectory)
 		if err := hashRevisionDirectory(ctx, hasher, identity.accessPath); err != nil {
 			return SnapshotRevision{}, err
@@ -93,6 +146,13 @@ func CaptureRevision(ctx context.Context, request RevisionRequest) (SnapshotRevi
 	default:
 		return SnapshotRevision{}, fmt.Errorf("mutation revision path %q has unsupported file mode %s", request.Path, info.Mode())
 	}
+}
+
+func sameRevisionFileInfo(left os.FileInfo, right os.FileInfo) bool {
+	return os.SameFile(left, right) &&
+		left.Mode() == right.Mode() &&
+		left.Size() == right.Size() &&
+		left.ModTime().Equal(right.ModTime())
 }
 
 func newRevisionHasher(canonicalPath string, kind revisionKind) hash.Hash {
@@ -139,14 +199,21 @@ func hashRevisionDirectory(ctx context.Context, hasher hash.Hash, root string) e
 			writeRevisionRecord(hasher, "directory", relative)
 			return nil
 		case info.Mode().IsRegular():
-			return hashRevisionFile(ctx, hasher, path, relative, info)
+			return hashRevisionFile(ctx, hasher, path, relative, info, 0)
 		default:
 			return fmt.Errorf("mutation revision entry %q has unsupported file mode %s", path, info.Mode())
 		}
 	})
 }
 
-func hashRevisionFile(ctx context.Context, hasher hash.Hash, path string, relative string, info os.FileInfo) error {
+func hashRevisionFile(
+	ctx context.Context,
+	hasher hash.Hash,
+	path string,
+	relative string,
+	info os.FileInfo,
+	maximumBytes int64,
+) error {
 	executable := "not-executable"
 	if info.Mode().Perm()&0o111 != 0 {
 		executable = "executable"
@@ -159,12 +226,21 @@ func hashRevisionFile(ctx context.Context, hasher hash.Hash, path string, relati
 	defer file.Close()
 
 	buffer := make([]byte, 32*1024)
+	total := int64(0)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		count, readErr := file.Read(buffer)
 		if count > 0 {
+			total += int64(count)
+			if maximumBytes > 0 && total > maximumBytes {
+				return fmt.Errorf(
+					"mutation revision file %q exceeds %d bytes",
+					path,
+					maximumBytes,
+				)
+			}
 			_, _ = hasher.Write(buffer[:count])
 		}
 		if readErr == io.EOF {
