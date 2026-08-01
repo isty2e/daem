@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/isty2e/daem/internal/platformsupport"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -16,9 +15,8 @@ const (
 	productVersionOutputLimit    = 256
 )
 
-// Current observes the running Darwin product version.
-func Current(ctx context.Context) (platformsupport.RuntimeObservation, error) {
-	return observeDarwinProductVersion(ctx, runProductVersionCommand)
+func currentCommandRunner() (commandRunner, bool) {
+	return runProductVersionCommand, true
 }
 
 func runProductVersionCommand(ctx context.Context) commandResult {

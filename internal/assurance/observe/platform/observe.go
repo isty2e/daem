@@ -18,6 +18,18 @@ type commandResult struct {
 
 type commandRunner func(context.Context) commandResult
 
+// Current observes the runtime evidence available on the running platform.
+func Current(ctx context.Context) (platformsupport.RuntimeObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return platformsupport.RuntimeObservation{}, err
+	}
+	run, available := currentCommandRunner()
+	if !available {
+		return platformsupport.RuntimeObservation{}, nil
+	}
+	return observeDarwinProductVersion(ctx, run)
+}
+
 func observeDarwinProductVersion(
 	ctx context.Context,
 	run commandRunner,
