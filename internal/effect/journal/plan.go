@@ -369,11 +369,23 @@ func loadActivePlanFromInventory(
 	}
 	operationDir := inventory.active.operationDir
 	journal := inventory.active.journal
+	if err := validateRecoveryGlobalPathBindings(
+		ctx,
+		journal.Entries,
+		options.Resolver,
+		options.RootedCapability,
+	); err != nil {
+		return recovery.Plan{}, err
+	}
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if len(claimTransitions) != 0 {
+	provisionalAcquires, err := canonicalProvisionalAcquireIntents(journal.ProvisionalAcquires)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
 		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
 		if err != nil {
 			return recovery.Plan{}, fmt.Errorf("canonicalize recovery state authority: %w", err)
@@ -384,11 +396,14 @@ func loadActivePlanFromInventory(
 		); err != nil {
 			return recovery.Plan{}, err
 		}
+		if err := validateRecoveryIntentAuthorities(
+			provisionalAcquires,
+			statefileAuthority,
+		); err != nil {
+			return recovery.Plan{}, err
+		}
 	}
 	resolver := options.Resolver
-	if err := validateRecoveryClaimCoverage(journal.Entries, claimTransitions, resolver); err != nil {
-		return recovery.Plan{}, fmt.Errorf("validate recovery ownership coverage: %w", err)
-	}
 	planningEntries := journal.Entries
 	var selectedIndexes []int
 	if selected != nil {
@@ -399,11 +414,14 @@ func loadActivePlanFromInventory(
 		planningEntries = recoveryEntriesAtIndexes(journal.Entries, selectedIndexes)
 	}
 	registry := ownership.EmptyRegistry()
-	if len(claimTransitions) != 0 {
+	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
 		if options.OwnershipRegistry == nil {
-			return recovery.Plan{}, fmt.Errorf("ownership registry reader is required for recovery claim classification")
+			return recovery.Plan{}, fmt.Errorf("ownership registry reader is required for recovery ownership classification")
 		}
-		registry, err = options.OwnershipRegistry(ctx)
+		registry, err = options.OwnershipRegistry.LoadForClaimRemovals(
+			ctx,
+			recoveryClaimRemovalCandidates(claimTransitions),
+		)
 		if err != nil {
 			return recovery.Plan{}, err
 		}
@@ -437,6 +455,13 @@ func loadActivePlanFromInventory(
 		options.RootedCapability,
 		options.Codecs,
 	)
+	observations = applyRecoveryIntentOwnershipEvidence(
+		ctx,
+		observations,
+		provisionalAcquires,
+		registry,
+		resolver,
+	)
 	if projectAuthority != nil {
 		if err := projectAuthority.close(); err != nil {
 			return recovery.Plan{}, fmt.Errorf("close recovery project root authority: %w", err)
@@ -451,6 +476,7 @@ func loadActivePlanFromInventory(
 		journal,
 		operationDir,
 		claimTransitions,
+		provisionalAcquires,
 		inventory.active.identity.JournalAuthorityFingerprint(),
 	)
 	if err != nil {
@@ -468,6 +494,21 @@ func loadActivePlanFromInventory(
 		canonicalRecoveryBackupEvidence(backupObservations),
 		registry,
 	)
+}
+
+func recoveryClaimRemovalCandidates(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {
+	claims := make([]ownership.Claim, 0, len(transitions))
+	for _, transition := range transitions {
+		if transition.Kind() != ownershipmutation.TransitionRelease &&
+			transition.Kind() != ownershipmutation.TransitionAcquire {
+			continue
+		}
+		claim, present := transition.Prepared().Get()
+		if present {
+			claims = append(claims, claim)
+		}
+	}
+	return claims
 }
 
 func validateActivePlanLoadOptions(options PlanLoadOptions) error {

@@ -67,6 +67,18 @@ func NewAcquireTransition(
 	return NewTransition(TransitionAcquire, outputownership.NoClaim(), prepared, after)
 }
 
+// NewAcquireTransitionFromIntent promotes one admitted future-path intent into
+// the ordinary absent -> reserved -> active transition.
+func NewAcquireTransitionFromIntent(
+	intent outputownership.ProvisionalAcquireIntent,
+	address outputownership.ManagedAddress,
+) (ClaimTransition, error) {
+	if err := intent.AdmitAddress(address); err != nil {
+		return ClaimTransition{}, err
+	}
+	return NewAcquireTransition(address, intent.Owner(), intent.OperationID())
+}
+
 // NewReleaseTransition constructs active -> active -> absent ownership.
 func NewReleaseTransition(active outputownership.Claim) (ClaimTransition, error) {
 	if err := active.Validate(); err != nil {
@@ -171,7 +183,9 @@ func (transition ClaimTransition) Before() outputownership.ClaimValue {
 	return transition.before
 }
 
-// Prepared returns the claim required before the first host effect.
+// Prepared returns the reserved or retained claim for the transition's
+// durable intermediate phase. A promoted provisional acquisition reaches
+// this phase only after its output becomes exactly observable.
 func (transition ClaimTransition) Prepared() outputownership.ClaimValue {
 	return transition.prepared
 }

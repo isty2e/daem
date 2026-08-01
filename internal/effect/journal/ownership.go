@@ -1,8 +1,11 @@
 package journal
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -12,6 +15,10 @@ import (
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
+
+// One valid recovery entry owns at most one exact transition or provisional
+// intent, so this admits 100,000 entries and their complete ownership relation.
+const maximumRecoveryOwnershipWorkItems = 200_000
 
 type recoveryClaimTransition struct {
 	Kind     string             `json:"kind"`
@@ -88,15 +95,102 @@ func canonicalClaimTransitions(persisted []recoveryClaimTransition) ([]ownership
 		if err != nil {
 			return nil, fmt.Errorf("recovery claim_transitions[%d]: %w", index, err)
 		}
-		for _, address := range addresses {
-			if address.Overlaps(transition.Address()) {
-				return nil, fmt.Errorf("recovery claim_transitions[%d]: overlapping address", index)
-			}
-		}
 		addresses = append(addresses, transition.Address())
 		transitions = append(transitions, transition)
 	}
+	if err := validateNonOverlappingRecoveryAddresses(addresses); err != nil {
+		return nil, err
+	}
 	return transitions, nil
+}
+
+func validateNonOverlappingRecoveryAddresses(addresses []ownership.ManagedAddress) error {
+	type addressGroup struct {
+		witness      string
+		contentPaths []string
+	}
+	groups := make(map[string]addressGroup, len(addresses))
+	for _, address := range addresses {
+		path := address.Path()
+		group, present := groups[path]
+		if present && group.witness != address.PathAuthority().Witness() {
+			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
+		}
+		group.witness = address.PathAuthority().Witness()
+		group.contentPaths = append(group.contentPaths, address.ContentPath())
+		groups[path] = group
+	}
+	pathRoots := make(map[string]*recoveryPathPrefixSet)
+	for path, group := range groups {
+		volume, components := recoveryFilesystemPathComponents(path)
+		root := pathRoots[volume]
+		if root == nil {
+			root = &recoveryPathPrefixSet{}
+			pathRoots[volume] = root
+		}
+		if !root.insertDisjoint(components) {
+			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
+		}
+		if err := validateNonOverlappingRecoveryContentPaths(group.contentPaths); err != nil {
+			return fmt.Errorf("recovery claim transitions contain overlapping addresses")
+		}
+	}
+	return nil
+}
+
+func validateNonOverlappingRecoveryContentPaths(contentPaths []string) error {
+	paths := recoveryPathPrefixSet{}
+	for _, contentPath := range contentPaths {
+		components := []string(nil)
+		if contentPath != "" {
+			components = strings.Split(strings.TrimPrefix(contentPath, "/"), "/")
+		}
+		if !paths.insertDisjoint(components) {
+			return fmt.Errorf("overlapping recovery content path")
+		}
+	}
+	return nil
+}
+
+type recoveryPathPrefixSet struct {
+	terminal bool
+	children map[string]*recoveryPathPrefixSet
+}
+
+func (set *recoveryPathPrefixSet) insertDisjoint(components []string) bool {
+	current := set
+	if current.terminal {
+		return false
+	}
+	for _, component := range components {
+		if current.terminal {
+			return false
+		}
+		if current.children == nil {
+			current.children = make(map[string]*recoveryPathPrefixSet)
+		}
+		next := current.children[component]
+		if next == nil {
+			next = &recoveryPathPrefixSet{}
+			current.children[component] = next
+		}
+		current = next
+	}
+	if current.terminal || len(current.children) != 0 {
+		return false
+	}
+	current.terminal = true
+	return true
+}
+
+func recoveryFilesystemPathComponents(path string) (string, []string) {
+	volume := filepath.VolumeName(path)
+	relative := strings.TrimPrefix(path, volume)
+	relative = strings.TrimPrefix(relative, string(filepath.Separator))
+	if relative == "" {
+		return volume, nil
+	}
+	return volume, strings.Split(relative, string(filepath.Separator))
 }
 
 func validateRecoveryClaimAuthorities(
@@ -116,46 +210,155 @@ func validateRecoveryClaimAuthorities(
 	return nil
 }
 
+func bindRecoveryClaimCoverage(
+	ctx context.Context,
+	entries []recoveryEntry,
+	transitions []ownershipmutation.ClaimTransition,
+	intents []ownership.ProvisionalAcquireIntent,
+	resolver func(output.Destination) (string, error),
+) ([]recoveryEntry, error) {
+	if err := validateRecoveryOwnershipWorkBudget(len(entries), len(transitions), len(intents)); err != nil {
+		return nil, err
+	}
+	bound := append([]recoveryEntry(nil), entries...)
+	transitionsByAddress := make(map[string]struct{}, len(transitions))
+	for index, transition := range transitions {
+		if err := transition.Validate(); err != nil {
+			return nil, fmt.Errorf("recovery claim transitions[%d]: %w", index, err)
+		}
+		key := ownershipAddressKey(transition.Address())
+		if _, duplicate := transitionsByAddress[key]; duplicate {
+			return nil, fmt.Errorf("recovery journal has duplicate exact ownership transition")
+		}
+		transitionsByAddress[key] = struct{}{}
+	}
+	intentKeys := make(map[string]struct{}, len(intents))
+	for index, intent := range intents {
+		if err := intent.Validate(); err != nil {
+			return nil, fmt.Errorf("recovery provisional acquisition intents[%d]: %w", index, err)
+		}
+		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
+		if _, duplicate := intentKeys[key]; duplicate {
+			return nil, fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
+		}
+		intentKeys[key] = struct{}{}
+	}
+	for index := range bound {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		entry := bound[index]
+		if entry.OwnershipPathAuthority != nil {
+			return nil, fmt.Errorf("recovery entries[%d] capture already carries ownership path authority", index)
+		}
+		if !recoveryEntryRequiresOwnership(entry) {
+			continue
+		}
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			return nil, fmt.Errorf("recovery entries[%d] destination: %w", index, err)
+		}
+		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
+		if _, present := intentKeys[intentKey]; present {
+			continue
+		}
+		if resolver == nil {
+			return nil, fmt.Errorf("ownership coverage destination resolver is required")
+		}
+		physical, err := resolver(destination)
+		if err != nil {
+			return nil, fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
+		}
+		authority, err := mutation.ObserveDirectoryEntryAuthority(physical)
+		if err != nil {
+			return nil, fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
+		}
+		exact, present := authority.Exact()
+		if !present {
+			return nil, fmt.Errorf("recovery entries[%d] global output lacks exact ownership authority", index)
+		}
+		address, err := ownership.NewManagedAddress(exact, entry.ContentPath)
+		if err != nil {
+			return nil, fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
+		}
+		key := ownershipAddressKey(address)
+		if _, present := transitionsByAddress[key]; !present {
+			return nil, fmt.Errorf("recovery entries[%d] global output has no exact ownership transition", index)
+		}
+		bound[index].OwnershipPathAuthority = persistedPathAuthority(exact)
+	}
+	if err := validateRecoveryClaimCoverage(bound, transitions, intents); err != nil {
+		return nil, err
+	}
+	return bound, nil
+}
+
 func validateRecoveryClaimCoverage(
 	entries []recoveryEntry,
 	transitions []ownershipmutation.ClaimTransition,
-	resolver func(output.Destination) (string, error),
+	intents []ownership.ProvisionalAcquireIntent,
 ) error {
-	requiresResolver := len(transitions) != 0
-	for _, entry := range entries {
-		if !entry.StateIndependent &&
-			entry.Scope == string(target.ScopeGlobal) {
-			requiresResolver = true
-			break
-		}
-	}
-	if requiresResolver && resolver == nil {
-		return fmt.Errorf("ownership coverage destination resolver is required")
+	if err := validateRecoveryOwnershipWorkBudget(len(entries), len(transitions), len(intents)); err != nil {
+		return err
 	}
 	remaining := make(map[string]ownershipmutation.ClaimTransition, len(transitions))
 	for _, transition := range transitions {
-		remaining[ownershipAddressKey(transition.Address())] = transition
+		key := ownershipAddressKey(transition.Address())
+		if _, duplicate := remaining[key]; duplicate {
+			return fmt.Errorf("recovery journal has duplicate exact ownership transition")
+		}
+		remaining[key] = transition
+	}
+	remainingIntents := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	for _, intent := range intents {
+		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
+		if _, duplicate := remainingIntents[key]; duplicate {
+			return fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
+		}
+		remainingIntents[key] = intent
 	}
 	for index, entry := range entries {
-		if entry.StateIndependent && entry.Aggregate == nil {
-			continue
-		}
-		if entry.Scope != string(target.ScopeGlobal) {
+		if !recoveryEntryRequiresOwnership(entry) {
+			if entry.OwnershipPathAuthority != nil {
+				return fmt.Errorf("recovery entries[%d] must not carry ownership path authority", index)
+			}
 			continue
 		}
 		destination, err := output.Parse(entry.Path)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] destination: %w", index, err)
 		}
-		physical, err := resolver(destination)
-		if err != nil {
-			return fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
+		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
+		if intent, present := remainingIntents[intentKey]; present {
+			if entry.OwnershipPathAuthority != nil {
+				return fmt.Errorf("recovery entries[%d] provisional acquisition must not carry exact ownership path authority", index)
+			}
+			matches, err := recoveryEntryAllowsTransition(entry, ownershipmutation.TransitionAcquire)
+			if err != nil {
+				return fmt.Errorf("recovery entries[%d]: %w", index, err)
+			}
+			if !matches {
+				wantKind, _ := recoveryEntryTransitionKind(entry)
+				return fmt.Errorf(
+					"recovery entries[%d] requires %s ownership transition, got provisional acquire intent",
+					index,
+					wantKind,
+				)
+			}
+			if intent.Destination() != destination || string(intent.ContentPath()) != entry.ContentPath {
+				return fmt.Errorf("recovery entries[%d] provisional acquisition identity changed", index)
+			}
+			delete(remainingIntents, intentKey)
+			continue
 		}
-		authority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
-		if err != nil {
-			return fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
+		if entry.OwnershipPathAuthority == nil {
+			return fmt.Errorf("recovery entries[%d] global output has no exact ownership transition authority", index)
 		}
-		address, err := ownership.NewManagedAddress(authority.Exact(), entry.ContentPath)
+		exact, err := canonicalPathAuthority(*entry.OwnershipPathAuthority)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d] ownership_path_authority: %w", index, err)
+		}
+		address, err := ownership.NewManagedAddress(exact, entry.ContentPath)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
@@ -181,6 +384,29 @@ func validateRecoveryClaimCoverage(
 	}
 	if len(remaining) != 0 {
 		return fmt.Errorf("recovery journal has ownership transition without a global output entry")
+	}
+	if len(remainingIntents) != 0 {
+		return fmt.Errorf("recovery journal has provisional acquisition intent without a global output entry")
+	}
+	return nil
+}
+
+func recoveryEntryRequiresOwnership(entry recoveryEntry) bool {
+	return entry.Scope == string(target.ScopeGlobal) &&
+		(!entry.StateIndependent || entry.Aggregate != nil)
+}
+
+func validateRecoveryOwnershipWorkBudget(entryCount int, transitionCount int, intentCount int) error {
+	if entryCount < 0 || transitionCount < 0 || intentCount < 0 {
+		return fmt.Errorf("recovery ownership work counts must be non-negative")
+	}
+	if entryCount > maximumRecoveryOwnershipWorkItems ||
+		transitionCount > maximumRecoveryOwnershipWorkItems-entryCount ||
+		intentCount > maximumRecoveryOwnershipWorkItems-entryCount-transitionCount {
+		return fmt.Errorf(
+			"recovery ownership relationships exceed %d work items",
+			maximumRecoveryOwnershipWorkItems,
+		)
 	}
 	return nil
 }
@@ -251,19 +477,13 @@ func recoveryClaimValueFrom(value ownership.ClaimValue) (recoveryClaimValue, err
 	path := claim.Address().PathAuthority()
 	statefile := claim.Owner().StatefileAuthority()
 	return recoveryClaimValue{
-		Present: true,
-		PathAuthority: &pathAuthorityDTO{
-			Key:     path.Key(),
-			Witness: path.Witness(),
-		},
-		ContentPath: claim.Address().ContentPath(),
-		StatefileAuthority: &pathAuthorityDTO{
-			Key:     statefile.Key(),
-			Witness: statefile.Witness(),
-		},
-		ManifestPath: claim.Owner().ManifestPath(),
-		State:        string(claim.State()),
-		OperationID:  claim.OperationID(),
+		Present:            true,
+		PathAuthority:      persistedPathAuthority(path),
+		ContentPath:        claim.Address().ContentPath(),
+		StatefileAuthority: persistedPathAuthority(statefile),
+		ManifestPath:       claim.Owner().ManifestPath(),
+		State:              string(claim.State()),
+		OperationID:        claim.OperationID(),
 	}, nil
 }
 
@@ -281,10 +501,7 @@ func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error
 			"present claim requires path_authority and statefile_authority",
 		)
 	}
-	path, err := pathauthority.NewExact(
-		record.PathAuthority.Key,
-		record.PathAuthority.Witness,
-	)
+	path, err := canonicalPathAuthority(*record.PathAuthority)
 	if err != nil {
 		return ownership.ClaimValue{}, fmt.Errorf("path authority: %w", err)
 	}
@@ -292,10 +509,7 @@ func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error
 	if err != nil {
 		return ownership.ClaimValue{}, err
 	}
-	statefile, err := pathauthority.NewExact(
-		record.StatefileAuthority.Key,
-		record.StatefileAuthority.Witness,
-	)
+	statefile, err := canonicalPathAuthority(*record.StatefileAuthority)
 	if err != nil {
 		return ownership.ClaimValue{}, fmt.Errorf("statefile authority: %w", err)
 	}
@@ -319,6 +533,14 @@ func canonicalClaimValue(record recoveryClaimValue) (ownership.ClaimValue, error
 		return ownership.ClaimValue{}, err
 	}
 	return ownership.PresentClaim(claim)
+}
+
+func persistedPathAuthority(authority pathauthority.Exact) *pathAuthorityDTO {
+	return &pathAuthorityDTO{Key: authority.Key(), Witness: authority.Witness()}
+}
+
+func canonicalPathAuthority(record pathAuthorityDTO) (pathauthority.Exact, error) {
+	return pathauthority.NewExact(record.Key, record.Witness)
 }
 
 func recoveryTransitionAddress(transition recoveryClaimTransition) (string, string) {

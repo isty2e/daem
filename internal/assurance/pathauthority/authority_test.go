@@ -17,6 +17,13 @@ func TestExactRequiresVersionedSemanticsWitness(t *testing.T) {
 	}
 }
 
+func TestExactRejectsNonUTF8Key(t *testing.T) {
+	key := filepath.Join(t.TempDir(), string([]byte{'b', 'a', 'd', 0xff}))
+	if _, err := pathauthority.NewExact(key, "exact-v1:"); err == nil {
+		t.Fatal("NewExact accepted a path key that cannot round-trip through JSON")
+	}
+}
+
 func TestExactDarwinWitnessMustCoverEveryPathComponent(t *testing.T) {
 	key := string(filepath.Separator) + filepath.Join("one", "two")
 	if _, err := pathauthority.NewExact(key, "darwin-case-v1:ss"); err != nil {

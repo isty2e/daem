@@ -233,6 +233,13 @@ func CommitFile(_ context.Context, request FileCommit) error {
 	return newUnsupportedPlatformFailure(request.path)
 }
 
+func commitFileAndRefreshParent(
+	ctx context.Context,
+	request FileCommit,
+) (EntryIdentity, error) {
+	return EntryIdentity{}, CommitFile(ctx, request)
+}
+
 // CommitPreparedTree returns unsupported_guarantee without performing effects.
 func CommitPreparedTree(_ context.Context, request PreparedTreeCommit) error {
 	return newUnsupportedPlatformFailure(request.destination)

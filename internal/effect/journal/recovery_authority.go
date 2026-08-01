@@ -5,6 +5,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -13,6 +14,7 @@ func canonicalRecoveryAuthority(
 	journal recoveryJournal,
 	operationDir string,
 	claimTransitions []ownershipmutation.ClaimTransition,
+	provisionalIntents []outputownership.ProvisionalAcquireIntent,
 	fingerprint string,
 ) (recovery.Authority, error) {
 	entries := make([]recovery.Entry, 0, len(journal.Entries))
@@ -35,6 +37,7 @@ func canonicalRecoveryAuthority(
 		journal.StatefileBefore,
 		journal.StatefileAfter,
 		claimTransitions,
+		provisionalIntents,
 		projectProvenance,
 		fingerprint,
 	)
@@ -91,7 +94,7 @@ func parseRecoveryTargets(values []string) ([]target.Target, error) {
 }
 
 func canonicalRecoveryProjectProvenance(
-	persisted *recoveryProjectRootProvenance,
+	persisted *recoveryRootProvenance,
 ) (*recovery.ProjectRootProvenance, error) {
 	if persisted == nil {
 		return nil, nil
@@ -115,15 +118,17 @@ func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.
 	result := make([]recovery.PathEvidence, len(values))
 	for index, value := range values {
 		result[index] = recovery.PathEvidence{
-			Path:        value.Path,
-			ContentPath: value.ContentPath,
-			Exists:      value.Exists,
-			PathExisted: value.PathExisted,
-			PathMode:    clonePermissionMode(value.PathMode),
-			Kind:        value.Kind,
-			ContentHash: value.ContentHash,
-			LinkTarget:  value.LinkTarget,
-			Error:       value.Error,
+			Path:          value.Path,
+			ContentPath:   value.ContentPath,
+			Exists:        value.Exists,
+			PathExisted:   value.PathExisted,
+			PathMode:      clonePermissionMode(value.PathMode),
+			Kind:          value.Kind,
+			ContentHash:   value.ContentHash,
+			LinkTarget:    value.LinkTarget,
+			BlockedReason: value.BlockedReason,
+			BlockedDetail: value.BlockedDetail,
+			Error:         value.Error,
 		}
 	}
 	return result

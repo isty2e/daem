@@ -1,9 +1,11 @@
 package journal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
@@ -17,6 +19,252 @@ type projectAuthoritySession struct {
 	authority  rootedpath.Authority
 	provenance rootedpath.AuthorityProvenance
 	owned      bool
+}
+
+// recoveryGlobalPathObservation binds one logical global destination to the
+// exact retained root incarnation used for capture or recovery observation.
+// It is runtime authority, not persistence or ownership identity.
+type recoveryGlobalPathObservation struct {
+	resolvedPath  string
+	rootAuthority rootedpath.Authority
+}
+
+type recoveryGlobalPathBindings map[output.Destination]recoveryGlobalPathObservation
+
+func captureRecoveryGlobalPathBindings(
+	actions []pathMutation,
+	resolver func(output.Destination) (string, error),
+	rootedCapability RootedCapabilityResolver,
+) (recoveryGlobalPathBindings, error) {
+	bindings := make(recoveryGlobalPathBindings)
+	for _, action := range actions {
+		if action.Scope != target.ScopeGlobal {
+			continue
+		}
+		if _, present := bindings[action.Destination]; present {
+			continue
+		}
+		observed, err := observeRecoveryGlobalPathBinding(
+			action.Destination,
+			resolver,
+			rootedCapability,
+		)
+		if err != nil {
+			return nil, err
+		}
+		bindings[action.Destination] = observed
+	}
+	return bindings, nil
+}
+
+func (bindings recoveryGlobalPathBindings) resolver(
+	fallback func(output.Destination) (string, error),
+) func(output.Destination) (string, error) {
+	return func(destination output.Destination) (string, error) {
+		if binding, present := bindings[destination]; present {
+			return binding.resolvedPath, nil
+		}
+		return fallback(destination)
+	}
+}
+
+func (bindings recoveryGlobalPathBindings) persisted(
+	scope target.Scope,
+	destination output.Destination,
+) (*recoveryGlobalPathBinding, error) {
+	if scope != target.ScopeGlobal {
+		return nil, nil
+	}
+	binding, present := bindings[destination]
+	if !present {
+		return nil, fmt.Errorf("global destination %q has no capture-time path binding", destination)
+	}
+	return binding.persisted()
+}
+
+func validateRecoveryGlobalPathBindings(
+	ctx context.Context,
+	entries []recoveryEntry,
+	resolver func(output.Destination) (string, error),
+	rootedCapability RootedCapabilityResolver,
+) error {
+	validated := make(map[output.Destination]recoveryGlobalPathBinding)
+	currentRoots := make(map[string]rootedpath.Authority)
+	for index, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Scope != string(target.ScopeGlobal) {
+			continue
+		}
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d] global destination: %w", index, err)
+		}
+		if entry.GlobalPathBinding == nil {
+			return fmt.Errorf("recovery entries[%d] global destination has no capture-time path binding", index)
+		}
+		if previous, present := validated[destination]; present {
+			if previous != *entry.GlobalPathBinding {
+				return fmt.Errorf(
+					"recovery entries[%d] global destination %q has inconsistent capture-time bindings",
+					index,
+					destination,
+				)
+			}
+			continue
+		}
+		current, err := observeRecoveryGlobalPathBinding(
+			destination,
+			resolver,
+			rootedCapability,
+		)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d]: %w", index, err)
+		}
+		if err := entry.GlobalPathBinding.match(current, currentRoots); err != nil {
+			return fmt.Errorf("recovery entries[%d] global destination %q: %w", index, destination, err)
+		}
+		validated[destination] = *entry.GlobalPathBinding
+	}
+	return nil
+}
+
+func observeRecoveryGlobalPathBinding(
+	destination output.Destination,
+	resolver func(output.Destination) (string, error),
+	rootedCapability RootedCapabilityResolver,
+) (recoveryGlobalPathObservation, error) {
+	if resolver == nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
+	}
+	resolved, err := resolver(destination)
+	if err != nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
+	}
+	if rootedCapability != nil {
+		capability, present, err := acquireMatchingRootedCapability(
+			destination,
+			resolved,
+			rootedCapability,
+		)
+		if err != nil {
+			return recoveryGlobalPathObservation{}, err
+		}
+		if !present {
+			return recoveryGlobalPathObservation{}, fmt.Errorf(
+				"global destination %q has no retained root authority",
+				destination,
+			)
+		}
+		if err := capability.Validate(); err != nil {
+			return recoveryGlobalPathObservation{}, errors.Join(err, capability.Close())
+		}
+		bound := capability.Destination()
+		path, pathErr := bound.LexicalPath()
+		closeErr := capability.Close()
+		if pathErr != nil || closeErr != nil {
+			return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+		}
+		return recoveryGlobalPathObservation{
+			resolvedPath:  path,
+			rootAuthority: bound.Root(),
+		}, nil
+	}
+	root, bound, err := rootedpath.CaptureDestination(resolved)
+	if err != nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
+	}
+	path, pathErr := bound.LexicalPath()
+	if pathErr != nil {
+		pathErr = fmt.Errorf("read global destination %q lexical path: %w", destination, pathErr)
+	}
+	authority, authorityErr := root.Authority()
+	if authorityErr != nil {
+		authorityErr = fmt.Errorf("read global destination %q root authority: %w", destination, authorityErr)
+	}
+	closeErr := root.Close()
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close global destination %q root authority: %w", destination, closeErr)
+	}
+	if pathErr != nil || authorityErr != nil || closeErr != nil {
+		return recoveryGlobalPathObservation{}, errors.Join(pathErr, authorityErr, closeErr)
+	}
+	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
+}
+
+func (binding recoveryGlobalPathObservation) persisted() (*recoveryGlobalPathBinding, error) {
+	provenance, err := binding.rootAuthority.Provenance()
+	if err != nil {
+		return nil, err
+	}
+	return &recoveryGlobalPathBinding{
+		ResolvedPath:   binding.resolvedPath,
+		RootProvenance: persistedRecoveryRootProvenance(provenance),
+	}, nil
+}
+
+func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.AuthorityProvenance, error) {
+	if err := validateRecoveryResolvedGlobalPath(binding.ResolvedPath); err != nil {
+		return "", rootedpath.AuthorityProvenance{}, err
+	}
+	provenance, err := binding.RootProvenance.canonical()
+	if err != nil {
+		return "", rootedpath.AuthorityProvenance{}, err
+	}
+	relative, err := filepath.Rel(provenance.PhysicalRoot(), binding.ResolvedPath)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return "", rootedpath.AuthorityProvenance{}, fmt.Errorf(
+			"resolved path %q is not below captured root %q",
+			binding.ResolvedPath,
+			provenance.PhysicalRoot(),
+		)
+	}
+	return binding.ResolvedPath, provenance, nil
+}
+
+func (binding recoveryGlobalPathBinding) match(
+	current recoveryGlobalPathObservation,
+	currentRoots map[string]rootedpath.Authority,
+) error {
+	expectedPath, expectedRoot, err := binding.canonical()
+	if err != nil {
+		return err
+	}
+	if current.resolvedPath != expectedPath {
+		return fmt.Errorf(
+			"resolved to %q, not capture-time path %q; root selection changed",
+			current.resolvedPath,
+			expectedPath,
+		)
+	}
+	if err := expectedRoot.MatchDescendant(current.rootAuthority); err != nil {
+		return fmt.Errorf("current destination root violates capture-time authority: %w", err)
+	}
+	currentRoot, present := currentRoots[expectedRoot.PhysicalRoot()]
+	if !present && current.rootAuthority.PhysicalRoot() == expectedRoot.PhysicalRoot() {
+		currentRoot = current.rootAuthority
+		currentRoots[expectedRoot.PhysicalRoot()] = currentRoot
+		present = true
+	}
+	if !present {
+		recaptured, err := rootedpath.CaptureRoot(expectedRoot.PhysicalRoot())
+		if err != nil {
+			return fmt.Errorf("recapture capture-time global root: %w", err)
+		}
+		currentRoot, err = recaptured.Authority()
+		if err != nil {
+			return errors.Join(err, recaptured.Close())
+		}
+		currentRoots[expectedRoot.PhysicalRoot()] = currentRoot
+		if err := recaptured.Close(); err != nil {
+			return fmt.Errorf("close recaptured global root authority: %w", err)
+		}
+	}
+	if err := expectedRoot.Match(currentRoot); err != nil {
+		return fmt.Errorf("capture-time root provenance changed: %w", err)
+	}
+	return nil
 }
 
 func projectAuthorityForCapture(
@@ -108,14 +356,19 @@ func newProjectAuthoritySession(root *rootedpath.CapturedRoot, owned bool) (*pro
 	}, nil
 }
 
-func (session *projectAuthoritySession) persisted() *recoveryProjectRootProvenance {
+func (session *projectAuthoritySession) persisted() *recoveryRootProvenance {
 	if session == nil {
 		return nil
 	}
-	return &recoveryProjectRootProvenance{
-		PhysicalRoot:      session.provenance.PhysicalRoot(),
-		ObjectFingerprint: session.provenance.ObjectFingerprint(),
-		MountFingerprint:  session.provenance.MountFingerprint(),
+	persisted := persistedRecoveryRootProvenance(session.provenance)
+	return &persisted
+}
+
+func persistedRecoveryRootProvenance(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {
+	return recoveryRootProvenance{
+		PhysicalRoot:      provenance.PhysicalRoot(),
+		ObjectFingerprint: provenance.ObjectFingerprint(),
+		MountFingerprint:  provenance.MountFingerprint(),
 	}
 }
 
@@ -145,7 +398,7 @@ func (session *projectAuthoritySession) close() error {
 	return err
 }
 
-func (provenance recoveryProjectRootProvenance) canonical() (rootedpath.AuthorityProvenance, error) {
+func (provenance recoveryRootProvenance) canonical() (rootedpath.AuthorityProvenance, error) {
 	return rootedpath.NewAuthorityProvenance(
 		provenance.PhysicalRoot,
 		provenance.ObjectFingerprint,

@@ -211,6 +211,135 @@ func (set *LeaseSet) DomainsMatchCurrent(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// VisibilityAuthorityMatchesCurrent reports whether the held lease namespace
+// still authorizes compensation for a visibility-changing effect. A
+// provisional destination may differ from its pre-effect identity, but its
+// exact namespace anchor must remain unchanged. Domains without a namespace
+// anchor remain subject to exact identity matching.
+func (set *LeaseSet) VisibilityAuthorityMatchesCurrent(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("mutation lease context is required")
+	}
+	if set == nil {
+		return false, fmt.Errorf("mutation lease set is not initialized")
+	}
+	set.mu.RLock()
+	defer set.mu.RUnlock()
+	if set.released || len(set.held) == 0 || len(set.domains) == 0 {
+		return false, fmt.Errorf("mutation lease set is not active")
+	}
+	if set.namespace == nil {
+		return false, fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	if err := set.namespace.ValidateCurrent(); err != nil {
+		return false, fmt.Errorf("validate mutation lease namespace: %w", err)
+	}
+	for _, domain := range set.domains {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		matches, err := domain.visibilityAuthorityMatchesCurrent()
+		if err != nil {
+			return false, err
+		}
+		if !matches {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// AcceptVisibilityChanges rebinds path domains after a successful effect while
+// retaining the original namespace leases. It rejects unleased changes and any
+// collapse of initially distinct path identities.
+func (set *LeaseSet) AcceptVisibilityChanges(ctx context.Context) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("mutation lease context is required")
+	}
+	if set == nil {
+		return false, fmt.Errorf("mutation lease set is not initialized")
+	}
+	set.mu.Lock()
+	defer set.mu.Unlock()
+	if set.released || len(set.held) == 0 || len(set.domains) == 0 {
+		return false, fmt.Errorf("mutation lease set is not active")
+	}
+	if set.namespace == nil {
+		return false, fmt.Errorf("mutation lease namespace is not initialized")
+	}
+	if err := set.namespace.ValidateCurrent(); err != nil {
+		return false, fmt.Errorf("validate mutation lease namespace: %w", err)
+	}
+
+	observed := make([]canonicalPath, len(set.domains))
+	for index, domain := range set.domains {
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		switch domain.kind {
+		case domainLogicalPath, domainPhysicalPath:
+			if !domain.namespaceLease.isZero() {
+				matches, err := domain.namespaceLease.matchesCurrent()
+				if err != nil {
+					return false, err
+				}
+				if !matches {
+					return false, nil
+				}
+			}
+			identity, err := canonicalPathIdentity(domain.requestedPath, domain.effect)
+			if err != nil {
+				return false, err
+			}
+			observed[index] = identity
+		case domainHostRoute:
+		default:
+			return false, fmt.Errorf("mutation domain is not initialized")
+		}
+	}
+
+	accepted, ok, err := acceptVisibilityDomains(set.domains, observed)
+	if err != nil || !ok {
+		return ok, err
+	}
+	if err := set.namespace.ValidateCurrent(); err != nil {
+		return false, fmt.Errorf("revalidate mutation lease namespace: %w", err)
+	}
+	set.domains = accepted
+	return true, nil
+}
+
+func acceptVisibilityDomains(domains []Domain, observed []canonicalPath) ([]Domain, bool, error) {
+	if len(domains) != len(observed) {
+		return nil, false, fmt.Errorf("mutation visibility observation cardinality mismatch")
+	}
+	accepted := append([]Domain(nil), domains...)
+	initialByCurrent := make(map[comparablePathIdentity]comparablePathIdentity)
+	for index, domain := range domains {
+		switch domain.kind {
+		case domainLogicalPath, domainPhysicalPath:
+			updated, ok, err := domain.acceptPathIdentity(observed[index])
+			if err != nil || !ok {
+				return nil, ok, err
+			}
+			initial, err := domain.initialPathIdentity()
+			if err != nil {
+				return nil, false, err
+			}
+			current := comparableIdentity(observed[index])
+			if previous, present := initialByCurrent[current]; present && previous != initial {
+				return nil, false, nil
+			}
+			initialByCurrent[current] = initial
+			accepted[index] = updated
+		case domainHostRoute:
+		default:
+			return nil, false, fmt.Errorf("mutation domain is not initialized")
+		}
+	}
+	return accepted, true, nil
+}
+
 // Release releases the acquired set in reverse order. It is safe to call repeatedly.
 func (set *LeaseSet) Release() error {
 	if set == nil {
@@ -300,14 +429,21 @@ func (store Store) normalize(domains []Domain) ([]normalizedDomain, error) {
 			if pathContains(domain.canonicalPath, store.rootKey) {
 				return nil, fmt.Errorf("mutation path %q contains the lease store", domain.canonicalPath)
 			}
-			fact := paths[domain.canonicalPath]
+			leasePath, leaseWitness, err := domain.leasePathIdentity()
+			if err != nil {
+				return nil, fmt.Errorf("mutation path %q lease authority: %w", domain.canonicalPath, err)
+			}
+			if pathContains(leasePath, store.rootKey) {
+				return nil, fmt.Errorf("mutation lease path %q contains the lease store", leasePath)
+			}
+			fact := paths[leasePath]
 			if fact == nil {
 				fact = &pathDomainFact{
-					path: domain.canonicalPath, witness: domain.pathWitness, access: domain.access,
+					path: leasePath, witness: leaseWitness, access: domain.access,
 				}
-				paths[domain.canonicalPath] = fact
-			} else if fact.witness != domain.pathWitness {
-				return nil, fmt.Errorf("mutation path %q has contradictory filesystem semantics", domain.canonicalPath)
+				paths[leasePath] = fact
+			} else if fact.witness != leaseWitness {
+				return nil, fmt.Errorf("mutation path %q has contradictory filesystem semantics", leasePath)
 			} else if domain.access == AccessExclusive {
 				fact.access = AccessExclusive
 			}

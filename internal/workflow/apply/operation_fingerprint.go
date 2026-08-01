@@ -65,14 +65,19 @@ type ownershipOwnerFingerprintFacts struct {
 }
 
 type ownershipObservationFingerprintFacts struct {
-	Destination             string
-	ContentPath             string
-	PathAuthority           pathAuthorityFingerprintFacts
-	ClaimPresent            bool
-	ClaimStatefileAuthority pathAuthorityFingerprintFacts
-	ClaimManifestPath       string
-	ClaimState              string
-	ClaimOperationID        string
+	Destination                 string
+	ContentPath                 string
+	AuthorityKind               string
+	PathAuthority               pathAuthorityFingerprintFacts
+	ProvisionalCandidateKey     string
+	ProvisionalWitness          string
+	ProvisionalNamespaceKey     string
+	ProvisionalNamespaceWitness string
+	ClaimPresent                bool
+	ClaimStatefileAuthority     pathAuthorityFingerprintFacts
+	ClaimManifestPath           string
+	ClaimState                  string
+	ClaimOperationID            string
 }
 
 type carrierClaimFingerprintFacts struct {
@@ -478,13 +483,21 @@ func ownershipFingerprintFacts(
 	facts := make([]ownershipObservationFingerprintFacts, 0, len(observations))
 	for _, observation := range observations {
 		fact := ownershipObservationFingerprintFacts{
-			Destination: observation.Destination.String(),
-			ContentPath: string(observation.ContentPath),
-			PathAuthority: pathAuthorityFingerprintFactsFor(
-				observation.Address.PathAuthority(),
-			),
+			Destination: observation.Destination().String(),
+			ContentPath: string(observation.ContentPath()),
 		}
-		if claim, present := observation.Claim.Get(); present {
+		if address, exact := observation.ExactAddress(); exact {
+			fact.AuthorityKind = "exact"
+			fact.PathAuthority = pathAuthorityFingerprintFactsFor(address.PathAuthority())
+		} else if provisional, present := observation.ProvisionalPath(); present {
+			namespace := provisional.Namespace()
+			fact.AuthorityKind = "provisional"
+			fact.ProvisionalCandidateKey = provisional.CandidateKey()
+			fact.ProvisionalWitness = provisional.CandidateWitness()
+			fact.ProvisionalNamespaceKey = namespace.Key()
+			fact.ProvisionalNamespaceWitness = namespace.Witness()
+		}
+		if claim, present := observation.Claim().Get(); present {
 			fact.ClaimPresent = true
 			fact.ClaimStatefileAuthority = pathAuthorityFingerprintFactsFor(
 				claim.Owner().StatefileAuthority(),
@@ -496,13 +509,23 @@ func ownershipFingerprintFacts(
 		facts = append(facts, fact)
 	}
 	sort.Slice(facts, func(left int, right int) bool {
-		if facts[left].PathAuthority.Key != facts[right].PathAuthority.Key {
-			return facts[left].PathAuthority.Key < facts[right].PathAuthority.Key
+		leftKey := ownershipAuthorityFingerprintKey(facts[left])
+		rightKey := ownershipAuthorityFingerprintKey(facts[right])
+		if leftKey != rightKey {
+			return leftKey < rightKey
 		}
-		if facts[left].PathAuthority.SemanticsWitness != facts[right].PathAuthority.SemanticsWitness {
-			return facts[left].PathAuthority.SemanticsWitness < facts[right].PathAuthority.SemanticsWitness
+		if facts[left].ContentPath != facts[right].ContentPath {
+			return facts[left].ContentPath < facts[right].ContentPath
 		}
-		return facts[left].ContentPath < facts[right].ContentPath
+		return facts[left].Destination < facts[right].Destination
 	})
 	return facts
+}
+
+func ownershipAuthorityFingerprintKey(facts ownershipObservationFingerprintFacts) string {
+	if facts.AuthorityKind == "exact" {
+		return "exact\x00" + facts.PathAuthority.Key + "\x00" + facts.PathAuthority.SemanticsWitness
+	}
+	return "provisional\x00" + facts.ProvisionalCandidateKey + "\x00" + facts.ProvisionalWitness +
+		"\x00" + facts.ProvisionalNamespaceKey + "\x00" + facts.ProvisionalNamespaceWitness
 }

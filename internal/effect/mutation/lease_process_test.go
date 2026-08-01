@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -71,6 +72,27 @@ func TestCrossProcessAliasContentionAndHolderDeathRelease(t *testing.T) {
 	}
 	if err := set.Release(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCrossProcessDarwinNormalizationAliasesContendOnNamespace(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("Darwin normalization-sensitive path authority is required")
+	}
+	dataDir := t.TempDir()
+	root := t.TempDir()
+	composed := filepath.Join(root, "Caf\u00e9")
+	decomposed := filepath.Join(root, "Cafe\u0301")
+	holder := startMutationLeaseHelper(t, dataDir, "exclusive", 5*time.Second, composed)
+	defer stopMutationLeaseHelper(t, holder)
+
+	store := mutationTestStoreAt(t, dataDir)
+	store.maximum = 150 * time.Millisecond
+	domain := mutationTestLogicalDomain(t, decomposed, AccessExclusive)
+	_, err := store.Acquire(context.Background(), domain)
+	var contention ContentionError
+	if !errors.As(err, &contention) {
+		t.Fatalf("normalization alias contention error = %v, want ContentionError", err)
 	}
 }
 

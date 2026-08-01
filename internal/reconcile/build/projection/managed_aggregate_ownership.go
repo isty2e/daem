@@ -47,7 +47,7 @@ func enforceAggregateProjectionOwnership(
 		)
 	}
 
-	claim, claimed := observation.Claim.Get()
+	claim, claimed := observation.Claim().Get()
 	hasState := len(projection.previous) != 0
 	if !claimed {
 		if hasState {
@@ -59,7 +59,8 @@ func enforceAggregateProjectionOwnership(
 		}
 		return projection
 	}
-	if !claim.Address().Equal(observation.Address) || !claim.OwnedBy(owner) {
+	observedAddress, exact := observation.ExactAddress()
+	if !exact || !claim.Address().Equal(observedAddress) || !claim.OwnedBy(owner) {
 		return blockAggregateProjection(
 			projection,
 			reconcile.ReasonOwnershipConflict,

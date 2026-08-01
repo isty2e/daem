@@ -82,6 +82,43 @@ func TestAuthorityProvenanceDistinguishesRootAndMountDrift(t *testing.T) {
 	}
 }
 
+func TestAuthorityProvenanceMatchesOnlySameMountDescendants(t *testing.T) {
+	base := provenanceTestAuthority(t)
+	provenance, err := base.Provenance()
+	if err != nil {
+		t.Fatalf("Provenance returned error: %v", err)
+	}
+
+	sameMountDescendant := mustAuthority(
+		t,
+		"/project/new-parent",
+		identityToken{3},
+		base.mount,
+	)
+	if err := provenance.MatchDescendant(sameMountDescendant); err != nil {
+		t.Fatalf("same-mount descendant rejected: %v", err)
+	}
+
+	replacedRoot := base
+	replacedRoot.object = identityToken{4}
+	if err := provenance.MatchDescendant(replacedRoot); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("same-path replacement error = %v, want %s", err, FailureRootReplaced)
+	}
+
+	foreignMount := sameMountDescendant
+	foreignMount.mount = identityToken{5}
+	if err := provenance.MatchDescendant(foreignMount); !hasFailureKind(err, FailureMountChanged) {
+		t.Fatalf("descendant mount drift error = %v, want %s", err, FailureMountChanged)
+	}
+
+	for _, outside := range []string{"/project-other", "/sibling"} {
+		authority := mustAuthority(t, outside, identityToken{6}, base.mount)
+		if err := provenance.MatchDescendant(authority); !hasFailureKind(err, FailureRootReplaced) {
+			t.Fatalf("outside root %q error = %v, want %s", outside, err, FailureRootReplaced)
+		}
+	}
+}
+
 func provenanceTestAuthority(t *testing.T) Authority {
 	t.Helper()
 	return mustAuthority(t, "/project", identityToken{1}, identityToken{2})

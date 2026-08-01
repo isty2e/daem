@@ -74,6 +74,8 @@ func applyManagedPathPhaseWithEvents(
 	progress hostActionProgress,
 	eventIndexOffset int,
 	events applyEventEmitter,
+	gate visibilityEffectGate,
+	afterMutation func(context.Context, ManagedPathEffect, managedPathPhase) error,
 ) error {
 	operations := schedule.publish
 	if phase == managedPathRetirePhase {
@@ -86,6 +88,14 @@ func applyManagedPathPhaseWithEvents(
 			events.emit(EventActionStarted, EventStageAction, cloneActionEventFacts(facts), nil)
 		}
 		var err error
+		mutatesHost := effect.Kind() != ManagedPathEffectRecord
+		if mutatesHost {
+			err = gate.validateBefore(ctx)
+		}
+		if err != nil {
+			events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)
+			return err
+		}
 		switch {
 		case operation.relocation && phase == managedPathPublishPhase:
 			err = applyManagedPathRelocationPublish(ctx, effect, payloads, authority, progress, operation.mutationIndex)
@@ -106,6 +116,12 @@ func applyManagedPathPhaseWithEvents(
 			}
 		default:
 			err = applyManagedPathSingleMutation(ctx, effect, payloads, authority, progress, operation.mutationIndex)
+		}
+		if err == nil && mutatesHost {
+			err = gate.acceptAfter(ctx)
+		}
+		if err == nil && mutatesHost && afterMutation != nil {
+			err = afterMutation(ctx, effect, phase)
 		}
 		if err != nil {
 			events.emit(EventActionFailed, EventStageAction, cloneActionEventFacts(facts), err)

@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
 func TestLeaseSetDetectsCanonicalPathRetargetAfterAcquisition(t *testing.T) {
@@ -177,4 +180,118 @@ func TestLeaseSetDoesNotTreatLogicalLeaseAsPhysicalAuthority(t *testing.T) {
 	} else if covered {
 		t.Fatal("logical lease unexpectedly covered target-visible physical authority")
 	}
+}
+
+func TestAcceptVisibilityDomainsRejectsCollapseOfDistinctProvisionalPaths(t *testing.T) {
+	namespace := mustMutationTestCanonicalPath(t.TempDir())
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
+	domains := []Domain{
+		provisionalMutationTestDomain(t, namespace, "Caf\u00e9"),
+		provisionalMutationTestDomain(t, namespace, "Cafe\u0301"),
+	}
+	collapsed := filepath.Join(namespace.keyPath, "Caf\u00e9")
+	observed := []canonicalPath{
+		{keyPath: collapsed, accessPath: collapsed, witness: namespace.witness + "s"},
+		{keyPath: collapsed, accessPath: collapsed, witness: namespace.witness + "s"},
+	}
+	if _, accepted, err := acceptVisibilityDomains(domains, observed); err != nil || accepted {
+		t.Fatalf("acceptVisibilityDomains() = %t, %v; want collapsed rejection", accepted, err)
+	}
+}
+
+func TestAcceptVisibilityDomainsAllowsDistinctSiblingAnchorAdvance(t *testing.T) {
+	namespace := mustMutationTestCanonicalPath(t.TempDir())
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
+	domains := []Domain{
+		provisionalMutationTestDomain(t, namespace, filepath.Join("Future", "Caf\u00e9")),
+		provisionalMutationTestDomain(t, namespace, filepath.Join("Future", "Tea\u0301")),
+	}
+	advancedNamespace := canonicalPath{
+		keyPath:    filepath.Join(namespace.keyPath, "Future"),
+		accessPath: filepath.Join(namespace.accessPath, "Future"),
+		witness:    namespace.witness + "s",
+	}
+	secondCandidate := canonicalPath{
+		keyPath:    filepath.Join(advancedNamespace.keyPath, "Tea\u0301"),
+		accessPath: filepath.Join(advancedNamespace.accessPath, "Tea\u0301"),
+		witness:    advancedNamespace.witness + "s",
+	}
+	secondProvisional, err := newProvisionalPathIntent(secondCandidate, advancedNamespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCandidate.provisional = secondProvisional
+	observed := []canonicalPath{
+		{
+			keyPath:    filepath.Join(advancedNamespace.keyPath, "Caf\u00e9"),
+			accessPath: filepath.Join(advancedNamespace.accessPath, "Caf\u00e9"),
+			witness:    advancedNamespace.witness + "s",
+		},
+		secondCandidate,
+	}
+	accepted, ok, err := acceptVisibilityDomains(domains, observed)
+	if err != nil || !ok {
+		t.Fatalf("acceptVisibilityDomains() = %t, %v", ok, err)
+	}
+	if !accepted[0].provisional.IsZero() {
+		t.Fatal("visible first sibling remained provisional")
+	}
+	if !accepted[1].provisional.Equal(secondProvisional) {
+		t.Fatalf("second sibling provisional = %#v, want %#v", accepted[1].provisional, secondProvisional)
+	}
+	if accepted[1].namespaceLease.key != namespace.keyPath {
+		t.Fatalf("held namespace advanced to %q", accepted[1].namespaceLease.key)
+	}
+}
+
+func TestAcceptVisibilityDomainsRejectsChangeWithoutExclusiveNamespaceLease(t *testing.T) {
+	namespace := mustMutationTestCanonicalPath(t.TempDir())
+	domain := provisionalMutationTestDomain(t, namespace, "Caf\u00e9")
+	domain.access = AccessShared
+	visible := canonicalPath{
+		keyPath: domain.canonicalPath, accessPath: domain.requestedPath, witness: domain.pathWitness,
+	}
+	if _, accepted, err := acceptVisibilityDomains(
+		[]Domain{domain},
+		[]canonicalPath{visible},
+	); err != nil || accepted {
+		t.Fatalf("acceptVisibilityDomains() = %t, %v; want shared-domain rejection", accepted, err)
+	}
+}
+
+func provisionalMutationTestDomain(t *testing.T, namespace canonicalPath, relative string) Domain {
+	t.Helper()
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
+	depth := len(strings.Split(filepath.Clean(relative), string(filepath.Separator)))
+	candidate := canonicalPath{
+		keyPath:    filepath.Join(namespace.keyPath, relative),
+		accessPath: filepath.Join(namespace.accessPath, relative),
+		witness:    namespace.witness + pathSemanticsWitness(strings.Repeat("s", depth)),
+	}
+	provisional, err := newProvisionalPathIntent(candidate, namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespaceLease, err := newNamespaceLeaseIntent(namespace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Domain{
+		kind: domainLogicalPath, access: AccessExclusive,
+		canonicalPath: candidate.keyPath, pathWitness: candidate.witness,
+		initialCanonicalPath: candidate.keyPath, initialPathWitness: candidate.witness,
+		initialProvisional: provisional, provisional: provisional,
+		namespaceLease: namespaceLease, requestedPath: candidate.accessPath,
+		effect: PathEffectDirectoryEntry,
+	}
+}
+
+func darwinProvisionalMutationTestNamespace(namespace canonicalPath) canonicalPath {
+	if strings.HasPrefix(string(namespace.witness), "darwin-case-v1:") {
+		return namespace
+	}
+	namespace.witness = pathSemanticsWitness(
+		pathtest.DarwinCaseSensitive(namespace.keyPath).Witness(),
+	)
+	return namespace
 }

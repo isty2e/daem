@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
@@ -49,14 +50,15 @@ func (provenance ProjectRootProvenance) Equal(other ProjectRootProvenance) bool 
 // Authority is the complete canonical durable journal authority. Selection
 // may narrow observations and actions but never this value.
 type Authority struct {
-	operationID       string
-	operationDir      string
-	entries           []Entry
-	statefileBefore   durable.Snapshot
-	statefileAfter    durable.Snapshot
-	claimTransitions  []ownershipmutation.ClaimTransition
-	projectProvenance *ProjectRootProvenance
-	fingerprint       string
+	operationID        string
+	operationDir       string
+	entries            []Entry
+	statefileBefore    durable.Snapshot
+	statefileAfter     durable.Snapshot
+	claimTransitions   []ownershipmutation.ClaimTransition
+	provisionalIntents []outputownership.ProvisionalAcquireIntent
+	projectProvenance  *ProjectRootProvenance
+	fingerprint        string
 }
 
 // NewAuthority constructs complete immutable authority from one fully
@@ -68,6 +70,7 @@ func NewAuthority(
 	statefileBefore durable.Snapshot,
 	statefileAfter durable.Snapshot,
 	claimTransitions []ownershipmutation.ClaimTransition,
+	provisionalIntents []outputownership.ProvisionalAcquireIntent,
 	projectProvenance *ProjectRootProvenance,
 	fingerprint string,
 ) (Authority, error) {
@@ -87,19 +90,25 @@ func NewAuthority(
 			return Authority{}, fmt.Errorf("recovery authority claim transitions[%d]: %w", index, err)
 		}
 	}
+	for index, intent := range provisionalIntents {
+		if err := intent.Validate(); err != nil {
+			return Authority{}, fmt.Errorf("recovery authority provisional intents[%d]: %w", index, err)
+		}
+	}
 	if projectProvenance != nil {
 		if err := projectProvenance.validate(); err != nil {
 			return Authority{}, fmt.Errorf("recovery authority project root: %w", err)
 		}
 	}
 	authority := Authority{
-		operationID:      operationID,
-		operationDir:     operationDir,
-		entries:          cloneEntries(entries),
-		statefileBefore:  statefileBefore,
-		statefileAfter:   statefileAfter,
-		claimTransitions: append([]ownershipmutation.ClaimTransition(nil), claimTransitions...),
-		fingerprint:      fingerprint,
+		operationID:        operationID,
+		operationDir:       operationDir,
+		entries:            cloneEntries(entries),
+		statefileBefore:    statefileBefore,
+		statefileAfter:     statefileAfter,
+		claimTransitions:   append([]ownershipmutation.ClaimTransition(nil), claimTransitions...),
+		provisionalIntents: append([]outputownership.ProvisionalAcquireIntent(nil), provisionalIntents...),
+		fingerprint:        fingerprint,
 	}
 	if projectProvenance != nil {
 		provenance := *projectProvenance
@@ -181,15 +190,17 @@ func (selection Selection) validate(authority Authority) error {
 // PathEvidence is one fresh path observation normalized by the journal
 // boundary. Errors are facts for classification, not boundary decisions.
 type PathEvidence struct {
-	Path        string
-	ContentPath string
-	Exists      bool
-	PathExisted bool
-	PathMode    *PermissionMode
-	Kind        string
-	ContentHash string
-	LinkTarget  string
-	Error       string
+	Path          string
+	ContentPath   string
+	Exists        bool
+	PathExisted   bool
+	PathMode      *PermissionMode
+	Kind          string
+	ContentHash   string
+	LinkTarget    string
+	BlockedReason string
+	BlockedDetail string
+	Error         string
 }
 
 // BackupEvidence is one fresh backup observation.
@@ -274,6 +285,12 @@ func (plan Plan) ClaimTransitions() []ownershipmutation.ClaimTransition {
 	return append([]ownershipmutation.ClaimTransition(nil), plan.authority.claimTransitions...)
 }
 
+// ProvisionalAcquireIntents returns operation-scoped acquisition intents that
+// have not yet been promoted to exact durable claims.
+func (plan Plan) ProvisionalAcquireIntents() []outputownership.ProvisionalAcquireIntent {
+	return append([]outputownership.ProvisionalAcquireIntent(nil), plan.authority.provisionalIntents...)
+}
+
 func (plan Plan) Blocked() bool                     { return plan.classification == ClassificationBlocked }
 func (plan Plan) Classification() Classification    { return plan.classification }
 func (plan Plan) OperationID() string               { return plan.authority.operationID }
@@ -327,7 +344,8 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 		!sameProjectRootProvenance(plan.authority.projectProvenance, other.authority.projectProvenance) ||
 		len(plan.actions) != len(other.actions) ||
 		len(plan.guardedActions) != len(other.guardedActions) ||
-		len(plan.authority.claimTransitions) != len(other.authority.claimTransitions) {
+		len(plan.authority.claimTransitions) != len(other.authority.claimTransitions) ||
+		len(plan.authority.provisionalIntents) != len(other.authority.provisionalIntents) {
 		return false
 	}
 	for index := range plan.actions {
@@ -342,6 +360,11 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 	}
 	for index := range plan.authority.claimTransitions {
 		if !plan.authority.claimTransitions[index].Equal(other.authority.claimTransitions[index]) {
+			return false
+		}
+	}
+	for index := range plan.authority.provisionalIntents {
+		if !plan.authority.provisionalIntents[index].Equal(other.authority.provisionalIntents[index]) {
 			return false
 		}
 	}

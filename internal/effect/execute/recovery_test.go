@@ -402,7 +402,9 @@ func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T)
 		}},
 		[]hostRollbackEntry{{}},
 		nil,
+		nil,
 		testAggregateCodecs(),
+		visibilityEffectGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "has no aggregate contract") {
 		t.Fatalf("error = %v, want missing aggregate contract rejection", err)
@@ -460,7 +462,9 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 				[]recoveryHostAction{action},
 				[]hostRollbackEntry{{}},
 				nil,
+				nil,
 				testAggregateCodecs(),
+				visibilityEffectGate{},
 			)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("executeRecoveryHostActions error = %v, want containing %q", err, test.want)

@@ -2,9 +2,11 @@ package journal
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -206,6 +208,7 @@ type recoveryEntryKey struct {
 
 func validateRecoveryEntries(entries []recoveryEntry) error {
 	seen := make(map[recoveryEntryKey]struct{}, len(entries))
+	globalBindings := make(map[string]recoveryGlobalPathBinding)
 	for index, entry := range entries {
 		context := fmt.Sprintf("recovery entries[%d]", index)
 		if entry.ContentPath != "" && entry.Aggregate == nil {
@@ -214,6 +217,27 @@ func validateRecoveryEntries(entries []recoveryEntry) error {
 		identity := recoveryStateIdentityFromEntry(entry)
 		if err := validateRecoveryStateIdentity(identity); err != nil {
 			return fmt.Errorf("%s state identity: %w", context, err)
+		}
+		switch entry.Scope {
+		case string(target.ScopeGlobal):
+			if entry.GlobalPathBinding == nil {
+				return fmt.Errorf("%s.global_path_binding: global entry requires its capture-time path binding", context)
+			}
+			if _, _, err := entry.GlobalPathBinding.canonical(); err != nil {
+				return fmt.Errorf("%s.global_path_binding: %w", context, err)
+			}
+			if previous, present := globalBindings[entry.Path]; present && previous != *entry.GlobalPathBinding {
+				return fmt.Errorf(
+					"%s.global_path_binding: global destination %q has inconsistent capture-time bindings",
+					context,
+					entry.Path,
+				)
+			}
+			globalBindings[entry.Path] = *entry.GlobalPathBinding
+		case string(target.ScopeProject):
+			if entry.GlobalPathBinding != nil {
+				return fmt.Errorf("%s.global_path_binding: project entry must not carry a global path binding", context)
+			}
 		}
 		if err := recovery.ValidateBefore(entry.Before.canonical(), entry.ContentPath); err != nil {
 			return fmt.Errorf("%s: %w", context, err)
@@ -244,6 +268,25 @@ func validateRecoveryEntries(entries []recoveryEntry) error {
 			return fmt.Errorf("%s: duplicate recovery entry for %q content_path %q", context, entry.Path, entry.ContentPath)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validateRecoveryResolvedGlobalPath(value string) error {
+	if value == "" {
+		return fmt.Errorf("global entry requires its capture-time resolved path")
+	}
+	if strings.ContainsRune(value, '\x00') {
+		return fmt.Errorf("resolved path contains a NUL byte")
+	}
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("resolved path must be valid UTF-8")
+	}
+	if !filepath.IsAbs(value) {
+		return fmt.Errorf("resolved path %q must be absolute", value)
+	}
+	if filepath.Clean(value) != value {
+		return fmt.Errorf("resolved path %q must be clean", value)
 	}
 	return nil
 }

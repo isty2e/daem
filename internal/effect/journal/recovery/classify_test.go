@@ -214,10 +214,12 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 		name        string
 		entries     []Entry
 		transitions []ownershipmutation.ClaimTransition
+		intents     []ownership.ProvisionalAcquireIntent
 		provenance  *ProjectRootProvenance
 	}{
 		{name: "zero entry", entries: []Entry{{}}},
 		{name: "zero claim transition", entries: []Entry{entry}, transitions: []ownershipmutation.ClaimTransition{{}}},
+		{name: "zero provisional intent", entries: []Entry{entry}, intents: []ownership.ProvisionalAcquireIntent{{}}},
 		{name: "zero project provenance", entries: []Entry{entry}, provenance: &ProjectRootProvenance{}},
 	}
 	for _, test := range tests {
@@ -229,6 +231,7 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 				durable.EmptySnapshot(),
 				durable.EmptySnapshot(),
 				test.transitions,
+				test.intents,
 				test.provenance,
 				"fingerprint",
 			); err == nil {
@@ -332,6 +335,7 @@ func testAuthority(t *testing.T, fingerprint string) Authority {
 		[]Entry{entry},
 		durable.EmptySnapshot(),
 		after,
+		nil,
 		nil,
 		nil,
 		fingerprint,

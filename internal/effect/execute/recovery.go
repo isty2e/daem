@@ -12,6 +12,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -72,20 +73,22 @@ func (backup recoveryBackup) copyDirectory(
 	return backup.view.CopyVerified(ctx, backup.identity, sink)
 }
 
-// RecoveryOptions configures workflow-owned validation at the last safe point
-// before recovery's first filesystem effect.
+// RecoveryOptions configures workflow-owned validation before and after each
+// visibility-changing recovery effect.
 type RecoveryOptions struct {
-	ValidateBeforeEffects   func(context.Context, mutation.PhysicalAuthoritySet) error
-	ActiveJournalAuthority  journal.ActiveJournalAuthority
-	Resolver                DestinationResolver
-	Codecs                  aggregate.CodecCatalog
-	OwnershipRegistryBinder ownershipmutation.RootedRegistryBinder
-	StateCodec              durable.SnapshotCodec
-	StateReader             durable.SnapshotReader
-	Filesystem              mutationfs.Store
-	reloadPlan              func(context.Context, journal.PlanLoadOptions) (recovery.Plan, error)
-	mutationAuthority       *mutationAuthority
-	beforeHostAction        func(int) error
+	ValidateBeforeEffects       func(context.Context, mutation.PhysicalAuthoritySet) error
+	ValidateVisibilityAuthority func(context.Context) error
+	AcceptVisibilityChanges     func(context.Context) error
+	ActiveJournalAuthority      journal.ActiveJournalAuthority
+	Resolver                    DestinationResolver
+	Codecs                      aggregate.CodecCatalog
+	OwnershipRegistryBinder     ownershipmutation.RootedRegistryBinder
+	StateCodec                  durable.SnapshotCodec
+	StateReader                 durable.SnapshotReader
+	Filesystem                  mutationfs.Store
+	reloadPlan                  func(context.Context, journal.PlanLoadOptions) (recovery.Plan, error)
+	mutationAuthority           *mutationAuthority
+	beforeHostAction            func(int) error
 }
 
 // ExecuteRecoveryPlanWithOptions applies a journal-derived recovery plan after
@@ -162,6 +165,10 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
 	}
+	visibilityGate := recoveryVisibilityGate(options)
+	if err := visibilityGate.validateBefore(ctx); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
+	}
 	retirementPlan, err := reloadRecoveryPlanAfterEffects(ctx, plan, options, authority)
 	if err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
@@ -174,6 +181,9 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	); err != nil {
 		return fmt.Errorf("retire recovery journal: %w", err)
 	}
+	if err := visibilityGate.acceptAfter(ctx); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
+	}
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
 	}
@@ -183,9 +193,10 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths Paths, options RecoveryOptions) error {
 	authority := options.mutationAuthority
 	ownsAuthority := false
+	requiresOwnershipRegistry := len(plan.ClaimTransitions()) != 0 || len(plan.ProvisionalAcquireIntents()) != 0
 	var err error
 	if authority == nil {
-		if len(plan.ClaimTransitions()) != 0 && options.OwnershipRegistryBinder == nil {
+		if requiresOwnershipRegistry && options.OwnershipRegistryBinder == nil {
 			return fmt.Errorf("recovery ownership registry binder is required")
 		}
 		authority, err = newRecoveryMutationAuthority(
@@ -200,7 +211,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		if authority.ownershipRegistryBinder == nil {
 			authority.ownershipRegistryBinder = options.OwnershipRegistryBinder
 		}
-		if len(plan.ClaimTransitions()) != 0 &&
+		if requiresOwnershipRegistry &&
 			!authority.hasOwnershipRegistry &&
 			authority.ownershipRegistryBinder == nil {
 			return fmt.Errorf("recovery ownership registry binder is required")
@@ -214,7 +225,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		defer authority.close()
 	}
 	var registryStore ownershipmutation.RegistryStore
-	if len(plan.ClaimTransitions()) != 0 {
+	if requiresOwnershipRegistry {
 		if err := authority.bindOwnershipRegistry(paths.OwnershipRegistryPath); err != nil {
 			return err
 		}
@@ -239,6 +250,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		return err
 	}
 	plan = current
+	visibilityGate := recoveryVisibilityGate(options)
 
 	switch plan.Classification() {
 	case recovery.ClassificationCleanBefore, recovery.ClassificationCleanAfter:
@@ -252,9 +264,10 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 			registryStore,
 			options.beforeHostAction,
 			options.Codecs,
+			visibilityGate,
 		)
 	case recovery.ClassificationNeedsFinalize:
-		if err := finalizeClaimTransitions(ctx, registryStore, plan.ClaimTransitions()); err != nil {
+		if err := finalizeClaimTransitions(ctx, registryStore, plan.ClaimTransitions(), visibilityGate); err != nil {
 			return fmt.Errorf("finalize recovery ownership claims: %w", err)
 		}
 		return nil
@@ -365,6 +378,7 @@ func executeRecoveryRollbackEffects(
 	registryStore ownershipmutation.RegistryStore,
 	beforeHostAction func(int) error,
 	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
 ) error {
 	actions := plan.Actions()
 	hostActions := make([]recoveryHostAction, 0, len(actions))
@@ -442,18 +456,20 @@ func executeRecoveryRollbackEffects(
 		hostActions,
 		rollback.entries,
 		beforeHostAction,
+		recoveryIntentClaimGuard(plan.ProvisionalAcquireIntents(), registryStore),
 		codecs,
+		gate,
 	); err != nil {
-		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority)
+		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority, gate)
 		cleanupErr := rollback.cleanup()
 		return recoveryRollbackFailure(err, rollbackErr, cleanupErr)
 	}
 	if err := ctx.Err(); err != nil {
-		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority)
+		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority, gate)
 		cleanupErr := rollback.cleanup()
 		return recoveryRollbackFailure(err, rollbackErr, cleanupErr)
 	}
-	if err := rollbackClaimsToBefore(ctx, registryStore, plan.ClaimTransitions()); err != nil {
+	if err := rollbackClaimsToBefore(ctx, registryStore, plan.ClaimTransitions(), gate); err != nil {
 		return errors.Join(
 			fmt.Errorf("rollback recovery ownership claims: %w; recovery journal retained", err),
 			rollback.cleanup(),
@@ -469,6 +485,69 @@ func executeRecoveryRollbackEffects(
 		return fmt.Errorf("cleanup recovery rollback stage: %w; recovery journal retained", err)
 	}
 	return nil
+}
+
+func recoveryIntentClaimGuard(
+	intents []ownership.ProvisionalAcquireIntent,
+	registryStore ownershipmutation.RegistryStore,
+) recoveryHostOwnershipGuard {
+	if len(intents) == 0 {
+		return nil
+	}
+	byOutput := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	for _, intent := range intents {
+		byOutput[provisionalRecoveryOutputKey(intent.Destination().String(), string(intent.ContentPath()))] = intent
+	}
+	return func(ctx context.Context, action recoveryHostAction, destination mutationDestination) error {
+		intent, present := byOutput[provisionalRecoveryOutputKey(action.Destination, action.ContentPath)]
+		if !present {
+			return nil
+		}
+		if registryStore == nil {
+			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
+		}
+		authority, err := mutation.ObserveDirectoryEntryAuthority(destination.hostPath)
+		if err != nil {
+			return err
+		}
+		registry, err := registryStore.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if exact, ok := authority.Exact(); ok {
+			address, err := ownership.NewManagedAddress(exact, action.ContentPath)
+			if err != nil {
+				return err
+			}
+			if err := intent.AdmitAddress(address); err != nil {
+				return fmt.Errorf("provisional recovery path authority changed: %w", err)
+			}
+			if claim, conflict := registry.Conflict(address); conflict {
+				actual, _ := ownership.PresentClaim(claim)
+				return &ownership.StaleClaimError{
+					Address:  address,
+					Expected: ownership.NoClaim(),
+					Actual:   actual,
+				}
+			}
+			return nil
+		}
+		provisional, ok := authority.Provisional()
+		if !ok || !provisional.Equal(intent.Path()) {
+			return fmt.Errorf("provisional recovery path authority changed before rollback")
+		}
+		if claim, conflict := registry.ProvisionalAncestorConflict(provisional); conflict {
+			return fmt.Errorf(
+				"provisional recovery output overlaps a durable claim owned by manifest %q",
+				claim.Owner().ManifestPath(),
+			)
+		}
+		return fmt.Errorf("provisional recovery output is no longer exactly visible before rollback")
+	}
+}
+
+func provisionalRecoveryOutputKey(destination string, contentPath string) string {
+	return destination + "\x00" + contentPath
 }
 
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {
@@ -494,4 +573,11 @@ func validateRecoveryBeforeEffects(
 		return nil
 	}
 	return options.ValidateBeforeEffects(ctx, authority)
+}
+
+func recoveryVisibilityGate(options RecoveryOptions) visibilityEffectGate {
+	return visibilityEffectGate{
+		before: options.ValidateVisibilityAuthority,
+		after:  options.AcceptVisibilityChanges,
+	}
 }

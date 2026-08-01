@@ -53,7 +53,17 @@ func buildRecoveryPlanForEntries(
 	if journalAuthorityFingerprint == "" {
 		return recovery.Plan{}, fmt.Errorf("recovery journal authority fingerprint is required")
 	}
-	authority, err := canonicalRecoveryAuthority(journal, operationDir, claimTransitions, journalAuthorityFingerprint)
+	intents, err := canonicalProvisionalAcquireIntents(journal.ProvisionalAcquires)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	authority, err := canonicalRecoveryAuthority(
+		journal,
+		operationDir,
+		claimTransitions,
+		intents,
+		journalAuthorityFingerprint,
+	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}

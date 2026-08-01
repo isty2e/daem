@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
 func TestOperationFingerprintOwnsCanonicalBytesOnly(t *testing.T) {
@@ -254,6 +257,33 @@ func TestPersistedDirectoryEntryAuthorityCarriesExactObservation(t *testing.T) {
 	}
 	if err := authority.Exact().Validate(); err != nil {
 		t.Fatalf("exact authority is invalid: %v", err)
+	}
+}
+
+func TestDirectoryEntryAuthorityObservationRequiresExactlyOneState(t *testing.T) {
+	if err := (DirectoryEntryAuthorityObservation{}).Validate(); err == nil {
+		t.Fatal("zero directory-entry authority observation validated")
+	}
+
+	path := filepath.Join(t.TempDir(), "State.json")
+	exact, err := ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namespace := filepath.Dir(path)
+	candidate := filepath.Join(namespace, "Futur\u00e9")
+	provisional, err := pathauthority.NewProvisional(
+		candidate,
+		pathtest.DarwinCaseSensitive(candidate).Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ambiguous := DirectoryEntryAuthorityObservation{exact: exact.Exact(), provisional: provisional}
+	if err := ambiguous.Validate(); err == nil {
+		t.Fatal("ambiguous directory-entry authority observation validated")
 	}
 }
 

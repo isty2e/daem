@@ -49,6 +49,76 @@ func TestCanonicalDarwinPathAppliesMixedComponentSemanticsAndMissingAnchorMode(t
 	if identity.witness != "darwin-case-v1:isii" {
 		t.Fatalf("witness = %q", identity.witness)
 	}
+	if !identity.provisional.IsZero() || !identity.namespaceLease.isZero() {
+		t.Fatalf("ASCII missing suffix received provisional authority: %#v", identity)
+	}
+}
+
+func TestCanonicalDarwinPathMarksNonASCIIMissingSuffixProvisional(t *testing.T) {
+	selection := pathSelection{
+		anchorPath:        "/input/anchor",
+		missingComponents: []string{"Future", "Caf\u00e9"},
+	}
+	identity, err := canonicalDarwinPath(selection, PathEffectReferent, darwinPathObservation{
+		descriptorPath: func(path string, noFollow bool) (string, error) {
+			if path != selection.anchorPath || noFollow {
+				t.Fatalf("descriptorPath(%q, %v)", path, noFollow)
+			}
+			return "/Stored/Parent", nil
+		},
+		directoryCase: func(string) (pathCaseSemantics, error) {
+			return pathCaseSensitive, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.provisional.IsZero() {
+		t.Fatal("non-ASCII missing suffix received exact authority")
+	}
+	if got, want := identity.provisional.CandidateKey(), "/Stored/Parent/Future/Caf\u00e9"; got != want {
+		t.Fatalf("candidate key = %q, want %q", got, want)
+	}
+	if got, want := identity.provisional.Namespace().Key(), "/Stored/Parent"; got != want {
+		t.Fatalf("namespace key = %q, want %q", got, want)
+	}
+	if identity.namespaceLease.isZero() || identity.namespaceLease.key != identity.provisional.Namespace().Key() {
+		t.Fatalf("namespace lease = %#v, provisional = %#v", identity.namespaceLease, identity.provisional)
+	}
+}
+
+func TestCanonicalDarwinPathKeepsExistingNonASCIIEntryExactUnderNamespaceLease(t *testing.T) {
+	selection := pathSelection{
+		anchorPath: "/input/parent", missingComponents: []string{"alias"}, finalEntryMayExist: true,
+	}
+	identity, err := canonicalDarwinPath(selection, PathEffectDirectoryEntry, darwinPathObservation{
+		descriptorPath: func(path string, noFollow bool) (string, error) {
+			switch {
+			case path == selection.anchorPath && !noFollow:
+				return "/Stored/Parent", nil
+			case path == "/Stored/Parent/alias" && noFollow:
+				return "/Stored/Parent/Caf\u00e9", nil
+			default:
+				t.Fatalf("descriptorPath(%q, %v)", path, noFollow)
+				return "", nil
+			}
+		},
+		directoryCase: func(string) (pathCaseSemantics, error) {
+			return pathCaseSensitive, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !identity.provisional.IsZero() {
+		t.Fatalf("existing entry became provisional: %#v", identity.provisional)
+	}
+	if got, want := identity.keyPath, "/Stored/Parent/Caf\u00e9"; got != want {
+		t.Fatalf("exact key = %q, want %q", got, want)
+	}
+	if identity.namespaceLease.isZero() || identity.namespaceLease.key != "/Stored/Parent" {
+		t.Fatalf("namespace lease = %#v", identity.namespaceLease)
+	}
 }
 
 func TestCanonicalDarwinPathUsesStoredFinalEntrySpellingWithoutFollowing(t *testing.T) {
@@ -279,6 +349,29 @@ func TestDarwinNativeExistingNormalizationAliasUsesStoredSpelling(t *testing.T) 
 	}
 }
 
+func TestDarwinNativeMissingNormalizationAliasesShareExactNamespace(t *testing.T) {
+	root := t.TempDir()
+	composed := filepath.Join(root, "Caf\u00e9")
+	decomposed := filepath.Join(root, "Cafe\u0301")
+	composedIdentity, err := canonicalPathIdentity(composed, PathEffectDirectoryEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decomposedIdentity, err := canonicalPathIdentity(decomposed, PathEffectDirectoryEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if composedIdentity.provisional.IsZero() || decomposedIdentity.provisional.IsZero() {
+		t.Fatalf("missing aliases are not both provisional: %#v %#v", composedIdentity, decomposedIdentity)
+	}
+	if composedIdentity.provisional.CandidateKey() == decomposedIdentity.provisional.CandidateKey() {
+		t.Fatalf("absent candidate keys unexpectedly match as %q", composedIdentity.provisional.CandidateKey())
+	}
+	if !composedIdentity.provisional.Namespace().Equal(decomposedIdentity.provisional.Namespace()) {
+		t.Fatalf("missing aliases do not share namespace authority: %#v %#v", composedIdentity.provisional, decomposedIdentity.provisional)
+	}
+}
+
 func TestDarwinNativeCaseSensitiveDirectoryKeepsDistinctEntriesWhenAvailable(t *testing.T) {
 	root := t.TempDir()
 	mode, err := darwinDirectoryCaseSemantics(root)
@@ -333,5 +426,23 @@ func TestPersistedDirectoryEntryAuthorityRejectsZeroObservation(t *testing.T) {
 	err := (PersistedDirectoryEntryAuthority{}).validate()
 	if err == nil || !strings.Contains(err.Error(), "exact path authority key is required") {
 		t.Fatalf("zero authority error = %v", err)
+	}
+}
+
+func TestPersistedDirectoryEntryAuthorityRejectsProvisionalObservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Caf\u00e9")
+	observation, err := ObserveDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exact := observation.Exact(); exact {
+		t.Fatal("normalization-sensitive missing entry received exact authority")
+	}
+	if provisional, ok := observation.Provisional(); !ok || provisional.IsZero() {
+		t.Fatalf("provisional observation = %#v, present=%v", provisional, ok)
+	}
+	if _, err := ObservePersistedDirectoryEntryAuthority(path); err == nil ||
+		!strings.Contains(err.Error(), "provisional authority") {
+		t.Fatalf("persisted authority error = %v", err)
 	}
 }

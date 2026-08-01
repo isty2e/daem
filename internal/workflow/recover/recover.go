@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -45,26 +44,21 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 		return recoveryPreparation{}, err
 	}
 	stateReader := stateReaderForPath(paths.StatefilePath)
+	registry, err := ownershipstore.New(paths.OwnershipRegistryPath)
+	if err != nil {
+		return recoveryPreparation{}, err
+	}
 
 	recoverable, err := journal.LoadRecoverablePlanWithOptions(
 		ctx,
 		journalPaths(paths),
 		journal.PlanLoadOptions{
-			Filesystem: storagecommit.Adapter{},
-			Resolver:   destinationResolver(paths).Resolve,
-			OwnershipRegistry: func(ctx context.Context) (
-				ownership.Registry,
-				error,
-			) {
-				registry, err := ownershipstore.New(paths.OwnershipRegistryPath)
-				if err != nil {
-					return ownership.Registry{}, err
-				}
-				return registry.Load(ctx)
-			},
-			Codecs:      aggregatecodec.Catalog(),
-			StateCodec:  statefile.Codec{},
-			StateReader: stateReader,
+			Filesystem:        storagecommit.Adapter{},
+			Resolver:          destinationResolver(paths).Resolve,
+			OwnershipRegistry: registry,
+			Codecs:            aggregatecodec.Catalog(),
+			StateCodec:        statefile.Codec{},
+			StateReader:       stateReader,
 			ValidateBeforeActiveObservation: func(ctx context.Context) error {
 				return transaction.RequireClearFileSet(ctx, paths.StateDir)
 			},
@@ -220,6 +214,26 @@ func Execute(
 		}
 		return nil
 	}
+	validateVisibilityAuthority := func(ctx context.Context) error {
+		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		return nil
+	}
+	acceptVisibilityChanges := func(ctx context.Context) error {
+		accepted, err := leases.AcceptVisibilityChanges(ctx)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return mutation.StaleSnapshotError{}
+		}
+		return nil
+	}
 	switch current.plan.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		active, ok := journal.ActiveRecoveryPlan(current.plan)
@@ -235,14 +249,16 @@ func Execute(
 			active,
 			executePaths(effectPaths),
 			execute.RecoveryOptions{
-				ValidateBeforeEffects:   validateBeforeActiveEffects,
-				ActiveJournalAuthority:  activeAuthority,
-				Resolver:                destinationResolver(effectPaths).Resolve,
-				OwnershipRegistryBinder: ownershipstore.BindRooted,
-				Codecs:                  aggregatecodec.Catalog(),
-				StateCodec:              statefile.Codec{},
-				StateReader:             stateReaderForPath(effectPaths.StatefilePath),
-				Filesystem:              filesystem,
+				ValidateBeforeEffects:       validateBeforeActiveEffects,
+				ValidateVisibilityAuthority: validateVisibilityAuthority,
+				AcceptVisibilityChanges:     acceptVisibilityChanges,
+				ActiveJournalAuthority:      activeAuthority,
+				Resolver:                    destinationResolver(effectPaths).Resolve,
+				OwnershipRegistryBinder:     ownershipstore.BindRooted,
+				Codecs:                      aggregatecodec.Catalog(),
+				StateCodec:                  statefile.Codec{},
+				StateReader:                 stateReaderForPath(effectPaths.StatefilePath),
+				Filesystem:                  filesystem,
 			},
 		)
 	case journal.RecoveryAuthorityJournalCleanup:

@@ -132,7 +132,11 @@ func stageRecoveryRollback(
 	return rollback, nil
 }
 
-func (rollback hostRollback) restore(ctx context.Context, authority *mutationAuthority) error {
+func (rollback hostRollback) restore(
+	ctx context.Context,
+	authority *mutationAuthority,
+	gate visibilityEffectGate,
+) error {
 	var failures []error
 	groups := make(map[string][]hostRollbackEntry, len(rollback.entries))
 	for _, entry := range rollback.entries {
@@ -146,8 +150,19 @@ func (rollback hostRollback) restore(ctx context.Context, authority *mutationAut
 			continue
 		}
 		restored[key] = struct{}{}
+		if !rollbackGroupAttempted(groups[key]) {
+			continue
+		}
+		if err := gate.validateBefore(ctx); err != nil {
+			failures = append(failures, fmt.Errorf("validate recovery rollback authority: %w", err))
+			continue
+		}
 		if err := restoreRollbackGroup(ctx, authority, groups[key]); err != nil {
 			failures = append(failures, err)
+			continue
+		}
+		if err := gate.acceptAfter(ctx); err != nil {
+			failures = append(failures, fmt.Errorf("accept recovery rollback visibility: %w", err))
 		}
 	}
 	if len(failures) > 0 {
@@ -155,6 +170,15 @@ func (rollback hostRollback) restore(ctx context.Context, authority *mutationAut
 	}
 
 	return nil
+}
+
+func rollbackGroupAttempted(entries []hostRollbackEntry) bool {
+	for _, entry := range entries {
+		if entry.attempted {
+			return true
+		}
+	}
+	return false
 }
 
 func (rollback hostRollback) cleanup() error {

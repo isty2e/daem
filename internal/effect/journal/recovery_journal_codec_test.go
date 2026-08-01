@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -75,12 +76,95 @@ func TestRecoveryJournalWritesSubjectWithoutLegacyResourceField(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalRequiresScopeExactGlobalPathBinding(t *testing.T) {
+	global := globalAcquireRecoveryEntry(t)
+	global.GlobalPathBinding = nil
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "global entry requires its capture-time path binding") {
+		t.Fatalf("missing global path binding error = %v", err)
+	}
+
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding("relative/path")
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("relative global path binding error = %v", err)
+	}
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding(string([]byte{'/', 0xff}))
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("non-UTF-8 global path binding error = %v", err)
+	}
+
+	resolvedPath := filepath.Join(t.TempDir(), "daem-global-config.json")
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding(resolvedPath)
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err != nil {
+		t.Fatalf("exact global path binding rejected: %v", err)
+	}
+
+	global.GlobalPathBinding.RootProvenance.ObjectFingerprint = "sha256:short"
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "object fingerprint is invalid") {
+		t.Fatalf("invalid global root provenance error = %v", err)
+	}
+
+	project := defaultRecoveryEntry()
+	project.GlobalPathBinding = testRecoveryGlobalPathBinding(
+		filepath.Join(t.TempDir(), "forged-project-path"),
+	)
+	if err := validateRecoveryEntries([]recoveryEntry{project}); err == nil ||
+		!strings.Contains(err.Error(), "project entry must not carry") {
+		t.Fatalf("project global path binding error = %v", err)
+	}
+}
+
+func TestRecoveryGlobalPathBindingWireShapeIsCohesive(t *testing.T) {
+	entry := globalAcquireRecoveryEntry(t)
+	entry.GlobalPathBinding = &recoveryGlobalPathBinding{
+		ResolvedPath: "/test/home/.codex/AGENTS.md",
+		RootProvenance: recoveryRootProvenance{
+			PhysicalRoot:      "/test/home",
+			ObjectFingerprint: "sha256:" + strings.Repeat("3", 64),
+			MountFingerprint:  "sha256:" + strings.Repeat("4", 64),
+		},
+	}
+	content, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal recovery entry: %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatalf("decode recovery entry: %v", err)
+	}
+	if _, legacy := document["resolved_global_path"]; legacy {
+		t.Fatal("global path binding leaked the obsolete scalar field")
+	}
+	rawBinding, present := document["global_path_binding"]
+	if !present {
+		t.Fatal("global_path_binding is missing")
+	}
+	var binding map[string]json.RawMessage
+	if err := json.Unmarshal(rawBinding, &binding); err != nil {
+		t.Fatalf("decode global_path_binding: %v", err)
+	}
+	if len(binding) != 2 || binding["resolved_path"] == nil || binding["root_provenance"] == nil {
+		t.Fatalf("global_path_binding keys = %v, want resolved_path and root_provenance", slices.Sorted(maps.Keys(binding)))
+	}
+	var provenance map[string]json.RawMessage
+	if err := json.Unmarshal(binding["root_provenance"], &provenance); err != nil {
+		t.Fatalf("decode root_provenance: %v", err)
+	}
+	if len(provenance) != 3 || provenance["physical_root"] == nil ||
+		provenance["object_fingerprint"] == nil || provenance["mount_fingerprint"] == nil {
+		t.Fatalf("root_provenance keys = %v", slices.Sorted(maps.Keys(provenance)))
+	}
+}
+
 func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -95,12 +179,33 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalRejectsPreAuthorityVersionNine(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 9`), 1)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, recoveryJournalFileName)
+	if err := os.WriteFile(path, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 9") ||
+		!strings.Contains(err.Error(), "recover before upgrading") {
+		t.Fatalf("loadRecoveryJournal error = %v, want pre-v10 retirement guidance", err)
+	}
+}
+
 func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 9, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 11, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -317,14 +422,9 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 }
 
 func TestLoadRecoveryJournalRequiresTopLevelEntriesPresence(t *testing.T) {
-	entry := recoveryEntryFor(
-		"global",
-		"~/.codex/AGENTS.md",
-		testBeforeHash,
-		testAfterHash,
-		testBackupPath,
-	)
-	journal := recoveryJournalFor(entry)
+	journal := defaultRecoveryJournal()
+	journal.Entries = nil
+	journal.ProjectRootProvenance = nil
 	content, err := marshalRecoveryJournal(journal, testStateCodec())
 	if err != nil {
 		t.Fatal(err)
@@ -407,8 +507,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 8`,
-				`"version": 8, "version": 8`,
+				`"version": 10`,
+				`"version": 10, "version": 10`,
 				1,
 			),
 		},
@@ -437,6 +537,34 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 				t.Fatalf("loadRecoveryJournal error = %v, want duplicate-key rejection", err)
 			}
 		})
+	}
+}
+
+func TestLoadRecoveryJournalRejectsNoncanonicalProvisionalIntentKeys(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.TrimSpace(content)
+	if len(content) == 0 || content[len(content)-1] != '}' {
+		t.Fatalf("recovery journal = %q, want object", content)
+	}
+	content = append(
+		append([]byte(nil), content[:len(content)-1]...),
+		[]byte(`,"provisional_acquire_intents":[{"Kind":"provisional_acquire"}]}`)...,
+	)
+
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, recoveryJournalFileName)
+	if err := os.WriteFile(path, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec()); err == nil ||
+		!strings.Contains(err.Error(), "must use canonical ASCII lower_snake_case spelling") {
+		t.Fatalf("loadRecoveryJournal error = %v, want noncanonical-key rejection", err)
 	}
 }
 

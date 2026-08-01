@@ -72,16 +72,21 @@ func TestPrintPlanIncludesOwnershipConflictProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ownershipObservation, err := observe.NewExactOwnershipObservation(
+		fixture.destination,
+		"",
+		address,
+		claim,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	planResult := fixture.buildPlan(t, managedPathPlanInput{
 		includeDesired:  true,
 		selectedTargets: []target.Target{target.TargetCodex},
 		evidence:        []observe.ManagedPathEvidence{fixture.evidence(t, true, "desired")},
 		owner:           requester,
-		ownership: []observe.OwnershipObservation{{
-			Destination: fixture.destination,
-			Address:     address,
-			Claim:       claim,
-		}},
+		ownership:       []observe.OwnershipObservation{ownershipObservation},
 	})
 
 	var stdout bytes.Buffer

@@ -16,6 +16,7 @@ import (
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -29,6 +30,7 @@ import (
 // returned by the authorities.
 type CaptureOptions struct {
 	ClaimTransitions          []ownershipmutation.ClaimTransition
+	ProvisionalAcquires       []ownership.ProvisionalAcquireIntent
 	ManagedPathMutations      []ManagedPathMutation
 	ManagedAggregateMutations []ManagedAggregateMutation
 	ManagedPathEvidence       []observe.ManagedPathEvidence
@@ -41,7 +43,7 @@ type CaptureOptions struct {
 	Filesystem                mutationfs.Store
 }
 
-// CaptureJournalWithOptions persists host, statefile, ownership, and project-root evidence.
+// CaptureJournalWithOptions persists host, statefile, ownership, and rooted-path evidence.
 // The caller must serialize recovery-directory mutation for the complete call.
 func CaptureJournalWithOptions(
 	ctx context.Context,
@@ -200,9 +202,10 @@ func CaptureJournalWithOptions(
 	}
 
 	return CaptureResult{
-		OperationID: operationID,
-		Directory:   finalDir,
-		JournalPath: filepath.Join(finalDir, recoveryJournalFileName),
+		OperationID:       operationID,
+		Directory:         finalDir,
+		JournalPath:       filepath.Join(finalDir, recoveryJournalFileName),
+		RecordFingerprint: recoveryJournalRecordFingerprint(content),
 	}, nil
 }
 
@@ -299,6 +302,15 @@ func buildRecoveryJournal(
 	if err != nil {
 		return recoveryJournal{}, err
 	}
+	globalPathBindings, err := captureRecoveryGlobalPathBindings(
+		mutations,
+		options.Resolver,
+		options.RootedCapability,
+	)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
+	boundResolver := globalPathBindings.resolver(options.Resolver)
 	projectAuthority, err := projectAuthorityForCapture(paths, mutations, options.ProjectRoot)
 	if err != nil {
 		return recoveryJournal{}, err
@@ -336,7 +348,7 @@ func buildRecoveryJournal(
 			backupIndex,
 			action,
 			options.Filesystem,
-			options.Resolver,
+			boundResolver,
 			projectAuthority,
 			options.RootedCapability,
 			contentPathBaselines,
@@ -354,12 +366,17 @@ func buildRecoveryJournal(
 			return recoveryJournal{}, err
 		}
 
+		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
+		if err != nil {
+			return recoveryJournal{}, err
+		}
 		entries = append(entries, recoveryEntry{
 			Subject:             subjectRefFromAction(action),
 			Target:              string(action.Target),
 			Targets:             targetStrings(action.ConsumerTargets),
 			Scope:               string(action.Scope),
 			Path:                action.Destination.String(),
+			GlobalPathBinding:   globalPathBinding,
 			ContentPath:         string(action.ContentPath),
 			ContentKind:         string(action.ContentKind),
 			Before:              persistedBeforePathState(before),
@@ -373,11 +390,22 @@ func buildRecoveryJournal(
 	}
 
 	sortRecoveryEntries(entries)
+	entries, err = bindRecoveryClaimCoverage(
+		ctx,
+		entries,
+		options.ClaimTransitions,
+		options.ProvisionalAcquires,
+		boundResolver,
+	)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
 	persistedTransitions, err := recoveryClaimTransitions(options.ClaimTransitions)
 	if err != nil {
 		return recoveryJournal{}, err
 	}
-	if err := validateRecoveryClaimCoverage(entries, options.ClaimTransitions, options.Resolver); err != nil {
+	persistedIntents, err := recoveryProvisionalAcquireIntents(options.ProvisionalAcquires)
+	if err != nil {
 		return recoveryJournal{}, err
 	}
 	return recoveryJournal{
@@ -390,6 +418,7 @@ func buildRecoveryJournal(
 		StatefileBefore:       currentState,
 		StatefileAfter:        nextState,
 		ClaimTransitions:      persistedTransitions,
+		ProvisionalAcquires:   persistedIntents,
 	}, nil
 }
 

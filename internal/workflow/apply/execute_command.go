@@ -229,6 +229,41 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		revisionBoundaryValidated = true
 		return nil
 	}
+	validateCompensationAuthority := func(ctx context.Context) error {
+		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return staleApplyError(options.PlanWasDisclosed, nil)
+		}
+		if _, err := projectRootFingerprint(current); err != nil {
+			return staleApplyError(options.PlanWasDisclosed, err)
+		}
+		return nil
+	}
+	acceptCompensationChanges := func(ctx context.Context) error {
+		accepted, err := leases.AcceptVisibilityChanges(ctx)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return staleApplyError(options.PlanWasDisclosed, nil)
+		}
+		if _, err := projectRootFingerprint(current); err != nil {
+			return staleApplyError(options.PlanWasDisclosed, err)
+		}
+		return nil
+	}
+	acceptVisibilityChanges := func(ctx context.Context) error {
+		if err := acceptCompensationChanges(ctx); err != nil {
+			return err
+		}
+		return executionGuard.requireDeclarationsCurrent(
+			ctx,
+			"apply visibility acceptance",
+		)
+	}
 
 	hostRouteObserver := options.HostRouteObserver
 	if hostRouteObserver == nil && !current.context.RelationObservationsExplicit {
@@ -262,9 +297,12 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		orderRiskBaseline: newRelationOrderRiskBaseline(
 			planned.assessment.Reconciliation.RelationOrders(),
 		),
-		executionGuard:        executionGuard,
-		validateBeforeEffects: validateBeforeEffects,
-		projectRoot:           planned.projectRoot,
+		executionGuard:                executionGuard,
+		validateBeforeEffects:         validateBeforeEffects,
+		acceptVisibilityChanges:       acceptVisibilityChanges,
+		validateCompensationAuthority: validateCompensationAuthority,
+		acceptCompensationChanges:     acceptCompensationChanges,
+		projectRoot:                   planned.projectRoot,
 	}
 
 	providerPhase, err := runMCPProviderPrerequisitePhase(

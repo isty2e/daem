@@ -29,6 +29,8 @@ type recoveryHostAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
+type recoveryHostOwnershipGuard func(context.Context, recoveryHostAction, mutationDestination) error
+
 func recoveryDestination(scope target.Scope, value string) (output.Destination, error) {
 	destination, err := output.Parse(value)
 	if err != nil {
@@ -170,7 +172,9 @@ func executeRecoveryHostActions(
 	actions []recoveryHostAction,
 	staged []hostRollbackEntry,
 	beforeAction func(int) error,
+	ownershipGuard recoveryHostOwnershipGuard,
 	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
 ) error {
 	if len(actions) != len(staged) {
 		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
@@ -190,6 +194,9 @@ func executeRecoveryHostActions(
 				return fmt.Errorf("before recovery host action %d: %w", index, err)
 			}
 		}
+		if err := gate.validateBefore(ctx); err != nil {
+			return fmt.Errorf("validate recovery host action %d authority: %w", index, err)
+		}
 
 		logical, err := recoveryDestination(action.Scope, action.Destination)
 		if err != nil {
@@ -198,6 +205,11 @@ func executeRecoveryHostActions(
 		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
 			return err
+		}
+		if ownershipGuard != nil {
+			if err := ownershipGuard(ctx, action, destination); err != nil {
+				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+			}
 		}
 		destinationKey := filepath.Clean(destination.hostPath)
 		expectedWholeState, present := expectedByDestination[destinationKey]
@@ -237,6 +249,9 @@ func executeRecoveryHostActions(
 					return fmt.Errorf("restore aggregate projection %q did not produce an exact whole-document postcondition", action.Destination)
 				}
 				expectedByDestination[destinationKey] = effectState
+				if err := gate.acceptAfter(ctx); err != nil {
+					return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+				}
 				continue
 			}
 
@@ -308,6 +323,9 @@ func executeRecoveryHostActions(
 					return fmt.Errorf("remove aggregate projection %q did not produce an exact whole-document postcondition", action.Destination)
 				}
 				expectedByDestination[destinationKey] = effectState
+				if err := gate.acceptAfter(ctx); err != nil {
+					return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+				}
 				continue
 			}
 			staged[index].attempted = true
@@ -321,6 +339,9 @@ func executeRecoveryHostActions(
 			return fmt.Errorf("recovery action for %q did not produce an exact whole-path postcondition", action.Destination)
 		}
 		expectedByDestination[destinationKey] = staged[index].effectState
+		if err := gate.acceptAfter(ctx); err != nil {
+			return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+		}
 	}
 
 	return nil

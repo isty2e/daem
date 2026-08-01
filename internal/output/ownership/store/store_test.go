@@ -162,6 +162,105 @@ func TestStorePreservesUnrelatedClaimsAndRejectsStaleExpected(t *testing.T) {
 	}
 }
 
+func TestStoreRemoveClaimPreservesUnrelatedClaimsAndIsIdempotent(t *testing.T) {
+	root := canonicalTestRoot(t)
+	registryStore := mustStore(t, filepath.Join(root, "claims.json"))
+	removed := testActiveClaim(t, root, "removed", filepath.Join(root, "host", "removed"), "")
+	retained := testActiveClaim(t, root, "retained", filepath.Join(root, "host", "retained"), "")
+	for _, claim := range []ownership.Claim{removed, retained} {
+		value, _ := ownership.PresentClaim(claim)
+		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+			t.Fatalf("seed claim for %q: %v", claim.Address().Path(), err)
+		}
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		registry, err := registryStore.RemoveClaim(t.Context(), removed)
+		if err != nil {
+			t.Fatalf("RemoveClaim attempt %d returned error: %v", attempt, err)
+		}
+		if _, present := registry.Exact(removed.Address()); present {
+			t.Fatalf("RemoveClaim attempt %d retained removed claim", attempt)
+		}
+		if actual, present := registry.Exact(retained.Address()); !present || !actual.Equal(retained) {
+			t.Fatalf("RemoveClaim attempt %d changed unrelated claim", attempt)
+		}
+	}
+}
+
+func TestStoreRemoveClaimRejectsStaleExpectedClaim(t *testing.T) {
+	root := canonicalTestRoot(t)
+	registryStore := mustStore(t, filepath.Join(root, "claims.json"))
+	expected := testActiveClaim(t, root, "expected", filepath.Join(root, "host", "output"), "")
+	actual := testActiveClaim(t, root, "actual", expected.Address().Path(), expected.Address().ContentPath())
+	actualValue, _ := ownership.PresentClaim(actual)
+	if _, err := registryStore.Apply(t.Context(), actual.Address(), ownership.NoClaim(), actualValue); err != nil {
+		t.Fatalf("seed actual claim: %v", err)
+	}
+
+	_, err := registryStore.RemoveClaim(t.Context(), expected)
+	var stale *ownership.StaleClaimError
+	if !errors.As(err, &stale) {
+		t.Fatalf("RemoveClaim error = %v, want *ownership.StaleClaimError", err)
+	}
+	registry, loadErr := registryStore.Load(t.Context())
+	if loadErr != nil {
+		t.Fatalf("load registry after rejected removal: %v", loadErr)
+	}
+	if retained, present := registry.Exact(actual.Address()); !present || !retained.Equal(actual) {
+		t.Fatal("rejected removal changed the actual claim")
+	}
+}
+
+func TestStoreRemoveClaimKeepsUnrelatedAuthorityValidationStrict(t *testing.T) {
+	root := canonicalTestRoot(t)
+	registryStore := mustStore(t, filepath.Join(root, "claims.json"))
+	removed := testActiveClaim(t, root, "removed", filepath.Join(root, "host", "removed"), "")
+	unrelated := testActiveClaim(t, root, "unrelated", filepath.Join(root, "host", "unrelated"), "")
+	for _, claim := range []ownership.Claim{removed, unrelated} {
+		value, _ := ownership.PresentClaim(claim)
+		if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), value); err != nil {
+			t.Fatalf("seed claim for %q: %v", claim.Address().Path(), err)
+		}
+	}
+	content, err := os.ReadFile(registryStore.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted file
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	for index := range persisted.Claims {
+		if persisted.Claims[index].PathAuthority.Key != unrelated.Address().Path() {
+			continue
+		}
+		persisted.Claims[index].PathAuthority.Witness = alternateSemanticsWitness(
+			persisted.Claims[index].PathAuthority.Key,
+			persisted.Claims[index].PathAuthority.Witness,
+		)
+	}
+	mutated, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registryStore.Path(), mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := registryStore.RemoveClaim(t.Context(), removed); err == nil ||
+		!strings.Contains(err.Error(), "is not current") {
+		t.Fatalf("RemoveClaim error = %v, want unrelated stale-authority refusal", err)
+	}
+	retained, err := os.ReadFile(registryStore.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != string(mutated) {
+		t.Fatal("rejected removal rewrote the ownership registry")
+	}
+}
+
 func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 	root := canonicalTestRoot(t)
 	path := filepath.Join(root, "claims.json")

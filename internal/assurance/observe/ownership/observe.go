@@ -186,11 +186,32 @@ func addObservation(
 	if err != nil {
 		return fmt.Errorf("resolve ownership destination %q: %w", destination, err)
 	}
-	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(resolved)
+	authority, err := mutation.ObserveDirectoryEntryAuthority(resolved)
 	if err != nil {
 		return fmt.Errorf("canonicalize ownership destination %q: %w", destination, err)
 	}
-	address, err := outputownership.NewManagedAddress(authority.Exact(), string(contentPath))
+	if provisional, ok := authority.Provisional(); ok {
+		claimValue := outputownership.NoClaim()
+		if claim, present := registry.ProvisionalAncestorConflict(provisional); present {
+			claimValue, _ = outputownership.PresentClaim(claim)
+		}
+		observation, err := observe.NewProvisionalOwnershipObservation(
+			destination,
+			contentPath,
+			provisional,
+			claimValue,
+		)
+		if err != nil {
+			return fmt.Errorf("construct provisional ownership observation for %q: %w", destination, err)
+		}
+		byKey[key] = observation
+		return nil
+	}
+	exact, ok := authority.Exact()
+	if !ok {
+		return fmt.Errorf("canonicalize ownership destination %q: authority observation is empty", destination)
+	}
+	address, err := outputownership.NewManagedAddress(exact, string(contentPath))
 	if err != nil {
 		return fmt.Errorf("construct ownership address for %q: %w", destination, err)
 	}
@@ -198,11 +219,15 @@ func addObservation(
 	if claim, present := registry.Conflict(address); present {
 		claimValue, _ = outputownership.PresentClaim(claim)
 	}
-	byKey[key] = observe.OwnershipObservation{
-		Destination: destination,
-		ContentPath: contentPath,
-		Address:     address,
-		Claim:       claimValue,
+	observation, err := observe.NewExactOwnershipObservation(
+		destination,
+		contentPath,
+		address,
+		claimValue,
+	)
+	if err != nil {
+		return fmt.Errorf("construct exact ownership observation for %q: %w", destination, err)
 	}
+	byKey[key] = observation
 	return nil
 }

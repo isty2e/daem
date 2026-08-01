@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -135,6 +136,9 @@ func rootedComponents(path string) []string {
 func validateAbsoluteCleanPath(label string, value string) error {
 	if value == "" {
 		return fmt.Errorf("%s is required", label)
+	}
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%s is not valid UTF-8", label)
 	}
 	if strings.ContainsRune(value, '\x00') {
 		return fmt.Errorf("%s contains a NUL byte", label)

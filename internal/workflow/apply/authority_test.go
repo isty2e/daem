@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/declaration/transaction"
@@ -232,6 +233,70 @@ func TestApplyOperationFingerprintIncludesStatefileSemanticsWitness(t *testing.T
 	}
 }
 
+func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing.T) {
+	root := t.TempDir()
+	namespace := filepath.Join(root, "skills")
+	candidate := filepath.Join(namespace, "Caf\u00e9")
+	exactAuthority := pathtest.DarwinCaseSensitive(candidate)
+	address, err := ownership.NewManagedAddress(exactAuthority, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstDestination := outputtest.Parse(t, "~/.agents/skills/first")
+	secondDestination := outputtest.Parse(t, "~/.agents/skills/second")
+	second, err := observe.NewExactOwnershipObservation(
+		secondDestination,
+		"",
+		address,
+		ownership.NoClaim(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := observe.NewExactOwnershipObservation(
+		firstDestination,
+		"",
+		address,
+		ownership.NoClaim(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisionalAuthority, err := pathauthority.NewProvisional(
+		candidate,
+		exactAuthority.Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisional, err := observe.NewProvisionalOwnershipObservation(
+		outputtest.Parse(t, "~/.agents/skills/provisional"),
+		"",
+		provisionalAuthority,
+		ownership.NoClaim(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exactRows := ownershipFingerprintFacts([]observe.OwnershipObservation{second, first})
+	if len(exactRows) != 2 || exactRows[0].Destination != firstDestination.String() ||
+		exactRows[1].Destination != secondDestination.String() {
+		t.Fatalf("same-authority rows are not destination ordered: %#v", exactRows)
+	}
+	provisionalRows := ownershipFingerprintFacts([]observe.OwnershipObservation{provisional})
+	if len(provisionalRows) != 1 || provisionalRows[0].AuthorityKind != "provisional" ||
+		provisionalRows[0].ProvisionalCandidateKey == "" ||
+		provisionalRows[0].PathAuthority.Key != "" {
+		t.Fatalf("provisional fingerprint facts = %#v", provisionalRows)
+	}
+	if exactRows[0].AuthorityKind == provisionalRows[0].AuthorityKind {
+		t.Fatal("exact and provisional ownership observations share one fingerprint kind")
+	}
+}
+
 func TestAggregateFingerprintRowsExcludeUnmanagedDocumentValues(t *testing.T) {
 	root := t.TempDir()
 	paths := applyTestPaths(t, root)
@@ -373,11 +438,16 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalOwnership := []observe.OwnershipObservation{{
-		Destination: globalDestination,
-		Address:     globalAddress,
-		Claim:       ownership.NoClaim(),
-	}}
+	globalObservation, err := observe.NewExactOwnershipObservation(
+		globalDestination,
+		"",
+		globalAddress,
+		ownership.NoClaim(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalOwnership := []observe.OwnershipObservation{globalObservation}
 	projectPlan := applyAuthorityManagedPathPlan(
 		t,
 		"project-review",

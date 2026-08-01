@@ -256,7 +256,7 @@ func enforceManagedPathOwnership(
 		if _, conflicted := conflicts[key]; conflicted {
 			return newManagedPathBlocked(input, reconcile.ReasonOwnershipConflict, "new global output overlaps another managed address")
 		}
-		if claim, claimed := observation.Claim.Get(); claimed {
+		if claim, claimed := observation.Claim().Get(); claimed {
 			return newManagedPathBlocked(
 				input,
 				reconcile.ReasonOwnershipConflict,
@@ -277,7 +277,7 @@ func enforceManagedPathOwnership(
 	if _, conflicted := conflicts[key]; conflicted {
 		return newManagedPathBlocked(input, reconcile.ReasonOwnershipConflict, "multiple outputs resolve to overlapping canonical managed addresses")
 	}
-	_, claimed := observation.Claim.Get()
+	_, claimed := observation.Claim().Get()
 	if !claimed {
 		if hasState {
 			return newManagedPathBlocked(input, reconcile.ReasonOwnershipClaimMissing, "managed global state has no durable ownership claim")
@@ -297,11 +297,12 @@ func managedPathActiveClaimBlock(
 	observation observe.OwnershipObservation,
 	owner stateauthority.Authority,
 ) (reconcile.ActionReason, string, bool) {
-	claim, claimed := observation.Claim.Get()
+	claim, claimed := observation.Claim().Get()
 	if !claimed {
 		return reconcile.ReasonOwnershipClaimMissing, "managed global state has no durable ownership claim", true
 	}
-	if !claim.Address().Equal(observation.Address) || !claim.OwnedBy(owner) {
+	address, exact := observation.ExactAddress()
+	if !exact || !claim.Address().Equal(address) || !claim.OwnedBy(owner) {
 		return reconcile.ReasonOwnershipConflict, fmt.Sprintf("managed address is claimed by manifest %q", claim.Owner().ManifestPath()), true
 	}
 	if claim.State() == ownership.ClaimReserved {
