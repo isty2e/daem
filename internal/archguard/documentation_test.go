@@ -18,6 +18,49 @@ func TestDocumentationGuardBaseline(t *testing.T) {
 	t.Log("command: go test -run TestDocumentationGuardBaseline -count=1 -v ./internal/archguard")
 }
 
+func TestReleaseIntegrityDocumentationContract(t *testing.T) {
+	root := findRepoRoot(t)
+	documents, err := loadMarkdownDocuments(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	forbidden := []string{
+		"same immutable tag",
+		"published release tags and attached assets are immutable",
+		"## release immutability",
+	}
+	installDocument := ""
+	for _, document := range documents {
+		if !isUserDocumentation(document.path) {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(document.path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		lowerContent := strings.Join(strings.Fields(strings.ToLower(string(content))), " ")
+		for _, claim := range forbidden {
+			if strings.Contains(lowerContent, claim) {
+				t.Errorf("%s contains unsupported release-integrity claim %q", document.path, claim)
+			}
+		}
+		if document.path == "docs/install.md" {
+			installDocument = strings.Join(strings.Fields(string(content)), " ")
+		}
+	}
+
+	for _, disclosure := range []string{
+		"Release `v0.1.0` was published while GitHub release immutability was disabled",
+		"archive and its checksum sidecar share the same mutable GitHub release authority",
+		"does not prove publisher identity, provenance, or post-publication immutability",
+	} {
+		if !strings.Contains(installDocument, disclosure) {
+			t.Errorf("docs/install.md is missing release-integrity disclosure %q", disclosure)
+		}
+	}
+}
+
 func TestDocumentationGuardAcceptsSupportedMarkdown(t *testing.T) {
 	root := t.TempDir()
 	writeDocumentationFixture(t, root, "README.md", "# Entry\n\n[Guide](docs/guide.md#same-1)\n")
