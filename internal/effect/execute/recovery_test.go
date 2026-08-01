@@ -402,6 +402,7 @@ func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T)
 		}},
 		[]hostRollbackEntry{{}},
 		nil,
+		nil,
 		testAggregateCodecs(),
 		visibilityEffectGate{},
 	)
@@ -460,6 +461,7 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 				nil,
 				[]recoveryHostAction{action},
 				[]hostRollbackEntry{{}},
+				nil,
 				nil,
 				testAggregateCodecs(),
 				visibilityEffectGate{},

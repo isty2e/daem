@@ -3,6 +3,8 @@ package ownership
 import (
 	"fmt"
 	"sort"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
 // Registry is a canonical, overlap-free set of durable ownership claims.
@@ -53,6 +55,18 @@ func (registry Registry) Exact(address ManagedAddress) (Claim, bool) {
 func (registry Registry) Conflict(address ManagedAddress) (Claim, bool) {
 	for _, claim := range registry.claims {
 		if claim.Address().Overlaps(address) {
+			return claim, true
+		}
+	}
+	return Claim{}, false
+}
+
+// ProvisionalAncestorConflict returns the first exact claim whose physical
+// footprint contains a provisional candidate. It never treats the candidate
+// itself as exact authority.
+func (registry Registry) ProvisionalAncestorConflict(candidate pathauthority.Provisional) (Claim, bool) {
+	for _, claim := range registry.claims {
+		if candidate.CandidateWithin(claim.Address().PathAuthority()) {
 			return claim, true
 		}
 	}

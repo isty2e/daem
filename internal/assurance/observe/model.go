@@ -35,16 +35,18 @@ func NewExactOwnershipObservation(
 	return observation, nil
 }
 
-// NewProvisionalOwnershipObservation constructs an unclaimed future-path
-// observation without inventing exact durable authority.
+// NewProvisionalOwnershipObservation constructs a future-path observation
+// with optional proven ancestor-claim conflict evidence. It never invents
+// exact authority for the candidate.
 func NewProvisionalOwnershipObservation(
 	destination output.Destination,
 	contentPath output.ContentPath,
 	provisional pathauthority.Provisional,
+	claim ownership.ClaimValue,
 ) (OwnershipObservation, error) {
 	observation := OwnershipObservation{
 		destination: destination, contentPath: contentPath, provisional: provisional,
-		claim: ownership.NoClaim(),
+		claim: claim,
 	}
 	if err := observation.Validate(); err != nil {
 		return OwnershipObservation{}, err
@@ -88,8 +90,9 @@ func (observation OwnershipObservation) Validate() error {
 	if err := observation.provisional.Validate(); err != nil {
 		return err
 	}
-	if _, present := observation.claim.Get(); present {
-		return fmt.Errorf("provisional ownership observation cannot carry a durable claim")
+	if claim, present := observation.claim.Get(); present &&
+		!observation.provisional.CandidateWithin(claim.Address().PathAuthority()) {
+		return fmt.Errorf("provisional ownership observation claim does not contain its candidate")
 	}
 	return nil
 }
@@ -114,7 +117,7 @@ func (observation OwnershipObservation) ProvisionalPath() (pathauthority.Provisi
 	return observation.provisional, !observation.provisional.IsZero()
 }
 
-// Claim returns the exact durable claim overlapping this observation, if any.
+// Claim returns the durable claim proven to conflict with this observation, if any.
 func (observation OwnershipObservation) Claim() ownership.ClaimValue {
 	return observation.claim
 }

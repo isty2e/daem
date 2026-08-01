@@ -4,6 +4,9 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
 func TestRegistryRejectsOverlappingClaimsAndAcceptsDisjointProjections(t *testing.T) {
@@ -59,5 +62,31 @@ func TestRegistryApplyRejectsStaleExpectedClaim(t *testing.T) {
 	var stale *StaleClaimError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Registry.Apply error = %v, want *StaleClaimError", err)
+	}
+}
+
+func TestRegistryFindsExactAncestorOfProvisionalCandidate(t *testing.T) {
+	root := t.TempDir()
+	namespace := filepath.Join(root, "skills")
+	candidate := filepath.Join(namespace, "Caf\u00e9")
+	provisional, err := pathauthority.NewProvisional(
+		candidate,
+		pathtest.DarwinCaseSensitive(candidate).Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := mustAuthority(t, filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	ancestor, _ := NewActiveClaim(mustAddress(t, root, ""), owner)
+	disjoint, _ := NewActiveClaim(mustAddress(t, root+"-other", ""), owner)
+	registry, err := NewRegistry([]Claim{disjoint, ancestor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, present := registry.ProvisionalAncestorConflict(provisional)
+	if !present || !claim.Equal(ancestor) {
+		t.Fatalf("provisional conflict = %#v, present=%t; want ancestor", claim, present)
 	}
 }

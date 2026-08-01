@@ -52,6 +52,16 @@ func Classify(
 			pathsRecoverable = false
 			continue
 		}
+		if observation.BlockedReason != "" {
+			action.Kind = ActionKindError
+			action.Reason = observation.BlockedReason
+			action.Detail = observation.BlockedDetail
+			actions = append(actions, action)
+			pathsBefore = false
+			pathsAfter = false
+			pathsRecoverable = false
+			continue
+		}
 		if observation.Error != "" {
 			action.Kind = ActionKindError
 			action.Reason = "observation_error"

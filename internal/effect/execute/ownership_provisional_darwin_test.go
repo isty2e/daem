@@ -98,9 +98,8 @@ func TestProvisionalGlobalOwnershipRejectsAliasOfClaimThatBecomesCurrent(t *test
 		t.Fatalf("seed old alias claim: %v", err)
 	}
 	_, err = ApplyWithOptions(t.Context(), input, ApplyOptions{})
-	var stale *ownership.StaleClaimError
-	if !errors.As(err, &stale) {
-		t.Fatalf("ApplyWithOptions error = %v, want stale claim after alias became current", err)
+	if err == nil || !strings.Contains(err.Error(), "ownership_conflict") {
+		t.Fatalf("ApplyWithOptions error = %v, want ownership conflict before effects", err)
 	}
 	assertHostMissing(t, fixture.hostConfigPath)
 	assertHostMissing(t, aliasConfig)
@@ -142,6 +141,65 @@ func TestProvisionalGlobalOwnershipRecoversUnpromotedVisibleOutput(t *testing.T)
 	assertHostMissing(t, fixture.hostConfigPath)
 	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestProvisionalGlobalOwnershipRecoveryRejectsClaimAddedBeforeDelete(t *testing.T) {
+	fixture, input := provisionalGlobalOwnershipCreateInput(t)
+	visibilityAccepts := 0
+	crash := errors.New("injected crash before ownership intent promotion")
+
+	_, err := ApplyWithOptions(t.Context(), input, ApplyOptions{
+		AcceptVisibilityChanges: func(context.Context) error {
+			visibilityAccepts++
+			if visibilityAccepts == 2 {
+				return crash
+			}
+			return nil
+		},
+		ValidateCompensationAuthority: unavailableCompensation,
+	})
+	if !errors.Is(err, crash) {
+		t.Fatalf("ApplyWithOptions error = %v, want injected crash", err)
+	}
+	plan := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationNeedsRollback, 0)
+	if intents := plan.ProvisionalAcquireIntents(); len(intents) != 1 {
+		t.Fatalf("provisional intents = %d, want 1", len(intents))
+	}
+
+	var foreignClaim ownership.Claim
+	executionErr := executeRecoveryPlanWithOptionsForTest(
+		t.Context(),
+		plan,
+		input.Paths,
+		RecoveryOptions{
+			Resolver:                destinationResolver(input.Paths),
+			Codecs:                  testAggregateCodecs(),
+			OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+			StateCodec:              testStateCodec(),
+			StateReader:             testStateReader(input.Paths.StatefilePath),
+			Filesystem:              testFilesystem(),
+			beforeHostAction: func(int) error {
+				var seedErr error
+				foreignClaim, seedErr = seedForeignClaimForVisibleProvisionalOutput(t, fixture, input)
+				return seedErr
+			},
+		},
+	)
+	var stale *ownership.StaleClaimError
+	if !errors.As(executionErr, &stale) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want stale ownership claim", executionErr)
+	}
+	if _, err := os.Stat(fixture.hostConfigPath); err != nil {
+		t.Fatalf("foreign-claimed output was removed: %v", err)
+	}
+	claim := requireOnlyOwnershipClaim(t, input.Paths.OwnershipRegistryPath)
+	if !claim.Equal(foreignClaim) {
+		t.Fatalf("claim after blocked recovery = %#v, want %#v", claim, foreignClaim)
+	}
+	blocked := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationBlocked, 0)
+	if !blocked.HasErrors() {
+		t.Fatal("foreign claim did not block a freshly loaded recovery plan")
+	}
 }
 
 func TestProvisionalGlobalOwnershipRecoversPromotedIntentBeforeReservation(t *testing.T) {
@@ -264,6 +322,48 @@ func provisionalGlobalOwnershipCreateInput(t *testing.T) (mcpProjectionApplyFixt
 		t.Fatal("normalization-sensitive missing HOME did not produce provisional ownership")
 	}
 	return fixture, input
+}
+
+func seedForeignClaimForVisibleProvisionalOutput(
+	t *testing.T,
+	fixture mcpProjectionApplyFixture,
+	input ApplyInput,
+) (ownership.Claim, error) {
+	t.Helper()
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(fixture.hostConfigPath)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	address, err := ownership.NewManagedAddress(
+		pathAuthority.Exact(),
+		string(input.Ownership[0].ContentPath()),
+	)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	owner, err := stateauthority.New(
+		mustObservedPathAuthority(t, filepath.Join(fixture.root, "foreign-claim", ".daem", "state.json")),
+		filepath.Join(fixture.root, "foreign-claim", "daem.toml"),
+	)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	value, err := ownership.PresentClaim(claim)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	registryStore, err := ownershipstore.New(input.Paths.OwnershipRegistryPath)
+	if err != nil {
+		return ownership.Claim{}, err
+	}
+	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), value); err != nil {
+		return ownership.Claim{}, err
+	}
+	return claim, nil
 }
 
 func unavailableCompensation(context.Context) error {

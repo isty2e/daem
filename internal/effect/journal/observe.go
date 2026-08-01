@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/output"
+	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -17,15 +18,17 @@ import (
 )
 
 type recoveryPathObservation struct {
-	Path        string
-	ContentPath string
-	Exists      bool
-	PathExisted bool
-	PathMode    *recovery.PermissionMode
-	Kind        string
-	ContentHash string
-	LinkTarget  string
-	Error       string
+	Path          string
+	ContentPath   string
+	Exists        bool
+	PathExisted   bool
+	PathMode      *recovery.PermissionMode
+	Kind          string
+	ContentHash   string
+	LinkTarget    string
+	BlockedReason string
+	BlockedDetail string
+	Error         string
 }
 
 type recoveryBackupObservation struct {
@@ -34,6 +37,84 @@ type recoveryBackupObservation struct {
 	Kind        string
 	ContentHash string
 	Error       string
+}
+
+func applyRecoveryIntentOwnershipEvidence(
+	ctx context.Context,
+	observations []recoveryPathObservation,
+	intents []outputownership.ProvisionalAcquireIntent,
+	registry outputownership.Registry,
+	resolver func(output.Destination) (string, error),
+) []recoveryPathObservation {
+	for _, intent := range intents {
+		index := recoveryIntentObservationIndex(observations, intent)
+		if index < 0 {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			observations[index].Error = err.Error()
+			continue
+		}
+		if resolver == nil {
+			observations[index].Error = "ownership intent destination resolver is required"
+			continue
+		}
+		hostPath, err := resolver(intent.Destination())
+		if err != nil {
+			observations[index].Error = fmt.Sprintf("resolve ownership intent destination: %v", err)
+			continue
+		}
+		authority, err := mutation.ObserveDirectoryEntryAuthority(hostPath)
+		if err != nil {
+			observations[index].Error = fmt.Sprintf("observe ownership intent destination: %v", err)
+			continue
+		}
+
+		var conflict outputownership.Claim
+		var present bool
+		if exact, ok := authority.Exact(); ok {
+			address, addressErr := outputownership.NewManagedAddress(exact, string(intent.ContentPath()))
+			if addressErr != nil {
+				observations[index].Error = addressErr.Error()
+				continue
+			}
+			if admitErr := intent.AdmitAddress(address); admitErr != nil {
+				observations[index].Error = fmt.Sprintf("ownership intent path authority changed: %v", admitErr)
+				continue
+			}
+			conflict, present = registry.Conflict(address)
+		} else if provisional, ok := authority.Provisional(); ok {
+			if !provisional.Equal(intent.Path()) {
+				observations[index].Error = "ownership intent provisional path authority changed"
+				continue
+			}
+			conflict, present = registry.ProvisionalAncestorConflict(provisional)
+		} else {
+			observations[index].Error = "ownership intent path authority observation is empty"
+			continue
+		}
+		if present {
+			observations[index].BlockedReason = "ownership_conflict"
+			observations[index].BlockedDetail = fmt.Sprintf(
+				"recovery output overlaps a durable claim owned by manifest %q",
+				conflict.Owner().ManifestPath(),
+			)
+		}
+	}
+	return observations
+}
+
+func recoveryIntentObservationIndex(
+	observations []recoveryPathObservation,
+	intent outputownership.ProvisionalAcquireIntent,
+) int {
+	for index, observation := range observations {
+		if observation.Path == intent.Destination().String() &&
+			observation.ContentPath == string(intent.ContentPath()) {
+			return index
+		}
+	}
+	return -1
 }
 
 func recoveryPathObservations(

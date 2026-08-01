@@ -191,10 +191,15 @@ func addObservation(
 		return fmt.Errorf("canonicalize ownership destination %q: %w", destination, err)
 	}
 	if provisional, ok := authority.Provisional(); ok {
+		claimValue := outputownership.NoClaim()
+		if claim, present := registry.ProvisionalAncestorConflict(provisional); present {
+			claimValue, _ = outputownership.PresentClaim(claim)
+		}
 		observation, err := observe.NewProvisionalOwnershipObservation(
 			destination,
 			contentPath,
 			provisional,
+			claimValue,
 		)
 		if err != nil {
 			return fmt.Errorf("construct provisional ownership observation for %q: %w", destination, err)

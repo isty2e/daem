@@ -500,6 +500,7 @@ func TestRecoveryDirectFileCommitUsesStagedEntryIdentity(t *testing.T) {
 		[]recoveryHostAction{hostAction},
 		rollback.entries,
 		nil,
+		nil,
 		testAggregateCodecs(),
 		visibilityEffectGate{},
 	)
@@ -540,6 +541,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 		authority,
 		[]recoveryHostAction{hostAction},
 		rollback.entries,
+		nil,
 		nil,
 		testAggregateCodecs(),
 		visibilityEffectGate{},
@@ -625,6 +627,7 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 		authority,
 		hostActions,
 		rollback.entries,
+		nil,
 		nil,
 		testAggregateCodecs(),
 		gate,

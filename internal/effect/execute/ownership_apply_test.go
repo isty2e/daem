@@ -649,6 +649,7 @@ func globalAggregateOwnershipInputAtHome(
 			fixture.destination,
 			output.ContentPath(contribution.Contribution().ContentPath()),
 			provisional,
+			ownership.NoClaim(),
 		)
 		if err != nil {
 			t.Fatal(err)

@@ -105,6 +105,16 @@ func (provisional Provisional) AdmitsExact(exact Exact) error {
 	return nil
 }
 
+// CandidateWithin reports whether exact authority contains the provisional
+// candidate key. This is conservative conflict evidence only; it does not
+// promote the candidate to exact authority.
+func (provisional Provisional) CandidateWithin(exact Exact) bool {
+	if provisional.Validate() != nil || exact.Validate() != nil {
+		return false
+	}
+	return contains(exact.Key(), provisional.candidateKey)
+}
+
 // Equal reports equality of the complete provisional observation.
 func (provisional Provisional) Equal(other Provisional) bool {
 	return provisional == other && provisional.Validate() == nil

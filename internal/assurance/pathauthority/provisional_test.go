@@ -70,6 +70,27 @@ func TestProvisionalRequiresNormalizationSensitiveDarwinAuthority(t *testing.T) 
 	}
 }
 
+func TestProvisionalCandidateWithinUsesContainmentWithoutPromotion(t *testing.T) {
+	root := filepath.Join(string(filepath.Separator), "tmp", "daem")
+	namespace := filepath.Join(root, "skills")
+	candidate := filepath.Join(namespace, "Caf\u00e9")
+	provisional, err := pathauthority.NewProvisional(
+		candidate,
+		pathtest.DarwinCaseSensitive(candidate).Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !provisional.CandidateWithin(pathtest.DarwinCaseSensitive(root)) {
+		t.Fatal("exact ancestor did not contain provisional candidate")
+	}
+	if provisional.CandidateWithin(pathtest.DarwinCaseSensitive(filepath.Join(root, "other"))) {
+		t.Fatal("disjoint exact path contained provisional candidate")
+	}
+}
+
 func darwinInsensitiveWitness(path string) string {
 	volume := filepath.VolumeName(path)
 	relative := strings.TrimPrefix(path, volume+string(filepath.Separator))

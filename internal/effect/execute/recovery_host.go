@@ -29,6 +29,8 @@ type recoveryHostAction struct {
 	AggregateContract   *aggregate.ProjectionContract
 }
 
+type recoveryHostOwnershipGuard func(context.Context, recoveryHostAction, mutationDestination) error
+
 func recoveryDestination(scope target.Scope, value string) (output.Destination, error) {
 	destination, err := output.Parse(value)
 	if err != nil {
@@ -170,6 +172,7 @@ func executeRecoveryHostActions(
 	actions []recoveryHostAction,
 	staged []hostRollbackEntry,
 	beforeAction func(int) error,
+	ownershipGuard recoveryHostOwnershipGuard,
 	codecs aggregate.CodecCatalog,
 	gate visibilityEffectGate,
 ) error {
@@ -202,6 +205,11 @@ func executeRecoveryHostActions(
 		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
 			return err
+		}
+		if ownershipGuard != nil {
+			if err := ownershipGuard(ctx, action, destination); err != nil {
+				return fmt.Errorf("validate recovery host action %d ownership: %w", index, err)
+			}
 		}
 		destinationKey := filepath.Clean(destination.hostPath)
 		expectedWholeState, present := expectedByDestination[destinationKey]

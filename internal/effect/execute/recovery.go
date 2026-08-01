@@ -12,6 +12,7 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -192,9 +193,10 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths Paths, options RecoveryOptions) error {
 	authority := options.mutationAuthority
 	ownsAuthority := false
+	requiresOwnershipRegistry := len(plan.ClaimTransitions()) != 0 || len(plan.ProvisionalAcquireIntents()) != 0
 	var err error
 	if authority == nil {
-		if len(plan.ClaimTransitions()) != 0 && options.OwnershipRegistryBinder == nil {
+		if requiresOwnershipRegistry && options.OwnershipRegistryBinder == nil {
 			return fmt.Errorf("recovery ownership registry binder is required")
 		}
 		authority, err = newRecoveryMutationAuthority(
@@ -209,7 +211,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		if authority.ownershipRegistryBinder == nil {
 			authority.ownershipRegistryBinder = options.OwnershipRegistryBinder
 		}
-		if len(plan.ClaimTransitions()) != 0 &&
+		if requiresOwnershipRegistry &&
 			!authority.hasOwnershipRegistry &&
 			authority.ownershipRegistryBinder == nil {
 			return fmt.Errorf("recovery ownership registry binder is required")
@@ -223,7 +225,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		defer authority.close()
 	}
 	var registryStore ownershipmutation.RegistryStore
-	if len(plan.ClaimTransitions()) != 0 {
+	if requiresOwnershipRegistry {
 		if err := authority.bindOwnershipRegistry(paths.OwnershipRegistryPath); err != nil {
 			return err
 		}
@@ -454,6 +456,7 @@ func executeRecoveryRollbackEffects(
 		hostActions,
 		rollback.entries,
 		beforeHostAction,
+		recoveryIntentClaimGuard(plan.ProvisionalAcquireIntents(), registryStore),
 		codecs,
 		gate,
 	); err != nil {
@@ -482,6 +485,69 @@ func executeRecoveryRollbackEffects(
 		return fmt.Errorf("cleanup recovery rollback stage: %w; recovery journal retained", err)
 	}
 	return nil
+}
+
+func recoveryIntentClaimGuard(
+	intents []ownership.ProvisionalAcquireIntent,
+	registryStore ownershipmutation.RegistryStore,
+) recoveryHostOwnershipGuard {
+	if len(intents) == 0 {
+		return nil
+	}
+	byOutput := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	for _, intent := range intents {
+		byOutput[provisionalRecoveryOutputKey(intent.Destination().String(), string(intent.ContentPath()))] = intent
+	}
+	return func(ctx context.Context, action recoveryHostAction, destination mutationDestination) error {
+		intent, present := byOutput[provisionalRecoveryOutputKey(action.Destination, action.ContentPath)]
+		if !present {
+			return nil
+		}
+		if registryStore == nil {
+			return fmt.Errorf("ownership registry is required for provisional recovery rollback")
+		}
+		authority, err := mutation.ObserveDirectoryEntryAuthority(destination.hostPath)
+		if err != nil {
+			return err
+		}
+		registry, err := registryStore.Load(ctx)
+		if err != nil {
+			return err
+		}
+		if exact, ok := authority.Exact(); ok {
+			address, err := ownership.NewManagedAddress(exact, action.ContentPath)
+			if err != nil {
+				return err
+			}
+			if err := intent.AdmitAddress(address); err != nil {
+				return fmt.Errorf("provisional recovery path authority changed: %w", err)
+			}
+			if claim, conflict := registry.Conflict(address); conflict {
+				actual, _ := ownership.PresentClaim(claim)
+				return &ownership.StaleClaimError{
+					Address:  address,
+					Expected: ownership.NoClaim(),
+					Actual:   actual,
+				}
+			}
+			return nil
+		}
+		provisional, ok := authority.Provisional()
+		if !ok || !provisional.Equal(intent.Path()) {
+			return fmt.Errorf("provisional recovery path authority changed before rollback")
+		}
+		if claim, conflict := registry.ProvisionalAncestorConflict(provisional); conflict {
+			return fmt.Errorf(
+				"provisional recovery output overlaps a durable claim owned by manifest %q",
+				claim.Owner().ManifestPath(),
+			)
+		}
+		return fmt.Errorf("provisional recovery output is no longer exactly visible before rollback")
+	}
+}
+
+func provisionalRecoveryOutputKey(destination string, contentPath string) string {
+	return destination + "\x00" + contentPath
 }
 
 func recoveryRollbackFailure(primary error, rollbackErr error, cleanupErr error) error {

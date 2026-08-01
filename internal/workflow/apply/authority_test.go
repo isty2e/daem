@@ -275,6 +275,7 @@ func TestOwnershipFingerprintDistinguishesAndOrdersPathAuthorityKinds(t *testing
 		outputtest.Parse(t, "~/.agents/skills/provisional"),
 		"",
 		provisionalAuthority,
+		ownership.NoClaim(),
 	)
 	if err != nil {
 		t.Fatal(err)
