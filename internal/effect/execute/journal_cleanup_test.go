@@ -38,7 +38,7 @@ func TestJournalCleanupPathsRequireCanonicalAbsoluteRecoveryRoot(t *testing.T) {
 	}
 }
 
-func TestJournalCleanupBoundaryExposesOnlyRecoveryRootAuthority(t *testing.T) {
+func TestJournalCleanupBoundaryExposesOnlyRecoveryAuthority(t *testing.T) {
 	assertStructFields := func(value any, want []string) {
 		t.Helper()
 		kind := reflect.TypeOf(value)
@@ -54,11 +54,6 @@ func TestJournalCleanupBoundaryExposesOnlyRecoveryRootAuthority(t *testing.T) {
 	assertStructFields(JournalCleanupPaths{}, []string{"RecoveryDir"})
 	assertStructFields(
 		JournalCleanupOptions{},
-		[]string{
-			"ValidateBeforeEffects",
-			"Filesystem",
-			"LegacyJournalAuthority",
-			"StateCodec",
-		},
+		[]string{"ValidateBeforeEffects", "Filesystem"},
 	)
 }

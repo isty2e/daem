@@ -43,7 +43,7 @@ func TestCarrierAdoptionPreservesSharedGlobalClaimAndHonorsCancellation(t *testi
 			t.Fatal(err)
 		}
 		foreignOwner, err := stateauthority.New(
-			foreignKey,
+			mustObservedPathAuthority(t, foreignKey),
 			filepath.Join(filepath.Dir(filepath.Dir(foreignPath)), "daem.toml"),
 		)
 		if err != nil {
@@ -230,7 +230,7 @@ func TestExactPendingInstallCompletionTakesPrecedenceOverAdoption(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			owner, err := stateauthority.New(statefileKey, manifestPath)
+			owner, err := stateauthority.New(mustObservedPathAuthority(t, statefileKey), manifestPath)
 			if err != nil {
 				t.Fatal(err)
 			}

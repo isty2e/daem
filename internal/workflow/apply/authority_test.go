@@ -9,6 +9,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/observe"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
@@ -200,6 +201,37 @@ func TestApplyOperationFingerprintBindsPlanAndDelegateMode(t *testing.T) {
 	}
 }
 
+func TestApplyOperationFingerprintIncludesStatefileSemanticsWitness(t *testing.T) {
+	planned := applyAuthorityTestPlan(t)
+	statefilePath := planned.context.Paths.StatefilePath
+	manifestPath := planned.context.Paths.ManifestPath
+	exactOwner, err := stateauthority.New(pathtest.Exact(statefilePath), manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned.assessment.Owner = exactOwner
+	base, err := applyOperationFingerprint(planned, reconcile.ContextApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	changed := planned
+	changed.assessment.Owner, err = stateauthority.New(
+		pathtest.DarwinCaseSensitive(statefilePath),
+		manifestPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedFingerprint, err := applyOperationFingerprint(changed, reconcile.ContextApply)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.Equal(changedFingerprint) {
+		t.Fatal("statefile semantics witness did not change apply operation fingerprint")
+	}
+}
+
 func TestAggregateFingerprintRowsExcludeUnmanagedDocumentValues(t *testing.T) {
 	root := t.TempDir()
 	paths := applyTestPaths(t, root)
@@ -328,7 +360,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		StateDir:              filepath.Join(root, ".daem"),
 		StatefilePath:         filepath.Join(root, ".daem", "state.json"),
 	}
-	owner, err := stateauthority.New(paths.StatefilePath, paths.ManifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, paths.StatefilePath), paths.ManifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +369,7 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 	if err != nil {
 		t.Fatal(err)
 	}
-	globalAddress, err := ownership.NewManagedAddress(globalPath, "")
+	globalAddress, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, globalPath), "")
 	if err != nil {
 		t.Fatal(err)
 	}

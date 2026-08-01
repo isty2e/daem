@@ -261,7 +261,7 @@ func relationPendingForLockedRecord(
 		t.Fatal(err)
 	}
 	owner, err := stateauthority.New(
-		filepath.Join(root, ".daem", "state.json"),
+		mustObservedPathAuthority(t, filepath.Join(root, ".daem", "state.json")),
 		filepath.Join(root, "daem.toml"),
 	)
 	if err != nil {

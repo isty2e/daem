@@ -27,7 +27,7 @@ func (store Store) normalizePairwiseReference(domains []Domain) ([]normalizedDom
 		}
 		switch domain.kind {
 		case domainLogicalPath, domainPhysicalPath:
-			if domain.canonicalPath == "" {
+			if domain.canonicalPath == "" || domain.pathWitness == "" {
 				return nil, fmt.Errorf("mutation path domain is not initialized")
 			}
 			if pathContains(domain.canonicalPath, store.rootKey) {
@@ -35,8 +35,12 @@ func (store Store) normalizePairwiseReference(domains []Domain) ([]normalizedDom
 			}
 			fact := paths[domain.canonicalPath]
 			if fact == nil {
-				fact = &pathDomainFact{path: domain.canonicalPath, access: domain.access}
+				fact = &pathDomainFact{
+					path: domain.canonicalPath, witness: domain.pathWitness, access: domain.access,
+				}
 				paths[domain.canonicalPath] = fact
+			} else if fact.witness != domain.pathWitness {
+				return nil, fmt.Errorf("mutation path %q has contradictory filesystem semantics", domain.canonicalPath)
 			} else if domain.access == AccessExclusive {
 				fact.access = AccessExclusive
 			}

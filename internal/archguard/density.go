@@ -72,7 +72,7 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 	},
 	"internal/effect/journal": {
 		reviewedValue:       22,
-		owner:               "journal-v7 persistence transaction",
+		owner:               "journal-v8 persistence transaction",
 		reason:              "at 22 production files, capture, backup identity, closed recovery-root inventory, operation-local journal-directory authority, retirement selection, effect sequencing, no-effect verification, and active lifecycle evolve atomically under one private wire schema and physical authority boundary",
 		naturalSplit:        "move recovery-root inventory into an observation child package",
 		alternativeRejected: "the child would need parent-owned journal decoding while the parent consumed its classification, forcing a cycle or exporting private wire and authority facts; wire-neutral recovery and retirement algebras are already isolated",

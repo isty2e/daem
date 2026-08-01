@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization"
@@ -27,10 +28,11 @@ func newPresentCarrierAdoptionFixture(t *testing.T) presentCarrierAdoptionFixtur
 	contract, relation := claudePluginCarrierFixture(t)
 	identity := presentManagedCarrierIdentity(t, contract)
 	root := t.TempDir()
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}

@@ -242,7 +242,7 @@ func TestExecuteWithOptionsPromotesInterruptedGlobalInstallFromFreshPresence(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := stateauthority.New(statefileKey, manifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, statefileKey), manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

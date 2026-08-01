@@ -7,6 +7,8 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -20,7 +22,7 @@ import (
 func TestAuthorityUsesStatefileIdentityAndRetainsExactProvenance(t *testing.T) {
 	root := t.TempDir()
 	first := mustAuthority(t, root, "first.toml")
-	second, err := stateauthority.New(first.StatefileKey(), filepath.Join(root, "second.toml"))
+	second, err := stateauthority.New(first.StatefileAuthority(), filepath.Join(root, "second.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
@@ -42,9 +44,13 @@ func TestAuthorityUsesStatefileIdentityAndRetainsExactProvenance(t *testing.T) {
 		{name: "nul", statefileKey: filepath.Join(root, "state.json") + "\x00", manifestPath: filepath.Join(root, "daem.toml"), want: "NUL"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := stateauthority.New(test.statefileKey, test.manifestPath); err == nil ||
-				!strings.Contains(err.Error(), test.want) {
-				t.Fatalf("error = %v, want %q", err, test.want)
+			statefileAuthority, authorityErr := pathauthority.NewExact(test.statefileKey, "exact-v1:")
+			if authorityErr == nil {
+				_, authorityErr = stateauthority.New(statefileAuthority, test.manifestPath)
+			}
+			if authorityErr == nil ||
+				!strings.Contains(authorityErr.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", authorityErr, test.want)
 			}
 		})
 	}
@@ -356,6 +362,40 @@ func TestCarrierClaimEqualityKeepsProvenanceOutOfOccupancyIdentity(t *testing.T)
 	}
 }
 
+func TestCarrierOccupancyDoesNotConflateStatefileSemanticsWitnesses(t *testing.T) {
+	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
+	root := t.TempDir()
+	statefilePath := filepath.Join(root, ".daem", "state.json")
+	manifestPath := filepath.Join(root, "daem.toml")
+	exactOwner, err := stateauthority.New(pathtest.Exact(statefilePath), manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	darwinOwner, err := stateauthority.New(
+		pathtest.DarwinCaseSensitive(statefilePath),
+		manifestPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exactClaim := claimForFixture(t, fixture, exactOwner)
+	darwinClaim := claimForFixture(t, fixture, darwinOwner)
+	occupancy, err := durablecarrier.NewCarrierOccupancy(
+		fixture.carrier,
+		[]durablecarrier.ManagedCarrierClaim{darwinClaim, exactClaim},
+	)
+	if err != nil {
+		t.Fatalf("NewCarrierOccupancy conflated exact authorities: %v", err)
+	}
+	if occupancy.DaemKnownConsumerCount() != 2 {
+		t.Fatalf("consumer count = %d, want 2", occupancy.DaemKnownConsumerCount())
+	}
+	if exactClaim.Compare(darwinClaim) == 0 {
+		t.Fatal("claim order ignored statefile semantics witness")
+	}
+}
+
 func TestPendingInstallCannotPromoteWithoutFreshExactPostObservation(t *testing.T) {
 	fixture := carrierFixtureFor(t, "context7", "context7@official", target.ScopeGlobal)
 	pending, err := durablecarrier.NewPendingCarrierInstall(
@@ -591,10 +631,11 @@ func unkeyedCorrelation(t *testing.T, fixture carrierFixture) observerelation.Co
 
 func mustAuthority(t *testing.T, root string, manifestName string) stateauthority.Authority {
 	t.Helper()
-	authority, err := stateauthority.New(
+	authority, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, manifestName),
-	)
+	),
+
+		filepath.Join(root, manifestName))
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

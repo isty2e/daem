@@ -75,3 +75,16 @@ network filesystems such as NFS may not provide the same crash-durability and
 cross-process exclusion guarantees as a tested local filesystem even on an
 admitted OS/architecture row. The same caveat applies to journal-retirement
 control publication, residue cleanup, and control-to-GC finalization.
+
+On Darwin, path authority follows the backing filesystem rather than a single
+macOS-wide rule. Daem obtains stored spelling for existing components and asks
+each parent directory namespace whether names are case-sensitive. Mixed mount
+paths are evaluated component by component; a missing suffix inherits the
+deepest existing directory's case behavior. An unavailable or contradictory
+capability is an error, not a case-insensitive fallback. Directory-entry
+authority keeps the final symlink itself, while referent authority follows it.
+
+This does not emulate APFS or HFS+ Unicode normalization in user space. Existing
+normalization aliases can use the stored spelling reported by the operating
+system; aliases that are absent while planning and same-batch provisional
+alias races remain outside this case-semantics contract.

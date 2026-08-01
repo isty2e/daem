@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -88,16 +89,20 @@ type cleanupFingerprintFacts struct {
 	JournalAuthorityFingerprint string
 	Phase                       retirement.Phase
 	ResiduePresent              bool
-	LegacyTombstoneName         string
 }
 
 type journalClaimTransitionFingerprint struct {
-	Kind              string
-	Path              string
-	ContentPath       string
-	OwnerStatefileKey string
-	OwnerManifestPath string
-	OperationID       string
+	Kind                    string
+	PathAuthority           recoveryPathAuthorityFingerprint
+	ContentPath             string
+	OwnerStatefileAuthority recoveryPathAuthorityFingerprint
+	OwnerManifestPath       string
+	OperationID             string
+}
+
+type recoveryPathAuthorityFingerprint struct {
+	Key              string
+	SemanticsWitness string
 }
 
 func recoveryOperationFingerprint(
@@ -144,12 +149,12 @@ func activeRecoveryOperationFingerprint(
 	claimTransitions := make([]journalClaimTransitionFingerprint, 0, len(plan.ClaimTransitions()))
 	for _, transition := range plan.ClaimTransitions() {
 		claimTransitions = append(claimTransitions, journalClaimTransitionFingerprint{
-			Kind:              string(transition.Kind()),
-			Path:              transition.Address().Path(),
-			ContentPath:       transition.Address().ContentPath(),
-			OwnerStatefileKey: transition.Owner().StatefileKey(),
-			OwnerManifestPath: transition.Owner().ManifestPath(),
-			OperationID:       transitionOperationID(transition),
+			Kind:                    string(transition.Kind()),
+			PathAuthority:           recoveryPathAuthorityFingerprintFor(transition.Address().PathAuthority()),
+			ContentPath:             transition.Address().ContentPath(),
+			OwnerStatefileAuthority: recoveryPathAuthorityFingerprintFor(transition.Owner().StatefileAuthority()),
+			OwnerManifestPath:       transition.Owner().ManifestPath(),
+			OperationID:             transitionOperationID(transition),
 		})
 	}
 	canonical, err := json.Marshal(recoveryFingerprintFacts{
@@ -171,6 +176,15 @@ func activeRecoveryOperationFingerprint(
 	return mutation.NewOperationFingerprint(canonical), nil
 }
 
+func recoveryPathAuthorityFingerprintFor(
+	authority pathauthority.Exact,
+) recoveryPathAuthorityFingerprint {
+	return recoveryPathAuthorityFingerprint{
+		Key:              authority.Key(),
+		SemanticsWitness: authority.Witness(),
+	}
+}
+
 func cleanupRecoveryOperationFingerprint(
 	paths daempaths.Paths,
 	plan retirement.CleanupPlan,
@@ -184,7 +198,6 @@ func cleanupRecoveryOperationFingerprint(
 		JournalAuthorityFingerprint: authority.JournalAuthorityFingerprint(),
 		Phase:                       authority.Phase(),
 		ResiduePresent:              authority.ResiduePresent(),
-		LegacyTombstoneName:         authority.LegacyTombstoneName(),
 	})
 	if err != nil {
 		return mutation.OperationFingerprint{}, fmt.Errorf(
@@ -349,12 +362,6 @@ func buildCleanupRecoveryAuthorityEvidence(
 		),
 		filepath.Join(paths.RecoveryDir, authority.ResidueName()),
 		filepath.Join(paths.RecoveryDir, authority.GCName()),
-	}
-	if authority.RequiresLegacyMigration() {
-		recoveryPaths = append(
-			recoveryPaths,
-			filepath.Join(paths.RecoveryDir, authority.LegacyTombstoneName()),
-		)
 	}
 	facts := make([]recoveryAuthorityFact, 0, len(recoveryPaths)*2)
 	domains := make([]mutation.Domain, 0, len(recoveryPaths)*2)

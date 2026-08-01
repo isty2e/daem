@@ -243,7 +243,7 @@ func TestCodexGlobalRemovalBlocksWhileAnotherDaemManifestConsumesCarrier(t *test
 	}
 	otherRoot := filepath.Join(fixture.root, "other-project")
 	owner, err := stateauthority.New(
-		filepath.Join(otherRoot, ".daem", "state.json"),
+		testkit.MustObservedPathAuthority(t, filepath.Join(otherRoot, ".daem", "state.json")),
 		filepath.Join(otherRoot, "daem.toml"),
 	)
 	if err != nil {

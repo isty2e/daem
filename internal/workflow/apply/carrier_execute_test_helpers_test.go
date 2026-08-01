@@ -15,6 +15,8 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -469,4 +471,13 @@ func applyPriorAttemptedUnverifiedHostRouteAttemptRecord(
 
 func intPtr(value int) *int {
 	return &value
+}
+
+func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
 }

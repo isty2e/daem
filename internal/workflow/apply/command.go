@@ -440,7 +440,11 @@ func loadCommandInputsAtPaths(
 	if err != nil {
 		return commandContext{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.Load(ctx)
+	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
+		ctx,
+		paths.StatefilePath,
+		paths.ManifestPath,
+	)
 	if err != nil {
 		return commandContext{}, result, err
 	}

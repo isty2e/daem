@@ -4,79 +4,53 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 )
 
 func TestAuthorityValidationAndZeroSemantics(t *testing.T) {
 	root := t.TempDir()
-	statefileKey := filepath.Join(root, "state.json")
+	statefile := mustExact(t, filepath.Join(root, "state.json"))
 	manifestPath := filepath.Join(root, "daem.toml")
 
 	tests := []struct {
-		name         string
-		statefileKey string
-		manifestPath string
-		wantError    string
+		name      string
+		statefile pathauthority.Exact
+		manifest  string
+		wantError string
 	}{
 		{
-			name:         "missing statefile key",
-			manifestPath: manifestPath,
-			wantError:    "statefile authority key is required",
+			name:      "missing statefile authority",
+			manifest:  manifestPath,
+			wantError: "statefile authority key: exact path authority key is required",
 		},
 		{
-			name:         "missing manifest path",
-			statefileKey: statefileKey,
-			wantError:    "manifest provenance path is required",
+			name:      "missing manifest path",
+			statefile: statefile,
+			wantError: "manifest provenance path is required",
 		},
 		{
-			name:         "relative statefile key",
-			statefileKey: "state.json",
-			manifestPath: manifestPath,
-			wantError:    `statefile authority key "state.json" must be absolute`,
-		},
-		{
-			name:         "relative manifest path",
-			statefileKey: statefileKey,
-			manifestPath: "daem.toml",
-			wantError:    `manifest provenance path "daem.toml" must be absolute`,
-		},
-		{
-			name: "unclean statefile key",
-			statefileKey: root + string(filepath.Separator) + "nested" +
-				string(filepath.Separator) + ".." + string(filepath.Separator) + "state.json",
-			manifestPath: manifestPath,
-			wantError: "statefile authority key \"" + root + string(filepath.Separator) +
-				"nested" + string(filepath.Separator) + ".." +
-				string(filepath.Separator) + `state.json" must be clean`,
-		},
-		{
-			name:         "unclean manifest path",
-			statefileKey: statefileKey,
-			manifestPath: root + string(filepath.Separator) + "nested" +
+			name:      "unclean manifest path",
+			statefile: statefile,
+			manifest: root + string(filepath.Separator) + "nested" +
 				string(filepath.Separator) + ".." + string(filepath.Separator) + "daem.toml",
 			wantError: "manifest provenance path \"" + root + string(filepath.Separator) +
 				"nested" + string(filepath.Separator) + ".." +
 				string(filepath.Separator) + `daem.toml" must be clean`,
 		},
 		{
-			name:         "NUL statefile key",
-			statefileKey: statefileKey + "\x00",
-			manifestPath: manifestPath,
-			wantError:    "statefile authority key contains a NUL byte",
-		},
-		{
-			name:         "NUL manifest path",
-			statefileKey: statefileKey,
-			manifestPath: manifestPath + "\x00",
-			wantError:    "manifest provenance path contains a NUL byte",
+			name:      "NUL manifest path",
+			statefile: statefile,
+			manifest:  manifestPath + "\x00",
+			wantError: "manifest provenance path contains a NUL byte",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			authority, err := stateauthority.New(test.statefileKey, test.manifestPath)
+			authority, err := stateauthority.New(test.statefile, test.manifest)
 			if err == nil {
-				t.Fatalf("New(%q, %q) = %#v, want error", test.statefileKey, test.manifestPath, authority)
+				t.Fatalf("New(%q) = %#v, want error", test.manifest, authority)
 			}
 			if got := err.Error(); got != test.wantError {
 				t.Fatalf("error = %q, want %q", got, test.wantError)
@@ -96,7 +70,8 @@ func TestAuthorityValidationAndZeroSemantics(t *testing.T) {
 func TestKeyValidation(t *testing.T) {
 	root := t.TempDir()
 	canonical := filepath.Join(root, "state.json")
-	key, err := stateauthority.NewKey(canonical)
+	exact := mustExact(t, canonical)
+	key, err := stateauthority.NewKey(exact)
 	if err != nil {
 		t.Fatalf("NewKey returned error: %v", err)
 	}
@@ -107,22 +82,8 @@ func TestKeyValidation(t *testing.T) {
 		t.Fatal("zero Key validated")
 	}
 
-	for name, value := range map[string]string{
-		"empty":    "",
-		"relative": "state.json",
-		"unclean": root + string(filepath.Separator) + "nested" +
-			string(filepath.Separator) + ".." + string(filepath.Separator) + "state.json",
-		"NUL": canonical + "\x00",
-	} {
-		t.Run(name, func(t *testing.T) {
-			if forged, err := stateauthority.NewKey(value); err == nil {
-				t.Fatalf("NewKey(%q) = %#v, want error", value, forged)
-			}
-		})
-	}
-
 	whitespace := filepath.Join(root, "state directory\n", "state.json ")
-	whitespaceKey, err := stateauthority.NewKey(whitespace)
+	whitespaceKey, err := stateauthority.NewKey(mustExact(t, whitespace))
 	if err != nil {
 		t.Fatalf("NewKey preserved whitespace: %v", err)
 	}
@@ -134,15 +95,16 @@ func TestKeyValidation(t *testing.T) {
 func TestAuthorityEqualitySeparatesIdentityFromProvenance(t *testing.T) {
 	root := t.TempDir()
 	statefileKey := filepath.Join(root, "state.json")
-	first, err := stateauthority.New(statefileKey, filepath.Join(root, "first.toml"))
+	statefile := mustExact(t, statefileKey)
+	first, err := stateauthority.New(statefile, filepath.Join(root, "first.toml"))
 	if err != nil {
 		t.Fatalf("New first authority: %v", err)
 	}
-	second, err := stateauthority.New(statefileKey, filepath.Join(root, "second.toml"))
+	second, err := stateauthority.New(statefile, filepath.Join(root, "second.toml"))
 	if err != nil {
 		t.Fatalf("New second authority: %v", err)
 	}
-	foreign, err := stateauthority.New(filepath.Join(root, "other-state.json"), first.ManifestPath())
+	foreign, err := stateauthority.New(mustExact(t, filepath.Join(root, "other-state.json")), first.ManifestPath())
 	if err != nil {
 		t.Fatalf("New foreign authority: %v", err)
 	}
@@ -165,7 +127,7 @@ func TestAuthorityPreservesCanonicalWhitespace(t *testing.T) {
 	root := t.TempDir()
 	statefileKey := filepath.Join(root, "state directory\n", "state.json")
 	manifestPath := filepath.Join(root, "manifest directory ", "daem.toml\n")
-	authority, err := stateauthority.New(statefileKey, manifestPath)
+	authority, err := stateauthority.New(mustExact(t, statefileKey), manifestPath)
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
@@ -178,4 +140,13 @@ func TestAuthorityPreservesCanonicalWhitespace(t *testing.T) {
 			manifestPath,
 		)
 	}
+}
+
+func mustExact(t *testing.T, key string) pathauthority.Exact {
+	t.Helper()
+	authority, err := pathauthority.NewExact(key, "exact-v1:")
+	if err != nil {
+		t.Fatalf("NewExact(%q): %v", key, err)
+	}
+	return authority
 }

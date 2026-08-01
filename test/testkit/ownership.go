@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -11,6 +12,16 @@ import (
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
+
+// MustObservedPathAuthority captures exact authority for a filesystem-backed test fixture.
+func MustObservedPathAuthority(t testing.TB, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
+}
 
 // WriteActiveOwnershipClaim seeds the durable authority paired with a manually written global state fixture.
 func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination string, contentPath string) ownership.Claim {
@@ -23,19 +34,19 @@ func WriteActiveOwnershipClaim(t *testing.T, manifestPath string, destination st
 	if err != nil {
 		t.Fatalf("Resolve ownership destination returned error: %v", err)
 	}
-	canonical, err := mutation.CanonicalDirectoryEntryKey(resolved)
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(resolved)
 	if err != nil {
-		t.Fatalf("CanonicalDirectoryEntryKey returned error: %v", err)
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority returned error: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(canonical, contentPath)
+	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(paths.StatefilePath)
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
 	if err != nil {
-		t.Fatalf("CanonicalDirectoryEntryKey statefile returned error: %v", err)
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority statefile returned error: %v", err)
 	}
-	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(statefileAuthority.Exact(), paths.ManifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}

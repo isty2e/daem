@@ -92,7 +92,8 @@ func TestSnapshotWithoutCarrierManagementRejectsOwnerProvenanceDrift(t *testing.
 	root := t.TempDir()
 	selectedOwner := mustAuthority(t, root, "selected.toml")
 	retainedOwner, err := stateauthority.New(
-		selectedOwner.StatefileKey(),
+		selectedOwner.StatefileAuthority(),
+
 		selectedOwner.ManifestPath()+".other",
 	)
 	if err != nil {

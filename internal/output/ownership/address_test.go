@@ -3,6 +3,8 @@ package ownership
 import (
 	"path/filepath"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
 func TestManagedAddressOverlapAlgebra(t *testing.T) {
@@ -47,22 +49,19 @@ func TestManagedAddressRejectsInvalidValues(t *testing.T) {
 	root := t.TempDir()
 	tests := []struct {
 		name        string
-		path        string
 		contentPath string
 	}{
-		{name: "empty path"},
-		{name: "relative path", path: "config.json"},
-		{name: "unclean path", path: root + string(filepath.Separator) + "nested" + string(filepath.Separator) + ".." + string(filepath.Separator) + "config.json"},
-		{name: "root projection", path: root, contentPath: "/"},
-		{name: "relative projection", path: root, contentPath: "mcpServers/alpha"},
-		{name: "trailing slash", path: root, contentPath: "/mcpServers/"},
-		{name: "empty segment", path: root, contentPath: "/mcpServers//alpha"},
-		{name: "relative segment", path: root, contentPath: "/mcpServers/../alpha"},
-		{name: "control character", path: root, contentPath: "/mcpServers/\nalpha"},
+		{name: "root projection", contentPath: "/"},
+		{name: "relative projection", contentPath: "mcpServers/alpha"},
+		{name: "trailing slash", contentPath: "/mcpServers/"},
+		{name: "empty segment", contentPath: "/mcpServers//alpha"},
+		{name: "relative segment", contentPath: "/mcpServers/../alpha"},
+		{name: "control character", contentPath: "/mcpServers/\nalpha"},
 	}
+	exact := mustPathAuthority(t, root)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if _, err := NewManagedAddress(test.path, test.contentPath); err == nil {
+			if _, err := NewManagedAddress(exact, test.contentPath); err == nil {
 				t.Fatal("NewManagedAddress returned nil error")
 			}
 		})
@@ -81,9 +80,18 @@ func TestManagedAddressDeterministicOrder(t *testing.T) {
 
 func mustAddress(t *testing.T, path string, contentPath string) ManagedAddress {
 	t.Helper()
-	address, err := NewManagedAddress(filepath.Clean(path), contentPath)
+	address, err := NewManagedAddress(mustPathAuthority(t, filepath.Clean(path)), contentPath)
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
 	return address
+}
+
+func mustPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := pathauthority.NewExact(path, "exact-v1:")
+	if err != nil {
+		t.Fatalf("pathauthority.NewExact returned error: %v", err)
+	}
+	return authority
 }

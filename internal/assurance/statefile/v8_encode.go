@@ -195,8 +195,12 @@ func persistedManagedCarrierClaim(claim durablecarrier.ManagedCarrierClaim) mana
 }
 
 func persistedStateAuthority(authority stateauthority.Authority) stateAuthorityDTO {
+	statefile := authority.StatefileAuthority()
 	return stateAuthorityDTO{
-		StatefileKey: authority.StatefileKey(),
+		StatefileAuthority: pathAuthorityDTO{
+			Key:     statefile.Key(),
+			Witness: statefile.Witness(),
+		},
 		ManifestPath: authority.ManifestPath(),
 	}
 }

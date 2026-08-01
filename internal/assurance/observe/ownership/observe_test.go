@@ -3,9 +3,11 @@ package ownership
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -35,12 +37,13 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	paths := testPaths(root)
 	selection, _ := targetselection.ForDiagnostics([]string{"codex"})
 	physical := filepath.Join(realHome, ".codex", "config.toml")
-	canonical, err := mutation.CanonicalDirectoryEntryKey(physical)
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
 	if err != nil {
-		t.Fatalf("canonicalize fixture: %v", err)
+		t.Fatalf("observe fixture authority: %v", err)
 	}
-	parentAddress, _ := outputownership.NewManagedAddress(canonical, "/mcp_servers")
-	foreign, _ := stateauthority.New(filepath.Join(root, "foreign", "state.json"), filepath.Join(root, "foreign.toml"))
+	canonical := pathAuthority.Exact().Key()
+	parentAddress, _ := outputownership.NewManagedAddress(pathAuthority.Exact(), "/mcp_servers")
+	foreign, _ := stateauthority.New(pathtest.Exact(filepath.Join(root, "foreign", "state.json")), filepath.Join(root, "foreign.toml"))
 	claim, _ := outputownership.NewActiveClaim(parentAddress, foreign)
 	registry, _ := outputownership.NewRegistry([]outputownership.Claim{claim})
 	operations, admitted := mcptest.OperationsForPlacementID(
@@ -76,6 +79,46 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 	observedClaim, present := observation.Claim.Get()
 	if !present || !observedClaim.Equal(claim) {
 		t.Fatal("overlapping parent claim was not observed")
+	}
+}
+
+func TestValidateRegistryStateAuthorityRejectsSelectedManifestForeignKey(t *testing.T) {
+	manifestPath := filepath.Join(string(filepath.Separator), "project", "daem.toml")
+	statefilePath := filepath.Join(t.TempDir(), "State.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(authority.Exact(), manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedOwner, err := stateauthority.New(
+		pathtest.Exact(filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json")),
+		manifestPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := outputownership.NewManagedAddress(
+		pathtest.Exact(filepath.Join(string(filepath.Separator), "managed", "output")),
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := outputownership.NewActiveClaim(address, persistedOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := outputownership.NewRegistry([]outputownership.Claim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateRegistryStateAuthority(registry, owner); err == nil ||
+		!strings.Contains(err.Error(), "for selected manifest has state authority") ||
+		strings.Contains(err.Error(), "legacy-darwin-path-authority") {
+		t.Fatalf("registry authority error = %v", err)
 	}
 }
 

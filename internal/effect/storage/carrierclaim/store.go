@@ -9,12 +9,13 @@ import (
 	"path/filepath"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
 const (
-	currentVersion           = 1
+	currentVersion           = 2
 	maximumRegistryBytes     = 16 << 20
 	maximumRegistryJSONDepth = 64
 )
@@ -38,7 +39,7 @@ func New(path string) (Store, error) {
 	return Store{path: canonical, commitFile: storagecommit.CommitFile}, nil
 }
 
-// Load reads the current registry. A missing file is the canonical empty set.
+// Load reads current or exact empty retired claim state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims, error) {
 	if ctx == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry context is required")
@@ -64,7 +65,89 @@ func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims
 			snapshot.Mode().Perm(),
 		)
 	}
-	return decode(snapshot.Content())
+	registry, err := decode(snapshot.Content())
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	if err := validateCurrentAuthorities(ctx, registry); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	return registry, nil
+}
+
+func validateCurrentAuthorities(
+	ctx context.Context,
+	registry durablecarrier.GlobalCarrierClaims,
+) error {
+	for index, claim := range registry.Claims() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		current, err := mutation.ObservePersistedDirectoryEntryAuthority(
+			claim.Owner().StatefileKey(),
+		)
+		if err != nil {
+			return fmt.Errorf("observe carrier claim registry claims[%d] statefile authority: %w", index, err)
+		}
+		if !current.Exact().Equal(claim.Owner().StatefileAuthority()) {
+			return fmt.Errorf(
+				"carrier claim registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
+				index,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				current.Exact().Key(),
+				current.Exact().Witness(),
+			)
+		}
+	}
+	return nil
+}
+
+// LoadForSelectedAuthority loads the full registry, validates claims for the
+// selected manifest against exact versioned path authority.
+func (store Store) LoadForSelectedAuthority(
+	ctx context.Context,
+	statefilePath string,
+	manifestPath string,
+) (durablecarrier.GlobalCarrierClaims, error) {
+	registry, err := store.Load(ctx)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
+			"canonicalize selected carrier state authority: %w",
+			err,
+		)
+	}
+	if err := validateSelectedAuthority(registry, authority.Exact(), manifestPath); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	return registry, nil
+}
+
+func validateSelectedAuthority(
+	registry durablecarrier.GlobalCarrierClaims,
+	authority pathauthority.Exact,
+	manifestPath string,
+) error {
+	for index, claim := range registry.Claims() {
+		if claim.Owner().ManifestPath() != manifestPath {
+			continue
+		}
+		if !claim.Owner().StatefileAuthority().Equal(authority) {
+			return fmt.Errorf(
+				"carrier claim registry claim[%d] for selected manifest has state authority %q with semantics %q, want %q with semantics %q",
+				index,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				authority.Key(),
+				authority.Witness(),
+			)
+		}
+	}
+	return nil
 }
 
 // Upsert writes one exact claim through entry-identity compare-and-swap.

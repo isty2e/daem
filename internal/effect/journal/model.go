@@ -38,7 +38,7 @@ type recoveryProjectRootProvenance struct {
 	MountFingerprint  string `json:"mount_fingerprint"`
 }
 
-// recoveryEntry is the exact journal-v7 persistence DTO. Subject is the sole
+// recoveryEntry is the exact journal-v8 persistence DTO. Subject is the sole
 // semantic identity carried across the recovery boundary.
 type recoveryEntry struct {
 	Subject             persistedSubjectRef        `json:"subject"`
@@ -62,7 +62,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v7 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal-v8 persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`

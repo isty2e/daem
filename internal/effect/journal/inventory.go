@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 // inventoryOptions supplies the only observation capabilities used to
@@ -22,77 +21,9 @@ type inventoryOptions struct {
 	StateCodec durable.SnapshotCodec
 }
 
-type rootedJournalInventoryReader struct {
-	mutationfs.Reader
-	root         *rootedpath.CapturedRoot
-	selectedRoot string
-}
-
-func (reader rootedJournalInventoryReader) SnapshotDirectory(
-	ctx context.Context,
-	path string,
-	maximumEntries int,
-) (mutationfs.DirectorySnapshot, error) {
-	authority, err := rootedpath.BindSelectedEntryAuthority(
-		reader.root,
-		reader.selectedRoot,
-		path,
-	)
-	if err != nil {
-		return mutationfs.DirectorySnapshot{}, err
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return mutationfs.DirectorySnapshot{}, errors.Join(err, authority.Close())
-	}
-	snapshot, readErr := reader.Reader.SnapshotRootedDirectoryEntries(
-		ctx,
-		capability,
-		maximumEntries,
-	)
-	return snapshot, errors.Join(
-		readErr,
-		capability.Close(),
-		authority.Close(),
-	)
-}
-
-func (reader rootedJournalInventoryReader) ReadRegularFileSnapshotUpTo(
-	ctx context.Context,
-	path string,
-	maximumBytes int64,
-) (mutationfs.RegularFileSnapshot, error) {
-	authority, err := rootedpath.BindSelectedEntryAuthority(
-		reader.root,
-		reader.selectedRoot,
-		path,
-	)
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, errors.Join(err, authority.Close())
-	}
-	content, mode, identity, readErr := reader.Reader.ReadRootedRegularFileUpTo(
-		ctx,
-		capability,
-		maximumBytes,
-	)
-	if err := errors.Join(
-		readErr,
-		capability.Close(),
-		authority.Close(),
-	); err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	return mutationfs.NewRegularFileSnapshot(content, mode, identity)
-}
-
 type recoveryRootInventory struct {
 	decision retirement.Decision
 	active   *activeJournalEvidence
-	legacy   *legacyJournalEvidence
 	root     mutationfs.DirectorySnapshot
 	control  *mutationfs.DirectorySnapshot
 }
@@ -106,10 +37,6 @@ type journalDirectoryEvidence struct {
 type activeJournalEvidence struct {
 	journalDirectoryEvidence
 	physicalAuthority ActiveJournalAuthority
-}
-
-type legacyJournalEvidence struct {
-	physicalAuthority LegacyJournalAuthority
 }
 
 const (
@@ -182,7 +109,6 @@ func loadRecoveryRootInventory(
 		activeEntries  []mutationfs.DirectoryEntrySnapshot
 		controlEntries []mutationfs.DirectoryEntrySnapshot
 		residueEntries []mutationfs.DirectoryEntrySnapshot
-		legacyEntries  []mutationfs.DirectoryEntrySnapshot
 		garbageEntries []mutationfs.DirectoryEntrySnapshot
 		blockers       []retirement.Blocker
 	)
@@ -199,8 +125,6 @@ func loadRecoveryRootInventory(
 			residueEntries = append(residueEntries, entry)
 		case retirement.NameGC:
 			garbageEntries = append(garbageEntries, entry)
-		case retirement.NameLegacyTombstone:
-			legacyEntries = append(legacyEntries, entry)
 		case retirement.NameUnrelated:
 			if strings.HasPrefix(entry.Name(), ".") {
 				continue
@@ -220,17 +144,6 @@ func loadRecoveryRootInventory(
 			))
 		}
 	}
-	if len(legacyEntries) > 1 {
-		blockers = append(
-			blockers,
-			mustInventoryBlocker(
-				legacyEntries[0].Name(),
-				"multiple legacy journal tombstones found",
-			),
-		)
-		legacyEntries = nil
-	}
-
 	observeNested := len(blockers) == 0
 	controls := make([]retirement.Control, 0, len(controlEntries))
 	controlSnapshots := make([]mutationfs.DirectorySnapshot, 0, len(controlEntries))
@@ -300,61 +213,6 @@ func loadRecoveryRootInventory(
 		if len(activeIdentities) > 1 {
 			observeNested = false
 			break
-		}
-	}
-
-	legacyResidues := make([]retirement.LegacyResidue, 0, len(legacyEntries))
-	var legacy *legacyJournalEvidence
-	for _, entry := range legacyEntries {
-		if !observeNested {
-			break
-		}
-		evidence, evidenceErr := retirementEvidence(entry)
-		if evidenceErr != nil {
-			blockers = append(blockers, mustInventoryBlocker(entry.Name(), evidenceErr.Error()))
-			observeNested = false
-			break
-		}
-		loaded, loadErr := loadLegacyJournalEvidence(
-			ctx,
-			physicalRoot,
-			entry,
-			options,
-		)
-		if loadErr != nil {
-			if inventoryObservationInterrupted(ctx, loadErr) {
-				return recoveryRootInventory{}, loadErr
-			}
-			blockers = append(blockers, mustInventoryBlocker(entry.Name(), loadErr.Error()))
-			observeNested = false
-			break
-		}
-		correlated, correlateErr := retirement.ValidateLegacyResidue(
-			evidence,
-			loaded.identity,
-		)
-		if correlateErr != nil {
-			blockers = append(
-				blockers,
-				mustInventoryBlocker(entry.Name(), correlateErr.Error()),
-			)
-			observeNested = false
-			break
-		}
-		physicalAuthority, authorityErr := newLegacyJournalAuthority(entry.Identity())
-		if authorityErr != nil {
-			blockers = append(
-				blockers,
-				mustInventoryBlocker(entry.Name(), authorityErr.Error()),
-			)
-			observeNested = false
-			break
-		}
-		legacyResidues = append(legacyResidues, correlated)
-		if legacy == nil {
-			legacy = &legacyJournalEvidence{
-				physicalAuthority: physicalAuthority,
-			}
 		}
 	}
 
@@ -430,7 +288,6 @@ func loadRecoveryRootInventory(
 		activeIdentities,
 		controls,
 		residues,
-		legacyResidues,
 		garbage,
 		blockers,
 	))
@@ -444,16 +301,6 @@ func loadRecoveryRootInventory(
 	default:
 		active = nil
 	}
-	switch decision.State() {
-	case retirement.StateLegacyMigration, retirement.StateLegacyPrepared:
-		if legacy == nil || len(legacyResidues) != 1 {
-			return recoveryRootInventory{}, fmt.Errorf(
-				"legacy migration classification has no unique loaded journal",
-			)
-		}
-	default:
-		legacy = nil
-	}
 	var control *mutationfs.DirectorySnapshot
 	if len(controlSnapshots) == 1 {
 		snapshot := controlSnapshots[0]
@@ -462,7 +309,6 @@ func loadRecoveryRootInventory(
 	return recoveryRootInventory{
 		decision: decision,
 		active:   active,
-		legacy:   legacy,
 		root:     root,
 		control:  control,
 	}, nil
@@ -471,7 +317,6 @@ func loadRecoveryRootInventory(
 func emptyRecoveryRootInventory() recoveryRootInventory {
 	return recoveryRootInventory{
 		decision: retirement.Classify(retirement.NewLayoutEvidence(
-			nil,
 			nil,
 			nil,
 			nil,
@@ -625,89 +470,6 @@ func loadResidueJournalEvidence(
 		entry,
 		options,
 	)
-}
-
-func loadLegacyJournalEvidence(
-	ctx context.Context,
-	recoveryRoot string,
-	entry mutationfs.DirectoryEntrySnapshot,
-	options inventoryOptions,
-) (journalDirectoryEvidence, error) {
-	if err := validateJournalDirectoryEntry(entry); err != nil {
-		return journalDirectoryEvidence{}, err
-	}
-	root, err := rootedpath.CaptureRoot(recoveryRoot)
-	if err != nil {
-		return journalDirectoryEvidence{}, fmt.Errorf(
-			"capture legacy journal recovery root: %w",
-			err,
-		)
-	}
-	if err := validateLegacyJournalTree(
-		ctx,
-		recoveryRoot,
-		entry,
-		root,
-		options.Filesystem,
-	); err != nil {
-		return journalDirectoryEvidence{}, errors.Join(err, root.Close())
-	}
-	rootedOptions := options
-	rootedOptions.Filesystem = rootedJournalInventoryReader{
-		Reader:       options.Filesystem,
-		root:         root,
-		selectedRoot: recoveryRoot,
-	}
-	loaded, loadErr := loadJournalDirectoryEvidence(
-		ctx,
-		filepath.Join(recoveryRoot, entry.Name()),
-		entry,
-		rootedOptions,
-	)
-	return loaded, errors.Join(loadErr, root.Close())
-}
-
-func validateLegacyJournalTree(
-	ctx context.Context,
-	recoveryRoot string,
-	entry mutationfs.DirectoryEntrySnapshot,
-	root *rootedpath.CapturedRoot,
-	filesystem mutationfs.RootedReader,
-) error {
-	path := filepath.Join(recoveryRoot, entry.Name())
-	authority, err := rootedpath.BindSelectedEntryAuthority(
-		root,
-		recoveryRoot,
-		path,
-	)
-	if err != nil {
-		return fmt.Errorf("bind legacy journal tombstone for validation: %w", err)
-	}
-	capability, err := authority.Acquire()
-	if err != nil {
-		return errors.Join(err, authority.Close())
-	}
-	observed, validateErr := filesystem.ValidateRootedDirectoryTree(
-		ctx,
-		capability,
-		recoveryTreeTraversalLimits(),
-	)
-	closeErr := errors.Join(capability.Close(), authority.Close())
-	if validateErr != nil {
-		return errors.Join(
-			fmt.Errorf("validate legacy journal tombstone tree: %w", validateErr),
-			closeErr,
-		)
-	}
-	if closeErr != nil {
-		return closeErr
-	}
-	if observed == nil ||
-		entry.Identity() == nil ||
-		!observed.Equal(entry.Identity()) {
-		return fmt.Errorf("legacy journal tombstone changed while validating its tree")
-	}
-	return nil
 }
 
 func loadJournalDirectoryEvidence(

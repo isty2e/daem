@@ -41,7 +41,7 @@ func TestDelegatedRelationGenericKernelsRemainHostIndependent(t *testing.T) {
 		"internal/reconcile/relation_action.go",
 		"internal/cli/present/host_route_attempt.go",
 		"internal/cli/present/relation_action.go",
-		"internal/assurance/statefile/v7.go",
+		"internal/assurance/statefile/v8.go",
 		"internal/workflow/apply/host_route_attempt.go",
 		"internal/workflow/apply/host_route_observer.go",
 		"internal/effect/execute/hostroute/build.go",

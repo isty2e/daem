@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -52,4 +55,13 @@ func executeRecoveryPlanWithOptionsForTest(
 	}
 	options.ActiveJournalAuthority = active
 	return ExecuteRecoveryPlanWithOptions(ctx, plan, paths, options)
+}
+
+func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
 }

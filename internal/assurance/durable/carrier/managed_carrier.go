@@ -223,7 +223,7 @@ func (pending PendingCarrierInstall) FactKey() CarrierFactKey {
 // Compare returns the canonical persisted order between pending installs.
 func (pending PendingCarrierInstall) Compare(other PendingCarrierInstall) int {
 	return cmp.Or(
-		cmp.Compare(pending.owner.StatefileKey(), other.owner.StatefileKey()),
+		pending.owner.Key().Compare(other.owner.Key()),
 		cmp.Compare(pending.identity.RelationSubject().String(), other.identity.RelationSubject().String()),
 		cmp.Compare(pending.identity.CarrierSubject().String(), other.identity.CarrierSubject().String()),
 		cmp.Compare(pending.installRequest.RouteID(), other.installRequest.RouteID()),

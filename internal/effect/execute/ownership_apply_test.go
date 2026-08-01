@@ -128,7 +128,7 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 	t.Parallel()
 
 	root := t.TempDir()
-	owner, err := stateauthority.New(filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, filepath.Join(root, "state.json")), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func managedPathOwnershipObservation(
 	claimed bool,
 ) observe.OwnershipObservation {
 	t.Helper()
-	address, err := ownership.NewManagedAddress(path, "")
+	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, path), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestGlobalOwnershipContradictoryFinalizeEvidenceBlocksAndPreservesUnrelated
 	if _, err := store.Apply(context.Background(), transition.Address(), ownership.NoClaim(), transition.Prepared()); err != nil {
 		t.Fatalf("restore prepared claim returned error: %v", err)
 	}
-	unrelatedAddress, err := ownership.NewManagedAddress(transition.Address().Path()+".unrelated", "")
+	unrelatedAddress, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, transition.Address().Path()+".unrelated"), "")
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
@@ -580,7 +580,7 @@ func globalAggregateOwnershipInput(
 		t.Fatalf("canonicalize statefile authority: %v", err)
 	}
 	owner, err := stateauthority.New(
-		statefileKey,
+		mustObservedPathAuthority(t, statefileKey),
 		filepath.Join(fixture.root, "daem.toml"),
 	)
 	if err != nil {
@@ -591,7 +591,7 @@ func globalAggregateOwnershipInput(
 		t.Fatalf("canonicalize aggregate destination: %v", err)
 	}
 	managedAddress, err := ownership.NewManagedAddress(
-		canonicalPath,
+		mustObservedPathAuthority(t, canonicalPath),
 		contribution.Contribution().ContentPath(),
 	)
 	if err != nil {

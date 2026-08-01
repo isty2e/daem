@@ -2,11 +2,13 @@ package cli_test
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -54,6 +56,13 @@ func TestBuiltCLIEmptyManifestStatusAndApplyDryRun(t *testing.T) {
 			testkit.WriteFile(t, workspace, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
 
 			runBuiltCLIForSetup(t, binaryPath, workspace, "lock", "--manifest", "daem.toml")
+			resolved, err := paths.Resolve(filepath.Join(workspace, "daem.toml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeRetiredEmptyArtifact(t, resolved.StatefilePath, `{"version":7,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`)
+			writeRetiredEmptyArtifact(t, resolved.OwnershipRegistryPath, `{"version":1,"claims":[]}`)
+			writeRetiredEmptyArtifact(t, resolved.CarrierClaimRegistryPath, `{"version":1,"claims":[]}`)
 			before := testkit.HashDirectory(t, workspace)
 
 			stdout, stderr, exitCode := runBuiltCLI(t, binaryPath, workspace, scenario.args...)
@@ -85,6 +94,16 @@ func TestBuiltCLIEmptyManifestStatusAndApplyDryRun(t *testing.T) {
 				t.Fatalf("payload = %#v, want clean zero-action %s plan", payload, scenario.jsonCommand)
 			}
 		})
+	}
+}
+
+func writeRetiredEmptyArtifact(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

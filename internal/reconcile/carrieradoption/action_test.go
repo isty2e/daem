@@ -6,6 +6,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
@@ -277,6 +278,25 @@ func TestCarrierAdoptionPlanIdentityIgnoresInventoryEnumerationOrder(t *testing.
 	}
 	if forward.PlanIdentity() != reversed.PlanIdentity() {
 		t.Fatal("inventory enumeration order changed semantic adoption plan identity")
+	}
+}
+
+func TestCarrierAdoptionPlanIdentityIncludesStatefileSemanticsWitness(t *testing.T) {
+	fixture := newAdoptionFixture(t, target.ScopeProject, "alpha@official")
+	base := fixture.action(t, nil, fixture.lifecycle, true)
+
+	changed := fixture
+	owner, err := stateauthority.New(
+		pathtest.DarwinCaseSensitive(fixture.owner.StatefileKey()),
+		fixture.owner.ManifestPath(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed.owner = owner
+	changedAction := changed.action(t, nil, changed.lifecycle, true)
+	if base.PlanIdentity() == changedAction.PlanIdentity() {
+		t.Fatal("statefile semantics witness did not change adoption plan identity")
 	}
 }
 
@@ -564,10 +584,11 @@ func unrelatedClaim(
 
 func mustAuthority(t *testing.T, root string) stateauthority.Authority {
 	t.Helper()
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}

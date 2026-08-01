@@ -12,7 +12,6 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
@@ -123,11 +122,7 @@ func writeCLIClaudeGlobalManagedCarrierState(
 		t.Fatalf("derive install request: %v", err)
 	}
 	statefilePath := filepath.Join(fixture.root, ".daem", "state.json")
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(statefilePath)
-	if err != nil {
-		t.Fatalf("canonicalize statefile key: %v", err)
-	}
-	owner, err := stateauthority.New(statefileKey, fixture.manifestPath)
+	owner, err := stateauthority.New(testkit.MustObservedPathAuthority(t, statefilePath), fixture.manifestPath)
 	if err != nil {
 		t.Fatalf("construct carrier state authority: %v", err)
 	}

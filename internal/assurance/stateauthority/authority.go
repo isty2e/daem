@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
-// Key is the canonical statefile path that determines authority identity.
+// Key is the exact statefile path authority that determines state identity.
 type Key struct {
-	value string
+	value pathauthority.Exact
 }
 
-// NewKey validates an already-canonical statefile authority key.
-func NewKey(value string) (Key, error) {
+// NewKey validates an exact statefile path authority.
+func NewKey(value pathauthority.Exact) (Key, error) {
 	key := Key{value: value}
 	if err := key.Validate(); err != nil {
 		return Key{}, err
@@ -24,12 +26,25 @@ func NewKey(value string) (Key, error) {
 
 // Validate rejects an empty, relative, unclean, or NUL-bearing key.
 func (key Key) Validate() error {
-	return validateAbsoluteCleanPath("statefile authority key", key.value)
+	if err := key.value.Validate(); err != nil {
+		return fmt.Errorf("statefile authority key: %w", err)
+	}
+	return nil
 }
 
 // String returns the canonical absolute statefile key.
 func (key Key) String() string {
+	return key.value.Key()
+}
+
+// PathAuthority returns the exact path identity and semantics witness.
+func (key Key) PathAuthority() pathauthority.Exact {
 	return key.value
+}
+
+// Compare returns the deterministic order of exact statefile authorities.
+func (key Key) Compare(other Key) int {
+	return key.value.Compare(other.value)
 }
 
 // Authority identifies one manifest-selected durable state authority.
@@ -40,7 +55,7 @@ type Authority struct {
 }
 
 // New validates an already-canonical statefile key and manifest provenance path.
-func New(statefileKey string, manifestPath string) (Authority, error) {
+func New(statefileKey pathauthority.Exact, manifestPath string) (Authority, error) {
 	key, err := NewKey(statefileKey)
 	if err != nil {
 		return Authority{}, err
@@ -65,6 +80,11 @@ func (authority Authority) Validate() error {
 // StatefileKey returns the canonical equality key for the state authority.
 func (authority Authority) StatefileKey() string {
 	return authority.key.String()
+}
+
+// StatefileAuthority returns the exact path identity of the statefile.
+func (authority Authority) StatefileAuthority() pathauthority.Exact {
+	return authority.key.PathAuthority()
 }
 
 // Key returns the canonical identity subvalue.

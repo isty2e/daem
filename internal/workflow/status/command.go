@@ -178,7 +178,11 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	if err != nil {
 		return commandInputs{}, result, err
 	}
-	globalCarrierClaims, err := carrierStore.Load(ctx)
+	globalCarrierClaims, err := carrierStore.LoadForSelectedAuthority(
+		ctx,
+		paths.StatefilePath,
+		paths.ManifestPath,
+	)
 	if err != nil {
 		return commandInputs{}, result, err
 	}

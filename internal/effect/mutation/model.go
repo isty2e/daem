@@ -118,6 +118,7 @@ type Domain struct {
 	kind          domainKind
 	access        AccessMode
 	canonicalPath string
+	pathWitness   pathSemanticsWitness
 	requestedPath string
 	effect        PathEffect
 	target        string
@@ -139,6 +140,7 @@ func NewLogicalPathDomain(request LogicalPathRequest) (Domain, error) {
 		kind:          domainLogicalPath,
 		access:        request.Access,
 		canonicalPath: identity.keyPath,
+		pathWitness:   identity.witness,
 		requestedPath: request.Path,
 		effect:        request.Effect,
 	}, nil
@@ -163,6 +165,7 @@ func NewPhysicalPathDomain(request PhysicalPathRequest) (Domain, error) {
 		kind:          domainPhysicalPath,
 		access:        request.Access,
 		canonicalPath: identity.keyPath,
+		pathWitness:   identity.witness,
 		requestedPath: request.Path,
 		effect:        request.Effect,
 		target:        request.Target,
@@ -202,10 +205,11 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 	}
 
 	type coverageKey struct {
-		path   string
-		effect PathEffect
-		target string
-		scope  string
+		path    string
+		witness pathSemanticsWitness
+		effect  PathEffect
+		target  string
+		scope   string
 	}
 	acquired := make(map[coverageKey]struct{}, len(set.domains))
 	for _, domain := range set.domains {
@@ -213,7 +217,7 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 			continue
 		}
 		acquired[coverageKey{
-			path: domain.canonicalPath, effect: domain.effect,
+			path: domain.canonicalPath, witness: domain.pathWitness, effect: domain.effect,
 			target: domain.target, scope: domain.scope,
 		}] = struct{}{}
 	}
@@ -222,7 +226,7 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 			return false, fmt.Errorf("physical authority set is invalid")
 		}
 		key := coverageKey{
-			path: domain.canonicalPath, effect: domain.effect,
+			path: domain.canonicalPath, witness: domain.pathWitness, effect: domain.effect,
 			target: domain.target, scope: domain.scope,
 		}
 		if _, covered := acquired[key]; !covered {
@@ -239,12 +243,16 @@ func (domain Domain) matchesCurrentPath() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		return identity.keyPath == domain.canonicalPath, nil
+		return domain.matchesPathIdentity(identity), nil
 	case domainHostRoute:
 		return true, nil
 	default:
 		return false, fmt.Errorf("mutation domain is not initialized")
 	}
+}
+
+func (domain Domain) matchesPathIdentity(identity canonicalPath) bool {
+	return identity.keyPath == domain.canonicalPath && identity.witness == domain.pathWitness
 }
 
 // NewHostRouteDomain validates an opaque host route request.

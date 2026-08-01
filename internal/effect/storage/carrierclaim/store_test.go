@@ -10,8 +10,10 @@ import (
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -57,6 +59,44 @@ func TestStoreUpsertRoundTripsSharedClaimsAndIsIdempotent(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("registry mode = %04o, want 0600", info.Mode().Perm())
+	}
+}
+
+func TestStoreLoadRejectsStaleStatefileSemanticsWitness(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "claims.json")
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := testGlobalClaim(t, "context7", "context7@official", filepath.Join(root, "owner"))
+	if _, err := store.Upsert(t.Context(), claim); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted registryDTO
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	record := &persisted.Claims[0].Owner.StatefileAuthority
+	if record.Witness != "exact-v1:" {
+		record.Witness = pathtest.Exact(record.Key).Witness()
+	} else {
+		record.Witness = pathtest.DarwinCaseSensitive(record.Key).Witness()
+	}
+	mutated, err := json.MarshalIndent(persisted, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, mutated, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(t.Context()); err == nil ||
+		!strings.Contains(err.Error(), "is not current") {
+		t.Fatalf("Store.Load error = %v, want stale semantics refusal", err)
 	}
 }
 
@@ -166,7 +206,10 @@ func TestRegistryCodecRoundTripsBothClaimProvenancesWithoutVersionChange(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(content), `"version": 1`) ||
+	if !strings.Contains(string(content), `"version": 2`) ||
+		!strings.Contains(string(content), `"statefile_authority"`) ||
+		!strings.Contains(string(content), `"semantics_witness"`) ||
+		strings.Contains(string(content), `"statefile_key"`) ||
 		!strings.Contains(string(content), string(durablecarrier.ClaimProvenanceInstalledObserved)) ||
 		!strings.Contains(string(content), string(durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved)) {
 		t.Fatalf("registry encoding omitted version or provenance:\n%s", content)
@@ -237,8 +280,8 @@ func TestRegistryCodecRejectsUnknownCorruptDuplicateAndProjectClaims(t *testing.
 			name: "duplicate key",
 			content: strings.Replace(
 				string(content),
-				`"version": 1`,
-				`"version": 1, "version": 1`,
+				`"version": 2`,
+				`"version": 2, "version": 2`,
 				1,
 			),
 			want: "duplicate object key",
@@ -259,7 +302,7 @@ func TestRegistryCodecRejectsUnknownCorruptDuplicateAndProjectClaims(t *testing.
 
 func TestStoreRejectsAuthorityExposingPermissions(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "claims.json")
-	if err := os.WriteFile(path, []byte(`{"version":1,"claims":[]}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":2,"claims":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	store, err := New(path)
@@ -411,14 +454,121 @@ func TestRegistryCodecIsBoundedCanonicalAndRejectsDuplicateSemanticClaims(t *tes
 		!strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized registry error = %v", err)
 	}
+	if retired, err := decode([]byte(`{"version":1,"claims":[]}`)); err != nil ||
+		len(retired.Claims()) != 0 {
+		t.Fatalf("empty retired registry = (%#v, %v), want canonical empty", retired, err)
+	}
+	var witnessPersisted registryDTO
+	if err := json.Unmarshal(forwardContent, &witnessPersisted); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		witness string
+		want    string
+	}{
+		{name: "missing", want: "semantics witness is required"},
+		{name: "unknown", witness: "future-v1:", want: "unsupported path authority semantics witness"},
+	} {
+		t.Run(test.name+" statefile witness", func(t *testing.T) {
+			candidate := witnessPersisted
+			candidate.Claims = append([]claimDTO(nil), witnessPersisted.Claims...)
+			candidate.Claims[0].Owner.StatefileAuthority.Witness = test.witness
+			mutated, err := json.Marshal(candidate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decode(mutated); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("decode error = %v, want %q", err, test.want)
+			}
+		})
+	}
 	for _, malformed := range []string{
-		`{"version":2,"claims":[]}`,
-		`{"version":1}`,
-		`{"version":1,"claims":[]} {}`,
+		`{"version":2}`,
+		`{"version":2,"claims":[]} {}`,
 	} {
 		if _, err := decode([]byte(malformed)); err == nil {
 			t.Fatalf("malformed registry decoded: %s", malformed)
 		}
+	}
+}
+
+func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "claims.json")
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const retiredEmpty = `{"version":1,"claims":[]}`
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatalf("Load exact empty retired v1: %v", err)
+	}
+	if claims := registry.Claims(); len(claims) != 0 {
+		t.Fatalf("retired registry claims = %#v, want empty", claims)
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != retiredEmpty {
+		t.Fatalf("read-only Load rewrote retired carrier registry:\n%s", retained)
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing claims", content: `{"version":1}`, want: "exact empty retired carrier claim registry"},
+		{name: "null claims", content: `{"version":1,"claims":null}`, want: "exact empty retired carrier claim registry"},
+		{
+			name:    "populated legacy claim",
+			content: `{"version":1,"claims":[{"owner":{"statefile_key":"/tmp/state.json","manifest_path":"/tmp/daem.toml"}}]}`,
+			want:    "use the daem version that wrote it",
+		},
+		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
+		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+		{
+			name:    "case-variant empty override",
+			content: `{"version":1,"claims":[{"owner":{"statefile_key":"/tmp/state.json"}}],"CLAIMS":[]}`,
+			want:    "ASCII lower_snake_case",
+		},
+		{name: "case-variant alias", content: `{"version":1,"CLAIMS":[]}`, want: "ASCII lower_snake_case"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := store.Load(t.Context())
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+			if test.name == "populated legacy claim" && strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("populated legacy claim was misclassified as current schema: %v", err)
+			}
+		})
+	}
+
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claim := testGlobalClaim(t, "context7", "context7@official", root)
+	if _, err := store.Upsert(t.Context(), claim); err != nil {
+		t.Fatalf("Upsert after retired empty registry: %v", err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(current), `"version": 2`) {
+		t.Fatalf("guarded write did not replace retired schema with current schema:\n%s", current)
 	}
 }
 
@@ -487,8 +637,14 @@ func testGlobalClaimWithProvenance(
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, err := stateauthority.New(
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(
 		filepath.Join(authorityRoot, ".daem", "state.json"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := stateauthority.New(
+		statefileAuthority.Exact(),
 		filepath.Join(authorityRoot, "daem.toml"),
 	)
 	if err != nil {
@@ -504,4 +660,27 @@ func testGlobalClaimWithProvenance(
 		t.Fatal(err)
 	}
 	return claim
+}
+
+func TestValidateSelectedAuthorityRejectsForeignKeyBeforeCarrierUse(t *testing.T) {
+	manifestPath := filepath.Join(string(filepath.Separator), "selected", "daem.toml")
+	claim := testGlobalClaim(
+		t,
+		"context7",
+		"context7@official",
+		filepath.Join(string(filepath.Separator), "selected"),
+	)
+	registry, err := durablecarrier.NewGlobalCarrierClaims([]durablecarrier.ManagedCarrierClaim{claim})
+	if err != nil {
+		t.Fatal(err)
+	}
+	statefilePath := filepath.Join(string(filepath.Separator), "selected", ".daem", "other-state.json")
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(statefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateSelectedAuthority(registry, authority.Exact(), manifestPath); err == nil ||
+		!strings.Contains(err.Error(), "semantics") {
+		t.Fatalf("selected authority error = %v", err)
+	}
 }

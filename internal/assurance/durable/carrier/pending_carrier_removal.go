@@ -266,7 +266,7 @@ func (pending PendingCarrierRemoval) FactKey() CarrierFactKey {
 // Compare returns the canonical persisted order between pending removals.
 func (pending PendingCarrierRemoval) Compare(other PendingCarrierRemoval) int {
 	return cmp.Or(
-		cmp.Compare(pending.Owner().StatefileKey(), other.Owner().StatefileKey()),
+		pending.Owner().Key().Compare(other.Owner().Key()),
 		cmp.Compare(pending.Identity().RelationSubject().String(), other.Identity().RelationSubject().String()),
 		cmp.Compare(pending.Identity().CarrierSubject().String(), other.Identity().CarrierSubject().String()),
 		cmp.Compare(pending.removeRequest.RouteID(), other.removeRequest.RouteID()),

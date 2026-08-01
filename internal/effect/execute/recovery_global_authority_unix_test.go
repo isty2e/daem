@@ -792,7 +792,7 @@ func newGlobalFileRecoveryFixture(
 	if err != nil {
 		t.Fatalf("canonicalize global recovery manifest: %v", err)
 	}
-	owner, err := stateauthority.New(statefileKey, manifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, statefileKey), manifestPath)
 	if err != nil {
 		t.Fatalf("construct global recovery owner: %v", err)
 	}
@@ -800,7 +800,7 @@ func newGlobalFileRecoveryFixture(
 	if err != nil {
 		t.Fatalf("canonicalize global recovery managed path: %v", err)
 	}
-	address, err := ownership.NewManagedAddress(managedPathKey, "")
+	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, managedPathKey), "")
 	if err != nil {
 		t.Fatalf("construct global recovery managed address: %v", err)
 	}

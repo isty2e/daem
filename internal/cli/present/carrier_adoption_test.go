@@ -11,6 +11,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
@@ -182,10 +183,11 @@ func TestCarrierAdoptionHumanOutputDistinguishesEveryNonEligibleOutcome(t *testi
 		durablecarrier.ClaimProvenanceExplicitlyAdoptedObserved,
 	)
 	otherRoot := t.TempDir()
-	otherOwner, err := stateauthority.New(
+	otherOwner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(otherRoot, ".daem", "state.json"),
-		filepath.Join(otherRoot, "other.toml"),
-	)
+	),
+
+		filepath.Join(otherRoot, "other.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}

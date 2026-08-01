@@ -20,7 +20,6 @@ type retirementStart uint8
 const (
 	retirementStartInvalid retirementStart = iota
 	retirementStartActive
-	retirementStartLegacy
 	retirementStartPrepared
 	retirementStartFinalizingWithResidue
 	retirementStartFinalizingWithoutResidue
@@ -30,8 +29,6 @@ type retirementExecution struct {
 	record             retirement.Record
 	activePath         string
 	activeAuthority    ActiveJournalAuthority
-	legacyPath         string
-	legacyAuthority    LegacyJournalAuthority
 	journalFingerprint string
 	start              retirementStart
 }
@@ -44,30 +41,17 @@ func (execution retirementExecution) valid() bool {
 	case retirementStartActive:
 		return execution.activePath != "" &&
 			execution.activeAuthority.valid() &&
-			execution.legacyPath == "" &&
-			!execution.legacyAuthority.valid() &&
-			execution.journalFingerprint != "" &&
-			execution.record.Phase() == retirement.PhasePrepared
-	case retirementStartLegacy:
-		return execution.activePath == "" &&
-			!execution.activeAuthority.valid() &&
-			execution.legacyPath != "" &&
-			execution.legacyAuthority.valid() &&
 			execution.journalFingerprint != "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartPrepared:
 		return execution.activePath == "" &&
 			!execution.activeAuthority.valid() &&
-			execution.legacyPath == "" &&
-			!execution.legacyAuthority.valid() &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhasePrepared
 	case retirementStartFinalizingWithResidue,
 		retirementStartFinalizingWithoutResidue:
 		return execution.activePath == "" &&
 			!execution.activeAuthority.valid() &&
-			execution.legacyPath == "" &&
-			!execution.legacyAuthority.valid() &&
 			execution.journalFingerprint == "" &&
 			execution.record.Phase() == retirement.PhaseFinalizing
 	default:
@@ -77,7 +61,6 @@ func (execution retirementExecution) valid() bool {
 
 func (execution retirementExecution) advancesPhase() bool {
 	return execution.start == retirementStartActive ||
-		execution.start == retirementStartLegacy ||
 		execution.start == retirementStartPrepared
 }
 
@@ -85,15 +68,9 @@ func (execution retirementExecution) hasResidue() bool {
 	return execution.start != retirementStartFinalizingWithoutResidue
 }
 
-func (execution retirementExecution) migratesLegacy() bool {
-	return execution.start == retirementStartLegacy
-}
-
 type retirementBindings struct {
 	active       *rootedpath.EntryAuthority
 	activeRecord *rootedpath.EntryAuthority
-	legacy       *rootedpath.EntryAuthority
-	legacyRecord *rootedpath.EntryAuthority
 	control      *rootedpath.EntryAuthority
 	record       *rootedpath.EntryAuthority
 	residue      *rootedpath.EntryAuthority
@@ -183,10 +160,8 @@ func RetireActiveJournal(
 func FinalizeJournalCleanup(
 	ctx context.Context,
 	plan retirement.CleanupPlan,
-	legacyAuthority LegacyJournalAuthority,
 	root *rootedpath.CapturedRoot,
 	filesystem mutationfs.RootedStore,
-	stateCodec durable.SnapshotCodec,
 ) error {
 	if filesystem == nil {
 		return fmt.Errorf("journal cleanup filesystem is required")
@@ -199,43 +174,16 @@ func FinalizeJournalCleanup(
 	if err != nil {
 		return err
 	}
-	if authority.RequiresLegacyMigration() {
-		if err := legacyAuthority.Validate(); err != nil {
-			return err
-		}
-		if stateCodec == nil {
-			return fmt.Errorf("legacy journal migration state codec is required")
-		}
-	} else if legacyAuthority.valid() {
-		return fmt.Errorf(
-			"journal cleanup received unexpected legacy physical authority",
-		)
-	}
-
 	start := retirementStartFinalizingWithoutResidue
 	switch {
-	case authority.RequiresLegacyMigration():
-		start = retirementStartLegacy
 	case authority.RequiresPhaseAdvance():
 		start = retirementStartPrepared
 	case authority.ResiduePresent():
 		start = retirementStartFinalizingWithResidue
 	}
-	rootAuthority, err := root.Authority()
-	if err != nil {
-		return fmt.Errorf("read journal cleanup root authority: %w", err)
-	}
 	execution := retirementExecution{
 		record: record,
 		start:  start,
-	}
-	if authority.RequiresLegacyMigration() {
-		execution.legacyPath = filepath.Join(
-			rootAuthority.PhysicalRoot(),
-			authority.LegacyTombstoneName(),
-		)
-		execution.legacyAuthority = legacyAuthority
-		execution.journalFingerprint = authority.JournalAuthorityFingerprint()
 	}
 	bindings, err := bindRetirement(
 		root,
@@ -245,7 +193,7 @@ func FinalizeJournalCleanup(
 		return err
 	}
 	defer bindings.close()
-	return executeRetirement(ctx, filesystem, stateCodec, execution, bindings)
+	return executeRetirement(ctx, filesystem, nil, execution, bindings)
 }
 
 func bindRetirement(
@@ -264,8 +212,6 @@ func bindRetirement(
 	paths := struct {
 		active       string
 		activeRecord string
-		legacy       string
-		legacyRecord string
 		control      string
 		record       string
 		residue      string
@@ -273,8 +219,6 @@ func bindRetirement(
 	}{
 		active:       execution.activePath,
 		activeRecord: filepath.Join(execution.activePath, recoveryJournalFileName),
-		legacy:       execution.legacyPath,
-		legacyRecord: filepath.Join(execution.legacyPath, recoveryJournalFileName),
 		control:      filepath.Join(recoveryRoot, identity.ControlName()),
 		record:       filepath.Join(recoveryRoot, identity.ControlName(), retirement.RecordFileName),
 		residue:      filepath.Join(recoveryRoot, identity.ResidueName()),
@@ -294,22 +238,6 @@ func bindRetirement(
 		if err != nil {
 			return retirementBindings{}, errors.Join(
 				fmt.Errorf("bind active recovery journal record: %w", err),
-				bindings.close(),
-			)
-		}
-	}
-	if paths.legacy != "" {
-		bindings.legacy, err = bind(paths.legacy)
-		if err != nil {
-			return retirementBindings{}, errors.Join(
-				fmt.Errorf("bind legacy journal tombstone: %w", err),
-				bindings.close(),
-			)
-		}
-		bindings.legacyRecord, err = bind(paths.legacyRecord)
-		if err != nil {
-			return retirementBindings{}, errors.Join(
-				fmt.Errorf("bind legacy journal tombstone record: %w", err),
 				bindings.close(),
 			)
 		}
@@ -400,62 +328,6 @@ func executeRetirement(
 			activeIdentity,
 			execution.record.Identity().ResidueName(),
 			"active recovery journal",
-		); err != nil {
-			return err
-		}
-	}
-	if execution.migratesLegacy() {
-		legacyCapability, legacyIdentity, err := captureRetirementEntry(
-			ctx,
-			filesystem,
-			bindings.legacy,
-			"legacy journal tombstone",
-		)
-		if err != nil {
-			return err
-		}
-		if !execution.legacyAuthority.matches(legacyIdentity) {
-			return errors.Join(
-				fmt.Errorf(
-					"legacy journal tombstone identity changed before migration",
-				),
-				legacyCapability.Close(),
-			)
-		}
-		legacyCapabilityOpen := true
-		defer func() {
-			if legacyCapabilityOpen {
-				_ = legacyCapability.Close()
-			}
-		}()
-		if err := requireRetirementResidueTree(
-			ctx,
-			filesystem,
-			bindings.legacy,
-		); err != nil {
-			return fmt.Errorf("verify legacy journal tombstone before migration: %w", err)
-		}
-		if err := ensurePreparedControl(ctx, filesystem, execution.record, bindings); err != nil {
-			return err
-		}
-		if err := requireJournalFingerprint(
-			ctx,
-			filesystem,
-			bindings.legacyRecord,
-			execution.journalFingerprint,
-			stateCodec,
-			"legacy journal tombstone",
-		); err != nil {
-			return err
-		}
-		legacyCapabilityOpen = false
-		if err := renameCapturedRetirementEntry(
-			ctx,
-			filesystem,
-			legacyCapability,
-			legacyIdentity,
-			execution.record.Identity().ResidueName(),
-			"legacy journal tombstone",
 		); err != nil {
 			return err
 		}
@@ -783,8 +655,6 @@ func (bindings *retirementBindings) close() error {
 	for _, authority := range []*rootedpath.EntryAuthority{
 		bindings.active,
 		bindings.activeRecord,
-		bindings.legacy,
-		bindings.legacyRecord,
 		bindings.control,
 		bindings.record,
 		bindings.residue,

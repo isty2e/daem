@@ -266,7 +266,7 @@ func (claim ManagedCarrierClaim) FactKey() CarrierFactKey {
 // Compare returns the canonical persisted order between managed claims.
 func (claim ManagedCarrierClaim) Compare(other ManagedCarrierClaim) int {
 	return cmp.Or(
-		cmp.Compare(claim.owner.StatefileKey(), other.owner.StatefileKey()),
+		claim.owner.Key().Compare(other.owner.Key()),
 		cmp.Compare(claim.identity.RelationSubject().String(), other.identity.RelationSubject().String()),
 		cmp.Compare(claim.identity.CarrierSubject().String(), other.identity.CarrierSubject().String()),
 		cmp.Compare(claim.installRequest.RouteID(), other.installRequest.RouteID()),

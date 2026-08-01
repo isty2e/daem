@@ -166,7 +166,7 @@ func (action Action) Validate() error {
 func (action Action) Compare(other Action) int {
 	left := action.claim
 	right := other.claim
-	if order := cmp.Compare(left.Owner().StatefileKey(), right.Owner().StatefileKey()); order != 0 {
+	if order := left.Owner().Key().Compare(right.Owner().Key()); order != 0 {
 		return order
 	}
 	if order := cmp.Compare(left.Identity().Target(), right.Identity().Target()); order != 0 {

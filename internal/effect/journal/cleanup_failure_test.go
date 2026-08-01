@@ -41,7 +41,7 @@ func TestCleanupFailureProjectsFinalizedGCStateWithoutCauseText(t *testing.T) {
 	cause := errors.New("unlink /private/recovery/gc: input/output error")
 	finalized := finalizedWithGCResidue(cause)
 	err := WrapCleanupFailure(
-		retirement.ActionMigrateLegacyJournalTombstone,
+		retirement.ActionFinalizeJournalCleanup,
 		finalized,
 	)
 
@@ -49,7 +49,7 @@ func TestCleanupFailureProjectsFinalizedGCStateWithoutCauseText(t *testing.T) {
 	if !errors.As(err, &failure) {
 		t.Fatalf("errors.As(%v, *CleanupFailure) = false", err)
 	}
-	if failure.Action() != retirement.ActionMigrateLegacyJournalTombstone ||
+	if failure.Action() != retirement.ActionFinalizeJournalCleanup ||
 		failure.Phase() != CleanupFailurePhaseGarbageCollection {
 		t.Fatalf(
 			"cleanup failure action=%q phase=%q",
@@ -57,7 +57,7 @@ func TestCleanupFailureProjectsFinalizedGCStateWithoutCauseText(t *testing.T) {
 			failure.Phase(),
 		)
 	}
-	const want = "journal cleanup incomplete: phase=garbage_collection action=migrate_legacy_journal_tombstone; semantic retirement is committed and no recovery action remains"
+	const want = "journal cleanup incomplete: phase=garbage_collection action=finalize_journal_cleanup; semantic retirement is committed and no recovery action remains"
 	if err.Error() != want {
 		t.Fatalf("cleanup failure = %q, want %q", err, want)
 	}

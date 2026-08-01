@@ -20,7 +20,7 @@ func TestReadPathStatusSharesOnePersistenceEpoch(t *testing.T) {
 		{
 			path:         "internal/workflow/status/command.go",
 			stateLoad:    "statefile.LoadOptional(ctx, paths.StatefilePath)",
-			claimsLoad:   "carrierStore.Load(ctx)",
+			claimsLoad:   "carrierStore.LoadForSelectedAuthority(",
 			wantState:    1,
 			wantClaims:   1,
 			epochPurpose: "target availability",
@@ -93,7 +93,7 @@ func TestReadPathApplyLoadsOnePersistencePairPerNamedPlanningEpoch(t *testing.T)
 	); got != 1 {
 		t.Fatalf("apply persistence state load sites = %d, want 1", got)
 	}
-	if got := strings.Count(content, "carrierStore.Load(ctx)"); got != 1 {
+	if got := strings.Count(content, "carrierStore.LoadForSelectedAuthority("); got != 1 {
 		t.Fatalf("apply persistence claim load sites = %d, want 1", got)
 	}
 	if !strings.Contains(

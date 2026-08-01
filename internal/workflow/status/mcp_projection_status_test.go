@@ -8,6 +8,7 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
@@ -661,19 +662,11 @@ func writeStatusOwnershipClaim(t *testing.T, manifestPath string, destination ou
 	if err != nil {
 		t.Fatalf("resolve ownership destination: %v", err)
 	}
-	canonicalPhysical, err := mutation.CanonicalDirectoryEntryKey(physical)
-	if err != nil {
-		t.Fatalf("canonicalize ownership destination: %v", err)
-	}
-	address, err := ownership.NewManagedAddress(canonicalPhysical, string(contentPath))
+	address, err := ownership.NewManagedAddress(mustObservedPathAuthority(t, physical), string(contentPath))
 	if err != nil {
 		t.Fatalf("NewManagedAddress: %v", err)
 	}
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(paths.StatefilePath)
-	if err != nil {
-		t.Fatalf("canonicalize statefile authority: %v", err)
-	}
-	owner, err := stateauthority.New(statefileKey, paths.ManifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, paths.StatefilePath), paths.ManifestPath)
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}
@@ -764,4 +757,13 @@ func canonicalStatusOpenCodeGlobalMCPEntryWithArgs(t *testing.T, serverID string
 		t.Fatalf("CanonicalOpenCodeGlobalMCPServerEntry returned error: %v", err)
 	}
 	return canonical
+}
+
+func mustObservedPathAuthority(t *testing.T, path string) pathauthority.Exact {
+	t.Helper()
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatalf("ObservePersistedDirectoryEntryAuthority(%q): %v", path, err)
+	}
+	return authority.Exact()
 }

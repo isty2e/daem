@@ -25,6 +25,59 @@ path-resolution failure is reported alongside the platform error. This does
 not make apply, recovery, or other storage-backed workflows available; run
 those commands on a target admitted by [Platform Support](platforms.md).
 
+## Pre-1.0 Durable Authority Schemas
+
+Current daem persists each filesystem authority as a canonical key plus the
+versioned filesystem-semantics witness used to derive it. Statefile v7, shared
+ownership registry v1, carrier claim registry v1, and recovery journal v7
+stored only path strings. Current daem does not guess whether an old lowercase
+path came from a case-sensitive, case-insensitive, or Unicode
+normalization-equivalent namespace.
+
+There is one narrow retirement exception. An exact v7 statefile whose seven
+fact-family arrays are all present and empty, or an exact v1 ownership/carrier
+registry whose `claims` array is present and empty, contains no remaining path
+authority. Current daem reads that artifact as canonical empty state. Read-only
+commands do not rewrite or delete it; the next ordinary guarded write that
+changes that state records the current schema. Missing, null, populated, or
+unknown fields are not an empty retirement artifact and remain blocked. Field
+names in versioned durable files use exact ASCII `lower_snake_case` spelling;
+case variants such as `CLAIMS` are rejected rather than treated as aliases.
+Recovery journal v7 is always blocked because its presence may represent
+interrupted effects.
+
+No action is needed for a new workspace with none of these old durable files.
+If a populated old artifact or any old recovery journal exists, do not hand-edit
+it into the new schema: a witness must come from a fresh filesystem observation,
+and changing the JSON would forge authority rather than migrate it. A schema
+version newer than this daem understands instead requires upgrading daem; do not
+apply the old-binary retirement procedure to a future schema.
+
+Do not edit or delete the statefile, shared ownership registry, carrier claim
+registry, or recovery journal to bypass the refusal. Use this single
+dry-run-first retirement and re-adoption route:
+
+1. Keep an exact copy of the manifest and lockfile in version control, and use
+   the daem binary that wrote the old schema against the same manifest path.
+2. If that version reports an active journal, run `daem recover --dry-run`,
+   review it, and complete that recovery before changing declarations.
+3. Capture `daem status --json` and `daem apply --dry-run --diff` as evidence of
+   the old managed state.
+4. With the old version, remove the manifest's managed resources through
+   ordinary `daem remove` operations, review the resulting `daem apply --dry-run
+   --diff`, and apply the retirement. This lets the old version remove its own
+   host outputs and release state and shared claims through their normal
+   protocols. It may leave the exact empty v7/v1 artifacts described above.
+5. Confirm no recovery journal remains. Restore the manifest declarations from
+   version control. With current daem,
+   run `daem lock --dry-run --verbose`, `daem lock`, and `daem apply --dry-run
+   --diff`; then apply only after the recreated outputs and any
+   `--manage-existing` adoption are acceptable.
+
+Do not mix the old and current daem versions between these steps. If ordinary
+old-version recovery or retirement cannot complete, preserve the files and
+diagnostics for manual analysis rather than deleting authority evidence.
+
 ## `ownership_conflict`
 
 Another manifest owns the same whole output or an overlapping config
@@ -212,23 +265,13 @@ Review the dry-run and rerun recovery; do not delete hidden residue or the
 visible retirement control manually. A stale, replaced, malformed, or
 cross-paired artifact is intentionally refused instead of being guessed safe.
 
-If the plan reports `legacy_tombstone_migration`, daem found one invoking-user
-owned v0.1 `.daem-tombstone-<32 lowercase hex>` directory with mode `0700`, a
-bounded no-follow tree that stays on the selected filesystem, and a complete
-valid v7 `journal.json` with mode `0600`. Review the dry-run and rerun recovery.
-Daem derives the operation identity from journal content, publishes correlated
-control, revalidates the selected directory and journal, then converts it to
-canonical cleanup residue. It does not infer identity from the random suffix
-or touch host, statefile, or ownership data during this migration.
-
-Short, uppercase, malformed, non-private, unreadable, invalid, multiple, or
-conflicting tombstones are not automatic migration candidates. Trees that
-cross a mount boundary, contain special files, exceed traversal bounds, or
-contain entries owned by another user are also rejected. Do not rename one to
-make it match or delete it merely from its prefix. Preserve a copy of the
-recovery root and inspect the journal and conflicting retirement evidence.
-Remove an artifact manually only after independently proving that no recovery
-or backup data is still required.
+If recovery reports a pre-1.0 `.daem-tombstone-<32 lowercase hex>`, stop the
+upgrade path. The current binary recognizes that exact old format only to
+block; it does not inspect or migrate the old authority schema. Other names in
+the `.daem-tombstone-` namespace are blocked as malformed. Use the daem version
+that wrote a valid old tombstone to finish recovery, then upgrade. Do not rename
+or delete the directory merely from its prefix. Remove it manually only after
+independently proving that no interrupted apply or backup data remains.
 
 If a command reports `journal retirement committed; hidden GC cleanup did not
 complete successfully; no recovery action remains`, the journal residue was

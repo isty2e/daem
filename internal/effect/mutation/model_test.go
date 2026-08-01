@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -184,22 +185,115 @@ func TestCanonicalDirectoryEntryKeyMatchesDomainIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonicalize real parent: %v", err)
 	}
-	want := normalizePlatformPathKey(filepath.Join(canonicalParent, "state.json"))
+	wantIdentity, err := canonicalPathIdentity(
+		filepath.Join(canonicalParent, "state.json"),
+		PathEffectDirectoryEntry,
+	)
+	if err != nil {
+		t.Fatalf("canonicalize expected state path: %v", err)
+	}
+	want := wantIdentity.keyPath
 	if key != want {
 		t.Fatalf("CanonicalDirectoryEntryKey = %q, want %q", key, want)
 	}
 }
 
-func TestPlatformPathKeyConservativelyCoalescesCaseAliases(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "FutureName")
-	got := normalizePlatformPathKey(path)
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		if got == path {
-			t.Fatalf("case-conservative platform key did not normalize %q", path)
-		}
-		return
+func TestCanonicalObservedPathAppliesCaseSemanticsPerComponent(t *testing.T) {
+	identity, err := canonicalObservedPath(
+		string(filepath.Separator),
+		[]observedPathComponent{
+			{spelling: "Sensitive", caseMode: pathCaseSensitive},
+			{spelling: "Insensitive", caseMode: pathCaseInsensitive},
+			{spelling: "Leaf", caseMode: pathCaseSensitive},
+		},
+		"test-v1",
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got != path {
-		t.Fatalf("case-sensitive platform key = %q, want %q", got, path)
+	wantAccess := filepath.Join(string(filepath.Separator), "Sensitive", "Insensitive", "Leaf")
+	wantKey := filepath.Join(string(filepath.Separator), "Sensitive", "insensitive", "Leaf")
+	if identity.accessPath != wantAccess || identity.keyPath != wantKey {
+		t.Fatalf("identity = %#v, want access=%q key=%q", identity, wantAccess, wantKey)
+	}
+	if identity.witness != "test-v1:sis" {
+		t.Fatalf("witness = %q, want test-v1:sis", identity.witness)
+	}
+}
+
+func TestPlatformPathIdentityUsesObservedHostContract(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "FutureName")
+	identity, err := canonicalPathIdentity(path, PathEffectDirectoryEntry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		if identity.keyPath == path {
+			t.Fatalf("Windows key did not fold %q", path)
+		}
+	case "darwin":
+		if !strings.HasPrefix(string(identity.witness), "darwin-case-v1:") {
+			t.Fatalf("Darwin witness = %q", identity.witness)
+		}
+	default:
+		if identity.keyPath != path {
+			t.Fatalf("case-sensitive platform key = %q, want %q", identity.keyPath, path)
+		}
+	}
+}
+
+func TestPersistedDirectoryEntryAuthorityCarriesExactObservation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "State.json")
+	authority, err := ObservePersistedDirectoryEntryAuthority(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authority.Exact().IsZero() {
+		t.Fatal("observed exact authority is zero")
+	}
+	if err := authority.Exact().Validate(); err != nil {
+		t.Fatalf("exact authority is invalid: %v", err)
+	}
+}
+
+func TestPathSemanticsWitnessParticipatesInDomainIdentity(t *testing.T) {
+	key := filepath.Join(string(filepath.Separator), "same", "key")
+	before := canonicalPath{keyPath: key, accessPath: key, witness: "test-v1:ss"}
+	after := canonicalPath{keyPath: key, accessPath: key, witness: "test-v1:si"}
+	domain := Domain{canonicalPath: before.keyPath, pathWitness: before.witness}
+	if !domain.matchesPathIdentity(before) {
+		t.Fatal("domain rejected its captured path identity")
+	}
+	if domain.matchesPathIdentity(after) {
+		t.Fatal("domain accepted changed semantics with the same rendered key")
+	}
+}
+
+func TestPathSemanticsWitnessParticipatesInStoreIdentity(t *testing.T) {
+	key := filepath.Join(string(filepath.Separator), "same", "key")
+	before := canonicalPath{keyPath: key, accessPath: key, witness: "test-v1:ss"}
+	after := canonicalPath{keyPath: key, accessPath: key, witness: "test-v1:si"}
+	store := Store{rootKey: before.keyPath, rootWitness: before.witness}
+	if !store.matchesRootIdentity(before) {
+		t.Fatal("store rejected its captured root identity")
+	}
+	if store.matchesRootIdentity(after) {
+		t.Fatal("store accepted changed semantics with the same rendered key")
+	}
+}
+
+func TestNormalizeRejectsContradictoryWitnessesForOnePathKey(t *testing.T) {
+	key := filepath.Join(string(filepath.Separator), "same", "key")
+	store := mutationTestStore(t)
+	left := Domain{
+		kind: domainLogicalPath, access: AccessShared, canonicalPath: key,
+		pathWitness: "test-v1:ss", requestedPath: key, effect: PathEffectDirectoryEntry,
+	}
+	right := left
+	right.pathWitness = "test-v1:si"
+	if _, err := store.normalize([]Domain{left, right}); err == nil ||
+		!strings.Contains(err.Error(), "contradictory filesystem semantics") {
+		t.Fatalf("normalize error = %v, want contradictory semantics rejection", err)
 	}
 }

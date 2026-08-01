@@ -7,6 +7,7 @@ import (
 	"io"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
@@ -30,8 +31,13 @@ type claimDTO struct {
 }
 
 type authorityDTO struct {
-	StatefileKey string `json:"statefile_key"`
-	ManifestPath string `json:"manifest_path"`
+	StatefileAuthority pathAuthorityDTO `json:"statefile_authority"`
+	ManifestPath       string           `json:"manifest_path"`
+}
+
+type pathAuthorityDTO struct {
+	Key     string `json:"key"`
+	Witness string `json:"semantics_witness"`
 }
 
 type identityDTO struct {
@@ -87,9 +93,13 @@ func persistedClaim(claim durablecarrier.ManagedCarrierClaim) claimDTO {
 	key := identity.Carrier().Key()
 	relation := identity.ExpectedRelation()
 	request := claim.InstallRequest()
+	statefile := claim.Owner().StatefileAuthority()
 	return claimDTO{
 		Owner: authorityDTO{
-			StatefileKey: claim.Owner().StatefileKey(),
+			StatefileAuthority: pathAuthorityDTO{
+				Key:     statefile.Key(),
+				Witness: statefile.Witness(),
+			},
 			ManifestPath: claim.Owner().ManifestPath(),
 		},
 		Identity: identityDTO{
@@ -127,13 +137,25 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 			maximumRegistryBytes,
 		)
 	}
-	if err := jsonstrict.Validate(
+	version, err := jsonstrict.ValidateVersionedObject(
 		content,
 		"carrier claim registry",
 		maximumRegistryJSONDepth,
-	); err != nil {
+	)
+	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
+	switch version {
+	case currentVersion:
+		return decodeCurrent(content)
+	case retiredCarrierClaimRegistryVersion:
+		return decodeRetiredCarrierClaimRegistry(content)
+	default:
+		return durablecarrier.GlobalCarrierClaims{}, unsupportedCarrierClaimRegistryVersion(version)
+	}
+}
+
+func decodeCurrent(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 	var persisted registryDTO
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -147,10 +169,7 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("decode carrier claim registry trailer: %w", err)
 	}
 	if persisted.Version != currentVersion {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
-			"unsupported carrier claim registry version %d",
-			persisted.Version,
-		)
+		return durablecarrier.GlobalCarrierClaims{}, unsupportedCarrierClaimRegistryVersion(persisted.Version)
 	}
 	if persisted.Claims == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry requires claims array")
@@ -166,11 +185,28 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 	return durablecarrier.NewGlobalCarrierClaims(claims)
 }
 
-func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error) {
-	owner, err := stateauthority.New(
-		persisted.Owner.StatefileKey,
-		persisted.Owner.ManifestPath,
+func unsupportedCarrierClaimRegistryVersion(version int) error {
+	if version > currentVersion {
+		return fmt.Errorf(
+			"unsupported carrier claim registry version %d; it was written by a newer daem, so upgrade daem before reading it",
+			version,
+		)
+	}
+	return fmt.Errorf(
+		"unsupported carrier claim registry version %d; use the daem version that wrote it to recover or retire managed carriers before upgrading",
+		version,
 	)
+}
+
+func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error) {
+	statefile, err := pathauthority.NewExact(
+		persisted.Owner.StatefileAuthority.Key,
+		persisted.Owner.StatefileAuthority.Witness,
+	)
+	if err != nil {
+		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("owner statefile authority: %w", err)
+	}
+	owner, err := stateauthority.New(statefile, persisted.Owner.ManifestPath)
 	if err != nil {
 		return durablecarrier.ManagedCarrierClaim{}, fmt.Errorf("owner: %w", err)
 	}

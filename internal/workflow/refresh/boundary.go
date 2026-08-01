@@ -79,7 +79,11 @@ func defaultRelationObserver(
 	if err != nil {
 		return RelationObservation{}, err
 	}
-	globalClaims, err := carrierClaimsStore.Load(ctx)
+	globalClaims, err := carrierClaimsStore.LoadForSelectedAuthority(
+		ctx,
+		input.Paths.StatefilePath,
+		input.Paths.ManifestPath,
+	)
 	if err != nil {
 		return RelationObservation{}, err
 	}

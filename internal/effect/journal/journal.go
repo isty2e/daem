@@ -7,13 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"time"
-	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -42,7 +41,7 @@ func recoveryJournalAuthorityFingerprint(
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 7
+	recoveryJournalVersion            = 8
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.
@@ -187,21 +186,16 @@ func decodeRecoveryJournalSnapshot(
 		)
 	}
 	content := snapshot.Content()
-	if !utf8.Valid(content) {
-		return recoveryJournal{}, fmt.Errorf("recovery journal is not valid UTF-8")
-	}
-	if err := validateRecoveryJournalJSON(content); err != nil {
+	version, err := jsonstrict.ValidateVersionedObject(
+		content,
+		"recovery journal",
+		maximumRecoveryJournalJSONDepth,
+	)
+	if err != nil {
 		return recoveryJournal{}, err
 	}
-
-	var envelope struct {
-		Version int `json:"version"`
-	}
-	if err := json.Unmarshal(content, &envelope); err != nil {
-		return recoveryJournal{}, err
-	}
-	if envelope.Version != recoveryJournalVersion {
-		return recoveryJournal{}, fmt.Errorf("unsupported recovery journal version %d", envelope.Version)
+	if version != recoveryJournalVersion {
+		return recoveryJournal{}, unsupportedRecoveryJournalVersion(version)
 	}
 
 	var persisted recoveryJournalDTO
@@ -239,79 +233,17 @@ func decodeRecoveryJournalSnapshot(
 	return journal, nil
 }
 
-func validateRecoveryJournalJSON(content []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.UseNumber()
-	if err := consumeRecoveryJournalJSONValue(decoder, 0); err != nil {
-		return err
-	}
-	if token, err := decoder.Token(); err == nil {
-		return fmt.Errorf("recovery journal contains multiple JSON values beginning with %v", token)
-	} else if err != io.EOF {
-		return err
-	}
-	return nil
-}
-
-func consumeRecoveryJournalJSONValue(decoder *json.Decoder, depth int) error {
-	if depth > maximumRecoveryJournalJSONDepth {
+func unsupportedRecoveryJournalVersion(version int) error {
+	if version > recoveryJournalVersion {
 		return fmt.Errorf(
-			"recovery journal JSON exceeds maximum depth %d",
-			maximumRecoveryJournalJSONDepth,
+			"unsupported recovery journal version %d; it was written by a newer daem, so upgrade daem before recovery and never discard it without confirming no interrupted apply remains",
+			version,
 		)
 	}
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, composite := token.(json.Delim)
-	if !composite {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return fmt.Errorf("recovery journal object key is not a string")
-			}
-			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("recovery journal contains duplicate object key %q", key)
-			}
-			seen[key] = struct{}{}
-			if err := consumeRecoveryJournalJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if closing != json.Delim('}') {
-			return fmt.Errorf("recovery journal object has invalid closing delimiter %v", closing)
-		}
-	case '[':
-		for decoder.More() {
-			if err := consumeRecoveryJournalJSONValue(decoder, depth+1); err != nil {
-				return err
-			}
-		}
-		closing, err := decoder.Token()
-		if err != nil {
-			return err
-		}
-		if closing != json.Delim(']') {
-			return fmt.Errorf("recovery journal array has invalid closing delimiter %v", closing)
-		}
-	default:
-		return fmt.Errorf("recovery journal has unexpected JSON delimiter %q", delimiter)
-	}
-	return nil
+	return fmt.Errorf(
+		"unsupported recovery journal version %d; use the daem version that wrote it to recover before upgrading and never discard it without confirming no interrupted apply remains",
+		version,
+	)
 }
 
 func validateRecoveryJournal(journal recoveryJournal, stateEncoder durable.SnapshotEncoder) error {

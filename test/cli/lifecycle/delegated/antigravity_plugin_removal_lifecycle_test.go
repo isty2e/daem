@@ -12,6 +12,7 @@ import (
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/test/testkit"
 )
 
 func TestAntigravityPluginDesiredAbsenceRemovesExactManagedHostPair(t *testing.T) {
@@ -167,7 +168,7 @@ func TestAntigravityGlobalRemovalBlocksForAnotherDaemKnownConsumer(t *testing.T)
 	}
 	otherRoot := filepath.Join(fixture.root, "other-project")
 	owner, err := stateauthority.New(
-		filepath.Join(otherRoot, ".daem", "state.json"),
+		testkit.MustObservedPathAuthority(t, filepath.Join(otherRoot, ".daem", "state.json")),
 		filepath.Join(otherRoot, "daem.toml"),
 	)
 	if err != nil {

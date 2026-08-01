@@ -23,3 +23,11 @@ func mkdirMutationTest(path string) error {
 func symlinkForMutationTest(oldname string, newname string) error {
 	return os.Symlink(oldname, newname)
 }
+
+func mustMutationTestCanonicalPath(path string) canonicalPath {
+	identity, err := canonicalPathIdentity(path, PathEffectDirectoryEntry)
+	if err != nil {
+		panic(err)
+	}
+	return identity
+}

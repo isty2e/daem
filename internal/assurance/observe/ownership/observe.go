@@ -52,13 +52,16 @@ func Build(input Input) (Result, error) {
 	if input.Resolver == nil {
 		return Result{}, fmt.Errorf("ownership observation destination resolver is required")
 	}
-	statefileKey, err := mutation.CanonicalDirectoryEntryKey(input.Paths.StatefilePath)
+	statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(input.Paths.StatefilePath)
 	if err != nil {
 		return Result{}, fmt.Errorf("canonicalize state authority: %w", err)
 	}
-	owner, err := stateauthority.New(statefileKey, input.Paths.ManifestPath)
+	owner, err := stateauthority.New(statefileAuthority.Exact(), input.Paths.ManifestPath)
 	if err != nil {
 		return Result{}, fmt.Errorf("construct state authority: %w", err)
+	}
+	if err := validateRegistryStateAuthority(input.Registry, owner); err != nil {
+		return Result{}, err
 	}
 
 	byKey := make(map[observationKey]observe.OwnershipObservation)
@@ -137,6 +140,28 @@ func Build(input Input) (Result, error) {
 	return Result{Owner: owner, Observations: observations}, nil
 }
 
+func validateRegistryStateAuthority(
+	registry outputownership.Registry,
+	owner stateauthority.Authority,
+) error {
+	for index, claim := range registry.Claims() {
+		if claim.Owner().ManifestPath() != owner.ManifestPath() {
+			continue
+		}
+		if !claim.Owner().Equal(owner) {
+			return fmt.Errorf(
+				"ownership registry claim[%d] for selected manifest has state authority %q with semantics %q, want %q with semantics %q",
+				index,
+				claim.Owner().StatefileKey(),
+				claim.Owner().StatefileAuthority().Witness(),
+				owner.StatefileKey(),
+				owner.StatefileAuthority().Witness(),
+			)
+		}
+	}
+	return nil
+}
+
 func managedPathSelected(consumers []target.Target, selection targetselection.Selection) bool {
 	return slices.ContainsFunc(consumers, selection.Includes)
 }
@@ -161,11 +186,11 @@ func addObservation(
 	if err != nil {
 		return fmt.Errorf("resolve ownership destination %q: %w", destination, err)
 	}
-	canonical, err := mutation.CanonicalDirectoryEntryKey(resolved)
+	authority, err := mutation.ObservePersistedDirectoryEntryAuthority(resolved)
 	if err != nil {
 		return fmt.Errorf("canonicalize ownership destination %q: %w", destination, err)
 	}
-	address, err := outputownership.NewManagedAddress(canonical, string(contentPath))
+	address, err := outputownership.NewManagedAddress(authority.Exact(), string(contentPath))
 	if err != nil {
 		return fmt.Errorf("construct ownership address for %q: %w", destination, err)
 	}

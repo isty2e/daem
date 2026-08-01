@@ -90,7 +90,7 @@ func newWorkflowFixtureWithPostconditions(
 	if err := os.WriteFile(manifestPath, []byte("version = 1\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	owner, err := stateauthority.New(statePath, manifestPath)
+	owner, err := stateauthority.New(mustObservedPathAuthority(t, statePath), manifestPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,6 +10,7 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observeclaudeplugin "github.com/isty2e/daem/internal/assurance/observe/claudeplugin"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -309,10 +310,11 @@ func retainedCarrierFixtureFor(t *testing.T, locked lock.File) retainedCarrierFi
 		t.Fatalf("NewManagedCarrierIdentity: %v", err)
 	}
 	root := t.TempDir()
-	owner, err := stateauthority.New(
+	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(root, ".daem", "state.json"),
-		filepath.Join(root, "daem.toml"),
-	)
+	),
+
+		filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatalf("stateauthority.New: %v", err)
 	}

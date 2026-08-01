@@ -2,6 +2,8 @@ package journal
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 )
 
@@ -59,29 +62,6 @@ func TestRecoveryRootInventoryClassifiesClosedPhysicalStates(t *testing.T) {
 				return identity
 			},
 			want: retirement.StatePrepared,
-		},
-		{
-			name: "legacy migration",
-			setup: func(t *testing.T, root string) retirement.Identity {
-				t.Helper()
-				identity, result := captureInventoryJournal(t, root, "inventory-legacy")
-				renameInventoryJournalToLegacy(t, result, "a")
-				return identity
-			},
-			want:        retirement.StateLegacyMigration,
-			wantCleanup: true,
-		},
-		{
-			name: "prepared legacy migration",
-			setup: func(t *testing.T, root string) retirement.Identity {
-				t.Helper()
-				identity, result := captureInventoryJournal(t, root, "inventory-legacy-prepared")
-				writeInventoryControl(t, root, identity, retirement.PhasePrepared)
-				renameInventoryJournalToLegacy(t, result, "b")
-				return identity
-			},
-			want:        retirement.StateLegacyPrepared,
-			wantCleanup: true,
 		},
 		{
 			name: "retained",
@@ -248,7 +228,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 					t.Fatalf("create legacy tombstone symlink: %v", err)
 				}
 			},
-			want: "must be a no-follow directory",
+			want: "unsupported authority schema",
 		},
 		{
 			name: "legacy tombstone wrong mode",
@@ -259,7 +239,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 					t.Fatalf("change legacy tombstone mode: %v", err)
 				}
 			},
-			want: "permissions are 0755, want 0700",
+			want: "unsupported authority schema",
 		},
 		{
 			name: "legacy tombstone invalid journal",
@@ -272,7 +252,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 					[]byte(`{"schema_version":7}`),
 				)
 			},
-			want: "unsupported recovery journal version 0",
+			want: "unsupported authority schema",
 		},
 		{
 			name: "multiple legacy tombstones",
@@ -293,7 +273,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 					t.Fatalf("move second legacy tombstone: %v", err)
 				}
 			},
-			want: "multiple legacy journal tombstones",
+			want: "unsupported authority schema",
 		},
 		{
 			name: "prepared control legacy mismatch",
@@ -314,7 +294,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 				writeInventoryControl(t, root, first, retirement.PhasePrepared)
 				renameInventoryJournalToLegacy(t, secondResult, "f")
 			},
-			want: "does not match its retirement control",
+			want: "unsupported authority schema",
 		},
 		{
 			name: "foreign visible file",
@@ -460,6 +440,89 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 			}
 		})
 	}
+}
+
+func TestRecoveryRootInventoryBlocksPre10TombstoneWithoutNestedObservation(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	tombstone := filepath.Join(
+		recoveryRoot,
+		".daem-tombstone-"+strings.Repeat("a", 32),
+	)
+	mkdirPrivate(t, tombstone)
+	writePrivateFile(t, filepath.Join(tombstone, recoveryJournalFileName), []byte("not json"))
+
+	filesystem := &rejectNestedTombstoneObservationStore{Store: journalTestFilesystem()}
+	inventory, err := loadRecoveryRootInventory(t.Context(), recoveryRoot, inventoryOptions{
+		Filesystem: filesystem,
+		StateCodec: testStateCodec(),
+	})
+	if err != nil {
+		t.Fatalf("loadRecoveryRootInventory: %v", err)
+	}
+	if inventory.decision.State() != retirement.StateBlocked ||
+		!strings.Contains(inventory.decision.Detail(), "unsupported authority schema") {
+		t.Fatalf("decision = %#v, want unsupported pre-1.0 tombstone", inventory.decision)
+	}
+	if filesystem.calls != 0 {
+		t.Fatalf("nested tombstone observation calls = %d, want none", filesystem.calls)
+	}
+}
+
+type rejectNestedTombstoneObservationStore struct {
+	mutationfs.Store
+	calls int
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) unexpected() error {
+	filesystem.calls++
+	return errors.New("unexpected nested tombstone observation")
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) CaptureRootedEntryIdentity(
+	context.Context,
+	rootedpath.CommitCapability,
+) (mutationfs.EntryIdentity, error) {
+	return nil, filesystem.unexpected()
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) ReadRootedRegularFile(
+	context.Context,
+	rootedpath.CommitCapability,
+) ([]byte, fs.FileMode, mutationfs.EntryIdentity, error) {
+	return nil, 0, nil, filesystem.unexpected()
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) ReadRootedRegularFileUpTo(
+	context.Context,
+	rootedpath.CommitCapability,
+	int64,
+) ([]byte, fs.FileMode, mutationfs.EntryIdentity, error) {
+	return nil, 0, nil, filesystem.unexpected()
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) SnapshotRootedDirectoryEntries(
+	context.Context,
+	rootedpath.CommitCapability,
+	int,
+) (mutationfs.DirectorySnapshot, error) {
+	return mutationfs.DirectorySnapshot{}, filesystem.unexpected()
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) SnapshotRootedDirectory(
+	context.Context,
+	rootedpath.CommitCapability,
+	mutationfs.TreeTraversalLimits,
+	mutationfs.RootedTreeSnapshotSink,
+) (mutationfs.EntryIdentity, error) {
+	return nil, filesystem.unexpected()
+}
+
+func (filesystem *rejectNestedTombstoneObservationStore) ValidateRootedDirectoryTree(
+	context.Context,
+	rootedpath.CommitCapability,
+	mutationfs.TreeTraversalLimits,
+) (mutationfs.EntryIdentity, error) {
+	return nil, filesystem.unexpected()
 }
 
 func TestRecoveryRootInventoryRejectsJournalIdentityReplacement(t *testing.T) {

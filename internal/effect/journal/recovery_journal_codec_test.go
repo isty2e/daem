@@ -75,18 +75,12 @@ func TestRecoveryJournalWritesSubjectWithoutLegacyResourceField(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalRejectsVersionSixResourceIdentity(t *testing.T) {
+func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 7`), []byte(`"version": 6`), 1)
-	content = bytes.Replace(
-		content,
-		[]byte(`"subject": {`),
-		[]byte(`"resource": {"kind": "hook", "name": "format"}, "subject": {`),
-		1,
-	)
+	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +95,58 @@ func TestRecoveryJournalRejectsVersionSixResourceIdentity(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalRejectsResourceFieldInVersionSeven(t *testing.T) {
+func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 9, "future": true`), 1)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "journal.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "written by a newer daem") {
+		t.Fatalf("loadRecoveryJournal error = %v, want newer-daem guidance", err)
+	}
+	if strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("future recovery journal was decoded as current schema: %v", err)
+	}
+}
+
+func TestRecoveryJournalRejectsCaseVariantCurrentFields(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(
+		content,
+		[]byte(`"entries": [`),
+		[]byte(`"ENTRIES": [], "entries": [`),
+		1,
+	)
+	if !bytes.Contains(content, []byte(`"ENTRIES"`)) {
+		t.Fatal("test mutation did not add case-variant field")
+	}
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "journal.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "ASCII lower_snake_case") {
+		t.Fatalf("loadRecoveryJournal error = %v, want canonical-field rejection", err)
+	}
+}
+
+func TestRecoveryJournalRejectsResourceFieldInVersionEight(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
@@ -183,25 +228,34 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 		want   string
 	}{
 		{
-			name: "old journal version",
+			name: "pre-authority-witness journal version",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.Version = 5
+				candidate.Version = 7
 			},
-			want: "unsupported recovery journal version 5",
+			want: "unsupported recovery journal version 7",
 		},
 		{
 			name: "old nested state version",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 1`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 1`, 1),
 				)
 			},
 			want: "statefile_before: unsupported statefile version 1",
 		},
 		{
+			name: "empty retired nested state version",
+			mutate: func(candidate *recoveryJournalDTO) {
+				candidate.StatefileBefore = json.RawMessage(
+					`{"version":7,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`,
+				)
+			},
+			want: "statefile_before: unsupported statefile version 7",
+		},
+		{
 			name: "missing nested state families",
 			mutate: func(candidate *recoveryJournalDTO) {
-				candidate.StatefileBefore = json.RawMessage(`{"version":7}`)
+				candidate.StatefileBefore = json.RawMessage(`{"version":8}`)
 			},
 			want: "requires every durable fact-family array",
 		},
@@ -209,7 +263,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			name: "duplicate nested state key",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 7, "version": 7`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 8, "version": 8`, 1),
 				)
 			},
 			want: "duplicate object key",
@@ -219,13 +273,13 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(`null`)
 			},
-			want: "unsupported statefile version 0",
+			want: "statefile must be a JSON object",
 		},
 		{
 			name: "unknown nested state field",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(
-					strings.Replace(string(validBefore), `"version": 7`, `"version": 7, "ready": true`, 1),
+					strings.Replace(string(validBefore), `"version": 8`, `"version": 8, "ready": true`, 1),
 				)
 			},
 			want: "unknown field",
@@ -353,8 +407,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 7`,
-				`"version": 7, "version": 7`,
+				`"version": 8`,
+				`"version": 8, "version": 8`,
 				1,
 			),
 		},
