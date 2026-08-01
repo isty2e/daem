@@ -1,8 +1,8 @@
 # Install, Upgrade, And Roll Back
 
 GitHub Releases is the canonical source for published `daem` binaries. Every
-supported release asset has a SHA-256 sidecar produced from the same immutable
-tag and native verification lane.
+supported release asset has a SHA-256 sidecar generated from the archive by the
+same native verification lane and published alongside it.
 
 ## Supported Release Assets
 
@@ -108,17 +108,22 @@ The macOS preflight runs before network access. The installed binary repeats
 the same runtime-floor decision for supported workflows; the shell check is an
 early diagnostic, not authority to bypass the binary gate.
 
-The checksum detects accidental or malicious byte changes relative to the
-published sidecar. It is not a signature, publisher-authenticity proof, or
-substitute for verifying that the download came from the expected GitHub
-repository and HTTPS endpoint.
+Checksum verification confirms that the downloaded archive matches the
+downloaded sidecar. It detects transfer corruption and a mismatch between those
+two files. The archive and its checksum sidecar share the same mutable GitHub
+release authority, so this check does not prove publisher identity, provenance,
+or post-publication immutability. Confirm that both downloads came from the
+expected GitHub repository and HTTPS endpoint.
 
-## Release Immutability
+## Release Mutability
 
-Published release tags and attached assets are immutable. If a release is bad,
-it is superseded by a new version; the existing tag and assets are not replaced.
+Release `v0.1.0` was published while GitHub release immutability was disabled
+and remains a mutable GitHub release. Daem currently does not guarantee that a
+published tag or attached asset cannot be changed or deleted after publication.
 Pin an exact version when installing or rolling back, and verify its checksum
-sidecar. The moving "Latest" label is a discovery aid, not an artifact identity.
+sidecar, but do not treat the version and co-published checksum as historical
+immutability evidence. The moving "Latest" label is a discovery aid, not an
+artifact identity.
 
 ## Upgrade
 
