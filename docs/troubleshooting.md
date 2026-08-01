@@ -45,10 +45,11 @@ names in versioned durable files use exact ASCII `lower_snake_case` spelling;
 case variants such as `CLAIMS` are rejected rather than treated as aliases.
 Every pre-v10 recovery journal is blocked because its presence may represent
 interrupted effects. Journal v9 does not carry the exact ownership-transition
-foreign key and capture-time global destination binding required by the current
-recovery contract. Journal v8 already carried path witnesses, but it used an
-older transaction contract. Neither version is rewritten or adopted by the
-current binary; recover it with the daem version that wrote it before upgrading.
+foreign key or the capture-time global destination binding, including root
+object and mount provenance, required by the current recovery contract. Journal
+v8 already carried path witnesses, but it used an older transaction contract.
+Neither version is rewritten or adopted by the current binary; recover it with
+the daem version that wrote it before upgrading.
 
 No action is needed for a new workspace with none of these old durable files.
 If a populated old artifact or any old recovery journal exists, do not hand-edit

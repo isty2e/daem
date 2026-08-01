@@ -208,6 +208,7 @@ type recoveryEntryKey struct {
 
 func validateRecoveryEntries(entries []recoveryEntry) error {
 	seen := make(map[recoveryEntryKey]struct{}, len(entries))
+	globalBindings := make(map[string]recoveryGlobalPathBinding)
 	for index, entry := range entries {
 		context := fmt.Sprintf("recovery entries[%d]", index)
 		if entry.ContentPath != "" && entry.Aggregate == nil {
@@ -219,12 +220,23 @@ func validateRecoveryEntries(entries []recoveryEntry) error {
 		}
 		switch entry.Scope {
 		case string(target.ScopeGlobal):
-			if err := validateRecoveryResolvedGlobalPath(entry.ResolvedGlobalPath); err != nil {
-				return fmt.Errorf("%s.resolved_global_path: %w", context, err)
+			if entry.GlobalPathBinding == nil {
+				return fmt.Errorf("%s.global_path_binding: global entry requires its capture-time path binding", context)
 			}
+			if _, _, err := entry.GlobalPathBinding.canonical(); err != nil {
+				return fmt.Errorf("%s.global_path_binding: %w", context, err)
+			}
+			if previous, present := globalBindings[entry.Path]; present && previous != *entry.GlobalPathBinding {
+				return fmt.Errorf(
+					"%s.global_path_binding: global destination %q has inconsistent capture-time bindings",
+					context,
+					entry.Path,
+				)
+			}
+			globalBindings[entry.Path] = *entry.GlobalPathBinding
 		case string(target.ScopeProject):
-			if entry.ResolvedGlobalPath != "" {
-				return fmt.Errorf("%s.resolved_global_path: project entry must not carry a global path binding", context)
+			if entry.GlobalPathBinding != nil {
+				return fmt.Errorf("%s.global_path_binding: project entry must not carry a global path binding", context)
 			}
 		}
 		if err := recovery.ValidateBefore(entry.Before.canonical(), entry.ContentPath); err != nil {

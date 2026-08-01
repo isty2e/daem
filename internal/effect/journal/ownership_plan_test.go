@@ -478,7 +478,7 @@ func TestBuildRecoveryPlanClassifiesReleaseFinalization(t *testing.T) {
 func globalAcquireRecoveryEntry(t *testing.T) recoveryEntry {
 	t.Helper()
 	entry := recoveryEntryFor("global", "~/.codex/AGENTS.md", "", testAfterHash, "")
-	entry.ResolvedGlobalPath = "/tmp/daem-global-config.json"
+	entry.GlobalPathBinding = testRecoveryGlobalPathBinding("/tmp/daem-global-config.json")
 	entry.Before = persistedBeforePathState(recovery.BeforePathState{Existed: false})
 	entry.ExpectedAfter.PathExisted = false
 	entry.StateBefore = recoveryManagedMembership{}

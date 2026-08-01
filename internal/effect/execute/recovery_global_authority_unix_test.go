@@ -21,6 +21,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/output/ownership"
@@ -139,6 +140,53 @@ func TestRecoveryRejectsGlobalRootSelectionDriftBeforeEffects(t *testing.T) {
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
 	assertRecoveryTestContent(t, fixture.retargetedPath, fixture.after)
+	if _, statErr := os.Stat(fixture.plan.OperationDir()); statErr != nil {
+		t.Fatalf("retained recovery journal stat error = %v", statErr)
+	}
+}
+
+func TestRecoveryRejectsSamePathGlobalRootReplacementBeforeEffects(t *testing.T) {
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
+	fixture := newGlobalFileRecoveryFixture(t, destination, true)
+	movedRoot := filepath.Join(filepath.Dir(fixture.admittedRoot), "moved-admitted")
+	if err := os.Rename(fixture.admittedRoot, movedRoot); err != nil {
+		t.Fatalf("move captured global root: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(fixture.admittedPath), 0o700); err != nil {
+		t.Fatalf("create replacement global root: %v", err)
+	}
+	writeRecoveryTestFile(t, fixture.admittedPath, fixture.after)
+	relativePath, err := filepath.Rel(fixture.admittedRoot, fixture.admittedPath)
+	if err != nil {
+		t.Fatalf("derive moved destination: %v", err)
+	}
+	movedPath := filepath.Join(movedRoot, relativePath)
+	hostActions := 0
+
+	err = executeRecoveryPlanWithOptionsForTest(
+		context.Background(),
+		fixture.plan,
+		fixture.paths,
+		RecoveryOptions{
+			Resolver:                destinationResolver(fixture.paths),
+			OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+			StateCodec:              testStateCodec(),
+			StateReader:             testStateReader(fixture.paths.StatefilePath),
+			Filesystem:              testFilesystem(),
+			beforeHostAction: func(int) error {
+				hostActions++
+				return nil
+			},
+		},
+	)
+	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
+		t.Fatalf("ExecuteRecoveryPlanWithOptions error = %v, want %s", err, rootedpath.FailureRootReplaced)
+	}
+	if hostActions != 0 {
+		t.Fatalf("recovery host actions = %d, want none after root replacement", hostActions)
+	}
+	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
+	assertRecoveryTestContent(t, movedPath, fixture.after)
 	if _, statErr := os.Stat(fixture.plan.OperationDir()); statErr != nil {
 		t.Fatalf("retained recovery journal stat error = %v", statErr)
 	}
@@ -701,6 +749,7 @@ type globalFileRecoveryFixture struct {
 	paths          Paths
 	plan           recovery.Plan
 	aliasRoot      string
+	admittedRoot   string
 	retargetedRoot string
 	admittedPath   string
 	retargetedPath string
@@ -1001,6 +1050,7 @@ func newGlobalFileRecoveryFixture(
 		paths:          paths,
 		plan:           recoveryPlan,
 		aliasRoot:      aliasRoot,
+		admittedRoot:   admittedRoot,
 		retargetedRoot: retargetedRoot,
 		admittedPath:   admittedPath,
 		retargetedPath: retargetedPath,

@@ -25,7 +25,7 @@ type recoveryJournal struct {
 	OperationID           string                             `json:"operation_id"`
 	Operation             string                             `json:"operation"`
 	CreatedAt             string                             `json:"created_at"`
-	ProjectRootProvenance *recoveryProjectRootProvenance     `json:"project_root_provenance,omitempty"`
+	ProjectRootProvenance *recoveryRootProvenance            `json:"project_root_provenance,omitempty"`
 	Entries               []recoveryEntry                    `json:"entries"`
 	StatefileBefore       durable.Snapshot                   `json:"-"`
 	StatefileAfter        durable.Snapshot                   `json:"-"`
@@ -33,23 +33,29 @@ type recoveryJournal struct {
 	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
-type recoveryProjectRootProvenance struct {
+type recoveryRootProvenance struct {
 	PhysicalRoot      string `json:"physical_root"`
 	ObjectFingerprint string `json:"object_fingerprint"`
 	MountFingerprint  string `json:"mount_fingerprint"`
 }
 
+type recoveryGlobalPathBinding struct {
+	ResolvedPath   string                 `json:"resolved_path"`
+	RootProvenance recoveryRootProvenance `json:"root_provenance"`
+}
+
 // recoveryEntry is the exact journal-v10 persistence DTO. Subject is the sole
-// semantic identity carried across the recovery boundary. ResolvedGlobalPath
-// binds a global logical destination to its capture-time physical lexical path;
-// OwnershipPathAuthority is a separate foreign key to one exact claim transition.
+// semantic identity carried across the recovery boundary. GlobalPathBinding
+// binds a global logical destination to its capture-time physical root
+// incarnation; OwnershipPathAuthority is a separate foreign key to one exact
+// claim transition.
 type recoveryEntry struct {
 	Subject                persistedSubjectRef        `json:"subject"`
 	Target                 string                     `json:"target,omitempty"`
 	Targets                []string                   `json:"targets,omitempty"`
 	Scope                  string                     `json:"scope"`
 	Path                   string                     `json:"path"`
-	ResolvedGlobalPath     string                     `json:"resolved_global_path,omitempty"`
+	GlobalPathBinding      *recoveryGlobalPathBinding `json:"global_path_binding,omitempty"`
 	ContentPath            string                     `json:"content_path,omitempty"`
 	ContentKind            string                     `json:"content_kind,omitempty"`
 	OwnershipPathAuthority *pathAuthorityDTO          `json:"ownership_path_authority,omitempty"`

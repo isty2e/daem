@@ -3,6 +3,7 @@ package journal
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -76,10 +77,10 @@ func recoveryJournalFor(entries ...recoveryEntry) recoveryJournal {
 	}
 }
 
-func testRecoveryProjectRootProvenance(entries []recoveryEntry) *recoveryProjectRootProvenance {
+func testRecoveryProjectRootProvenance(entries []recoveryEntry) *recoveryRootProvenance {
 	for _, entry := range entries {
 		if entry.Scope == string(target.ScopeProject) {
-			return &recoveryProjectRootProvenance{
+			return &recoveryRootProvenance{
 				PhysicalRoot:      "/test/project",
 				ObjectFingerprint: "sha256:" + strings.Repeat("1", 64),
 				MountFingerprint:  "sha256:" + strings.Repeat("2", 64),
@@ -87,6 +88,17 @@ func testRecoveryProjectRootProvenance(entries []recoveryEntry) *recoveryProject
 		}
 	}
 	return nil
+}
+
+func testRecoveryGlobalPathBinding(resolvedPath string) *recoveryGlobalPathBinding {
+	return &recoveryGlobalPathBinding{
+		ResolvedPath: resolvedPath,
+		RootProvenance: recoveryRootProvenance{
+			PhysicalRoot:      filepath.Dir(resolvedPath),
+			ObjectFingerprint: "sha256:" + strings.Repeat("3", 64),
+			MountFingerprint:  "sha256:" + strings.Repeat("4", 64),
+		},
+	}
 }
 
 func defaultRecoveryEntry() recoveryEntry {

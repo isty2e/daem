@@ -369,7 +369,12 @@ func loadActivePlanFromInventory(
 	}
 	operationDir := inventory.active.operationDir
 	journal := inventory.active.journal
-	if err := validateRecoveryGlobalPathBindings(ctx, journal.Entries, options.Resolver); err != nil {
+	if err := validateRecoveryGlobalPathBindings(
+		ctx,
+		journal.Entries,
+		options.Resolver,
+		options.RootedCapability,
+	); err != nil {
 		return recovery.Plan{}, err
 	}
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)

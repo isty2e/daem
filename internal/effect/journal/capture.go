@@ -43,7 +43,7 @@ type CaptureOptions struct {
 	Filesystem                mutationfs.Store
 }
 
-// CaptureJournalWithOptions persists host, statefile, ownership, and project-root evidence.
+// CaptureJournalWithOptions persists host, statefile, ownership, and rooted-path evidence.
 // The caller must serialize recovery-directory mutation for the complete call.
 func CaptureJournalWithOptions(
 	ctx context.Context,
@@ -302,7 +302,11 @@ func buildRecoveryJournal(
 	if err != nil {
 		return recoveryJournal{}, err
 	}
-	globalPathBindings, err := captureRecoveryGlobalPathBindings(mutations, options.Resolver)
+	globalPathBindings, err := captureRecoveryGlobalPathBindings(
+		mutations,
+		options.Resolver,
+		options.RootedCapability,
+	)
 	if err != nil {
 		return recoveryJournal{}, err
 	}
@@ -362,7 +366,7 @@ func buildRecoveryJournal(
 			return recoveryJournal{}, err
 		}
 
-		resolvedGlobalPath, err := globalPathBindings.path(action.Scope, action.Destination)
+		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
 		if err != nil {
 			return recoveryJournal{}, err
 		}
@@ -372,7 +376,7 @@ func buildRecoveryJournal(
 			Targets:             targetStrings(action.ConsumerTargets),
 			Scope:               string(action.Scope),
 			Path:                action.Destination.String(),
-			ResolvedGlobalPath:  resolvedGlobalPath,
+			GlobalPathBinding:   globalPathBinding,
 			ContentPath:         string(action.ContentPath),
 			ContentKind:         string(action.ContentKind),
 			Before:              persistedBeforePathState(before),

@@ -60,7 +60,7 @@ type recoveryJournalDTO struct {
 	OperationID           string                             `json:"operation_id"`
 	Operation             string                             `json:"operation"`
 	CreatedAt             string                             `json:"created_at"`
-	ProjectRootProvenance *recoveryProjectRootProvenance     `json:"project_root_provenance,omitempty"`
+	ProjectRootProvenance *recoveryRootProvenance            `json:"project_root_provenance,omitempty"`
 	Entries               []recoveryEntry                    `json:"entries"`
 	StatefileBefore       json.RawMessage                    `json:"statefile_before"`
 	StatefileAfter        json.RawMessage                    `json:"statefile_after"`

@@ -94,7 +94,7 @@ func parseRecoveryTargets(values []string) ([]target.Target, error) {
 }
 
 func canonicalRecoveryProjectProvenance(
-	persisted *recoveryProjectRootProvenance,
+	persisted *recoveryRootProvenance,
 ) (*recovery.ProjectRootProvenance, error) {
 	if persisted == nil {
 		return nil, nil

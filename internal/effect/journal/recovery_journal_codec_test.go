@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -77,33 +78,84 @@ func TestRecoveryJournalWritesSubjectWithoutLegacyResourceField(t *testing.T) {
 
 func TestRecoveryJournalRequiresScopeExactGlobalPathBinding(t *testing.T) {
 	global := globalAcquireRecoveryEntry(t)
-	global.ResolvedGlobalPath = ""
+	global.GlobalPathBinding = nil
 	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
-		!strings.Contains(err.Error(), "global entry requires its capture-time resolved path") {
+		!strings.Contains(err.Error(), "global entry requires its capture-time path binding") {
 		t.Fatalf("missing global path binding error = %v", err)
 	}
 
-	global.ResolvedGlobalPath = "relative/path"
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding("relative/path")
 	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
 		!strings.Contains(err.Error(), "must be absolute") {
 		t.Fatalf("relative global path binding error = %v", err)
 	}
-	global.ResolvedGlobalPath = string([]byte{'/', 0xff})
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding(string([]byte{'/', 0xff}))
 	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
 		!strings.Contains(err.Error(), "valid UTF-8") {
 		t.Fatalf("non-UTF-8 global path binding error = %v", err)
 	}
 
-	global.ResolvedGlobalPath = "/tmp/daem-global-config.json"
+	resolvedPath := filepath.Join(t.TempDir(), "daem-global-config.json")
+	global.GlobalPathBinding = testRecoveryGlobalPathBinding(resolvedPath)
 	if err := validateRecoveryEntries([]recoveryEntry{global}); err != nil {
 		t.Fatalf("exact global path binding rejected: %v", err)
 	}
 
+	global.GlobalPathBinding.RootProvenance.ObjectFingerprint = "sha256:short"
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "object fingerprint is invalid") {
+		t.Fatalf("invalid global root provenance error = %v", err)
+	}
+
 	project := defaultRecoveryEntry()
-	project.ResolvedGlobalPath = "/tmp/forged-project-path"
+	project.GlobalPathBinding = testRecoveryGlobalPathBinding(
+		filepath.Join(t.TempDir(), "forged-project-path"),
+	)
 	if err := validateRecoveryEntries([]recoveryEntry{project}); err == nil ||
 		!strings.Contains(err.Error(), "project entry must not carry") {
 		t.Fatalf("project global path binding error = %v", err)
+	}
+}
+
+func TestRecoveryGlobalPathBindingWireShapeIsCohesive(t *testing.T) {
+	entry := globalAcquireRecoveryEntry(t)
+	entry.GlobalPathBinding = &recoveryGlobalPathBinding{
+		ResolvedPath: "/test/home/.codex/AGENTS.md",
+		RootProvenance: recoveryRootProvenance{
+			PhysicalRoot:      "/test/home",
+			ObjectFingerprint: "sha256:" + strings.Repeat("3", 64),
+			MountFingerprint:  "sha256:" + strings.Repeat("4", 64),
+		},
+	}
+	content, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal recovery entry: %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatalf("decode recovery entry: %v", err)
+	}
+	if _, legacy := document["resolved_global_path"]; legacy {
+		t.Fatal("global path binding leaked the obsolete scalar field")
+	}
+	rawBinding, present := document["global_path_binding"]
+	if !present {
+		t.Fatal("global_path_binding is missing")
+	}
+	var binding map[string]json.RawMessage
+	if err := json.Unmarshal(rawBinding, &binding); err != nil {
+		t.Fatalf("decode global_path_binding: %v", err)
+	}
+	if len(binding) != 2 || binding["resolved_path"] == nil || binding["root_provenance"] == nil {
+		t.Fatalf("global_path_binding keys = %v, want resolved_path and root_provenance", slices.Sorted(maps.Keys(binding)))
+	}
+	var provenance map[string]json.RawMessage
+	if err := json.Unmarshal(binding["root_provenance"], &provenance); err != nil {
+		t.Fatalf("decode root_provenance: %v", err)
+	}
+	if len(provenance) != 3 || provenance["physical_root"] == nil ||
+		provenance["object_fingerprint"] == nil || provenance["mount_fingerprint"] == nil {
+		t.Fatalf("root_provenance keys = %v", slices.Sorted(maps.Keys(provenance)))
 	}
 }
 
