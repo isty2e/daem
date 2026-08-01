@@ -302,6 +302,11 @@ func buildRecoveryJournal(
 	if err != nil {
 		return recoveryJournal{}, err
 	}
+	globalPathBindings, err := captureRecoveryGlobalPathBindings(mutations, options.Resolver)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
+	boundResolver := globalPathBindings.resolver(options.Resolver)
 	projectAuthority, err := projectAuthorityForCapture(paths, mutations, options.ProjectRoot)
 	if err != nil {
 		return recoveryJournal{}, err
@@ -339,7 +344,7 @@ func buildRecoveryJournal(
 			backupIndex,
 			action,
 			options.Filesystem,
-			options.Resolver,
+			boundResolver,
 			projectAuthority,
 			options.RootedCapability,
 			contentPathBaselines,
@@ -357,12 +362,17 @@ func buildRecoveryJournal(
 			return recoveryJournal{}, err
 		}
 
+		resolvedGlobalPath, err := globalPathBindings.path(action.Scope, action.Destination)
+		if err != nil {
+			return recoveryJournal{}, err
+		}
 		entries = append(entries, recoveryEntry{
 			Subject:             subjectRefFromAction(action),
 			Target:              string(action.Target),
 			Targets:             targetStrings(action.ConsumerTargets),
 			Scope:               string(action.Scope),
 			Path:                action.Destination.String(),
+			ResolvedGlobalPath:  resolvedGlobalPath,
 			ContentPath:         string(action.ContentPath),
 			ContentKind:         string(action.ContentKind),
 			Before:              persistedBeforePathState(before),
@@ -381,7 +391,7 @@ func buildRecoveryJournal(
 		entries,
 		options.ClaimTransitions,
 		options.ProvisionalAcquires,
-		options.Resolver,
+		boundResolver,
 	)
 	if err != nil {
 		return recoveryJournal{}, err

@@ -1,6 +1,7 @@
 package journal
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -17,6 +18,124 @@ type projectAuthoritySession struct {
 	authority  rootedpath.Authority
 	provenance rootedpath.AuthorityProvenance
 	owned      bool
+}
+
+// recoveryGlobalPathBindings freezes resolver output before journal evidence is
+// captured. The persisted lexical path binds root selection only; exact claim
+// identity remains owned by OwnershipPathAuthority.
+type recoveryGlobalPathBindings map[output.Destination]string
+
+func captureRecoveryGlobalPathBindings(
+	actions []pathMutation,
+	resolver func(output.Destination) (string, error),
+) (recoveryGlobalPathBindings, error) {
+	bindings := make(recoveryGlobalPathBindings)
+	for _, action := range actions {
+		if action.Scope != target.ScopeGlobal {
+			continue
+		}
+		if _, present := bindings[action.Destination]; present {
+			continue
+		}
+		resolved, err := resolveRecoveryGlobalPath(action.Destination, resolver)
+		if err != nil {
+			return nil, err
+		}
+		bindings[action.Destination] = resolved
+	}
+	return bindings, nil
+}
+
+func (bindings recoveryGlobalPathBindings) resolver(
+	fallback func(output.Destination) (string, error),
+) func(output.Destination) (string, error) {
+	return func(destination output.Destination) (string, error) {
+		if resolved, present := bindings[destination]; present {
+			return resolved, nil
+		}
+		return fallback(destination)
+	}
+}
+
+func (bindings recoveryGlobalPathBindings) path(
+	scope target.Scope,
+	destination output.Destination,
+) (string, error) {
+	if scope != target.ScopeGlobal {
+		return "", nil
+	}
+	resolved, present := bindings[destination]
+	if !present {
+		return "", fmt.Errorf("global destination %q has no capture-time path binding", destination)
+	}
+	return resolved, nil
+}
+
+func validateRecoveryGlobalPathBindings(
+	ctx context.Context,
+	entries []recoveryEntry,
+	resolver func(output.Destination) (string, error),
+) error {
+	observed := make(map[output.Destination]string)
+	for index, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.Scope != string(target.ScopeGlobal) {
+			continue
+		}
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			return fmt.Errorf("recovery entries[%d] global destination: %w", index, err)
+		}
+		current, present := observed[destination]
+		if !present {
+			current, err = resolveRecoveryGlobalPath(destination, resolver)
+			if err != nil {
+				return fmt.Errorf("recovery entries[%d]: %w", index, err)
+			}
+			observed[destination] = current
+		}
+		if current != entry.ResolvedGlobalPath {
+			return fmt.Errorf(
+				"recovery entries[%d] global destination %q resolved to %q, not capture-time path %q; root selection changed",
+				index,
+				destination,
+				current,
+				entry.ResolvedGlobalPath,
+			)
+		}
+	}
+	return nil
+}
+
+func resolveRecoveryGlobalPath(
+	destination output.Destination,
+	resolver func(output.Destination) (string, error),
+) (string, error) {
+	if resolver == nil {
+		return "", fmt.Errorf("recovery global destination resolver is required")
+	}
+	resolved, err := resolver(destination)
+	if err != nil {
+		return "", fmt.Errorf("resolve global destination %q: %w", destination, err)
+	}
+	root, bound, err := rootedpath.CaptureDestination(resolved)
+	if err != nil {
+		return "", fmt.Errorf("bind global destination %q: %w", destination, err)
+	}
+	path, pathErr := bound.LexicalPath()
+	if pathErr != nil {
+		pathErr = fmt.Errorf("read global destination %q lexical path: %w", destination, pathErr)
+	}
+	closeErr := root.Close()
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close global destination %q root authority: %w", destination, closeErr)
+	}
+	if pathErr != nil || closeErr != nil {
+		return "", errors.Join(pathErr, closeErr)
+	}
+	return path, nil
 }
 
 func projectAuthorityForCapture(

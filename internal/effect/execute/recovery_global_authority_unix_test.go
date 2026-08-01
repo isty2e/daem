@@ -108,6 +108,42 @@ func TestRecoveryRetainsGlobalRootAuthorityAcrossAncestorRetarget(t *testing.T) 
 	}
 }
 
+func TestRecoveryRejectsGlobalRootSelectionDriftBeforeEffects(t *testing.T) {
+	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
+	fixture := newGlobalFileRecoveryFixture(t, destination, true)
+	t.Setenv("HOME", fixture.retargetedRoot)
+	t.Setenv("USERPROFILE", fixture.retargetedRoot)
+	hostActions := 0
+
+	err := executeRecoveryPlanWithOptionsForTest(
+		context.Background(),
+		fixture.plan,
+		fixture.paths,
+		RecoveryOptions{
+			Resolver:                destinationResolver(fixture.paths),
+			OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+			StateCodec:              testStateCodec(),
+			StateReader:             testStateReader(fixture.paths.StatefilePath),
+			Filesystem:              testFilesystem(),
+			beforeHostAction: func(int) error {
+				hostActions++
+				return nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "root selection changed") {
+		t.Fatalf("ExecuteRecoveryPlanWithOptions error = %v, want global root-selection drift refusal", err)
+	}
+	if hostActions != 0 {
+		t.Fatalf("recovery host actions = %d, want none after root-selection drift", hostActions)
+	}
+	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
+	assertRecoveryTestContent(t, fixture.retargetedPath, fixture.after)
+	if _, statErr := os.Stat(fixture.plan.OperationDir()); statErr != nil {
+		t.Fatalf("retained recovery journal stat error = %v", statErr)
+	}
+}
+
 func TestRecoveryRequiresEveryGlobalBindingBeforeEffects(t *testing.T) {
 	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
 	action := recovery.Action{

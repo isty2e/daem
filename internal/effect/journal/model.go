@@ -40,14 +40,16 @@ type recoveryProjectRootProvenance struct {
 }
 
 // recoveryEntry is the exact journal-v10 persistence DTO. Subject is the sole
-// semantic identity carried across the recovery boundary. OwnershipPathAuthority
-// is a persisted foreign key to one exact claim transition, not another subject.
+// semantic identity carried across the recovery boundary. ResolvedGlobalPath
+// binds a global logical destination to its capture-time physical lexical path;
+// OwnershipPathAuthority is a separate foreign key to one exact claim transition.
 type recoveryEntry struct {
 	Subject                persistedSubjectRef        `json:"subject"`
 	Target                 string                     `json:"target,omitempty"`
 	Targets                []string                   `json:"targets,omitempty"`
 	Scope                  string                     `json:"scope"`
 	Path                   string                     `json:"path"`
+	ResolvedGlobalPath     string                     `json:"resolved_global_path,omitempty"`
 	ContentPath            string                     `json:"content_path,omitempty"`
 	ContentKind            string                     `json:"content_kind,omitempty"`
 	OwnershipPathAuthority *pathAuthorityDTO          `json:"ownership_path_authority,omitempty"`

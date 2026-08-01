@@ -2,9 +2,11 @@ package journal
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -215,6 +217,16 @@ func validateRecoveryEntries(entries []recoveryEntry) error {
 		if err := validateRecoveryStateIdentity(identity); err != nil {
 			return fmt.Errorf("%s state identity: %w", context, err)
 		}
+		switch entry.Scope {
+		case string(target.ScopeGlobal):
+			if err := validateRecoveryResolvedGlobalPath(entry.ResolvedGlobalPath); err != nil {
+				return fmt.Errorf("%s.resolved_global_path: %w", context, err)
+			}
+		case string(target.ScopeProject):
+			if entry.ResolvedGlobalPath != "" {
+				return fmt.Errorf("%s.resolved_global_path: project entry must not carry a global path binding", context)
+			}
+		}
 		if err := recovery.ValidateBefore(entry.Before.canonical(), entry.ContentPath); err != nil {
 			return fmt.Errorf("%s: %w", context, err)
 		}
@@ -244,6 +256,25 @@ func validateRecoveryEntries(entries []recoveryEntry) error {
 			return fmt.Errorf("%s: duplicate recovery entry for %q content_path %q", context, entry.Path, entry.ContentPath)
 		}
 		seen[key] = struct{}{}
+	}
+	return nil
+}
+
+func validateRecoveryResolvedGlobalPath(value string) error {
+	if value == "" {
+		return fmt.Errorf("global entry requires its capture-time resolved path")
+	}
+	if strings.ContainsRune(value, '\x00') {
+		return fmt.Errorf("resolved path contains a NUL byte")
+	}
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("resolved path must be valid UTF-8")
+	}
+	if !filepath.IsAbs(value) {
+		return fmt.Errorf("resolved path %q must be absolute", value)
+	}
+	if filepath.Clean(value) != value {
+		return fmt.Errorf("resolved path %q must be clean", value)
 	}
 	return nil
 }

@@ -75,6 +75,38 @@ func TestRecoveryJournalWritesSubjectWithoutLegacyResourceField(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalRequiresScopeExactGlobalPathBinding(t *testing.T) {
+	global := globalAcquireRecoveryEntry(t)
+	global.ResolvedGlobalPath = ""
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "global entry requires its capture-time resolved path") {
+		t.Fatalf("missing global path binding error = %v", err)
+	}
+
+	global.ResolvedGlobalPath = "relative/path"
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "must be absolute") {
+		t.Fatalf("relative global path binding error = %v", err)
+	}
+	global.ResolvedGlobalPath = string([]byte{'/', 0xff})
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err == nil ||
+		!strings.Contains(err.Error(), "valid UTF-8") {
+		t.Fatalf("non-UTF-8 global path binding error = %v", err)
+	}
+
+	global.ResolvedGlobalPath = "/tmp/daem-global-config.json"
+	if err := validateRecoveryEntries([]recoveryEntry{global}); err != nil {
+		t.Fatalf("exact global path binding rejected: %v", err)
+	}
+
+	project := defaultRecoveryEntry()
+	project.ResolvedGlobalPath = "/tmp/forged-project-path"
+	if err := validateRecoveryEntries([]recoveryEntry{project}); err == nil ||
+		!strings.Contains(err.Error(), "project entry must not carry") {
+		t.Fatalf("project global path binding error = %v", err)
+	}
+}
+
 func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {

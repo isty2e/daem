@@ -164,11 +164,18 @@ func validateCurrentAuthoritiesForClaimRemovals(
 	registry ownership.Registry,
 	expected []ownership.Claim,
 ) error {
+	// Claim is a canonical comparable value, and direct equality is the same
+	// exact persisted identity as Claim.Equal. Index once so registry admission
+	// remains O(claims + expected removals).
+	selectedForRemoval := make(map[ownership.Claim]struct{}, len(expected))
+	for _, claim := range expected {
+		selectedForRemoval[claim] = struct{}{}
+	}
 	for index, claim := range registry.Claims() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if claimSelectedForRemoval(claim, expected) {
+		if _, selected := selectedForRemoval[claim]; selected {
 			if err := validateClaimRemovalPathAuthority(claim); err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
 			}
@@ -209,15 +216,6 @@ func validateCurrentAuthoritiesForClaimRemovals(
 		}
 	}
 	return nil
-}
-
-func claimSelectedForRemoval(claim ownership.Claim, expected []ownership.Claim) bool {
-	for _, candidate := range expected {
-		if claim.Equal(candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func validateClaimRemovalPathAuthority(claim ownership.Claim) error {
