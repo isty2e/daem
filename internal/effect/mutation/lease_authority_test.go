@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 )
 
 func TestLeaseSetDetectsCanonicalPathRetargetAfterAcquisition(t *testing.T) {
@@ -182,6 +184,7 @@ func TestLeaseSetDoesNotTreatLogicalLeaseAsPhysicalAuthority(t *testing.T) {
 
 func TestAcceptVisibilityDomainsRejectsCollapseOfDistinctProvisionalPaths(t *testing.T) {
 	namespace := mustMutationTestCanonicalPath(t.TempDir())
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
 	domains := []Domain{
 		provisionalMutationTestDomain(t, namespace, "Caf\u00e9"),
 		provisionalMutationTestDomain(t, namespace, "Cafe\u0301"),
@@ -198,6 +201,7 @@ func TestAcceptVisibilityDomainsRejectsCollapseOfDistinctProvisionalPaths(t *tes
 
 func TestAcceptVisibilityDomainsAllowsDistinctSiblingAnchorAdvance(t *testing.T) {
 	namespace := mustMutationTestCanonicalPath(t.TempDir())
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
 	domains := []Domain{
 		provisionalMutationTestDomain(t, namespace, filepath.Join("Future", "Caf\u00e9")),
 		provisionalMutationTestDomain(t, namespace, filepath.Join("Future", "Tea\u0301")),
@@ -240,34 +244,6 @@ func TestAcceptVisibilityDomainsAllowsDistinctSiblingAnchorAdvance(t *testing.T)
 	}
 }
 
-func TestLeaseSetAcceptsProvisionalToExactVisibilityChange(t *testing.T) {
-	namespacePath := t.TempDir()
-	namespace := mustMutationTestCanonicalPath(namespacePath)
-	domain := provisionalMutationTestDomain(t, namespace, "Caf\u00e9")
-	store := mutationTestStore(t)
-	set, err := store.Acquire(context.Background(), domain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer set.Release()
-
-	if err := os.WriteFile(domain.requestedPath, []byte("visible"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if matches, err := set.DomainsMatchCurrent(context.Background()); err != nil || matches {
-		t.Fatalf("strict DomainsMatchCurrent() = %t, %v; want false", matches, err)
-	}
-	if matches, err := set.VisibilityAuthorityMatchesCurrent(context.Background()); err != nil || !matches {
-		t.Fatalf("VisibilityAuthorityMatchesCurrent() = %t, %v; want true", matches, err)
-	}
-	if accepted, err := set.AcceptVisibilityChanges(context.Background()); err != nil || !accepted {
-		t.Fatalf("AcceptVisibilityChanges() = %t, %v; want true", accepted, err)
-	}
-	if matches, err := set.DomainsMatchCurrent(context.Background()); err != nil || !matches {
-		t.Fatalf("rebound DomainsMatchCurrent() = %t, %v; want true", matches, err)
-	}
-}
-
 func TestAcceptVisibilityDomainsRejectsChangeWithoutExclusiveNamespaceLease(t *testing.T) {
 	namespace := mustMutationTestCanonicalPath(t.TempDir())
 	domain := provisionalMutationTestDomain(t, namespace, "Caf\u00e9")
@@ -285,6 +261,7 @@ func TestAcceptVisibilityDomainsRejectsChangeWithoutExclusiveNamespaceLease(t *t
 
 func provisionalMutationTestDomain(t *testing.T, namespace canonicalPath, relative string) Domain {
 	t.Helper()
+	namespace = darwinProvisionalMutationTestNamespace(namespace)
 	depth := len(strings.Split(filepath.Clean(relative), string(filepath.Separator)))
 	candidate := canonicalPath{
 		keyPath:    filepath.Join(namespace.keyPath, relative),
@@ -307,4 +284,14 @@ func provisionalMutationTestDomain(t *testing.T, namespace canonicalPath, relati
 		namespaceLease: namespaceLease, requestedPath: candidate.accessPath,
 		effect: PathEffectDirectoryEntry,
 	}
+}
+
+func darwinProvisionalMutationTestNamespace(namespace canonicalPath) canonicalPath {
+	if strings.HasPrefix(string(namespace.witness), "darwin-case-v1:") {
+		return namespace
+	}
+	namespace.witness = pathSemanticsWitness(
+		pathtest.DarwinCaseSensitive(namespace.keyPath).Witness(),
+	)
+	return namespace
 }

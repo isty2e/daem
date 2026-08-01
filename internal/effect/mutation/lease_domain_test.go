@@ -71,6 +71,7 @@ func TestNormalizeDomainsCoalescesProvisionalAliasesAtExactNamespace(t *testing.
 		t.Fatal(err)
 	}
 	namespaceIdentity := mustMutationTestCanonicalPath(namespace)
+	namespaceIdentity = darwinProvisionalMutationTestNamespace(namespaceIdentity)
 	store := mutationTestStore(t)
 
 	domains := make([]Domain, 0, 2)
