@@ -32,6 +32,9 @@ func TestValidateAcceptsOneBoundedValue(t *testing.T) {
 	if err := Validate([]byte(`{"x":[1,true,null,{"y":"z"}]}`), "test document", 4); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
+	if err := Validate([]byte(`{"HostField":{"TOKEN":"value"}}`), "host document", 4); err != nil {
+		t.Fatalf("general Validate rejected external key spelling: %v", err)
+	}
 }
 
 func TestValidateVersionedObjectRequiresOnePositiveIntegerVersion(t *testing.T) {
@@ -42,6 +45,14 @@ func TestValidateVersionedObjectRequiresOnePositiveIntegerVersion(t *testing.T) 
 	)
 	if err != nil || version != 2 {
 		t.Fatalf("ValidateVersionedObject = (%d, %v), want (2, nil)", version, err)
+	}
+	version, err = ValidateVersionedObject(
+		[]byte(`{"future":{"nested":[1,{"value":true}]},"version":3}`),
+		"test document",
+		4,
+	)
+	if err != nil || version != 3 {
+		t.Fatalf("late ValidateVersionedObject = (%d, %v), want (3, nil)", version, err)
 	}
 
 	tests := []struct {
@@ -65,6 +76,28 @@ func TestValidateVersionedObjectRequiresOnePositiveIntegerVersion(t *testing.T) 
 			_, err := ValidateVersionedObject([]byte(test.content), "test document", 4)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("ValidateVersionedObject error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestValidateVersionedObjectRejectsNonCanonicalFieldSpellings(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{name: "version alias", content: `{"Version":2}`},
+		{name: "case-folded version duplicate", content: `{"version":1,"Version":2}`},
+		{name: "top-level alias", content: `{"version":2,"CLAIMS":[]}`},
+		{name: "escaped alias", content: `{"version":2,"\u0043LAIMS":[]}`},
+		{name: "nested alias", content: `{"version":2,"claims":[{"Path":"legacy"}]}`},
+		{name: "unicode fold alias", content: `{"version":2,"claimſ":[]}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := ValidateVersionedObject([]byte(test.content), "test document", 4)
+			if err == nil || !strings.Contains(err.Error(), "ASCII lower_snake_case") {
+				t.Fatalf("ValidateVersionedObject error = %v, want canonical-field rejection", err)
 			}
 		})
 	}

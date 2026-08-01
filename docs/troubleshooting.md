@@ -40,7 +40,9 @@ registry whose `claims` array is present and empty, contains no remaining path
 authority. Current daem reads that artifact as canonical empty state. Read-only
 commands do not rewrite or delete it; the next ordinary guarded write that
 changes that state records the current schema. Missing, null, populated, or
-unknown fields are not an empty retirement artifact and remain blocked.
+unknown fields are not an empty retirement artifact and remain blocked. Field
+names in versioned durable files use exact ASCII `lower_snake_case` spelling;
+case variants such as `CLAIMS` are rejected rather than treated as aliases.
 Recovery journal v7 is always blocked because its presence may represent
 interrupted effects.
 

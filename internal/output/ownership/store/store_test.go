@@ -261,6 +261,17 @@ func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
 		},
 		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
 		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+		{
+			name:    "case-variant empty override",
+			content: `{"version":1,"claims":[{"path":"legacy"}],"CLAIMS":[]}`,
+			want:    "ASCII lower_snake_case",
+		},
+		{name: "case-variant alias", content: `{"version":1,"CLAIMS":[]}`, want: "ASCII lower_snake_case"},
+		{
+			name:    "case-variant version ambiguity",
+			content: `{"version":1,"Version":2,"claims":[]}`,
+			want:    "ASCII lower_snake_case",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

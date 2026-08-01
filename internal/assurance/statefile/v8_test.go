@@ -401,6 +401,21 @@ func TestLoadAdmitsOnlyExactEmptyRetiredV7Statefile(t *testing.T) {
 			content: strings.Replace(retiredEmpty, `"version":7`, `"version":7,"future":true`, 1),
 			want:    "unknown field",
 		},
+		{
+			name: "case-variant empty override",
+			content: strings.Replace(
+				retiredEmpty,
+				`"managed_paths":[]`,
+				`"managed_paths":[{"path":"legacy"}],"MANAGED_PATHS":[]`,
+				1,
+			),
+			want: "ASCII lower_snake_case",
+		},
+		{
+			name:    "case-variant version alias",
+			content: strings.Replace(retiredEmpty, `"version":7`, `"Version":7`, 1),
+			want:    "ASCII lower_snake_case",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

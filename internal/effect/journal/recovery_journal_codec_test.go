@@ -118,6 +118,34 @@ func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) 
 	}
 }
 
+func TestRecoveryJournalRejectsCaseVariantCurrentFields(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(
+		content,
+		[]byte(`"entries": [`),
+		[]byte(`"ENTRIES": [], "entries": [`),
+		1,
+	)
+	if !bytes.Contains(content, []byte(`"ENTRIES"`)) {
+		t.Fatal("test mutation did not add case-variant field")
+	}
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "journal.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "ASCII lower_snake_case") {
+		t.Fatalf("loadRecoveryJournal error = %v, want canonical-field rejection", err)
+	}
+}
+
 func TestRecoveryJournalRejectsResourceFieldInVersionEight(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
