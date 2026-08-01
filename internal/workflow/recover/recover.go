@@ -13,7 +13,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
-	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -45,26 +44,21 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 		return recoveryPreparation{}, err
 	}
 	stateReader := stateReaderForPath(paths.StatefilePath)
+	registry, err := ownershipstore.New(paths.OwnershipRegistryPath)
+	if err != nil {
+		return recoveryPreparation{}, err
+	}
 
 	recoverable, err := journal.LoadRecoverablePlanWithOptions(
 		ctx,
 		journalPaths(paths),
 		journal.PlanLoadOptions{
-			Filesystem: storagecommit.Adapter{},
-			Resolver:   destinationResolver(paths).Resolve,
-			OwnershipRegistry: func(ctx context.Context) (
-				ownership.Registry,
-				error,
-			) {
-				registry, err := ownershipstore.New(paths.OwnershipRegistryPath)
-				if err != nil {
-					return ownership.Registry{}, err
-				}
-				return registry.Load(ctx)
-			},
-			Codecs:      aggregatecodec.Catalog(),
-			StateCodec:  statefile.Codec{},
-			StateReader: stateReader,
+			Filesystem:        storagecommit.Adapter{},
+			Resolver:          destinationResolver(paths).Resolve,
+			OwnershipRegistry: registry,
+			Codecs:            aggregatecodec.Catalog(),
+			StateCodec:        statefile.Codec{},
+			StateReader:       stateReader,
 			ValidateBeforeActiveObservation: func(ctx context.Context) error {
 				return transaction.RequireClearFileSet(ctx, paths.StateDir)
 			},

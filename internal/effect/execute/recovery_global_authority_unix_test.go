@@ -945,7 +945,7 @@ func newGlobalFileRecoveryFixture(
 		journal.PlanLoadOptions{
 			Filesystem:        testFilesystem(),
 			Resolver:          destinationResolver(paths),
-			OwnershipRegistry: registry.Load,
+			OwnershipRegistry: registry,
 			StateCodec:        testStateCodec(),
 			StateReader:       testStateReader(paths.StatefilePath),
 		},

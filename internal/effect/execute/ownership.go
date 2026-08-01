@@ -581,6 +581,14 @@ func convergeClaim(
 	from ownership.ClaimValue,
 	to ownership.ClaimValue,
 ) error {
+	if _, replacementPresent := to.Get(); !replacementPresent {
+		expected, expectedPresent := from.Get()
+		if !expectedPresent {
+			return fmt.Errorf("ownership claim removal requires a present expected claim")
+		}
+		_, err := registryStore.RemoveClaim(ctx, expected)
+		return err
+	}
 	registry, err := registryStore.Load(ctx)
 	if err != nil {
 		return err
@@ -648,5 +656,5 @@ func (authority *mutationAuthority) rootedOwnershipRegistryOption() ownershipmut
 	if authority == nil || !authority.hasOwnershipRegistry {
 		return nil
 	}
-	return authority.ownershipRegistry.Load
+	return authority.ownershipRegistry
 }

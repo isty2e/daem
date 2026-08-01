@@ -81,7 +81,7 @@ func loadActivePlanWithTestCodecs(ctx context.Context, paths Paths) (recovery.Pl
 		journal.PlanLoadOptions{
 			Filesystem:        testFilesystem(),
 			Resolver:          destinationResolver(paths),
-			OwnershipRegistry: registry.Load,
+			OwnershipRegistry: registry,
 			Codecs:            testAggregateCodecs(),
 			StateCodec:        testStateCodec(),
 			StateReader:       testStateReader(paths.StatefilePath),

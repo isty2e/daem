@@ -10,11 +10,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
+	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
+	"github.com/isty2e/daem/internal/realization"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
+	"github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestProvisionalGlobalOwnershipCreatePromotesAndFinalizes(t *testing.T) {
@@ -33,6 +40,151 @@ func TestProvisionalGlobalOwnershipCreatePromotesAndFinalizes(t *testing.T) {
 		t.Fatalf("host config stat returned error: %v", err)
 	}
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestGlobalOwnershipRemovalFinalizesDeletedNonASCIIPath(t *testing.T) {
+	hostPath, input := globalNonASCIIManagedPathRemovalInput(t)
+
+	result, err := ApplyWithOptions(t.Context(), input, ApplyOptions{})
+	if err != nil {
+		t.Fatalf("ApplyWithOptions returned error: %v", err)
+	}
+	assertCommittedApplyResult(t, result, input.Paths.StatefilePath, input.Paths.StatefilePath, 1)
+	assertHostMissing(t, hostPath)
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestGlobalOwnershipRemovalRecoversAfterDeletedNonASCIIPath(t *testing.T) {
+	hostPath, input := globalNonASCIIManagedPathRemovalInput(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
+		if event.Kind == EventStatefileWritten {
+			cancel()
+		}
+	}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyWithOptions error = %v, want context cancellation", err)
+	}
+	assertHostMissing(t, hostPath)
+
+	plan := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationNeedsFinalize, 1)
+	recoverProvisionalGlobalOwnership(t, plan, input.Paths)
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func globalNonASCIIManagedPathRemovalInput(t *testing.T) (string, ApplyInput) {
+	t.Helper()
+
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	stateDir := filepath.Join(root, ".daem")
+	paths := Paths{
+		RecoveryDir:           filepath.Join(stateDir, "recovery"),
+		StateDir:              stateDir,
+		StatefilePath:         filepath.Join(stateDir, "state.json"),
+		ManifestRoot:          root,
+		DataDir:               filepath.Join(root, "data"),
+		OwnershipRegistryPath: filepath.Join(root, "data", "ownership", "claims.json"),
+	}
+	const name = "config-\u00e9"
+	destination := outputtest.Parse(t, "~/.agents/skills/"+name)
+	hostPath := filepath.Join(home, ".agents", "skills", name)
+	if err := os.MkdirAll(hostPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hostPath, "SKILL.md"), []byte("managed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	view, err := access.OpenView(hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := view.Hash(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject := testManagedPathEffectSubject(t, name, "skill.global.agents")
+	previous, err := durable.NewManagedPathState(
+		subject,
+		[]target.Target{target.TargetCodex},
+		target.ScopeGlobal,
+		destination,
+		hash,
+		realization.PathProjectionDirectory,
+		realization.PathPermissionsNone,
+		0,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := durable.NewSnapshot(durable.SnapshotInput{ManagedPaths: []durable.ManagedPathState{previous}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRecoveryTestStatefile(t, paths.StatefilePath, current)
+	owner, err := stateauthority.New(
+		mustObservedPathAuthority(t, paths.StatefilePath),
+		filepath.Join(root, "daem.toml"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address, err := ownership.NewManagedAddress(pathAuthority.Exact(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := ownership.NewActiveClaim(address, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimValue, _ := ownership.PresentClaim(claim)
+	registryStore, err := ownershipstore.New(paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registryStore.Apply(t.Context(), address, ownership.NoClaim(), claimValue); err != nil {
+		t.Fatalf("seed ownership claim: %v", err)
+	}
+	ownershipObservation, err := observe.NewExactOwnershipObservation(
+		destination,
+		output.ContentPath(""),
+		address,
+		claimValue,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathEvidence, err := observe.NewManagedPathEvidence(subject, destination, true, hash, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effect := ManagedPathEffect{remove: &managedPathRemoveEffect{facts: managedPathEffectFacts{
+		subject: subject, scope: target.ScopeGlobal, destination: destination,
+		liveHash: hash, contentKind: realization.PathProjectionDirectory,
+		permissionPolicy: realization.PathPermissionsNone,
+		previous:         &previous,
+	}}}
+	if err := effect.validate(); err != nil {
+		t.Fatal(err)
+	}
+	return hostPath, ApplyInput{
+		Paths: paths, Resolver: destinationResolver(paths),
+		ManagedPathEffects: []ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
+		CurrentState: current, Owner: owner, Ownership: []observe.OwnershipObservation{ownershipObservation},
+		OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+		StateCodec:              testStateCodec(),
+		Filesystem:              testFilesystem(),
+	}
 }
 
 func TestProvisionalGlobalOwnershipRejectsAliasOfClaimThatBecomesCurrent(t *testing.T) {

@@ -91,6 +91,30 @@ func TestProvisionalCandidateWithinUsesContainmentWithoutPromotion(t *testing.T)
 	}
 }
 
+func TestProvisionalMatchesOnlyItsFormerExactCandidate(t *testing.T) {
+	namespace := filepath.Join(string(filepath.Separator), "tmp", "daem", "skills")
+	candidate := filepath.Join(namespace, "Caf\u00e9")
+	exact := pathtest.DarwinCaseSensitive(candidate)
+	provisional, err := pathauthority.NewProvisional(
+		candidate,
+		exact.Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !provisional.MatchesMissingExact(exact) {
+		t.Fatal("provisional candidate did not match its former exact authority")
+	}
+	if provisional.MatchesMissingExact(pathtest.DarwinCaseSensitive(filepath.Join(namespace, "Tea\u00e9"))) {
+		t.Fatal("provisional candidate matched a different exact key")
+	}
+	if provisional.MatchesMissingExact(pathtest.Exact(candidate)) {
+		t.Fatal("provisional candidate matched different filesystem semantics")
+	}
+}
+
 func darwinInsensitiveWitness(path string) string {
 	volume := filepath.VolumeName(path)
 	relative := strings.TrimPrefix(path, volume+string(filepath.Separator))

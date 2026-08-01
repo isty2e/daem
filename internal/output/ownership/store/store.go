@@ -89,6 +89,24 @@ func (store Store) Path() string {
 
 // Load reads current or exact empty retired ownership state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
+	return store.load(ctx, nil)
+}
+
+// LoadForClaimRemovals reads the registry while admitting a missing path only
+// for an exact expected claim selected by a durable removal transition.
+func (store Store) LoadForClaimRemovals(
+	ctx context.Context,
+	expected []ownership.Claim,
+) (ownership.Registry, error) {
+	for index, claim := range expected {
+		if err := claim.Validate(); err != nil {
+			return ownership.Registry{}, fmt.Errorf("removed ownership claim[%d]: %w", index, err)
+		}
+	}
+	return store.load(ctx, expected)
+}
+
+func (store Store) load(ctx context.Context, expectedRemovals []ownership.Claim) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
 	}
@@ -96,7 +114,7 @@ func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 		return ownership.Registry{}, err
 	}
 	if store.root != nil {
-		return store.loadRooted(ctx)
+		return store.loadRooted(ctx, expectedRemovals)
 	}
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumOwnershipRegistryBytes)
 	if err != nil {
@@ -115,40 +133,62 @@ func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	return decodePersistedRegistry(ctx, snapshot.Content())
+	return decodePersistedRegistryForClaimRemovals(ctx, snapshot.Content(), expectedRemovals)
 }
 
 func decodePersistedRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
+	return decodePersistedRegistryForClaimRemovals(ctx, content, nil)
+}
+
+func decodePersistedRegistryForClaimRemovals(
+	ctx context.Context,
+	content []byte,
+	expected []ownership.Claim,
+) (ownership.Registry, error) {
 	registry, err := decode(content)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	if err := validateCurrentAuthorities(ctx, registry); err != nil {
+	if err := validateCurrentAuthoritiesForClaimRemovals(ctx, registry, expected); err != nil {
 		return ownership.Registry{}, err
 	}
 	return registry, nil
 }
 
 func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry) error {
+	return validateCurrentAuthoritiesForClaimRemovals(ctx, registry, nil)
+}
+
+func validateCurrentAuthoritiesForClaimRemovals(
+	ctx context.Context,
+	registry ownership.Registry,
+	expected []ownership.Claim,
+) error {
 	for index, claim := range registry.Claims() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		currentPath, err := mutation.ObservePersistedDirectoryEntryAuthority(
-			claim.Address().Path(),
-		)
-		if err != nil {
-			return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
-		}
-		if !currentPath.Exact().Equal(claim.Address().PathAuthority()) {
-			return fmt.Errorf(
-				"ownership registry claims[%d] path authority %q with semantics %q is not current; observed %q with semantics %q",
-				index,
+		if claimSelectedForRemoval(claim, expected) {
+			if err := validateClaimRemovalPathAuthority(claim); err != nil {
+				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
+			}
+		} else {
+			currentPath, err := mutation.ObservePersistedDirectoryEntryAuthority(
 				claim.Address().Path(),
-				claim.Address().PathAuthority().Witness(),
-				currentPath.Exact().Key(),
-				currentPath.Exact().Witness(),
 			)
+			if err != nil {
+				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
+			}
+			if !currentPath.Exact().Equal(claim.Address().PathAuthority()) {
+				return fmt.Errorf(
+					"ownership registry claims[%d] path authority %q with semantics %q is not current; observed %q with semantics %q",
+					index,
+					claim.Address().Path(),
+					claim.Address().PathAuthority().Witness(),
+					currentPath.Exact().Key(),
+					currentPath.Exact().Witness(),
+				)
+			}
 		}
 
 		currentStatefile, err := mutation.ObservePersistedDirectoryEntryAuthority(
@@ -171,7 +211,52 @@ func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry
 	return nil
 }
 
-func (store Store) loadRooted(ctx context.Context) (ownership.Registry, error) {
+func claimSelectedForRemoval(claim ownership.Claim, expected []ownership.Claim) bool {
+	for _, candidate := range expected {
+		if claim.Equal(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateClaimRemovalPathAuthority(claim ownership.Claim) error {
+	observed, err := mutation.ObserveDirectoryEntryAuthority(claim.Address().Path())
+	if err != nil {
+		return err
+	}
+	if exact, present := observed.Exact(); present {
+		if exact.Equal(claim.Address().PathAuthority()) {
+			return nil
+		}
+		return fmt.Errorf(
+			"ownership claim path authority %q with semantics %q is not current; observed %q with semantics %q",
+			claim.Address().Path(),
+			claim.Address().PathAuthority().Witness(),
+			exact.Key(),
+			exact.Witness(),
+		)
+	}
+	provisional, present := observed.Provisional()
+	if !present {
+		return fmt.Errorf("ownership claim path authority observation is empty")
+	}
+	if !provisional.MatchesMissingExact(claim.Address().PathAuthority()) {
+		return fmt.Errorf(
+			"ownership claim path authority %q with semantics %q does not match missing candidate %q with semantics %q",
+			claim.Address().Path(),
+			claim.Address().PathAuthority().Witness(),
+			provisional.CandidateKey(),
+			provisional.CandidateWitness(),
+		)
+	}
+	return nil
+}
+
+func (store Store) loadRooted(
+	ctx context.Context,
+	expectedRemovals []ownership.Claim,
+) (ownership.Registry, error) {
 	capability, err := store.root.Acquire(store.destination)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("acquire ownership registry: %w", err)
@@ -198,7 +283,7 @@ func (store Store) loadRooted(ctx context.Context) (ownership.Registry, error) {
 			mode.Perm(),
 		)
 	}
-	return decodePersistedRegistry(ctx, content)
+	return decodePersistedRegistryForClaimRemovals(ctx, content, expectedRemovals)
 }
 
 // Apply writes one exact expected-before transition without changing unrelated claims.

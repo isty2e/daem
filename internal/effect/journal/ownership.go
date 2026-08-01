@@ -184,16 +184,18 @@ func validateRecoveryClaimCoverage(
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] resolve ownership path: %w", index, err)
 		}
-		authority, err := mutation.ObservePersistedDirectoryEntryAuthority(physical)
+		authority, err := mutation.ObserveDirectoryEntryAuthority(physical)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] canonicalize ownership path: %w", index, err)
 		}
-		address, err := ownership.NewManagedAddress(authority.Exact(), entry.ContentPath)
+		key, transition, present, err := recoveryEntryClaimTransition(
+			authority,
+			entry.ContentPath,
+			remaining,
+		)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] ownership address: %w", index, err)
 		}
-		key := ownershipAddressKey(address)
-		transition, present := remaining[key]
 		if !present {
 			return fmt.Errorf("recovery entries[%d] global output has no exact ownership transition", index)
 		}
@@ -219,6 +221,46 @@ func validateRecoveryClaimCoverage(
 		return fmt.Errorf("recovery journal has provisional acquisition intent without a global output entry")
 	}
 	return nil
+}
+
+func recoveryEntryClaimTransition(
+	authority mutation.DirectoryEntryAuthorityObservation,
+	contentPath string,
+	remaining map[string]ownershipmutation.ClaimTransition,
+) (string, ownershipmutation.ClaimTransition, bool, error) {
+	if exact, present := authority.Exact(); present {
+		address, err := ownership.NewManagedAddress(exact, contentPath)
+		if err != nil {
+			return "", ownershipmutation.ClaimTransition{}, false, err
+		}
+		key := ownershipAddressKey(address)
+		transition, found := remaining[key]
+		return key, transition, found, nil
+	}
+	provisional, present := authority.Provisional()
+	if !present {
+		return "", ownershipmutation.ClaimTransition{}, false, fmt.Errorf("path authority observation is empty")
+	}
+	var matchedKey string
+	var matched ownershipmutation.ClaimTransition
+	for key, transition := range remaining {
+		if transition.Kind() != ownershipmutation.TransitionRelease ||
+			transition.Address().ContentPath() != contentPath {
+			continue
+		}
+		exact := transition.Address().PathAuthority()
+		if !provisional.MatchesMissingExact(exact) {
+			continue
+		}
+		if matchedKey != "" {
+			return "", ownershipmutation.ClaimTransition{}, false, fmt.Errorf(
+				"missing path matches multiple release transitions",
+			)
+		}
+		matchedKey = key
+		matched = transition
+	}
+	return matchedKey, matched, matchedKey != "", nil
 }
 
 func recoveryEntryAllowsTransition(

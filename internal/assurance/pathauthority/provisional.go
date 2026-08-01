@@ -115,6 +115,17 @@ func (provisional Provisional) CandidateWithin(exact Exact) bool {
 	return contains(exact.Key(), provisional.candidateKey)
 }
 
+// MatchesMissingExact reports whether this missing candidate retains the exact
+// comparison key and filesystem-semantics witness observed before deletion. It
+// does not restore exact authority or prove entry identity.
+func (provisional Provisional) MatchesMissingExact(exact Exact) bool {
+	if provisional.Validate() != nil || exact.Validate() != nil {
+		return false
+	}
+	return provisional.candidateKey == exact.Key() &&
+		provisional.candidateWitness == exact.Witness()
+}
+
 // Equal reports equality of the complete provisional observation.
 func (provisional Provisional) Equal(other Provisional) bool {
 	return provisional == other && provisional.Validate() == nil

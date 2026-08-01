@@ -8,11 +8,14 @@ import (
 )
 
 // RegistryReader supplies current ownership claims for effect and recovery decisions.
-type RegistryReader func(context.Context) (outputownership.Registry, error)
+type RegistryReader interface {
+	Load(context.Context) (outputownership.Registry, error)
+	LoadForClaimRemovals(context.Context, []outputownership.Claim) (outputownership.Registry, error)
+}
 
 // RegistryStore applies exact ownership transitions to one durable registry.
 type RegistryStore interface {
-	Load(context.Context) (outputownership.Registry, error)
+	RegistryReader
 	Path() string
 	Apply(
 		context.Context,
@@ -20,6 +23,7 @@ type RegistryStore interface {
 		outputownership.ClaimValue,
 		outputownership.ClaimValue,
 	) (outputownership.Registry, error)
+	RemoveClaim(context.Context, outputownership.Claim) (outputownership.Registry, error)
 }
 
 // RootedRegistryBinder binds one registry store to retained physical-root authority.

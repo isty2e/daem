@@ -418,7 +418,10 @@ func loadActivePlanFromInventory(
 		if options.OwnershipRegistry == nil {
 			return recovery.Plan{}, fmt.Errorf("ownership registry reader is required for recovery ownership classification")
 		}
-		registry, err = options.OwnershipRegistry(ctx)
+		registry, err = options.OwnershipRegistry.LoadForClaimRemovals(
+			ctx,
+			recoveryClaimRemovals(claimTransitions),
+		)
 		if err != nil {
 			return recovery.Plan{}, err
 		}
@@ -491,6 +494,20 @@ func loadActivePlanFromInventory(
 		canonicalRecoveryBackupEvidence(backupObservations),
 		registry,
 	)
+}
+
+func recoveryClaimRemovals(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {
+	claims := make([]ownership.Claim, 0, len(transitions))
+	for _, transition := range transitions {
+		if transition.Kind() != ownershipmutation.TransitionRelease {
+			continue
+		}
+		claim, present := transition.Prepared().Get()
+		if present {
+			claims = append(claims, claim)
+		}
+	}
+	return claims
 }
 
 func validateActivePlanLoadOptions(options PlanLoadOptions) error {
