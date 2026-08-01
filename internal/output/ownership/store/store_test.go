@@ -171,7 +171,7 @@ func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 		content string
 	}{
 		{name: "unknown field", content: `{"version":2,"claims":[],"future":true}`},
-		{name: "legacy version", content: `{"version":1,"claims":[]}`},
+		{name: "populated legacy version", content: `{"version":1,"claims":[{"path":"legacy"}]}`},
 		{name: "missing claims", content: `{"version":2}`},
 		{name: "multiple values", content: `{"version":2,"claims":[]} {"version":2,"claims":[]}`},
 		{
@@ -220,6 +220,77 @@ func TestStoreRejectsMalformedOrExposedRegistry(t *testing.T) {
 	}
 	if _, err := registryStore.Load(context.Background()); err == nil || !strings.Contains(err.Error(), "permissions") {
 		t.Fatalf("Store.Load exposed mode error = %v", err)
+	}
+}
+
+func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
+	root := canonicalTestRoot(t)
+	path := filepath.Join(root, "claims.json")
+	registryStore := mustStore(t, path)
+	const retiredEmpty = `{"version":1,"claims":[]}`
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := registryStore.Load(t.Context())
+	if err != nil {
+		t.Fatalf("Load exact empty retired v1: %v", err)
+	}
+	if claims := registry.Claims(); len(claims) != 0 {
+		t.Fatalf("retired registry claims = %#v, want empty", claims)
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != retiredEmpty {
+		t.Fatalf("read-only Load rewrote retired ownership registry:\n%s", retained)
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing claims", content: `{"version":1}`, want: "exact empty retired ownership registry"},
+		{name: "null claims", content: `{"version":1,"claims":null}`, want: "exact empty retired ownership registry"},
+		{
+			name:    "populated legacy claim",
+			content: `{"version":1,"claims":[{"path":"/tmp/output","statefile_key":"/tmp/state.json"}]}`,
+			want:    "use the daem version that wrote it",
+		},
+		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
+		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := registryStore.Load(t.Context())
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+			if test.name == "populated legacy claim" && strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("populated legacy claim was misclassified as current schema: %v", err)
+			}
+		})
+	}
+
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claim := testActiveClaim(t, root, "current", filepath.Join(root, "AGENTS.md"), "")
+	replacement, _ := ownership.PresentClaim(claim)
+	if _, err := registryStore.Apply(t.Context(), claim.Address(), ownership.NoClaim(), replacement); err != nil {
+		t.Fatalf("Apply after retired empty registry: %v", err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(current), `"version": 2`) {
+		t.Fatalf("guarded write did not replace retired schema with current schema:\n%s", current)
 	}
 }
 

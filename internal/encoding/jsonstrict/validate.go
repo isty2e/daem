@@ -34,6 +34,32 @@ func Validate(content []byte, document string, maximumDepth int) error {
 	return nil
 }
 
+// ValidateVersionedObject validates one strict JSON object and returns its
+// required positive integer version. Schema-specific fields remain opaque.
+func ValidateVersionedObject(content []byte, document string, maximumDepth int) (int, error) {
+	if err := Validate(content, document, maximumDepth); err != nil {
+		return 0, err
+	}
+
+	var envelope struct {
+		Version json.RawMessage `json:"version"`
+	}
+	if err := json.Unmarshal(content, &envelope); err != nil {
+		return 0, fmt.Errorf("%s must be a JSON object: %w", document, err)
+	}
+	if bytes.Equal(bytes.TrimSpace(content), []byte("null")) {
+		return 0, fmt.Errorf("%s must be a JSON object", document)
+	}
+	if envelope.Version == nil {
+		return 0, fmt.Errorf("%s field %q is required", document, "version")
+	}
+	var version int
+	if err := json.Unmarshal(envelope.Version, &version); err != nil || version <= 0 {
+		return 0, fmt.Errorf("%s field %q must be a positive integer", document, "version")
+	}
+	return version, nil
+}
+
 func consumeValue(decoder *json.Decoder, document string, maximumDepth int, depth int) error {
 	if depth > maximumDepth {
 		return fmt.Errorf("%s JSON exceeds maximum depth %d", document, maximumDepth)

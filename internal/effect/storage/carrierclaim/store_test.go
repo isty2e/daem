@@ -454,9 +454,9 @@ func TestRegistryCodecIsBoundedCanonicalAndRejectsDuplicateSemanticClaims(t *tes
 		!strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversized registry error = %v", err)
 	}
-	if _, err := decode([]byte(`{"version":1,"claims":[]}`)); err == nil ||
-		!strings.Contains(err.Error(), "pre-1.0 authority schema cannot be migrated safely") {
-		t.Fatalf("legacy registry error = %v", err)
+	if retired, err := decode([]byte(`{"version":1,"claims":[]}`)); err != nil ||
+		len(retired.Claims()) != 0 {
+		t.Fatalf("empty retired registry = (%#v, %v), want canonical empty", retired, err)
 	}
 	var witnessPersisted registryDTO
 	if err := json.Unmarshal(forwardContent, &witnessPersisted); err != nil {
@@ -490,6 +490,79 @@ func TestRegistryCodecIsBoundedCanonicalAndRejectsDuplicateSemanticClaims(t *tes
 		if _, err := decode([]byte(malformed)); err == nil {
 			t.Fatalf("malformed registry decoded: %s", malformed)
 		}
+	}
+}
+
+func TestStoreAdmitsOnlyExactEmptyRetiredV1Registry(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "claims.json")
+	store, err := New(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const retiredEmpty = `{"version":1,"claims":[]}`
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	registry, err := store.Load(t.Context())
+	if err != nil {
+		t.Fatalf("Load exact empty retired v1: %v", err)
+	}
+	if claims := registry.Claims(); len(claims) != 0 {
+		t.Fatalf("retired registry claims = %#v, want empty", claims)
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != retiredEmpty {
+		t.Fatalf("read-only Load rewrote retired carrier registry:\n%s", retained)
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "missing claims", content: `{"version":1}`, want: "exact empty retired carrier claim registry"},
+		{name: "null claims", content: `{"version":1,"claims":null}`, want: "exact empty retired carrier claim registry"},
+		{
+			name:    "populated legacy claim",
+			content: `{"version":1,"claims":[{"owner":{"statefile_key":"/tmp/state.json","manifest_path":"/tmp/daem.toml"}}]}`,
+			want:    "use the daem version that wrote it",
+		},
+		{name: "unknown legacy field", content: `{"version":1,"claims":[],"future":true}`, want: "unknown field"},
+		{name: "future version", content: `{"version":3,"claims":[],"future":true}`, want: "written by a newer daem"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := store.Load(t.Context())
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
+			}
+			if test.name == "populated legacy claim" && strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("populated legacy claim was misclassified as current schema: %v", err)
+			}
+		})
+	}
+
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	claim := testGlobalClaim(t, "context7", "context7@official", root)
+	if _, err := store.Upsert(t.Context(), claim); err != nil {
+		t.Fatalf("Upsert after retired empty registry: %v", err)
+	}
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(current), `"version": 2`) {
+		t.Fatalf("guarded write did not replace retired schema with current schema:\n%s", current)
 	}
 }
 

@@ -137,13 +137,25 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 			maximumRegistryBytes,
 		)
 	}
-	if err := jsonstrict.Validate(
+	version, err := jsonstrict.ValidateVersionedObject(
 		content,
 		"carrier claim registry",
 		maximumRegistryJSONDepth,
-	); err != nil {
+	)
+	if err != nil {
 		return durablecarrier.GlobalCarrierClaims{}, err
 	}
+	switch version {
+	case currentVersion:
+		return decodeCurrent(content)
+	case retiredCarrierClaimRegistryVersion:
+		return decodeRetiredCarrierClaimRegistry(content)
+	default:
+		return durablecarrier.GlobalCarrierClaims{}, unsupportedCarrierClaimRegistryVersion(version)
+	}
+}
+
+func decodeCurrent(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 	var persisted registryDTO
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -157,10 +169,7 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("decode carrier claim registry trailer: %w", err)
 	}
 	if persisted.Version != currentVersion {
-		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
-			"unsupported carrier claim registry version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed carriers before upgrading",
-			persisted.Version,
-		)
+		return durablecarrier.GlobalCarrierClaims{}, unsupportedCarrierClaimRegistryVersion(persisted.Version)
 	}
 	if persisted.Claims == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry requires claims array")
@@ -174,6 +183,19 @@ func decode(content []byte) (durablecarrier.GlobalCarrierClaims, error) {
 		claims = append(claims, claim)
 	}
 	return durablecarrier.NewGlobalCarrierClaims(claims)
+}
+
+func unsupportedCarrierClaimRegistryVersion(version int) error {
+	if version > currentVersion {
+		return fmt.Errorf(
+			"unsupported carrier claim registry version %d; it was written by a newer daem, so upgrade daem before reading it",
+			version,
+		)
+	}
+	return fmt.Errorf(
+		"unsupported carrier claim registry version %d; use the daem version that wrote it to recover or retire managed carriers before upgrading",
+		version,
+	)
 }
 
 func (persisted claimDTO) canonical() (durablecarrier.ManagedCarrierClaim, error) {

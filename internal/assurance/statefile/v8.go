@@ -22,13 +22,13 @@ const (
 	statefileMode                   = os.FileMode(0o600)
 )
 
-// Load reads one strict current statefile into canonical durable state.
+// Load reads current state or one exact empty retired statefile into canonical durable state.
 func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	content, err := readStatefile(ctx, path)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	snapshot, err := Decode(content)
+	snapshot, err := decodePersisted(content)
 	if err != nil {
 		return durable.Snapshot{}, fmt.Errorf("decode statefile %q: %w", path, err)
 	}
@@ -42,7 +42,7 @@ func Load(ctx context.Context, path string) (durable.Snapshot, error) {
 	return snapshot, nil
 }
 
-// LoadOptional reads current state or returns the canonical empty snapshot.
+// LoadOptional reads admissible persisted state or returns the canonical empty snapshot.
 func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 	snapshot, err := Load(ctx, path)
 	if err == nil {
@@ -56,21 +56,39 @@ func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 
 // Decode decodes one strict current state JSON value.
 func Decode(content []byte) (durable.Snapshot, error) {
+	version, err := statefileDocumentVersion(content)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	if version != snapshotVersion {
+		return durable.Snapshot{}, unsupportedStatefileVersion(version)
+	}
+	return decodeCurrent(content)
+}
+
+func decodePersisted(content []byte) (durable.Snapshot, error) {
+	version, err := statefileDocumentVersion(content)
+	if err != nil {
+		return durable.Snapshot{}, err
+	}
+	switch version {
+	case snapshotVersion:
+		return decodeCurrent(content)
+	case retiredStatefileVersion:
+		return decodeRetiredStatefile(content)
+	default:
+		return durable.Snapshot{}, unsupportedStatefileVersion(version)
+	}
+}
+
+func statefileDocumentVersion(content []byte) (int, error) {
 	if int64(len(content)) > maximumStatefileBytes {
-		return durable.Snapshot{}, fmt.Errorf("statefile exceeds %d bytes", maximumStatefileBytes)
+		return 0, fmt.Errorf("statefile exceeds %d bytes", maximumStatefileBytes)
 	}
-	if err := jsonstrict.Validate(content, "statefile", maximumStatefileJSONDepth); err != nil {
-		return durable.Snapshot{}, err
-	}
-	var envelope struct {
-		Version int `json:"version"`
-	}
-	if err := json.Unmarshal(content, &envelope); err != nil {
-		return durable.Snapshot{}, err
-	}
-	if envelope.Version != snapshotVersion {
-		return durable.Snapshot{}, unsupportedStatefileVersion(envelope.Version)
-	}
+	return jsonstrict.ValidateVersionedObject(content, "statefile", maximumStatefileJSONDepth)
+}
+
+func decodeCurrent(content []byte) (durable.Snapshot, error) {
 	var persisted snapshotDTO
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -83,12 +101,21 @@ func Decode(content []byte) (durable.Snapshot, error) {
 	} else if err != io.EOF {
 		return durable.Snapshot{}, err
 	}
+	if persisted.Version != snapshotVersion {
+		return durable.Snapshot{}, unsupportedStatefileVersion(persisted.Version)
+	}
 	return persisted.canonical()
 }
 
 func unsupportedStatefileVersion(version int) error {
+	if version > snapshotVersion {
+		return fmt.Errorf(
+			"unsupported statefile version %d; it was written by a newer daem, so upgrade daem before reading it",
+			version,
+		)
+	}
 	return fmt.Errorf(
-		"unsupported statefile version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed state before upgrading",
+		"unsupported statefile version %d; use the daem version that wrote it to recover or retire managed state before upgrading",
 		version,
 	)
 }

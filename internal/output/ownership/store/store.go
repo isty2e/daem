@@ -87,7 +87,7 @@ func (store Store) Path() string {
 	return store.path
 }
 
-// Load reads the current registry. A missing file is an empty registry.
+// Load reads current or exact empty retired ownership state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
@@ -115,10 +115,10 @@ func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	return decodeCurrentRegistry(ctx, snapshot.Content())
+	return decodePersistedRegistry(ctx, snapshot.Content())
 }
 
-func decodeCurrentRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
+func decodePersistedRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
 	registry, err := decode(content)
 	if err != nil {
 		return ownership.Registry{}, err
@@ -198,7 +198,7 @@ func (store Store) loadRooted(ctx context.Context) (ownership.Registry, error) {
 			mode.Perm(),
 		)
 	}
-	return decodeCurrentRegistry(ctx, content)
+	return decodePersistedRegistry(ctx, content)
 }
 
 // Apply writes one exact expected-before transition without changing unrelated claims.
@@ -297,7 +297,7 @@ func (store Store) loadForCommit(
 				mode.Perm(),
 			)
 		}
-		registry, err := decodeCurrentRegistry(ctx, content)
+		registry, err := decodePersistedRegistry(ctx, content)
 		if err != nil {
 			_ = capability.Close()
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
@@ -341,9 +341,25 @@ func decode(content []byte) (ownership.Registry, error) {
 	if int64(len(content)) > maximumOwnershipRegistryBytes {
 		return ownership.Registry{}, fmt.Errorf("ownership registry exceeds %d bytes", maximumOwnershipRegistryBytes)
 	}
-	if err := jsonstrict.Validate(content, "ownership registry", maximumOwnershipRegistryJSONDepth); err != nil {
+	version, err := jsonstrict.ValidateVersionedObject(
+		content,
+		"ownership registry",
+		maximumOwnershipRegistryJSONDepth,
+	)
+	if err != nil {
 		return ownership.Registry{}, err
 	}
+	switch version {
+	case currentVersion:
+		return decodeCurrent(content)
+	case retiredOwnershipRegistryVersion:
+		return decodeRetiredOwnershipRegistry(content)
+	default:
+		return ownership.Registry{}, unsupportedOwnershipRegistryVersion(version)
+	}
+}
+
+func decodeCurrent(content []byte) (ownership.Registry, error) {
 	var persisted file
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -357,10 +373,7 @@ func decode(content []byte) (ownership.Registry, error) {
 		return ownership.Registry{}, fmt.Errorf("decode ownership registry trailer: %w", err)
 	}
 	if persisted.Version != currentVersion {
-		return ownership.Registry{}, fmt.Errorf(
-			"unsupported ownership registry version %d; this pre-1.0 authority schema cannot be migrated safely, so use the daem version that wrote it to recover or retire managed ownership before upgrading",
-			persisted.Version,
-		)
+		return ownership.Registry{}, unsupportedOwnershipRegistryVersion(persisted.Version)
 	}
 	if persisted.Claims == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry requires claims array")
@@ -409,6 +422,19 @@ func decode(content []byte) (ownership.Registry, error) {
 		claims = append(claims, claim)
 	}
 	return ownership.NewRegistry(claims)
+}
+
+func unsupportedOwnershipRegistryVersion(version int) error {
+	if version > currentVersion {
+		return fmt.Errorf(
+			"unsupported ownership registry version %d; it was written by a newer daem, so upgrade daem before reading it",
+			version,
+		)
+	}
+	return fmt.Errorf(
+		"unsupported ownership registry version %d; use the daem version that wrote it to recover or retire managed ownership before upgrading",
+		version,
+	)
 }
 
 func encode(registry ownership.Registry) ([]byte, error) {

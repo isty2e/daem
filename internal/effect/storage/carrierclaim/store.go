@@ -39,7 +39,7 @@ func New(path string) (Store, error) {
 	return Store{path: canonical, commitFile: storagecommit.CommitFile}, nil
 }
 
-// Load reads the current registry. A missing file is the canonical empty set.
+// Load reads current or exact empty retired claim state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (durablecarrier.GlobalCarrierClaims, error) {
 	if ctx == nil {
 		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry context is required")

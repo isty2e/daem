@@ -30,15 +30,26 @@ those commands on a target admitted by [Platform Support](platforms.md).
 Current daem persists each filesystem authority as a canonical key plus the
 versioned filesystem-semantics witness used to derive it. Statefile v7, shared
 ownership registry v1, carrier claim registry v1, and recovery journal v7
-stored only path strings. Current daem rejects all four old schemas before
-host, state, ownership, carrier, or recovery effects. It does not guess whether
-an old lowercase path came from a case-sensitive, case-insensitive, or Unicode
+stored only path strings. Current daem does not guess whether an old lowercase
+path came from a case-sensitive, case-insensitive, or Unicode
 normalization-equivalent namespace.
 
+There is one narrow retirement exception. An exact v7 statefile whose seven
+fact-family arrays are all present and empty, or an exact v1 ownership/carrier
+registry whose `claims` array is present and empty, contains no remaining path
+authority. Current daem reads that artifact as canonical empty state. Read-only
+commands do not rewrite or delete it; the next ordinary guarded write that
+changes that state records the current schema. Missing, null, populated, or
+unknown fields are not an empty retirement artifact and remain blocked.
+Recovery journal v7 is always blocked because its presence may represent
+interrupted effects.
+
 No action is needed for a new workspace with none of these old durable files.
-If an old artifact exists, do not hand-edit it into the new schema: a witness
-must come from a fresh filesystem observation, and changing the JSON would
-forge authority rather than migrate it.
+If a populated old artifact or any old recovery journal exists, do not hand-edit
+it into the new schema: a witness must come from a fresh filesystem observation,
+and changing the JSON would forge authority rather than migrate it. A schema
+version newer than this daem understands instead requires upgrading daem; do not
+apply the old-binary retirement procedure to a future schema.
 
 Do not edit or delete the statefile, shared ownership registry, carrier claim
 registry, or recovery journal to bypass the refusal. Use this single
@@ -50,11 +61,13 @@ dry-run-first retirement and re-adoption route:
    review it, and complete that recovery before changing declarations.
 3. Capture `daem status --json` and `daem apply --dry-run --diff` as evidence of
    the old managed state.
-4. With the old version, remove the manifest's managed resources through ordinary
-   `daem remove` operations, review the resulting `daem apply --dry-run
-   --diff`, and apply the retirement. This lets the old version remove its own host
-   outputs and release state and shared claims through their normal protocols.
-5. Restore the manifest declarations from version control. With current daem,
+4. With the old version, remove the manifest's managed resources through
+   ordinary `daem remove` operations, review the resulting `daem apply --dry-run
+   --diff`, and apply the retirement. This lets the old version remove its own
+   host outputs and release state and shared claims through their normal
+   protocols. It may leave the exact empty v7/v1 artifacts described above.
+5. Confirm no recovery journal remains. Restore the manifest declarations from
+   version control. With current daem,
    run `daem lock --dry-run --verbose`, `daem lock`, and `daem apply --dry-run
    --diff`; then apply only after the recreated outputs and any
    `--manage-existing` adoption are acceptable.

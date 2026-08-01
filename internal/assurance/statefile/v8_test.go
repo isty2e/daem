@@ -307,12 +307,17 @@ func TestSnapshotV8RejectsOldUnknownDuplicateAndTrailingJSON(t *testing.T) {
 		{
 			name:    "legacy v7",
 			content: strings.Replace(base, `"version":8`, `"version":7`, 1),
-			want:    "pre-1.0 authority schema cannot be migrated safely",
+			want:    "use the daem version that wrote it",
 		},
 		{
 			name:    "unknown version",
 			content: strings.Replace(base, `"version":8`, `"version":9`, 1),
-			want:    "unsupported statefile version 9",
+			want:    "written by a newer daem",
+		},
+		{
+			name:    "future version before strict schema",
+			content: `{"version":9,"future":true}`,
+			want:    "written by a newer daem",
 		},
 		{
 			name:    "unknown field",
@@ -340,6 +345,71 @@ func TestSnapshotV8RejectsOldUnknownDuplicateAndTrailingJSON(t *testing.T) {
 			_, err := Decode([]byte(test.content))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Decode error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadAdmitsOnlyExactEmptyRetiredV7Statefile(t *testing.T) {
+	const retiredEmpty = `{"version":7,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`
+
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, []byte(retiredEmpty), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := Load(t.Context(), path)
+	if err != nil {
+		t.Fatalf("Load exact empty retired v7: %v", err)
+	}
+	if !snapshot.Equal(durable.EmptySnapshot()) {
+		t.Fatalf("Load exact empty retired v7 = %#v, want canonical empty", snapshot)
+	}
+	retained, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(retained) != retiredEmpty {
+		t.Fatalf("read-only Load rewrote retired statefile:\n%s", retained)
+	}
+	if _, err := Decode([]byte(retiredEmpty)); err == nil ||
+		!strings.Contains(err.Error(), "unsupported statefile version 7") {
+		t.Fatalf("strict Decode error = %v, want retired-version rejection", err)
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "missing family",
+			content: `{"version":7,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[]}`,
+			want:    "exact empty retired statefile",
+		},
+		{
+			name:    "null family",
+			content: strings.Replace(retiredEmpty, `"managed_paths":[]`, `"managed_paths":null`, 1),
+			want:    "exact empty retired statefile",
+		},
+		{
+			name:    "populated family",
+			content: strings.Replace(retiredEmpty, `"managed_paths":[]`, `"managed_paths":[{"path":"legacy"}]`, 1),
+			want:    "use the daem version that wrote it",
+		},
+		{
+			name:    "unknown top-level field",
+			content: strings.Replace(retiredEmpty, `"version":7`, `"version":7,"future":true`, 1),
+			want:    "unknown field",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(t.Context(), path)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Load error = %v, want %q", err, test.want)
 			}
 		})
 	}

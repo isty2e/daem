@@ -95,6 +95,29 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 9, "future": true`), 1)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "journal.json")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "written by a newer daem") {
+		t.Fatalf("loadRecoveryJournal error = %v, want newer-daem guidance", err)
+	}
+	if strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("future recovery journal was decoded as current schema: %v", err)
+	}
+}
+
 func TestRecoveryJournalRejectsResourceFieldInVersionEight(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
@@ -193,6 +216,15 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			want: "statefile_before: unsupported statefile version 1",
 		},
 		{
+			name: "empty retired nested state version",
+			mutate: func(candidate *recoveryJournalDTO) {
+				candidate.StatefileBefore = json.RawMessage(
+					`{"version":7,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`,
+				)
+			},
+			want: "statefile_before: unsupported statefile version 7",
+		},
+		{
 			name: "missing nested state families",
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(`{"version":8}`)
@@ -213,7 +245,7 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 			mutate: func(candidate *recoveryJournalDTO) {
 				candidate.StatefileBefore = json.RawMessage(`null`)
 			},
-			want: "unsupported statefile version 0",
+			want: "statefile must be a JSON object",
 		},
 		{
 			name: "unknown nested state field",
