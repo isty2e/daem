@@ -61,12 +61,12 @@ resolution itself fails, the platform and path findings are both reported.
 This diagnostic exception grants no storage or mutation capability.
 
 The platform-gated command families `add`, `apply`, `import`, `init`, `lock`,
-`outdated`, `recover`, `refresh`, and `remove` reject a not-admitted platform
-before path resolution, manifest or cache access, confirmation, host writes,
-or delegated command execution. `outdated` remains read-only with respect to
-desired and host state, but it consumes the same path and source-cache
-semantics. Dry-run forms use the same gate because planning depends on the same
-platform contracts.
+`outdated`, `recover`, `refresh`, `remove`, and `unmanage` reject a
+not-admitted platform before path resolution, manifest or cache access,
+confirmation, host writes, delegated command execution, or durable metadata
+publication. `outdated` remains read-only with respect to desired and host
+state, but it consumes the same path and source-cache semantics. Dry-run forms
+use the same gate because planning depends on the same platform contracts.
 
 `list`, `status`, and explicit `probe` behavior are not a partial unsupported-
 platform product mode. Their existing lower-level adapters continue to fail

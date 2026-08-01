@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -91,6 +92,8 @@ func TestRunCommandPreservesHelpOnUnsupportedPlatform(t *testing.T) {
 		{"remove", "--help"},
 		{"remove", "help", "skill"},
 		{"remove", "skill", "--help"},
+		{"unmanage", "--help"},
+		{"unmanage", "extension", "--help"},
 	}
 
 	for _, args := range tests {
@@ -123,6 +126,7 @@ func TestRunCommandPreservesUnknownCommandDiagnosticsOnUnsupportedPlatform(t *te
 		{args: []string{"unknown"}, want: `unknown command "unknown"`},
 		{args: []string{"add", "unknown"}, want: `unknown add resource "unknown"`},
 		{args: []string{"remove", "unknown"}, want: `unknown remove resource "unknown"`},
+		{args: []string{"unmanage", "unknown"}, want: `unknown unmanage resource "unknown"`},
 	}
 	for _, test := range tests {
 		var stdout bytes.Buffer
@@ -156,6 +160,7 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 	for _, subject := range []string{"extension", "instruction", "hook", "mcp-server", "skill"} {
 		gated = append(gated, []string{"remove", subject})
 	}
+	gated = append(gated, []string{"unmanage", "extension"})
 	for _, args := range gated {
 		if !requiresPlatformAdmission(args) {
 			t.Errorf("requiresPlatformAdmission(%#v) = false, want true", args)
@@ -177,11 +182,79 @@ func TestPlatformAdmissionClassifierCoversEveryFrozenRoute(t *testing.T) {
 		{"remove"},
 		{"remove", "skill-group"},
 		{"remove", "unknown"},
+		{"unmanage"},
+		{"unmanage", "unknown"},
 	}
 	for _, args := range ungated {
 		if requiresPlatformAdmission(args) {
 			t.Errorf("requiresPlatformAdmission(%#v) = true, want false", args)
 		}
+	}
+}
+
+func TestCommandAdmissionCatalogRoutesEveryRegisteredRoot(t *testing.T) {
+	examples := map[string][]string{
+		"--help":    {"--help"},
+		"--version": {"--version"},
+		"-h":        {"-h"},
+		"add":       {"add", "--help"},
+		"apply":     {"apply", "--help"},
+		"doctor":    {"doctor", "--help"},
+		"help":      {"help"},
+		"import":    {"import", "--help"},
+		"init":      {"init", "--help"},
+		"list":      {"list", "--help"},
+		"lock":      {"lock", "--help"},
+		"outdated":  {"outdated", "--help"},
+		"probe":     {"probe", "--help"},
+		"recover":   {"recover", "--help"},
+		"refresh":   {"refresh", "--help"},
+		"remove":    {"remove", "--help"},
+		"status":    {"status", "--help"},
+		"unmanage":  {"unmanage", "--help"},
+		"version":   {"version", "--help"},
+	}
+	if len(commandAdmissionCatalog) != len(examples) {
+		t.Fatalf("command admission catalog has %d entries, want %d", len(commandAdmissionCatalog), len(examples))
+	}
+	for command, args := range examples {
+		t.Run(command, func(t *testing.T) {
+			if _, ok := commandAdmissionCatalog[command]; !ok {
+				t.Fatalf("root command %q has no admission policy", command)
+			}
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := runCommand(args, &stdout, &stderr, RunOptions{}, testAdmittedCommandOptions(t, "darwin", "arm64"))
+			if exitCode != 0 {
+				t.Fatalf("runCommand(%#v) = %d, stderr=%q", args, exitCode, stderr.String())
+			}
+			if strings.Contains(stderr.String(), "registered without an implementation") {
+				t.Fatalf("catalog and dispatch disagree: %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestPlatformDocumentationListsEveryGatedCommandFamily(t *testing.T) {
+	content, err := os.ReadFile(filepath.Join("..", "..", "docs", "platforms.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	families := make([]string, 0, len(commandAdmissionCatalog))
+	for command, policy := range commandAdmissionCatalog {
+		if policy.scope != platformAdmissionBypass {
+			families = append(families, command)
+		}
+	}
+	slices.Sort(families)
+	quoted := make([]string, len(families))
+	for index, family := range families {
+		quoted[index] = "`" + family + "`"
+	}
+	want := strings.Join(quoted[:len(quoted)-1], ", ") + ", and " + quoted[len(quoted)-1]
+	normalized := strings.Join(strings.Fields(string(content)), " ")
+	if !strings.Contains(normalized, "The platform-gated command families "+want) {
+		t.Fatalf("docs/platforms.md does not list canonical gated families %s", want)
 	}
 }
 
@@ -325,6 +398,45 @@ func TestPlatformPreflightAppliesMacOSRuntimeFloorToEveryGatedFamily(t *testing.
 	}
 }
 
+func TestPlatformPreflightRejectsUnmanageExtensionBeforeMetadataEffects(t *testing.T) {
+	for _, dryRun := range []bool{false, true} {
+		name := "write"
+		if dryRun {
+			name = "dry-run"
+		}
+		t.Run(name, func(t *testing.T) {
+			root, manifestPath, manifestBefore, hostPath, hostBefore := writeCLIUnmanageFixture(t, "project")
+			args := []string{"unmanage", "extension", "context7", "--manifest", manifestPath}
+			if dryRun {
+				args = append(args, "--dry-run")
+			}
+
+			options := testMacOSCommandOptions(t, "25.9.9", platformsupport.RuntimeObservationNotObserved)
+			observe := options.platformObserver
+			calls := 0
+			options.platformObserver = func(ctx context.Context) (platformsupport.RuntimeObservation, error) {
+				calls++
+				return observe(ctx)
+			}
+
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := runCommand(args, &stdout, &stderr, RunOptions{}, options)
+			if exitCode != 1 || calls != 1 || stdout.Len() != 0 {
+				t.Fatalf("exit=%d observer calls=%d stdout=%q stderr=%q", exitCode, calls, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "requires macOS 26.0 or newer") {
+				t.Fatalf("stderr = %q, want runtime-floor rejection", stderr.String())
+			}
+			assertCLIUnmanageFile(t, manifestPath, manifestBefore)
+			assertCLIUnmanageFile(t, hostPath, hostBefore)
+			if _, err := os.Stat(filepath.Join(root, "project", "daem.lock.toml")); !os.IsNotExist(err) {
+				t.Fatalf("preflight touched lockfile: %v", err)
+			}
+		})
+	}
+}
+
 func TestPlatformPreflightRejectsUnknownMacOSRuntimeForEveryFailureReason(t *testing.T) {
 	for _, reason := range []platformsupport.RuntimeObservationReason{
 		platformsupport.RuntimeObservationCommandFailed,
@@ -358,6 +470,7 @@ func TestPlatformAssessmentRunsOnlyForCommandsThatConsumeIt(t *testing.T) {
 		{name: "version", args: []string{"version"}, wantExit: 0},
 		{name: "version alias", args: []string{"--version"}, wantExit: 0},
 		{name: "unknown command", args: []string{"unknown"}, wantExit: 2},
+		{name: "unknown unmanage subject", args: []string{"unmanage", "unknown"}, wantExit: 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -429,5 +542,6 @@ func platformGatedCommandExamples(manifestPath string) [][]string {
 		{"recover", "--yes", "--manifest", manifestPath},
 		{"refresh", "extension", "example", "--yes", "--manifest", manifestPath},
 		{"remove", "skill", "example", "--manifest", manifestPath},
+		{"unmanage", "extension", "example", "--manifest", manifestPath},
 	}
 }

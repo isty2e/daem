@@ -50,6 +50,54 @@ type commandOptions struct {
 	buildIdentity         buildidentity.Identity
 }
 
+type platformAdmissionScope uint8
+
+const (
+	platformAdmissionBypass platformAdmissionScope = iota
+	platformAdmissionWholeCommand
+	platformAdmissionSelectedSubject
+)
+
+type commandPlatformAdmission struct {
+	scope    platformAdmissionScope
+	subjects []string
+}
+
+// commandAdmissionCatalog is the ingress authority for public root-command
+// recognition and pre-dispatch platform admission.
+var commandAdmissionCatalog = map[string]commandPlatformAdmission{
+	"--help":    {},
+	"--version": {},
+	"-h":        {},
+	"add": {
+		scope: platformAdmissionSelectedSubject,
+		subjects: []string{
+			"extension", "instruction", "hook", "mcp-server", "skill", "skill-group",
+		},
+	},
+	"apply":    {scope: platformAdmissionWholeCommand},
+	"doctor":   {},
+	"help":     {},
+	"import":   {scope: platformAdmissionWholeCommand},
+	"init":     {scope: platformAdmissionWholeCommand},
+	"list":     {},
+	"lock":     {scope: platformAdmissionWholeCommand},
+	"outdated": {scope: platformAdmissionWholeCommand},
+	"probe":    {},
+	"recover":  {scope: platformAdmissionWholeCommand},
+	"refresh":  {scope: platformAdmissionWholeCommand},
+	"remove": {
+		scope:    platformAdmissionSelectedSubject,
+		subjects: []string{"extension", "instruction", "hook", "mcp-server", "skill"},
+	},
+	"status": {},
+	"unmanage": {
+		scope:    platformAdmissionSelectedSubject,
+		subjects: []string{"extension"},
+	},
+	"version": {},
+}
+
 type stableOutputWriter struct {
 	output io.Writer
 	err    error
@@ -133,6 +181,11 @@ func RunWithOptions(args []string, options RunOptions) int {
 }
 
 func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOptions, commandInvocation commandOptions) int {
+	if _, recognized := commandAdmissionCatalog[args[0]]; !recognized {
+		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
+		fmt.Fprintln(stderr, "next: run daem help")
+		return 2
+	}
 	if exitCode, rejected := rejectUnsupportedPlatform(args, commandInvocation, stderr); rejected {
 		return exitCode
 	}
@@ -186,9 +239,8 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		printUsage(stdout, options.HelpWidth)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
-		fmt.Fprintln(stderr, "next: run daem help")
-		return 2
+		fmt.Fprintf(stderr, "command %q is registered without an implementation\n", args[0])
+		return 1
 	}
 }
 
@@ -269,23 +321,22 @@ func requiresPlatformAdmission(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	switch args[0] {
-	case "apply", "import", "init", "lock", "outdated", "recover", "refresh":
+	policy, recognized := commandAdmissionCatalog[args[0]]
+	if !recognized {
+		return false
+	}
+	return policy.requires(args[1:])
+}
+
+func (policy commandPlatformAdmission) requires(args []string) bool {
+	switch policy.scope {
+	case platformAdmissionWholeCommand:
 		return true
-	case "add":
-		return knownPlatformGatedSubject(args[1:], "extension", "instruction", "hook", "mcp-server", "skill", "skill-group")
-	case "remove":
-		return knownPlatformGatedSubject(args[1:], "extension", "instruction", "hook", "mcp-server", "skill")
+	case platformAdmissionSelectedSubject:
+		return len(args) > 0 && slices.Contains(policy.subjects, args[0])
 	default:
 		return false
 	}
-}
-
-func knownPlatformGatedSubject(args []string, subjects ...string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	return slices.Contains(subjects, args[0])
 }
 
 func commandInvocationRequestsHelp(args []string) bool {
