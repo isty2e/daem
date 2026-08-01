@@ -2,6 +2,7 @@ package execute
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -636,8 +637,21 @@ func (emitter applyEventEmitter) emit(kind EventKind, stage EventStage, action *
 
 type activeRetirementPlanLoader func(context.Context) (recovery.Plan, error)
 
+type journalRetiredFailure struct {
+	cause error
+}
+
+func (failure *journalRetiredFailure) Error() string {
+	return fmt.Sprintf("%v; recovery journal retired; no recovery action remains", failure.cause)
+}
+
+func (failure *journalRetiredFailure) Unwrap() error {
+	return failure.cause
+}
+
 func retirementFailureWithRemediation(err error) error {
-	if err == nil || journal.IsRetirementFinalizedWithGCResidue(err) {
+	var retired *journalRetiredFailure
+	if err == nil || journal.IsRetirementFinalizedWithGCResidue(err) || errors.As(err, &retired) {
 		return err
 	}
 	return fmt.Errorf("%w; run: daem recover --dry-run", err)
@@ -675,8 +689,9 @@ func retireRecoveryJournalWithEvents(
 		return err
 	}
 	if err := gate.acceptAfter(ctx); err != nil {
-		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)
-		return err
+		retired := &journalRetiredFailure{cause: err}
+		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, retired)
+		return retired
 	}
 	events.emit(EventJournalCleaned, EventStageJournalCleanup, nil, nil)
 	return nil

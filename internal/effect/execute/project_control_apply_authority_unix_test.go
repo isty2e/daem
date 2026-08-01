@@ -329,3 +329,62 @@ func TestApplyReportsFinalizedGCFailureWithoutImpossibleRecoveryAdvice(t *testin
 		t.Fatalf("finalized GC residue blocked later work: %v", readinessErr)
 	}
 }
+
+func TestApplyReportsPostRetirementAcceptanceFailureWithoutRecoveryAdvice(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	input := fixture.input([]applyEventAction{action})
+	acceptanceFailure := errors.New("injected post-retirement acceptance failure")
+	cleanupStarted := false
+	var events []Event
+
+	result, err := ApplyWithOptions(
+		t.Context(),
+		input,
+		ApplyOptions{
+			Events: func(event Event) {
+				events = append(events, event)
+				if event.Kind == EventJournalCleanupStarted {
+					cleanupStarted = true
+				}
+			},
+			AcceptVisibilityChanges: func(context.Context) error {
+				if cleanupStarted {
+					return acceptanceFailure
+				}
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, acceptanceFailure) ||
+		!strings.Contains(err.Error(), "recovery journal retired; no recovery action remains") {
+		t.Fatalf("ApplyWithOptions error = %v, want exact post-retirement outcome", err)
+	}
+	if strings.Contains(err.Error(), "daem recover") {
+		t.Fatalf("ApplyWithOptions exposed impossible recovery advice: %v", err)
+	}
+	assertCommittedApplyResult(
+		t,
+		result,
+		fixture.paths.StatefilePath,
+		fixture.paths.StatefilePath,
+		1,
+	)
+	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")
+	if !containsApplyEventKind(events, EventJournalCleanupFailed) {
+		t.Fatalf("events = %#v, want post-retirement acceptance failure", events)
+	}
+	assertNoEventKind(t, events, EventJournalCleaned)
+
+	_, loadErr := journal.LoadRecoverablePlanWithOptions(
+		t.Context(),
+		journal.Paths{RecoveryDir: fixture.paths.RecoveryDir},
+		journal.PlanLoadOptions{
+			Filesystem: input.Filesystem,
+			StateCodec: statefile.Codec{},
+		},
+	)
+	if !errors.Is(loadErr, journal.ErrNoRecoverableJournal) {
+		t.Fatalf("LoadRecoverablePlanWithOptions error = %v, want no recoverable journal", loadErr)
+	}
+}
