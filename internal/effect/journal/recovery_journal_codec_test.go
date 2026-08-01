@@ -80,7 +80,7 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 9`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -100,7 +100,7 @@ func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 8`), []byte(`"version": 9, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 9`), []byte(`"version": 10, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -407,8 +407,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 8`,
-				`"version": 8, "version": 8`,
+				`"version": 9`,
+				`"version": 9, "version": 9`,
 				1,
 			),
 		},
@@ -437,6 +437,34 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 				t.Fatalf("loadRecoveryJournal error = %v, want duplicate-key rejection", err)
 			}
 		})
+	}
+}
+
+func TestLoadRecoveryJournalRejectsNoncanonicalProvisionalIntentKeys(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.TrimSpace(content)
+	if len(content) == 0 || content[len(content)-1] != '}' {
+		t.Fatalf("recovery journal = %q, want object", content)
+	}
+	content = append(
+		append([]byte(nil), content[:len(content)-1]...),
+		[]byte(`,"provisional_acquire_intents":[{"Kind":"provisional_acquire"}]}`)...,
+	)
+
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, recoveryJournalFileName)
+	if err := os.WriteFile(path, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec()); err == nil ||
+		!strings.Contains(err.Error(), "must use canonical ASCII lower_snake_case spelling") {
+		t.Fatalf("loadRecoveryJournal error = %v, want noncanonical-key rejection", err)
 	}
 }
 

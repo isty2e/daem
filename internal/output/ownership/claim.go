@@ -54,7 +54,7 @@ func (claim Claim) Validate() error {
 	}
 	switch claim.state {
 	case ClaimReserved:
-		if err := validateOperationID(claim.operationID); err != nil {
+		if err := ValidateOperationID(claim.operationID); err != nil {
 			return err
 		}
 	case ClaimActive:
@@ -105,7 +105,9 @@ func (claim Claim) ConflictsWith(other Claim) bool {
 	return claim.address.Overlaps(other.address)
 }
 
-func validateOperationID(operationID string) error {
+// ValidateOperationID checks the operation identity shared by provisional
+// acquisition intents and exact reserved claims.
+func ValidateOperationID(operationID string) error {
 	if strings.TrimSpace(operationID) == "" {
 		return fmt.Errorf("reserved ownership claim requires an operation id")
 	}

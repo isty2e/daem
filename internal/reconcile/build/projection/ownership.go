@@ -19,27 +19,22 @@ func ownershipObservations(
 	keys := make([]ownershipObservationKey, 0, len(observations))
 	conflicts := make(map[ownershipObservationKey]struct{})
 	for index, observation := range observations {
-		if err := observation.Destination.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("ownership observation[%d] destination: %w", index, err)
+		if err := observation.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("ownership observation[%d]: %w", index, err)
 		}
-		if err := observation.Address.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("ownership observation[%d] address: %w", index, err)
+		key := ownershipObservationKey{
+			destination: observation.Destination(), contentPath: observation.ContentPath(),
 		}
-		if claim, present := observation.Claim.Get(); present {
-			if err := claim.Validate(); err != nil {
-				return nil, nil, fmt.Errorf("ownership observation[%d] claim: %w", index, err)
-			}
-			if !claim.Address().Overlaps(observation.Address) {
-				return nil, nil, fmt.Errorf("ownership observation[%d] claim does not overlap its address", index)
-			}
-		}
-		key := ownershipObservationKey{destination: observation.Destination, contentPath: observation.ContentPath}
 		if _, exists := indexed[key]; exists {
-			return nil, nil, fmt.Errorf("duplicate ownership observation for %q content path %q", observation.Destination, observation.ContentPath)
+			return nil, nil, fmt.Errorf(
+				"duplicate ownership observation for %q content path %q",
+				observation.Destination(),
+				observation.ContentPath(),
+			)
 		}
 		for _, previousKey := range keys {
 			previous := indexed[previousKey]
-			if previous.Address.Overlaps(observation.Address) {
+			if previous.Overlaps(observation) {
 				conflicts[previousKey] = struct{}{}
 				conflicts[key] = struct{}{}
 			}

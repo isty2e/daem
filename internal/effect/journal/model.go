@@ -21,15 +21,16 @@ type Paths struct {
 }
 
 type recoveryJournal struct {
-	Version               int                            `json:"version"`
-	OperationID           string                         `json:"operation_id"`
-	Operation             string                         `json:"operation"`
-	CreatedAt             string                         `json:"created_at"`
-	ProjectRootProvenance *recoveryProjectRootProvenance `json:"project_root_provenance,omitempty"`
-	Entries               []recoveryEntry                `json:"entries"`
-	StatefileBefore       durable.Snapshot               `json:"-"`
-	StatefileAfter        durable.Snapshot               `json:"-"`
-	ClaimTransitions      []recoveryClaimTransition      `json:"claim_transitions,omitempty"`
+	Version               int                                `json:"version"`
+	OperationID           string                             `json:"operation_id"`
+	Operation             string                             `json:"operation"`
+	CreatedAt             string                             `json:"created_at"`
+	ProjectRootProvenance *recoveryProjectRootProvenance     `json:"project_root_provenance,omitempty"`
+	Entries               []recoveryEntry                    `json:"entries"`
+	StatefileBefore       durable.Snapshot                   `json:"-"`
+	StatefileAfter        durable.Snapshot                   `json:"-"`
+	ClaimTransitions      []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
+	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
 type recoveryProjectRootProvenance struct {
@@ -38,7 +39,7 @@ type recoveryProjectRootProvenance struct {
 	MountFingerprint  string `json:"mount_fingerprint"`
 }
 
-// recoveryEntry is the exact journal-v8 persistence DTO. Subject is the sole
+// recoveryEntry is the exact journal-v9 persistence DTO. Subject is the sole
 // semantic identity carried across the recovery boundary.
 type recoveryEntry struct {
 	Subject             persistedSubjectRef        `json:"subject"`
@@ -62,7 +63,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v8 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal-v9 persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`
@@ -101,9 +102,10 @@ func (subject persistedSubjectRef) canonical() (topology.SubjectID, error) {
 // CaptureResult identifies the committed recovery journal for one interrupted operation.
 // Stable persistence remains governed by the storage durability contract.
 type CaptureResult struct {
-	OperationID string
-	Directory   string
-	JournalPath string
+	OperationID       string
+	Directory         string
+	JournalPath       string
+	RecordFingerprint string
 }
 
 // OperationID returns a stable apply recovery operation identifier for a timestamp.

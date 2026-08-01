@@ -135,11 +135,11 @@ func TestManagedPathOwnershipForeignClaimOverridesPreliminaryUnmanagedBlock(t *t
 		t.Fatal(err)
 	}
 	destination := outputtest.Parse(t, "~/.codex/AGENTS.md")
-	observations, conflicts, err := ownershipObservations([]observe.OwnershipObservation{{
-		Destination: destination,
-		Address:     address,
-		Claim:       claimValue,
-	}})
+	observation, err := observe.NewExactOwnershipObservation(destination, "", address, claimValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observations, conflicts, err := ownershipObservations([]observe.OwnershipObservation{observation})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +174,9 @@ func planningManagedPathOwnershipObservation(
 		}
 		claim, _ = ownership.PresentClaim(active)
 	}
-	return observe.OwnershipObservation{Destination: destination, Address: address, Claim: claim}
+	observation, err := observe.NewExactOwnershipObservation(destination, "", address, claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }

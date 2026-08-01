@@ -72,20 +72,22 @@ func (backup recoveryBackup) copyDirectory(
 	return backup.view.CopyVerified(ctx, backup.identity, sink)
 }
 
-// RecoveryOptions configures workflow-owned validation at the last safe point
-// before recovery's first filesystem effect.
+// RecoveryOptions configures workflow-owned validation before and after each
+// visibility-changing recovery effect.
 type RecoveryOptions struct {
-	ValidateBeforeEffects   func(context.Context, mutation.PhysicalAuthoritySet) error
-	ActiveJournalAuthority  journal.ActiveJournalAuthority
-	Resolver                DestinationResolver
-	Codecs                  aggregate.CodecCatalog
-	OwnershipRegistryBinder ownershipmutation.RootedRegistryBinder
-	StateCodec              durable.SnapshotCodec
-	StateReader             durable.SnapshotReader
-	Filesystem              mutationfs.Store
-	reloadPlan              func(context.Context, journal.PlanLoadOptions) (recovery.Plan, error)
-	mutationAuthority       *mutationAuthority
-	beforeHostAction        func(int) error
+	ValidateBeforeEffects       func(context.Context, mutation.PhysicalAuthoritySet) error
+	ValidateVisibilityAuthority func(context.Context) error
+	AcceptVisibilityChanges     func(context.Context) error
+	ActiveJournalAuthority      journal.ActiveJournalAuthority
+	Resolver                    DestinationResolver
+	Codecs                      aggregate.CodecCatalog
+	OwnershipRegistryBinder     ownershipmutation.RootedRegistryBinder
+	StateCodec                  durable.SnapshotCodec
+	StateReader                 durable.SnapshotReader
+	Filesystem                  mutationfs.Store
+	reloadPlan                  func(context.Context, journal.PlanLoadOptions) (recovery.Plan, error)
+	mutationAuthority           *mutationAuthority
+	beforeHostAction            func(int) error
 }
 
 // ExecuteRecoveryPlanWithOptions applies a journal-derived recovery plan after
@@ -162,6 +164,10 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
 	}
+	visibilityGate := recoveryVisibilityGate(options)
+	if err := visibilityGate.validateBefore(ctx); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
+	}
 	retirementPlan, err := reloadRecoveryPlanAfterEffects(ctx, plan, options, authority)
 	if err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retained", err)
@@ -173,6 +179,9 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 		options.StateCodec,
 	); err != nil {
 		return fmt.Errorf("retire recovery journal: %w", err)
+	}
+	if err := visibilityGate.acceptAfter(ctx); err != nil {
+		return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
 	}
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return fmt.Errorf("%w; recovery effects committed; recovery journal retired", err)
@@ -239,6 +248,7 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		return err
 	}
 	plan = current
+	visibilityGate := recoveryVisibilityGate(options)
 
 	switch plan.Classification() {
 	case recovery.ClassificationCleanBefore, recovery.ClassificationCleanAfter:
@@ -252,9 +262,10 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 			registryStore,
 			options.beforeHostAction,
 			options.Codecs,
+			visibilityGate,
 		)
 	case recovery.ClassificationNeedsFinalize:
-		if err := finalizeClaimTransitions(ctx, registryStore, plan.ClaimTransitions()); err != nil {
+		if err := finalizeClaimTransitions(ctx, registryStore, plan.ClaimTransitions(), visibilityGate); err != nil {
 			return fmt.Errorf("finalize recovery ownership claims: %w", err)
 		}
 		return nil
@@ -365,6 +376,7 @@ func executeRecoveryRollbackEffects(
 	registryStore ownershipmutation.RegistryStore,
 	beforeHostAction func(int) error,
 	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
 ) error {
 	actions := plan.Actions()
 	hostActions := make([]recoveryHostAction, 0, len(actions))
@@ -443,17 +455,18 @@ func executeRecoveryRollbackEffects(
 		rollback.entries,
 		beforeHostAction,
 		codecs,
+		gate,
 	); err != nil {
-		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority)
+		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority, gate)
 		cleanupErr := rollback.cleanup()
 		return recoveryRollbackFailure(err, rollbackErr, cleanupErr)
 	}
 	if err := ctx.Err(); err != nil {
-		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority)
+		rollbackErr := rollback.restore(context.WithoutCancel(ctx), authority, gate)
 		cleanupErr := rollback.cleanup()
 		return recoveryRollbackFailure(err, rollbackErr, cleanupErr)
 	}
-	if err := rollbackClaimsToBefore(ctx, registryStore, plan.ClaimTransitions()); err != nil {
+	if err := rollbackClaimsToBefore(ctx, registryStore, plan.ClaimTransitions(), gate); err != nil {
 		return errors.Join(
 			fmt.Errorf("rollback recovery ownership claims: %w; recovery journal retained", err),
 			rollback.cleanup(),
@@ -494,4 +507,11 @@ func validateRecoveryBeforeEffects(
 		return nil
 	}
 	return options.ValidateBeforeEffects(ctx, authority)
+}
+
+func recoveryVisibilityGate(options RecoveryOptions) visibilityEffectGate {
+	return visibilityEffectGate{
+		before: options.ValidateVisibilityAuthority,
+		after:  options.AcceptVisibilityChanges,
+	}
 }

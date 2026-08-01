@@ -76,7 +76,57 @@ func canonicalDarwinPath(
 			components = append(components, observedPathComponent{spelling: name, caseMode: caseMode})
 		}
 	}
-	return canonicalObservedPath(root, components, "darwin-case-v1")
+	identity, err := canonicalObservedPath(root, components, "darwin-case-v1")
+	if err != nil {
+		return canonicalPath{}, err
+	}
+
+	normalizationSensitiveMissing := containsNonASCIIPathComponent(missing)
+	normalizationSensitiveExistingEntry := effect == PathEffectDirectoryEntry &&
+		len(missing) == 0 && len(existingNames) != 0 && containsNonASCII(existingNames[len(existingNames)-1])
+	if !normalizationSensitiveMissing && !normalizationSensitiveExistingEntry {
+		return identity, nil
+	}
+
+	namespaceComponentCount := len(existingNames)
+	if normalizationSensitiveExistingEntry {
+		namespaceComponentCount--
+	}
+	namespace, err := canonicalObservedPath(root, components[:namespaceComponentCount], "darwin-case-v1")
+	if err != nil {
+		return canonicalPath{}, fmt.Errorf("canonicalize normalization namespace: %w", err)
+	}
+	namespaceLease, err := newNamespaceLeaseIntent(namespace)
+	if err != nil {
+		return canonicalPath{}, err
+	}
+	identity.namespaceLease = namespaceLease
+	if normalizationSensitiveMissing {
+		provisional, err := newProvisionalPathIntent(identity, namespace)
+		if err != nil {
+			return canonicalPath{}, err
+		}
+		identity.provisional = provisional
+	}
+	return identity, nil
+}
+
+func containsNonASCIIPathComponent(components []string) bool {
+	for _, component := range components {
+		if containsNonASCII(component) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsNonASCII(value string) bool {
+	for index := 0; index < len(value); index++ {
+		if value[index] >= 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 func darwinPathComponents(path string) (string, []string, error) {

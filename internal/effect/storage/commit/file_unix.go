@@ -72,10 +72,28 @@ func captureEntryIdentity(
 
 // CommitFile publishes a complete regular file and persists its namespace.
 func CommitFile(ctx context.Context, request FileCommit) error {
-	return commitFileWithFaults(ctx, request, faultPlan{})
+	return commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, nil)
 }
 
 func commitFileWithFaults(ctx context.Context, request FileCommit, faults faultPlan) error {
+	return commitFileWithFaultsAndParentRefresh(ctx, request, faults, nil)
+}
+
+func commitFileAndRefreshParent(
+	ctx context.Context,
+	request FileCommit,
+) (EntryIdentity, error) {
+	var refreshed EntryIdentity
+	err := commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, &refreshed)
+	return refreshed, err
+}
+
+func commitFileWithFaultsAndParentRefresh(
+	ctx context.Context,
+	request FileCommit,
+	faults faultPlan,
+	refreshedParent *EntryIdentity,
+) (returnErr error) {
 	if request.capability != nil {
 		defer request.capability.Close()
 	}
@@ -98,6 +116,24 @@ func commitFileWithFaults(ctx context.Context, request FileCommit, faults faultP
 	}
 	if err := anchor.verifyChain(); err != nil {
 		return failFileBeforeVisibility(request.path, phaseValidate, err, anchor, "", EntryIdentity{}, faults)
+	}
+	if request.expectedParent.valid() {
+		observedParent, err := refreshOpenedIdentity(anchor.parentFD(), filepath.Dir(request.path))
+		if err != nil {
+			return failFileBeforeVisibility(request.path, phaseValidate, err, anchor, "", EntryIdentity{}, faults)
+		}
+		if !request.expectedParent.sameEntry(observedParent) {
+			return failFileBeforeVisibility(
+				request.path,
+				phaseValidate,
+				fmt.Errorf("parent directory identity changed before file replacement"),
+				anchor,
+				"",
+				EntryIdentity{},
+				faults,
+			)
+		}
+		defer refreshCommittedParentIdentity(anchor, request, refreshedParent, &returnErr)
 	}
 	if request.policy == filePolicyReplaceExpected {
 		if err := faults.check(ctx, phaseCaptureMetadata); err != nil {
@@ -271,6 +307,37 @@ func commitFileWithFaults(ctx context.Context, request FileCommit, faults faultP
 	return nil
 }
 
+func refreshCommittedParentIdentity(
+	anchor *anchoredParent,
+	request FileCommit,
+	refreshedParent *EntryIdentity,
+	returnErr *error,
+) {
+	if anchor == nil || refreshedParent == nil || returnErr == nil {
+		return
+	}
+	path := filepath.Dir(request.path)
+	refreshed, err := refreshOpenedIdentity(anchor.parentFD(), path)
+	if err == nil && !request.expectedParent.sameObject(refreshed) {
+		err = fmt.Errorf("parent directory object changed during file replacement")
+	}
+	if err == nil {
+		err = anchor.verifyChain()
+	}
+	if err != nil {
+		if *returnErr == nil {
+			*returnErr = newFailure(
+				failureIndeterminateCommit,
+				phaseVerifyEntry,
+				request.path,
+				fmt.Errorf("refresh parent directory identity: %w", err),
+			)
+		}
+		return
+	}
+	*refreshedParent = refreshed
+}
+
 func refreshedTemporaryIdentity(fd int, current EntryIdentity, operationErr error) (EntryIdentity, error) {
 	refreshed, refreshErr := refreshOpenedIdentity(fd, current.path)
 	if refreshErr != nil {
@@ -301,7 +368,20 @@ func validateFileRequest(request FileCommit) error {
 			return fmt.Errorf("exclusive creation must not carry expected identity")
 		}
 	case filePolicyReplaceExpected:
-		return validateExpectedIdentity(request.path, request.expected, entryKindRegular)
+		if err := validateExpectedIdentity(request.path, request.expected, entryKindRegular); err != nil {
+			return err
+		}
+		if request.expectedParent.valid() {
+			if request.capability == nil {
+				return fmt.Errorf("parent identity refresh requires rooted file authority")
+			}
+			return validateExpectedIdentity(
+				filepath.Dir(request.path),
+				request.expectedParent,
+				entryKindDirectory,
+			)
+		}
+		return nil
 	default:
 		return fmt.Errorf("invalid file commit policy")
 	}

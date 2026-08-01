@@ -201,6 +201,37 @@ func (adapter Adapter) ReplaceRootedFileWithOutcome(
 	return outcomeFromError(err), err
 }
 
+func (Adapter) ReplaceRootedFileAndRefreshParent(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	content []byte,
+	mode fs.FileMode,
+	expected mutationfs.EntryIdentity,
+	expectedParent mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, mutationfs.EntryIdentity, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		err = errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
+		return outcomeFromError(err), nil, err
+	}
+	parentIdentity, err := concreteEntryIdentity(expectedParent)
+	if err != nil {
+		err = errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
+		return outcomeFromError(err), nil, err
+	}
+	request, err := NewRootedFileReplacement(capability, content, mode, identity)
+	if err != nil {
+		err = errors.Join(rootedAdapterValidationFailure(capability, err), closeRootedCapability(capability))
+		return outcomeFromError(err), nil, err
+	}
+	request.expectedParent = parentIdentity
+	refreshedParent, err := commitFileAndRefreshParent(ctx, request)
+	if !refreshedParent.valid() {
+		return outcomeFromError(err), nil, err
+	}
+	return outcomeFromError(err), refreshedParent, err
+}
+
 func (Adapter) RemoveRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,

@@ -324,6 +324,7 @@ func TestArchitectureContractAllowsExactStableCrossBlockValueImports(t *testing.
 		{
 			ImportPath: "example.com/project/internal/assurance/durable",
 			Imports: []string{
+				"example.com/project/internal/assurance/pathauthority",
 				"example.com/project/internal/assurance/stateauthority",
 				"example.com/project/internal/output",
 				"example.com/project/internal/output/ownership",
@@ -333,6 +334,7 @@ func TestArchitectureContractAllowsExactStableCrossBlockValueImports(t *testing.
 		{
 			ImportPath: "example.com/project/internal/reconcile",
 			Imports: []string{
+				"example.com/project/internal/assurance/pathauthority",
 				"example.com/project/internal/assurance/stateauthority",
 				"example.com/project/internal/output",
 				"example.com/project/internal/output/ownership",
@@ -342,6 +344,7 @@ func TestArchitectureContractAllowsExactStableCrossBlockValueImports(t *testing.
 		{
 			ImportPath: "example.com/project/internal/effect/execute",
 			Imports: []string{
+				"example.com/project/internal/assurance/pathauthority",
 				"example.com/project/internal/assurance/stateauthority",
 				"example.com/project/internal/output",
 				"example.com/project/internal/output/ownership",

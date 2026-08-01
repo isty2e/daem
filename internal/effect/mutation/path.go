@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
 type pathCaseSemantics uint8
@@ -66,9 +68,11 @@ func newPathSemanticsWitness(platform string, components []observedPathComponent
 }
 
 type canonicalPath struct {
-	keyPath    string
-	accessPath string
-	witness    pathSemanticsWitness
+	keyPath        string
+	accessPath     string
+	witness        pathSemanticsWitness
+	provisional    pathauthority.Provisional
+	namespaceLease namespaceLeaseIntent
 }
 
 type pathSelection struct {
@@ -88,8 +92,10 @@ func CanonicalDirectoryEntryPath(path string) (string, error) {
 	return identity.accessPath, nil
 }
 
-// CanonicalDirectoryEntryKey returns the platform-normalized equality key used
-// by directory-entry mutation domains. It is suitable for durable authority identity.
+// CanonicalDirectoryEntryKey returns the platform-normalized comparison key
+// used by directory-entry mutation domains. A missing normalization-sensitive
+// Darwin entry returns a provisional candidate key, not durable authority;
+// persistence callers must use ObservePersistedDirectoryEntryAuthority.
 func CanonicalDirectoryEntryKey(path string) (string, error) {
 	identity, err := canonicalPathIdentity(path, PathEffectDirectoryEntry)
 	if err != nil {
@@ -117,6 +123,16 @@ func canonicalPathIdentityFromSelection(
 	}
 	if identity.keyPath == "" || identity.accessPath == "" || identity.witness == "" {
 		return canonicalPath{}, fmt.Errorf("canonicalize mutation path %q: platform identity is incomplete", path)
+	}
+	if !identity.provisional.IsZero() {
+		if err := identity.provisional.Validate(); err != nil {
+			return canonicalPath{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
+		}
+	}
+	if !identity.namespaceLease.isZero() {
+		if err := identity.namespaceLease.validate(); err != nil {
+			return canonicalPath{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
+		}
 	}
 	return identity, nil
 }

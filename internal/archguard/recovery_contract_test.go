@@ -115,7 +115,7 @@ func TestRecoveryJournalBeforeEvidenceHasSingleCanonicalInput(t *testing.T) {
 		}
 	}
 	wantOptionFields := []string{
-		"ClaimTransitions", "ManagedPathMutations", "ManagedAggregateMutations", "ManagedPathEvidence",
+		"ClaimTransitions", "ProvisionalAcquires", "ManagedPathMutations", "ManagedAggregateMutations", "ManagedPathEvidence",
 		"Resolver", "ProjectRoot", "OperationAuthority", "RootedCapability", "Codecs", "StateCodec", "Filesystem",
 	}
 	slices.Sort(optionFields)

@@ -171,6 +171,7 @@ func executeRecoveryHostActions(
 	staged []hostRollbackEntry,
 	beforeAction func(int) error,
 	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
 ) error {
 	if len(actions) != len(staged) {
 		return fmt.Errorf("recovery action count %d does not match staged precondition count %d", len(actions), len(staged))
@@ -189,6 +190,9 @@ func executeRecoveryHostActions(
 			if err := beforeAction(index); err != nil {
 				return fmt.Errorf("before recovery host action %d: %w", index, err)
 			}
+		}
+		if err := gate.validateBefore(ctx); err != nil {
+			return fmt.Errorf("validate recovery host action %d authority: %w", index, err)
 		}
 
 		logical, err := recoveryDestination(action.Scope, action.Destination)
@@ -237,6 +241,9 @@ func executeRecoveryHostActions(
 					return fmt.Errorf("restore aggregate projection %q did not produce an exact whole-document postcondition", action.Destination)
 				}
 				expectedByDestination[destinationKey] = effectState
+				if err := gate.acceptAfter(ctx); err != nil {
+					return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+				}
 				continue
 			}
 
@@ -308,6 +315,9 @@ func executeRecoveryHostActions(
 					return fmt.Errorf("remove aggregate projection %q did not produce an exact whole-document postcondition", action.Destination)
 				}
 				expectedByDestination[destinationKey] = effectState
+				if err := gate.acceptAfter(ctx); err != nil {
+					return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+				}
 				continue
 			}
 			staged[index].attempted = true
@@ -321,6 +331,9 @@ func executeRecoveryHostActions(
 			return fmt.Errorf("recovery action for %q did not produce an exact whole-path postcondition", action.Destination)
 		}
 		expectedByDestination[destinationKey] = staged[index].effectState
+		if err := gate.acceptAfter(ctx); err != nil {
+			return fmt.Errorf("accept recovery host action %d visibility: %w", index, err)
+		}
 	}
 
 	return nil

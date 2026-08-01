@@ -45,6 +45,7 @@ type mutationAuthority struct {
 	projectAuthority          rootedpath.Authority
 	projectStatefile          *rootedpath.EntryAuthority
 	recoveryJournal           *rootedpath.EntryAuthority
+	recoveryJournalRecord     *rootedpath.EntryAuthority
 	activeJournalAuthority    journal.ActiveJournalAuthority
 	globalDestinationBindings map[output.Destination]globalDestinationBinding
 	physicalAuthorityRequests []mutation.PhysicalAuthorityRequest
@@ -441,6 +442,10 @@ func (authority *mutationAuthority) close() error {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal authority: %w", err))
 	}
 	authority.recoveryJournal = nil
+	if err := authority.recoveryJournalRecord.Close(); err != nil {
+		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal record authority: %w", err))
+	}
+	authority.recoveryJournalRecord = nil
 	authority.activeJournalAuthority = journal.ActiveJournalAuthority{}
 	for destination := range authority.globalDestinationBindings {
 		delete(authority.globalDestinationBindings, destination)

@@ -73,10 +73,11 @@ func TestBuildCanonicalizesAliasesAndFindsOverlappingClaim(t *testing.T) {
 		t.Fatalf("observation count = %d, want 1", len(result.Observations))
 	}
 	observation := result.Observations[0]
-	if observation.Address.Path() != canonical || observation.Address.ContentPath() != "/mcp_servers/alpha" {
-		t.Fatalf("unexpected canonical address: %#v", observation.Address)
+	address, exact := observation.ExactAddress()
+	if !exact || address.Path() != canonical || address.ContentPath() != "/mcp_servers/alpha" {
+		t.Fatalf("unexpected canonical address: %#v", address)
 	}
-	observedClaim, present := observation.Claim.Get()
+	observedClaim, present := observation.Claim().Get()
 	if !present || !observedClaim.Equal(claim) {
 		t.Fatal("overlapping parent claim was not observed")
 	}
@@ -225,9 +226,10 @@ func TestBuildObservesSelectedGlobalAggregateProjectionAtExactContentPath(t *tes
 		t.Fatalf("observations=%d resolverCalls=%d, want 1/1", len(result.Observations), resolverCalls)
 	}
 	observation := result.Observations[0]
-	if observation.Address.Path() != canonical ||
-		observation.Address.ContentPath() != string(contract.Address().ContentPath()) {
-		t.Fatalf("aggregate ownership address = %#v, want exact projection address", observation.Address)
+	address, exact := observation.ExactAddress()
+	if !exact || address.Path() != canonical ||
+		address.ContentPath() != string(contract.Address().ContentPath()) {
+		t.Fatalf("aggregate ownership address = %#v, want exact projection address", address)
 	}
 }
 

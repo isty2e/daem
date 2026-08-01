@@ -123,6 +123,14 @@ type RootedEntryCommitter interface {
 		mode fs.FileMode,
 		expected EntryIdentity,
 	) (CommitOutcome, error)
+	ReplaceRootedFileAndRefreshParent(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		content []byte,
+		mode fs.FileMode,
+		expected EntryIdentity,
+		expectedParent EntryIdentity,
+	) (CommitOutcome, EntryIdentity, error)
 	CleanupRootedEntry(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,

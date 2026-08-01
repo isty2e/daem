@@ -373,7 +373,11 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if len(claimTransitions) != 0 {
+	provisionalAcquires, err := canonicalProvisionalAcquireIntents(journal.ProvisionalAcquires)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
 		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
 		if err != nil {
 			return recovery.Plan{}, fmt.Errorf("canonicalize recovery state authority: %w", err)
@@ -384,9 +388,20 @@ func loadActivePlanFromInventory(
 		); err != nil {
 			return recovery.Plan{}, err
 		}
+		if err := validateRecoveryIntentAuthorities(
+			provisionalAcquires,
+			statefileAuthority,
+		); err != nil {
+			return recovery.Plan{}, err
+		}
 	}
 	resolver := options.Resolver
-	if err := validateRecoveryClaimCoverage(journal.Entries, claimTransitions, resolver); err != nil {
+	if err := validateRecoveryClaimCoverage(
+		journal.Entries,
+		claimTransitions,
+		provisionalAcquires,
+		resolver,
+	); err != nil {
 		return recovery.Plan{}, fmt.Errorf("validate recovery ownership coverage: %w", err)
 	}
 	planningEntries := journal.Entries

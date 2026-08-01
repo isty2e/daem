@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -35,13 +36,17 @@ func recoveryJournalAuthorityFingerprint(
 	if err != nil {
 		return "", fmt.Errorf("fingerprint recovery journal authority: %w", err)
 	}
-	return fmt.Sprintf("sha256:%x", sha256.Sum256(content)), nil
+	return recoveryJournalRecordFingerprint(content), nil
+}
+
+func recoveryJournalRecordFingerprint(content []byte) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(content))
 }
 
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 8
+	recoveryJournalVersion            = 9
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.
@@ -51,15 +56,16 @@ const (
 )
 
 type recoveryJournalDTO struct {
-	Version               int                            `json:"version"`
-	OperationID           string                         `json:"operation_id"`
-	Operation             string                         `json:"operation"`
-	CreatedAt             string                         `json:"created_at"`
-	ProjectRootProvenance *recoveryProjectRootProvenance `json:"project_root_provenance,omitempty"`
-	Entries               []recoveryEntry                `json:"entries"`
-	StatefileBefore       json.RawMessage                `json:"statefile_before"`
-	StatefileAfter        json.RawMessage                `json:"statefile_after"`
-	ClaimTransitions      []recoveryClaimTransition      `json:"claim_transitions,omitempty"`
+	Version               int                                `json:"version"`
+	OperationID           string                             `json:"operation_id"`
+	Operation             string                             `json:"operation"`
+	CreatedAt             string                             `json:"created_at"`
+	ProjectRootProvenance *recoveryProjectRootProvenance     `json:"project_root_provenance,omitempty"`
+	Entries               []recoveryEntry                    `json:"entries"`
+	StatefileBefore       json.RawMessage                    `json:"statefile_before"`
+	StatefileAfter        json.RawMessage                    `json:"statefile_after"`
+	ClaimTransitions      []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
+	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
 func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
@@ -142,6 +148,7 @@ func encodeRecoveryJournal(
 		StatefileBefore:       json.RawMessage(statefileBefore),
 		StatefileAfter:        json.RawMessage(statefileAfter),
 		ClaimTransitions:      append([]recoveryClaimTransition(nil), journal.ClaimTransitions...),
+		ProvisionalAcquires:   append([]recoveryProvisionalAcquireIntent(nil), journal.ProvisionalAcquires...),
 	}
 	sortRecoveryEntries(persisted.Entries)
 
@@ -225,6 +232,7 @@ func decodeRecoveryJournalSnapshot(
 		StatefileBefore:       before,
 		StatefileAfter:        after,
 		ClaimTransitions:      persisted.ClaimTransitions,
+		ProvisionalAcquires:   persisted.ProvisionalAcquires,
 	}
 	if err := validateRecoveryJournal(journal, stateCodec); err != nil {
 		return recoveryJournal{}, err
@@ -290,9 +298,27 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 	if err != nil {
 		return err
 	}
+	provisionalAcquires, err := canonicalProvisionalAcquireIntents(journal.ProvisionalAcquires)
+	if err != nil {
+		return err
+	}
+	for index, transition := range claimTransitions {
+		if transition.Kind() != ownershipmutation.TransitionAcquire {
+			continue
+		}
+		prepared, present := transition.Prepared().Get()
+		if !present || prepared.OperationID() != journal.OperationID {
+			return fmt.Errorf("recovery claim_transitions[%d] operation id differs from journal", index)
+		}
+	}
+	for index, intent := range provisionalAcquires {
+		if intent.OperationID() != journal.OperationID {
+			return fmt.Errorf("recovery provisional_acquire_intents[%d] operation id differs from journal", index)
+		}
+	}
 	if len(journal.Entries) == 0 {
-		if len(claimTransitions) != 0 {
-			return fmt.Errorf("state-only recovery journal must not contain ownership claim transitions")
+		if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
+			return fmt.Errorf("state-only recovery journal must not contain ownership mutations")
 		}
 		if journal.StatefileBefore.Equal(journal.StatefileAfter) {
 			return fmt.Errorf("recovery journal requires host entries or a statefile change")

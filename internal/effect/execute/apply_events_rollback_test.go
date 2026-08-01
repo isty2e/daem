@@ -64,6 +64,51 @@ func TestApplyWithOptionsActionFailureEmitsRollbackAndCleanup(t *testing.T) {
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 }
 
+func TestApplyWithOptionsCompensatesAfterForwardVisibilityRejection(t *testing.T) {
+	fixture := newApplyEventFixture(t)
+	action := fixture.createAction("create", "CREATE.md", "created\n")
+	forwardAccepts := 0
+	compensationValidations := 0
+	compensationAccepts := 0
+
+	_, err := ApplyWithOptions(
+		context.Background(),
+		fixture.input([]applyEventAction{action}),
+		ApplyOptions{
+			AcceptVisibilityChanges: func(context.Context) error {
+				forwardAccepts++
+				if forwardAccepts == 2 {
+					return errors.New("injected forward visibility rejection")
+				}
+				return nil
+			},
+			ValidateCompensationAuthority: func(context.Context) error {
+				compensationValidations++
+				return nil
+			},
+			AcceptCompensationVisibilityChanges: func(context.Context) error {
+				compensationAccepts++
+				return nil
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "injected forward visibility rejection") ||
+		!strings.Contains(err.Error(), "host changes rolled back") {
+		t.Fatalf("error = %v, want rejected forward visibility with completed compensation", err)
+	}
+	if forwardAccepts != 2 {
+		t.Fatalf("forward visibility accepts = %d, want journal and host effect", forwardAccepts)
+	}
+	if compensationValidations == 0 || compensationAccepts == 0 {
+		t.Fatalf(
+			"compensation gate calls = validate:%d accept:%d, want both",
+			compensationValidations,
+			compensationAccepts,
+		)
+	}
+	assertHostMissing(t, fixture.hostPath("CREATE.md"))
+}
+
 func TestApplyWithOptionsStatefileWriteFailureEmitsRollbackAndCleanup(t *testing.T) {
 	fixture := newApplyEventFixture(t)
 	action := fixture.createAction("create", "CREATE.md", "created\n")

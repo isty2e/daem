@@ -4,6 +4,7 @@ package execute
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -192,7 +193,7 @@ func TestRecoveryRollbackStageAndRestoreUseSameGlobalRootAuthority(t *testing.T)
 		fileMode:    0o600,
 	}
 
-	if err := rollback.restore(context.Background(), authority); err != nil {
+	if err := rollback.restore(context.Background(), authority, visibilityEffectGate{}); err != nil {
 		t.Fatalf("restore recovery rollback: %v", err)
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, fixture.after)
@@ -333,7 +334,7 @@ func TestRecoveryRollbackRejectsReplacedStageArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = rollback.restore(t.Context(), authority)
+	err = rollback.restore(t.Context(), authority, visibilityEffectGate{})
 	if err == nil || !strings.Contains(err.Error(), "does not match expected hash") {
 		t.Fatalf("rollback.restore error = %v, want replaced-stage rejection", err)
 	}
@@ -500,6 +501,7 @@ func TestRecoveryDirectFileCommitUsesStagedEntryIdentity(t *testing.T) {
 		rollback.entries,
 		nil,
 		testAggregateCodecs(),
+		visibilityEffectGate{},
 	)
 	if err == nil || !strings.Contains(err.Error(), "identity changed") {
 		t.Fatalf("executeRecoveryHostActions error = %v, want staged-identity rejection", err)
@@ -540,6 +542,7 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 		rollback.entries,
 		nil,
 		testAggregateCodecs(),
+		visibilityEffectGate{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -547,11 +550,95 @@ func TestRecoveryRollbackRefusesExternalChangeAfterCommittedRecoveryEffect(t *te
 
 	external := []byte("external after recovery effect\n")
 	writeRecoveryTestFile(t, fixture.admittedPath, external)
-	err = rollback.restore(context.Background(), authority)
+	err = rollback.restore(context.Background(), authority, visibilityEffectGate{})
 	if err == nil || !strings.Contains(err.Error(), "changed outside the recovery attempt") {
 		t.Fatalf("rollback.restore error = %v, want external-change refusal", err)
 	}
 	assertRecoveryTestContent(t, fixture.admittedPath, external)
+}
+
+func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
+	root := t.TempDir()
+	paths := Paths{ManifestRoot: root}
+	contents := [][]byte{[]byte("first\n"), []byte("second\n")}
+	destinations := make([]output.Destination, len(contents))
+	guarded := make([]recovery.Action, len(contents))
+	hostActions := make([]recoveryHostAction, len(contents))
+	for index, content := range contents {
+		destination, err := output.Parse(fmt.Sprintf("FILE-%d.md", index+1))
+		if err != nil {
+			t.Fatal(err)
+		}
+		destinations[index] = destination
+		writeRecoveryTestFile(t, filepath.Join(root, destination.String()), content)
+		guarded[index] = recovery.Action{
+			Scope:           target.ScopeProject,
+			Destination:     destination.String(),
+			ConsumerTargets: []target.Target{target.TargetCodex},
+		}
+		hostActions[index] = recoveryHostAction{
+			Kind:        recovery.ActionKindRestoreDelete,
+			Scope:       target.ScopeProject,
+			Destination: destination.String(),
+			ExpectedAfter: recovery.ExpectedPathState{
+				Existed:     true,
+				PathMode:    recovery.NewPermissionMode(0o600),
+				Kind:        recovery.PathKindFile,
+				ContentHash: string(artifact.HashFileContent(content)),
+			},
+		}
+	}
+	authority, err := newRecoveryMutationAuthority(
+		paths,
+		guarded,
+		destinationResolver(paths),
+		testFilesystem(),
+		nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = authority.close() })
+	rollback, err := stageRecoveryRollback(t.Context(), authority, hostActions, testAggregateCodecs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rollback.cleanup() })
+	validations := 0
+	accepts := 0
+	gate := visibilityEffectGate{
+		before: func(context.Context) error {
+			validations++
+			if validations == 2 {
+				return errors.New("injected visibility authority loss")
+			}
+			return nil
+		},
+		after: func(context.Context) error {
+			accepts++
+			return nil
+		},
+	}
+	err = executeRecoveryHostActions(
+		t.Context(),
+		"",
+		authority,
+		hostActions,
+		rollback.entries,
+		nil,
+		testAggregateCodecs(),
+		gate,
+	)
+	if err == nil || !strings.Contains(err.Error(), "injected visibility authority loss") {
+		t.Fatalf("executeRecoveryHostActions error = %v, want authority loss", err)
+	}
+	if validations != 2 || accepts != 1 {
+		t.Fatalf("visibility gate calls = validate:%d accept:%d, want 2/1", validations, accepts)
+	}
+	if _, err := os.Lstat(filepath.Join(root, destinations[0].String())); !os.IsNotExist(err) {
+		t.Fatalf("first recovery destination stat = %v, want removed", err)
+	}
+	assertRecoveryTestContent(t, filepath.Join(root, destinations[1].String()), contents[1])
 }
 
 func recoveryHostActionFromJournalAction(action recovery.Action) recoveryHostAction {

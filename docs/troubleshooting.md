@@ -28,10 +28,10 @@ those commands on a target admitted by [Platform Support](platforms.md).
 ## Pre-1.0 Durable Authority Schemas
 
 Current daem persists each filesystem authority as a canonical key plus the
-versioned filesystem-semantics witness used to derive it. Statefile v7, shared
-ownership registry v1, carrier claim registry v1, and recovery journal v7
-stored only path strings. Current daem does not guess whether an old lowercase
-path came from a case-sensitive, case-insensitive, or Unicode
+versioned filesystem-semantics witness used to derive it. Early statefile v7,
+shared ownership registry v1, carrier claim registry v1, and recovery journal
+v7 stored only path strings. Current daem does not guess whether an old
+lowercase path came from a case-sensitive, case-insensitive, or Unicode
 normalization-equivalent namespace.
 
 There is one narrow retirement exception. An exact v7 statefile whose seven
@@ -43,8 +43,10 @@ changes that state records the current schema. Missing, null, populated, or
 unknown fields are not an empty retirement artifact and remain blocked. Field
 names in versioned durable files use exact ASCII `lower_snake_case` spelling;
 case variants such as `CLAIMS` are rejected rather than treated as aliases.
-Recovery journal v7 is always blocked because its presence may represent
-interrupted effects.
+Every pre-v9 recovery journal is blocked because its presence may represent
+interrupted effects. Journal v8 already carried path witnesses, but it used an
+older transaction contract and is likewise not rewritten or adopted by the
+current binary.
 
 No action is needed for a new workspace with none of these old durable files.
 If a populated old artifact or any old recovery journal exists, do not hand-edit

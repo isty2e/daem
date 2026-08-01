@@ -118,6 +118,7 @@ func applyRecoveryErrorWithEvents(
 	authority *mutationAuthority,
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
+	gate visibilityEffectGate,
 ) error {
 	events.emit(EventRollbackRestoreStarted, EventStageRollbackRestore, nil, nil)
 	if progress.requiresRecovery() {
@@ -168,12 +169,14 @@ func applyRecoveryErrorWithEvents(
 				loadOptions,
 			)
 		},
-		mutationAuthority:      authority,
-		ActiveJournalAuthority: authority.activeJournalAuthority,
-		Resolver:               authority.lexical,
-		Codecs:                 codecs,
-		StateCodec:             stateCodec,
-		Filesystem:             authority.filesystem,
+		mutationAuthority:           authority,
+		ActiveJournalAuthority:      authority.activeJournalAuthority,
+		ValidateVisibilityAuthority: gate.before,
+		AcceptVisibilityChanges:     gate.after,
+		Resolver:                    authority.lexical,
+		Codecs:                      codecs,
+		StateCodec:                  stateCodec,
+		Filesystem:                  authority.filesystem,
 	}); err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; guarded rollback failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
@@ -197,6 +200,7 @@ func applyRecoveryErrorWithEvents(
 		events,
 		loadRetirementPlan,
 		stateCodec,
+		gate,
 	); err != nil {
 		return fmt.Errorf(
 			"%w; host changes rolled back; retire recovery journal failed: %v",

@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
@@ -21,29 +22,71 @@ func TestValidateRecoveryClaimCoverageRequiresExactGlobalBijection(t *testing.T)
 	resolver := func(destination output.Destination) (string, error) {
 		return "/tmp/daem-global-config.json", nil
 	}
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, nil, resolver); err == nil || !strings.Contains(err.Error(), "has no exact ownership transition") {
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, nil, nil, resolver); err == nil || !strings.Contains(err.Error(), "has no exact ownership transition") {
 		t.Fatalf("missing transition error = %v", err)
 	}
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{acquire}, nil); err == nil ||
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{acquire}, nil, nil); err == nil ||
 		!strings.Contains(err.Error(), "destination resolver is required") {
 		t.Fatalf("missing resolver error = %v", err)
 	}
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{acquire}, resolver); err != nil {
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{acquire}, nil, resolver); err != nil {
 		t.Fatalf("exact acquire coverage returned error: %v", err)
 	}
 	release, err := ownershipmutation.NewReleaseTransition(active)
 	if err != nil {
 		t.Fatalf("NewReleaseTransition returned error: %v", err)
 	}
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{release}, resolver); err == nil || !strings.Contains(err.Error(), "requires acquire") {
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{entry}, []ownershipmutation.ClaimTransition{release}, nil, resolver); err == nil || !strings.Contains(err.Error(), "requires acquire") {
 		t.Fatalf("wrong transition error = %v", err)
 	}
 	project := defaultRecoveryEntry()
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{project}, nil, nil); err != nil {
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{project}, nil, nil, nil); err != nil {
 		t.Fatalf("project-only coverage required a global destination resolver: %v", err)
 	}
-	if err := validateRecoveryClaimCoverage([]recoveryEntry{project}, []ownershipmutation.ClaimTransition{acquire}, resolver); err == nil || !strings.Contains(err.Error(), "without a global output entry") {
+	if err := validateRecoveryClaimCoverage([]recoveryEntry{project}, []ownershipmutation.ClaimTransition{acquire}, nil, resolver); err == nil || !strings.Contains(err.Error(), "without a global output entry") {
 		t.Fatalf("extra transition error = %v", err)
+	}
+}
+
+func TestValidateRecoveryClaimCoverageRequiresProvisionalIntentBijection(t *testing.T) {
+	entry := globalAcquireRecoveryEntry(t)
+	intent := testProvisionalAcquireIntent(t, entry)
+	acquire, _, _ := testAcquireTransition(t, entry)
+	resolver := func(destination output.Destination) (string, error) {
+		return "/tmp/daem-global-config.json", nil
+	}
+
+	if err := validateRecoveryClaimCoverage(
+		[]recoveryEntry{entry},
+		nil,
+		[]ownership.ProvisionalAcquireIntent{intent},
+		resolver,
+	); err != nil {
+		t.Fatalf("exact provisional coverage returned error: %v", err)
+	}
+	if err := validateRecoveryClaimCoverage(
+		[]recoveryEntry{entry},
+		nil,
+		[]ownership.ProvisionalAcquireIntent{intent, intent},
+		resolver,
+	); err == nil || !strings.Contains(err.Error(), "duplicate provisional acquisition intent") {
+		t.Fatalf("duplicate intent error = %v", err)
+	}
+	if err := validateRecoveryClaimCoverage(
+		[]recoveryEntry{entry},
+		[]ownershipmutation.ClaimTransition{acquire},
+		[]ownership.ProvisionalAcquireIntent{intent},
+		resolver,
+	); err == nil || !strings.Contains(err.Error(), "ownership transition without a global output entry") {
+		t.Fatalf("ambiguous exact and provisional coverage error = %v", err)
+	}
+	if err := validateRecoveryClaimCoverage(
+		[]recoveryEntry{defaultRecoveryEntry()},
+		nil,
+		[]ownership.ProvisionalAcquireIntent{intent},
+		resolver,
+	); err == nil || !strings.Contains(err.Error(), "provisional acquisition intent without a global output entry") {
+		t.Fatalf("orphan intent error = %v", err)
 	}
 }
 
@@ -258,6 +301,37 @@ func testAcquireTransition(t *testing.T, entry recoveryEntry) (ownershipmutation
 	reserved, _ := transition.Prepared().Get()
 	active, _ := transition.After().Get()
 	return transition, reserved, active
+}
+
+func testProvisionalAcquireIntent(t *testing.T, entry recoveryEntry) ownership.ProvisionalAcquireIntent {
+	t.Helper()
+	namespace := filepath.Join(string(filepath.Separator), "tmp", "daem-provisional")
+	candidate := filepath.Join(namespace, "Caf\u00e9")
+	provisional, err := pathauthority.NewProvisional(
+		candidate,
+		pathtest.DarwinCaseSensitive(candidate).Witness(),
+		namespace,
+		pathtest.DarwinCaseSensitive(namespace).Witness(),
+	)
+	if err != nil {
+		t.Fatalf("NewProvisional returned error: %v", err)
+	}
+	destination, err := output.Parse(entry.Path)
+	if err != nil {
+		t.Fatalf("parse provisional destination: %v", err)
+	}
+	transition, _, _ := testAcquireTransition(t, entry)
+	intent, err := ownership.NewProvisionalAcquireIntent(
+		destination,
+		output.ContentPath(entry.ContentPath),
+		provisional,
+		transition.Owner(),
+		testOperationID,
+	)
+	if err != nil {
+		t.Fatalf("NewProvisionalAcquireIntent returned error: %v", err)
+	}
+	return intent
 }
 
 func ownershipBeforePathObservation(entry recoveryEntry) recoveryPathObservation {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -32,14 +33,22 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 	selectedRoot string,
 	operationDir string,
 ) error {
-	if authority != nil && authority.recoveryJournal != nil {
+	if authority != nil && (authority.recoveryJournal != nil || authority.recoveryJournalRecord != nil) {
 		return fmt.Errorf("recovery journal authority is already bound")
 	}
-	destination, err := authority.bindProjectControlEntry(selectedRoot, operationDir)
+	directory, err := authority.bindProjectControlEntry(selectedRoot, operationDir)
 	if err != nil {
 		return fmt.Errorf("bind recovery journal: %w", err)
 	}
-	authority.recoveryJournal = destination
+	record, err := authority.bindProjectControlEntry(
+		selectedRoot,
+		filepath.Join(operationDir, "journal.json"),
+	)
+	if err != nil {
+		return errors.Join(fmt.Errorf("bind recovery journal record: %w", err), directory.Close())
+	}
+	authority.recoveryJournal = directory
+	authority.recoveryJournalRecord = record
 	return nil
 }
 

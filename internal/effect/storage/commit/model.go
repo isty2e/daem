@@ -82,12 +82,13 @@ const (
 
 // FileCommit is a valid file publication request.
 type FileCommit struct {
-	path       string
-	payload    []byte
-	mode       fs.FileMode
-	policy     filePolicy
-	expected   EntryIdentity
-	capability rootedpath.CommitCapability
+	path           string
+	payload        []byte
+	mode           fs.FileMode
+	policy         filePolicy
+	expected       EntryIdentity
+	expectedParent EntryIdentity
+	capability     rootedpath.CommitCapability
 }
 
 // NewRootedFileCreate constructs an exclusive file-creation request bound to

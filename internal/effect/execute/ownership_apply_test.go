@@ -184,12 +184,13 @@ func TestManagedPathOwnershipRelocationTreatsOldAndNewLocalityIndependently(t *t
 				scope: test.scope, destination: test.destination,
 				desiredHash: testArtifactHash("new"), contentKind: previous.ContentKind(), previous: &previous,
 			}}}
-			transitions, err := claimTransitionsForManagedPathEffects(
+			plan, err := ownershipPlanForManagedPathEffects(
 				[]ManagedPathEffect{effect}, owner, test.observations, "operation-1",
 			)
 			if err != nil {
-				t.Fatalf("claimTransitionsForManagedPathEffects returned error: %v", err)
+				t.Fatalf("ownershipPlanForManagedPathEffects returned error: %v", err)
 			}
+			transitions := plan.transitions
 			if len(transitions) != len(test.wantKinds) {
 				t.Fatalf("transitions = %#v, want kinds %#v", transitions, test.wantKinds)
 			}
@@ -222,7 +223,11 @@ func managedPathOwnershipObservation(
 		}
 		claim, _ = ownership.PresentClaim(active)
 	}
-	return observe.OwnershipObservation{Destination: destination, Address: address, Claim: claim}
+	observation, err := observe.NewExactOwnershipObservation(destination, "", address, claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return observation
 }
 
 func TestGlobalOwnershipCancellationAfterReservationRestoresAbsentClaim(t *testing.T) {
@@ -490,9 +495,17 @@ func globalAggregateOwnershipInput(
 	t *testing.T,
 	removing bool,
 ) (mcpProjectionApplyFixture, ApplyInput) {
+	return globalAggregateOwnershipInputAtHome(t, removing, "home")
+}
+
+func globalAggregateOwnershipInputAtHome(
+	t *testing.T,
+	removing bool,
+	homeComponent string,
+) (mcpProjectionApplyFixture, ApplyInput) {
 	t.Helper()
 
-	fixture := newClaudeGlobalMCPProjectionApplyFixture(t)
+	fixture := newClaudeGlobalMCPProjectionApplyFixtureAtHome(t, homeComponent)
 	fixture.paths.DataDir = filepath.Join(fixture.root, "data")
 	fixture.paths.OwnershipRegistryPath = filepath.Join(fixture.paths.DataDir, "ownership", "claims.json")
 
@@ -586,43 +599,64 @@ func globalAggregateOwnershipInput(
 	if err != nil {
 		t.Fatalf("stateauthority.New returned error: %v", err)
 	}
-	canonicalPath, err := mutation.CanonicalDirectoryEntryKey(fixture.hostConfigPath)
-	if err != nil {
-		t.Fatalf("canonicalize aggregate destination: %v", err)
-	}
-	managedAddress, err := ownership.NewManagedAddress(
-		mustObservedPathAuthority(t, canonicalPath),
-		contribution.Contribution().ContentPath(),
-	)
-	if err != nil {
-		t.Fatalf("NewManagedAddress returned error: %v", err)
-	}
 	claimValue := ownership.NoClaim()
-	if removing {
-		active, claimErr := ownership.NewActiveClaim(managedAddress, owner)
-		if claimErr != nil {
-			t.Fatalf("NewActiveClaim returned error: %v", claimErr)
-		}
-		claimValue, _ = ownership.PresentClaim(active)
-		store, storeErr := ownershipstore.New(fixture.paths.OwnershipRegistryPath)
-		if storeErr != nil {
-			t.Fatalf("ownership store New returned error: %v", storeErr)
-		}
-		if _, storeErr := store.Apply(
-			context.Background(),
-			managedAddress,
-			ownership.NoClaim(),
-			claimValue,
-		); storeErr != nil {
-			t.Fatalf("seed ownership registry returned error: %v", storeErr)
-		}
+	pathObservation, err := mutation.ObserveDirectoryEntryAuthority(fixture.hostConfigPath)
+	if err != nil {
+		t.Fatalf("observe aggregate destination: %v", err)
 	}
-	ownershipEvidence := []observe.OwnershipObservation{{
-		Destination: fixture.destination,
-		ContentPath: output.ContentPath(contribution.Contribution().ContentPath()),
-		Address:     managedAddress,
-		Claim:       claimValue,
-	}}
+	var ownershipObservation observe.OwnershipObservation
+	if exact, present := pathObservation.Exact(); present {
+		managedAddress, addressErr := ownership.NewManagedAddress(
+			exact,
+			contribution.Contribution().ContentPath(),
+		)
+		if addressErr != nil {
+			t.Fatalf("NewManagedAddress returned error: %v", addressErr)
+		}
+		if removing {
+			active, claimErr := ownership.NewActiveClaim(managedAddress, owner)
+			if claimErr != nil {
+				t.Fatalf("NewActiveClaim returned error: %v", claimErr)
+			}
+			claimValue, _ = ownership.PresentClaim(active)
+			store, storeErr := ownershipstore.New(fixture.paths.OwnershipRegistryPath)
+			if storeErr != nil {
+				t.Fatalf("ownership store New returned error: %v", storeErr)
+			}
+			if _, storeErr := store.Apply(
+				context.Background(),
+				managedAddress,
+				ownership.NoClaim(),
+				claimValue,
+			); storeErr != nil {
+				t.Fatalf("seed ownership registry returned error: %v", storeErr)
+			}
+		}
+		ownershipObservation, err = observe.NewExactOwnershipObservation(
+			fixture.destination,
+			output.ContentPath(contribution.Contribution().ContentPath()),
+			managedAddress,
+			claimValue,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else if provisional, present := pathObservation.Provisional(); present {
+		if removing {
+			t.Fatal("removal fixture cannot start from provisional path authority")
+		}
+		ownershipObservation, err = observe.NewProvisionalOwnershipObservation(
+			fixture.destination,
+			output.ContentPath(contribution.Contribution().ContentPath()),
+			provisional,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		t.Fatal("aggregate destination has no path authority observation")
+	}
+	ownershipEvidence := []observe.OwnershipObservation{ownershipObservation}
 	decisions, err := reconcileprojection.BuildAggregateDecisions(reconcileprojection.AggregateInput{
 		Locked:          locked,
 		Expected:        expected,

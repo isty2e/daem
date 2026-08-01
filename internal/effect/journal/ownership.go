@@ -119,6 +119,7 @@ func validateRecoveryClaimAuthorities(
 func validateRecoveryClaimCoverage(
 	entries []recoveryEntry,
 	transitions []ownershipmutation.ClaimTransition,
+	intents []ownership.ProvisionalAcquireIntent,
 	resolver func(output.Destination) (string, error),
 ) error {
 	requiresResolver := len(transitions) != 0
@@ -134,7 +135,19 @@ func validateRecoveryClaimCoverage(
 	}
 	remaining := make(map[string]ownershipmutation.ClaimTransition, len(transitions))
 	for _, transition := range transitions {
-		remaining[ownershipAddressKey(transition.Address())] = transition
+		key := ownershipAddressKey(transition.Address())
+		if _, duplicate := remaining[key]; duplicate {
+			return fmt.Errorf("recovery journal has duplicate exact ownership transition")
+		}
+		remaining[key] = transition
+	}
+	remainingIntents := make(map[string]ownership.ProvisionalAcquireIntent, len(intents))
+	for _, intent := range intents {
+		key := provisionalAcquireIntentKey(intent.Destination(), intent.ContentPath())
+		if _, duplicate := remainingIntents[key]; duplicate {
+			return fmt.Errorf("recovery journal has duplicate provisional acquisition intent")
+		}
+		remainingIntents[key] = intent
 	}
 	for index, entry := range entries {
 		if entry.StateIndependent && entry.Aggregate == nil {
@@ -146,6 +159,26 @@ func validateRecoveryClaimCoverage(
 		destination, err := output.Parse(entry.Path)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d] destination: %w", index, err)
+		}
+		intentKey := provisionalAcquireIntentKey(destination, output.ContentPath(entry.ContentPath))
+		if intent, present := remainingIntents[intentKey]; present {
+			matches, err := recoveryEntryAllowsTransition(entry, ownershipmutation.TransitionAcquire)
+			if err != nil {
+				return fmt.Errorf("recovery entries[%d]: %w", index, err)
+			}
+			if !matches {
+				wantKind, _ := recoveryEntryTransitionKind(entry)
+				return fmt.Errorf(
+					"recovery entries[%d] requires %s ownership transition, got provisional acquire intent",
+					index,
+					wantKind,
+				)
+			}
+			if intent.Destination() != destination || string(intent.ContentPath()) != entry.ContentPath {
+				return fmt.Errorf("recovery entries[%d] provisional acquisition identity changed", index)
+			}
+			delete(remainingIntents, intentKey)
+			continue
 		}
 		physical, err := resolver(destination)
 		if err != nil {
@@ -181,6 +214,9 @@ func validateRecoveryClaimCoverage(
 	}
 	if len(remaining) != 0 {
 		return fmt.Errorf("recovery journal has ownership transition without a global output entry")
+	}
+	if len(remainingIntents) != 0 {
+		return fmt.Errorf("recovery journal has provisional acquisition intent without a global output entry")
 	}
 	return nil
 }

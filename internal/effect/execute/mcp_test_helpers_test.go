@@ -41,10 +41,17 @@ func newMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFixture {
 }
 
 func newClaudeGlobalMCPProjectionApplyFixture(t *testing.T) mcpProjectionApplyFixture {
+	return newClaudeGlobalMCPProjectionApplyFixtureAtHome(t, "home")
+}
+
+func newClaudeGlobalMCPProjectionApplyFixtureAtHome(
+	t *testing.T,
+	homeComponent string,
+) mcpProjectionApplyFixture {
 	t.Helper()
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")
-	home := filepath.Join(root, "home")
+	home := filepath.Join(root, homeComponent)
 	t.Setenv("HOME", home)
 	return mcpProjectionApplyFixture{
 		root:           root,

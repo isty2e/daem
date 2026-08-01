@@ -56,6 +56,9 @@ type runOptions struct {
 	orderRiskBaseline              relationOrderRiskBaseline
 	executionGuard                 applyExecutionGuard
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
+	acceptVisibilityChanges        func(context.Context) error
+	validateCompensationAuthority  func(context.Context) error
+	acceptCompensationChanges      func(context.Context) error
 	projectRoot                    *rootedpath.CapturedRoot
 }
 
@@ -126,8 +129,11 @@ func runWithOptions(
 			StateCodec:                  statefile.Codec{},
 			Filesystem:                  filesystem,
 		}, execute.ApplyOptions{
-			Events:                options.ExecuteEvents,
-			ValidateBeforeEffects: options.validateBeforeEffects,
+			Events:                              options.ExecuteEvents,
+			ValidateBeforeEffects:               options.validateBeforeEffects,
+			AcceptVisibilityChanges:             options.acceptVisibilityChanges,
+			ValidateCompensationAuthority:       options.validateCompensationAuthority,
+			AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
 		})
 		if err != nil {
 			return runResult{
@@ -188,8 +194,11 @@ func runWithOptions(
 		StateCodec:                  statefile.Codec{},
 		Filesystem:                  filesystem,
 	}, execute.ApplyOptions{
-		Events:                options.ExecuteEvents,
-		ValidateBeforeEffects: options.validateBeforeEffects,
+		Events:                              options.ExecuteEvents,
+		ValidateBeforeEffects:               options.validateBeforeEffects,
+		AcceptVisibilityChanges:             options.acceptVisibilityChanges,
+		ValidateCompensationAuthority:       options.validateCompensationAuthority,
+		AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
 	})
 	if err != nil {
 		return runResult{

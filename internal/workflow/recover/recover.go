@@ -220,6 +220,26 @@ func Execute(
 		}
 		return nil
 	}
+	validateVisibilityAuthority := func(ctx context.Context) error {
+		matches, err := leases.VisibilityAuthorityMatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		return nil
+	}
+	acceptVisibilityChanges := func(ctx context.Context) error {
+		accepted, err := leases.AcceptVisibilityChanges(ctx)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return mutation.StaleSnapshotError{}
+		}
+		return nil
+	}
 	switch current.plan.AuthorityKind() {
 	case journal.RecoveryAuthorityActiveJournal:
 		active, ok := journal.ActiveRecoveryPlan(current.plan)
@@ -235,14 +255,16 @@ func Execute(
 			active,
 			executePaths(effectPaths),
 			execute.RecoveryOptions{
-				ValidateBeforeEffects:   validateBeforeActiveEffects,
-				ActiveJournalAuthority:  activeAuthority,
-				Resolver:                destinationResolver(effectPaths).Resolve,
-				OwnershipRegistryBinder: ownershipstore.BindRooted,
-				Codecs:                  aggregatecodec.Catalog(),
-				StateCodec:              statefile.Codec{},
-				StateReader:             stateReaderForPath(effectPaths.StatefilePath),
-				Filesystem:              filesystem,
+				ValidateBeforeEffects:       validateBeforeActiveEffects,
+				ValidateVisibilityAuthority: validateVisibilityAuthority,
+				AcceptVisibilityChanges:     acceptVisibilityChanges,
+				ActiveJournalAuthority:      activeAuthority,
+				Resolver:                    destinationResolver(effectPaths).Resolve,
+				OwnershipRegistryBinder:     ownershipstore.BindRooted,
+				Codecs:                      aggregatecodec.Catalog(),
+				StateCodec:                  statefile.Codec{},
+				StateReader:                 stateReaderForPath(effectPaths.StatefilePath),
+				Filesystem:                  filesystem,
 			},
 		)
 	case journal.RecoveryAuthorityJournalCleanup:

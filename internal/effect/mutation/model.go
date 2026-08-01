@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/isty2e/daem/internal/assurance/pathauthority"
 )
 
 // AccessMode identifies the exclusion level requested for one mutation domain.
@@ -115,16 +117,21 @@ const (
 
 // Domain is a validated mutation lease request. Its identity fields are intentionally private.
 type Domain struct {
-	kind          domainKind
-	access        AccessMode
-	canonicalPath string
-	pathWitness   pathSemanticsWitness
-	requestedPath string
-	effect        PathEffect
-	target        string
-	scope         string
-	family        string
-	containment   RouteContainment
+	kind                 domainKind
+	access               AccessMode
+	canonicalPath        string
+	pathWitness          pathSemanticsWitness
+	initialCanonicalPath string
+	initialPathWitness   pathSemanticsWitness
+	initialProvisional   pathauthority.Provisional
+	provisional          pathauthority.Provisional
+	namespaceLease       namespaceLeaseIntent
+	requestedPath        string
+	effect               PathEffect
+	target               string
+	scope                string
+	family               string
+	containment          RouteContainment
 }
 
 // NewLogicalPathDomain validates and canonicalizes a logical path request.
@@ -137,12 +144,17 @@ func NewLogicalPathDomain(request LogicalPathRequest) (Domain, error) {
 		return Domain{}, err
 	}
 	return Domain{
-		kind:          domainLogicalPath,
-		access:        request.Access,
-		canonicalPath: identity.keyPath,
-		pathWitness:   identity.witness,
-		requestedPath: request.Path,
-		effect:        request.Effect,
+		kind:                 domainLogicalPath,
+		access:               request.Access,
+		canonicalPath:        identity.keyPath,
+		pathWitness:          identity.witness,
+		initialCanonicalPath: identity.keyPath,
+		initialPathWitness:   identity.witness,
+		initialProvisional:   identity.provisional,
+		provisional:          identity.provisional,
+		namespaceLease:       identity.namespaceLease,
+		requestedPath:        request.Path,
+		effect:               request.Effect,
 	}, nil
 }
 
@@ -162,14 +174,19 @@ func NewPhysicalPathDomain(request PhysicalPathRequest) (Domain, error) {
 		return Domain{}, err
 	}
 	return Domain{
-		kind:          domainPhysicalPath,
-		access:        request.Access,
-		canonicalPath: identity.keyPath,
-		pathWitness:   identity.witness,
-		requestedPath: request.Path,
-		effect:        request.Effect,
-		target:        request.Target,
-		scope:         request.Scope,
+		kind:                 domainPhysicalPath,
+		access:               request.Access,
+		canonicalPath:        identity.keyPath,
+		pathWitness:          identity.witness,
+		initialCanonicalPath: identity.keyPath,
+		initialPathWitness:   identity.witness,
+		initialProvisional:   identity.provisional,
+		provisional:          identity.provisional,
+		namespaceLease:       identity.namespaceLease,
+		requestedPath:        request.Path,
+		effect:               request.Effect,
+		target:               request.Target,
+		scope:                request.Scope,
 	}, nil
 }
 
@@ -239,6 +256,12 @@ func (set *LeaseSet) CoversPhysicalAuthority(authority PhysicalAuthoritySet) (bo
 func (domain Domain) matchesCurrentPath() (bool, error) {
 	switch domain.kind {
 	case domainLogicalPath, domainPhysicalPath:
+		if !domain.namespaceLease.isZero() {
+			matches, err := domain.namespaceLease.matchesCurrent()
+			if err != nil || !matches {
+				return matches, err
+			}
+		}
 		identity, err := canonicalPathIdentity(domain.requestedPath, domain.effect)
 		if err != nil {
 			return false, err
@@ -251,8 +274,85 @@ func (domain Domain) matchesCurrentPath() (bool, error) {
 	}
 }
 
+func (domain Domain) visibilityAuthorityMatchesCurrent() (bool, error) {
+	switch domain.kind {
+	case domainLogicalPath, domainPhysicalPath:
+		if !domain.namespaceLease.isZero() {
+			return domain.namespaceLease.matchesCurrent()
+		}
+		return domain.matchesCurrentPath()
+	case domainHostRoute:
+		return true, nil
+	default:
+		return false, fmt.Errorf("mutation domain is not initialized")
+	}
+}
+
+type comparablePathIdentity struct {
+	key         string
+	witness     pathSemanticsWitness
+	provisional pathauthority.Provisional
+}
+
+func (domain Domain) initialPathIdentity() (comparablePathIdentity, error) {
+	if domain.initialCanonicalPath == "" || domain.initialPathWitness == "" {
+		return comparablePathIdentity{}, fmt.Errorf("mutation path initial identity is not initialized")
+	}
+	return comparablePathIdentity{
+		key: domain.initialCanonicalPath, witness: domain.initialPathWitness,
+		provisional: domain.initialProvisional,
+	}, nil
+}
+
+func comparableIdentity(identity canonicalPath) comparablePathIdentity {
+	return comparablePathIdentity{
+		key: identity.keyPath, witness: identity.witness, provisional: identity.provisional,
+	}
+}
+
+func (domain Domain) acceptPathIdentity(identity canonicalPath) (Domain, bool, error) {
+	if domain.matchesPathIdentity(identity) {
+		return domain, true, nil
+	}
+	if domain.namespaceLease.isZero() || domain.access != AccessExclusive {
+		return Domain{}, false, nil
+	}
+	if !identity.provisional.IsZero() {
+		if err := identity.provisional.Validate(); err != nil {
+			return Domain{}, false, err
+		}
+	}
+	if !pathContains(domain.namespaceLease.key, identity.keyPath) ||
+		domain.namespaceLease.key == identity.keyPath {
+		return Domain{}, false, nil
+	}
+	domain.canonicalPath = identity.keyPath
+	domain.pathWitness = identity.witness
+	domain.provisional = identity.provisional
+	return domain, true, nil
+}
+
 func (domain Domain) matchesPathIdentity(identity canonicalPath) bool {
-	return identity.keyPath == domain.canonicalPath && identity.witness == domain.pathWitness
+	return identity.keyPath == domain.canonicalPath &&
+		identity.witness == domain.pathWitness &&
+		sameProvisionalPathIntent(identity.provisional, domain.provisional)
+}
+
+func (domain Domain) leasePathIdentity() (string, pathSemanticsWitness, error) {
+	if domain.namespaceLease.isZero() || domain.access != AccessExclusive {
+		return domain.canonicalPath, domain.pathWitness, nil
+	}
+	if err := domain.namespaceLease.validate(); err != nil {
+		return "", "", err
+	}
+	if !domain.provisional.IsZero() {
+		namespace := domain.provisional.Namespace()
+		if namespace.Key() != domain.namespaceLease.key ||
+			namespace.Witness() != string(domain.namespaceLease.witness) {
+			return "", "", fmt.Errorf("provisional path and namespace lease authority disagree")
+		}
+	}
+	return domain.namespaceLease.key, domain.namespaceLease.witness, nil
 }
 
 // NewHostRouteDomain validates an opaque host route request.

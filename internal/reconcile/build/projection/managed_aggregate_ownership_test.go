@@ -220,15 +220,19 @@ func aggregateOwnershipObservation(
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
+	observation, err := observe.NewExactOwnershipObservation(
+		destination,
+		contentPath,
+		managedAddress,
+		claim,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return ownershipObservationKey{
-			destination: destination,
-			contentPath: contentPath,
-		}, observe.OwnershipObservation{
-			Destination: destination,
-			ContentPath: contentPath,
-			Address:     managedAddress,
-			Claim:       claim,
-		}
+		destination: destination,
+		contentPath: contentPath,
+	}, observation
 }
 
 func aggregateClaimedObservation(
@@ -238,18 +242,34 @@ func aggregateClaimedObservation(
 	reserved bool,
 ) observe.OwnershipObservation {
 	t.Helper()
+	address, exact := observation.ExactAddress()
+	if !exact {
+		t.Fatal("aggregate ownership fixture lacks exact address")
+	}
 	var claim ownership.Claim
 	var err error
 	if reserved {
-		claim, err = ownership.NewReservedClaim(observation.Address, owner, "operation-1")
+		claim, err = ownership.NewReservedClaim(address, owner, "operation-1")
 	} else {
-		claim, err = ownership.NewActiveClaim(observation.Address, owner)
+		claim, err = ownership.NewActiveClaim(address, owner)
 	}
 	if err != nil {
 		t.Fatalf("construct ownership claim: %v", err)
 	}
-	observation.Claim, _ = ownership.PresentClaim(claim)
-	return observation
+	claimValue, err := ownership.PresentClaim(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := observe.NewExactOwnershipObservation(
+		observation.Destination(),
+		observation.ContentPath(),
+		address,
+		claimValue,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return claimed
 }
 
 func aggregateOverlappingObservation(
@@ -266,10 +286,14 @@ func aggregateOverlappingObservation(
 	if err != nil {
 		t.Fatalf("NewManagedAddress returned error: %v", err)
 	}
-	return observe.OwnershipObservation{
-		Destination: destination,
-		ContentPath: "/mcpServers",
-		Address:     address,
-		Claim:       ownership.NoClaim(),
+	observation, err := observe.NewExactOwnershipObservation(
+		destination,
+		"/mcpServers",
+		address,
+		ownership.NoClaim(),
+	)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return observation
 }

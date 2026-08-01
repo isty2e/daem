@@ -7,8 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -103,6 +105,85 @@ func TestReadRootedRegularFileSuppliesReplacementIdentity(t *testing.T) {
 	}
 	assertClosedRootedCapability(t, capability)
 	assertFileContent(t, filepath.Join(root, ".agents", "config"), "after")
+}
+
+func TestRootedFileReplacementRefreshesOnlyExpectedParentIdentity(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	parentPath := filepath.Join(root, ".agents")
+	if err := os.MkdirAll(parentPath, 0o700); err != nil {
+		t.Fatalf("create rooted parent: %v", err)
+	}
+	recordPath := filepath.Join(parentPath, "config")
+	writeTestFile(t, recordPath, "before", 0o600)
+	captured := captureRootForCommitTest(t, root)
+	adapter := Adapter{}
+
+	captureParent := func() EntryIdentity {
+		t.Helper()
+		capability := rootedCapabilityForCommitTest(t, captured, ".agents")
+		defer capability.Close()
+		identity, err := CaptureRootedEntryIdentity(t.Context(), capability)
+		if err != nil {
+			t.Fatalf("capture parent identity: %v", err)
+		}
+		return identity
+	}
+	captureRecord := func(capability rootedpath.CommitCapability) EntryIdentity {
+		t.Helper()
+		identity, err := CaptureRootedEntryIdentity(t.Context(), capability)
+		if err != nil {
+			t.Fatalf("capture record identity: %v", err)
+		}
+		return identity
+	}
+
+	expectedParent := captureParent()
+	replaceCapability := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	expectedRecord := captureRecord(replaceCapability)
+	outcome, refreshedParent, err := adapter.ReplaceRootedFileAndRefreshParent(
+		t.Context(),
+		replaceCapability,
+		[]byte("after"),
+		0o600,
+		expectedRecord,
+		expectedParent,
+	)
+	if err != nil {
+		t.Fatalf("ReplaceRootedFileAndRefreshParent returned error: %v", err)
+	}
+	if outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("replacement outcome = %q, want complete", outcome.State())
+	}
+	currentParent := captureParent()
+	if refreshedParent == nil || !refreshedParent.Equal(currentParent) {
+		t.Fatal("replacement did not return the exact refreshed parent identity")
+	}
+	assertFileContent(t, recordPath, "after")
+
+	staleParent := currentParent
+	if err := os.WriteFile(filepath.Join(parentPath, "foreign"), []byte("foreign"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staleCapability := rootedCapabilityForCommitTest(t, captured, ".agents/config")
+	staleRecord := captureRecord(staleCapability)
+	outcome, refreshedParent, err = adapter.ReplaceRootedFileAndRefreshParent(
+		t.Context(),
+		staleCapability,
+		[]byte("must-not-commit"),
+		0o600,
+		staleRecord,
+		staleParent,
+	)
+	if err == nil || !strings.Contains(err.Error(), "parent directory identity changed") {
+		t.Fatalf("stale parent replacement error = %v", err)
+	}
+	if outcome.State() != mutationfs.CommitOutcomeUncommitted {
+		t.Fatalf("stale parent outcome = %q, want uncommitted", outcome.State())
+	}
+	if refreshedParent != nil {
+		t.Fatal("stale parent replacement returned refreshed authority")
+	}
+	assertFileContent(t, recordPath, "after")
 }
 
 func TestReadRootedRegularFileUpToEnforcesPayloadBound(t *testing.T) {

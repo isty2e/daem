@@ -23,7 +23,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	journalPath := filepath.Join(operationDir, recoveryJournalFileName)
 	if err := os.WriteFile(
 		journalPath,
-		[]byte(`{"version":8,"entries":[],"unexpected":true}`),
+		[]byte(`{"version":9,"entries":[],"unexpected":true}`),
 		0o600,
 	); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)

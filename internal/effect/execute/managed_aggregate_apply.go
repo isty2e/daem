@@ -18,6 +18,8 @@ func applyAggregateEffectsWithEvents(
 	codecs aggregate.CodecCatalog,
 	eventIndexOffset int,
 	events applyEventEmitter,
+	gate visibilityEffectGate,
+	afterMutation func(context.Context, AggregateEffect) error,
 ) (hostActionProgress, error) {
 	journaledProjectionCount := 0
 	for _, effect := range effects {
@@ -43,11 +45,20 @@ func applyAggregateEffectsWithEvents(
 			if effect.Kind() == AggregateEffectRecord {
 				err = verifyAggregateBefore(ctx, authority, destination, effect, codecs)
 			} else {
-				outcome := commitAggregateEffect(ctx, authority, destination, effect, codecs)
-				err = outcome.err
-				hostProgress = hostEffectExpectedAfter
-				if err != nil {
-					hostProgress = progressAfterMutationError(err)
+				err = gate.validateBefore(ctx)
+				if err == nil {
+					outcome := commitAggregateEffect(ctx, authority, destination, effect, codecs)
+					err = outcome.err
+					hostProgress = hostEffectExpectedAfter
+					if err != nil {
+						hostProgress = progressAfterMutationError(err)
+					}
+				}
+				if err == nil {
+					err = gate.acceptAfter(ctx)
+				}
+				if err == nil && afterMutation != nil {
+					err = afterMutation(ctx, effect)
 				}
 			}
 		}
