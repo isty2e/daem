@@ -3,6 +3,7 @@ package rootedpath
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"path/filepath"
 	"strings"
 )
 
@@ -128,6 +129,40 @@ func (provenance AuthorityProvenance) Match(authority Authority) error {
 			FailureRootReplaced,
 			current.physicalRoot,
 			"selected root object identity differs from recovery evidence",
+			nil,
+		)
+	}
+	return nil
+}
+
+// MatchDescendant verifies that authority identifies either this exact root
+// incarnation or a physical descendant on the same mount. It does not prove
+// that this ancestor remains current; callers retaining only descendant
+// authority must also recapture and Match the ancestor before effects.
+func (provenance AuthorityProvenance) MatchDescendant(authority Authority) error {
+	if err := provenance.Validate(); err != nil {
+		return err
+	}
+	if err := authority.Validate(); err != nil {
+		return err
+	}
+	if provenance.physicalRoot == authority.physicalRoot {
+		return provenance.Match(authority)
+	}
+	relative, err := filepath.Rel(provenance.physicalRoot, authority.physicalRoot)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return newFailure(
+			FailureRootReplaced,
+			authority.physicalRoot,
+			"current root is outside the recovery authority root",
+			err,
+		)
+	}
+	if provenance.mountFingerprint != identityFingerprint("mount", authority.mount) {
+		return newFailure(
+			FailureMountChanged,
+			authority.physicalRoot,
+			"descendant root mount identity differs from recovery evidence",
 			nil,
 		)
 	}

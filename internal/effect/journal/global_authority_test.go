@@ -187,3 +187,56 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 		t.Fatalf("same-path replacement error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
 }
+
+func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T) {
+	selectedRoot := filepath.Join(t.TempDir(), "global-root")
+	if err := os.Mkdir(selectedRoot, 0o700); err != nil {
+		t.Fatalf("create selected global root: %v", err)
+	}
+	destination, err := output.Parse("~/.config/daem/server.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedPath := filepath.Join(selectedRoot, "missing-parent", "server.json")
+	resolver := func(output.Destination) (string, error) { return resolvedPath, nil }
+	bindings, err := captureRecoveryGlobalPathBindings(
+		[]pathMutation{{Scope: target.ScopeGlobal, Destination: destination}},
+		resolver,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("capture global root provenance: %v", err)
+	}
+	persisted, err := bindings.persisted(target.ScopeGlobal, destination)
+	if err != nil {
+		t.Fatalf("persist global root provenance: %v", err)
+	}
+	physicalRoot, err := filepath.EvalSymlinks(selectedRoot)
+	if err != nil {
+		t.Fatalf("resolve selected global root: %v", err)
+	}
+	if persisted.RootProvenance.PhysicalRoot != physicalRoot {
+		t.Fatalf(
+			"capture root = %q, want nearest existing ancestor %q",
+			persisted.RootProvenance.PhysicalRoot,
+			physicalRoot,
+		)
+	}
+	if err := os.Mkdir(filepath.Dir(resolvedPath), 0o700); err != nil {
+		t.Fatalf("create same-mount destination parent: %v", err)
+	}
+
+	entry := recoveryEntry{
+		Scope:             string(target.ScopeGlobal),
+		Path:              destination.String(),
+		GlobalPathBinding: persisted,
+	}
+	if err := validateRecoveryGlobalPathBindings(
+		t.Context(),
+		[]recoveryEntry{entry},
+		resolver,
+		nil,
+	); err != nil {
+		t.Fatalf("new same-mount descendant root rejected: %v", err)
+	}
+}

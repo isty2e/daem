@@ -238,6 +238,9 @@ func (binding recoveryGlobalPathBinding) match(
 			expectedPath,
 		)
 	}
+	if err := expectedRoot.MatchDescendant(current.rootAuthority); err != nil {
+		return fmt.Errorf("current destination root violates capture-time authority: %w", err)
+	}
 	currentRoot, present := currentRoots[expectedRoot.PhysicalRoot()]
 	if !present && current.rootAuthority.PhysicalRoot() == expectedRoot.PhysicalRoot() {
 		currentRoot = current.rootAuthority
