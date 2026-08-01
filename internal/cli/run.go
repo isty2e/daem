@@ -11,6 +11,7 @@ import (
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/platformsupport"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+	platformworkflow "github.com/isty2e/daem/internal/workflow/platform"
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
@@ -31,6 +32,7 @@ type RunOptions struct {
 	RecoverExecuteOptions recoverworkflow.ExecuteOptions
 	RefreshPlanOptions    refreshworkflow.PlanOptions
 	RefreshExecuteOptions refreshworkflow.ExecuteOptions
+	PlatformObserver      platformworkflow.RuntimeObserver
 	HelpWidth             int
 }
 
@@ -44,7 +46,56 @@ type commandOptions struct {
 	refreshPlanOptions    refreshworkflow.PlanOptions
 	refreshExecuteOptions refreshworkflow.ExecuteOptions
 	platformAdmission     platformsupport.Admission
+	platformObserver      platformworkflow.RuntimeObserver
 	buildIdentity         buildidentity.Identity
+}
+
+type platformAdmissionScope uint8
+
+const (
+	platformAdmissionBypass platformAdmissionScope = iota
+	platformAdmissionWholeCommand
+	platformAdmissionSelectedSubject
+)
+
+type commandPlatformAdmission struct {
+	scope    platformAdmissionScope
+	subjects []string
+}
+
+// commandAdmissionCatalog is the ingress authority for public root-command
+// recognition and pre-dispatch platform admission.
+var commandAdmissionCatalog = map[string]commandPlatformAdmission{
+	"--help":    {},
+	"--version": {},
+	"-h":        {},
+	"add": {
+		scope: platformAdmissionSelectedSubject,
+		subjects: []string{
+			"extension", "instruction", "hook", "mcp-server", "skill", "skill-group",
+		},
+	},
+	"apply":    {scope: platformAdmissionWholeCommand},
+	"doctor":   {},
+	"help":     {},
+	"import":   {scope: platformAdmissionWholeCommand},
+	"init":     {scope: platformAdmissionWholeCommand},
+	"list":     {},
+	"lock":     {scope: platformAdmissionWholeCommand},
+	"outdated": {scope: platformAdmissionWholeCommand},
+	"probe":    {},
+	"recover":  {scope: platformAdmissionWholeCommand},
+	"refresh":  {scope: platformAdmissionWholeCommand},
+	"remove": {
+		scope:    platformAdmissionSelectedSubject,
+		subjects: []string{"extension", "instruction", "hook", "mcp-server", "skill"},
+	},
+	"status": {},
+	"unmanage": {
+		scope:    platformAdmissionSelectedSubject,
+		subjects: []string{"extension"},
+	},
+	"version": {},
 }
 
 type stableOutputWriter struct {
@@ -110,6 +161,7 @@ func RunWithOptions(args []string, options RunOptions) int {
 		refreshPlanOptions:    options.RefreshPlanOptions,
 		refreshExecuteOptions: options.RefreshExecuteOptions,
 		platformAdmission:     platformsupport.Current(),
+		platformObserver:      options.PlatformObserver,
 		buildIdentity:         buildidentity.Current(),
 	}
 
@@ -129,7 +181,12 @@ func RunWithOptions(args []string, options RunOptions) int {
 }
 
 func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOptions, commandInvocation commandOptions) int {
-	if exitCode, rejected := rejectUnsupportedPlatform(args, commandInvocation.platformAdmission, stderr); rejected {
+	if _, recognized := commandAdmissionCatalog[args[0]]; !recognized {
+		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
+		fmt.Fprintln(stderr, "next: run daem help")
+		return 2
+	}
+	if exitCode, rejected := rejectUnsupportedPlatform(args, commandInvocation, stderr); rejected {
 		return exitCode
 	}
 
@@ -139,7 +196,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 	case "apply":
 		return runApply(args[1:], stdout, stderr, commandInvocation)
 	case "doctor":
-		return runDoctor(commandInvocation.context, args[1:], stdout, stderr, commandInvocation.platformAdmission)
+		return runDoctor(args[1:], stdout, stderr, commandInvocation)
 	case "import":
 		return runImport(commandInvocation.context, args[1:], stdout, stderr)
 	case "init":
@@ -182,9 +239,8 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 		printUsage(stdout, options.HelpWidth)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "unknown command %q\n", args[0])
-		fmt.Fprintln(stderr, "next: run daem help")
-		return 2
+		fmt.Fprintf(stderr, "command %q is registered without an implementation\n", args[0])
+		return 1
 	}
 }
 
@@ -232,16 +288,25 @@ func runVersionAlias(args []string, stdout io.Writer, stderr io.Writer, commandI
 	return 0
 }
 
-func rejectUnsupportedPlatform(args []string, admission platformsupport.Admission, stderr io.Writer) (int, bool) {
+func rejectUnsupportedPlatform(args []string, options commandOptions, stderr io.Writer) (int, bool) {
 	if !requiresPlatformAdmission(args) || commandInvocationRequestsHelp(args[1:]) {
 		return 0, false
 	}
-	if err := admission.RequireSupported(); err != nil {
+	assessment, err := options.assessPlatform()
+	if err != nil {
+		fmt.Fprintf(stderr, "%s failed: observe platform runtime: %s\n", humanDiagnosticText(args[0]), humanDiagnosticError(err))
+		return 1, true
+	}
+	if err := assessment.RequireSupported(); err != nil {
 		fmt.Fprintf(stderr, "%s failed: %s\n", humanDiagnosticText(args[0]), humanDiagnosticError(err))
 		fmt.Fprintln(stderr, "next: run daem doctor")
 		return 1, true
 	}
 	return 0, false
+}
+
+func (options commandOptions) assessPlatform() (platformsupport.PlatformAssessment, error) {
+	return platformworkflow.Assess(options.context, options.platformAdmission, options.platformObserver)
 }
 
 func humanDiagnosticText(value string) string {
@@ -256,23 +321,22 @@ func requiresPlatformAdmission(args []string) bool {
 	if len(args) == 0 {
 		return false
 	}
-	switch args[0] {
-	case "apply", "import", "init", "lock", "outdated", "recover", "refresh":
+	policy, recognized := commandAdmissionCatalog[args[0]]
+	if !recognized {
+		return false
+	}
+	return policy.requires(args[1:])
+}
+
+func (policy commandPlatformAdmission) requires(args []string) bool {
+	switch policy.scope {
+	case platformAdmissionWholeCommand:
 		return true
-	case "add":
-		return knownPlatformGatedSubject(args[1:], "extension", "instruction", "hook", "mcp-server", "skill", "skill-group")
-	case "remove":
-		return knownPlatformGatedSubject(args[1:], "extension", "instruction", "hook", "mcp-server", "skill")
+	case platformAdmissionSelectedSubject:
+		return len(args) > 0 && slices.Contains(policy.subjects, args[0])
 	default:
 		return false
 	}
-}
-
-func knownPlatformGatedSubject(args []string, subjects ...string) bool {
-	if len(args) == 0 {
-		return false
-	}
-	return slices.Contains(subjects, args[0])
 }
 
 func commandInvocationRequestsHelp(args []string) bool {

@@ -71,7 +71,7 @@ func TestRunUnsupportedPlatformReportsResolvedManifestWithoutReadingIt(t *testin
 		ManifestExplicit: true,
 		TargetExplicit:   true,
 		TargetValues:     []string{"codex"},
-	}, admission)
+	}, testPlatformAssessment(admission))
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestRunUnsupportedPlatformStopsBeforeManifestAndStorageGates(t *testing.T) 
 				ManifestExplicit: true,
 				TargetExplicit:   true,
 				TargetValues:     []string{"codex"},
-			}, admission)
+			}, testPlatformAssessment(admission))
 			if err != nil {
 				t.Fatalf("Run returned error: %v", err)
 			}
@@ -187,7 +187,7 @@ func TestRunKeepsPlatformAdmissionIndependentFromPathResolutionFailure(t *testin
 		ManifestExplicit: true,
 		TargetExplicit:   true,
 		TargetValues:     []string{"codex"},
-	}, admission)
+	}, testPlatformAssessment(admission))
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
@@ -205,7 +205,19 @@ func TestRunKeepsPlatformAdmissionIndependentFromPathResolutionFailure(t *testin
 }
 
 func runCurrent(ctx context.Context, input Input) (Result, error) {
-	return Run(ctx, input, platformsupport.Current())
+	return Run(ctx, input, testPlatformAssessment(platformsupport.Current()))
+}
+
+func testPlatformAssessment(admission platformsupport.Admission) platformsupport.PlatformAssessment {
+	minimum, required := admission.RuntimeRequirement()
+	if !required {
+		return platformsupport.AssessRuntime(admission, platformsupport.RuntimeObservation{})
+	}
+	observation, err := platformsupport.NewRuntimeObservation(minimum)
+	if err != nil {
+		panic(err)
+	}
+	return platformsupport.AssessRuntime(admission, observation)
 }
 
 func hasCheckNamed(checks []findings.Check, name string) bool {

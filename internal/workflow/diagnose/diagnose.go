@@ -32,7 +32,7 @@ type Result struct {
 	HasErrors        bool
 }
 
-func Run(ctx context.Context, input Input, admission platformsupport.Admission) (Result, error) {
+func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAssessment) (Result, error) {
 	if ctx == nil {
 		return Result{}, fmt.Errorf("diagnose context is required")
 	}
@@ -49,7 +49,7 @@ func Run(ctx context.Context, input Input, admission platformsupport.Admission) 
 		ManifestExplicit: input.ManifestExplicit,
 		Selection:        selection,
 	}
-	platformCheck := diagnose.PlatformCheck(admission)
+	platformCheck := diagnose.PlatformCheck(assessment)
 
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
@@ -58,7 +58,7 @@ func Run(ctx context.Context, input Input, admission platformsupport.Admission) 
 		return result, nil
 	}
 	result.ManifestPath = paths.ManifestPath
-	if !admission.IsAdmitted() {
+	if !assessment.IsAdmitted() {
 		result.Checks = []findings.Check{platformCheck}
 		result.HasErrors = true
 		return result, nil

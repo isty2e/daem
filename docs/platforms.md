@@ -30,6 +30,16 @@ reject write-disabled trees before daem's atomic publication or logical-removal
 visibility point. The target-level `darwin/arm64` admission identity does not
 claim support for an older Darwin runtime.
 
+Daem reads `/usr/bin/sw_vers --productVersion` through a bounded, timed
+observation and requires a canonical product version at or above `26.0`. For a
+platform-gated command, a lower version, malformed output, command failure, or
+timeout fails closed before workspace, source, storage, or host effects.
+`doctor` performs the same observation but retains its diagnostic path
+resolution exception; after path resolution it reports the running target,
+observed runtime or failure reason, required floor, verification lane, and next
+step without inspecting managed state or hosts. Target admission and runtime
+observation remain separate facts.
+
 `compile only` means the source is cross-built to detect portability failures.
 It does not establish native execution, durable filesystem behavior, host
 integration, or product support. A successful local build on an unlisted target
@@ -51,12 +61,12 @@ resolution itself fails, the platform and path findings are both reported.
 This diagnostic exception grants no storage or mutation capability.
 
 The platform-gated command families `add`, `apply`, `import`, `init`, `lock`,
-`outdated`, `recover`, `refresh`, and `remove` reject a not-admitted platform
-before path resolution, manifest or cache access, confirmation, host writes,
-or delegated command execution. `outdated` remains read-only with respect to
-desired and host state, but it consumes the same path and source-cache
-semantics. Dry-run forms use the same gate because planning depends on the same
-platform contracts.
+`outdated`, `recover`, `refresh`, `remove`, and `unmanage` reject a
+not-admitted platform before path resolution, manifest or cache access,
+confirmation, host writes, delegated command execution, or durable metadata
+publication. `outdated` remains read-only with respect to desired and host
+state, but it consumes the same path and source-cache semantics. Dry-run forms
+use the same gate because planning depends on the same platform contracts.
 
 `list`, `status`, and explicit `probe` behavior are not a partial unsupported-
 platform product mode. Their existing lower-level adapters continue to fail

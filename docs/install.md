@@ -24,8 +24,42 @@ example installs `v0.1.0` under `~/.local/bin`:
 set -eu
 
 DAEM_VERSION=v0.1.0
+daem_admitted_macos_product_version() {
+  /usr/bin/awk -F. '
+    BEGIN { valid = 1 }
+    NR > 1 { valid = 0; next }
+    NF < 2 || NF > 3 { valid = 0; next }
+    {
+      for (field = 1; field <= NF; field++) {
+        if ($field !~ /^(0|[1-9][0-9]*)$/) { valid = 0; next }
+        if (length($field) > 10 || (length($field) == 10 && ($field + 0) > 4294967295)) { valid = 0; next }
+      }
+      if (($1 + 0) < 26) { valid = 0; next }
+      version = $0
+    }
+    END {
+      if (NR != 1 || valid != 1) exit 1
+      print version
+    }
+  '
+}
+
+DAEM_STAGE="$(mktemp -d)"
+trap 'rm -rf "$DAEM_STAGE"' EXIT
+
 case "$(uname -s):$(uname -m)" in
-  Darwin:arm64) DAEM_TARGET=darwin_arm64 ;;
+  Darwin:arm64)
+    DAEM_MACOS_VERSION_FILE="$DAEM_STAGE/macos-product-version"
+    if ! /usr/bin/sw_vers --productVersion > "$DAEM_MACOS_VERSION_FILE"; then
+      echo "cannot observe the macOS product version; daem requires macOS 26.0 or newer" >&2
+      exit 1
+    fi
+    if ! DAEM_MACOS_VERSION="$(daem_admitted_macos_product_version < "$DAEM_MACOS_VERSION_FILE")"; then
+      echo "unsupported or malformed daem macOS runtime; requires macOS 26.0 or newer" >&2
+      exit 1
+    fi
+    DAEM_TARGET=darwin_arm64
+    ;;
   Linux:x86_64) DAEM_TARGET=linux_amd64 ;;
   *)
     echo "unsupported daem release target: $(uname -s)/$(uname -m)" >&2
@@ -35,8 +69,6 @@ esac
 
 DAEM_ARCHIVE="daem_${DAEM_VERSION#v}_${DAEM_TARGET}.tar.gz"
 DAEM_BASE_URL="https://github.com/isty2e/daem/releases/download/${DAEM_VERSION}"
-DAEM_STAGE="$(mktemp -d)"
-trap 'rm -rf "$DAEM_STAGE"' EXIT
 
 curl --fail --location \
   --output "$DAEM_STAGE/$DAEM_ARCHIVE" \
@@ -71,6 +103,10 @@ daem --help
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to the appropriate shell startup
 file if `~/.local/bin` is not already on `PATH`.
+
+The macOS preflight runs before network access. The installed binary repeats
+the same runtime-floor decision for supported workflows; the shell check is an
+early diagnostic, not authority to bypass the binary gate.
 
 The checksum detects accidental or malicious byte changes relative to the
 published sidecar. It is not a signature, publisher-authenticity proof, or
