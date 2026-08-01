@@ -74,7 +74,42 @@ func TestGlobalOwnershipRemovalRecoversAfterDeletedNonASCIIPath(t *testing.T) {
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
 }
 
+func TestGlobalOwnershipRemovalRecoversDeletedUnicodeAlias(t *testing.T) {
+	const (
+		storedName      = "config-\u00e9"
+		destinationName = "config-e\u0301"
+	)
+	hostPath, aliasPath, input := globalManagedPathRemovalInput(t, destinationName, storedName)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
+		if event.Kind == EventStatefileWritten {
+			cancel()
+		}
+	}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyWithOptions error = %v, want context cancellation", err)
+	}
+	assertHostMissing(t, hostPath)
+	assertHostMissing(t, aliasPath)
+
+	plan := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationNeedsFinalize, 1)
+	recoverProvisionalGlobalOwnership(t, plan, input.Paths)
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
 func globalNonASCIIManagedPathRemovalInput(t *testing.T) (string, ApplyInput) {
+	t.Helper()
+	const name = "config-\u00e9"
+	hostPath, _, input := globalManagedPathRemovalInput(t, name, name)
+	return hostPath, input
+}
+
+func globalManagedPathRemovalInput(
+	t *testing.T,
+	destinationName string,
+	storedName string,
+) (string, string, ApplyInput) {
 	t.Helper()
 
 	root := t.TempDir()
@@ -92,14 +127,33 @@ func globalNonASCIIManagedPathRemovalInput(t *testing.T) (string, ApplyInput) {
 		DataDir:               filepath.Join(root, "data"),
 		OwnershipRegistryPath: filepath.Join(root, "data", "ownership", "claims.json"),
 	}
-	const name = "config-\u00e9"
-	destination := outputtest.Parse(t, "~/.agents/skills/"+name)
-	hostPath := filepath.Join(home, ".agents", "skills", name)
+	destination := outputtest.Parse(t, "~/.agents/skills/"+destinationName)
+	hostPath := filepath.Join(home, ".agents", "skills", storedName)
+	logicalHostPath := filepath.Join(home, ".agents", "skills", destinationName)
 	if err := os.MkdirAll(hostPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(hostPath, "SKILL.md"), []byte("managed\n"), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if destinationName != storedName {
+		if _, err := os.Lstat(logicalHostPath); err != nil {
+			if os.IsNotExist(err) {
+				t.Skip("temporary filesystem does not resolve the tested normalization alias")
+			}
+			t.Fatal(err)
+		}
+		storedAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(hostPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		aliasAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(logicalHostPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !storedAuthority.Exact().Equal(aliasAuthority.Exact()) {
+			t.Skip("temporary filesystem does not bind the tested spellings to one exact authority")
+		}
 	}
 	view, err := access.OpenView(hostPath)
 	if err != nil {
@@ -109,7 +163,7 @@ func globalNonASCIIManagedPathRemovalInput(t *testing.T) (string, ApplyInput) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject := testManagedPathEffectSubject(t, name, "skill.global.agents")
+	subject := testManagedPathEffectSubject(t, destinationName, "skill.global.agents")
 	previous, err := durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -177,7 +231,7 @@ func globalNonASCIIManagedPathRemovalInput(t *testing.T) (string, ApplyInput) {
 	if err := effect.validate(); err != nil {
 		t.Fatal(err)
 	}
-	return hostPath, ApplyInput{
+	return hostPath, logicalHostPath, ApplyInput{
 		Paths: paths, Resolver: destinationResolver(paths),
 		ManagedPathEffects: []ManagedPathEffect{effect}, ManagedPathEvidence: []observe.ManagedPathEvidence{pathEvidence},
 		CurrentState: current, Owner: owner, Ownership: []observe.OwnershipObservation{ownershipObservation},
@@ -408,6 +462,36 @@ func TestProvisionalGlobalOwnershipRecoversReservedClaimBeforeStateCommit(t *tes
 	plan := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationNeedsRollback, 1)
 	recoverProvisionalGlobalOwnership(t, plan, input.Paths)
 	assertHostMissing(t, fixture.hostConfigPath)
+	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
+	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestProvisionalGlobalOwnershipRecoveryResumesAfterOutputRollbackBeforeClaimRollback(t *testing.T) {
+	fixture, input := provisionalGlobalOwnershipCreateInput(t)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{
+		Events: func(event Event) {
+			if event.Kind == EventActionDone {
+				cancel()
+			}
+		},
+		ValidateCompensationAuthority: unavailableCompensation,
+	})
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "recovery journal retained") {
+		t.Fatalf("ApplyWithOptions error = %v, want retained reserved-claim journal", err)
+	}
+	claim := requireOnlyOwnershipClaim(t, input.Paths.OwnershipRegistryPath)
+	if claim.State() != ownership.ClaimReserved {
+		t.Fatalf("claim state = %q, want reserved", claim.State())
+	}
+	if err := os.RemoveAll(fixture.hostConfigPath); err != nil {
+		t.Fatalf("simulate committed recovery host rollback: %v", err)
+	}
+	assertHostMissing(t, fixture.hostConfigPath)
+
+	plan := requireProvisionalRecoveryPlan(t, input.Paths, recovery.ClassificationNeedsRollback, 1)
+	recoverProvisionalGlobalOwnership(t, plan, input.Paths)
 	assertOwnershipRegistryClaimCount(t, input.Paths.OwnershipRegistryPath, 0)
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
 }

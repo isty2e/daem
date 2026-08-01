@@ -396,14 +396,6 @@ func loadActivePlanFromInventory(
 		}
 	}
 	resolver := options.Resolver
-	if err := validateRecoveryClaimCoverage(
-		journal.Entries,
-		claimTransitions,
-		provisionalAcquires,
-		resolver,
-	); err != nil {
-		return recovery.Plan{}, fmt.Errorf("validate recovery ownership coverage: %w", err)
-	}
 	planningEntries := journal.Entries
 	var selectedIndexes []int
 	if selected != nil {
@@ -420,7 +412,7 @@ func loadActivePlanFromInventory(
 		}
 		registry, err = options.OwnershipRegistry.LoadForClaimRemovals(
 			ctx,
-			recoveryClaimRemovals(claimTransitions),
+			recoveryClaimRemovalCandidates(claimTransitions),
 		)
 		if err != nil {
 			return recovery.Plan{}, err
@@ -496,10 +488,11 @@ func loadActivePlanFromInventory(
 	)
 }
 
-func recoveryClaimRemovals(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {
+func recoveryClaimRemovalCandidates(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {
 	claims := make([]ownership.Claim, 0, len(transitions))
 	for _, transition := range transitions {
-		if transition.Kind() != ownershipmutation.TransitionRelease {
+		if transition.Kind() != ownershipmutation.TransitionRelease &&
+			transition.Kind() != ownershipmutation.TransitionAcquire {
 			continue
 		}
 		claim, present := transition.Prepared().Get()

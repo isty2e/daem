@@ -46,7 +46,7 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 9
+	recoveryJournalVersion            = 10
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.
@@ -294,6 +294,13 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 }
 
 func validateRecoveryJournalRelationships(journal recoveryJournal) error {
+	if err := validateRecoveryOwnershipWorkBudget(
+		len(journal.Entries),
+		len(journal.ClaimTransitions),
+		len(journal.ProvisionalAcquires),
+	); err != nil {
+		return err
+	}
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return err
@@ -315,6 +322,13 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 		if intent.OperationID() != journal.OperationID {
 			return fmt.Errorf("recovery provisional_acquire_intents[%d] operation id differs from journal", index)
 		}
+	}
+	if err := validateRecoveryClaimCoverage(
+		journal.Entries,
+		claimTransitions,
+		provisionalAcquires,
+	); err != nil {
+		return fmt.Errorf("validate recovery ownership coverage: %w", err)
 	}
 	if len(journal.Entries) == 0 {
 		if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {

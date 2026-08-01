@@ -39,23 +39,25 @@ type recoveryProjectRootProvenance struct {
 	MountFingerprint  string `json:"mount_fingerprint"`
 }
 
-// recoveryEntry is the exact journal-v9 persistence DTO. Subject is the sole
-// semantic identity carried across the recovery boundary.
+// recoveryEntry is the exact journal-v10 persistence DTO. Subject is the sole
+// semantic identity carried across the recovery boundary. OwnershipPathAuthority
+// is a persisted foreign key to one exact claim transition, not another subject.
 type recoveryEntry struct {
-	Subject             persistedSubjectRef        `json:"subject"`
-	Target              string                     `json:"target,omitempty"`
-	Targets             []string                   `json:"targets,omitempty"`
-	Scope               string                     `json:"scope"`
-	Path                string                     `json:"path"`
-	ContentPath         string                     `json:"content_path,omitempty"`
-	ContentKind         string                     `json:"content_kind,omitempty"`
-	Before              recoveryBeforePathDTO      `json:"before"`
-	ExpectedAfter       recoveryExpectedPathDTO    `json:"expected_after"`
-	StateBeforeIdentity *recoveryStateIdentity     `json:"state_before_identity,omitempty"`
-	StateBefore         recoveryManagedMembership  `json:"state_before"`
-	StateExpectedAfter  recoveryManagedMembership  `json:"state_expected_after"`
-	Aggregate           *recoveryAggregateContract `json:"aggregate,omitempty"`
-	StateIndependent    bool                       `json:"state_independent,omitempty"`
+	Subject                persistedSubjectRef        `json:"subject"`
+	Target                 string                     `json:"target,omitempty"`
+	Targets                []string                   `json:"targets,omitempty"`
+	Scope                  string                     `json:"scope"`
+	Path                   string                     `json:"path"`
+	ContentPath            string                     `json:"content_path,omitempty"`
+	ContentKind            string                     `json:"content_kind,omitempty"`
+	OwnershipPathAuthority *pathAuthorityDTO          `json:"ownership_path_authority,omitempty"`
+	Before                 recoveryBeforePathDTO      `json:"before"`
+	ExpectedAfter          recoveryExpectedPathDTO    `json:"expected_after"`
+	StateBeforeIdentity    *recoveryStateIdentity     `json:"state_before_identity,omitempty"`
+	StateBefore            recoveryManagedMembership  `json:"state_before"`
+	StateExpectedAfter     recoveryManagedMembership  `json:"state_expected_after"`
+	Aggregate              *recoveryAggregateContract `json:"aggregate,omitempty"`
+	StateIndependent       bool                       `json:"state_independent,omitempty"`
 }
 
 type recoveryManagedMembership struct {
@@ -63,7 +65,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v9 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal-v10 persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`

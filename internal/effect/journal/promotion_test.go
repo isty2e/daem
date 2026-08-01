@@ -112,6 +112,16 @@ func TestPromoteProvisionalAcquireReplacesExactlyOneIntent(t *testing.T) {
 	if len(intents) != 0 || len(transitions) != 1 || !transitions[0].Equal(fixture.transition) {
 		t.Fatalf("promoted journal intents = %d, transitions = %#v", len(intents), transitions)
 	}
+	if len(loaded.Entries) != 1 || loaded.Entries[0].OwnershipPathAuthority == nil {
+		t.Fatalf("promoted journal entry authority = %#v, want one exact foreign key", loaded.Entries)
+	}
+	entryAuthority, err := canonicalPathAuthority(*loaded.Entries[0].OwnershipPathAuthority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !entryAuthority.Equal(fixture.transition.Address().PathAuthority()) {
+		t.Fatalf("promoted entry authority = %#v, want %#v", entryAuthority, fixture.transition.Address().PathAuthority())
+	}
 }
 
 func TestPromoteProvisionalAcquireIndeterminateReplacementRetainsClassifiableJournal(t *testing.T) {

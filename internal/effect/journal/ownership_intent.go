@@ -129,16 +129,43 @@ func canonicalProvisionalAcquireIntents(
 		if err != nil {
 			return nil, fmt.Errorf("recovery provisional_acquire_intents[%d]: %w", index, err)
 		}
-		for _, existing := range intents {
-			if existing.Destination() == intent.Destination() &&
-				existing.Path().Equal(intent.Path()) &&
-				existing.ContentPath().Overlaps(intent.ContentPath()) {
-				return nil, fmt.Errorf("recovery provisional_acquire_intents[%d] overlaps another intent", index)
-			}
-		}
 		intents = append(intents, intent)
 	}
+	if err := validateNonOverlappingProvisionalAcquireIntents(intents); err != nil {
+		return nil, err
+	}
 	return intents, nil
+}
+
+func validateNonOverlappingProvisionalAcquireIntents(
+	intents []outputownership.ProvisionalAcquireIntent,
+) error {
+	type intentFootprint struct {
+		destination      string
+		candidateKey     string
+		candidateWitness string
+		namespaceKey     string
+		namespaceWitness string
+	}
+	groups := make(map[intentFootprint][]string, len(intents))
+	for _, intent := range intents {
+		path := intent.Path()
+		namespace := path.Namespace()
+		key := intentFootprint{
+			destination:      intent.Destination().String(),
+			candidateKey:     path.CandidateKey(),
+			candidateWitness: path.CandidateWitness(),
+			namespaceKey:     namespace.Key(),
+			namespaceWitness: namespace.Witness(),
+		}
+		groups[key] = append(groups[key], string(intent.ContentPath()))
+	}
+	for _, contentPaths := range groups {
+		if err := validateNonOverlappingRecoveryContentPaths(contentPaths); err != nil {
+			return fmt.Errorf("recovery provisional acquire intents contain overlapping footprints")
+		}
+	}
+	return nil
 }
 
 func validateRecoveryIntentAuthorities(

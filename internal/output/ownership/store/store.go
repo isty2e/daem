@@ -93,7 +93,7 @@ func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
 }
 
 // LoadForClaimRemovals reads the registry while admitting a missing path only
-// for an exact expected claim selected by a durable removal transition.
+// for an exact expected claim that durable recovery is authorized to remove.
 func (store Store) LoadForClaimRemovals(
 	ctx context.Context,
 	expected []ownership.Claim,

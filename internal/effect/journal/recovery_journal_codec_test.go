@@ -80,7 +80,7 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 9`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -95,12 +95,33 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalRejectsPreAuthorityVersionNine(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 9`), 1)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, recoveryJournalFileName)
+	if err := os.WriteFile(path, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 9") ||
+		!strings.Contains(err.Error(), "recover before upgrading") {
+		t.Fatalf("loadRecoveryJournal error = %v, want pre-v10 retirement guidance", err)
+	}
+}
+
 func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 9`), []byte(`"version": 10, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 11, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -317,14 +338,9 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 }
 
 func TestLoadRecoveryJournalRequiresTopLevelEntriesPresence(t *testing.T) {
-	entry := recoveryEntryFor(
-		"global",
-		"~/.codex/AGENTS.md",
-		testBeforeHash,
-		testAfterHash,
-		testBackupPath,
-	)
-	journal := recoveryJournalFor(entry)
+	journal := defaultRecoveryJournal()
+	journal.Entries = nil
+	journal.ProjectRootProvenance = nil
 	content, err := marshalRecoveryJournal(journal, testStateCodec())
 	if err != nil {
 		t.Fatal(err)
@@ -407,8 +423,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 9`,
-				`"version": 9, "version": 9`,
+				`"version": 10`,
+				`"version": 10, "version": 10`,
 				1,
 			),
 		},

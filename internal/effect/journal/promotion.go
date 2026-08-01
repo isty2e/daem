@@ -242,7 +242,8 @@ func recoveryJournalAfterPromotion(
 			matched,
 		)
 	}
-	if err := requirePromotedIntentEntry(current.Entries, intent); err != nil {
+	entryIndex, err := promotedIntentEntryIndex(current.Entries, intent)
+	if err != nil {
 		return recoveryJournal{}, err
 	}
 
@@ -260,6 +261,10 @@ func recoveryJournalAfterPromotion(
 		return recoveryJournal{}, err
 	}
 	candidate := current
+	candidate.Entries = append([]recoveryEntry(nil), current.Entries...)
+	candidate.Entries[entryIndex].OwnershipPathAuthority = persistedPathAuthority(
+		transition.Address().PathAuthority(),
+	)
 	candidate.ClaimTransitions = persistedTransitions
 	candidate.ProvisionalAcquires = persistedIntents
 	if err := validateRecoveryJournal(candidate, stateCodec); err != nil {
@@ -268,29 +273,35 @@ func recoveryJournalAfterPromotion(
 	return candidate, nil
 }
 
-func requirePromotedIntentEntry(
+func promotedIntentEntryIndex(
 	entries []recoveryEntry,
 	intent outputownership.ProvisionalAcquireIntent,
-) error {
-	matched := 0
-	for _, entry := range entries {
+) (int, error) {
+	matchedIndex := -1
+	for index, entry := range entries {
 		if entry.Path != intent.Destination().String() ||
 			entry.ContentPath != string(intent.ContentPath()) {
 			continue
 		}
+		if matchedIndex >= 0 {
+			return -1, fmt.Errorf("recovery journal contains multiple entries for promoted ownership intent")
+		}
 		allowed, err := recoveryEntryAllowsTransition(entry, ownershipmutation.TransitionAcquire)
 		if err != nil {
-			return err
+			return -1, err
 		}
 		if !allowed {
-			return fmt.Errorf("recovery journal entry does not admit ownership acquisition")
+			return -1, fmt.Errorf("recovery journal entry does not admit ownership acquisition")
 		}
-		matched++
+		if entry.OwnershipPathAuthority != nil {
+			return -1, fmt.Errorf("provisional ownership intent entry already carries exact path authority")
+		}
+		matchedIndex = index
 	}
-	if matched != 1 {
-		return fmt.Errorf("recovery journal contains %d entries for promoted ownership intent, want 1", matched)
+	if matchedIndex < 0 {
+		return -1, fmt.Errorf("recovery journal contains no entry for promoted ownership intent")
 	}
-	return nil
+	return matchedIndex, nil
 }
 
 func marshalRecoveryJournalWithStateContentForPromotion(

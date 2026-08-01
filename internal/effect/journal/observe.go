@@ -46,9 +46,19 @@ func applyRecoveryIntentOwnershipEvidence(
 	registry outputownership.Registry,
 	resolver func(output.Destination) (string, error),
 ) []recoveryPathObservation {
+	observationIndexes := make(map[recoveryPathObservationKey]int, len(observations))
+	for index, observation := range observations {
+		key := recoveryPathObservationKey{path: observation.Path, contentPath: observation.ContentPath}
+		if _, present := observationIndexes[key]; !present {
+			observationIndexes[key] = index
+		}
+	}
 	for _, intent := range intents {
-		index := recoveryIntentObservationIndex(observations, intent)
-		if index < 0 {
+		index, found := observationIndexes[recoveryPathObservationKey{
+			path:        intent.Destination().String(),
+			contentPath: string(intent.ContentPath()),
+		}]
+		if !found {
 			continue
 		}
 		if err := ctx.Err(); err != nil {
@@ -102,19 +112,6 @@ func applyRecoveryIntentOwnershipEvidence(
 		}
 	}
 	return observations
-}
-
-func recoveryIntentObservationIndex(
-	observations []recoveryPathObservation,
-	intent outputownership.ProvisionalAcquireIntent,
-) int {
-	for index, observation := range observations {
-		if observation.Path == intent.Destination().String() &&
-			observation.ContentPath == string(intent.ContentPath()) {
-			return index
-		}
-	}
-	return -1
 }
 
 func recoveryPathObservations(

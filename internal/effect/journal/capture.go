@@ -376,20 +376,22 @@ func buildRecoveryJournal(
 	}
 
 	sortRecoveryEntries(entries)
+	entries, err = bindRecoveryClaimCoverage(
+		ctx,
+		entries,
+		options.ClaimTransitions,
+		options.ProvisionalAcquires,
+		options.Resolver,
+	)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
 	persistedTransitions, err := recoveryClaimTransitions(options.ClaimTransitions)
 	if err != nil {
 		return recoveryJournal{}, err
 	}
 	persistedIntents, err := recoveryProvisionalAcquireIntents(options.ProvisionalAcquires)
 	if err != nil {
-		return recoveryJournal{}, err
-	}
-	if err := validateRecoveryClaimCoverage(
-		entries,
-		options.ClaimTransitions,
-		options.ProvisionalAcquires,
-		options.Resolver,
-	); err != nil {
 		return recoveryJournal{}, err
 	}
 	return recoveryJournal{
