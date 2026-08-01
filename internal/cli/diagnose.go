@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -9,17 +8,15 @@ import (
 	"strings"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
-	"github.com/isty2e/daem/internal/platformsupport"
 	diagnoseworkflow "github.com/isty2e/daem/internal/workflow/diagnose"
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
 )
 
 func runDoctor(
-	ctx context.Context,
 	args []string,
 	stdout io.Writer,
 	stderr io.Writer,
-	admission platformsupport.Admission,
+	options commandOptions,
 ) int {
 	if commandHelpRequested(args) {
 		printCommandUsage([]string{"doctor"}, stdout, 0)
@@ -62,14 +59,19 @@ func runDoctor(
 		fmt.Fprintln(stderr, "doctor failed: --all-targets cannot be combined with --target")
 		return 2
 	}
+	assessment, err := options.assessPlatform()
+	if err != nil {
+		fmt.Fprintf(stderr, "doctor failed: observe platform runtime: %s\n", humanDiagnosticError(err))
+		return 1
+	}
 
-	result, err := diagnoseworkflow.Run(ctx, diagnoseworkflow.Input{
+	result, err := diagnoseworkflow.Run(options.context, diagnoseworkflow.Input{
 		ManifestPath:     *manifestPath,
 		ManifestExplicit: manifestExplicit,
 		TargetExplicit:   targetExplicit,
 		AllTargets:       *allTargets,
 		TargetValues:     targetValues.strings(),
-	}, admission)
+	}, assessment)
 	if err != nil {
 		fmt.Fprintf(stderr, "doctor failed: %s\n", humanDiagnosticError(err))
 		if errors.Is(err, diagnoseworkflow.ErrInvalidTargetSelection) {

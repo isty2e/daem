@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -201,7 +202,10 @@ func TestPlatformPreflightUsesSupportPolicyNotBuildability(t *testing.T) {
 			var stderr bytes.Buffer
 			exitCode, rejected := rejectUnsupportedPlatform(
 				[]string{"lock"},
-				testPlatformAdmission(t, test.goos, test.goarch),
+				commandOptions{
+					context:           context.Background(),
+					platformAdmission: testPlatformAdmission(t, test.goos, test.goarch),
+				},
 				&stderr,
 			)
 			if !rejected || exitCode != 1 {
@@ -217,12 +221,32 @@ func TestPlatformPreflightUsesSupportPolicyNotBuildability(t *testing.T) {
 		var stderr bytes.Buffer
 		exitCode, rejected := rejectUnsupportedPlatform(
 			[]string{"lock"},
-			testPlatformAdmission(t, target[0], target[1]),
+			testAdmittedCommandOptions(t, target[0], target[1]),
 			&stderr,
 		)
 		if rejected || exitCode != 0 || stderr.Len() != 0 {
 			t.Fatalf("admitted %s/%s rejected=%t exitCode=%d stderr=%q", target[0], target[1], rejected, exitCode, stderr.String())
 		}
+	}
+}
+
+func testAdmittedCommandOptions(t *testing.T, goos string, goarch string) commandOptions {
+	t.Helper()
+	admission := testPlatformAdmission(t, goos, goarch)
+	var observation platformsupport.RuntimeObservation
+	if minimum, required := admission.RuntimeRequirement(); required {
+		var err error
+		observation, err = platformsupport.NewRuntimeObservation(minimum)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return commandOptions{
+		context:           context.Background(),
+		platformAdmission: admission,
+		platformObserver: func(context.Context) (platformsupport.RuntimeObservation, error) {
+			return observation, nil
+		},
 	}
 }
 
@@ -245,6 +269,143 @@ func TestPlatformPreflightRunsBeforePathResolutionAndHonorsOptionTerminator(t *t
 		if strings.Contains(stderr.String(), "XDG_DATA_HOME") {
 			t.Fatalf("runCommand(%#v) reached path resolution: %q", args, stderr.String())
 		}
+	}
+}
+
+func TestPlatformPreflightRejectsMacOSBelowRuntimeFloorBeforeEffects(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
+	options := testMacOSCommandOptions(t, "25.9.9", platformsupport.RuntimeObservationNotObserved)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runCommand(
+		[]string{"init", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+		RunOptions{},
+		options,
+	)
+	if exitCode != 1 || stdout.Len() != 0 {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"init failed: platform darwin/arm64 requires macOS 26.0 or newer",
+		"observed=25.9.9",
+		"verification=native-required",
+		"next: run daem doctor",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+	if _, err := os.Stat(manifestPath); !os.IsNotExist(err) {
+		t.Fatalf("below-floor preflight touched manifest: %v", err)
+	}
+}
+
+func TestPlatformPreflightAppliesMacOSRuntimeFloorToEveryGatedFamily(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
+	for _, args := range platformGatedCommandExamples(manifestPath) {
+		t.Run(args[0], func(t *testing.T) {
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := runCommand(
+				args,
+				&stdout,
+				&stderr,
+				RunOptions{},
+				testMacOSCommandOptions(t, "25.9.9", platformsupport.RuntimeObservationNotObserved),
+			)
+			if exitCode != 1 || stdout.Len() != 0 {
+				t.Fatalf("exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "requires macOS 26.0 or newer") {
+				t.Fatalf("stderr = %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestPlatformPreflightRejectsUnknownMacOSRuntimeForEveryFailureReason(t *testing.T) {
+	for _, reason := range []platformsupport.RuntimeObservationReason{
+		platformsupport.RuntimeObservationCommandFailed,
+		platformsupport.RuntimeObservationInvalidOutput,
+		platformsupport.RuntimeObservationTimedOut,
+	} {
+		t.Run(reason.String(), func(t *testing.T) {
+			options := testMacOSCommandOptions(t, "", reason)
+			var stderr bytes.Buffer
+			exitCode, rejected := rejectUnsupportedPlatform([]string{"lock"}, options, &stderr)
+			if !rejected || exitCode != 1 {
+				t.Fatalf("rejected=%t exit=%d stderr=%q", rejected, exitCode, stderr.String())
+			}
+			if !strings.Contains(stderr.String(), "reason="+reason.String()) {
+				t.Fatalf("stderr = %q, want reason %s", stderr.String(), reason)
+			}
+		})
+	}
+}
+
+func TestPlatformAssessmentRunsOnlyForCommandsThatConsumeIt(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		wantExit int
+	}{
+		{name: "root help", args: []string{"help"}, wantExit: 0},
+		{name: "gated help", args: []string{"apply", "--help"}, wantExit: 0},
+		{name: "doctor help", args: []string{"doctor", "--help"}, wantExit: 0},
+		{name: "doctor usage error", args: []string{"doctor", "--unknown"}, wantExit: 2},
+		{name: "version", args: []string{"version"}, wantExit: 0},
+		{name: "version alias", args: []string{"--version"}, wantExit: 0},
+		{name: "unknown command", args: []string{"unknown"}, wantExit: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := RunWithOptions(test.args, RunOptions{
+				Stdout: &stdout,
+				Stderr: &stderr,
+				PlatformObserver: func(context.Context) (platformsupport.RuntimeObservation, error) {
+					calls++
+					return platformsupport.RuntimeObservation{}, errors.New("must not observe")
+				},
+			})
+			if exitCode != test.wantExit || calls != 0 {
+				t.Fatalf("exit=%d want=%d calls=%d stdout=%q stderr=%q", exitCode, test.wantExit, calls, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func testMacOSCommandOptions(
+	t *testing.T,
+	versionValue string,
+	failure platformsupport.RuntimeObservationReason,
+) commandOptions {
+	t.Helper()
+	admission := testPlatformAdmission(t, "darwin", "arm64")
+	var observation platformsupport.RuntimeObservation
+	var err error
+	if versionValue != "" {
+		version, parseErr := platformsupport.ParseMacOSProductVersion(versionValue)
+		if parseErr != nil {
+			t.Fatal(parseErr)
+		}
+		observation, err = platformsupport.NewRuntimeObservation(version)
+	} else {
+		observation, err = platformsupport.NewRuntimeObservationFailure(failure)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commandOptions{
+		context:           context.Background(),
+		platformAdmission: admission,
+		platformObserver: func(context.Context) (platformsupport.RuntimeObservation, error) {
+			return observation, nil
+		},
 	}
 }
 

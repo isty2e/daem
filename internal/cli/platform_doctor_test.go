@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/platformsupport"
 )
 
 func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *testing.T) {
@@ -179,5 +181,76 @@ func TestRunCommandDoctorKeepsPathFailureAlongsideUnsupportedPlatform(t *testing
 				t.Fatalf("doctor JSON = %#v", payload)
 			}
 		})
+	}
+}
+
+func TestRunCommandDoctorDisclosesMacOSRuntimeFailureInHumanAndJSONOutput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, "state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	manifestPath := filepath.Join(home, "missing.toml")
+
+	tests := []struct {
+		name     string
+		options  commandOptions
+		want     string
+		wantNext string
+	}{
+		{
+			name:     "below floor",
+			options:  testMacOSCommandOptions(t, "25.9", 0),
+			want:     "observed=25.9",
+			wantNext: "upgrade macOS to 26.0 or newer",
+		},
+		{
+			name:     "invalid observation",
+			options:  testMacOSCommandOptions(t, "", platformsupport.RuntimeObservationInvalidOutput),
+			want:     "reason=invalid-output",
+			wantNext: "verify /usr/bin/sw_vers --productVersion, then rerun daem doctor",
+		},
+	}
+	for _, test := range tests {
+		for _, jsonOutput := range []bool{false, true} {
+			name := test.name + "/human"
+			args := []string{"doctor", "--manifest", manifestPath, "--target", "codex"}
+			if jsonOutput {
+				name = test.name + "/json"
+				args = append(args, "--json")
+			}
+			t.Run(name, func(t *testing.T) {
+				var stdout bytes.Buffer
+				var stderr bytes.Buffer
+				exitCode := runCommand(args, &stdout, &stderr, RunOptions{}, test.options)
+				if exitCode != 1 || stderr.Len() != 0 {
+					t.Fatalf("exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+				}
+				for _, want := range []string{"darwin/arm64", "macOS 26.0 or newer", test.want, test.wantNext} {
+					if !strings.Contains(stdout.String(), want) {
+						t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+					}
+				}
+				if !jsonOutput && !strings.Contains(stdout.String(), "doctor: 1 checks (ok=0 warn=0 error=1)") {
+					t.Fatalf("human stdout = %q", stdout.String())
+				}
+				if jsonOutput {
+					var payload struct {
+						CheckCount int `json:"check_count"`
+						Checks     []struct {
+							Name     string `json:"name"`
+							Severity string `json:"severity"`
+						} `json:"checks"`
+					}
+					if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+						t.Fatalf("decode JSON: %v", err)
+					}
+					if payload.CheckCount != 1 || len(payload.Checks) != 1 || payload.Checks[0].Name != "platform" || payload.Checks[0].Severity != "error" {
+						t.Fatalf("JSON payload = %#v", payload)
+					}
+				}
+			})
+		}
 	}
 }

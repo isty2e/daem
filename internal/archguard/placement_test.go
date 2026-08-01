@@ -107,6 +107,14 @@ func TestPackagePlacementKeepsAffinityRoleAndSpecializationIndependent(t *testin
 			},
 		},
 		{
+			packagePath:  "internal/assurance/observe/platform",
+			wantAffinity: affinityAssurance,
+			wantRole:     roleObservationAdapter,
+			wantSpecialization: packageSpecialization{
+				kind: specializationPlatform, value: "runtime",
+			},
+		},
+		{
 			packagePath:        "internal/findings",
 			wantAffinity:       affinityNone,
 			wantRole:           roleStableValue,

@@ -13,11 +13,19 @@ func TestPlatformCheckReportsAdmittedTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lookup returned error: %v", err)
 	}
-	check := PlatformCheck(admission)
+	version, err := platformsupport.ParseMacOSProductVersion("26.5.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := platformsupport.NewRuntimeObservation(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := PlatformCheck(platformsupport.AssessRuntime(admission, observation))
 	if check.Severity != findings.SeverityOK || check.Name != "platform" {
 		t.Fatalf("check = %#v", check)
 	}
-	if check.Detail != "darwin/arm64 is an admitted product target (verification=native-required)" {
+	if check.Detail != "darwin/arm64 is an admitted product target (runtime=macOS 26.5.1; required>=26.0; verification=native-required)" {
 		t.Fatalf("detail = %q", check.Detail)
 	}
 }
@@ -27,7 +35,7 @@ func TestPlatformCheckReportsCompileOnlyTargetAsError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lookup returned error: %v", err)
 	}
-	check := PlatformCheck(admission)
+	check := PlatformCheck(platformsupport.AssessRuntime(admission, platformsupport.RuntimeObservation{}))
 	if check.Severity != findings.SeverityError || check.Name != "platform" {
 		t.Fatalf("check = %#v", check)
 	}
@@ -42,5 +50,34 @@ func TestPlatformCheckReportsCompileOnlyTargetAsError(t *testing.T) {
 	}
 	if check.NextStep != "run daem on an admitted platform: darwin/arm64, linux/amd64" {
 		t.Fatalf("next step = %q", check.NextStep)
+	}
+}
+
+func TestPlatformCheckReportsMacOSRuntimeRemediation(t *testing.T) {
+	admission, err := platformsupport.Lookup("darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	version, err := platformsupport.ParseMacOSProductVersion("25.9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	observation, err := platformsupport.NewRuntimeObservation(version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	belowFloor := PlatformCheck(platformsupport.AssessRuntime(admission, observation))
+	if belowFloor.Severity != findings.SeverityError || belowFloor.NextStep != "upgrade macOS to 26.0 or newer" {
+		t.Fatalf("below-floor check = %#v", belowFloor)
+	}
+
+	observation, err = platformsupport.NewRuntimeObservationFailure(platformsupport.RuntimeObservationInvalidOutput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown := PlatformCheck(platformsupport.AssessRuntime(admission, observation))
+	if unknown.Severity != findings.SeverityError || unknown.NextStep != "verify /usr/bin/sw_vers --productVersion, then rerun daem doctor" {
+		t.Fatalf("unknown-runtime check = %#v", unknown)
 	}
 }

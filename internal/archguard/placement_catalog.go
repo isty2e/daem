@@ -272,6 +272,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/assurance/observe/pipackage"},
 	},
 	{
+		id:        "assurance.observation.platform",
+		placement: specializedPlacement(affinityAssurance, roleObservationAdapter, specializationPlatform, "runtime"),
+		packages:  []string{"internal/assurance/observe/platform"},
+	},
+	{
 		id:        "effect.active.execute",
 		placement: plainPlacement(affinityEffect, roleActiveAdapter),
 		packages: []string{
@@ -382,6 +387,7 @@ var packagePlacementRows = []packagePlacementRow{
 			"internal/workflow/list",
 			"internal/workflow/lock",
 			"internal/workflow/lock/generate",
+			"internal/workflow/platform",
 			"internal/workflow/probe",
 			"internal/workflow/readiness",
 			"internal/workflow/recover",

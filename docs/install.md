@@ -24,8 +24,33 @@ example installs `v0.1.0` under `~/.local/bin`:
 set -eu
 
 DAEM_VERSION=v0.1.0
+daem_macos_supported() {
+  printf '%s\n' "$1" | /usr/bin/awk -F. '
+    NR > 1 { exit 1 }
+    NF < 2 || NF > 3 { exit 1 }
+    {
+      for (field = 1; field <= NF; field++) {
+        if ($field !~ /^(0|[1-9][0-9]*)$/) exit 1
+        if (length($field) > 10 || (length($field) == 10 && ($field + 0) > 4294967295)) exit 1
+      }
+      if (($1 + 0) < 26) exit 1
+    }
+    END { if (NR != 1) exit 1 }
+  '
+}
+
 case "$(uname -s):$(uname -m)" in
-  Darwin:arm64) DAEM_TARGET=darwin_arm64 ;;
+  Darwin:arm64)
+    if ! DAEM_MACOS_VERSION="$(/usr/bin/sw_vers --productVersion)"; then
+      echo "cannot observe the macOS product version; daem requires macOS 26.0 or newer" >&2
+      exit 1
+    fi
+    if ! daem_macos_supported "$DAEM_MACOS_VERSION"; then
+      echo "unsupported daem macOS runtime: observed $DAEM_MACOS_VERSION; requires macOS 26.0 or newer" >&2
+      exit 1
+    fi
+    DAEM_TARGET=darwin_arm64
+    ;;
   Linux:x86_64) DAEM_TARGET=linux_amd64 ;;
   *)
     echo "unsupported daem release target: $(uname -s)/$(uname -m)" >&2
@@ -71,6 +96,10 @@ daem --help
 
 Add `export PATH="$HOME/.local/bin:$PATH"` to the appropriate shell startup
 file if `~/.local/bin` is not already on `PATH`.
+
+The macOS preflight runs before network access. The installed binary repeats
+the same runtime-floor decision for supported workflows; the shell check is an
+early diagnostic, not authority to bypass the binary gate.
 
 The checksum detects accidental or malicious byte changes relative to the
 published sidecar. It is not a signature, publisher-authenticity proof, or

@@ -524,6 +524,7 @@ func TestArchitectureContractClassifiesAssuranceOwnerLocalRolesExactly(t *testin
 		"internal/assurance/observe/live",
 		"internal/assurance/observe/lock",
 		"internal/assurance/observe/ownership",
+		"internal/assurance/observe/platform",
 		"internal/assurance/observe/pipackage",
 		"internal/assurance/observe/relation/host",
 		"internal/assurance/statefile",
