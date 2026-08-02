@@ -14,6 +14,7 @@ type createdDirectory struct {
 	path     string
 	identity EntryIdentity
 	fd       int
+	retired  bool
 }
 
 func (directory createdDirectory) valid() bool {
@@ -60,7 +61,7 @@ func (cleanup *AncestorCleanup) RemoveEmpty(ctx context.Context) error {
 	}
 	cleanupErrors := make([]error, 0)
 	for index := len(state.directories) - 1; index >= 0; index-- {
-		directory := state.directories[index]
+		directory := &state.directories[index]
 		if err := removeCreatedDirectoryIfEmptyWithFaults(ctx, directory, faultPlan{}); err != nil {
 			cleanupErrors = append(cleanupErrors, fmt.Errorf(
 				"remove created ancestor %q: %w",
@@ -208,9 +209,16 @@ func prepareCommitParentWithFaults(
 
 func removeCreatedDirectoryIfEmptyWithFaults(
 	ctx context.Context,
-	directory createdDirectory,
+	directory *createdDirectory,
 	faults faultPlan,
 ) error {
+	if directory == nil {
+		return failureBeforeVisibility(
+			phaseValidate,
+			"",
+			fmt.Errorf("created directory cleanup evidence is required"),
+		)
+	}
 	path := directory.path
 	if ctx == nil {
 		return failureBeforeVisibility(
@@ -226,6 +234,9 @@ func removeCreatedDirectoryIfEmptyWithFaults(
 			fmt.Errorf("valid created directory evidence is required"),
 		)
 	}
+	if directory.retired {
+		return nil
+	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return failureBeforeVisibility(phaseValidate, path, err)
 	}
@@ -235,41 +246,57 @@ func removeCreatedDirectoryIfEmptyWithFaults(
 		defer anchor.close()
 	}
 	if errors.Is(err, unix.ENOENT) {
-		return nil
+		return classifyMissingCreatedDirectory(*directory, phaseValidate)
 	}
 	if err != nil {
 		return failureBeforeVisibility(phaseValidate, path, err)
 	}
-	if err := requireEmptyCreatedDirectory(ctx, anchor, directory); errors.Is(err, unix.ENOENT) {
-		return nil
+	if err := requireEmptyCreatedDirectory(ctx, anchor, *directory); errors.Is(err, unix.ENOENT) {
+		return classifyMissingCreatedDirectory(*directory, phaseValidate)
 	} else if err != nil {
 		return failureBeforeVisibility(phaseValidate, path, err)
 	}
 	if err := anchor.verifyChain(); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return classifyMissingCreatedDirectory(*directory, phaseValidate)
+		}
 		return failureBeforeVisibility(phaseValidate, path, err)
 	}
 
 	err = faults.run(ctx, phaseRevalidateEntry, func() error {
-		return requireEmptyCreatedDirectory(ctx, anchor, directory)
+		return requireEmptyCreatedDirectory(ctx, anchor, *directory)
 	})
 	if err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return classifyMissingCreatedDirectory(*directory, phaseRevalidateEntry)
+		}
 		return failureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}
 	if err := anchor.verifyChain(); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return classifyMissingCreatedDirectory(*directory, phaseRevalidateEntry)
+		}
 		return failureBeforeVisibility(phaseValidate, path, err)
 	}
 	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
 		return failureBeforeVisibility(phaseCleanupEntry, path, err)
 	}
-	if err := requireEmptyCreatedDirectory(ctx, anchor, directory); err != nil {
+	if err := requireEmptyCreatedDirectory(ctx, anchor, *directory); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return classifyMissingCreatedDirectory(*directory, phaseCleanupEntry)
+		}
 		return failureBeforeVisibility(phaseCleanupEntry, path, err)
 	}
 	if err := anchor.verifyChain(); err != nil {
+		if errors.Is(err, unix.ENOENT) {
+			return classifyMissingCreatedDirectory(*directory, phaseCleanupEntry)
+		}
 		return failureBeforeVisibility(phaseCleanupEntry, path, err)
 	}
 	if err := unix.Unlinkat(anchor.parentFD(), anchor.base, unix.AT_REMOVEDIR); err != nil {
-		return classifyCreatedDirectoryCleanupFailure(anchor, directory, err)
+		return classifyCreatedDirectoryCleanupFailure(anchor, *directory, err)
 	}
+	directory.retired = true
 	if err := faults.run(ctx, phaseSyncCleanupParent, func() error {
 		return syncDirectory(anchor.parentFD())
 	}); err != nil {
@@ -301,6 +328,45 @@ func removeCreatedDirectoryIfEmptyWithFaults(
 	default:
 		return nil
 	}
+}
+
+func classifyMissingCreatedDirectory(directory createdDirectory, failedPhase phase) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(directory.fd, &stat); err != nil {
+		return failureBeforeVisibility(
+			failedPhase,
+			directory.path,
+			fmt.Errorf("inspect retained created directory handle %q: %w", directory.path, err),
+		)
+	}
+	liveIdentity := identityFromStat(directory.path, &stat)
+	if !directory.identity.sameObject(liveIdentity) || liveIdentity.kind != entryKindDirectory {
+		return failureBeforeVisibility(
+			failedPhase,
+			directory.path,
+			fmt.Errorf("created directory handle changed at %q", directory.path),
+		)
+	}
+	linked, err := retainedDirectoryStillLinked(directory.fd, directory.identity, &stat)
+	if err != nil {
+		return newFailure(
+			failureRetainedResidue,
+			failedPhase,
+			directory.path,
+			fmt.Errorf("determine retained created directory link state: %w", err),
+			directory.path,
+		)
+	}
+	if !linked {
+		return nil
+	}
+	return newFailure(
+		failureRetainedResidue,
+		failedPhase,
+		directory.path,
+		fmt.Errorf("created directory disappeared before daem retirement but remains linked"),
+		directory.path,
+	)
 }
 
 func requireEmptyCreatedDirectory(

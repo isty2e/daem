@@ -280,6 +280,31 @@ func TestWritePlanRollbackPreservesPopulatedCreatedParent(t *testing.T) {
 	}
 }
 
+func TestWritePlanRollbackReportsMovedCreatedParent(t *testing.T) {
+	root := t.TempDir()
+	createdParent := filepath.Join(root, "created")
+	displacedParent := filepath.Join(root, "displaced")
+	sourcePath := filepath.Join(createdParent, "source.md")
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+
+	err := writePlan(context.Background(), plan, func() error {
+		if renameErr := os.Rename(createdParent, displacedParent); renameErr != nil {
+			t.Fatalf("move created import parent: %v", renameErr)
+		}
+		return mutation.StaleSnapshotError{}
+	})
+	if err == nil || !strings.Contains(err.Error(), "disappeared before daem retirement") {
+		t.Fatalf("writePlan error = %v, want moved ancestor residue", err)
+	}
+	displacedSource := filepath.Join(displacedParent, filepath.Base(sourcePath))
+	if content, readErr := os.ReadFile(displacedSource); readErr != nil || string(content) != "created" {
+		t.Fatalf("moved import residue was not preserved: content=%q err=%v", content, readErr)
+	}
+}
+
 func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
 	for _, replacementKind := range []string{"directory", "symlink"} {
 		t.Run(replacementKind, func(t *testing.T) {

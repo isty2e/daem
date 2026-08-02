@@ -237,8 +237,76 @@ func TestAncestorCleanupRemovesExactEmptyDirectories(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(root, "one")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("created ancestor remains: %v", err)
 	}
+	replacement := filepath.Join(root, "one")
+	if err := os.Mkdir(replacement, 0o700); err != nil {
+		t.Fatalf("create post-retirement replacement: %v", err)
+	}
 	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
 		t.Fatalf("repeated RemoveEmpty: %v", err)
+	}
+	if info, err := os.Stat(replacement); err != nil || !info.IsDir() {
+		t.Fatalf("post-retirement replacement was not preserved: info=%v err=%v", info, err)
+	}
+}
+
+func TestAncestorCleanupReportsMovedCreatedDirectoryResidue(t *testing.T) {
+	root := canonicalTempDir(t)
+	target := filepath.Join(root, "created", "state.json")
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	directory := &cleanup.state.directories[0]
+	displaced := filepath.Join(root, "displaced")
+	if err := os.Rename(directory.path, displaced); err != nil {
+		t.Fatal(err)
+	}
+
+	err := cleanup.RemoveEmpty(context.Background())
+	if err == nil {
+		t.Fatal("RemoveEmpty accepted a moved created directory")
+	}
+	var failure *failure
+	if !errors.As(err, &failure) || failure.Kind() != failureRetainedResidue {
+		t.Fatalf("RemoveEmpty error = %v, want retained residue", err)
+	}
+	if directory.retired {
+		t.Fatal("moved created directory was marked retired")
+	}
+	if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
+		t.Fatalf("moved created directory was not preserved: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestAncestorCleanupReportsMoveAtEachPreUnlinkBoundary(t *testing.T) {
+	for _, movePhase := range []phase{phaseValidate, phaseRevalidateEntry, phaseCleanupEntry} {
+		t.Run(string(movePhase), func(t *testing.T) {
+			root := canonicalTempDir(t)
+			target := filepath.Join(root, "created", "state.json")
+			cleanup := newTestAncestorCleanup(t)
+			if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+				t.Fatal(err)
+			}
+			directory := &cleanup.state.directories[0]
+			displaced := filepath.Join(root, "displaced")
+
+			err := removeCreatedDirectoryIfEmptyWithFaults(context.Background(), directory, faultPlan{
+				actions: map[phase]func(){
+					movePhase: func() {
+						if renameErr := os.Rename(directory.path, displaced); renameErr != nil {
+							t.Fatalf("move created directory: %v", renameErr)
+						}
+					},
+				},
+			})
+			assertFailure(t, err, failureRetainedResidue, movePhase)
+			if directory.retired {
+				t.Fatal("moved created directory was marked retired")
+			}
+			if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
+				t.Fatalf("moved created directory was not preserved: info=%v err=%v", info, statErr)
+			}
+		})
 	}
 }
 
@@ -382,7 +450,7 @@ func TestAncestorCleanupRevalidatesAfterCleanupRace(t *testing.T) {
 	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 		t.Fatal(err)
 	}
-	directory := testCreatedDirectories(cleanup)[0]
+	directory := &cleanup.state.directories[0]
 	displaced := filepath.Join(root, "displaced")
 
 	err := removeCreatedDirectoryIfEmptyWithFaults(context.Background(), directory, faultPlan{
@@ -403,6 +471,9 @@ func TestAncestorCleanupRevalidatesAfterCleanupRace(t *testing.T) {
 	}
 	if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
 		t.Fatalf("created directory was not preserved after displacement: info=%v err=%v", info, statErr)
+	}
+	if directory.retired {
+		t.Fatal("displaced created directory was marked retired")
 	}
 }
 
@@ -449,7 +520,7 @@ func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 			if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 				t.Fatal(err)
 			}
-			directory := testCreatedDirectories(cleanup)[0]
+			directory := &cleanup.state.directories[0]
 			err := removeCreatedDirectoryIfEmptyWithFaults(test.context(), directory, test.faults)
 			assertFailure(t, err, test.wantKind, test.wantPhase)
 			_, statErr := os.Lstat(directory.path)
@@ -458,6 +529,9 @@ func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 			}
 			if !test.wantGone && statErr != nil {
 				t.Fatalf("created directory was removed before commit: %v", statErr)
+			}
+			if directory.retired != test.wantGone {
+				t.Fatalf("retired = %t, want %t", directory.retired, test.wantGone)
 			}
 		})
 	}
