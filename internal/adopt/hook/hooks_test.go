@@ -266,7 +266,7 @@ func TestParseImportHooksBoundsDiagnosticAmplification(t *testing.T) {
 	}
 }
 
-func TestParseImportHooksUsesBoundedDeterministicEventIdentities(t *testing.T) {
+func TestParseImportHooksUsesDeterministicCollisionNames(t *testing.T) {
 	t.Parallel()
 
 	longField := strings.Repeat("field", 1000)
@@ -280,16 +280,42 @@ func TestParseImportHooksUsesBoundedDeterministicEventIdentities(t *testing.T) {
 	if len(hooks) != 2 || len(skipped) != 1 {
 		t.Fatalf("parseImportHooks = (%#v, %#v), want two hooks and one skip", hooks, skipped)
 	}
-	if hooks[0].ResourceName == hooks[1].ResourceName {
-		t.Fatalf("sanitization-colliding events share resource name %q", hooks[0].ResourceName)
-	}
-	for _, hook := range hooks {
-		if len(hook.ResourceName) > 128 {
-			t.Fatalf("resource name length = %d, want <= 128: %q", len(hook.ResourceName), hook.ResourceName)
-		}
+	base := importHookName(target.TargetClaudeCode, target.ScopeProject, "a_b", 0, 0)
+	if hooks[0].ResourceName != base || hooks[1].ResourceName != base+"_2" {
+		t.Fatalf("collision names = %q, %q, want %q, %q", hooks[0].ResourceName, hooks[1].ResourceName, base, base+"_2")
 	}
 	if len(skipped[0].Reason) > 256 || strings.Contains(skipped[0].Reason, longField) {
 		t.Fatalf("skip reason is not bounded: length=%d reason=%q", len(skipped[0].Reason), skipped[0].Reason)
+	}
+}
+
+func TestParseImportHooksPreservesLongAdmittedEventResourceName(t *testing.T) {
+	t.Parallel()
+
+	event := strings.Repeat("e", 65)
+	hooks, skipped := parseImportHooks(
+		[]byte(`{"hooks":{"`+event+`":[{"hooks":[{"type":"command","command":"true"}]}]}}`),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	want := importHookName(target.TargetClaudeCode, target.ScopeProject, event, 0, 0)
+	if len(hooks) != 1 || len(skipped) != 0 || hooks[0].ResourceName != want {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want preserved resource name %q", hooks, skipped, want)
+	}
+}
+
+func TestParseImportHooksRejectsCandidateOutsideDesiredHookInvariant(t *testing.T) {
+	t.Parallel()
+
+	hooks, skipped := parseImportHooks(
+		[]byte("{\"hooks\":{\"Stop\\u202eHidden\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"true\"}]}]}}"),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0].Reason, importHookSkipInvalidCanonical) {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want one canonical-invariant skip", hooks, skipped)
 	}
 }
 

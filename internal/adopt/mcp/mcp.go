@@ -1,27 +1,39 @@
 package mcp
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	adopt "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
 const (
-	skipMissing    = "missing"
-	skipNotRegular = "not_regular_file"
+	skipMissing           = "missing"
+	skipNotRegular        = "not_regular_file"
+	skipFinalSymlink      = "mcp_config_final_symlink"
+	skipTooLarge          = "mcp_config_too_large"
+	skipChangedDuringRead = "mcp_config_changed_during_read"
 )
 
 // Candidates imports only admitted standalone MCP config projection rows.
-func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	var importConfig func(string) ([]adopt.MCPServer, []adopt.Skipped, error)
+func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Scope) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	if ctx == nil {
+		return nil, nil, fmt.Errorf("MCP import context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	var importConfig func(context.Context, string, int64) ([]adopt.MCPServer, []adopt.Skipped, error)
 	switch {
 	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeProject:
 		importConfig = claudeProjectCandidates
@@ -44,15 +56,19 @@ func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.MCPServ
 	if !ok {
 		return nil, nil, fmt.Errorf("MCP import route %s/%s has no canonical placement", target, scope)
 	}
+	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
+	if !ok {
+		return nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)
+	}
 	livePath, err := mcpConfigPath(placement.ConfigPath(), scope)
 	if err != nil {
 		return nil, nil, err
 	}
-	return importConfig(livePath)
+	return importConfig(ctx, livePath, codec.MaximumDocumentBytes())
 }
 
-func claudeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func claudeProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -75,8 +91,8 @@ func claudeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skippe
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func claudeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func claudeGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -99,8 +115,8 @@ func claudeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func openCodeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func openCodeProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -123,8 +139,8 @@ func openCodeProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skip
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func openCodeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func openCodeGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -147,8 +163,8 @@ func openCodeGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipp
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func codexProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func codexProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -171,8 +187,8 @@ func codexProjectCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func codexGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func codexGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -195,8 +211,8 @@ func codexGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped,
 	return servers, rejectionSkips(livePath, rejections), nil
 }
 
-func antigravityGlobalCandidates(livePath string) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(livePath)
+func antigravityGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, livePath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -233,22 +249,35 @@ func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (strin
 	return livePath, nil
 }
 
-func readConfig(livePath string) ([]byte, adopt.Skipped, error) {
-	info, err := os.Stat(livePath)
-	if os.IsNotExist(err) {
+func readConfig(ctx context.Context, livePath string, maximumBytes int64) ([]byte, adopt.Skipped, error) {
+	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, livePath, maximumBytes)
+	if err == nil && !exists {
 		return nil, adopt.Skipped{LivePath: livePath, Reason: skipMissing}, nil
 	}
 	if err != nil {
-		return nil, adopt.Skipped{}, fmt.Errorf("read MCP config %q: %w", livePath, err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, adopt.Skipped{LivePath: livePath, Reason: skipNotRegular}, nil
-	}
-	content, err := os.ReadFile(livePath)
-	if err != nil {
+		if skip, ok := mcpSnapshotSkip(livePath, err); ok {
+			return nil, skip, nil
+		}
 		return nil, adopt.Skipped{}, fmt.Errorf("read MCP config %q: %w", livePath, err)
 	}
 	return content, adopt.Skipped{}, nil
+}
+
+func mcpSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
+	for _, candidate := range []struct {
+		match  error
+		reason string
+	}{
+		{match: filesnapshot.ErrSymlink, reason: skipFinalSymlink},
+		{match: filesnapshot.ErrNotRegular, reason: skipNotRegular},
+		{match: filesnapshot.ErrLimitExceeded, reason: skipTooLarge},
+		{match: filesnapshot.ErrChanged, reason: skipChangedDuringRead},
+	} {
+		if errors.Is(err, candidate.match) {
+			return adopt.Skipped{LivePath: livePath, Reason: candidate.reason}, true
+		}
+	}
+	return adopt.Skipped{}, false
 }
 
 func hostEnvReferences(env map[string]string) map[string]string {

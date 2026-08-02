@@ -311,8 +311,10 @@ Imported instruction files must be stable regular files no larger than 128
 MiB. Import follows the selected path's parent directories but does not follow
 a final symlink. Hook JSON files must be stable regular files no larger than 4
 MiB and contain one UTF-8 JSON value with unique object keys and at most 64
-levels of nesting. These byte rules are the same ones used when daem reads the
-managed hook document for apply. Files that violate an import boundary are
+levels of nesting. Standalone MCP config files must also be stable regular
+files no larger than the selected MCP codec's 4 MiB document limit. These byte
+rules are the same ones used when daem observes, applies, and recovers the
+corresponding managed document. Files that violate an import boundary are
 reported with a stable skip reason; no partial resource is produced from the
 rejected file.
 

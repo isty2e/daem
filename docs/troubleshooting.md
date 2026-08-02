@@ -225,7 +225,7 @@ these steps. Import writes no lock or management claim. Review the generated
 declaration, run `daem lock`, and use explicit `apply --manage-existing` only
 when the resulting exact relation is eligible and intended.
 
-## Import Skipped An Instruction Or Hook File
+## Import Skipped An Instruction, Hook, Or MCP File
 
 Import reads existing agent files as untrusted input. An instruction file is
 skipped when its final path is a symlink, it is not a regular file, it exceeds
@@ -240,6 +240,11 @@ hook documents. Daem enforces the same 4 MiB limit while checking, applying,
 and recovering managed hook files. It also rejects a rendered or restored
 candidate that would exceed that limit before writing it.
 
+Standalone MCP config is skipped as one document when its final path has the
+same unsafe filesystem shape, changes during the read, or exceeds the selected
+MCP codec's 4 MiB limit. Daem applies that codec-owned limit before reading the
+document and produces no partial MCP server import from a rejected file.
+
 Hook import additionally accepts at most 256 events, 4,096 groups, 4,096
 handlers, and 4,096 skipped entries. Event names may contain at most 256 bytes,
 and all skip diagnostics together may contain at most 256 KiB. Exceeding any
@@ -247,6 +252,12 @@ of these limits produces one `hook_import_budget_exceeded` skip and no partial
 import. Fix the reported live file and rerun `daem import --dry-run`. Daem does
 not import the valid-looking subset of an ambiguous or over-budget hook
 document.
+
+Each imported Hook candidate must also satisfy the canonical Hook model before
+it is written to the manifest. Invalid UTF-8, control or bidirectional-control
+text, and other desired-model violations are skipped rather than producing a
+manifest that daem cannot load again. Existing valid event-based resource names
+remain unchanged so a merge continues to correlate with earlier imports.
 
 On macOS and Linux, the final file is opened without following symlinks and in
 nonblocking mode before its regular-file identity is checked. Cancellation is

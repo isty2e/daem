@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
 )
@@ -227,6 +229,43 @@ func TestRunImportReportsDuplicateHookJSONAsSkippedWithoutPartialHook(t *testing
 	}
 	testkit.AssertPathMissing(t, outputPath)
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
+}
+
+func TestRunImportReportsOversizedMCPDocumentWithoutPartialImport(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude project MCP placement is missing")
+	}
+	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
+	if !ok {
+		t.Fatalf("MCP codec %q is missing", placement.CodecContractID())
+	}
+	livePath := filepath.Join(tempDir, aggregate.ClaudeProjectMCPConfigPath)
+	file, err := os.OpenFile(livePath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(codec.MaximumDocumentBytes() + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI([]string{"import", "--target", "claude-code", "--manifest", outputPath, "--dry-run"}, &stdout, &stderr)
+	if exitCode != 1 || stdout.Len() != 0 {
+		t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want no-import failure", exitCode, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), aggregate.ClaudeProjectMCPConfigPath+": mcp_config_too_large") {
+		t.Fatalf("stderr = %q, want MCP document size skip", stderr.String())
+	}
+	testkit.AssertPathMissing(t, outputPath)
 }
 
 func TestRunImportDryRunImportsGlobalHookConfig(t *testing.T) {

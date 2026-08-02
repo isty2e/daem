@@ -62,13 +62,8 @@ func sanitizeImportHookName(value string) string {
 }
 
 func newImportHookEventIdentity(event string, eventIndex int) importHookEventIdentity {
-	digest := sha256.Sum256([]byte(event))
-	prefix := sanitizeImportHookName(event)
-	if len(prefix) > 64 {
-		prefix = fmt.Sprintf("%s_%x", prefix[:31], digest[:16])
-	}
 	return importHookEventIdentity{
-		resourceToken:   prefix,
+		resourceToken:   sanitizeImportHookName(event),
 		collisionSuffix: fmt.Sprintf("__e%d", eventIndex+1),
 		diagnosticToken: boundedImportHookToken(event),
 	}
@@ -98,9 +93,6 @@ func (collector *importHookCollector) reserveHookName(
 	}
 
 	suffix := identity.collisionSuffix
-	if len(base)+len(suffix) > 128 {
-		base = strings.TrimRight(base[:128-len(suffix)], "_")
-	}
 	candidate = base + suffix
 	collector.usedNames[candidate] = struct{}{}
 	return candidate

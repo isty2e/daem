@@ -14,6 +14,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output"
@@ -33,6 +34,7 @@ const (
 	importHookSkipDuplicateJSONKey         = "duplicate_json_key"
 	importHookSkipJSONDepth                = "json_depth_exceeded"
 	importHookSkipBudgetExceeded           = "hook_import_budget_exceeded"
+	importHookSkipInvalidCanonical         = "invalid_canonical_hook"
 	maximumInlineConfigBytes         int64 = 4 << 20
 	maximumImportHookEventBytes            = 256
 	maximumImportHookEvents                = 256
@@ -348,8 +350,14 @@ func (collector *importHookCollector) importHandler(
 		return
 	}
 
-	collector.hooks = append(collector.hooks, adopt.Hook{
-		ResourceName:  collector.reserveHookName(identity, groupIndex, handlerIndex),
+	candidate := adopt.Hook{
+		ResourceName: importHookName(
+			collector.target,
+			collector.scope,
+			identity.resourceToken,
+			groupIndex,
+			handlerIndex,
+		),
 		Target:        collector.target,
 		Scope:         collector.scope,
 		LivePath:      collector.livePath,
@@ -359,7 +367,35 @@ func (collector *importHookCollector) importHandler(
 		Timeout:       handler.Timeout,
 		StatusMessage: strings.TrimSpace(handler.StatusMessage),
 		Condition:     strings.TrimSpace(handler.Condition),
+	}
+	if err := validateImportHookCandidate(candidate); err != nil {
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, importHookSkipInvalidCanonical))
+		return
+	}
+	candidate.ResourceName = collector.reserveHookName(identity, groupIndex, handlerIndex)
+	collector.hooks = append(collector.hooks, candidate)
+}
+
+func validateImportHookCandidate(candidate adopt.Hook) error {
+	overrides := map[targetpkg.Target]desiredhook.TargetOverride(nil)
+	if candidate.Condition != "" {
+		overrides = map[targetpkg.Target]desiredhook.TargetOverride{
+			candidate.Target: desiredhook.NewTargetOverride(candidate.Condition, ""),
+		}
+	}
+	_, err := desiredhook.New(desiredhook.Spec{
+		Name:            candidate.ResourceName,
+		Event:           candidate.Event,
+		Matcher:         candidate.Matcher,
+		Type:            desiredhook.TypeCommand,
+		Command:         candidate.Command,
+		TimeoutSeconds:  candidate.Timeout,
+		StatusMessage:   candidate.StatusMessage,
+		Targets:         []targetpkg.Target{candidate.Target},
+		Scope:           candidate.Scope,
+		TargetOverrides: overrides,
 	})
+	return err
 }
 
 func unsupportedImportHookField(content []byte, allowed map[string]struct{}) (string, bool) {

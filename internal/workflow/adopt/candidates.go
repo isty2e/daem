@@ -39,7 +39,7 @@ func importCandidates(
 	}
 	skipped = append(skipped, hookSkipped...)
 
-	mcpServers, mcpSkipped, err := adoptmcp.Candidates(target, scope)
+	mcpServers, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}

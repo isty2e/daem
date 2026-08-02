@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -23,7 +26,7 @@ func TestCandidatesImportsClaudeProjectMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetClaudeCode, target.ScopeProject)
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +63,7 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetClaudeCode, target.ScopeGlobal)
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +107,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetCodex, target.ScopeProject)
+	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +141,7 @@ func TestCandidatesRejectsUnsupportedSurfacesExplicitly(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			servers, skipped, err := Candidates(tc.target, tc.scope)
+			servers, skipped, err := Candidates(t.Context(), tc.target, tc.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -173,7 +176,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetCodex, target.ScopeGlobal)
+	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +217,7 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetOpenCode, target.ScopeGlobal)
+	servers, skipped, err := Candidates(t.Context(), target.TargetOpenCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +251,7 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetClaudeCode, target.ScopeProject)
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,6 +260,51 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "mcp_config_malformed" {
 		t.Fatalf("skipped = %#v, want malformed config", skipped)
+	}
+}
+
+func TestCandidatesSkipsOversizedMCPDocumentWithoutPartialImport(t *testing.T) {
+	tempDir := t.TempDir()
+	withWorkingDirectory(t, tempDir)
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude project MCP placement is missing")
+	}
+	codec, ok := aggregatecodec.Catalog().Lookup(placement.CodecContractID())
+	if !ok {
+		t.Fatalf("MCP codec %q is missing", placement.CodecContractID())
+	}
+	path := filepath.Join(tempDir, aggregate.ClaudeProjectMCPConfigPath)
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(codec.MaximumDocumentBytes() + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 0 || len(skipped) != 1 ||
+		skipped[0].LivePath != aggregate.ClaudeProjectMCPConfigPath ||
+		skipped[0].Reason != skipTooLarge {
+		t.Fatalf("Candidates = (%#v, %#v), want one document-level size skip", servers, skipped)
+	}
+}
+
+func TestCandidatesStopsWhenMCPImportContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	servers, skipped, err := Candidates(ctx, target.TargetClaudeCode, target.ScopeProject)
+	if !errors.Is(err, context.Canceled) || servers != nil || skipped != nil {
+		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", servers, skipped, err)
 	}
 }
 
@@ -274,7 +322,7 @@ func TestCandidatesDoesNotFlattenProviderScopedSiblingMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetClaudeCode, target.ScopeProject)
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +420,7 @@ command = "plugin-owned"
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(test.target, target.ScopeGlobal)
+			servers, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -437,7 +485,7 @@ func TestCandidatesReportsGlobalMalformedConfigWithoutPartialImport(t *testing.T
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(test.target, target.ScopeGlobal)
+			servers, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -463,7 +511,7 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(target.TargetClaudeCode, target.ScopeProject)
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
