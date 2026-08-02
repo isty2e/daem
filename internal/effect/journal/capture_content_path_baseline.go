@@ -22,8 +22,8 @@ type recoveryContentPathBaselineKey struct {
 }
 
 type recoveryContentPathBaselineRequest struct {
-	contentPaths       []output.ContentPath
-	aggregateContracts map[output.ContentPath]aggregate.ProjectionContract
+	selection aggregate.Selection
+	codec     aggregate.Codec
 }
 
 type recoveryContentPathBaselineSelectionKey struct {
@@ -66,7 +66,6 @@ func (baseline recoveryContentPathBaseline) parentExisted(contentPath output.Con
 type recoveryContentPathBaselineCache struct {
 	requests      map[recoveryContentPathBaselineKey]recoveryContentPathBaselineRequest
 	byDestination map[recoveryContentPathBaselineKey]recoveryContentPathBaseline
-	codecs        aggregate.CodecCatalog
 	filesystem    mutationfs.Reader
 }
 
@@ -78,7 +77,7 @@ func newRecoveryContentPathBaselineCache(
 	if filesystem == nil {
 		return nil, fmt.Errorf("recovery content-path filesystem is required")
 	}
-	requests := make(map[recoveryContentPathBaselineKey]recoveryContentPathBaselineRequest)
+	contractsByDestination := make(map[recoveryContentPathBaselineKey][]aggregate.ProjectionContract)
 	selected := make(map[recoveryContentPathBaselineSelectionKey]struct{})
 	for _, action := range actions {
 		if action.ContentPath == "" {
@@ -104,18 +103,40 @@ func newRecoveryContentPathBaselineCache(
 				action.ContentPath,
 			)
 		}
-		request := requests[key]
-		request.contentPaths = append(request.contentPaths, action.ContentPath)
-		if request.aggregateContracts == nil {
-			request.aggregateContracts = make(map[output.ContentPath]aggregate.ProjectionContract)
+		contract := action.AggregateContract.Clone()
+		address := contract.Address()
+		document := address.Document()
+		if document.Scope() != action.Scope ||
+			document.AggregateRoot() != action.Destination ||
+			address.ContentPath() != aggregate.ContentPath(action.ContentPath) {
+			return nil, fmt.Errorf(
+				"recovery aggregate contract address %q%q does not match baseline %q%q",
+				document.AggregateRoot(),
+				address.ContentPath(),
+				action.Destination,
+				action.ContentPath,
+			)
 		}
-		request.aggregateContracts[action.ContentPath] = action.AggregateContract.Clone()
-		requests[key] = request
+		contractsByDestination[key] = append(contractsByDestination[key], contract)
+	}
+	requests := make(map[recoveryContentPathBaselineKey]recoveryContentPathBaselineRequest, len(contractsByDestination))
+	for key, contracts := range contractsByDestination {
+		selection, err := aggregate.NewSelection(contracts)
+		if err != nil {
+			return nil, fmt.Errorf("recovery content-path baseline selection: %w", err)
+		}
+		codec, ok := codecs.Lookup(selection.CodecContractID())
+		if !ok {
+			return nil, fmt.Errorf(
+				"unsupported recovery aggregate codec %q",
+				selection.CodecContractID(),
+			)
+		}
+		requests[key] = recoveryContentPathBaselineRequest{selection: selection, codec: codec}
 	}
 	return &recoveryContentPathBaselineCache{
 		requests:      requests,
 		byDestination: make(map[recoveryContentPathBaselineKey]recoveryContentPathBaseline),
-		codecs:        codecs,
 		filesystem:    filesystem,
 	}, nil
 }
@@ -154,6 +175,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 			cache.filesystem,
 			action.Destination,
 			projectAuthority,
+			request.codec.MaximumDocumentBytes(),
 		)
 	case target.ScopeGlobal:
 		if resolver == nil {
@@ -179,7 +201,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 				content, mode, _, err = cache.filesystem.ReadRootedRegularFileUpTo(
 					ctx,
 					capability,
-					MaximumRecoveryBackupFileBytes,
+					request.codec.MaximumDocumentBytes(),
 				)
 				err = errors.Join(err, capability.Close())
 			}
@@ -191,7 +213,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 				snapshot, err = cache.filesystem.ReadRegularFileSnapshotUpTo(
 					ctx,
 					commitPath,
-					MaximumRecoveryBackupFileBytes,
+					request.codec.MaximumDocumentBytes(),
 				)
 				if err == nil {
 					content = snapshot.Content()
@@ -215,9 +237,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	projections, err := deriveRecoveryContentPathProjections(
 		content,
 		action.Destination,
-		request.contentPaths,
-		request.aggregateContracts,
-		cache.codecs,
+		request,
 	)
 	if err != nil {
 		return recoveryContentPathBaseline{}, err
@@ -239,62 +259,39 @@ func (cache *recoveryContentPathBaselineCache) capture(
 func deriveRecoveryContentPathProjections(
 	content []byte,
 	destination output.Destination,
-	contentPaths []output.ContentPath,
-	aggregateContracts map[output.ContentPath]aggregate.ProjectionContract,
-	codecs aggregate.CodecCatalog,
+	request recoveryContentPathBaselineRequest,
 ) (map[output.ContentPath]recoveryContentPathProjectionBaseline, error) {
-	result := make(map[output.ContentPath]recoveryContentPathProjectionBaseline, len(contentPaths))
-	if len(contentPaths) == 0 {
-		return result, nil
-	}
-	contracts := make([]aggregate.ProjectionContract, 0, len(contentPaths))
-	for _, contentPath := range contentPaths {
-		contract, ok := aggregateContracts[contentPath]
-		if !ok {
-			return nil, fmt.Errorf(
-				"recovery content path %q has no aggregate contract",
-				contentPath,
-			)
-		}
+	contracts := request.selection.Contracts()
+	result := make(map[output.ContentPath]recoveryContentPathProjectionBaseline, len(contracts))
+	selected := make(map[output.ContentPath]struct{}, len(contracts))
+	for _, contract := range contracts {
 		address := contract.Address()
 		if address.Document().AggregateRoot() != destination ||
-			address.ContentPath() != aggregate.ContentPath(contentPath) {
+			address.Document() != request.selection.DocumentAddress() {
 			return nil, fmt.Errorf(
-				"recovery aggregate contract address %q%q does not match baseline %q%q",
+				"recovery aggregate contract address %q%q does not match baseline document %q",
 				address.Document().AggregateRoot(),
 				address.ContentPath(),
-				destination,
-				contentPath,
+				request.selection.DocumentAddress().AggregateRoot(),
 			)
 		}
-		contracts = append(contracts, contract)
+		selected[output.ContentPath(address.ContentPath())] = struct{}{}
 	}
-	selection, err := aggregate.NewSelection(contracts)
-	if err != nil {
-		return nil, err
-	}
-	codec, ok := codecs.Lookup(selection.CodecContractID())
-	if !ok {
-		return nil, fmt.Errorf(
-			"unsupported recovery aggregate codec %q",
-			selection.CodecContractID(),
-		)
-	}
-	snapshot, failure := codec.Read(aggregate.ExistingDocument(content), selection)
+	snapshot, failure := request.codec.Read(aggregate.ExistingDocument(content), request.selection)
 	if failure != nil {
 		return nil, failure
 	}
 	states := snapshot.States()
-	if len(states) != len(contentPaths) {
+	if len(states) != len(contracts) {
 		return nil, fmt.Errorf(
 			"recovery aggregate codec returned %d states for %d content paths",
 			len(states),
-			len(contentPaths),
+			len(contracts),
 		)
 	}
 	for _, state := range states {
 		contentPath := output.ContentPath(state.Contract().Address().ContentPath())
-		if _, selected := aggregateContracts[contentPath]; !selected {
+		if _, ok := selected[contentPath]; !ok {
 			return nil, fmt.Errorf(
 				"recovery aggregate codec returned unselected content path %q",
 				contentPath,

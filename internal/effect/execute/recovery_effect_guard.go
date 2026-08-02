@@ -206,6 +206,10 @@ func stageRootedRollbackDestinations(
 	if len(actions) == 0 {
 		return nil, fmt.Errorf("rooted rollback stage requires at least one action")
 	}
+	maximumFileBytes, err := recoveryStageMaximumFileBytes(actions, codecs)
+	if err != nil {
+		return nil, err
+	}
 	destination := actions[0].destination
 	capability, err := authority.acquire(destination)
 	if err != nil {
@@ -226,7 +230,8 @@ func stageRootedRollbackDestinations(
 			}
 		}
 		return rollbackEntriesForStageActions(hostRollbackEntry{
-			stagedState: recoveryWholePathState{},
+			maximumFileBytes: maximumFileBytes,
+			stagedState:      recoveryWholePathState{},
 		}, actions), nil
 	}
 	if err != nil {
@@ -235,15 +240,16 @@ func stageRootedRollbackDestinations(
 
 	backupPath := filepath.Join(rollbackDir, fmt.Sprintf("%06d", index))
 	baseline := hostRollbackEntry{
-		existed:    true,
-		backupPath: backupPath,
+		existed:          true,
+		maximumFileBytes: maximumFileBytes,
+		backupPath:       backupPath,
 	}
 	switch identity.Kind() {
 	case mutationfs.EntryKindFile:
 		content, mode, captured, err := authority.filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
-			journal.MaximumRecoveryBackupFileBytes,
+			maximumFileBytes,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("read rooted rollback source %q: %w", destination.logical, err)
@@ -344,7 +350,11 @@ func observeRecoveryWholePathState(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
+	maximumFileBytes int64,
 ) (result recoveryWholePathState, identity mutationfs.EntryIdentity, resultErr error) {
+	if maximumFileBytes <= 0 {
+		return recoveryWholePathState{}, nil, fmt.Errorf("recovery observation file byte limit must be positive")
+	}
 	capability, err := authority.acquire(destination)
 	if err != nil {
 		return recoveryWholePathState{}, nil, err
@@ -364,7 +374,7 @@ func observeRecoveryWholePathState(
 		content, mode, captured, err := authority.filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
-			journal.MaximumRecoveryBackupFileBytes,
+			maximumFileBytes,
 		)
 		if err != nil {
 			return recoveryWholePathState{}, nil, err
@@ -411,6 +421,44 @@ func observeRecoveryWholePathState(
 			identity.Kind(),
 		)
 	}
+}
+
+func recoveryStageMaximumFileBytes(
+	actions []rollbackStageAction,
+	codecs aggregate.CodecCatalog,
+) (int64, error) {
+	if len(actions) == 0 {
+		return 0, fmt.Errorf("recovery stage requires at least one action")
+	}
+	contentPathMode := actions[0].action.ContentPath != ""
+	if !contentPathMode {
+		for _, action := range actions {
+			if action.action.ContentPath != "" || action.action.AggregateContract != nil {
+				return 0, fmt.Errorf("rollback stage mixes whole-path and aggregate recovery actions")
+			}
+		}
+		return journal.MaximumRecoveryBackupFileBytes, nil
+	}
+
+	contracts := make([]aggregate.ProjectionContract, 0, len(actions))
+	for _, action := range actions {
+		if action.action.ContentPath == "" || action.action.AggregateContract == nil {
+			return 0, fmt.Errorf("rollback stage mixes aggregate and whole-path recovery actions")
+		}
+		if err := action.action.validateAggregateCorrelation(); err != nil {
+			return 0, err
+		}
+		contracts = append(contracts, action.action.AggregateContract.Clone())
+	}
+	selection, err := aggregate.NewSelection(contracts)
+	if err != nil {
+		return 0, fmt.Errorf("rollback aggregate selection: %w", err)
+	}
+	codec, ok := codecs.Lookup(selection.CodecContractID())
+	if !ok {
+		return 0, fmt.Errorf("aggregate recovery codec %q is not admitted", selection.CodecContractID())
+	}
+	return codec.MaximumDocumentBytes(), nil
 }
 
 type rollbackTreeBackupSink struct {

@@ -39,9 +39,9 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
       }
     }
   },
-  "unknownTopLevel": {
-    "keep": true
-  }
+	"unknownTopLevel": {
+	  "keep": true
+	}
 }
 `)
 	if err := os.WriteFile(configPath, beforeContent, aggregate.DocumentFileMode); err != nil {
@@ -120,6 +120,66 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 		t.Fatalf("read recovery directory: %v", err)
 	} else if len(entries) != 0 {
 		t.Fatalf("recovery directory retains %d entries after successful rollback", len(entries))
+	}
+}
+
+func TestRecoveryStageUsesAggregateCodecDocumentLimit(t *testing.T) {
+	t.Parallel()
+
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude project MCP placement is missing")
+	}
+	contract, err := placement.ProjectionContract("context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codecs := testAggregateCodecs()
+	codec, ok := codecs.Lookup(contract.CodecContractID())
+	if !ok {
+		t.Fatalf("aggregate codec %q is missing", contract.CodecContractID())
+	}
+
+	maximumBytes, err := recoveryStageMaximumFileBytes([]rollbackStageAction{{
+		action: recoveryHostAction{
+			Scope:             target.ScopeProject,
+			Destination:       contract.Address().Document().AggregateRoot().String(),
+			ContentPath:       string(contract.Address().ContentPath()),
+			AggregateContract: &contract,
+		},
+	}}, codecs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if maximumBytes != codec.MaximumDocumentBytes() {
+		t.Fatalf("recovery stage maximum bytes = %d, want codec limit %d", maximumBytes, codec.MaximumDocumentBytes())
+	}
+}
+
+func TestRecoveryStageRejectsMixedAggregateAndWholePathActions(t *testing.T) {
+	t.Parallel()
+
+	placement, ok := aggregate.ImplementedMCPPlacement(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude project MCP placement is missing")
+	}
+	contract, err := placement.ProjectionContract("context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := []rollbackStageAction{
+		{action: recoveryHostAction{
+			Scope:             target.ScopeProject,
+			Destination:       contract.Address().Document().AggregateRoot().String(),
+			ContentPath:       string(contract.Address().ContentPath()),
+			AggregateContract: &contract,
+		}},
+		{action: recoveryHostAction{Scope: target.ScopeProject, Destination: ".agents/skills/example"}},
+	}
+
+	if _, err := recoveryStageMaximumFileBytes(actions, testAggregateCodecs()); err == nil ||
+		!strings.Contains(err.Error(), "mixes aggregate and whole-path") {
+		t.Fatalf("recoveryStageMaximumFileBytes error = %v, want mixed-mode rejection", err)
 	}
 }
 

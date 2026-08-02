@@ -338,6 +338,12 @@ func observeRecoveryContentPath(
 	aggregateContract *aggregate.ProjectionContract,
 	codecs aggregate.CodecCatalog,
 ) recoveryPathObservation {
+	maximumBytes, err := recoveryRegularFileMaximumBytes(contentPath, aggregateContract, codecs)
+	if err != nil {
+		return recoveryPathObservation{
+			Path: journalPath, ContentPath: contentPath, Exists: true, Error: err.Error(),
+		}
+	}
 	commitPath, err := mutation.CanonicalDirectoryEntryPath(hostPath)
 	if err != nil {
 		return recoveryPathObservation{
@@ -348,7 +354,7 @@ func observeRecoveryContentPath(
 	snapshot, err := filesystem.ReadRegularFileSnapshotUpTo(
 		ctx,
 		commitPath,
-		MaximumRecoveryBackupFileBytes,
+		maximumBytes,
 	)
 	if err != nil {
 		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: fmt.Sprintf("read content-path destination: %v", err)}
@@ -386,6 +392,31 @@ func observeRecoveryContentPath(
 		Kind:        recovery.PathKindFile,
 		ContentHash: string(artifact.HashFileContent(projection)),
 	}
+}
+
+func recoveryRegularFileMaximumBytes(
+	contentPath string,
+	aggregateContract *aggregate.ProjectionContract,
+	codecs aggregate.CodecCatalog,
+) (int64, error) {
+	if contentPath == "" {
+		if aggregateContract != nil {
+			return 0, fmt.Errorf("whole-path recovery observation carries an aggregate contract")
+		}
+		return MaximumRecoveryBackupFileBytes, nil
+	}
+	if aggregateContract == nil {
+		return 0, fmt.Errorf("recovery content path %q has no aggregate contract", contentPath)
+	}
+	contract := aggregateContract.Clone()
+	if err := contract.Validate(); err != nil {
+		return 0, fmt.Errorf("recovery aggregate contract: %w", err)
+	}
+	codec, ok := codecs.Lookup(contract.CodecContractID())
+	if !ok {
+		return 0, fmt.Errorf("unsupported recovery aggregate codec %q", contract.CodecContractID())
+	}
+	return codec.MaximumDocumentBytes(), nil
 }
 
 func regularFilePermissionMode(info os.FileInfo) *recovery.PermissionMode {
