@@ -225,6 +225,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/encoding/jsonstrict"},
 	},
 	{
+		id:        "codec.hook-document",
+		placement: specializedPlacement(affinityNone, roleCodec, specializationFormat, "Hook host JSON"),
+		packages:  []string{"internal/encoding/hookdocument"},
+	},
+	{
 		id:        "assurance.observation",
 		placement: plainPlacement(affinityAssurance, roleObservationAdapter),
 		packages: []string{

@@ -13,7 +13,9 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-const maximumBytes int64 = 128 << 20
+// MaximumBytes is the maximum admitted size of one directly materialized
+// regular-file source.
+const MaximumBytes int64 = 128 << 20
 
 // ErrLimitExceeded classifies direct-file resource exhaustion.
 var ErrLimitExceeded = errors.New("direct file limit exceeded")
@@ -56,7 +58,7 @@ type policy struct {
 	maxBytes int64
 }
 
-var standardPolicy = policy{maxBytes: maximumBytes}
+var standardPolicy = policy{maxBytes: MaximumBytes}
 
 // CheckKnownSize rejects a known direct-file transport size above the
 // package-owned budget. Streaming ingestion must still enforce the same

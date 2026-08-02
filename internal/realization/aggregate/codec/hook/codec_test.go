@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
@@ -122,6 +123,7 @@ func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 	}{
 		{name: "duplicate top-level", input: `{"hooks":{},"hooks":{}}`, reason: aggregate.CodecFailureDuplicateKey},
 		{name: "duplicate nested", input: `{"hooks":{"Stop":[]},"meta":{"x":1,"x":2}}`, reason: aggregate.CodecFailureDuplicateKey},
+		{name: "excessive depth", input: strings.Repeat("[", 66) + "0" + strings.Repeat("]", 66), reason: aggregate.CodecFailureDocumentMalformed},
 		{name: "empty", input: ``, reason: aggregate.CodecFailureDocumentMalformed},
 		{name: "hooks array", input: `{"hooks":[]}`, reason: aggregate.CodecFailureSelectedShapeUnsupported},
 		{name: "unknown handler field", input: `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"ok","secret":true}]}]}}`, reason: aggregate.CodecFailureSelectedShapeUnsupported},
@@ -132,6 +134,17 @@ func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 				t.Fatalf("failure = %v, want %q", failure, test.reason)
 			}
 		})
+	}
+}
+
+func TestHookCodecRejectsOversizedHostDocument(t *testing.T) {
+	_, codec, selection := hookCodecFixture(t)
+	_, failure := codec.Read(
+		aggregate.ExistingDocument(make([]byte, hookdocument.MaximumBytes+1)),
+		selection,
+	)
+	if failure == nil || failure.Reason() != aggregate.CodecFailureDocumentMalformed {
+		t.Fatalf("oversized codec failure = %v, want document_malformed", failure)
 	}
 }
 

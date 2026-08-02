@@ -2,17 +2,20 @@ package hook
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
@@ -20,6 +23,17 @@ import (
 )
 
 const declarationHookTypeCommand = "command"
+
+const (
+	importHookSkipMissing                = "missing"
+	importHookSkipNotRegular             = "not_regular_file"
+	importHookSkipSymlink                = "hook_final_symlink"
+	importHookSkipTooLarge               = "hook_file_too_large"
+	importHookSkipChanged                = "hook_file_changed_during_read"
+	importHookSkipDuplicateJSONKey       = "duplicate_json_key"
+	importHookSkipJSONDepth              = "json_depth_exceeded"
+	maximumInlineConfigBytes       int64 = 4 << 20
+)
 
 type importHookGroup struct {
 	Matcher string            `json:"matcher"`
@@ -35,12 +49,22 @@ type importHookHandler struct {
 	StatusMessage string `json:"statusMessage"`
 }
 
-func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.Hook, []adopt.Skipped, error) {
+func Candidates(
+	ctx context.Context,
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+) ([]adopt.Hook, []adopt.Skipped, error) {
+	if ctx == nil {
+		return nil, nil, fmt.Errorf("hook import context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	liveDestination, ok := commandhook.Destination(target, scope)
 	if !ok {
 		return nil, []adopt.Skipped{adopt.UnsupportedSurfaceSkip(target, scope, "hooks")}, nil
 	}
-	inlineSkipped, err := importCodexInlineHookSkips(target, scope, liveDestination)
+	inlineSkipped, err := importCodexInlineHookSkips(ctx, target, scope, liveDestination)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -49,22 +73,21 @@ func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.Hook, [
 		return nil, nil, err
 	}
 	liveDestinationValue := liveDestination.String()
-	info, err := os.Stat(livePath)
-	if os.IsNotExist(err) {
-		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: "missing"}}, inlineSkipped...)
-		return nil, skipped, nil
-	}
+	content, exists, err := filesnapshot.ReadRegularFileContext(
+		ctx,
+		livePath,
+		hookdocument.MaximumBytes,
+	)
 	if err != nil {
+		if skip, ok := hookSnapshotSkip(liveDestinationValue, err); ok {
+			skipped := append([]adopt.Skipped{skip}, inlineSkipped...)
+			return nil, skipped, nil
+		}
 		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
 	}
-	if info.IsDir() || !info.Mode().IsRegular() {
-		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: "not_regular_file"}}, inlineSkipped...)
+	if !exists {
+		skipped := append([]adopt.Skipped{{LivePath: liveDestinationValue, Reason: importHookSkipMissing}}, inlineSkipped...)
 		return nil, skipped, nil
-	}
-
-	content, err := os.ReadFile(livePath)
-	if err != nil {
-		return nil, nil, fmt.Errorf("read live hook path %q: %w", liveDestinationValue, err)
 	}
 
 	hooks, skipped := parseImportHooks(content, target, scope, liveDestinationValue)
@@ -73,6 +96,7 @@ func Candidates(target targetpkg.Target, scope targetpkg.Scope) ([]adopt.Hook, [
 }
 
 func importCodexInlineHookSkips(
+	ctx context.Context,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	hookDestination output.Destination,
@@ -89,11 +113,18 @@ func importCodexInlineHookSkips(
 		return nil, err
 	}
 
-	var decoded map[string]toml.Primitive
-	metadata, err := toml.DecodeFile(configPath, &decoded)
-	if os.IsNotExist(err) {
+	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, configPath, maximumInlineConfigBytes)
+	if err != nil {
+		if _, ok := hookSnapshotSkip(configDestination.String(), err); ok {
+			return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_unreadable"}}, nil
+		}
+		return nil, fmt.Errorf("read Codex inline hook config %q: %w", configDestination, err)
+	}
+	if !exists {
 		return nil, nil
 	}
+	var decoded map[string]toml.Primitive
+	metadata, err := toml.Decode(string(content), &decoded)
 	if err != nil {
 		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_malformed"}}, nil
 	}
@@ -155,6 +186,9 @@ func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, st
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, false, "empty_json"
 	}
+	if err := hookdocument.Validate(content); err != nil {
+		return nil, false, hookSyntaxSkipReason(err)
+	}
 	var settings map[string]json.RawMessage
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	if err := decoder.Decode(&settings); err != nil {
@@ -182,6 +216,38 @@ func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, st
 	}
 
 	return hooks, true, ""
+}
+
+func hookSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
+	reason := ""
+	switch {
+	case errors.Is(err, filesnapshot.ErrSymlink):
+		reason = importHookSkipSymlink
+	case errors.Is(err, filesnapshot.ErrNotRegular):
+		reason = importHookSkipNotRegular
+	case errors.Is(err, filesnapshot.ErrLimitExceeded):
+		reason = importHookSkipTooLarge
+	case errors.Is(err, filesnapshot.ErrChanged):
+		reason = importHookSkipChanged
+	default:
+		return adopt.Skipped{}, false
+	}
+	return adopt.Skipped{LivePath: livePath, Reason: reason}, true
+}
+
+func hookSyntaxSkipReason(err error) string {
+	switch {
+	case errors.Is(err, jsonstrict.ErrDuplicateObjectKey):
+		return importHookSkipDuplicateJSONKey
+	case errors.Is(err, jsonstrict.ErrMaximumDepthExceeded):
+		return importHookSkipJSONDepth
+	case errors.Is(err, jsonstrict.ErrMultipleValues):
+		return "multiple_json_values"
+	case errors.Is(err, hookdocument.ErrTooLarge):
+		return importHookSkipTooLarge
+	default:
+		return "malformed_json"
+	}
 }
 
 func sortedImportHookEvents(rawHooks map[string]json.RawMessage) []string {

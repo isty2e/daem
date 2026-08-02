@@ -187,6 +187,30 @@ func TestRunImportDryRunJSONEmitsPlanWithoutWrites(t *testing.T) {
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
 }
 
+func TestRunImportDryRunJSONReportsStrictHookSkip(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	testkit.WriteFile(t, tempDir, "AGENTS.md", "project instructions\n")
+	testkit.WriteFile(t, tempDir, ".codex/hooks.json", `{"meta":{"x":1,"x":2},"hooks":{}}`)
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI([]string{"import", "--target", "codex", "--manifest", outputPath, "--dry-run", "--json"}, &stdout, &stderr)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
+	}
+	payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
+	if payload.ResourceCount != 1 || payload.Summary[0].Instructions != 1 || payload.Summary[0].Hooks != 0 {
+		t.Fatalf("payload summary = %#v", payload)
+	}
+	if !importJSONSkippedContains(payload.Skipped, ".codex/hooks.json", "duplicate_json_key") {
+		t.Fatalf("skipped = %#v, want duplicate_json_key", payload.Skipped)
+	}
+	testkit.AssertPathMissing(t, outputPath)
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
+}
+
 func TestRunImportDryRunJSONIncludesInstructionRenderToProvenance(t *testing.T) {
 	tempDir := t.TempDir()
 	testkit.WithWorkingDirectory(t, tempDir)

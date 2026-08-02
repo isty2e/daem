@@ -16,7 +16,7 @@ func TestPublicManifestDocumentsDirectFileLimit(t *testing.T) {
 	}
 	required := fmt.Sprintf(
 		"Direct regular-file sources are limited to %d MiB.",
-		maximumBytes>>20,
+		MaximumBytes>>20,
 	)
 	if !strings.Contains(string(content), required) {
 		t.Fatalf("public manifest is missing direct-file limit %q", required)

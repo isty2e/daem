@@ -1,10 +1,15 @@
 package hook
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -31,7 +36,7 @@ func TestCandidatesImportsRepresentableCodexHook(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +77,7 @@ func TestCandidatesSkipsCodexHookShapeThatSurfaceCannotRepresent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hooks, skipped, err := Candidates(target.TargetCodex, target.ScopeProject)
+	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,4 +120,119 @@ func TestHookDestinationPathUsesCanonicalOutputGrammar(t *testing.T) {
 	if _, err := hookDestinationPath(homeDestination, target.ScopeProject); err == nil {
 		t.Fatal("hookDestinationPath(home, project scope) succeeded, want scope error")
 	}
+}
+
+func TestImportHooksProjectionRejectsAmbiguousDocumentWithoutPartialHooks(t *testing.T) {
+	validHook := `{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo ok"}]}]}`
+	for _, test := range []struct {
+		name    string
+		content string
+		reason  string
+	}{
+		{name: "duplicate root", content: `{"hooks":` + validHook + `,"hooks":{}}`, reason: importHookSkipDuplicateJSONKey},
+		{name: "duplicate nested", content: `{"meta":{"x":1,"x":2},"hooks":` + validHook + `}`, reason: importHookSkipDuplicateJSONKey},
+		{name: "excessive depth", content: strings.Repeat("[", 66) + "0" + strings.Repeat("]", 66), reason: importHookSkipJSONDepth},
+		{name: "JSON comments not admitted", content: `{"hooks":{} // comment\n}`, reason: "malformed_json"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			hooks, skipped := parseImportHooks(
+				[]byte(test.content),
+				target.TargetCodex,
+				target.ScopeProject,
+				".codex/hooks.json",
+			)
+			if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != test.reason {
+				t.Fatalf("parseImportHooks = (%#v, %#v), want one %q skip", hooks, skipped, test.reason)
+			}
+		})
+	}
+}
+
+func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
+	root := t.TempDir()
+	withHookWorkingDirectory(t, root)
+	if err := os.MkdirAll(".codex", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	livePath := filepath.Join(".codex", "hooks.json")
+
+	assertSkip := func(reason string) {
+		t.Helper()
+		hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+		if err != nil {
+			t.Fatalf("Candidates returned error: %v", err)
+		}
+		if len(hooks) != 0 || !hasHookSkip(skipped, ".codex/hooks.json", reason) {
+			t.Fatalf("Candidates = (%#v, %#v), want %q skip", hooks, skipped, reason)
+		}
+	}
+
+	if err := os.Mkdir(livePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assertSkip(importHookSkipNotRegular)
+	if err := os.Remove(livePath); err != nil {
+		t.Fatal(err)
+	}
+
+	targetPath := filepath.Join(root, "actual-hooks.json")
+	if err := os.WriteFile(targetPath, []byte(`{"hooks":{}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetPath, livePath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	assertSkip(importHookSkipSymlink)
+	if err := os.Remove(livePath); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := os.OpenFile(livePath, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(hookdocument.MaximumBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertSkip(importHookSkipTooLarge)
+}
+
+func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	hooks, skipped, err := Candidates(ctx, target.TargetCodex, target.ScopeProject)
+	if !errors.Is(err, context.Canceled) || hooks != nil || skipped != nil {
+		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", hooks, skipped, err)
+	}
+}
+
+func withHookWorkingDirectory(t *testing.T, directory string) {
+	t.Helper()
+
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(directory); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+}
+
+func hasHookSkip(skipped []adopt.Skipped, livePath string, reason string) bool {
+	for _, skip := range skipped {
+		if skip.LivePath == livePath && skip.Reason == reason {
+			return true
+		}
+	}
+	return false
 }

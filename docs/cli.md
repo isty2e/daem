@@ -307,6 +307,15 @@ Without `--merge`, the selected manifest must not exist. With `--merge`, it
 must exist. Conflicts fail before mutation. Unsupported or lossy live forms are
 reported as skipped instead of being imported approximately.
 
+Imported instruction files must be stable regular files no larger than 128
+MiB. Import follows the selected path's parent directories but does not follow
+a final symlink. Hook JSON files must be stable regular files no larger than 4
+MiB and contain one UTF-8 JSON value with unique object keys and at most 64
+levels of nesting. These byte rules are the same ones used when daem reads the
+managed hook document for apply. Files that violate an import boundary are
+reported with a stable skip reason; no partial resource is produced from the
+rejected file.
+
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.
 

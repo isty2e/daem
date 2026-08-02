@@ -1,15 +1,34 @@
-// Package jsonstrict validates JSON syntax shared by private persistence boundaries.
+// Package jsonstrict validates JSON syntax shared by persistence and host-document boundaries.
 package jsonstrict
 
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 )
+
+var (
+	// ErrDuplicateObjectKey classifies a JSON object with repeated key text.
+	ErrDuplicateObjectKey = errors.New("duplicate JSON object key")
+	// ErrMaximumDepthExceeded classifies JSON nesting beyond the caller's budget.
+	ErrMaximumDepthExceeded = errors.New("JSON maximum depth exceeded")
+	// ErrMultipleValues classifies trailing content that begins a second JSON value.
+	ErrMultipleValues = errors.New("multiple JSON values")
+)
+
+type classifiedError struct {
+	kind    error
+	message string
+}
+
+func (err classifiedError) Error() string { return err.message }
+
+func (err classifiedError) Unwrap() error { return err.kind }
 
 // Validate requires one UTF-8 JSON value with unique object keys and bounded nesting.
 func Validate(content []byte, document string, maximumDepth int) error {
@@ -32,7 +51,10 @@ func validate(content []byte, document string, maximumDepth int, canonicalObject
 		return err
 	}
 	if token, err := decoder.Token(); err == nil {
-		return fmt.Errorf("%s contains multiple JSON values beginning with %v", document, token)
+		return classifiedError{
+			kind:    ErrMultipleValues,
+			message: fmt.Sprintf("%s contains multiple JSON values beginning with %v", document, token),
+		}
 	} else if err != io.EOF {
 		return fmt.Errorf("parse %s trailer: %w", document, err)
 	}
@@ -128,7 +150,10 @@ func consumeValue(
 	canonicalObjectKeys bool,
 ) error {
 	if depth > maximumDepth {
-		return fmt.Errorf("%s JSON exceeds maximum depth %d", document, maximumDepth)
+		return classifiedError{
+			kind:    ErrMaximumDepthExceeded,
+			message: fmt.Sprintf("%s JSON exceeds maximum depth %d", document, maximumDepth),
+		}
 	}
 	token, err := decoder.Token()
 	if err != nil {
@@ -158,7 +183,10 @@ func consumeValue(
 				)
 			}
 			if _, duplicate := seen[key]; duplicate {
-				return fmt.Errorf("%s contains duplicate object key %q", document, key)
+				return classifiedError{
+					kind:    ErrDuplicateObjectKey,
+					message: fmt.Sprintf("%s contains duplicate object key %q", document, key),
+				}
 			}
 			seen[key] = struct{}{}
 			if err := consumeValue(

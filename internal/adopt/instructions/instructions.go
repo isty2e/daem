@@ -2,6 +2,8 @@ package instructions
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,8 +11,10 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/supply/source/directfile"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -20,6 +24,10 @@ const (
 	importInstructionSkipNotImplemented = "instruction_import_not_implemented"
 	importInstructionSkipClassifyOnly   = "instruction_classify_only"
 	importInstructionSkipPolicy         = "instruction_import_skipped_by_policy"
+	importInstructionSkipSymlink        = "instruction_final_symlink"
+	importInstructionSkipNotRegular     = "instruction_not_regular_file"
+	importInstructionSkipTooLarge       = "instruction_file_too_large"
+	importInstructionSkipChanged        = "instruction_file_changed_during_read"
 )
 
 const importInstructionSourceDirectoryName = "instructions"
@@ -36,10 +44,17 @@ type instructionImportSpec struct {
 }
 
 func Candidates(
+	ctx context.Context,
 	sourceDirectory adopt.SourceDirectory,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 ) ([]adopt.Source, []adopt.Skipped, error) {
+	if ctx == nil {
+		return nil, nil, fmt.Errorf("instruction import context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	locations := profile.Profile(target).DiscoveryLocations(entity.KindInstructions, scope)
 	if len(locations) == 0 {
 		return nil, []adopt.Skipped{unsupportedInstructionImportSkip(target, scope)}, nil
@@ -50,6 +65,9 @@ func Candidates(
 	skipped := make([]adopt.Skipped, 0, len(locations))
 
 	for _, location := range locations {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		livePath, err := instructionLocationPath(location.Path())
 		if err != nil {
 			return nil, nil, err
@@ -93,7 +111,7 @@ func Candidates(
 	}
 
 	sources := make([]adopt.Source, 0, 1+len(alternatePlacementSpecs))
-	source, defaultSkipped, ok, err := firstImportableInstructionSource(sourceDirectory, defaultSpecs)
+	source, defaultSkipped, ok, err := firstImportableInstructionSource(ctx, sourceDirectory, defaultSpecs)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,7 +120,7 @@ func Candidates(
 		sources = append(sources, source)
 	}
 	for _, spec := range alternatePlacementSpecs {
-		source, skip, err := importInstructionFileCandidate(sourceDirectory, spec)
+		source, skip, err := importInstructionFileCandidate(ctx, sourceDirectory, spec)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -117,10 +135,11 @@ func Candidates(
 }
 
 func importInstructionFileCandidate(
+	ctx context.Context,
 	sourceDirectory adopt.SourceDirectory,
 	spec instructionImportSpec,
 ) (adopt.Source, adopt.Skipped, error) {
-	content, skip, err := readInstructionImportContent(spec.LivePath)
+	content, skip, err := readInstructionImportContent(ctx, spec.LivePath)
 	if err != nil || skip.Reason != "" {
 		return adopt.Source{}, skip, err
 	}
@@ -129,12 +148,16 @@ func importInstructionFileCandidate(
 }
 
 func firstImportableInstructionSource(
+	ctx context.Context,
 	sourceDirectory adopt.SourceDirectory,
 	specs []instructionImportSpec,
 ) (adopt.Source, []adopt.Skipped, bool, error) {
 	skipped := make([]adopt.Skipped, 0, len(specs))
 	for _, spec := range specs {
-		source, skip, err := importInstructionFileCandidate(sourceDirectory, spec)
+		if err := ctx.Err(); err != nil {
+			return adopt.Source{}, nil, false, err
+		}
+		source, skip, err := importInstructionFileCandidate(ctx, sourceDirectory, spec)
 		if err != nil {
 			return adopt.Source{}, nil, false, err
 		}
@@ -154,26 +177,38 @@ func unsupportedInstructionImportSkip(target targetpkg.Target, scope targetpkg.S
 	}
 }
 
-func readInstructionImportContent(livePath string) ([]byte, adopt.Skipped, error) {
-	liveInfo, err := os.Stat(livePath)
-	if os.IsNotExist(err) {
+func readInstructionImportContent(ctx context.Context, livePath string) ([]byte, adopt.Skipped, error) {
+	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, livePath, directfile.MaximumBytes)
+	if err != nil {
+		if skip, ok := instructionSnapshotSkip(livePath, err); ok {
+			return nil, skip, nil
+		}
+		return nil, adopt.Skipped{}, fmt.Errorf("read live path %q: %w", livePath, err)
+	}
+	if !exists {
 		return nil, adopt.Skipped{LivePath: livePath, Reason: importInstructionSkipMissing}, nil
-	}
-	if err != nil {
-		return nil, adopt.Skipped{}, fmt.Errorf("read live path %q: %w", livePath, err)
-	}
-	if liveInfo.IsDir() {
-		return nil, adopt.Skipped{}, fmt.Errorf("live path %q is a directory", livePath)
-	}
-
-	content, err := os.ReadFile(livePath)
-	if err != nil {
-		return nil, adopt.Skipped{}, fmt.Errorf("read live path %q: %w", livePath, err)
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, adopt.Skipped{LivePath: livePath, Reason: importInstructionSkipEmpty}, nil
 	}
 	return content, adopt.Skipped{}, nil
+}
+
+func instructionSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
+	reason := ""
+	switch {
+	case errors.Is(err, filesnapshot.ErrSymlink):
+		reason = importInstructionSkipSymlink
+	case errors.Is(err, filesnapshot.ErrNotRegular):
+		reason = importInstructionSkipNotRegular
+	case errors.Is(err, filesnapshot.ErrLimitExceeded):
+		reason = importInstructionSkipTooLarge
+	case errors.Is(err, filesnapshot.ErrChanged):
+		reason = importInstructionSkipChanged
+	default:
+		return adopt.Skipped{}, false
+	}
+	return adopt.Skipped{LivePath: livePath, Reason: reason}, true
 }
 
 func newInstructionImportSource(

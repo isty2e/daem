@@ -201,6 +201,34 @@ func TestRunImportReportsMultipleHookJSONValuesAsSkipped(t *testing.T) {
 	testkit.AssertPathMissing(t, outputPath)
 }
 
+func TestRunImportReportsDuplicateHookJSONAsSkippedWithoutPartialHook(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	testkit.WriteFile(t, tempDir, "AGENTS.md", "project guidance\n")
+	testkit.WriteFile(t, tempDir, ".codex/hooks.json", `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"must-not-import"}]}]},"hooks":{}}`)
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI([]string{"import", "--target", "codex", "--manifest", outputPath, "--dry-run"}, &stdout, &stderr)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
+	}
+	for _, want := range []string{
+		"summary: instructions=1 skills=0 hooks=0",
+		`skip live=".codex/hooks.json" reason=duplicate_json_key`,
+	} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q, want %q", stdout.String(), want)
+		}
+	}
+	if strings.Contains(stdout.String(), "must-not-import") || strings.Contains(stdout.String(), `resource="hook/`) {
+		t.Fatalf("stdout = %q, imported part of an ambiguous hook document", stdout.String())
+	}
+	testkit.AssertPathMissing(t, outputPath)
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.imported.d"))
+}
+
 func TestRunImportDryRunImportsGlobalHookConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "home")

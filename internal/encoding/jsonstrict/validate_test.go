@@ -1,6 +1,7 @@
 package jsonstrict
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,32 @@ func TestValidateAcceptsOneBoundedValue(t *testing.T) {
 	}
 	if err := Validate([]byte(`{"HostField":{"TOKEN":"value"}}`), "host document", 4); err != nil {
 		t.Fatalf("general Validate rejected external key spelling: %v", err)
+	}
+}
+
+func TestValidateDepthBoundaryIsInclusive(t *testing.T) {
+	exact := []byte(strings.Repeat("[", 4) + "0" + strings.Repeat("]", 4))
+	if err := Validate(exact, "test document", 4); err != nil {
+		t.Fatalf("exact-depth value rejected: %v", err)
+	}
+	over := []byte(strings.Repeat("[", 5) + "0" + strings.Repeat("]", 5))
+	if err := Validate(over, "test document", 4); !errors.Is(err, ErrMaximumDepthExceeded) {
+		t.Fatalf("over-depth error = %v, want ErrMaximumDepthExceeded", err)
+	}
+}
+
+func TestValidateClassifiesDuplicateKeysAndDepth(t *testing.T) {
+	duplicateErr := Validate([]byte(`{"x":{"y":1,"y":2}}`), "test document", 4)
+	if !errors.Is(duplicateErr, ErrDuplicateObjectKey) {
+		t.Fatalf("duplicate error = %v, want ErrDuplicateObjectKey", duplicateErr)
+	}
+	depthErr := Validate([]byte(`{"x":{"y":{"z":1}}}`), "test document", 1)
+	if !errors.Is(depthErr, ErrMaximumDepthExceeded) {
+		t.Fatalf("depth error = %v, want ErrMaximumDepthExceeded", depthErr)
+	}
+	multipleErr := Validate([]byte(`{} []`), "test document", 4)
+	if !errors.Is(multipleErr, ErrMultipleValues) {
+		t.Fatalf("multiple-value error = %v, want ErrMultipleValues", multipleErr)
 	}
 }
 

@@ -225,6 +225,20 @@ these steps. Import writes no lock or management claim. Review the generated
 declaration, run `daem lock`, and use explicit `apply --manage-existing` only
 when the resulting exact relation is eligible and intended.
 
+## Import Skipped An Instruction Or Hook File
+
+Import reads existing agent files as untrusted input. An instruction file is
+skipped when its final path is a symlink, it is not a regular file, it exceeds
+128 MiB, or it changes during the read. Replace a final symlink with an owned
+regular-file copy only when that is the desired source of truth; do not point
+import at a FIFO, socket, device, or directory.
+
+Hook JSON is skipped when the file has the same unsafe filesystem shape,
+exceeds 4 MiB, contains duplicate object keys, exceeds 64 levels of nesting,
+or is not one complete UTF-8 JSON value. JSON comments are not accepted for
+hook documents. Fix the reported live file and rerun `daem import --dry-run`.
+Daem does not import the valid-looking subset of an ambiguous hook document.
+
 ## Extension Order Changed After Carrier Updates
 
 Pi package installation and OpenCode plugin edits can reveal an order that was
