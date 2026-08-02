@@ -10,7 +10,8 @@ cd "${repository_root}"
 # Host test-selection and workspace policy must not influence these queries or
 # the mandatory repository test invocation below.
 original_home=${HOME:-}
-export GOFLAGS=
+export GOENV=off
+unset GOFLAGS
 export GOWORK=off
 go_cache=$(go env GOCACHE)
 go_mod_cache=$(go env GOMODCACHE)
@@ -84,8 +85,8 @@ export DAEM_TEST_ORIGINAL_GOPATH="${go_path}"
 
 for argument in "$@"; do
 	case "${argument}" in
-	-exec | -exec=*)
-		echo "tools/test-go.sh owns -exec to enforce per-package isolation" >&2
+	-exec | -exec=* | --exec | --exec=*)
+		echo "tools/test-go.sh owns -exec/--exec to enforce per-package isolation" >&2
 		exit 2
 		;;
 	esac

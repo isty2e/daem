@@ -151,55 +151,76 @@ func TestRepositoryGoTestPackageWrapperPreservesFailureAndCleansRoot(t *testing.
 
 func TestRepositoryGoTestHarnessRejectsExecOverride(t *testing.T) {
 	root := findRepoRoot(t)
-	command := exec.Command(
-		filepath.Join(root, "tools", "test-go.sh"),
-		"-exec=/bin/true",
-		"./internal/archguard",
-	)
-	command.Dir = root
-	output, err := command.CombinedOutput()
-	var exitError *exec.ExitError
-	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
-		t.Fatalf("harness -exec override result = %v, want exit 2\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "owns -exec") {
-		t.Fatalf("harness -exec diagnostic = %q, want ownership explanation", output)
+	for _, arguments := range [][]string{
+		{"-exec=/bin/true", "./internal/archguard"},
+		{"-exec", "/bin/true", "./internal/archguard"},
+		{"--exec=/bin/true", "./internal/archguard"},
+		{"--exec", "/bin/true", "./internal/archguard"},
+	} {
+		command := exec.Command(filepath.Join(root, "tools", "test-go.sh"), arguments...)
+		command.Dir = root
+		output, err := command.CombinedOutput()
+		var exitError *exec.ExitError
+		if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
+			t.Errorf("harness exec override %v result = %v, want exit 2\n%s", arguments, err, output)
+			continue
+		}
+		if !strings.Contains(string(output), "owns -exec/--exec") {
+			t.Errorf("harness exec override %v diagnostic = %q, want ownership explanation", arguments, output)
+		}
 	}
 }
 
 func TestRepositoryGoTestHarnessRejectsHostTestPolicy(t *testing.T) {
 	root := findRepoRoot(t)
-	hostGoEnvironment := filepath.Join(t.TempDir(), "go.env")
-	if err := os.WriteFile(
-		hostGoEnvironment,
-		[]byte("GOFLAGS=-run=^NoRepositoryTestsShouldMatch$\n"),
-		0o600,
-	); err != nil {
-		t.Fatalf("write hostile GOENV: %v", err)
+	tests := []struct {
+		name            string
+		goEnvironment   string
+		explicitGoFlags string
+	}{
+		{
+			name:            "selection flags",
+			goEnvironment:   "GOFLAGS=-run=^NoRepositoryTestsShouldMatch$\n",
+			explicitGoFlags: "-run=^NoRepositoryTestsShouldMatch$",
+		},
+		{
+			name:          "bootstrap output mode",
+			goEnvironment: "GOFLAGS=-json\n",
+		},
 	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			hostGoEnvironment := filepath.Join(t.TempDir(), "go.env")
+			if err := os.WriteFile(hostGoEnvironment, []byte(test.goEnvironment), 0o600); err != nil {
+				t.Fatalf("write hostile GOENV: %v", err)
+			}
 
-	command := exec.Command(
-		filepath.Join(root, "tools", "test-go.sh"),
-		"-mod=readonly",
-		"-run=^TestRepositoryGoTestHostPolicyProbe$",
-		"-count=1",
-		"-v",
-		"./internal/archguard",
-	)
-	command.Dir = root
-	command.Env = append(
-		withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK"),
-		"DAEM_TEST_HOST_POLICY_PROBE=1",
-		"GOENV="+hostGoEnvironment,
-		"GOFLAGS=-run=^NoRepositoryTestsShouldMatch$",
-		"GOWORK="+filepath.Join(t.TempDir(), "missing.work"),
-	)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("isolated harness probe failed: %v\n%s", err, output)
-	}
-	if !strings.Contains(string(output), "=== RUN   TestRepositoryGoTestHostPolicyProbe") {
-		t.Fatalf("host policy suppressed mandatory probe:\n%s", output)
+			command := exec.Command(
+				filepath.Join(root, "tools", "test-go.sh"),
+				"-mod=readonly",
+				"-run=^TestRepositoryGoTestHostPolicyProbe$",
+				"-count=1",
+				"-v",
+				"./internal/archguard",
+			)
+			command.Dir = root
+			command.Env = append(
+				withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK"),
+				"DAEM_TEST_HOST_POLICY_PROBE=1",
+				"GOENV="+hostGoEnvironment,
+				"GOWORK="+filepath.Join(t.TempDir(), "missing.work"),
+			)
+			if test.explicitGoFlags != "" {
+				command.Env = append(command.Env, "GOFLAGS="+test.explicitGoFlags)
+			}
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("isolated harness probe failed: %v\n%s", err, output)
+			}
+			if !strings.Contains(string(output), "=== RUN   TestRepositoryGoTestHostPolicyProbe") {
+				t.Fatalf("host policy suppressed mandatory probe:\n%s", output)
+			}
+		})
 	}
 }
 
