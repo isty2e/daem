@@ -48,9 +48,22 @@ func CaptureRootedEntryIdentity(_ context.Context, capability rootedpath.CommitC
 }
 
 // PrepareCommitParent returns unsupported_guarantee without performing effects.
-func PrepareCommitParent(_ context.Context, path string) error {
+func PrepareCommitParent(_ context.Context, path string) ([]CreatedDirectory, error) {
 	if err := validateCommitPath(path); err != nil {
-		return err
+		return nil, err
+	}
+	return nil, newUnsupportedPlatformFailure(path)
+}
+
+// RemoveCreatedDirectoryIfEmpty returns unsupported_guarantee without effects.
+func RemoveCreatedDirectoryIfEmpty(_ context.Context, directory CreatedDirectory) error {
+	path := directory.path
+	if !directory.valid() {
+		return failureBeforeVisibility(
+			phaseValidate,
+			path,
+			fmt.Errorf("valid created directory evidence is required"),
+		)
 	}
 	return newUnsupportedPlatformFailure(path)
 }

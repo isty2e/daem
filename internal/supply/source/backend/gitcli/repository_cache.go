@@ -94,7 +94,7 @@ func (resolver Resolver) captureCacheRoot(ctx context.Context) (*rootedpath.Capt
 	if err != nil {
 		return nil, err
 	}
-	if err := storagecommit.PrepareCommitParent(
+	if _, err := storagecommit.PrepareCommitParent(
 		ctx,
 		filepath.Join(state.cacheRoot, repositoryCacheAnchorName),
 	); err != nil {

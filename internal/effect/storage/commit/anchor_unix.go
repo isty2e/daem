@@ -260,6 +260,20 @@ func (anchor *anchoredParent) parentFD() int {
 	return anchor.directories[len(anchor.directories)-1].fd
 }
 
+func (anchor *anchoredParent) createdDirectories() []CreatedDirectory {
+	if anchor == nil {
+		return nil
+	}
+	created := make([]CreatedDirectory, 0, len(anchor.directories))
+	for _, directory := range anchor.directories {
+		candidate := CreatedDirectory{path: directory.path, identity: directory.identity}
+		if directory.created && candidate.valid() {
+			created = append(created, candidate)
+		}
+	}
+	return created
+}
+
 func (anchor *anchoredParent) close() {
 	first := 0
 	if anchor.rootFile != nil {

@@ -48,7 +48,7 @@ func PublishDirectoryOnce(
 	if err != nil || ready {
 		return false, err
 	}
-	if err := storagecommit.PrepareCommitParent(ctx, finalRoot); err != nil {
+	if _, err := storagecommit.PrepareCommitParent(ctx, finalRoot); err != nil {
 		return false, fmt.Errorf("prepare cache publication parent for %q: %w", finalRoot, err)
 	}
 

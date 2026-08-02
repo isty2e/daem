@@ -10,6 +10,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -139,6 +140,114 @@ func TestWritePlanCancellationAfterSourceCreationRollsBack(t *testing.T) {
 		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("created path %q remains after cancellation: %v", path, statErr)
 		}
+	}
+}
+
+func TestPrepareImportParentDirectoriesDoesNotClaimExternalCreation(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourcePath := filepath.Join(root, "external", "source.md")
+	plan := testAdoptPlan(t, output, []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+	canonicalSourcePath, err := mutation.CanonicalDirectoryEntryPath(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	created, err := prepareImportParentDirectories(
+		context.Background(),
+		plan,
+		func(ctx context.Context, path string) ([]storagecommit.CreatedDirectory, error) {
+			if path == canonicalSourcePath {
+				if mkdirErr := os.Mkdir(filepath.Dir(path), 0o755); mkdirErr != nil {
+					t.Fatalf("create concurrent external parent: %v", mkdirErr)
+				}
+			}
+			return storagecommit.PrepareCommitParent(ctx, path)
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepareImportParentDirectories returned error: %v", err)
+	}
+	if len(created) != 0 {
+		paths := make([]string, 0, len(created))
+		for _, directory := range created {
+			paths = append(paths, directory.Path())
+		}
+		t.Fatalf("parent preparation claimed external directories: %v", paths)
+	}
+	if info, statErr := os.Stat(filepath.Dir(sourcePath)); statErr != nil || !info.IsDir() {
+		t.Fatalf("external parent was not preserved: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestWritePlanRollbackPreservesPopulatedCreatedParent(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "created", "source.md")
+	externalPath := filepath.Join(filepath.Dir(sourcePath), "external.txt")
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+
+	err := writePlan(context.Background(), plan, func() error {
+		if writeErr := os.WriteFile(externalPath, []byte("keep"), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		return mutation.StaleSnapshotError{}
+	})
+	if err == nil || !strings.Contains(err.Error(), "is not empty") {
+		t.Fatalf("writePlan error = %v, want non-empty parent cleanup refusal", err)
+	}
+	if _, statErr := os.Lstat(sourcePath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("daem-created source remains: %v", statErr)
+	}
+	if content, readErr := os.ReadFile(externalPath); readErr != nil || string(content) != "keep" {
+		t.Fatalf("external content was not preserved: content=%q err=%v", content, readErr)
+	}
+}
+
+func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
+	for _, replacementKind := range []string{"directory", "symlink"} {
+		t.Run(replacementKind, func(t *testing.T) {
+			root := t.TempDir()
+			createdParent := filepath.Join(root, "created")
+			sourcePath := filepath.Join(createdParent, "source.md")
+			displacedParent := filepath.Join(root, "displaced")
+			plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+				SourcePath: sourcePath,
+				Content:    []byte("created"),
+			}}, nil)
+
+			err := writePlan(context.Background(), plan, func() error {
+				if renameErr := os.Rename(createdParent, displacedParent); renameErr != nil {
+					t.Fatal(renameErr)
+				}
+				var replaceErr error
+				switch replacementKind {
+				case "directory":
+					replaceErr = os.Mkdir(createdParent, 0o700)
+				case "symlink":
+					replaceErr = os.Symlink(displacedParent, createdParent)
+				}
+				if replaceErr != nil {
+					t.Fatal(replaceErr)
+				}
+				return mutation.StaleSnapshotError{}
+			})
+			if err == nil || !strings.Contains(err.Error(), "identity changed") {
+				t.Fatalf("writePlan error = %v, want parent identity cleanup refusal", err)
+			}
+			if _, statErr := os.Lstat(createdParent); statErr != nil {
+				t.Fatalf("replacement parent was not preserved: %v", statErr)
+			}
+			content, readErr := os.ReadFile(filepath.Join(displacedParent, "source.md"))
+			if readErr != nil || string(content) != "created" {
+				t.Fatalf("displaced daem source was not retained as residue: content=%q err=%v", content, readErr)
+			}
+		})
 	}
 }
 
