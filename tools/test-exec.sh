@@ -39,7 +39,7 @@ forward_signal() {
 		pending_status=${status}
 		return
 	fi
-	trap - HUP INT QUIT TERM
+	trap '' HUP INT QUIT TERM
 	if [[ -n ${child_pid} ]]; then
 		kill "-${signal}" -- "-${child_pid}" 2>/dev/null || true
 		(

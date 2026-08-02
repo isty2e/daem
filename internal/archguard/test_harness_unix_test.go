@@ -45,6 +45,10 @@ func TestRepositoryGoTestPackageWrapperForwardsTerminationToProcessGroup(t *test
 	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("terminate package wrapper: %v", err)
 	}
+	time.Sleep(50 * time.Millisecond)
+	if err := command.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("repeat package wrapper termination: %v", err)
+	}
 	done := make(chan error, 1)
 	go func() { done <- command.Wait() }()
 	select {
