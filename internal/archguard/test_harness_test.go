@@ -1,9 +1,12 @@
 package archguard
 
 import (
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -13,6 +16,8 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 	}
 
 	testRoot := requireHarnessAbsolutePath(t, "DAEM_TEST_ROOT")
+	packageRoot := requireHarnessAbsolutePath(t, "DAEM_TEST_PACKAGE_ROOT")
+	assertPathDescendsFrom(t, "DAEM_TEST_PACKAGE_ROOT", packageRoot, testRoot)
 	for _, name := range []string{
 		"HOME",
 		"XDG_CACHE_HOME",
@@ -20,7 +25,7 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 		"XDG_DATA_HOME",
 		"XDG_STATE_HOME",
 	} {
-		assertHarnessPathInside(t, name, testRoot)
+		assertHarnessPathInside(t, name, packageRoot)
 	}
 	for _, name := range []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "PI_CODING_AGENT_DIR"} {
 		if value, present := os.LookupEnv(name); present {
@@ -40,6 +45,15 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 			t.Errorf("%s = %q, want preserved value %q", current, got, want)
 		}
 	}
+	if got := os.Getenv("GOENV"); got != "off" {
+		t.Errorf("GOENV = %q, want off", got)
+	}
+	if got := os.Getenv("GOWORK"); got != "off" {
+		t.Errorf("GOWORK = %q, want off", got)
+	}
+	if got, present := os.LookupEnv("GOFLAGS"); present {
+		t.Errorf("GOFLAGS = %q, want absent", got)
+	}
 }
 
 func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
@@ -56,6 +70,149 @@ func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
 	if info.Mode()&0o111 == 0 {
 		t.Fatal("tools/test-go.sh must be executable")
 	}
+	execInfo, err := os.Stat(filepath.Join(root, "tools", "test-exec.sh"))
+	if err != nil {
+		t.Fatalf("stat package test wrapper: %v", err)
+	}
+	if execInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test-exec.sh must be executable")
+	}
+}
+
+func TestRepositoryGoTestPackageWrapperUsesDistinctRoots(t *testing.T) {
+	root := findRepoRoot(t)
+	wrapper := filepath.Join(root, "tools", "test-exec.sh")
+	testRoot := t.TempDir()
+
+	type result struct {
+		output string
+		err    error
+	}
+	results := make(chan result, 2)
+	var started sync.WaitGroup
+	started.Add(2)
+	for range 2 {
+		go func() {
+			started.Done()
+			started.Wait()
+			command := exec.Command(wrapper, "sh", "-c", `printf '%s\n%s\n' "$HOME" "$XDG_STATE_HOME"`)
+			command.Env = append(
+				withoutEnvironment(os.Environ(), "DAEM_TEST_ROOT"),
+				"DAEM_TEST_HARNESS=1",
+				"DAEM_TEST_ROOT="+testRoot,
+			)
+			output, err := command.CombinedOutput()
+			results <- result{output: string(output), err: err}
+		}()
+	}
+
+	homes := make(map[string]struct{}, 2)
+	for range 2 {
+		result := <-results
+		if result.err != nil {
+			t.Fatalf("package wrapper failed: %v\n%s", result.err, result.output)
+		}
+		lines := strings.Split(strings.TrimSpace(result.output), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("package wrapper output = %q, want HOME and XDG state root", result.output)
+		}
+		assertPathDescendsFrom(t, "wrapper HOME", lines[0], testRoot)
+		assertPathDescendsFrom(t, "wrapper XDG_STATE_HOME", lines[1], testRoot)
+		homes[lines[0]] = struct{}{}
+	}
+	if len(homes) != 2 {
+		t.Fatalf("concurrent package wrappers shared HOME: %v", homes)
+	}
+}
+
+func TestRepositoryGoTestPackageWrapperPreservesFailureAndCleansRoot(t *testing.T) {
+	root := findRepoRoot(t)
+	wrapper := filepath.Join(root, "tools", "test-exec.sh")
+	testRoot := t.TempDir()
+	command := exec.Command(wrapper, "sh", "-c", `mkdir -p "$HOME/residue"; exit 7`)
+	command.Env = append(
+		withoutEnvironment(os.Environ(), "DAEM_TEST_ROOT"),
+		"DAEM_TEST_HARNESS=1",
+		"DAEM_TEST_ROOT="+testRoot,
+	)
+	err := command.Run()
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != 7 {
+		t.Fatalf("package wrapper failure = %v, want exit 7", err)
+	}
+	entries, err := os.ReadDir(testRoot)
+	if err != nil {
+		t.Fatalf("read wrapper test root: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("package wrapper retained temporary roots after failure: %v", entries)
+	}
+}
+
+func TestRepositoryGoTestHarnessRejectsExecOverride(t *testing.T) {
+	root := findRepoRoot(t)
+	command := exec.Command(
+		filepath.Join(root, "tools", "test-go.sh"),
+		"-exec=/bin/true",
+		"./internal/archguard",
+	)
+	command.Dir = root
+	output, err := command.CombinedOutput()
+	var exitError *exec.ExitError
+	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
+		t.Fatalf("harness -exec override result = %v, want exit 2\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "owns -exec") {
+		t.Fatalf("harness -exec diagnostic = %q, want ownership explanation", output)
+	}
+}
+
+func TestRepositoryGoTestHarnessRejectsHostTestPolicy(t *testing.T) {
+	root := findRepoRoot(t)
+	hostGoEnvironment := filepath.Join(t.TempDir(), "go.env")
+	if err := os.WriteFile(
+		hostGoEnvironment,
+		[]byte("GOFLAGS=-run=^NoRepositoryTestsShouldMatch$\n"),
+		0o600,
+	); err != nil {
+		t.Fatalf("write hostile GOENV: %v", err)
+	}
+
+	command := exec.Command(
+		filepath.Join(root, "tools", "test-go.sh"),
+		"-mod=readonly",
+		"-run=^TestRepositoryGoTestHostPolicyProbe$",
+		"-count=1",
+		"-v",
+		"./internal/archguard",
+	)
+	command.Dir = root
+	command.Env = append(
+		withoutEnvironment(os.Environ(), "GOENV", "GOFLAGS", "GOWORK"),
+		"DAEM_TEST_HOST_POLICY_PROBE=1",
+		"GOENV="+hostGoEnvironment,
+		"GOFLAGS=-run=^NoRepositoryTestsShouldMatch$",
+		"GOWORK="+filepath.Join(t.TempDir(), "missing.work"),
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("isolated harness probe failed: %v\n%s", err, output)
+	}
+	if !strings.Contains(string(output), "=== RUN   TestRepositoryGoTestHostPolicyProbe") {
+		t.Fatalf("host policy suppressed mandatory probe:\n%s", output)
+	}
+}
+
+func TestRepositoryGoTestHostPolicyProbe(t *testing.T) {
+	if os.Getenv("DAEM_TEST_HOST_POLICY_PROBE") != "1" {
+		t.Skip("runs only in the nested host-policy harness probe")
+	}
+	if os.Getenv("GOENV") != "off" || os.Getenv("GOWORK") != "off" {
+		t.Fatalf("Go policy was not normalized: GOENV=%q GOWORK=%q", os.Getenv("GOENV"), os.Getenv("GOWORK"))
+	}
+	if value, present := os.LookupEnv("GOFLAGS"); present {
+		t.Fatalf("GOFLAGS = %q, want absent", value)
+	}
 }
 
 func requireHarnessAbsolutePath(t *testing.T, name string) string {
@@ -70,6 +227,11 @@ func requireHarnessAbsolutePath(t *testing.T, name string) string {
 func assertHarnessPathInside(t *testing.T, name string, root string) {
 	t.Helper()
 	value := requireHarnessAbsolutePath(t, name)
+	assertPathDescendsFrom(t, name, value, root)
+}
+
+func assertPathDescendsFrom(t *testing.T, name string, value string, root string) {
+	t.Helper()
 	relative, err := filepath.Rel(root, value)
 	if err != nil {
 		t.Fatalf("compare %s with test root: %v", name, err)
@@ -77,6 +239,21 @@ func assertHarnessPathInside(t *testing.T, name string, root string) {
 	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		t.Fatalf("%s = %q, want a descendant of %q", name, value, root)
 	}
+}
+
+func withoutEnvironment(environment []string, names ...string) []string {
+	excluded := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		excluded[name] = struct{}{}
+	}
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if _, skip := excluded[name]; !skip {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func assertFileContainsExactly(t *testing.T, path string, fragment string, want int) {

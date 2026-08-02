@@ -21,12 +21,19 @@ type openedDirectory struct {
 	created  bool
 }
 
+type ancestorPublicationHooks struct {
+	before func(string)
+	after  func(string)
+}
+
 type anchoredParent struct {
-	path        string
-	base        string
-	directories []openedDirectory
-	rootFile    *os.File
-	capability  rootedpath.CommitCapability
+	path                     string
+	base                     string
+	directories              []openedDirectory
+	unpublishedResidue       []string
+	rootFile                 *os.File
+	capability               rootedpath.CommitCapability
+	ancestorPublicationHooks ancestorPublicationHooks
 }
 
 func openCommitParent(
@@ -34,13 +41,44 @@ func openCommitParent(
 	capability rootedpath.CommitCapability,
 	createAncestors bool,
 ) (*anchoredParent, error) {
+	return openCommitParentWithPublicationHooks(
+		path,
+		capability,
+		createAncestors,
+		ancestorPublicationHooks{},
+	)
+}
+
+func openCommitParentWithPublicationHooks(
+	path string,
+	capability rootedpath.CommitCapability,
+	createAncestors bool,
+	hooks ancestorPublicationHooks,
+) (*anchoredParent, error) {
 	if capability == nil {
-		return openAnchoredParent(path, createAncestors)
+		return openAnchoredParentWithPublicationHooks(path, createAncestors, hooks)
 	}
-	return openRootedAnchoredParent(path, capability, createAncestors)
+	return openRootedAnchoredParentWithPublicationHooks(
+		path,
+		capability,
+		createAncestors,
+		hooks,
+	)
 }
 
 func openAnchoredParent(path string, createAncestors bool) (*anchoredParent, error) {
+	return openAnchoredParentWithPublicationHooks(
+		path,
+		createAncestors,
+		ancestorPublicationHooks{},
+	)
+}
+
+func openAnchoredParentWithPublicationHooks(
+	path string,
+	createAncestors bool,
+	hooks ancestorPublicationHooks,
+) (*anchoredParent, error) {
 	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open filesystem root: %w", err)
@@ -52,8 +90,9 @@ func openAnchoredParent(path string, createAncestors bool) (*anchoredParent, err
 		return nil, fmt.Errorf("inspect filesystem root: %w", err)
 	}
 	anchor := &anchoredParent{
-		path: path,
-		base: filepath.Base(path),
+		path:                     path,
+		base:                     filepath.Base(path),
+		ancestorPublicationHooks: hooks,
 		directories: []openedDirectory{{
 			fd:       rootFD,
 			path:     "/",
@@ -79,6 +118,20 @@ func openRootedAnchoredParent(
 	capability rootedpath.CommitCapability,
 	createAncestors bool,
 ) (*anchoredParent, error) {
+	return openRootedAnchoredParentWithPublicationHooks(
+		path,
+		capability,
+		createAncestors,
+		ancestorPublicationHooks{},
+	)
+}
+
+func openRootedAnchoredParentWithPublicationHooks(
+	path string,
+	capability rootedpath.CommitCapability,
+	createAncestors bool,
+	hooks ancestorPublicationHooks,
+) (*anchoredParent, error) {
 	if err := validateRootedCapability(path, capability); err != nil {
 		return nil, err
 	}
@@ -103,10 +156,11 @@ func openRootedAnchoredParent(
 
 	destination := capability.Destination()
 	anchor := &anchoredParent{
-		path:       path,
-		base:       filepath.Base(filepath.FromSlash(destination.Relative().Path())),
-		rootFile:   rootFile,
-		capability: capability,
+		path:                     path,
+		base:                     filepath.Base(filepath.FromSlash(destination.Relative().Path())),
+		rootFile:                 rootFile,
+		capability:               capability,
+		ancestorPublicationHooks: hooks,
 		directories: []openedDirectory{{
 			fd:       int(rootFile.Fd()),
 			path:     destination.Root().PhysicalRoot(),
@@ -128,25 +182,23 @@ func openRootedAnchoredParent(
 func (anchor *anchoredParent) openChildDirectory(name string, create bool) error {
 	parent := anchor.directories[len(anchor.directories)-1]
 	var before unix.Stat_t
-	created := false
 	err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW)
 	if errors.Is(err, unix.ENOENT) && create {
-		if mkdirErr := unix.Mkdirat(parent.fd, name, 0o700); mkdirErr != nil {
-			if !errors.Is(mkdirErr, unix.EEXIST) {
-				return fmt.Errorf("create ancestor %q: %w", filepath.Join(parent.path, name), mkdirErr)
-			}
-		} else {
-			created = true
-		}
-		err = unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW)
+		return anchor.createAndPublishChildDirectory(parent, name)
 	}
 	if err != nil {
-		if created {
-			anchor.rememberCreated(parent, name, -1, EntryIdentity{})
-		}
 		return fmt.Errorf("inspect ancestor %q: %w", filepath.Join(parent.path, name), err)
 	}
-	beforeKind := kindFromStat(&before)
+	return anchor.openObservedChildDirectory(parent, name, &before)
+}
+
+func (anchor *anchoredParent) openObservedChildDirectory(
+	parent openedDirectory,
+	name string,
+	before *unix.Stat_t,
+) error {
+	path := filepath.Join(parent.path, name)
+	beforeKind := kindFromStat(before)
 	if anchor.capability != nil && beforeKind == entryKindSymlink {
 		kind := rootedpath.FailureAncestorSymlink
 		var followed unix.Stat_t
@@ -155,105 +207,58 @@ func (anchor *anchoredParent) openChildDirectory(name string, create bool) error
 		}
 		return rootedpath.NewBoundaryFailure(
 			kind,
-			filepath.Join(parent.path, name),
+			path,
 			"rooted destination ancestor is a symbolic link",
 			nil,
 		)
 	}
 	if beforeKind != entryKindDirectory {
-		if created {
-			anchor.rememberCreated(parent, name, -1, identityFromStat(filepath.Join(parent.path, name), &before))
-		}
 		if anchor.capability != nil {
 			return rootedpath.NewBoundaryFailure(
 				rootedpath.FailureAncestorNotDirectory,
-				filepath.Join(parent.path, name),
+				path,
 				"rooted destination ancestor is not a directory",
 				nil,
 			)
 		}
-		return fmt.Errorf("ancestor %q is not a directory", filepath.Join(parent.path, name))
+		return fmt.Errorf("ancestor %q is not a directory", path)
 	}
 
 	fd, err := unix.Openat(parent.fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
-		if created {
-			anchor.rememberCreated(parent, name, -1, identityFromStat(filepath.Join(parent.path, name), &before))
-		}
-		return fmt.Errorf("open ancestor %q: %w", filepath.Join(parent.path, name), err)
+		return fmt.Errorf("open ancestor %q: %w", path, err)
 	}
 	var opened unix.Stat_t
 	if err := unix.Fstat(fd, &opened); err != nil {
-		if created {
-			anchor.rememberCreated(parent, name, fd, identityFromStat(filepath.Join(parent.path, name), &before))
-		} else {
-			_ = unix.Close(fd)
-		}
-		return fmt.Errorf("inspect opened ancestor %q: %w", filepath.Join(parent.path, name), err)
+		_ = unix.Close(fd)
+		return fmt.Errorf("inspect opened ancestor %q: %w", path, err)
 	}
-	beforeIdentity := identityFromStat(filepath.Join(parent.path, name), &before)
-	openedIdentity := identityFromStat(filepath.Join(parent.path, name), &opened)
+	beforeIdentity := identityFromStat(path, before)
+	openedIdentity := identityFromStat(path, &opened)
 	if !beforeIdentity.sameObject(openedIdentity) {
 		_ = unix.Close(fd)
-		if created {
-			anchor.rememberCreated(parent, name, -1, beforeIdentity)
-		}
 		if anchor.capability != nil {
 			return rootedpath.NewBoundaryFailure(
 				rootedpath.FailureAncestorChanged,
-				filepath.Join(parent.path, name),
+				path,
 				"rooted destination ancestor changed while opening",
 				nil,
 			)
 		}
-		return fmt.Errorf("ancestor %q changed while opening", filepath.Join(parent.path, name))
+		return fmt.Errorf("ancestor %q changed while opening", path)
 	}
 	anchor.directories = append(anchor.directories, openedDirectory{
 		fd:       fd,
 		name:     name,
-		path:     filepath.Join(parent.path, name),
+		path:     path,
 		identity: openedIdentity,
-		created:  created,
 	})
 	if anchor.capability != nil {
 		if err := anchor.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
 			return err
 		}
 	}
-	if created {
-		if err := unix.Fchmod(fd, 0o700); err != nil {
-			return fmt.Errorf("set ancestor mode %q: %w", filepath.Join(parent.path, name), err)
-		}
-		var final unix.Stat_t
-		if err := unix.Fstat(fd, &final); err != nil {
-			return fmt.Errorf("verify ancestor metadata %q: %w", filepath.Join(parent.path, name), err)
-		}
-		if err := validateOwnedStat(filepath.Join(parent.path, name), &final); err != nil {
-			return err
-		}
-		if final.Mode&0o777 != 0o700 {
-			return unsupported(fmt.Sprintf("ancestor %q did not retain private mode", filepath.Join(parent.path, name)), nil)
-		}
-		if err := verifyPreservedMetadata(fd, preservedMetadata{xattrs: make(map[string][]byte)}); err != nil {
-			return fmt.Errorf("verify ancestor metadata %q: %w", filepath.Join(parent.path, name), err)
-		}
-	}
 	return nil
-}
-
-func (anchor *anchoredParent) rememberCreated(
-	parent openedDirectory,
-	name string,
-	fd int,
-	identity EntryIdentity,
-) {
-	anchor.directories = append(anchor.directories, openedDirectory{
-		fd:       fd,
-		name:     name,
-		path:     filepath.Join(parent.path, name),
-		identity: identity,
-		created:  true,
-	})
 }
 
 func (anchor *anchoredParent) parentFD() int {

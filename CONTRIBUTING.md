@@ -51,9 +51,11 @@ go mod verify
 git diff --check
 ```
 
-The test harness gives every invocation private user and XDG roots while
-reusing the selected Go toolchain and existing build and module caches. Use it
-for repository-wide tests so local agent configuration cannot affect results.
+The test harness gives every test package private user and XDG roots while
+reusing the selected Go toolchain and existing build and module caches. It
+also ignores host `GOENV`, `GOFLAGS`, and workspace selection. Use it for
+repository-wide tests so local agent and Go configuration cannot suppress or
+cross-contaminate results.
 
 When raising the Go toolchain, preview the standard modernizers with
 `go fix -diff ./...`, review the proposed source changes, and run `go fix ./...`

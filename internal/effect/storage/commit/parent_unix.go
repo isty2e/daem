@@ -31,7 +31,14 @@ func prepareCommitParentWithFaults(
 	if err := faults.check(ctx, phaseCreateAncestors); err != nil {
 		return nil, newFailure(failureUncommitted, phaseCreateAncestors, path, err)
 	}
-	anchor, err := openCommitParent(path, nil, true)
+	hooks := ancestorPublicationHooks{}
+	if action := faults.actions[phaseCommitEntry]; action != nil {
+		hooks.before = func(string) { action() }
+	}
+	if action := faults.actions[phasePublishAncestor]; action != nil {
+		hooks.after = func(string) { action() }
+	}
+	anchor, err := openCommitParentWithPublicationHooks(path, nil, true, hooks)
 	if anchor != nil {
 		defer anchor.close()
 	}

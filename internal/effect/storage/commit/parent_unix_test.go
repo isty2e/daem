@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -143,6 +144,73 @@ func TestPrepareCommitParentDoesNotClaimConcurrentExternalCreation(t *testing.T)
 	info, err := os.Stat(external)
 	if err != nil || !info.IsDir() {
 		t.Fatalf("external parent was not preserved: info=%v err=%v", info, err)
+	}
+}
+
+func TestPrepareCommitParentNoReplacePublicationDoesNotClaimConcurrentCreation(t *testing.T) {
+	root := canonicalTempDir(t)
+	external := filepath.Join(root, "external")
+	target := filepath.Join(external, "state.json")
+
+	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+		actions: map[phase]func(){
+			phaseCommitEntry: func() {
+				if mkdirErr := os.Mkdir(external, 0o755); mkdirErr != nil {
+					t.Fatalf("create concurrent external parent: %v", mkdirErr)
+				}
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareCommitParentWithFaults returned error: %v", err)
+	}
+	if len(created) != 0 {
+		t.Fatalf("preparation claimed %d concurrently published directories", len(created))
+	}
+	info, err := os.Stat(external)
+	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o755 {
+		t.Fatalf("concurrent external parent was not preserved: info=%v err=%v", info, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read parent after no-replace collision: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), temporaryPrefix) {
+			t.Fatalf("staged ancestor residue remains after no-replace collision: %q", entry.Name())
+		}
+	}
+}
+
+func TestPrepareCommitParentDoesNotBindCreationEvidenceToPublishedReplacement(t *testing.T) {
+	root := canonicalTempDir(t)
+	createdPath := filepath.Join(root, "created")
+	displacedPath := filepath.Join(root, "displaced")
+	target := filepath.Join(createdPath, "state.json")
+
+	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+		actions: map[phase]func(){
+			phasePublishAncestor: func() {
+				if renameErr := os.Rename(createdPath, displacedPath); renameErr != nil {
+					t.Fatalf("displace published ancestor: %v", renameErr)
+				}
+				if mkdirErr := os.Mkdir(createdPath, 0o700); mkdirErr != nil {
+					t.Fatalf("create published replacement: %v", mkdirErr)
+				}
+			},
+		},
+	})
+	assertFailure(t, err, failureUncommitted, phaseCreateAncestors)
+	if len(created) != 1 {
+		t.Fatalf("created evidence count = %d, want displaced staged object only", len(created))
+	}
+	if cleanupErr := RemoveCreatedDirectoryIfEmpty(context.Background(), created[0]); cleanupErr == nil {
+		t.Fatal("cleanup accepted replacement at the publication path")
+	}
+	for _, path := range []string{createdPath, displacedPath} {
+		if info, statErr := os.Stat(path); statErr != nil || !info.IsDir() {
+			t.Fatalf("directory %q was not preserved: info=%v err=%v", path, info, statErr)
+		}
 	}
 }
 
