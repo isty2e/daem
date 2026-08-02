@@ -20,7 +20,7 @@ func importCandidates(
 ) ([]adoptmodel.Source, []adoptmodel.Skill, []adoptmodel.Hook, []adoptmodel.MCPServer, []adoptmodel.Scan, []adoptmodel.Skipped, error) {
 	sources := make([]adoptmodel.Source, 0, 1)
 	skipped := make([]adoptmodel.Skipped, 0, 2)
-	instructionSources, instructionSkipped, err := adoptinstructions.Candidates(sourceDirectory, target, scope)
+	instructionSources, instructionSkipped, err := adoptinstructions.Candidates(ctx, sourceDirectory, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
@@ -33,13 +33,13 @@ func importCandidates(
 	}
 	skipped = append(skipped, skillSkipped...)
 
-	hooks, hookSkipped, err := adopthook.Candidates(target, scope)
+	hooks, hookSkipped, err := adopthook.Candidates(ctx, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}
 	skipped = append(skipped, hookSkipped...)
 
-	mcpServers, mcpSkipped, err := adoptmcp.Candidates(target, scope)
+	mcpServers, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}

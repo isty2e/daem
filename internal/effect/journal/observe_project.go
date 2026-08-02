@@ -127,10 +127,16 @@ func observeRootedRecoveryCapability(
 
 	switch identity.Kind() {
 	case mutationfs.EntryKindFile:
+		maximumBytes, err := recoveryRegularFileMaximumBytes(contentPath, aggregateContract, codecs)
+		if err != nil {
+			base.Exists = true
+			base.Error = err.Error()
+			return base
+		}
 		content, mode, _, err := filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
-			MaximumRecoveryBackupFileBytes,
+			maximumBytes,
 		)
 		if err != nil {
 			base.Exists = true

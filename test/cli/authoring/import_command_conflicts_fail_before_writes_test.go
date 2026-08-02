@@ -43,7 +43,7 @@ func TestRunImportConflictsFailBeforeWrites(t *testing.T) {
 					t.Fatalf("Mkdir returned error: %v", err)
 				}
 			},
-			want: "live path \"AGENTS.md\" is a directory",
+			want: "AGENTS.md: instruction_not_regular_file",
 		},
 	}
 

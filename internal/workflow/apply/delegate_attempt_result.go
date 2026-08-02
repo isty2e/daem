@@ -169,7 +169,7 @@ func runDelegatesAndPersistAttemptRecords(
 	rootErr := validateDelegateProjectRoot(options, paths.ManifestRoot, delegateActions)
 	summaries := defaultPostAttemptSummaries(locked, delegateAttempts)
 	if rootErr == nil {
-		summaries = postAttemptSummaries(paths, locked, selection, current, delegateAttempts)
+		summaries = postAttemptSummaries(ctx, paths, locked, selection, current, delegateAttempts)
 	}
 	delegateResults, resultErr := delegateAttemptResults(delegateAttempts, summaries)
 	if resultErr != nil {

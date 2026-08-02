@@ -48,6 +48,7 @@ func mutateFileDestinationWithOutcome(
 	destination mutationDestination,
 	fileMode os.FileMode,
 	allowMissing bool,
+	maximumBytes int64,
 	mutation fileContentMutation,
 ) fileMutationOutcome {
 	if !destination.isRooted() {
@@ -57,7 +58,7 @@ func mutateFileDestinationWithOutcome(
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
-	existing, mode, expected, err := authority.filesystem.ReadRootedRegularFile(ctx, capability)
+	existing, mode, expected, err := authority.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
 	exists := err == nil
 	if err != nil && !(allowMissing && errors.Is(err, os.ErrNotExist)) {
 		_ = capability.Close()
@@ -85,6 +86,7 @@ func readRegularFileDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
+	maximumBytes int64,
 ) ([]byte, os.FileMode, error) {
 	if !destination.isRooted() {
 		return nil, 0, errors.New("mutation destination is invalid")
@@ -94,7 +96,7 @@ func readRegularFileDestination(
 		return nil, 0, err
 	}
 	defer capability.Close()
-	content, mode, _, err := authority.filesystem.ReadRootedRegularFile(ctx, capability)
+	content, mode, _, err := authority.filesystem.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
 	return content, mode, err
 }
 

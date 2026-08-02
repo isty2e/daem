@@ -3,10 +3,13 @@ package hookcodec
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
 )
@@ -128,6 +131,8 @@ func For(contractID aggregate.CodecContractID) (aggregate.Codec, bool) {
 }
 
 func (codec hookJSONCodec) ContractID() aggregate.CodecContractID { return codec.contractID }
+
+func (hookJSONCodec) MaximumDocumentBytes() int64 { return hookdocument.MaximumBytes }
 
 func (codec hookJSONCodec) ValidateContribution(contribution aggregate.ManagedContribution) error {
 	if err := contribution.Validate(); err != nil {
@@ -309,7 +314,11 @@ func foldHookContributions(set aggregate.ContributionSet) (string, error) {
 }
 
 func decodeCanonicalHookContribution(content string) (canonicalHookContribution, error) {
-	if err := validateNoDuplicateJSONKeys([]byte(content)); err != nil {
+	if err := jsonstrict.Validate(
+		[]byte(content),
+		"canonical Hook contribution",
+		hookdocument.MaximumDepth,
+	); err != nil {
 		return canonicalHookContribution{}, err
 	}
 	var contribution canonicalHookContribution
@@ -335,8 +344,8 @@ func decodeHookDocument(content []byte) (map[string]json.RawMessage, aggregate.C
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, aggregate.CodecFailureDocumentMalformed
 	}
-	if err := validateNoDuplicateJSONKeys(content); err != nil {
-		if _, duplicate := err.(duplicateJSONKeyError); duplicate {
+	if err := hookdocument.Validate(content); err != nil {
+		if errors.Is(err, jsonstrict.ErrDuplicateObjectKey) {
 			return nil, aggregate.CodecFailureDuplicateKey
 		}
 		return nil, aggregate.CodecFailureDocumentMalformed
@@ -397,72 +406,10 @@ func renderHookSettings(settings map[string]json.RawMessage, preserveExistingEmp
 	if err != nil {
 		return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
 	}
+	if err := hookdocument.Validate(content); err != nil {
+		return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+	}
 	return aggregate.ExistingDocument(content), nil
-}
-
-type duplicateJSONKeyError struct{}
-
-func (duplicateJSONKeyError) Error() string { return "JSON object contains a duplicate key" }
-
-func validateNoDuplicateJSONKeys(content []byte) error {
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.UseNumber()
-	if err := walkJSONValue(decoder); err != nil {
-		return err
-	}
-	return requireJSONEOF(decoder)
-}
-
-func walkJSONValue(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, compound := token.(json.Delim)
-	if !compound {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		seen := make(map[string]struct{})
-		for decoder.More() {
-			keyToken, err := decoder.Token()
-			if err != nil {
-				return err
-			}
-			key, ok := keyToken.(string)
-			if !ok {
-				return fmt.Errorf("JSON object key is not a string")
-			}
-			if _, duplicate := seen[key]; duplicate {
-				return duplicateJSONKeyError{}
-			}
-			seen[key] = struct{}{}
-			if err := walkJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-	case '[':
-		for decoder.More() {
-			if err := walkJSONValue(decoder); err != nil {
-				return err
-			}
-		}
-	default:
-		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
-	}
-	closing, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	want := json.Delim('}')
-	if delimiter == '[' {
-		want = ']'
-	}
-	if closing != want {
-		return fmt.Errorf("unexpected JSON closing delimiter")
-	}
-	return nil
 }
 
 func requireJSONEOF(decoder *json.Decoder) error {

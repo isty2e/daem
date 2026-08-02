@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -27,6 +28,7 @@ type AggregateProjectionSummary struct {
 // aggregate projections named by subjects. Family-specific status semantics do
 // not participate in this post-attempt equivalence check.
 func ObserveAggregateProjectionSummaries(
+	ctx context.Context,
 	resolver liveobserve.DestinationResolver,
 	locked lock.File,
 	selection targetselection.Selection,
@@ -46,6 +48,7 @@ func ObserveAggregateProjectionSummaries(
 		return nil, err
 	}
 	observations, err := observeAggregateDocuments(
+		ctx,
 		resolver,
 		contributions,
 		currentState.ManagedAggregates(),

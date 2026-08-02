@@ -147,6 +147,7 @@ func buildAssessment(
 		return Assessment{}, err
 	}
 	aggregateInputs, err := buildManagedAggregatePlanningInputs(
+		ctx,
 		resolver,
 		environment,
 		locked.Locked,

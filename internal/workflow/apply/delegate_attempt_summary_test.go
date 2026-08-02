@@ -45,6 +45,7 @@ func TestPostAttemptSummariesDoNotPromoteAggregateProcessSuccessWithoutEquivalen
 	attempt := executor.Execute(context.Background(), actions[0], delegateSummaryWorkingDirectoryBinder(t))
 
 	summaries := postAttemptSummaries(
+		context.Background(),
 		paths,
 		locked,
 		selection,

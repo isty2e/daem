@@ -286,6 +286,7 @@ func readProjectRecoveryRegularFile(
 	filesystem mutationfs.RootedReader,
 	destination output.Destination,
 	projectAuthority *projectAuthoritySession,
+	maximumBytes int64,
 ) ([]byte, fs.FileMode, error) {
 	capability, err := projectAuthority.acquire(destination)
 	if err != nil {
@@ -294,7 +295,7 @@ func readProjectRecoveryRegularFile(
 	content, mode, _, readErr := filesystem.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
-		MaximumRecoveryBackupFileBytes,
+		maximumBytes,
 	)
 	closeErr := capability.Close()
 	if readErr != nil || closeErr != nil {

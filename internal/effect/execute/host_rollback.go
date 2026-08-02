@@ -18,17 +18,18 @@ type hostRollback struct {
 }
 
 type hostRollbackEntry struct {
-	destination mutationDestination
-	existed     bool
-	kind        string
-	backupPath  string
-	backup      recoveryBackup
-	fileMode    os.FileMode
-	identity    mutationfs.EntryIdentity
-	stagedState recoveryWholePathState
-	effectState recoveryWholePathState
-	effectKnown bool
-	attempted   bool
+	destination      mutationDestination
+	existed          bool
+	kind             string
+	maximumFileBytes int64
+	backupPath       string
+	backup           recoveryBackup
+	fileMode         os.FileMode
+	identity         mutationfs.EntryIdentity
+	stagedState      recoveryWholePathState
+	effectState      recoveryWholePathState
+	effectKnown      bool
+	attempted        bool
 }
 
 type rollbackStageAction struct {
@@ -220,12 +221,20 @@ func restoreRollbackGroup(
 		if !entry.stagedState.equal(baseline.stagedState) {
 			return fmt.Errorf("rollback stage for %q has inconsistent physical baselines", baseline.destination.logical)
 		}
+		if entry.maximumFileBytes != baseline.maximumFileBytes {
+			return fmt.Errorf("rollback stage for %q has inconsistent file byte limits", baseline.destination.logical)
+		}
 		attempted = attempted || entry.attempted
 	}
 	if !attempted {
 		return nil
 	}
-	current, identity, err := observeRecoveryWholePathState(ctx, authority, baseline.destination)
+	current, identity, err := observeRecoveryWholePathState(
+		ctx,
+		authority,
+		baseline.destination,
+		baseline.maximumFileBytes,
+	)
 	if err != nil {
 		return err
 	}

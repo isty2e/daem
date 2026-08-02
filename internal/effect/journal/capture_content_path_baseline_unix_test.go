@@ -3,6 +3,7 @@
 package journal
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,19 +81,20 @@ func TestRecoveryContentPathBaselineRejectsOversizedAggregateDocument(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	action := globalClaudeRecoveryBaselineMutation(t)
+	maximumBytes := recoveryAggregateDocumentMaximumBytes(t, action)
 	hostPath := filepath.Join(directory, "config.json")
 	file, err := os.OpenFile(hostPath, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(MaximumRecoveryBackupFileBytes + 1); err != nil {
+	if err := file.Truncate(maximumBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	action := globalClaudeRecoveryBaselineMutation(t)
 	cache, err := newRecoveryContentPathBaselineCache(
 		[]pathMutation{action},
 		journalTestCodecs(),
@@ -109,7 +111,7 @@ func TestRecoveryContentPathBaselineRejectsOversizedAggregateDocument(t *testing
 		nil,
 		nil,
 	)
-	if err == nil || !strings.Contains(err.Error(), "exceeds 134217728 bytes") {
+	if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("exceeds %d bytes", maximumBytes)) {
 		t.Fatalf("capture error = %v, want bounded aggregate-document rejection", err)
 	}
 }
@@ -124,15 +126,15 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(MaximumRecoveryBackupFileBytes + 1); err != nil {
+	action := globalClaudeRecoveryBaselineMutation(t)
+	maximumBytes := recoveryAggregateDocumentMaximumBytes(t, action)
+	if err := file.Truncate(maximumBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	action := globalClaudeRecoveryBaselineMutation(t)
-
 	observation := observeRecoveryPath(
 		t.Context(),
 		journalTestFilesystem(),
@@ -142,7 +144,7 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 		action.AggregateContract,
 		journalTestCodecs(),
 	)
-	if !observation.Exists || !strings.Contains(observation.Error, "exceeds 134217728 bytes") {
+	if !observation.Exists || !strings.Contains(observation.Error, fmt.Sprintf("exceeds %d bytes", maximumBytes)) {
 		t.Fatalf("observation = %#v, want bounded aggregate-document error", observation)
 	}
 }
@@ -304,6 +306,18 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 func globalClaudeRecoveryBaselineMutation(t *testing.T) pathMutation {
 	t.Helper()
 	return claudeRecoveryBaselineMutation(t, target.ScopeGlobal, "context7")
+}
+
+func recoveryAggregateDocumentMaximumBytes(t *testing.T, action pathMutation) int64 {
+	t.Helper()
+	if action.AggregateContract == nil {
+		t.Fatal("aggregate recovery action has no contract")
+	}
+	codec, ok := journalTestCodecs().Lookup(action.AggregateContract.CodecContractID())
+	if !ok {
+		t.Fatalf("aggregate codec %q is not admitted", action.AggregateContract.CodecContractID())
+	}
+	return codec.MaximumDocumentBytes()
 }
 
 func claudeGlobalCanonicalEntry(t *testing.T, command string) []byte {

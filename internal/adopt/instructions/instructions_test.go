@@ -1,12 +1,16 @@
 package instructions
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/supply/source/directfile"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -31,7 +35,7 @@ func TestCandidatesImportsCodexProjectInstructionBytes(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +66,7 @@ func TestCandidatesImportsOpenCodeProjectInstructionFromSurfaceRows(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetOpenCode, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +96,7 @@ func TestCandidatesFallsBackToDiscoveryInstructionWithoutRenderDestination(t *te
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetOpenCode, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetOpenCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +120,7 @@ func TestCandidatesImportsAntigravityAlternatePlacementWithRenderTo(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +152,7 @@ func TestCandidatesImportsAntigravityDefaultAndAlternatePlacements(t *testing.T)
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +178,7 @@ func TestCandidatesReportsClassifyOnlyRuntimeInstructionWhenPresent(t *testing.T
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetClaudeCode, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +201,7 @@ func TestCandidatesUsesCodexOverridePrecedenceFromSurfacePriority(t *testing.T) 
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +228,7 @@ func TestCandidatesSkipsEmptyCodexOverrideAndFallsBackToDefault(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetCodex, target.ScopeProject)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +257,7 @@ func TestCandidatesUsesCodexHomeForGlobalInstructionRows(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetCodex, target.ScopeGlobal)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +285,7 @@ func TestCandidatesImportsAntigravityGlobalDefaultPlacement(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +320,7 @@ func TestCandidatesIgnoresAntigravityConfigInstructionPaths(t *testing.T) {
 	}
 	sourceDirectory := testSourceDirectory(t, filepath.Join(tempDir, "daem.d"))
 
-	sources, skipped, err := Candidates(sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
+	sources, skipped, err := Candidates(context.Background(), sourceDirectory, target.TargetAntigravityCLI, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,6 +389,66 @@ func TestClassifyOnlyInstructionSkipTreatsDanglingSymlinkAsPresent(t *testing.T)
 	}
 	if !ok || skip.LivePath != link || skip.Reason != importInstructionSkipClassifyOnly {
 		t.Fatalf("classifyOnlyInstructionSkip() = (%#v, %v), want dangling link classified", skip, ok)
+	}
+}
+
+func TestReadInstructionImportContentRejectsUnsafeFileShapes(t *testing.T) {
+	root := t.TempDir()
+
+	directory := filepath.Join(root, "directory")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, skip, err := readInstructionImportContent(context.Background(), directory); err != nil || skip.Reason != importInstructionSkipNotRegular {
+		t.Fatalf("directory read = (%#v, %v), want %q skip", skip, err, importInstructionSkipNotRegular)
+	}
+
+	targetPath := filepath.Join(root, "actual.md")
+	if err := os.WriteFile(targetPath, []byte("guidance\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	symlink := filepath.Join(root, "link.md")
+	if err := os.Symlink(targetPath, symlink); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if _, skip, err := readInstructionImportContent(context.Background(), symlink); err != nil || skip.Reason != importInstructionSkipSymlink {
+		t.Fatalf("symlink read = (%#v, %v), want %q skip", skip, err, importInstructionSkipSymlink)
+	}
+
+	oversized := filepath.Join(root, "oversized.md")
+	file, err := os.OpenFile(oversized, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(directfile.MaximumBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, skip, err := readInstructionImportContent(context.Background(), oversized); err != nil || skip.Reason != importInstructionSkipTooLarge {
+		t.Fatalf("oversized read = (%#v, %v), want %q skip", skip, err, importInstructionSkipTooLarge)
+	}
+
+	changed, ok := instructionSnapshotSkip(targetPath, filesnapshot.ErrChanged)
+	if !ok || changed.Reason != importInstructionSkipChanged {
+		t.Fatalf("changed mapping = (%#v, %t), want %q", changed, ok, importInstructionSkipChanged)
+	}
+}
+
+func TestCandidatesStopsWhenInstructionImportContextIsCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	sources, skipped, err := Candidates(
+		ctx,
+		testSourceDirectory(t, filepath.Join(t.TempDir(), "daem.d")),
+		target.TargetCodex,
+		target.ScopeProject,
+	)
+	if !errors.Is(err, context.Canceled) || sources != nil || skipped != nil {
+		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", sources, skipped, err)
 	}
 }
 

@@ -183,6 +183,58 @@ func TestMCPCodecRendersOneMixedMultiProjectionBatch(t *testing.T) {
 	}
 }
 
+func TestMCPCodecRejectsRenderedAndRestoredDocumentsBeyondLimit(t *testing.T) {
+	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject)
+	placement := operations.Placement()
+	canonical := mustCanonicalClaudeProjectMCPServerEntry(t, ClaudeProjectMCPServerProjection{
+		ServerID: "alpha", Command: "node", Args: []string{"alpha.js"},
+		AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
+	})
+	contribution := mcpCodecContribution(t, placement, "alpha", canonical)
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contribution.Contract()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, ok := For(placement.CodecContractID())
+	if !ok {
+		t.Fatal("MCP codec is missing")
+	}
+
+	prefix := `{"padding":"`
+	suffix := `"}`
+	nearLimit := aggregate.ExistingDocument([]byte(
+		prefix + strings.Repeat("a", int(maximumDocumentBytes)-len(prefix)-len(suffix)) + suffix,
+	))
+	before, failure := codec.Read(nearLimit, selection)
+	if failure != nil {
+		t.Fatalf("Read(near-limit): %v", failure)
+	}
+	desired := mcpCodecExclusiveSet(t, contribution)
+	intent, err := aggregate.NewProjectionIntent(before.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(before, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := codec.Render(nearLimit, plan); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Render failure = %v, want canonical_contribution_invalid", failure)
+	}
+
+	baselineContent, err := operations.mergeCanonicalEntry(nil, "alpha", canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline, failure := codec.Read(aggregate.ExistingDocument(baselineContent), selection)
+	if failure != nil {
+		t.Fatalf("Read(baseline): %v", failure)
+	}
+	if _, failure := codec.Restore(nearLimit, baseline); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Restore failure = %v, want canonical_contribution_invalid", failure)
+	}
+}
+
 func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementCodexProject)
 	placement := operations.Placement()

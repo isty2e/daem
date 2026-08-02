@@ -130,7 +130,16 @@ func commitAggregateEffect(
 	if err != nil {
 		return fileMutationOutcome{err: err}
 	}
-	content, mode, identity, readErr := authority.filesystem.ReadRootedRegularFile(ctx, capability)
+	codec, ok := codecs.Lookup(effect.CodecContractID())
+	if !ok {
+		_ = capability.Close()
+		return fileMutationOutcome{err: fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())}
+	}
+	content, mode, identity, readErr := authority.filesystem.ReadRootedRegularFileUpTo(
+		ctx,
+		capability,
+		codec.MaximumDocumentBytes(),
+	)
 	exists := readErr == nil
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		_ = capability.Close()
@@ -140,7 +149,7 @@ func commitAggregateEffect(
 	if exists {
 		current = aggregate.ExistingDocument(content)
 	}
-	candidate, err := validateAndRenderAggregate(effect, current, mode, codecs)
+	candidate, err := validateAndRenderAggregate(effect, current, mode, codec)
 	if err != nil {
 		_ = capability.Close()
 		return fileMutationOutcome{err: err}
@@ -200,10 +209,9 @@ func validateAndRenderAggregate(
 	effect AggregateEffect,
 	current aggregate.Document,
 	mode os.FileMode,
-	codecs aggregate.CodecCatalog,
+	codec aggregate.Codec,
 ) (aggregate.Document, error) {
-	codec, err := validateAggregateBefore(effect, current, mode, codecs)
-	if err != nil {
+	if err := validateAggregateBefore(effect, current, mode, codec); err != nil {
 		return aggregate.Document{}, err
 	}
 	rendered, failure := codec.Render(current, effect.CodecPlan())
@@ -220,30 +228,26 @@ func validateAggregateBefore(
 	effect AggregateEffect,
 	current aggregate.Document,
 	mode os.FileMode,
-	codecs aggregate.CodecCatalog,
-) (aggregate.Codec, error) {
+	codec aggregate.Codec,
+) error {
 	if !current.Equal(effect.BeforeDocument()) {
-		return nil, fmt.Errorf("aggregate document changed after planning")
+		return fmt.Errorf("aggregate document changed after planning")
 	}
 	if current.Exists() && mode.Perm() != effect.Evidence().FileMode().Perm() {
-		return nil, fmt.Errorf("aggregate document mode changed after planning")
-	}
-	codec, ok := codecs.Lookup(effect.CodecContractID())
-	if !ok {
-		return nil, fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
+		return fmt.Errorf("aggregate document mode changed after planning")
 	}
 	selection, err := effect.BeforeSnapshot().Selection()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	snapshot, failure := codec.Read(current, selection)
 	if failure != nil {
-		return nil, failure
+		return failure
 	}
 	if !snapshot.Equal(effect.BeforeSnapshot()) {
-		return nil, fmt.Errorf("aggregate selected projection changed after planning")
+		return fmt.Errorf("aggregate selected projection changed after planning")
 	}
-	return codec, nil
+	return nil
 }
 
 func verifyAggregateBefore(
@@ -253,12 +257,20 @@ func verifyAggregateBefore(
 	effect AggregateEffect,
 	codecs aggregate.CodecCatalog,
 ) error {
-	current, mode, err := readAggregateDocumentDestination(ctx, authority, destination)
+	codec, ok := codecs.Lookup(effect.CodecContractID())
+	if !ok {
+		return fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
+	}
+	current, mode, err := readAggregateDocumentDestination(
+		ctx,
+		authority,
+		destination,
+		codec.MaximumDocumentBytes(),
+	)
 	if err != nil {
 		return err
 	}
-	_, err = validateAggregateBefore(effect, current, mode, codecs)
-	return err
+	return validateAggregateBefore(effect, current, mode, codec)
 }
 
 func verifyAggregatePostcondition(
@@ -269,7 +281,16 @@ func verifyAggregatePostcondition(
 	expectedDocument aggregate.Document,
 	codecs aggregate.CodecCatalog,
 ) error {
-	current, mode, err := readAggregateDocumentDestination(ctx, authority, destination)
+	codec, ok := codecs.Lookup(effect.CodecContractID())
+	if !ok {
+		return fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
+	}
+	current, mode, err := readAggregateDocumentDestination(
+		ctx,
+		authority,
+		destination,
+		codec.MaximumDocumentBytes(),
+	)
 	if err != nil {
 		return fmt.Errorf("reread aggregate postcondition: %w", err)
 	}
@@ -278,10 +299,6 @@ func verifyAggregatePostcondition(
 	}
 	if current.Exists() && mode.Perm() != aggregate.DocumentFileMode {
 		return fmt.Errorf("aggregate document mode = %04o, want %04o", mode.Perm(), aggregate.DocumentFileMode)
-	}
-	codec, ok := codecs.Lookup(effect.CodecContractID())
-	if !ok {
-		return fmt.Errorf("aggregate codec %q is not admitted", effect.CodecContractID())
 	}
 	selection, err := effect.Rendered().Expected().Selection()
 	if err != nil {
@@ -301,8 +318,9 @@ func readAggregateDocumentDestination(
 	ctx context.Context,
 	authority *mutationAuthority,
 	destination mutationDestination,
+	maximumBytes int64,
 ) (aggregate.Document, os.FileMode, error) {
-	content, mode, err := readRegularFileDestination(ctx, authority, destination)
+	content, mode, err := readRegularFileDestination(ctx, authority, destination, maximumBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		return aggregate.AbsentDocument(), 0, nil
 	}

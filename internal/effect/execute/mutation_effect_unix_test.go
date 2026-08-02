@@ -79,7 +79,7 @@ func TestMutateFileDestinationRejectsAncestorSwapBetweenReadAndCommit(t *testing
 	outside := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(outside, "config"), "outside")
 
-	outcome := mutateFileDestinationWithOutcome(context.Background(), authority, destination, 0o600, false, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
+	outcome := mutateFileDestinationWithOutcome(context.Background(), authority, destination, 0o600, false, 1024, func(existing []byte, _ os.FileMode, exists bool) ([]byte, bool, error) {
 		if !exists {
 			t.Fatal("mutation input unexpectedly reported missing destination")
 		}

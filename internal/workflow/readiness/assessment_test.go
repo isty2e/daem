@@ -280,6 +280,7 @@ scope = "project"
 	}
 
 	inputs, err := buildManagedAggregatePlanningInputs(
+		context.Background(),
 		resolver,
 		environment,
 		locked.Locked,

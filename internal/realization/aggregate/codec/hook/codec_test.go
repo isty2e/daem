@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
@@ -122,6 +123,7 @@ func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 	}{
 		{name: "duplicate top-level", input: `{"hooks":{},"hooks":{}}`, reason: aggregate.CodecFailureDuplicateKey},
 		{name: "duplicate nested", input: `{"hooks":{"Stop":[]},"meta":{"x":1,"x":2}}`, reason: aggregate.CodecFailureDuplicateKey},
+		{name: "excessive depth", input: strings.Repeat("[", 66) + "0" + strings.Repeat("]", 66), reason: aggregate.CodecFailureDocumentMalformed},
 		{name: "empty", input: ``, reason: aggregate.CodecFailureDocumentMalformed},
 		{name: "hooks array", input: `{"hooks":[]}`, reason: aggregate.CodecFailureSelectedShapeUnsupported},
 		{name: "unknown handler field", input: `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"ok","secret":true}]}]}}`, reason: aggregate.CodecFailureSelectedShapeUnsupported},
@@ -132,6 +134,51 @@ func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 				t.Fatalf("failure = %v, want %q", failure, test.reason)
 			}
 		})
+	}
+}
+
+func TestHookCodecRejectsOversizedHostDocument(t *testing.T) {
+	_, codec, selection := hookCodecFixture(t)
+	_, failure := codec.Read(
+		aggregate.ExistingDocument(make([]byte, hookdocument.MaximumBytes+1)),
+		selection,
+	)
+	if failure == nil || failure.Reason() != aggregate.CodecFailureDocumentMalformed {
+		t.Fatalf("oversized codec failure = %v, want document_malformed", failure)
+	}
+}
+
+func TestHookCodecRejectsRenderedAndRestoredDocumentsBeyondLimit(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	prefix := `{"padding":"`
+	suffix := `"}`
+	nearLimit := aggregate.ExistingDocument([]byte(
+		prefix + strings.Repeat("a", int(hookdocument.MaximumBytes)-len(prefix)-len(suffix)) + suffix,
+	))
+	before, failure := codec.Read(nearLimit, selection)
+	if failure != nil {
+		t.Fatalf("Read(near-limit): %v", failure)
+	}
+	desired := hookContributionSet(t, placement, hookContributionSpec{name: "stop", event: "Stop", command: "true"})
+	intent, err := aggregate.NewProjectionIntent(before.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(before, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := codec.Render(nearLimit, plan); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Render failure = %v, want canonical_contribution_invalid", failure)
+	}
+
+	baselineDocument := renderHookSet(t, codec, selection, aggregate.AbsentDocument(), desired)
+	baseline, failure := codec.Read(baselineDocument, selection)
+	if failure != nil {
+		t.Fatalf("Read(baseline): %v", failure)
+	}
+	if _, failure := codec.Restore(nearLimit, baseline); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Restore failure = %v, want canonical_contribution_invalid", failure)
 	}
 }
 
