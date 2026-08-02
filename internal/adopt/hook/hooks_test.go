@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -332,6 +333,102 @@ func TestScanImportHookStructuralBudgetAdmitsExactLimits(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			if err := scanImportHookStructuralBudget(strings.NewReader(test.content)); err != nil {
 				t.Fatalf("scanImportHookStructuralBudget error = %v, want exact limit admitted", err)
+			}
+		})
+	}
+}
+
+func TestScanImportHookStructuralBudgetStopsAtDepthLimit(t *testing.T) {
+	const excessiveDepth = 500_000
+	nesting := strings.Repeat(`[`, excessiveDepth) + strings.Repeat(`]`, excessiveDepth)
+	var topLevelContent string
+	for _, test := range []struct {
+		name   string
+		prefix string
+		suffix string
+	}{
+		{name: "top-level field", prefix: `{"metadata":`, suffix: `,"hooks":{}}`},
+		{name: "handler field", prefix: `{"hooks":{"AnyEvent":[{"hooks":[{"metadata":`, suffix: `}]}]}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content := test.prefix + nesting + test.suffix
+			if test.name == "top-level field" {
+				topLevelContent = content
+			}
+			reader := strings.NewReader(content)
+			err := scanImportHookStructuralBudget(reader)
+			if !errors.Is(err, jsonstrict.ErrMaximumDepthExceeded) {
+				t.Fatalf("scanImportHookStructuralBudget error = %v, want maximum depth error", err)
+			}
+			if consumed := len(content) - reader.Len(); consumed >= len(content)/2 {
+				t.Fatalf("depth scan consumed %d of %d bytes, want early stop", consumed, len(content))
+			}
+		})
+	}
+
+	contentBytes := []byte(topLevelContent)
+	hooks, skipped := parseImportHooks(
+		contentBytes,
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != importHookSkipJSONDepth {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want one depth skip", hooks, skipped)
+	}
+
+	benchmark := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		for range b.N {
+			hooks, skipped = parseImportHooks(
+				contentBytes,
+				target.TargetClaudeCode,
+				target.ScopeProject,
+				".claude/settings.json",
+			)
+		}
+	})
+	if allocated := benchmark.AllocedBytesPerOp(); allocated >= 1<<20 {
+		t.Fatalf("depth rejection allocated %d bytes/op, want less than 1 MiB", allocated)
+	}
+}
+
+func TestScanImportHookStructuralBudgetMatchesSharedDepthBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		depth  int
+		reason string
+	}{
+		{name: "exact", depth: hookdocument.MaximumDepth},
+		{name: "exceeded", depth: hookdocument.MaximumDepth + 1, reason: importHookSkipJSONDepth},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			content := `{"metadata":` +
+				strings.Repeat(`[`, test.depth) +
+				strings.Repeat(`]`, test.depth) +
+				`,"hooks":{}}`
+			scanErr := scanImportHookStructuralBudget(strings.NewReader(content))
+			if test.reason == "" && scanErr != nil {
+				t.Fatalf("scanImportHookStructuralBudget error = %v, want exact depth admitted", scanErr)
+			}
+			if test.reason != "" && !errors.Is(scanErr, jsonstrict.ErrMaximumDepthExceeded) {
+				t.Fatalf("scanImportHookStructuralBudget error = %v, want maximum depth error", scanErr)
+			}
+
+			hooks, skipped := parseImportHooks(
+				[]byte(content),
+				target.TargetClaudeCode,
+				target.ScopeProject,
+				".claude/settings.json",
+			)
+			if test.reason == "" {
+				if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != "hooks_empty" {
+					t.Fatalf("parseImportHooks = (%#v, %#v), want exact depth admitted", hooks, skipped)
+				}
+				return
+			}
+			if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != test.reason {
+				t.Fatalf("parseImportHooks = (%#v, %#v), want one %q skip", hooks, skipped, test.reason)
 			}
 		})
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -115,7 +117,10 @@ func scanImportHookStructuralBudget(reader io.Reader) error {
 		return err
 	}
 	if opening != json.Delim('{') {
-		return skipImportHookJSONValue(decoder, opening)
+		return skipImportHookJSONValue(decoder, opening, 0)
+	}
+	if err := validateImportHookJSONDepth(0); err != nil {
+		return err
 	}
 
 	budget := importHookStructuralBudget{}
@@ -133,19 +138,22 @@ func scanImportHookStructuralBudget(reader io.Reader) error {
 			return err
 		}
 		if key == "hooks" && valueToken == json.Delim('{') {
-			if err := scanImportHookEvents(decoder, &budget); err != nil {
+			if err := validateImportHookJSONDepth(1); err != nil {
+				return err
+			}
+			if err := scanImportHookEvents(decoder, &budget, 1); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := skipImportHookJSONValue(decoder, valueToken); err != nil {
+		if err := skipImportHookJSONValue(decoder, valueToken, 1); err != nil {
 			return err
 		}
 	}
 	return consumeImportHookJSONClosing(decoder, '}')
 }
 
-func scanImportHookEvents(decoder *json.Decoder, budget *importHookStructuralBudget) error {
+func scanImportHookEvents(decoder *json.Decoder, budget *importHookStructuralBudget, objectDepth int) error {
 	for decoder.More() {
 		eventToken, err := decoder.Token()
 		if err != nil {
@@ -164,20 +172,24 @@ func scanImportHookEvents(decoder *json.Decoder, budget *importHookStructuralBud
 		if err != nil {
 			return err
 		}
+		valueDepth := objectDepth + 1
 		if valueToken == json.Delim('[') {
-			if err := scanImportHookGroups(decoder, budget); err != nil {
+			if err := validateImportHookJSONDepth(valueDepth); err != nil {
+				return err
+			}
+			if err := scanImportHookGroups(decoder, budget, valueDepth); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := skipImportHookJSONValue(decoder, valueToken); err != nil {
+		if err := skipImportHookJSONValue(decoder, valueToken, valueDepth); err != nil {
 			return err
 		}
 	}
 	return consumeImportHookJSONClosing(decoder, '}')
 }
 
-func scanImportHookGroups(decoder *json.Decoder, budget *importHookStructuralBudget) error {
+func scanImportHookGroups(decoder *json.Decoder, budget *importHookStructuralBudget, arrayDepth int) error {
 	for decoder.More() {
 		budget.groups++
 		if budget.groups > maximumImportHookGroups {
@@ -187,20 +199,24 @@ func scanImportHookGroups(decoder *json.Decoder, budget *importHookStructuralBud
 		if err != nil {
 			return err
 		}
+		groupDepth := arrayDepth + 1
 		if groupToken == json.Delim('{') {
-			if err := scanImportHookGroup(decoder, budget); err != nil {
+			if err := validateImportHookJSONDepth(groupDepth); err != nil {
+				return err
+			}
+			if err := scanImportHookGroup(decoder, budget, groupDepth); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := skipImportHookJSONValue(decoder, groupToken); err != nil {
+		if err := skipImportHookJSONValue(decoder, groupToken, groupDepth); err != nil {
 			return err
 		}
 	}
 	return consumeImportHookJSONClosing(decoder, ']')
 }
 
-func scanImportHookGroup(decoder *json.Decoder, budget *importHookStructuralBudget) error {
+func scanImportHookGroup(decoder *json.Decoder, budget *importHookStructuralBudget, objectDepth int) error {
 	for decoder.More() {
 		keyToken, err := decoder.Token()
 		if err != nil {
@@ -214,20 +230,24 @@ func scanImportHookGroup(decoder *json.Decoder, budget *importHookStructuralBudg
 		if err != nil {
 			return err
 		}
+		valueDepth := objectDepth + 1
 		if key == "hooks" && valueToken == json.Delim('[') {
-			if err := scanImportHookHandlers(decoder, budget); err != nil {
+			if err := validateImportHookJSONDepth(valueDepth); err != nil {
+				return err
+			}
+			if err := scanImportHookHandlers(decoder, budget, valueDepth); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := skipImportHookJSONValue(decoder, valueToken); err != nil {
+		if err := skipImportHookJSONValue(decoder, valueToken, valueDepth); err != nil {
 			return err
 		}
 	}
 	return consumeImportHookJSONClosing(decoder, '}')
 }
 
-func scanImportHookHandlers(decoder *json.Decoder, budget *importHookStructuralBudget) error {
+func scanImportHookHandlers(decoder *json.Decoder, budget *importHookStructuralBudget, arrayDepth int) error {
 	for decoder.More() {
 		budget.handlers++
 		if budget.handlers > maximumImportHookHandlers {
@@ -237,14 +257,17 @@ func scanImportHookHandlers(decoder *json.Decoder, budget *importHookStructuralB
 		if err != nil {
 			return err
 		}
-		if err := skipImportHookJSONValue(decoder, handlerToken); err != nil {
+		if err := skipImportHookJSONValue(decoder, handlerToken, arrayDepth+1); err != nil {
 			return err
 		}
 	}
 	return consumeImportHookJSONClosing(decoder, ']')
 }
 
-func skipImportHookJSONValue(decoder *json.Decoder, firstToken json.Token) error {
+func skipImportHookJSONValue(decoder *json.Decoder, firstToken json.Token, depth int) error {
+	if err := validateImportHookJSONDepth(depth); err != nil {
+		return err
+	}
 	delimiter, composite := firstToken.(json.Delim)
 	if !composite {
 		return nil
@@ -253,24 +276,44 @@ func skipImportHookJSONValue(decoder *json.Decoder, firstToken json.Token) error
 		return fmt.Errorf("unexpected JSON delimiter %q", delimiter)
 	}
 
-	depth := 1
-	for depth > 0 {
-		token, err := decoder.Token()
+	object := delimiter == json.Delim('{')
+	closing := json.Delim(']')
+	if object {
+		closing = json.Delim('}')
+	}
+	for decoder.More() {
+		if err := validateImportHookJSONDepth(depth + 1); err != nil {
+			return err
+		}
+		if object {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			if _, ok := keyToken.(string); !ok {
+				return fmt.Errorf("JSON object key is not a string")
+			}
+		}
+		valueToken, err := decoder.Token()
 		if err != nil {
 			return err
 		}
-		delimiter, ok := token.(json.Delim)
-		if !ok {
-			continue
-		}
-		switch delimiter {
-		case json.Delim('{'), json.Delim('['):
-			depth++
-		case json.Delim('}'), json.Delim(']'):
-			depth--
+		if err := skipImportHookJSONValue(decoder, valueToken, depth+1); err != nil {
+			return err
 		}
 	}
-	return nil
+	return consumeImportHookJSONClosing(decoder, closing)
+}
+
+func validateImportHookJSONDepth(depth int) error {
+	if depth <= hookdocument.MaximumDepth {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: maximum=%d",
+		jsonstrict.ErrMaximumDepthExceeded,
+		hookdocument.MaximumDepth,
+	)
 }
 
 func consumeImportHookJSONClosing(decoder *json.Decoder, expected json.Delim) error {

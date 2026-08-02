@@ -205,7 +205,7 @@ func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, st
 		if errors.Is(err, errImportHookStructuralBudgetExceeded) {
 			return nil, false, importHookSkipBudgetExceeded
 		}
-		return nil, false, "malformed_json"
+		return nil, false, hookSyntaxSkipReason(err)
 	}
 	if err := hookdocument.Validate(content); err != nil {
 		return nil, false, hookSyntaxSkipReason(err)
