@@ -163,18 +163,14 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 	if !ok {
 		return nil, []adopt.Skipped{{LivePath: livePath, Reason: reason}}
 	}
-	if len(rawHooks) > maximumImportHookEvents {
+	if !withinImportHookStructuralBudget(rawHooks) {
 		return importHookBudgetFailure(livePath)
 	}
 
 	eventNames := sortedImportHookEvents(rawHooks)
 	collector := importHookCollector{target: target, scope: scope, livePath: livePath}
-	for eventIndex, event := range eventNames {
-		if len(event) > maximumImportHookEventBytes {
-			collector.exceeded = true
-			break
-		}
-		identity := newImportHookEventIdentity(event, eventIndex)
+	for _, event := range eventNames {
+		identity := newImportHookEventIdentity(event)
 		if strings.TrimSpace(event) == "" {
 			collector.addSkip("empty_event")
 			continue
@@ -183,9 +179,6 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 		if err := json.Unmarshal(rawHooks[event], &groups); err != nil {
 			collector.addSkip(importHookSkipReason(identity.diagnosticToken, 0, 0, "groups_not_array"))
 			continue
-		}
-		if !collector.reserveGroups(len(groups)) {
-			break
 		}
 		for groupIndex, rawGroup := range groups {
 			collector.importGroup(event, identity, groupIndex, rawGroup)
@@ -301,9 +294,6 @@ func (collector *importHookCollector) importGroup(
 		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "missing_handlers"))
 		return
 	}
-	if !collector.reserveHandlers(len(group.Hooks)) {
-		return
-	}
 	for handlerIndex, rawHandler := range group.Hooks {
 		collector.importHandler(event, identity, groupIndex, handlerIndex, group.Matcher, rawHandler)
 		if collector.exceeded {
@@ -354,7 +344,7 @@ func (collector *importHookCollector) importHandler(
 		ResourceName: importHookName(
 			collector.target,
 			collector.scope,
-			identity.resourceToken,
+			identity.resourceEvent,
 			groupIndex,
 			handlerIndex,
 		),

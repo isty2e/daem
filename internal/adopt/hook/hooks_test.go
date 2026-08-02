@@ -244,6 +244,15 @@ func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 		t,
 		`{"hooks":{"AnyEvent":[{"hooks":[`+strings.Join(handlers, ",")+`]}]}}`,
 	)
+
+	assertHookImportBudgetFailure(
+		t,
+		`{"hooks":{"   ":[`+strings.Join(groups[:maximumImportHookGroups], ",")+`],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
+	)
+	assertHookImportBudgetFailure(
+		t,
+		`{"hooks":{"   ":[{"hooks":[`+strings.Join(handlers[:maximumImportHookHandlers], ",")+`]}],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
+	)
 }
 
 func TestParseImportHooksBoundsDiagnosticAmplification(t *testing.T) {
@@ -286,6 +295,110 @@ func TestParseImportHooksUsesDeterministicCollisionNames(t *testing.T) {
 	}
 	if len(skipped[0].Reason) > 256 || strings.Contains(skipped[0].Reason, longField) {
 		t.Fatalf("skip reason is not bounded: length=%d reason=%q", len(skipped[0].Reason), skipped[0].Reason)
+	}
+}
+
+func TestParseImportHooksPreservesSequentialSuffixAcrossNestedCollisions(t *testing.T) {
+	t.Parallel()
+
+	content := `{"hooks":{` +
+		`"A B":[{"hooks":[{"type":"command","command":"one"}]}],` +
+		`"A B 1":[{"hooks":[{"type":"command","command":"two"},{"type":"command","command":"three"}]}],` +
+		`"A-B":[{"hooks":[{"type":"command","command":"four"}]}]}}`
+	hooks, skipped := parseImportHooks(
+		[]byte(content),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	base := importHookName(target.TargetClaudeCode, target.ScopeProject, "A B", 0, 0)
+	want := []string{
+		base,
+		importHookName(target.TargetClaudeCode, target.ScopeProject, "A B 1", 0, 0),
+		base + "_2",
+		base + "_3",
+	}
+	if len(hooks) != len(want) || len(skipped) != 0 {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want %d hooks and no skips", hooks, skipped, len(want))
+	}
+	for index, hook := range hooks {
+		if hook.ResourceName != want[index] {
+			t.Fatalf("hook %d resource name = %q, want %q", index, hook.ResourceName, want[index])
+		}
+	}
+}
+
+func TestParseImportHooksPreservesSinglePassEventSanitization(t *testing.T) {
+	t.Parallel()
+
+	event := "-"
+	hooks, skipped := parseImportHooks(
+		[]byte(`{"hooks":{"`+event+`":[{"hooks":[{"type":"command","command":"true"}]}]}}`),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	want := "claude_code_project_1_1"
+	if len(hooks) != 1 || len(skipped) != 0 || hooks[0].ResourceName != want {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want preserved resource name %q", hooks, skipped, want)
+	}
+}
+
+func TestImportHookNameAllocatorMatchesSequentialContract(t *testing.T) {
+	t.Parallel()
+
+	type nameInput struct {
+		event        string
+		groupIndex   int
+		handlerIndex int
+	}
+	inputs := []nameInput{
+		{event: "A B"},
+		{event: "A B 1"},
+		{event: "A B 1", handlerIndex: 1},
+		{event: "A-B"},
+		{event: "A_B"},
+		{event: "-"},
+		{event: "A B", groupIndex: 1},
+		{event: "A-B", groupIndex: 1},
+	}
+	collector := importHookCollector{target: target.TargetClaudeCode, scope: target.ScopeProject}
+	referenceNames := make(map[string]struct{})
+	for round := 0; round < 4; round++ {
+		for _, input := range inputs {
+			identity := newImportHookEventIdentity(input.event)
+			got := collector.reserveHookName(identity, input.groupIndex, input.handlerIndex)
+			want := reserveSequentialHookName(
+				target.TargetClaudeCode,
+				target.ScopeProject,
+				input.event,
+				input.groupIndex,
+				input.handlerIndex,
+				referenceNames,
+			)
+			if got != want {
+				t.Fatalf("round %d input %#v name = %q, want sequential contract %q", round, input, got, want)
+			}
+		}
+	}
+}
+
+func reserveSequentialHookName(
+	targetValue target.Target,
+	scope target.Scope,
+	event string,
+	groupIndex int,
+	handlerIndex int,
+	seen map[string]struct{},
+) string {
+	base := importHookName(targetValue, scope, event, groupIndex, handlerIndex)
+	name := base
+	for suffix := 2; ; suffix++ {
+		if _, used := seen[name]; !used {
+			seen[name] = struct{}{}
+			return name
+		}
+		name = fmt.Sprintf("%s_%d", base, suffix)
 	}
 }
 

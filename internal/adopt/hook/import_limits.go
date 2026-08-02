@@ -2,6 +2,7 @@ package hook
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,8 +11,7 @@ import (
 )
 
 type importHookEventIdentity struct {
-	resourceToken   string
-	collisionSuffix string
+	resourceEvent   string
 	diagnosticToken string
 }
 
@@ -21,22 +21,20 @@ type importHookCollector struct {
 	livePath        string
 	hooks           []adopt.Hook
 	skipped         []adopt.Skipped
-	groups          int
-	handlers        int
 	diagnosticBytes int
 	exceeded        bool
 	usedNames       map[string]struct{}
-	nameCounts      map[string]int
+	nextNameSuffix  map[string]int
 }
 
 func importHookName(
 	target targetpkg.Target,
 	scope targetpkg.Scope,
-	eventToken string,
+	event string,
 	groupIndex int,
 	handlerIndex int,
 ) string {
-	return sanitizeImportHookName(fmt.Sprintf("%s_%s_%s_%d_%d", target, scope, eventToken, groupIndex+1, handlerIndex+1))
+	return sanitizeImportHookName(fmt.Sprintf("%s_%s_%s_%d_%d", target, scope, event, groupIndex+1, handlerIndex+1))
 }
 
 func sanitizeImportHookName(value string) string {
@@ -61,10 +59,9 @@ func sanitizeImportHookName(value string) string {
 	return name
 }
 
-func newImportHookEventIdentity(event string, eventIndex int) importHookEventIdentity {
+func newImportHookEventIdentity(event string) importHookEventIdentity {
 	return importHookEventIdentity{
-		resourceToken:   sanitizeImportHookName(event),
-		collisionSuffix: fmt.Sprintf("__e%d", eventIndex+1),
+		resourceEvent:   event,
 		diagnosticToken: boundedImportHookToken(event),
 	}
 }
@@ -74,28 +71,70 @@ func (collector *importHookCollector) reserveHookName(
 	groupIndex int,
 	handlerIndex int,
 ) string {
-	base := importHookName(collector.target, collector.scope, identity.resourceToken, groupIndex, handlerIndex)
+	base := importHookName(collector.target, collector.scope, identity.resourceEvent, groupIndex, handlerIndex)
 	if collector.usedNames == nil {
 		collector.usedNames = make(map[string]struct{})
-		collector.nameCounts = make(map[string]int)
+		collector.nextNameSuffix = make(map[string]int)
 	}
 	if _, used := collector.usedNames[base]; !used {
 		collector.usedNames[base] = struct{}{}
-		collector.nameCounts[base] = 1
 		return base
 	}
 
-	collector.nameCounts[base]++
-	candidate := fmt.Sprintf("%s_%d", base, collector.nameCounts[base])
-	if _, used := collector.usedNames[candidate]; !used {
+	suffix := collector.nextNameSuffix[base]
+	if suffix < 2 {
+		suffix = 2
+	}
+	for {
+		candidate := fmt.Sprintf("%s_%d", base, suffix)
+		suffix++
+		if _, used := collector.usedNames[candidate]; used {
+			continue
+		}
+		collector.nextNameSuffix[base] = suffix
 		collector.usedNames[candidate] = struct{}{}
 		return candidate
 	}
+}
 
-	suffix := identity.collisionSuffix
-	candidate = base + suffix
-	collector.usedNames[candidate] = struct{}{}
-	return candidate
+func withinImportHookStructuralBudget(rawHooks map[string]json.RawMessage) bool {
+	if len(rawHooks) > maximumImportHookEvents {
+		return false
+	}
+	groupCount := 0
+	handlerCount := 0
+	for event, rawEvent := range rawHooks {
+		if len(event) > maximumImportHookEventBytes {
+			return false
+		}
+		var groups []json.RawMessage
+		if err := json.Unmarshal(rawEvent, &groups); err != nil {
+			continue
+		}
+		if len(groups) > maximumImportHookGroups-groupCount {
+			return false
+		}
+		groupCount += len(groups)
+		for _, rawGroup := range groups {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(rawGroup, &fields); err != nil {
+				continue
+			}
+			rawHandlers, ok := fields["hooks"]
+			if !ok {
+				continue
+			}
+			var handlers []json.RawMessage
+			if err := json.Unmarshal(rawHandlers, &handlers); err != nil {
+				continue
+			}
+			if len(handlers) > maximumImportHookHandlers-handlerCount {
+				return false
+			}
+			handlerCount += len(handlers)
+		}
+	}
+	return true
 }
 
 func boundedImportHookToken(value string) string {
@@ -135,22 +174,6 @@ func boundedImportHookToken(value string) string {
 
 func importHookSkipReason(eventToken string, groupIndex int, handlerIndex int, reason string) string {
 	return fmt.Sprintf("event=%s,group=%d,handler=%d,%s", eventToken, groupIndex+1, handlerIndex+1, reason)
-}
-
-func (collector *importHookCollector) reserveGroups(count int) bool {
-	collector.groups += count
-	if collector.groups > maximumImportHookGroups {
-		collector.exceeded = true
-	}
-	return !collector.exceeded
-}
-
-func (collector *importHookCollector) reserveHandlers(count int) bool {
-	collector.handlers += count
-	if collector.handlers > maximumImportHookHandlers {
-		collector.exceeded = true
-	}
-	return !collector.exceeded
 }
 
 func (collector *importHookCollector) addSkip(reason string) {
