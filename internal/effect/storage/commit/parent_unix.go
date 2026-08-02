@@ -11,16 +11,35 @@ import (
 )
 
 type createdDirectory struct {
-	path     string
-	identity EntryIdentity
-	fd       int
-	retired  bool
+	path                   string
+	identity               EntryIdentity
+	fd                     int
+	cleanupState           createdDirectoryCleanupState
+	pendingDurabilityError error
 }
 
 func (directory createdDirectory) valid() bool {
-	return directory.fd >= 0 && directory.path != "" && directory.identity.path == directory.path &&
-		directory.identity.kind == entryKindDirectory && directory.identity.valid()
+	if directory.fd < 0 || directory.path == "" || directory.identity.path != directory.path ||
+		directory.identity.kind != entryKindDirectory || !directory.identity.valid() {
+		return false
+	}
+	switch directory.cleanupState {
+	case createdDirectoryCleanupActive, createdDirectoryCleanupRetired:
+		return directory.pendingDurabilityError == nil
+	case createdDirectoryCleanupPendingDurability:
+		return directory.pendingDurabilityError != nil
+	default:
+		return false
+	}
 }
+
+type createdDirectoryCleanupState uint8
+
+const (
+	createdDirectoryCleanupActive createdDirectoryCleanupState = iota
+	createdDirectoryCleanupPendingDurability
+	createdDirectoryCleanupRetired
+)
 
 // AncestorCleanup owns live handles for parent directories created by the
 // operations run through it. Its authority is limited to empty rollback
@@ -54,6 +73,7 @@ func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileComm
 
 // RemoveEmpty attempts exact empty cleanup in reverse creation order. It keeps
 // checking later entries after one refusal so every retained path is reported.
+// A prior post-unlink durability failure remains indeterminate on every retry.
 func (cleanup *AncestorCleanup) RemoveEmpty(ctx context.Context) error {
 	state, err := cleanup.requireOpen()
 	if err != nil {
@@ -234,7 +254,10 @@ func removeCreatedDirectoryIfEmptyWithFaults(
 			fmt.Errorf("valid created directory evidence is required"),
 		)
 	}
-	if directory.retired {
+	switch directory.cleanupState {
+	case createdDirectoryCleanupPendingDurability:
+		return directory.pendingDurabilityError
+	case createdDirectoryCleanupRetired:
 		return nil
 	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
@@ -296,38 +319,57 @@ func removeCreatedDirectoryIfEmptyWithFaults(
 	if err := unix.Unlinkat(anchor.parentFD(), anchor.base, unix.AT_REMOVEDIR); err != nil {
 		return classifyCreatedDirectoryCleanupFailure(anchor, *directory, err)
 	}
-	directory.retired = true
+	directory.cleanupState = createdDirectoryCleanupPendingDurability
 	if err := faults.run(ctx, phaseSyncCleanupParent, func() error {
 		return syncDirectory(anchor.parentFD())
 	}); err != nil {
-		return newFailure(
+		return retainCreatedDirectoryDurabilityFailure(directory, newFailure(
 			failureIndeterminateCommit,
 			phaseSyncCleanupParent,
 			path,
 			err,
 			path,
-		)
+		))
 	}
 	if err := anchor.verifyChain(); err != nil {
-		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, err, path)
+		return retainCreatedDirectoryDurabilityFailure(
+			directory,
+			newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, err, path),
+		)
 	}
 	observed, _, err := anchor.observe(anchor.base, path)
 	switch {
 	case errors.Is(err, unix.ENOENT):
+		retireCreatedDirectory(directory)
 		return nil
 	case err != nil:
-		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, err, path)
+		return retainCreatedDirectoryDurabilityFailure(
+			directory,
+			newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, err, path),
+		)
 	case directory.identity.sameObject(observed):
-		return newFailure(
+		return retainCreatedDirectoryDurabilityFailure(directory, newFailure(
 			failureIndeterminateCommit,
 			phaseVerifyEntry,
 			path,
 			fmt.Errorf("cleaned directory identity reappeared"),
 			path,
-		)
+		))
 	default:
+		retireCreatedDirectory(directory)
 		return nil
 	}
+}
+
+func retainCreatedDirectoryDurabilityFailure(directory *createdDirectory, err error) error {
+	directory.cleanupState = createdDirectoryCleanupPendingDurability
+	directory.pendingDurabilityError = err
+	return err
+}
+
+func retireCreatedDirectory(directory *createdDirectory) {
+	directory.cleanupState = createdDirectoryCleanupRetired
+	directory.pendingDurabilityError = nil
 }
 
 func classifyMissingCreatedDirectory(directory createdDirectory, failedPhase phase) error {

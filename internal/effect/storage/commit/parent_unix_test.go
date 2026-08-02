@@ -234,6 +234,17 @@ func TestAncestorCleanupRemovesExactEmptyDirectories(t *testing.T) {
 	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
 		t.Fatalf("RemoveEmpty: %v", err)
 	}
+	for index := range cleanup.state.directories {
+		directory := cleanup.state.directories[index]
+		if directory.cleanupState != createdDirectoryCleanupRetired || directory.pendingDurabilityError != nil {
+			t.Fatalf(
+				"created ancestor %d state = %d, pending error = %v; want retired",
+				index,
+				directory.cleanupState,
+				directory.pendingDurabilityError,
+			)
+		}
+	}
 	if _, err := os.Lstat(filepath.Join(root, "one")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("created ancestor remains: %v", err)
 	}
@@ -270,7 +281,7 @@ func TestAncestorCleanupReportsMovedCreatedDirectoryResidue(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Kind() != failureRetainedResidue {
 		t.Fatalf("RemoveEmpty error = %v, want retained residue", err)
 	}
-	if directory.retired {
+	if directory.cleanupState != createdDirectoryCleanupActive {
 		t.Fatal("moved created directory was marked retired")
 	}
 	if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
@@ -300,7 +311,7 @@ func TestAncestorCleanupReportsMoveAtEachPreUnlinkBoundary(t *testing.T) {
 				},
 			})
 			assertFailure(t, err, failureRetainedResidue, movePhase)
-			if directory.retired {
+			if directory.cleanupState != createdDirectoryCleanupActive {
 				t.Fatal("moved created directory was marked retired")
 			}
 			if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
@@ -472,7 +483,7 @@ func TestAncestorCleanupRevalidatesAfterCleanupRace(t *testing.T) {
 	if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
 		t.Fatalf("created directory was not preserved after displacement: info=%v err=%v", info, statErr)
 	}
-	if directory.retired {
+	if directory.cleanupState != createdDirectoryCleanupActive {
 		t.Fatal("displaced created directory was marked retired")
 	}
 }
@@ -485,6 +496,7 @@ func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 		wantKind  mutationfs.FailureKind
 		wantPhase phase
 		wantGone  bool
+		wantState createdDirectoryCleanupState
 	}{
 		{
 			name: "canceled",
@@ -510,6 +522,7 @@ func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 			wantKind:  failureIndeterminateCommit,
 			wantPhase: phaseSyncCleanupParent,
 			wantGone:  true,
+			wantState: createdDirectoryCleanupPendingDurability,
 		},
 	}
 	for _, test := range tests {
@@ -530,10 +543,54 @@ func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 			if !test.wantGone && statErr != nil {
 				t.Fatalf("created directory was removed before commit: %v", statErr)
 			}
-			if directory.retired != test.wantGone {
-				t.Fatalf("retired = %t, want %t", directory.retired, test.wantGone)
+			if directory.cleanupState != test.wantState {
+				t.Fatalf("cleanup state = %d, want %d", directory.cleanupState, test.wantState)
+			}
+			if test.wantState == createdDirectoryCleanupPendingDurability {
+				retryErr := cleanup.RemoveEmpty(context.Background())
+				assertFailure(t, retryErr, test.wantKind, test.wantPhase)
+				if !errors.Is(retryErr, err) {
+					t.Fatalf("retry error = %v, want retained indeterminate error %v", retryErr, err)
+				}
 			}
 		})
+	}
+}
+
+func TestAncestorCleanupRetainsPostUnlinkVerificationFailure(t *testing.T) {
+	container := canonicalTempDir(t)
+	root := filepath.Join(container, "root")
+	displacedRoot := filepath.Join(container, "displaced")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(root, "created", "state.json")
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	directory := &cleanup.state.directories[0]
+
+	err := removeCreatedDirectoryIfEmptyWithFaults(context.Background(), directory, faultPlan{
+		actions: map[phase]func(){
+			phaseSyncCleanupParent: func() {
+				if renameErr := os.Rename(root, displacedRoot); renameErr != nil {
+					t.Fatalf("move cleanup parent: %v", renameErr)
+				}
+			},
+		},
+	})
+	assertFailure(t, err, failureIndeterminateCommit, phaseVerifyEntry)
+	if directory.cleanupState != createdDirectoryCleanupPendingDurability {
+		t.Fatalf("cleanup state = %d, want pending durability", directory.cleanupState)
+	}
+	retryErr := cleanup.RemoveEmpty(context.Background())
+	assertFailure(t, retryErr, failureIndeterminateCommit, phaseVerifyEntry)
+	if !errors.Is(retryErr, err) {
+		t.Fatalf("retry error = %v, want retained indeterminate error %v", retryErr, err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(displacedRoot, "created")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("unlinked created directory reappeared: %v", statErr)
 	}
 }
 
