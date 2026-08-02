@@ -33,22 +33,6 @@ type EntryIdentity struct {
 	platform platformIdentity
 }
 
-// CreatedDirectory is ephemeral evidence that one PrepareCommitParent call
-// created this exact directory object. It grants only empty rollback cleanup;
-// it is not generic ownership or recursive-removal authority.
-type CreatedDirectory struct {
-	path     string
-	identity EntryIdentity
-}
-
-// Path returns the diagnostic path at which the directory was created.
-func (directory CreatedDirectory) Path() string { return directory.path }
-
-func (directory CreatedDirectory) valid() bool {
-	return directory.path != "" && directory.identity.path == directory.path &&
-		directory.identity.kind == entryKindDirectory && directory.identity.valid()
-}
-
 func (identity EntryIdentity) valid() bool {
 	return identity.path != "" && identity.kind != entryKindInvalid && identity.platform.valid()
 }

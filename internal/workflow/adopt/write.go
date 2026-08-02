@@ -23,7 +23,7 @@ type createdImportPath struct {
 type importParentPreparer func(
 	context.Context,
 	string,
-) ([]storagecommit.CreatedDirectory, error)
+) error
 
 func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest func() error) (returnErr error) {
 	if ctx == nil {
@@ -37,10 +37,12 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 	output := plan.Output()
 	manifestContent := plan.ManifestContent()
 	created := make([]createdImportPath, 0, len(sources)+len(skills))
-	createdDirectories, preparationErr := prepareImportParentDirectories(
+	var ancestorCleanup storagecommit.AncestorCleanup
+	defer ancestorCleanup.Close()
+	preparationErr := prepareImportParentDirectories(
 		ctx,
 		plan,
-		storagecommit.PrepareCommitParent,
+		ancestorCleanup.PrepareParent,
 	)
 	cleanupOnFailure := true
 	defer func() {
@@ -78,17 +80,8 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("imported path %q was replaced after creation; cleanup refused: %w", created[index].path, err))
 			}
 		}
-		for index := len(createdDirectories) - 1; index >= 0; index-- {
-			if err := storagecommit.RemoveCreatedDirectoryIfEmpty(
-				cleanupContext,
-				createdDirectories[index],
-			); err != nil {
-				cleanupErrors = append(cleanupErrors, fmt.Errorf(
-					"remove created import directory %q: %w",
-					createdDirectories[index].Path(),
-					err,
-				))
-			}
+		if err := ancestorCleanup.RemoveEmpty(cleanupContext); err != nil {
+			cleanupErrors = append(cleanupErrors, err)
 		}
 		returnErr = errors.Join(returnErr, errors.Join(cleanupErrors...))
 	}()
@@ -99,7 +92,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		createdPath, err := commitNewImportFile(ctx, source.SourcePath, source.Content, 0o600)
+		createdPath, err := commitNewImportFile(ctx, source.SourcePath, source.Content, 0o600, &ancestorCleanup)
 		if err != nil {
 			return fmt.Errorf("write imported source %q: %w", source.SourcePath, err)
 		}
@@ -114,7 +107,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 			continue
 		}
 		writtenSkillSources[skill.SourcePath] = struct{}{}
-		createdPath, err := copyImportedSkillDirectory(ctx, skill.ReadPath, skill.SourcePath)
+		createdPath, err := copyImportedSkillDirectory(ctx, skill.ReadPath, skill.SourcePath, &ancestorCleanup)
 		if err != nil {
 			return fmt.Errorf("write imported skill source %q: %w", skill.SourcePath, err)
 		}
@@ -129,13 +122,13 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 		return err
 	}
 	if plan.Merge() {
-		if err := commitExistingImportFile(ctx, output, manifestContent); err != nil {
+		if err := commitExistingImportFile(ctx, output, manifestContent, &ancestorCleanup); err != nil {
 			if storageCommitMayBeVisible(err) {
 				cleanupOnFailure = false
 			}
 			return fmt.Errorf("write output manifest %q: %w", output, err)
 		}
-	} else if _, err := commitNewFile(ctx, output, manifestContent, 0o600); err != nil {
+	} else if _, err := commitNewFile(ctx, output, manifestContent, 0o600, &ancestorCleanup); err != nil {
 		if storageCommitMayBeVisible(err) {
 			cleanupOnFailure = false
 		}
@@ -160,12 +153,12 @@ func prepareImportParentDirectories(
 	ctx context.Context,
 	plan adoptmodel.Plan,
 	prepareParent importParentPreparer,
-) ([]storagecommit.CreatedDirectory, error) {
+) error {
 	if err := plan.Validate(); err != nil {
-		return nil, err
+		return err
 	}
 	if prepareParent == nil {
-		return nil, fmt.Errorf("import parent preparer is required")
+		return fmt.Errorf("import parent preparer is required")
 	}
 	sources := plan.Sources()
 	skills := plan.Skills()
@@ -179,31 +172,34 @@ func prepareImportParentDirectories(
 		return nil
 	}
 	if err := addCommitPath(plan.Output()); err != nil {
-		return nil, err
+		return err
 	}
 	for _, source := range sources {
 		if err := addCommitPath(source.SourcePath); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	for _, skill := range skills {
 		if err := addCommitPath(skill.SourcePath); err != nil {
-			return nil, err
+			return err
 		}
 	}
-	createdDirectories := make([]storagecommit.CreatedDirectory, 0)
 	for _, path := range commitPaths {
-		created, err := prepareParent(ctx, path)
-		createdDirectories = append(createdDirectories, created...)
-		if err != nil {
-			return createdDirectories, fmt.Errorf("prepare import parent for %q: %w", path, err)
+		if err := prepareParent(ctx, path); err != nil {
+			return fmt.Errorf("prepare import parent for %q: %w", path, err)
 		}
 	}
-	return createdDirectories, nil
+	return nil
 }
 
-func commitNewImportFile(ctx context.Context, path string, content []byte, mode os.FileMode) (createdImportPath, error) {
-	commitPath, err := commitNewFile(ctx, path, content, mode)
+func commitNewImportFile(
+	ctx context.Context,
+	path string,
+	content []byte,
+	mode os.FileMode,
+	ancestorCleanup *storagecommit.AncestorCleanup,
+) (createdImportPath, error) {
+	commitPath, err := commitNewFile(ctx, path, content, mode, ancestorCleanup)
 	if err != nil {
 		return createdImportPath{path: commitPath}, err
 	}
@@ -214,7 +210,13 @@ func commitNewImportFile(ctx context.Context, path string, content []byte, mode 
 	return created, nil
 }
 
-func commitNewFile(ctx context.Context, path string, content []byte, mode os.FileMode) (string, error) {
+func commitNewFile(
+	ctx context.Context,
+	path string,
+	content []byte,
+	mode os.FileMode,
+	ancestorCleanup *storagecommit.AncestorCleanup,
+) (string, error) {
 	commitPath, err := mutation.CanonicalDirectoryEntryPath(path)
 	if err != nil {
 		return "", err
@@ -223,13 +225,18 @@ func commitNewFile(ctx context.Context, path string, content []byte, mode os.Fil
 	if err != nil {
 		return commitPath, err
 	}
-	if err := storagecommit.CommitFile(ctx, request); err != nil {
+	if err := ancestorCleanup.CommitFile(ctx, request); err != nil {
 		return commitPath, err
 	}
 	return commitPath, nil
 }
 
-func commitExistingImportFile(ctx context.Context, path string, content []byte) error {
+func commitExistingImportFile(
+	ctx context.Context,
+	path string,
+	content []byte,
+	ancestorCleanup *storagecommit.AncestorCleanup,
+) error {
 	commitPath, err := mutation.CanonicalDirectoryEntryPath(path)
 	if err != nil {
 		return err
@@ -246,10 +253,15 @@ func commitExistingImportFile(ctx context.Context, path string, content []byte) 
 	if err != nil {
 		return err
 	}
-	return storagecommit.CommitFile(ctx, request)
+	return ancestorCleanup.CommitFile(ctx, request)
 }
 
-func copyImportedSkillDirectory(ctx context.Context, sourceRoot string, destinationRoot string) (createdImportPath, error) {
+func copyImportedSkillDirectory(
+	ctx context.Context,
+	sourceRoot string,
+	destinationRoot string,
+	ancestorCleanup *storagecommit.AncestorCleanup,
+) (createdImportPath, error) {
 	commitPath, err := mutation.CanonicalDirectoryEntryPath(destinationRoot)
 	if err != nil {
 		return createdImportPath{}, err
@@ -260,7 +272,7 @@ func copyImportedSkillDirectory(ctx context.Context, sourceRoot string, destinat
 		return createdImportPath{}, fmt.Errorf("imported skill destination already exists: %s", destinationRoot)
 	}
 
-	if _, err := storagecommit.PrepareCommitParent(ctx, commitPath); err != nil {
+	if err := ancestorCleanup.PrepareParent(ctx, commitPath); err != nil {
 		return createdImportPath{}, err
 	}
 	destinationParent := filepath.Dir(commitPath)

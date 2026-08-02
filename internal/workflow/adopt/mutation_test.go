@@ -156,30 +156,101 @@ func TestPrepareImportParentDirectoriesDoesNotClaimExternalCreation(t *testing.T
 		t.Fatal(err)
 	}
 
-	created, err := prepareImportParentDirectories(
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	err = prepareImportParentDirectories(
 		context.Background(),
 		plan,
-		func(ctx context.Context, path string) ([]storagecommit.CreatedDirectory, error) {
+		func(ctx context.Context, path string) error {
 			if path == canonicalSourcePath {
 				if mkdirErr := os.Mkdir(filepath.Dir(path), 0o755); mkdirErr != nil {
 					t.Fatalf("create concurrent external parent: %v", mkdirErr)
 				}
 			}
-			return storagecommit.PrepareCommitParent(ctx, path)
+			return cleanup.PrepareParent(ctx, path)
 		},
 	)
 	if err != nil {
 		t.Fatalf("prepareImportParentDirectories returned error: %v", err)
 	}
-	if len(created) != 0 {
-		paths := make([]string, 0, len(created))
-		for _, directory := range created {
-			paths = append(paths, directory.Path())
-		}
-		t.Fatalf("parent preparation claimed external directories: %v", paths)
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("cleanup external parent observation: %v", err)
 	}
 	if info, statErr := os.Stat(filepath.Dir(sourcePath)); statErr != nil || !info.IsDir() {
 		t.Fatalf("external parent was not preserved: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestCommitNewImportFileTracksParentRecreatedAfterPreflight(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "recreated")
+	target := filepath.Join(parent, "source.md")
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("prepare initial parent: %v", err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("remove prepared parent: %v", err)
+	}
+	created, err := commitNewImportFile(
+		context.Background(),
+		target,
+		[]byte("content"),
+		0o600,
+		&cleanup,
+	)
+	if err != nil {
+		t.Fatalf("commit import file after parent removal: %v", err)
+	}
+	if err := os.Remove(created.path); err != nil {
+		t.Fatalf("remove committed import file: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("remove recreated parent: %v", err)
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreated file parent remains after rollback: %v", err)
+	}
+}
+
+func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source-skill")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "recreated")
+	target := filepath.Join(parent, "skill")
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("prepare initial skill parent: %v", err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("remove prepared skill parent: %v", err)
+	}
+	created, err := copyImportedSkillDirectory(context.Background(), source, target, &cleanup)
+	if err != nil {
+		t.Fatalf("copy skill after parent removal: %v", err)
+	}
+	if err := os.RemoveAll(created.path); err != nil {
+		t.Fatalf("remove committed skill: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("remove recreated skill parent: %v", err)
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreated skill parent remains after rollback: %v", err)
 	}
 }
 

@@ -42,8 +42,7 @@ func (Adapter) SnapshotDirectory(
 }
 
 func (Adapter) PrepareCommitParent(ctx context.Context, path string) error {
-	_, err := PrepareCommitParent(ctx, path)
-	return err
+	return PrepareCommitParent(ctx, path)
 }
 
 func (Adapter) CreateFile(

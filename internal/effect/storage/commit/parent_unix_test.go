@@ -11,12 +11,13 @@ import (
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"golang.org/x/sys/unix"
 )
 
 func TestPrepareCommitParentPersistsPrivateMissingAncestors(t *testing.T) {
 	root := canonicalTempDir(t)
 	target := filepath.Join(root, "one", "two", "state.json")
-	if _, err := PrepareCommitParent(context.Background(), target); err != nil {
+	if err := PrepareCommitParent(context.Background(), target); err != nil {
 		t.Fatalf("PrepareCommitParent returned error: %v", err)
 	}
 	for _, path := range []string{filepath.Join(root, "one"), filepath.Join(root, "one", "two")} {
@@ -40,7 +41,7 @@ func TestPrepareCommitParentRejectsSymlinkAncestor(t *testing.T) {
 	if err := os.Symlink(realParent, linkedParent); err != nil {
 		t.Fatalf("Symlink returned error: %v", err)
 	}
-	_, err := PrepareCommitParent(context.Background(), filepath.Join(linkedParent, "state.json"))
+	err := PrepareCommitParent(context.Background(), filepath.Join(linkedParent, "state.json"))
 	assertFailure(t, err, failureUncommitted, phaseCreateAncestors)
 }
 
@@ -50,10 +51,12 @@ func TestPrepareCommitParentFaultsCleanCreatedAncestors(t *testing.T) {
 			root := canonicalTempDir(t)
 			createdRoot := filepath.Join(root, "one")
 			target := filepath.Join(createdRoot, "two", "state.json")
-			_, err := prepareCommitParentWithFaults(
+			cleanup := newTestAncestorCleanup(t)
+			err := prepareCommitParentWithFaults(
 				context.Background(),
 				target,
 				faultPlan{failures: map[phase]error{failedPhase: errors.New("injected")}},
+				cleanup,
 			)
 			assertFailure(t, err, failureUncommitted, failedPhase)
 			if _, statErr := os.Lstat(createdRoot); !errors.Is(statErr, os.ErrNotExist) {
@@ -63,31 +66,33 @@ func TestPrepareCommitParentFaultsCleanCreatedAncestors(t *testing.T) {
 	}
 }
 
-func TestPrepareCommitParentReturnsCreatedProvenanceWhenCleanupFails(t *testing.T) {
+func TestPrepareCommitParentRetainsCleanupAuthorityWhenCleanupFails(t *testing.T) {
 	root := canonicalTempDir(t)
 	createdRoot := filepath.Join(root, "one")
 	target := filepath.Join(createdRoot, "two", "state.json")
-	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+	cleanup := newTestAncestorCleanup(t)
+	err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
 		failures: map[phase]error{
 			phaseSyncAncestors:    errors.New("sync injected"),
 			phaseCleanupAncestors: errors.New("cleanup injected"),
 		},
-	})
+	}, cleanup)
 	failure := assertFailure(t, err, failureUncommitted, phaseSyncAncestors)
-	if len(created) != 2 {
-		t.Fatalf("created provenance count = %d, want 2", len(created))
+	directories := testCreatedDirectories(cleanup)
+	if len(directories) != 2 {
+		t.Fatalf("created cleanup authority count = %d, want 2", len(directories))
 	}
 	if len(failure.retainedResidue()) != 2 {
 		t.Fatalf("retained residue = %v, want both created ancestors", failure.retainedResidue())
 	}
-	for _, directory := range created {
-		if info, statErr := os.Stat(directory.Path()); statErr != nil || !info.IsDir() {
-			t.Fatalf("created residue %q was not retained: info=%v err=%v", directory.Path(), info, statErr)
+	for _, directory := range directories {
+		if info, statErr := os.Stat(directory.path); statErr != nil || !info.IsDir() {
+			t.Fatalf("created residue %q was not retained: info=%v err=%v", directory.path, info, statErr)
 		}
 	}
 }
 
-func TestPrepareCommitParentReportsOnlyCurrentInvocationCreations(t *testing.T) {
+func TestAncestorCleanupReportsOnlyCurrentInvocationCreations(t *testing.T) {
 	root := canonicalTempDir(t)
 	existing := filepath.Join(root, "existing")
 	if err := os.Mkdir(existing, 0o700); err != nil {
@@ -95,29 +100,30 @@ func TestPrepareCommitParentReportsOnlyCurrentInvocationCreations(t *testing.T) 
 	}
 	target := filepath.Join(existing, "one", "two", "state.json")
 
-	created, err := PrepareCommitParent(context.Background(), target)
-	if err != nil {
-		t.Fatalf("PrepareCommitParent returned error: %v", err)
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("PrepareParent returned error: %v", err)
 	}
 	want := []string{filepath.Join(existing, "one"), filepath.Join(existing, "one", "two")}
-	if len(created) != len(want) {
-		t.Fatalf("created directory count = %d, want %d", len(created), len(want))
+	directories := testCreatedDirectories(cleanup)
+	if len(directories) != len(want) {
+		t.Fatalf("created directory count = %d, want %d", len(directories), len(want))
 	}
 	for index := range want {
-		if got := created[index].Path(); got != want[index] {
-			t.Fatalf("created[%d].Path() = %q, want %q", index, got, want[index])
+		if got := directories[index].path; got != want[index] {
+			t.Fatalf("created[%d].path = %q, want %q", index, got, want[index])
 		}
-		if !created[index].valid() {
-			t.Fatalf("created[%d] is not valid provenance", index)
+		if !directories[index].valid() {
+			t.Fatalf("created[%d] is not valid cleanup authority", index)
 		}
 	}
 
-	repeated, err := PrepareCommitParent(context.Background(), target)
-	if err != nil {
-		t.Fatalf("repeated PrepareCommitParent returned error: %v", err)
+	repeated := newTestAncestorCleanup(t)
+	if err := repeated.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("repeated PrepareParent returned error: %v", err)
 	}
-	if len(repeated) != 0 {
-		t.Fatalf("repeated preparation reported %d creations, want none", len(repeated))
+	if directories := testCreatedDirectories(repeated); len(directories) != 0 {
+		t.Fatalf("repeated preparation reported %d creations, want none", len(directories))
 	}
 }
 
@@ -125,8 +131,9 @@ func TestPrepareCommitParentDoesNotClaimConcurrentExternalCreation(t *testing.T)
 	root := canonicalTempDir(t)
 	external := filepath.Join(root, "external")
 	target := filepath.Join(external, "state.json")
+	cleanup := newTestAncestorCleanup(t)
 
-	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+	err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
 		actions: map[phase]func(){
 			phaseCreateAncestors: func() {
 				if mkdirErr := os.Mkdir(external, 0o755); mkdirErr != nil {
@@ -134,12 +141,12 @@ func TestPrepareCommitParentDoesNotClaimConcurrentExternalCreation(t *testing.T)
 				}
 			},
 		},
-	})
+	}, cleanup)
 	if err != nil {
 		t.Fatalf("prepareCommitParentWithFaults returned error: %v", err)
 	}
-	if len(created) != 0 {
-		t.Fatalf("preparation claimed %d externally created directories", len(created))
+	if directories := testCreatedDirectories(cleanup); len(directories) != 0 {
+		t.Fatalf("preparation claimed %d externally created directories", len(directories))
 	}
 	info, err := os.Stat(external)
 	if err != nil || !info.IsDir() {
@@ -151,8 +158,9 @@ func TestPrepareCommitParentNoReplacePublicationDoesNotClaimConcurrentCreation(t
 	root := canonicalTempDir(t)
 	external := filepath.Join(root, "external")
 	target := filepath.Join(external, "state.json")
+	cleanup := newTestAncestorCleanup(t)
 
-	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+	err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
 		actions: map[phase]func(){
 			phaseCommitEntry: func() {
 				if mkdirErr := os.Mkdir(external, 0o755); mkdirErr != nil {
@@ -160,12 +168,12 @@ func TestPrepareCommitParentNoReplacePublicationDoesNotClaimConcurrentCreation(t
 				}
 			},
 		},
-	})
+	}, cleanup)
 	if err != nil {
 		t.Fatalf("prepareCommitParentWithFaults returned error: %v", err)
 	}
-	if len(created) != 0 {
-		t.Fatalf("preparation claimed %d concurrently published directories", len(created))
+	if directories := testCreatedDirectories(cleanup); len(directories) != 0 {
+		t.Fatalf("preparation claimed %d concurrently published directories", len(directories))
 	}
 	info, err := os.Stat(external)
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o755 {
@@ -182,13 +190,14 @@ func TestPrepareCommitParentNoReplacePublicationDoesNotClaimConcurrentCreation(t
 	}
 }
 
-func TestPrepareCommitParentDoesNotBindCreationEvidenceToPublishedReplacement(t *testing.T) {
+func TestPrepareCommitParentDoesNotBindCleanupAuthorityToPublishedReplacement(t *testing.T) {
 	root := canonicalTempDir(t)
 	createdPath := filepath.Join(root, "created")
 	displacedPath := filepath.Join(root, "displaced")
 	target := filepath.Join(createdPath, "state.json")
+	cleanup := newTestAncestorCleanup(t)
 
-	created, err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
+	err := prepareCommitParentWithFaults(context.Background(), target, faultPlan{
 		actions: map[phase]func(){
 			phasePublishAncestor: func() {
 				if renameErr := os.Rename(createdPath, displacedPath); renameErr != nil {
@@ -199,12 +208,12 @@ func TestPrepareCommitParentDoesNotBindCreationEvidenceToPublishedReplacement(t 
 				}
 			},
 		},
-	})
+	}, cleanup)
 	assertFailure(t, err, failureUncommitted, phaseCreateAncestors)
-	if len(created) != 1 {
-		t.Fatalf("created evidence count = %d, want displaced staged object only", len(created))
+	if directories := testCreatedDirectories(cleanup); len(directories) != 1 {
+		t.Fatalf("created cleanup authority count = %d, want displaced staged object only", len(directories))
 	}
-	if cleanupErr := RemoveCreatedDirectoryIfEmpty(context.Background(), created[0]); cleanupErr == nil {
+	if cleanupErr := cleanup.RemoveEmpty(context.Background()); cleanupErr == nil {
 		t.Fatal("cleanup accepted replacement at the publication path")
 	}
 	for _, path := range []string{createdPath, displacedPath} {
@@ -214,64 +223,60 @@ func TestPrepareCommitParentDoesNotBindCreationEvidenceToPublishedReplacement(t 
 	}
 }
 
-func TestRemoveCreatedDirectoryIfEmptyRemovesExactEmptyDirectory(t *testing.T) {
+func TestAncestorCleanupRemovesExactEmptyDirectories(t *testing.T) {
 	root := canonicalTempDir(t)
 	target := filepath.Join(root, "one", "two", "state.json")
-	created, err := PrepareCommitParent(context.Background(), target)
-	if err != nil {
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 		t.Fatal(err)
 	}
 
-	for index := len(created) - 1; index >= 0; index-- {
-		if err := RemoveCreatedDirectoryIfEmpty(context.Background(), created[index]); err != nil {
-			t.Fatalf("RemoveCreatedDirectoryIfEmpty(%q): %v", created[index].Path(), err)
-		}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("RemoveEmpty: %v", err)
 	}
 	if _, err := os.Lstat(filepath.Join(root, "one")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("created ancestor remains: %v", err)
 	}
-	for index := len(created) - 1; index >= 0; index-- {
-		if err := RemoveCreatedDirectoryIfEmpty(context.Background(), created[index]); err != nil {
-			t.Fatalf("repeated RemoveCreatedDirectoryIfEmpty(%q): %v", created[index].Path(), err)
-		}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("repeated RemoveEmpty: %v", err)
 	}
 }
 
-func TestRemoveCreatedDirectoryIfEmptyPreservesPopulatedDirectory(t *testing.T) {
+func TestAncestorCleanupPreservesPopulatedDirectory(t *testing.T) {
 	root := canonicalTempDir(t)
 	target := filepath.Join(root, "created", "state.json")
-	created, err := PrepareCommitParent(context.Background(), target)
-	if err != nil {
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 		t.Fatal(err)
 	}
-	external := filepath.Join(created[0].Path(), "external.txt")
+	external := filepath.Join(testCreatedDirectories(cleanup)[0].path, "external.txt")
 	if err := os.WriteFile(external, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	err = RemoveCreatedDirectoryIfEmpty(context.Background(), created[0])
-	if err == nil {
-		t.Fatal("RemoveCreatedDirectoryIfEmpty removed or accepted a populated directory")
+	if err := cleanup.RemoveEmpty(context.Background()); err == nil {
+		t.Fatal("RemoveEmpty removed or accepted a populated directory")
 	}
 	if content, readErr := os.ReadFile(external); readErr != nil || string(content) != "keep" {
 		t.Fatalf("external content was not preserved: content=%q err=%v", content, readErr)
 	}
 }
 
-func TestRemoveCreatedDirectoryIfEmptyRejectsReplacementAndSymlink(t *testing.T) {
+func TestAncestorCleanupRejectsReplacementAndSymlink(t *testing.T) {
 	for _, replacementKind := range []string{"directory", "symlink"} {
 		t.Run(replacementKind, func(t *testing.T) {
 			root := canonicalTempDir(t)
 			target := filepath.Join(root, "created", "state.json")
-			created, err := PrepareCommitParent(context.Background(), target)
-			if err != nil {
+			cleanup := newTestAncestorCleanup(t)
+			if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 				t.Fatal(err)
 			}
-			original := created[0].Path()
+			original := testCreatedDirectories(cleanup)[0].path
 			displaced := filepath.Join(root, "displaced")
 			if err := os.Rename(original, displaced); err != nil {
 				t.Fatal(err)
 			}
+			var err error
 			switch replacementKind {
 			case "directory":
 				err = os.Mkdir(original, 0o700)
@@ -282,9 +287,8 @@ func TestRemoveCreatedDirectoryIfEmptyRejectsReplacementAndSymlink(t *testing.T)
 				t.Fatal(err)
 			}
 
-			err = RemoveCreatedDirectoryIfEmpty(context.Background(), created[0])
-			if err == nil {
-				t.Fatal("RemoveCreatedDirectoryIfEmpty accepted replacement")
+			if err := cleanup.RemoveEmpty(context.Background()); err == nil {
+				t.Fatal("RemoveEmpty accepted replacement")
 			}
 			if _, statErr := os.Lstat(original); statErr != nil {
 				t.Fatalf("replacement was not preserved: %v", statErr)
@@ -296,30 +300,105 @@ func TestRemoveCreatedDirectoryIfEmptyRejectsReplacementAndSymlink(t *testing.T)
 	}
 }
 
-func TestRemoveCreatedDirectoryIfEmptyRevalidatesAfterCleanupRace(t *testing.T) {
+func TestAncestorCleanupRetainsCreatedObjectHandleUntilClose(t *testing.T) {
 	root := canonicalTempDir(t)
 	target := filepath.Join(root, "created", "state.json")
-	created, err := PrepareCommitParent(context.Background(), target)
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	directory := testCreatedDirectories(cleanup)[0]
+	displaced := filepath.Join(root, "displaced")
+	if err := os.Rename(directory.path, displaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(directory.path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var retained unix.Stat_t
+	if err := unix.Fstat(directory.fd, &retained); err != nil {
+		t.Fatalf("created object handle was not retained: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err == nil {
+		t.Fatal("cleanup accepted replacement while the created object handle was retained")
+	}
+	cleanup.Close()
+	if err := unix.Fstat(directory.fd, &retained); !errors.Is(err, unix.EBADF) {
+		t.Fatalf("created object handle remained open after Close: %v", err)
+	}
+	for _, path := range []string{directory.path, displaced} {
+		if info, err := os.Stat(path); err != nil || !info.IsDir() {
+			t.Fatalf("directory %q was not preserved: info=%v err=%v", path, info, err)
+		}
+	}
+}
+
+func TestAncestorCleanupCopiesShareOneHandleLifetime(t *testing.T) {
+	root := canonicalTempDir(t)
+	target := filepath.Join(root, "created", "state.json")
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	directory := testCreatedDirectories(cleanup)[0]
+	copied := *cleanup
+	copied.Close()
+
+	var stat unix.Stat_t
+	if err := unix.Fstat(directory.fd, &stat); !errors.Is(err, unix.EBADF) {
+		t.Fatalf("copied cleanup did not close shared handle: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err == nil || !strings.Contains(err.Error(), "closed") {
+		t.Fatalf("original cleanup remained usable after copied Close: %v", err)
+	}
+	cleanup.Close()
+}
+
+func TestClosedAncestorCleanupRefusesEffects(t *testing.T) {
+	root := canonicalTempDir(t)
+	parent := filepath.Join(root, "missing")
+	target := filepath.Join(parent, "state.json")
+	var cleanup AncestorCleanup
+	cleanup.Close()
+	if err := cleanup.PrepareParent(context.Background(), target); err == nil {
+		t.Fatal("closed cleanup prepared a parent")
+	}
+	request, err := NewFileCreate(target, []byte("content"), 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	original := created[0].Path()
+	if err := cleanup.CommitFile(context.Background(), request); err == nil {
+		t.Fatal("closed cleanup committed a file")
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("closed cleanup performed a filesystem effect: %v", err)
+	}
+}
+
+func TestAncestorCleanupRevalidatesAfterCleanupRace(t *testing.T) {
+	root := canonicalTempDir(t)
+	target := filepath.Join(root, "created", "state.json")
+	cleanup := newTestAncestorCleanup(t)
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatal(err)
+	}
+	directory := testCreatedDirectories(cleanup)[0]
 	displaced := filepath.Join(root, "displaced")
 
-	err = removeCreatedDirectoryIfEmptyWithFaults(context.Background(), created[0], faultPlan{
+	err := removeCreatedDirectoryIfEmptyWithFaults(context.Background(), directory, faultPlan{
 		actions: map[phase]func(){
 			phaseCleanupEntry: func() {
-				if renameErr := os.Rename(original, displaced); renameErr != nil {
+				if renameErr := os.Rename(directory.path, displaced); renameErr != nil {
 					t.Fatalf("displace created directory: %v", renameErr)
 				}
-				if mkdirErr := os.Mkdir(original, 0o700); mkdirErr != nil {
+				if mkdirErr := os.Mkdir(directory.path, 0o700); mkdirErr != nil {
 					t.Fatalf("create replacement directory: %v", mkdirErr)
 				}
 			},
 		},
 	})
 	assertFailure(t, err, failureUncommitted, phaseCleanupEntry)
-	if info, statErr := os.Stat(original); statErr != nil || !info.IsDir() {
+	if info, statErr := os.Stat(directory.path); statErr != nil || !info.IsDir() {
 		t.Fatalf("replacement directory was not preserved: info=%v err=%v", info, statErr)
 	}
 	if info, statErr := os.Stat(displaced); statErr != nil || !info.IsDir() {
@@ -327,7 +406,7 @@ func TestRemoveCreatedDirectoryIfEmptyRevalidatesAfterCleanupRace(t *testing.T) 
 	}
 }
 
-func TestRemoveCreatedDirectoryIfEmptyHonorsCancellationAndFaults(t *testing.T) {
+func TestAncestorCleanupHonorsCancellationAndFaults(t *testing.T) {
 	tests := []struct {
 		name      string
 		context   func() context.Context
@@ -366,13 +445,14 @@ func TestRemoveCreatedDirectoryIfEmptyHonorsCancellationAndFaults(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			root := canonicalTempDir(t)
 			target := filepath.Join(root, "created", "state.json")
-			created, err := PrepareCommitParent(context.Background(), target)
-			if err != nil {
+			cleanup := newTestAncestorCleanup(t)
+			if err := cleanup.PrepareParent(context.Background(), target); err != nil {
 				t.Fatal(err)
 			}
-			err = removeCreatedDirectoryIfEmptyWithFaults(test.context(), created[0], test.faults)
+			directory := testCreatedDirectories(cleanup)[0]
+			err := removeCreatedDirectoryIfEmptyWithFaults(test.context(), directory, test.faults)
 			assertFailure(t, err, test.wantKind, test.wantPhase)
-			_, statErr := os.Lstat(created[0].Path())
+			_, statErr := os.Lstat(directory.path)
 			if test.wantGone && !errors.Is(statErr, os.ErrNotExist) {
 				t.Fatalf("created directory remains after visible cleanup: %v", statErr)
 			}
@@ -381,4 +461,18 @@ func TestRemoveCreatedDirectoryIfEmptyHonorsCancellationAndFaults(t *testing.T) 
 			}
 		})
 	}
+}
+
+func newTestAncestorCleanup(t *testing.T) *AncestorCleanup {
+	t.Helper()
+	cleanup := &AncestorCleanup{}
+	t.Cleanup(cleanup.Close)
+	return cleanup
+}
+
+func testCreatedDirectories(cleanup *AncestorCleanup) []createdDirectory {
+	if cleanup == nil || cleanup.state == nil {
+		return nil
+	}
+	return cleanup.state.directories
 }

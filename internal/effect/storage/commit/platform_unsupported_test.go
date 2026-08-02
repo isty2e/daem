@@ -26,7 +26,7 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			return captureErr
 		}},
 		{name: "prepare parent", run: func() error {
-			_, err := PrepareCommitParent(context.Background(), path)
+			err := PrepareCommitParent(context.Background(), path)
 			return err
 		}},
 		{name: "read regular file", run: func() error {

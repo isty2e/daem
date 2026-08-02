@@ -62,7 +62,7 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return transactionMarker{}, fmt.Errorf("inspect file-set transaction evidence: %w", err)
 	}
-	if _, err := storagecommit.PrepareCommitParent(ctx, transactionDir); err != nil {
+	if err := storagecommit.PrepareCommitParent(ctx, transactionDir); err != nil {
 		return transactionMarker{}, fmt.Errorf("prepare file-set evidence parent: %w", err)
 	}
 	stagedDir, err := os.MkdirTemp(stateDir, ".metadata-stage-")
