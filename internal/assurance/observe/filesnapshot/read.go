@@ -133,11 +133,8 @@ func readRegularFileSnapshotContext(
 	}
 
 	file, err := openRegularFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return Snapshot{}, false, ErrChanged
-	}
 	if err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, classifyOpenFailure(path, before, err)
 	}
 	defer file.Close()
 
@@ -215,6 +212,27 @@ func readRegularFileSnapshotContext(
 		return Snapshot{}, false, err
 	}
 	return Snapshot{content: content, mode: opened.Mode()}, true, nil
+}
+
+func classifyOpenFailure(path string, before os.FileInfo, openErr error) error {
+	if errors.Is(openErr, ErrChanged) || errors.Is(openErr, os.ErrNotExist) {
+		return ErrChanged
+	}
+
+	after, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ErrChanged
+	}
+	if err != nil {
+		return openErr
+	}
+	if after.Mode()&os.ModeSymlink != 0 ||
+		!after.Mode().IsRegular() ||
+		!os.SameFile(before, after) ||
+		!sameFileVersion(before, after) {
+		return ErrChanged
+	}
+	return openErr
 }
 
 func sameFileVersion(left os.FileInfo, right os.FileInfo) bool {

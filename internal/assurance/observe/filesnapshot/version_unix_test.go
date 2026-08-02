@@ -5,6 +5,7 @@ package filesnapshot
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -104,5 +105,38 @@ func TestReadRegularFileContextDoesNotFollowSymlinkReplacement(t *testing.T) {
 	})
 	if !errors.Is(err, ErrChanged) {
 		t.Fatalf("symlink replacement error = %v, want ErrChanged", err)
+	}
+}
+
+func TestReadRegularFileContextClassifiesSocketReplacementAsChanged(t *testing.T) {
+	t.Parallel()
+
+	root, err := os.MkdirTemp("/tmp", "daem-filesnapshot-replacement-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	path := filepath.Join(root, "source")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var listener net.Listener
+	_, _, err = readRegularFileContext(context.Background(), path, 64, readHooks{
+		afterInspect: func() {
+			if removeErr := os.Remove(path); removeErr != nil {
+				t.Fatalf("remove inspected file: %v", removeErr)
+			}
+			listener, err = net.Listen("unix", path)
+			if err != nil {
+				t.Fatalf("replace inspected file with socket: %v", err)
+			}
+		},
+	})
+	if listener != nil {
+		t.Cleanup(func() { _ = listener.Close() })
+	}
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("socket replacement error = %v, want ErrChanged", err)
 	}
 }
