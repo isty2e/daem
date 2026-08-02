@@ -1,6 +1,8 @@
 package apply
 
 import (
+	"context"
+
 	"github.com/isty2e/daem/internal/assurance/durable"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -57,6 +59,7 @@ func delegateAttemptResults(
 }
 
 func postAttemptSummaries(
+	ctx context.Context,
 	paths daempaths.Paths,
 	locked lock.File,
 	selection targetselection.Selection,
@@ -70,6 +73,7 @@ func postAttemptSummaries(
 	}
 
 	observations, err := readiness.ObserveAggregateProjectionSummaries(
+		ctx,
 		liveobserve.DestinationResolver(destinationResolver(paths).Resolve),
 		locked,
 		selection,

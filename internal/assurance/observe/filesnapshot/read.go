@@ -31,6 +31,18 @@ type changeVersion struct {
 	nanoseconds int64
 }
 
+// Snapshot is one identity-stable regular-file observation.
+type Snapshot struct {
+	content []byte
+	mode    os.FileMode
+}
+
+// Content returns a defensive copy of the observed bytes.
+func (snapshot Snapshot) Content() []byte { return append([]byte(nil), snapshot.content...) }
+
+// Mode returns the mode observed from the same file descriptor as Content.
+func (snapshot Snapshot) Mode() os.FileMode { return snapshot.mode }
+
 type limitExceededError struct {
 	maximumBytes int64
 }
@@ -58,74 +70,98 @@ func ReadRegularFileContext(
 	return readRegularFileContext(ctx, path, maximumBytes, readHooks{})
 }
 
+// ReadRegularFileSnapshotContext reads one bounded regular-file snapshot and
+// returns content and mode from the same stable descriptor.
+func ReadRegularFileSnapshotContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (snapshot Snapshot, exists bool, err error) {
+	return readRegularFileSnapshotContext(ctx, path, maximumBytes, readHooks{})
+}
+
 func readRegularFileContext(
 	ctx context.Context,
 	path string,
 	maximumBytes int64,
 	hooks readHooks,
 ) (content []byte, exists bool, err error) {
+	snapshot, exists, err := readRegularFileSnapshotContext(ctx, path, maximumBytes, hooks)
+	if err != nil || !exists {
+		return nil, exists, err
+	}
+	return snapshot.content, true, nil
+}
+
+func readRegularFileSnapshotContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+	hooks readHooks,
+) (snapshot Snapshot, exists bool, err error) {
 	if ctx == nil {
-		return nil, false, fmt.Errorf("file snapshot context is required")
+		return Snapshot{}, false, fmt.Errorf("file snapshot context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 	if maximumBytes <= 0 {
-		return nil, false, fmt.Errorf("maximum file size must be positive")
+		return Snapshot{}, false, fmt.Errorf("maximum file size must be positive")
 	}
 
 	before, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return Snapshot{}, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 	if before.Mode()&os.ModeSymlink != 0 {
-		return nil, false, ErrSymlink
+		return Snapshot{}, false, ErrSymlink
 	}
 	if !before.Mode().IsRegular() {
-		return nil, false, ErrNotRegular
+		return Snapshot{}, false, ErrNotRegular
 	}
 	if before.Size() > maximumBytes {
-		return nil, false, limitError(maximumBytes)
+		return Snapshot{}, false, limitError(maximumBytes)
 	}
 	if hooks.afterInspect != nil {
 		hooks.afterInspect()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 
-	file, err := os.Open(path)
+	file, err := openRegularFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, ErrChanged
+		return Snapshot{}, false, ErrChanged
 	}
 	if err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 	defer file.Close()
 
 	opened, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 	if !os.SameFile(before, opened) ||
+		!opened.Mode().IsRegular() ||
 		!sameFileVersion(before, opened) {
-		return nil, false, ErrChanged
+		return Snapshot{}, false, ErrChanged
 	}
 	if hooks.afterOpen != nil {
 		hooks.afterOpen()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 
 	buffer := make([]byte, 32*1024)
-	content = make([]byte, 0, min(opened.Size(), int64(len(buffer))))
+	content := make([]byte, 0, min(opened.Size(), int64(len(buffer))))
 	for {
 		if err := ctx.Err(); err != nil {
-			return nil, false, err
+			return Snapshot{}, false, err
 		}
 		remaining := maximumBytes - int64(len(content))
 		readSize := len(buffer)
@@ -136,33 +172,33 @@ func readRegularFileContext(
 		if count > 0 {
 			content = append(content, buffer[:count]...)
 			if int64(len(content)) > maximumBytes {
-				return nil, false, limitError(maximumBytes)
+				return Snapshot{}, false, limitError(maximumBytes)
 			}
 		}
 		if readErr != nil {
 			if !errors.Is(readErr, io.EOF) {
-				return nil, false, readErr
+				return Snapshot{}, false, readErr
 			}
 			break
 		}
 		if count == 0 {
-			return nil, false, fmt.Errorf("read regular file: no progress")
+			return Snapshot{}, false, fmt.Errorf("read regular file: no progress")
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 
 	afterOpen, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
 	afterPath, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, ErrChanged
+		return Snapshot{}, false, ErrChanged
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("reinspect file: %w", err)
+		return Snapshot{}, false, fmt.Errorf("reinspect file: %w", err)
 	}
 	if afterPath.Mode()&os.ModeSymlink != 0 ||
 		!afterPath.Mode().IsRegular() ||
@@ -173,12 +209,12 @@ func readRegularFileContext(
 		int64(len(content)) != opened.Size() ||
 		int64(len(content)) != afterOpen.Size() ||
 		int64(len(content)) != afterPath.Size() {
-		return nil, false, ErrChanged
+		return Snapshot{}, false, ErrChanged
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return Snapshot{}, false, err
 	}
-	return content, true, nil
+	return Snapshot{content: content, mode: opened.Mode()}, true, nil
 }
 
 func sameFileVersion(left os.FileInfo, right os.FileInfo) bool {

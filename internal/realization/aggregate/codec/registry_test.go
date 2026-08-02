@@ -15,6 +15,8 @@ func (codec registryTestCodec) ContractID() aggregate.CodecContractID {
 	return codec.contractID
 }
 
+func (registryTestCodec) MaximumDocumentBytes() int64 { return 1024 }
+
 func (registryTestCodec) ValidateContribution(aggregate.ManagedContribution) error {
 	return nil
 }

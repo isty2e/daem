@@ -28,6 +28,9 @@ func NewCodecCatalog(codecs []Codec) (CodecCatalog, error) {
 		if contractID == "" {
 			return CodecCatalog{}, fmt.Errorf("aggregate codec catalog[%d] has an empty contract identity", index)
 		}
+		if codec.MaximumDocumentBytes() <= 0 {
+			return CodecCatalog{}, fmt.Errorf("aggregate codec catalog[%d] has a non-positive document byte limit", index)
+		}
 		if _, duplicate := byContract[contractID]; duplicate {
 			return CodecCatalog{}, fmt.Errorf("aggregate codec contract %q is registered more than once", contractID)
 		}
@@ -42,7 +45,7 @@ func (catalog CodecCatalog) Lookup(contractID CodecContractID) (Codec, bool) {
 		return nil, false
 	}
 	codec, ok := catalog.byContract[contractID]
-	if !ok || nilCodec(codec) || codec.ContractID() != contractID {
+	if !ok || nilCodec(codec) || codec.ContractID() != contractID || codec.MaximumDocumentBytes() <= 0 {
 		return nil, false
 	}
 	return codec, true

@@ -132,6 +132,8 @@ func For(contractID aggregate.CodecContractID) (aggregate.Codec, bool) {
 
 func (codec hookJSONCodec) ContractID() aggregate.CodecContractID { return codec.contractID }
 
+func (hookJSONCodec) MaximumDocumentBytes() int64 { return hookdocument.MaximumBytes }
+
 func (codec hookJSONCodec) ValidateContribution(contribution aggregate.ManagedContribution) error {
 	if err := contribution.Validate(); err != nil {
 		return err
@@ -402,6 +404,9 @@ func renderHookSettings(settings map[string]json.RawMessage, preserveExistingEmp
 	}
 	content, err := canonicalJSON(settings)
 	if err != nil {
+		return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
+	}
+	if err := hookdocument.Validate(content); err != nil {
 		return aggregate.Document{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
 	}
 	return aggregate.ExistingDocument(content), nil

@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -22,16 +23,84 @@ import (
 func TestAggregateEffectRejectsDocumentAndModeChangesAfterPlanning(t *testing.T) {
 	before := aggregate.ExistingDocument([]byte(`{"unmanaged":{"value":"before"}}` + "\n"))
 	effect := hookAggregateInsertionEffect(t, before)
+	codec, ok := testAggregateCodecs().Lookup(effect.CodecContractID())
+	if !ok {
+		t.Fatalf("codec %q is not admitted", effect.CodecContractID())
+	}
 
 	changed := aggregate.ExistingDocument([]byte(`{"unmanaged":{"value":"after"}}` + "\n"))
-	if _, err := validateAndRenderAggregate(effect, changed, aggregate.DocumentFileMode, testAggregateCodecs()); err == nil ||
+	if _, err := validateAndRenderAggregate(effect, changed, aggregate.DocumentFileMode, codec); err == nil ||
 		!strings.Contains(err.Error(), "document changed after planning") {
 		t.Fatalf("document drift error = %v, want effect-time document rejection", err)
 	}
-	if _, err := validateAndRenderAggregate(effect, before, 0o644, testAggregateCodecs()); err == nil ||
+	if _, err := validateAndRenderAggregate(effect, before, 0o644, codec); err == nil ||
 		!strings.Contains(err.Error(), "mode changed after planning") {
 		t.Fatalf("mode drift error = %v, want effect-time mode rejection", err)
 	}
+}
+
+func TestAggregateEffectRejectsOversizedDocumentAtRootedReadBoundary(t *testing.T) {
+	root := t.TempDir()
+	before := aggregate.ExistingDocument([]byte(`{"unmanaged":{"value":"before"}}` + "\n"))
+	effect := hookAggregateInsertionEffect(t, before)
+	hostPath := filepath.Join(root, filepath.FromSlash(effect.Destination().RelativePath()))
+	if err := os.MkdirAll(filepath.Dir(hostPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.OpenFile(hostPath, os.O_CREATE|os.O_WRONLY, aggregate.DocumentFileMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(hookdocument.MaximumBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	paths := Paths{ManifestRoot: root, DataDir: filepath.Join(root, ".daem")}
+	authority, err := captureMutationAuthority(paths, true, nil, destinationResolver(paths), testFilesystem())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if closeErr := authority.close(); closeErr != nil {
+			t.Errorf("close mutation authority: %v", closeErr)
+		}
+	})
+	if err := authority.bindPhysicalAuthority(
+		effect.Scope(),
+		effect.Destination(),
+		[]target.Target{effect.Target()},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome := commitAggregateEffect(t.Context(), authority, mustResolveEffectDestination(t, authority, effect), effect, testAggregateCodecs())
+	if outcome.err == nil || !strings.Contains(outcome.err.Error(), "exceeds 4194304 bytes") {
+		t.Fatalf("oversized aggregate error = %v, want physical read-limit rejection", outcome.err)
+	}
+	info, err := os.Stat(hostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != hookdocument.MaximumBytes+1 {
+		t.Fatalf("oversized aggregate size after rejected effect = %d", info.Size())
+	}
+}
+
+func mustResolveEffectDestination(
+	t *testing.T,
+	authority *mutationAuthority,
+	effect AggregateEffect,
+) mutationDestination {
+	t.Helper()
+	destination, err := authority.resolveBoundDestination(effect.Scope(), effect.Destination())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return destination
 }
 
 func TestAggregateEffectRechecksOperationPreconditionBeforeMutation(t *testing.T) {

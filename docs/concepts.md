@@ -225,7 +225,9 @@ Write-mode apply planning refuses a selected manifest or lockfile larger than
 before planning and refuses recovery journals larger than 64 MiB. Individual
 regular-file recovery backups larger than 128 MiB are refused before the
 covered host mutation; produced state and journal documents are also
-size-checked before publication. Recovery inventory admits at most 4,096
+size-checked before publication. Managed hook and MCP host documents are
+limited to 4 MiB at observation, mutation, recovery, and codec-output
+boundaries. Recovery inventory admits at most 4,096
 immediate recovery-root entries, 100,000 entries inside one journal directory,
 and 64 entries inside one retirement control.
 Managed directory snapshots are streamed but stop at 100,000 entries, 64

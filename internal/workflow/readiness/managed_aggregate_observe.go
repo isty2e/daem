@@ -1,10 +1,12 @@
 package readiness
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
@@ -33,20 +35,20 @@ func observeAggregatePrecondition(
 	}
 }
 
-func readAggregateDocument(path string) (aggregate.Document, os.FileMode, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, os.ErrNotExist) {
+func readAggregateDocument(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (aggregate.Document, os.FileMode, error) {
+	snapshot, exists, err := filesnapshot.ReadRegularFileSnapshotContext(ctx, path, maximumBytes)
+	if !exists && err == nil {
 		return aggregate.AbsentDocument(), 0, nil
 	}
-	if err != nil {
-		return aggregate.Document{}, 0, err
-	}
-	if !info.Mode().IsRegular() {
+	if errors.Is(err, filesnapshot.ErrNotRegular) || errors.Is(err, filesnapshot.ErrSymlink) {
 		return aggregate.Document{}, 0, fmt.Errorf("aggregate destination is not a regular file")
 	}
-	content, err := os.ReadFile(path)
 	if err != nil {
 		return aggregate.Document{}, 0, err
 	}
-	return aggregate.ExistingDocument(content), info.Mode(), nil
+	return aggregate.ExistingDocument(snapshot.Content()), snapshot.Mode(), nil
 }

@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sort"
@@ -52,6 +53,7 @@ type aggregateDocumentObservations struct {
 }
 
 func buildManagedAggregatePlanningInputs(
+	ctx context.Context,
 	resolver liveobserve.DestinationResolver,
 	environment desired.Environment,
 	locked lock.LockedSection,
@@ -102,6 +104,7 @@ func buildManagedAggregatePlanningInputs(
 	desiredContributions = append(desiredContributions, mcpDesired...)
 	states := currentState.ManagedAggregates()
 	observations, err := observeAggregateDocuments(
+		ctx,
 		resolver,
 		desiredContributions,
 		states,
@@ -175,6 +178,7 @@ func resolvedHookAssetPaths(
 }
 
 func observeAggregateDocuments(
+	ctx context.Context,
 	resolver liveobserve.DestinationResolver,
 	desiredContributions []aggregate.SubjectContribution,
 	states []durable.ManagedAggregateState,
@@ -276,7 +280,7 @@ func observeAggregateDocuments(
 		if err != nil {
 			return aggregateDocumentObservations{}, fmt.Errorf("resolve aggregate document %q: %w", logical, err)
 		}
-		document, mode, err := readAggregateDocument(physical)
+		document, mode, err := readAggregateDocument(ctx, physical, codec.MaximumDocumentBytes())
 		if err != nil {
 			return aggregateDocumentObservations{}, fmt.Errorf("read aggregate document %q: %w", logical, err)
 		}

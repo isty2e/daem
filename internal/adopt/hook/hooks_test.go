@@ -3,6 +3,7 @@ package hook
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,9 @@ func TestCandidatesImportsRepresentableCodexHook(t *testing.T) {
 	hook := hooks[0]
 	if hook.Event != "PreToolUse" || hook.Matcher != "Bash" || hook.Command != "echo ok" {
 		t.Fatalf("hook = %#v", hook)
+	}
+	if hook.ResourceName != "codex_project_pretooluse_1_1" {
+		t.Fatalf("resource name = %q, want readable stable name", hook.ResourceName)
 	}
 	if hook.Target != target.TargetCodex || hook.Scope != target.ScopeProject {
 		t.Fatalf("target/scope = %s/%s", hook.Target, hook.Scope)
@@ -208,6 +212,97 @@ func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
 	hooks, skipped, err := Candidates(ctx, target.TargetCodex, target.ScopeProject)
 	if !errors.Is(err, context.Canceled) || hooks != nil || skipped != nil {
 		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", hooks, skipped, err)
+	}
+}
+
+func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
+	t.Parallel()
+
+	tooLongEvent := strings.Repeat("e", maximumImportHookEventBytes+1)
+	assertHookImportBudgetFailure(t, `{"hooks":{"`+tooLongEvent+`":[]}}`)
+
+	events := make([]string, maximumImportHookEvents+1)
+	for index := range events {
+		events[index] = fmt.Sprintf(`"event-%d":[]`, index)
+	}
+	assertHookImportBudgetFailure(t, `{"hooks":{`+strings.Join(events, ",")+`}}`)
+
+	groups := make([]string, maximumImportHookGroups+1)
+	for index := range groups {
+		groups[index] = `{"hooks":[]}`
+	}
+	assertHookImportBudgetFailure(
+		t,
+		`{"hooks":{"AnyEvent":[`+strings.Join(groups, ",")+`]}}`,
+	)
+
+	handlers := make([]string, maximumImportHookHandlers+1)
+	for index := range handlers {
+		handlers[index] = `{"type":"command","command":"true"}`
+	}
+	assertHookImportBudgetFailure(
+		t,
+		`{"hooks":{"AnyEvent":[{"hooks":[`+strings.Join(handlers, ",")+`]}]}}`,
+	)
+}
+
+func TestParseImportHooksBoundsDiagnosticAmplification(t *testing.T) {
+	t.Parallel()
+
+	handlers := make([]string, maximumImportHookHandlers)
+	for index := range handlers {
+		handlers[index] = `{"type":"unsupported"}`
+	}
+	handlers[0] = `{"type":"command","command":"must-not-survive"}`
+	content := `{"hooks":{"AnyEvent":[{"hooks":[` + strings.Join(handlers, ",") + `]}]}}`
+	hooks, skipped := parseImportHooks(
+		[]byte(content),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != importHookSkipBudgetExceeded {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want one bounded budget skip and no partial hook", hooks, skipped)
+	}
+}
+
+func TestParseImportHooksUsesBoundedDeterministicEventIdentities(t *testing.T) {
+	t.Parallel()
+
+	longField := strings.Repeat("field", 1000)
+	content := `{"hooks":{"A B":[{"hooks":[{"type":"command","command":"one"}]}],"A-B":[{"hooks":[{"type":"command","command":"two"},{"type":"command","command":"three","` + longField + `":true}]}]}}`
+	hooks, skipped := parseImportHooks(
+		[]byte(content),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 2 || len(skipped) != 1 {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want two hooks and one skip", hooks, skipped)
+	}
+	if hooks[0].ResourceName == hooks[1].ResourceName {
+		t.Fatalf("sanitization-colliding events share resource name %q", hooks[0].ResourceName)
+	}
+	for _, hook := range hooks {
+		if len(hook.ResourceName) > 128 {
+			t.Fatalf("resource name length = %d, want <= 128: %q", len(hook.ResourceName), hook.ResourceName)
+		}
+	}
+	if len(skipped[0].Reason) > 256 || strings.Contains(skipped[0].Reason, longField) {
+		t.Fatalf("skip reason is not bounded: length=%d reason=%q", len(skipped[0].Reason), skipped[0].Reason)
+	}
+}
+
+func assertHookImportBudgetFailure(t *testing.T, content string) {
+	t.Helper()
+	hooks, skipped := parseImportHooks(
+		[]byte(content),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != importHookSkipBudgetExceeded {
+		t.Fatalf("parseImportHooks = (%d hooks, %#v), want one budget skip", len(hooks), skipped)
 	}
 }
 

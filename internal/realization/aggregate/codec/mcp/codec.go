@@ -13,6 +13,8 @@ type mcpProjectionCodec struct {
 	contractID aggregate.CodecContractID
 }
 
+const maximumDocumentBytes int64 = 4 << 20
+
 type mcpSelectedProjection struct {
 	contract aggregate.ProjectionContract
 	serverID string
@@ -104,13 +106,19 @@ func (codec mcpProjectionCodec) ContractID() aggregate.CodecContractID {
 	return codec.contractID
 }
 
+func (mcpProjectionCodec) MaximumDocumentBytes() int64 { return maximumDocumentBytes }
+
 func (codec mcpProjectionCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
+	content := document.Content()
+	if err := validateMCPDocumentSize(content); err != nil {
+		return aggregate.Snapshot{}, mcpCodecFailure(err, aggregate.CodecFailureDocumentMalformed, "")
+	}
 	operations, selected, failure := codec.selectedProjections(document, selection)
 	if failure != nil {
 		return aggregate.Snapshot{}, failure
 	}
 	serverIDs := mcpSelectedServerIDs(selected)
-	observation, err := operations.ObserveCanonicalEntries(document.Content(), serverIDs)
+	observation, err := operations.ObserveCanonicalEntries(content, serverIDs)
 	if err != nil {
 		return aggregate.Snapshot{}, mcpCodecFailure(err, aggregate.CodecFailureEquivalenceUndefined, "")
 	}
@@ -122,6 +130,10 @@ func (codec mcpProjectionCodec) Read(document aggregate.Document, selection aggr
 }
 
 func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggregate.Plan) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
+	source := document.Content()
+	if err := validateMCPDocumentSize(source); err != nil {
+		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureDocumentMalformed, "")
+	}
 	selection, err := plan.Before().Selection()
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
@@ -141,8 +153,11 @@ func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggrega
 	if failure != nil {
 		return aggregate.RenderedDocument{}, failure
 	}
-	content, err := operations.FoldMutations(document.Content(), mutations)
+	content, err := operations.FoldMutations(source, mutations)
 	if err != nil {
+		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
+	}
+	if err := validateMCPDocumentSize(content); err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
 	if err := operations.VerifyMutations(content, mutations); err != nil {
@@ -165,6 +180,10 @@ func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggrega
 }
 
 func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline aggregate.Snapshot) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
+	source := document.Content()
+	if err := validateMCPDocumentSize(source); err != nil {
+		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureDocumentMalformed, "")
+	}
 	selection, err := baseline.Selection()
 	if err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
@@ -204,11 +223,14 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 		mutations = append(mutations, mutation)
 	}
 	content, keepDocument, err := operations.RestoreMutations(
-		document.Content(),
+		source,
 		mutations,
 		parentExistedBefore,
 	)
 	if err != nil {
+		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
+	}
+	if err := validateMCPDocumentSize(content); err != nil {
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
 	candidate := aggregate.AbsentDocument()
@@ -236,6 +258,13 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 		return aggregate.RenderedDocument{}, mcpCodecFailure(err, aggregate.CodecFailureCanonicalInvalid, "")
 	}
 	return restored, nil
+}
+
+func validateMCPDocumentSize(content []byte) error {
+	if int64(len(content)) > maximumDocumentBytes {
+		return fmt.Errorf("MCP host document exceeds %d bytes", maximumDocumentBytes)
+	}
+	return nil
 }
 
 func (codec mcpProjectionCodec) selectedProjections(

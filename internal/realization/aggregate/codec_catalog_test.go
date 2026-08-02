@@ -12,11 +12,19 @@ import (
 
 type codecCatalogTestCodec struct {
 	contractID      CodecContractID
+	maximumBytes    int64
 	contributionErr error
 }
 
 func (codec *codecCatalogTestCodec) ContractID() CodecContractID {
 	return codec.contractID
+}
+
+func (codec *codecCatalogTestCodec) MaximumDocumentBytes() int64 {
+	if codec.maximumBytes == 0 {
+		return 1024
+	}
+	return codec.maximumBytes
 }
 
 func (codec *codecCatalogTestCodec) ValidateContribution(ManagedContribution) error {
@@ -54,6 +62,11 @@ func TestNewCodecCatalogRejectsMissingNilAndDuplicateCodecs(t *testing.T) {
 				&codecCatalogTestCodec{contractID: contractID},
 			},
 			want: "registered more than once",
+		},
+		{
+			name:   "invalid document byte limit",
+			codecs: []Codec{&codecCatalogTestCodec{contractID: contractID, maximumBytes: -1}},
+			want:   "non-positive document byte limit",
 		},
 	}
 

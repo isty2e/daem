@@ -411,6 +411,7 @@ func restoreAggregateProjection(
 		destination,
 		fileMode,
 		!action.ExpectedAfter.PathExisted,
+		codec.MaximumDocumentBytes(),
 		func(existing []byte, mode os.FileMode, exists bool) ([]byte, bool, error) {
 			if expectedWholeState != nil {
 				if err := validateRecoveryWholeFileInput(
@@ -446,7 +447,12 @@ func restoreAggregateProjection(
 		}
 		return recoveryWholePathState{}, false, outcome.err
 	}
-	current, mode, err := readAggregateDocumentDestination(ctx, authority, destination)
+	current, mode, err := readAggregateDocumentDestination(
+		ctx,
+		authority,
+		destination,
+		codec.MaximumDocumentBytes(),
+	)
 	if err != nil {
 		return recoveryDocumentWholeState(expected.Document(), fileMode), true, err
 	}

@@ -21,6 +21,22 @@ func TestReadRegularFileContextAdmitsExactLimit(t *testing.T) {
 	}
 }
 
+func TestReadRegularFileSnapshotContextReturnsDescriptorMode(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "snapshot")
+	if err := os.WriteFile(path, []byte("content"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, exists, err := ReadRegularFileSnapshotContext(t.Context(), path, 64)
+	if err != nil || !exists {
+		t.Fatalf("snapshot read = (%t, %v)", exists, err)
+	}
+	if string(snapshot.Content()) != "content" || snapshot.Mode().Perm() != 0o640 {
+		t.Fatalf("snapshot = (%q, %04o), want content mode 0640", snapshot.Content(), snapshot.Mode().Perm())
+	}
+}
+
 func TestReadRegularFileContextRejectsReplacementAfterOpen(t *testing.T) {
 	t.Parallel()
 

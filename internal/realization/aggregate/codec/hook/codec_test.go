@@ -148,6 +148,40 @@ func TestHookCodecRejectsOversizedHostDocument(t *testing.T) {
 	}
 }
 
+func TestHookCodecRejectsRenderedAndRestoredDocumentsBeyondLimit(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	prefix := `{"padding":"`
+	suffix := `"}`
+	nearLimit := aggregate.ExistingDocument([]byte(
+		prefix + strings.Repeat("a", int(hookdocument.MaximumBytes)-len(prefix)-len(suffix)) + suffix,
+	))
+	before, failure := codec.Read(nearLimit, selection)
+	if failure != nil {
+		t.Fatalf("Read(near-limit): %v", failure)
+	}
+	desired := hookContributionSet(t, placement, hookContributionSpec{name: "stop", event: "Stop", command: "true"})
+	intent, err := aggregate.NewProjectionIntent(before.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(before, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := codec.Render(nearLimit, plan); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Render failure = %v, want canonical_contribution_invalid", failure)
+	}
+
+	baselineDocument := renderHookSet(t, codec, selection, aggregate.AbsentDocument(), desired)
+	baseline, failure := codec.Read(baselineDocument, selection)
+	if failure != nil {
+		t.Fatalf("Read(baseline): %v", failure)
+	}
+	if _, failure := codec.Restore(nearLimit, baseline); failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("near-limit Restore failure = %v, want canonical_contribution_invalid", failure)
+	}
+}
+
 func TestHookCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 	_, codec, selection := hookCodecFixture(t)
 	absent, failure := codec.Read(aggregate.AbsentDocument(), selection)

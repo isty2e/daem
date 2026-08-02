@@ -25,14 +25,21 @@ import (
 const declarationHookTypeCommand = "command"
 
 const (
-	importHookSkipMissing                = "missing"
-	importHookSkipNotRegular             = "not_regular_file"
-	importHookSkipSymlink                = "hook_final_symlink"
-	importHookSkipTooLarge               = "hook_file_too_large"
-	importHookSkipChanged                = "hook_file_changed_during_read"
-	importHookSkipDuplicateJSONKey       = "duplicate_json_key"
-	importHookSkipJSONDepth              = "json_depth_exceeded"
-	maximumInlineConfigBytes       int64 = 4 << 20
+	importHookSkipMissing                  = "missing"
+	importHookSkipNotRegular               = "not_regular_file"
+	importHookSkipSymlink                  = "hook_final_symlink"
+	importHookSkipTooLarge                 = "hook_file_too_large"
+	importHookSkipChanged                  = "hook_file_changed_during_read"
+	importHookSkipDuplicateJSONKey         = "duplicate_json_key"
+	importHookSkipJSONDepth                = "json_depth_exceeded"
+	importHookSkipBudgetExceeded           = "hook_import_budget_exceeded"
+	maximumInlineConfigBytes         int64 = 4 << 20
+	maximumImportHookEventBytes            = 256
+	maximumImportHookEvents                = 256
+	maximumImportHookGroups                = 4096
+	maximumImportHookHandlers              = 4096
+	maximumImportHookSkips                 = 4096
+	maximumImportHookDiagnosticBytes       = 256 << 10
 )
 
 type importHookGroup struct {
@@ -154,32 +161,45 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 	if !ok {
 		return nil, []adopt.Skipped{{LivePath: livePath, Reason: reason}}
 	}
+	if len(rawHooks) > maximumImportHookEvents {
+		return importHookBudgetFailure(livePath)
+	}
 
 	eventNames := sortedImportHookEvents(rawHooks)
-	hooks := make([]adopt.Hook, 0)
-	skipped := make([]adopt.Skipped, 0)
-	seenNames := make(map[string]struct{})
-	for _, event := range eventNames {
+	collector := importHookCollector{target: target, scope: scope, livePath: livePath}
+	for eventIndex, event := range eventNames {
+		if len(event) > maximumImportHookEventBytes {
+			collector.exceeded = true
+			break
+		}
+		identity := newImportHookEventIdentity(event, eventIndex)
 		if strings.TrimSpace(event) == "" {
-			skipped = append(skipped, adopt.Skipped{LivePath: livePath, Reason: "empty_event"})
+			collector.addSkip("empty_event")
 			continue
 		}
 		var groups []json.RawMessage
 		if err := json.Unmarshal(rawHooks[event], &groups); err != nil {
-			skipped = append(skipped, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, 0, 0, "groups_not_array")})
+			collector.addSkip(importHookSkipReason(identity.diagnosticToken, 0, 0, "groups_not_array"))
 			continue
 		}
+		if !collector.reserveGroups(len(groups)) {
+			break
+		}
 		for groupIndex, rawGroup := range groups {
-			groupHooks, groupSkipped := importHookGroupCandidates(target, scope, livePath, event, groupIndex, rawGroup, seenNames)
-			hooks = append(hooks, groupHooks...)
-			skipped = append(skipped, groupSkipped...)
+			collector.importGroup(event, identity, groupIndex, rawGroup)
+			if collector.exceeded {
+				break
+			}
 		}
 	}
-	if len(hooks) == 0 && len(skipped) == 0 {
+	if collector.exceeded {
+		return importHookBudgetFailure(livePath)
+	}
+	if len(collector.hooks) == 0 && len(collector.skipped) == 0 {
 		return nil, []adopt.Skipped{{LivePath: livePath, Reason: "hooks_empty"}}
 	}
 
-	return hooks, skipped
+	return collector.hooks, collector.skipped
 }
 
 func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, string) {
@@ -260,86 +280,86 @@ func sortedImportHookEvents(rawHooks map[string]json.RawMessage) []string {
 	return events
 }
 
-func importHookGroupCandidates(
-	target targetpkg.Target,
-	scope targetpkg.Scope,
-	livePath string,
+func (collector *importHookCollector) importGroup(
 	event string,
+	identity importHookEventIdentity,
 	groupIndex int,
 	rawGroup json.RawMessage,
-	seenNames map[string]struct{},
-) ([]adopt.Hook, []adopt.Skipped) {
+) {
 	if unsupported, ok := unsupportedImportHookField(rawGroup, importHookGroupAllowedFields()); ok {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, 0, "unsupported_group_field_"+unsupported)}}
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "unsupported_group_field_"+boundedImportHookToken(unsupported)))
+		return
 	}
 	var group importHookGroup
 	if err := json.Unmarshal(rawGroup, &group); err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, 0, "malformed_group")}}
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "malformed_group"))
+		return
 	}
 	if group.Hooks == nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, 0, "missing_handlers")}}
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "missing_handlers"))
+		return
 	}
-
-	hooks := make([]adopt.Hook, 0, len(group.Hooks))
-	skipped := make([]adopt.Skipped, 0)
+	if !collector.reserveHandlers(len(group.Hooks)) {
+		return
+	}
 	for handlerIndex, rawHandler := range group.Hooks {
-		hook, skip, ok := importHookHandlerCandidate(target, scope, livePath, event, groupIndex, handlerIndex, group.Matcher, rawHandler, seenNames)
-		if ok {
-			hooks = append(hooks, hook)
-		} else {
-			skipped = append(skipped, skip)
+		collector.importHandler(event, identity, groupIndex, handlerIndex, group.Matcher, rawHandler)
+		if collector.exceeded {
+			return
 		}
 	}
-
-	return hooks, skipped
 }
 
-func importHookHandlerCandidate(
-	target targetpkg.Target,
-	scope targetpkg.Scope,
-	livePath string,
+func (collector *importHookCollector) importHandler(
 	event string,
+	identity importHookEventIdentity,
 	groupIndex int,
 	handlerIndex int,
 	matcher string,
 	rawHandler json.RawMessage,
-	seenNames map[string]struct{},
-) (adopt.Hook, adopt.Skipped, bool) {
+) {
 	if unsupported, ok := unsupportedImportHookField(rawHandler, importHookHandlerAllowedFields()); ok {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "unsupported_handler_field_"+unsupported)}, false
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_handler_field_"+boundedImportHookToken(unsupported)))
+		return
 	}
 	var handler importHookHandler
 	if err := json.Unmarshal(rawHandler, &handler); err != nil {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "malformed_handler")}, false
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "malformed_handler"))
+		return
 	}
 	if strings.TrimSpace(handler.Type) != declarationHookTypeCommand {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "unsupported_handler_type")}, false
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_handler_type"))
+		return
 	}
 	if strings.TrimSpace(handler.Command) == "" {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "missing_command")}, false
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "missing_command"))
+		return
 	}
 	if handler.Async {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "unsupported_async")}, false
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_async"))
+		return
 	}
-	if target == targetpkg.TargetCodex && strings.TrimSpace(handler.Condition) != "" {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "unsupported_condition")}, false
+	if collector.target == targetpkg.TargetCodex && strings.TrimSpace(handler.Condition) != "" {
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_condition"))
+		return
 	}
-	if err := commandhook.ValidateShape("import", target, strings.TrimSpace(event), strings.TrimSpace(matcher), strings.TrimSpace(handler.Condition)); err != nil {
-		return adopt.Hook{}, adopt.Skipped{LivePath: livePath, Reason: importHookSkipReason(event, groupIndex, handlerIndex, "unsupported_target_shape")}, false
+	if err := commandhook.ValidateShape("import", collector.target, strings.TrimSpace(event), strings.TrimSpace(matcher), strings.TrimSpace(handler.Condition)); err != nil {
+		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_target_shape"))
+		return
 	}
 
-	return adopt.Hook{
-		ResourceName:  uniqueImportHookName(target, scope, event, groupIndex, handlerIndex, seenNames),
-		Target:        target,
-		Scope:         scope,
-		LivePath:      livePath,
+	collector.hooks = append(collector.hooks, adopt.Hook{
+		ResourceName:  collector.reserveHookName(identity, groupIndex, handlerIndex),
+		Target:        collector.target,
+		Scope:         collector.scope,
+		LivePath:      collector.livePath,
 		Event:         strings.TrimSpace(event),
 		Matcher:       strings.TrimSpace(matcher),
 		Command:       strings.TrimSpace(handler.Command),
 		Timeout:       handler.Timeout,
 		StatusMessage: strings.TrimSpace(handler.StatusMessage),
 		Condition:     strings.TrimSpace(handler.Condition),
-	}, adopt.Skipped{}, true
+	})
 }
 
 func unsupportedImportHookField(content []byte, allowed map[string]struct{}) (string, bool) {
@@ -377,58 +397,4 @@ func importHookHandlerAllowedFields() map[string]struct{} {
 		"timeout":       {},
 		"statusMessage": {},
 	}
-}
-
-func uniqueImportHookName(
-	target targetpkg.Target,
-	scope targetpkg.Scope,
-	event string,
-	groupIndex int,
-	handlerIndex int,
-	seen map[string]struct{},
-) string {
-	base := sanitizeImportHookName(fmt.Sprintf("%s_%s_%s_%d_%d", target, scope, event, groupIndex+1, handlerIndex+1))
-	name := base
-	for suffix := 2; ; suffix++ {
-		if _, ok := seen[name]; !ok {
-			seen[name] = struct{}{}
-			return name
-		}
-		name = fmt.Sprintf("%s_%d", base, suffix)
-	}
-}
-
-func sanitizeImportHookName(value string) string {
-	var builder strings.Builder
-	lastUnderscore := false
-	for _, item := range strings.ToLower(value) {
-		if (item >= 'a' && item <= 'z') || (item >= '0' && item <= '9') {
-			builder.WriteRune(item)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore && builder.Len() != 0 {
-			builder.WriteByte('_')
-			lastUnderscore = true
-		}
-	}
-	name := strings.Trim(builder.String(), "_")
-	if name == "" {
-		return "hook"
-	}
-
-	return name
-}
-
-func importHookSkipReason(event string, groupIndex int, handlerIndex int, reason string) string {
-	return fmt.Sprintf("event=%s,group=%d,handler=%d,%s", sanitizeImportHookReason(event), groupIndex+1, handlerIndex+1, reason)
-}
-
-func sanitizeImportHookReason(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "unknown"
-	}
-
-	return strings.ReplaceAll(value, " ", "_")
 }
