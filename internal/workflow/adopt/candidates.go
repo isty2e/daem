@@ -17,6 +17,7 @@ func importCandidates(
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	importedSkillDestinations adoptskill.DestinationClaims,
+	skillSourceIdentities *adoptskill.SourceIdentityCache,
 ) ([]adoptmodel.Source, []adoptmodel.Skill, []adoptmodel.Hook, []adoptmodel.MCPServer, []adoptmodel.Scan, []adoptmodel.Skipped, error) {
 	sources := make([]adoptmodel.Source, 0, 1)
 	skipped := make([]adoptmodel.Skipped, 0, 2)
@@ -27,7 +28,14 @@ func importCandidates(
 	sources = append(sources, instructionSources...)
 	skipped = append(skipped, instructionSkipped...)
 
-	skills, skillScans, skillSkipped, err := adoptskill.Candidates(ctx, sourceDirectory, target, scope, importedSkillDestinations)
+	skills, skillScans, skillSkipped, err := adoptskill.Candidates(
+		ctx,
+		sourceDirectory,
+		target,
+		scope,
+		importedSkillDestinations,
+		skillSourceIdentities,
+	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, err
 	}

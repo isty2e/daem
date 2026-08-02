@@ -3,8 +3,10 @@ package adopt
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
+	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -127,4 +129,29 @@ type Skill struct {
 	SourcePath   string
 	GroupRoot    string
 	ContentHash  artifact.ContentHash
+}
+
+// ExpectedSourceIdentity returns the exact directory identity that execution
+// must reproduce from ReadPath before publishing this imported skill.
+func (skill Skill) ExpectedSourceIdentity() (artifact.ExactIdentity, error) {
+	if !filepath.IsAbs(skill.ReadPath) || filepath.Clean(skill.ReadPath) != skill.ReadPath {
+		return artifact.ExactIdentity{}, fmt.Errorf(
+			"skill read path %q must be canonical and absolute",
+			skill.ReadPath,
+		)
+	}
+	source, err := sourcepkg.NewLocalSource(skill.ReadPath, sourcepkg.LocalSourceModeVendor)
+	if err != nil {
+		return artifact.ExactIdentity{}, fmt.Errorf("skill read source: %w", err)
+	}
+	sourceID, err := sourcepkg.SourceIDFor(source)
+	if err != nil {
+		return artifact.ExactIdentity{}, fmt.Errorf("skill read source identity: %w", err)
+	}
+	return artifact.NewExactIdentity(
+		sourceID,
+		"",
+		artifact.ArtifactKindDirectory,
+		skill.ContentHash,
+	)
 }

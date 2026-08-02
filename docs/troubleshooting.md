@@ -245,6 +245,13 @@ same unsafe filesystem shape, changes during the read, or exceeds the selected
 MCP codec's 4 MiB limit. Daem applies that codec-owned limit before reading the
 document and produces no partial MCP server import from a rejected file.
 
+If import fails while writing an imported skill source, verify that the
+resolved skill directory stopped changing and contains only directories and
+regular files. A top-level skill symlink is allowed because daem resolves it
+before planning; nested symlinks are not. Rerun `daem import --dry-run` after
+the tree is stable. Daem does not publish the generated manifest or a partial
+vendored skill when the copied tree differs from the planned content identity.
+
 Hook import additionally accepts at most 256 events, 4,096 groups, 4,096
 handlers, and 4,096 skipped entries. Event names may contain at most 256 bytes,
 and all skip diagnostics together may contain at most 256 KiB. Exceeding any

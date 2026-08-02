@@ -1,6 +1,7 @@
 package adopt
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -161,5 +162,64 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 				t.Fatalf("candidate set accepted malformed skill content hash %q", contentHash)
 			}
 		})
+	}
+}
+
+func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing.T) {
+	base := Skill{
+		ResourceName: "review",
+		InstallName:  "review",
+		Target:       targetpkg.TargetCodex,
+		Targets:      []targetpkg.Target{targetpkg.TargetCodex},
+		Scope:        targetpkg.ScopeProject,
+		LivePath:     "/host/skills/review",
+		ReadPath:     "/host/skills/review",
+		SourcePath:   "/workspace/daem.d/skills/review",
+		ContentHash:  artifact.HashFileContent([]byte("first")),
+	}
+	conflicting := base
+	conflicting.Target = targetpkg.TargetOpenCode
+	conflicting.Targets = []targetpkg.Target{targetpkg.TargetOpenCode}
+	conflicting.ContentHash = artifact.HashFileContent([]byte("second"))
+
+	if _, err := NewCandidateSet(CandidateSetInput{Skills: []Skill{base, conflicting}}); err == nil ||
+		!strings.Contains(err.Error(), "conflicting content identities") {
+		t.Fatalf("NewCandidateSet error = %v, want source identity conflict", err)
+	}
+}
+
+func TestSkillExpectedSourceIdentityRetainsResolvedLocalProvenance(t *testing.T) {
+	skill := Skill{
+		ReadPath:    filepath.Join(string(filepath.Separator), "host", "skills", "review"),
+		ContentHash: artifact.HashFileContent([]byte("review")),
+	}
+	identity, err := skill.ExpectedSourceIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantSourceID := artifact.SourceID("local:" + filepath.ToSlash(skill.ReadPath) + "?mode=vendor")
+	if identity.SourceID() != wantSourceID || identity.Kind() != artifact.ArtifactKindDirectory ||
+		identity.ContentHash() != skill.ContentHash {
+		t.Fatalf("source identity = (%q, %q, %q), want (%q, %q, %q)",
+			identity.SourceID(), identity.Kind(), identity.ContentHash(),
+			wantSourceID, artifact.ArtifactKindDirectory, skill.ContentHash)
+	}
+}
+
+func TestSkillExpectedSourceIdentityRejectsUnresolvedReadPath(t *testing.T) {
+	root := t.TempDir()
+	for _, readPath := range []string{
+		"",
+		"relative/skill",
+		filepath.Join(root, "nested") + string(filepath.Separator) + ".." + string(filepath.Separator) + "skill",
+	} {
+		skill := Skill{
+			ReadPath:    readPath,
+			ContentHash: artifact.HashFileContent([]byte("review")),
+		}
+		if _, err := skill.ExpectedSourceIdentity(); err == nil ||
+			!strings.Contains(err.Error(), "canonical and absolute") {
+			t.Fatalf("ExpectedSourceIdentity(%q) error = %v, want canonical absolute path rejection", readPath, err)
+		}
 	}
 }

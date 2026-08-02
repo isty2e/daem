@@ -49,7 +49,11 @@ func Candidates(
 	target targetpkg.Target,
 	scope targetpkg.Scope,
 	importedDestinations DestinationClaims,
+	sourceIdentities *SourceIdentityCache,
 ) ([]adopt.Skill, []adopt.Scan, []adopt.Skipped, error) {
+	if sourceIdentities == nil {
+		return nil, nil, nil, fmt.Errorf("skill source identity cache is required")
+	}
 	locations := profile.Profile(target).DiscoveryLocations(entity.KindSkill, scope)
 	skills := make([]adopt.Skill, 0)
 	scans := make([]adopt.Scan, 0, len(locations))
@@ -103,6 +107,7 @@ func Candidates(
 			installTo,
 			liveRoot,
 			importedDestinations,
+			sourceIdentities,
 		)
 		if err != nil {
 			return nil, nil, nil, err

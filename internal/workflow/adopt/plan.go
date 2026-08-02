@@ -97,12 +97,20 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 		})
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
+	skillSourceIdentities := adoptskill.NewSourceIdentityCache()
 	for _, target := range request.Targets() {
 		for _, scope := range request.Scopes() {
 			if err := ctx.Err(); err != nil {
 				return adoptmodel.Plan{}, err
 			}
-			importedSources, importedSkills, importedHooks, importedMCPServers, observedScans, observedSkipped, err := importCandidates(ctx, sourceDirectory, target, scope, importedSkillDestinations)
+			importedSources, importedSkills, importedHooks, importedMCPServers, observedScans, observedSkipped, err := importCandidates(
+				ctx,
+				sourceDirectory,
+				target,
+				scope,
+				importedSkillDestinations,
+				skillSourceIdentities,
+			)
 			if err != nil {
 				return adoptmodel.Plan{}, err
 			}

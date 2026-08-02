@@ -199,6 +199,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		targetpkg.TargetOpenCode,
 		targetpkg.ScopeProject,
 		NewDestinationClaims(),
+		NewSourceIdentityCache(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -208,6 +209,72 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 	}
 	if got := candidates[0].Placements[targetpkg.TargetOpenCode]; got != ".agents/skills" {
 		t.Fatalf("placement = %q, want .agents/skills", got)
+	}
+}
+
+func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
+	projectRoot := t.TempDir()
+	oldWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(projectRoot); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWorkingDirectory); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+
+	skillRoot := filepath.Join(".agents", "skills", "review")
+	if err := os.MkdirAll(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("---\nname: review\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(projectRoot, "daem.toml"),
+		filepath.Join(projectRoot, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	observations := 0
+	sourceIdentities := newSourceIdentityCache(func(ctx context.Context, readPath string) (artifact.ContentHash, error) {
+		observations++
+		return observeSkillDirectoryIdentity(ctx, readPath)
+	})
+	destinations := NewDestinationClaims()
+	var imported []adopt.Skill
+	for _, selectedTarget := range []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetOpenCode} {
+		candidates, _, _, err := Candidates(
+			context.Background(),
+			sourceDirectory,
+			selectedTarget,
+			targetpkg.ScopeProject,
+			destinations,
+			sourceIdentities,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(candidates) != 1 {
+			t.Fatalf("%s candidates = %#v, want one", selectedTarget, candidates)
+		}
+		imported = append(imported, candidates[0])
+	}
+
+	if observations != 1 {
+		t.Fatalf("shared skill identity observations = %d, want 1", observations)
+	}
+	if imported[0].ReadPath != imported[1].ReadPath || !filepath.IsAbs(imported[0].ReadPath) {
+		t.Fatalf("shared read paths = %q and %q, want one absolute route", imported[0].ReadPath, imported[1].ReadPath)
+	}
+	if imported[0].ContentHash != imported[1].ContentHash {
+		t.Fatalf("shared content hashes = %q and %q", imported[0].ContentHash, imported[1].ContentHash)
 	}
 }
 

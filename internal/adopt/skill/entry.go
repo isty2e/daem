@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -20,6 +18,7 @@ func importSkillsFromRoot(
 	installTo string,
 	liveRoot string,
 	importedDestinations DestinationClaims,
+	sourceIdentities *SourceIdentityCache,
 ) ([]adopt.Skill, adopt.Scan, []adopt.Skipped, error) {
 	entries, err := os.ReadDir(liveRoot)
 	if err != nil {
@@ -42,6 +41,7 @@ func importSkillsFromRoot(
 			livePath,
 			entry.Name(),
 			importedDestinations,
+			sourceIdentities,
 		)
 		if err != nil {
 			return nil, adopt.Scan{}, nil, err
@@ -95,6 +95,7 @@ func importSkillFromEntry(
 	livePath string,
 	name string,
 	importedDestinations DestinationClaims,
+	sourceIdentities *SourceIdentityCache,
 ) (adopt.Skill, adopt.Skipped, error) {
 	cleanName, err := cleanImportSkillName(name)
 	if err != nil {
@@ -104,7 +105,7 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: suppliedReason}, nil
 	}
 
-	readPath, err := filepath.EvalSymlinks(livePath)
+	readPath, err := resolvedImportSkillReadPath(livePath)
 	if err != nil {
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
 	}
@@ -149,12 +150,9 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: nestedSymlink, Reason: importSkillSkipNestedSymlink}, nil
 	}
 
-	contentHash, artifactKind, err := access.HashPath(ctx, readPath)
+	contentHash, err := sourceIdentities.ContentHash(ctx, readPath)
 	if err != nil {
-		return adopt.Skill{}, adopt.Skipped{}, fmt.Errorf("hash skill tree %q: %w", livePath, err)
-	}
-	if artifactKind != artifact.ArtifactKindDirectory {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
+		return adopt.Skill{}, adopt.Skipped{}, err
 	}
 
 	sourcePath, err := importSkillSourcePath(sourceDirectory, cleanName, contentHash)

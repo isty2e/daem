@@ -7,6 +7,7 @@ import (
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -44,6 +45,9 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 		if err := validateSkill(skill); err != nil {
 			return CandidateSet{}, fmt.Errorf("skill candidate %d: %w", index, err)
 		}
+	}
+	if err := validateSkillSourceCorrelations(input.Skills); err != nil {
+		return CandidateSet{}, err
 	}
 	for index, hook := range input.Hooks {
 		if err := validateHook(hook); err != nil {
@@ -201,8 +205,25 @@ func validateSkill(skill Skill) error {
 		strings.TrimSpace(skill.SourcePath) == "" {
 		return fmt.Errorf("live, read, and source paths are required")
 	}
-	if err := skill.ContentHash.Validate(); err != nil {
-		return fmt.Errorf("content hash: %w", err)
+	if _, err := skill.ExpectedSourceIdentity(); err != nil {
+		return fmt.Errorf("source identity: %w", err)
+	}
+	return nil
+}
+
+func validateSkillSourceCorrelations(skills []Skill) error {
+	identities := make(map[string]artifact.ContentHash, len(skills))
+	for _, skill := range skills {
+		contentHash, exists := identities[skill.SourcePath]
+		if exists && contentHash != skill.ContentHash {
+			return fmt.Errorf(
+				"skill source path %q carries conflicting content identities %q and %q",
+				skill.SourcePath,
+				contentHash,
+				skill.ContentHash,
+			)
+		}
+		identities[skill.SourcePath] = skill.ContentHash
 	}
 	return nil
 }
