@@ -163,9 +163,6 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 	if !ok {
 		return nil, []adopt.Skipped{{LivePath: livePath, Reason: reason}}
 	}
-	if !withinImportHookStructuralBudget(rawHooks) {
-		return importHookBudgetFailure(livePath)
-	}
 
 	eventNames := sortedImportHookEvents(rawHooks)
 	collector := importHookCollector{target: target, scope: scope, livePath: livePath}
@@ -200,6 +197,15 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, string) {
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, false, "empty_json"
+	}
+	if int64(len(content)) > hookdocument.MaximumBytes {
+		return nil, false, importHookSkipTooLarge
+	}
+	if err := scanImportHookStructuralBudget(bytes.NewReader(content)); err != nil {
+		if errors.Is(err, errImportHookStructuralBudgetExceeded) {
+			return nil, false, importHookSkipBudgetExceeded
+		}
+		return nil, false, "malformed_json"
 	}
 	if err := hookdocument.Validate(content); err != nil {
 		return nil, false, hookSyntaxSkipReason(err)

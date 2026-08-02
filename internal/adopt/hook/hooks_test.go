@@ -152,6 +152,19 @@ func TestImportHooksProjectionRejectsAmbiguousDocumentWithoutPartialHooks(t *tes
 	}
 }
 
+func TestImportHooksProjectionDoesNotInterpretJSONNumbers(t *testing.T) {
+	content := []byte(`{"metadata":1e1000,"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo ok","ignored":1e1000}]}]}}`)
+	hooks, skipped := parseImportHooks(
+		content,
+		target.TargetCodex,
+		target.ScopeProject,
+		".codex/hooks.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0].Reason, "unsupported_handler_field_ignored") {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want semantic skip after syntax-only number scan", hooks, skipped)
+	}
+}
+
 func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
 	root := t.TempDir()
 	withHookWorkingDirectory(t, root)
@@ -253,6 +266,83 @@ func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 		t,
 		`{"hooks":{"   ":[{"hooks":[`+strings.Join(handlers[:maximumImportHookHandlers], ",")+`]}],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
 	)
+}
+
+func TestScanImportHookStructuralBudgetStopsAtEachLimit(t *testing.T) {
+	const entries = 200_000
+	events := make([]string, entries)
+	for index := range events {
+		events[index] = fmt.Sprintf(`"event-%d":[]`, index)
+	}
+	handlers := strings.Repeat(`{},`, entries-1) + `{}`
+	for _, test := range []struct {
+		name    string
+		content string
+	}{
+		{name: "events", content: `{"hooks":{` + strings.Join(events, ",") + `}}`},
+		{name: "groups", content: `{"hooks":{"AnyEvent":[` + handlers + `]}}`},
+		{name: "handlers", content: `{"hooks":{"AnyEvent":[{"hooks":[` + handlers + `]}]}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			reader := strings.NewReader(test.content)
+			err := scanImportHookStructuralBudget(reader)
+			if !errors.Is(err, errImportHookStructuralBudgetExceeded) {
+				t.Fatalf("scanImportHookStructuralBudget error = %v, want structural budget error", err)
+			}
+			if consumed := len(test.content) - reader.Len(); consumed >= len(test.content)/2 {
+				t.Fatalf("structural scan consumed %d of %d bytes, want early stop", consumed, len(test.content))
+			}
+		})
+	}
+
+	content := `{"hooks":{"AnyEvent":[{"hooks":[` + handlers + `]}]}}`
+	var imported []adopt.Hook
+	var skipped []adopt.Skipped
+	allocations := testing.AllocsPerRun(3, func() {
+		imported, skipped = parseImportHooks(
+			[]byte(content),
+			target.TargetClaudeCode,
+			target.ScopeProject,
+			".claude/settings.json",
+		)
+	})
+	if len(imported) != 0 || len(skipped) != 1 || skipped[0].Reason != importHookSkipBudgetExceeded {
+		t.Fatalf("allocation probe = (%#v, %#v), want one structural budget skip", imported, skipped)
+	}
+	if allocations >= 100_000 {
+		t.Fatalf("structural scan allocations = %.0f, want fewer than 100000", allocations)
+	}
+}
+
+func TestScanImportHookStructuralBudgetAdmitsExactLimits(t *testing.T) {
+	events := make([]string, maximumImportHookEvents)
+	for index := range events {
+		events[index] = fmt.Sprintf(`"event-%d":[]`, index)
+	}
+	groups := strings.Repeat(`{},`, maximumImportHookGroups-1) + `{}`
+	handlers := strings.Repeat(`{},`, maximumImportHookHandlers-1) + `{}`
+	for _, test := range []struct {
+		name    string
+		content string
+	}{
+		{name: "events", content: `{"hooks":{` + strings.Join(events, ",") + `}}`},
+		{name: "groups", content: `{"hooks":{"AnyEvent":[` + groups + `]}}`},
+		{name: "handlers", content: `{"hooks":{"AnyEvent":[{"hooks":[` + handlers + `]}]}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := scanImportHookStructuralBudget(strings.NewReader(test.content)); err != nil {
+				t.Fatalf("scanImportHookStructuralBudget error = %v, want exact limit admitted", err)
+			}
+		})
+	}
+}
+
+func TestParseImportHooksBudgetPreemptsUnboundedMalformedTail(t *testing.T) {
+	content := `{"hooks":{"AnyEvent":[{"hooks":[` +
+		strings.Repeat(`{},`, maximumImportHookHandlers) +
+		`malformed-tail` +
+		`] }]}}`
+	assertHookImportBudgetFailure(t, content)
 }
 
 func TestParseImportHooksBoundsDiagnosticAmplification(t *testing.T) {
