@@ -10,6 +10,7 @@ import (
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
@@ -139,6 +140,210 @@ func TestWritePlanCancellationAfterSourceCreationRollsBack(t *testing.T) {
 		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("created path %q remains after cancellation: %v", path, statErr)
 		}
+	}
+}
+
+func TestPrepareImportParentDirectoriesDoesNotClaimExternalCreation(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourcePath := filepath.Join(root, "external", "source.md")
+	plan := testAdoptPlan(t, output, []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+	canonicalSourcePath, err := mutation.CanonicalDirectoryEntryPath(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	err = prepareImportParentDirectories(
+		context.Background(),
+		plan,
+		func(ctx context.Context, path string) error {
+			if path == canonicalSourcePath {
+				if mkdirErr := os.Mkdir(filepath.Dir(path), 0o755); mkdirErr != nil {
+					t.Fatalf("create concurrent external parent: %v", mkdirErr)
+				}
+			}
+			return cleanup.PrepareParent(ctx, path)
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepareImportParentDirectories returned error: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("cleanup external parent observation: %v", err)
+	}
+	if info, statErr := os.Stat(filepath.Dir(sourcePath)); statErr != nil || !info.IsDir() {
+		t.Fatalf("external parent was not preserved: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestCommitNewImportFileTracksParentRecreatedAfterPreflight(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "recreated")
+	target := filepath.Join(parent, "source.md")
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("prepare initial parent: %v", err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("remove prepared parent: %v", err)
+	}
+	created, err := commitNewImportFile(
+		context.Background(),
+		target,
+		[]byte("content"),
+		0o600,
+		&cleanup,
+	)
+	if err != nil {
+		t.Fatalf("commit import file after parent removal: %v", err)
+	}
+	if err := os.Remove(created.path); err != nil {
+		t.Fatalf("remove committed import file: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("remove recreated parent: %v", err)
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreated file parent remains after rollback: %v", err)
+	}
+}
+
+func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(root, "source-skill")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	parent := filepath.Join(root, "recreated")
+	target := filepath.Join(parent, "skill")
+	var cleanup storagecommit.AncestorCleanup
+	defer cleanup.Close()
+	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+		t.Fatalf("prepare initial skill parent: %v", err)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatalf("remove prepared skill parent: %v", err)
+	}
+	created, err := copyImportedSkillDirectory(context.Background(), source, target, &cleanup)
+	if err != nil {
+		t.Fatalf("copy skill after parent removal: %v", err)
+	}
+	if err := os.RemoveAll(created.path); err != nil {
+		t.Fatalf("remove committed skill: %v", err)
+	}
+	if err := cleanup.RemoveEmpty(context.Background()); err != nil {
+		t.Fatalf("remove recreated skill parent: %v", err)
+	}
+	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("recreated skill parent remains after rollback: %v", err)
+	}
+}
+
+func TestWritePlanRollbackPreservesPopulatedCreatedParent(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "created", "source.md")
+	externalPath := filepath.Join(filepath.Dir(sourcePath), "external.txt")
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+
+	err := writePlan(context.Background(), plan, func() error {
+		if writeErr := os.WriteFile(externalPath, []byte("keep"), 0o600); writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		return mutation.StaleSnapshotError{}
+	})
+	if err == nil || !strings.Contains(err.Error(), "is not empty") {
+		t.Fatalf("writePlan error = %v, want non-empty parent cleanup refusal", err)
+	}
+	if _, statErr := os.Lstat(sourcePath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("daem-created source remains: %v", statErr)
+	}
+	if content, readErr := os.ReadFile(externalPath); readErr != nil || string(content) != "keep" {
+		t.Fatalf("external content was not preserved: content=%q err=%v", content, readErr)
+	}
+}
+
+func TestWritePlanRollbackReportsMovedCreatedParent(t *testing.T) {
+	root := t.TempDir()
+	createdParent := filepath.Join(root, "created")
+	displacedParent := filepath.Join(root, "displaced")
+	sourcePath := filepath.Join(createdParent, "source.md")
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("created"),
+	}}, nil)
+
+	err := writePlan(context.Background(), plan, func() error {
+		if renameErr := os.Rename(createdParent, displacedParent); renameErr != nil {
+			t.Fatalf("move created import parent: %v", renameErr)
+		}
+		return mutation.StaleSnapshotError{}
+	})
+	if err == nil || !strings.Contains(err.Error(), "disappeared before daem retirement") {
+		t.Fatalf("writePlan error = %v, want moved ancestor residue", err)
+	}
+	displacedSource := filepath.Join(displacedParent, filepath.Base(sourcePath))
+	if content, readErr := os.ReadFile(displacedSource); readErr != nil || string(content) != "created" {
+		t.Fatalf("moved import residue was not preserved: content=%q err=%v", content, readErr)
+	}
+}
+
+func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
+	for _, replacementKind := range []string{"directory", "symlink"} {
+		t.Run(replacementKind, func(t *testing.T) {
+			root := t.TempDir()
+			createdParent := filepath.Join(root, "created")
+			sourcePath := filepath.Join(createdParent, "source.md")
+			displacedParent := filepath.Join(root, "displaced")
+			plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), []adoptmodel.Source{{
+				SourcePath: sourcePath,
+				Content:    []byte("created"),
+			}}, nil)
+
+			err := writePlan(context.Background(), plan, func() error {
+				if renameErr := os.Rename(createdParent, displacedParent); renameErr != nil {
+					t.Fatal(renameErr)
+				}
+				var replaceErr error
+				switch replacementKind {
+				case "directory":
+					replaceErr = os.Mkdir(createdParent, 0o700)
+				case "symlink":
+					replaceErr = os.Symlink(displacedParent, createdParent)
+				}
+				if replaceErr != nil {
+					t.Fatal(replaceErr)
+				}
+				return mutation.StaleSnapshotError{}
+			})
+			if err == nil || !strings.Contains(err.Error(), "identity changed") {
+				t.Fatalf("writePlan error = %v, want parent identity cleanup refusal", err)
+			}
+			if _, statErr := os.Lstat(createdParent); statErr != nil {
+				t.Fatalf("replacement parent was not preserved: %v", statErr)
+			}
+			content, readErr := os.ReadFile(filepath.Join(displacedParent, "source.md"))
+			if readErr != nil || string(content) != "created" {
+				t.Fatalf("displaced daem source was not retained as residue: content=%q err=%v", content, readErr)
+			}
+		})
 	}
 }
 

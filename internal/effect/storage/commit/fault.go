@@ -12,6 +12,7 @@ const (
 	phaseCaptureIdentity   phase = "capture_identity"
 	phaseValidate          phase = "validate"
 	phaseCreateAncestors   phase = "create_ancestors"
+	phasePublishAncestor   phase = "publish_ancestor"
 	phaseCreateTemporary   phase = "create_temporary"
 	phaseWritePayload      phase = "write_payload"
 	phaseReadPayload       phase = "read_payload"

@@ -113,13 +113,17 @@ func TestProvisionalAliasesContendOnOneNamespaceLease(t *testing.T) {
 	first := provisionalMutationTestDomain(t, namespace, "Caf\u00e9")
 	second := provisionalMutationTestDomain(t, namespace, "Cafe\u0301")
 	store := mutationTestStore(t)
-	store.maximum = 50 * time.Millisecond
 
 	holder, err := store.Acquire(context.Background(), first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer holder.Release()
+	t.Cleanup(func() {
+		if err := holder.Release(); err != nil {
+			t.Errorf("release holder: %v", err)
+		}
+	})
+	store.maximum = 50 * time.Millisecond
 	if _, err := store.Acquire(context.Background(), second); err == nil {
 		t.Fatal("normalization aliases acquired independent namespace leases")
 	} else {
@@ -135,12 +139,15 @@ func TestAdvancedAnchorCannotBypassHeldAncestorNamespaceLease(t *testing.T) {
 	rootIdentity := mustMutationTestCanonicalPath(root)
 	first := provisionalMutationTestDomain(t, rootIdentity, filepath.Join("Future", "Caf\u00e9"))
 	store := mutationTestStore(t)
-	store.maximum = 50 * time.Millisecond
 	holder, err := store.Acquire(context.Background(), first)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer holder.Release()
+	t.Cleanup(func() {
+		if err := holder.Release(); err != nil {
+			t.Errorf("release holder: %v", err)
+		}
+	})
 
 	advancedPath := filepath.Join(root, "Future")
 	if err := mkdirMutationTest(advancedPath); err != nil {
@@ -148,6 +155,7 @@ func TestAdvancedAnchorCannotBypassHeldAncestorNamespaceLease(t *testing.T) {
 	}
 	advancedIdentity := mustMutationTestCanonicalPath(advancedPath)
 	second := provisionalMutationTestDomain(t, advancedIdentity, "Tea\u0301")
+	store.maximum = 50 * time.Millisecond
 	if _, err := store.Acquire(context.Background(), second); err == nil {
 		t.Fatal("advanced namespace anchor bypassed held ancestor lease")
 	} else {

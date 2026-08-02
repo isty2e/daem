@@ -4,9 +4,11 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -127,7 +129,15 @@ func TestCommitFileRejectsInheritedACLOnCreatedAncestor(t *testing.T) {
 		failureUnsupportedGuarantee,
 		phaseCreateAncestors,
 	)
-	if len(failure.retainedResidue()) == 0 {
-		t.Fatal("inherited ACL failure did not report the retained ancestor")
+	residue := failure.retainedResidue()
+	if len(residue) != 1 || filepath.Dir(residue[0]) != root ||
+		!strings.HasPrefix(filepath.Base(residue[0]), temporaryPrefix) {
+		t.Fatalf("inherited ACL residue = %v, want one unpublished ancestor stage", residue)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "created")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("final ancestor was published despite inherited ACL: %v", err)
+	}
+	if info, err := os.Stat(residue[0]); err != nil || !info.IsDir() {
+		t.Fatalf("reported staging residue is not retained: info=%v err=%v", info, err)
 	}
 }

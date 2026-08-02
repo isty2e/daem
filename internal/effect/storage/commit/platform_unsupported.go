@@ -47,6 +47,42 @@ func CaptureRootedEntryIdentity(_ context.Context, capability rootedpath.CommitC
 	return EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// AncestorCleanup is an inert cleanup authority on compile-only platforms.
+type AncestorCleanup struct {
+	closed bool
+}
+
+// PrepareParent returns unsupported_guarantee without performing effects.
+func (cleanup *AncestorCleanup) PrepareParent(ctx context.Context, path string) error {
+	if cleanup == nil || cleanup.closed {
+		return fmt.Errorf("open ancestor cleanup authority is required")
+	}
+	return PrepareCommitParent(ctx, path)
+}
+
+// CommitFile returns unsupported_guarantee without performing effects.
+func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileCommit) error {
+	if cleanup == nil || cleanup.closed {
+		return fmt.Errorf("open ancestor cleanup authority is required")
+	}
+	return CommitFile(ctx, request)
+}
+
+// RemoveEmpty is a no-op because unsupported platforms cannot create entries.
+func (cleanup *AncestorCleanup) RemoveEmpty(_ context.Context) error {
+	if cleanup == nil || cleanup.closed {
+		return fmt.Errorf("open ancestor cleanup authority is required")
+	}
+	return nil
+}
+
+// Close releases this inert authority.
+func (cleanup *AncestorCleanup) Close() {
+	if cleanup != nil {
+		cleanup.closed = true
+	}
+}
+
 // PrepareCommitParent returns unsupported_guarantee without performing effects.
 func PrepareCommitParent(_ context.Context, path string) error {
 	if err := validateCommitPath(path); err != nil {

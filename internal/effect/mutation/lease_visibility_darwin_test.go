@@ -24,13 +24,16 @@ func TestLeaseSetRetainsNamespaceExclusionAcrossExactToProvisionalRemoval(t *tes
 		t.Fatal(err)
 	}
 	store := mutationTestStore(t)
-	store.maximum = 100 * time.Millisecond
 	store.interval = 5 * time.Millisecond
 	set, err := store.Acquire(context.Background(), domain)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer set.Release()
+	t.Cleanup(func() {
+		if err := set.Release(); err != nil {
+			t.Errorf("release holder: %v", err)
+		}
+	})
 
 	if err := os.Remove(path); err != nil {
 		t.Fatal(err)
@@ -49,6 +52,7 @@ func TestLeaseSetRetainsNamespaceExclusionAcrossExactToProvisionalRemoval(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
+	store.maximum = 100 * time.Millisecond
 	if aliasSet, acquireErr := store.Acquire(context.Background(), aliasDomain); acquireErr == nil {
 		_ = aliasSet.Release()
 		t.Fatal("normalization alias acquired while the original namespace lease remained active")

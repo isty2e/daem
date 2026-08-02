@@ -72,11 +72,11 @@ func captureEntryIdentity(
 
 // CommitFile publishes a complete regular file and persists its namespace.
 func CommitFile(ctx context.Context, request FileCommit) error {
-	return commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, nil)
+	return commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, nil, nil)
 }
 
 func commitFileWithFaults(ctx context.Context, request FileCommit, faults faultPlan) error {
-	return commitFileWithFaultsAndParentRefresh(ctx, request, faults, nil)
+	return commitFileWithFaultsAndParentRefresh(ctx, request, faults, nil, nil)
 }
 
 func commitFileAndRefreshParent(
@@ -84,7 +84,7 @@ func commitFileAndRefreshParent(
 	request FileCommit,
 ) (EntryIdentity, error) {
 	var refreshed EntryIdentity
-	err := commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, &refreshed)
+	err := commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, &refreshed, nil)
 	return refreshed, err
 }
 
@@ -93,12 +93,18 @@ func commitFileWithFaultsAndParentRefresh(
 	request FileCommit,
 	faults faultPlan,
 	refreshedParent *EntryIdentity,
+	cleanup *AncestorCleanup,
 ) (returnErr error) {
 	if request.capability != nil {
 		defer request.capability.Close()
 	}
 	if err := validateFileRequest(request); err != nil {
 		return newFailure(failureUncommitted, phaseValidate, request.path, err)
+	}
+	if cleanup != nil {
+		if _, err := cleanup.requireOpen(); err != nil {
+			return newFailure(failureUncommitted, phaseValidate, request.path, err)
+		}
 	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return newFailure(failureUncommitted, phaseValidate, request.path, err)
@@ -107,6 +113,7 @@ func commitFileWithFaultsAndParentRefresh(
 	anchor, err := openCommitParent(request.path, request.capability, true)
 	if anchor != nil {
 		defer anchor.close()
+		defer cleanup.capture(anchor)
 	}
 	if err != nil {
 		return failFileBeforeVisibility(request.path, phaseCreateAncestors, err, anchor, "", EntryIdentity{}, faults)

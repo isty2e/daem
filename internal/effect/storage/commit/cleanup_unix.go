@@ -42,6 +42,7 @@ func failFileBeforeVisibility(
 ) error {
 	var residue []string
 	if anchor != nil {
+		residue = append(residue, anchor.unpublishedResidue...)
 		if temporaryName != "" {
 			temporaryPath := filepath.Join(filepath.Dir(path), temporaryName)
 			if cleanupErr := faults.failures[phaseCleanupTemporary]; cleanupErr != nil {
