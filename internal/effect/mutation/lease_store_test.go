@@ -126,7 +126,8 @@ func TestIndependentStoresShareSameProcessSharedLeaseUntilLastRelease(t *testing
 	if err := second.Release(); err != nil {
 		t.Fatal(err)
 	}
-	acquired, err := probe.Acquire(context.Background(), exclusive)
+	successProbe := mutationTestStoreAt(t, dataDir)
+	acquired, err := successProbe.Acquire(context.Background(), exclusive)
 	if err != nil {
 		t.Fatalf("exclusive acquisition after final shared release: %v", err)
 	}
