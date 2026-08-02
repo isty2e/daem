@@ -8,7 +8,7 @@ func TestArchitectureContractBaseline(t *testing.T) {
 	if len(violations) != 0 {
 		t.Fatalf("architecture contract baseline has failures:\n%s", FormatReport(violations))
 	}
-	t.Log("command: go test -run TestArchitectureContractBaseline -count=1 -v ./internal/archguard")
+	t.Log("command: tools/test-go.sh -run TestArchitectureContractBaseline -count=1 -v ./internal/archguard")
 }
 
 func TestArchitectureContractRejectsPhaseByFamilyProductionCells(t *testing.T) {

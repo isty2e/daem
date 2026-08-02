@@ -75,7 +75,7 @@ jobs:
       - name: Verify and test minimum line
         run: |
           go mod verify
-          go test -mod=readonly ./... -count=1
+          tools/test-go.sh -mod=readonly ./... -count=1
           go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem
 
   native:
@@ -113,7 +113,7 @@ jobs:
           go env GOOS GOARCH GOTOOLCHAIN
           uname -a
       - name: Run full native tests
-        run: go test -mod=readonly ./... -count=1
+        run: tools/test-go.sh -mod=readonly ./... -count=1
       - name: Build and smoke-test CLI identity and help
         run: |
           go build -mod=readonly -trimpath -o "${RUNNER_TEMP}/daem" ./cmd/daem
@@ -142,7 +142,7 @@ jobs:
           test "$(go env GOVERSION)" = "go1.26.5"
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "amd64"
-          go test -mod=readonly -race ./... -count=1
+          tools/test-go.sh -mod=readonly -race ./... -count=1
 
   vulnerability:
     name: Vulnerability (${{ matrix.name }})

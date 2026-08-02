@@ -6,7 +6,7 @@
 //
 // Run the enforced baseline with:
 //
-//	go test -run 'Test(Topology|Documentation)GuardBaseline' -count=1 -v ./internal/archguard
+//	tools/test-go.sh -run 'Test(Topology|Documentation)GuardBaseline' -count=1 -v ./internal/archguard
 //
 // Production packages must not import archguard.
 package archguard

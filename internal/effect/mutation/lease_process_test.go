@@ -16,7 +16,6 @@ func TestCrossProcessSharedAndExclusiveContention(t *testing.T) {
 	sharedHolder := startMutationLeaseHelper(t, dataDir, "shared", 5*time.Second, path)
 
 	store := mutationTestStoreAt(t, dataDir)
-	store.maximum = 150 * time.Millisecond
 	shared := mutationTestLogicalDomain(t, path, AccessShared)
 	sharedSet, err := store.Acquire(context.Background(), shared)
 	if err != nil {
@@ -25,6 +24,7 @@ func TestCrossProcessSharedAndExclusiveContention(t *testing.T) {
 	if err := sharedSet.Release(); err != nil {
 		t.Fatal(err)
 	}
+	store.maximum = 150 * time.Millisecond
 	exclusive := mutationTestLogicalDomain(t, path, AccessExclusive)
 	_, err = store.Acquire(context.Background(), exclusive)
 	var contention ContentionError

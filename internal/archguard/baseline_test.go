@@ -23,7 +23,7 @@ func TestTopologyGuardBaseline(t *testing.T) {
 	assertFindingMetadata(t, report.DensityReviewRequirements)
 	assertFindingMetadata(t, report.DensityWatchpoints)
 	assertFindingMetadata(t, report.DensityWarnings)
-	t.Logf("command: go test -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s", FormatAnalysisReport(report))
+	t.Logf("command: tools/test-go.sh -run TestTopologyGuardBaseline -count=1 -v ./internal/archguard\n%s", FormatAnalysisReport(report))
 }
 
 func loadRepoPackageRecords(t *testing.T) []PackageRecord {

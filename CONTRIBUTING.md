@@ -45,11 +45,15 @@ guards. The productive API check requires `jq`. Run focused tests while
 editing, then use the remaining repository gates appropriate to the claim:
 
 ```bash
-go test -count=1 ./...
-go test -race -count=1 ./...
+tools/test-go.sh -count=1 ./...
+tools/test-go.sh -race -count=1 ./...
 go mod verify
 git diff --check
 ```
+
+The test harness gives every invocation private user and XDG roots while
+reusing the selected Go toolchain and existing build and module caches. Use it
+for repository-wide tests so local agent configuration cannot affect results.
 
 When raising the Go toolchain, preview the standard modernizers with
 `go fix -diff ./...`, review the proposed source changes, and run `go fix ./...`

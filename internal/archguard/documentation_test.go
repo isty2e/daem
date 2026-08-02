@@ -15,7 +15,7 @@ func TestDocumentationGuardBaseline(t *testing.T) {
 	if report.hasFailures() {
 		t.Fatalf("documentation guard baseline has failures:\n%s", formatDocumentationReport(report))
 	}
-	t.Log("command: go test -run TestDocumentationGuardBaseline -count=1 -v ./internal/archguard")
+	t.Log("command: tools/test-go.sh -run TestDocumentationGuardBaseline -count=1 -v ./internal/archguard")
 }
 
 func TestReleaseIntegrityDocumentationContract(t *testing.T) {
