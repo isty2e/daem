@@ -101,6 +101,7 @@ type rootedTreeWriterUnix struct {
 	mu       sync.Mutex
 	ctx      context.Context
 	prepared *PreparedRootedTree
+	budget   *treeTraversalBudget
 	active   bool
 }
 
@@ -115,6 +116,9 @@ func (writer *rootedTreeWriterUnix) CreateDirectory(path mutationfs.TreeRelative
 	defer writer.mu.Unlock()
 	if err := writer.validate(path, mode); err != nil {
 		return err
+	}
+	if err := writer.budget.admitWrittenEntry(path.Depth()); err != nil {
+		return fmt.Errorf("prepared tree directory %q: %w", path.Path(), err)
 	}
 	parent, err := writer.openParent(path)
 	if err != nil {
@@ -164,6 +168,9 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	}
 	if err := writer.validate(path, mode); err != nil {
 		return err
+	}
+	if err := writer.budget.admitWrittenEntry(path.Depth() - 1); err != nil {
+		return fmt.Errorf("prepared tree file %q: %w", path.Path(), err)
 	}
 	parent, err := writer.openParent(path)
 	if err != nil {

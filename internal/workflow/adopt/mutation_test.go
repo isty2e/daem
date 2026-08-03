@@ -373,6 +373,39 @@ func TestWritePlanRejectsSkillIdentityDriftBeforePublishingManifest(t *testing.T
 	}
 }
 
+func TestWritePlanRejectsSkillTreeDeeperThanCleanupBoundaryWithoutResidue(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "live-skill")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("planned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := source
+	for depth := 1; depth <= 65; depth++ {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "generated", "skill")
+	output := filepath.Join(root, "generated", "daem.toml")
+	skill := plannedImportedSkill(t, source, destination)
+	plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{skill})
+
+	err := writePlan(context.Background(), plan, nil)
+	if err == nil || !strings.Contains(err.Error(), "tree exceeds maximum depth 64") {
+		t.Fatalf("writePlan error = %v, want cleanup-depth rejection", err)
+	}
+	for _, path := range []string{destination, output} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("path %q was published after depth rejection: %v", path, statErr)
+		}
+	}
+	assertNoImportTreeStage(t, root)
+}
+
 func TestWritePlanAcceptsReplacementWithSameExactArtifactIdentity(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "live-skill")

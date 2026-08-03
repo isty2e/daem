@@ -426,6 +426,11 @@ func (path TreeRelativePath) Path() string {
 	return strings.Join(path.components, "/")
 }
 
+// Depth returns the number of path components below the private tree root.
+func (path TreeRelativePath) Depth() int {
+	return len(path.components)
+}
+
 // RootedTreeSnapshotSink receives one stable rooted directory snapshot in
 // depth-first lexical order. File content is valid only during VisitRegularFile.
 type RootedTreeSnapshotSink interface {

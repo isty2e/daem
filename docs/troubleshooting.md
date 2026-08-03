@@ -252,9 +252,12 @@ and kind are checked in the same traversal that establishes the planned tree
 identity. A top-level skill symlink is allowed because daem resolves it before
 planning; nested symlinks are not. For a merged multi-target import, every
 contributing source route must remain stable even though only one route supplies
-the copied bytes. Rerun `daem import --dry-run` after the tree is stable. Daem
-does not publish the generated manifest or a partial vendored skill when the
-copied tree differs from the planned content identity.
+the copied bytes. Imported skill staging is also limited to 100,000 entries and
+64 descendant-directory levels so any failed private stage remains within the
+cleanup boundary. This is a structural limit, not a whole-skill byte limit.
+Rerun `daem import --dry-run` after the tree is stable and within those bounds.
+Daem does not publish the generated manifest or a partial vendored skill when
+the copied tree differs from the planned content identity.
 
 Hook import additionally accepts at most 256 events, 4,096 groups, 4,096
 handlers, and 4,096 skipped entries. Event names may contain at most 256 bytes,

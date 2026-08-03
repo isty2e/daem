@@ -86,3 +86,10 @@ func (budget *treeTraversalBudget) admitDepth(depth int) error {
 	}
 	return nil
 }
+
+func (budget *treeTraversalBudget) admitWrittenEntry(depth int) error {
+	if err := budget.admitDepth(depth); err != nil {
+		return err
+	}
+	return budget.admitEntries(1)
+}
