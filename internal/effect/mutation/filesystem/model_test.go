@@ -64,6 +64,19 @@ func TestRegularFileSnapshotOwnsContentAndMode(t *testing.T) {
 }
 
 func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
+	structure, err := NewTreeStructureLimits(3, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if structure.MaximumEntries() != 3 ||
+		structure.MaximumDepth() != 0 {
+		t.Fatalf(
+			"structure limits = (%d, %d)",
+			structure.MaximumEntries(),
+			structure.MaximumDepth(),
+		)
+	}
+
 	for _, test := range []struct {
 		entries int
 		depth   int

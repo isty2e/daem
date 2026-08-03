@@ -328,10 +328,12 @@ route remains freshness evidence and the representative target's canonical
 route supplies the bytes. Daem then streams that exact planned directory
 identity into private staging. Any identity-changing replacement or mutation,
 including an entry, executable-mode, or entry-kind change during copying,
-fails before manifest publication. Private staging accepts at most 100,000
-entries and 64 descendant-directory levels, matching the cleanup traversal that owns failed
-stages. The whole skill tree has no separate byte ceiling; files are streamed,
-while the `SKILL.md` compatibility document retains its 1 MiB limit.
+fails before manifest publication. Import planning and private staging both
+accept at most 100,000 entries and 64 descendant-directory levels, matching the
+cleanup traversal that owns failed stages. A dry run therefore never recommends
+writing a skill tree that staging would reject. The whole skill tree has no
+separate byte ceiling; files are streamed, while the `SKILL.md` compatibility
+document retains its 1 MiB limit.
 
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.

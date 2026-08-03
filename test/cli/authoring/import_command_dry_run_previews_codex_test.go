@@ -53,6 +53,44 @@ func TestRunImportDryRunPreviewsCodexProjectInstructionsWithoutWrites(t *testing
 	testkit.AssertFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "project instructions\n")
 }
 
+func TestRunImportDryRunRejectsSkillTreeDeeperThanWritableStaging(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	skillRoot := filepath.Join(tempDir, ".agents", "skills", "deep")
+	testkit.WriteFile(t, skillRoot, "SKILL.md", "---\nname: deep\n---\n")
+	nested := skillRoot
+	for range 65 {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+	sourceDirectory := filepath.Join(tempDir, "daem.imported.d")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"import", "--target", "codex", "--manifest", outputPath, "--dry-run"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1, stderr = %q", exitCode, stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want no inadmissible preview", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "artifact tree exceeds maximum depth 64") {
+		t.Fatalf("stderr = %q, want staging-depth rejection", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "rerun daem import without --dry-run") {
+		t.Fatalf("stderr = %q, want no write-mode recommendation", stderr.String())
+	}
+	testkit.AssertPathMissing(t, outputPath)
+	testkit.AssertPathMissing(t, sourceDirectory)
+}
+
 func TestRunImportMergeConflictDryRunReportsResolutionNextStep(t *testing.T) {
 	tempDir := t.TempDir()
 	testkit.WithWorkingDirectory(t, tempDir)

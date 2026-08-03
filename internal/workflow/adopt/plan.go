@@ -13,6 +13,8 @@ import (
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 // BuildPlan scans selected live agent resources and produces a manifest import plan.
@@ -29,6 +31,14 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	output := request.Output()
 	sourceDirectory := request.SourceDirectory()
 	merge := request.Merge()
+	stagingStructureLimits := storagecommit.RootedTreeStagingStructureLimits()
+	skillTreeLimit, err := access.NewTreeStructureLimit(
+		stagingStructureLimits.MaximumEntries(),
+		stagingStructureLimits.MaximumDepth(),
+	)
+	if err != nil {
+		return adoptmodel.Plan{}, fmt.Errorf("derive skill import staging limit: %w", err)
+	}
 	outputExists, err := pathExists(output)
 	if err != nil {
 		return adoptmodel.Plan{}, fmt.Errorf("inspect output manifest: %w", err)
@@ -97,7 +107,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 		})
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
-	skillSourceIdentities := adoptskill.NewSourceIdentityCache()
+	skillSourceIdentities := adoptskill.NewSourceIdentityCache(skillTreeLimit)
 	for _, target := range request.Targets() {
 		for _, scope := range request.Scopes() {
 			if err := ctx.Err(); err != nil {

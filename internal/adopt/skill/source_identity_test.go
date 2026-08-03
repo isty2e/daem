@@ -7,7 +7,17 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
+
+func skillTreeStructureLimitForTest(t *testing.T) access.TreeStructureLimit {
+	t.Helper()
+	limit, err := access.NewTreeStructureLimit(100, 16)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limit
+}
 
 func TestSourceIdentityCacheObservesOneCanonicalRouteOnce(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")

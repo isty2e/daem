@@ -27,32 +27,56 @@ type EntryIdentity interface {
 	Kind() EntryKind
 }
 
-// TreeTraversalLimits bounds one recursive filesystem observation. Entry
-// cardinality is global across the tree and depth counts directories below the
-// selected root.
-type TreeTraversalLimits struct {
+// TreeStructureLimits bounds one recursive filesystem tree shape. Entry
+// cardinality is global across descendants and excludes the selected root.
+// Depth counts directories below the selected root.
+type TreeStructureLimits struct {
 	maximumEntries int
 	maximumDepth   int
-	maximumBytes   int64
+}
+
+// NewTreeStructureLimits constructs finite tree-shape bounds. Entry cardinality
+// must be positive; zero depth permits only regular files directly below root.
+func NewTreeStructureLimits(maximumEntries int, maximumDepth int) (TreeStructureLimits, error) {
+	if maximumEntries <= 0 {
+		return TreeStructureLimits{}, fmt.Errorf(
+			"tree structure maximum entries must be positive",
+		)
+	}
+	if maximumDepth < 0 {
+		return TreeStructureLimits{}, fmt.Errorf(
+			"tree structure maximum depth must not be negative",
+		)
+	}
+	return TreeStructureLimits{
+		maximumEntries: maximumEntries,
+		maximumDepth:   maximumDepth,
+	}, nil
+}
+
+// MaximumEntries returns the global descendant-entry bound.
+func (limits TreeStructureLimits) MaximumEntries() int { return limits.maximumEntries }
+
+// MaximumDepth returns the maximum descendant-directory depth.
+func (limits TreeStructureLimits) MaximumDepth() int { return limits.maximumDepth }
+
+// TreeTraversalLimits adds a regular-file byte bound to one tree-shape limit.
+type TreeTraversalLimits struct {
+	structure    TreeStructureLimits
+	maximumBytes int64
 }
 
 // NewTreeTraversalLimits constructs finite traversal bounds. Entry and byte
-// cardinality must be positive; zero depth permits only the selected root's
-// direct entries.
+// cardinality must be positive; zero depth permits only regular files directly
+// below the selected root.
 func NewTreeTraversalLimits(
 	maximumEntries int,
 	maximumDepth int,
 	maximumBytes int64,
 ) (TreeTraversalLimits, error) {
-	if maximumEntries <= 0 {
-		return TreeTraversalLimits{}, fmt.Errorf(
-			"tree traversal maximum entries must be positive",
-		)
-	}
-	if maximumDepth < 0 {
-		return TreeTraversalLimits{}, fmt.Errorf(
-			"tree traversal maximum depth must not be negative",
-		)
+	structure, err := NewTreeStructureLimits(maximumEntries, maximumDepth)
+	if err != nil {
+		return TreeTraversalLimits{}, err
 	}
 	if maximumBytes <= 0 {
 		return TreeTraversalLimits{}, fmt.Errorf(
@@ -60,20 +84,19 @@ func NewTreeTraversalLimits(
 		)
 	}
 	return TreeTraversalLimits{
-		maximumEntries: maximumEntries,
-		maximumDepth:   maximumDepth,
-		maximumBytes:   maximumBytes,
+		structure:    structure,
+		maximumBytes: maximumBytes,
 	}, nil
 }
 
 // MaximumEntries returns the global entry-cardinality bound.
 func (limits TreeTraversalLimits) MaximumEntries() int {
-	return limits.maximumEntries
+	return limits.structure.MaximumEntries()
 }
 
 // MaximumDepth returns the maximum descendant-directory depth.
 func (limits TreeTraversalLimits) MaximumDepth() int {
-	return limits.maximumDepth
+	return limits.structure.MaximumDepth()
 }
 
 // MaximumBytes returns the global regular-file byte bound.
@@ -84,8 +107,8 @@ func (limits TreeTraversalLimits) MaximumBytes() int64 {
 // Validate rejects an uninitialized traversal limit.
 func (limits TreeTraversalLimits) Validate() error {
 	_, err := NewTreeTraversalLimits(
-		limits.maximumEntries,
-		limits.maximumDepth,
+		limits.MaximumEntries(),
+		limits.MaximumDepth(),
 		limits.maximumBytes,
 	)
 	return err

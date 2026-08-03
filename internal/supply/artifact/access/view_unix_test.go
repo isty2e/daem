@@ -237,7 +237,11 @@ func TestHashDirectoryRequiringRootFileBindsEligibilityToTreeIdentity(t *testing
 		t.Fatal(err)
 	}
 
-	got, err := view.HashDirectoryRequiringRootFile(context.Background(), "SKILL.md")
+	got, err := view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTreeStructureLimitForTest(t, 8, 4),
+	)
 	if err != nil {
 		t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
 	}
@@ -276,11 +280,90 @@ func TestHashDirectoryRequiringRootFileRejectsMissingOrNonregularEntry(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := view.HashDirectoryRequiringRootFile(context.Background(), "SKILL.md"); !errors.Is(err, ErrRequiredRootRegularFile) {
+			if _, err := view.HashDirectoryRequiringRootFile(
+				context.Background(),
+				"SKILL.md",
+				accessTreeStructureLimitForTest(t, 8, 4),
+			); !errors.Is(err, ErrRequiredRootRegularFile) {
 				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection", err)
 			}
 		})
 	}
+}
+
+func TestHashDirectoryRequiringRootFileEnforcesTreeStructureLimit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		limit   TreeStructureLimit
+		setup   func(*testing.T, string)
+		wantErr string
+	}{
+		{
+			name:  "exact boundary",
+			limit: accessTreeStructureLimitForTest(t, 3, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "scripts", "run.sh"), []byte("run"))
+			},
+		},
+		{
+			name:  "entry count exceeded",
+			limit: accessTreeStructureLimitForTest(t, 2, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "scripts", "run.sh"), []byte("run"))
+			},
+			wantErr: "artifact tree exceeds 2 entries",
+		},
+		{
+			name:  "directory depth exceeded",
+			limit: accessTreeStructureLimitForTest(t, 4, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "one", "two", "run.sh"), []byte("run"))
+			},
+			wantErr: "artifact tree exceeds maximum depth 1",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := resolvedAccessTestRoot(t)
+			test.setup(t, root)
+			view, err := OpenNoFollowView(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = view.HashDirectoryRequiringRootFile(
+				context.Background(),
+				"SKILL.md",
+				test.limit,
+			)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func accessTreeStructureLimitForTest(
+	t *testing.T,
+	maximumEntries int,
+	maximumDepth int,
+) TreeStructureLimit {
+	t.Helper()
+	limit, err := NewTreeStructureLimit(maximumEntries, maximumDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limit
 }
 
 func resolvedAccessTestRoot(t *testing.T) string {

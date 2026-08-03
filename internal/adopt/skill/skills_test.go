@@ -224,7 +224,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		targetpkg.TargetOpenCode,
 		targetpkg.ScopeProject,
 		NewDestinationClaims(),
-		NewSourceIdentityCache(),
+		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing
 				skillRoot,
 				"review",
 				NewDestinationClaims(),
-				NewSourceIdentityCache(),
+				NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -324,7 +324,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	observations := 0
 	sourceIdentities := newSourceIdentityCache(func(ctx context.Context, readPath string) (artifact.ContentHash, error) {
 		observations++
-		return observeSkillDirectoryIdentity(ctx, readPath)
+		return observeSkillDirectoryIdentity(ctx, readPath, skillTreeStructureLimitForTest(t))
 	})
 	destinations := NewDestinationClaims()
 	var imported []adopt.Skill

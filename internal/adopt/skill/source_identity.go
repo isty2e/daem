@@ -18,9 +18,12 @@ type SourceIdentityCache struct {
 	observe       sourceIdentityObserver
 }
 
-// NewSourceIdentityCache constructs an empty operation-local identity cache.
-func NewSourceIdentityCache() *SourceIdentityCache {
-	return newSourceIdentityCache(observeSkillDirectoryIdentity)
+// NewSourceIdentityCache constructs an empty operation-local identity cache
+// constrained to skill trees that the caller can stage and clean up.
+func NewSourceIdentityCache(structureLimit access.TreeStructureLimit) *SourceIdentityCache {
+	return newSourceIdentityCache(func(ctx context.Context, readPath string) (artifact.ContentHash, error) {
+		return observeSkillDirectoryIdentity(ctx, readPath, structureLimit)
+	})
 }
 
 func newSourceIdentityCache(observer sourceIdentityObserver) *SourceIdentityCache {
@@ -68,6 +71,7 @@ func (cache *SourceIdentityCache) ContentHash(
 func observeSkillDirectoryIdentity(
 	ctx context.Context,
 	readPath string,
+	structureLimit access.TreeStructureLimit,
 ) (artifact.ContentHash, error) {
 	view, err := access.OpenNoFollowView(readPath)
 	if err != nil {
@@ -76,7 +80,7 @@ func observeSkillDirectoryIdentity(
 	if view.Kind() != artifact.ArtifactKindDirectory {
 		return "", fmt.Errorf("skill tree %q is not a directory", readPath)
 	}
-	contentHash, err := view.HashDirectoryRequiringRootFile(ctx, "SKILL.md")
+	contentHash, err := view.HashDirectoryRequiringRootFile(ctx, "SKILL.md", structureLimit)
 	if err != nil {
 		return "", fmt.Errorf("hash skill tree %q: %w", readPath, err)
 	}

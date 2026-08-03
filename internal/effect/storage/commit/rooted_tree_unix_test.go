@@ -160,6 +160,31 @@ func TestPrepareRootedTreeRejectsStructureOutsideCleanupLimitsWithoutResidue(t *
 	}
 }
 
+func TestRootedTreeStagingStructureLimitMatchesCleanupAdmission(t *testing.T) {
+	limit := RootedTreeStagingStructureLimits()
+	if limit.MaximumEntries() != defaultTreeTraversalMaximumEntries ||
+		limit.MaximumDepth() != defaultTreeTraversalMaximumDepth {
+		t.Fatalf(
+			"staging structure limit = entries:%d depth:%d, want entries:%d depth:%d",
+			limit.MaximumEntries(),
+			limit.MaximumDepth(),
+			defaultTreeTraversalMaximumEntries,
+			defaultTreeTraversalMaximumDepth,
+		)
+	}
+	cleanup := defaultTreeTraversalLimits()
+	if cleanup.MaximumEntries() != limit.MaximumEntries() ||
+		cleanup.MaximumDepth() != limit.MaximumDepth() {
+		t.Fatalf(
+			"cleanup limit = entries:%d depth:%d, staging limit = entries:%d depth:%d",
+			cleanup.MaximumEntries(),
+			cleanup.MaximumDepth(),
+			limit.MaximumEntries(),
+			limit.MaximumDepth(),
+		)
+	}
+}
+
 func TestPrepareRootedTreeAcceptsExactCleanupStructureBoundary(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {

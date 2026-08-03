@@ -28,15 +28,29 @@ func newTreeTraversalBudget(
 }
 
 func defaultTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+	structureLimit := RootedTreeStagingStructureLimits()
 	limits, err := mutationfs.NewTreeTraversalLimits(
-		defaultTreeTraversalMaximumEntries,
-		defaultTreeTraversalMaximumDepth,
+		structureLimit.MaximumEntries(),
+		structureLimit.MaximumDepth(),
 		defaultTreeTraversalMaximumBytes,
 	)
 	if err != nil {
 		panic(err)
 	}
 	return limits
+}
+
+// RootedTreeStagingStructureLimits returns the maximum tree shape that
+// PrepareRootedTree can create and later clean up on every failure path.
+func RootedTreeStagingStructureLimits() mutationfs.TreeStructureLimits {
+	limit, err := mutationfs.NewTreeStructureLimits(
+		defaultTreeTraversalMaximumEntries,
+		defaultTreeTraversalMaximumDepth,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limit
 }
 
 func (budget *treeTraversalBudget) admitBytes(count int64) error {
