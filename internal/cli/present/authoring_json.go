@@ -287,6 +287,7 @@ func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
 		})
 	}
 	for _, skill := range plan.Skills() {
+		primaryRoute, _ := skill.PrimarySourceRoute()
 		changes = append(changes, ManifestAuthoringJSONChange{
 			Operation:  "import",
 			ResourceID: authoringResourceID("skill", skill.ResourceName),
@@ -295,7 +296,7 @@ func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
 			Targets:    importTargetStrings(skill.Targets),
 			Scope:      string(skill.Scope),
 			Source:     filepath.ToSlash(skill.SourcePath),
-			LivePath:   skill.LivePath,
+			LivePath:   primaryRoute.LivePath,
 		})
 	}
 	for _, hook := range plan.Hooks() {

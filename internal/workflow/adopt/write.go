@@ -266,9 +266,13 @@ func copyImportedSkillDirectory(
 	if err != nil {
 		return createdImportPath{}, fmt.Errorf("resolve imported skill identity: %w", err)
 	}
-	view, err := access.OpenNoFollowView(skill.ReadPath)
+	route, err := skill.PrimarySourceRoute()
 	if err != nil {
-		return createdImportPath{}, fmt.Errorf("open imported skill source %q: %w", skill.ReadPath, err)
+		return createdImportPath{}, fmt.Errorf("resolve imported skill source route: %w", err)
+	}
+	view, err := access.OpenNoFollowView(route.ReadPath)
+	if err != nil {
+		return createdImportPath{}, fmt.Errorf("open imported skill source %q: %w", route.ReadPath, err)
 	}
 	if view.Kind() != identity.Kind() {
 		return createdImportPath{}, fmt.Errorf(

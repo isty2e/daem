@@ -63,11 +63,16 @@ func TestAssignImportedSkillGroupSourcesUsesSkillContentInGroupRoot(t *testing.T
 
 func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
 	contentHash := artifact.HashFileContent([]byte("same"))
-	finalized := Finalize([]adopt.Skill{
-		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
-		{InstallName: "alpha", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
-		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash},
+	piRoute := adopt.SkillSourceRoute{Target: targetpkg.TargetPi, LivePath: "/pi/alpha", ReadPath: "/pi/alpha"}
+	codexRoute := adopt.SkillSourceRoute{Target: targetpkg.TargetCodex, LivePath: "/codex/alpha", ReadPath: "/codex/alpha"}
+	finalized, err := Finalize([]adopt.Skill{
+		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash, SourceRoutes: []adopt.SkillSourceRoute{piRoute}},
+		{InstallName: "alpha", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash, SourceRoutes: []adopt.SkillSourceRoute{codexRoute}},
+		{InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash, SourceRoutes: []adopt.SkillSourceRoute{piRoute}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(finalized) != 1 {
 		t.Fatalf("Finalize returned %#v, want one skill", finalized)
 	}
@@ -78,21 +83,34 @@ func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
 	if !reflect.DeepEqual(finalized[0].Targets, want) {
 		t.Fatalf("targets = %#v, want %#v", finalized[0].Targets, want)
 	}
+	wantRoutes := []adopt.SkillSourceRoute{codexRoute, piRoute}
+	if !reflect.DeepEqual(finalized[0].SourceRoutes, wantRoutes) {
+		t.Fatalf("source routes = %#v, want %#v", finalized[0].SourceRoutes, wantRoutes)
+	}
 }
 
 func TestFinalizeMergesTargetPlacementRequestsWithoutChangingTargetOrder(t *testing.T) {
 	contentHash := artifact.HashFileContent([]byte("same"))
-	finalized := Finalize([]adopt.Skill{
+	finalized, err := Finalize([]adopt.Skill{
 		{
 			InstallName: "alpha", Target: targetpkg.TargetOpenCode,
 			Scope: targetpkg.ScopeProject, ContentHash: contentHash,
 			Placements: map[targetpkg.Target]string{targetpkg.TargetOpenCode: ".agents/skills"},
+			SourceRoutes: []adopt.SkillSourceRoute{{
+				Target: targetpkg.TargetOpenCode, LivePath: "/opencode/alpha", ReadPath: "/opencode/alpha",
+			}},
 		},
 		{
 			InstallName: "alpha", Target: targetpkg.TargetCodex,
 			Scope: targetpkg.ScopeProject, ContentHash: contentHash,
+			SourceRoutes: []adopt.SkillSourceRoute{{
+				Target: targetpkg.TargetCodex, LivePath: "/codex/alpha", ReadPath: "/codex/alpha",
+			}},
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(finalized) != 1 {
 		t.Fatalf("Finalize returned %#v, want one skill", finalized)
 	}
@@ -212,6 +230,60 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 	}
 }
 
+func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{name: "missing"},
+		{
+			name: "directory",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, "SKILL.md"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			skillRoot := filepath.Join(root, "review")
+			if err := os.Mkdir(skillRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.setup != nil {
+				test.setup(t, skillRoot)
+			}
+			sourceDirectory, err := adopt.NewSourceDirectory(
+				filepath.Join(root, "daem.toml"),
+				filepath.Join(root, "daem.d"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			candidate, skipped, err := importSkillFromEntry(
+				context.Background(),
+				sourceDirectory,
+				targetpkg.TargetCodex,
+				targetpkg.ScopeProject,
+				"",
+				skillRoot,
+				"review",
+				NewDestinationClaims(),
+				NewSourceIdentityCache(),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if candidate.ResourceName != "" || skipped.Reason != importSkillSkipMissingSkillMD {
+				t.Fatalf("candidate = %#v, skip = %#v, want missing SKILL.md skip", candidate, skipped)
+			}
+		})
+	}
+}
+
 func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	projectRoot := t.TempDir()
 	oldWorkingDirectory, err := os.Getwd()
@@ -270,8 +342,16 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	if observations != 1 {
 		t.Fatalf("shared skill identity observations = %d, want 1", observations)
 	}
-	if imported[0].ReadPath != imported[1].ReadPath || !filepath.IsAbs(imported[0].ReadPath) {
-		t.Fatalf("shared read paths = %q and %q, want one absolute route", imported[0].ReadPath, imported[1].ReadPath)
+	firstRoute, err := imported[0].PrimarySourceRoute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRoute, err := imported[1].PrimarySourceRoute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstRoute.ReadPath != secondRoute.ReadPath || !filepath.IsAbs(firstRoute.ReadPath) {
+		t.Fatalf("shared read paths = %q and %q, want one absolute route", firstRoute.ReadPath, secondRoute.ReadPath)
 	}
 	if imported[0].ContentHash != imported[1].ContentHash {
 		t.Fatalf("shared content hashes = %q and %q", imported[0].ContentHash, imported[1].ContentHash)

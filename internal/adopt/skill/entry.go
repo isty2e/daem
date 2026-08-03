@@ -2,11 +2,13 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -119,20 +121,6 @@ func importSkillFromEntry(
 	if !info.IsDir() {
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
 	}
-	skillFilePath := filepath.Join(readPath, "SKILL.md")
-	skillFileInfo, err := os.Lstat(skillFilePath)
-	if os.IsNotExist(err) {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
-	}
-	if err != nil {
-		return adopt.Skill{}, adopt.Skipped{}, fmt.Errorf("inspect skill file %q: %w", livePath, err)
-	}
-	if skillFileInfo.Mode()&os.ModeSymlink != 0 {
-		return adopt.Skill{}, adopt.Skipped{LivePath: skillFilePath, Reason: importSkillSkipNestedSymlink}, nil
-	}
-	if !skillFileInfo.Mode().IsRegular() {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
-	}
 	destination := DestinationClaim{
 		Target:      target,
 		Scope:       scope,
@@ -152,6 +140,9 @@ func importSkillFromEntry(
 
 	contentHash, err := sourceIdentities.ContentHash(ctx, readPath)
 	if err != nil {
+		if errors.Is(err, access.ErrRequiredRootRegularFile) {
+			return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
+		}
 		return adopt.Skill{}, adopt.Skipped{}, err
 	}
 
@@ -172,9 +163,10 @@ func importSkillFromEntry(
 		Targets:      []targetpkg.Target{target},
 		Placements:   placements,
 		Scope:        scope,
-		LivePath:     livePath,
-		ReadPath:     readPath,
-		SourcePath:   sourcePath,
-		ContentHash:  contentHash,
+		SourceRoutes: []adopt.SkillSourceRoute{{
+			Target: target, LivePath: livePath, ReadPath: readPath,
+		}},
+		SourcePath:  sourcePath,
+		ContentHash: contentHash,
 	}, adopt.Skipped{}, nil
 }

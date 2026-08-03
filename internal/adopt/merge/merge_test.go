@@ -578,11 +578,11 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 		if len(input.Skills[index].Targets) == 0 {
 			input.Skills[index].Targets = []target.Target{input.Skills[index].Target}
 		}
-		if input.Skills[index].LivePath == "" {
-			input.Skills[index].LivePath = filepath.Join(root, "live-skill")
-		}
-		if input.Skills[index].ReadPath == "" {
-			input.Skills[index].ReadPath = input.Skills[index].LivePath
+		if len(input.Skills[index].SourceRoutes) == 0 {
+			livePath := filepath.Join(root, "live-skill")
+			input.Skills[index].SourceRoutes = []adopt.SkillSourceRoute{{
+				Target: input.Skills[index].Target, LivePath: livePath, ReadPath: livePath,
+			}}
 		}
 		if input.Skills[index].ContentHash == "" {
 			input.Skills[index].ContentHash = artifact.HashFileContent([]byte("merge test skill"))

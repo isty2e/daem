@@ -76,7 +76,7 @@ func observeSkillDirectoryIdentity(
 	if view.Kind() != artifact.ArtifactKindDirectory {
 		return "", fmt.Errorf("skill tree %q is not a directory", readPath)
 	}
-	contentHash, err := view.Hash(ctx)
+	contentHash, err := view.HashDirectoryRequiringRootFile(ctx, "SKILL.md")
 	if err != nil {
 		return "", fmt.Errorf("hash skill tree %q: %w", readPath, err)
 	}

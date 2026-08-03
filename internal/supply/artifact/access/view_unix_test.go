@@ -228,6 +228,61 @@ func TestHashWithLimitMatchesUnboundedHashWithinBudget(t *testing.T) {
 	}
 }
 
+func TestHashDirectoryRequiringRootFileBindsEligibilityToTreeIdentity(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("---\nname: review\n---\n"))
+	writeAccessTestFile(t, filepath.Join(root, "scripts", "review.sh"), []byte("#!/bin/sh\n"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := view.HashDirectoryRequiringRootFile(context.Background(), "SKILL.md")
+	if err != nil {
+		t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
+	}
+	want, err := view.Hash(context.Background())
+	if err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("required-file hash = %q, ordinary hash = %q", got, want)
+	}
+}
+
+func TestHashDirectoryRequiringRootFileRejectsMissingOrNonregularEntry(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{name: "missing"},
+		{
+			name: "directory",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, "SKILL.md"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := resolvedAccessTestRoot(t)
+			writeAccessTestFile(t, filepath.Join(root, "other"), []byte("content"))
+			if test.setup != nil {
+				test.setup(t, root)
+			}
+			view, err := OpenNoFollowView(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := view.HashDirectoryRequiringRootFile(context.Background(), "SKILL.md"); !errors.Is(err, ErrRequiredRootRegularFile) {
+				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection", err)
+			}
+		})
+	}
+}
+
 func resolvedAccessTestRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())

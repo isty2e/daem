@@ -124,23 +124,44 @@ type Skill struct {
 	Targets      []targetpkg.Target
 	Placements   map[targetpkg.Target]string
 	Scope        targetpkg.Scope
-	LivePath     string
-	ReadPath     string
+	SourceRoutes []SkillSourceRoute
 	SourcePath   string
 	GroupRoot    string
 	ContentHash  artifact.ContentHash
 }
 
+// SkillSourceRoute is one target-specific live entry and its fully resolved
+// artifact read route. Every route that contributed to a merged skill remains
+// freshness authority for the resulting plan.
+type SkillSourceRoute struct {
+	Target   targetpkg.Target
+	LivePath string
+	ReadPath string
+}
+
+// PrimarySourceRoute returns the deterministic route used to materialize the
+// planned artifact. All SourceRoutes remain freshness evidence.
+func (skill Skill) PrimarySourceRoute() (SkillSourceRoute, error) {
+	if len(skill.SourceRoutes) == 0 {
+		return SkillSourceRoute{}, fmt.Errorf("skill source routes are required")
+	}
+	return skill.SourceRoutes[0], nil
+}
+
 // ExpectedSourceIdentity returns the exact directory identity that execution
-// must reproduce from ReadPath before publishing this imported skill.
+// must reproduce from the primary source route before publication.
 func (skill Skill) ExpectedSourceIdentity() (artifact.ExactIdentity, error) {
-	if !filepath.IsAbs(skill.ReadPath) || filepath.Clean(skill.ReadPath) != skill.ReadPath {
+	route, err := skill.PrimarySourceRoute()
+	if err != nil {
+		return artifact.ExactIdentity{}, err
+	}
+	if !filepath.IsAbs(route.ReadPath) || filepath.Clean(route.ReadPath) != route.ReadPath {
 		return artifact.ExactIdentity{}, fmt.Errorf(
 			"skill read path %q must be canonical and absolute",
-			skill.ReadPath,
+			route.ReadPath,
 		)
 	}
-	source, err := sourcepkg.NewLocalSource(skill.ReadPath, sourcepkg.LocalSourceModeVendor)
+	source, err := sourcepkg.NewLocalSource(route.ReadPath, sourcepkg.LocalSourceModeVendor)
 	if err != nil {
 		return artifact.ExactIdentity{}, fmt.Errorf("skill read source: %w", err)
 	}

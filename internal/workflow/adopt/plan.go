@@ -122,7 +122,10 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 			mcpServers = append(mcpServers, importedMCPServers...)
 		}
 	}
-	skills = adoptskill.Finalize(skills)
+	skills, err = adoptskill.Finalize(skills)
+	if err != nil {
+		return adoptmodel.Plan{}, err
+	}
 	skills, err = adoptskill.AssignGroupSources(sourceDirectory, skills)
 	if err != nil {
 		return adoptmodel.Plan{}, err

@@ -28,10 +28,11 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		Target:       targetpkg.TargetCodex,
 		Targets:      skillTargets,
 		Scope:        targetpkg.ScopeProject,
-		LivePath:     "/host/skills/review",
-		ReadPath:     "/host/skills/review",
-		SourcePath:   "/workspace/daem.d/skills/review",
-		ContentHash:  artifact.HashFileContent([]byte("review")),
+		SourceRoutes: []SkillSourceRoute{{
+			Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: "/host/skills/review",
+		}},
+		SourcePath:  "/workspace/daem.d/skills/review",
+		ContentHash: artifact.HashFileContent([]byte("review")),
 	}}
 	servers := []MCPServer{{
 		ResourceName: "context7",
@@ -76,6 +77,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	serverEnv["TOKEN"] = "CHANGED"
 	sources[0].ResourceName = "changed"
 	skills[0].InstallName = "changed"
+	skills[0].SourceRoutes[0].ReadPath = "/changed"
 	servers[0].Command = "changed"
 	assertCandidateSetUnchanged(t, candidates)
 
@@ -89,6 +91,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedSources[0].ResourceName = "changed"
 	disclosedSkills[0].Targets[0] = targetpkg.TargetClaudeCode
 	disclosedSkills[0].InstallName = "changed"
+	disclosedSkills[0].SourceRoutes[0].ReadPath = "/changed"
 	disclosedHooks[0].Command = "changed"
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
@@ -102,7 +105,8 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.Sources(); got[0].ResourceName != "instructions" || string(got[0].Content) != "instructions\n" {
 		t.Fatalf("sources changed through alias: %#v", got)
 	}
-	if got := candidates.Skills(); got[0].InstallName != "review" || got[0].Targets[0] != targetpkg.TargetCodex {
+	if got := candidates.Skills(); got[0].InstallName != "review" || got[0].Targets[0] != targetpkg.TargetCodex ||
+		got[0].SourceRoutes[0].ReadPath != "/host/skills/review" {
 		t.Fatalf("skills changed through alias: %#v", got)
 	}
 	if got := candidates.Hooks(); got[0].Command != "lint" {
@@ -153,10 +157,11 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 					Target:       targetpkg.TargetCodex,
 					Targets:      []targetpkg.Target{targetpkg.TargetCodex},
 					Scope:        targetpkg.ScopeProject,
-					LivePath:     "/host/skills/review",
-					ReadPath:     "/host/skills/review",
-					SourcePath:   "/workspace/daem.d/skills/review",
-					ContentHash:  contentHash,
+					SourceRoutes: []SkillSourceRoute{{
+						Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: "/host/skills/review",
+					}},
+					SourcePath:  "/workspace/daem.d/skills/review",
+					ContentHash: contentHash,
 				}},
 			}); err == nil {
 				t.Fatalf("candidate set accepted malformed skill content hash %q", contentHash)
@@ -172,14 +177,18 @@ func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing
 		Target:       targetpkg.TargetCodex,
 		Targets:      []targetpkg.Target{targetpkg.TargetCodex},
 		Scope:        targetpkg.ScopeProject,
-		LivePath:     "/host/skills/review",
-		ReadPath:     "/host/skills/review",
-		SourcePath:   "/workspace/daem.d/skills/review",
-		ContentHash:  artifact.HashFileContent([]byte("first")),
+		SourceRoutes: []SkillSourceRoute{{
+			Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: "/host/skills/review",
+		}},
+		SourcePath:  "/workspace/daem.d/skills/review",
+		ContentHash: artifact.HashFileContent([]byte("first")),
 	}
 	conflicting := base
 	conflicting.Target = targetpkg.TargetOpenCode
 	conflicting.Targets = []targetpkg.Target{targetpkg.TargetOpenCode}
+	conflicting.SourceRoutes = []SkillSourceRoute{{
+		Target: targetpkg.TargetOpenCode, LivePath: "/host/skills/review", ReadPath: "/host/skills/review",
+	}}
 	conflicting.ContentHash = artifact.HashFileContent([]byte("second"))
 
 	if _, err := NewCandidateSet(CandidateSetInput{Skills: []Skill{base, conflicting}}); err == nil ||
@@ -189,15 +198,18 @@ func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing
 }
 
 func TestSkillExpectedSourceIdentityRetainsResolvedLocalProvenance(t *testing.T) {
+	readPath := filepath.Join(string(filepath.Separator), "host", "skills", "review")
 	skill := Skill{
-		ReadPath:    filepath.Join(string(filepath.Separator), "host", "skills", "review"),
+		SourceRoutes: []SkillSourceRoute{{
+			Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
+		}},
 		ContentHash: artifact.HashFileContent([]byte("review")),
 	}
 	identity, err := skill.ExpectedSourceIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSourceID := artifact.SourceID("local:" + filepath.ToSlash(skill.ReadPath) + "?mode=vendor")
+	wantSourceID := artifact.SourceID("local:" + filepath.ToSlash(readPath) + "?mode=vendor")
 	if identity.SourceID() != wantSourceID || identity.Kind() != artifact.ArtifactKindDirectory ||
 		identity.ContentHash() != skill.ContentHash {
 		t.Fatalf("source identity = (%q, %q, %q), want (%q, %q, %q)",
@@ -214,7 +226,9 @@ func TestSkillExpectedSourceIdentityRejectsUnresolvedReadPath(t *testing.T) {
 		filepath.Join(root, "nested") + string(filepath.Separator) + ".." + string(filepath.Separator) + "skill",
 	} {
 		skill := Skill{
-			ReadPath:    readPath,
+			SourceRoutes: []SkillSourceRoute{{
+				Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
+			}},
 			ContentHash: artifact.HashFileContent([]byte("review")),
 		}
 		if _, err := skill.ExpectedSourceIdentity(); err == nil ||

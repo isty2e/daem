@@ -3,6 +3,7 @@ package skill
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,7 +25,7 @@ type importSkillManifestGroupKey struct {
 	Scope      targetpkg.Scope
 }
 
-func Finalize(skills []adopt.Skill) []adopt.Skill {
+func Finalize(skills []adopt.Skill) ([]adopt.Skill, error) {
 	groups := make([][]adopt.Skill, 0, len(skills))
 	groupIndexes := make(map[importSkillGroupKey]int, len(skills))
 	installGroups := make(map[string][]int, len(skills))
@@ -63,9 +64,14 @@ func Finalize(skills []adopt.Skill) []adopt.Skill {
 				}
 			}
 		}
+		sourceRoutes, err := mergedSkillSourceRoutes(group)
+		if err != nil {
+			return nil, err
+		}
 		representative.Targets = uniqueTargets(targets)
 		representative.Target = representative.Targets[0]
 		representative.Placements = placements
+		representative.SourceRoutes = sourceRoutes
 
 		resourceName := representative.InstallName
 		if len(installGroups[representative.InstallName]) > 1 {
@@ -75,7 +81,44 @@ func Finalize(skills []adopt.Skill) []adopt.Skill {
 		finalized = append(finalized, representative)
 	}
 
-	return finalized
+	return finalized, nil
+}
+
+func mergedSkillSourceRoutes(group []adopt.Skill) ([]adopt.SkillSourceRoute, error) {
+	readPathsByLiveRoute := make(map[string]string)
+	routesByIdentity := make(map[string]adopt.SkillSourceRoute)
+	for _, skill := range group {
+		for _, route := range skill.SourceRoutes {
+			liveKey := string(route.Target) + "\x00" + route.LivePath
+			if readPath, exists := readPathsByLiveRoute[liveKey]; exists && readPath != route.ReadPath {
+				return nil, fmt.Errorf(
+					"skill live route %q for target %q resolves to conflicting read paths",
+					route.LivePath,
+					route.Target,
+				)
+			}
+			readPathsByLiveRoute[liveKey] = route.ReadPath
+			identity := liveKey + "\x00" + route.ReadPath
+			routesByIdentity[identity] = route
+		}
+	}
+	routes := make([]adopt.SkillSourceRoute, 0, len(routesByIdentity))
+	for _, route := range routesByIdentity {
+		routes = append(routes, route)
+	}
+	sort.Slice(routes, func(left int, right int) bool {
+		if routes[left].Target != routes[right].Target {
+			return routes[left].Target < routes[right].Target
+		}
+		if routes[left].LivePath != routes[right].LivePath {
+			return routes[left].LivePath < routes[right].LivePath
+		}
+		return routes[left].ReadPath < routes[right].ReadPath
+	})
+	if len(routes) == 0 {
+		return nil, fmt.Errorf("finalized skill requires at least one source route")
+	}
+	return routes, nil
 }
 
 func AssignGroupSources(sourceDirectory adopt.SourceDirectory, skills []adopt.Skill) ([]adopt.Skill, error) {

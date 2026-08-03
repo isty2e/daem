@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
+
+// ErrRequiredRootRegularFile reports that a directory artifact did not contain
+// one required regular file at its root during the identity traversal.
+var ErrRequiredRootRegularFile = errors.New("required root regular file is unavailable")
 
 // EntryKind classifies one no-follow directory entry.
 type EntryKind string
@@ -197,6 +202,33 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 	return walkNative(ctx, view.root, view.kind, nil, nil)
 }
 
+// HashDirectoryRequiringRootFile hashes one directory while proving that name
+// was a regular root entry in the same descriptor-bound traversal.
+func (view View) HashDirectoryRequiringRootFile(
+	ctx context.Context,
+	name string,
+) (artifact.ContentHash, error) {
+	if err := view.validateOperation(ctx); err != nil {
+		return "", err
+	}
+	if view.kind != artifact.ArtifactKindDirectory {
+		return "", fmt.Errorf("required root file validation needs a directory artifact")
+	}
+	if strings.TrimSpace(name) != name || name == "" || name == "." || name == ".." ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("required root file name %q must be one canonical entry name", name)
+	}
+	observer := &requiredRootRegularFileSink{name: name}
+	contentHash, err := walkNative(ctx, view.root, view.kind, observer, nil)
+	if err != nil {
+		return "", err
+	}
+	if !observer.found {
+		return "", fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
+	}
+	return contentHash, nil
+}
+
 // HashWithLimit computes hash-v1 while refusing a traversal whose entry count
 // or cumulative regular-file bytes exceed the exact caller-selected budget.
 func (view View) HashWithLimit(
@@ -328,6 +360,37 @@ type traversalBudget struct {
 	entries uint64
 	bytes   int64
 }
+
+type requiredRootRegularFileSink struct {
+	name  string
+	found bool
+}
+
+func (sink *requiredRootRegularFileSink) BeginDirectory(relativePath string, _ fs.FileMode) error {
+	if relativePath == sink.name {
+		return fmt.Errorf("%w: %q is a directory", ErrRequiredRootRegularFile, sink.name)
+	}
+	return nil
+}
+
+func (sink *requiredRootRegularFileSink) OpenFile(
+	relativePath string,
+	_ fs.FileMode,
+	_ int64,
+) (io.WriteCloser, error) {
+	if relativePath == sink.name {
+		sink.found = true
+	}
+	return discardWriteCloser{}, nil
+}
+
+func (*requiredRootRegularFileSink) EndDirectory(string, fs.FileMode) error { return nil }
+
+type discardWriteCloser struct{}
+
+func (discardWriteCloser) Write(content []byte) (int, error) { return len(content), nil }
+
+func (discardWriteCloser) Close() error { return nil }
 
 func (budget *traversalBudget) consume(relativePath string, size int64) error {
 	if budget == nil {

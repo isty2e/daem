@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
@@ -200,10 +201,33 @@ func validateSkill(skill Skill) error {
 	if !representativePresent {
 		return fmt.Errorf("representative target is not present in targets")
 	}
-	if strings.TrimSpace(skill.LivePath) == "" ||
-		strings.TrimSpace(skill.ReadPath) == "" ||
-		strings.TrimSpace(skill.SourcePath) == "" {
-		return fmt.Errorf("live, read, and source paths are required")
+	if strings.TrimSpace(skill.SourcePath) == "" {
+		return fmt.Errorf("source path is required")
+	}
+	if len(skill.SourceRoutes) == 0 {
+		return fmt.Errorf("at least one skill source route is required")
+	}
+	var previous SkillSourceRoute
+	liveRouteReads := make(map[string]string, len(skill.SourceRoutes))
+	for index, route := range skill.SourceRoutes {
+		if _, present := seen[route.Target]; !present {
+			return fmt.Errorf("source route target %q is not present in targets", route.Target)
+		}
+		if strings.TrimSpace(route.LivePath) == "" {
+			return fmt.Errorf("source route %d live path is required", index)
+		}
+		if !filepath.IsAbs(route.ReadPath) || filepath.Clean(route.ReadPath) != route.ReadPath {
+			return fmt.Errorf("source route %d read path %q must be canonical and absolute", index, route.ReadPath)
+		}
+		if index > 0 && compareSkillSourceRoute(previous, route) >= 0 {
+			return fmt.Errorf("skill source routes must be strictly ordered")
+		}
+		liveKey := string(route.Target) + "\x00" + route.LivePath
+		if readPath, exists := liveRouteReads[liveKey]; exists && readPath != route.ReadPath {
+			return fmt.Errorf("skill live route %q resolves to conflicting read paths", route.LivePath)
+		}
+		liveRouteReads[liveKey] = route.ReadPath
+		previous = route
 	}
 	if _, err := skill.ExpectedSourceIdentity(); err != nil {
 		return fmt.Errorf("source identity: %w", err)
@@ -226,6 +250,19 @@ func validateSkillSourceCorrelations(skills []Skill) error {
 		identities[skill.SourcePath] = skill.ContentHash
 	}
 	return nil
+}
+
+func compareSkillSourceRoute(left SkillSourceRoute, right SkillSourceRoute) int {
+	for _, pair := range [][2]string{
+		{string(left.Target), string(right.Target)},
+		{left.LivePath, right.LivePath},
+		{left.ReadPath, right.ReadPath},
+	} {
+		if compared := strings.Compare(pair[0], pair[1]); compared != 0 {
+			return compared
+		}
+	}
+	return 0
 }
 
 func validateHook(hook Hook) error {
@@ -313,6 +350,7 @@ func cloneSkills(values []Skill) []Skill {
 	copy(cloned, values)
 	for index := range cloned {
 		cloned[index].Targets = cloneTargets(cloned[index].Targets)
+		cloned[index].SourceRoutes = append([]SkillSourceRoute(nil), cloned[index].SourceRoutes...)
 	}
 	return cloned
 }

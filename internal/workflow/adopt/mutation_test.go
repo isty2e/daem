@@ -231,10 +231,10 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := filepath.Join(root, "recreated")
-	target := filepath.Join(parent, "skill")
+	destination := filepath.Join(parent, "skill")
 	var cleanup storagecommit.AncestorCleanup
 	defer cleanup.Close()
-	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+	if err := cleanup.PrepareParent(context.Background(), destination); err != nil {
 		t.Fatalf("prepare initial skill parent: %v", err)
 	}
 	if err := os.Remove(parent); err != nil {
@@ -248,7 +248,10 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 		t.Fatalf("source kind = %q, want directory", kind)
 	}
 	created, err := copyImportedSkillDirectory(context.Background(), adoptmodel.Skill{
-		ReadPath: source, SourcePath: target, ContentHash: contentHash,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{{
+			Target: target.TargetCodex, LivePath: source, ReadPath: source,
+		}},
+		SourcePath: destination, ContentHash: contentHash,
 	}, &cleanup)
 	if err != nil {
 		t.Fatalf("copy skill after parent removal: %v", err)
@@ -426,12 +429,12 @@ func plannedImportedSkill(t *testing.T, source string, destination string) adopt
 		t.Fatalf("source kind = %q, want directory", kind)
 	}
 	return adoptmodel.Skill{
-		Target:      target.TargetCodex,
-		Scope:       target.ScopeProject,
-		LivePath:    source,
-		ReadPath:    readPath,
-		SourcePath:  destination,
-		ContentHash: contentHash,
+		Target: target.TargetCodex,
+		Scope:  target.ScopeProject,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{{
+			Target: target.TargetCodex, LivePath: source, ReadPath: readPath,
+		}},
+		SourcePath: destination, ContentHash: contentHash,
 	}
 }
 
@@ -546,12 +549,18 @@ func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
 
 func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	root := t.TempDir()
-	live := filepath.Join(root, "live")
-	read := filepath.Join(root, "read")
+	live := filepath.Join(root, "codex-live")
+	read := filepath.Join(root, "codex-read")
+	otherLive := filepath.Join(root, "claude-live")
+	otherRead := filepath.Join(root, "claude-read")
 	output := filepath.Join(root, "daem.toml")
 	plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{{
-		Target: target.TargetCodex, Scope: target.ScopeGlobal,
-		LivePath: live, ReadPath: read, SourcePath: filepath.Join(root, "sources", "skill"),
+		Target: target.TargetCodex, Targets: []target.Target{target.TargetCodex, target.TargetClaudeCode}, Scope: target.ScopeGlobal,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{
+			{Target: target.TargetClaudeCode, LivePath: otherLive, ReadPath: otherRead},
+			{Target: target.TargetCodex, LivePath: live, ReadPath: read},
+		},
+		SourcePath: filepath.Join(root, "sources", "skill"),
 	}})
 	_, requests, stable, err := importMutationEvidence(plan)
 	if err != nil {
@@ -559,12 +568,58 @@ func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	}
 	assertImportRevisionRequest(t, requests, live, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, requests, read, mutation.PathEffectReferent)
+	assertImportRevisionRequest(t, requests, otherLive, mutation.PathEffectDirectoryEntry)
+	assertImportRevisionRequest(t, requests, otherRead, mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, requests, filepath.Join(root, "daem.toml"), mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, requests, filepath.Join(root, "daem.toml"), mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, stable, live, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stable, read, mutation.PathEffectReferent)
+	assertImportRevisionRequest(t, stable, otherLive, mutation.PathEffectDirectoryEntry)
+	assertImportRevisionRequest(t, stable, otherRead, mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, stable, filepath.Join(root, "daem.toml"), mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stable, filepath.Join(root, "daem.toml"), mutation.PathEffectReferent)
+}
+
+func TestImportStableRevisionRejectsNonprimarySkillRouteDrift(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "claude-skill")
+	nonprimary := filepath.Join(root, "codex-skill")
+	for _, source := range []string{primary, nonprimary} {
+		if err := os.Mkdir(source, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("same"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), nil, []adoptmodel.Skill{{
+		Target:  target.TargetClaudeCode,
+		Targets: []target.Target{target.TargetClaudeCode, target.TargetCodex},
+		Scope:   target.ScopeProject,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{
+			{Target: target.TargetClaudeCode, LivePath: primary, ReadPath: primary},
+			{Target: target.TargetCodex, LivePath: nonprimary, ReadPath: nonprimary},
+		},
+		SourcePath: filepath.Join(root, "daem.d", "skills", "skill"),
+	}})
+	_, _, stableRequests, err := importMutationEvidence(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := mutation.CaptureRevisionSet(context.Background(), stableRequests...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nonprimary, "SKILL.md"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := revisions.MatchesCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("stable revisions accepted drift in nonprimary merged skill route")
+	}
 }
 
 func testAdoptPlan(
@@ -612,6 +667,12 @@ func testAdoptPlan(
 		}
 		if len(skills[index].Targets) == 0 {
 			skills[index].Targets = []target.Target{skills[index].Target}
+		}
+		if len(skills[index].SourceRoutes) == 0 {
+			readPath := filepath.Join(root, "skill-source")
+			skills[index].SourceRoutes = []adoptmodel.SkillSourceRoute{{
+				Target: skills[index].Target, LivePath: readPath, ReadPath: readPath,
+			}}
 		}
 		if skills[index].ContentHash == "" {
 			skills[index].ContentHash = artifact.HashFileContent([]byte("mutation test skill"))
