@@ -12,6 +12,7 @@ import (
 )
 
 func TestListSourceRootRejectsNilAndCanceledContexts(t *testing.T) {
+	t.Parallel()
 	sourceSpec := mustGitSource(t, "https://example.test/repository.git", "skills", "main")
 
 	if _, err := (Resolver{}).ListSourceRoot(nil, sourceSpec, noOperationOptions); err == nil ||
@@ -27,6 +28,7 @@ func TestListSourceRootRejectsNilAndCanceledContexts(t *testing.T) {
 }
 
 func TestResolveGitPathWithSpaces(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -47,6 +49,7 @@ func TestResolveGitPathWithSpaces(t *testing.T) {
 }
 
 func TestResolveReportsMissingGitRef(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -69,6 +72,7 @@ func TestResolveReportsMissingGitRef(t *testing.T) {
 }
 
 func TestResolveLeadingDashGitPath(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -91,6 +95,7 @@ func TestResolveLeadingDashGitPath(t *testing.T) {
 }
 
 func TestResolveHonorsCanceledContext(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -116,6 +121,7 @@ func TestResolveHonorsCanceledContext(t *testing.T) {
 }
 
 func TestResolveRepositoryPathWithSpaces(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoParent := filepath.Join(tempDir, "parent with spaces")
@@ -137,6 +143,7 @@ func TestResolveRepositoryPathWithSpaces(t *testing.T) {
 }
 
 func TestResolveLinkFailureCleansTemporaryArtifact(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -172,6 +179,7 @@ func TestResolveLinkFailureCleansTemporaryArtifact(t *testing.T) {
 }
 
 func TestResolveMissingPathDoesNotPublishArtifact(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -199,6 +207,7 @@ func TestResolveMissingPathDoesNotPublishArtifact(t *testing.T) {
 }
 
 func TestResolveAllowsRootGitPath(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -223,6 +232,7 @@ func TestResolveAllowsRootGitPath(t *testing.T) {
 }
 
 func TestListSourceRootListsGitDirectoriesWithoutArtifactExport(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)

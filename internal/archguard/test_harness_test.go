@@ -58,10 +58,35 @@ func TestRepositoryGoTestHarnessEnvironment(t *testing.T) {
 
 func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
 	root := findRepoRoot(t)
-	assertFileContainsExactly(t, filepath.Join(root, ".pre-commit-config.yaml"), "entry: tools/test-go.sh ./internal/archguard -count=1", 1)
-	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "ci.yml"), "tools/test-go.sh", 3)
-	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "release-artifact.yml"), "tools/test-go.sh", 1)
-	assertFileContainsExactly(t, filepath.Join(root, "CONTRIBUTING.md"), "tools/test-go.sh", 2)
+	assertFileContainsExactly(t, filepath.Join(root, ".pre-commit-config.yaml"), "entry: tools/test.sh repository", 1)
+	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "ci.yml"), "tools/test.sh", 3)
+	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "release-artifact.yml"), "tools/test.sh", 1)
+	assertFileContainsExactly(t, filepath.Join(root, "CONTRIBUTING.md"), "tools/test.sh", 6)
+
+	laneInfo, err := os.Stat(filepath.Join(root, "tools", "test.sh"))
+	if err != nil {
+		t.Fatalf("stat test lane owner: %v", err)
+	}
+	if laneInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test.sh must be executable")
+	}
+	focusedInfo, err := os.Stat(filepath.Join(root, "tools", "test-focused.sh"))
+	if err != nil {
+		t.Fatalf("stat focused test runner: %v", err)
+	}
+	if focusedInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test-focused.sh must be executable")
+	}
+	raceProofInfo, err := os.Stat(filepath.Join(root, "tools", "test-race-proof.sh"))
+	if err != nil {
+		t.Fatalf("stat race detector proof: %v", err)
+	}
+	if raceProofInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test-race-proof.sh must be executable")
+	}
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "tools/test-race-proof.sh", 1)
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "GORACE=atexit_sleep_ms=0", 1)
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test-race-proof.sh"), "GORACE=atexit_sleep_ms=0", 1)
 
 	info, err := os.Stat(filepath.Join(root, "tools", "test-go.sh"))
 	if err != nil {

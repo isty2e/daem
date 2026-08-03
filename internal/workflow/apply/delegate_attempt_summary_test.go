@@ -15,6 +15,8 @@ import (
 )
 
 func TestPostAttemptSummariesDoNotPromoteAggregateProcessSuccessWithoutEquivalentObservation(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
 	paths := applyTestPaths(t, tempDir)
 	selection := applyMCPSelection(t)
@@ -76,6 +78,8 @@ func TestPostAttemptSummariesDoNotPromoteAggregateProcessSuccessWithoutEquivalen
 }
 
 func TestDelegateAttemptResultRejectsZeroEffectIdentity(t *testing.T) {
+	t.Parallel()
+
 	if _, err := newDelegateAttemptResult(
 		delegate.AttemptRecord{},
 		observerelation.ObservationNotObserved,
@@ -86,6 +90,8 @@ func TestDelegateAttemptResultRejectsZeroEffectIdentity(t *testing.T) {
 }
 
 func TestDelegateAttemptResultRejectsUnknownAssuranceSummaries(t *testing.T) {
+	t.Parallel()
+
 	attempt := delegateAttemptForSummaryTest(t)
 	tests := []struct {
 		name          string

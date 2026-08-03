@@ -41,7 +41,7 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"ref: refs/tags/${{ inputs.tag }}",
 		"persist-credentials: false",
 		"git show-ref --verify --quiet \"refs/tags/${RELEASE_TAG}\"",
-		"tools/test-go.sh -mod=readonly ./... -count=1",
+		"tools/test.sh full",
 		"-buildvcs=true",
 		"CGO_ENABLED: \"0\"",
 		"GOAMD64: v1",

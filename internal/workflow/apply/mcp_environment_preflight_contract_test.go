@@ -12,6 +12,8 @@ import (
 )
 
 func TestSelectedMCPEnvironmentSourceNamesAreTargetScopedDistinctAndStable(t *testing.T) {
+	t.Parallel()
+
 	environment := mcpPreflightEnvironment(
 		t,
 		[]targetpkg.Target{targetpkg.TargetClaudeCode, targetpkg.TargetCodex},
@@ -73,6 +75,8 @@ func TestPreflightMCPEnvironmentSourcesDistinguishesEmptyFromMissing(t *testing.
 }
 
 func TestPreflightMCPEnvironmentSourcesBoundsSortedNameOnlyFailure(t *testing.T) {
+	t.Parallel()
+
 	env := make(map[string]string)
 	for index := 0; index < maximumReportedMissingMCPEnvironmentSources+3; index++ {
 		env[fmt.Sprintf("CHILD_%02d", index)] = fmt.Sprintf("SOURCE_%02d", index)
@@ -112,6 +116,8 @@ func TestPreflightMCPEnvironmentSourcesBoundsSortedNameOnlyFailure(t *testing.T)
 }
 
 func TestPreflightMCPEnvironmentSourcesRejectsSelectedUnsupportedMappingBeforeLookup(t *testing.T) {
+	t.Parallel()
+
 	environment := mcpPreflightEnvironment(
 		t,
 		[]targetpkg.Target{targetpkg.TargetCodex},
@@ -140,6 +146,8 @@ func TestPreflightMCPEnvironmentSourcesRejectsSelectedUnsupportedMappingBeforeLo
 }
 
 func TestPreflightMCPEnvironmentSourcesHonorsCancellationBeforeLookup(t *testing.T) {
+	t.Parallel()
+
 	environment := mcpPreflightEnvironment(
 		t,
 		[]targetpkg.Target{targetpkg.TargetClaudeCode},
@@ -165,6 +173,8 @@ func TestPreflightMCPEnvironmentSourcesHonorsCancellationBeforeLookup(t *testing
 }
 
 func TestPreflightMCPEnvironmentSourcesStopsAfterMidScanCancellation(t *testing.T) {
+	t.Parallel()
+
 	environment := mcpPreflightEnvironment(
 		t,
 		[]targetpkg.Target{targetpkg.TargetClaudeCode},

@@ -17,6 +17,8 @@ import (
 )
 
 func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
+	t.Parallel()
+
 	for _, test := range []struct {
 		name    string
 		replace func(*testing.T, string, string)
@@ -83,6 +85,8 @@ func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
 }
 
 func TestReadManagedFileForDiffPreservesExecutableIdentityClass(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	before := []byte("planned content\n")
 	destination := filepath.Join(root, "AGENTS.md")

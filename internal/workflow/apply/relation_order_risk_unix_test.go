@@ -15,6 +15,8 @@ import (
 )
 
 func TestRelationOrderRiskBaselineRejectsUninitializedZeroValue(t *testing.T) {
+	t.Parallel()
+
 	if err := (relationOrderRiskBaseline{}).validate(); err == nil ||
 		!strings.Contains(err.Error(), "baseline is required") {
 		t.Fatalf("zero baseline validation error = %v", err)
@@ -25,6 +27,8 @@ func TestRelationOrderRiskBaselineRejectsUninitializedZeroValue(t *testing.T) {
 }
 
 func TestRelationOrderRiskBaselineComparesExactRiskIdentity(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths := daempaths.Paths{ManifestRoot: root}
 	locked := relationOrderTestLock(
@@ -65,6 +69,8 @@ func TestRelationOrderRiskBaselineComparesExactRiskIdentity(t *testing.T) {
 }
 
 func TestRelationOrderRiskExpansionContainsOnlyNewPrecedencePairs(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths := daempaths.Paths{ManifestRoot: root}
 	locked := relationOrderTestLock(
@@ -112,6 +118,8 @@ func TestRelationOrderRiskExpansionContainsOnlyNewPrecedencePairs(t *testing.T) 
 }
 
 func TestRelationOrderRiskBaselineIgnoresDecisionInputOrder(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths := daempaths.Paths{ManifestRoot: root}
 	locked := relationOrderTestLock(

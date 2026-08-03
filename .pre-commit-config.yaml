@@ -50,7 +50,7 @@ repos:
         files: '(^|/)([^/]+\.go|go\.(mod|sum)|tools/verify-productive-api\.sh)$'
       - id: archguard
         name: architecture and documentation guards
-        entry: tools/test-go.sh ./internal/archguard -count=1
+        entry: tools/test.sh repository
         language: system
         pass_filenames: false
         files: '(^|/)([^/]+\.go|go\.(mod|sum)|README\.md|CONTRIBUTING\.md|docs/.*\.md|\.github/.*\.ya?ml)$'

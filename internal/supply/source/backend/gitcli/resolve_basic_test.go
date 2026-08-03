@@ -16,6 +16,7 @@ import (
 var noOperationOptions acquisition.OperationOptions
 
 func TestResolveGitSkillDirectory(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -46,6 +47,7 @@ func TestResolveGitSkillDirectory(t *testing.T) {
 }
 
 func TestResolveEmitsGitBackendEvents(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -92,6 +94,7 @@ func TestResolveEmitsGitBackendEvents(t *testing.T) {
 }
 
 func TestResolveEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -131,6 +134,7 @@ func TestResolveEmitsGitCacheHitOnlyForReusedCache(t *testing.T) {
 }
 
 func TestResolveRejectsLocalSource(t *testing.T) {
+	t.Parallel()
 	resolver, err := NewResolver(filepath.Join(t.TempDir(), "cache"))
 	if err != nil {
 		t.Fatalf("NewResolver returned error: %v", err)
@@ -147,6 +151,7 @@ func TestResolveRejectsLocalSource(t *testing.T) {
 }
 
 func TestResolveGitFilePreservesExecutableBit(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)

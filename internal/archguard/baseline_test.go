@@ -1,11 +1,21 @@
 package archguard
 
 import (
+	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sync"
 	"testing"
 )
+
+var repositoryPackageRecordCache struct {
+	sync.Once
+	records []PackageRecord
+	err     error
+}
 
 func TestTopologyGuardBaseline(t *testing.T) {
 	records := loadRepoPackageRecords(t)
@@ -28,24 +38,47 @@ func TestTopologyGuardBaseline(t *testing.T) {
 
 func loadRepoPackageRecords(t *testing.T) []PackageRecord {
 	t.Helper()
-
 	root := findRepoRoot(t)
-	command := exec.Command("go", "list", "-json", "./...")
-	command.Dir = root
 
-	output, err := command.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			t.Fatalf("go list failed: %v\nstderr:\n%s", err, string(exitErr.Stderr))
+	repositoryPackageRecordCache.Do(func() {
+		command := exec.Command("go", "list", "-json", "./...")
+		command.Dir = root
+
+		output, err := command.Output()
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				repositoryPackageRecordCache.err = fmt.Errorf(
+					"go list failed: %w\nstderr:\n%s",
+					err,
+					string(exitErr.Stderr),
+				)
+				return
+			}
+			repositoryPackageRecordCache.err = fmt.Errorf("go list failed: %w", err)
+			return
 		}
-		t.Fatalf("go list failed: %v", err)
-	}
 
-	records, err := ParseGoListJSON(output)
-	if err != nil {
-		t.Fatalf("ParseGoListJSON returned error: %v", err)
+		repositoryPackageRecordCache.records, repositoryPackageRecordCache.err = ParseGoListJSON(output)
+	})
+	if repositoryPackageRecordCache.err != nil {
+		t.Fatal(repositoryPackageRecordCache.err)
 	}
-	return records
+	return clonePackageRecords(repositoryPackageRecordCache.records)
+}
+
+func clonePackageRecords(records []PackageRecord) []PackageRecord {
+	cloned := make([]PackageRecord, len(records))
+	for index, record := range records {
+		record.Imports = slices.Clone(record.Imports)
+		record.GoFiles = slices.Clone(record.GoFiles)
+		record.CgoFiles = slices.Clone(record.CgoFiles)
+		record.TestGoFiles = slices.Clone(record.TestGoFiles)
+		record.XTestGoFiles = slices.Clone(record.XTestGoFiles)
+		record.FileLineCounts = maps.Clone(record.FileLineCounts)
+		record.FileContents = maps.Clone(record.FileContents)
+		cloned[index] = record
+	}
+	return cloned
 }
 
 func TestTestToolsAreNotImportedByProductionPackages(t *testing.T) {

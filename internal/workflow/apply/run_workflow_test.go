@@ -25,8 +25,10 @@ import (
 )
 
 func TestRunWritesSelectedInstructionOutputAndStatefile(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	writeApplyFile(t, filepath.Join(tempDir, "instructions", "AGENTS.md"), "shared instructions\n")
 	instructionHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
 	claudeOldHash := string(artifact.HashFileContent([]byte("claude-old")))
@@ -65,8 +67,10 @@ func TestRunWritesSelectedInstructionOutputAndStatefile(t *testing.T) {
 }
 
 func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	writeApplyFile(t, filepath.Join(tempDir, "instructions", "AGENTS.md"), "shared instructions\n")
 	instructionHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
 	resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
@@ -95,8 +99,10 @@ func TestRunWithOptionsPassesExecuteEvents(t *testing.T) {
 }
 
 func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	writeApplyFile(t, filepath.Join(tempDir, "instructions", "AGENTS.md"), "content\n")
 	contentHash := hashApplyPath(t, filepath.Join(tempDir, "instructions", "AGENTS.md"))
 	resources := applyInstructionConfig(t, "project", "instructions/AGENTS.md", "", targetpkg.TargetCodex)
@@ -130,8 +136,10 @@ func TestRunFinalValidationPrecedesJournalAndHostEffects(t *testing.T) {
 }
 
 func TestRunWritesHookProjectionThroughWorkflowComposition(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	resources := desiredtest.Environment(t, desired.Spec{
 		Targets:  []targetpkg.Target{targetpkg.TargetCodex},
 		Defaults: desiredtest.Defaults(t, targetpkg.ScopeProject, skill.InstallModeCopy),
@@ -191,8 +199,10 @@ func TestRunWritesHookProjectionThroughWorkflowComposition(t *testing.T) {
 }
 
 func TestRunDeletesRemovedManagedOutputAndStatefileRecord(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	writeApplyFile(t, filepath.Join(tempDir, "AGENTS.md"), "removed managed\n")
 	writeApplyFile(t, filepath.Join(tempDir, "UNMANAGED.md"), "leave alone\n")
 	removedHash := hashApplyPath(t, filepath.Join(tempDir, "AGENTS.md"))

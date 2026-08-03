@@ -10,6 +10,7 @@ import (
 )
 
 func TestRepositorySnapshotSessionCompletedCallWinsOverCanceledWait(t *testing.T) {
+	t.Parallel()
 	key := repositorySnapshotKey{locator: "https://example.test/repository.git", canonicalRef: "name:main"}
 	want := repositoryResolution{
 		repository: cachedRepository{path: "/cache/repository"},
@@ -35,6 +36,7 @@ func TestRepositorySnapshotSessionCompletedCallWinsOverCanceledWait(t *testing.T
 }
 
 func TestRepositorySnapshotSessionFailureIsNotMemoized(t *testing.T) {
+	t.Parallel()
 	session := newRepositorySnapshotSession()
 	key := repositorySnapshotKey{locator: "https://example.test/repository.git", canonicalRef: "name:main"}
 	wantErr := errors.New("temporary repository failure")
@@ -61,6 +63,7 @@ func TestRepositorySnapshotSessionFailureIsNotMemoized(t *testing.T) {
 }
 
 func TestRepositorySnapshotSessionRegistersImmutableCommitAlias(t *testing.T) {
+	t.Parallel()
 	session := newRepositorySnapshotSession()
 	locator := "https://example.test/repository.git"
 	commit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -85,6 +88,7 @@ func TestRepositorySnapshotSessionRegistersImmutableCommitAlias(t *testing.T) {
 }
 
 func TestRepositorySnapshotSessionKeepsPathFailuresIsolated(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repositoryPath := initGitRepository(t, tempDir)

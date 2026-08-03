@@ -11,6 +11,7 @@ import (
 )
 
 func TestResolveFileURLLocator(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -32,6 +33,7 @@ func TestResolveFileURLLocator(t *testing.T) {
 }
 
 func TestResolveRebuildsSubstitutedCompletedArtifact(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -67,6 +69,7 @@ func TestResolveRebuildsSubstitutedCompletedArtifact(t *testing.T) {
 }
 
 func TestResolveRejectsUnqualifiedBranchTagCollision(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -87,6 +90,7 @@ func TestResolveRejectsUnqualifiedBranchTagCollision(t *testing.T) {
 }
 
 func TestResolvePrunesDeletedTagFromRepositoryCache(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -111,6 +115,7 @@ func TestResolvePrunesDeletedTagFromRepositoryCache(t *testing.T) {
 }
 
 func TestNativeLocalRepositoryCacheIsIndependentBareRepository(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -266,6 +271,7 @@ esac
 }
 
 func TestResolveTreatsShellMetacharactersInValidRefAsInertData(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)

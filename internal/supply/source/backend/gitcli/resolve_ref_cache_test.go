@@ -11,6 +11,7 @@ import (
 )
 
 func TestResolveRejectsUnownedStaleCacheDirectory(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -41,6 +42,7 @@ func TestResolveRejectsUnownedStaleCacheDirectory(t *testing.T) {
 }
 
 func TestResolveAnnotatedTagRef(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -64,6 +66,7 @@ func TestResolveAnnotatedTagRef(t *testing.T) {
 }
 
 func TestResolveSameCommitHasStableContentHash(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -91,6 +94,7 @@ func TestResolveSameCommitHasStableContentHash(t *testing.T) {
 }
 
 func TestResolvePinnedCommitDoesNotMoveWithBranch(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -127,6 +131,7 @@ func TestResolvePinnedCommitDoesNotMoveWithBranch(t *testing.T) {
 }
 
 func TestResolveFetchesForcePushedBranch(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -159,6 +164,7 @@ func TestResolveFetchesForcePushedBranch(t *testing.T) {
 }
 
 func TestResolveFetchesForceUpdatedTag(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -192,6 +198,7 @@ func TestResolveFetchesForceUpdatedTag(t *testing.T) {
 }
 
 func TestResolveFetchesUpdatedRef(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)

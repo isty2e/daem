@@ -133,6 +133,17 @@ func applyTestPaths(t *testing.T, root string) daempaths.Paths {
 	return paths
 }
 
+func isolatedApplyTestPaths(t *testing.T, root string) daempaths.Paths {
+	t.Helper()
+
+	paths := applyTestPaths(t, root)
+	isolated, err := paths.WithDataDir(filepath.Join(root, ".daem-test-data"))
+	if err != nil {
+		t.Fatalf("isolate apply test data root: %v", err)
+	}
+	return isolated
+}
+
 func buildManagedApplyAssessment(
 	t *testing.T,
 	paths daempaths.Paths,

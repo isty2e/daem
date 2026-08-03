@@ -13,6 +13,8 @@ import (
 )
 
 func TestPathsOverlapUsesPathComponentsInBothDirections(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	source := filepath.Join(root, "source")
 	tests := []struct {
@@ -37,6 +39,8 @@ func TestPathsOverlapUsesPathComponentsInBothDirections(t *testing.T) {
 }
 
 func TestLocalEntityArtifactSourceAuthorityPathsCoalesceSharedSources(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	shared := sourcetest.Local(t, "shared", source.LocalSourceModeVendor)
 	resources := make([]skill.Skill, 0, 2)

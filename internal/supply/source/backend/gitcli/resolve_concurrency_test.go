@@ -16,6 +16,7 @@ import (
 )
 
 func TestResolveRootPathKeepsCompletionRecordOutsideContent(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -54,6 +55,7 @@ func TestResolveRootPathKeepsCompletionRecordOutsideContent(t *testing.T) {
 }
 
 func TestResolveConcurrentSameRepoDifferentPaths(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -90,6 +92,7 @@ func TestResolveConcurrentSameRepoDifferentPaths(t *testing.T) {
 }
 
 func TestResolveConcurrentSameRepoDifferentRefs(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -135,6 +138,7 @@ func TestResolveConcurrentSameRepoDifferentRefs(t *testing.T) {
 }
 
 func TestResolveConcurrentSameArtifactAcrossResolverInstances(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -196,6 +200,7 @@ func TestResolveConcurrentSameArtifactAcrossResolverInstances(t *testing.T) {
 }
 
 func TestConcurrentResolveAndListSourceRootDoesNotPublishListingArtifact(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -240,6 +245,7 @@ func TestConcurrentResolveAndListSourceRootDoesNotPublishListingArtifact(t *test
 }
 
 func TestResolveRejectsUnownedPartialArtifactUnderLock(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -274,6 +280,7 @@ func TestResolveRejectsUnownedPartialArtifactUnderLock(t *testing.T) {
 }
 
 func TestResolveDoesNotRemoveCompleteArtifactOnReResolve(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -304,6 +311,7 @@ func TestResolveDoesNotRemoveCompleteArtifactOnReResolve(t *testing.T) {
 }
 
 func TestResolveCancellationDuringArtifactPublishLeavesNoCompletionRecord(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -333,6 +341,7 @@ func TestResolveCancellationDuringArtifactPublishLeavesNoCompletionRecord(t *tes
 }
 
 func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)

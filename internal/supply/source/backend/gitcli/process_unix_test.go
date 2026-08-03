@@ -24,6 +24,7 @@ const (
 )
 
 func TestRunGitOutputCancelsCompleteProcessTree(t *testing.T) {
+	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(context.Background())
 	command := gitProcessHelperCommand(t, ctx, "chain-parent", pidFile)
@@ -48,6 +49,7 @@ func TestRunGitOutputCancelsCompleteProcessTree(t *testing.T) {
 }
 
 func TestRunGitOutputRejectsAndCleansResidualDescendant(t *testing.T) {
+	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	command := gitProcessHelperCommand(t, context.Background(), "residual-parent", pidFile)
 
@@ -59,6 +61,7 @@ func TestRunGitOutputRejectsAndCleansResidualDescendant(t *testing.T) {
 }
 
 func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T) {
+	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	outputRoot := filepath.Join(t.TempDir(), "output")
 	command := gitProcessHelperCommand(t, context.Background(), "archive-parent", pidFile)
@@ -75,6 +78,7 @@ func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T
 }
 
 func TestExtractGitArchiveCommandStopsTreeWhenExtractionFailsFirst(t *testing.T) {
+	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
 	outputRoot := filepath.Join(t.TempDir(), "output")
 	command := gitProcessHelperCommand(t, context.Background(), "archive-invalid-parent", pidFile)
@@ -91,6 +95,7 @@ func TestExtractGitArchiveCommandStopsTreeWhenExtractionFailsFirst(t *testing.T)
 }
 
 func TestRunGitOutputBoundsAndRedactsActualStderr(t *testing.T) {
+	t.Parallel()
 	command := gitProcessHelperCommand(t, context.Background(), "stderr-parent", filepath.Join(t.TempDir(), "pids"))
 
 	_, err := runGitOutput(context.Background(), command)
