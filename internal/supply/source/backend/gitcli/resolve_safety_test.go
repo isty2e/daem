@@ -18,6 +18,7 @@ import (
 )
 
 func TestResolveReportsMissingGitPath(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
@@ -40,6 +41,7 @@ func TestResolveReportsMissingGitPath(t *testing.T) {
 }
 
 func TestExtractArchiveRejectsTraversalEntry(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 	archive := gitTestArchive(t, tar.Header{
 		Name:     "safe/../evil.txt",
@@ -59,6 +61,7 @@ func TestExtractArchiveRejectsTraversalEntry(t *testing.T) {
 }
 
 func TestExtractArchiveRejectsAbsoluteEntry(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 	archive := gitTestArchive(t, tar.Header{
 		Name:     "/tmp/evil.txt",
@@ -78,6 +81,7 @@ func TestExtractArchiveRejectsAbsoluteEntry(t *testing.T) {
 }
 
 func TestExtractArchiveIgnoresPaxMetadata(t *testing.T) {
+	t.Parallel()
 	tempDir := t.TempDir()
 	archive := gitTestArchiveWithHeaders(t, []gitTestTarEntry{
 		{
@@ -223,6 +227,7 @@ exec ` + shellQuoteForTest(realGit) + ` "$@"
 }
 
 func TestResolveBadRepositoryReportsCloneContext(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
@@ -242,6 +247,7 @@ func TestResolveBadRepositoryReportsCloneContext(t *testing.T) {
 }
 
 func TestResolveRejectsGitSymlink(t *testing.T) {
+	t.Parallel()
 	requireGit(t)
 	tempDir := t.TempDir()
 	repoPath := initGitRepository(t, tempDir)
