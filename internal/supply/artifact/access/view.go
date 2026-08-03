@@ -2,6 +2,7 @@ package access
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
+
+// ErrRequiredRootRegularFile reports that a directory artifact did not contain
+// one required regular file at its root during the identity traversal.
+var ErrRequiredRootRegularFile = errors.New("required root regular file is unavailable")
 
 // EntryKind classifies one no-follow directory entry.
 type EntryKind string
@@ -197,6 +202,38 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 	return walkNative(ctx, view.root, view.kind, nil, nil)
 }
 
+// HashDirectoryRequiringRootFile hashes one directory while proving that name
+// was a regular root entry in the same descriptor-bound traversal.
+func (view View) HashDirectoryRequiringRootFile(
+	ctx context.Context,
+	name string,
+	structureLimit TreeStructureLimit,
+) (artifact.ContentHash, error) {
+	if err := view.validateOperation(ctx); err != nil {
+		return "", err
+	}
+	if view.kind != artifact.ArtifactKindDirectory {
+		return "", fmt.Errorf("required root file validation needs a directory artifact")
+	}
+	if strings.TrimSpace(name) != name || name == "" || name == "." || name == ".." ||
+		strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("required root file name %q must be one canonical entry name", name)
+	}
+	if err := structureLimit.validate(); err != nil {
+		return "", fmt.Errorf("required root file tree structure limit: %w", err)
+	}
+	observer := &requiredRootRegularFileSink{name: name}
+	budget := traversalBudget{structureLimit: &structureLimit}
+	contentHash, err := walkNative(ctx, view.root, view.kind, observer, &budget)
+	if err != nil {
+		return "", err
+	}
+	if !observer.found {
+		return "", fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
+	}
+	return contentHash, nil
+}
+
 // HashWithLimit computes hash-v1 while refusing a traversal whose entry count
 // or cumulative regular-file bytes exceed the exact caller-selected budget.
 func (view View) HashWithLimit(
@@ -324,17 +361,101 @@ func (limit TraversalLimit) validate() error {
 }
 
 type traversalBudget struct {
-	limit   TraversalLimit
-	entries uint64
-	bytes   int64
+	limit            TraversalLimit
+	entries          uint64
+	bytes            int64
+	structureLimit   *TreeStructureLimit
+	structureEntries int
 }
 
-func (budget *traversalBudget) consume(relativePath string, size int64) error {
+type requiredRootRegularFileSink struct {
+	name  string
+	found bool
+}
+
+func (sink *requiredRootRegularFileSink) BeginDirectory(relativePath string, _ fs.FileMode) error {
+	if relativePath == sink.name {
+		return fmt.Errorf("%w: %q is a directory", ErrRequiredRootRegularFile, sink.name)
+	}
+	return nil
+}
+
+func (sink *requiredRootRegularFileSink) OpenFile(
+	relativePath string,
+	_ fs.FileMode,
+	_ int64,
+) (io.WriteCloser, error) {
+	if relativePath == sink.name {
+		sink.found = true
+	}
+	return discardWriteCloser{}, nil
+}
+
+func (*requiredRootRegularFileSink) EndDirectory(string, fs.FileMode) error { return nil }
+
+type discardWriteCloser struct{}
+
+func (discardWriteCloser) Write(content []byte) (int, error) { return len(content), nil }
+
+func (discardWriteCloser) Close() error { return nil }
+
+func (budget *traversalBudget) consumeRoot(size int64) error {
 	if budget == nil {
 		return nil
 	}
+	return budget.consumeTraversal(".", size)
+}
+
+func (budget *traversalBudget) consumeEntry(
+	relativePath string,
+	size int64,
+	directory bool,
+	parentDepth int,
+) error {
+	if budget == nil {
+		return nil
+	}
+	if err := budget.consumeTraversal(relativePath, size); err != nil {
+		return err
+	}
+	if budget.structureLimit == nil {
+		return nil
+	}
+	depth := parentDepth
+	if directory {
+		depth++
+	}
+	if depth > budget.structureLimit.maximumDepth {
+		return fmt.Errorf(
+			"artifact tree exceeds maximum depth %d at %q",
+			budget.structureLimit.maximumDepth,
+			relativePath,
+		)
+	}
+	if budget.structureEntries >= budget.structureLimit.maximumEntries {
+		return fmt.Errorf(
+			"artifact tree exceeds %d entries at %q",
+			budget.structureLimit.maximumEntries,
+			relativePath,
+		)
+	}
+	budget.structureEntries++
+	return nil
+}
+
+func (budget *traversalBudget) structureEntriesRemaining() (int, bool) {
+	if budget == nil || budget.structureLimit == nil {
+		return 0, false
+	}
+	return budget.structureLimit.maximumEntries - budget.structureEntries, true
+}
+
+func (budget *traversalBudget) consumeTraversal(relativePath string, size int64) error {
 	if size < 0 {
 		return fmt.Errorf("artifact access path %q reports a negative size", relativePath)
+	}
+	if budget.limit.maxEntries == 0 && budget.limit.maxBytes == 0 {
+		return nil
 	}
 	if budget.entries >= budget.limit.maxEntries {
 		return fmt.Errorf(

@@ -201,11 +201,13 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		if err := addLogical(skill.SourcePath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, false); err != nil {
 			return nil, nil, nil, err
 		}
-		if err := addPhysical(skill.LivePath, string(skill.Target), string(skill.Scope), mutation.PathEffectDirectoryEntry); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := addPhysical(skill.ReadPath, string(skill.Target), string(skill.Scope), mutation.PathEffectReferent); err != nil {
-			return nil, nil, nil, err
+		for _, route := range skill.SourceRoutes {
+			if err := addPhysical(route.LivePath, string(route.Target), string(skill.Scope), mutation.PathEffectDirectoryEntry); err != nil {
+				return nil, nil, nil, err
+			}
+			if err := addPhysical(route.ReadPath, string(route.Target), string(skill.Scope), mutation.PathEffectReferent); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	for _, hook := range plan.Hooks() {

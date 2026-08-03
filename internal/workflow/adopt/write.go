@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 type createdImportPath struct {
@@ -107,7 +108,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 			continue
 		}
 		writtenSkillSources[skill.SourcePath] = struct{}{}
-		createdPath, err := copyImportedSkillDirectory(ctx, skill.ReadPath, skill.SourcePath, &ancestorCleanup)
+		createdPath, err := copyImportedSkillDirectory(ctx, skill, &ancestorCleanup)
 		if err != nil {
 			return fmt.Errorf("write imported skill source %q: %w", skill.SourcePath, err)
 		}
@@ -258,52 +259,71 @@ func commitExistingImportFile(
 
 func copyImportedSkillDirectory(
 	ctx context.Context,
-	sourceRoot string,
-	destinationRoot string,
+	skill adoptmodel.Skill,
 	ancestorCleanup *storagecommit.AncestorCleanup,
 ) (createdImportPath, error) {
-	commitPath, err := mutation.CanonicalDirectoryEntryPath(destinationRoot)
+	identity, err := skill.ExpectedSourceIdentity()
+	if err != nil {
+		return createdImportPath{}, fmt.Errorf("resolve imported skill identity: %w", err)
+	}
+	route, err := skill.PrimarySourceRoute()
+	if err != nil {
+		return createdImportPath{}, fmt.Errorf("resolve imported skill source route: %w", err)
+	}
+	view, err := access.OpenNoFollowView(route.ReadPath)
+	if err != nil {
+		return createdImportPath{}, fmt.Errorf("open imported skill source %q: %w", route.ReadPath, err)
+	}
+	if view.Kind() != identity.Kind() {
+		return createdImportPath{}, fmt.Errorf(
+			"imported skill source kind %q does not match planned kind %q",
+			view.Kind(),
+			identity.Kind(),
+		)
+	}
+
+	commitPath, err := mutation.CanonicalDirectoryEntryPath(skill.SourcePath)
 	if err != nil {
 		return createdImportPath{}, err
 	}
 	if exists, err := pathExists(commitPath); err != nil {
-		return createdImportPath{}, fmt.Errorf("inspect imported skill destination %q: %w", destinationRoot, err)
+		return createdImportPath{}, fmt.Errorf("inspect imported skill destination %q: %w", skill.SourcePath, err)
 	} else if exists {
-		return createdImportPath{}, fmt.Errorf("imported skill destination already exists: %s", destinationRoot)
+		return createdImportPath{}, fmt.Errorf("imported skill destination already exists: %s", skill.SourcePath)
 	}
 
 	if err := ancestorCleanup.PrepareParent(ctx, commitPath); err != nil {
 		return createdImportPath{}, err
 	}
-	destinationParent := filepath.Dir(commitPath)
-	tempRoot, err := os.MkdirTemp(destinationParent, ".import-stage-")
+	root, destination, err := rootedpath.CaptureDestination(commitPath)
 	if err != nil {
 		return createdImportPath{}, err
 	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = os.RemoveAll(tempRoot)
-		}
-	}()
-	if err := copySkillDirectoryContents(ctx, sourceRoot, tempRoot); err != nil {
-		return createdImportPath{}, err
-	}
-	tempIdentity, err := storagecommit.CaptureEntryIdentity(ctx, tempRoot)
+	defer root.Close()
+	capability, err := root.Acquire(destination)
 	if err != nil {
 		return createdImportPath{}, err
 	}
-	request, err := storagecommit.NewPreparedTreeCommit(tempRoot, commitPath, tempIdentity)
+	prepared, err := storagecommit.PrepareRootedTree(
+		ctx,
+		capability,
+		func(writer mutationfs.RootedTreeWriter) error {
+			sink, err := artifactstage.New(writer)
+			if err != nil {
+				return err
+			}
+			return view.CopyVerified(ctx, identity, sink)
+		},
+	)
 	if err != nil {
 		return createdImportPath{}, err
 	}
-	if err := storagecommit.CommitPreparedTree(ctx, request); err != nil {
+	if err := prepared.Commit(ctx); err != nil {
 		if storageCommitMayBeVisible(err) {
-			committed = true
+			return createdImportPath{}, importResidueError{path: commitPath, err: err}
 		}
 		return createdImportPath{}, err
 	}
-	committed = true
 	created, err := captureCreatedImportPath(ctx, commitPath)
 	if err != nil {
 		return created, importResidueError{path: commitPath, err: fmt.Errorf("capture committed import tree identity: %w", err)}
@@ -329,41 +349,4 @@ func storageCommitMayBeVisible(err error) bool {
 	}
 	kind, classified := mutationfs.FailureKindOf(err)
 	return classified && kind == mutationfs.FailureIndeterminateCommit
-}
-
-func copySkillDirectoryContents(ctx context.Context, sourceRoot string, destinationRoot string) error {
-	return filepath.WalkDir(sourceRoot, func(sourcePath string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		relativePath, err := filepath.Rel(sourceRoot, sourcePath)
-		if err != nil {
-			return err
-		}
-		destinationPath := filepath.Join(destinationRoot, relativePath)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return os.MkdirAll(destinationPath, info.Mode().Perm())
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("nested symlink %q is unsupported in imported skill", sourcePath)
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-		content, err := os.ReadFile(sourcePath)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(filepath.Dir(destinationPath), 0o700); err != nil {
-			return err
-		}
-		return os.WriteFile(destinationPath, content, info.Mode().Perm())
-	})
 }

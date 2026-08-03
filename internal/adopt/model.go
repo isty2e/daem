@@ -3,8 +3,10 @@ package adopt
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
+	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -122,9 +124,61 @@ type Skill struct {
 	Targets      []targetpkg.Target
 	Placements   map[targetpkg.Target]string
 	Scope        targetpkg.Scope
-	LivePath     string
-	ReadPath     string
+	SourceRoutes []SkillSourceRoute
 	SourcePath   string
 	GroupRoot    string
 	ContentHash  artifact.ContentHash
+}
+
+// SkillSourceRoute is one target-specific live entry and its fully resolved
+// artifact read route. Every route that contributed to a merged skill remains
+// freshness authority for the resulting plan.
+type SkillSourceRoute struct {
+	Target   targetpkg.Target
+	LivePath string
+	ReadPath string
+}
+
+// PrimarySourceRoute returns the canonical route for the representative
+// target used to materialize the planned artifact. All SourceRoutes remain
+// freshness evidence.
+func (skill Skill) PrimarySourceRoute() (SkillSourceRoute, error) {
+	for _, route := range skill.SourceRoutes {
+		if route.Target == skill.Target {
+			return route, nil
+		}
+	}
+	return SkillSourceRoute{}, fmt.Errorf(
+		"skill representative target %q requires a source route",
+		skill.Target,
+	)
+}
+
+// ExpectedSourceIdentity returns the exact directory identity that execution
+// must reproduce from the primary source route before publication.
+func (skill Skill) ExpectedSourceIdentity() (artifact.ExactIdentity, error) {
+	route, err := skill.PrimarySourceRoute()
+	if err != nil {
+		return artifact.ExactIdentity{}, err
+	}
+	if !filepath.IsAbs(route.ReadPath) || filepath.Clean(route.ReadPath) != route.ReadPath {
+		return artifact.ExactIdentity{}, fmt.Errorf(
+			"skill read path %q must be canonical and absolute",
+			route.ReadPath,
+		)
+	}
+	source, err := sourcepkg.NewLocalSource(route.ReadPath, sourcepkg.LocalSourceModeVendor)
+	if err != nil {
+		return artifact.ExactIdentity{}, fmt.Errorf("skill read source: %w", err)
+	}
+	sourceID, err := sourcepkg.SourceIDFor(source)
+	if err != nil {
+		return artifact.ExactIdentity{}, fmt.Errorf("skill read source identity: %w", err)
+	}
+	return artifact.NewExactIdentity(
+		sourceID,
+		"",
+		artifact.ArtifactKindDirectory,
+		skill.ContentHash,
+	)
 }

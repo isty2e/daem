@@ -13,6 +13,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -230,16 +231,29 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 		t.Fatal(err)
 	}
 	parent := filepath.Join(root, "recreated")
-	target := filepath.Join(parent, "skill")
+	destination := filepath.Join(parent, "skill")
 	var cleanup storagecommit.AncestorCleanup
 	defer cleanup.Close()
-	if err := cleanup.PrepareParent(context.Background(), target); err != nil {
+	if err := cleanup.PrepareParent(context.Background(), destination); err != nil {
 		t.Fatalf("prepare initial skill parent: %v", err)
 	}
 	if err := os.Remove(parent); err != nil {
 		t.Fatalf("remove prepared skill parent: %v", err)
 	}
-	created, err := copyImportedSkillDirectory(context.Background(), source, target, &cleanup)
+	contentHash, kind, err := access.HashPath(context.Background(), source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != artifact.ArtifactKindDirectory {
+		t.Fatalf("source kind = %q, want directory", kind)
+	}
+	created, err := copyImportedSkillDirectory(context.Background(), adoptmodel.Skill{
+		Target: target.TargetCodex,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{{
+			Target: target.TargetCodex, LivePath: source, ReadPath: source,
+		}},
+		SourcePath: destination, ContentHash: contentHash,
+	}, &cleanup)
 	if err != nil {
 		t.Fatalf("copy skill after parent removal: %v", err)
 	}
@@ -251,6 +265,226 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 	}
 	if _, err := os.Lstat(parent); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("recreated skill parent remains after rollback: %v", err)
+	}
+}
+
+func TestWritePlanRejectsSkillIdentityDriftBeforePublishingManifest(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string)
+	}{
+		{
+			name: "rewrite file",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("changed"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "add file",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(source, "added.txt"), []byte("added"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "remove file",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.Remove(filepath.Join(source, "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "change executable mode",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.Chmod(filepath.Join(source, "SKILL.md"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "introduce nested symlink",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.Symlink("SKILL.md", filepath.Join(source, "alias.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "replace resolved route with symlink",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				displaced := source + "-displaced"
+				if err := os.Rename(source, displaced); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(displaced, source); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "replace directory with regular file",
+			mutate: func(t *testing.T, source string) {
+				t.Helper()
+				if err := os.RemoveAll(source); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(source, []byte("not a skill tree"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			source := filepath.Join(root, "live-skill")
+			if err := os.Mkdir(source, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("planned"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			destination := filepath.Join(root, "generated", "skill")
+			output := filepath.Join(root, "generated", "daem.toml")
+			skill := plannedImportedSkill(t, source, destination)
+			plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{skill})
+
+			test.mutate(t, source)
+			if err := writePlan(context.Background(), plan, nil); err == nil {
+				t.Fatal("writePlan accepted a skill source that changed after planning")
+			}
+			for _, path := range []string{destination, output} {
+				if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("path %q was published after source drift: %v", path, err)
+				}
+			}
+			assertNoImportTreeStage(t, root)
+		})
+	}
+}
+
+func TestWritePlanRejectsSkillTreeDeeperThanCleanupBoundaryWithoutResidue(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "live-skill")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("planned"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	nested := source
+	for depth := 1; depth <= 65; depth++ {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "generated", "skill")
+	output := filepath.Join(root, "generated", "daem.toml")
+	skill := plannedImportedSkill(t, source, destination)
+	plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{skill})
+
+	err := writePlan(context.Background(), plan, nil)
+	if err == nil || !strings.Contains(err.Error(), "tree exceeds maximum depth 64") {
+		t.Fatalf("writePlan error = %v, want cleanup-depth rejection", err)
+	}
+	for _, path := range []string{destination, output} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("path %q was published after depth rejection: %v", path, statErr)
+		}
+	}
+	assertNoImportTreeStage(t, root)
+}
+
+func TestWritePlanAcceptsReplacementWithSameExactArtifactIdentity(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "live-skill")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "generated", "skill")
+	output := filepath.Join(root, "generated", "daem.toml")
+	skill := plannedImportedSkill(t, source, destination)
+	plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{skill})
+
+	displaced := source + "-displaced"
+	if err := os.Rename(source, displaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePlan(context.Background(), plan, nil); err != nil {
+		t.Fatalf("writePlan rejected semantically identical replacement: %v", err)
+	}
+	contentHash, kind, err := access.HashPath(context.Background(), destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != artifact.ArtifactKindDirectory || contentHash != skill.ContentHash {
+		t.Fatalf("published identity = (%q, %q), want (%q, %q)", kind, contentHash, artifact.ArtifactKindDirectory, skill.ContentHash)
+	}
+}
+
+func plannedImportedSkill(t *testing.T, source string, destination string) adoptmodel.Skill {
+	t.Helper()
+	readPath, err := filepath.EvalSymlinks(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readPath, err = filepath.Abs(readPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readPath = filepath.Clean(readPath)
+	contentHash, kind, err := access.HashPath(context.Background(), readPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kind != artifact.ArtifactKindDirectory {
+		t.Fatalf("source kind = %q, want directory", kind)
+	}
+	return adoptmodel.Skill{
+		Target: target.TargetCodex,
+		Scope:  target.ScopeProject,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{{
+			Target: target.TargetCodex, LivePath: source, ReadPath: readPath,
+		}},
+		SourcePath: destination, ContentHash: contentHash,
+	}
+}
+
+func assertNoImportTreeStage(t *testing.T, root string) {
+	t.Helper()
+	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if strings.HasPrefix(entry.Name(), ".daem-tmp-") {
+			t.Fatalf("unpublished import stage remains at %q", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("inspect import staging residue: %v", err)
 	}
 }
 
@@ -349,12 +583,18 @@ func TestWritePlanRollbackPreservesReplacedCreatedParent(t *testing.T) {
 
 func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	root := t.TempDir()
-	live := filepath.Join(root, "live")
-	read := filepath.Join(root, "read")
+	live := filepath.Join(root, "codex-live")
+	read := filepath.Join(root, "codex-read")
+	otherLive := filepath.Join(root, "claude-live")
+	otherRead := filepath.Join(root, "claude-read")
 	output := filepath.Join(root, "daem.toml")
 	plan := testAdoptPlan(t, output, nil, []adoptmodel.Skill{{
-		Target: target.TargetCodex, Scope: target.ScopeGlobal,
-		LivePath: live, ReadPath: read, SourcePath: filepath.Join(root, "sources", "skill"),
+		Target: target.TargetCodex, Targets: []target.Target{target.TargetCodex, target.TargetClaudeCode}, Scope: target.ScopeGlobal,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{
+			{Target: target.TargetClaudeCode, LivePath: otherLive, ReadPath: otherRead},
+			{Target: target.TargetCodex, LivePath: live, ReadPath: read},
+		},
+		SourcePath: filepath.Join(root, "sources", "skill"),
 	}})
 	_, requests, stable, err := importMutationEvidence(plan)
 	if err != nil {
@@ -362,12 +602,58 @@ func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	}
 	assertImportRevisionRequest(t, requests, live, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, requests, read, mutation.PathEffectReferent)
+	assertImportRevisionRequest(t, requests, otherLive, mutation.PathEffectDirectoryEntry)
+	assertImportRevisionRequest(t, requests, otherRead, mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, requests, filepath.Join(root, "daem.toml"), mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, requests, filepath.Join(root, "daem.toml"), mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, stable, live, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stable, read, mutation.PathEffectReferent)
+	assertImportRevisionRequest(t, stable, otherLive, mutation.PathEffectDirectoryEntry)
+	assertImportRevisionRequest(t, stable, otherRead, mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, stable, filepath.Join(root, "daem.toml"), mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stable, filepath.Join(root, "daem.toml"), mutation.PathEffectReferent)
+}
+
+func TestImportStableRevisionRejectsNonprimarySkillRouteDrift(t *testing.T) {
+	root := t.TempDir()
+	primary := filepath.Join(root, "claude-skill")
+	nonprimary := filepath.Join(root, "codex-skill")
+	for _, source := range []string{primary, nonprimary} {
+		if err := os.Mkdir(source, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("same"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan := testAdoptPlan(t, filepath.Join(root, "daem.toml"), nil, []adoptmodel.Skill{{
+		Target:  target.TargetClaudeCode,
+		Targets: []target.Target{target.TargetClaudeCode, target.TargetCodex},
+		Scope:   target.ScopeProject,
+		SourceRoutes: []adoptmodel.SkillSourceRoute{
+			{Target: target.TargetClaudeCode, LivePath: primary, ReadPath: primary},
+			{Target: target.TargetCodex, LivePath: nonprimary, ReadPath: nonprimary},
+		},
+		SourcePath: filepath.Join(root, "daem.d", "skills", "skill"),
+	}})
+	_, _, stableRequests, err := importMutationEvidence(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revisions, err := mutation.CaptureRevisionSet(context.Background(), stableRequests...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nonprimary, "SKILL.md"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := revisions.MatchesCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("stable revisions accepted drift in nonprimary merged skill route")
+	}
 }
 
 func testAdoptPlan(
@@ -413,8 +699,17 @@ func testAdoptPlan(
 		if skills[index].InstallName == "" {
 			skills[index].InstallName = "skill"
 		}
+		if skills[index].Target == "" {
+			skills[index].Target = target.TargetCodex
+		}
 		if len(skills[index].Targets) == 0 {
 			skills[index].Targets = []target.Target{skills[index].Target}
+		}
+		if len(skills[index].SourceRoutes) == 0 {
+			readPath := filepath.Join(root, "skill-source")
+			skills[index].SourceRoutes = []adoptmodel.SkillSourceRoute{{
+				Target: skills[index].Target, LivePath: readPath, ReadPath: readPath,
+			}}
 		}
 		if skills[index].ContentHash == "" {
 			skills[index].ContentHash = artifact.HashFileContent([]byte("mutation test skill"))

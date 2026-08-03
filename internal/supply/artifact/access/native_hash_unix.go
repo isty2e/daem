@@ -31,7 +31,7 @@ func walkNative(
 	if handle.entry.kind == nativeKindFile {
 		rootSize = handle.entry.size
 	}
-	if err := budget.consume(".", rootSize); err != nil {
+	if err := budget.consumeRoot(rootSize); err != nil {
 		return "", err
 	}
 	var contentHash artifact.ContentHash
@@ -96,7 +96,7 @@ func hashNativeDirectory(
 		}
 	}
 	builder := artifact.NewDirectoryHashBuilder()
-	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", builder, sink, budget); err != nil {
+	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", 0, builder, sink, budget); err != nil {
 		return "", err
 	}
 	if sink != nil {
@@ -111,11 +111,12 @@ func hashNativeDirectoryEntries(
 	ctx context.Context,
 	directoryFD int,
 	relativeRoot string,
+	directoryDepth int,
 	builder *artifact.DirectoryHashBuilder,
 	sink TreeSink,
 	budget *traversalBudget,
 ) error {
-	names, err := readNativeDirectoryNames(directoryFD)
+	names, err := readNativeDirectoryNamesWithinBudget(directoryFD, relativeRoot, budget)
 	if err != nil {
 		return err
 	}
@@ -137,7 +138,12 @@ func hashNativeDirectoryEntries(
 		if entry.kind == nativeKindFile {
 			entrySize = entry.size
 		}
-		if operationErr = budget.consume(relativePath, entrySize); operationErr != nil {
+		if operationErr = budget.consumeEntry(
+			relativePath,
+			entrySize,
+			entry.kind == nativeKindDirectory,
+			directoryDepth,
+		); operationErr != nil {
 			closeErr := unix.Close(entry.fd)
 			return errors.Join(operationErr, closeErr)
 		}
@@ -148,7 +154,15 @@ func hashNativeDirectoryEntries(
 				operationErr = sink.BeginDirectory(relativePath, entry.mode)
 			}
 			if operationErr == nil {
-				operationErr = hashNativeDirectoryEntries(ctx, entry.fd, relativePath, builder, sink, budget)
+				operationErr = hashNativeDirectoryEntries(
+					ctx,
+					entry.fd,
+					relativePath,
+					directoryDepth+1,
+					builder,
+					sink,
+					budget,
+				)
 			}
 			if operationErr == nil {
 				operationErr = verifyNativeEntryBinding(directoryFD, name, entry)

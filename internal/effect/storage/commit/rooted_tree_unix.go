@@ -48,6 +48,20 @@ func PrepareRootedTree(
 	capability rootedpath.CommitCapability,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) (*PreparedRootedTree, error) {
+	return prepareRootedTreeWithLimits(
+		ctx,
+		capability,
+		defaultTreeTraversalLimits(),
+		populate,
+	)
+}
+
+func prepareRootedTreeWithLimits(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+	populate func(mutationfs.RootedTreeWriter) error,
+) (*PreparedRootedTree, error) {
 	if ctx == nil {
 		if capability != nil {
 			_ = capability.Close()
@@ -70,6 +84,11 @@ func PrepareRootedTree(
 	if populate == nil {
 		_ = capability.Close()
 		return nil, fmt.Errorf("rooted tree populate callback is required")
+	}
+	budget, err := newTreeTraversalBudget(limits)
+	if err != nil {
+		_ = capability.Close()
+		return nil, fmt.Errorf("rooted tree write limits: %w", err)
 	}
 
 	anchor, err := openRootedAnchoredParent(path, capability, true)
@@ -96,7 +115,7 @@ func PrepareRootedTree(
 		return nil, failure
 	}
 
-	writer := &rootedTreeWriterUnix{ctx: ctx, prepared: prepared, active: true}
+	writer := &rootedTreeWriterUnix{ctx: ctx, prepared: prepared, budget: budget, active: true}
 	returned := false
 	defer func() {
 		writer.deactivate()

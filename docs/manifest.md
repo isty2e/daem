@@ -439,8 +439,10 @@ skill metadata model does not recognize them.
 
 This `name`/`id` split preserves practical same-name cases. If Codex and Claude
 Code expose the same skill name with identical content, import emits one
-multi-target `[[skill]]` with no explicit `id`. If they expose the same skill
-name with different content, import emits entries such as
+multi-target `[[skill]]` with no explicit `id`. Every physical route that
+contributed to that merged import remains freshness evidence until publication;
+the merge does not discard nonrepresentative target routes. If they expose the
+same skill name with different content, import emits entries such as
 `id = "codex_global_review", name = "review"` and
 `id = "claude_code_global_review", name = "review"`.
 

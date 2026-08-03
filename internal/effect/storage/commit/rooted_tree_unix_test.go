@@ -96,6 +96,158 @@ func TestPrepareRootedTreeCallbackFailureCleansStageAndAncestors(t *testing.T) {
 	}
 }
 
+func TestPrepareRootedTreeRejectsStructureOutsideCleanupLimitsWithoutResidue(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		limits   mutationfs.TreeTraversalLimits
+		populate func(*testing.T, mutationfs.RootedTreeWriter) error
+		want     string
+	}{
+		{
+			name:   "entry count",
+			limits: treeLimitsForTest(t, 2, 4),
+			populate: func(t *testing.T, writer mutationfs.RootedTreeWriter) error {
+				t.Helper()
+				for _, name := range []string{"one", "two"} {
+					if err := writer.WriteFile(treePathForTest(t, name), 0o600, strings.NewReader(name)); err != nil {
+						return err
+					}
+				}
+				return writer.WriteFile(treePathForTest(t, "three"), 0o600, strings.NewReader("three"))
+			},
+			want: "tree exceeds 2 entries",
+		},
+		{
+			name:   "directory depth",
+			limits: treeLimitsForTest(t, 8, 1),
+			populate: func(t *testing.T, writer mutationfs.RootedTreeWriter) error {
+				t.Helper()
+				if err := writer.CreateDirectory(treePathForTest(t, "one"), 0o700); err != nil {
+					return err
+				}
+				return writer.CreateDirectory(treePathForTest(t, "one", "two"), 0o700)
+			},
+			want: "tree exceeds maximum depth 1",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
+			prepared, err := prepareRootedTreeWithLimits(
+				context.Background(),
+				capability,
+				test.limits,
+				func(writer mutationfs.RootedTreeWriter) error {
+					return test.populate(t, writer)
+				},
+			)
+			if prepared != nil {
+				t.Fatal("prepare returned an over-limit stage")
+			}
+			assertFailure(t, err, failureUncommitted, phaseWritePayload)
+			if !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("prepare error = %v, want %q", err, test.want)
+			}
+			assertClosedRootedCapability(t, capability)
+			if _, statErr := os.Lstat(filepath.Join(root, ".agents")); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("over-limit preparation retained staging ancestry: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestRootedTreeStagingStructureLimitMatchesCleanupAdmission(t *testing.T) {
+	limit := RootedTreeStagingStructureLimits()
+	if limit.MaximumEntries() != defaultTreeTraversalMaximumEntries ||
+		limit.MaximumDepth() != defaultTreeTraversalMaximumDepth {
+		t.Fatalf(
+			"staging structure limit = entries:%d depth:%d, want entries:%d depth:%d",
+			limit.MaximumEntries(),
+			limit.MaximumDepth(),
+			defaultTreeTraversalMaximumEntries,
+			defaultTreeTraversalMaximumDepth,
+		)
+	}
+	cleanup := defaultTreeTraversalLimits()
+	if cleanup.MaximumEntries() != limit.MaximumEntries() ||
+		cleanup.MaximumDepth() != limit.MaximumDepth() {
+		t.Fatalf(
+			"cleanup limit = entries:%d depth:%d, staging limit = entries:%d depth:%d",
+			cleanup.MaximumEntries(),
+			cleanup.MaximumDepth(),
+			limit.MaximumEntries(),
+			limit.MaximumDepth(),
+		)
+	}
+}
+
+func TestPrepareRootedTreeAcceptsExactCleanupStructureBoundary(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
+	prepared, err := prepareRootedTreeWithLimits(
+		context.Background(),
+		capability,
+		treeLimitsForTest(t, 2, 1),
+		func(writer mutationfs.RootedTreeWriter) error {
+			if err := writer.CreateDirectory(treePathForTest(t, "one"), 0o700); err != nil {
+				return err
+			}
+			return writer.WriteFile(
+				treePathForTest(t, "one", "file"),
+				0o600,
+				strings.NewReader("content"),
+			)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.Abort(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, ".agents")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("aborted boundary tree retained staging ancestry: %v", statErr)
+	}
+}
+
+func TestPrepareRootedTreeRejectsDefaultCleanupDepthBoundaryWithoutResidue(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
+	prepared, err := PrepareRootedTree(context.Background(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		components := make([]string, 0, defaultTreeTraversalMaximumDepth+1)
+		for depth := 1; depth <= defaultTreeTraversalMaximumDepth+1; depth++ {
+			components = append(components, "nested")
+			if err := writer.CreateDirectory(treePathForTest(t, components...), 0o700); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if prepared != nil {
+		t.Fatal("prepare returned a stage deeper than cleanup can traverse")
+	}
+	assertFailure(t, err, failureUncommitted, phaseWritePayload)
+	if !strings.Contains(err.Error(), "tree exceeds maximum depth 64") {
+		t.Fatalf("prepare error = %v, want depth-bound rejection", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	if _, statErr := os.Lstat(filepath.Join(root, ".agents")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("depth-bound preparation retained staging ancestry: %v", statErr)
+	}
+}
+
 func TestPrepareRootedTreeCallbackPanicCleansStageAndAncestors(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {
@@ -272,4 +424,13 @@ func treePathForTest(t *testing.T, components ...string) mutationfs.TreeRelative
 		t.Fatalf("NewTreeRelativePath(%q) returned error: %v", components, err)
 	}
 	return path
+}
+
+func treeLimitsForTest(t *testing.T, maximumEntries int, maximumDepth int) mutationfs.TreeTraversalLimits {
+	t.Helper()
+	limits, err := mutationfs.NewTreeTraversalLimits(maximumEntries, maximumDepth, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limits
 }

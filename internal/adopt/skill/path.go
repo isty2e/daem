@@ -21,6 +21,18 @@ func importSkillSourcePath(sourceDirectory adopt.SourceDirectory, installName st
 	))
 }
 
+func resolvedImportSkillReadPath(livePath string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(livePath)
+	if err != nil {
+		return "", err
+	}
+	absolute, err := filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve imported skill path %q: %w", livePath, err)
+	}
+	return filepath.Clean(absolute), nil
+}
+
 func importSkillHashDirectoryName(contentHash artifact.ContentHash) string {
 	return strings.ReplaceAll(string(contentHash), ":", "-")
 }

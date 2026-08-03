@@ -228,6 +228,144 @@ func TestHashWithLimitMatchesUnboundedHashWithinBudget(t *testing.T) {
 	}
 }
 
+func TestHashDirectoryRequiringRootFileBindsEligibilityToTreeIdentity(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("---\nname: review\n---\n"))
+	writeAccessTestFile(t, filepath.Join(root, "scripts", "review.sh"), []byte("#!/bin/sh\n"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTreeStructureLimitForTest(t, 8, 4),
+	)
+	if err != nil {
+		t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
+	}
+	want, err := view.Hash(context.Background())
+	if err != nil {
+		t.Fatalf("Hash returned error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("required-file hash = %q, ordinary hash = %q", got, want)
+	}
+}
+
+func TestHashDirectoryRequiringRootFileRejectsMissingOrNonregularEntry(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{name: "missing"},
+		{
+			name: "directory",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(root, "SKILL.md"), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := resolvedAccessTestRoot(t)
+			writeAccessTestFile(t, filepath.Join(root, "other"), []byte("content"))
+			if test.setup != nil {
+				test.setup(t, root)
+			}
+			view, err := OpenNoFollowView(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := view.HashDirectoryRequiringRootFile(
+				context.Background(),
+				"SKILL.md",
+				accessTreeStructureLimitForTest(t, 8, 4),
+			); !errors.Is(err, ErrRequiredRootRegularFile) {
+				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection", err)
+			}
+		})
+	}
+}
+
+func TestHashDirectoryRequiringRootFileEnforcesTreeStructureLimit(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		limit   TreeStructureLimit
+		setup   func(*testing.T, string)
+		wantErr string
+	}{
+		{
+			name:  "exact boundary",
+			limit: accessTreeStructureLimitForTest(t, 3, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "scripts", "run.sh"), []byte("run"))
+			},
+		},
+		{
+			name:  "entry count exceeded",
+			limit: accessTreeStructureLimitForTest(t, 2, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "scripts", "run.sh"), []byte("run"))
+			},
+			wantErr: "artifact tree exceeds 2 entries",
+		},
+		{
+			name:  "directory depth exceeded",
+			limit: accessTreeStructureLimitForTest(t, 4, 1),
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+				writeAccessTestFile(t, filepath.Join(root, "one", "two", "run.sh"), []byte("run"))
+			},
+			wantErr: "artifact tree exceeds maximum depth 1",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := resolvedAccessTestRoot(t)
+			test.setup(t, root)
+			view, err := OpenNoFollowView(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = view.HashDirectoryRequiringRootFile(
+				context.Background(),
+				"SKILL.md",
+				test.limit,
+			)
+			if test.wantErr == "" {
+				if err != nil {
+					t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func accessTreeStructureLimitForTest(
+	t *testing.T,
+	maximumEntries int,
+	maximumDepth int,
+) TreeStructureLimit {
+	t.Helper()
+	limit, err := NewTreeStructureLimit(maximumEntries, maximumDepth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limit
+}
+
 func resolvedAccessTestRoot(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())

@@ -2,12 +2,12 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
@@ -20,6 +20,7 @@ func importSkillsFromRoot(
 	installTo string,
 	liveRoot string,
 	importedDestinations DestinationClaims,
+	sourceIdentities *SourceIdentityCache,
 ) ([]adopt.Skill, adopt.Scan, []adopt.Skipped, error) {
 	entries, err := os.ReadDir(liveRoot)
 	if err != nil {
@@ -42,6 +43,7 @@ func importSkillsFromRoot(
 			livePath,
 			entry.Name(),
 			importedDestinations,
+			sourceIdentities,
 		)
 		if err != nil {
 			return nil, adopt.Scan{}, nil, err
@@ -95,6 +97,7 @@ func importSkillFromEntry(
 	livePath string,
 	name string,
 	importedDestinations DestinationClaims,
+	sourceIdentities *SourceIdentityCache,
 ) (adopt.Skill, adopt.Skipped, error) {
 	cleanName, err := cleanImportSkillName(name)
 	if err != nil {
@@ -104,7 +107,7 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: suppliedReason}, nil
 	}
 
-	readPath, err := filepath.EvalSymlinks(livePath)
+	readPath, err := resolvedImportSkillReadPath(livePath)
 	if err != nil {
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
 	}
@@ -117,20 +120,6 @@ func importSkillFromEntry(
 	}
 	if !info.IsDir() {
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
-	}
-	skillFilePath := filepath.Join(readPath, "SKILL.md")
-	skillFileInfo, err := os.Lstat(skillFilePath)
-	if os.IsNotExist(err) {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
-	}
-	if err != nil {
-		return adopt.Skill{}, adopt.Skipped{}, fmt.Errorf("inspect skill file %q: %w", livePath, err)
-	}
-	if skillFileInfo.Mode()&os.ModeSymlink != 0 {
-		return adopt.Skill{}, adopt.Skipped{LivePath: skillFilePath, Reason: importSkillSkipNestedSymlink}, nil
-	}
-	if !skillFileInfo.Mode().IsRegular() {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
 	}
 	destination := DestinationClaim{
 		Target:      target,
@@ -149,12 +138,12 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: nestedSymlink, Reason: importSkillSkipNestedSymlink}, nil
 	}
 
-	contentHash, artifactKind, err := access.HashPath(ctx, readPath)
+	contentHash, err := sourceIdentities.ContentHash(ctx, readPath)
 	if err != nil {
-		return adopt.Skill{}, adopt.Skipped{}, fmt.Errorf("hash skill tree %q: %w", livePath, err)
-	}
-	if artifactKind != artifact.ArtifactKindDirectory {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
+		if errors.Is(err, access.ErrRequiredRootRegularFile) {
+			return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
+		}
+		return adopt.Skill{}, adopt.Skipped{}, err
 	}
 
 	sourcePath, err := importSkillSourcePath(sourceDirectory, cleanName, contentHash)
@@ -174,9 +163,10 @@ func importSkillFromEntry(
 		Targets:      []targetpkg.Target{target},
 		Placements:   placements,
 		Scope:        scope,
-		LivePath:     livePath,
-		ReadPath:     readPath,
-		SourcePath:   sourcePath,
-		ContentHash:  contentHash,
+		SourceRoutes: []adopt.SkillSourceRoute{{
+			Target: target, LivePath: livePath, ReadPath: readPath,
+		}},
+		SourcePath:  sourcePath,
+		ContentHash: contentHash,
 	}, adopt.Skipped{}, nil
 }

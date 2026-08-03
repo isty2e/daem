@@ -294,12 +294,13 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 		})
 	}
 	for _, skill := range plan.Skills() {
+		primaryRoute, _ := skill.PrimarySourceRoute()
 		resources = append(resources, ImportResource{
 			ResourceID: "skill/" + skill.ResourceName,
 			Target:     string(skill.Target),
 			Scope:      string(skill.Scope),
 			Source:     filepath.ToSlash(skill.SourcePath),
-			LivePath:   skill.LivePath,
+			LivePath:   primaryRoute.LivePath,
 		})
 	}
 	for _, hook := range plan.Hooks() {
