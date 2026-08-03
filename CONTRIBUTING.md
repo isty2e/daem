@@ -64,12 +64,12 @@ correctness claim. `repository` checks architecture, documentation, and
 repository contracts. `full` is the fresh hermetic repository-correctness
 claim. `race` first proves the detector with an intentional race and then runs
 all product and CLI test packages; repository-only guards and the test-runner
-package remain owned by `repository` and `full`. The underlying full and race harness gives
-every test package private user and XDG roots while reusing the selected Go
-toolchain and existing build and module caches. It also ignores host `GOENV`,
-`GOFLAGS`, and workspace selection, so local agent and Go configuration cannot
-suppress or cross-contaminate mandatory tests. Inspect a lane's package
-selectors with `tools/test.sh packages <lane>`.
+package remain owned by `repository` and `full`. The underlying full and race
+harness gives every test package private user and XDG roots while reusing the
+selected Go toolchain and existing build and module caches. It also ignores
+host `GOENV`, `GOFLAGS`, and workspace selection, so local agent and Go
+configuration cannot suppress or cross-contaminate mandatory tests. Inspect a
+lane's package selectors with `tools/test.sh packages <lane>`.
 
 When raising the Go toolchain, preview the standard modernizers with
 `go fix -diff ./...`, review the proposed source changes, and run `go fix ./...`

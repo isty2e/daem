@@ -10,8 +10,8 @@ repository_packages=(./internal/archguard)
 
 race_package_paths() {
 	local module_path
-	module_path=$(GOENV=off GOFLAGS= GOWORK=off go list -m -f '{{.Path}}')
-	GOENV=off GOFLAGS= GOWORK=off go list -f '{{.ImportPath}}' ./... |
+	module_path=$(env GOENV=off GOFLAGS='' GOWORK=off go list -m -f '{{.Path}}')
+	env GOENV=off GOFLAGS='' GOWORK=off go list -f '{{.ImportPath}}' ./... |
 		while IFS= read -r package_path; do
 			case "${package_path}" in
 			"${module_path}/internal/archguard" | "${module_path}/test/tooling")

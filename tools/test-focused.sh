@@ -112,6 +112,8 @@ remove_private_tree() {
 	rmdir "${root}"
 }
 
+# Invoked by the EXIT trap.
+# shellcheck disable=SC2329
 cleanup() {
 	status=$?
 	trap - EXIT HUP INT QUIT TERM
