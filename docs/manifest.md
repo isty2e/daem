@@ -563,7 +563,33 @@ Selector syntax:
   rejected in glob patterns, and source roots are not recursively walked.
 - Each `include` selector must match at least one direct child during `lock`.
   After `exclude` is applied, the final selected set must be non-empty.
-  `exclude` selectors may match zero names.
+- `exclude` selectors may match zero names.
+
+Selector-backed expansion is bounded before candidate lists or selected Skills
+can grow without limit. The limits apply to one complete skill-group listing
+and expansion phase, across all groups in that phase:
+
+| Resource | Limit |
+| --- | ---: |
+| Distinct source roots listed | 1,024 |
+| Direct entries observed | 100,000 |
+| Direct-entry name bytes | 32 MiB |
+| One direct-entry name | 4 KiB |
+| Selectors per group | 128 |
+| Selector pattern bytes per group | 64 KiB |
+| Selector match evaluations | 1,000,000 |
+| Matcher input (pattern + child name per evaluation) | 128 MiB |
+| Newly selected skills | 4,096 |
+
+Git and local sources use the same limits. Repeated groups that reference the
+same canonical source root share one listing and count that root once. Every
+direct entry consumes the source budget, including files and links that cannot
+become selected skill directories. Includes consume selection budget when they
+first select a name; later exclusions do not refund work already performed. An
+exact limit is accepted, while the first unit beyond it fails the whole lock
+operation with no partial lockfile. Each matcher evaluation charges both its
+selector-pattern and child-name bytes. These limits are package policy rather
+than manifest fields.
 - Expanded lockfile entries are ordered deterministically by skill resource
   name, then source identity.
 

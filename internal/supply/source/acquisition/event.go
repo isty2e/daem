@@ -162,8 +162,28 @@ func (sink EventSink) Emit(event Event) {
 
 // OperationOptions carries optional per-operation event routing.
 type OperationOptions struct {
-	request Request
-	events  EventSink
+	request           Request
+	events            EventSink
+	rootListingBudget *source.RootListingBudget
+}
+
+// WithRootListingBudget binds an operation-wide source-root enumeration budget.
+func (options OperationOptions) WithRootListingBudget(
+	budget *source.RootListingBudget,
+) (OperationOptions, error) {
+	if budget == nil {
+		return OperationOptions{}, fmt.Errorf("source root listing budget is required")
+	}
+	options.rootListingBudget = budget
+	return options, nil
+}
+
+// RootListingBudget returns the bound budget or a fresh default for a direct operation.
+func (options OperationOptions) RootListingBudget() *source.RootListingBudget {
+	if options.rootListingBudget != nil {
+		return options.rootListingBudget
+	}
+	return source.NewRootListingBudget()
 }
 
 // NewOperationOptions constructs event routing for one validated request.

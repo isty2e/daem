@@ -225,6 +225,21 @@ these steps. Import writes no lock or management claim. Review the generated
 declaration, run `daem lock`, and use explicit `apply --manage-existing` only
 when the resulting exact relation is eligible and intended.
 
+## Lock Exceeded The Skill-Group Expansion Limit
+
+Selector-backed skill groups enumerate only direct children, but a source root
+or selector set can still demand excessive memory or matcher work. Daem rejects
+the complete lock operation when its source-root or selector-expansion budget
+is exceeded. It does not keep the subset observed before the error.
+
+Reduce the number of source roots, split an unusually broad repository root
+into narrower roots, or replace broad selectors with smaller explicit groups.
+Files and links at a source root still count as observed entries even though
+only direct child directories can become skills. Excluding a name later does
+not erase work already spent matching or selecting it. The exact ceilings are
+listed under Skill Groups in `docs/manifest.md`; they are not configurable from
+the manifest or CLI.
+
 ## Import Skipped An Instruction, Hook, Or MCP File
 
 Import reads existing agent files as untrusted input. An instruction file is

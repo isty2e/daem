@@ -106,12 +106,13 @@ func expandLockableSkillSetsFromListings(
 	}
 
 	skills := make([]lockableSkill, 0)
+	expansionBudget := skill.NewExpansionBudget()
 	for index, result := range results {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		set := sets[index]
-		resources, err := set.Expand(result.listing)
+		resources, err := set.ExpandWithBudget(result.listing, expansionBudget)
 		if err != nil {
 			return nil, fmt.Errorf("skill_group[%d]: %w", index, err)
 		}

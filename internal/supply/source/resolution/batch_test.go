@@ -325,6 +325,32 @@ func TestResolveBatchDedupesDuplicateListRootRequests(t *testing.T) {
 	}
 }
 
+func TestResolveBatchRejectsUniqueRootCountBeforeBackendWork(t *testing.T) {
+	tracker := newBatchResolverTracker(t)
+	resolver := Resolver{local: tracker}
+	requests := make([]acquisition.Request, 0, 1_025)
+	for index := range 1_025 {
+		requests = append(requests, batchRequest(
+			acquisition.RequestID(fmt.Sprintf("root-%04d", index)),
+			index,
+			acquisition.OperationListRoot,
+			sourcetest.Local(t, fmt.Sprintf("skills/%04d", index), source.LocalSourceModeVendor),
+		))
+	}
+
+	results, err := resolver.ResolveBatch(
+		context.Background(),
+		requests,
+		acquisition.NewBatchOptions(2, nil),
+	)
+	if results != nil || !errors.Is(err, source.ErrRootListingLimitExceeded) {
+		t.Fatalf("results/error = %#v/%v, want root listing limit", results, err)
+	}
+	if calls := tracker.totalCalls(); calls != 0 {
+		t.Fatalf("backend calls = %d, want 0", calls)
+	}
+}
+
 func TestResolveBatchDedupesDuplicateListRootErrors(t *testing.T) {
 	wantErr := errors.New("list failed")
 	tracker := newBatchResolverTracker(t)
@@ -348,6 +374,79 @@ func TestResolveBatchDedupesDuplicateListRootErrors(t *testing.T) {
 		}
 		if result.Request().ID() != acquisition.RequestID([]string{"first", "second"}[index]) {
 			t.Fatalf("result %d request id = %q", index, result.Request().ID())
+		}
+	}
+}
+
+func TestResolveBatchReturnsStableOperationErrorWhenConcurrentListingsExceedBudget(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		prefill func(*testing.T, *source.RootListingBudget)
+	}{
+		{
+			name: "entry count",
+			prefill: func(t *testing.T, budget *source.RootListingBudget) {
+				prefillBatchRootListingEntries(t, budget, 99_999, 1)
+			},
+		},
+		{
+			name: "name bytes",
+			prefill: func(t *testing.T, budget *source.RootListingBudget) {
+				prefillBatchRootListingEntries(t, budget, 8_191, 4_096)
+				if err := budget.AdmitEntryName(4_090); err != nil {
+					t.Fatalf("prefill root listing name bytes: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			wantError := ""
+			for iteration := range 20 {
+				tracker := newBatchResolverTracker(t)
+				resolver := Resolver{local: tracker}
+				budget := source.NewRootListingBudget()
+				testCase.prefill(t, budget)
+				options, err := acquisition.NewBatchOptions(2, nil).WithRootListingBudget(budget)
+				if err != nil {
+					t.Fatal(err)
+				}
+				requests := []acquisition.Request{
+					batchRequest("first", 0, acquisition.OperationListRoot, sourcetest.Local(t, "skills/first", source.LocalSourceModeVendor)),
+					batchRequest("second", 1, acquisition.OperationListRoot, sourcetest.Local(t, "skills/second", source.LocalSourceModeVendor)),
+				}
+				if iteration%2 != 0 {
+					requests[0], requests[1] = requests[1], requests[0]
+				}
+
+				results, err := resolver.ResolveBatch(context.Background(), requests, options)
+				if results != nil {
+					t.Fatalf("iteration %d results = %#v, want no partial results", iteration, results)
+				}
+				var limitErr *source.RootListingLimitError
+				if !errors.As(err, &limitErr) {
+					t.Fatalf("iteration %d error = %v, want RootListingLimitError", iteration, err)
+				}
+				if wantError == "" {
+					wantError = err.Error()
+				}
+				if err.Error() != wantError {
+					t.Fatalf("iteration %d error = %q, want stable %q", iteration, err, wantError)
+				}
+			}
+		})
+	}
+}
+
+func prefillBatchRootListingEntries(
+	t *testing.T,
+	budget *source.RootListingBudget,
+	count int,
+	nameBytes int,
+) {
+	t.Helper()
+	for range count {
+		if err := budget.AdmitEntryName(nameBytes); err != nil {
+			t.Fatalf("prefill root listing budget: %v", err)
 		}
 	}
 }

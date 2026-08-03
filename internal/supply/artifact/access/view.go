@@ -139,6 +139,26 @@ func (view View) ReadDirectory(ctx context.Context, relativePath string) ([]Entr
 	return readDirectoryNative(ctx, view.root, view.kind, relativePath)
 }
 
+// VisitDirectory streams no-follow metadata for one directory without
+// materializing its complete entry set. Visit order is filesystem-defined;
+// callers that publish names must canonicalize their final ordering.
+func (view View) VisitDirectory(
+	ctx context.Context,
+	relativePath string,
+	visit func(Entry) error,
+) error {
+	if err := view.validateOperation(ctx); err != nil {
+		return err
+	}
+	if err := validateRelativePath(relativePath); err != nil {
+		return err
+	}
+	if visit == nil {
+		return fmt.Errorf("artifact access directory visitor is required")
+	}
+	return visitDirectoryNative(ctx, view.root, view.kind, relativePath, visit)
+}
+
 // ReadFile reads one regular file up to maxBytes without following links.
 // It does not claim whole-artifact identity; identity-sensitive consumers use
 // Verify or CopyVerified over the complete artifact.

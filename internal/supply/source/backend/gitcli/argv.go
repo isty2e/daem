@@ -45,7 +45,7 @@ func inspectObjectArgs(objectName string) []string {
 }
 
 func listTreeArgs(objectName string) []string {
-	return []string{"ls-tree", "-z", "-d", "--name-only", "--", objectName}
+	return []string{"ls-tree", "-z", "--", objectName}
 }
 
 func archiveArgs(commit string, repositoryPath string) []string {

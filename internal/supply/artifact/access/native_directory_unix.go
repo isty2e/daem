@@ -18,6 +18,33 @@ func readNativeDirectoryNames(directoryFD int) ([]string, error) {
 	return readNativeDirectoryNamesUpTo(directoryFD, -1)
 }
 
+func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error {
+	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	file := os.NewFile(uintptr(readFD), "artifact-directory")
+	if file == nil {
+		_ = unix.Close(readFD)
+		return fmt.Errorf("wrap artifact directory descriptor")
+	}
+
+	for {
+		names, readErr := file.Readdirnames(256)
+		for _, name := range names {
+			if err := visit(name); err != nil {
+				return errors.Join(err, file.Close())
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return file.Close()
+		}
+		if readErr != nil {
+			return errors.Join(readErr, file.Close())
+		}
+	}
+}
+
 func readNativeDirectoryNamesWithinBudget(
 	directoryFD int,
 	relativeRoot string,

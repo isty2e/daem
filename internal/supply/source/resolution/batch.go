@@ -2,6 +2,7 @@ package resolution
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -25,6 +26,11 @@ func (resolver Resolver) ResolveBatch(
 		return nil, err
 	}
 	if err := validateBatchRequests(requests); err != nil {
+		return nil, err
+	}
+	listingBudget := options.RootListingBudget()
+	options, err := options.WithRootListingBudget(listingBudget)
+	if err != nil {
 		return nil, err
 	}
 	resolver = resolver.withResolutionSession()
@@ -58,6 +64,15 @@ func (resolver Resolver) ResolveBatch(
 			sourceID: sourceID,
 		})
 	}
+	rootCount := 0
+	for _, owner := range owners {
+		if owner.request.Operation() == acquisition.OperationListRoot {
+			rootCount++
+		}
+	}
+	if err := listingBudget.CheckRootCount(rootCount); err != nil {
+		return nil, err
+	}
 	if err := resolver.assignRepositoryPreparationGroups(owners); err != nil {
 		return nil, err
 	}
@@ -70,7 +85,9 @@ func (resolver Resolver) ResolveBatch(
 		return results, nil
 	}
 
-	if err := resolver.runBatchOwners(ctx, owners, options); err != nil {
+	batchCtx, cancelBatch := context.WithCancelCause(ctx)
+	defer cancelBatch(nil)
+	if err := resolver.runBatchOwners(batchCtx, owners, options, cancelBatch); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -157,7 +174,12 @@ func validateBatchRequests(requests []acquisition.Request) error {
 	return nil
 }
 
-func (resolver Resolver) runBatchOwners(ctx context.Context, owners []batchOwner, options acquisition.BatchOptions) error {
+func (resolver Resolver) runBatchOwners(
+	ctx context.Context,
+	owners []batchOwner,
+	options acquisition.BatchOptions,
+	cancelBatch context.CancelCauseFunc,
+) error {
 	maxParallel := min(max(options.NormalizedMaxParallel(), 1), len(owners))
 
 	jobs := make(chan int)
@@ -175,7 +197,15 @@ func (resolver Resolver) runBatchOwners(ctx context.Context, owners []batchOwner
 					if err := ctx.Err(); err != nil {
 						return
 					}
-					resolver.runBatchOwner(ctx, &owners[index], options.Events())
+					resolver.runBatchOwner(ctx, &owners[index], options)
+					if errors.Is(owners[index].err, source.ErrRootListingLimitExceeded) {
+						cause := options.RootListingBudget().Err()
+						if cause == nil {
+							cause = owners[index].err
+						}
+						cancelBatch(cause)
+						return
+					}
 				}
 			}
 		})
@@ -186,7 +216,7 @@ func (resolver Resolver) runBatchOwners(ctx context.Context, owners []batchOwner
 		case <-ctx.Done():
 			close(jobs)
 			waitGroup.Wait()
-			return ctx.Err()
+			return batchContextError(ctx)
 		case jobs <- index:
 		}
 	}
@@ -194,15 +224,24 @@ func (resolver Resolver) runBatchOwners(ctx context.Context, owners []batchOwner
 	close(jobs)
 	waitGroup.Wait()
 	if err := ctx.Err(); err != nil {
-		return err
+		return batchContextError(ctx)
 	}
 
 	return nil
 }
 
-func (resolver Resolver) runBatchOwner(ctx context.Context, owner *batchOwner, events acquisition.EventSink) {
-	emitBatchRequestEvent(events, owner.request, acquisition.EventStarted, owner.sourceID, "", nil)
-	operationOptions, err := acquisition.NewOperationOptions(owner.request, events)
+func (resolver Resolver) runBatchOwner(
+	ctx context.Context,
+	owner *batchOwner,
+	options acquisition.BatchOptions,
+) {
+	emitBatchRequestEvent(options.Events(), owner.request, acquisition.EventStarted, owner.sourceID, "", nil)
+	operationOptions, err := acquisition.NewOperationOptions(owner.request, options.Events())
+	if err != nil {
+		owner.err = err
+		return
+	}
+	operationOptions, err = operationOptions.WithRootListingBudget(options.RootListingBudget())
 	if err != nil {
 		owner.err = err
 		return
@@ -219,6 +258,13 @@ func (resolver Resolver) runBatchOwner(ctx context.Context, owner *batchOwner, e
 	default:
 		owner.err = fmt.Errorf("unknown source operation %q", owner.request.Operation())
 	}
+}
+
+func batchContextError(ctx context.Context) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	return ctx.Err()
 }
 
 func (resolver Resolver) assignRepositoryPreparationGroups(owners []batchOwner) error {

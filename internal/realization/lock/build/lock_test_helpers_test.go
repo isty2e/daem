@@ -174,14 +174,19 @@ func (resolver stubResolver) Resolve(
 type rootListingResolver struct {
 	root      source.RootListing
 	artifacts map[string]resolutionFixture
+	listed    int
 	resolved  []string
 }
 
 func (resolver *rootListingResolver) ListSourceRoot(
 	_ context.Context,
 	_ source.Source,
-	_ acquisition.OperationOptions,
+	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
+	resolver.listed++
+	if err := chargeRootListingBudget(options.RootListingBudget(), resolver.root); err != nil {
+		return source.RootListing{}, err
+	}
 	return resolver.root, nil
 }
 

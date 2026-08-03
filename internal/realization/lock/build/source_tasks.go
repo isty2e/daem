@@ -170,13 +170,23 @@ func sourceTaskResults(
 	if len(tasks) == 0 {
 		return nil, nil
 	}
+	listingBudget := source.NewRootListingBudget()
+	listedSourceIDs := make(map[artifact.SourceID]struct{})
+	for _, task := range tasks {
+		if task.operation == acquisition.OperationListRoot {
+			listedSourceIDs[task.sourceID()] = struct{}{}
+		}
+	}
+	if err := listingBudget.CheckRootCount(len(listedSourceIDs)); err != nil {
+		return nil, err
+	}
 
 	batchResolver, ok := resolver.(acquisition.BatchResolver)
 	if ok && options.MaxParallelSourceOps > 0 {
-		return batchSourceTaskResults(ctx, batchResolver, tasks, options)
+		return batchSourceTaskResults(ctx, batchResolver, tasks, options, listingBudget)
 	}
 
-	return sequentialSourceTaskResults(ctx, resolver, tasks, options.Events)
+	return sequentialSourceTaskResults(ctx, resolver, tasks, options.Events, listingBudget)
 }
 
 func batchSourceTaskResults(
@@ -184,6 +194,7 @@ func batchSourceTaskResults(
 	resolver acquisition.BatchResolver,
 	tasks []sourceTask,
 	options Options,
+	listingBudget *source.RootListingBudget,
 ) ([]sourceTaskResult, error) {
 	requests := make([]acquisition.Request, 0, len(tasks))
 	for _, task := range tasks {
@@ -195,10 +206,17 @@ func batchSourceTaskResults(
 		requests = append(requests, request)
 	}
 
+	batchOptions, err := acquisition.NewBatchOptions(
+		options.MaxParallelSourceOps,
+		options.SourceEvents,
+	).WithRootListingBudget(listingBudget)
+	if err != nil {
+		return nil, err
+	}
 	results, err := resolver.ResolveBatch(
 		ctx,
 		requests,
-		acquisition.NewBatchOptions(options.MaxParallelSourceOps, options.SourceEvents),
+		batchOptions,
 	)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -258,8 +276,14 @@ func sequentialSourceTaskResults(
 	resolver acquisition.Resolver,
 	tasks []sourceTask,
 	events EventSink,
+	listingBudget *source.RootListingBudget,
 ) ([]sourceTaskResult, error) {
+	operationOptions, err := (acquisition.OperationOptions{}).WithRootListingBudget(listingBudget)
+	if err != nil {
+		return nil, err
+	}
 	results := make([]sourceTaskResult, 0, len(tasks))
+	listingsBySourceID := make(map[artifact.SourceID]source.RootListing)
 	for _, task := range tasks {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -269,7 +293,7 @@ func sequentialSourceTaskResults(
 		result := sourceTaskResult{task: task}
 		switch task.operation {
 		case acquisition.OperationResolve:
-			resolvedArtifact, err := resolver.Resolve(ctx, task.sourceSpec, acquisition.OperationOptions{})
+			resolvedArtifact, err := resolver.Resolve(ctx, task.sourceSpec, operationOptions)
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, ctxErr
@@ -281,6 +305,10 @@ func sequentialSourceTaskResults(
 			}
 			result.resolution = resolvedArtifact
 		case acquisition.OperationListRoot:
+			if listing, ok := listingsBySourceID[task.sourceID()]; ok {
+				result.listing = listing
+				break
+			}
 			lister, ok := resolver.(acquisition.RootLister)
 			if !ok {
 				result.err = task.wrapSourceError(fmt.Errorf("source root listing is unsupported by resolver"))
@@ -288,7 +316,7 @@ func sequentialSourceTaskResults(
 				results = append(results, result)
 				return results, nil
 			}
-			listing, err := lister.ListSourceRoot(ctx, task.sourceSpec, acquisition.OperationOptions{})
+			listing, err := lister.ListSourceRoot(ctx, task.sourceSpec, operationOptions)
 			if err != nil {
 				if ctxErr := ctx.Err(); ctxErr != nil {
 					return nil, ctxErr
@@ -299,6 +327,7 @@ func sequentialSourceTaskResults(
 				return results, nil
 			}
 			result.listing = listing
+			listingsBySourceID[task.sourceID()] = listing
 		default:
 			result.err = task.wrapSourceError(fmt.Errorf("unknown source operation %q", task.operation))
 			emitSourceTaskResultEvent(events, result)

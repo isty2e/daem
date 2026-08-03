@@ -207,6 +207,56 @@ func TestListSourceRootListsDirectLocalDirectories(t *testing.T) {
 	}
 }
 
+func TestListSourceRootAppliesBudgetToEveryDirectEntry(t *testing.T) {
+	root := t.TempDir()
+	writeLocalTestFile(t, root, "skills/alpha/SKILL.md", "---\nname: alpha\n---\n")
+	writeLocalTestFile(t, root, "skills/beta/SKILL.md", "---\nname: beta\n---\n")
+	writeLocalTestFile(t, root, "skills/README.md", "not a directory\n")
+	if err := os.Symlink("alpha", filepath.Join(root, "skills", "alias")); err != nil {
+		t.Fatalf("create direct-entry symlink: %v", err)
+	}
+	resolver, err := NewResolver(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceSpec := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
+
+	exactBudget := source.NewRootListingBudget()
+	prefillLocalRootListingEntries(t, exactBudget, 99_996)
+	exactOptions, err := noOperationOptions.WithRootListingBudget(exactBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing, err := resolver.ListSourceRoot(context.Background(), sourceSpec, exactOptions)
+	if err != nil {
+		t.Fatalf("exact-limit ListSourceRoot returned error: %v", err)
+	}
+	if got := strings.Join(listing.ChildNames(), ","); got != "alpha,beta" {
+		t.Fatalf("exact-limit ChildNames = %q, want alpha,beta", got)
+	}
+
+	overflowBudget := source.NewRootListingBudget()
+	prefillLocalRootListingEntries(t, overflowBudget, 99_997)
+	overflowOptions, err := noOperationOptions.WithRootListingBudget(overflowBudget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = resolver.ListSourceRoot(context.Background(), sourceSpec, overflowOptions)
+	var limitErr *source.RootListingLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("overflow error = %v, want RootListingLimitError", err)
+	}
+}
+
+func prefillLocalRootListingEntries(t *testing.T, budget *source.RootListingBudget, count int) {
+	t.Helper()
+	for range count {
+		if err := budget.AdmitEntryName(1); err != nil {
+			t.Fatalf("prefill root listing budget: %v", err)
+		}
+	}
+}
+
 func TestListSourceRootUsesNoFollowRootAndChildSemantics(t *testing.T) {
 	root := t.TempDir()
 	writeLocalTestFile(t, root, "skills/real/SKILL.md", "---\nname: real\n---\n")

@@ -8,6 +8,15 @@ import (
 
 // Expand constructs deterministic canonical Skills from one matching supplied listing.
 func (set SkillSet) Expand(listing source.RootListing) ([]Skill, error) {
+	return set.ExpandWithBudget(listing, NewExpansionBudget())
+}
+
+// ExpandWithBudget constructs deterministic canonical Skills while charging
+// one caller-owned lock-build expansion budget.
+func (set SkillSet) ExpandWithBudget(
+	listing source.RootListing,
+	budget *ExpansionBudget,
+) ([]Skill, error) {
 	if err := set.Validate(); err != nil {
 		return nil, err
 	}
@@ -18,7 +27,7 @@ func (set SkillSet) Expand(listing source.RootListing) ([]Skill, error) {
 		return nil, fmt.Errorf("skill set source must resolve to a directory")
 	}
 
-	selectedNames, err := selectNames(listing.ChildNames(), set.include, set.exclude)
+	selectedNames, err := selectNames(listing.ChildNames(), set.include, set.exclude, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +38,7 @@ func (set SkillSet) Expand(listing source.RootListing) ([]Skill, error) {
 		if err != nil {
 			return nil, err
 		}
-		child, err := set.Child(name, childSource)
+		child, err := set.child(name, childSource)
 		if err != nil {
 			return nil, err
 		}

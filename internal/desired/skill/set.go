@@ -40,10 +40,15 @@ func NewSkillSet(spec SkillSetSpec) (SkillSet, error) {
 	if len(spec.Include) == 0 {
 		return SkillSet{}, fmt.Errorf("skill set include selectors are required")
 	}
-	if err := validateSelectors(spec.Include, "include"); err != nil {
+	if err := defaultExpansionLimits().validateDeclaration(spec.Include, spec.Exclude); err != nil {
 		return SkillSet{}, err
 	}
-	if err := validateSelectors(spec.Exclude, "exclude"); err != nil {
+	include, err := normalizeSelectors(spec.Include, "include")
+	if err != nil {
+		return SkillSet{}, err
+	}
+	exclude, err := normalizeSelectors(spec.Exclude, "exclude")
+	if err != nil {
 		return SkillSet{}, err
 	}
 	if _, ok := spec.Source.S3(); ok {
@@ -79,8 +84,8 @@ func NewSkillSet(spec SkillSetSpec) (SkillSet, error) {
 
 	return SkillSet{
 		source:       spec.Source,
-		include:      append([]Selector(nil), spec.Include...),
-		exclude:      append([]Selector(nil), spec.Exclude...),
+		include:      include,
+		exclude:      exclude,
 		targets:      targets,
 		placements:   placements,
 		scope:        scope,
@@ -106,14 +111,16 @@ func (set SkillSet) Validate() error {
 	return err
 }
 
-func validateSelectors(values []Selector, field string) error {
+func normalizeSelectors(values []Selector, field string) ([]Selector, error) {
+	normalized := make([]Selector, 0, len(values))
 	for index, selector := range values {
 		parsed, err := ParseSelector(selector.Expression())
 		if err != nil || parsed != selector {
-			return fmt.Errorf("skill set %s[%d]: invalid selector", field, index)
+			return nil, fmt.Errorf("skill set %s[%d]: invalid selector", field, index)
 		}
+		normalized = append(normalized, parsed)
 	}
-	return nil
+	return normalized, nil
 }
 
 // Select returns deterministic selected child names from supplied listing facts.
@@ -121,7 +128,7 @@ func (set SkillSet) Select(childNames []string) ([]string, error) {
 	if err := set.Validate(); err != nil {
 		return nil, err
 	}
-	return selectNames(childNames, set.include, set.exclude)
+	return selectNames(childNames, set.include, set.exclude, NewExpansionBudget())
 }
 
 // Selects reports whether one canonical direct child belongs to this set.
@@ -134,7 +141,7 @@ func (set SkillSet) Selects(name string) (bool, error) {
 	if err != nil || canonicalName != name {
 		return false, fmt.Errorf("skill set child name must be a canonical safe single path segment")
 	}
-	return selectorSetMatches(name, set.include, set.exclude)
+	return selectorSetMatches(name, set.include, set.exclude, NewExpansionBudget())
 }
 
 // Child constructs one selected canonical Skill using a caller-supplied child
@@ -145,8 +152,12 @@ func (set SkillSet) Child(name string, childSource source.Source) (Skill, error)
 		return Skill{}, err
 	}
 	if !selected {
-		return Skill{}, fmt.Errorf("skill set child %q is not selected", name)
+		return Skill{}, fmt.Errorf("skill set child %s is not selected", skillDiagnosticValue(name))
 	}
+	return set.child(name, childSource)
+}
+
+func (set SkillSet) child(name string, childSource source.Source) (Skill, error) {
 	if err := set.source.ValidateChild(name, childSource); err != nil {
 		return Skill{}, fmt.Errorf("skill set child source: %w", err)
 	}

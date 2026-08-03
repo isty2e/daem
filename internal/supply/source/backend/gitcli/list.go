@@ -1,10 +1,11 @@
 package gitcli
 
 import (
-	"bytes"
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -35,6 +36,7 @@ func (resolver Resolver) ListSourceRoot(
 	}
 
 	gitPath := gitSource.RepositoryPath().String()
+	budget := options.RootListingBudget()
 
 	snapshot, err := resolver.resolveRepositoryCommit(ctx, gitSource, sourceSpec, sourceID, options)
 	if err != nil {
@@ -56,7 +58,7 @@ func (resolver Resolver) ListSourceRoot(
 
 	switch objectKind := strings.TrimSpace(objectKindOutput); objectKind {
 	case "tree":
-		childNames, err := handle.listTreeDirectories(ctx, objectName)
+		childNames, err := handle.listTreeDirectories(ctx, objectName, budget)
 		if err != nil {
 			return source.RootListing{}, fmt.Errorf("list git source path %q at %s: %w", gitPath, snapshot.commit, err)
 		}
@@ -82,21 +84,76 @@ func (resolver Resolver) ListSourceRoot(
 	}
 }
 
-func (handle *repositoryHandle) listTreeDirectories(ctx context.Context, objectName string) ([]string, error) {
-	output, err := handle.gitBytes(ctx, listTreeArgs(objectName)...)
+func (handle *repositoryHandle) listTreeDirectories(
+	ctx context.Context,
+	objectName string,
+	budget *source.RootListingBudget,
+) ([]string, error) {
+	var childNames []string
+	err := handle.consumeGitOutput(ctx, func(output io.Reader) error {
+		var err error
+		childNames, err = readGitTreeDirectories(output, budget)
+		return err
+	}, listTreeArgs(objectName)...)
 	if err != nil {
 		return nil, err
 	}
-
-	parts := bytes.Split(output, []byte{0})
-	childNames := make([]string, 0, len(parts))
-	for _, part := range parts {
-		if len(part) == 0 {
-			continue
-		}
-		childNames = append(childNames, string(part))
-	}
 	return childNames, nil
+}
+
+func readGitTreeDirectories(
+	output io.Reader,
+	budget *source.RootListingBudget,
+) ([]string, error) {
+	childNames := make([]string, 0)
+	maximumEntryNameBytes := budget.MaximumEntryNameBytes()
+	readerSize := int(maximumEntryNameBytes) + 256
+	reader := bufio.NewReaderSize(output, readerSize)
+	for {
+		record, readErr := reader.ReadSlice(0)
+		if errors.Is(readErr, io.EOF) && len(record) == 0 {
+			return childNames, nil
+		}
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			return nil, budget.AdmitEntryName(int(maximumEntryNameBytes) + 1)
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return nil, fmt.Errorf("git tree listing ended without a NUL record terminator")
+			}
+			return nil, readErr
+		}
+
+		name, directory, err := parseGitTreeRecord(record[:len(record)-1])
+		if err != nil {
+			return nil, err
+		}
+		if err := budget.AdmitEntryName(len(name)); err != nil {
+			return nil, err
+		}
+		if directory {
+			childNames = append(childNames, name)
+		}
+	}
+}
+
+func parseGitTreeRecord(record []byte) (name string, directory bool, err error) {
+	metadata, nameBytes, ok := strings.Cut(string(record), "\t")
+	if !ok || len(nameBytes) == 0 {
+		return "", false, fmt.Errorf("git tree listing contains a malformed record")
+	}
+	fields := strings.Fields(metadata)
+	if len(fields) != 3 || fields[0] == "" || fields[2] == "" {
+		return "", false, fmt.Errorf("git tree listing contains malformed metadata")
+	}
+	switch fields[1] {
+	case "tree":
+		return nameBytes, true, nil
+	case "blob", "commit":
+		return nameBytes, false, nil
+	default:
+		return "", false, fmt.Errorf("git tree listing contains unsupported object kind %q", fields[1])
+	}
 }
 
 func gitObjectName(commit string, gitPath string) string {

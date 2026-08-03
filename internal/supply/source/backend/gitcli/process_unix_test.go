@@ -16,6 +16,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/isty2e/daem/internal/supply/source"
 )
 
 const (
@@ -114,6 +116,22 @@ func TestRunGitOutputBoundsAndRedactsActualStderr(t *testing.T) {
 	}
 }
 
+func TestRunGitReaderTerminatesProcessTreeWhenListingBudgetFails(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	command := gitProcessHelperCommand(t, context.Background(), "listing-overflow-parent", pidFile)
+	budget := source.NewRootListingBudget()
+
+	err := runGitReader(context.Background(), command, func(output io.Reader) error {
+		_, readErr := readGitTreeDirectories(output, budget)
+		return readErr
+	})
+	if !errors.Is(err, source.ErrRootListingLimitExceeded) {
+		t.Fatalf("runGitReader error = %v, want source listing limit", err)
+	}
+	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
+}
+
 func TestGitProcessHelper(t *testing.T) {
 	stage := os.Getenv(gitProcessHelperStageEnv)
 	if stage == "" {
@@ -136,7 +154,7 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -161,6 +179,19 @@ func runGitProcessHelper(stage string, pidFile string) error {
 			return err
 		}
 		if _, err := io.WriteString(os.Stdout, strings.Repeat("x", 512)); err != nil {
+			return err
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "listing-overflow-parent":
+		if err := startGitProcessHelperChild("listing-overflow-child", pidFile); err != nil {
+			return err
+		}
+		if err := waitForGitHelperPIDCount(pidFile, 2, 3*time.Second); err != nil {
+			return err
+		}
+		if _, err := io.WriteString(os.Stdout, strings.Repeat("x", 5_000)); err != nil {
 			return err
 		}
 		for {

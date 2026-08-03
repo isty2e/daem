@@ -112,6 +112,28 @@ func TestSkillSetExpandRejectsEmptySelectionAfterExclusion(t *testing.T) {
 	}
 }
 
+func TestSkillSetExpandWithBudgetAccumulatesAcrossGroups(t *testing.T) {
+	root := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
+	set := mustExpansionSkillSet(t, baseExpansionSkillSetSpec(root))
+	listing, err := source.NewRootListing(
+		root,
+		"",
+		artifact.ArtifactKindDirectory,
+		[]string{"alpha"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := mustExpansionLimits(t, 1, 1, 2, 20, 1)
+	budget := mustExpansionBudget(t, limits)
+
+	if _, err := set.ExpandWithBudget(listing, budget); err != nil {
+		t.Fatalf("first ExpandWithBudget returned error: %v", err)
+	}
+	_, err = set.ExpandWithBudget(listing, budget)
+	assertExpansionLimit(t, err, ExpansionLimitSelectedSkills)
+}
+
 func baseExpansionSkillSetSpec(root source.Source) SkillSetSpec {
 	return SkillSetSpec{
 		Source:      root,

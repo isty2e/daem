@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	artifactpkg "github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/supply/source"
 )
 
 func TestListSourceRootRejectsNilAndCanceledContexts(t *testing.T) {
@@ -273,5 +274,37 @@ func TestListSourceRootListsGitDirectoriesWithoutArtifactExport(t *testing.T) {
 	}
 	if _, err := os.Stat(resolver.artifactRoot(repoPath, commit, "skills")); !os.IsNotExist(err) {
 		t.Fatalf("skills artifact exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestListSourceRootAppliesBudgetToEveryGitTreeEntry(t *testing.T) {
+	t.Parallel()
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/alpha/SKILL.md", "---\nname: alpha\n---\n")
+	writeGitTestFile(t, repoPath, "skills/beta/SKILL.md", "---\nname: beta\n---\n")
+	writeGitTestFile(t, repoPath, "skills/README.md", "not a directory\n")
+	commitAll(t, repoPath, "bounded tree")
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := source.NewRootListingBudget()
+	prefillRootListingEntries(t, budget, 99_998)
+	options, err := noOperationOptions.WithRootListingBudget(budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = resolver.ListSourceRoot(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills", "main"),
+		options,
+	)
+	var limitErr *source.RootListingLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("overflow error = %v, want RootListingLimitError", err)
 	}
 }
