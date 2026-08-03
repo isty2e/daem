@@ -139,6 +139,22 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 	}); err == nil {
 		t.Fatal("candidate set accepted impossible scan counts")
 	}
+	if _, err := NewCandidateSet(CandidateSetInput{
+		Skills: []Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       targetpkg.TargetCodex,
+			Targets:      []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetClaudeCode},
+			Scope:        targetpkg.ScopeProject,
+			SourceRoutes: []SkillSourceRoute{{
+				Target: targetpkg.TargetClaudeCode, LivePath: "/claude/skills/review", ReadPath: "/claude/skills/review",
+			}},
+			SourcePath:  "/workspace/daem.d/skills/review",
+			ContentHash: artifact.HashFileContent([]byte("review")),
+		}},
+	}); err == nil || !strings.Contains(err.Error(), "representative target") {
+		t.Fatalf("candidate set missing representative source route error = %v", err)
+	}
 
 	for name, contentHash := range map[string]artifact.ContentHash{
 		"empty":                 "",
@@ -200,6 +216,7 @@ func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing
 func TestSkillExpectedSourceIdentityRetainsResolvedLocalProvenance(t *testing.T) {
 	readPath := filepath.Join(string(filepath.Separator), "host", "skills", "review")
 	skill := Skill{
+		Target: targetpkg.TargetCodex,
 		SourceRoutes: []SkillSourceRoute{{
 			Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
 		}},
@@ -226,6 +243,7 @@ func TestSkillExpectedSourceIdentityRejectsUnresolvedReadPath(t *testing.T) {
 		filepath.Join(root, "nested") + string(filepath.Separator) + ".." + string(filepath.Separator) + "skill",
 	} {
 		skill := Skill{
+			Target: targetpkg.TargetCodex,
 			SourceRoutes: []SkillSourceRoute{{
 				Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
 			}},

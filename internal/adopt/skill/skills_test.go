@@ -87,6 +87,13 @@ func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
 	if !reflect.DeepEqual(finalized[0].SourceRoutes, wantRoutes) {
 		t.Fatalf("source routes = %#v, want %#v", finalized[0].SourceRoutes, wantRoutes)
 	}
+	primaryRoute, err := finalized[0].PrimarySourceRoute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primaryRoute != piRoute {
+		t.Fatalf("primary source route = %#v, want representative-target route %#v", primaryRoute, piRoute)
+	}
 }
 
 func TestFinalizeMergesTargetPlacementRequestsWithoutChangingTargetOrder(t *testing.T) {

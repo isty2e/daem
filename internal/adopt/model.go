@@ -139,13 +139,19 @@ type SkillSourceRoute struct {
 	ReadPath string
 }
 
-// PrimarySourceRoute returns the deterministic route used to materialize the
-// planned artifact. All SourceRoutes remain freshness evidence.
+// PrimarySourceRoute returns the canonical route for the representative
+// target used to materialize the planned artifact. All SourceRoutes remain
+// freshness evidence.
 func (skill Skill) PrimarySourceRoute() (SkillSourceRoute, error) {
-	if len(skill.SourceRoutes) == 0 {
-		return SkillSourceRoute{}, fmt.Errorf("skill source routes are required")
+	for _, route := range skill.SourceRoutes {
+		if route.Target == skill.Target {
+			return route, nil
+		}
 	}
-	return skill.SourceRoutes[0], nil
+	return SkillSourceRoute{}, fmt.Errorf(
+		"skill representative target %q requires a source route",
+		skill.Target,
+	)
 }
 
 // ExpectedSourceIdentity returns the exact directory identity that execution

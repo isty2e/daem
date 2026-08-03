@@ -324,12 +324,12 @@ symlink within the skill tree. Daem proves that the root `SKILL.md` is regular
 in the same descriptor-bound traversal that hashes the tree. It hashes each
 shared resolved route once per planning pass; when identical content from
 several target routes becomes one multi-target declaration, every contributing
-route remains freshness evidence and one deterministic route supplies the
-bytes. Daem then streams that exact planned directory identity into private
-staging. Any identity-changing replacement or mutation during copying,
-including an entry, executable-mode, or entry-kind change, fails before
-manifest publication. Private staging accepts at most 100,000 entries and 64
-descendant-directory levels, matching the cleanup traversal that owns failed
+route remains freshness evidence and the representative target's canonical
+route supplies the bytes. Daem then streams that exact planned directory
+identity into private staging. Any identity-changing replacement or mutation,
+including an entry, executable-mode, or entry-kind change during copying,
+fails before manifest publication. Private staging accepts at most 100,000
+entries and 64 descendant-directory levels, matching the cleanup traversal that owns failed
 stages. The whole skill tree has no separate byte ceiling; files are streamed,
 while the `SKILL.md` compatibility document retains its 1 MiB limit.
 
