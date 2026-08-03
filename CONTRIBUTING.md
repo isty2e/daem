@@ -45,17 +45,21 @@ guards. The productive API check requires `jq`. Run focused tests while
 editing, then use the remaining repository gates appropriate to the claim:
 
 ```bash
-tools/test-go.sh -count=1 ./...
-tools/test-go.sh -race -count=1 ./...
+tools/test.sh repository
+tools/test.sh full
+tools/test.sh race
 go mod verify
 git diff --check
 ```
 
-The test harness gives every test package private user and XDG roots while
-reusing the selected Go toolchain and existing build and module caches. It
-also ignores host `GOENV`, `GOFLAGS`, and workspace selection. Use it for
-repository-wide tests so local agent and Go configuration cannot suppress or
-cross-contaminate results.
+`repository` checks architecture, documentation, and repository contracts.
+`full` is the fresh hermetic repository-correctness claim, and `race` runs the
+same owned package set under the race detector. The underlying harness gives
+every test package private user and XDG roots while reusing the selected Go
+toolchain and existing build and module caches. It also ignores host `GOENV`,
+`GOFLAGS`, and workspace selection, so local agent and Go configuration cannot
+suppress or cross-contaminate mandatory tests. Inspect a lane's package
+selectors with `tools/test.sh packages <lane>`.
 
 When raising the Go toolchain, preview the standard modernizers with
 `go fix -diff ./...`, review the proposed source changes, and run `go fix ./...`
