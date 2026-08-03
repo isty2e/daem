@@ -14,6 +14,7 @@ usage() {
 usage: tools/test.sh <lane>
 
 lanes:
+  focused     cacheable isolated iteration for one exact package
   full        fresh hermetic repository correctness
   race        fresh hermetic repository race detection
   repository  architecture, documentation, and repository contracts
@@ -55,6 +56,13 @@ if (($# > 0)); then
 fi
 
 case "${lane}" in
+focused)
+	if (($# < 1 || $# > 2)); then
+		usage
+		exit 2
+	fi
+	exec tools/test-focused.sh "$@"
+	;;
 full)
 	require_no_arguments "$@"
 	exec tools/test-go.sh -mod=readonly -count=1 "${full_packages[@]}"

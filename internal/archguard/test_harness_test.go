@@ -61,7 +61,7 @@ func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
 	assertFileContainsExactly(t, filepath.Join(root, ".pre-commit-config.yaml"), "entry: tools/test.sh repository", 1)
 	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "ci.yml"), "tools/test.sh", 3)
 	assertFileContainsExactly(t, filepath.Join(root, ".github", "workflows", "release-artifact.yml"), "tools/test.sh", 1)
-	assertFileContainsExactly(t, filepath.Join(root, "CONTRIBUTING.md"), "tools/test.sh", 4)
+	assertFileContainsExactly(t, filepath.Join(root, "CONTRIBUTING.md"), "tools/test.sh", 6)
 
 	laneInfo, err := os.Stat(filepath.Join(root, "tools", "test.sh"))
 	if err != nil {
@@ -69,6 +69,13 @@ func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
 	}
 	if laneInfo.Mode()&0o111 == 0 {
 		t.Fatal("tools/test.sh must be executable")
+	}
+	focusedInfo, err := os.Stat(filepath.Join(root, "tools", "test-focused.sh"))
+	if err != nil {
+		t.Fatalf("stat focused test runner: %v", err)
+	}
+	if focusedInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test-focused.sh must be executable")
 	}
 
 	info, err := os.Stat(filepath.Join(root, "tools", "test-go.sh"))

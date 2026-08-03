@@ -59,6 +59,7 @@ var testToolPackageAdmissions = map[string]testToolAdmission{
 	"test/testkit/execcheck":                    {Reason: "isolated executable-attempt canaries are test support", Kind: testToolHelperPackage},
 	"test/testkit/mcp":                          {Reason: "placement-keyed MCP codec fixtures are test support", Kind: testToolHelperPackage},
 	"test/testkit/metadatatx":                   {Reason: "cross-workflow interrupted metadata transaction fixtures are test support", Kind: testToolHelperPackage},
+	"test/tooling":                              {Reason: "test harness lifecycle contracts belong only to external test files", Kind: testToolTestsOnlyPackage},
 }
 
 func analyzeArchitectureContracts(records []PackageRecord) []GuardrailFinding {
