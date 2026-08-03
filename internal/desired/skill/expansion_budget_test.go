@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -8,22 +9,32 @@ import (
 
 func TestExpansionLimitsRejectInvalidPolicies(t *testing.T) {
 	t.Parallel()
-	for _, values := range [][5]int64{
-		{0, 1, 1, 1, 1},
-		{1, 0, 1, 1, 1},
-		{1, 1, 0, 1, 1},
-		{1, 1, 1, 0, 1},
-		{1, 1, 1, 1, 0},
+	for _, values := range [][6]int64{
+		{0, 1, 1, 1, 1, 1},
+		{1, 0, 1, 1, 1, 1},
+		{1, 1, 0, 1, 1, 1},
+		{1, 1, 1, 0, 1, 1},
+		{1, 1, 1, 1, 0, 1},
+		{1, 1, 1, 1, 1, 0},
 	} {
-		if _, err := newExpansionLimits(values[0], values[1], values[2], values[3], values[4]); err == nil {
+		if _, err := newExpansionLimits(values[0], values[1], values[2], values[3], values[4], values[5]); err == nil {
 			t.Fatalf("newExpansionLimits%v returned nil error", values)
 		}
 	}
 }
 
+func TestExpansionBudgetAcceptsExactGroupLimitAndRejectsLimitPlusOne(t *testing.T) {
+	t.Parallel()
+	budget := mustExpansionBudget(t, mustExpansionLimits(t, 2, 1, 1, 1, 1, 1))
+	if err := budget.CheckGroupCount(2); err != nil {
+		t.Fatalf("CheckGroupCount at exact limit returned error: %v", err)
+	}
+	assertExpansionLimit(t, budget.CheckGroupCount(3), ExpansionLimitGroups)
+}
+
 func TestExpansionBudgetAcceptsExactDeclarationLimits(t *testing.T) {
 	t.Parallel()
-	limits := mustExpansionLimits(t, 2, 4, 10, 10, 2)
+	limits := mustExpansionLimits(t, 1, 2, 4, 10, 10, 2)
 	budget := mustExpansionBudget(t, limits)
 	include := []Selector{{kind: SelectorGlob, pattern: "ab"}}
 	exclude := []Selector{{kind: SelectorGlob, pattern: "cd"}}
@@ -58,7 +69,7 @@ func TestExpansionBudgetRejectsDeclarationLimitPlusOne(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
-			budget := mustExpansionBudget(t, mustExpansionLimits(t, 2, 4, 10, 10, 2))
+			budget := mustExpansionBudget(t, mustExpansionLimits(t, 1, 2, 4, 10, 10, 2))
 			err := budget.validateDeclaration(testCase.include, testCase.exclude)
 			assertExpansionLimit(t, err, testCase.kind)
 		})
@@ -67,7 +78,7 @@ func TestExpansionBudgetRejectsDeclarationLimitPlusOne(t *testing.T) {
 
 func TestExpansionBudgetAcceptsExactWorkAndSelectionLimits(t *testing.T) {
 	t.Parallel()
-	budget := mustExpansionBudget(t, mustExpansionLimits(t, 2, 4, 2, 4, 2))
+	budget := mustExpansionBudget(t, mustExpansionLimits(t, 1, 2, 4, 2, 4, 2))
 	for range 2 {
 		if err := budget.admitMatch(2); err != nil {
 			t.Fatalf("admitMatch at exact limits returned error: %v", err)
@@ -88,7 +99,7 @@ func TestExpansionBudgetRejectsWorkAndSelectionLimitPlusOne(t *testing.T) {
 	}{
 		{
 			name:   "match evaluations",
-			limits: mustExpansionLimits(t, 2, 4, 1, 10, 2),
+			limits: mustExpansionLimits(t, 1, 2, 4, 1, 10, 2),
 			consume: func(budget *ExpansionBudget) error {
 				if err := budget.admitMatch(1); err != nil {
 					return err
@@ -98,19 +109,19 @@ func TestExpansionBudgetRejectsWorkAndSelectionLimitPlusOne(t *testing.T) {
 			kind: ExpansionLimitMatchEvaluations,
 		},
 		{
-			name:   "matcher input bytes",
-			limits: mustExpansionLimits(t, 2, 4, 3, 4, 2),
+			name:   "matcher work units",
+			limits: mustExpansionLimits(t, 1, 2, 4, 3, 4, 2),
 			consume: func(budget *ExpansionBudget) error {
 				if err := budget.admitMatch(2); err != nil {
 					return err
 				}
 				return budget.admitMatch(3)
 			},
-			kind: ExpansionLimitMatcherInputBytes,
+			kind: ExpansionLimitMatcherWorkUnits,
 		},
 		{
 			name:   "selected skills",
-			limits: mustExpansionLimits(t, 2, 4, 2, 10, 1),
+			limits: mustExpansionLimits(t, 1, 2, 4, 2, 10, 1),
 			consume: func(budget *ExpansionBudget) error {
 				if err := budget.admitSelection(); err != nil {
 					return err
@@ -131,21 +142,53 @@ func TestExpansionBudgetRejectsWorkAndSelectionLimitPlusOne(t *testing.T) {
 
 func TestSelectNamesDoesNotRefundBroadIncludeBeforeExclusion(t *testing.T) {
 	t.Parallel()
-	budget := mustExpansionBudget(t, mustExpansionLimits(t, 2, 8, 10, 100, 1))
+	budget := mustExpansionBudget(t, mustExpansionLimits(t, 1, 2, 8, 10, 100, 1))
 	include := []Selector{mustSelector(t, "glob:*")}
 	exclude := []Selector{mustSelector(t, "glob:beta")}
 
-	_, err := selectNames([]string{"alpha", "beta"}, include, exclude, budget)
+	_, err := selectNames(context.Background(), []string{"alpha", "beta"}, include, exclude, budget)
 	assertExpansionLimit(t, err, ExpansionLimitSelectedSkills)
 }
 
-func TestSelectNamesChargesPatternAndNameForEveryMatcherEvaluation(t *testing.T) {
+func TestSelectNamesChargesMultiplicativeMatcherWorkBeforeEvaluation(t *testing.T) {
 	t.Parallel()
-	budget := mustExpansionBudget(t, mustExpansionLimits(t, 1, 10, 1, 10, 1))
+	budget := mustExpansionBudget(t, mustExpansionLimits(t, 1, 1, 10, 1, 100, 1))
 	include := []Selector{mustSelector(t, "glob:aaaaaaaaaa")}
 
-	_, err := selectNames([]string{"b"}, include, nil, budget)
-	assertExpansionLimit(t, err, ExpansionLimitMatcherInputBytes)
+	_, err := selectNames(context.Background(), []string{"bbbbbbbbbb"}, include, nil, budget)
+	assertExpansionLimit(t, err, ExpansionLimitMatcherWorkUnits)
+	if budget.matchEvaluations != 0 {
+		t.Fatalf("match evaluations = %d, want no matcher call after work rejection", budget.matchEvaluations)
+	}
+}
+
+func TestSelectNamesRejectsMaximumPathologicalGlobBeforeEvaluation(t *testing.T) {
+	t.Parallel()
+	pattern := "*" + strings.Repeat("a", int(defaultExpansionPatternBytes)-1)
+	selector := mustSelector(t, "glob:"+pattern)
+	name := strings.Repeat("b", 4<<10)
+	budget := NewExpansionBudget()
+
+	_, err := selectNames(context.Background(), []string{name}, []Selector{selector}, nil, budget)
+	assertExpansionLimit(t, err, ExpansionLimitMatcherWorkUnits)
+	if budget.matchEvaluations != 0 {
+		t.Fatalf("match evaluations = %d, want no matcher call after work rejection", budget.matchEvaluations)
+	}
+}
+
+func TestSelectNamesHonorsCancellationBeforeMatching(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	budget := NewExpansionBudget()
+
+	_, err := selectNames(ctx, []string{"alpha"}, []Selector{mustSelector(t, "glob:*")}, nil, budget)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("selectNames error = %v, want context cancellation", err)
+	}
+	if budget.matchEvaluations != 0 {
+		t.Fatalf("match evaluations = %d, want none", budget.matchEvaluations)
+	}
 }
 
 func TestRegexSelectorMatcherCompilesExpressionOnceBeforeCandidateMatching(t *testing.T) {
@@ -193,7 +236,7 @@ func TestSkillExpansionDiagnosticsBoundUntrustedValues(t *testing.T) {
 	}
 
 	selector := mustSelector(t, "glob:"+longValue)
-	_, err = selectNames([]string{"other"}, []Selector{selector}, nil, NewExpansionBudget())
+	_, err = selectNames(context.Background(), []string{"other"}, []Selector{selector}, nil, NewExpansionBudget())
 	if err == nil {
 		t.Fatal("selectNames accepted an unmatched selector")
 	}
@@ -202,7 +245,7 @@ func TestSkillExpansionDiagnosticsBoundUntrustedValues(t *testing.T) {
 	}
 
 	invalidName := longValue + "/escape"
-	_, err = selectNames([]string{invalidName}, []Selector{mustSelector(t, "regex:.*")}, nil, NewExpansionBudget())
+	_, err = selectNames(context.Background(), []string{invalidName}, []Selector{mustSelector(t, "regex:.*")}, nil, NewExpansionBudget())
 	if err == nil {
 		t.Fatal("selectNames accepted unsafe child")
 	}
@@ -213,18 +256,20 @@ func TestSkillExpansionDiagnosticsBoundUntrustedValues(t *testing.T) {
 
 func mustExpansionLimits(
 	t *testing.T,
+	maximumGroups int64,
 	maximumSelectors int64,
 	maximumPatternBytes int64,
 	maximumMatchEvaluations int64,
-	maximumMatcherInputBytes int64,
+	maximumMatcherWorkUnits int64,
 	maximumSelectedSkills int64,
 ) expansionLimits {
 	t.Helper()
 	limits, err := newExpansionLimits(
+		maximumGroups,
 		maximumSelectors,
 		maximumPatternBytes,
 		maximumMatchEvaluations,
-		maximumMatcherInputBytes,
+		maximumMatcherWorkUnits,
 		maximumSelectedSkills,
 	)
 	if err != nil {

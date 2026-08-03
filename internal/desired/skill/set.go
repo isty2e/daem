@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -128,7 +129,7 @@ func (set SkillSet) Select(childNames []string) ([]string, error) {
 	if err := set.Validate(); err != nil {
 		return nil, err
 	}
-	return selectNames(childNames, set.include, set.exclude, NewExpansionBudget())
+	return selectNames(context.Background(), childNames, set.include, set.exclude, NewExpansionBudget())
 }
 
 // Selects reports whether one canonical direct child belongs to this set.

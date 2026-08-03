@@ -1,6 +1,7 @@
 package skill
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -38,7 +39,7 @@ func TestSkillSetExpandConsumesMatchingCanonicalListing(t *testing.T) {
 		t.Fatalf("NewRootListing returned error: %v", err)
 	}
 
-	children, err := set.Expand(listing)
+	children, err := set.Expand(context.Background(), listing)
 	if err != nil {
 		t.Fatalf("Expand returned error: %v", err)
 	}
@@ -67,7 +68,7 @@ func TestSkillSetExpandRejectsMismatchedOrNonDirectoryListing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRootListing returned error: %v", err)
 	}
-	if _, err := set.Expand(mismatched); err == nil || !strings.Contains(err.Error(), "does not match") {
+	if _, err := set.Expand(context.Background(), mismatched); err == nil || !strings.Contains(err.Error(), "does not match") {
 		t.Fatalf("Expand mismatch error = %v", err)
 	}
 
@@ -75,7 +76,7 @@ func TestSkillSetExpandRejectsMismatchedOrNonDirectoryListing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRootListing returned error: %v", err)
 	}
-	if _, err := set.Expand(fileListing); err == nil || !strings.Contains(err.Error(), "directory") {
+	if _, err := set.Expand(context.Background(), fileListing); err == nil || !strings.Contains(err.Error(), "directory") {
 		t.Fatalf("Expand file error = %v", err)
 	}
 }
@@ -87,7 +88,7 @@ func TestSkillSetExpandKeepsSourceComponentAndSkillIdentityValidationDistinct(t 
 	if err != nil {
 		t.Fatalf("NewRootListing rejected source-safe component: %v", err)
 	}
-	if _, err := set.Expand(listing); err == nil || !strings.Contains(err.Error(), "safe single path segment") {
+	if _, err := set.Expand(context.Background(), listing); err == nil || !strings.Contains(err.Error(), "safe single path segment") {
 		t.Fatalf("Expand error = %v, want Skill identity rejection", err)
 	}
 }
@@ -107,7 +108,7 @@ func TestSkillSetExpandRejectsEmptySelectionAfterExclusion(t *testing.T) {
 		t.Fatalf("NewRootListing returned error: %v", err)
 	}
 
-	if _, err := set.Expand(listing); err == nil || err.Error() != "include: selectors matched no skills after exclusions" {
+	if _, err := set.Expand(context.Background(), listing); err == nil || err.Error() != "include: selectors matched no skills after exclusions" {
 		t.Fatalf("Expand error = %v, want empty-after-exclusion diagnostic", err)
 	}
 }
@@ -124,13 +125,13 @@ func TestSkillSetExpandWithBudgetAccumulatesAcrossGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limits := mustExpansionLimits(t, 1, 1, 2, 20, 1)
+	limits := mustExpansionLimits(t, 2, 1, 1, 2, 20, 1)
 	budget := mustExpansionBudget(t, limits)
 
-	if _, err := set.ExpandWithBudget(listing, budget); err != nil {
+	if _, err := set.ExpandWithBudget(context.Background(), listing, budget); err != nil {
 		t.Fatalf("first ExpandWithBudget returned error: %v", err)
 	}
-	_, err = set.ExpandWithBudget(listing, budget)
+	_, err = set.ExpandWithBudget(context.Background(), listing, budget)
 	assertExpansionLimit(t, err, ExpansionLimitSelectedSkills)
 }
 

@@ -232,13 +232,15 @@ or selector set can still demand excessive memory or matcher work. Daem rejects
 the complete lock operation when its source-root or selector-expansion budget
 is exceeded. It does not keep the subset observed before the error.
 
-Reduce the number of source roots, split an unusually broad repository root
-into narrower roots, or replace broad selectors with smaller explicit groups.
+Reduce the number of skill-group declarations or source roots, split an
+unusually broad repository root into narrower roots, or replace broad
+selectors with smaller explicit groups.
 Files and links at a source root still count as observed entries even though
 only direct child directories can become skills. Excluding a name later does
-not erase work already spent matching or selecting it. The exact ceilings are
-listed under Skill Groups in `docs/manifest.md`; they are not configurable from
-the manifest or CLI.
+not erase work already spent matching or selecting it. Reusing one source root
+deduplicates listing I/O but does not make additional group declarations free.
+The exact ceilings are listed under Skill Groups in `docs/manifest.md`; they
+are not configurable from the manifest or CLI.
 
 ## Import Skipped An Instruction, Hook, Or MCP File
 

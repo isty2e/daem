@@ -57,7 +57,7 @@ func manifestSkillsForChecks(
 		if err != nil {
 			continue
 		}
-		groupSkills, err := set.Expand(listing)
+		groupSkills, err := set.Expand(ctx, listing)
 		if err != nil {
 			continue
 		}

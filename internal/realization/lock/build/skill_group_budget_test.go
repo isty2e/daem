@@ -144,7 +144,7 @@ func TestSequentialSkillGroupListingsRejectRootCountBeforeBackendWork(t *testing
 	}
 }
 
-func TestSequentialSkillGroupListingsCountOneReusedSourceRoot(t *testing.T) {
+func TestSkillGroupCountRejectsBeforeSourceTaskConstruction(t *testing.T) {
 	rootSource := sourcetest.Local(t, "groups", source.LocalSourceModeVendor)
 	set := projectCopySkillSet(
 		t,
@@ -153,26 +153,32 @@ func TestSequentialSkillGroupListingsCountOneReusedSourceRoot(t *testing.T) {
 		[]target.Target{target.TargetCodex},
 		false,
 	)
-	tasks := make([]sourceTask, 0, 1_025)
-	for index := range 1_025 {
-		tasks = append(tasks, newSkillGroupListTask(index, set))
+	sets := make([]skill.SkillSet, 0, 1_025)
+	for range 1_025 {
+		sets = append(sets, set)
 	}
-	resolver := &rootListingResolver{
-		root: mustRootListing(
-			t,
-			rootSource,
-			"",
-			artifact.ArtifactKindDirectory,
-			[]string{"alpha"},
-		),
-	}
+	resolver := &rootListingResolver{}
+	events := make([]Event, 0)
 
-	results, err := sourceTaskResults(context.Background(), resolver, tasks, Options{})
-	if err != nil {
-		t.Fatalf("sourceTaskResults returned error: %v", err)
+	resources, err := expandLockableSkillSetsFromListings(
+		context.Background(),
+		sets,
+		resolver,
+		Options{Events: func(event Event) { events = append(events, event) }},
+	)
+	if resources != nil {
+		t.Fatalf("expanded resources = %#v, want none", resources)
 	}
-	if len(results) != len(tasks) || resolver.listed != 1 {
-		t.Fatalf("results/list calls = %d/%d, want %d/1", len(results), resolver.listed, len(tasks))
+	var limitErr *skill.ExpansionLimitError
+	if !errors.As(err, &limitErr) || limitErr.Kind() != skill.ExpansionLimitGroups ||
+		limitErr.Limit() != 1_024 || limitErr.Observed() != 1_025 {
+		t.Fatalf("expansion error = %#v, want groups 1025/1024", err)
+	}
+	if resolver.listed != 0 {
+		t.Fatalf("backend list calls = %d, want none", resolver.listed)
+	}
+	if len(events) != 0 {
+		t.Fatalf("events = %#v, want none before group admission", events)
 	}
 }
 

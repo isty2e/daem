@@ -6,48 +6,53 @@ import (
 )
 
 const (
-	defaultExpansionSelectors         int64 = 128
-	defaultExpansionPatternBytes      int64 = 64 << 10
-	defaultExpansionMatchEvaluations  int64 = 1_000_000
-	defaultExpansionMatcherInputBytes int64 = 128 << 20
-	defaultExpansionSelectedSkills    int64 = 4_096
+	defaultExpansionGroups           int64 = 1_024
+	defaultExpansionSelectors        int64 = 128
+	defaultExpansionPatternBytes     int64 = 64 << 10
+	defaultExpansionMatchEvaluations int64 = 1_000_000
+	defaultExpansionMatcherWorkUnits int64 = 128 << 20
+	defaultExpansionSelectedSkills   int64 = 4_096
 )
 
 // ExpansionLimitKind identifies one independent skill-group expansion dimension.
 type ExpansionLimitKind string
 
 const (
-	ExpansionLimitSelectors         ExpansionLimitKind = "selectors"
-	ExpansionLimitPatternBytes      ExpansionLimitKind = "pattern_bytes"
-	ExpansionLimitMatchEvaluations  ExpansionLimitKind = "match_evaluations"
-	ExpansionLimitMatcherInputBytes ExpansionLimitKind = "matcher_input_bytes"
-	ExpansionLimitSelectedSkills    ExpansionLimitKind = "selected_skills"
+	ExpansionLimitGroups           ExpansionLimitKind = "groups"
+	ExpansionLimitSelectors        ExpansionLimitKind = "selectors"
+	ExpansionLimitPatternBytes     ExpansionLimitKind = "pattern_bytes"
+	ExpansionLimitMatchEvaluations ExpansionLimitKind = "match_evaluations"
+	ExpansionLimitMatcherWorkUnits ExpansionLimitKind = "matcher_work_units"
+	ExpansionLimitSelectedSkills   ExpansionLimitKind = "selected_skills"
 )
 
 // ErrExpansionLimitExceeded classifies bounded skill-group expansion failures.
 var ErrExpansionLimitExceeded = errors.New("skill group expansion limit exceeded")
 
 type expansionLimits struct {
-	maximumSelectors         int64
-	maximumPatternBytes      int64
-	maximumMatchEvaluations  int64
-	maximumMatcherInputBytes int64
-	maximumSelectedSkills    int64
+	maximumGroups           int64
+	maximumSelectors        int64
+	maximumPatternBytes     int64
+	maximumMatchEvaluations int64
+	maximumMatcherWorkUnits int64
+	maximumSelectedSkills   int64
 }
 
 func newExpansionLimits(
+	maximumGroups int64,
 	maximumSelectors int64,
 	maximumPatternBytes int64,
 	maximumMatchEvaluations int64,
-	maximumMatcherInputBytes int64,
+	maximumMatcherWorkUnits int64,
 	maximumSelectedSkills int64,
 ) (expansionLimits, error) {
 	limits := expansionLimits{
-		maximumSelectors:         maximumSelectors,
-		maximumPatternBytes:      maximumPatternBytes,
-		maximumMatchEvaluations:  maximumMatchEvaluations,
-		maximumMatcherInputBytes: maximumMatcherInputBytes,
-		maximumSelectedSkills:    maximumSelectedSkills,
+		maximumGroups:           maximumGroups,
+		maximumSelectors:        maximumSelectors,
+		maximumPatternBytes:     maximumPatternBytes,
+		maximumMatchEvaluations: maximumMatchEvaluations,
+		maximumMatcherWorkUnits: maximumMatcherWorkUnits,
+		maximumSelectedSkills:   maximumSelectedSkills,
 	}
 	if err := limits.validate(); err != nil {
 		return expansionLimits{}, err
@@ -57,17 +62,19 @@ func newExpansionLimits(
 
 func defaultExpansionLimits() expansionLimits {
 	return expansionLimits{
-		maximumSelectors:         defaultExpansionSelectors,
-		maximumPatternBytes:      defaultExpansionPatternBytes,
-		maximumMatchEvaluations:  defaultExpansionMatchEvaluations,
-		maximumMatcherInputBytes: defaultExpansionMatcherInputBytes,
-		maximumSelectedSkills:    defaultExpansionSelectedSkills,
+		maximumGroups:           defaultExpansionGroups,
+		maximumSelectors:        defaultExpansionSelectors,
+		maximumPatternBytes:     defaultExpansionPatternBytes,
+		maximumMatchEvaluations: defaultExpansionMatchEvaluations,
+		maximumMatcherWorkUnits: defaultExpansionMatcherWorkUnits,
+		maximumSelectedSkills:   defaultExpansionSelectedSkills,
 	}
 }
 
 func (limits expansionLimits) validate() error {
-	if limits.maximumSelectors <= 0 || limits.maximumPatternBytes <= 0 ||
-		limits.maximumMatchEvaluations <= 0 || limits.maximumMatcherInputBytes <= 0 ||
+	if limits.maximumGroups <= 0 || limits.maximumSelectors <= 0 ||
+		limits.maximumPatternBytes <= 0 || limits.maximumMatchEvaluations <= 0 ||
+		limits.maximumMatcherWorkUnits <= 0 ||
 		limits.maximumSelectedSkills <= 0 {
 		return fmt.Errorf("skill group expansion limits must be positive")
 	}
@@ -120,15 +127,15 @@ func (err *ExpansionLimitError) Observed() int64 {
 	return err.observed
 }
 
-// ExpansionBudget accounts for one sequential skill-group expansion phase.
-// Declaration limits are checked per group; work and selected results
-// accumulate across groups.
+// ExpansionBudget accounts for one skill-group expansion phase. Group
+// cardinality, matcher work, and selected results are operation-wide;
+// selector declaration limits are checked per group.
 type ExpansionBudget struct {
-	limits            expansionLimits
-	matchEvaluations  int64
-	matcherInputBytes int64
-	selectedSkills    int64
-	exhausted         *ExpansionLimitError
+	limits           expansionLimits
+	matchEvaluations int64
+	matcherWorkUnits int64
+	selectedSkills   int64
+	exhausted        *ExpansionLimitError
 }
 
 // NewExpansionBudget constructs one budget using package defaults.
@@ -141,6 +148,28 @@ func newExpansionBudgetWithLimits(limits expansionLimits) (*ExpansionBudget, err
 		return nil, err
 	}
 	return &ExpansionBudget{limits: limits}, nil
+}
+
+// CheckGroupCount rejects an expansion phase whose declaration cardinality
+// exceeds the operation-wide ceiling.
+func (budget *ExpansionBudget) CheckGroupCount(count int) error {
+	if budget == nil {
+		return fmt.Errorf("skill group expansion budget is required")
+	}
+	if count < 0 {
+		return fmt.Errorf("skill group count must not be negative")
+	}
+	if budget.exhausted != nil {
+		return budget.exhausted
+	}
+	if int64(count) > budget.limits.maximumGroups {
+		return budget.exhaustLocked(
+			ExpansionLimitGroups,
+			budget.limits.maximumGroups,
+			budget.limits.maximumGroups+1,
+		)
+	}
+	return nil
 }
 
 func (budget *ExpansionBudget) validateDeclaration(include []Selector, exclude []Selector) error {
@@ -176,12 +205,12 @@ func (limits expansionLimits) validateDeclaration(include []Selector, exclude []
 	return nil
 }
 
-func (budget *ExpansionBudget) admitMatch(inputBytes int64) error {
+func (budget *ExpansionBudget) admitMatch(workUnits int64) error {
 	if budget == nil {
 		return fmt.Errorf("skill group expansion budget is required")
 	}
-	if inputBytes < 0 {
-		return fmt.Errorf("skill group matcher input bytes must not be negative")
+	if workUnits < 0 {
+		return fmt.Errorf("skill group matcher work units must not be negative")
 	}
 	if budget.exhausted != nil {
 		return budget.exhausted
@@ -193,15 +222,15 @@ func (budget *ExpansionBudget) admitMatch(inputBytes int64) error {
 			budget.matchEvaluations+1,
 		)
 	}
-	if inputBytes > budget.limits.maximumMatcherInputBytes-budget.matcherInputBytes {
+	if workUnits > budget.limits.maximumMatcherWorkUnits-budget.matcherWorkUnits {
 		return budget.exhaustLocked(
-			ExpansionLimitMatcherInputBytes,
-			budget.limits.maximumMatcherInputBytes,
-			budget.limits.maximumMatcherInputBytes+1,
+			ExpansionLimitMatcherWorkUnits,
+			budget.limits.maximumMatcherWorkUnits,
+			budget.limits.maximumMatcherWorkUnits+1,
 		)
 	}
 	budget.matchEvaluations++
-	budget.matcherInputBytes += inputBytes
+	budget.matcherWorkUnits += workUnits
 	return nil
 }
 

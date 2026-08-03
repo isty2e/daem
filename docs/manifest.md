@@ -571,6 +571,7 @@ and expansion phase, across all groups in that phase:
 
 | Resource | Limit |
 | --- | ---: |
+| Skill-group declarations | 1,024 |
 | Distinct source roots listed | 1,024 |
 | Direct entries observed | 100,000 |
 | Direct-entry name bytes | 32 MiB |
@@ -578,18 +579,21 @@ and expansion phase, across all groups in that phase:
 | Selectors per group | 128 |
 | Selector pattern bytes per group | 64 KiB |
 | Selector match evaluations | 1,000,000 |
-| Matcher input (pattern + child name per evaluation) | 128 MiB |
+| Matcher work (pattern bytes x (child-name bytes + 1)) | 134,217,728 units |
 | Newly selected skills | 4,096 |
 
 Git and local sources use the same limits. Repeated groups that reference the
-same canonical source root share one listing and count that root once. Every
+same canonical source root share one listing and count that root once, but each
+declaration still counts toward the operation-wide skill-group ceiling. Every
 direct entry consumes the source budget, including files and links that cannot
 become selected skill directories. Includes consume selection budget when they
 first select a name; later exclusions do not refund work already performed. An
 exact limit is accepted, while the first unit beyond it fails the whole lock
-operation with no partial lockfile. Each matcher evaluation charges both its
-selector-pattern and child-name bytes. These limits are package policy rather
-than manifest fields.
+operation with no partial lockfile. Matcher work conservatively charges each
+pattern byte against every child-name byte the matcher may scan, plus one unit
+for pattern-only work on an empty name. The charge is applied before matching,
+and cancellation is checked before and after every evaluation. These limits
+are package policy rather than manifest fields.
 - Expanded lockfile entries are ordered deterministically by skill resource
   name, then source identity.
 

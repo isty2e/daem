@@ -1,8 +1,10 @@
 package skill
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"math"
 	pathpkg "path"
 	"regexp"
 	"regexp/syntax"
@@ -134,16 +136,55 @@ func (matcher selectorMatcher) matches(name string) (bool, error) {
 	}
 }
 
-func (matcher selectorMatcher) inputBytes(name string) int64 {
-	return int64(len(matcher.selector.pattern)) + int64(len(name))
+// workUnits bounds the pattern scan and post-star retries performed by glob
+// matching; the same conservative charge also covers linear regexp matching.
+func (matcher selectorMatcher) workUnits(name string) int64 {
+	patternBytes := int64(len(matcher.selector.pattern))
+	nameBytes := int64(len(name))
+	if nameBytes == math.MaxInt64 {
+		return math.MaxInt64
+	}
+	nameScanBytes := nameBytes + 1
+	if patternBytes > math.MaxInt64/nameScanBytes {
+		return math.MaxInt64
+	}
+	return patternBytes * nameScanBytes
+}
+
+func (matcher selectorMatcher) evaluate(
+	ctx context.Context,
+	name string,
+	budget *ExpansionBudget,
+) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	if err := budget.admitMatch(matcher.workUnits(name)); err != nil {
+		return false, err
+	}
+	matched, err := matcher.matches(name)
+	if err != nil {
+		return false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return matched, nil
 }
 
 func selectNames(
+	ctx context.Context,
 	childNames []string,
 	include []Selector,
 	exclude []Selector,
 	budget *ExpansionBudget,
 ) ([]string, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("skill group expansion context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := budget.validateDeclaration(include, exclude); err != nil {
 		return nil, err
 	}
@@ -155,14 +196,14 @@ func selectNames(
 	if err != nil {
 		return nil, fmt.Errorf("exclude: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	selected := make(map[string]struct{})
 	for index, matcher := range includeMatchers {
 		matches := 0
 		for _, name := range childNames {
-			if err := budget.admitMatch(matcher.inputBytes(name)); err != nil {
-				return nil, err
-			}
-			matched, err := matcher.matches(name)
+			matched, err := matcher.evaluate(ctx, name, budget)
 			if err != nil {
 				return nil, fmt.Errorf("include[%d]: %w", index, err)
 			}
@@ -187,10 +228,7 @@ func selectNames(
 
 	for index, matcher := range excludeMatchers {
 		for _, name := range childNames {
-			if err := budget.admitMatch(matcher.inputBytes(name)); err != nil {
-				return nil, err
-			}
-			matched, err := matcher.matches(name)
+			matched, err := matcher.evaluate(ctx, name, budget)
 			if err != nil {
 				return nil, fmt.Errorf("exclude[%d]: %w", index, err)
 			}
@@ -198,6 +236,9 @@ func selectNames(
 				delete(selected, name)
 			}
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
 	selectedNames := make([]string, 0, len(selected))
@@ -218,6 +259,9 @@ func selectNames(
 
 	names := make([]string, 0, len(selectedNames))
 	for _, selectedName := range selectedNames {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		name, err := cleanName(selectedName)
 		if err != nil || name != selectedName {
 			return nil, fmt.Errorf(
@@ -255,10 +299,7 @@ func selectorSetMatches(
 	}
 	included := false
 	for _, matcher := range includeMatchers {
-		if err := budget.admitMatch(matcher.inputBytes(name)); err != nil {
-			return false, err
-		}
-		matched, err := matcher.matches(name)
+		matched, err := matcher.evaluate(context.Background(), name, budget)
 		if err != nil {
 			return false, err
 		}
@@ -271,10 +312,7 @@ func selectorSetMatches(
 		return false, nil
 	}
 	for _, matcher := range excludeMatchers {
-		if err := budget.admitMatch(matcher.inputBytes(name)); err != nil {
-			return false, err
-		}
-		matched, err := matcher.matches(name)
+		matched, err := matcher.evaluate(context.Background(), name, budget)
 		if err != nil {
 			return false, err
 		}

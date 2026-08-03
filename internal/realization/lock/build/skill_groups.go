@@ -89,6 +89,14 @@ func expandLockableSkillSetsFromListings(
 	resolver acquisition.Resolver,
 	options Options,
 ) ([]lockableSkill, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	expansionBudget := skill.NewExpansionBudget()
+	if err := expansionBudget.CheckGroupCount(len(sets)); err != nil {
+		return nil, err
+	}
+
 	tasks := make([]sourceTask, 0, len(sets))
 	for index, set := range sets {
 		tasks = append(tasks, newSkillGroupListTask(index, set))
@@ -106,13 +114,12 @@ func expandLockableSkillSetsFromListings(
 	}
 
 	skills := make([]lockableSkill, 0)
-	expansionBudget := skill.NewExpansionBudget()
 	for index, result := range results {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		set := sets[index]
-		resources, err := set.ExpandWithBudget(result.listing, expansionBudget)
+		resources, err := set.ExpandWithBudget(ctx, result.listing, expansionBudget)
 		if err != nil {
 			return nil, fmt.Errorf("skill_group[%d]: %w", index, err)
 		}
