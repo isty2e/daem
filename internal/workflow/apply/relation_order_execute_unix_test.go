@@ -34,6 +34,8 @@ import (
 )
 
 func TestApplyAuthorityCoversEveryOpenCodeOrderSelectorCandidate(t *testing.T) {
+	t.Parallel()
+
 	planned := applyAuthorityTestPlan(t)
 	root := planned.context.Paths.ManifestRoot
 	locked := relationOrderTestLock(
@@ -87,6 +89,8 @@ func TestApplyAuthorityCoversEveryOpenCodeOrderSelectorCandidate(t *testing.T) {
 }
 
 func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths := daempaths.Paths{ManifestRoot: root}
 	locked := relationOrderTestLock(
@@ -219,6 +223,8 @@ func TestRelationOrderConvergenceRequiresRenewedRiskAuthorization(t *testing.T) 
 }
 
 func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths := daempaths.Paths{ManifestRoot: root}
 	locked := relationOrderTestLock(
@@ -292,8 +298,14 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 }
 
 func TestRelationOrderObservationFailureSuppressesLaterDelegate(t *testing.T) {
+	t.Parallel()
+
 	root := t.TempDir()
 	paths, err := daempaths.Resolve(filepath.Join(root, "daem.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err = paths.WithDataDir(filepath.Join(root, ".daem-test-data"))
 	if err != nil {
 		t.Fatal(err)
 	}

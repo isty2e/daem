@@ -15,6 +15,8 @@ import (
 )
 
 func TestExecuteRejectsNilAndUnavailablePreparedWrites(t *testing.T) {
+	t.Parallel()
+
 	t.Run("nil", func(t *testing.T) {
 		_, err := ExecuteWithOptions(context.Background(), nil, ExecuteOptions{})
 		if !errors.Is(err, ErrPreparedWriteUnavailable) {
@@ -31,6 +33,8 @@ func TestExecuteRejectsNilAndUnavailablePreparedWrites(t *testing.T) {
 }
 
 func TestPreparedWriteConsumesExactlyOnce(t *testing.T) {
+	t.Parallel()
+
 	prepared := preparedWriteForLifecycleTest(commandPlan{})
 
 	_, firstErr := ExecuteWithOptions(context.Background(), prepared, ExecuteOptions{})
@@ -46,6 +50,8 @@ func TestPreparedWriteConsumesExactlyOnce(t *testing.T) {
 }
 
 func TestPreparedWriteSerializesConcurrentExecute(t *testing.T) {
+	t.Parallel()
+
 	prepared := preparedWriteForLifecycleTest(commandPlan{})
 	start := make(chan struct{})
 	errorsByAttempt := make(chan error, 2)
@@ -83,6 +89,8 @@ func TestPreparedWriteSerializesConcurrentExecute(t *testing.T) {
 }
 
 func TestPreparedWriteSerializesCloseAgainstExecuteAndReleasesRoot(t *testing.T) {
+	t.Parallel()
+
 	root, err := rootedpath.CaptureRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -125,6 +133,8 @@ func TestPreparedWriteSerializesCloseAgainstExecuteAndReleasesRoot(t *testing.T)
 }
 
 func TestPreparedWriteCopiesShareOneLifecycle(t *testing.T) {
+	t.Parallel()
+
 	root, err := rootedpath.CaptureRoot(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -144,6 +154,8 @@ func TestPreparedWriteCopiesShareOneLifecycle(t *testing.T) {
 }
 
 func TestPreparedWriteDisclosureDoesNotAliasManagedDecisionOrDiagnostics(t *testing.T) {
+	t.Parallel()
+
 	managedPlan := applyAuthorityManagedPathPlan(
 		t,
 		"review",

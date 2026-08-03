@@ -19,6 +19,8 @@ import (
 )
 
 func TestDelegatePersistenceRejectsExternalStateRootReplacedDuringAttempt(t *testing.T) {
+	t.Parallel()
+
 	base := t.TempDir()
 	manifestRoot := filepath.Join(base, "config")
 	stateRoot := filepath.Join(base, "state")
@@ -29,7 +31,7 @@ func TestDelegatePersistenceRejectsExternalStateRootReplacedDuringAttempt(t *tes
 	if err := os.Mkdir(stateRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	paths := applyTestPaths(t, manifestRoot)
+	paths := isolatedApplyTestPaths(t, manifestRoot)
 	paths.StateDir = stateRoot
 	paths.StatefilePath = filepath.Join(stateRoot, "state.json")
 	paths.RecoveryDir = filepath.Join(stateRoot, "recovery")

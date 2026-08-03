@@ -23,8 +23,10 @@ import (
 )
 
 func TestRunProjectsClaudeProjectMCPSubjectThroughWorkflow(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyMCPSelection(t)
 	serverID := "context7"
 
@@ -132,8 +134,10 @@ func TestRunProjectsClaudeProjectMCPSubjectThroughWorkflow(t *testing.T) {
 }
 
 func TestRunProjectsOpenCodeProjectMCPSubjectThroughWorkflow(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyOpenCodeMCPSelection(t)
 	serverID := "context7"
 
@@ -164,8 +168,10 @@ func TestRunProjectsOpenCodeProjectMCPSubjectThroughWorkflow(t *testing.T) {
 }
 
 func TestRunBlocksOpenCodeProjectMCPProjectionWhenJSONCAlternateConfigExists(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyOpenCodeMCPSelection(t)
 	serverID := "context7"
 	command := "must-not-run-daem-test"
@@ -197,8 +203,10 @@ func TestRunBlocksOpenCodeProjectMCPProjectionWhenJSONCAlternateConfigExists(t *
 }
 
 func TestRunManagesExistingOpenCodeProjectMCPProjectionOnlyOnExactMatch(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyOpenCodeMCPSelection(t)
 	serverID := "context7"
 	command := "must-not-run-daem-test"
@@ -234,7 +242,7 @@ func TestRunManagesExistingOpenCodeProjectMCPProjectionOnlyOnExactMatch(t *testi
 	assertApplyOpenCodeMCPConfigEquivalent(t, mcpConfigPath, serverID, canonical)
 
 	mismatchDir := t.TempDir()
-	mismatchPaths := applyTestPaths(t, mismatchDir)
+	mismatchPaths := isolatedApplyTestPaths(t, mismatchDir)
 	writeApplyFile(t, filepath.Join(mismatchDir, aggregate.OpenCodeProjectMCPConfigPath), `{"mcp":{"context7":{"type":"local","command":["node","server.js"]}}}`)
 	mismatchPlan := buildAggregateApplyAssessment(t, mismatchPaths, resources, locked, selection, true)
 	mismatchDecision := requireApplyMCPAggregateDecision(t, mismatchPlan.Reconciliation, serverID)
@@ -245,8 +253,10 @@ func TestRunManagesExistingOpenCodeProjectMCPProjectionOnlyOnExactMatch(t *testi
 }
 
 func TestRunProjectsCodexProjectMCPSubjectThroughWorkflow(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyCodexMCPSelection(t)
 	serverID := "context7"
 
@@ -277,8 +287,10 @@ func TestRunProjectsCodexProjectMCPSubjectThroughWorkflow(t *testing.T) {
 }
 
 func TestRunManagesExistingCodexProjectMCPProjectionOnlyOnExactMatch(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyCodexMCPSelection(t)
 	serverID := "context7"
 	command := "must-not-run-daem-test"
@@ -315,7 +327,7 @@ func TestRunManagesExistingCodexProjectMCPProjectionOnlyOnExactMatch(t *testing.
 	assertApplyCodexMCPConfigEquivalent(t, mcpConfigPath, serverID, canonical)
 
 	mismatchDir := t.TempDir()
-	mismatchPaths := applyTestPaths(t, mismatchDir)
+	mismatchPaths := isolatedApplyTestPaths(t, mismatchDir)
 	writeApplyFile(t, filepath.Join(mismatchDir, aggregate.CodexProjectMCPConfigPath), `[mcp_servers.context7]
 command = "node"
 args = ["server.js"]

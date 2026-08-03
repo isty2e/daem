@@ -13,6 +13,8 @@ import (
 )
 
 func TestRelationOrderFingerprintBindsDesiredOrderAndObservedRevision(t *testing.T) {
+	t.Parallel()
+
 	alpha := applyOrderMember(t, "alpha", "npm:alpha")
 	beta := applyOrderMember(t, "beta", "npm:beta")
 	first := applyOrderDecision(t, []hostrelation.RelationOrderMember{alpha, beta}, "sha256:first")
@@ -39,6 +41,8 @@ func TestRelationOrderFingerprintBindsDesiredOrderAndObservedRevision(t *testing
 }
 
 func TestRejectBlockedRelationOrdersReturnsTypedApplyError(t *testing.T) {
+	t.Parallel()
+
 	alpha := applyOrderMember(t, "alpha", "npm:alpha")
 	beta := applyOrderMember(t, "beta", "npm:beta")
 	classID, err := hostrelation.NewOrderClassID("extension:pi:project:packages")

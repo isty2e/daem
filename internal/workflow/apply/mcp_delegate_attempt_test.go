@@ -22,8 +22,10 @@ import (
 )
 
 func TestRunKeepsProjectionWhenDelegateAttemptFails(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyMCPSelection(t)
 	serverID := "context7"
 	command := "must-not-run-daem-test"
@@ -136,6 +138,8 @@ func TestRunKeepsProjectionWhenDelegateAttemptFails(t *testing.T) {
 }
 
 func TestRunPersistsDelegateFailureAttemptsForMissingEnvAndTimeout(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name             string
 		executor         func(*testing.T, *bool) delegate.Executor
@@ -182,7 +186,7 @@ func TestRunPersistsDelegateFailureAttemptsForMissingEnvAndTimeout(t *testing.T)
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			tempDir := t.TempDir()
-			paths := applyTestPaths(t, tempDir)
+			paths := isolatedApplyTestPaths(t, tempDir)
 			selection := applyMCPSelection(t)
 			command := "must-not-run-daem-test"
 			args := []string{"--serve", "context7"}
@@ -239,8 +243,10 @@ func TestRunPersistsDelegateFailureAttemptsForMissingEnvAndTimeout(t *testing.T)
 }
 
 func TestRunPersistsDelegateAttemptsWhenProjectionAlreadyConverged(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyMCPSelection(t)
 	command := "must-not-run-daem-test"
 	args := []string{"--serve", "context7"}
@@ -317,8 +323,10 @@ func TestRunPersistsDelegateAttemptsWhenProjectionAlreadyConverged(t *testing.T)
 }
 
 func TestRunPersistsBlockedDelegateAttemptsWithoutRunnerLaunch(t *testing.T) {
+	t.Parallel()
+
 	tempDir := t.TempDir()
-	paths := applyTestPaths(t, tempDir)
+	paths := isolatedApplyTestPaths(t, tempDir)
 	selection := applyMCPSelection(t)
 	command := "must-not-run-daem-test"
 	args := []string{"--serve", "context7"}
