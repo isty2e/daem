@@ -41,6 +41,34 @@ func TestRepositoryLaneOwnsOnlyRepositoryContracts(t *testing.T) {
 	}
 }
 
+func TestRaceLaneKeepsProductAndCLICoverageWithoutRepositoryTooling(t *testing.T) {
+	root := findRepoRoot(t)
+	selectors := testLanePackageSelectors(t, root, "race")
+	selected := make(map[string]struct{})
+	for _, packagePath := range testPackagePaths(loadSelectedPackageRecords(t, root, selectors)) {
+		selected[packagePath] = struct{}{}
+	}
+
+	for _, excluded := range []string{
+		"github.com/isty2e/daem/internal/archguard",
+		"github.com/isty2e/daem/test/tooling",
+	} {
+		if _, present := selected[excluded]; present {
+			t.Errorf("race lane includes repository/test tooling package %s", excluded)
+		}
+	}
+	for _, required := range []string{
+		"github.com/isty2e/daem/cmd/daem",
+		"github.com/isty2e/daem/internal/supply/source/backend/gitcli",
+		"github.com/isty2e/daem/internal/workflow/apply",
+		"github.com/isty2e/daem/test/cli",
+	} {
+		if _, present := selected[required]; !present {
+			t.Errorf("race lane is missing required package %s", required)
+		}
+	}
+}
+
 func testLanePackageSelectors(t *testing.T, root string, lane string) []string {
 	t.Helper()
 	command := exec.Command(filepath.Join(root, "tools", "test.sh"), "packages", lane)

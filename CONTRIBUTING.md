@@ -60,10 +60,11 @@ Go's result cache, but removes the root after every execution. Go build inputs,
 the tracked worktree diff, non-ignored untracked files, and environment values
 read by tests invalidate the cached result. Ignored or external inputs are not
 part of this claim, so `focused` is an iteration aid rather than a repository
-correctness claim. `repository` checks
-architecture, documentation, and repository contracts. `full` is the fresh
-hermetic repository-correctness claim, and `race` runs the same owned package
-set under the race detector. The underlying full and race harness gives
+correctness claim. `repository` checks architecture, documentation, and
+repository contracts. `full` is the fresh hermetic repository-correctness
+claim. `race` first proves the detector with an intentional race and then runs
+all product and CLI test packages; repository-only guards and the test-runner
+package remain owned by `repository` and `full`. The underlying full and race harness gives
 every test package private user and XDG roots while reusing the selected Go
 toolchain and existing build and module caches. It also ignores host `GOENV`,
 `GOFLAGS`, and workspace selection, so local agent and Go configuration cannot

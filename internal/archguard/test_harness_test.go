@@ -77,6 +77,16 @@ func TestRepositoryGoTestEntrypointsUseHarness(t *testing.T) {
 	if focusedInfo.Mode()&0o111 == 0 {
 		t.Fatal("tools/test-focused.sh must be executable")
 	}
+	raceProofInfo, err := os.Stat(filepath.Join(root, "tools", "test-race-proof.sh"))
+	if err != nil {
+		t.Fatalf("stat race detector proof: %v", err)
+	}
+	if raceProofInfo.Mode()&0o111 == 0 {
+		t.Fatal("tools/test-race-proof.sh must be executable")
+	}
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "tools/test-race-proof.sh", 1)
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test.sh"), "GORACE=atexit_sleep_ms=0", 1)
+	assertFileContainsExactly(t, filepath.Join(root, "tools", "test-race-proof.sh"), "GORACE=atexit_sleep_ms=0", 1)
 
 	info, err := os.Stat(filepath.Join(root, "tools", "test-go.sh"))
 	if err != nil {

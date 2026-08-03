@@ -6,8 +6,23 @@ repository_root=$(git rev-parse --show-toplevel)
 cd "${repository_root}"
 
 full_packages=(./...)
-race_packages=(./...)
 repository_packages=(./internal/archguard)
+
+race_package_paths() {
+	local module_path
+	module_path=$(GOENV=off GOFLAGS= GOWORK=off go list -m -f '{{.Path}}')
+	GOENV=off GOFLAGS= GOWORK=off go list -f '{{.ImportPath}}' ./... |
+		while IFS= read -r package_path; do
+			case "${package_path}" in
+			"${module_path}/internal/archguard" | "${module_path}/test/tooling")
+				continue
+				;;
+			esac
+			if [[ -n ${package_path} ]]; then
+				printf '%s\n' "${package_path}"
+			fi
+		done
+}
 
 usage() {
 	cat >&2 <<'EOF'
@@ -38,7 +53,7 @@ print_packages() {
 		printf '%s\n' "${full_packages[@]}"
 		;;
 	race)
-		printf '%s\n' "${race_packages[@]}"
+		race_package_paths
 		;;
 	repository)
 		printf '%s\n' "${repository_packages[@]}"
@@ -69,7 +84,16 @@ full)
 	;;
 race)
 	require_no_arguments "$@"
-	exec tools/test-go.sh -mod=readonly -race -count=1 "${race_packages[@]}"
+	tools/test-race-proof.sh
+	race_packages=$(race_package_paths)
+	if [[ -z ${race_packages} ]]; then
+		echo "race lane has no owned test packages" >&2
+		exit 1
+	fi
+	export GORACE=atexit_sleep_ms=0
+	# Package import paths cannot contain whitespace.
+	# shellcheck disable=SC2086
+	exec tools/test-go.sh -mod=readonly -race -count=1 ${race_packages}
 	;;
 repository)
 	require_no_arguments "$@"
