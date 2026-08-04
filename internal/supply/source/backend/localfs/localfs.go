@@ -120,7 +120,7 @@ func (resolver Resolver) contentPath(sourceSpec source.Source) (string, error) {
 func (resolver Resolver) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
-	_ acquisition.OperationOptions,
+	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	if ctx == nil {
 		return source.RootListing{}, fmt.Errorf("local root listing context is required")
@@ -133,6 +133,7 @@ func (resolver Resolver) ListSourceRoot(
 	if err != nil {
 		return source.RootListing{}, err
 	}
+	budget := options.RootListingBudget()
 	view, err := access.OpenView(contentPath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -144,16 +145,18 @@ func (resolver Resolver) ListSourceRoot(
 		return source.NewRootListing(sourceSpec, "", artifact.ArtifactKindFile, nil)
 	}
 
-	entries, err := view.ReadDirectory(ctx, ".")
-	if err != nil {
-		return source.RootListing{}, err
-	}
-	childNames := make([]string, 0, len(entries))
-	for _, entry := range entries {
+	childNames := make([]string, 0)
+	if err := view.VisitDirectory(ctx, ".", func(entry access.Entry) error {
+		if err := budget.AdmitEntryName(len(entry.Name())); err != nil {
+			return err
+		}
 		if entry.Kind() != access.EntryKindDirectory {
-			continue
+			return nil
 		}
 		childNames = append(childNames, entry.Name())
+		return nil
+	}); err != nil {
+		return source.RootListing{}, err
 	}
 
 	if err := ctx.Err(); err != nil {

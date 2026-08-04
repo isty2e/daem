@@ -65,6 +65,33 @@ func TestRootListingRejectsMalformedOrDuplicateChildFacts(t *testing.T) {
 	}
 }
 
+func TestSourceChildDiagnosticsBoundUntrustedNames(t *testing.T) {
+	t.Parallel()
+	root := mustListingGitSource(t, "skills", "main")
+	longName := strings.Repeat("a", maximumSourceDiagnosticValueBytes+1)
+
+	_, err := NewRootListing(
+		root,
+		artifact.ResolvedRef(strings.Repeat("a", 40)),
+		artifact.ArtifactKindDirectory,
+		[]string{longName, longName},
+	)
+	if err == nil {
+		t.Fatal("NewRootListing accepted duplicate child facts")
+	}
+	if strings.Contains(err.Error(), longName) || !strings.Contains(err.Error(), "bytes=129") {
+		t.Fatalf("duplicate diagnostic = %q, want bounded identity", err)
+	}
+
+	invalidName := longName + "/escape"
+	if _, err = root.Child(invalidName); err == nil {
+		t.Fatal("Child accepted unsafe name")
+	}
+	if strings.Contains(err.Error(), invalidName) || !strings.Contains(err.Error(), "bytes=136") {
+		t.Fatalf("invalid-name diagnostic = %q, want bounded identity", err)
+	}
+}
+
 func TestRootListingEnforcesSourceSpecificResolvedRefCorrelation(t *testing.T) {
 	gitCommit := strings.Repeat("a", 40)
 	immutableRoot := mustListingGitSource(t, "skills", gitCommit)

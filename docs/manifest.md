@@ -551,6 +551,9 @@ Current implementation boundary:
   at lock-comparison time. `apply` and `status` do not inspect upstream source
   roots for new matches. Any future lock/update split requires an explicit
   documented migration; it must not be inferred from schema syntax.
+- `doctor` lists local skill-group roots once per diagnostic run and shares the
+  resulting view across compatibility and retained-discovery checks. It does
+  not resolve remote skill-group sources for those checks.
 
 Selector syntax:
 
@@ -563,7 +566,40 @@ Selector syntax:
   rejected in glob patterns, and source roots are not recursively walked.
 - Each `include` selector must match at least one direct child during `lock`.
   After `exclude` is applied, the final selected set must be non-empty.
-  `exclude` selectors may match zero names.
+- `exclude` selectors may match zero names.
+
+Selector-backed expansion is bounded before candidate lists or selected Skills
+can grow without limit. The limits apply to one complete skill-group listing
+and expansion phase, across all groups in a `lock`, `outdated`, or local
+`doctor` inspection phase:
+
+| Resource | Limit |
+| --- | ---: |
+| Skill-group declarations | 1,024 |
+| Distinct source roots listed | 1,024 |
+| Direct entries observed | 100,000 |
+| Direct-entry name bytes | 32 MiB |
+| One direct-entry name | 4 KiB |
+| Selectors per group | 128 |
+| Selector pattern bytes per group | 64 KiB |
+| Selector match evaluations | 1,000,000 |
+| Matcher work (pattern bytes x (child-name bytes + 1)) | 134,217,728 units |
+| Newly selected skills | 4,096 |
+
+Git and local sources use the same limits. Repeated groups that reference the
+same canonical source root share one listing and count that root once, but each
+declaration still counts toward the operation-wide skill-group ceiling. Every
+direct entry consumes the source budget, including files and links that cannot
+become selected skill directories. Includes consume selection budget when they
+first select a name; later exclusions do not refund work already performed. An
+exact limit is accepted, while the first unit beyond it fails the whole lock
+operation with no partial lockfile. `doctor` reports the overflow as an error
+and omits selector-expanded skill checks rather than reporting a partial group
+view; direct skill checks still run. Matcher work conservatively charges each
+pattern byte against every child-name byte the matcher may scan, plus one unit
+for pattern-only work on an empty name. The charge is applied before matching,
+and cancellation is checked before and after every evaluation. These limits
+are package policy rather than manifest fields.
 - Expanded lockfile entries are ordered deterministically by skill resource
   name, then source identity.
 

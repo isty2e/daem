@@ -2,6 +2,7 @@ package acquisition
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/isty2e/daem/internal/supply/source"
 )
@@ -35,13 +36,29 @@ type RepositorySnapshotPreparer interface {
 
 // BatchOptions controls source batch execution.
 type BatchOptions struct {
-	maxParallel int
-	events      EventSink
+	maxParallel       int
+	events            EventSink
+	rootListingBudget *source.RootListingBudget
 }
 
 // NewBatchOptions constructs bounded source batch options.
 func NewBatchOptions(maxParallel int, events EventSink) BatchOptions {
-	return BatchOptions{maxParallel: maxParallel, events: events}
+	return BatchOptions{
+		maxParallel:       maxParallel,
+		events:            events,
+		rootListingBudget: source.NewRootListingBudget(),
+	}
+}
+
+// WithRootListingBudget binds one budget shared by every root-listing request.
+func (options BatchOptions) WithRootListingBudget(
+	budget *source.RootListingBudget,
+) (BatchOptions, error) {
+	if budget == nil {
+		return BatchOptions{}, fmt.Errorf("source root listing budget is required")
+	}
+	options.rootListingBudget = budget
+	return options, nil
 }
 
 // NormalizedMaxParallel returns the effective concurrency limit.
@@ -54,3 +71,11 @@ func (options BatchOptions) NormalizedMaxParallel() int {
 
 // Events returns the non-authoritative event sink.
 func (options BatchOptions) Events() EventSink { return options.events }
+
+// RootListingBudget returns the operation-wide source-root enumeration budget.
+func (options BatchOptions) RootListingBudget() *source.RootListingBudget {
+	if options.rootListingBudget != nil {
+		return options.rootListingBudget
+	}
+	return source.NewRootListingBudget()
+}

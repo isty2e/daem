@@ -69,7 +69,7 @@ func (resolver *trackingBatchResolver) Resolve(
 func (resolver *trackingBatchResolver) ListSourceRoot(
 	_ context.Context,
 	sourceSpec source.Source,
-	_ acquisition.OperationOptions,
+	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
@@ -80,6 +80,9 @@ func (resolver *trackingBatchResolver) ListSourceRoot(
 	listing, ok := resolver.listings[string(sourceID)]
 	if !ok {
 		return source.RootListing{}, fmt.Errorf("missing source root %s", sourceID)
+	}
+	if err := chargeRootListingBudget(options.RootListingBudget(), listing); err != nil {
+		return source.RootListing{}, err
 	}
 
 	return listing, nil
@@ -146,6 +149,9 @@ func (resolver *trackingBatchResolver) ResolveBatch(
 				result, err = acquisition.NewFailureResult(resultRequest, fmt.Errorf("missing source root %s", sourceID))
 				break
 			}
+			if budgetErr := chargeRootListingBudget(options.RootListingBudget(), listing); budgetErr != nil {
+				return nil, budgetErr
+			}
 			result, err = acquisition.NewListingResult(resultRequest, listing)
 		default:
 			return nil, fmt.Errorf("unknown source operation %q", request.Operation())
@@ -164,6 +170,18 @@ func (resolver *trackingBatchResolver) ResolveBatch(
 	}
 
 	return results, nil
+}
+
+func chargeRootListingBudget(
+	budget *source.RootListingBudget,
+	listing source.RootListing,
+) error {
+	for _, name := range listing.ChildNames() {
+		if err := budget.AdmitEntryName(len(name)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func hasBatchOperation(batches [][]acquisition.Request, operation acquisition.Operation) bool {

@@ -147,7 +147,7 @@ func (resolver *batchResolverTracker) Resolve(
 func (resolver *batchResolverTracker) ListSourceRoot(
 	ctx context.Context,
 	sourceSpec source.Source,
-	_ acquisition.OperationOptions,
+	options acquisition.OperationOptions,
 ) (source.RootListing, error) {
 	sourceID, err := source.SourceIDFor(sourceSpec)
 	if err != nil {
@@ -164,6 +164,10 @@ func (resolver *batchResolverTracker) ListSourceRoot(
 	resolver.mu.Unlock()
 	if callErr != nil {
 		return source.RootListing{}, callErr
+	}
+	budget := options.RootListingBudget()
+	if err := budget.AdmitEntryName(len("listed")); err != nil {
+		return source.RootListing{}, err
 	}
 
 	return source.NewRootListing(sourceSpec, "", artifact.ArtifactKindDirectory, []string{"listed"})

@@ -5,12 +5,15 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
+
+const maximumSourceDiagnosticValueBytes = 128
 
 // RootListing is one canonical source-root observation. Child names are safe
 // direct source path components; resource-family validity remains downstream.
@@ -66,10 +69,10 @@ func (listing RootListing) validate() error {
 	seen := make(map[string]struct{}, len(listing.childNames))
 	for index, childName := range listing.childNames {
 		if err := validateChildComponent(childName); err != nil {
-			return fmt.Errorf("source root listing child[%d] %q: %w", index, childName, err)
+			return fmt.Errorf("source root listing child[%d] %s: %w", index, sourceDiagnosticValue(childName), err)
 		}
 		if _, exists := seen[childName]; exists {
-			return fmt.Errorf("source root listing child %q appears more than once", childName)
+			return fmt.Errorf("source root listing child %s appears more than once", sourceDiagnosticValue(childName))
 		}
 		seen[childName] = struct{}{}
 	}
@@ -136,7 +139,7 @@ func (source Source) ValidateChild(childName string, child Source) error {
 	}
 	childID, err := SourceIDFor(child)
 	if err != nil {
-		return fmt.Errorf("source child %q: %w", childName, err)
+		return fmt.Errorf("source child %s: %w", sourceDiagnosticValue(childName), err)
 	}
 	if childID == declaredID {
 		return nil
@@ -155,12 +158,12 @@ func (source Source) ValidateChild(childName string, child Source) error {
 		}
 	}
 
-	return fmt.Errorf("source child %q does not belong to source root", childName)
+	return fmt.Errorf("source child %s does not belong to source root", sourceDiagnosticValue(childName))
 }
 
 func (source Source) child(childName string, resolvedRef string) (Source, error) {
 	if err := validateChildComponent(childName); err != nil {
-		return Source{}, fmt.Errorf("source child %q: %w", childName, err)
+		return Source{}, fmt.Errorf("source child %s: %w", sourceDiagnosticValue(childName), err)
 	}
 
 	switch source.Kind() {
@@ -204,4 +207,15 @@ func validateChildComponent(value string) error {
 		return fmt.Errorf("contains an unsafe control, format, or line-separator character")
 	}
 	return nil
+}
+
+func sourceDiagnosticValue(value string) string {
+	if len(value) <= maximumSourceDiagnosticValueBytes {
+		return strconv.Quote(value)
+	}
+	return fmt.Sprintf(
+		"%s (bytes=%d)",
+		strconv.Quote(value[:maximumSourceDiagnosticValueBytes]),
+		len(value),
+	)
 }

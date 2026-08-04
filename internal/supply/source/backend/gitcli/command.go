@@ -1,6 +1,7 @@
 package gitcli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -183,6 +184,18 @@ func (handle *repositoryHandle) gitOutput(ctx context.Context, args ...string) (
 	return string(output), nil
 }
 
+func (handle *repositoryHandle) consumeGitOutput(
+	ctx context.Context,
+	consume func(io.Reader) error,
+	args ...string,
+) error {
+	command, finish, err := handle.prepareCommand(ctx, args)
+	if err != nil {
+		return err
+	}
+	return errors.Join(runGitReader(ctx, command, consume), finish())
+}
+
 func (handle *repositoryHandle) runGit(ctx context.Context, args ...string) error {
 	_, err := handle.gitBytes(ctx, args...)
 	return err
@@ -292,24 +305,39 @@ func (handle *repositoryHandle) Close() error {
 }
 
 func runGitOutput(ctx context.Context, command *exec.Cmd) ([]byte, error) {
+	var output bytes.Buffer
+	err := runGitReader(ctx, command, func(reader io.Reader) error {
+		_, copyErr := io.Copy(&output, reader)
+		return copyErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader) error) error {
+	if consume == nil {
+		return fmt.Errorf("git stdout consumer is required")
+	}
 	process, err := startGitProcess(command)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return nil, ctxErr
+			return ctxErr
 		}
-		return nil, err
+		return err
 	}
 
-	output, readErr := io.ReadAll(process.Stdout())
+	readErr := consume(process.Stdout())
 	if readErr != nil {
 		_, _ = process.Terminate()
 	}
 	result := process.Wait()
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		if result.terminationErr != nil {
-			return nil, errors.Join(ctxErr, result.terminationErr)
+			return errors.Join(ctxErr, result.terminationErr)
 		}
-		return nil, ctxErr
+		return ctxErr
 	}
 
 	runErr := readErr
@@ -329,7 +357,7 @@ func runGitOutput(ctx context.Context, command *exec.Cmd) ([]byte, error) {
 		runErr = errors.Join(runErr, errors.New("git exited while descendant processes remained; terminated residual process tree"))
 	}
 	if runErr != nil {
-		return nil, runErr
+		return runErr
 	}
-	return output, nil
+	return nil
 }

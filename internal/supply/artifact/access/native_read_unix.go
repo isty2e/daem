@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"math"
+	"sort"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"golang.org/x/sys/unix"
@@ -35,16 +36,36 @@ func readDirectoryNative(
 	root string,
 	expectedKind artifact.ArtifactKind,
 	relativePath string,
-) (result []Entry, resultErr error) {
+) ([]Entry, error) {
+	entries := make([]Entry, 0)
+	if err := visitDirectoryNative(ctx, root, expectedKind, relativePath, func(entry Entry) error {
+		entries = append(entries, entry)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(left int, right int) bool {
+		return entries[left].name < entries[right].name
+	})
+	return entries, nil
+}
+
+func visitDirectoryNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+	visit func(Entry) error,
+) (resultErr error) {
 	handle, err := openNativeRoot(root, expectedKind)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
 
 	target, err := handle.openRelative(relativePath)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if target != nil {
 		defer func() { resultErr = errors.Join(resultErr, target.close()) }()
@@ -54,40 +75,37 @@ func readDirectoryNative(
 		entry = target.entry
 	}
 	if entry.kind != nativeKindDirectory {
-		return nil, fmt.Errorf("artifact access path %q is not a directory", relativePath)
+		return fmt.Errorf("artifact access path %q is not a directory", relativePath)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
 
-	names, err := readNativeDirectoryNames(entry.fd)
-	if err != nil {
-		return nil, err
-	}
-	entries := make([]Entry, 0, len(names))
-	for _, name := range names {
+	if err := visitNativeDirectoryNames(entry.fd, func(name string) error {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
 		observed, stat, err := observeNativeEntry(entry.fd, name)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		entries = append(entries, Entry{
+		return visit(Entry{
 			name: name,
 			kind: publicEntryKind(observed.kind),
 			mode: fs.FileMode(stat.Mode & 0o777),
 		})
+	}); err != nil {
+		return err
 	}
 	if target != nil {
 		if err := target.verify(); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if err := handle.verify(); err != nil {
-		return nil, err
+		return err
 	}
-	return entries, nil
+	return nil
 }
 
 func readFileNative(

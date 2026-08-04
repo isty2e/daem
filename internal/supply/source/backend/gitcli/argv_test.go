@@ -80,7 +80,7 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 		{
 			name: "tree listing",
 			got:  listTreeArgs(commit + ":skills"),
-			want: []string{"ls-tree", "-z", "-d", "--name-only", "--", commit + ":skills"},
+			want: []string{"ls-tree", "-z", "--", commit + ":skills"},
 		},
 		{
 			name: "tree archive",

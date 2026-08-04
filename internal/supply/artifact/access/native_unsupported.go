@@ -23,6 +23,16 @@ func readDirectoryNative(
 	return nil, unsupportedPlatform()
 }
 
+func visitDirectoryNative(
+	_ context.Context,
+	_ string,
+	_ artifact.ArtifactKind,
+	_ string,
+	_ func(Entry) error,
+) error {
+	return unsupportedPlatform()
+}
+
 func readFileNative(
 	_ context.Context,
 	_ string,
