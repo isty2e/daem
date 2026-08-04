@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
 
@@ -40,10 +41,17 @@ type ManagedPathInventoryInput struct {
 	Ownership       []observe.OwnershipObservation
 }
 
+type managedPathDecisionPurpose uint8
+
+const (
+	managedPathExecutionPurpose managedPathDecisionPurpose = iota
+	managedPathInventoryPurpose
+)
+
 // BuildManagedPathDecisions reconciles every selected entity-backed path
 // projection and every selected managed path state row.
 func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathDecision, error) {
-	return buildManagedPathDecisions(input, true)
+	return buildManagedPathDecisions(input, managedPathExecutionPurpose)
 }
 
 // BuildManagedPathInventoryDecisions classifies selected path occupancy and
@@ -60,13 +68,14 @@ func BuildManagedPathInventoryDecisions(
 		Evidence:        input.Evidence,
 		Owner:           input.Owner,
 		Ownership:       input.Ownership,
-	}, false)
+	}, managedPathInventoryPurpose)
 }
 
 func buildManagedPathDecisions(
 	input ManagedPathInput,
-	requireFreshSupply bool,
+	purpose managedPathDecisionPurpose,
 ) ([]reconcile.ManagedPathDecision, error) {
+	requireFreshSupply := purpose == managedPathExecutionPurpose
 	selection := managedPathSelection(input.SelectedTargets)
 	states, err := managedPathStateIndex(input.States)
 	if err != nil {
@@ -101,6 +110,7 @@ func buildManagedPathDecisions(
 		expectations,
 		states,
 		selection,
+		purpose,
 	)
 	if err != nil {
 		return nil, err
@@ -110,6 +120,7 @@ func buildManagedPathDecisions(
 	decisions := make([]managedPathDecision, 0, len(expectations)+input.Locked.Len()+len(states))
 	for _, expectation := range canonicalExpectations {
 		facts := expectation.decisionInput()
+		canonicalConsumers := append([]target.Target(nil), facts.ConsumerTargets...)
 		selectedConsumers := selectedManagedPathConsumers(facts.ConsumerTargets, selection)
 		if len(selectedConsumers) == 0 {
 			continue
@@ -131,6 +142,12 @@ func buildManagedPathDecisions(
 		consumers := selectedConsumers
 		if hasState {
 			consumers = mergeManagedPathConsumers(consumers, unselectedManagedPathConsumers(state.ConsumerTargets(), selection))
+		}
+		if purpose == managedPathInventoryPurpose {
+			consumers = canonicalConsumers
+			if hasState {
+				consumers = mergeManagedPathConsumers(consumers, state.ConsumerTargets())
+			}
 		}
 		facts.ConsumerTargets = consumers
 		contract, locked := input.Locked.Subject(facts.Subject)
@@ -226,8 +243,12 @@ func buildManagedPathDecisions(
 			continue
 		}
 		desiredSubjects[contract.SubjectID()] = struct{}{}
+		consumers := selectedConsumers
+		if purpose == managedPathInventoryPurpose {
+			consumers = projection.ConsumerTargets()
+		}
 		facts := reconcile.ManagedPathDecisionInput{
-			Subject: contract.SubjectID(), ConsumerTargets: selectedConsumers,
+			Subject: contract.SubjectID(), ConsumerTargets: consumers,
 			Scope: projection.Scope(), Destination: projection.Destination(),
 			ContentKind: projection.ContentKind(), PlacementMode: projection.PlacementMode(),
 			PermissionPolicy: projection.PermissionPolicy(), DesiredFileMode: managedPathProjectionExactMode(projection),
@@ -247,9 +268,13 @@ func buildManagedPathDecisions(
 			continue
 		}
 		remaining := unselectedManagedPathConsumers(state.ConsumerTargets(), selection)
+		consumers := remaining
+		if purpose == managedPathInventoryPurpose {
+			consumers = state.ConsumerTargets()
+		}
 		facts := reconcile.ManagedPathDecisionInput{
 			Subject:          subject,
-			ConsumerTargets:  remaining,
+			ConsumerTargets:  consumers,
 			Scope:            state.Scope(),
 			Destination:      state.Destination(),
 			DesiredHash:      state.ContentHash(),

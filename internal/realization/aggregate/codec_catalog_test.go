@@ -35,6 +35,13 @@ func (*codecCatalogTestCodec) Read(Document, Selection) (Snapshot, *CodecFailure
 	return Snapshot{}, nil
 }
 
+func (*codecCatalogTestCodec) ClassifyContributionOccupancy(
+	ProjectionState,
+	ContributionSet,
+) (ContributionOccupancySet, error) {
+	return ContributionOccupancySet{}, nil
+}
+
 func (*codecCatalogTestCodec) Render(Document, Plan) (RenderedDocument, *CodecFailure) {
 	return RenderedDocument{}, nil
 }

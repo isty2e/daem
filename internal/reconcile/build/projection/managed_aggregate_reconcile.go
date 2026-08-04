@@ -43,13 +43,25 @@ func reconcileAggregateDocument(
 			!aggregateGroupsHavePreviousState(groups) {
 			reason = reconcile.ReasonUnmanagedOutputExists
 		}
-		return blockedAggregateDocument(
+		decision := blockedAggregateDocument(
 			groups,
 			documentAddress,
 			selection.CodecContractID(),
 			reason,
 			failure.Error(),
-		), nil
+		)
+		for index := range decision.projections {
+			decision.projections[index] = enforceAggregateProjectionOwnership(
+				decision.projections[index],
+				owner,
+				ownershipEvidence,
+				ownershipConflicts,
+			)
+		}
+		decision.reason, decision.detail = firstAggregateProjectionFailure(
+			decision.projections,
+		)
+		return decision, nil
 	}
 	evidence, observed := evidenceByDocument[documentAddress]
 	if !observed {
@@ -148,11 +160,15 @@ func reconcileAggregateDocument(
 	for index := range projections {
 		projection := projections[index]
 		projection.expected = expectedByAddress[projection.contract.Address()]
-		projection = classifyAggregateProjection(
+		projection, err = classifyAggregateProjection(
+			codec,
 			projection,
 			evidence.FileMode(),
 			manageUnmanagedMatches,
 		)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
 		projection = enforceAggregateProjectionOwnership(
 			projection,
 			owner,

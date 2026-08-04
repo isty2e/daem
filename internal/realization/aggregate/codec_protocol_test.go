@@ -293,6 +293,13 @@ func (protocolOnlyCodec) Read(Document, Selection) (Snapshot, *CodecFailure) {
 	return Snapshot{}, nil
 }
 
+func (protocolOnlyCodec) ClassifyContributionOccupancy(
+	ProjectionState,
+	ContributionSet,
+) (ContributionOccupancySet, error) {
+	return ContributionOccupancySet{}, nil
+}
+
 func (protocolOnlyCodec) Render(Document, Plan) (RenderedDocument, *CodecFailure) {
 	return RenderedDocument{}, nil
 }

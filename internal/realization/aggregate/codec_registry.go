@@ -52,6 +52,7 @@ type Codec interface {
 	MaximumDocumentBytes() int64
 	ValidateContribution(ManagedContribution) error
 	Read(Document, Selection) (Snapshot, *CodecFailure)
+	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
 	Restore(Document, Snapshot) (RenderedDocument, *CodecFailure)
 }

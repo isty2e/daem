@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -110,6 +112,66 @@ targets = ["codex"]
 	}
 }
 
+func TestListOutputsReportsOnlyPresentUnmanagedHookSubjects(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	testkit.WriteFile(t, root, "daem.toml", `
+version = 1
+targets = ["codex"]
+
+[[hook]]
+name = "alpha"
+event = "Stop"
+command = "make alpha"
+targets = ["codex"]
+
+[[hook]]
+name = "beta"
+event = "Stop"
+command = "make beta"
+targets = ["codex"]
+`)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := testkit.RunVerboseCLI(
+		[]string{"lock", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("lock exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	testkit.WriteFile(t, root, ".codex/hooks.json", `{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {"type": "command", "command": "make alpha"}
+        ]
+      }
+    ]
+  }
+}
+`)
+
+	stdout.Reset()
+	stderr.Reset()
+	if exitCode := testkit.RunVerboseCLI(
+		[]string{"list", "outputs", "--manifest", manifestPath, "--target", "codex", "--json"},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("list outputs exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	var inventory outputInventoryJSON
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("decode list outputs JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.UnmanagedCount != 1 || len(inventory.Unmanaged) != 1 ||
+		inventory.Unmanaged[0].ResourceID != "hook/alpha" {
+		t.Fatalf("unmanaged inventory = %#v, want only present hook alpha", inventory)
+	}
+}
+
 func TestListOutputsReportsForeignOwnedAggregateSubject(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
@@ -150,6 +212,113 @@ func TestListOutputsReportsForeignOwnedAggregateSubject(t *testing.T) {
 		row.Path != "~/.claude.json" || row.Hash != "" ||
 		row.ContentPath != "/mcpServers/alpha" || row.Reason != "ownership_conflict" {
 		t.Fatalf("blocked aggregate row = %#v", row)
+	}
+}
+
+func TestListOutputsPreservesForeignOwnershipWhenAggregateDocumentIsMalformed(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("HOME", home)
+	ownerManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "owner"), "alpha")
+	foreignManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
+	if exitCode, _, stderr := runOwnershipCLI(
+		"apply",
+		"--manifest",
+		ownerManifest,
+		"--yes",
+	); exitCode != 0 {
+		t.Fatalf("owner apply exit=%d stderr=%q", exitCode, stderr)
+	}
+	testkit.WriteFile(t, home, ".claude.json", "{")
+
+	exitCode, stdout, stderr := runOwnershipCLI(
+		"list",
+		"outputs",
+		"--manifest",
+		foreignManifest,
+		"--target",
+		"claude-code",
+		"--json",
+	)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("foreign inventory exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	var inventory outputInventoryJSON
+	if err := json.Unmarshal([]byte(stdout), &inventory); err != nil {
+		t.Fatalf("decode foreign inventory: %v\n%s", err, stdout)
+	}
+	if inventory.BlockedCount != 1 || len(inventory.Blocked) != 1 ||
+		inventory.Blocked[0].Subject != "projection/claude-code.global.mcp-server/alpha" ||
+		inventory.Blocked[0].Reason != "ownership_conflict" {
+		t.Fatalf("blocked inventory = %#v, want foreign ownership despite malformed content", inventory)
+	}
+}
+
+func TestListOutputsTargetFilterPreservesCompleteHookAssetConsumers(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	scriptContent := "#!/bin/sh\necho guard\n"
+	assetHash := string(artifact.HashFileContentWithExecutable([]byte(scriptContent), true))
+	assetPath := filepath.Join(
+		".daem",
+		"hook-assets",
+		"guard",
+		strings.Replace(assetHash, "sha256:", "sha256-", 1),
+		"asset",
+	)
+	assetDestination := filepath.Join(root, assetPath)
+	testkit.WriteFile(t, root, "hooks/guard.sh", scriptContent)
+	testkit.WriteFile(t, root, "daem.toml", `
+version = 1
+targets = ["codex", "claude-code"]
+
+[hook_asset.guard]
+source = "hooks/guard.sh"
+kind = "file"
+executable = true
+
+[[hook]]
+name = "protect"
+event = "Stop"
+command = "{hook_file:guard} --check"
+targets = ["codex", "claude-code"]
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if exitCode := testkit.RunVerboseCLI(
+		[]string{"lock", "--manifest", manifestPath},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("lock exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	testkit.WriteFile(t, root, assetPath, scriptContent)
+	if err := os.Chmod(assetDestination, 0o700); err != nil {
+		t.Fatalf("Chmod hook asset: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if exitCode := testkit.RunVerboseCLI(
+		[]string{"list", "outputs", "--manifest", manifestPath, "--target", "codex", "--json"},
+		&stdout,
+		&stderr,
+	); exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("list outputs exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	var inventory outputInventoryJSON
+	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
+		t.Fatalf("decode list outputs JSON: %v\n%s", err, stdout.String())
+	}
+	if inventory.UnmanagedCount != 1 || len(inventory.Unmanaged) != 1 {
+		t.Fatalf("unmanaged inventory = %#v, want one shared HookAsset", inventory)
+	}
+	row := inventory.Unmanaged[0]
+	if row.ResourceID != "hook_asset/guard" ||
+		!slices.Equal(row.Targets, []string{"claude-code", "codex"}) {
+		t.Fatalf("shared HookAsset row = %#v, want complete canonical consumers", row)
 	}
 }
 

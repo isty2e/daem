@@ -611,7 +611,11 @@ report; use status for the complete plan. It reads the statefile, ownership
 claims, and selected output paths or config documents, but it does not refresh
 sources or probe providers, delegated routes, runtime health, or extension
 order. Aggregate rows identify the selected contribution and intentionally do
-not report a hash for the whole shared config file. List commands never
+not report a hash for the whole shared config file. An unmanaged aggregate row
+requires fresh codec evidence that the subject's contribution is physically
+present; a projection-level block does not fabricate occupancy for absent or
+ambiguous siblings. A target filter selects rows without truncating a shared
+path row's complete canonical `targets` consumer set. List commands never
 truncate rows.
 
 `list paths` prints a static target -> scope -> resource tree. It includes

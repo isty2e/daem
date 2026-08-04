@@ -100,6 +100,42 @@ func TestBuildManagedPathInventoryDecisionsClassifiesOccupancyWithoutSourceFresh
 	}
 }
 
+func TestBuildManagedPathInventoryDecisionsPreservesCompleteConsumerIdentity(t *testing.T) {
+	consumers := []target.Target{target.TargetAntigravityCLI, target.TargetCodex}
+	locked, _, projection := managedPathLock(
+		t,
+		"oracle",
+		"oracle",
+		consumers,
+		"desired",
+	)
+	evidence := managedPathEvidence(
+		t,
+		projection,
+		".agents/skills/oracle",
+		true,
+		"desired",
+	)
+
+	inventory, err := BuildManagedPathInventoryDecisions(ManagedPathInventoryInput{
+		Locked:          locked,
+		Expectations:    []ManagedPathExpectation{managedPathExpectation(t, projection)},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		Evidence:        []observe.ManagedPathEvidence{evidence},
+	})
+	if err != nil {
+		t.Fatalf("BuildManagedPathInventoryDecisions returned error: %v", err)
+	}
+	if len(inventory) != 1 ||
+		!reflect.DeepEqual(inventory[0].ConsumerTargets(), consumers) {
+		t.Fatalf(
+			"inventory consumers = %#v, want complete identity %#v",
+			inventory[0].ConsumerTargets(),
+			consumers,
+		)
+	}
+}
+
 func TestManagedPathDraftReclassificationReplacesPriorSemantics(t *testing.T) {
 	_, _, projection := managedPathLock(
 		t,

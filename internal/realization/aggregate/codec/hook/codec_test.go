@@ -114,6 +114,69 @@ func TestHookCodecPartialAndFinalRemoval(t *testing.T) {
 	}
 }
 
+func TestHookCodecObservesContributionOccupancyWithoutInventingIdentity(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	alpha := hookContributionSpec{name: "alpha", event: "Stop", command: "alpha"}
+	beta := hookContributionSpec{name: "beta", event: "Stop", command: "beta"}
+	desired := hookContributionSet(t, placement, alpha, beta)
+	document := renderHookSet(
+		t,
+		codec,
+		selection,
+		aggregate.AbsentDocument(),
+		hookContributionSet(t, placement, alpha),
+	)
+	snapshot, failure := codec.Read(document, selection)
+	if failure != nil {
+		t.Fatalf("Read: %v", failure)
+	}
+	occupancy, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired)
+	if err != nil {
+		t.Fatalf("ClassifyContributionOccupancy: %v", err)
+	}
+	items := desired.Contributions()
+	if state, covered := occupancy.State(items[0].SubjectID()); !covered || state != aggregate.ContributionPresent {
+		t.Fatalf("alpha occupancy = %q covered=%t, want present", state, covered)
+	}
+	if state, covered := occupancy.State(items[1].SubjectID()); !covered || state != aggregate.ContributionAbsent {
+		t.Fatalf("beta occupancy = %q covered=%t, want absent", state, covered)
+	}
+
+	duplicateDesired := hookContributionSet(
+		t,
+		placement,
+		hookContributionSpec{name: "first", event: "Stop", command: "same"},
+		hookContributionSpec{name: "second", event: "Stop", command: "same"},
+	)
+	duplicateDocument := renderHookSet(
+		t,
+		codec,
+		selection,
+		aggregate.AbsentDocument(),
+		hookContributionSet(
+			t,
+			placement,
+			hookContributionSpec{name: "physical", event: "Stop", command: "same"},
+		),
+	)
+	duplicateSnapshot, failure := codec.Read(duplicateDocument, selection)
+	if failure != nil {
+		t.Fatalf("Read(duplicate): %v", failure)
+	}
+	duplicateOccupancy, err := codec.ClassifyContributionOccupancy(
+		duplicateSnapshot.States()[0],
+		duplicateDesired,
+	)
+	if err != nil {
+		t.Fatalf("ClassifyContributionOccupancy(duplicate): %v", err)
+	}
+	for _, item := range duplicateDesired.Contributions() {
+		if state, covered := duplicateOccupancy.State(item.SubjectID()); !covered || state != aggregate.ContributionAmbiguous {
+			t.Fatalf("duplicate occupancy for %q = %q covered=%t, want ambiguous", item.SubjectID(), state, covered)
+		}
+	}
+}
+
 func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 	_, codec, selection := hookCodecFixture(t)
 	for _, test := range []struct {

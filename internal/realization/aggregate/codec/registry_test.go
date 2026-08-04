@@ -28,6 +28,13 @@ func (registryTestCodec) Read(
 	return aggregate.Snapshot{}, nil
 }
 
+func (registryTestCodec) ClassifyContributionOccupancy(
+	aggregate.ProjectionState,
+	aggregate.ContributionSet,
+) (aggregate.ContributionOccupancySet, error) {
+	return aggregate.ContributionOccupancySet{}, nil
+}
+
 func (registryTestCodec) Render(
 	aggregate.Document,
 	aggregate.Plan,

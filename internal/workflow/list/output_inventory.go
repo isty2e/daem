@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/output"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -73,7 +74,10 @@ func buildOutputInventory(
 	unmanaged := append(
 		unmanagedPathInventoryEntries(managedPaths, selection),
 		aggregateInventoryEntries(aggregates, selection, func(decision reconcile.AggregateSubjectDecision) bool {
-			return decision.IsBlocked() && decision.Reason() == reconcile.ReasonUnmanagedOutputExists
+			occupancy, observed := decision.ContributionOccupancy()
+			return decision.IsBlocked() &&
+				decision.Reason() == reconcile.ReasonUnmanagedOutputExists &&
+				observed && occupancy == aggregate.ContributionPresent
 		})...,
 	)
 	blocked := append(

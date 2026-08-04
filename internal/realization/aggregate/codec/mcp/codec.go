@@ -129,6 +129,30 @@ func (codec mcpProjectionCodec) Read(document aggregate.Document, selection aggr
 	return snapshot, nil
 }
 
+func (codec mcpProjectionCodec) ClassifyContributionOccupancy(
+	state aggregate.ProjectionState,
+	contributions aggregate.ContributionSet,
+) (aggregate.ContributionOccupancySet, error) {
+	if err := state.Validate(); err != nil {
+		return aggregate.ContributionOccupancySet{}, err
+	}
+	items := contributions.Contributions()
+	if len(items) != 1 || state.Contract().CodecContractID() != codec.contractID ||
+		!state.Contract().Equal(contributions.Contract()) {
+		return aggregate.ContributionOccupancySet{}, fmt.Errorf(
+			"MCP contribution observation requires one subject with the selected projection contract",
+		)
+	}
+	if err := codec.ValidateContribution(items[0].Contribution()); err != nil {
+		return aggregate.ContributionOccupancySet{}, err
+	}
+	occupancy := aggregate.ContributionAbsent
+	if state.Present() {
+		occupancy = aggregate.ContributionPresent
+	}
+	return aggregate.NewUniformContributionOccupancySet(contributions, occupancy)
+}
+
 func (codec mcpProjectionCodec) Render(document aggregate.Document, plan aggregate.Plan) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
 	source := document.Content()
 	if err := validateMCPDocumentSize(source); err != nil {
