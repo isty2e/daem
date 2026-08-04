@@ -540,6 +540,9 @@ func managedAggregateWorkflowClassifications() map[string]managedAggregateWorkfl
 		"internal/workflow/readiness/ownership.go": {
 			guard: true, reason: "generic aggregate ownership orchestration",
 		},
+		"internal/workflow/readiness/output_inventory.go": {
+			reason: "inventory-only projection observation and classification",
+		},
 	}
 }
 

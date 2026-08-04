@@ -27,9 +27,46 @@ type ManagedPathInput struct {
 	Ownership              []observe.OwnershipObservation
 }
 
+// ManagedPathInventoryInput contains only the static lock, durable state, live
+// occupancy, and ownership facts needed to classify output inventory. It does
+// not claim source freshness and cannot opt into unmanaged adoption.
+type ManagedPathInventoryInput struct {
+	Locked          lock.LockedSection
+	Expectations    []ManagedPathExpectation
+	SelectedTargets reconcile.SelectedTargets
+	States          []durable.ManagedPathState
+	Evidence        []observe.ManagedPathEvidence
+	Owner           stateauthority.Authority
+	Ownership       []observe.OwnershipObservation
+}
+
 // BuildManagedPathDecisions reconciles every selected entity-backed path
 // projection and every selected managed path state row.
 func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathDecision, error) {
+	return buildManagedPathDecisions(input, true)
+}
+
+// BuildManagedPathInventoryDecisions classifies selected path occupancy and
+// ownership from the persisted lock without asserting that its source is fresh.
+// The result is suitable for read-only inventory projection, not execution.
+func BuildManagedPathInventoryDecisions(
+	input ManagedPathInventoryInput,
+) ([]reconcile.ManagedPathDecision, error) {
+	return buildManagedPathDecisions(ManagedPathInput{
+		Locked:          input.Locked,
+		Expectations:    input.Expectations,
+		SelectedTargets: input.SelectedTargets,
+		States:          input.States,
+		Evidence:        input.Evidence,
+		Owner:           input.Owner,
+		Ownership:       input.Ownership,
+	}, false)
+}
+
+func buildManagedPathDecisions(
+	input ManagedPathInput,
+	requireFreshSupply bool,
+) ([]reconcile.ManagedPathDecision, error) {
 	selection := managedPathSelection(input.SelectedTargets)
 	states, err := managedPathStateIndex(input.States)
 	if err != nil {
@@ -39,9 +76,12 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 	if err != nil {
 		return nil, err
 	}
-	lockEvidence, err := managedPathSupplyObservationIndex(input.SupplyObservations)
-	if err != nil {
-		return nil, err
+	lockEvidence := map[topology.SubjectID]observe.ExactSupplyObservation(nil)
+	if requireFreshSupply {
+		lockEvidence, err = managedPathSupplyObservationIndex(input.SupplyObservations)
+		if err != nil {
+			return nil, err
+		}
 	}
 	ownershipEvidence, ownershipConflicts, err := ownershipObservations(input.Ownership)
 	if err != nil {
@@ -131,14 +171,16 @@ func BuildManagedPathDecisions(input ManagedPathInput) ([]reconcile.ManagedPathD
 			copy := state
 			facts.Previous = &copy
 		}
-		lockObservation, observed := lockEvidence[supply.SubjectID()]
-		if !observed {
-			decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonMissingLock, "fresh exact-Supply lock observation is required"))
-			continue
-		}
-		if lockObservation.Stale() {
-			decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonStaleLock, "exact-Supply lock observation is stale"))
-			continue
+		if requireFreshSupply {
+			lockObservation, observed := lockEvidence[supply.SubjectID()]
+			if !observed {
+				decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonMissingLock, "fresh exact-Supply lock observation is required"))
+				continue
+			}
+			if lockObservation.Stale() {
+				decisions = append(decisions, newManagedPathBlocked(facts, reconcile.ReasonStaleLock, "exact-Supply lock observation is stale"))
+				continue
+			}
 		}
 		current, observed := evidence[managedPathEvidenceKey{subject: facts.Subject, destination: facts.Destination}]
 		if !observed {

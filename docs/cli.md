@@ -607,7 +607,12 @@ declaration provenance.
 destination, and ownership-blocked output. Blocked rows include the typed
 reason and bounded owner/conflict detail so they agree with `status` without
 being mislabeled as unmanaged. It is an ownership inventory, not a convergence
-report; use status for the complete plan. List commands never truncate rows.
+report; use status for the complete plan. It reads the statefile, ownership
+claims, and selected output paths or config documents, but it does not refresh
+sources or probe providers, delegated routes, runtime health, or extension
+order. Aggregate rows identify the selected contribution and intentionally do
+not report a hash for the whole shared config file. List commands never
+truncate rows.
 
 `list paths` prints a static target -> scope -> resource tree. It includes
 project and global locations even before the manifest declares resources:
@@ -655,10 +660,12 @@ deletes or adopts the other copy.
 
 `list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
 version `3`, with separate `managed`, `unmanaged`, and `blocked` arrays and
-counts. Resource-owned rows use singular `target`. Subject-owned managed paths
-also retain their canonical `subject` and complete `targets` consumer set while
-reporting the correlated resource identity when one exists. Both commands
-include every selected row.
+counts. Rows retain their canonical `subject` and complete `targets` consumer
+set while reporting the correlated resource identity when one exists.
+Newly classified unmanaged and blocked aggregate rows also carry
+`content_path`, which identifies the selected contribution inside the shared
+file, while `hash` remains empty because daem does not own the whole document.
+Both commands include every selected row.
 
 `list paths` JSON uses schema version `1` and a flat `locations` array. Every
 row contains `target`, `scope`, `resource`, `kind`, `realization`, `role`,

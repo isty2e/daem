@@ -201,7 +201,9 @@ func isForbiddenNestedWorkflowImport(packagePath string, importPath string) bool
 		return packagePath != "internal/workflow/lock" && packagePath != "internal/workflow/authoring"
 	}
 	if importPath == "internal/workflow/readiness" {
-		return packagePath != "internal/workflow/apply" && packagePath != "internal/workflow/status"
+		return packagePath != "internal/workflow/apply" &&
+			packagePath != "internal/workflow/list" &&
+			packagePath != "internal/workflow/status"
 	}
 	return true
 }

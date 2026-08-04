@@ -268,6 +268,7 @@ func TestWorkflowLockGenerateCompositionEdgesAreExact(t *testing.T) {
 func TestWorkflowReadinessCompositionEdgesAreExact(t *testing.T) {
 	for _, packagePath := range []string{
 		"internal/workflow/apply",
+		"internal/workflow/list",
 		"internal/workflow/status",
 	} {
 		violations := analyzeImports(packagePath, []string{
