@@ -32,6 +32,24 @@ func TestMCPServerAddWarningEdgeHuntRoundOne(t *testing.T) {
 			wantWarning: `floating delegated npm package "@scope/server"`,
 		},
 		{
+			name:        "npx caret range is floating",
+			command:     "npx",
+			args:        []string{"-y", "@scope/server@^1.2.3"},
+			wantWarning: `floating delegated npm package "@scope/server"`,
+		},
+		{
+			name:        "npx partial version is floating",
+			command:     "npx",
+			args:        []string{"-y", "@scope/server@1.2"},
+			wantWarning: `floating delegated npm package "@scope/server"`,
+		},
+		{
+			name:        "npx wildcard is floating",
+			command:     "npx",
+			args:        []string{"-y", "@scope/server@1.x"},
+			wantWarning: `floating delegated npm package "@scope/server"`,
+		},
+		{
 			name:    "plain command does not parse package-looking args",
 			command: "node",
 			args:    []string{"server@latest"},
@@ -56,6 +74,7 @@ func TestMCPServerAddWarningEdgeHuntRoundOne(t *testing.T) {
 }
 
 func TestMCPServerAddWarningEdgeHuntRoundTwo(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
 	tests := []struct {
 		name        string
 		command     string
@@ -74,6 +93,28 @@ func TestMCPServerAddWarningEdgeHuntRoundTwo(t *testing.T) {
 			args:    []string{"mcp-server==0.4.0"},
 		},
 		{
+			name:    "uvx exact prerelease is pinned",
+			command: "uvx",
+			args:    []string{"mcp-server==2.0rc1"},
+		},
+		{
+			name:    "uvx exact local version is pinned",
+			command: "uvx",
+			args:    []string{"mcp-server==2.0+local.1"},
+		},
+		{
+			name:        "uvx range is floating",
+			command:     "uvx",
+			args:        []string{"mcp-server>=1.0,<2"},
+			wantWarning: `floating delegated python package "mcp-server"`,
+		},
+		{
+			name:        "uvx wildcard is floating",
+			command:     "uvx",
+			args:        []string{"mcp-server==1.2.*"},
+			wantWarning: `floating delegated python package "mcp-server"`,
+		},
+		{
 			name:        "docker latest tag floats",
 			command:     "docker",
 			args:        []string{"run", "ghcr.io/acme/mcp:latest"},
@@ -82,12 +123,18 @@ func TestMCPServerAddWarningEdgeHuntRoundTwo(t *testing.T) {
 		{
 			name:    "docker digest is pinned",
 			command: "docker",
-			args:    []string{"run", "ghcr.io/acme/mcp@sha256:abcdef"},
+			args:    []string{"run", "ghcr.io/acme/mcp@" + digest},
 		},
 		{
 			name:    "docker image option value skipped before image",
 			command: "docker",
-			args:    []string{"run", "--name", "context7", "ghcr.io/acme/mcp@sha256:abcdef"},
+			args:    []string{"run", "--name", "context7", "ghcr.io/acme/mcp@" + digest},
+		},
+		{
+			name:        "docker malformed digest is floating",
+			command:     "docker",
+			args:        []string{"run", "ghcr.io/acme/mcp@sha256:abcdef"},
+			wantWarning: `floating delegated container package "ghcr.io/acme/mcp"`,
 		},
 		{
 			name:        "docker image without tag floats",
@@ -140,9 +187,10 @@ func TestMCPServerAddWarningEdgeHuntRoundThree(t *testing.T) {
 			wantWarning: `floating delegated container package "ghcr.io/acme/mcp"`,
 		},
 		{
-			name:    "docker short option value skipped before pinned image",
-			command: "docker",
-			args:    []string{"run", "-p", "9000:9000", "ghcr.io/acme/mcp:1.0.0"},
+			name:        "docker short option value skipped before tagged image",
+			command:     "docker",
+			args:        []string{"run", "-p", "9000:9000", "ghcr.io/acme/mcp:1.0.0"},
+			wantWarning: `floating delegated container package "ghcr.io/acme/mcp"`,
 		},
 	}
 

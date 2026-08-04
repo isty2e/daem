@@ -15,60 +15,60 @@ func packageBackedRunner(
 	if err != nil {
 		return delegate.Runner{}, nil, "", err
 	}
-	packageRef, pinPolicy, err := parse(command.Args())
+	packageRef, err := parse(command.Args())
 	if err != nil {
 		return delegate.Runner{}, nil, "", err
 	}
-	return runner, &packageRef, pinPolicy, nil
+	return runner, &packageRef, packageRef.PinPolicy(), nil
 }
 
-func parseNPMDelegatePackage(args []string) (delegate.PackageRef, delegate.PinPolicy, error) {
+func parseNPMDelegatePackage(args []string) (delegate.PackageRef, error) {
 	spec, ok := npmPackageSpec(args)
 	if !ok {
-		return delegate.PackageRef{}, "", missingPackageError("npx")
+		return delegate.PackageRef{}, missingPackageError("npx")
 	}
 	name, selector, err := splitNPMSpec(spec)
 	if err != nil {
-		return delegate.PackageRef{}, "", err
+		return delegate.PackageRef{}, err
 	}
 	return newDelegatePackageRef(delegate.EcosystemNPM, name, selector)
 }
 
-func parsePythonDelegatePackage(args []string) (delegate.PackageRef, delegate.PinPolicy, error) {
+func parsePythonDelegatePackage(args []string) (delegate.PackageRef, error) {
 	spec, ok := uvxPackageSpec(args)
 	if !ok {
-		return delegate.PackageRef{}, "", missingPackageError("uvx")
+		return delegate.PackageRef{}, missingPackageError("uvx")
 	}
 	name, selector, err := splitPythonSpec(spec)
 	if err != nil {
-		return delegate.PackageRef{}, "", err
+		return delegate.PackageRef{}, err
 	}
 	return newDelegatePackageRef(delegate.EcosystemPython, name, selector)
 }
 
-func parseDockerDelegatePackage(args []string) (delegate.PackageRef, delegate.PinPolicy, error) {
+func parseDockerDelegatePackage(args []string) (delegate.PackageRef, error) {
 	spec, ok := dockerImageSpec(args)
 	if !ok {
-		return delegate.PackageRef{}, "", missingPackageError("docker")
+		return delegate.PackageRef{}, missingPackageError("docker")
 	}
 	name, selector, err := splitDockerSpec(spec)
 	if err != nil {
-		return delegate.PackageRef{}, "", err
+		return delegate.PackageRef{}, err
 	}
 	return newDelegatePackageRef(delegate.EcosystemContainer, name, selector)
 }
 
-func newDelegatePackageRef(ecosystem delegate.PackageEcosystem, name string, selector string) (delegate.PackageRef, delegate.PinPolicy, error) {
+func newDelegatePackageRef(ecosystem delegate.PackageEcosystem, name string, selector string) (delegate.PackageRef, error) {
 	packageRef, err := delegate.NewPackageRef(ecosystem, name, selector)
 	if err != nil {
-		return delegate.PackageRef{}, "", newMCPDelegatePlanError(
+		return delegate.PackageRef{}, newMCPDelegatePlanError(
 			MCPDelegatePlanReasonInvalidPackage,
 			name,
 			"invalid delegated package reference",
 			err,
 		)
 	}
-	return packageRef, pinPolicyForSelector(selector), nil
+	return packageRef, nil
 }
 
 func missingPackageError(runner string) error {
@@ -175,14 +175,32 @@ func splitNPMSpec(spec string) (string, string, error) {
 }
 
 func splitPythonSpec(spec string) (string, string, error) {
-	if strings.HasSuffix(spec, "==") {
-		return "", "", newMCPDelegatePlanError(MCPDelegatePlanReasonInvalidPackage, spec, "python package selector is empty", nil)
-	}
-	selectorIndex := strings.Index(spec, "==")
-	if selectorIndex <= 0 {
+	selectorIndex, operator := pythonSpecifierBoundary(spec)
+	if selectorIndex < 0 {
 		return spec, "", nil
 	}
-	return spec[:selectorIndex], spec[selectorIndex+2:], nil
+	if selectorIndex == 0 || len(spec) == selectorIndex+len(operator) {
+		return "", "", newMCPDelegatePlanError(MCPDelegatePlanReasonInvalidPackage, spec, "python package selector is empty", nil)
+	}
+	selector := spec[selectorIndex:]
+	if operator == "==" && !strings.ContainsAny(selector[len(operator):], "*,") {
+		selector = selector[len(operator):]
+	}
+	return spec[:selectorIndex], selector, nil
+}
+
+func pythonSpecifierBoundary(spec string) (int, string) {
+	operators := [...]string{"===", "~=", "==", "!=", "<=", ">=", "<", ">"}
+	bestIndex := -1
+	bestOperator := ""
+	for _, operator := range operators {
+		index := strings.Index(spec, operator)
+		if index >= 0 && (bestIndex < 0 || index < bestIndex) {
+			bestIndex = index
+			bestOperator = operator
+		}
+	}
+	return bestIndex, bestOperator
 }
 
 func splitDockerSpec(spec string) (string, string, error) {
@@ -198,13 +216,6 @@ func splitDockerSpec(spec string) (string, string, error) {
 		return spec[:lastColon], spec[lastColon+1:], nil
 	}
 	return spec, "", nil
-}
-
-func pinPolicyForSelector(selector string) delegate.PinPolicy {
-	if selector == "" || selector == "latest" {
-		return delegate.PinFloating
-	}
-	return delegate.PinPinned
 }
 
 func dockerLongOptionTakesValue(option string) bool {

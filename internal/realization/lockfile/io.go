@@ -32,7 +32,7 @@ func (err UnsupportedVersionError) Error() string {
 // RelockSupported reports whether the lock workflow may replace this exact
 // prior schema without interpreting its contents.
 func (err UnsupportedVersionError) RelockSupported() bool {
-	return err.Found == 4 && err.Supported == 5
+	return err.Found == 5 && err.Supported == 6
 }
 
 // Load reads an daem.lock.toml file.

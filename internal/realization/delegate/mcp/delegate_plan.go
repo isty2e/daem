@@ -219,4 +219,4 @@ func mcpDelegateRunner(command delegate.CommandSpec) (delegate.Runner, *delegate
 	}
 }
 
-type packageParser func([]string) (delegate.PackageRef, delegate.PinPolicy, error)
+type packageParser func([]string) (delegate.PackageRef, error)

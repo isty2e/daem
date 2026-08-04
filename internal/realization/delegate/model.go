@@ -194,6 +194,7 @@ type PackageRef struct {
 	ecosystem PackageEcosystem
 	name      string
 	selector  string
+	assurance selectorAssurance
 }
 
 // NewPackageRef validates and constructs package-like delegated identity.
@@ -201,10 +202,15 @@ func NewPackageRef(ecosystem PackageEcosystem, name string, selector string) (Pa
 	if err := validatePackageName(ecosystem, name); err != nil {
 		return PackageRef{}, err
 	}
-	if err := validatePackageSelector(selector); err != nil {
+	if err := validatePackageSelector(ecosystem, selector); err != nil {
 		return PackageRef{}, err
 	}
-	return PackageRef{ecosystem: ecosystem, name: name, selector: selector}, nil
+	return PackageRef{
+		ecosystem: ecosystem,
+		name:      name,
+		selector:  selector,
+		assurance: deriveSelectorAssurance(ecosystem, selector),
+	}, nil
 }
 
 // Ecosystem returns the package namespace.
@@ -305,20 +311,33 @@ func validatePackageName(ecosystem PackageEcosystem, name string) error {
 	}
 }
 
-func validatePackageSelector(selector string) error {
+func validatePackageSelector(ecosystem PackageEcosystem, selector string) error {
+	if !utf8.ValidString(selector) {
+		return validationError(ReasonInvalidPackageRef, selector, "package selector must be valid UTF-8")
+	}
 	if strings.TrimSpace(selector) != selector {
 		return validationError(ReasonInvalidPackageRef, selector, "package selector must not contain leading or trailing whitespace")
 	}
 	if selector == "" {
 		return nil
 	}
-	if hasSpaceControlOrShell(selector) {
-		return validationError(ReasonInvalidPackageRef, selector, "package selector contains whitespace, control, or shell metacharacters")
+	if strings.IndexFunc(selector, func(character rune) bool {
+		return unicode.IsControl(character) || unicode.Is(unicode.Bidi_Control, character)
+	}) >= 0 {
+		return validationError(ReasonInvalidPackageRef, selector, "package selector contains a control or bidirectional formatting character")
 	}
 	if strings.Contains(selector, "/") || strings.Contains(selector, `\`) {
 		return validationError(ReasonInvalidPackageRef, selector, "package selector must not be path-like")
 	}
-	return nil
+	if strings.ContainsAny(selector, ";&$`'\"()") {
+		return validationError(ReasonInvalidPackageRef, selector, "package selector contains unsupported command syntax")
+	}
+	switch ecosystem {
+	case EcosystemNPM, EcosystemPython, EcosystemContainer:
+		return nil
+	default:
+		return validationError(ReasonInvalidPackageRef, string(ecosystem), "unsupported package ecosystem")
+	}
 }
 
 func validateNPMPackageName(name string) error {

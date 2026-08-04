@@ -93,6 +93,46 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 	}
 }
 
+func TestMarshalDelegatePinPolicyReflectsSelectorAssurance(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name       string
+		command    string
+		args       []string
+		wantPolicy string
+	}{
+		{name: "npm exact", command: "npx", args: []string{"-y", "@scope/server@1.2.3"}, wantPolicy: "pinned"},
+		{name: "npm range", command: "npx", args: []string{"-y", "@scope/server@^1.2.3"}, wantPolicy: "floating"},
+		{name: "python exact", command: "uvx", args: []string{"server==1.2rc1"}, wantPolicy: "pinned"},
+		{name: "python range", command: "uvx", args: []string{"server>=1.0,<2"}, wantPolicy: "floating"},
+		{name: "container digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@" + digest}, wantPolicy: "pinned"},
+		{name: "container tag", command: "docker", args: []string{"run", "ghcr.io/acme/server:1.2.3"}, wantPolicy: "floating"},
+		{name: "container malformed digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@sha256:abc123"}, wantPolicy: "floating"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contract := claudeProjectMCPSubjectContractForCommand(t, "context7", test.command, test.args)
+			content, err := Marshal(lockfileWithSubjects(t, contract))
+			if err != nil {
+				t.Fatalf("Marshal returned error: %v", err)
+			}
+			fragment := `pin_policy = "` + test.wantPolicy + `"`
+			if !strings.Contains(string(content), fragment) {
+				t.Fatalf("rendered lockfile is missing %q:\n%s", fragment, content)
+			}
+			loaded, err := Load(writeLockfileText(t, string(content)))
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			plan, ok := loaded.Locked.Subjects()[0].DelegatePlan()
+			if !ok || string(plan.PinPolicy()) != test.wantPolicy {
+				t.Fatalf("loaded pin policy = %q, %t, want %q", plan.PinPolicy(), ok, test.wantPolicy)
+			}
+		})
+	}
+}
+
 func TestMarshalAndLoadPiMCPProviderForeignKey(t *testing.T) {
 	provider := desiredtest.Extension(t, desiredextension.Spec{
 		Name:    "pi-mcp-adapter-project",
@@ -349,14 +389,28 @@ func claudeProjectMCPSubjectContract(t *testing.T) lock.LockedSubjectContract {
 }
 
 func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.LockedSubjectContract {
+	return claudeProjectMCPSubjectContractForCommand(
+		t,
+		serverName,
+		"npx",
+		[]string{"-y", "@upstash/context7-mcp"},
+	)
+}
+
+func claudeProjectMCPSubjectContractForCommand(
+	t *testing.T,
+	serverName string,
+	command string,
+	args []string,
+) lock.LockedSubjectContract {
 	t.Helper()
 	env := map[string]desiredmcp.EnvReference{
 		"API_TOKEN": desiredtest.MCPEnvReference(t, "CONTEXT7_API_TOKEN"),
 	}
 	transport := desiredtest.MCPStdio(
 		t,
-		desiredtest.MCPCommand(t, "npx"),
-		[]string{"-y", "@upstash/context7-mcp"},
+		desiredtest.MCPCommand(t, command),
+		args,
 		env,
 	)
 	binding := desiredtest.MCPBinding(
@@ -377,8 +431,8 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 	}
 	canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(mcpcodec.ClaudeProjectMCPServerProjection{
 		ServerID:        serverName,
-		Command:         "npx",
-		Args:            []string{"-y", "@upstash/context7-mcp"},
+		Command:         command,
+		Args:            args,
 		Env:             map[string]string{"API_TOKEN": "${CONTEXT7_API_TOKEN}"},
 		AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 	})
@@ -391,8 +445,8 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 		PlacementID:          aggregate.MCPPlacementClaudeProject,
 		ServerID:             serverName,
 		RequestedOnAbsent:    desiredmcp.OnAbsentRemoveBinding,
-		LauncherCommand:      "npx",
-		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
+		LauncherCommand:      command,
+		LauncherArgs:         args,
 		CanonicalProjection:  string(canonical),
 		DelegatePlan:         &delegatePlan,
 		CredentialReferences: []string{"CONTEXT7_API_TOKEN"},

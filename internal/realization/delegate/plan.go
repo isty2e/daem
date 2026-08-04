@@ -53,11 +53,20 @@ func NewDelegatePlan(spec DelegatePlanSpec) (DelegatePlan, error) {
 	hasPackage := spec.PackageRef != nil
 	if hasPackage {
 		packageRef = *spec.PackageRef
-		if err := validatePackageName(packageRef.Ecosystem(), packageRef.Name()); err != nil {
+		canonicalRef, err := NewPackageRef(
+			packageRef.Ecosystem(),
+			packageRef.Name(),
+			packageRef.Selector(),
+		)
+		if err != nil {
 			return DelegatePlan{}, err
 		}
-		if err := validatePackageSelector(packageRef.Selector()); err != nil {
-			return DelegatePlan{}, err
+		if packageRef != canonicalRef {
+			return DelegatePlan{}, validationError(
+				ReasonInvalidDelegatePlan,
+				packageRef.Name(),
+				"package reference assurance is not canonical",
+			)
 		}
 	}
 	if err := validatePlanPackage(spec.Runner, packageRef, hasPackage, spec.PinPolicy); err != nil {
@@ -255,6 +264,13 @@ func validatePlanPackage(runner Runner, packageRef PackageRef, hasPackage bool, 
 	}
 	if hasPackage && packageRef.Ecosystem() != expectedEcosystem {
 		return validationError(ReasonInvalidDelegatePlan, string(packageRef.Ecosystem()), "package ecosystem does not match runner")
+	}
+	if hasPackage && policy != packageRef.PinPolicy() {
+		return validationError(
+			ReasonInvalidDelegatePlan,
+			string(policy),
+			"pin policy does not match the package selector assurance "+string(packageRef.assurance),
+		)
 	}
 
 	switch policy {

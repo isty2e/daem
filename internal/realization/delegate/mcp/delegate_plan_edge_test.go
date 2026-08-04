@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
@@ -42,16 +43,17 @@ func TestMCPDelegatePlanEdgeHuntRoundTwoDockerAndUVX(t *testing.T) {
 	assertPackageRef(t, plan, delegate.EcosystemPython, "mcp-server", "0.4.0", delegate.PinPinned)
 
 	// Exploit E2: Docker digest selectors are package selectors, not part of the image name.
-	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server@sha256:abc123"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "sha256:abc123", delegate.PinPinned)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server@" + digest}, nil))
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", digest, delegate.PinPinned)
 
 	// Exploit E3: Docker options with values must not be mistaken for image identity.
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "--name", "daemon", "ghcr.io/acme/server:1.0.0"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "1.0.0", delegate.PinPinned)
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "1.0.0", delegate.PinFloating)
 
 	// Exploit E4: registry port and image tag are separate colons.
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "localhost:5000/acme/server:1.0.0"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "localhost:5000/acme/server", "1.0.0", delegate.PinPinned)
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "localhost:5000/acme/server", "1.0.0", delegate.PinFloating)
 
 	// Explore X1: trailing tag delimiter is an invalid package selector.
 	assertMCPDelegateReason(t, mcpdelegate.MCPDelegatePlanReasonInvalidPackage, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server:"}, nil))

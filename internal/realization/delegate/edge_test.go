@@ -88,7 +88,10 @@ func TestDelegatePlanEdgeHuntRoundTwo(t *testing.T) {
 	}
 
 	// Exploit E4: registry ports are allowed only as registry identity, not image tags.
-	_ = mustPackage(t, EcosystemContainer, "localhost:5000/acme/server", "sha256:abc123")
+	ref := mustPackage(t, EcosystemContainer, "localhost:5000/acme/server", "sha256:abc123")
+	if ref.PinPolicy() != PinFloating {
+		t.Fatalf("malformed container digest policy = %q, want floating", ref.PinPolicy())
+	}
 	assertReason(t, ReasonInvalidPackageRef, func() error {
 		_, err := NewPackageRef(EcosystemContainer, "acme/server:latest", "")
 		return err
@@ -112,20 +115,37 @@ func TestDelegatePlanEdgeHuntRoundTwo(t *testing.T) {
 }
 
 func TestDelegatePlanEdgeHuntRoundThree(t *testing.T) {
-	// Exploit E1: pin policy participates in identity.
+	// Exploit E1: pin policy cannot contradict selector assurance.
 	pinned := mustPlan(t, RunnerNPX, "npx", []string{"server@1.0.0"}, nil, &packageInput{
 		ecosystem: EcosystemNPM,
 		name:      "server",
 		selector:  "1.0.0",
 	}, PinPinned)
-	floating := mustPlan(t, RunnerNPX, "npx", []string{"server@1.0.0"}, nil, &packageInput{
-		ecosystem: EcosystemNPM,
-		name:      "server",
-		selector:  "1.0.0",
-	}, PinFloating)
-	if pinned.IdentityKey() == floating.IdentityKey() {
-		t.Fatalf("IdentityKey() collapsed pinned and floating policy")
-	}
+	assertReason(t, ReasonInvalidDelegatePlan, func() error {
+		pkg := mustPackage(t, EcosystemNPM, "server", "1.0.0")
+		runner := mustRunner(t, RunnerNPX)
+		command := mustCommand(t, "npx", []string{"server@1.0.0"})
+		_, err := NewDelegatePlan(DelegatePlanSpec{
+			Runner:     runner,
+			Command:    command,
+			PackageRef: &pkg,
+			PinPolicy:  PinFloating,
+		})
+		return err
+	})
+	assertReason(t, ReasonInvalidDelegatePlan, func() error {
+		pkg := mustPackage(t, EcosystemNPM, "server", "1.0.0")
+		pkg.assurance = selectorAssuranceFloating
+		runner := mustRunner(t, RunnerNPX)
+		command := mustCommand(t, "npx", []string{"server@1.0.0"})
+		_, err := NewDelegatePlan(DelegatePlanSpec{
+			Runner:     runner,
+			Command:    command,
+			PackageRef: &pkg,
+			PinPolicy:  PinFloating,
+		})
+		return err
+	})
 
 	// Exploit E2: package selectors participate in identity.
 	otherVersion := mustPlan(t, RunnerNPX, "npx", []string{"server@2.0.0"}, nil, &packageInput{

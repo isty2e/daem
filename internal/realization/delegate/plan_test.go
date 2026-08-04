@@ -8,6 +8,7 @@ import (
 )
 
 func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
+	containerDigest := "sha256:" + strings.Repeat("a", 64)
 	tests := []struct {
 		name     string
 		runner   RunnerKind
@@ -48,7 +49,7 @@ func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
 			runner:  RunnerDocker,
 			command: "docker",
 			args:    []string{"run", "ghcr.io/acme/mcp-server"},
-			pkg:     &packageInput{ecosystem: EcosystemContainer, name: "ghcr.io/acme/mcp-server", selector: "sha256:abc123"},
+			pkg:     &packageInput{ecosystem: EcosystemContainer, name: "ghcr.io/acme/mcp-server", selector: containerDigest},
 			pin:     PinPinned,
 		},
 		{
@@ -207,6 +208,30 @@ func TestDelegatePlanRejectsInvalidStatesWithReasons(t *testing.T) {
 			Runner:    runner,
 			Command:   command,
 			PinPolicy: PinNotApplicable,
+		})
+		return err
+	})
+	assertReason(t, ReasonInvalidDelegatePlan, func() error {
+		pkg := mustPackage(t, EcosystemNPM, "server", "^1.2.3")
+		runner := mustRunner(t, RunnerNPX)
+		command := mustCommand(t, "npx", []string{"server@^1.2.3"})
+		_, err := NewDelegatePlan(DelegatePlanSpec{
+			Runner:     runner,
+			Command:    command,
+			PackageRef: &pkg,
+			PinPolicy:  PinPinned,
+		})
+		return err
+	})
+	assertReason(t, ReasonInvalidDelegatePlan, func() error {
+		pkg := mustPackage(t, EcosystemNPM, "server", "1.2.3")
+		runner := mustRunner(t, RunnerNPX)
+		command := mustCommand(t, "npx", []string{"server@1.2.3"})
+		_, err := NewDelegatePlan(DelegatePlanSpec{
+			Runner:     runner,
+			Command:    command,
+			PackageRef: &pkg,
+			PinPolicy:  PinFloating,
 		})
 		return err
 	})

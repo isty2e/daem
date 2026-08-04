@@ -219,6 +219,7 @@ func TestPrintPlanJSONIncludesPlannedDelegateAction(t *testing.T) {
 			PolicyOutcome    string `json:"policy_outcome"`
 			SchedulesAttempt bool   `json:"schedules_attempt"`
 			Command          string `json:"command"`
+			PinPolicy        string `json:"pin_policy"`
 		} `json:"delegate_actions"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
@@ -234,8 +235,55 @@ func TestPrintPlanJSONIncludesPlannedDelegateAction(t *testing.T) {
 		got.Status != "scheduled" ||
 		got.PolicyOutcome != "allow" ||
 		!got.SchedulesAttempt ||
-		got.Command != "npx" {
+		got.Command != "npx" ||
+		got.PinPolicy != "not_applicable" {
 		t.Fatalf("delegate action = %#v, want scheduled Claude project MCP attempt", got)
+	}
+}
+
+func TestPrintPlanJSONReportsDerivedPackagePinPolicy(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name       string
+		selector   string
+		wantPolicy string
+	}{
+		{name: "container tag", selector: "1.2.3", wantPolicy: "floating"},
+		{name: "container digest", selector: digest, wantPolicy: "pinned"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			plan := delegatePackagePresentationPlan(t, test.selector)
+			action := delegatePresentationActionForPlan(t, plan)
+			reconciliation, err := reconcile.NewResult(reconcile.ResultInput{
+				Context:   reconcile.ContextApply,
+				Delegates: []reconcile.DelegateAction{action},
+			})
+			if err != nil {
+				t.Fatalf("NewResult returned error: %v", err)
+			}
+
+			var stdout bytes.Buffer
+			if err := PrintPlanJSON(&stdout, PlanJSONInput{
+				Command:        "apply",
+				Mode:           "write",
+				Reconciliation: reconciliation,
+			}); err != nil {
+				t.Fatalf("PrintPlanJSON returned error: %v", err)
+			}
+			var payload struct {
+				DelegateActions []struct {
+					PinPolicy string `json:"pin_policy"`
+				} `json:"delegate_actions"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+				t.Fatalf("decode plan JSON: %v", err)
+			}
+			if len(payload.DelegateActions) != 1 || payload.DelegateActions[0].PinPolicy != test.wantPolicy {
+				t.Fatalf("delegate_actions = %#v, want pin_policy %q", payload.DelegateActions, test.wantPolicy)
+			}
+		})
 	}
 }
 
@@ -258,11 +306,15 @@ func delegatePresentationAttempt(t *testing.T, result subprocess.CommandResult) 
 
 func delegatePresentationAction(t *testing.T) reconcile.DelegateAction {
 	t.Helper()
+	return delegatePresentationActionForPlan(t, delegatePresentationPlan(t))
+}
+
+func delegatePresentationActionForPlan(t *testing.T, plan surfacedelegate.DelegatePlan) reconcile.DelegateAction {
+	t.Helper()
 	subject, err := topology.NewSubjectID(topology.SubjectProjection, "claude-code.project.mcp-server", "context7")
 	if err != nil {
 		t.Fatalf("ProjectionSubjectID returned error: %v", err)
 	}
-	plan := delegatePresentationPlan(t)
 	decision, err := delegatepolicy.Evaluate(delegatepolicy.Input{
 		Plan:   plan,
 		Mode:   delegatepolicy.ModeApply,
@@ -283,6 +335,41 @@ func delegatePresentationAction(t *testing.T) reconcile.DelegateAction {
 		t.Fatalf("NewDelegateAction returned error: %v", err)
 	}
 	return action
+}
+
+func delegatePackagePresentationPlan(t *testing.T, selector string) surfacedelegate.DelegatePlan {
+	t.Helper()
+	runner, err := surfacedelegate.NewRunner(surfacedelegate.RunnerDocker)
+	if err != nil {
+		t.Fatalf("NewRunner returned error: %v", err)
+	}
+	command, err := surfacedelegate.NewCommandSpec("docker", []string{"run", "ghcr.io/acme/server@" + selector})
+	if err != nil {
+		t.Fatalf("NewCommandSpec returned error: %v", err)
+	}
+	env, err := surfacedelegate.NewEnvBindingSet(nil)
+	if err != nil {
+		t.Fatalf("NewEnvBindingSet returned error: %v", err)
+	}
+	packageRef, err := surfacedelegate.NewPackageRef(
+		surfacedelegate.EcosystemContainer,
+		"ghcr.io/acme/server",
+		selector,
+	)
+	if err != nil {
+		t.Fatalf("NewPackageRef returned error: %v", err)
+	}
+	plan, err := surfacedelegate.NewDelegatePlan(surfacedelegate.DelegatePlanSpec{
+		Runner:     runner,
+		Command:    command,
+		Env:        env,
+		PackageRef: &packageRef,
+		PinPolicy:  packageRef.PinPolicy(),
+	})
+	if err != nil {
+		t.Fatalf("NewDelegatePlan returned error: %v", err)
+	}
+	return plan
 }
 
 func delegatePresentationPlan(t *testing.T) surfacedelegate.DelegatePlan {

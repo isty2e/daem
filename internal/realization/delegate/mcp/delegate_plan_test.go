@@ -46,8 +46,11 @@ func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 	}{
 		{name: "floating npx package", command: "npx", args: []string{"server"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "server", wantPinPolicy: delegate.PinFloating},
 		{name: "scoped pinned npx package", command: "npx", args: []string{"--yes", "@scope/server@2.0.0"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "@scope/server", wantSelector: "2.0.0", wantPinPolicy: delegate.PinPinned},
+		{name: "scoped ranged npx package", command: "npx", args: []string{"--yes", "@scope/server@^2.0.0"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "@scope/server", wantSelector: "^2.0.0", wantPinPolicy: delegate.PinFloating},
 		{name: "uvx package", command: "uvx", args: []string{"mcp-server==0.4.0"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "0.4.0", wantPinPolicy: delegate.PinPinned},
-		{name: "docker tagged image", command: "docker", args: []string{"run", "--rm", "ghcr.io/acme/server:1.2.3"}, wantRunner: delegate.RunnerDocker, wantPackage: true, wantEcosystem: delegate.EcosystemContainer, wantPackageName: "ghcr.io/acme/server", wantSelector: "1.2.3", wantPinPolicy: delegate.PinPinned},
+		{name: "uvx range", command: "uvx", args: []string{"mcp-server>=0.4,<1"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: ">=0.4,<1", wantPinPolicy: delegate.PinFloating},
+		{name: "uvx wildcard", command: "uvx", args: []string{"mcp-server==0.4.*"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "==0.4.*", wantPinPolicy: delegate.PinFloating},
+		{name: "docker tagged image", command: "docker", args: []string{"run", "--rm", "ghcr.io/acme/server:1.2.3"}, wantRunner: delegate.RunnerDocker, wantPackage: true, wantEcosystem: delegate.EcosystemContainer, wantPackageName: "ghcr.io/acme/server", wantSelector: "1.2.3", wantPinPolicy: delegate.PinFloating},
 		{name: "plain node script", command: "node", args: []string{"scripts/mcp-server.js", "--stdio"}, wantRunner: delegate.RunnerPlain, wantPinPolicy: delegate.PinNotApplicable, wantFirstArgText: "scripts/mcp-server.js"},
 	}
 

@@ -26,7 +26,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 
 	rendered := string(content)
 	assertInOrder(t, rendered, []string{
-		"version = 5",
+		"version = 6",
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
