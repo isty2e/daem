@@ -52,7 +52,7 @@ func runAddInstruction(ctx context.Context, args []string, stdout io.Writer, std
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
 		return 2

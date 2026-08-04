@@ -129,7 +129,7 @@ func runRefresh(
 		)
 		return 2
 	}
-	scopeValue, err := addScope(scopeValues)
+	scopeValue, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(
 			stderr,

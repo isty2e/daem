@@ -55,7 +55,7 @@ func runAddSkill(ctx context.Context, args []string, stdout io.Writer, stderr io
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
 		return 2
@@ -178,7 +178,7 @@ func runAddSkillGroup(ctx context.Context, args []string, stdout io.Writer, stde
 		return 2
 	}
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
 		return 2

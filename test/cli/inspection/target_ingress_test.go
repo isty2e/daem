@@ -114,6 +114,69 @@ func TestTargetIngressRejectsMissingAndExcessDistinctValues(t *testing.T) {
 	}
 }
 
+func TestScopeSyntaxFailsAtCLIIngressAcrossCommandFamilies(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		args     []string
+		helpPath string
+	}{
+		{name: "import", args: []string{"import", "--scope", "workspace"}, helpPath: "import"},
+		{name: "probe", args: []string{"probe", "mcp-server", "example", "--scope", "workspace"}, helpPath: "probe mcp-server"},
+		{name: "refresh", args: []string{"refresh", "extension", "example", "--scope", "workspace"}, helpPath: "refresh extension"},
+		{name: "add extension", args: []string{"add", "extension", "example", "source", "--scope", "workspace"}, helpPath: "add extension"},
+		{name: "add instruction", args: []string{"add", "instruction", "example", "source", "--scope", "workspace"}, helpPath: "add instruction"},
+		{name: "add hook", args: []string{"add", "hook", "example", "event", "command", "--scope", "workspace"}, helpPath: "add hook"},
+		{name: "add mcp-server", args: []string{"add", "mcp-server", "example", "command", "--scope", "workspace"}, helpPath: "add mcp-server"},
+		{name: "add skill", args: []string{"add", "skill", "owner/repo", "--scope", "workspace"}, helpPath: "add skill"},
+		{name: "add skill-group", args: []string{"add", "skill-group", "owner/repo", "--member", "example", "--scope", "workspace"}, helpPath: "add skill-group"},
+		{name: "remove extension", args: []string{"remove", "extension", "example", "--scope", "workspace"}, helpPath: "remove extension"},
+		{name: "remove instruction", args: []string{"remove", "instruction", "example", "--scope", "workspace"}, helpPath: "remove instruction"},
+		{name: "remove hook", args: []string{"remove", "hook", "example", "--scope", "workspace"}, helpPath: "remove hook"},
+		{name: "remove mcp-server", args: []string{"remove", "mcp-server", "example", "--scope", "workspace"}, helpPath: "remove mcp-server"},
+		{name: "remove skill", args: []string{"remove", "skill", "example", "--scope", "workspace"}, helpPath: "remove skill"},
+		{name: "unmanage extension", args: []string{"unmanage", "extension", "example", "--scope", "workspace"}, helpPath: "unmanage extension"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertScopedFlagCorrection(
+				t,
+				test.args,
+				test.helpPath,
+				`unknown scope "workspace" (accepted scopes: global, project)`,
+			)
+		})
+	}
+}
+
+func TestScopeIngressRejectsMalformedTokensBeforeManifestSelection(t *testing.T) {
+	for _, scopeValue := range []string{
+		"",
+		" ",
+		" project",
+		"project ",
+		"project,global",
+		"PROJECT",
+		"Global",
+		"project/global",
+	} {
+		for _, jsonMode := range []bool{false, true} {
+			name := scopeValue
+			if name == "" {
+				name = "empty"
+			}
+			if jsonMode {
+				name += " JSON"
+			}
+			t.Run(name, func(t *testing.T) {
+				args := []string{"import", "--target", "codex", "--scope", scopeValue, "--dry-run"}
+				if jsonMode {
+					args = append(args, "--json")
+				}
+				assertScopedFlagCorrection(t, args, "import", "unknown scope")
+			})
+		}
+	}
+}
+
 func TestTargetIngressPreservesDuplicateAndUnavailableSemantics(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", filepath.Join(root, "home"))

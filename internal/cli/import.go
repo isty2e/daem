@@ -9,17 +9,6 @@ import (
 	workflowadopt "github.com/isty2e/daem/internal/workflow/adopt"
 )
 
-type scopeFlagValues []string
-
-func (values *scopeFlagValues) String() string {
-	return fmt.Sprint([]string(*values))
-}
-
-func (values *scopeFlagValues) Set(value string) error {
-	*values = append(*values, value)
-	return nil
-}
-
 func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
 	if commandHelpRequested(args) {
 		printCommandUsage([]string{"import"}, stdout, 0)
@@ -62,7 +51,7 @@ func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.W
 
 	commandPlan, err := workflowadopt.BuildCommandPlan(ctx, workflowadopt.CommandInput{
 		TargetValues: targetValues.strings(),
-		ScopeValues:  []string(scopeValues),
+		ScopeValues:  scopeValues.strings(),
 		ManifestPath: *manifestPath,
 		SourceDir:    *sourceDir,
 		Merge:        *merge,

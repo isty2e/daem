@@ -71,7 +71,7 @@ func runUnmanageExtension(
 		fmt.Fprintf(stderr, "unmanage failed: %s\n", humanDiagnosticError(err))
 		return 2
 	}
-	selectedScope, err := addScope(scopeValues)
+	selectedScope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "unmanage failed: %s\n", humanDiagnosticError(err))
 		return 2

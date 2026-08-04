@@ -105,6 +105,32 @@ func (values targetFlagValues) strings() []string {
 	return result
 }
 
+type scopeFlagValues []target.Scope
+
+func (values *scopeFlagValues) String() string {
+	return fmt.Sprint(values.strings())
+}
+
+func (values *scopeFlagValues) Set(value string) error {
+	parsed, err := target.ParseScope(value)
+	if err != nil {
+		return err
+	}
+	if slices.Contains(*values, parsed) {
+		return nil
+	}
+	*values = append(*values, parsed)
+	return nil
+}
+
+func (values scopeFlagValues) strings() []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		result = append(result, string(value))
+	}
+	return result
+}
+
 type skillGroupMemberFlagValues []string
 
 func (values *skillGroupMemberFlagValues) String() string {
@@ -116,27 +142,14 @@ func (values *skillGroupMemberFlagValues) Set(value string) error {
 	return nil
 }
 
-func addScope(values scopeFlagValues) (string, error) {
-	scopes := make([]target.Scope, 0, len(values))
-	seen := make(map[target.Scope]struct{}, len(values))
-	for _, value := range values {
-		scope, err := target.ParseScope(value)
-		if err != nil {
-			return "", err
-		}
-		if _, exists := seen[scope]; exists {
-			continue
-		}
-		seen[scope] = struct{}{}
-		scopes = append(scopes, scope)
-	}
-	if len(scopes) == 0 {
+func singleScopeValue(values scopeFlagValues) (string, error) {
+	if len(values) == 0 {
 		return "", nil
 	}
-	if len(scopes) > 1 {
+	if len(values) > 1 {
 		return "", fmt.Errorf("--scope accepts at most one distinct scope for this command")
 	}
-	return string(scopes[0]), nil
+	return string(values[0]), nil
 }
 
 func skillGroupMembers(values skillGroupMemberFlagValues) ([]string, error) {

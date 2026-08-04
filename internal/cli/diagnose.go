@@ -166,7 +166,7 @@ func runProbe(args []string, stdout io.Writer, stderr io.Writer, options command
 		fmt.Fprintln(stderr, "probe failed: probe accepts at most one distinct --target")
 		return 2
 	}
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "probe failed: %s\n", humanDiagnosticError(err))
 		return 2

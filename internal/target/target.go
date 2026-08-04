@@ -33,6 +33,11 @@ const (
 	ScopeProject Scope = "project"
 )
 
+var supportedScopes = []Scope{
+	ScopeGlobal,
+	ScopeProject,
+}
+
 // SupportedTargets returns every target accepted by ParseTarget in stable order.
 func SupportedTargets() []Target {
 	return append([]Target(nil), supportedTargets...)
@@ -59,10 +64,19 @@ func targetValues(targets []Target) string {
 
 // ParseScope validates a scope string.
 func ParseScope(value string) (Scope, error) {
-	switch Scope(value) {
-	case ScopeGlobal, ScopeProject:
-		return Scope(value), nil
-	default:
-		return "", fmt.Errorf("unknown scope %q", value)
+	parsed := Scope(value)
+	if slices.Contains(supportedScopes, parsed) {
+		return parsed, nil
 	}
+
+	return "", fmt.Errorf("unknown scope %q (accepted scopes: %s)", value, scopeValues(supportedScopes))
+}
+
+func scopeValues(scopes []Scope) string {
+	values := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		values = append(values, string(scope))
+	}
+
+	return strings.Join(values, ", ")
 }

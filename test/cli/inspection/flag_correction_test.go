@@ -60,6 +60,12 @@ func TestFlagValueErrorsPreserveMisuseStreamsAndScopedCorrection(t *testing.T) {
 			wantProblem: `unknown target "unknown"`,
 		},
 		{
+			name:        "custom scope value in JSON invocation",
+			args:        []string{"import", "--json", "--scope", "unknown"},
+			helpPath:    "import",
+			wantProblem: `unknown scope "unknown" (accepted scopes: global, project)`,
+		},
+		{
 			name:        "standard missing value",
 			args:        []string{"status", "--target"},
 			helpPath:    "status",
@@ -90,16 +96,34 @@ func TestFlagValueErrorsPreserveMisuseStreamsAndScopedCorrection(t *testing.T) {
 			wantProblem: `unknown target "--verbose"`,
 		},
 		{
+			name:        "next flag consumed as scope value",
+			args:        []string{"import", "--scope", "--verbose"},
+			helpPath:    "import",
+			wantProblem: `unknown scope "--verbose"`,
+		},
+		{
 			name:        "empty inline custom value",
 			args:        []string{"status", "--target="},
 			helpPath:    "status",
 			wantProblem: `unknown target ""`,
 		},
 		{
+			name:        "empty inline scope value",
+			args:        []string{"import", "--scope="},
+			helpPath:    "import",
+			wantProblem: `unknown scope ""`,
+		},
+		{
 			name:        "comma joined custom value",
 			args:        []string{"status", "--target=codex,claude-code"},
 			helpPath:    "status",
 			wantProblem: `unknown target "codex,claude-code"`,
+		},
+		{
+			name:        "comma joined scope value",
+			args:        []string{"import", "--scope=project,global"},
+			helpPath:    "import",
+			wantProblem: `unknown scope "project,global"`,
 		},
 		{
 			name:        "authoring inline misspelling",

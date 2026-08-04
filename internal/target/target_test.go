@@ -40,3 +40,24 @@ func TestSupportedTargetsIncludesAntigravityCLIInStableAppendOnlyOrder(t *testin
 		t.Fatal("SupportedTargets did not return a defensive copy")
 	}
 }
+
+func TestParseScopeReportsCanonicalAcceptedValues(t *testing.T) {
+	for _, scope := range []Scope{ScopeGlobal, ScopeProject} {
+		parsed, err := ParseScope(string(scope))
+		if err != nil {
+			t.Fatalf("ParseScope(%q) returned error: %v", scope, err)
+		}
+		if parsed != scope {
+			t.Fatalf("ParseScope(%q) = %q", scope, parsed)
+		}
+	}
+
+	_, err := ParseScope("workspace")
+	if err == nil {
+		t.Fatal("ParseScope returned nil error")
+	}
+	want := `unknown scope "workspace" (accepted scopes: global, project)`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err, want)
+	}
+}
