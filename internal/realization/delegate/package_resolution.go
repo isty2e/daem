@@ -143,3 +143,28 @@ func missingOptionValue(runner RunnerKind, option string) error {
 		"delegated runner option "+option+" requires a value",
 	)
 }
+
+func requiredSeparateOptionValue(args []string, optionIndex int, runner RunnerKind) (string, error) {
+	option := args[optionIndex]
+	if optionIndex+1 >= len(args) {
+		return "", missingOptionValue(runner, option)
+	}
+
+	value := args[optionIndex+1]
+	switch value {
+	case "":
+		return "", validationError(
+			ReasonInvalidDelegatePlan,
+			string(runner),
+			"delegated runner option "+option+" requires a non-empty value",
+		)
+	case "--":
+		return "", validationError(
+			ReasonInvalidDelegatePlan,
+			string(runner),
+			"delegated runner option "+option+" cannot consume the command delimiter as its value",
+		)
+	default:
+		return value, nil
+	}
+}

@@ -110,6 +110,7 @@ func TestMCPBindingDelegatePlanRejectsActionableUnsupportedForms(t *testing.T) {
 		{name: "unsupported target", server: validCodexMCPServer(t, "bad-target", target.ScopeProject), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "antigravity direct projection", server: validAntigravityMCPServer(t, "antigravity"), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "missing npx package", server: validDelegateMCPServer(t, "npx", []string{"-y"}, nil), want: mcpdelegate.MCPDelegatePlanReasonMissingPackage},
+		{name: "malformed uvx option value", server: validDelegateMCPServer(t, "uvx", []string{"--python", "--", "server@1.2.3"}, nil), want: mcpdelegate.MCPDelegatePlanReasonInvalidPlan},
 	}
 
 	for _, test := range tests {

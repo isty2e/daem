@@ -14,10 +14,11 @@ func pythonPackageSpecs(args []string) ([]string, bool, error) {
 		arg := args[index]
 		switch {
 		case arg == "--from":
-			if index+1 >= len(args) {
-				return nil, false, missingOptionValue(RunnerUVX, arg)
+			value, err := requiredSeparateOptionValue(args, index, RunnerUVX)
+			if err != nil {
+				return nil, false, err
 			}
-			primary = args[index+1]
+			primary = value
 			index++
 		case strings.HasPrefix(arg, "--from="):
 			primary = strings.TrimPrefix(arg, "--from=")
@@ -25,10 +26,11 @@ func pythonPackageSpecs(args []string) ([]string, bool, error) {
 				return nil, false, missingOptionValue(RunnerUVX, "--from")
 			}
 		case arg == "--with" || arg == "-w" || arg == "--with-executables-from":
-			if index+1 >= len(args) {
-				return nil, false, missingOptionValue(RunnerUVX, arg)
+			value, err := requiredSeparateOptionValue(args, index, RunnerUVX)
+			if err != nil {
+				return nil, false, err
 			}
-			packages = append(packages, args[index+1])
+			packages = append(packages, value)
 			index++
 		case strings.HasPrefix(arg, "--with="):
 			value := strings.TrimPrefix(arg, "--with=")
@@ -45,8 +47,8 @@ func pythonPackageSpecs(args []string) ([]string, bool, error) {
 		case pythonOpaquePackageOption(arg):
 			complete = false
 			if !strings.Contains(arg, "=") {
-				if index+1 >= len(args) {
-					return nil, false, missingOptionValue(RunnerUVX, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerUVX); err != nil {
+					return nil, false, err
 				}
 				index++
 			}
@@ -61,8 +63,8 @@ func pythonPackageSpecs(args []string) ([]string, bool, error) {
 			return resolvedPythonSpecs(primary, packages), complete, nil
 		case pythonOptionTakesValue(arg):
 			if !strings.Contains(arg, "=") {
-				if index+1 >= len(args) {
-					return nil, false, missingOptionValue(RunnerUVX, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerUVX); err != nil {
+					return nil, false, err
 				}
 				index++
 			}

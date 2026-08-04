@@ -43,8 +43,8 @@ func dockerImageSpec(args []string) (string, bool, bool, error) {
 				return "", false, false, nil
 			}
 			if dockerLongOptionTakesValue(arg) {
-				if index+1 >= len(args) {
-					return "", false, false, missingOptionValue(RunnerDocker, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerDocker); err != nil {
+					return "", false, false, err
 				}
 				index++
 				continue
@@ -60,8 +60,8 @@ func dockerImageSpec(args []string) (string, bool, bool, error) {
 				return "", false, false, nil
 			}
 			if consumesNext {
-				if index+1 >= len(args) {
-					return "", false, false, missingOptionValue(RunnerDocker, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerDocker); err != nil {
+					return "", false, false, err
 				}
 				index++
 			}
@@ -105,8 +105,8 @@ func dockerRunArgumentsStart(args []string) (int, bool, error) {
 				return -1, false, nil
 			}
 			if dockerGlobalOptionTakesValue(arg) {
-				if index+1 >= len(args) {
-					return -1, false, missingOptionValue(RunnerDocker, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerDocker); err != nil {
+					return -1, false, err
 				}
 				index++
 				continue
@@ -121,8 +121,8 @@ func dockerRunArgumentsStart(args []string) (int, bool, error) {
 				return -1, false, nil
 			}
 			if consumesNext {
-				if index+1 >= len(args) {
-					return -1, false, missingOptionValue(RunnerDocker, arg)
+				if _, err := requiredSeparateOptionValue(args, index, RunnerDocker); err != nil {
+					return -1, false, err
 				}
 				index++
 			}

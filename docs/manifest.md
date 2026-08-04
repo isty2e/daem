@@ -1017,6 +1017,9 @@ losslessly project into its canonical package-reference model follow the same
 opaque, floating path while their exact argv remains unchanged. An exact
 package version constrains only that direct package input; it is not a
 transitive dependency lock or a reproducible-build claim.
+Recognized options that take a separate value are invalid when that value is
+missing, empty, or the `--` command delimiter. This is malformed argv structure,
+not an opaque package selector, so daem rejects it before deriving pin policy.
 Runtime MCP checks are a separate explicit surface: `daem probe mcp-server`
 with `--dry-run` discloses the selected locked subject and side effects without
 execution, while `--yes` may launch the exact locked stdio command and attempt

@@ -212,30 +212,49 @@ const testSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 func TestDelegatePlanRejectsMalformedRunnerArguments(t *testing.T) {
 	tests := []struct {
-		name   string
-		runner RunnerKind
-		args   []string
+		name       string
+		runner     RunnerKind
+		args       []string
+		wantReason ReasonCode
 	}{
 		{name: "npx package", runner: RunnerNPX, args: []string{"--package"}},
+		{name: "npx empty separate package", runner: RunnerNPX, args: []string{"--package", "", "server@1.2.3"}},
+		{name: "npx package consumes delimiter", runner: RunnerNPX, args: []string{"--package", "--", "server@1.2.3"}},
+		{name: "npx call consumes delimiter", runner: RunnerNPX, args: []string{"--call", "--", "server@1.2.3"}},
+		{name: "npx script shell consumes delimiter", runner: RunnerNPX, args: []string{"--script-shell", "--", "server@1.2.3"}},
 		{name: "npx empty call", runner: RunnerNPX, args: []string{"--call="}},
 		{name: "uvx from", runner: RunnerUVX, args: []string{"--from"}},
-		{name: "uvx from without command", runner: RunnerUVX, args: []string{"--from", "server==1.2.3"}},
+		{name: "uvx empty separate from", runner: RunnerUVX, args: []string{"--from", "", "server@1.2.3"}},
+		{name: "uvx from consumes delimiter", runner: RunnerUVX, args: []string{"--from", "--", "server@1.2.3"}},
+		{name: "uvx from without command", runner: RunnerUVX, args: []string{"--from", "server==1.2.3"}, wantReason: ReasonMissingPackage},
 		{name: "uvx with", runner: RunnerUVX, args: []string{"--with"}},
+		{name: "uvx with consumes delimiter", runner: RunnerUVX, args: []string{"--with", "--", "server@1.2.3"}},
+		{name: "uvx opaque package option consumes delimiter", runner: RunnerUVX, args: []string{"--with-requirements", "--", "server@1.2.3"}},
 		{name: "uvx python", runner: RunnerUVX, args: []string{"--python"}},
-		{name: "uvx command", runner: RunnerUVX, args: []string{"--with", "helper==1.2.3"}},
+		{name: "uvx python consumes delimiter", runner: RunnerUVX, args: []string{"--python", "--", "server@1.2.3"}},
+		{name: "uvx command", runner: RunnerUVX, args: []string{"--with", "helper==1.2.3"}, wantReason: ReasonMissingPackage},
 		{name: "docker subcommand", runner: RunnerDocker, args: []string{"pull", "ghcr.io/acme/server:latest"}},
 		{name: "docker global option", runner: RunnerDocker, args: []string{"--context"}},
+		{name: "docker empty separate run option", runner: RunnerDocker, args: []string{"run", "--pull", "", "ghcr.io/acme/server@sha256:" + testSHA256}},
+		{name: "docker run option consumes delimiter", runner: RunnerDocker, args: []string{"run", "--pull", "--", "ghcr.io/acme/server@sha256:" + testSHA256}},
+		{name: "docker short run option consumes delimiter", runner: RunnerDocker, args: []string{"run", "-e", "--", "ghcr.io/acme/server@sha256:" + testSHA256}},
+		{name: "docker global option consumes delimiter", runner: RunnerDocker, args: []string{"--context", "--", "run", "ghcr.io/acme/server@sha256:" + testSHA256}},
+		{name: "docker short global option consumes delimiter", runner: RunnerDocker, args: []string{"-H", "--", "run", "ghcr.io/acme/server@sha256:" + testSHA256}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := NewDelegatePlan(DelegatePlanSpec{
-				Runner:  mustRunner(t, test.runner),
-				Command: mustCommand(t, string(test.runner), test.args),
-			})
-			if err == nil {
-				t.Fatal("NewDelegatePlan accepted malformed runner arguments")
+			wantReason := test.wantReason
+			if wantReason == "" {
+				wantReason = ReasonInvalidDelegatePlan
 			}
+			assertReason(t, wantReason, func() error {
+				_, err := NewDelegatePlan(DelegatePlanSpec{
+					Runner:  mustRunner(t, test.runner),
+					Command: mustCommand(t, string(test.runner), test.args),
+				})
+				return err
+			})
 		})
 	}
 }

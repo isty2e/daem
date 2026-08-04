@@ -11,10 +11,11 @@ func npmPackageSpecs(args []string) ([]string, bool, error) {
 		arg := args[index]
 		switch {
 		case arg == "--package" || arg == "-p":
-			if index+1 >= len(args) {
-				return nil, false, missingOptionValue(RunnerNPX, arg)
+			value, err := requiredSeparateOptionValue(args, index, RunnerNPX)
+			if err != nil {
+				return nil, false, err
 			}
-			packages = append(packages, args[index+1])
+			packages = append(packages, value)
 			index++
 		case strings.HasPrefix(arg, "--package="):
 			value := strings.TrimPrefix(arg, "--package=")
@@ -31,8 +32,8 @@ func npmPackageSpecs(args []string) ([]string, bool, error) {
 			}
 			return []string{args[index+1]}, complete, nil
 		case arg == "--call" || arg == "-c":
-			if index+1 >= len(args) {
-				return nil, false, missingOptionValue(RunnerNPX, arg)
+			if _, err := requiredSeparateOptionValue(args, index, RunnerNPX); err != nil {
+				return nil, false, err
 			}
 			// The call string can execute ambient project binaries that are not
 			// represented by --package selectors.
@@ -44,8 +45,8 @@ func npmPackageSpecs(args []string) ([]string, bool, error) {
 			}
 			complete = false
 		case arg == "--script-shell" || arg == "--shell" || arg == "--workspace" || arg == "-w":
-			if index+1 >= len(args) {
-				return nil, false, missingOptionValue(RunnerNPX, arg)
+			if _, err := requiredSeparateOptionValue(args, index, RunnerNPX); err != nil {
+				return nil, false, err
 			}
 			index++
 		case strings.HasPrefix(arg, "--script-shell=") || strings.HasPrefix(arg, "--shell=") ||
