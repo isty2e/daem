@@ -17,7 +17,7 @@ func (codec registryTestCodec) ContractID() aggregate.CodecContractID {
 
 func (registryTestCodec) MaximumDocumentBytes() int64 { return 1024 }
 
-func (registryTestCodec) ValidateContribution(aggregate.ManagedContribution) error {
+func (registryTestCodec) ValidateContributions(aggregate.ContributionSet) error {
 	return nil
 }
 
@@ -26,6 +26,13 @@ func (registryTestCodec) Read(
 	aggregate.Selection,
 ) (aggregate.Snapshot, *aggregate.CodecFailure) {
 	return aggregate.Snapshot{}, nil
+}
+
+func (registryTestCodec) ClassifyContributionOccupancy(
+	aggregate.ProjectionState,
+	aggregate.ContributionSet,
+) (aggregate.ContributionOccupancySet, error) {
+	return aggregate.ContributionOccupancySet{}, nil
 }
 
 func (registryTestCodec) Render(

@@ -28,6 +28,7 @@ type AggregateSubjectDecisionInput struct {
 	Subject     topology.SubjectID
 	Contract    aggregate.ProjectionContract
 	Previous    *aggregate.ManagedContribution
+	Occupancy   aggregate.ContributionOccupancyState
 	Kind        AggregateDecisionKind
 	Reason      ActionReason
 	Detail      string
@@ -107,6 +108,7 @@ type aggregateSubjectDelta struct {
 	contract    aggregate.ProjectionContract
 	previous    aggregate.ManagedContribution
 	hasPrevious bool
+	occupancy   aggregate.ContributionOccupancyState
 	kind        AggregateDecisionKind
 	reason      ActionReason
 	detail      string
@@ -176,6 +178,11 @@ func newAggregateProjectionDecision(input AggregateProjectionDecisionInput) (Agg
 		if err := validateActionReason(subjectInput.Reason); err != nil {
 			return AggregateProjectionDecision{}, fmt.Errorf("subject[%d]: %w", subjectIndex, err)
 		}
+		if subjectInput.Occupancy != "" {
+			if err := subjectInput.Occupancy.Validate(); err != nil {
+				return AggregateProjectionDecision{}, fmt.Errorf("subject[%d]: %w", subjectIndex, err)
+			}
+		}
 		if subjectInput.MutatesHost &&
 			subjectInput.Kind != AggregateCreate &&
 			subjectInput.Kind != AggregateReplace &&
@@ -199,6 +206,7 @@ func newAggregateProjectionDecision(input AggregateProjectionDecisionInput) (Agg
 			contract:    subjectInput.Contract,
 			previous:    previous,
 			hasPrevious: hasPrevious,
+			occupancy:   subjectInput.Occupancy,
 			kind:        subjectInput.Kind,
 			reason:      subjectInput.Reason,
 			detail:      subjectInput.Detail,

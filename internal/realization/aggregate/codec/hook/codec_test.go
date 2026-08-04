@@ -1,6 +1,9 @@
 package hookcodec_test
 
 import (
+	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -114,6 +117,116 @@ func TestHookCodecPartialAndFinalRemoval(t *testing.T) {
 	}
 }
 
+func TestHookCodecObservesContributionOccupancyWithoutInventingIdentity(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	alpha := hookContributionSpec{name: "alpha", event: "Stop", command: "alpha"}
+	beta := hookContributionSpec{name: "beta", event: "Stop", command: "beta"}
+	desired := hookContributionSet(t, placement, alpha, beta)
+	document := renderHookSet(
+		t,
+		codec,
+		selection,
+		aggregate.AbsentDocument(),
+		hookContributionSet(t, placement, alpha),
+	)
+	snapshot, failure := codec.Read(document, selection)
+	if failure != nil {
+		t.Fatalf("Read: %v", failure)
+	}
+	occupancy, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired)
+	if err != nil {
+		t.Fatalf("ClassifyContributionOccupancy: %v", err)
+	}
+	items := desired.Contributions()
+	if state, covered := occupancy.State(items[0].SubjectID()); !covered || state != aggregate.ContributionPresent {
+		t.Fatalf("alpha occupancy = %q covered=%t, want present", state, covered)
+	}
+	if state, covered := occupancy.State(items[1].SubjectID()); !covered || state != aggregate.ContributionAbsent {
+		t.Fatalf("beta occupancy = %q covered=%t, want absent", state, covered)
+	}
+
+	duplicateDesired := hookContributionSet(
+		t,
+		placement,
+		hookContributionSpec{name: "first", event: "Stop", command: "same"},
+		hookContributionSpec{name: "second", event: "Stop", command: "same"},
+	)
+	duplicateDocument := renderHookSet(
+		t,
+		codec,
+		selection,
+		aggregate.AbsentDocument(),
+		hookContributionSet(
+			t,
+			placement,
+			hookContributionSpec{name: "physical", event: "Stop", command: "same"},
+		),
+	)
+	duplicateSnapshot, failure := codec.Read(duplicateDocument, selection)
+	if failure != nil {
+		t.Fatalf("Read(duplicate): %v", failure)
+	}
+	duplicateOccupancy, err := codec.ClassifyContributionOccupancy(
+		duplicateSnapshot.States()[0],
+		duplicateDesired,
+	)
+	if err != nil {
+		t.Fatalf("ClassifyContributionOccupancy(duplicate): %v", err)
+	}
+	for _, item := range duplicateDesired.Contributions() {
+		if state, covered := duplicateOccupancy.State(item.SubjectID()); !covered || state != aggregate.ContributionAmbiguous {
+			t.Fatalf("duplicate occupancy for %q = %q covered=%t, want ambiguous", item.SubjectID(), state, covered)
+		}
+	}
+}
+
+func TestHookCodecOccupancyDoesNotDuplicateSharedMatcherAllocation(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	matcher := strings.Repeat("m", 64<<10)
+	const handlerCount = 1024
+	handlers := make([]string, handlerCount)
+	for index := range handlers {
+		handlers[index] = fmt.Sprintf(
+			`{"type":"command","command":"command-%d"}`,
+			index,
+		)
+	}
+	document := aggregate.ExistingDocument([]byte(
+		`{"hooks":{"Stop":[{"matcher":` + strconv.Quote(matcher) +
+			`,"hooks":[` + strings.Join(handlers, ",") + `]}]}}`,
+	))
+	snapshot, failure := codec.Read(document, selection)
+	if failure != nil {
+		t.Fatalf("Read: %v", failure)
+	}
+	desired := hookContributionSet(t, placement, hookContributionSpec{
+		name: "match", event: "Stop", matcher: matcher, command: "command-512",
+	})
+
+	assertPresent := func() {
+		occupancy, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired)
+		if err != nil {
+			t.Fatalf("ClassifyContributionOccupancy: %v", err)
+		}
+		subject := desired.Contributions()[0].SubjectID()
+		if state, covered := occupancy.State(subject); !covered || state != aggregate.ContributionPresent {
+			t.Fatalf("occupancy = %q covered=%t, want present", state, covered)
+		}
+	}
+	assertPresent()
+
+	benchmark := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	if allocated := benchmark.AllocedBytesPerOp(); allocated >= 16<<20 {
+		t.Fatalf("occupancy allocated %d bytes/op, want less than 16 MiB", allocated)
+	}
+}
+
 func TestHookCodecRejectsDuplicateAndMalformedSelectedShapes(t *testing.T) {
 	_, codec, selection := hookCodecFixture(t)
 	for _, test := range []struct {
@@ -145,6 +258,90 @@ func TestHookCodecRejectsOversizedHostDocument(t *testing.T) {
 	)
 	if failure == nil || failure.Reason() != aggregate.CodecFailureDocumentMalformed {
 		t.Fatalf("oversized codec failure = %v, want document_malformed", failure)
+	}
+}
+
+func TestHookCodecRejectsProjectionWhoseCanonicalFormExceedsLimit(t *testing.T) {
+	_, codec, selection := hookCodecFixture(t)
+	matcher := strings.Repeat("<", int(hookdocument.MaximumBytes)/6+1024)
+	content := []byte(
+		`{"hooks":{"Stop":[{"matcher":` + strconv.Quote(matcher) +
+			`,"hooks":[{"type":"command","command":"true"}]}]}}`,
+	)
+	if int64(len(content)) >= hookdocument.MaximumBytes {
+		t.Fatalf("probe input bytes = %d, want below %d", len(content), hookdocument.MaximumBytes)
+	}
+
+	_, failure := codec.Read(aggregate.ExistingDocument(content), selection)
+	if failure == nil || failure.Reason() != aggregate.CodecFailureSelectedShapeUnsupported {
+		t.Fatalf("canonical expansion failure = %v, want selected_shape_unsupported", failure)
+	}
+}
+
+func TestHookCodecRejectsUnrenderableLockedContributionAndSet(t *testing.T) {
+	if _, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+		Event: strings.Repeat("e", hookdocument.MaximumEventBytes+1),
+		Type:  "command", Command: "true",
+	}); !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("oversized event error = %v, want structural budget error", err)
+	}
+	if _, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+		Event: "Stop", Matcher: strings.Repeat("<", int(hookdocument.MaximumBytes)/6+1024),
+		Type: "command", Command: "true",
+	}); !errors.Is(err, hookdocument.ErrTooLarge) {
+		t.Fatalf("unrenderable contribution error = %v, want document size error", err)
+	}
+
+	placement, codec, selection := hookCodecFixture(t)
+	items := make([]aggregate.SubjectContribution, 0, hookdocument.MaximumEvents+1)
+	for index := range hookdocument.MaximumEvents + 1 {
+		canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "true",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		contribution, err := placement.Contribution(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject, err := topology.NewSubjectID(
+			topology.SubjectProjection,
+			string(placement.ID()),
+			fmt.Sprintf("hook:event-%03d", index),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		item, err := aggregate.NewSubjectContribution(subject, contribution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, item)
+	}
+	desired, err := aggregate.NewContributionSet(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codec.ValidateContributions(desired); !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("ValidateContributions error = %v, want structural budget error", err)
+	}
+
+	before, failure := codec.Read(aggregate.AbsentDocument(), selection)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	intent, err := aggregate.NewProjectionIntent(before.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(before, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := codec.Render(aggregate.AbsentDocument(), plan); failure == nil ||
+		failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("Render failure = %v, want canonical_contribution_invalid", failure)
 	}
 }
 

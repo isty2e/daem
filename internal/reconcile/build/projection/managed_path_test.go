@@ -56,6 +56,86 @@ func TestBuildManagedPathDecisionsCoversDesiredLifecycle(t *testing.T) {
 	}
 }
 
+func TestBuildManagedPathInventoryDecisionsClassifiesOccupancyWithoutSourceFreshness(t *testing.T) {
+	locked, _, projection := managedPathLock(
+		t,
+		"oracle",
+		"oracle",
+		[]target.Target{target.TargetCodex},
+		"desired",
+	)
+	evidence := managedPathEvidence(
+		t,
+		projection,
+		".agents/skills/oracle",
+		true,
+		"desired",
+	)
+
+	inventory, err := BuildManagedPathInventoryDecisions(ManagedPathInventoryInput{
+		Locked:          locked,
+		Expectations:    []ManagedPathExpectation{managedPathExpectation(t, projection)},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		Evidence:        []observe.ManagedPathEvidence{evidence},
+	})
+	if err != nil {
+		t.Fatalf("BuildManagedPathInventoryDecisions returned error: %v", err)
+	}
+	if len(inventory) != 1 || inventory[0].Kind() != reconcile.ManagedPathBlocked ||
+		inventory[0].Reason() != reconcile.ReasonUnmanagedOutputExists {
+		t.Fatalf("inventory decisions = %#v, want unmanaged existing output", inventory)
+	}
+
+	readiness, err := BuildManagedPathDecisions(ManagedPathInput{
+		Locked:          locked,
+		Expectations:    []ManagedPathExpectation{managedPathExpectation(t, projection)},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		Evidence:        []observe.ManagedPathEvidence{evidence},
+	})
+	if err != nil {
+		t.Fatalf("BuildManagedPathDecisions returned error: %v", err)
+	}
+	if len(readiness) != 1 || readiness[0].Reason() != reconcile.ReasonMissingLock {
+		t.Fatalf("readiness decisions = %#v, want missing fresh supply evidence", readiness)
+	}
+}
+
+func TestBuildManagedPathInventoryDecisionsPreservesCompleteConsumerIdentity(t *testing.T) {
+	consumers := []target.Target{target.TargetAntigravityCLI, target.TargetCodex}
+	locked, _, projection := managedPathLock(
+		t,
+		"oracle",
+		"oracle",
+		consumers,
+		"desired",
+	)
+	evidence := managedPathEvidence(
+		t,
+		projection,
+		".agents/skills/oracle",
+		true,
+		"desired",
+	)
+
+	inventory, err := BuildManagedPathInventoryDecisions(ManagedPathInventoryInput{
+		Locked:          locked,
+		Expectations:    []ManagedPathExpectation{managedPathExpectation(t, projection)},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		Evidence:        []observe.ManagedPathEvidence{evidence},
+	})
+	if err != nil {
+		t.Fatalf("BuildManagedPathInventoryDecisions returned error: %v", err)
+	}
+	if len(inventory) != 1 ||
+		!reflect.DeepEqual(inventory[0].ConsumerTargets(), consumers) {
+		t.Fatalf(
+			"inventory consumers = %#v, want complete identity %#v",
+			inventory[0].ConsumerTargets(),
+			consumers,
+		)
+	}
+}
+
 func TestManagedPathDraftReclassificationReplacesPriorSemantics(t *testing.T) {
 	_, _, projection := managedPathLock(
 		t,

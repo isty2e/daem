@@ -53,6 +53,7 @@ func managedPathRelocationStates(
 	expectationIndex map[topology.SubjectID]ManagedPathExpectation,
 	states map[topology.SubjectID]durable.ManagedPathState,
 	selection map[target.Target]struct{},
+	purpose managedPathDecisionPurpose,
 ) (
 	map[topology.SubjectID]durable.ManagedPathState,
 	map[topology.SubjectID]struct{},
@@ -68,6 +69,10 @@ func managedPathRelocationStates(
 		selectedConsumers := selectedManagedPathConsumers(facts.ConsumerTargets, selection)
 		if len(selectedConsumers) == 0 {
 			continue
+		}
+		correlatedConsumers := selectedConsumers
+		if purpose == managedPathInventoryPurpose {
+			correlatedConsumers = facts.ConsumerTargets
 		}
 		expectedEntity, entityBacked := topologyprojection.EntityID(facts.Subject)
 		if !entityBacked {
@@ -88,7 +93,7 @@ func managedPathRelocationStates(
 				continue
 			}
 			if state.ContentKind() != facts.ContentKind ||
-				!sameManagedPathConsumers(state.ConsumerTargets(), selectedConsumers) {
+				!sameManagedPathConsumers(state.ConsumerTargets(), correlatedConsumers) {
 				continue
 			}
 			if state.Scope() == facts.Scope && state.Destination() == facts.Destination {

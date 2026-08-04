@@ -77,6 +77,15 @@ func (decision AggregateSubjectDecision) PreviousContribution() (aggregate.Manag
 	return decision.delta.previous.Clone(), true
 }
 
+// ContributionOccupancy returns fresh codec evidence for this subject when
+// the enclosing unmanaged projection could be classified per contribution.
+func (decision AggregateSubjectDecision) ContributionOccupancy() (
+	aggregate.ContributionOccupancyState,
+	bool,
+) {
+	return decision.delta.occupancy, decision.delta.occupancy != ""
+}
+
 func (decision AggregateSubjectDecision) Target() target.Target {
 	return decision.delta.contract.Address().Document().Target()
 }

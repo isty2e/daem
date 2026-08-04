@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"fmt"
 	"os"
 	"sort"
 
@@ -10,10 +11,11 @@ import (
 )
 
 func classifyAggregateProjection(
+	codec aggregate.Codec,
 	projection aggregateProjectionDecision,
 	fileMode os.FileMode,
 	manageUnmanagedMatches bool,
-) aggregateProjectionDecision {
+) (aggregateProjectionDecision, error) {
 	previous := make(map[topology.SubjectID]aggregate.ManagedContribution, len(projection.previous))
 	for _, state := range projection.previous {
 		previous[state.Subject()] = state.Contribution()
@@ -33,15 +35,35 @@ func classifyAggregateProjection(
 			projection,
 			reconcile.ReasonDriftedOutput,
 			"managed aggregate projection differs from statefile baseline",
-		)
+		), nil
 	}
 	if len(previous) == 0 && projection.before.Present() {
-		if !manageUnmanagedMatches || !sameProjection {
+		if projection.desired == nil {
 			return blockAggregateProjection(
 				projection,
-				reconcile.ReasonUnmanagedOutputExists,
-				"aggregate projection exists without managed authority",
+				reconcile.ReasonInvalidDesiredState,
+				"unmanaged aggregate projection has no desired contribution",
+			), nil
+		}
+		occupancy, err := codec.ClassifyContributionOccupancy(projection.before, *projection.desired)
+		if err != nil {
+			return aggregateProjectionDecision{}, fmt.Errorf(
+				"observe aggregate subject occupancy: %w",
+				err,
 			)
+		}
+		if !manageUnmanagedMatches || !sameProjection {
+			return blockUnmanagedAggregateProjection(projection, occupancy), nil
+		}
+		for _, item := range projection.desired.Contributions() {
+			state, covered := occupancy.State(item.SubjectID())
+			if !covered || state != aggregate.ContributionPresent {
+				return blockAggregateProjection(
+					projection,
+					reconcile.ReasonInvalidDesiredState,
+					"exact unmanaged aggregate adoption lacks unambiguous subject occupancy",
+				), nil
+			}
 		}
 	}
 
@@ -90,6 +112,32 @@ func classifyAggregateProjection(
 	}
 	projection.deltas = deltas
 	projection.kind, projection.reason = classifyProjectionTransition(projection, modeCurrent)
+	return projection, nil
+}
+
+func blockUnmanagedAggregateProjection(
+	projection aggregateProjectionDecision,
+	occupancy aggregate.ContributionOccupancySet,
+) aggregateProjectionDecision {
+	projection.kind = reconcile.AggregateBlocked
+	projection.reason = reconcile.ReasonUnmanagedOutputExists
+	projection.detail = "aggregate projection exists without managed authority"
+	projection.deltas = make([]aggregateSubjectDelta, 0, len(aggregateProjectionSubjects(projection)))
+	for _, subject := range aggregateProjectionSubjects(projection) {
+		previous, hasPrevious := aggregatePreviousContribution(projection, subject)
+		delta := aggregateSubjectDelta{
+			subject: subject, contract: projection.contract,
+			previous: previous, hasPrevious: hasPrevious,
+			kind:   reconcile.AggregateBlocked,
+			reason: reconcile.ReasonUnmanagedOutputExists,
+			detail: "aggregate projection exists without managed authority",
+		}
+		state, covered := occupancy.State(subject)
+		if covered {
+			delta.occupancy = state
+		}
+		projection.deltas = append(projection.deltas, delta)
+	}
 	return projection
 }
 

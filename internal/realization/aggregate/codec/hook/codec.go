@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/hook"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 func canonicalJSON(value any) ([]byte, error) {
@@ -63,6 +64,16 @@ type hookHandler struct {
 	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
+type hookOccupancyGroupKey struct {
+	event   string
+	matcher string
+}
+
+type hookOccupancyContributionKey struct {
+	group   hookOccupancyGroupKey
+	handler hookHandler
+}
+
 // CanonicalHookContribution renders one validated subject contribution.
 func CanonicalHookContribution(input commandhook.ContributionInput) (string, error) {
 	contribution := canonicalHookContribution{
@@ -77,6 +88,9 @@ func CanonicalHookContribution(input commandhook.ContributionInput) (string, err
 	}
 	if err := contribution.validate(); err != nil {
 		return "", err
+	}
+	if _, err := canonicalHookProjectionFromContributions([]canonicalHookContribution{contribution}); err != nil {
+		return "", fmt.Errorf("Hook contribution cannot be rendered: %w", err)
 	}
 	content, err := canonicalJSON(contribution)
 	if err != nil {
@@ -94,6 +108,9 @@ func ValidateCanonicalHookContribution(content string) error {
 func (contribution canonicalHookContribution) validate() error {
 	if strings.TrimSpace(contribution.Event) == "" || strings.TrimSpace(contribution.Event) != contribution.Event {
 		return fmt.Errorf("Hook contribution event is required and must be trimmed")
+	}
+	if err := hookdocument.ValidateEventBudget(contribution.Event); err != nil {
+		return fmt.Errorf("Hook contribution event: %w", err)
 	}
 	if strings.TrimSpace(contribution.Group.Matcher) != contribution.Group.Matcher {
 		return fmt.Errorf("Hook contribution matcher must be trimmed")
@@ -134,22 +151,61 @@ func (codec hookJSONCodec) ContractID() aggregate.CodecContractID { return codec
 
 func (hookJSONCodec) MaximumDocumentBytes() int64 { return hookdocument.MaximumBytes }
 
-func (codec hookJSONCodec) ValidateContribution(contribution aggregate.ManagedContribution) error {
-	if err := contribution.Validate(); err != nil {
-		return err
-	}
-	placement, ok := aggregate.HookPlacementForCodec(codec.contractID)
-	if !ok {
-		return fmt.Errorf("aggregate codec contract %q has no Hook placement", codec.contractID)
-	}
-	expected, err := placement.Contribution(contribution.CanonicalContribution())
+func (codec hookJSONCodec) ValidateContributions(contributions aggregate.ContributionSet) error {
+	decoded, err := codec.validatedHookContributions(contributions)
 	if err != nil {
 		return err
 	}
-	if !expected.Contract().Equal(contribution.Contract()) {
-		return fmt.Errorf("Hook contribution does not match its codec placement contract")
+	_, err = canonicalHookProjectionFromContributions(decoded)
+	return err
+}
+
+func (codec hookJSONCodec) validatedHookContribution(
+	contribution aggregate.ManagedContribution,
+) (canonicalHookContribution, error) {
+	if err := contribution.Validate(); err != nil {
+		return canonicalHookContribution{}, err
 	}
-	return ValidateCanonicalHookContribution(contribution.CanonicalContribution())
+	placement, ok := aggregate.HookPlacementForCodec(codec.contractID)
+	if !ok {
+		return canonicalHookContribution{}, fmt.Errorf(
+			"aggregate codec contract %q has no Hook placement",
+			codec.contractID,
+		)
+	}
+	expected, err := placement.Contribution(contribution.CanonicalContribution())
+	if err != nil {
+		return canonicalHookContribution{}, err
+	}
+	if !expected.Contract().Equal(contribution.Contract()) {
+		return canonicalHookContribution{}, fmt.Errorf(
+			"Hook contribution does not match its codec placement contract",
+		)
+	}
+	return parseCanonicalHookContribution(contribution.CanonicalContribution())
+}
+
+func (codec hookJSONCodec) validatedHookContributions(
+	set aggregate.ContributionSet,
+) ([]canonicalHookContribution, error) {
+	items := set.Contributions()
+	if err := hookdocument.ValidateCardinality(0, len(items), len(items)); err != nil {
+		return nil, err
+	}
+	decoded := make([]canonicalHookContribution, 0, len(items))
+	events := make(map[string]struct{}, min(len(items), hookdocument.MaximumEvents))
+	for _, item := range items {
+		contribution, err := codec.validatedHookContribution(item.Contribution())
+		if err != nil {
+			return nil, err
+		}
+		events[contribution.Event] = struct{}{}
+		if err := hookdocument.ValidateCardinality(len(events), len(items), len(items)); err != nil {
+			return nil, err
+		}
+		decoded = append(decoded, contribution)
+	}
+	return decoded, nil
 }
 
 func (codec hookJSONCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
@@ -193,6 +249,87 @@ func (codec hookJSONCodec) Read(document aggregate.Document, selection aggregate
 	return snapshot, nil
 }
 
+func (codec hookJSONCodec) ClassifyContributionOccupancy(
+	state aggregate.ProjectionState,
+	contributions aggregate.ContributionSet,
+) (aggregate.ContributionOccupancySet, error) {
+	if err := state.Validate(); err != nil {
+		return aggregate.ContributionOccupancySet{}, err
+	}
+	if state.Contract().CodecContractID() != codec.contractID ||
+		!state.Contract().Equal(contributions.Contract()) {
+		return aggregate.ContributionOccupancySet{}, fmt.Errorf(
+			"Hook contribution observation contract differs from the selected projection",
+		)
+	}
+	items := contributions.Contributions()
+	validated, err := codec.validatedHookContributions(contributions)
+	if err != nil {
+		return aggregate.ContributionOccupancySet{}, err
+	}
+	subjectsByContribution := make(
+		map[hookOccupancyContributionKey][]topology.SubjectID,
+		len(items),
+	)
+	for index, item := range items {
+		contribution := validated[index]
+		key := hookOccupancyContributionKey{
+			group: hookOccupancyGroupKey{
+				event:   contribution.Event,
+				matcher: contribution.Group.Matcher,
+			},
+			handler: contribution.Group.Hooks[0],
+		}
+		subjectsByContribution[key] = append(
+			subjectsByContribution[key],
+			item.SubjectID(),
+		)
+	}
+	if !state.Present() {
+		return aggregate.NewUniformContributionOccupancySet(
+			contributions,
+			aggregate.ContributionAbsent,
+		)
+	}
+
+	hooks, err := decodeCanonicalHookProjection(state.CanonicalProjection())
+	if err != nil {
+		return aggregate.ContributionOccupancySet{}, err
+	}
+	observedCounts := make(map[hookOccupancyGroupKey]map[hookHandler]int)
+	for event, groups := range hooks {
+		for _, group := range groups {
+			groupKey := hookOccupancyGroupKey{event: event, matcher: group.Matcher}
+			handlerCounts := observedCounts[groupKey]
+			if handlerCounts == nil {
+				handlerCounts = make(map[hookHandler]int, len(group.Hooks))
+				observedCounts[groupKey] = handlerCounts
+			}
+			for _, handler := range group.Hooks {
+				handlerCounts[handler]++
+			}
+		}
+	}
+
+	occupancy := make(
+		map[topology.SubjectID]aggregate.ContributionOccupancyState,
+		len(items),
+	)
+	for key, subjects := range subjectsByContribution {
+		state := aggregate.ContributionAbsent
+		switch count := observedCounts[key.group][key.handler]; {
+		case count >= len(subjects):
+			state = aggregate.ContributionPresent
+		case count != 0:
+			state = aggregate.ContributionAmbiguous
+		}
+		for _, subject := range subjects {
+			occupancy[subject] = state
+		}
+	}
+	return aggregate.NewContributionOccupancySet(contributions, occupancy)
+}
+
 func (codec hookJSONCodec) Render(document aggregate.Document, plan aggregate.Plan) (aggregate.RenderedDocument, *aggregate.CodecFailure) {
 	selection, err := plan.Before().Selection()
 	if err != nil {
@@ -214,7 +351,7 @@ func (codec hookJSONCodec) Render(document aggregate.Document, plan aggregate.Pl
 	desired, desiredPresent := intent.Desired()
 	canonicalProjection := ""
 	if desiredPresent {
-		canonicalProjection, err = foldHookContributions(desired)
+		canonicalProjection, err = codec.foldHookContributions(desired)
 		if err != nil {
 			return aggregate.RenderedDocument{}, hookCodecFailure(aggregate.CodecFailureCanonicalInvalid)
 		}
@@ -297,23 +434,60 @@ func (codec hookJSONCodec) selectedHookContract(document aggregate.Document, sel
 	return contracts[0], nil
 }
 
-func foldHookContributions(set aggregate.ContributionSet) (string, error) {
+func (codec hookJSONCodec) foldHookContributions(set aggregate.ContributionSet) (string, error) {
+	contributions, err := codec.validatedHookContributions(set)
+	if err != nil {
+		return "", err
+	}
+	return canonicalHookProjectionFromContributions(contributions)
+}
+
+func canonicalHookProjectionFromContributions(contributions []canonicalHookContribution) (string, error) {
+	if err := hookdocument.ValidateCardinality(0, len(contributions), len(contributions)); err != nil {
+		return "", err
+	}
 	hooks := make(map[string][]hookGroup)
-	for _, item := range set.Contributions() {
-		contribution, err := decodeCanonicalHookContribution(item.Contribution().CanonicalContribution())
-		if err != nil {
+	for _, contribution := range contributions {
+		hooks[contribution.Event] = append(hooks[contribution.Event], contribution.Group)
+		if err := hookdocument.ValidateCardinality(len(hooks), len(contributions), len(contributions)); err != nil {
 			return "", err
 		}
-		hooks[contribution.Event] = append(hooks[contribution.Event], contribution.Group)
 	}
 	content, err := canonicalJSON(hooks)
 	if err != nil {
 		return "", err
 	}
+	if err := hookdocument.ValidateProjection(content); err != nil {
+		return "", err
+	}
+	if err := validateCanonicalHookProjectionDocument(content); err != nil {
+		return "", err
+	}
 	return string(content), nil
 }
 
+func validateCanonicalHookProjectionDocument(projection []byte) error {
+	content, err := canonicalJSON(map[string]json.RawMessage{
+		"hooks": projection,
+	})
+	if err != nil {
+		return err
+	}
+	return hookdocument.Validate(content)
+}
+
 func decodeCanonicalHookContribution(content string) (canonicalHookContribution, error) {
+	contribution, err := parseCanonicalHookContribution(content)
+	if err != nil {
+		return canonicalHookContribution{}, err
+	}
+	if _, err := canonicalHookProjectionFromContributions([]canonicalHookContribution{contribution}); err != nil {
+		return canonicalHookContribution{}, fmt.Errorf("Hook contribution cannot be rendered: %w", err)
+	}
+	return contribution, nil
+}
+
+func parseCanonicalHookContribution(content string) (canonicalHookContribution, error) {
 	if err := jsonstrict.Validate(
 		[]byte(content),
 		"canonical Hook contribution",
@@ -363,39 +537,64 @@ func validateHookProjection(content []byte) error {
 }
 
 func canonicalHookProjection(content []byte) (string, error) {
+	_, canonical, err := parseHookProjection(content)
+	return canonical, err
+}
+
+func parseHookProjection(content []byte) (map[string][]hookGroup, string, error) {
+	if err := hookdocument.ValidateProjection(content); err != nil {
+		return nil, "", err
+	}
 	var hooks map[string][]hookGroup
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&hooks); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if hooks == nil {
-		return "", fmt.Errorf("Hook projection must be an object")
+		return nil, "", fmt.Errorf("Hook projection must be an object")
 	}
 	for event, groups := range hooks {
 		if strings.TrimSpace(event) == "" || strings.TrimSpace(event) != event {
-			return "", fmt.Errorf("Hook projection event is invalid")
+			return nil, "", fmt.Errorf("Hook projection event is invalid")
 		}
 		for _, group := range groups {
 			if strings.TrimSpace(group.Matcher) != group.Matcher || len(group.Hooks) == 0 {
-				return "", fmt.Errorf("Hook projection group is invalid")
+				return nil, "", fmt.Errorf("Hook projection group is invalid")
 			}
 			for _, handler := range group.Hooks {
 				candidate := canonicalHookContribution{Event: event, Group: hookGroup{Matcher: group.Matcher, Hooks: []hookHandler{handler}}}
 				if err := candidate.validate(); err != nil {
-					return "", err
+					return nil, "", err
 				}
 			}
 		}
 	}
 	canonical, err := canonicalJSON(hooks)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return string(canonical), nil
+	if err := hookdocument.ValidateProjection(canonical); err != nil {
+		return nil, "", err
+	}
+	if err := validateCanonicalHookProjectionDocument(canonical); err != nil {
+		return nil, "", err
+	}
+	return hooks, string(canonical), nil
+}
+
+func decodeCanonicalHookProjection(content string) (map[string][]hookGroup, error) {
+	hooks, canonical, err := parseHookProjection([]byte(content))
+	if err != nil {
+		return nil, err
+	}
+	if canonical != content {
+		return nil, fmt.Errorf("Hook projection is not canonical")
+	}
+	return hooks, nil
 }
 
 func renderHookSettings(settings map[string]json.RawMessage, preserveExistingEmpty bool) (aggregate.Document, *aggregate.CodecFailure) {

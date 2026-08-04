@@ -8,7 +8,6 @@ import (
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
-	statusworkflow "github.com/isty2e/daem/internal/workflow/status"
 )
 
 func runList(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) int {
@@ -49,7 +48,7 @@ func runList(args []string, stdout io.Writer, stderr io.Writer, options commandO
 		return 1
 	}
 	if subcommand == "outputs" {
-		result, err := statusworkflow.Run(options.context, statusworkflow.CommandInput{
+		result, err := listworkflow.RunOutputs(options.context, listworkflow.Input{
 			ManifestPath: *manifestPath,
 			TargetValues: targets,
 		})

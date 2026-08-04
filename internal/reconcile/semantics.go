@@ -171,7 +171,7 @@ func (result Result) HasLockReadinessErrors() bool {
 		}
 	}
 	for _, decision := range result.aggregates {
-		if decision.IsBlocked() && decision.Reason().isLockReadinessError() {
+		if decision.hasLockReadinessError() {
 			return true
 		}
 	}

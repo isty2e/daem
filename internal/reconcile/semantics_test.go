@@ -125,6 +125,38 @@ func TestResultHasLockReadinessErrorsIncludesUnexpectedManagedPathProjection(t *
 	}
 }
 
+func TestResultHasLockReadinessErrorsIncludesMixedAggregateSubjectReason(t *testing.T) {
+	t.Parallel()
+
+	ownership := aggregateDecisionInputForServer(t, "ownership")
+	missing := aggregateDecisionInputForServer(t, "missing")
+	ownership.Kind = AggregateBlocked
+	ownership.Reason = ReasonOwnershipConflict
+	ownership.Detail = "foreign owner"
+	ownership.Projections[0].Kind = AggregateBlocked
+	ownership.Projections[0].Reason = ReasonOwnershipConflict
+	ownership.Projections[0].Detail = "foreign owner"
+	ownership.Projections[0].Subjects[0].Kind = AggregateBlocked
+	ownership.Projections[0].Subjects[0].Reason = ReasonOwnershipConflict
+	ownership.Projections[0].Subjects[0].Detail = "foreign owner"
+	missing.Projections[0].Kind = AggregateBlocked
+	missing.Projections[0].Reason = ReasonOwnershipConflict
+	missing.Projections[0].Detail = "projection summary preserves another dominant block"
+	missing.Projections[0].Subjects[0].Kind = AggregateBlocked
+	missing.Projections[0].Subjects[0].Reason = ReasonMissingLock
+	missing.Projections[0].Subjects[0].Detail = "lock required"
+	ownership.Projections = append(ownership.Projections, missing.Projections...)
+
+	decision, err := NewAggregateDecision(ownership)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := mustReconciliationResult(t, nil, []AggregateDecision{decision})
+	if !result.HasLockReadinessErrors() {
+		t.Fatal("HasLockReadinessErrors() = false, want true for mixed aggregate subject reason")
+	}
+}
+
 func TestResultDecisionsExpandAggregateSubjectsAndOrderPublishSwitchRetire(t *testing.T) {
 	assetSubject, err := topology.NewSubjectID(
 		topology.SubjectProjection,

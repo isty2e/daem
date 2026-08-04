@@ -1317,9 +1317,12 @@ Current lock behavior:
 - S3 archive extraction rejects path traversal, symlinks, hardlinks, and special
   files. S3 prefix directory sources are unsupported.
 - Skill sources are validated as directories with a regular `SKILL.md`.
-- Supported command-only hook declarations are not represented in the lockfile.
-  Their rendered host aggregate content is planned and state-tracked separately
-  from source resolution.
+- Supported command-only Hook declarations do not lock a source artifact. Each
+  admitted target instead locks one canonical managed-aggregate contribution.
+  Schema version 5 admits a contribution only when the Hook codec can fold it
+  into a structurally valid host document within the same byte, depth, event,
+  group, and handler bounds enforced during rendering. Rendered host aggregate
+  content remains planned and state-tracked separately from source resolution.
 - Instruction sources are locked as file sources and must resolve to regular files.
 - Selector-backed `[[skill_group]]` entries are expanded during lock. The
   generated dry-run delta reports selected child additions, removals, and
@@ -1369,26 +1372,27 @@ Current lock behavior:
   exact non-executable file-use contract and deterministic file materialization,
   plus one managed-file projection subject per distinct supported placement.
   Targets sharing a physical file coalesce into one canonical consumer set.
-  A schema-v4 Instructions Supply without at least one structurally valid file
+  A schema-v5 Instructions Supply without at least one structurally valid file
   projection is rejected; apply/status additionally require the lock projection
   set to equal the current manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
 - Lockfile rows are sorted by canonical `entity_id`, then `subject_id`.
-- Lockfile readers accept only schema version 4 and reject unsupported versions,
+- Lockfile readers accept only schema version 5 and reject unsupported versions,
   invalid UTF-8, unknown keys, incompatible TOML table shapes, duplicate subject
   identities, zero-facet subjects, unknown realization variants, invalid
   cross-facet correlation, unsupported exact-Supply family shapes, malformed
   exact identities or operation contracts, an `exact` managed-path projection
   without `exact_permission_mode`, and persisted values that would need
-  trimming, sorting, or deduplication to become canonical. Schema version 3 is
+  trimming, sorting, or deduplication to become canonical. Schema version 4 is
   not interpreted: `status`, `apply`, and `outdated` direct the user to
   regenerate it, while `daem lock` and transactional manifest authoring may
   atomically replace it from the selected manifest without treating old rows
   as current authority.
-- Schema version 4 does not admit `generated_at`; readers reject it as an
+- Schema version 5 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- The v4 change affects generated lockfiles only. The public manifest remains
-  schema version 1 and requires no authoring migration.
+- The v5 change records the stricter Hook renderability admission contract in
+  generated lockfiles only. The public manifest remains schema version 1 and
+  requires no authoring migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 

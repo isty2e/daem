@@ -50,8 +50,9 @@ func cloneDocument(document Document) Document {
 type Codec interface {
 	ContractID() CodecContractID
 	MaximumDocumentBytes() int64
-	ValidateContribution(ManagedContribution) error
+	ValidateContributions(ContributionSet) error
 	Read(Document, Selection) (Snapshot, *CodecFailure)
+	ClassifyContributionOccupancy(ProjectionState, ContributionSet) (ContributionOccupancySet, error)
 	Render(Document, Plan) (RenderedDocument, *CodecFailure)
 	Restore(Document, Snapshot) (RenderedDocument, *CodecFailure)
 }

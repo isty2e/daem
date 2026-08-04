@@ -209,7 +209,7 @@ func TestManagedAggregateCanonicalPackageCannotOwnConcreteCodecs(t *testing.T) {
 		}
 	}
 
-	codecMethods := []string{"ContractID", "ValidateContribution", "Read", "Render", "Restore"}
+	codecMethods := []string{"ContractID", "ValidateContributions", "Read", "Render", "Restore"}
 	for receiver, methods := range methodsByReceiver {
 		implementsCodec := true
 		for _, method := range codecMethods {
@@ -539,6 +539,9 @@ func managedAggregateWorkflowClassifications() map[string]managedAggregateWorkfl
 		},
 		"internal/workflow/readiness/ownership.go": {
 			guard: true, reason: "generic aggregate ownership orchestration",
+		},
+		"internal/workflow/readiness/output_inventory.go": {
+			reason: "inventory-only projection observation and classification",
 		},
 	}
 }

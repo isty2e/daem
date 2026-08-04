@@ -497,9 +497,31 @@ func validateSnapshotForPersistence(snapshot durable.Snapshot) error {
 			return fmt.Errorf("managed_paths[%d]: managed path occupancy: %w", index, err)
 		}
 	}
-	for index, state := range snapshot.ManagedAggregates() {
-		if err := codecs.ValidateSubjectContribution(state.Subject(), state.Contribution()); err != nil {
+	aggregates := snapshot.ManagedAggregates()
+	items := make([]aggregate.SubjectContribution, 0, len(aggregates))
+	firstIndexByAddress := make(map[aggregate.ProjectionAddress]int)
+	for index, state := range aggregates {
+		item, err := aggregate.NewSubjectContribution(state.Subject(), state.Contribution())
+		if err != nil {
 			return fmt.Errorf("managed_aggregate_contributions[%d]: %w", index, err)
+		}
+		address := state.Contribution().Address()
+		if _, exists := firstIndexByAddress[address]; !exists {
+			firstIndexByAddress[address] = index
+		}
+		items = append(items, item)
+	}
+	sets, err := aggregate.PartitionContributionSets(items)
+	if err != nil {
+		return fmt.Errorf("managed_aggregate_contributions: %w", err)
+	}
+	for _, set := range sets {
+		if err := codecs.ValidateContributionSet(set); err != nil {
+			return fmt.Errorf(
+				"managed_aggregate_contributions[%d]: %w",
+				firstIndexByAddress[set.Address()],
+				err,
+			)
 		}
 	}
 	return nil

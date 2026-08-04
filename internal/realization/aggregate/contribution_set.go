@@ -67,6 +67,45 @@ func NewContributionSet(values []SubjectContribution) (ContributionSet, error) {
 	return ContributionSet{items: items}, nil
 }
 
+// PartitionContributionSets groups canonical subject contributions by their
+// complete projection address while preserving first-address order.
+func PartitionContributionSets(values []SubjectContribution) ([]ContributionSet, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	groups := make([][]SubjectContribution, 0)
+	groupIndexByAddress := make(map[ProjectionAddress]int)
+	seenSubjects := make(map[topology.SubjectID]struct{}, len(values))
+	for index, value := range values {
+		canonical, err := NewSubjectContribution(value.subject, value.contribution)
+		if err != nil {
+			return nil, fmt.Errorf("aggregate contribution[%d]: %w", index, err)
+		}
+		if _, duplicate := seenSubjects[canonical.subject]; duplicate {
+			return nil, fmt.Errorf("aggregate contribution[%d] repeats subject %q", index, canonical.subject)
+		}
+		seenSubjects[canonical.subject] = struct{}{}
+		address := canonical.contribution.address
+		groupIndex, exists := groupIndexByAddress[address]
+		if !exists {
+			groupIndex = len(groups)
+			groupIndexByAddress[address] = groupIndex
+			groups = append(groups, nil)
+		}
+		groups[groupIndex] = append(groups[groupIndex], canonical)
+	}
+
+	sets := make([]ContributionSet, 0, len(groups))
+	for index, group := range groups {
+		set, err := NewContributionSet(group)
+		if err != nil {
+			return nil, fmt.Errorf("aggregate contribution set[%d]: %w", index, err)
+		}
+		sets = append(sets, set)
+	}
+	return sets, nil
+}
+
 func (contribution ManagedContribution) sameStaticContract(other ManagedContribution) bool {
 	return contribution.address == other.address &&
 		contribution.cardinality == other.cardinality &&

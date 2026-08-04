@@ -123,6 +123,30 @@ func (decision AggregateDecision) IsBlocked() bool { return decision.kind == Agg
 
 func (decision AggregateDecision) IsNoOp() bool { return decision.kind == AggregateNoOp }
 
+func (decision AggregateDecision) hasLockReadinessError() bool {
+	if decision.IsBlocked() && decision.reason.isLockReadinessError() {
+		return true
+	}
+	for _, projection := range decision.projections {
+		if projection.hasLockReadinessError() {
+			return true
+		}
+	}
+	return false
+}
+
+func (projection AggregateProjectionDecision) hasLockReadinessError() bool {
+	if projection.kind == AggregateBlocked && projection.reason.isLockReadinessError() {
+		return true
+	}
+	for _, delta := range projection.deltas {
+		if delta.kind == AggregateBlocked && delta.reason.isLockReadinessError() {
+			return true
+		}
+	}
+	return false
+}
+
 func (decision AggregateDecision) MutatesHost() bool {
 	return decision.kind == AggregateCreate || decision.kind == AggregateReplace || decision.kind == AggregateRemove
 }

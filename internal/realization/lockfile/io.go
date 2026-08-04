@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
@@ -31,7 +32,7 @@ func (err UnsupportedVersionError) Error() string {
 // RelockSupported reports whether the lock workflow may replace this exact
 // prior schema without interpreting its contents.
 func (err UnsupportedVersionError) RelockSupported() bool {
-	return err.Found == 3 && err.Supported == 4
+	return err.Found == 4 && err.Supported == 5
 }
 
 // Load reads an daem.lock.toml file.
@@ -108,6 +109,8 @@ func Marshal(file lock.File) ([]byte, error) {
 
 func validateConcreteAggregateContributions(file lock.File) error {
 	codecs := aggregatecodec.Catalog()
+	items := make([]aggregate.SubjectContribution, 0)
+	firstSubjectIndexByAddress := make(map[aggregate.ProjectionAddress]int)
 	for index, contract := range file.Locked.Subjects() {
 		contribution, present, err := contract.ManagedAggregateContribution()
 		if err != nil {
@@ -116,11 +119,24 @@ func validateConcreteAggregateContributions(file lock.File) error {
 		if !present {
 			continue
 		}
-		if err := codecs.ValidateSubjectContribution(
-			contract.SubjectID(),
-			contribution.Contribution(),
-		); err != nil {
-			return fmt.Errorf("locked subject[%d] aggregate contribution: %w", index, err)
+		address := contribution.Contribution().Address()
+		if _, exists := firstSubjectIndexByAddress[address]; !exists {
+			firstSubjectIndexByAddress[address] = index
+		}
+		items = append(items, contribution)
+	}
+	sets, err := aggregate.PartitionContributionSets(items)
+	if err != nil {
+		return fmt.Errorf("locked aggregate contributions: %w", err)
+	}
+	for _, set := range sets {
+		firstSubjectIndex := firstSubjectIndexByAddress[set.Address()]
+		if err := codecs.ValidateContributionSet(set); err != nil {
+			return fmt.Errorf(
+				"locked subject[%d] aggregate contribution set: %w",
+				firstSubjectIndex,
+				err,
+			)
 		}
 	}
 	return nil

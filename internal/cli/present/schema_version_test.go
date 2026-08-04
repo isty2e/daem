@@ -24,7 +24,7 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 		{name: "manifest authoring", got: manifestAuthoringJSONSchemaVersion, want: 2},
 		{name: "lock comparison", got: lockJSONSchemaVersion, want: 3},
 		{name: "resource inventory", got: listResourcesJSONSchemaVersion, want: 1},
-		{name: "output inventory", got: listOutputsJSONSchemaVersion, want: 3},
+		{name: "output inventory", got: listOutputsJSONSchemaVersion, want: 4},
 		{name: "reconciliation plan", got: planJSONSchemaVersion, want: 10},
 		{name: "apply result", got: applyResultJSONSchemaVersion, want: 15},
 		{name: "recovery", got: recoveryJSONSchemaVersion, want: 4},

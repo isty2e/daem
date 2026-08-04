@@ -1,11 +1,20 @@
 package lockfile
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
+	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
+	"github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+	"github.com/isty2e/daem/internal/target"
+	topologyhook "github.com/isty2e/daem/internal/topology/hook"
 )
 
 func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
@@ -41,5 +50,48 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 				t.Fatalf("Marshal leaked secret canary: %q", err)
 			}
 		})
+	}
+}
+
+func TestMarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T) {
+	placement, ok := aggregate.HookPlacementFor(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude Code project Hook placement is missing")
+	}
+	contracts := make([]lock.LockedSubjectContract, 0, hookdocument.MaximumEvents+1)
+	for index := range hookdocument.MaximumEvents + 1 {
+		name := fmt.Sprintf("event-%03d", index)
+		id, err := entity.New(entity.KindHook, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject, err := topologyhook.ProjectionSubjectID(
+			id,
+			target.TargetClaudeCode,
+			target.ScopeProject,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "true",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		contribution, err := placement.Contribution(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		contract, err := lock.NewHookContributionSubjectContract(id, subject, contribution, placement)
+		if err != nil {
+			t.Fatal(err)
+		}
+		contracts = append(contracts, contract)
+	}
+
+	_, err := Marshal(snapshottest.File(t, contracts...))
+	if !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("Marshal error = %v, want Hook structural budget error", err)
 	}
 }

@@ -11,6 +11,36 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+func enforceAggregateDecisionOwnership(
+	decision aggregateDecision,
+	owner stateauthority.Authority,
+	observations map[ownershipObservationKey]observe.OwnershipObservation,
+	conflicts map[ownershipObservationKey]struct{},
+) aggregateDecision {
+	changed := false
+	for index := range decision.projections {
+		before := decision.projections[index]
+		after := enforceAggregateProjectionOwnership(
+			before,
+			owner,
+			observations,
+			conflicts,
+		)
+		decision.projections[index] = after
+		if before.kind != after.kind || before.reason != after.reason ||
+			before.detail != after.detail {
+			changed = true
+		}
+	}
+	if !changed {
+		return decision
+	}
+	decision.kind = reconcile.AggregateBlocked
+	decision.reason, decision.detail = firstAggregateProjectionFailure(decision.projections)
+	decision.disableHostMutation()
+	return decision
+}
+
 func enforceAggregateProjectionOwnership(
 	projection aggregateProjectionDecision,
 	owner stateauthority.Authority,

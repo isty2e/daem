@@ -45,6 +45,7 @@ type aggregateSubjectDelta struct {
 	contract    aggregate.ProjectionContract
 	previous    aggregate.ManagedContribution
 	hasPrevious bool
+	occupancy   aggregate.ContributionOccupancyState
 	kind        reconcile.AggregateDecisionKind
 	reason      reconcile.ActionReason
 	detail      string
@@ -96,6 +97,7 @@ func (projection aggregateProjectionDecision) canonicalInput() reconcile.Aggrega
 			Subject:     delta.subject,
 			Contract:    delta.contract,
 			Previous:    previous,
+			Occupancy:   delta.occupancy,
 			Kind:        delta.kind,
 			Reason:      delta.reason,
 			Detail:      delta.detail,

@@ -215,6 +215,48 @@ func TestAggregatePlannerBlocksUnmanagedOrDriftedHookProjection(t *testing.T) {
 	}
 }
 
+func TestAggregatePlannerAttributesUnmanagedOccupancyPerSubject(t *testing.T) {
+	alpha := aggregateHookContract(t, "alpha", "echo alpha")
+	beta := aggregateHookContract(t, "beta", "echo beta")
+	desired := aggregateItems(t, alpha, beta)
+	contract := desired[0].Contribution().Contract()
+	current := aggregateDocumentFor(t, contract, aggregateItems(t, alpha))
+
+	decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+		Locked: aggregateLockedSection(t, alpha, beta),
+		Expected: []lock.LockedSubjectContract{
+			alpha,
+			beta,
+		},
+		Desired:         desired,
+		Evidence:        []observe.AggregateEvidence{aggregateEvidence(t, contract, current)},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+	})
+	if err != nil {
+		t.Fatalf("buildAggregateDecisionsForTest returned error: %v", err)
+	}
+	decision := onlyAggregateDecision(t, decisions)
+	if decision.Kind() != reconcile.AggregateBlocked || decision.MutatesHost() {
+		t.Fatalf("aggregate decision = kind %q mutates_host=%t, want blocked read-only", decision.Kind(), decision.MutatesHost())
+	}
+	subjects := aggregateSubjectDecisionsBySubject(
+		t,
+		mustReconciliationResult(t, nil, decisions).Decisions(),
+	)
+	if got := subjects[alpha.SubjectID()]; got.Kind() != reconcile.AggregateBlocked ||
+		got.Reason() != reconcile.ReasonUnmanagedOutputExists || got.MutatesHost() {
+		t.Fatalf("alpha decision = %#v, want unmanaged block", got)
+	} else if occupancy, observed := got.ContributionOccupancy(); !observed || occupancy != aggregate.ContributionPresent {
+		t.Fatalf("alpha occupancy = %q observed=%t, want present", occupancy, observed)
+	}
+	if got := subjects[beta.SubjectID()]; got.Kind() != reconcile.AggregateBlocked ||
+		got.Reason() != reconcile.ReasonUnmanagedOutputExists || got.MutatesHost() {
+		t.Fatalf("beta decision = %#v, want projection-level unmanaged block", got)
+	} else if occupancy, observed := got.ContributionOccupancy(); !observed || occupancy != aggregate.ContributionAbsent {
+		t.Fatalf("beta occupancy = %q observed=%t, want absent", occupancy, observed)
+	}
+}
+
 func TestAggregatePlannerClassifiesFailedUnmanagedObservationByAdoptionPolicy(t *testing.T) {
 	guard := aggregateHookContract(t, "guard", "echo guard")
 	desired := aggregateItems(t, guard)

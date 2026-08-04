@@ -112,6 +112,7 @@ func allowsConcreteAggregateCodec(packagePath string) bool {
 		"internal/workflow/apply",
 		"internal/workflow/authoring",
 		"internal/workflow/help",
+		"internal/workflow/list",
 		"internal/workflow/lock",
 		"internal/workflow/probe",
 		"internal/workflow/recover",

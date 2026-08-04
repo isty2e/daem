@@ -2,6 +2,8 @@ package statefile
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
@@ -264,6 +267,46 @@ func TestSnapshotV8MarshalRejectsMalformedManagedAggregateContribution(t *testin
 	}
 	if strings.Contains(err.Error(), secretCanary) {
 		t.Fatalf("Marshal leaked contribution secret canary: %q", err)
+	}
+}
+
+func TestSnapshotV8MarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T) {
+	placement, ok := aggregate.HookPlacementFor(target.TargetClaudeCode, target.ScopeProject)
+	if !ok {
+		t.Fatal("Claude Code project Hook placement is missing")
+	}
+	states := make([]durable.ManagedAggregateState, 0, hookdocument.MaximumEvents+1)
+	for index := range hookdocument.MaximumEvents + 1 {
+		canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "true",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		contribution, err := placement.Contribution(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject := testV8ProjectionSubject(
+			t,
+			entity.KindHook,
+			fmt.Sprintf("event-%03d", index),
+			string(placement.ID()),
+		)
+		state, err := durable.NewManagedAggregateState(subject, contribution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		states = append(states, state)
+	}
+	snapshot, err := durable.NewSnapshot(durable.SnapshotInput{ManagedAggregates: states})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = Marshal(snapshot)
+	if !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("Marshal error = %v, want Hook structural budget error", err)
 	}
 }
 

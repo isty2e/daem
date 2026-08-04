@@ -21,6 +21,33 @@ func reconcileAggregateDocument(
 	ownershipConflicts map[ownershipObservationKey]struct{},
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
+	decision, err := reconcileAggregateDocumentSemantics(
+		groups,
+		evidenceByDocument,
+		failuresByDocument,
+		preconditionsByDocument,
+		manageUnmanagedMatches,
+		codecs,
+	)
+	if err != nil {
+		return aggregateDecision{}, err
+	}
+	return enforceAggregateDecisionOwnership(
+		decision,
+		owner,
+		ownershipEvidence,
+		ownershipConflicts,
+	), nil
+}
+
+func reconcileAggregateDocumentSemantics(
+	groups []aggregateGroupInput,
+	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	manageUnmanagedMatches bool,
+	codecs aggregate.CodecCatalog,
+) (aggregateDecision, error) {
 	if len(groups) == 0 {
 		return aggregateDecision{}, fmt.Errorf("aggregate document group is empty")
 	}
@@ -43,13 +70,14 @@ func reconcileAggregateDocument(
 			!aggregateGroupsHavePreviousState(groups) {
 			reason = reconcile.ReasonUnmanagedOutputExists
 		}
-		return blockedAggregateDocument(
+		decision := blockedAggregateDocument(
 			groups,
 			documentAddress,
 			selection.CodecContractID(),
 			reason,
 			failure.Error(),
-		), nil
+		)
+		return decision, nil
 	}
 	evidence, observed := evidenceByDocument[documentAddress]
 	if !observed {
@@ -148,17 +176,15 @@ func reconcileAggregateDocument(
 	for index := range projections {
 		projection := projections[index]
 		projection.expected = expectedByAddress[projection.contract.Address()]
-		projection = classifyAggregateProjection(
+		projection, err = classifyAggregateProjection(
+			codec,
 			projection,
 			evidence.FileMode(),
 			manageUnmanagedMatches,
 		)
-		projection = enforceAggregateProjectionOwnership(
-			projection,
-			owner,
-			ownershipEvidence,
-			ownershipConflicts,
-		)
+		if err != nil {
+			return aggregateDecision{}, err
+		}
 		if projection.kind == reconcile.AggregateBlocked {
 			blocked = true
 		}

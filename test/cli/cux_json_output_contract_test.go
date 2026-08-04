@@ -48,7 +48,7 @@ func TestCUXListOutputsJSONUsesInventoryRoute(t *testing.T) {
 	manifestPath := filepath.Join(root, "daem.toml")
 	testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
 	payload := runCUXJSON(t, []string{"list", "outputs", "--manifest", manifestPath, "--json"})
-	assertCUXJSONHeader(t, payload, 3, "list outputs", "")
+	assertCUXJSONHeader(t, payload, 4, "list outputs", "")
 	if managed, ok := payload["managed"].([]any); !ok || len(managed) != 0 {
 		t.Fatalf("payload = %#v, want empty managed inventory array", payload)
 	}

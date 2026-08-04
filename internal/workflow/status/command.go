@@ -46,7 +46,6 @@ type CommandResult struct {
 	Reconciliation    reconcile.Result
 	Diagnostics       []findings.Diagnostic
 	LockOnly          []readiness.UnsupportedProjection
-	Inventory         Inventory
 	MCPProjections    []mcpobserve.LockedProjectionObservation
 	HostRouteAttempts []durableattempt.HostRouteAttempt
 }
@@ -113,7 +112,6 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		loaded.RuntimeEnvironment,
 		loaded.Selection,
 	)
-	result.Inventory = BuildInventory(assessment.CurrentState, assessment.Reconciliation, loaded.Selection)
 	result.MCPProjections = mcpObservations
 	result.HostRouteAttempts = assessment.CurrentState.HostRouteAttempts()
 
