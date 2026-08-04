@@ -1,6 +1,9 @@
 package delegate
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestDelegatePlanDerivesCompleteRunnerPackageSet(t *testing.T) {
 	tests := []struct {
@@ -45,12 +48,39 @@ func TestDelegatePlanDerivesCompleteRunnerPackageSet(t *testing.T) {
 			},
 		},
 		{
+			name:       "npx malformed selector remains opaque",
+			runner:     RunnerNPX,
+			args:       []string{"server@"},
+			wantPolicy: PinFloating,
+		},
+		{
 			name:       "uvx from and additional package",
 			runner:     RunnerUVX,
 			args:       []string{"--from", "server==1.2.3", "--with", "helper==2.0", "server"},
 			wantPolicy: PinPinned,
 			wantRefs: []packageInput{
 				{ecosystem: EcosystemPython, name: "helper", selector: "2.0"},
+				{ecosystem: EcosystemPython, name: "server", selector: "1.2.3"},
+			},
+		},
+		{
+			name:       "uvx extras requirement is opaque",
+			runner:     RunnerUVX,
+			args:       []string{"--from", "mypy[faster-cache,reports]==1.13.0", "mypy"},
+			wantPolicy: PinFloating,
+		},
+		{
+			name:       "uvx git requirement is opaque",
+			runner:     RunnerUVX,
+			args:       []string{"--from", "git+https://github.com/httpie/cli", "http"},
+			wantPolicy: PinFloating,
+		},
+		{
+			name:       "uvx opaque additive requirement preserves known primary",
+			runner:     RunnerUVX,
+			args:       []string{"--from", "server==1.2.3", "--with", "git+https://github.com/acme/helper", "server"},
+			wantPolicy: PinFloating,
+			wantRefs: []packageInput{
 				{ecosystem: EcosystemPython, name: "server", selector: "1.2.3"},
 			},
 		},
@@ -97,6 +127,36 @@ func TestDelegatePlanDerivesCompleteRunnerPackageSet(t *testing.T) {
 			},
 		},
 		{
+			name:   "docker bare boolean flag does not consume image",
+			runner: RunnerDocker,
+			args: []string{
+				"run", "--sig-proxy", "ghcr.io/acme/server:latest",
+				"helper@sha256:" + testSHA256,
+			},
+			wantPolicy: PinFloating,
+			wantRefs: []packageInput{
+				{ecosystem: EcosystemContainer, name: "ghcr.io/acme/server", selector: "latest"},
+			},
+		},
+		{
+			name:       "docker assigned boolean flag preserves image",
+			runner:     RunnerDocker,
+			args:       []string{"run", "--sig-proxy=false", "ghcr.io/acme/server@sha256:" + testSHA256},
+			wantPolicy: PinPinned,
+			wantRefs: []packageInput{
+				{ecosystem: EcosystemContainer, name: "ghcr.io/acme/server", selector: "sha256:" + testSHA256},
+			},
+		},
+		{
+			name:       "docker attached empty option stays delegated",
+			runner:     RunnerDocker,
+			args:       []string{"run", "--entrypoint=", "ghcr.io/acme/server@sha256:" + testSHA256},
+			wantPolicy: PinPinned,
+			wantRefs: []packageInput{
+				{ecosystem: EcosystemContainer, name: "ghcr.io/acme/server", selector: "sha256:" + testSHA256},
+			},
+		},
+		{
 			name:       "docker global context option",
 			runner:     RunnerDocker,
 			args:       []string{"--context", "remote", "run", "ghcr.io/acme/server@sha256:" + testSHA256},
@@ -131,6 +191,9 @@ func TestDelegatePlanDerivesCompleteRunnerPackageSet(t *testing.T) {
 			}
 			if plan.PinPolicy() != test.wantPolicy {
 				t.Fatalf("PinPolicy() = %q, want %q", plan.PinPolicy(), test.wantPolicy)
+			}
+			if got := plan.Command().Args(); !slices.Equal(got, test.args) {
+				t.Fatalf("Command().Args() = %#v, want exact argv %#v", got, test.args)
 			}
 			refs := plan.PackageRefs()
 			if len(refs) != len(test.wantRefs) {

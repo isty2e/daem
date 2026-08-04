@@ -20,7 +20,6 @@ const (
 	MCPDelegatePlanReasonMissingPackage      MCPDelegatePlanReasonCode = "MISSING_PACKAGE"
 	MCPDelegatePlanReasonInvalidCommand      MCPDelegatePlanReasonCode = "INVALID_COMMAND"
 	MCPDelegatePlanReasonInvalidEnvReference MCPDelegatePlanReasonCode = "INVALID_ENV_REFERENCE"
-	MCPDelegatePlanReasonInvalidPackage      MCPDelegatePlanReasonCode = "INVALID_PACKAGE"
 	MCPDelegatePlanReasonInvalidPlan         MCPDelegatePlanReasonCode = "INVALID_PLAN"
 )
 
@@ -126,13 +125,6 @@ func MCPStdioDelegatePlan(stdio desiredmcp.Stdio) (delegate.DelegatePlan, error)
 					MCPDelegatePlanReasonMissingPackage,
 					command.Executable(),
 					"package-backed MCP delegate command requires a package argument",
-					err,
-				)
-			case delegate.ReasonInvalidPackageRef:
-				return delegate.DelegatePlan{}, newMCPDelegatePlanError(
-					MCPDelegatePlanReasonInvalidPackage,
-					validation.Subject(),
-					"invalid delegated package reference",
 					err,
 				)
 			}

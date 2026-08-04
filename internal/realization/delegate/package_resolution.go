@@ -51,19 +51,8 @@ func derivePackageResolution(runner Runner, command CommandSpec) (packageResolut
 		return packageResolution{}, validationError(ReasonInvalidRunnerKind, string(runner.Kind()), "unsupported runner kind")
 	}
 
-	refs := make([]PackageRef, 0, len(specs))
-	for _, spec := range specs {
-		name, selector, err := splitPackageSpec(ecosystem, spec)
-		if err != nil {
-			return packageResolution{}, err
-		}
-		ref, err := NewPackageRef(ecosystem, name, selector)
-		if err != nil {
-			return packageResolution{}, err
-		}
-		refs = append(refs, ref)
-	}
-	refs = canonicalPackageRefs(refs)
+	refs, represented := canonicalPackageRefsFromSpecs(ecosystem, specs)
+	complete = complete && represented
 	if requiresRef && len(refs) == 0 && complete {
 		return packageResolution{}, validationError(
 			ReasonMissingPackage,
@@ -72,6 +61,28 @@ func derivePackageResolution(runner Runner, command CommandSpec) (packageResolut
 		)
 	}
 	return packageResolution{refs: refs, complete: complete}, nil
+}
+
+// canonicalPackageRefsFromSpecs projects only package syntax that daem can
+// represent without changing the delegated argv. Unrepresentable syntax stays
+// opaque and lowers completeness; command validation remains a separate gate.
+func canonicalPackageRefsFromSpecs(ecosystem PackageEcosystem, specs []string) ([]PackageRef, bool) {
+	refs := make([]PackageRef, 0, len(specs))
+	complete := true
+	for _, spec := range specs {
+		name, selector, err := splitPackageSpec(ecosystem, spec)
+		if err != nil {
+			complete = false
+			continue
+		}
+		ref, err := NewPackageRef(ecosystem, name, selector)
+		if err != nil {
+			complete = false
+			continue
+		}
+		refs = append(refs, ref)
+	}
+	return canonicalPackageRefs(refs), complete
 }
 
 func packageResolutionPinPolicy(runner Runner, resolution packageResolution) PinPolicy {

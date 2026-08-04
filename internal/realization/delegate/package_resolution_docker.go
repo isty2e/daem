@@ -1,6 +1,9 @@
 package delegate
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Docker global options precede the run subcommand; run options precede the
 // image. Unknown options preserve argv but make package resolution incomplete.
@@ -30,11 +33,14 @@ func dockerImageSpec(args []string) (string, bool, bool, error) {
 			return args[index+1], true, true, nil
 		}
 		if strings.HasPrefix(arg, "--") {
-			if strings.Contains(arg, "=") {
-				if !dockerLongOptionTakesValue(strings.SplitN(arg, "=", 2)[0]) {
-					return "", false, false, nil
+			if option, value, assigned := strings.Cut(arg, "="); assigned {
+				if dockerLongOptionTakesValue(option) {
+					continue
 				}
-				continue
+				if dockerLongFlagOption(option) && dockerBooleanValue(value) {
+					continue
+				}
+				return "", false, false, nil
 			}
 			if dockerLongOptionTakesValue(arg) {
 				if index+1 >= len(args) {
@@ -90,10 +96,10 @@ func dockerRunArgumentsStart(args []string) (int, bool, error) {
 			return -1, true, nil
 		case strings.HasPrefix(arg, "--"):
 			if before, value, found := strings.Cut(arg, "="); found {
-				if value == "" && dockerGlobalOptionTakesValue(before) {
-					return -1, false, missingOptionValue(RunnerDocker, before)
+				if dockerGlobalOptionTakesValue(before) {
+					continue
 				}
-				if dockerGlobalOptionTakesValue(before) || dockerGlobalFlagOption(before) {
+				if dockerGlobalFlagOption(before) && dockerBooleanValue(value) {
 					continue
 				}
 				return -1, false, nil
@@ -157,7 +163,7 @@ func dockerLongOptionTakesValue(option string) bool {
 		"--log-driver", "--log-opt", "--mac-address", "--memory", "--memory-reservation",
 		"--memory-swap", "--memory-swappiness", "--mount", "--name", "--network", "--network-alias",
 		"--oom-score-adj", "--pid", "--pids-limit", "--platform", "--publish", "--pull", "--restart",
-		"--runtime", "--security-opt", "--shm-size", "--sig-proxy", "--stop-signal", "--stop-timeout",
+		"--runtime", "--security-opt", "--shm-size", "--stop-signal", "--stop-timeout",
 		"--storage-opt", "--sysctl", "--tmpfs", "--ulimit", "--user", "--userns", "--uts",
 		"--volume", "--volume-driver", "--volumes-from", "--workdir":
 		return true
@@ -169,10 +175,16 @@ func dockerLongOptionTakesValue(option string) bool {
 func dockerLongFlagOption(option string) bool {
 	switch option {
 	case "--detach", "--help", "--init", "--interactive", "--no-healthcheck", "--oom-kill-disable",
-		"--privileged", "--publish-all", "--quiet", "--read-only", "--rm", "--tty", "--use-api-socket":
+		"--privileged", "--publish-all", "--quiet", "--read-only", "--rm", "--sig-proxy", "--tty",
+		"--use-api-socket":
 		return true
 	}
 	return false
+}
+
+func dockerBooleanValue(value string) bool {
+	_, err := strconv.ParseBool(value)
+	return err == nil
 }
 
 func dockerGlobalOptionTakesValue(option string) bool {

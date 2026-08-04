@@ -68,6 +68,9 @@ func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 		{name: "uvx package", command: "uvx", args: []string{"mcp-server==0.4.0"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "0.4.0", wantPinPolicy: delegate.PinPinned},
 		{name: "uvx range", command: "uvx", args: []string{"mcp-server>=0.4,<1"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: ">=0.4,<1", wantPinPolicy: delegate.PinFloating},
 		{name: "uvx wildcard", command: "uvx", args: []string{"mcp-server==0.4.*"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "==0.4.*", wantPinPolicy: delegate.PinFloating},
+		{name: "uvx extras requirement", command: "uvx", args: []string{"--from", "mypy[faster-cache,reports]==1.13.0", "mypy"}, wantRunner: delegate.RunnerUVX, wantPinPolicy: delegate.PinFloating},
+		{name: "uvx git requirement", command: "uvx", args: []string{"--from", "git+https://github.com/httpie/cli", "http"}, wantRunner: delegate.RunnerUVX, wantPinPolicy: delegate.PinFloating},
+		{name: "opaque npx local spec", command: "npx", args: []string{"scope/server"}, wantRunner: delegate.RunnerNPX, wantPinPolicy: delegate.PinFloating},
 		{name: "docker tagged image", command: "docker", args: []string{"run", "--rm", "ghcr.io/acme/server:1.2.3"}, wantRunner: delegate.RunnerDocker, wantPackage: true, wantEcosystem: delegate.EcosystemContainer, wantPackageName: "ghcr.io/acme/server", wantSelector: "1.2.3", wantPinPolicy: delegate.PinFloating},
 		{name: "plain node script", command: "node", args: []string{"scripts/mcp-server.js", "--stdio"}, wantRunner: delegate.RunnerPlain, wantPinPolicy: delegate.PinNotApplicable, wantFirstArgText: "scripts/mcp-server.js"},
 	}
@@ -107,7 +110,6 @@ func TestMCPBindingDelegatePlanRejectsActionableUnsupportedForms(t *testing.T) {
 		{name: "unsupported target", server: validCodexMCPServer(t, "bad-target", target.ScopeProject), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "antigravity direct projection", server: validAntigravityMCPServer(t, "antigravity"), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "missing npx package", server: validDelegateMCPServer(t, "npx", []string{"-y"}, nil), want: mcpdelegate.MCPDelegatePlanReasonMissingPackage},
-		{name: "invalid package", server: validDelegateMCPServer(t, "npx", []string{"scope/server"}, nil), want: mcpdelegate.MCPDelegatePlanReasonInvalidPackage},
 	}
 
 	for _, test := range tests {

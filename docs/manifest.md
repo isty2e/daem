@@ -1012,9 +1012,11 @@ floating input makes the whole delegated plan floating. Opaque or unknown
 runner syntax may leave the diagnostic package set partial and always prevents
 pinned assurance. Inputs whose package contents come from an external
 requirements file likewise prevent pinned assurance because argv alone does
-not enumerate them. An exact package version constrains only that direct
-package input; it is not a transitive dependency lock or a reproducible-build
-claim.
+not enumerate them. uvx extras and direct-URL requirements that daem cannot
+losslessly project into its canonical package-reference model follow the same
+opaque, floating path while their exact argv remains unchanged. An exact
+package version constrains only that direct package input; it is not a
+transitive dependency lock or a reproducible-build claim.
 Runtime MCP checks are a separate explicit surface: `daem probe mcp-server`
 with `--dry-run` discloses the selected locked subject and side effects without
 execution, while `--yes` may launch the exact locked stdio command and attempt

@@ -102,11 +102,15 @@ func TestMarshalDelegatePinPolicyReflectsSelectorAssurance(t *testing.T) {
 		wantPolicy string
 	}{
 		{name: "npm exact", command: "npx", args: []string{"-y", "@scope/server@1.2.3"}, wantPolicy: "pinned"},
+		{name: "npm unsafe numeric", command: "npx", args: []string{"-y", "@scope/server@9007199254740992.0.0"}, wantPolicy: "floating"},
 		{name: "npm range", command: "npx", args: []string{"-y", "@scope/server@^1.2.3"}, wantPolicy: "floating"},
 		{name: "python exact", command: "uvx", args: []string{"server==1.2rc1"}, wantPolicy: "pinned"},
 		{name: "python range", command: "uvx", args: []string{"server>=1.0,<2"}, wantPolicy: "floating"},
+		{name: "python extras", command: "uvx", args: []string{"--from", "mypy[faster-cache,reports]==1.13.0", "mypy"}, wantPolicy: "floating"},
+		{name: "python git", command: "uvx", args: []string{"--from", "git+https://github.com/httpie/cli", "http"}, wantPolicy: "floating"},
 		{name: "container digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@" + digest}, wantPolicy: "pinned"},
 		{name: "container tag", command: "docker", args: []string{"run", "ghcr.io/acme/server:1.2.3"}, wantPolicy: "floating"},
+		{name: "container boolean before image", command: "docker", args: []string{"run", "--sig-proxy", "ghcr.io/acme/server:latest", "helper@" + digest}, wantPolicy: "floating"},
 		{name: "container malformed digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@sha256:abc123"}, wantPolicy: "floating"},
 	}
 
