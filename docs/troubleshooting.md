@@ -225,12 +225,14 @@ these steps. Import writes no lock or management claim. Review the generated
 declaration, run `daem lock`, and use explicit `apply --manage-existing` only
 when the resulting exact relation is eligible and intended.
 
-## Lock Exceeded The Skill-Group Expansion Limit
+## Lock Or Doctor Exceeded The Skill-Group Expansion Limit
 
 Selector-backed skill groups enumerate only direct children, but a source root
 or selector set can still demand excessive memory or matcher work. Daem rejects
 the complete lock operation when its source-root or selector-expansion budget
-is exceeded. It does not keep the subset observed before the error.
+is exceeded. `doctor` reports the same overflow as an error and omits all
+selector-expanded skill checks for that run. Neither command keeps the subset
+observed before the error.
 
 Reduce the number of skill-group declarations or source roots, split an
 unusually broad repository root into narrower roots, or replace broad

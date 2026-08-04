@@ -410,7 +410,6 @@ func TestRetainedSkillDiscoveryChecksWithoutSkillsDoNotReadState(t *testing.T) {
 		context.Background(),
 		daempaths.Paths{StatefilePath: t.TempDir()},
 		nil,
-		nil,
 		targetselection.Selection{},
 	)
 	if len(checks) != 0 {

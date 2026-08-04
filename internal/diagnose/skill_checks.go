@@ -24,7 +24,6 @@ func ManifestSkillChecks(
 	ctx context.Context,
 	paths daempaths.Paths,
 	skills []skillresource.Skill,
-	sets []skillresource.SkillSet,
 	selection targetselection.Selection,
 ) []findings.Check {
 	resolver, err := localfs.NewResolver(paths.ManifestRoot)
@@ -32,38 +31,11 @@ func ManifestSkillChecks(
 		return nil
 	}
 	checks := make([]findings.Check, 0)
-	for _, skillResource := range manifestSkillsForChecks(ctx, resolver, skills, sets) {
+	for _, skillResource := range skills {
 		checks = append(checks, skillChecks(ctx, resolver, skillResource, selection)...)
 	}
 
 	return checks
-}
-
-func manifestSkillsForChecks(
-	ctx context.Context,
-	resolver localfs.Resolver,
-	skills []skillresource.Skill,
-	sets []skillresource.SkillSet,
-) []skillresource.Skill {
-	result := append([]skillresource.Skill(nil), skills...)
-	for _, set := range sets {
-		if ctx.Err() != nil {
-			return result
-		}
-		if _, ok := set.Source().Local(); !ok {
-			continue
-		}
-		listing, err := resolver.ListSourceRoot(ctx, set.Source(), acquisition.OperationOptions{})
-		if err != nil {
-			continue
-		}
-		groupSkills, err := set.Expand(ctx, listing)
-		if err != nil {
-			continue
-		}
-		result = append(result, groupSkills...)
-	}
-	return result
 }
 
 func skillChecks(

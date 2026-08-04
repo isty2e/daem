@@ -551,6 +551,9 @@ Current implementation boundary:
   at lock-comparison time. `apply` and `status` do not inspect upstream source
   roots for new matches. Any future lock/update split requires an explicit
   documented migration; it must not be inferred from schema syntax.
+- `doctor` lists local skill-group roots once per diagnostic run and shares the
+  resulting view across compatibility and retained-discovery checks. It does
+  not resolve remote skill-group sources for those checks.
 
 Selector syntax:
 
@@ -567,7 +570,8 @@ Selector syntax:
 
 Selector-backed expansion is bounded before candidate lists or selected Skills
 can grow without limit. The limits apply to one complete skill-group listing
-and expansion phase, across all groups in that phase:
+and expansion phase, across all groups in a `lock`, `outdated`, or local
+`doctor` inspection phase:
 
 | Resource | Limit |
 | --- | ---: |
@@ -589,7 +593,9 @@ direct entry consumes the source budget, including files and links that cannot
 become selected skill directories. Includes consume selection budget when they
 first select a name; later exclusions do not refund work already performed. An
 exact limit is accepted, while the first unit beyond it fails the whole lock
-operation with no partial lockfile. Matcher work conservatively charges each
+operation with no partial lockfile. `doctor` reports the overflow as an error
+and omits selector-expanded skill checks rather than reporting a partial group
+view; direct skill checks still run. Matcher work conservatively charges each
 pattern byte against every child-name byte the matcher may scan, plus one unit
 for pattern-only work on an empty name. The charge is applied before matching,
 and cancellation is checked before and after every evaluation. These limits

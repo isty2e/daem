@@ -83,19 +83,24 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 
 	checks := []findings.Check{platformCheck, manifestCheck(paths.ManifestPath, input.ManifestExplicit, loadedManifest)}
 	if loadedManifest.ready() {
-		checks = append(checks, diagnose.HookCommandChecks(loadedManifest.facts.Hooks(), selection)...)
-		checks = append(checks, diagnose.ManifestSkillChecks(
+		manifestSkills, skillInspectionChecks := diagnose.InspectManifestSkills(
 			ctx,
 			paths,
 			loadedManifest.facts.Skills(),
 			loadedManifest.facts.SkillSets(),
+		)
+		checks = append(checks, diagnose.HookCommandChecks(loadedManifest.facts.Hooks(), selection)...)
+		checks = append(checks, skillInspectionChecks...)
+		checks = append(checks, diagnose.ManifestSkillChecks(
+			ctx,
+			paths,
+			manifestSkills,
 			selection,
 		)...)
 		checks = append(checks, diagnose.RetainedSkillDiscoveryChecks(
 			ctx,
 			paths,
-			loadedManifest.facts.Skills(),
-			loadedManifest.facts.SkillSets(),
+			manifestSkills,
 			selection,
 		)...)
 		checks = append(checks, diagnose.MCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)

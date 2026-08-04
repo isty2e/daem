@@ -11,7 +11,6 @@ import (
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/reconcile"
-	"github.com/isty2e/daem/internal/supply/source/backend/localfs"
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
@@ -38,10 +37,9 @@ func RetainedSkillDiscoveryChecks(
 	ctx context.Context,
 	paths daempaths.Paths,
 	skills []skillresource.Skill,
-	sets []skillresource.SkillSet,
 	selection targetselection.Selection,
 ) []findings.Check {
-	if len(skills) == 0 && len(sets) == 0 {
+	if len(skills) == 0 {
 		return nil
 	}
 	currentState, err := statefile.LoadOptional(ctx, paths.StatefilePath)
@@ -50,10 +48,6 @@ func RetainedSkillDiscoveryChecks(
 			"skill_discovery_state",
 			fmt.Sprintf("read managed state for skill discovery diagnostics: %v", err),
 		)}
-	}
-	resolver, err := localfs.NewResolver(paths.ManifestRoot)
-	if err == nil {
-		skills = manifestSkillsForChecks(ctx, resolver, skills, sets)
 	}
 	found := inspectRetainedSkillDiscoveries(
 		ctx,
