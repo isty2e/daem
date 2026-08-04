@@ -31,6 +31,24 @@ func TestMCPBindingDelegatePlanPreservesCanonicalProjectionFields(t *testing.T) 
 	assertPackageRef(t, plan, delegate.EcosystemNPM, "@upstash/context7-mcp", "1.2.3", delegate.PinPinned)
 }
 
+func TestMCPBindingDelegatePlanAccountsForEveryNPXPackage(t *testing.T) {
+	server := validDelegateMCPServer(
+		t,
+		"npx",
+		[]string{
+			"--package=server@1.2.3",
+			"--package=helper@latest",
+			"server",
+		},
+		nil,
+	)
+	plan := mustMCPDelegatePlan(t, server)
+
+	if got := plan.PinPolicy(); got != delegate.PinFloating {
+		t.Fatalf("PinPolicy() = %q, want floating because helper@latest also enters the execution environment", got)
+	}
+}
+
 func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -60,8 +78,8 @@ func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 			assertDelegatePlan(t, plan, test.wantRunner, test.command, test.args, "")
 			if test.wantPackage {
 				assertPackageRef(t, plan, test.wantEcosystem, test.wantPackageName, test.wantSelector, test.wantPinPolicy)
-			} else if packageRef, ok := plan.PackageRef(); ok {
-				t.Fatalf("PackageRef() = %#v, want absent", packageRef)
+			} else if packageRefs := plan.PackageRefs(); len(packageRefs) != 0 {
+				t.Fatalf("PackageRefs() = %#v, want absent", packageRefs)
 			}
 			if test.wantFirstArgText != "" && plan.Command().Args()[0] != test.wantFirstArgText {
 				t.Fatalf("first arg = %q, want %q", plan.Command().Args()[0], test.wantFirstArgText)
@@ -221,12 +239,13 @@ func assertPackageRef(
 	wantPin delegate.PinPolicy,
 ) {
 	t.Helper()
-	packageRef, ok := plan.PackageRef()
-	if !ok {
-		t.Fatalf("PackageRef() absent, want %q %q", wantEcosystem, wantName)
+	packageRefs := plan.PackageRefs()
+	if len(packageRefs) != 1 {
+		t.Fatalf("PackageRefs() = %#v, want one %q %q", packageRefs, wantEcosystem, wantName)
 	}
+	packageRef := packageRefs[0]
 	if packageRef.Ecosystem() != wantEcosystem || packageRef.Name() != wantName || packageRef.Selector() != wantSelector {
-		t.Fatalf("PackageRef() = %q %q %q, want %q %q %q", packageRef.Ecosystem(), packageRef.Name(), packageRef.Selector(), wantEcosystem, wantName, wantSelector)
+		t.Fatalf("PackageRefs()[0] = %q %q %q, want %q %q %q", packageRef.Ecosystem(), packageRef.Name(), packageRef.Selector(), wantEcosystem, wantName, wantSelector)
 	}
 	if plan.PinPolicy() != wantPin {
 		t.Fatalf("PinPolicy() = %q, want %q", plan.PinPolicy(), wantPin)

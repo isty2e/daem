@@ -19,6 +19,7 @@ func TestPackageRefDerivesSelectorAssuranceByEcosystem(t *testing.T) {
 		{name: "npm partial major", ecosystem: EcosystemNPM, selector: "1", want: selectorAssuranceFloating},
 		{name: "npm partial minor", ecosystem: EcosystemNPM, selector: "1.2", want: selectorAssuranceFloating},
 		{name: "npm exact", ecosystem: EcosystemNPM, selector: "1.2.3", want: selectorAssuranceExactVersion},
+		{name: "npm exact equality", ecosystem: EcosystemNPM, selector: "=1.2.3", want: selectorAssuranceExactVersion},
 		{name: "npm exact v prefix", ecosystem: EcosystemNPM, selector: "v1.2.3", want: selectorAssuranceExactVersion},
 		{name: "npm exact prerelease", ecosystem: EcosystemNPM, selector: "1.2.3-beta.1", want: selectorAssuranceExactVersion},
 		{name: "npm exact build", ecosystem: EcosystemNPM, selector: "1.2.3+build.7", want: selectorAssuranceExactVersion},
@@ -70,6 +71,13 @@ func TestPackageRefDerivesSelectorAssuranceByEcosystem(t *testing.T) {
 				t.Fatalf("PinPolicy() = %q, want %q", got, wantPolicy)
 			}
 		})
+	}
+}
+
+func TestPackageRefRejectsNonASCIIPythonSelector(t *testing.T) {
+	_, err := NewPackageRef(EcosystemPython, "mcp-server", "1.0+\u212a")
+	if err == nil {
+		t.Fatal("NewPackageRef accepted a non-ASCII PEP 440 selector")
 	}
 }
 

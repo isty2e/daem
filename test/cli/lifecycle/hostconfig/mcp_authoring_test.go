@@ -633,7 +633,7 @@ func TestRunAddMCPServerWarnsForFloatingPackageIdentity(t *testing.T) {
 	}
 	for _, want := range []string{
 		`warning: mcp_server "context7" uses floating delegated npm package "@upstash/context7-mcp"`,
-		"pin the package selector",
+		"pin every package selector",
 		`args = ["-y", "@upstash/context7-mcp"]`,
 		"lockfile: would write " + project.lockfilePath,
 	} {

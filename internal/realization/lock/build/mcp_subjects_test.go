@@ -65,13 +65,13 @@ func TestBuildLocksMCPServersAsExactProjectionSubjectsWithoutSourceTasks(t *test
 	if !ok {
 		t.Fatal("MCP subject is missing delegate plan")
 	}
-	delegatePackage, hasDelegatePackage := delegatePlan.PackageRef()
+	delegatePackages := delegatePlan.PackageRefs()
 	if delegatePlan.Runner().Kind() != delegate.RunnerNPX ||
 		delegatePlan.Command().Executable() != "npx" ||
 		delegatePlan.PinPolicy() != delegate.PinFloating ||
-		!hasDelegatePackage ||
-		delegatePackage.Ecosystem() != delegate.EcosystemNPM ||
-		delegatePackage.Name() != "@upstash/context7-mcp" {
+		len(delegatePackages) != 1 ||
+		delegatePackages[0].Ecosystem() != delegate.EcosystemNPM ||
+		delegatePackages[0].Name() != "@upstash/context7-mcp" {
 		t.Fatalf("delegate plan identity = %q", delegatePlan.IdentityKey())
 	}
 	projection := mustAggregateContribution(t, record)

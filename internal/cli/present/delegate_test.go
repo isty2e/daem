@@ -112,8 +112,8 @@ func TestPrintApplyResultJSONDelegateAttemptsAreHistoryOnlyDiagnostics(t *testin
 	if len(payload.DelegateAttempts) != 1 {
 		t.Fatalf("delegate_attempts = %#v, want one row", payload.DelegateAttempts)
 	}
-	if payload.SchemaVersion != 15 {
-		t.Fatalf("schema_version = %d, want 15 after extension-order execution results", payload.SchemaVersion)
+	if payload.SchemaVersion != 16 {
+		t.Fatalf("schema_version = %d, want 16 after complete delegated package-set disclosure", payload.SchemaVersion)
 	}
 	got := payload.DelegateAttempts[0]
 	if got.EvidenceKind != "last_attempt_diagnostics" ||
@@ -274,7 +274,8 @@ func TestPrintPlanJSONReportsDerivedPackagePinPolicy(t *testing.T) {
 			}
 			var payload struct {
 				DelegateActions []struct {
-					PinPolicy string `json:"pin_policy"`
+					Packages  []delegatePackageJSON `json:"packages"`
+					PinPolicy string                `json:"pin_policy"`
 				} `json:"delegate_actions"`
 			}
 			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
@@ -282,6 +283,10 @@ func TestPrintPlanJSONReportsDerivedPackagePinPolicy(t *testing.T) {
 			}
 			if len(payload.DelegateActions) != 1 || payload.DelegateActions[0].PinPolicy != test.wantPolicy {
 				t.Fatalf("delegate_actions = %#v, want pin_policy %q", payload.DelegateActions, test.wantPolicy)
+			}
+			packages := payload.DelegateActions[0].Packages
+			if len(packages) != 1 || packages[0].Ecosystem != "container" || packages[0].Name != "ghcr.io/acme/server" || packages[0].Selector != test.selector {
+				t.Fatalf("delegate packages = %#v, want complete container package projection", packages)
 			}
 		})
 	}
@@ -351,20 +356,10 @@ func delegatePackagePresentationPlan(t *testing.T, selector string) surfacedeleg
 	if err != nil {
 		t.Fatalf("NewEnvBindingSet returned error: %v", err)
 	}
-	packageRef, err := surfacedelegate.NewPackageRef(
-		surfacedelegate.EcosystemContainer,
-		"ghcr.io/acme/server",
-		selector,
-	)
-	if err != nil {
-		t.Fatalf("NewPackageRef returned error: %v", err)
-	}
 	plan, err := surfacedelegate.NewDelegatePlan(surfacedelegate.DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        env,
-		PackageRef: &packageRef,
-		PinPolicy:  packageRef.PinPolicy(),
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
@@ -387,10 +382,9 @@ func delegatePresentationPlan(t *testing.T) surfacedelegate.DelegatePlan {
 		t.Fatalf("NewEnvBindingSet returned error: %v", err)
 	}
 	plan, err := surfacedelegate.NewDelegatePlan(surfacedelegate.DelegatePlanSpec{
-		Runner:    runner,
-		Command:   command,
-		Env:       env,
-		PinPolicy: surfacedelegate.PinNotApplicable,
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)

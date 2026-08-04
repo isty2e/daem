@@ -40,7 +40,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 	})
 	for _, legacy := range []string{"[[locked.skill]]", "[[locked.hook]]", "[[locked.instructions]]", "declaration =", "skill_group_index"} {
 		if strings.Contains(rendered, legacy) {
-			t.Fatalf("rendered v5 lockfile contains legacy field %q:\n%s", legacy, rendered)
+			t.Fatalf("rendered current lockfile contains legacy field %q:\n%s", legacy, rendered)
 		}
 	}
 

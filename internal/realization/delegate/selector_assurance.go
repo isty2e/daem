@@ -52,7 +52,10 @@ func isExactNPMVersion(selector string) bool {
 	if selector == "" {
 		return false
 	}
-	candidate := selector
+	candidate := strings.TrimPrefix(selector, "=")
+	if strings.HasPrefix(candidate, "=") {
+		return false
+	}
 	if !strings.HasPrefix(candidate, "v") {
 		candidate = "v" + candidate
 	}
@@ -72,6 +75,11 @@ func isExactNPMVersion(selector string) bool {
 func isExactPythonVersion(selector string) bool {
 	if selector == "" {
 		return false
+	}
+	for _, value := range selector {
+		if value > 0x7f {
+			return false
+		}
 	}
 	if strings.HasPrefix(selector, "==") {
 		selector = strings.TrimPrefix(selector, "==")

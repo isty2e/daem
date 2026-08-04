@@ -86,7 +86,7 @@ func TestBuiltCLIEmptyManifestStatusAndApplyDryRun(t *testing.T) {
 				return
 			}
 			payload := clijson.DecodePlan(t, []byte(stdout))
-			if payload.SchemaVersion != 10 ||
+			if payload.SchemaVersion != 11 ||
 				payload.Command != scenario.jsonCommand ||
 				payload.ActionCount != 0 ||
 				len(payload.Actions) != 0 ||

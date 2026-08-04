@@ -1005,9 +1005,16 @@ Unknown or malformed selectors do not gain pinned assurance. They remain
 eligible for delegated host execution when their structured argv is otherwise
 valid, and daem does not rewrite that argv while classifying it. `add
 mcp-server` warns for floating package identity, while lock and JSON plan output
-record the same derived `pin_policy` without installing or probing the package.
-An exact package version constrains only the selected top-level package; it is
-not a transitive dependency lock or a reproducible-build claim.
+record the directly declared package inputs that daem can derive and their
+aggregate `pin_policy` without installing or probing packages. Repeated npx
+`--package` options and uvx `--with` inputs all contribute to that set; one
+floating input makes the whole delegated plan floating. Opaque or unknown
+runner syntax may leave the diagnostic package set partial and always prevents
+pinned assurance. Inputs whose package contents come from an external
+requirements file likewise prevent pinned assurance because argv alone does
+not enumerate them. An exact package version constrains only that direct
+package input; it is not a transitive dependency lock or a reproducible-build
+claim.
 Runtime MCP checks are a separate explicit surface: `daem probe mcp-server`
 with `--dry-run` discloses the selected locked subject and side effects without
 execution, while `--yes` may launch the exact locked stdio command and attempt
@@ -1404,17 +1411,21 @@ Current lock behavior:
   cross-facet correlation, unsupported exact-Supply family shapes, malformed
   exact identities or operation contracts, an `exact` managed-path projection
   without `exact_permission_mode`, and persisted values that would need
-  trimming, sorting, or deduplication to become canonical. Schema version 5 is
-  not interpreted: `status`, `apply`, and `outdated` direct the user to
-  regenerate it, while `daem lock` and transactional manifest authoring may
-  atomically replace it from the selected manifest without treating old rows
-  as current authority.
+  trimming, sorting, or deduplication to become canonical. Legacy schema
+  versions 3 through 5 are not interpreted: `status`, `apply`, and `outdated`
+  direct the user to regenerate them, while `daem lock` and transactional
+  manifest authoring may atomically replace them from the selected manifest
+  without treating old rows as current authority. Schema 3 is the lock format
+  published by daem v0.1.0. Earlier unknown schemas and future schemas are not
+  replacement-authorized; a future schema requires a newer daem.
 - Schema version 6 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- The v6 change records ecosystem-derived delegated package `pin_policy`.
-  Schema-v5 rows are not interpreted because version-like container tags and
-  package ranges may carry the old overstrong `pinned` label. The public
-  manifest remains schema version 1 and requires no authoring migration.
+- The v6 change records the canonical delegated package inputs recognized from
+  argv and an ecosystem-derived aggregate `pin_policy`. Legacy rows are not
+  interpreted because version-like container tags, package ranges, or
+  unmodeled additional package inputs may carry an overstrong `pinned` label.
+  The public manifest remains schema version 1 and requires no authoring
+  migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 

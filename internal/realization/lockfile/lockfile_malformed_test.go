@@ -18,7 +18,7 @@ type malformedLockfileCase struct {
 	wantError string
 }
 
-func TestLoadRejectsMalformedV5Lockfiles(t *testing.T) {
+func TestLoadRejectsMalformedCurrentLockfiles(t *testing.T) {
 	for _, test := range malformedCurrentLockfileCases(t) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Load(writeLockfileText(t, test.content))
@@ -41,6 +41,14 @@ func malformedCurrentLockfileCases(t *testing.T) []malformedLockfileCase {
 		directSkillSubjectContract(t, "review"),
 	))
 	mcp := marshalLockfileForTest(t, lockfileWithSubjects(t, claudeProjectMCPSubjectContract(t)))
+	multiPackageMCP := marshalLockfileForTest(t, lockfileWithSubjects(
+		t,
+		claudeProjectMCPSubjectContractForCommand(t, "context7", "npx", []string{
+			"--package=server@1.2.3",
+			"--package=helper@latest",
+			"server",
+		}),
+	))
 	carrier := marshalLockfileForTest(t, lockfileWithSubjects(
 		t,
 		lockfileClaudePluginCarrierContract(t, "marketplace", "context7@official", "context7", "context7"),
@@ -211,7 +219,31 @@ subject = []
 		{
 			name:      "delegate runner and package mismatch",
 			content:   replaceLockfileStringOnce(t, mcp, `runner_kind = "npx"`, `runner_kind = "plain"`),
-			wantError: "runner must not carry package identity",
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name: "delegate package order drift",
+			content: swapFirstTwoAdjacentArrayTableBlocks(
+				t,
+				multiPackageMCP,
+				"[[locked.subject.delegate_plan.package]]",
+			),
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name: "missing delegate package",
+			content: removeNthArrayTableBlock(
+				t,
+				multiPackageMCP,
+				"[[locked.subject.delegate_plan.package]]",
+				1,
+			),
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name:      "forged delegate pin policy",
+			content:   replaceLockfileStringOnce(t, multiPackageMCP, `pin_policy = "floating"`, `pin_policy = "pinned"`),
+			wantError: "delegate plan pin policy does not match canonical package assurance",
 		},
 		{
 			name:      "MCP entity and subject key drift",
@@ -559,6 +591,61 @@ func swapFirstTwoArrayTableBlocks(t *testing.T, content string, marker string) s
 	}
 	second := first + len(marker) + secondOffset
 	return content[:first] + content[second:] + content[first:second]
+}
+
+func swapFirstTwoAdjacentArrayTableBlocks(t *testing.T, content string, marker string) string {
+	t.Helper()
+	firstStart, firstEnd := nthArrayTableBlockBounds(t, content, marker, 0)
+	secondStart, secondEnd := nthArrayTableBlockBounds(t, content, marker, 1)
+	if firstEnd != secondStart {
+		t.Fatalf("lockfile %q tables are not adjacent:\n%s", marker, content)
+	}
+	return content[:firstStart] + content[secondStart:secondEnd] + content[firstStart:firstEnd] + content[secondEnd:]
+}
+
+func removeNthArrayTableBlock(t *testing.T, content string, marker string, occurrence int) string {
+	t.Helper()
+	start, end := nthArrayTableBlockBounds(t, content, marker, occurrence)
+	return content[:start] + content[end:]
+}
+
+func nthArrayTableBlockBounds(t *testing.T, content string, marker string, occurrence int) (int, int) {
+	t.Helper()
+	searchStart := 0
+	markerStart := -1
+	for index := 0; index <= occurrence; index++ {
+		offset := strings.Index(content[searchStart:], marker)
+		if offset < 0 {
+			t.Fatalf("lockfile content is missing %q occurrence %d:\n%s", marker, occurrence, content)
+		}
+		markerStart = searchStart + offset
+		searchStart = markerStart + len(marker)
+	}
+	start := strings.LastIndex(content[:markerStart], "\n") + 1
+	end := nextTOMLTableLineStart(content, searchStart)
+	if end < 0 {
+		end = len(content)
+	}
+	return start, end
+}
+
+func nextTOMLTableLineStart(content string, searchStart int) int {
+	for cursor := searchStart; cursor < len(content); {
+		offset := strings.IndexByte(content[cursor:], '\n')
+		if offset < 0 {
+			return -1
+		}
+		lineStart := cursor + offset + 1
+		lineEnd := len(content)
+		if lineOffset := strings.IndexByte(content[lineStart:], '\n'); lineOffset >= 0 {
+			lineEnd = lineStart + lineOffset
+		}
+		if strings.HasPrefix(strings.TrimSpace(content[lineStart:lineEnd]), "[") {
+			return lineStart
+		}
+		cursor = lineStart
+	}
+	return -1
 }
 
 func replaceFirstContentHash(t *testing.T, content string, replacement string) string {

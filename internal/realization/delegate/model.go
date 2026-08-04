@@ -58,19 +58,6 @@ func (runner Runner) fixedCommand() (string, bool) {
 	}
 }
 
-func (runner Runner) packageEcosystem() (PackageEcosystem, bool) {
-	switch runner.kind {
-	case RunnerNPX:
-		return EcosystemNPM, true
-	case RunnerUVX:
-		return EcosystemPython, true
-	case RunnerDocker:
-		return EcosystemContainer, true
-	default:
-		return "", false
-	}
-}
-
 // CommandSpec is the argv command identity for a delegated executable plan.
 type CommandSpec struct {
 	executable string
@@ -333,7 +320,14 @@ func validatePackageSelector(ecosystem PackageEcosystem, selector string) error 
 		return validationError(ReasonInvalidPackageRef, selector, "package selector contains unsupported command syntax")
 	}
 	switch ecosystem {
-	case EcosystemNPM, EcosystemPython, EcosystemContainer:
+	case EcosystemPython:
+		for _, value := range selector {
+			if value > 0x7f {
+				return validationError(ReasonInvalidPackageRef, selector, "python package selector must be ASCII")
+			}
+		}
+		return nil
+	case EcosystemNPM, EcosystemContainer:
 		return nil
 	default:
 		return validationError(ReasonInvalidPackageRef, string(ecosystem), "unsupported package ecosystem")

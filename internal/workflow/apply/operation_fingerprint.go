@@ -170,7 +170,7 @@ type delegatePlanFingerprintFacts struct {
 	Command     string
 	Args        []string
 	Env         []delegateEnvFingerprintFacts
-	Package     *delegatePackageFingerprintFacts
+	Packages    []delegatePackageFingerprintFacts
 	PinPolicy   realizationdelegate.PinPolicy
 }
 
@@ -445,12 +445,12 @@ func delegatePlanFingerprint(plan realizationdelegate.DelegatePlan) delegatePlan
 		Env:         env,
 		PinPolicy:   plan.PinPolicy(),
 	}
-	if packageRef, present := plan.PackageRef(); present {
-		facts.Package = &delegatePackageFingerprintFacts{
+	for _, packageRef := range plan.PackageRefs() {
+		facts.Packages = append(facts.Packages, delegatePackageFingerprintFacts{
 			Ecosystem: packageRef.Ecosystem(),
 			Name:      packageRef.Name(),
 			Selector:  packageRef.Selector(),
-		}
+		})
 	}
 	return facts
 }

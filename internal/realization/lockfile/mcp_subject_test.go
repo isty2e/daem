@@ -43,14 +43,14 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		`canonical_contribution = `,
 		`codec_contract = "claude-project-mcp-stdio-v1"`,
 		"[locked.subject.delegate_plan]",
-		`identity_key = "delegate:v2:`,
+		`identity_key = "delegate:v3:`,
 		`runner_kind = "npx"`,
 		`command = "npx"`,
 		`pin_policy = "floating"`,
 		"[[locked.subject.delegate_plan.env]]",
 		`name = "API_TOKEN"`,
 		`source_name = "CONTEXT7_API_TOKEN"`,
-		"[locked.subject.delegate_plan.package]",
+		"[[locked.subject.delegate_plan.package]]",
 		`ecosystem = "npm"`,
 		`name = "@upstash/context7-mcp"`,
 	})
@@ -130,6 +130,37 @@ func TestMarshalDelegatePinPolicyReflectsSelectorAssurance(t *testing.T) {
 				t.Fatalf("loaded pin policy = %q, %t, want %q", plan.PinPolicy(), ok, test.wantPolicy)
 			}
 		})
+	}
+}
+
+func TestMarshalAndLoadPreservesEveryDelegatedPackageInput(t *testing.T) {
+	contract := claudeProjectMCPSubjectContractForCommand(t, "context7", "npx", []string{
+		"--package=server@1.2.3",
+		"--package=helper@latest",
+		"server",
+	})
+	content, err := Marshal(lockfileWithSubjects(t, contract))
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if got := strings.Count(string(content), "[[locked.subject.delegate_plan.package]]"); got != 2 {
+		t.Fatalf("delegated package tables = %d, want 2:\n%s", got, content)
+	}
+	if !strings.Contains(string(content), `pin_policy = "floating"`) {
+		t.Fatalf("multi-package lockfile does not record aggregate floating assurance:\n%s", content)
+	}
+
+	loaded, err := Load(writeLockfileText(t, string(content)))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	plan, ok := loaded.Locked.Subjects()[0].DelegatePlan()
+	if !ok {
+		t.Fatal("loaded contract is missing delegate plan")
+	}
+	refs := plan.PackageRefs()
+	if len(refs) != 2 || refs[0].Name() != "helper" || refs[1].Name() != "server" {
+		t.Fatalf("loaded package refs = %#v, want canonical helper/server set", refs)
 	}
 }
 

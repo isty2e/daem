@@ -28,7 +28,7 @@ name = "oracle"
 source = { git = "https://github.com/owner/repo.git", path = "skills/oracle", ref = "main" }
 targets = ["codex"]
 `)
-	testkit.WriteFile(t, tempDir, "daem.lock.toml", "lock stays\n")
+	testkit.WriteFile(t, tempDir, "daem.lock.toml", "version = 5\n\n[locked]\n")
 	testkit.WriteFile(t, filepath.Dir(statefilePath), filepath.Base(statefilePath), "state stays\n")
 	testkit.WriteFile(t, filepath.Dir(hostSkillPath), filepath.Base(hostSkillPath), "host stays\n")
 

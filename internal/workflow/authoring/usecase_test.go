@@ -330,7 +330,8 @@ source = { path = "skills/missing-review", mode = "vendor" }
 targets = ["codex"]
 `
 	writeTestFile(t, tempDir, "daem.toml", original)
-	writeTestFile(t, tempDir, "daem.lock.toml", "lock stays\n")
+	const originalLockfile = "version = 6\n\n[locked]\n"
+	writeTestFile(t, tempDir, "daem.lock.toml", originalLockfile)
 
 	_, err := RemoveSkill(context.Background(), ExecutionOptions{
 		ManifestPath: manifestPath,
@@ -350,8 +351,79 @@ targets = ["codex"]
 		t.Fatalf("err = %v, want lock prospective manifest diagnostic", err)
 	}
 	assertFileContent(t, manifestPath, original)
-	assertFileContent(t, lockfilePath, "lock stays\n")
+	assertFileContent(t, lockfilePath, originalLockfile)
 	assertNoApplyStateOrJournal(t, manifestPath)
+}
+
+func TestAuthoringOperationRejectsFutureLockfileBeforeTransactionalWrite(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	originalManifest := "version = 1\ntargets = [\"claude-code\"]\n"
+	futureLockfile := "version = 7\nfuture_payload = \"preserve\"\n"
+	writeTestFile(t, tempDir, "daem.toml", originalManifest)
+	writeTestFile(t, tempDir, "daem.lock.toml", futureLockfile)
+
+	_, err := AddMCPServer(context.Background(), ExecutionOptions{
+		ManifestPath: manifestPath,
+		Mode:         AuthoringModeWrite,
+	}, AddMCPServerRequest{
+		Name:    "context7",
+		Command: "npx",
+		Args:    []string{"-y", "@upstash/context7-mcp@1.2.3"},
+	})
+	if err == nil {
+		t.Fatal("AddMCPServer returned nil error")
+	}
+	var operationErr OperationError
+	if !errors.As(err, &operationErr) {
+		t.Fatalf("err = %T, want OperationError", err)
+	}
+	if operationErr.Phase != OperationPhaseBuildLockfile {
+		t.Fatalf("phase = %q, want %q", operationErr.Phase, OperationPhaseBuildLockfile)
+	}
+	for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("err = %q, want %q", err, want)
+		}
+	}
+	assertFileContent(t, manifestPath, originalManifest)
+	assertFileContent(t, lockfilePath, futureLockfile)
+	assertNoApplyStateOrJournal(t, manifestPath)
+}
+
+func TestAuthoringOperationReplacesReleasedSchemaV3WithoutInterpretingItsBody(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	originalManifest := "version = 1\ntargets = [\"claude-code\"]\n"
+	writeTestFile(t, tempDir, "daem.toml", originalManifest)
+	writeTestFile(t, tempDir, "daem.lock.toml", "version = 3\nlegacy_payload = { malformed = [\n")
+
+	result, err := AddMCPServer(context.Background(), ExecutionOptions{
+		ManifestPath: manifestPath,
+		Mode:         AuthoringModeWrite,
+	}, AddMCPServerRequest{
+		Name:    "context7",
+		Command: "npx",
+		Args:    []string{"-y", "@upstash/context7-mcp@1.2.3"},
+	})
+	if err != nil {
+		t.Fatalf("AddMCPServer returned error: %v", err)
+	}
+	if result.Lockfile.Status() != LockfileStatusWritten {
+		t.Fatalf("lockfile status = %q, want %q", result.Lockfile.Status(), LockfileStatusWritten)
+	}
+	content, err := os.ReadFile(lockfilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(content), "version = 6\n") {
+		t.Fatalf("written lockfile does not use current schema:\n%s", content)
+	}
+	if strings.Contains(string(content), "legacy_payload") {
+		t.Fatalf("written lockfile retained opaque legacy content:\n%s", content)
+	}
 }
 
 func TestOpenCodeMCPAuthoringSourceResolutionLockFailureLeavesFilesUnchanged(t *testing.T) {
@@ -367,7 +439,8 @@ source = { path = "skills/missing-review", mode = "vendor" }
 targets = ["codex"]
 `
 	writeTestFile(t, tempDir, "daem.toml", original)
-	writeTestFile(t, tempDir, "daem.lock.toml", "lock stays\n")
+	const originalLockfile = "version = 6\n\n[locked]\n"
+	writeTestFile(t, tempDir, "daem.lock.toml", originalLockfile)
 
 	_, err := AddMCPServer(context.Background(), ExecutionOptions{
 		ManifestPath: manifestPath,
@@ -397,7 +470,7 @@ targets = ["codex"]
 		}
 	}
 	assertFileContent(t, manifestPath, original)
-	assertFileContent(t, lockfilePath, "lock stays\n")
+	assertFileContent(t, lockfilePath, originalLockfile)
 	assertNoApplyStateOrJournal(t, manifestPath)
 }
 

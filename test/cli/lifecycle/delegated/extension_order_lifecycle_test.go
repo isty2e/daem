@@ -599,7 +599,7 @@ func runExtensionOrderApply(
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-	if payload.SchemaVersion != 15 || payload.HasErrors || len(payload.Errors) != 0 {
+	if payload.SchemaVersion != 16 || payload.HasErrors || len(payload.Errors) != 0 {
 		t.Fatalf("apply payload = %#v", payload)
 	}
 	return payload

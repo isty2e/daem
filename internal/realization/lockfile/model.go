@@ -156,13 +156,13 @@ type replayExclusionDTO struct {
 }
 
 type delegatePlanDTO struct {
-	IdentityKey string              `toml:"identity_key"`
-	RunnerKind  string              `toml:"runner_kind"`
-	Command     string              `toml:"command"`
-	Args        []string            `toml:"args,omitempty"`
-	Env         []delegateEnvDTO    `toml:"env,omitempty"`
-	Package     *delegatePackageDTO `toml:"package,omitempty"`
-	PinPolicy   string              `toml:"pin_policy"`
+	IdentityKey string               `toml:"identity_key"`
+	RunnerKind  string               `toml:"runner_kind"`
+	Command     string               `toml:"command"`
+	Args        []string             `toml:"args,omitempty"`
+	Env         []delegateEnvDTO     `toml:"env,omitempty"`
+	Packages    []delegatePackageDTO `toml:"package,omitempty"`
+	PinPolicy   string               `toml:"pin_policy"`
 }
 
 type delegateEnvDTO struct {

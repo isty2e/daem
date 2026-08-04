@@ -69,7 +69,7 @@ func TestMCPServerAddBehaviorWarnsForFloatingDelegatePackage(t *testing.T) {
 		`mcp_server "context7"`,
 		"floating delegated npm package",
 		`"@upstash/context7-mcp"`,
-		"pin the package selector",
+		"pin every package selector",
 	} {
 		if !strings.Contains(warning, want) {
 			t.Fatalf("warning = %q, want %q", warning, want)

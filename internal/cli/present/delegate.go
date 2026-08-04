@@ -50,7 +50,7 @@ type delegateActionJSON struct {
 	Args             []string                 `json:"args"`
 	EnvBindings      []delegateEnvBindingJSON `json:"env_bindings"`
 	Environment      string                   `json:"environment"`
-	Package          *delegatePackageJSON     `json:"package,omitempty"`
+	Packages         []delegatePackageJSON    `json:"packages,omitempty"`
 	PinPolicy        string                   `json:"pin_policy"`
 	TimeoutSeconds   int                      `json:"timeout_seconds"`
 	Risks            []delegateRiskJSON       `json:"risks"`
@@ -135,8 +135,8 @@ func PrintDelegateActionsWithOptions(output io.Writer, actions []reconcile.Deleg
 			plan.PinPolicy(),
 			delegateTimeoutPolicy(),
 		)
-		if packageRef, present := plan.PackageRef(); present {
-			fmt.Fprintf(output, " package=%q", delegatePackageString(packageRef))
+		if packageRefs := plan.PackageRefs(); len(packageRefs) > 0 {
+			fmt.Fprintf(output, " packages=%s", delegatePackageList(packageRefs))
 		}
 		if risks := delegateRiskList(action.Risks()); risks != "" {
 			fmt.Fprintf(output, " risks=%s", risks)
@@ -200,7 +200,6 @@ func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSO
 	for _, action := range actions {
 		plan := action.Plan()
 		command := plan.Command()
-		packageRef, hasPackage := plan.PackageRef()
 		result = append(result, delegateActionJSON{
 			Subject:          subjectIDJSON(action.Subject()),
 			Target:           string(action.Target()),
@@ -214,7 +213,7 @@ func delegateJSONActions(actions []reconcile.DelegateAction) []delegateActionJSO
 			Args:             command.Args(),
 			EnvBindings:      delegateJSONEnvBindings(plan.Env().Bindings()),
 			Environment:      subprocess.ChildEnvironmentInheritancePolicy,
-			Package:          delegateJSONPackage(packageRef, hasPackage),
+			Packages:         delegateJSONPackages(plan.PackageRefs()),
 			PinPolicy:        string(plan.PinPolicy()),
 			TimeoutSeconds:   int(delegate.DefaultTimeout / time.Second),
 			Risks:            delegateJSONRisks(action.Risks()),
@@ -264,18 +263,16 @@ func delegateJSONAttempts(results []DelegateAttemptInput) []delegateAttemptJSON 
 	return rows
 }
 
-func delegateJSONPackage(
-	pkg realizationdelegate.PackageRef,
-	present bool,
-) *delegatePackageJSON {
-	if !present {
-		return nil
+func delegateJSONPackages(values []realizationdelegate.PackageRef) []delegatePackageJSON {
+	result := make([]delegatePackageJSON, 0, len(values))
+	for _, pkg := range values {
+		result = append(result, delegatePackageJSON{
+			Ecosystem: string(pkg.Ecosystem()),
+			Name:      pkg.Name(),
+			Selector:  pkg.Selector(),
+		})
 	}
-	return &delegatePackageJSON{
-		Ecosystem: string(pkg.Ecosystem()),
-		Name:      pkg.Name(),
-		Selector:  pkg.Selector(),
-	}
+	return result
 }
 
 func delegateJSONRisks(risks []reconcile.DelegateRisk) []delegateRiskJSON {
@@ -330,6 +327,14 @@ func delegatePackageString(pkg realizationdelegate.PackageRef) string {
 		value += "@" + pkg.Selector()
 	}
 	return value
+}
+
+func delegatePackageList(values []realizationdelegate.PackageRef) string {
+	packages := make([]string, 0, len(values))
+	for _, value := range values {
+		packages = append(packages, strconv.Quote(delegatePackageString(value)))
+	}
+	return "[" + strings.Join(packages, ",") + "]"
 }
 
 func delegateRiskList(risks []reconcile.DelegateRisk) string {

@@ -419,7 +419,7 @@ targets = ["codex"]
 source = "instructions/AGENTS.md"
 targets = ["codex"]
 `)
-	testkit.WriteFile(t, tempDir, "daem.lock.toml", "lock stays\n")
+	testkit.WriteFile(t, tempDir, "daem.lock.toml", "version = 5\n\n[locked]\n")
 	testkit.WriteFile(t, tempDir, "AGENTS.md", "host stays\n")
 
 	var stdout bytes.Buffer

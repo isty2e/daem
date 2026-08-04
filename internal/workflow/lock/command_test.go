@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -135,6 +136,66 @@ targets = ["codex"]
 	}
 	if loaded.Version != 6 {
 		t.Fatalf("replaced lockfile version = %d, want 6", loaded.Version)
+	}
+}
+
+func TestRunLockReplacesReleasedSchemaV3WithoutInterpretingPriorContents(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	writeWorkflowTestFile(t, tempDir, "instructions/project.md", "project instructions\n")
+	writeWorkflowTestFile(t, tempDir, "daem.toml", `version = 1
+targets = ["codex"]
+
+[instructions.project]
+source = "instructions/project.md"
+targets = ["codex"]
+`)
+	const released = "version = 3\nlegacy_payload = \"unread\"\n"
+	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", released)
+
+	result, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("RunLock returned error: %v", err)
+	}
+	if !result.PreviousFound {
+		t.Fatal("PreviousFound = false for replaced released schema-v3 lockfile")
+	}
+	loaded, err := lockfile.Load(lockfilePath)
+	if err != nil {
+		t.Fatalf("Load replaced lockfile returned error: %v", err)
+	}
+	if loaded.Version != 6 {
+		t.Fatalf("replaced lockfile version = %d, want 6", loaded.Version)
+	}
+}
+
+func TestRunLockRejectsFutureSchemaWithoutInterpretingOrReplacingIt(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+	const future = "version = 7\nfuture_payload = { malformed = [\n"
+	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", future)
+
+	for _, dryRun := range []bool{true, false} {
+		_, err := RunLock(context.Background(), LockInput{
+			ManifestPath: manifestPath,
+			DryRun:       dryRun,
+		})
+		if err == nil {
+			t.Fatalf("RunLock(dry-run=%t) returned nil error", dryRun)
+		}
+		for _, want := range []string{"unsupported lockfile version 7", "newer daem"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("RunLock(dry-run=%t) error = %q, want %q", dryRun, err, want)
+			}
+		}
+		if got, readErr := os.ReadFile(lockfilePath); readErr != nil || string(got) != future {
+			t.Fatalf("future lockfile after RunLock(dry-run=%t) = %q, %v", dryRun, got, readErr)
+		}
 	}
 }
 

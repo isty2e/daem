@@ -47,7 +47,7 @@ func TestMCPPublicCLIApplyDelegatedRouteDryRunDisclosesDelegateActionWithoutAtte
 		`environment=inherit`,
 		`pin=floating`,
 		`timeout=30s`,
-		`package="npm:@upstash/context7-mcp"`,
+		`packages=["npm:@upstash/context7-mcp"]`,
 		`dry_run_disclosure`,
 		`external_store`,
 		`floating_package`,
@@ -115,12 +115,12 @@ func TestMCPPublicCLIApplyDelegatedRouteDryRunDisclosesPackageBackedWarnings(t *
 			}
 			action := payload.DelegateActions[0]
 			assertMCPDelegateActionDisclosure(t, action, "skipped", "skip", false, test.wantRunner, test.spec)
-			if action.Package == nil ||
-				action.Package.Ecosystem != test.wantEcosystem ||
-				action.Package.Name != test.wantPackage ||
-				action.Package.Selector != test.wantSelector ||
+			if len(action.Packages) != 1 ||
+				action.Packages[0].Ecosystem != test.wantEcosystem ||
+				action.Packages[0].Name != test.wantPackage ||
+				action.Packages[0].Selector != test.wantSelector ||
 				action.PinPolicy != "floating" {
-				t.Fatalf("delegate action package = %#v pin=%q, want %s:%s@%s floating", action.Package, action.PinPolicy, test.wantEcosystem, test.wantPackage, test.wantSelector)
+				t.Fatalf("delegate action packages = %#v pin=%q, want %s:%s@%s floating", action.Packages, action.PinPolicy, test.wantEcosystem, test.wantPackage, test.wantSelector)
 			}
 			assertMCPDelegateActionRisk(t, action, "dry_run_disclosure", "info")
 			assertMCPDelegateActionRisk(t, action, "external_store", "warn")
@@ -555,11 +555,11 @@ func assertMCPDelegateActionDisclosure(
 		}
 	}
 	if spec.Command == "npx" {
-		if action.Package == nil ||
-			action.Package.Ecosystem != "npm" ||
-			action.Package.Name != "@upstash/context7-mcp" ||
+		if len(action.Packages) != 1 ||
+			action.Packages[0].Ecosystem != "npm" ||
+			action.Packages[0].Name != "@upstash/context7-mcp" ||
 			action.PinPolicy != "floating" {
-			t.Fatalf("delegate action package = %#v pin=%q, want floating npm package", action.Package, action.PinPolicy)
+			t.Fatalf("delegate action packages = %#v pin=%q, want floating npm package", action.Packages, action.PinPolicy)
 		}
 	}
 }

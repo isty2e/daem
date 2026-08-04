@@ -60,6 +60,44 @@ targets = ["codex"]
 	assertPathMissing(t, filepath.Join(tempDir, ".daem"))
 }
 
+func TestBuildLockfileChangeRejectsFutureLockfileWithoutReplacingIt(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	manifest := "version = 1\ntargets = [\"codex\"]\n"
+	futureLockfile := "version = 7\nfuture_payload = \"preserve\"\n"
+	writeTestFile(t, tempDir, "daem.toml", manifest)
+	writeTestFile(t, tempDir, "daem.lock.toml", futureLockfile)
+
+	_, err := BuildLockfileChange(context.Background(), LockfileChangeInput{
+		ManifestPath:  manifestPath,
+		ManifestBytes: []byte(manifest),
+	})
+	if err == nil || !strings.Contains(err.Error(), "unsupported lockfile version 7") {
+		t.Fatalf("BuildLockfileChange error = %v, want future-schema rejection", err)
+	}
+	assertFileContent(t, lockfilePath, futureLockfile)
+}
+
+func TestBuildLockfileChangeRejectsMalformedCurrentLockfileWithoutReplacingIt(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	manifest := "version = 1\ntargets = [\"codex\"]\n"
+	malformedCurrent := "version = 6\nunknown_current_authority = true\n"
+	writeTestFile(t, tempDir, "daem.toml", manifest)
+	writeTestFile(t, tempDir, "daem.lock.toml", malformedCurrent)
+
+	_, err := BuildLockfileChange(context.Background(), LockfileChangeInput{
+		ManifestPath:  manifestPath,
+		ManifestBytes: []byte(manifest),
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown lockfile key") {
+		t.Fatalf("BuildLockfileChange error = %v, want strict current-schema rejection", err)
+	}
+	assertFileContent(t, lockfilePath, malformedCurrent)
+}
+
 func TestBuildLockfileChangePreservesSelectedManifestOrigin(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestRoot := filepath.Join(tempDir, "config", "daem")

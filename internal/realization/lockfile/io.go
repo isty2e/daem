@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
@@ -11,6 +12,8 @@ import (
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
 )
+
+const minimumRegenerableVersion = 3
 
 // UnsupportedVersionError reports a lock schema that this reader cannot use.
 type UnsupportedVersionError struct {
@@ -26,13 +29,22 @@ func (err UnsupportedVersionError) Error() string {
 			err.Supported,
 		)
 	}
+	if err.Found > err.Supported {
+		return fmt.Sprintf(
+			"unsupported lockfile version %d; lockfile was written by a newer daem (supported schema version %d)",
+			err.Found,
+			err.Supported,
+		)
+	}
 	return fmt.Sprintf("unsupported lockfile version %d", err.Found)
 }
 
 // RelockSupported reports whether the lock workflow may replace this exact
 // prior schema without interpreting its contents.
 func (err UnsupportedVersionError) RelockSupported() bool {
-	return err.Found == 5 && err.Supported == 6
+	return err.Supported == lock.CurrentVersion &&
+		err.Found >= minimumRegenerableVersion &&
+		err.Found < err.Supported
 }
 
 // Load reads an daem.lock.toml file.
@@ -41,22 +53,79 @@ func Load(path string) (lock.File, error) {
 	if err != nil {
 		return lock.File{}, err
 	}
-	if !utf8.Valid(content) {
-		return lock.File{}, fmt.Errorf("lockfile is not valid UTF-8")
-	}
+	return loadContent(content)
+}
 
+// ValidateReplacementContent verifies that existing lockfile bytes may be
+// replaced by a newly generated current lockfile. Current content remains
+// strict; explicitly supported legacy schemas are treated as opaque.
+func ValidateReplacementContent(content []byte) error {
+	version, err := lockfileVersion(content)
+	if err != nil {
+		return err
+	}
+	if version == lock.CurrentVersion {
+		_, err := loadCurrentContent(content)
+		return err
+	}
+	versionErr := UnsupportedVersionError{Found: version, Supported: lock.CurrentVersion}
+	if versionErr.RelockSupported() {
+		return nil
+	}
+	return versionErr
+}
+
+func loadContent(content []byte) (lock.File, error) {
+	version, err := lockfileVersion(content)
+	if err != nil {
+		return lock.File{}, err
+	}
+	if version != lock.CurrentVersion {
+		return lock.File{}, UnsupportedVersionError{
+			Found:     version,
+			Supported: lock.CurrentVersion,
+		}
+	}
+	return loadCurrentContent(content)
+}
+
+func lockfileVersion(content []byte) (int, error) {
+	if !utf8.Valid(content) {
+		return 0, fmt.Errorf("lockfile is not valid UTF-8")
+	}
+	text := strings.TrimPrefix(string(content), "\uFEFF")
+	var envelope string
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		envelope = line
+		break
+	}
+	if envelope == "" {
+		return 0, fmt.Errorf("lockfile version envelope is required")
+	}
+	var header struct {
+		Version int `toml:"version"`
+	}
+	metadata, err := toml.Decode(envelope, &header)
+	if err != nil {
+		return 0, err
+	}
+	if len(metadata.Undecoded()) != 0 || header.Version <= 0 {
+		return 0, fmt.Errorf("lockfile must begin with a version = N envelope")
+	}
+	return header.Version, nil
+}
+
+func loadCurrentContent(content []byte) (lock.File, error) {
 	var header struct {
 		Version int `toml:"version"`
 	}
 	headerMetadata, err := toml.Decode(string(content), &header)
 	if err != nil {
 		return lock.File{}, err
-	}
-	if header.Version != lock.CurrentVersion {
-		return lock.File{}, UnsupportedVersionError{
-			Found:     header.Version,
-			Supported: lock.CurrentVersion,
-		}
 	}
 	if err := validateLockedShapes(&headerMetadata); err != nil {
 		return lock.File{}, err

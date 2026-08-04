@@ -452,7 +452,7 @@ func resultDelegatePlan(t *testing.T) delegate.DelegatePlan {
 		t.Fatal(err)
 	}
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner: runner, Command: command, Env: env, PinPolicy: delegate.PinNotApplicable,
+		Runner: runner, Command: command, Env: env,
 	})
 	if err != nil {
 		t.Fatal(err)

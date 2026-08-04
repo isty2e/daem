@@ -406,7 +406,7 @@ func testDelegatePlan(t *testing.T, commandName string, args []string, env []str
 	}
 	envBindings := testDelegateEnvBindings(t, envValues)
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner: runner, Command: command, Env: envBindings, PinPolicy: delegate.PinNotApplicable,
+		Runner: runner, Command: command, Env: envBindings,
 	})
 	if err != nil {
 		t.Fatal(err)

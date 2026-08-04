@@ -94,10 +94,9 @@ func testDelegatePlan(
 		t.Fatalf("NewEnvBindingSet returned error: %v", err)
 	}
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner:    runner,
-		Command:   command,
-		Env:       envSet,
-		PinPolicy: delegate.PinNotApplicable,
+		Runner:  runner,
+		Command: command,
+		Env:     envSet,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)

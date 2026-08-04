@@ -62,7 +62,7 @@ func TestRunAddHookYesWritesManifestOnlyWithLockOnlyWarnings(t *testing.T) {
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	hostPath := filepath.Join(tempDir, ".config", "opencode", "opencode.json")
 	testkit.WriteFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"opencode\", \"pi\"]\n")
-	testkit.WriteFile(t, tempDir, "daem.lock.toml", "lock stays\n")
+	testkit.WriteFile(t, tempDir, "daem.lock.toml", "version = 5\n\n[locked]\n")
 	testkit.WriteFile(t, filepath.Dir(hostPath), filepath.Base(hostPath), "{}\n")
 
 	var stdout bytes.Buffer

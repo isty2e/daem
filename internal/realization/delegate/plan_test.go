@@ -40,7 +40,7 @@ func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
 			name:    "uvx package",
 			runner:  RunnerUVX,
 			command: "uvx",
-			args:    []string{"mcp-server"},
+			args:    []string{"mcp-server==0.4.0"},
 			pkg:     &packageInput{ecosystem: EcosystemPython, name: "mcp-server", selector: "0.4.0"},
 			pin:     PinPinned,
 		},
@@ -48,7 +48,7 @@ func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
 			name:    "docker image",
 			runner:  RunnerDocker,
 			command: "docker",
-			args:    []string{"run", "ghcr.io/acme/mcp-server"},
+			args:    []string{"run", "ghcr.io/acme/mcp-server@" + containerDigest},
 			pkg:     &packageInput{ecosystem: EcosystemContainer, name: "ghcr.io/acme/mcp-server", selector: containerDigest},
 			pin:     PinPinned,
 		},
@@ -76,8 +76,8 @@ func TestDelegatePlanConstructsSupportedForms(t *testing.T) {
 			if test.needsEnv != "" && !slices.Contains(plan.Env().SourceNames(), test.needsEnv) {
 				t.Fatalf("Env().SourceNames() = %#v, want %q", plan.Env().SourceNames(), test.needsEnv)
 			}
-			if !strings.HasPrefix(plan.IdentityKey(), "delegate:v2:") {
-				t.Fatalf("IdentityKey() = %q, want delegate:v2 prefix", plan.IdentityKey())
+			if !strings.HasPrefix(plan.IdentityKey(), "delegate:v3:") {
+				t.Fatalf("IdentityKey() = %q, want delegate:v3 prefix", plan.IdentityKey())
 			}
 		})
 	}
@@ -145,93 +145,21 @@ func TestDelegatePlanRejectsInvalidStatesWithReasons(t *testing.T) {
 		_, err := NewPackageRef(EcosystemContainer, "server:latest", "")
 		return err
 	})
-	assertReason(t, ReasonInvalidPinPolicy, func() error {
-		runner := mustRunner(t, RunnerPlain)
-		command := mustCommand(t, "node", nil)
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:    runner,
-			Command:   command,
-			PinPolicy: PinPolicy("unknown"),
-		})
-		return err
-	})
 	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		pkg := mustPackage(t, EcosystemNPM, "server", "")
 		runner := mustRunner(t, RunnerNPX)
 		command := mustCommand(t, "node", nil)
 		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:     runner,
-			Command:    command,
-			PackageRef: &pkg,
-			PinPolicy:  PinFloating,
+			Runner:  runner,
+			Command: command,
 		})
 		return err
 	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
+	assertReason(t, ReasonMissingPackage, func() error {
 		runner := mustRunner(t, RunnerNPX)
-		command := mustCommand(t, "npx", []string{"server"})
+		command := mustCommand(t, "npx", []string{"-y"})
 		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:    runner,
-			Command:   command,
-			PinPolicy: PinFloating,
-		})
-		return err
-	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		pkg := mustPackage(t, EcosystemPython, "server", "")
-		runner := mustRunner(t, RunnerNPX)
-		command := mustCommand(t, "npx", []string{"server"})
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:     runner,
-			Command:    command,
-			PackageRef: &pkg,
-			PinPolicy:  PinFloating,
-		})
-		return err
-	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		pkg := mustPackage(t, EcosystemNPM, "server", "")
-		runner := mustRunner(t, RunnerPlain)
-		command := mustCommand(t, "node", nil)
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:     runner,
-			Command:    command,
-			PackageRef: &pkg,
-			PinPolicy:  PinFloating,
-		})
-		return err
-	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		runner := mustRunner(t, RunnerHostNative)
-		command := mustCommand(t, "claude", []string{"plugin", "install", "foo"})
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:    runner,
-			Command:   command,
-			PinPolicy: PinNotApplicable,
-		})
-		return err
-	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		pkg := mustPackage(t, EcosystemNPM, "server", "^1.2.3")
-		runner := mustRunner(t, RunnerNPX)
-		command := mustCommand(t, "npx", []string{"server@^1.2.3"})
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:     runner,
-			Command:    command,
-			PackageRef: &pkg,
-			PinPolicy:  PinPinned,
-		})
-		return err
-	})
-	assertReason(t, ReasonInvalidDelegatePlan, func() error {
-		pkg := mustPackage(t, EcosystemNPM, "server", "1.2.3")
-		runner := mustRunner(t, RunnerNPX)
-		command := mustCommand(t, "npx", []string{"server@1.2.3"})
-		_, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:     runner,
-			Command:    command,
-			PackageRef: &pkg,
-			PinPolicy:  PinFloating,
+			Runner:  runner,
+			Command: command,
 		})
 		return err
 	})
@@ -266,6 +194,11 @@ func TestDelegatePlanKeyIsStableAndImmutable(t *testing.T) {
 	returnedEnv[0] = EnvBinding{}
 	if !slices.Equal(plan.Env().SourceNames(), []string{"A_TOKEN", "Z_TOKEN"}) {
 		t.Fatalf("env bindings mutated through accessor slice: %#v", plan.Env().SourceNames())
+	}
+	returnedPackages := plan.PackageRefs()
+	returnedPackages[0] = PackageRef{}
+	if got := plan.PackageRefs()[0].Name(); got != "server" {
+		t.Fatalf("package refs mutated through accessor slice: %q", got)
 	}
 
 	changedArg := mustPlan(t, RunnerNPX, "npx", []string{"server@1.0.0"}, []string{"A_TOKEN", "Z_TOKEN"}, pkg, PinPinned)
@@ -355,7 +288,7 @@ func TestDelegatePlanRejectsZeroAndForgedNonCanonicalState(t *testing.T) {
 	}
 
 	hiddenPackage := valid
-	hiddenPackage.packageRef = mustPackage(t, EcosystemNPM, "hidden", "1.0.0")
+	hiddenPackage.packageRefs = []PackageRef{mustPackage(t, EcosystemNPM, "hidden", "1.0.0")}
 	if err := hiddenPackage.Validate(); err == nil {
 		t.Fatal("DelegatePlan with hidden package state unexpectedly validated")
 	}
@@ -410,10 +343,9 @@ func TestDelegatePlanKeyIncludesChildAndSourceEnvironmentNames(t *testing.T) {
 	}
 	plan := func(env EnvBindingSet) DelegatePlan {
 		value, err := NewDelegatePlan(DelegatePlanSpec{
-			Runner:    mustRunner(t, RunnerPlain),
-			Command:   mustCommand(t, "node", []string{"server.js"}),
-			Env:       env,
-			PinPolicy: PinNotApplicable,
+			Runner:  mustRunner(t, RunnerPlain),
+			Command: mustCommand(t, "node", []string{"server.js"}),
+			Env:     env,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -467,20 +399,21 @@ func mustPlan(t *testing.T, kind RunnerKind, commandName string, args []string, 
 	runner := mustRunner(t, kind)
 	command := mustCommand(t, commandName, args)
 	envRefs := mustEnv(t, env)
-	var packageRef *PackageRef
-	if pkgInput != nil {
-		ref := mustPackage(t, pkgInput.ecosystem, pkgInput.name, pkgInput.selector)
-		packageRef = &ref
-	}
 	plan, err := NewDelegatePlan(DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        envRefs,
-		PackageRef: packageRef,
-		PinPolicy:  pin,
+		Runner:  runner,
+		Command: command,
+		Env:     envRefs,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegatePlan() error = %v", err)
+	}
+	if plan.PinPolicy() != pin {
+		t.Fatalf("NewDelegatePlan() pin policy = %q, want %q", plan.PinPolicy(), pin)
+	}
+	refs := plan.PackageRefs()
+	if pkgInput != nil && (len(refs) != 1 || refs[0].Ecosystem() != pkgInput.ecosystem ||
+		refs[0].Name() != pkgInput.name || refs[0].Selector() != pkgInput.selector) {
+		t.Fatalf("NewDelegatePlan() packages = %#v, want %#v", refs, *pkgInput)
 	}
 	return plan
 }
