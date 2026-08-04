@@ -113,6 +113,48 @@ func TestContributionSetSeparatesSharedAndExclusiveProjectionCardinality(t *test
 	}
 }
 
+func TestPartitionContributionSetsPreservesRenderUnitBoundaries(t *testing.T) {
+	base := testSharedHookContributionInput(t, `{"command":"base"}`)
+	other := base
+	other.ContentPath = "/hooks/other"
+
+	baseZeta := mustSubjectContribution(t, "base-zeta", base)
+	otherAlpha := mustSubjectContribution(t, "other-alpha", other)
+	baseAlpha := mustSubjectContribution(t, "base-alpha", base)
+	sets, err := PartitionContributionSets([]SubjectContribution{
+		baseZeta,
+		otherAlpha,
+		baseAlpha,
+	})
+	if err != nil {
+		t.Fatalf("PartitionContributionSets returned error: %v", err)
+	}
+	if len(sets) != 2 || sets[0].Address() != baseZeta.Contribution().Address() ||
+		sets[1].Address() != otherAlpha.Contribution().Address() {
+		t.Fatalf("partitioned contribution addresses = %#v", sets)
+	}
+	first := sets[0].Contributions()
+	if len(first) != 2 || first[0].SubjectID().Key() != "base-alpha" ||
+		first[1].SubjectID().Key() != "base-zeta" {
+		t.Fatalf("first contribution set = %#v", first)
+	}
+	if _, err := PartitionContributionSets([]SubjectContribution{baseAlpha, baseAlpha}); err == nil ||
+		!strings.Contains(err.Error(), "repeats subject") {
+		t.Fatalf("duplicate partition subject error = %v", err)
+	}
+	duplicateAcrossAddresses, err := NewSubjectContribution(
+		baseAlpha.SubjectID(),
+		otherAlpha.Contribution(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PartitionContributionSets([]SubjectContribution{baseAlpha, duplicateAcrossAddresses}); err == nil ||
+		!strings.Contains(err.Error(), "repeats subject") {
+		t.Fatalf("cross-address duplicate subject error = %v", err)
+	}
+}
+
 func TestOneSubjectMCPEntryUsesTheGenericExclusiveContributionSet(t *testing.T) {
 	input := ManagedContributionInput{
 		PlacementID:           "claude-code.project.project-config",

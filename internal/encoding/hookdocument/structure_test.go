@@ -43,3 +43,18 @@ func TestValidateProjectionEnforcesSharedHandlerBudget(t *testing.T) {
 		t.Fatalf("ValidateProjection error = %v, want structural budget error", err)
 	}
 }
+
+func TestStructuralPreflightSharesScannerBudgets(t *testing.T) {
+	if err := ValidateEventBudget(strings.Repeat("e", MaximumEventBytes+1)); !errors.Is(err, ErrStructuralBudgetExceeded) {
+		t.Fatalf("ValidateEventBudget error = %v, want structural budget error", err)
+	}
+	for _, cardinality := range [][3]int{
+		{MaximumEvents + 1, 0, 0},
+		{0, MaximumGroups + 1, 0},
+		{0, 0, MaximumHandlers + 1},
+	} {
+		if err := ValidateCardinality(cardinality[0], cardinality[1], cardinality[2]); !errors.Is(err, ErrStructuralBudgetExceeded) {
+			t.Fatalf("ValidateCardinality%v error = %v, want structural budget error", cardinality, err)
+		}
+	}
+}

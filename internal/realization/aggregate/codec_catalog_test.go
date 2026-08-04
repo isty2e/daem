@@ -27,7 +27,7 @@ func (codec *codecCatalogTestCodec) MaximumDocumentBytes() int64 {
 	return codec.maximumBytes
 }
 
-func (codec *codecCatalogTestCodec) ValidateContribution(ManagedContribution) error {
+func (codec *codecCatalogTestCodec) ValidateContributions(ContributionSet) error {
 	return codec.contributionErr
 }
 
@@ -103,7 +103,7 @@ func TestCodecCatalogRejectsReportedIdentityDrift(t *testing.T) {
 	}
 }
 
-func TestCodecCatalogValidatesContributionThroughExactCodec(t *testing.T) {
+func TestCodecCatalogValidatesContributionSetThroughExactCodec(t *testing.T) {
 	placement, ok := HookPlacementFor(target.TargetCodex, target.ScopeProject)
 	if !ok {
 		t.Fatal("Codex project Hook placement is missing")
@@ -129,15 +129,23 @@ func TestCodecCatalogValidatesContributionThroughExactCodec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := catalog.ValidateSubjectContribution(subject, contribution); !errors.Is(err, wantErr) {
-		t.Fatalf("ValidateSubjectContribution error = %v, want %v", err, wantErr)
+	item, err := NewSubjectContribution(subject, contribution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := NewContributionSet([]SubjectContribution{item})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.ValidateContributionSet(set); !errors.Is(err, wantErr) {
+		t.Fatalf("ValidateContributionSet error = %v, want %v", err, wantErr)
 	}
 
 	unknown, err := NewCodecCatalog([]Codec{&codecCatalogTestCodec{contractID: "other-codec-v1"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := unknown.ValidateSubjectContribution(subject, contribution); err == nil ||
+	if err := unknown.ValidateContributionSet(set); err == nil ||
 		!strings.Contains(err.Error(), "is not admitted") {
 		t.Fatalf("unknown codec validation error = %v, want admission rejection", err)
 	}

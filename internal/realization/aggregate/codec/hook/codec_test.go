@@ -1,6 +1,7 @@
 package hookcodec_test
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -257,6 +258,90 @@ func TestHookCodecRejectsOversizedHostDocument(t *testing.T) {
 	)
 	if failure == nil || failure.Reason() != aggregate.CodecFailureDocumentMalformed {
 		t.Fatalf("oversized codec failure = %v, want document_malformed", failure)
+	}
+}
+
+func TestHookCodecRejectsProjectionWhoseCanonicalFormExceedsLimit(t *testing.T) {
+	_, codec, selection := hookCodecFixture(t)
+	matcher := strings.Repeat("<", int(hookdocument.MaximumBytes)/6+1024)
+	content := []byte(
+		`{"hooks":{"Stop":[{"matcher":` + strconv.Quote(matcher) +
+			`,"hooks":[{"type":"command","command":"true"}]}]}}`,
+	)
+	if int64(len(content)) >= hookdocument.MaximumBytes {
+		t.Fatalf("probe input bytes = %d, want below %d", len(content), hookdocument.MaximumBytes)
+	}
+
+	_, failure := codec.Read(aggregate.ExistingDocument(content), selection)
+	if failure == nil || failure.Reason() != aggregate.CodecFailureSelectedShapeUnsupported {
+		t.Fatalf("canonical expansion failure = %v, want selected_shape_unsupported", failure)
+	}
+}
+
+func TestHookCodecRejectsUnrenderableLockedContributionAndSet(t *testing.T) {
+	if _, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+		Event: strings.Repeat("e", hookdocument.MaximumEventBytes+1),
+		Type:  "command", Command: "true",
+	}); !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("oversized event error = %v, want structural budget error", err)
+	}
+	if _, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+		Event: "Stop", Matcher: strings.Repeat("<", int(hookdocument.MaximumBytes)/6+1024),
+		Type: "command", Command: "true",
+	}); !errors.Is(err, hookdocument.ErrTooLarge) {
+		t.Fatalf("unrenderable contribution error = %v, want document size error", err)
+	}
+
+	placement, codec, selection := hookCodecFixture(t)
+	items := make([]aggregate.SubjectContribution, 0, hookdocument.MaximumEvents+1)
+	for index := range hookdocument.MaximumEvents + 1 {
+		canonical, err := hookcodec.CanonicalHookContribution(commandhook.ContributionInput{
+			Event: fmt.Sprintf("Event%03d", index), Type: "command", Command: "true",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		contribution, err := placement.Contribution(canonical)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject, err := topology.NewSubjectID(
+			topology.SubjectProjection,
+			string(placement.ID()),
+			fmt.Sprintf("hook:event-%03d", index),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		item, err := aggregate.NewSubjectContribution(subject, contribution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		items = append(items, item)
+	}
+	desired, err := aggregate.NewContributionSet(items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := codec.ValidateContributions(desired); !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+		t.Fatalf("ValidateContributions error = %v, want structural budget error", err)
+	}
+
+	before, failure := codec.Read(aggregate.AbsentDocument(), selection)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	intent, err := aggregate.NewProjectionIntent(before.States()[0], &desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := aggregate.NewPlan(before, []aggregate.ProjectionIntent{intent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := codec.Render(aggregate.AbsentDocument(), plan); failure == nil ||
+		failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("Render failure = %v, want canonical_contribution_invalid", failure)
 	}
 }
 

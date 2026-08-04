@@ -94,8 +94,11 @@ func scanEvents(decoder *json.Decoder, budget *structuralBudget, objectDepth int
 			return fmt.Errorf("hook event key is not a string")
 		}
 		budget.events++
-		if budget.events > MaximumEvents || len(event) > MaximumEventBytes {
-			return ErrStructuralBudgetExceeded
+		if err := ValidateEventBudget(event); err != nil {
+			return err
+		}
+		if err := ValidateCardinality(budget.events, budget.groups, budget.handlers); err != nil {
+			return err
 		}
 
 		valueToken, err := decoder.Token()
@@ -122,8 +125,8 @@ func scanEvents(decoder *json.Decoder, budget *structuralBudget, objectDepth int
 func scanGroups(decoder *json.Decoder, budget *structuralBudget, arrayDepth int) error {
 	for decoder.More() {
 		budget.groups++
-		if budget.groups > MaximumGroups {
-			return ErrStructuralBudgetExceeded
+		if err := ValidateCardinality(budget.events, budget.groups, budget.handlers); err != nil {
+			return err
 		}
 		groupToken, err := decoder.Token()
 		if err != nil {
@@ -180,8 +183,8 @@ func scanGroup(decoder *json.Decoder, budget *structuralBudget, objectDepth int)
 func scanHandlers(decoder *json.Decoder, budget *structuralBudget, arrayDepth int) error {
 	for decoder.More() {
 		budget.handlers++
-		if budget.handlers > MaximumHandlers {
-			return ErrStructuralBudgetExceeded
+		if err := ValidateCardinality(budget.events, budget.groups, budget.handlers); err != nil {
+			return err
 		}
 		handlerToken, err := decoder.Token()
 		if err != nil {

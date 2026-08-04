@@ -28,8 +28,13 @@ func For(contractID aggregate.CodecContractID) (aggregate.Codec, bool) {
 	return mcpProjectionCodec{contractID: contractID}, true
 }
 
-// ValidateContribution rejects forged or non-renderable locked MCP content.
-func (codec mcpProjectionCodec) ValidateContribution(contribution aggregate.ManagedContribution) error {
+// ValidateContributions rejects a forged or non-renderable MCP projection.
+func (codec mcpProjectionCodec) ValidateContributions(contributions aggregate.ContributionSet) error {
+	items := contributions.Contributions()
+	if len(items) != 1 {
+		return fmt.Errorf("MCP contribution set requires exactly one subject")
+	}
+	contribution := items[0].Contribution()
 	if err := contribution.Validate(); err != nil {
 		return err
 	}
@@ -143,7 +148,7 @@ func (codec mcpProjectionCodec) ClassifyContributionOccupancy(
 			"MCP contribution observation requires one subject with the selected projection contract",
 		)
 	}
-	if err := codec.ValidateContribution(items[0].Contribution()); err != nil {
+	if err := codec.ValidateContributions(contributions); err != nil {
 		return aggregate.ContributionOccupancySet{}, err
 	}
 	occupancy := aggregate.ContributionAbsent

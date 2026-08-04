@@ -70,13 +70,13 @@ func TestValidatePersistedContributionUsesMCPCodecContract(t *testing.T) {
 		AdapterContract: aggregate.CodexProjectMCPStdioCommandV1,
 	})
 	contribution := mcpCodecContribution(t, placement, "context7", canonical)
-	if err := codec.ValidateContribution(contribution); err != nil {
-		t.Fatalf("ValidateContribution(valid MCP) returned error: %v", err)
+	if err := codec.ValidateContributions(mcpCodecExclusiveSet(t, contribution)); err != nil {
+		t.Fatalf("ValidateContributions(valid MCP) returned error: %v", err)
 	}
 
 	malformed := mcpCodecContribution(t, placement, "context7", []byte("not canonical TOML"))
-	if err := codec.ValidateContribution(malformed); err == nil {
-		t.Fatal("ValidateContribution accepted malformed MCP canonical bytes")
+	if err := codec.ValidateContributions(mcpCodecExclusiveSet(t, malformed)); err == nil {
+		t.Fatal("ValidateContributions accepted malformed MCP canonical bytes")
 	}
 }
 

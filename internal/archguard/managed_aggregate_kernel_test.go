@@ -209,7 +209,7 @@ func TestManagedAggregateCanonicalPackageCannotOwnConcreteCodecs(t *testing.T) {
 		}
 	}
 
-	codecMethods := []string{"ContractID", "ValidateContribution", "Read", "Render", "Restore"}
+	codecMethods := []string{"ContractID", "ValidateContributions", "Read", "Render", "Restore"}
 	for receiver, methods := range methodsByReceiver {
 		implementsCodec := true
 		for _, method := range codecMethods {

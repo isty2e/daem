@@ -285,7 +285,7 @@ type protocolOnlyCodec struct{}
 func (protocolOnlyCodec) ContractID() CodecContractID { return "protocol-only-v1" }
 
 func (protocolOnlyCodec) MaximumDocumentBytes() int64 { return 1024 }
-func (protocolOnlyCodec) ValidateContribution(ManagedContribution) error {
+func (protocolOnlyCodec) ValidateContributions(ContributionSet) error {
 	return nil
 }
 

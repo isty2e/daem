@@ -3,8 +3,6 @@ package aggregate
 import (
 	"fmt"
 	"reflect"
-
-	"github.com/isty2e/daem/internal/topology"
 )
 
 // CodecCatalog is an immutable collection of pure aggregate codec ports.
@@ -51,26 +49,26 @@ func (catalog CodecCatalog) Lookup(contractID CodecContractID) (Codec, bool) {
 	return codec, true
 }
 
-// ValidateSubjectContribution checks one opaque contribution through its exact
-// codec and verifies its canonical topology correlation.
-func (catalog CodecCatalog) ValidateSubjectContribution(
-	subject topology.SubjectID,
-	contribution ManagedContribution,
-) error {
-	if err := contribution.Validate(); err != nil {
+// ValidateContributionSet checks one complete render unit through its exact
+// codec and verifies every subject's canonical topology correlation.
+func (catalog CodecCatalog) ValidateContributionSet(set ContributionSet) error {
+	canonical, err := NewContributionSet(set.Contributions())
+	if err != nil {
 		return err
 	}
-	if err := ValidateSubjectContract(subject, contribution.Contract()); err != nil {
-		return err
+	for index, item := range canonical.Contributions() {
+		if err := ValidateSubjectContract(item.SubjectID(), item.Contribution().Contract()); err != nil {
+			return fmt.Errorf("aggregate contribution set[%d]: %w", index, err)
+		}
 	}
-	codec, ok := catalog.Lookup(contribution.CodecContractID())
+	codec, ok := catalog.Lookup(canonical.Contract().CodecContractID())
 	if !ok {
 		return fmt.Errorf(
 			"aggregate codec contract %q is not admitted",
-			contribution.CodecContractID(),
+			canonical.Contract().CodecContractID(),
 		)
 	}
-	return codec.ValidateContribution(contribution)
+	return codec.ValidateContributions(canonical)
 }
 
 func nilCodec(codec Codec) bool {

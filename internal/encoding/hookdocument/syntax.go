@@ -52,3 +52,38 @@ func ValidateProjection(content []byte) error {
 	}
 	return jsonstrict.Validate(content, "Hook projection", MaximumDepth)
 }
+
+// ValidateEventBudget checks one encoded Hook event identity before a
+// projection is materialized.
+func ValidateEventBudget(event string) error {
+	if len(event) <= MaximumEventBytes {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: event_bytes=%d maximum=%d",
+		ErrStructuralBudgetExceeded,
+		len(event),
+		MaximumEventBytes,
+	)
+}
+
+// ValidateCardinality checks the structural counts of one Hook projection
+// before its arrays and maps are materialized.
+func ValidateCardinality(events int, groups int, handlers int) error {
+	if events < 0 || groups < 0 || handlers < 0 {
+		return fmt.Errorf("hook projection cardinality must not be negative")
+	}
+	if events <= MaximumEvents && groups <= MaximumGroups && handlers <= MaximumHandlers {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: events=%d/%d groups=%d/%d handlers=%d/%d",
+		ErrStructuralBudgetExceeded,
+		events,
+		MaximumEvents,
+		groups,
+		MaximumGroups,
+		handlers,
+		MaximumHandlers,
+	)
+}
