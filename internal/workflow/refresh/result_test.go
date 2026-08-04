@@ -52,17 +52,22 @@ func TestRedactMachineLocalPathsPreservesPortableIdentities(t *testing.T) {
 		input string
 		want  string
 	}{
-		{input: `open /Users/alice/private/config.json: denied`, want: `open [REDACTED] denied`},
-		{input: `open /Users/alice/My Config/config.json: denied`, want: `open [REDACTED] denied`},
-		{input: `open /Users/alice/private,token/file.json: denied`, want: `open [REDACTED] denied`},
-		{input: `open /Users/alice/private;token/(file).json: denied`, want: `open [REDACTED] denied`},
+		{input: `open /Users/alice/private/config.json: denied`, want: `open [REDACTED]`},
+		{input: `open /Users/alice/My Config/config.json: denied`, want: `open [REDACTED]`},
+		{input: `open /Users/alice/private,token/file.json: denied`, want: `open [REDACTED]`},
+		{input: `open /Users/alice/private;token/(file).json: denied`, want: `open [REDACTED]`},
+		{input: `open /Users/alice/private/name: user.txt: denied`, want: `open [REDACTED]`},
+		{input: "open /Users/alice/private/name: user.txt: denied\nretryable", want: "open [REDACTED]\nretryable"},
+		{input: `open "/Users/alice/private/name: user.txt": denied`, want: `open "[REDACTED]": denied`},
+		{input: `paths=portable,/Users/alice/private/file.json`, want: `paths=portable,[REDACTED]`},
+		{input: `paths=portable,C:\\Users\\alice\\private.json`, want: `paths=portable,[REDACTED]`},
 		{input: `open "/Users/alice/My Config/config.json": denied`, want: `open "[REDACTED]": denied`},
-		{input: `read C:\\Users\\alice\\private.json: denied`, want: `read [REDACTED] denied`},
-		{input: `read C:\\Users\\alice\\private,token\\file.json: denied`, want: `read [REDACTED] denied`},
+		{input: `read C:\\Users\\alice\\private.json: denied`, want: `read [REDACTED]`},
+		{input: `read C:\\Users\\alice\\private,token\\file.json: denied`, want: `read [REDACTED]`},
 		{input: `read "C:\\Users\\alice\\private,token\\file.json": denied`, want: `read "[REDACTED]": denied`},
-		{input: `read file:///home/alice/private.json: denied`, want: `read [REDACTED] denied`},
-		{input: `read FILE:/home/alice/private.json: denied`, want: `read [REDACTED] denied`},
-		{input: `read ../private/config.json: denied`, want: `read [REDACTED] denied`},
+		{input: `read file:///home/alice/private.json: denied`, want: `read [REDACTED]`},
+		{input: `read FILE:/home/alice/private.json: denied`, want: `read [REDACTED]`},
+		{input: `read ../private/config.json: denied`, want: `read [REDACTED]`},
 		{input: `open:/Users/alice/private.json denied`, want: `open:[REDACTED]`},
 		{input: `source https://example.test/plugin and npm:@acme/tool`, want: `source https://example.test/plugin and npm:@acme/tool`},
 	}
@@ -78,6 +83,15 @@ func TestSanitizedFailureDetailRedactsCompoundCredentialKeys(t *testing.T) {
 		detail := sanitizedFailureDetail(errors.New(key + "=boundary-secret"))
 		if detail != key+"=[REDACTED]" {
 			t.Errorf("sanitizedFailureDetail(%q) = %q", key, detail)
+		}
+	}
+}
+
+func TestSanitizedFailureDetailRejectsBidirectionalControls(t *testing.T) {
+	for _, control := range []string{"\u202e", "\u2066"} {
+		detail := sanitizedFailureDetail(errors.New("visible" + control + "reordered"))
+		if detail != "[REDACTED]" {
+			t.Errorf("sanitizedFailureDetail(%q) = %q", control, detail)
 		}
 	}
 }

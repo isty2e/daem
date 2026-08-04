@@ -149,7 +149,7 @@ func pathTokenBoundary(value string, index int) bool {
 	return previous == ' ' || previous == '\t' || previous == '\n' ||
 		previous == '\r' || previous == '"' || previous == '\'' ||
 		previous == '(' || previous == '[' || previous == '{' ||
-		previous == '=' || previous == ':'
+		previous == '=' || previous == ':' || previous == ',' || previous == ';'
 }
 
 func machineLocalPathEnd(value string, start int) int {
@@ -157,35 +157,18 @@ func machineLocalPathEnd(value string, start int) int {
 	if start > 0 && (value[start-1] == '"' || value[start-1] == '\'') {
 		quote = value[start-1]
 	}
+	if quote == 0 {
+		if end := strings.IndexAny(value[start:], "\r\n"); end >= 0 {
+			return start + end
+		}
+		return len(value)
+	}
 	for index := start; index < len(value); index++ {
-		if quote != 0 {
-			if value[index] == quote && (index == start || value[index-1] != '\\') {
-				return index
-			}
-			continue
-		}
-		if value[index] == ':' && index-start > 1 &&
-			index+1 < len(value) && isHorizontalSpace(value[index+1]) {
-			return index + 1
-		}
-		if isPathEndTerminator(value[index]) {
+		if value[index] == quote && (index == start || value[index-1] != '\\') {
 			return index
 		}
 	}
 	return len(value)
-}
-
-func isPathEndTerminator(value byte) bool {
-	switch value {
-	case '\n', '\r':
-		return true
-	default:
-		return false
-	}
-}
-
-func isHorizontalSpace(value byte) bool {
-	return value == ' ' || value == '\t'
 }
 
 func isASCIILetter(value byte) bool {

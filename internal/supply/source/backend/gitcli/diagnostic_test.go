@@ -12,7 +12,7 @@ func TestSanitizeGitDiagnosticRedactsAndBoundsUntrustedStderr(t *testing.T) {
 	diagnostic := "fatal:\x1b[31m fetch https://user:" + secret + "@example.com/repo.git\n" +
 		"ssh://principal@example.com/repo.git\u200b " +
 		"https://example.com/repo.git?access_token=" + secret + " " +
-		"Authorization: Bearer " + secret + " token=" + secret
+		"Authorization: Bearer " + secret + "\ntoken=" + secret
 	got := sanitizeGitDiagnostic(diagnostic)
 
 	if strings.Contains(got, secret) || strings.Contains(got, "user:") || strings.Contains(got, "Bearer "+secret) {
