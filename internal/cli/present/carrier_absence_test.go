@@ -11,6 +11,7 @@ import (
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/contractversion"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -56,8 +57,8 @@ func TestPlanJSONDisclosesBlockedCarrierAbsenceWithoutExecutionClaim(t *testing.
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 11 || !payload.HasErrors || len(payload.CarrierAbsences) != 1 {
-		t.Fatalf("payload = %#v, want schema 11 with one blocking carrier absence", payload)
+	if payload.SchemaVersion != contractversion.ReconciliationPlanJSON || !payload.HasErrors || len(payload.CarrierAbsences) != 1 {
+		t.Fatalf("payload = %#v, want current plan schema with one blocking carrier absence", payload)
 	}
 	got := payload.CarrierAbsences[0]
 	if got.Kind != "carrier_absence" ||

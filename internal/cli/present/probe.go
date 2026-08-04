@@ -9,10 +9,9 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
+	"github.com/isty2e/daem/internal/contractversion"
 	probeworkflow "github.com/isty2e/daem/internal/workflow/probe"
 )
-
-const mcpProbeJSONSchemaVersion = 1
 
 // MCPProbeReport is the public presentation DTO for explicit runtime probes.
 type MCPProbeReport struct {
@@ -62,7 +61,7 @@ type MCPProbeDimension struct {
 // MCPProbeReportFrom projects one canonical probe result into the public report contract.
 func MCPProbeReportFrom(result probeworkflow.CommandResult) MCPProbeReport {
 	return MCPProbeReport{
-		SchemaVersion:  mcpProbeJSONSchemaVersion,
+		SchemaVersion:  contractversion.MCPProbeJSON,
 		Command:        "probe",
 		Mode:           string(result.Mode),
 		ManifestPath:   result.ManifestPath,
@@ -217,7 +216,7 @@ func PrintMCPProbeReportWithOptions(output io.Writer, report MCPProbeReport, opt
 
 // PrintMCPProbeJSON writes the structured explicit probe report.
 func PrintMCPProbeJSON(output io.Writer, report MCPProbeReport) error {
-	report.SchemaVersion = mcpProbeJSONSchemaVersion
+	report.SchemaVersion = contractversion.MCPProbeJSON
 	report.Command = "probe"
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,11 +115,8 @@ func TestRunLockDryRunJSONReportsStructuredDelta(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 
-	var payload clijson.Lock
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("Unmarshal returned error: %v\nstdout = %s", err, stdout.String())
-	}
-	if payload.SchemaVersion != 3 || payload.Command != "lock" || payload.Mode != "dry-run" {
+	payload := clijson.DecodeLock(t, stdout.Bytes())
+	if payload.Command != "lock" || payload.Mode != "dry-run" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ManifestPath != manifestPath || payload.LockfilePath != lockfilePath || !payload.PreviousFound {

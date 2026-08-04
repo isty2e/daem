@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/findings"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
-
-const doctorJSONSchemaVersion = 1
 
 type DoctorJSONInput struct {
 	ManifestPath     string
@@ -82,7 +81,7 @@ func PrintDoctorChecksWithOptions(output io.Writer, checks []findings.Check, opt
 
 func PrintDoctorJSON(output io.Writer, input DoctorJSONInput) error {
 	payload := doctorJSONOutput{
-		SchemaVersion: doctorJSONSchemaVersion,
+		SchemaVersion: contractversion.DoctorJSON,
 		Command:       "doctor",
 		Manifest: doctorJSONManifest{
 			Path:     input.ManifestPath,

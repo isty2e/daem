@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/reconcile"
@@ -112,8 +113,8 @@ func TestPrintApplyResultJSONDelegateAttemptsAreHistoryOnlyDiagnostics(t *testin
 	if len(payload.DelegateAttempts) != 1 {
 		t.Fatalf("delegate_attempts = %#v, want one row", payload.DelegateAttempts)
 	}
-	if payload.SchemaVersion != 16 {
-		t.Fatalf("schema_version = %d, want 16 after complete delegated package-set disclosure", payload.SchemaVersion)
+	if payload.SchemaVersion != contractversion.ApplyResultJSON {
+		t.Fatalf("schema_version = %d, want %d after complete delegated package-set disclosure", payload.SchemaVersion, contractversion.ApplyResultJSON)
 	}
 	got := payload.DelegateAttempts[0]
 	if got.EvidenceKind != "last_attempt_diagnostics" ||

@@ -6,11 +6,10 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
-
-const listOutputsJSONSchemaVersion = 4
 
 type inventoryJSONEntry struct {
 	ResourceID  string   `json:"resource_id,omitempty"`
@@ -88,7 +87,7 @@ func PrintListOutputsJSON(output io.Writer, inventory listworkflow.OutputInvento
 	unmanaged := inventory.Unmanaged()
 	blocked := inventory.Blocked()
 	payload := listOutputsJSONOutput{
-		SchemaVersion:  listOutputsJSONSchemaVersion,
+		SchemaVersion:  contractversion.OutputInventoryJSON,
 		Command:        "list outputs",
 		ManagedCount:   len(managed),
 		UnmanagedCount: len(unmanaged),

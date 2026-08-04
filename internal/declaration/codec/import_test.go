@@ -2,6 +2,7 @@ package codec
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -67,7 +68,7 @@ func TestRenderImportManifestGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RenderImportManifest returned error: %v", err)
 	}
-	want := []byte(`version = 1
+	want := fmt.Appendf(nil, `version = %d
 targets = ["codex", "pi"]
 
 [instructions]
@@ -123,7 +124,7 @@ targets = ["codex", "pi"]
   [mcp_server.env]
     [mcp_server.env.TOKEN]
       from_env = "CONTEXT7_TOKEN"
-`)
+`, declaration.CurrentManifestVersion)
 	if !bytes.Equal(got, want) {
 		t.Fatalf("RenderImportManifest =\n%s\nwant:\n%s", got, want)
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 type Lock struct {
@@ -141,5 +143,6 @@ func DecodeLock(t testing.TB, content []byte) Lock {
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		t.Fatalf("Decode trailing returned %v, want EOF\nstdout = %s", err, string(content))
 	}
+	requireSchemaVersion(t, "lock comparison", payload.SchemaVersion, contractversion.LockComparisonJSON)
 	return payload
 }

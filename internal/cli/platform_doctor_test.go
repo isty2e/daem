@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/platformsupport"
 )
 
@@ -83,7 +84,7 @@ func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *tes
 		if !payload.HasErrors {
 			t.Fatal("doctor JSON has_errors = false")
 		}
-		if payload.SchemaVersion != 1 ||
+		if payload.SchemaVersion != contractversion.DoctorJSON ||
 			payload.Command != "doctor" ||
 			payload.CheckCount != 1 ||
 			len(payload.Checks) != 1 ||
@@ -172,7 +173,7 @@ func TestRunCommandDoctorKeepsPathFailureAlongsideUnsupportedPlatform(t *testing
 			if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 				t.Fatalf("decode doctor JSON: %v\n%s", err, stdout.String())
 			}
-			if payload.SchemaVersion != 1 ||
+			if payload.SchemaVersion != contractversion.DoctorJSON ||
 				payload.CheckCount != 2 ||
 				!payload.HasErrors ||
 				len(payload.Checks) != 2 ||

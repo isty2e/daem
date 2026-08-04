@@ -60,7 +60,7 @@ targets = ["codex"]
 	}
 
 	payload := clijson.DecodePlan(t, stdout.Bytes())
-	if payload.SchemaVersion != 11 || payload.Command != "status" || payload.Mode != "status" {
+	if payload.Command != "status" || payload.Mode != "status" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ActionCount != 2 || len(payload.Actions) != 2 {

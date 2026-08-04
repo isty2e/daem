@@ -6,13 +6,12 @@ import (
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
-
-const applyResultJSONSchemaVersion = 16
 
 type ApplyResultJSONInput struct {
 	ActionCount            int
@@ -60,7 +59,7 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	relations := input.Reconciliation.Relations()
 	payload := applyResultJSONOutput{
-		SchemaVersion:        applyResultJSONSchemaVersion,
+		SchemaVersion:        contractversion.ApplyResultJSON,
 		Command:              "apply",
 		Mode:                 "write",
 		ActionCount:          input.ActionCount,

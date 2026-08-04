@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -81,7 +82,7 @@ func TestLockOutputReportsOrderOnlyChanges(t *testing.T) {
 	if err := json.Unmarshal(structured.Bytes(), &payload); err != nil {
 		t.Fatalf("decode JSON output: %v", err)
 	}
-	if payload.SchemaVersion != 3 ||
+	if payload.SchemaVersion != contractversion.LockComparisonJSON ||
 		payload.EntryCounts.OrderConstraints != 1 ||
 		payload.OrderChangeCounts.Changed != 1 ||
 		len(payload.OrderChanges) != 1 ||

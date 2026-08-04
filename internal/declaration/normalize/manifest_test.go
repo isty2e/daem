@@ -249,7 +249,7 @@ func baseManifest(targets ...target.Target) declaration.Manifest {
 	for _, selected := range targets {
 		values = append(values, string(selected))
 	}
-	return declaration.Manifest{Version: declaration.SupportedManifestVersion, Targets: values}
+	return declaration.Manifest{Version: declaration.CurrentManifestVersion, Targets: values}
 }
 
 func localSource(path string) declaration.Source {

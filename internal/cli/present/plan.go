@@ -5,13 +5,12 @@ import (
 	"io"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/topology"
 )
-
-const planJSONSchemaVersion = 11
 
 func PrintDryRunPlanWithOptions(output io.Writer, result reconcile.Result, options HumanOptions) {
 	PrintActionPlanWithOptions(output, "dry-run", result, options)
@@ -135,7 +134,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 	hostRouteAttempts := hostRouteJSONAttempts(input.HostRouteAttempts)
 	reconciliation := input.Reconciliation
 	payload := planJSONOutput{
-		SchemaVersion: planJSONSchemaVersion,
+		SchemaVersion: contractversion.ReconciliationPlanJSON,
 		Command:       input.Command,
 		Mode:          input.Mode,
 		Lockfile: planJSONLockfile{

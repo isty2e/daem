@@ -4,9 +4,12 @@ import (
 	"fmt"
 
 	burnttoml "github.com/BurntSushi/toml"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
-const SupportedManifestVersion = 1
+// CurrentManifestVersion is the manifest schema version emitted and accepted by daem.
+const CurrentManifestVersion = contractversion.ManifestSchema
 
 func DecodeManifest(content []byte) (Manifest, error) {
 	var manifest Manifest

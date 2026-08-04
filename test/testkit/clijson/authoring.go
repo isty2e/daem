@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 func DecodeManifestAuthoring(t testing.TB, content []byte) clipresent.ManifestAuthoringJSONOutput {
@@ -20,5 +21,6 @@ func DecodeManifestAuthoring(t testing.TB, content []byte) clipresent.ManifestAu
 	if err := json.Unmarshal(content, &payload); err != nil {
 		t.Fatalf("Unmarshal returned error: %v\n%s", err, content)
 	}
+	requireSchemaVersion(t, "manifest authoring", payload.SchemaVersion, contractversion.ManifestAuthoringJSON)
 	return payload
 }

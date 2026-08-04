@@ -2,11 +2,13 @@ package cli_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -36,7 +38,10 @@ version = 5
 	}
 	if !strings.Contains(
 		stderr.String(),
-		"unsupported lockfile version 5; run daem lock to regenerate schema version 6",
+		fmt.Sprintf(
+			"unsupported lockfile version 5; run daem lock to regenerate schema version %d",
+			contractversion.LockfileSchema,
+		),
 	) {
 		t.Fatalf("stderr = %q, want actionable v5 diagnostic", stderr.String())
 	}
@@ -68,7 +73,10 @@ source = "instructions/never-read.md"
 	}
 	if !strings.Contains(
 		stderr.String(),
-		"unsupported lockfile version 5; run daem lock to regenerate schema version 6",
+		fmt.Sprintf(
+			"unsupported lockfile version 5; run daem lock to regenerate schema version %d",
+			contractversion.LockfileSchema,
+		),
 	) {
 		t.Fatalf("stderr = %q, want actionable v5 diagnostic", stderr.String())
 	}
@@ -89,8 +97,8 @@ source = "instructions/AGENTS.md"
 `), 0o600); err != nil {
 		t.Fatalf("WriteFile manifest returned error: %v", err)
 	}
-	testkit.WriteFile(t, tempDir, "daem.lock.toml", `
-version = 6
+	testkit.WriteFile(t, tempDir, "daem.lock.toml", fmt.Sprintf(`
+version = %d
 
 [locked]
 
@@ -102,8 +110,8 @@ on_absent = "apply"
 
 [locked.subject.exact_supply]
 kind = "file"
-content_hash = "`+instructionHash+`"
-`)
+content_hash = "%s"
+`, contractversion.LockfileSchema, instructionHash))
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

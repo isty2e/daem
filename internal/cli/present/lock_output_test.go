@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/desired/instructions"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
@@ -69,8 +70,8 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
 		t.Fatalf("PrintJSON returned error: %v", err)
 	}
 
-	want := `{
-  "schema_version": 3,
+	want := fmt.Sprintf(`{
+  "schema_version": %d,
   "command": "lock",
   "mode": "dry-run",
   "manifest_path": "/repo/daem.toml",
@@ -236,7 +237,7 @@ func TestPrintJSONWritesStableLockProjection(t *testing.T) {
   ],
   "order_constraint_changes": []
 }
-`
+`, contractversion.LockComparisonJSON)
 	if stdout.String() != want {
 		t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 	}

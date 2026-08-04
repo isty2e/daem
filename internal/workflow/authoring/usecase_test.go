@@ -3,6 +3,7 @@ package authoring
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	daempaths "github.com/isty2e/daem/internal/paths"
+	lockmodel "github.com/isty2e/daem/internal/realization/lock"
 )
 
 func TestAuthoringUseCasesCoverResourceFamilies(t *testing.T) {
@@ -330,7 +332,7 @@ source = { path = "skills/missing-review", mode = "vendor" }
 targets = ["codex"]
 `
 	writeTestFile(t, tempDir, "daem.toml", original)
-	const originalLockfile = "version = 6\n\n[locked]\n"
+	originalLockfile := fmt.Sprintf("version = %d\n\n[locked]\n", lockmodel.CurrentVersion)
 	writeTestFile(t, tempDir, "daem.lock.toml", originalLockfile)
 
 	_, err := RemoveSkill(context.Background(), ExecutionOptions{
@@ -418,7 +420,7 @@ func TestAuthoringOperationReplacesReleasedSchemaV3WithoutInterpretingItsBody(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(content), "version = 6\n") {
+	if !strings.HasPrefix(string(content), fmt.Sprintf("version = %d\n", lockmodel.CurrentVersion)) {
 		t.Fatalf("written lockfile does not use current schema:\n%s", content)
 	}
 	if strings.Contains(string(content), "legacy_payload") {
@@ -439,7 +441,7 @@ source = { path = "skills/missing-review", mode = "vendor" }
 targets = ["codex"]
 `
 	writeTestFile(t, tempDir, "daem.toml", original)
-	const originalLockfile = "version = 6\n\n[locked]\n"
+	originalLockfile := fmt.Sprintf("version = %d\n\n[locked]\n", lockmodel.CurrentVersion)
 	writeTestFile(t, tempDir, "daem.lock.toml", originalLockfile)
 
 	_, err := AddMCPServer(context.Background(), ExecutionOptions{

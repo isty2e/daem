@@ -6,12 +6,11 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/target"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
-
-const listPathsJSONSchemaVersion = 1
 
 type ListPathRow struct {
 	Target          string `json:"target"`
@@ -186,7 +185,7 @@ func PrintListPathsJSON(
 ) error {
 	rows := ListPathRows(inventory)
 	payload := listPathsJSONOutput{
-		SchemaVersion: listPathsJSONSchemaVersion,
+		SchemaVersion: contractversion.PathInventoryJSON,
 		Command:       "list paths",
 		ManifestPath:  manifestPath,
 		LocationCount: len(rows),

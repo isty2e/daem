@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
 
@@ -64,7 +65,7 @@ func TestPrintListPathsJSONPreservesFlatVariantContract(t *testing.T) {
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("JSON output is invalid: %v\n%s", err, output.String())
 	}
-	if payload.SchemaVersion != 1 || payload.Command != "list paths" ||
+	if payload.SchemaVersion != contractversion.PathInventoryJSON || payload.Command != "list paths" ||
 		payload.ManifestPath != manifestPath ||
 		payload.LocationCount != len(payload.Locations) {
 		t.Fatalf("JSON envelope = %#v", payload)

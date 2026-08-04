@@ -2,6 +2,7 @@ package lockfile
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -34,6 +35,7 @@ func TestLoadRejectsMalformedCurrentLockfiles(t *testing.T) {
 
 func malformedCurrentLockfileCases(t *testing.T) []malformedLockfileCase {
 	t.Helper()
+	currentEnvelope := currentLockfileVersionEnvelope()
 	exact := marshalLockfileForTest(t, lockfileWithSubjects(t, directSkillSubjectContract(t, "oracle")))
 	twoExact := marshalLockfileForTest(t, lockfileWithSubjects(
 		t,
@@ -73,27 +75,30 @@ func malformedCurrentLockfileCases(t *testing.T) []malformedLockfileCase {
 	return []malformedLockfileCase{
 		{
 			name:      "old v1 schema",
-			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 1"),
+			content:   replaceLockfileStringOnce(t, exact, currentEnvelope, "version = 1"),
 			wantError: "unsupported lockfile version 1",
 		},
 		{
-			name:      "relockable v5 schema",
-			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 5"),
-			wantError: "unsupported lockfile version 5; run daem lock to regenerate schema version 6",
+			name:    "relockable v5 schema",
+			content: replaceLockfileStringOnce(t, exact, currentEnvelope, "version = 5"),
+			wantError: fmt.Sprintf(
+				"unsupported lockfile version 5; run daem lock to regenerate schema version %d",
+				lock.CurrentVersion,
+			),
 		},
 		{
 			name:      "unsupported version",
-			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 999"),
+			content:   replaceLockfileStringOnce(t, exact, currentEnvelope, "version = 999"),
 			wantError: "unsupported lockfile version 999",
 		},
 		{
 			name:      "unknown top-level key",
-			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 6\nmystery = true"),
+			content:   replaceLockfileStringOnce(t, exact, currentEnvelope, currentEnvelope+"\nmystery = true"),
 			wantError: "unknown lockfile key",
 		},
 		{
 			name:      "removed generated-at metadata",
-			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 6\ngenerated_at = \"2026-06-20T00:00:00Z\""),
+			content:   replaceLockfileStringOnce(t, exact, currentEnvelope, currentEnvelope+"\ngenerated_at = \"2026-06-20T00:00:00Z\""),
 			wantError: "unknown lockfile key \"generated_at\"",
 		},
 		{
@@ -108,12 +113,12 @@ content_hash = "sha256:legacy"
 		},
 		{
 			name: "inline subject array",
-			content: `
-version = 6
+			content: fmt.Sprintf(`
+version = %d
 
 [locked]
 subject = []
-`,
+`, lock.CurrentVersion),
 			wantError: "locked.subject must use [[locked.subject]] array tables",
 		},
 		{
@@ -450,7 +455,7 @@ func TestLoadRejectsInvalidTextEncoding(t *testing.T) {
 		want    string
 	}{
 		{name: "invalid UTF-8", content: string([]byte{0xff, 0xfe}) + content, want: "lockfile is not valid UTF-8"},
-		{name: "embedded NUL", content: strings.Replace(content, "version = 6", "version = 6\x00", 1)},
+		{name: "embedded NUL", content: strings.Replace(content, currentLockfileVersionEnvelope(), currentLockfileVersionEnvelope()+"\x00", 1)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

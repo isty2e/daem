@@ -7,9 +7,8 @@ import (
 	"time"
 
 	"github.com/isty2e/daem/internal/buildidentity"
+	"github.com/isty2e/daem/internal/contractversion"
 )
-
-const versionJSONSchemaVersion = 1
 
 type versionJSONOutput struct {
 	SchemaVersion int    `json:"schema_version"`
@@ -41,7 +40,7 @@ func PrintVersion(output io.Writer, identity buildidentity.Identity) error {
 func PrintVersionJSON(output io.Writer, identity buildidentity.Identity) error {
 	target := identity.Target()
 	payload := versionJSONOutput{
-		SchemaVersion: versionJSONSchemaVersion,
+		SchemaVersion: contractversion.VersionJSON,
 		Version:       knownBuildFact(identity.Version()),
 		Revision:      knownBuildFact(identity.Revision()),
 		RevisionTime:  revisionTimeText(identity),

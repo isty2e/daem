@@ -38,7 +38,7 @@ func TestRunAddSkillYesJSONWritesManifestWithoutHumanOutput(t *testing.T) {
 	}
 
 	payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
-	if payload.SchemaVersion != 2 || payload.Command != "add" || payload.Mode != "write" || payload.Operation != "add" {
+	if payload.Command != "add" || payload.Mode != "write" || payload.Operation != "add" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ManifestPath != manifestPath || payload.ResourceCount != 1 || payload.ChangeCount != 1 || payload.HasErrors {
@@ -316,7 +316,7 @@ scope = "project"
 				t.Fatalf("stdout = %q, want changes array instead of null", stdout.String())
 			}
 			payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
-			if payload.SchemaVersion != 2 || payload.Command != "import" || payload.Mode != test.mode {
+			if payload.Command != "import" || payload.Mode != test.mode {
 				t.Fatalf("payload header = %#v", payload)
 			}
 			if !payload.HasErrors || len(payload.MergeResults) != 1 {

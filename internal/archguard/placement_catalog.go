@@ -145,6 +145,7 @@ var packagePlacementRows = []packagePlacementRow{
 		packages: []string{
 			"internal/assurance/pathauthority",
 			"internal/assurance/stateauthority",
+			"internal/contractversion",
 			"internal/findings",
 			"internal/output",
 			"internal/output/ownership",

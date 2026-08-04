@@ -6,10 +6,9 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 )
-
-const refreshJSONSchemaVersion = 2
 
 // RefreshReport is the schema-versioned public projection of one explicit
 // carrier refresh plan or result.
@@ -97,7 +96,7 @@ func RefreshReportFrom(result refreshworkflow.CommandResult) RefreshReport {
 		}
 	}
 	return RefreshReport{
-		SchemaVersion: refreshJSONSchemaVersion,
+		SchemaVersion: contractversion.ExtensionRefreshJSON,
 		Command:       "refresh extension",
 		Mode:          string(result.Mode),
 		Selection: RefreshSelection{
@@ -253,7 +252,7 @@ func PrintRefreshOutcome(
 // PrintRefreshJSON writes one JSON document with exactly the frozen top-level
 // refresh fields.
 func PrintRefreshJSON(output io.Writer, report RefreshReport) error {
-	report.SchemaVersion = refreshJSONSchemaVersion
+	report.SchemaVersion = contractversion.ExtensionRefreshJSON
 	report.Command = "refresh extension"
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

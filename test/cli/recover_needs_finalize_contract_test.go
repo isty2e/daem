@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/journal"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -66,7 +67,7 @@ func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
 		t.Fatalf("JSON stderr = %q, want empty", jsonStderr.String())
 	}
 	payload := decodeRecoverJSONTestPayload(t, jsonStdout.Bytes())
-	if payload.SchemaVersion != 4 ||
+	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
 		payload.AuthorityKind != "active_journal" {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/buildidentity"
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 const versionTestRevision = "0123456789abcdef0123456789abcdef01234567"
@@ -37,7 +38,7 @@ func TestPrintVersionJSONHasExactSchemaAndFacts(t *testing.T) {
 		t.Fatalf("JSON fields = %#v, want exactly 9", payload)
 	}
 	want := map[string]any{
-		"schema_version": float64(1),
+		"schema_version": float64(contractversion.VersionJSON),
 		"version":        "v1.2.3",
 		"revision":       versionTestRevision,
 		"revision_time":  "2026-07-01T02:03:04Z",

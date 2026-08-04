@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -61,7 +62,7 @@ func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing
 		t.Fatalf("recover exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
-	if payload.SchemaVersion != 4 ||
+	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.AuthorityKind != "active_journal" ||
 		len(payload.Actions) != 1 {
 		t.Fatalf("payload = %#v", payload)
@@ -96,7 +97,7 @@ func TestRunRecoverDryRunJSONReportsRollbackPlan(t *testing.T) {
 	}
 
 	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
-	if payload.SchemaVersion != 4 ||
+	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
 		payload.AuthorityKind != "active_journal" {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/realization/lockfile"
@@ -134,8 +135,8 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("Load replaced lockfile returned error: %v", err)
 	}
-	if loaded.Version != 6 {
-		t.Fatalf("replaced lockfile version = %d, want 6", loaded.Version)
+	if loaded.Version != contractversion.LockfileSchema {
+		t.Fatalf("replaced lockfile version = %d, want %d", loaded.Version, contractversion.LockfileSchema)
 	}
 }
 
@@ -166,8 +167,8 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("Load replaced lockfile returned error: %v", err)
 	}
-	if loaded.Version != 6 {
-		t.Fatalf("replaced lockfile version = %d, want 6", loaded.Version)
+	if loaded.Version != contractversion.LockfileSchema {
+		t.Fatalf("replaced lockfile version = %d, want %d", loaded.Version, contractversion.LockfileSchema)
 	}
 }
 

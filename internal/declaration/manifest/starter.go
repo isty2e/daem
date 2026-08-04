@@ -1,8 +1,16 @@
 package manifest
 
-const starterContent = "version = 1\ntargets = [\"codex\"]\n"
+import (
+	"fmt"
+
+	"github.com/isty2e/daem/internal/declaration"
+)
 
 // StarterContent returns the canonical starter declaration used by init.
 func StarterContent() []byte {
-	return []byte(starterContent)
+	return fmt.Appendf(
+		nil,
+		"version = %d\ntargets = [\"codex\"]\n",
+		declaration.CurrentManifestVersion,
+	)
 }

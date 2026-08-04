@@ -342,6 +342,8 @@ func allowsExactCrossAffinityValue(
 	imported packagePlacement,
 ) bool {
 	switch importedPackage {
+	case "internal/contractversion":
+		return imported.role == roleStableValue
 	case "internal/target":
 		return imported.role == roleStableValue
 	case "internal/supply/source":

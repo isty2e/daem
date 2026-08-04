@@ -4,13 +4,12 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/realization"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/topology"
 )
-
-const lockJSONSchemaVersion = 3
 
 type jsonOutput struct {
 	SchemaVersion          int                         `json:"schema_version"`
@@ -147,7 +146,7 @@ type JSONInput struct {
 // PrintJSON writes the stable structured lock output payload.
 func PrintJSON(output io.Writer, input JSONInput) error {
 	payload := jsonOutput{
-		SchemaVersion:          lockJSONSchemaVersion,
+		SchemaVersion:          contractversion.LockComparisonJSON,
 		Command:                input.Command,
 		Mode:                   input.Mode,
 		ManifestPath:           input.ManifestPath,

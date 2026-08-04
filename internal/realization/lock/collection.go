@@ -4,15 +4,14 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const currentVersion = 6
-
-// CurrentVersion is the supported canonical lock snapshot version.
-const CurrentVersion = currentVersion
+// CurrentVersion is the supported canonical lock snapshot schema version.
+const CurrentVersion = contractversion.LockfileSchema
 
 // File is the canonical reproducible lock snapshot.
 type File struct {
@@ -135,7 +134,7 @@ func (section LockedSection) OrderLen() int { return len(section.orderConstraint
 
 // Validate rejects malformed or non-canonical lock snapshots.
 func Validate(file File) error {
-	if file.Version != currentVersion {
+	if file.Version != CurrentVersion {
 		return fmt.Errorf("unsupported lockfile version %d", file.Version)
 	}
 	canonical, err := NewLockedSection(

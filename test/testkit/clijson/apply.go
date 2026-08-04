@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 type ApplyResult struct {
@@ -128,6 +130,7 @@ func DecodeApplyResult(t *testing.T, content []byte) ApplyResult {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		t.Fatalf("unexpected trailing JSON content: %s", content)
 	}
+	requireSchemaVersion(t, "apply result", payload.SchemaVersion, contractversion.ApplyResultJSON)
 
 	return payload
 }

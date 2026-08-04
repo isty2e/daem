@@ -2,6 +2,7 @@ package authoring
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	daempaths "github.com/isty2e/daem/internal/paths"
+	lockmodel "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -44,7 +46,7 @@ targets = ["codex"]
 
 	lockfileContent := string(change.content)
 	for _, want := range []string{
-		"version = 6",
+		fmt.Sprintf("version = %d", lockmodel.CurrentVersion),
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
@@ -84,7 +86,10 @@ func TestBuildLockfileChangeRejectsMalformedCurrentLockfileWithoutReplacingIt(t 
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
 	manifest := "version = 1\ntargets = [\"codex\"]\n"
-	malformedCurrent := "version = 6\nunknown_current_authority = true\n"
+	malformedCurrent := fmt.Sprintf(
+		"version = %d\nunknown_current_authority = true\n",
+		lockmodel.CurrentVersion,
+	)
 	writeTestFile(t, tempDir, "daem.toml", manifest)
 	writeTestFile(t, tempDir, "daem.lock.toml", malformedCurrent)
 

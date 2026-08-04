@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	initworkflow "github.com/isty2e/daem/internal/workflow/init"
 )
-
-const initJSONSchemaVersion = 1
 
 func PrintInitPlanWithOptions(output io.Writer, label string, plan initworkflow.Plan, options HumanOptions) {
 	switch label {
@@ -40,7 +39,7 @@ type initJSONOutput struct {
 
 func PrintInitJSON(output io.Writer, mode string, plan initworkflow.Plan) error {
 	payload := initJSONOutput{
-		SchemaVersion: initJSONSchemaVersion,
+		SchemaVersion: contractversion.InitJSON,
 		Command:       "init",
 		Mode:          mode,
 		Action:        plan.Action,

@@ -11,6 +11,7 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/target"
@@ -90,8 +91,8 @@ func TestPrintApplyResultJSONHostRouteAttemptsAreHistoryOnlyDiagnostics(t *testi
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode apply result json: %v", err)
 	}
-	if payload.SchemaVersion != 16 {
-		t.Fatalf("schema_version = %d, want 16", payload.SchemaVersion)
+	if payload.SchemaVersion != contractversion.ApplyResultJSON {
+		t.Fatalf("schema_version = %d, want %d", payload.SchemaVersion, contractversion.ApplyResultJSON)
 	}
 	if len(payload.HostRouteAttempts) != 1 {
 		t.Fatalf("host_route_attempts = %#v, want one row", payload.HostRouteAttempts)

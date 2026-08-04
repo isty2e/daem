@@ -528,7 +528,7 @@ func TestManifestEdgeRoundSixMalformedBoundaryShapes(t *testing.T) {
 		raw  declaration.Manifest
 		want string
 	}{
-		{name: "duplicate top-level target", raw: declaration.Manifest{Version: 1, Targets: []string{"codex", "codex"}}, want: "duplicate target"},
+		{name: "duplicate top-level target", raw: declaration.Manifest{Version: declaration.CurrentManifestVersion, Targets: []string{"codex", "codex"}}, want: "duplicate target"},
 		{name: "unknown default install mode", raw: func() declaration.Manifest {
 			raw := baseManifest(target.TargetCodex)
 			raw.Defaults.InstallMode = "reflink"

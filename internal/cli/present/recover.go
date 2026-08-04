@@ -6,13 +6,12 @@ import (
 	"io"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
-
-const recoveryJSONSchemaVersion = 4
 
 func PrintRecoverPlanWithOptions(
 	output io.Writer,
@@ -186,7 +185,7 @@ func recoveryJSONPayload(
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		actions := plan.Actions()
 		return recoveryPlanJSONOutput{
-			SchemaVersion:  recoveryJSONSchemaVersion,
+			SchemaVersion:  contractversion.RecoveryJSON,
 			Command:        "recover",
 			Mode:           mode,
 			AuthorityKind:  disclosure.AuthorityKind(),
@@ -200,7 +199,7 @@ func recoveryJSONPayload(
 	}
 	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {
 		return recoveryPlanJSONOutput{
-			SchemaVersion:  recoveryJSONSchemaVersion,
+			SchemaVersion:  contractversion.RecoveryJSON,
 			Command:        "recover",
 			Mode:           mode,
 			AuthorityKind:  disclosure.AuthorityKind(),
