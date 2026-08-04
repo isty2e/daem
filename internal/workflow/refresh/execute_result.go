@@ -30,6 +30,7 @@ func applyClassification(
 	classified assurancehostroute.Result,
 	attempt subprocess.CommandAttemptResult,
 ) CommandResult {
+	var failureDetail error
 	switch {
 	case attempt.Started() &&
 		(attempt.TimedOut() || attempt.Canceled() || attempt.Signaled()):
@@ -38,18 +39,21 @@ func applyClassification(
 		result.Remediation = []string{
 			"inspect current host state before retrying the explicit refresh",
 		}
+		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case !attempt.Started() && attempt.Canceled():
 		result.ResultClass = ResultCancelled
 		result.ReasonCode = ReasonCancelled
 		result.Remediation = []string{
 			"retry the explicit refresh when ready",
 		}
+		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case attempt.Failed():
 		result.ResultClass = ResultFailed
 		result.ReasonCode = ReasonCommandFailed
 		result.Remediation = []string{
 			"inspect the host CLI and retry the explicit refresh when safe",
 		}
+		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case classified.Class() == assurancehostroute.ResultAttemptedObservedPresent:
 		result.ResultClass = ResultObservedRelation
 		result.ReasonCode = ReasonNone
@@ -62,14 +66,33 @@ func applyClassification(
 		result.Remediation = []string{
 			"run daem status and inspect the exact extension relation before retrying",
 		}
+		failureDetail = postObservationFailureDetail(result, classified)
 	}
-	if result.HasErrors() {
-		result = withFailureDetail(result, fmt.Errorf(
-			"delegated host command result: %s",
-			attempt.Reason(),
-		))
+	if failureDetail != nil {
+		result = withFailureDetail(result, failureDetail)
 	}
 	return result
+}
+
+func mechanicalAttemptFailureDetail(attempt subprocess.CommandAttemptResult) error {
+	return fmt.Errorf("delegated host command result: %s", attempt.Reason())
+}
+
+func postObservationFailureDetail(
+	result CommandResult,
+	classified assurancehostroute.Result,
+) error {
+	if result.Observation != nil {
+		return fmt.Errorf(
+			"post-attempt relation observation: state=%s reason=%s",
+			result.Observation.State,
+			result.Observation.Reason,
+		)
+	}
+	return fmt.Errorf(
+		"post-attempt relation observation: reason=%s",
+		classified.StateSummary().Reason(),
+	)
 }
 
 func resultClassAfterClassificationFailure(

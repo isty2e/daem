@@ -130,9 +130,8 @@ func machineLocalPathStartsAt(value string, index int) bool {
 		strings.HasPrefix(remaining, `\\`):
 		return pathTokenBoundary(value, index)
 	case remaining[0] == '/':
-		return index+1 < len(value) &&
-			!isPathStartTerminator(value[index+1]) &&
-			(index == 0 || value[index-1] != ':' || value[index+1] != '/') &&
+		return (index == 0 || index+1 >= len(value) ||
+			value[index-1] != ':' || value[index+1] != '/') &&
 			pathTokenBoundary(value, index)
 	case len(remaining) >= 3 && isASCIILetter(remaining[0]) &&
 		remaining[1] == ':' && (remaining[2] == '/' || remaining[2] == '\\'):
@@ -176,18 +175,9 @@ func machineLocalPathEnd(value string, start int) int {
 	return len(value)
 }
 
-func isPathStartTerminator(value byte) bool {
-	switch value {
-	case ' ', '\t', '\n', '\r', '"', '\'', ',', ';', ')', ']', '}', '<', '>':
-		return true
-	default:
-		return false
-	}
-}
-
 func isPathEndTerminator(value byte) bool {
 	switch value {
-	case '\n', '\r', '"', '\'', ',', ';', ')', ']', '}', '<', '>':
+	case '\n', '\r':
 		return true
 	default:
 		return false

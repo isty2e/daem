@@ -57,7 +57,7 @@ const (
 	truncationMarker = "\n[truncated]"
 )
 
-var secretFragmentPattern = regexp.MustCompile(`(?i)\b(token|secret|password|api[_-]?key)(["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)`)
+var secretFragmentPattern = regexp.MustCompile(`(?i)\b((?:[a-z0-9]+[_-])*(?:token|secret|password|auth|authorization|credentials?|api[_-]?key|access[_-]?key(?:[_-]?id)?|private[_-]?key))(["']?)(\s*[:=]\s*)("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;]+)`)
 
 // CapturePolicy is one immutable bounded-redaction policy. A non-positive limit keeps
 // no payload text; callers own any executor-specific default.

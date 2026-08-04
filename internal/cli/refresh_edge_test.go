@@ -330,14 +330,14 @@ func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
 	calls := 0
 	options := refreshCLIRunOptions(t, &calls)
 	const (
-		hostPath = "/Users/alice/private/adapter.json"
+		hostPath = "/Users/alice/private,token/adapter.json"
 		secret   = "planning-secret"
 	)
 	options.RefreshPlanOptions.CommandBuilder = func(
 		refreshworkflow.CommandBuildInput,
 	) (refreshworkflow.CommandSpec, error) {
 		return refreshworkflow.CommandSpec{}, errors.New(
-			"read " + hostPath + ": token=" + secret,
+			"read " + hostPath + ": private_token=" + secret,
 		)
 	}
 	var stdout bytes.Buffer
@@ -377,7 +377,10 @@ func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
 		!report.HasErrors {
 		t.Fatalf("report = %#v", report)
 	}
-	if strings.Contains(stdout.String(), hostPath) || strings.Contains(stdout.String(), secret) {
+	if strings.Contains(stdout.String(), hostPath) ||
+		strings.Contains(stdout.String(), "private,token") ||
+		strings.Contains(stdout.String(), "adapter.json") ||
+		strings.Contains(stdout.String(), secret) {
 		t.Fatalf("private detail leaked: %q", stdout.String())
 	}
 }

@@ -170,6 +170,7 @@ func TestClaudeRefreshPostObservationLossIsPartial(t *testing.T) {
 		result.ReasonCode != ReasonPostObservationFailed ||
 		result.Observation == nil ||
 		result.Observation.State != observerelation.StateMissing ||
+		result.FailureDetail() != "post-attempt relation observation: state=missing reason=managed_relation_missing" ||
 		!result.AttemptHistory.Persisted {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}

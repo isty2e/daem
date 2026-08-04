@@ -54,8 +54,12 @@ func TestRedactMachineLocalPathsPreservesPortableIdentities(t *testing.T) {
 	}{
 		{input: `open /Users/alice/private/config.json: denied`, want: `open [REDACTED] denied`},
 		{input: `open /Users/alice/My Config/config.json: denied`, want: `open [REDACTED] denied`},
+		{input: `open /Users/alice/private,token/file.json: denied`, want: `open [REDACTED] denied`},
+		{input: `open /Users/alice/private;token/(file).json: denied`, want: `open [REDACTED] denied`},
 		{input: `open "/Users/alice/My Config/config.json": denied`, want: `open "[REDACTED]": denied`},
 		{input: `read C:\\Users\\alice\\private.json: denied`, want: `read [REDACTED] denied`},
+		{input: `read C:\\Users\\alice\\private,token\\file.json: denied`, want: `read [REDACTED] denied`},
+		{input: `read "C:\\Users\\alice\\private,token\\file.json": denied`, want: `read "[REDACTED]": denied`},
 		{input: `read file:///home/alice/private.json: denied`, want: `read [REDACTED] denied`},
 		{input: `read FILE:/home/alice/private.json: denied`, want: `read [REDACTED] denied`},
 		{input: `read ../private/config.json: denied`, want: `read [REDACTED] denied`},
@@ -65,6 +69,15 @@ func TestRedactMachineLocalPathsPreservesPortableIdentities(t *testing.T) {
 	for _, test := range tests {
 		if got := redactMachineLocalPaths(test.input); got != test.want {
 			t.Errorf("redactMachineLocalPaths(%q) = %q, want %q", test.input, got, test.want)
+		}
+	}
+}
+
+func TestSanitizedFailureDetailRedactsCompoundCredentialKeys(t *testing.T) {
+	for _, key := range []string{"private_token", "access_token", "client_secret"} {
+		detail := sanitizedFailureDetail(errors.New(key + "=boundary-secret"))
+		if detail != key+"=[REDACTED]" {
+			t.Errorf("sanitizedFailureDetail(%q) = %q", key, detail)
 		}
 	}
 }
