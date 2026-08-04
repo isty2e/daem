@@ -325,7 +325,7 @@ func TestRefreshJSONExecutionFailureKeepsProseOutOfAuthorizationStream(t *testin
 	}
 }
 
-func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
+func TestRefreshPlanningFailureDoesNotProjectExternalErrorText(t *testing.T) {
 	manifestPath := writeCLIRefreshFixture(t)
 	calls := 0
 	options := refreshCLIRunOptions(t, &calls)
@@ -373,7 +373,7 @@ func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
 	}
 	if report.Result.Class != "refused" ||
 		report.Result.ReasonCode != "refresh_unsupported" ||
-		!strings.Contains(report.Result.Detail, "[REDACTED]") ||
+		report.Result.Detail != "the selected relation has no supported refresh route" ||
 		!report.HasErrors {
 		t.Fatalf("report = %#v", report)
 	}
@@ -381,6 +381,101 @@ func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
 		strings.Contains(stdout.String(), "user.txt") ||
 		strings.Contains(stdout.String(), secret) {
 		t.Fatalf("private detail leaked: %q", stdout.String())
+	}
+}
+
+func TestRefreshHumanFailuresUseTypedDetailInsteadOfExternalErrorText(t *testing.T) {
+	manifestPath := writeCLIRefreshFixture(t)
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	const (
+		hostPath = `/Users/alice/private/name: user.txt`
+		secret   = "oauth-secret"
+	)
+	options.RefreshPlanOptions.CommandBuilder = func(
+		refreshworkflow.CommandBuildInput,
+	) (refreshworkflow.CommandSpec, error) {
+		return refreshworkflow.CommandSpec{}, errors.New(
+			"read " + hostPath + ": authorization_code=" + secret,
+		)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+
+	exitCode := RunWithOptions([]string{
+		"refresh", "extension", "formatter",
+		"--manifest", manifestPath,
+		"--dry-run",
+	}, options)
+	if exitCode != 1 || calls != 0 {
+		t.Fatalf(
+			"exitCode=%d calls=%d stdout=%q stderr=%q",
+			exitCode,
+			calls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(
+		stderr.String(),
+		"refresh failed: the selected relation has no supported refresh route",
+	) {
+		t.Fatalf("stderr = %q, want typed refresh diagnostic", stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), hostPath) ||
+		strings.Contains(stdout.String()+stderr.String(), secret) ||
+		strings.Contains(stdout.String()+stderr.String(), "authorization_code") {
+		t.Fatalf("external failure text leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+}
+
+func TestRefreshHumanExecutionFailureDoesNotPrintHostErrorText(t *testing.T) {
+	manifestPath := writeCLIRefreshFixture(t)
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	const secret = "host-oauth-secret"
+	options.RefreshExecuteOptions.CommandOptions.Runner = func(
+		context.Context,
+		subprocess.CommandRequest,
+	) subprocess.CommandResult {
+		calls++
+		return subprocess.CommandResult{
+			Started:     true,
+			ExitCode:    17,
+			HasExitCode: true,
+			Err:         errors.New(`authorization_code=` + secret),
+		}
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+
+	exitCode := RunWithOptions([]string{
+		"refresh", "extension", "formatter",
+		"--manifest", manifestPath,
+		"--yes",
+	}, options)
+	if exitCode != 1 || calls != 1 {
+		t.Fatalf(
+			"exitCode=%d calls=%d stdout=%q stderr=%q",
+			exitCode,
+			calls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(
+		stderr.String(),
+		"refresh failed: delegated host command result: nonzero_exit",
+	) {
+		t.Fatalf("stderr = %q, want typed command outcome", stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), secret) ||
+		strings.Contains(stdout.String()+stderr.String(), "authorization_code") {
+		t.Fatalf("host error leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 

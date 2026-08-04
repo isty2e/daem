@@ -1092,11 +1092,14 @@ schema_version command mode selection route disclosure result has_errors
 
 The nested disclosure contains deterministic command/args, environment names
 without values, selected-root cwd policy, timeout, effect and retained-effect
-classes, and non-claims. `result.detail` is empty on success and contains one
-bounded, display-safe failure detail otherwise. Secret-shaped fragments and
-machine-local path forms are redacted before serialization. Process
-and observation summaries contain no subprocess output, raw errors, secret
-values, protocol payloads, or machine-local paths.
+classes, and non-claims. `result.detail` is empty on success. For an error
+class, it is derived only from the closed `reason_code`, process-outcome, and
+relation-observation values already present in the result. It is never built by
+sanitizing an underlying parser, filesystem, subprocess, or adapter error
+string; those errors remain internal causes. Process and observation summaries
+contain no subprocess output, raw errors, secret values, protocol payloads, or
+machine-local paths. Human refresh failures use the same typed detail instead
+of printing the underlying error.
 
 After a refresh result JSON document has been written to stdout, daem does not
 append failure prose to stderr. Dry-run and pre-execution planning failures

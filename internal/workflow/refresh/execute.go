@@ -48,7 +48,7 @@ func Execute(
 			return
 		}
 		if closeErr := execution.root.Close(); closeErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted, closeErr)
+			result = resultWithCleanupFailure(result, attemptStarted)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"close refresh project-root witness: %w",
 				closeErr,
@@ -93,7 +93,7 @@ func Execute(
 	}
 	defer func() {
 		if releaseErr := leases.Release(); releaseErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted, releaseErr)
+			result = resultWithCleanupFailure(result, attemptStarted)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"release refresh mutation authority: %w",
 				releaseErr,
@@ -163,7 +163,7 @@ func Execute(
 	}
 	defer func() {
 		if closeErr := stateAuthority.Close(); closeErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted, closeErr)
+			result = resultWithCleanupFailure(result, attemptStarted)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"close refresh statefile authority: %w",
 				closeErr,
@@ -279,13 +279,12 @@ func Execute(
 			},
 		)
 		if classifyErr != nil {
-			result.ResultClass = resultClassAfterClassificationFailure(attempt)
-			result.ReasonCode = ReasonCommandFailed
+			result = resultAfterClassificationFailure(result, attempt)
 			failure := errors.Join(
 				postObservationErr,
 				fmt.Errorf("classify refresh fallback result: %w", classifyErr),
 			)
-			return withFailureDetail(result, failure), failure
+			return result, failure
 		}
 	}
 	result = applyClassification(result, classified, attempt)
@@ -331,7 +330,7 @@ func Execute(
 			fmt.Errorf("persist refresh attempt history: %w", persistenceErr),
 			postObservationErr,
 		)
-		return withFailureDetail(result, failure), failure
+		return result, failure
 	}
 	if postObservationErr != nil && attempt.Succeeded() {
 		result.ResultClass = ResultPartial
@@ -343,14 +342,10 @@ func Execute(
 			"refresh post-attempt observation: %w",
 			postObservationErr,
 		)
-		return withFailureDetail(result, failure), failure
+		return result, failure
 	}
 	if result.HasErrors() {
-		failure := errors.New(string(result.ReasonCode))
-		if result.FailureDetail() == "" {
-			result = withFailureDetail(result, failure)
-		}
-		return result, failure
+		return result, errors.New(string(result.ReasonCode))
 	}
 	return result, nil
 }

@@ -194,7 +194,6 @@ func Cancel(prepared *PreparedCommand) (CommandResult, error) {
 		}
 		result.ResultClass = ResultRefused
 		result.ReasonCode = ReasonMutationAuthority
-		result = withFailureDetail(result, err)
 		result.Remediation = []string{
 			"inspect workspace authority before planning refresh again",
 		}
@@ -205,7 +204,6 @@ func Cancel(prepared *PreparedCommand) (CommandResult, error) {
 	result.Attempted = false
 	result.ProcessOutcome = nil
 	result.AttemptHistory = AttemptHistory{}
-	result = withFailureDetail(result, errors.New("operator declined refresh"))
 	result.Remediation = []string{"rerun refresh when ready"}
 	return result, nil
 }

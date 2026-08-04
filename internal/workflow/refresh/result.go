@@ -3,32 +3,28 @@ package refresh
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
-const maximumFailureDetailRunes = 1024
-
-const failureDetailCaptureRunes = maximumFailureDetailRunes - len("\n[truncated]")
+const unavailableFailureDetail = "refresh failed; no additional public detail is available"
 
 // RefusalError is a stable pre-attempt workflow refusal.
 type RefusalError struct {
-	code   ReasonCode
-	detail string
-	cause  error
+	code  ReasonCode
+	cause error
 }
 
 func (err *RefusalError) Error() string {
 	if err == nil {
 		return ""
 	}
-	if err.detail == "" {
+	if err.cause == nil {
 		return string(err.code)
 	}
-	return fmt.Sprintf("%s: %s", err.code, err.detail)
+	return fmt.Sprintf("%s: %s", err.code, err.cause)
 }
 
 func (err *RefusalError) Unwrap() error {
@@ -75,108 +71,166 @@ func refusedResult(
 		result.ResultClass = ResultCancelled
 	}
 	result.ReasonCode = code
-	result.failureDetail = sanitizedFailureDetail(cause)
 	if remediation != "" {
 		result.Remediation = []string{remediation}
 	}
-	return result, &RefusalError{code: code, detail: cause.Error(), cause: cause}
+	return result, &RefusalError{code: code, cause: cause}
 }
 
-func withFailureDetail(result CommandResult, cause error) CommandResult {
-	result.failureDetail = sanitizedFailureDetail(cause)
-	return result
-}
-
-func sanitizedFailureDetail(cause error) string {
-	if cause == nil {
+// FailureDetail derives public prose exclusively from closed workflow facts.
+// External error strings remain internal causes and never participate in this
+// projection.
+func (result CommandResult) FailureDetail() string {
+	if !result.HasErrors() {
 		return ""
 	}
-	sanitized := subprocess.NewCapturePolicy(
-		nil,
-		failureDetailCaptureRunes,
-	).Sanitize(cause.Error(), false).Text()
-	redacted := redactMachineLocalPaths(sanitized)
-	return subprocess.NewCapturePolicy(
-		nil,
-		failureDetailCaptureRunes,
-	).Sanitize(redacted, false).Text()
-}
-
-func redactMachineLocalPaths(value string) string {
-	var result strings.Builder
-	result.Grow(len(value))
-	for index := 0; index < len(value); {
-		if !machineLocalPathStartsAt(value, index) {
-			result.WriteByte(value[index])
-			index++
-			continue
+	switch result.ReasonCode {
+	case ReasonInvalidSelection:
+		return "the selected extension relation is invalid"
+	case ReasonManifestUnavailable:
+		return "the selected manifest is unavailable"
+	case ReasonLockUnavailable:
+		return "the selected lockfile is unavailable"
+	case ReasonLockMismatch:
+		return "the selected lockfile does not match the manifest"
+	case ReasonRefreshUnsupported:
+		return "the selected relation has no supported refresh route"
+	case ReasonRelationMissing:
+		return "the selected relation is missing from current host state"
+	case ReasonRelationAmbiguous:
+		return "the selected relation is ambiguous in current host state"
+	case ReasonObservationUnavailable:
+		return "required current relation evidence is unavailable"
+	case ReasonStalePlan:
+		return "the authorized refresh plan is stale"
+	case ReasonMutationAuthority:
+		return "required mutation authority is unavailable"
+	case ReasonCommandFailed:
+		return result.commandFailureDetail()
+	case ReasonInvalidTimeout:
+		return "the refresh timeout is invalid"
+	case ReasonPostObservationFailed:
+		return result.postObservationFailureDetail()
+	case ReasonAttemptPersistence:
+		return "refresh attempt history could not be persisted"
+	case ReasonCancelled:
+		if detail, ok := result.typedCommandFailureDetail(); ok {
+			return detail
 		}
-		result.WriteString("[REDACTED]")
-		index = machineLocalPathEnd(value, index)
-	}
-	return result.String()
-}
-
-func machineLocalPathStartsAt(value string, index int) bool {
-	remaining := value[index:]
-	switch {
-	case hasPrefixFold(remaining, "file:"):
-		return pathTokenBoundary(value, index)
-	case hasPrefixFold(remaining, "local:"):
-		return pathTokenBoundary(value, index)
-	case strings.HasPrefix(remaining, "~/"), strings.HasPrefix(remaining, `~\`),
-		strings.HasPrefix(remaining, "./"), strings.HasPrefix(remaining, "../"),
-		strings.HasPrefix(remaining, `.\`), strings.HasPrefix(remaining, `..\`),
-		strings.HasPrefix(remaining, `\\`):
-		return pathTokenBoundary(value, index)
-	case remaining[0] == '/':
-		return (index == 0 || index+1 >= len(value) ||
-			value[index-1] != ':' || value[index+1] != '/') &&
-			pathTokenBoundary(value, index)
-	case len(remaining) >= 3 && isASCIILetter(remaining[0]) &&
-		remaining[1] == ':' && (remaining[2] == '/' || remaining[2] == '\\'):
-		return pathTokenBoundary(value, index)
+		return "refresh was cancelled"
+	case ReasonNone:
+		return unavailableFailureDetail
 	default:
-		return false
+		return unavailableFailureDetail
 	}
 }
 
-func pathTokenBoundary(value string, index int) bool {
-	if index == 0 {
-		return true
+func (result CommandResult) commandFailureDetail() string {
+	if detail, ok := result.typedCommandFailureDetail(); ok {
+		return detail
 	}
-	previous := value[index-1]
-	return previous == ' ' || previous == '\t' || previous == '\n' ||
-		previous == '\r' || previous == '"' || previous == '\'' ||
-		previous == '(' || previous == '[' || previous == '{' ||
-		previous == '=' || previous == ':' || previous == ',' || previous == ';'
+	return "the delegated host command failed"
 }
 
-func machineLocalPathEnd(value string, start int) int {
-	quote := byte(0)
-	if start > 0 && (value[start-1] == '"' || value[start-1] == '\'') {
-		quote = value[start-1]
+func (result CommandResult) typedCommandFailureDetail() (string, bool) {
+	if result.ProcessOutcome == nil {
+		return "", false
 	}
-	if quote == 0 {
-		if end := strings.IndexAny(value[start:], "\r\n"); end >= 0 {
-			return start + end
-		}
-		return len(value)
+	reason, ok := publicCommandReason(result.ProcessOutcome.Reason)
+	if !ok || reason == "" {
+		return "", false
 	}
-	for index := start; index < len(value); index++ {
-		if value[index] == quote && (index == start || value[index-1] != '\\') {
-			return index
-		}
-	}
-	return len(value)
+	return "delegated host command result: " + reason, true
 }
 
-func isASCIILetter(value byte) bool {
-	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+func publicCommandReason(reason subprocess.CommandReason) (string, bool) {
+	switch reason {
+	case subprocess.CommandReasonNone:
+		return "", true
+	case subprocess.CommandReasonMissingEnvRef:
+		return "missing_env_ref", true
+	case subprocess.CommandReasonMissingRunner:
+		return "missing_runner", true
+	case subprocess.CommandReasonNonZeroExit:
+		return "nonzero_exit", true
+	case subprocess.CommandReasonTimeout:
+		return "timeout", true
+	case subprocess.CommandReasonCanceled:
+		return "canceled", true
+	case subprocess.CommandReasonSignaled:
+		return "signaled", true
+	case subprocess.CommandReasonRunnerError:
+		return "runner_error", true
+	case subprocess.CommandReasonWorkDirAuthority:
+		return "workdir_authority", true
+	default:
+		return "", false
+	}
 }
 
-func hasPrefixFold(value string, prefix string) bool {
-	return len(value) >= len(prefix) && strings.EqualFold(value[:len(prefix)], prefix)
+func (result CommandResult) postObservationFailureDetail() string {
+	if result.Observation == nil {
+		return "post-attempt relation observation did not satisfy the refresh postcondition"
+	}
+	state, stateOK := publicObservationState(result.Observation.State)
+	reason, reasonOK := publicObservationReason(result.Observation.Reason)
+	if !stateOK || !reasonOK {
+		return "post-attempt relation observation did not satisfy the refresh postcondition"
+	}
+	if reason == "" {
+		return "post-attempt relation observation: state=" + state
+	}
+	return "post-attempt relation observation: state=" + state + " reason=" + reason
+}
+
+func publicObservationState(state observerelation.CorrelationState) (string, bool) {
+	switch state {
+	case observerelation.StateExactCorrelation:
+		return "exact_correlation", true
+	case observerelation.StateMissing:
+		return "missing", true
+	case observerelation.StateUnkeyedSameSubject:
+		return "unkeyed_same_subject", true
+	case observerelation.StateSameSubjectShadow:
+		return "same_name_shadow", true
+	case observerelation.StateManagedKeyDrift:
+		return "managed_key_drift", true
+	case observerelation.StateAmbiguous:
+		return "ambiguous", true
+	case observerelation.StateStaleEvidence:
+		return "stale_evidence", true
+	case observerelation.StateUnsupported:
+		return "unsupported", true
+	case observerelation.StateUnavailableEvidence:
+		return "unavailable_evidence", true
+	default:
+		return "", false
+	}
+}
+
+func publicObservationReason(reason observerelation.ReasonCode) (string, bool) {
+	switch reason {
+	case observerelation.ReasonNone:
+		return "", true
+	case observerelation.ReasonUnsupportedInventory:
+		return "unsupported_passive_inventory", true
+	case observerelation.ReasonStaleEvidence:
+		return "stale_evidence", true
+	case observerelation.ReasonMissing:
+		return "managed_relation_missing", true
+	case observerelation.ReasonUnkeyedSameSubject:
+		return "unkeyed_same_subject", true
+	case observerelation.ReasonSameSubjectShadow:
+		return "same_name_shadow", true
+	case observerelation.ReasonManagedKeyDrift:
+		return "managed_key_drift", true
+	case observerelation.ReasonAmbiguous:
+		return "ambiguous_relation", true
+	case observerelation.ReasonUnavailableEvidence:
+		return "relation_evidence_unavailable", true
+	default:
+		return "", false
+	}
 }
 
 func observationSummary(result observerelation.CorrelationResult) *Observation {

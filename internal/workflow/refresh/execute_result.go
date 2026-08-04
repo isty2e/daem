@@ -3,7 +3,6 @@ package refresh
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -30,7 +29,6 @@ func applyClassification(
 	classified assurancehostroute.Result,
 	attempt subprocess.CommandAttemptResult,
 ) CommandResult {
-	var failureDetail error
 	switch {
 	case attempt.Started() &&
 		(attempt.TimedOut() || attempt.Canceled() || attempt.Signaled()):
@@ -39,21 +37,18 @@ func applyClassification(
 		result.Remediation = []string{
 			"inspect current host state before retrying the explicit refresh",
 		}
-		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case !attempt.Started() && attempt.Canceled():
 		result.ResultClass = ResultCancelled
 		result.ReasonCode = ReasonCancelled
 		result.Remediation = []string{
 			"retry the explicit refresh when ready",
 		}
-		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case attempt.Failed():
 		result.ResultClass = ResultFailed
 		result.ReasonCode = ReasonCommandFailed
 		result.Remediation = []string{
 			"inspect the host CLI and retry the explicit refresh when safe",
 		}
-		failureDetail = mechanicalAttemptFailureDetail(attempt)
 	case classified.Class() == assurancehostroute.ResultAttemptedObservedPresent:
 		result.ResultClass = ResultObservedRelation
 		result.ReasonCode = ReasonNone
@@ -66,33 +61,8 @@ func applyClassification(
 		result.Remediation = []string{
 			"run daem status and inspect the exact extension relation before retrying",
 		}
-		failureDetail = postObservationFailureDetail(result, classified)
-	}
-	if failureDetail != nil {
-		result = withFailureDetail(result, failureDetail)
 	}
 	return result
-}
-
-func mechanicalAttemptFailureDetail(attempt subprocess.CommandAttemptResult) error {
-	return fmt.Errorf("delegated host command result: %s", attempt.Reason())
-}
-
-func postObservationFailureDetail(
-	result CommandResult,
-	classified assurancehostroute.Result,
-) error {
-	if result.Observation != nil {
-		return fmt.Errorf(
-			"post-attempt relation observation: state=%s reason=%s",
-			result.Observation.State,
-			result.Observation.Reason,
-		)
-	}
-	return fmt.Errorf(
-		"post-attempt relation observation: reason=%s",
-		classified.StateSummary().Reason(),
-	)
 }
 
 func resultClassAfterClassificationFailure(
@@ -106,6 +76,30 @@ func resultClassAfterClassificationFailure(
 		return ResultPartial
 	}
 	return ResultFailed
+}
+
+func resultAfterClassificationFailure(
+	result CommandResult,
+	attempt subprocess.CommandAttemptResult,
+) CommandResult {
+	result.ResultClass = resultClassAfterClassificationFailure(attempt)
+	switch {
+	case attempt.Started() && attempt.Succeeded():
+		result.ReasonCode = ReasonPostObservationFailed
+		result.Remediation = []string{
+			"run daem status and inspect the exact extension relation before retrying",
+		}
+	case !attempt.Started() && attempt.Canceled():
+		result.ResultClass = ResultCancelled
+		result.ReasonCode = ReasonCancelled
+		result.Remediation = []string{"retry the explicit refresh when ready"}
+	default:
+		result.ReasonCode = ReasonCommandFailed
+		result.Remediation = []string{
+			"inspect the host CLI and retry the explicit refresh when safe",
+		}
+	}
+	return result
 }
 
 func sameObservationAuthorityPaths(
@@ -132,7 +126,6 @@ func cancelledBeforeAttempt(
 	result.ResultClass = ResultCancelled
 	result.ReasonCode = ReasonCancelled
 	result.Attempted = false
-	result = withFailureDetail(result, err)
 	result.Remediation = []string{"rerun refresh when ready"}
 	return result, err
 }
@@ -148,7 +141,6 @@ func staleBeforeAttempt(
 	result.ResultClass = ResultRefused
 	result.ReasonCode = ReasonStalePlan
 	result.Attempted = false
-	result = withFailureDetail(result, err)
 	result.Remediation = []string{"review a new dry-run plan before retrying"}
 	return result, err
 }
@@ -165,7 +157,6 @@ func refusedBeforeAttempt(
 	result.ResultClass = ResultRefused
 	result.ReasonCode = reason
 	result.Attempted = false
-	result = withFailureDetail(result, err)
 	result.Remediation = []string{"restore the required authority and retry"}
 	return result, err
 }
@@ -173,7 +164,6 @@ func refusedBeforeAttempt(
 func resultWithCleanupFailure(
 	result CommandResult,
 	attemptStarted bool,
-	cause error,
 ) CommandResult {
 	if attemptStarted {
 		result.ResultClass = ResultPartial
@@ -182,7 +172,6 @@ func resultWithCleanupFailure(
 		result.ResultClass = ResultRefused
 		result.ReasonCode = ReasonMutationAuthority
 	}
-	result = withFailureDetail(result, cause)
 	result.Remediation = []string{
 		"inspect workspace authority and current host state before retrying",
 	}

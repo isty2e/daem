@@ -92,24 +92,20 @@ func TestOpenCodeRefreshCLIUsesRealAdapterAndRemainsRepeatable(t *testing.T) {
 func TestOpenCodeRefreshRejectsCredentialBearingForgedLockBeforeDisclosure(t *testing.T) {
 	const secret = "do-not-print-private-token"
 	tests := []struct {
-		name       string
-		source     string
-		wantReason string
+		name   string
+		source string
 	}{
 		{
-			name:       "query field",
-			source:     "https://example.test/plugin.tgz?private_token=" + secret,
-			wantReason: "must not contain URL query fields",
+			name:   "query field",
+			source: "https://example.test/plugin.tgz?private_token=" + secret,
 		},
 		{
-			name:       "encoded fragment assignment",
-			source:     "github:acme/plugin#private_token%3D" + secret,
-			wantReason: "fragment must not contain assignments",
+			name:   "encoded fragment assignment",
+			source: "github:acme/plugin#private_token%3D" + secret,
 		},
 		{
-			name:       "malformed relative source with encoded assignment",
-			source:     "./plugins/%zz#private_token%3D" + secret,
-			wantReason: "extension source URL is malformed",
+			name:   "malformed relative source with encoded assignment",
+			source: "./plugins/%zz#private_token%3D" + secret,
 		},
 	}
 
@@ -160,8 +156,8 @@ func TestOpenCodeRefreshRejectsCredentialBearingForgedLockBeforeDisclosure(t *te
 				len(report.Disclosure.Args) != 0 {
 				t.Fatalf("refused report disclosed invocation: %#v", report)
 			}
-			if !strings.Contains(report.Result.Detail, test.wantReason) {
-				t.Fatalf("detail = %q, want %q", report.Result.Detail, test.wantReason)
+			if report.Result.Detail != "the selected lockfile is unavailable" {
+				t.Fatalf("detail = %q, want stable lock diagnostic", report.Result.Detail)
 			}
 			if stderr.Len() != 0 {
 				t.Fatalf("stderr = %q, want empty after JSON result", stderr.String())

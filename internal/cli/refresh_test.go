@@ -148,7 +148,7 @@ func TestRefreshUnknownExtensionProducesTypedRefusal(t *testing.T) {
 	}
 	if report.Result.Class != "refused" ||
 		report.Result.ReasonCode != "invalid_selection" ||
-		!strings.Contains(report.Result.Detail, `extension id "missing" is not declared`) ||
+		report.Result.Detail != "the selected extension relation is invalid" ||
 		!report.HasErrors {
 		t.Fatalf("report = %#v", report)
 	}

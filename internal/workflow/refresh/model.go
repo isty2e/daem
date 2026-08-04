@@ -154,11 +154,7 @@ type CommandResult struct {
 	Observation    *Observation
 	AttemptHistory AttemptHistory
 	Remediation    []string
-	failureDetail  string
 }
-
-// FailureDetail returns the bounded public diagnostic selected by the workflow.
-func (result CommandResult) FailureDetail() string { return result.failureDetail }
 
 func (result CommandResult) HasErrors() bool {
 	switch result.ResultClass {
