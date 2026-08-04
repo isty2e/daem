@@ -10,7 +10,7 @@ import (
 	listworkflow "github.com/isty2e/daem/internal/workflow/list"
 )
 
-const listOutputsJSONSchemaVersion = 3
+const listOutputsJSONSchemaVersion = 4
 
 type inventoryJSONEntry struct {
 	ResourceID  string   `json:"resource_id,omitempty"`

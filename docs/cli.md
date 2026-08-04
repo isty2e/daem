@@ -222,7 +222,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `2` |
 | `lock`, `outdated` | Lock comparison | `3` |
 | `list resources` | Resource inventory | `1` |
-| `list outputs` | Output inventory | `3` |
+| `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `10` |
 | confirmed `apply` | Apply result | `15` |
@@ -663,7 +663,7 @@ claim which copy the host will load, does not grant ownership, and never
 deletes or adopts the other copy.
 
 `list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
-version `3`, with separate `managed`, `unmanaged`, and `blocked` arrays and
+version `4`, with separate `managed`, `unmanaged`, and `blocked` arrays and
 counts. Rows retain their canonical `subject` and complete `targets` consumer
 set while reporting the correlated resource identity when one exists.
 Newly classified unmanaged and blocked aggregate rows also carry

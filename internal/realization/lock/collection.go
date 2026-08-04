@@ -9,7 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const currentVersion = 4
+const currentVersion = 5
 
 // CurrentVersion is the supported canonical lock snapshot version.
 const CurrentVersion = currentVersion

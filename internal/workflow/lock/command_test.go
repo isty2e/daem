@@ -92,7 +92,7 @@ targets = ["codex"]
 	}
 }
 
-func TestRunLockReplacesSchemaV3WithoutInterpretingPriorContents(t *testing.T) {
+func TestRunLockReplacesSchemaV4WithoutInterpretingPriorContents(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
 	manifestPath := filepath.Join(tempDir, "daem.toml")
@@ -105,7 +105,7 @@ targets = ["codex"]
 source = "instructions/project.md"
 targets = ["codex"]
 `)
-	const legacy = "version = 3\n"
+	const legacy = "version = 4\nlegacy_payload = \"unread\"\n"
 	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", legacy)
 
 	preview, err := RunLock(context.Background(), LockInput{
@@ -116,10 +116,10 @@ targets = ["codex"]
 		t.Fatalf("dry-run RunLock returned error: %v", err)
 	}
 	if !preview.PreviousFound {
-		t.Fatal("dry-run PreviousFound = false for replaceable v3 lockfile")
+		t.Fatal("dry-run PreviousFound = false for replaceable v4 lockfile")
 	}
 	if got, err := os.ReadFile(lockfilePath); err != nil || string(got) != legacy {
-		t.Fatalf("v3 lockfile after successful dry-run = %q, %v", got, err)
+		t.Fatalf("v4 lockfile after successful dry-run = %q, %v", got, err)
 	}
 
 	result, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath})
@@ -127,23 +127,23 @@ targets = ["codex"]
 		t.Fatalf("RunLock returned error: %v", err)
 	}
 	if !result.PreviousFound {
-		t.Fatal("PreviousFound = false for replaced v3 lockfile")
+		t.Fatal("PreviousFound = false for replaced v4 lockfile")
 	}
 	loaded, err := lockfile.Load(lockfilePath)
 	if err != nil {
 		t.Fatalf("Load replaced lockfile returned error: %v", err)
 	}
-	if loaded.Version != 4 {
-		t.Fatalf("replaced lockfile version = %d, want 4", loaded.Version)
+	if loaded.Version != 5 {
+		t.Fatalf("replaced lockfile version = %d, want 5", loaded.Version)
 	}
 }
 
-func TestRunLockDryRunAndFailedRelockPreserveSchemaV3Bytes(t *testing.T) {
+func TestRunLockDryRunAndFailedRelockPreserveSchemaV4Bytes(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
 	manifestPath := filepath.Join(tempDir, "daem.toml")
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	const legacy = "version = 3\nlegacy_payload = \"unread\"\n"
+	const legacy = "version = 4\nlegacy_payload = \"unread\"\n"
 	writeWorkflowTestFile(t, tempDir, "daem.lock.toml", legacy)
 	writeWorkflowTestFile(t, tempDir, "daem.toml", `version = 1
 targets = ["codex"]
@@ -160,14 +160,14 @@ targets = ["codex"]
 		t.Fatal("dry-run relock succeeded with missing source")
 	}
 	if got, err := os.ReadFile(lockfilePath); err != nil || string(got) != legacy {
-		t.Fatalf("v3 lockfile after failed dry-run = %q, %v", got, err)
+		t.Fatalf("v4 lockfile after failed dry-run = %q, %v", got, err)
 	}
 
 	if _, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath}); err == nil {
 		t.Fatal("relock succeeded with missing source")
 	}
 	if got, err := os.ReadFile(lockfilePath); err != nil || string(got) != legacy {
-		t.Fatalf("v3 lockfile after failed write = %q, %v", got, err)
+		t.Fatalf("v4 lockfile after failed write = %q, %v", got, err)
 	}
 }
 

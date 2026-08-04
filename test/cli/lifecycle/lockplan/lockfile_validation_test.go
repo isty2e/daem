@@ -24,7 +24,7 @@ source = "instructions/never-read.md"
 		t.Fatalf("WriteFile manifest returned error: %v", err)
 	}
 	testkit.WriteFile(t, tempDir, "daem.lock.toml", `
-version = 3
+version = 4
 `)
 
 	var stdout bytes.Buffer
@@ -36,9 +36,9 @@ version = 3
 	}
 	if !strings.Contains(
 		stderr.String(),
-		"unsupported lockfile version 3; run daem lock to regenerate schema version 4",
+		"unsupported lockfile version 4; run daem lock to regenerate schema version 5",
 	) {
-		t.Fatalf("stderr = %q, want actionable v3 diagnostic", stderr.String())
+		t.Fatalf("stderr = %q, want actionable v4 diagnostic", stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("invalid lockfile apply wrote output or stat failed: %v", err)
@@ -55,7 +55,7 @@ targets = ["codex"]
 [instructions.project]
 source = "instructions/never-read.md"
 `)
-	testkit.WriteFile(t, tempDir, "daem.lock.toml", "version = 3\n")
+	testkit.WriteFile(t, tempDir, "daem.lock.toml", "version = 4\n")
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -68,9 +68,9 @@ source = "instructions/never-read.md"
 	}
 	if !strings.Contains(
 		stderr.String(),
-		"unsupported lockfile version 3; run daem lock to regenerate schema version 4",
+		"unsupported lockfile version 4; run daem lock to regenerate schema version 5",
 	) {
-		t.Fatalf("stderr = %q, want actionable v3 diagnostic", stderr.String())
+		t.Fatalf("stderr = %q, want actionable v4 diagnostic", stderr.String())
 	}
 }
 
@@ -90,7 +90,7 @@ source = "instructions/AGENTS.md"
 		t.Fatalf("WriteFile manifest returned error: %v", err)
 	}
 	testkit.WriteFile(t, tempDir, "daem.lock.toml", `
-version = 4
+version = 5
 
 [locked]
 

@@ -76,7 +76,7 @@ targets = ["codex"]
 	if err := json.Unmarshal(stdout.Bytes(), &inventory); err != nil {
 		t.Fatalf("decode list outputs JSON: %v\n%s", err, stdout.String())
 	}
-	if inventory.SchemaVersion != 3 || inventory.UnmanagedCount != 2 ||
+	if inventory.SchemaVersion != 4 || inventory.UnmanagedCount != 2 ||
 		len(inventory.Unmanaged) != 2 {
 		t.Fatalf("inventory = %#v, want two unmanaged rows", inventory)
 	}

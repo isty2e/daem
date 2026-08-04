@@ -61,7 +61,7 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 		if err := json.Unmarshal([]byte(stdout), &inventory); err != nil {
 			t.Fatalf("decode blocked inventory: %v", err)
 		}
-		if inventory.SchemaVersion != 3 || inventory.BlockedCount != 1 || len(inventory.Blocked) != 1 ||
+		if inventory.SchemaVersion != 4 || inventory.BlockedCount != 1 || len(inventory.Blocked) != 1 ||
 			inventory.Blocked[0].Reason != "ownership_conflict" || !strings.Contains(inventory.Blocked[0].Detail, leftManifest) {
 			t.Fatalf("blocked inventory = %#v, want versioned owner-attributed conflict", inventory)
 		}

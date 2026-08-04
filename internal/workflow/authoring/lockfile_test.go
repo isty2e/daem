@@ -44,7 +44,7 @@ targets = ["codex"]
 
 	lockfileContent := string(change.content)
 	for _, want := range []string{
-		"version = 4",
+		"version = 5",
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
