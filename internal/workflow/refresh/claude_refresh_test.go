@@ -124,6 +124,7 @@ func TestClaudeRefreshCommandFailureCannotBorrowCurrentRelationSuccess(t *testin
 		result.ProcessOutcome == nil ||
 		result.ProcessOutcome.ExitCode == nil ||
 		*result.ProcessOutcome.ExitCode != 23 ||
+		result.FailureDetail() != "delegated host command result: nonzero_exit" ||
 		!result.ProcessOutcome.Redacted ||
 		!result.AttemptHistory.Persisted {
 		t.Fatalf("result=%#v err=%v", result, err)

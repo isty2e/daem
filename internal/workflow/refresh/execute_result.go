@@ -3,6 +3,7 @@ package refresh
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
@@ -62,6 +63,12 @@ func applyClassification(
 			"run daem status and inspect the exact extension relation before retrying",
 		}
 	}
+	if result.HasErrors() {
+		result = withFailureDetail(result, fmt.Errorf(
+			"delegated host command result: %s",
+			attempt.Reason(),
+		))
+	}
 	return result
 }
 
@@ -102,6 +109,7 @@ func cancelledBeforeAttempt(
 	result.ResultClass = ResultCancelled
 	result.ReasonCode = ReasonCancelled
 	result.Attempted = false
+	result = withFailureDetail(result, err)
 	result.Remediation = []string{"rerun refresh when ready"}
 	return result, err
 }
@@ -117,6 +125,7 @@ func staleBeforeAttempt(
 	result.ResultClass = ResultRefused
 	result.ReasonCode = ReasonStalePlan
 	result.Attempted = false
+	result = withFailureDetail(result, err)
 	result.Remediation = []string{"review a new dry-run plan before retrying"}
 	return result, err
 }
@@ -133,6 +142,7 @@ func refusedBeforeAttempt(
 	result.ResultClass = ResultRefused
 	result.ReasonCode = reason
 	result.Attempted = false
+	result = withFailureDetail(result, err)
 	result.Remediation = []string{"restore the required authority and retry"}
 	return result, err
 }
@@ -140,6 +150,7 @@ func refusedBeforeAttempt(
 func resultWithCleanupFailure(
 	result CommandResult,
 	attemptStarted bool,
+	cause error,
 ) CommandResult {
 	if attemptStarted {
 		result.ResultClass = ResultPartial
@@ -148,6 +159,7 @@ func resultWithCleanupFailure(
 		result.ResultClass = ResultRefused
 		result.ReasonCode = ReasonMutationAuthority
 	}
+	result = withFailureDetail(result, cause)
 	result.Remediation = []string{
 		"inspect workspace authority and current host state before retrying",
 	}

@@ -31,6 +31,8 @@ type hostRouteRefreshReport struct {
 	} `json:"disclosure"`
 	Result struct {
 		Class          string `json:"class"`
+		ReasonCode     string `json:"reason_code"`
+		Detail         string `json:"detail"`
 		Attempted      bool   `json:"attempted"`
 		ProcessOutcome *struct {
 			Reason   string `json:"reason"`
@@ -85,9 +87,26 @@ func runHostRouteRefreshCLI(
 			stderr.String(),
 		)
 	}
+	if dryRun {
+		if stderr.Len() != 0 {
+			t.Fatalf("dry-run stderr = %q, want empty", stderr.String())
+		}
+	} else {
+		var authorization map[string]json.RawMessage
+		if err := json.Unmarshal(stderr.Bytes(), &authorization); err != nil {
+			t.Fatalf(
+				"execution stderr is not one authorization JSON document: %v\n%s",
+				err,
+				stderr.String(),
+			)
+		}
+	}
 	var report hostRouteRefreshReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("Unmarshal refresh report: %v\n%s", err, stdout.String())
+	}
+	if wantExit != 0 && report.Result.Detail == "" {
+		t.Fatalf("failed refresh omitted result detail: %#v", report.Result)
 	}
 	return report
 }

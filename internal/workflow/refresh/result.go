@@ -3,10 +3,16 @@ package refresh
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 )
+
+const maximumFailureDetailRunes = 1024
+
+const failureDetailCaptureRunes = maximumFailureDetailRunes - len("\n[truncated]")
 
 // RefusalError is a stable pre-attempt workflow refusal.
 type RefusalError struct {
@@ -69,10 +75,135 @@ func refusedResult(
 		result.ResultClass = ResultCancelled
 	}
 	result.ReasonCode = code
+	result.failureDetail = sanitizedFailureDetail(cause)
 	if remediation != "" {
 		result.Remediation = []string{remediation}
 	}
 	return result, &RefusalError{code: code, detail: cause.Error(), cause: cause}
+}
+
+func withFailureDetail(result CommandResult, cause error) CommandResult {
+	result.failureDetail = sanitizedFailureDetail(cause)
+	return result
+}
+
+func sanitizedFailureDetail(cause error) string {
+	if cause == nil {
+		return ""
+	}
+	sanitized := subprocess.NewCapturePolicy(
+		nil,
+		failureDetailCaptureRunes,
+	).Sanitize(cause.Error(), false).Text()
+	redacted := redactMachineLocalPaths(sanitized)
+	return subprocess.NewCapturePolicy(
+		nil,
+		failureDetailCaptureRunes,
+	).Sanitize(redacted, false).Text()
+}
+
+func redactMachineLocalPaths(value string) string {
+	var result strings.Builder
+	result.Grow(len(value))
+	for index := 0; index < len(value); {
+		if !machineLocalPathStartsAt(value, index) {
+			result.WriteByte(value[index])
+			index++
+			continue
+		}
+		result.WriteString("[REDACTED]")
+		index = machineLocalPathEnd(value, index)
+	}
+	return result.String()
+}
+
+func machineLocalPathStartsAt(value string, index int) bool {
+	remaining := value[index:]
+	switch {
+	case hasPrefixFold(remaining, "file:"):
+		return pathTokenBoundary(value, index)
+	case hasPrefixFold(remaining, "local:"):
+		return pathTokenBoundary(value, index)
+	case strings.HasPrefix(remaining, "~/"), strings.HasPrefix(remaining, `~\`),
+		strings.HasPrefix(remaining, "./"), strings.HasPrefix(remaining, "../"),
+		strings.HasPrefix(remaining, `.\`), strings.HasPrefix(remaining, `..\`),
+		strings.HasPrefix(remaining, `\\`):
+		return pathTokenBoundary(value, index)
+	case remaining[0] == '/':
+		return index+1 < len(value) &&
+			!isPathStartTerminator(value[index+1]) &&
+			(index == 0 || value[index-1] != ':' || value[index+1] != '/') &&
+			pathTokenBoundary(value, index)
+	case len(remaining) >= 3 && isASCIILetter(remaining[0]) &&
+		remaining[1] == ':' && (remaining[2] == '/' || remaining[2] == '\\'):
+		return pathTokenBoundary(value, index)
+	default:
+		return false
+	}
+}
+
+func pathTokenBoundary(value string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	previous := value[index-1]
+	return previous == ' ' || previous == '\t' || previous == '\n' ||
+		previous == '\r' || previous == '"' || previous == '\'' ||
+		previous == '(' || previous == '[' || previous == '{' ||
+		previous == '=' || previous == ':'
+}
+
+func machineLocalPathEnd(value string, start int) int {
+	quote := byte(0)
+	if start > 0 && (value[start-1] == '"' || value[start-1] == '\'') {
+		quote = value[start-1]
+	}
+	for index := start; index < len(value); index++ {
+		if quote != 0 {
+			if value[index] == quote && (index == start || value[index-1] != '\\') {
+				return index
+			}
+			continue
+		}
+		if value[index] == ':' && index-start > 1 &&
+			index+1 < len(value) && isHorizontalSpace(value[index+1]) {
+			return index + 1
+		}
+		if isPathEndTerminator(value[index]) {
+			return index
+		}
+	}
+	return len(value)
+}
+
+func isPathStartTerminator(value byte) bool {
+	switch value {
+	case ' ', '\t', '\n', '\r', '"', '\'', ',', ';', ')', ']', '}', '<', '>':
+		return true
+	default:
+		return false
+	}
+}
+
+func isPathEndTerminator(value byte) bool {
+	switch value {
+	case '\n', '\r', '"', '\'', ',', ';', ')', ']', '}', '<', '>':
+		return true
+	default:
+		return false
+	}
+}
+
+func isHorizontalSpace(value byte) bool {
+	return value == ' ' || value == '\t'
+}
+
+func isASCIILetter(value byte) bool {
+	return value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z'
+}
+
+func hasPrefixFold(value string, prefix string) bool {
+	return len(value) >= len(prefix) && strings.EqualFold(value[:len(prefix)], prefix)
 }
 
 func observationSummary(result observerelation.CorrelationResult) *Observation {

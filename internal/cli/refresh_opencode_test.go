@@ -160,8 +160,11 @@ func TestOpenCodeRefreshRejectsCredentialBearingForgedLockBeforeDisclosure(t *te
 				len(report.Disclosure.Args) != 0 {
 				t.Fatalf("refused report disclosed invocation: %#v", report)
 			}
-			if !strings.Contains(stderr.String(), test.wantReason) {
-				t.Fatalf("stderr = %q, want %q", stderr.String(), test.wantReason)
+			if !strings.Contains(report.Result.Detail, test.wantReason) {
+				t.Fatalf("detail = %q, want %q", report.Result.Detail, test.wantReason)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("stderr = %q, want empty after JSON result", stderr.String())
 			}
 			if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
 				t.Fatalf("credential value leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
@@ -252,6 +255,8 @@ type openCodeRefreshReport struct {
 	} `json:"disclosure"`
 	Result struct {
 		Class          string `json:"class"`
+		ReasonCode     string `json:"reason_code"`
+		Detail         string `json:"detail"`
 		Attempted      bool   `json:"attempted"`
 		ProcessOutcome *struct {
 			Reason    string `json:"reason"`
@@ -322,9 +327,26 @@ func runOpenCodeRefreshCLIExpectExit(
 			stderr.String(),
 		)
 	}
+	if dryRun {
+		if stderr.Len() != 0 {
+			t.Fatalf("dry-run stderr = %q, want empty", stderr.String())
+		}
+	} else {
+		var authorization map[string]json.RawMessage
+		if err := json.Unmarshal(stderr.Bytes(), &authorization); err != nil {
+			t.Fatalf(
+				"execution stderr is not one authorization JSON document: %v\n%s",
+				err,
+				stderr.String(),
+			)
+		}
+	}
 	var report openCodeRefreshReport
 	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
 		t.Fatalf("Unmarshal refresh report: %v\n%s", err, stdout.String())
+	}
+	if wantExit != 0 && report.Result.Detail == "" {
+		t.Fatalf("failed refresh omitted result detail: %#v", report.Result)
 	}
 	return report
 }

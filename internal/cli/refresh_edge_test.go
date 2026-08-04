@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -68,6 +69,32 @@ func TestRefreshEdgeRound3CLIIngressAndStreams(t *testing.T) {
 				exitCode,
 				calls,
 				stdout.String(),
+			)
+		}
+	})
+
+	t.Run("failed JSON result write reports one bounded diagnostic", func(t *testing.T) {
+		manifestPath := writeCLIRefreshFixture(t)
+		calls := 0
+		options := refreshCLIRunOptions(t, &calls)
+		var stderr bytes.Buffer
+		options.Stdout = errorWriter{err: errors.New("stdout closed")}
+		options.Stderr = &stderr
+		exitCode := RunWithOptions([]string{
+			"refresh", "extension", "formatter",
+			"--manifest", manifestPath,
+			"--dry-run",
+			"--json",
+		}, options)
+		if exitCode != 1 ||
+			calls != 0 ||
+			!strings.Contains(stderr.String(), "output failed: stdout closed") ||
+			strings.Count(stderr.String(), "\n") != 1 {
+			t.Fatalf(
+				"exitCode=%d calls=%d stderr=%q",
+				exitCode,
+				calls,
+				stderr.String(),
 			)
 		}
 	})
@@ -229,6 +256,129 @@ func TestRefreshExitCodePreservesOnlyObservedSignalIdentity(t *testing.T) {
 				t.Fatalf("refreshExitCode() = %d, want %d", got, test.want)
 			}
 		})
+	}
+}
+
+func TestRefreshJSONExecutionFailureKeepsProseOutOfAuthorizationStream(t *testing.T) {
+	manifestPath := writeCLIRefreshFixture(t)
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	const secret = "refresh-execution-secret"
+	options.RefreshExecuteOptions.CommandOptions.Runner = func(
+		context.Context,
+		subprocess.CommandRequest,
+	) subprocess.CommandResult {
+		calls++
+		return subprocess.CommandResult{
+			Started:     true,
+			ExitCode:    17,
+			HasExitCode: true,
+			Err:         errors.New("token=" + secret + " host rejected request"),
+		}
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+
+	exitCode := RunWithOptions([]string{
+		"refresh", "extension", "formatter",
+		"--manifest", manifestPath,
+		"--yes",
+		"--json",
+	}, options)
+	if exitCode != 1 || calls != 1 {
+		t.Fatalf(
+			"exitCode=%d calls=%d stdout=%q stderr=%q",
+			exitCode,
+			calls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var authorization map[string]json.RawMessage
+	if err := json.Unmarshal(stderr.Bytes(), &authorization); err != nil {
+		t.Fatalf("stderr is not one authorization JSON document: %v\n%s", err, stderr.String())
+	}
+	var report struct {
+		Result struct {
+			Class      string `json:"class"`
+			ReasonCode string `json:"reason_code"`
+			Detail     string `json:"detail"`
+		} `json:"result"`
+		HasErrors bool `json:"has_errors"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not one result JSON document: %v\n%s", err, stdout.String())
+	}
+	if report.Result.Class != "failed" ||
+		report.Result.ReasonCode != "command_failed" ||
+		report.Result.Detail == "" ||
+		!report.HasErrors {
+		t.Fatalf("report = %#v", report)
+	}
+	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("secret leaked: stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), "host rejected request") {
+		t.Fatalf("raw host error detail leaked into result: %q", stdout.String())
+	}
+}
+
+func TestRefreshJSONPlanningFailureRedactsMachineLocalDetail(t *testing.T) {
+	manifestPath := writeCLIRefreshFixture(t)
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	const (
+		hostPath = "/Users/alice/private/adapter.json"
+		secret   = "planning-secret"
+	)
+	options.RefreshPlanOptions.CommandBuilder = func(
+		refreshworkflow.CommandBuildInput,
+	) (refreshworkflow.CommandSpec, error) {
+		return refreshworkflow.CommandSpec{}, errors.New(
+			"read " + hostPath + ": token=" + secret,
+		)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+
+	exitCode := RunWithOptions([]string{
+		"refresh", "extension", "formatter",
+		"--manifest", manifestPath,
+		"--dry-run",
+		"--json",
+	}, options)
+	if exitCode != 1 || calls != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"exitCode=%d calls=%d stdout=%q stderr=%q",
+			exitCode,
+			calls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var report struct {
+		Result struct {
+			Class      string `json:"class"`
+			ReasonCode string `json:"reason_code"`
+			Detail     string `json:"detail"`
+		} `json:"result"`
+		HasErrors bool `json:"has_errors"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("stdout is not one result JSON document: %v\n%s", err, stdout.String())
+	}
+	if report.Result.Class != "refused" ||
+		report.Result.ReasonCode != "refresh_unsupported" ||
+		!strings.Contains(report.Result.Detail, "[REDACTED]") ||
+		!report.HasErrors {
+		t.Fatalf("report = %#v", report)
+	}
+	if strings.Contains(stdout.String(), hostPath) || strings.Contains(stdout.String(), secret) {
+		t.Fatalf("private detail leaked: %q", stdout.String())
 	}
 }
 

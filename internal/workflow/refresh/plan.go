@@ -55,6 +55,7 @@ func PlanDryRun(
 		if closeErr := root.Close(); closeErr != nil {
 			result.ResultClass = ResultRefused
 			result.ReasonCode = ReasonMutationAuthority
+			result = withFailureDetail(result, closeErr)
 			result.Remediation = []string{
 				"restore access to the selected manifest directory and retry",
 			}

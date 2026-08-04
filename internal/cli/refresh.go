@@ -173,20 +173,17 @@ func runRefresh(
 			*verbose,
 			false,
 		); renderErr != nil {
-			fmt.Fprintf(
-				stderr,
-				"refresh failed: write result: %s\n",
-				humanDiagnosticError(renderErr),
-			)
 			return 1
 		}
 		if planErr != nil {
-			fmt.Fprintf(
-				stderr,
-				"refresh failed: %s\n",
-				humanDiagnosticError(planErr),
-			)
-			printMissingManifestInitHint(stderr, *manifestPath, planErr)
+			if !*jsonOutput {
+				fmt.Fprintf(
+					stderr,
+					"refresh failed: %s\n",
+					humanDiagnosticError(planErr),
+				)
+				printMissingManifestInitHint(stderr, *manifestPath, planErr)
+			}
 			return 1
 		}
 		return refreshExitCode(result)
@@ -198,6 +195,7 @@ func runRefresh(
 		options.refreshPlanOptions,
 	)
 	if planErr != nil {
+		resultWritten := false
 		if prepared != nil {
 			defer prepared.Close()
 			if renderErr := printRefreshResult(
@@ -207,20 +205,18 @@ func runRefresh(
 				*verbose,
 				false,
 			); renderErr != nil {
-				fmt.Fprintf(
-					stderr,
-					"refresh failed: write result: %s\n",
-					humanDiagnosticError(renderErr),
-				)
 				return 1
 			}
+			resultWritten = true
 		}
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: %s\n",
-			humanDiagnosticError(planErr),
-		)
-		printMissingManifestInitHint(stderr, *manifestPath, planErr)
+		if !*jsonOutput || !resultWritten {
+			fmt.Fprintf(
+				stderr,
+				"refresh failed: %s\n",
+				humanDiagnosticError(planErr),
+			)
+			printMissingManifestInitHint(stderr, *manifestPath, planErr)
+		}
 		return 1
 	}
 	defer prepared.Close()
@@ -297,14 +293,9 @@ func runRefresh(
 		*verbose,
 		!*jsonOutput,
 	); renderErr != nil {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: write result: %s\n",
-			humanDiagnosticError(renderErr),
-		)
 		return 1
 	}
-	if executeErr != nil {
+	if executeErr != nil && !*jsonOutput {
 		fmt.Fprintf(
 			stderr,
 			"refresh failed: %s\n",

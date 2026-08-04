@@ -139,6 +139,7 @@ func TestRefreshUnknownExtensionProducesTypedRefusal(t *testing.T) {
 		Result struct {
 			Class      string `json:"class"`
 			ReasonCode string `json:"reason_code"`
+			Detail     string `json:"detail"`
 		} `json:"result"`
 		HasErrors bool `json:"has_errors"`
 	}
@@ -147,6 +148,56 @@ func TestRefreshUnknownExtensionProducesTypedRefusal(t *testing.T) {
 	}
 	if report.Result.Class != "refused" ||
 		report.Result.ReasonCode != "invalid_selection" ||
+		!strings.Contains(report.Result.Detail, `extension id "missing" is not declared`) ||
+		!report.HasErrors {
+		t.Fatalf("report = %#v", report)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty after JSON result", stderr.String())
+	}
+}
+
+func TestRefreshWritePlanJSONRefusalUsesOnlyResultEnvelope(t *testing.T) {
+	manifestPath := writeCLIRefreshFixture(t)
+	calls := 0
+	options := refreshCLIRunOptions(t, &calls)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options.Stdout = &stdout
+	options.Stderr = &stderr
+
+	exitCode := RunWithOptions([]string{
+		"refresh",
+		"extension",
+		"missing",
+		"--manifest",
+		manifestPath,
+		"--yes",
+		"--json",
+	}, options)
+	if exitCode != 1 || calls != 0 || stderr.Len() != 0 {
+		t.Fatalf(
+			"exitCode=%d calls=%d stdout=%q stderr=%q",
+			exitCode,
+			calls,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var report struct {
+		Result struct {
+			Class      string `json:"class"`
+			ReasonCode string `json:"reason_code"`
+			Detail     string `json:"detail"`
+		} `json:"result"`
+		HasErrors bool `json:"has_errors"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &report); err != nil {
+		t.Fatalf("result is not one JSON document: %v\n%s", err, stdout.String())
+	}
+	if report.Result.Class != "refused" ||
+		report.Result.ReasonCode != "invalid_selection" ||
+		report.Result.Detail == "" ||
 		!report.HasErrors {
 		t.Fatalf("report = %#v", report)
 	}

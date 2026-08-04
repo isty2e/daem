@@ -48,7 +48,7 @@ func Execute(
 			return
 		}
 		if closeErr := execution.root.Close(); closeErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted)
+			result = resultWithCleanupFailure(result, attemptStarted, closeErr)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"close refresh project-root witness: %w",
 				closeErr,
@@ -93,7 +93,7 @@ func Execute(
 	}
 	defer func() {
 		if releaseErr := leases.Release(); releaseErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted)
+			result = resultWithCleanupFailure(result, attemptStarted, releaseErr)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"release refresh mutation authority: %w",
 				releaseErr,
@@ -163,7 +163,7 @@ func Execute(
 	}
 	defer func() {
 		if closeErr := stateAuthority.Close(); closeErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted)
+			result = resultWithCleanupFailure(result, attemptStarted, closeErr)
 			returnErr = errors.Join(returnErr, fmt.Errorf(
 				"close refresh statefile authority: %w",
 				closeErr,
@@ -281,10 +281,11 @@ func Execute(
 		if classifyErr != nil {
 			result.ResultClass = resultClassAfterClassificationFailure(attempt)
 			result.ReasonCode = ReasonCommandFailed
-			return result, errors.Join(
+			failure := errors.Join(
 				postObservationErr,
 				fmt.Errorf("classify refresh fallback result: %w", classifyErr),
 			)
+			return withFailureDetail(result, failure), failure
 		}
 	}
 	result = applyClassification(result, classified, attempt)
@@ -326,10 +327,11 @@ func Execute(
 		result.Remediation = []string{
 			"inspect daem status and the statefile before retrying refresh",
 		}
-		return result, errors.Join(
+		failure := errors.Join(
 			fmt.Errorf("persist refresh attempt history: %w", persistenceErr),
 			postObservationErr,
 		)
+		return withFailureDetail(result, failure), failure
 	}
 	if postObservationErr != nil && attempt.Succeeded() {
 		result.ResultClass = ResultPartial
@@ -337,13 +339,18 @@ func Execute(
 		result.Remediation = []string{
 			"run daem status and inspect the exact extension relation before retrying",
 		}
-		return result, fmt.Errorf(
+		failure := fmt.Errorf(
 			"refresh post-attempt observation: %w",
 			postObservationErr,
 		)
+		return withFailureDetail(result, failure), failure
 	}
 	if result.HasErrors() {
-		return result, errors.New(string(result.ReasonCode))
+		failure := errors.New(string(result.ReasonCode))
+		if result.FailureDetail() == "" {
+			result = withFailureDetail(result, failure)
+		}
+		return result, failure
 	}
 	return result, nil
 }
