@@ -91,9 +91,9 @@ func TestBuildDryRunKeepsPlanWithoutScheduling(t *testing.T) {
 		t.Fatalf("action disposition = %q, schedules=%t; want skipped dry-run", action.Disposition(), action.SchedulesAttempt())
 	}
 	assertRisk(t, action, reconciliation.DelegateRiskDryRunDisclosure)
-	packageRef, present := action.Plan().PackageRef()
-	if !present || packageRef.Name() != "@upstash/context7-mcp" {
-		t.Fatalf("delegate plan package = %#v, present=%t", packageRef, present)
+	packageRefs := action.Plan().PackageRefs()
+	if len(packageRefs) != 1 || packageRefs[0].Name() != "@upstash/context7-mcp" {
+		t.Fatalf("delegate plan packages = %#v", packageRefs)
 	}
 }
 
@@ -336,14 +336,21 @@ func testDelegatePlan(
 		t.Fatalf("NewEnvBindingSet returned error: %v", err)
 	}
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        env,
-		PackageRef: packageRef,
-		PinPolicy:  pinPolicy,
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegatePlan returned error: %v", err)
+	}
+	if plan.PinPolicy() != pinPolicy {
+		t.Fatalf("derived pin policy = %q, want %q", plan.PinPolicy(), pinPolicy)
+	}
+	if packageRef != nil {
+		refs := plan.PackageRefs()
+		if len(refs) != 1 || refs[0] != *packageRef {
+			t.Fatalf("derived package refs = %#v, want %#v", refs, *packageRef)
+		}
 	}
 	return plan
 }

@@ -224,8 +224,8 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list resources` | Resource inventory | `1` |
 | `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `10` |
-| confirmed `apply` | Apply result | `15` |
+| `status`, `apply --dry-run` | Reconciliation plan | `11` |
+| confirmed `apply` | Apply result | `16` |
 | `recover` | Recovery plan/result | `4` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
@@ -776,7 +776,7 @@ residue class, failures, and a next action only when more work is needed.
 `--verbose` adds state/content paths, reason codes, selected source/ref, and
 bounded evidence. Raw subprocess output and secret values are never printed.
 
-Status and apply-dry-run JSON use plan schema version `10`. The document contains
+Status and apply-dry-run JSON use plan schema version `11`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, host-route attempt history, diagnostics, MCP
@@ -787,6 +787,14 @@ and any typed `foreign_precedence_change` risks. OpenCode rows describe config
 order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
+
+Each delegated action exposes `packages` as the canonical package inputs daem
+can derive from the preserved runner argv. The set can be partial when argv
+uses opaque or unknown runner syntax. `pin_policy = "pinned"` applies only when
+every execution-relevant package input is explicitly represented and exact;
+one floating or opaque input makes the action-level policy `floating`. The
+command and `args` remain the exact execution identity and are never
+reconstructed from this diagnostic package projection.
 
 Extension-order planning rejects, rather than truncates, any physical sequence
 over 4,096 rows, desired or observed managed membership over 1,024 rows, or
@@ -812,7 +820,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `15`. It adds executed action
+`apply --yes --json` uses result schema version `16`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
 carrier-absence outcomes, physical `relation_order_results`, and final

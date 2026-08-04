@@ -244,14 +244,25 @@ func runnerMayUseExternalStore(kind delegate.RunnerKind) bool {
 }
 
 func packageSubject(plan delegate.DelegatePlan) string {
-	packageRef, present := plan.PackageRef()
-	if !present {
+	refs := plan.PackageRefs()
+	if len(refs) == 0 {
 		return string(plan.Runner().Kind())
 	}
-	if strings.TrimSpace(packageRef.Selector()) == "" {
-		return packageRef.Name()
+	values := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if ref.PinPolicy() != delegate.PinFloating {
+			continue
+		}
+		value := ref.Name()
+		if strings.TrimSpace(ref.Selector()) != "" {
+			value += "@" + ref.Selector()
+		}
+		values = append(values, value)
 	}
-	return packageRef.Name() + "@" + packageRef.Selector()
+	if len(values) == 0 {
+		return string(plan.Runner().Kind())
+	}
+	return strings.Join(values, ",")
 }
 
 func validateMode(mode Mode) error {

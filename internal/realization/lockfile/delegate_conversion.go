@@ -2,6 +2,7 @@ package lockfile
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -23,27 +24,23 @@ func delegatePlanFromDTO(dto *delegatePlanDTO) (*delegate.DelegatePlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	var packageRef *delegate.PackageRef
-	if dto.Package != nil {
-		value, err := delegate.NewPackageRef(
-			delegate.PackageEcosystem(dto.Package.Ecosystem),
-			dto.Package.Name,
-			dto.Package.Selector,
-		)
-		if err != nil {
-			return nil, err
-		}
-		packageRef = &value
-	}
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        env,
-		PackageRef: packageRef,
-		PinPolicy:  delegate.PinPolicy(dto.PinPolicy),
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 	if err != nil {
 		return nil, err
+	}
+	packageRefs, err := delegatePackagesFromDTO(dto.Packages)
+	if err != nil {
+		return nil, err
+	}
+	if !slices.Equal(packageRefs, plan.PackageRefs()) {
+		return nil, fmt.Errorf("delegate plan packages do not match canonical command inputs")
+	}
+	if dto.PinPolicy != string(plan.PinPolicy()) {
+		return nil, fmt.Errorf("delegate plan pin policy does not match canonical package assurance")
 	}
 	if dto.IdentityKey != plan.IdentityKey() {
 		return nil, fmt.Errorf("delegate plan identity key does not match canonical plan")
@@ -65,14 +62,39 @@ func delegatePlanToDTO(contract lock.LockedSubjectContract) *delegatePlanDTO {
 		Env:         delegateEnvToDTO(plan.Env()),
 		PinPolicy:   string(plan.PinPolicy()),
 	}
-	if packageRef, present := plan.PackageRef(); present {
-		dto.Package = &delegatePackageDTO{
-			Ecosystem: string(packageRef.Ecosystem()),
-			Name:      packageRef.Name(),
-			Selector:  packageRef.Selector(),
-		}
-	}
+	dto.Packages = delegatePackagesToDTO(plan.PackageRefs())
 	return dto
+}
+
+func delegatePackagesFromDTO(values []delegatePackageDTO) ([]delegate.PackageRef, error) {
+	result := make([]delegate.PackageRef, 0, len(values))
+	for _, value := range values {
+		ref, err := delegate.NewPackageRef(
+			delegate.PackageEcosystem(value.Ecosystem),
+			value.Name,
+			value.Selector,
+		)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, ref)
+	}
+	return result, nil
+}
+
+func delegatePackagesToDTO(values []delegate.PackageRef) []delegatePackageDTO {
+	if len(values) == 0 {
+		return nil
+	}
+	result := make([]delegatePackageDTO, 0, len(values))
+	for _, value := range values {
+		result = append(result, delegatePackageDTO{
+			Ecosystem: string(value.Ecosystem()),
+			Name:      value.Name(),
+			Selector:  value.Selector(),
+		})
+	}
+	return result
 }
 
 func delegateEnvFromDTO(values []delegateEnvDTO) (delegate.EnvBindingSet, error) {

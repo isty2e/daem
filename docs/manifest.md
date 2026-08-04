@@ -984,9 +984,42 @@ delegated executable claim in this slice. Codex has no runtime probe in this
 slice. OpenCode runtime checks are
 available only through the separate explicit `probe mcp-server --target
 opencode --scope project` surface for locked project local-command rows.
-Package-backed MCP commands may be floating or pinned;
-`add mcp-server` warns for floating package identity, while lock records the
-declared projection semantics without installing or probing the package.
+Package-backed MCP commands may be floating or pinned. Pin policy is derived
+from the package ecosystem rather than from nonempty selector text:
+
+- npm is pinned only by a complete valid SemVer version. Partial versions,
+  ranges, tags, and wildcards remain floating, following the selector forms in
+  the [npm package specification](https://docs.npmjs.com/cli/v11/using-npm/package-spec/).
+- Python is pinned only by a validated exact PEP 440 version, including valid
+  epoch, pre-release, post-release, development, and local forms. Ranges,
+  compatible-release clauses, exclusions, arbitrary equality, and wildcard
+  equality remain floating, following the
+  [PyPA version-specifier contract](https://packaging.python.org/en/latest/specifications/version-specifiers/).
+- A container image is pinned only by a complete canonical lowercase
+  `sha256:<64 hexadecimal digits>` digest. Every tag, including a version-like
+  tag, remains floating because the
+  [OCI distribution contract](https://github.com/opencontainers/distribution-spec/blob/main/spec.md)
+  distinguishes tag lookup from digest identity.
+
+Unknown or malformed selectors do not gain pinned assurance. They remain
+eligible for delegated host execution when their structured argv is otherwise
+valid, and daem does not rewrite that argv while classifying it. `add
+mcp-server` warns for floating package identity, while lock and JSON plan output
+record the directly declared package inputs that daem can derive and their
+aggregate `pin_policy` without installing or probing packages. Repeated npx
+`--package` options and uvx `--with` inputs all contribute to that set; one
+floating input makes the whole delegated plan floating. Opaque or unknown
+runner syntax may leave the diagnostic package set partial and always prevents
+pinned assurance. Inputs whose package contents come from an external
+requirements file likewise prevent pinned assurance because argv alone does
+not enumerate them. uvx extras and direct-URL requirements that daem cannot
+losslessly project into its canonical package-reference model follow the same
+opaque, floating path while their exact argv remains unchanged. An exact
+package version constrains only that direct package input; it is not a
+transitive dependency lock or a reproducible-build claim.
+Recognized options that take a separate value are invalid when that value is
+missing, empty, or the `--` command delimiter. This is malformed argv structure,
+not an opaque package selector, so daem rejects it before deriving pin policy.
 Runtime MCP checks are a separate explicit surface: `daem probe mcp-server`
 with `--dry-run` discloses the selected locked subject and side effects without
 execution, while `--yes` may launch the exact locked stdio command and attempt
@@ -1319,7 +1352,7 @@ Current lock behavior:
 - Skill sources are validated as directories with a regular `SKILL.md`.
 - Supported command-only Hook declarations do not lock a source artifact. Each
   admitted target instead locks one canonical managed-aggregate contribution.
-  Schema version 5 admits a contribution only when the Hook codec can fold it
+  Schema version 6 admits a contribution only when the Hook codec can fold it
   into a structurally valid host document within the same byte, depth, event,
   group, and handler bounds enforced during rendering. Rendered host aggregate
   content remains planned and state-tracked separately from source resolution.
@@ -1372,27 +1405,32 @@ Current lock behavior:
   exact non-executable file-use contract and deterministic file materialization,
   plus one managed-file projection subject per distinct supported placement.
   Targets sharing a physical file coalesce into one canonical consumer set.
-  A schema-v5 Instructions Supply without at least one structurally valid file
+  A schema-v6 Instructions Supply without at least one structurally valid file
   projection is rejected; apply/status additionally require the lock projection
   set to equal the current manifest/profile refinement.
 - Existing lockfile entries that are no longer declared by the manifest are removed by normal lockfile regeneration.
 - Lockfile rows are sorted by canonical `entity_id`, then `subject_id`.
-- Lockfile readers accept only schema version 5 and reject unsupported versions,
+- Lockfile readers accept only schema version 6 and reject unsupported versions,
   invalid UTF-8, unknown keys, incompatible TOML table shapes, duplicate subject
   identities, zero-facet subjects, unknown realization variants, invalid
   cross-facet correlation, unsupported exact-Supply family shapes, malformed
   exact identities or operation contracts, an `exact` managed-path projection
   without `exact_permission_mode`, and persisted values that would need
-  trimming, sorting, or deduplication to become canonical. Schema version 4 is
-  not interpreted: `status`, `apply`, and `outdated` direct the user to
-  regenerate it, while `daem lock` and transactional manifest authoring may
-  atomically replace it from the selected manifest without treating old rows
-  as current authority.
-- Schema version 5 does not admit `generated_at`; readers reject it as an
+  trimming, sorting, or deduplication to become canonical. Legacy schema
+  versions 3 through 5 are not interpreted: `status`, `apply`, and `outdated`
+  direct the user to regenerate them, while `daem lock` and transactional
+  manifest authoring may atomically replace them from the selected manifest
+  without treating old rows as current authority. Schema 3 is the lock format
+  published by daem v0.1.0. Earlier unknown schemas and future schemas are not
+  replacement-authorized; a future schema requires a newer daem.
+- Schema version 6 does not admit `generated_at`; readers reject it as an
   unknown key rather than treating timestamp metadata as lock authority.
-- The v5 change records the stricter Hook renderability admission contract in
-  generated lockfiles only. The public manifest remains schema version 1 and
-  requires no authoring migration.
+- The v6 change records the canonical delegated package inputs recognized from
+  argv and an ecosystem-derived aggregate `pin_policy`. Legacy rows are not
+  interpreted because version-like container tags, package ranges, or
+  unmodeled additional package inputs may carry an overstrong `pinned` label.
+  The public manifest remains schema version 1 and requires no authoring
+  migration.
 - Existing lockfiles are not replaced when lock generation fails.
 - Resolver cache artifacts live under the selected source cache, but cache paths are not serialized into the lockfile.
 

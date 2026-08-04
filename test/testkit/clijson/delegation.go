@@ -5,31 +5,33 @@ type EnvBinding struct {
 	SourceName string `json:"source_name"`
 }
 
+type DelegatePackage struct {
+	Ecosystem string `json:"ecosystem"`
+	Name      string `json:"name"`
+	Selector  string `json:"selector"`
+}
+
 type DelegateAction struct {
 	Subject struct {
 		Kind      string `json:"kind"`
 		Namespace string `json:"namespace"`
 		Name      string `json:"name"`
 	} `json:"subject"`
-	Target           string       `json:"target"`
-	Scope            string       `json:"scope"`
-	Status           string       `json:"status"`
-	PolicyOutcome    string       `json:"policy_outcome"`
-	SchedulesAttempt bool         `json:"schedules_attempt"`
-	PlanIdentityKey  string       `json:"plan_identity_key"`
-	RunnerKind       string       `json:"runner_kind"`
-	Command          string       `json:"command"`
-	Args             []string     `json:"args"`
-	EnvBindings      []EnvBinding `json:"env_bindings"`
-	Environment      string       `json:"environment"`
-	Package          *struct {
-		Ecosystem string `json:"ecosystem"`
-		Name      string `json:"name"`
-		Selector  string `json:"selector"`
-	} `json:"package"`
-	PinPolicy      string `json:"pin_policy"`
-	TimeoutSeconds int    `json:"timeout_seconds"`
-	Risks          []struct {
+	Target           string            `json:"target"`
+	Scope            string            `json:"scope"`
+	Status           string            `json:"status"`
+	PolicyOutcome    string            `json:"policy_outcome"`
+	SchedulesAttempt bool              `json:"schedules_attempt"`
+	PlanIdentityKey  string            `json:"plan_identity_key"`
+	RunnerKind       string            `json:"runner_kind"`
+	Command          string            `json:"command"`
+	Args             []string          `json:"args"`
+	EnvBindings      []EnvBinding      `json:"env_bindings"`
+	Environment      string            `json:"environment"`
+	Packages         []DelegatePackage `json:"packages"`
+	PinPolicy        string            `json:"pin_policy"`
+	TimeoutSeconds   int               `json:"timeout_seconds"`
+	Risks            []struct {
 		Code     string `json:"code"`
 		Severity string `json:"severity"`
 		Subject  string `json:"subject"`

@@ -46,8 +46,8 @@ func TestPiExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
 		len(lockPayload.OrderConstraintChanges[0].After.Members) != 2 {
 		t.Fatalf("lock order constraints = %#v", lockPayload)
 	}
-	if !strings.HasPrefix(string(testkit.ReadFile(t, filepath.Join(tempDir, "daem.lock.toml"))), "version = 5\n") {
-		t.Fatal("written lockfile is not schema version 5")
+	if !strings.HasPrefix(string(testkit.ReadFile(t, filepath.Join(tempDir, "daem.lock.toml"))), "version = 6\n") {
+		t.Fatal("written lockfile is not schema version 6")
 	}
 
 	testkit.WriteFile(
@@ -599,7 +599,7 @@ func runExtensionOrderApply(
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-	if payload.SchemaVersion != 15 || payload.HasErrors || len(payload.Errors) != 0 {
+	if payload.SchemaVersion != 16 || payload.HasErrors || len(payload.Errors) != 0 {
 		t.Fatalf("apply payload = %#v", payload)
 	}
 	return payload

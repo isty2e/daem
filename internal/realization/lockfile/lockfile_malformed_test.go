@@ -18,8 +18,8 @@ type malformedLockfileCase struct {
 	wantError string
 }
 
-func TestLoadRejectsMalformedV5Lockfiles(t *testing.T) {
-	for _, test := range malformedV5LockfileCases(t) {
+func TestLoadRejectsMalformedCurrentLockfiles(t *testing.T) {
+	for _, test := range malformedCurrentLockfileCases(t) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Load(writeLockfileText(t, test.content))
 			if err == nil {
@@ -32,7 +32,7 @@ func TestLoadRejectsMalformedV5Lockfiles(t *testing.T) {
 	}
 }
 
-func malformedV5LockfileCases(t *testing.T) []malformedLockfileCase {
+func malformedCurrentLockfileCases(t *testing.T) []malformedLockfileCase {
 	t.Helper()
 	exact := marshalLockfileForTest(t, lockfileWithSubjects(t, directSkillSubjectContract(t, "oracle")))
 	twoExact := marshalLockfileForTest(t, lockfileWithSubjects(
@@ -41,6 +41,14 @@ func malformedV5LockfileCases(t *testing.T) []malformedLockfileCase {
 		directSkillSubjectContract(t, "review"),
 	))
 	mcp := marshalLockfileForTest(t, lockfileWithSubjects(t, claudeProjectMCPSubjectContract(t)))
+	multiPackageMCP := marshalLockfileForTest(t, lockfileWithSubjects(
+		t,
+		claudeProjectMCPSubjectContractForCommand(t, "context7", "npx", []string{
+			"--package=server@1.2.3",
+			"--package=helper@latest",
+			"server",
+		}),
+	))
 	carrier := marshalLockfileForTest(t, lockfileWithSubjects(
 		t,
 		lockfileClaudePluginCarrierContract(t, "marketplace", "context7@official", "context7", "context7"),
@@ -65,27 +73,27 @@ func malformedV5LockfileCases(t *testing.T) []malformedLockfileCase {
 	return []malformedLockfileCase{
 		{
 			name:      "old v1 schema",
-			content:   replaceLockfileStringOnce(t, exact, "version = 5", "version = 1"),
+			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 1"),
 			wantError: "unsupported lockfile version 1",
 		},
 		{
-			name:      "relockable v4 schema",
-			content:   replaceLockfileStringOnce(t, exact, "version = 5", "version = 4"),
-			wantError: "unsupported lockfile version 4; run daem lock to regenerate schema version 5",
+			name:      "relockable v5 schema",
+			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 5"),
+			wantError: "unsupported lockfile version 5; run daem lock to regenerate schema version 6",
 		},
 		{
 			name:      "unsupported version",
-			content:   replaceLockfileStringOnce(t, exact, "version = 5", "version = 999"),
+			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 999"),
 			wantError: "unsupported lockfile version 999",
 		},
 		{
 			name:      "unknown top-level key",
-			content:   replaceLockfileStringOnce(t, exact, "version = 5", "version = 5\nmystery = true"),
+			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 6\nmystery = true"),
 			wantError: "unknown lockfile key",
 		},
 		{
 			name:      "removed generated-at metadata",
-			content:   replaceLockfileStringOnce(t, exact, "version = 5", "version = 5\ngenerated_at = \"2026-06-20T00:00:00Z\""),
+			content:   replaceLockfileStringOnce(t, exact, "version = 6", "version = 6\ngenerated_at = \"2026-06-20T00:00:00Z\""),
 			wantError: "unknown lockfile key \"generated_at\"",
 		},
 		{
@@ -101,7 +109,7 @@ content_hash = "sha256:legacy"
 		{
 			name: "inline subject array",
 			content: `
-version = 5
+version = 6
 
 [locked]
 subject = []
@@ -211,7 +219,31 @@ subject = []
 		{
 			name:      "delegate runner and package mismatch",
 			content:   replaceLockfileStringOnce(t, mcp, `runner_kind = "npx"`, `runner_kind = "plain"`),
-			wantError: "runner must not carry package identity",
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name: "delegate package order drift",
+			content: swapFirstTwoAdjacentArrayTableBlocks(
+				t,
+				multiPackageMCP,
+				"[[locked.subject.delegate_plan.package]]",
+			),
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name: "missing delegate package",
+			content: removeNthArrayTableBlock(
+				t,
+				multiPackageMCP,
+				"[[locked.subject.delegate_plan.package]]",
+				1,
+			),
+			wantError: "delegate plan packages do not match canonical command inputs",
+		},
+		{
+			name:      "forged delegate pin policy",
+			content:   replaceLockfileStringOnce(t, multiPackageMCP, `pin_policy = "floating"`, `pin_policy = "pinned"`),
+			wantError: "delegate plan pin policy does not match canonical package assurance",
 		},
 		{
 			name:      "MCP entity and subject key drift",
@@ -418,7 +450,7 @@ func TestLoadRejectsInvalidTextEncoding(t *testing.T) {
 		want    string
 	}{
 		{name: "invalid UTF-8", content: string([]byte{0xff, 0xfe}) + content, want: "lockfile is not valid UTF-8"},
-		{name: "embedded NUL", content: strings.Replace(content, "version = 5", "version = 5\x00", 1)},
+		{name: "embedded NUL", content: strings.Replace(content, "version = 6", "version = 6\x00", 1)},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -559,6 +591,61 @@ func swapFirstTwoArrayTableBlocks(t *testing.T, content string, marker string) s
 	}
 	second := first + len(marker) + secondOffset
 	return content[:first] + content[second:] + content[first:second]
+}
+
+func swapFirstTwoAdjacentArrayTableBlocks(t *testing.T, content string, marker string) string {
+	t.Helper()
+	firstStart, firstEnd := nthArrayTableBlockBounds(t, content, marker, 0)
+	secondStart, secondEnd := nthArrayTableBlockBounds(t, content, marker, 1)
+	if firstEnd != secondStart {
+		t.Fatalf("lockfile %q tables are not adjacent:\n%s", marker, content)
+	}
+	return content[:firstStart] + content[secondStart:secondEnd] + content[firstStart:firstEnd] + content[secondEnd:]
+}
+
+func removeNthArrayTableBlock(t *testing.T, content string, marker string, occurrence int) string {
+	t.Helper()
+	start, end := nthArrayTableBlockBounds(t, content, marker, occurrence)
+	return content[:start] + content[end:]
+}
+
+func nthArrayTableBlockBounds(t *testing.T, content string, marker string, occurrence int) (int, int) {
+	t.Helper()
+	searchStart := 0
+	markerStart := -1
+	for index := 0; index <= occurrence; index++ {
+		offset := strings.Index(content[searchStart:], marker)
+		if offset < 0 {
+			t.Fatalf("lockfile content is missing %q occurrence %d:\n%s", marker, occurrence, content)
+		}
+		markerStart = searchStart + offset
+		searchStart = markerStart + len(marker)
+	}
+	start := strings.LastIndex(content[:markerStart], "\n") + 1
+	end := nextTOMLTableLineStart(content, searchStart)
+	if end < 0 {
+		end = len(content)
+	}
+	return start, end
+}
+
+func nextTOMLTableLineStart(content string, searchStart int) int {
+	for cursor := searchStart; cursor < len(content); {
+		offset := strings.IndexByte(content[cursor:], '\n')
+		if offset < 0 {
+			return -1
+		}
+		lineStart := cursor + offset + 1
+		lineEnd := len(content)
+		if lineOffset := strings.IndexByte(content[lineStart:], '\n'); lineOffset >= 0 {
+			lineEnd = lineStart + lineOffset
+		}
+		if strings.HasPrefix(strings.TrimSpace(content[lineStart:lineEnd]), "[") {
+			return lineStart
+		}
+		cursor = lineStart
+	}
+	return -1
 }
 
 func replaceFirstContentHash(t *testing.T, content string, replacement string) string {

@@ -31,6 +31,24 @@ func TestMCPBindingDelegatePlanPreservesCanonicalProjectionFields(t *testing.T) 
 	assertPackageRef(t, plan, delegate.EcosystemNPM, "@upstash/context7-mcp", "1.2.3", delegate.PinPinned)
 }
 
+func TestMCPBindingDelegatePlanAccountsForEveryNPXPackage(t *testing.T) {
+	server := validDelegateMCPServer(
+		t,
+		"npx",
+		[]string{
+			"--package=server@1.2.3",
+			"--package=helper@latest",
+			"server",
+		},
+		nil,
+	)
+	plan := mustMCPDelegatePlan(t, server)
+
+	if got := plan.PinPolicy(); got != delegate.PinFloating {
+		t.Fatalf("PinPolicy() = %q, want floating because helper@latest also enters the execution environment", got)
+	}
+}
+
 func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -46,8 +64,14 @@ func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 	}{
 		{name: "floating npx package", command: "npx", args: []string{"server"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "server", wantPinPolicy: delegate.PinFloating},
 		{name: "scoped pinned npx package", command: "npx", args: []string{"--yes", "@scope/server@2.0.0"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "@scope/server", wantSelector: "2.0.0", wantPinPolicy: delegate.PinPinned},
+		{name: "scoped ranged npx package", command: "npx", args: []string{"--yes", "@scope/server@^2.0.0"}, wantRunner: delegate.RunnerNPX, wantPackage: true, wantEcosystem: delegate.EcosystemNPM, wantPackageName: "@scope/server", wantSelector: "^2.0.0", wantPinPolicy: delegate.PinFloating},
 		{name: "uvx package", command: "uvx", args: []string{"mcp-server==0.4.0"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "0.4.0", wantPinPolicy: delegate.PinPinned},
-		{name: "docker tagged image", command: "docker", args: []string{"run", "--rm", "ghcr.io/acme/server:1.2.3"}, wantRunner: delegate.RunnerDocker, wantPackage: true, wantEcosystem: delegate.EcosystemContainer, wantPackageName: "ghcr.io/acme/server", wantSelector: "1.2.3", wantPinPolicy: delegate.PinPinned},
+		{name: "uvx range", command: "uvx", args: []string{"mcp-server>=0.4,<1"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: ">=0.4,<1", wantPinPolicy: delegate.PinFloating},
+		{name: "uvx wildcard", command: "uvx", args: []string{"mcp-server==0.4.*"}, wantRunner: delegate.RunnerUVX, wantPackage: true, wantEcosystem: delegate.EcosystemPython, wantPackageName: "mcp-server", wantSelector: "==0.4.*", wantPinPolicy: delegate.PinFloating},
+		{name: "uvx extras requirement", command: "uvx", args: []string{"--from", "mypy[faster-cache,reports]==1.13.0", "mypy"}, wantRunner: delegate.RunnerUVX, wantPinPolicy: delegate.PinFloating},
+		{name: "uvx git requirement", command: "uvx", args: []string{"--from", "git+https://github.com/httpie/cli", "http"}, wantRunner: delegate.RunnerUVX, wantPinPolicy: delegate.PinFloating},
+		{name: "opaque npx local spec", command: "npx", args: []string{"scope/server"}, wantRunner: delegate.RunnerNPX, wantPinPolicy: delegate.PinFloating},
+		{name: "docker tagged image", command: "docker", args: []string{"run", "--rm", "ghcr.io/acme/server:1.2.3"}, wantRunner: delegate.RunnerDocker, wantPackage: true, wantEcosystem: delegate.EcosystemContainer, wantPackageName: "ghcr.io/acme/server", wantSelector: "1.2.3", wantPinPolicy: delegate.PinFloating},
 		{name: "plain node script", command: "node", args: []string{"scripts/mcp-server.js", "--stdio"}, wantRunner: delegate.RunnerPlain, wantPinPolicy: delegate.PinNotApplicable, wantFirstArgText: "scripts/mcp-server.js"},
 	}
 
@@ -57,8 +81,8 @@ func TestMCPBindingDelegatePlanCoversSupportedCommandShapes(t *testing.T) {
 			assertDelegatePlan(t, plan, test.wantRunner, test.command, test.args, "")
 			if test.wantPackage {
 				assertPackageRef(t, plan, test.wantEcosystem, test.wantPackageName, test.wantSelector, test.wantPinPolicy)
-			} else if packageRef, ok := plan.PackageRef(); ok {
-				t.Fatalf("PackageRef() = %#v, want absent", packageRef)
+			} else if packageRefs := plan.PackageRefs(); len(packageRefs) != 0 {
+				t.Fatalf("PackageRefs() = %#v, want absent", packageRefs)
 			}
 			if test.wantFirstArgText != "" && plan.Command().Args()[0] != test.wantFirstArgText {
 				t.Fatalf("first arg = %q, want %q", plan.Command().Args()[0], test.wantFirstArgText)
@@ -86,7 +110,7 @@ func TestMCPBindingDelegatePlanRejectsActionableUnsupportedForms(t *testing.T) {
 		{name: "unsupported target", server: validCodexMCPServer(t, "bad-target", target.ScopeProject), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "antigravity direct projection", server: validAntigravityMCPServer(t, "antigravity"), want: mcpdelegate.MCPDelegatePlanReasonUnsupportedServer},
 		{name: "missing npx package", server: validDelegateMCPServer(t, "npx", []string{"-y"}, nil), want: mcpdelegate.MCPDelegatePlanReasonMissingPackage},
-		{name: "invalid package", server: validDelegateMCPServer(t, "npx", []string{"scope/server"}, nil), want: mcpdelegate.MCPDelegatePlanReasonInvalidPackage},
+		{name: "malformed uvx option value", server: validDelegateMCPServer(t, "uvx", []string{"--python", "--", "server@1.2.3"}, nil), want: mcpdelegate.MCPDelegatePlanReasonInvalidPlan},
 	}
 
 	for _, test := range tests {
@@ -218,12 +242,13 @@ func assertPackageRef(
 	wantPin delegate.PinPolicy,
 ) {
 	t.Helper()
-	packageRef, ok := plan.PackageRef()
-	if !ok {
-		t.Fatalf("PackageRef() absent, want %q %q", wantEcosystem, wantName)
+	packageRefs := plan.PackageRefs()
+	if len(packageRefs) != 1 {
+		t.Fatalf("PackageRefs() = %#v, want one %q %q", packageRefs, wantEcosystem, wantName)
 	}
+	packageRef := packageRefs[0]
 	if packageRef.Ecosystem() != wantEcosystem || packageRef.Name() != wantName || packageRef.Selector() != wantSelector {
-		t.Fatalf("PackageRef() = %q %q %q, want %q %q %q", packageRef.Ecosystem(), packageRef.Name(), packageRef.Selector(), wantEcosystem, wantName, wantSelector)
+		t.Fatalf("PackageRefs()[0] = %q %q %q, want %q %q %q", packageRef.Ecosystem(), packageRef.Name(), packageRef.Selector(), wantEcosystem, wantName, wantSelector)
 	}
 	if plan.PinPolicy() != wantPin {
 		t.Fatalf("PinPolicy() = %q, want %q", plan.PinPolicy(), wantPin)

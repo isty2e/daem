@@ -27,7 +27,7 @@ func TestMarshalAndLoadOrderConstraintsPreserveAuthoredMemberOrder(t *testing.T)
 	}
 	rendered := string(content)
 	assertInOrder(t, rendered, []string{
-		"version = 5",
+		"version = 6",
 		"[[locked.subject]]",
 		"[[locked.order_constraint]]",
 		`class_id = "extension:opencode:project:plugins"`,

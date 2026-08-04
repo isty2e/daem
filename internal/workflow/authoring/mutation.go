@@ -14,6 +14,7 @@ import (
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
 )
 
@@ -71,6 +72,18 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		}
 		paths = resolvedPaths
 	}
+	outputPath := input.LockfilePath
+	if outputPath == "" {
+		outputPath = paths.LockfilePath
+	}
+	current, currentErr := os.ReadFile(outputPath)
+	if currentErr == nil {
+		if err := lockfile.ValidateReplacementContent(current); err != nil {
+			return LockfileChange{}, fmt.Errorf("read lockfile: %w", err)
+		}
+	} else if !os.IsNotExist(currentErr) {
+		return LockfileChange{}, fmt.Errorf("read lockfile: %w", currentErr)
+	}
 
 	environment, err := declarationmanifest.Decode(input.ManifestBytes)
 	if err != nil {
@@ -96,19 +109,11 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 	}
 	content := snapshot.Content()
 
-	outputPath := input.LockfilePath
-	if outputPath == "" {
-		outputPath = paths.LockfilePath
-	}
-
 	status := LockfileStatusWouldWrite
-	current, err := os.ReadFile(outputPath)
-	if err == nil {
+	if currentErr == nil {
 		if bytes.Equal(current, content) {
 			status = LockfileStatusUnchanged
 		}
-	} else if !os.IsNotExist(err) {
-		return LockfileChange{}, fmt.Errorf("read lockfile: %w", err)
 	}
 
 	return LockfileChange{

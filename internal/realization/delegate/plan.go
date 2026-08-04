@@ -17,21 +17,18 @@ const (
 
 // DelegatePlan is the canonical, lockable delegated executable invocation identity.
 type DelegatePlan struct {
-	runner     Runner
-	command    CommandSpec
-	env        EnvBindingSet
-	packageRef PackageRef
-	hasPackage bool
-	pinPolicy  PinPolicy
+	runner      Runner
+	command     CommandSpec
+	env         EnvBindingSet
+	packageRefs []PackageRef
+	pinPolicy   PinPolicy
 }
 
 // DelegatePlanSpec contains already-normalized delegate plan inputs.
 type DelegatePlanSpec struct {
-	Runner     Runner
-	Command    CommandSpec
-	Env        EnvBindingSet
-	PackageRef *PackageRef
-	PinPolicy  PinPolicy
+	Runner  Runner
+	Command CommandSpec
+	Env     EnvBindingSet
 }
 
 // NewDelegatePlan validates and constructs a delegated executable plan.
@@ -42,35 +39,21 @@ func NewDelegatePlan(spec DelegatePlanSpec) (DelegatePlan, error) {
 	if err := validateCommandExecutable(spec.Command.Executable()); err != nil {
 		return DelegatePlan{}, err
 	}
-	if err := validatePinPolicy(spec.PinPolicy); err != nil {
-		return DelegatePlan{}, err
-	}
 	if expected, ok := spec.Runner.fixedCommand(); ok && spec.Command.Executable() != expected {
 		return DelegatePlan{}, validationError(ReasonInvalidDelegatePlan, spec.Command.Executable(), "runner requires command "+expected)
 	}
-
-	var packageRef PackageRef
-	hasPackage := spec.PackageRef != nil
-	if hasPackage {
-		packageRef = *spec.PackageRef
-		if err := validatePackageName(packageRef.Ecosystem(), packageRef.Name()); err != nil {
-			return DelegatePlan{}, err
-		}
-		if err := validatePackageSelector(packageRef.Selector()); err != nil {
-			return DelegatePlan{}, err
-		}
-	}
-	if err := validatePlanPackage(spec.Runner, packageRef, hasPackage, spec.PinPolicy); err != nil {
+	resolution, err := derivePackageResolution(spec.Runner, spec.Command)
+	if err != nil {
 		return DelegatePlan{}, err
 	}
+	pinPolicy := packageResolutionPinPolicy(spec.Runner, resolution)
 
 	return DelegatePlan{
-		runner:     spec.Runner,
-		command:    spec.Command,
-		env:        spec.Env,
-		packageRef: packageRef,
-		hasPackage: hasPackage,
-		pinPolicy:  spec.PinPolicy,
+		runner:      spec.Runner,
+		command:     spec.Command,
+		env:         spec.Env,
+		packageRefs: resolution.refs,
+		pinPolicy:   pinPolicy,
 	}, nil
 }
 
@@ -83,9 +66,10 @@ func (plan DelegatePlan) Command() CommandSpec { return plan.command }
 // Env returns child-process to host-source environment bindings.
 func (plan DelegatePlan) Env() EnvBindingSet { return plan.env }
 
-// PackageRef returns package-like identity when the runner needs one.
-func (plan DelegatePlan) PackageRef() (PackageRef, bool) {
-	return plan.packageRef, plan.hasPackage
+// PackageRefs returns canonical package inputs recognized from the exact argv.
+// A floating policy can accompany a partial set when a runner input is opaque.
+func (plan DelegatePlan) PackageRefs() []PackageRef {
+	return append([]PackageRef(nil), plan.packageRefs...)
 }
 
 // PinPolicy returns package outcome constraint semantics.
@@ -137,18 +121,18 @@ func (plan DelegatePlan) IdentityKey() string {
 		Env:        identityEnvBindings(plan.env.Bindings()),
 		PinPolicy:  plan.pinPolicy,
 	}
-	if plan.hasPackage {
-		payload.Package = &identityPackage{
-			Ecosystem: plan.packageRef.Ecosystem(),
-			Name:      plan.packageRef.Name(),
-			Selector:  plan.packageRef.Selector(),
-		}
+	for _, ref := range plan.packageRefs {
+		payload.Packages = append(payload.Packages, identityPackage{
+			Ecosystem: ref.Ecosystem(),
+			Name:      ref.Name(),
+			Selector:  ref.Selector(),
+		})
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		panic(err)
 	}
-	return "delegate:v2:" + string(data)
+	return "delegate:v3:" + string(data)
 }
 
 func canonicalDelegatePlan(plan DelegatePlan) (DelegatePlan, error) {
@@ -164,32 +148,17 @@ func canonicalDelegatePlan(plan DelegatePlan) (DelegatePlan, error) {
 	if err != nil {
 		return DelegatePlan{}, err
 	}
-	var packageRef *PackageRef
-	if plan.hasPackage {
-		ref, err := NewPackageRef(
-			plan.packageRef.Ecosystem(),
-			plan.packageRef.Name(),
-			plan.packageRef.Selector(),
-		)
-		if err != nil {
-			return DelegatePlan{}, err
-		}
-		packageRef = &ref
-	}
 	return NewDelegatePlan(DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        env,
-		PackageRef: packageRef,
-		PinPolicy:  plan.pinPolicy,
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 }
 
 func sameDelegatePlanFacts(left DelegatePlan, right DelegatePlan) bool {
 	if left.runner != right.runner ||
 		left.pinPolicy != right.pinPolicy ||
-		left.hasPackage != right.hasPackage ||
-		left.packageRef != right.packageRef ||
+		!slices.Equal(left.packageRefs, right.packageRefs) ||
 		!sameCommandFacts(left.command, right.command) ||
 		!sameEnvBindingFacts(left.env, right.env) {
 		return false
@@ -206,12 +175,12 @@ func sameEnvBindingFacts(left EnvBindingSet, right EnvBindingSet) bool {
 }
 
 type identityPayload struct {
-	RunnerKind RunnerKind       `json:"runner_kind"`
-	Command    string           `json:"command"`
-	Args       []string         `json:"args"`
-	Env        []identityEnv    `json:"env"`
-	Package    *identityPackage `json:"package,omitempty"`
-	PinPolicy  PinPolicy        `json:"pin_policy"`
+	RunnerKind RunnerKind        `json:"runner_kind"`
+	Command    string            `json:"command"`
+	Args       []string          `json:"args"`
+	Env        []identityEnv     `json:"env"`
+	Packages   []identityPackage `json:"packages,omitempty"`
+	PinPolicy  PinPolicy         `json:"pin_policy"`
 }
 
 type identityEnv struct {
@@ -234,49 +203,4 @@ func identityEnvBindings(bindings []EnvBinding) []identityEnv {
 		})
 	}
 	return result
-}
-
-func validatePinPolicy(policy PinPolicy) error {
-	switch policy {
-	case PinNotApplicable, PinPinned, PinFloating, PinHostSelected:
-		return nil
-	default:
-		return validationError(ReasonInvalidPinPolicy, string(policy), "unsupported pin policy")
-	}
-}
-
-func validatePlanPackage(runner Runner, packageRef PackageRef, hasPackage bool, policy PinPolicy) error {
-	expectedEcosystem, expectsPackage := runner.packageEcosystem()
-	if expectsPackage && !hasPackage {
-		return validationError(ReasonInvalidDelegatePlan, string(runner.Kind()), "runner requires package identity")
-	}
-	if !expectsPackage && hasPackage {
-		return validationError(ReasonInvalidDelegatePlan, string(runner.Kind()), "runner must not carry package identity")
-	}
-	if hasPackage && packageRef.Ecosystem() != expectedEcosystem {
-		return validationError(ReasonInvalidDelegatePlan, string(packageRef.Ecosystem()), "package ecosystem does not match runner")
-	}
-
-	switch policy {
-	case PinNotApplicable:
-		if hasPackage || runner.Kind() == RunnerHostNative {
-			return validationError(ReasonInvalidDelegatePlan, string(policy), "pin policy is not applicable only for plain executables")
-		}
-	case PinPinned:
-		if !hasPackage {
-			return validationError(ReasonInvalidDelegatePlan, string(policy), "pinned policy requires package identity")
-		}
-		if packageRef.Selector() == "" {
-			return validationError(ReasonInvalidDelegatePlan, packageRef.Name(), "pinned package identity requires a selector")
-		}
-	case PinFloating:
-		if !hasPackage {
-			return validationError(ReasonInvalidDelegatePlan, string(policy), "floating policy requires package identity")
-		}
-	case PinHostSelected:
-		if runner.Kind() != RunnerHostNative || hasPackage {
-			return validationError(ReasonInvalidDelegatePlan, string(policy), "host-selected policy is only for host-native delegates without package identity")
-		}
-	}
-	return nil
 }

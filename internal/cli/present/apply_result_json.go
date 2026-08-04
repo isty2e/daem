@@ -12,7 +12,7 @@ import (
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
-const applyResultJSONSchemaVersion = 15
+const applyResultJSONSchemaVersion = 16
 
 type ApplyResultJSONInput struct {
 	ActionCount            int

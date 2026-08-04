@@ -43,14 +43,14 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		`canonical_contribution = `,
 		`codec_contract = "claude-project-mcp-stdio-v1"`,
 		"[locked.subject.delegate_plan]",
-		`identity_key = "delegate:v2:`,
+		`identity_key = "delegate:v3:`,
 		`runner_kind = "npx"`,
 		`command = "npx"`,
 		`pin_policy = "floating"`,
 		"[[locked.subject.delegate_plan.env]]",
 		`name = "API_TOKEN"`,
 		`source_name = "CONTEXT7_API_TOKEN"`,
-		"[locked.subject.delegate_plan.package]",
+		"[[locked.subject.delegate_plan.package]]",
 		`ecosystem = "npm"`,
 		`name = "@upstash/context7-mcp"`,
 	})
@@ -90,6 +90,81 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 	}
 	if got := loaded.Locked.Subjects()[0].MCPEnvironmentSources(); len(got) != 1 || got[0] != "CONTEXT7_API_TOKEN" {
 		t.Fatalf("loaded MCP environment sources = %#v", got)
+	}
+}
+
+func TestMarshalDelegatePinPolicyReflectsSelectorAssurance(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	tests := []struct {
+		name       string
+		command    string
+		args       []string
+		wantPolicy string
+	}{
+		{name: "npm exact", command: "npx", args: []string{"-y", "@scope/server@1.2.3"}, wantPolicy: "pinned"},
+		{name: "npm unsafe numeric", command: "npx", args: []string{"-y", "@scope/server@9007199254740992.0.0"}, wantPolicy: "floating"},
+		{name: "npm range", command: "npx", args: []string{"-y", "@scope/server@^1.2.3"}, wantPolicy: "floating"},
+		{name: "python exact", command: "uvx", args: []string{"server==1.2rc1"}, wantPolicy: "pinned"},
+		{name: "python range", command: "uvx", args: []string{"server>=1.0,<2"}, wantPolicy: "floating"},
+		{name: "python extras", command: "uvx", args: []string{"--from", "mypy[faster-cache,reports]==1.13.0", "mypy"}, wantPolicy: "floating"},
+		{name: "python git", command: "uvx", args: []string{"--from", "git+https://github.com/httpie/cli", "http"}, wantPolicy: "floating"},
+		{name: "container digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@" + digest}, wantPolicy: "pinned"},
+		{name: "container tag", command: "docker", args: []string{"run", "ghcr.io/acme/server:1.2.3"}, wantPolicy: "floating"},
+		{name: "container boolean before image", command: "docker", args: []string{"run", "--sig-proxy", "ghcr.io/acme/server:latest", "helper@" + digest}, wantPolicy: "floating"},
+		{name: "container malformed digest", command: "docker", args: []string{"run", "ghcr.io/acme/server@sha256:abc123"}, wantPolicy: "floating"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contract := claudeProjectMCPSubjectContractForCommand(t, "context7", test.command, test.args)
+			content, err := Marshal(lockfileWithSubjects(t, contract))
+			if err != nil {
+				t.Fatalf("Marshal returned error: %v", err)
+			}
+			fragment := `pin_policy = "` + test.wantPolicy + `"`
+			if !strings.Contains(string(content), fragment) {
+				t.Fatalf("rendered lockfile is missing %q:\n%s", fragment, content)
+			}
+			loaded, err := Load(writeLockfileText(t, string(content)))
+			if err != nil {
+				t.Fatalf("Load returned error: %v", err)
+			}
+			plan, ok := loaded.Locked.Subjects()[0].DelegatePlan()
+			if !ok || string(plan.PinPolicy()) != test.wantPolicy {
+				t.Fatalf("loaded pin policy = %q, %t, want %q", plan.PinPolicy(), ok, test.wantPolicy)
+			}
+		})
+	}
+}
+
+func TestMarshalAndLoadPreservesEveryDelegatedPackageInput(t *testing.T) {
+	contract := claudeProjectMCPSubjectContractForCommand(t, "context7", "npx", []string{
+		"--package=server@1.2.3",
+		"--package=helper@latest",
+		"server",
+	})
+	content, err := Marshal(lockfileWithSubjects(t, contract))
+	if err != nil {
+		t.Fatalf("Marshal returned error: %v", err)
+	}
+	if got := strings.Count(string(content), "[[locked.subject.delegate_plan.package]]"); got != 2 {
+		t.Fatalf("delegated package tables = %d, want 2:\n%s", got, content)
+	}
+	if !strings.Contains(string(content), `pin_policy = "floating"`) {
+		t.Fatalf("multi-package lockfile does not record aggregate floating assurance:\n%s", content)
+	}
+
+	loaded, err := Load(writeLockfileText(t, string(content)))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	plan, ok := loaded.Locked.Subjects()[0].DelegatePlan()
+	if !ok {
+		t.Fatal("loaded contract is missing delegate plan")
+	}
+	refs := plan.PackageRefs()
+	if len(refs) != 2 || refs[0].Name() != "helper" || refs[1].Name() != "server" {
+		t.Fatalf("loaded package refs = %#v, want canonical helper/server set", refs)
 	}
 }
 
@@ -349,14 +424,28 @@ func claudeProjectMCPSubjectContract(t *testing.T) lock.LockedSubjectContract {
 }
 
 func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.LockedSubjectContract {
+	return claudeProjectMCPSubjectContractForCommand(
+		t,
+		serverName,
+		"npx",
+		[]string{"-y", "@upstash/context7-mcp"},
+	)
+}
+
+func claudeProjectMCPSubjectContractForCommand(
+	t *testing.T,
+	serverName string,
+	command string,
+	args []string,
+) lock.LockedSubjectContract {
 	t.Helper()
 	env := map[string]desiredmcp.EnvReference{
 		"API_TOKEN": desiredtest.MCPEnvReference(t, "CONTEXT7_API_TOKEN"),
 	}
 	transport := desiredtest.MCPStdio(
 		t,
-		desiredtest.MCPCommand(t, "npx"),
-		[]string{"-y", "@upstash/context7-mcp"},
+		desiredtest.MCPCommand(t, command),
+		args,
 		env,
 	)
 	binding := desiredtest.MCPBinding(
@@ -377,8 +466,8 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 	}
 	canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(mcpcodec.ClaudeProjectMCPServerProjection{
 		ServerID:        serverName,
-		Command:         "npx",
-		Args:            []string{"-y", "@upstash/context7-mcp"},
+		Command:         command,
+		Args:            args,
 		Env:             map[string]string{"API_TOKEN": "${CONTEXT7_API_TOKEN}"},
 		AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 	})
@@ -391,8 +480,8 @@ func claudeProjectMCPSubjectContractNamed(t *testing.T, serverName string) lock.
 		PlacementID:          aggregate.MCPPlacementClaudeProject,
 		ServerID:             serverName,
 		RequestedOnAbsent:    desiredmcp.OnAbsentRemoveBinding,
-		LauncherCommand:      "npx",
-		LauncherArgs:         []string{"-y", "@upstash/context7-mcp"},
+		LauncherCommand:      command,
+		LauncherArgs:         args,
 		CanonicalProjection:  string(canonical),
 		DelegatePlan:         &delegatePlan,
 		CredentialReferences: []string{"CONTEXT7_API_TOKEN"},

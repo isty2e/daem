@@ -2,6 +2,7 @@ package mcp_test
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/realization/delegate"
@@ -25,15 +26,23 @@ func TestMCPDelegatePlanEdgeHuntRoundOneNPM(t *testing.T) {
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "npx", []string{"--yes", "--", "server@3.0.0"}, nil))
 	assertPackageRef(t, plan, delegate.EcosystemNPM, "server", "3.0.0", delegate.PinPinned)
 
-	// Explore X1: an npm spec ending in @ has an empty selector.
-	assertMCPDelegateReason(t, mcpdelegate.MCPDelegatePlanReasonInvalidPackage, validDelegateMCPServer(t, "npx", []string{"server@"}, nil))
+	// Explore X1: an npm spec ending in @ remains executable but cannot produce
+	// canonical package facts.
+	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "npx", []string{"server@"}, nil))
+	if plan.PinPolicy() != delegate.PinFloating || len(plan.PackageRefs()) != 0 {
+		t.Fatalf("opaque npm plan = pin %q packages %#v, want floating with no canonical package", plan.PinPolicy(), plan.PackageRefs())
+	}
 
 	// Explore X2: @latest is explicit but floating, not an exact pin claim.
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "npx", []string{"server@latest"}, nil))
 	assertPackageRef(t, plan, delegate.EcosystemNPM, "server", "latest", delegate.PinFloating)
 
-	// Explore X3: an empty argv element is valid data but cannot satisfy package identity.
-	assertMCPDelegateReason(t, mcpdelegate.MCPDelegatePlanReasonInvalidPackage, validDelegateMCPServer(t, "npx", []string{"-y", ""}, nil))
+	// Explore X3: an empty argv element remains exact argv but cannot satisfy
+	// canonical package identity.
+	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "npx", []string{"-y", ""}, nil))
+	if plan.PinPolicy() != delegate.PinFloating || len(plan.PackageRefs()) != 0 {
+		t.Fatalf("empty npm package plan = pin %q packages %#v, want floating with no canonical package", plan.PinPolicy(), plan.PackageRefs())
+	}
 }
 
 func TestMCPDelegatePlanEdgeHuntRoundTwoDockerAndUVX(t *testing.T) {
@@ -42,19 +51,24 @@ func TestMCPDelegatePlanEdgeHuntRoundTwoDockerAndUVX(t *testing.T) {
 	assertPackageRef(t, plan, delegate.EcosystemPython, "mcp-server", "0.4.0", delegate.PinPinned)
 
 	// Exploit E2: Docker digest selectors are package selectors, not part of the image name.
-	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server@sha256:abc123"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "sha256:abc123", delegate.PinPinned)
+	digest := "sha256:" + strings.Repeat("a", 64)
+	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server@" + digest}, nil))
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", digest, delegate.PinPinned)
 
 	// Exploit E3: Docker options with values must not be mistaken for image identity.
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "--name", "daemon", "ghcr.io/acme/server:1.0.0"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "1.0.0", delegate.PinPinned)
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "ghcr.io/acme/server", "1.0.0", delegate.PinFloating)
 
 	// Exploit E4: registry port and image tag are separate colons.
 	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "localhost:5000/acme/server:1.0.0"}, nil))
-	assertPackageRef(t, plan, delegate.EcosystemContainer, "localhost:5000/acme/server", "1.0.0", delegate.PinPinned)
+	assertPackageRef(t, plan, delegate.EcosystemContainer, "localhost:5000/acme/server", "1.0.0", delegate.PinFloating)
 
-	// Explore X1: trailing tag delimiter is an invalid package selector.
-	assertMCPDelegateReason(t, mcpdelegate.MCPDelegatePlanReasonInvalidPackage, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server:"}, nil))
+	// Explore X1: a trailing tag delimiter remains exact argv but cannot produce
+	// canonical image facts.
+	plan = mustMCPDelegatePlan(t, validDelegateMCPServer(t, "docker", []string{"run", "ghcr.io/acme/server:"}, nil))
+	if plan.PinPolicy() != delegate.PinFloating || len(plan.PackageRefs()) != 0 {
+		t.Fatalf("opaque docker plan = pin %q packages %#v, want floating with no canonical package", plan.PinPolicy(), plan.PackageRefs())
+	}
 
 	// Explore X2: Docker command without an image is a missing package, not plain command fallback.
 	assertMCPDelegateReason(t, mcpdelegate.MCPDelegatePlanReasonMissingPackage, validDelegateMCPServer(t, "docker", []string{"run", "--rm"}, nil))

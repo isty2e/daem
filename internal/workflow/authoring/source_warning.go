@@ -71,11 +71,16 @@ func mcpServerAuthoringWarnings(server declarationcodec.MCPServer) ([]string, er
 }
 
 func floatingMCPServerDelegateWarning(name string, plan delegate.DelegatePlan) string {
-	ref, hasPackage := plan.PackageRef()
-	if !hasPackage {
+	refs := plan.PackageRefs()
+	if len(refs) == 0 {
 		return fmt.Sprintf("mcp_server %q uses floating delegated package identity; pin the package selector when reproducibility matters", name)
 	}
-	return fmt.Sprintf("mcp_server %q uses floating delegated %s package %q; pin the package selector when reproducibility matters", name, ref.Ecosystem(), ref.Name())
+	for _, ref := range refs {
+		if ref.PinPolicy() == delegate.PinFloating {
+			return fmt.Sprintf("mcp_server %q uses floating delegated %s package %q; pin every package selector when reproducibility matters", name, ref.Ecosystem(), ref.Name())
+		}
+	}
+	return fmt.Sprintf("mcp_server %q has package inputs that cannot be fully pinned from argv; use only explicit exact package selectors when reproducibility matters", name)
 }
 
 func localSourcePath(source declarationcodec.SkillSource, manifestRoot string) string {

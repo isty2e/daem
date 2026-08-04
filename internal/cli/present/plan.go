@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-const planJSONSchemaVersion = 10
+const planJSONSchemaVersion = 11
 
 func PrintDryRunPlanWithOptions(output io.Writer, result reconcile.Result, options HumanOptions) {
 	PrintActionPlanWithOptions(output, "dry-run", result, options)

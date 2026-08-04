@@ -26,7 +26,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 
 	rendered := string(content)
 	assertInOrder(t, rendered, []string{
-		"version = 5",
+		"version = 6",
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
@@ -40,7 +40,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 	})
 	for _, legacy := range []string{"[[locked.skill]]", "[[locked.hook]]", "[[locked.instructions]]", "declaration =", "skill_group_index"} {
 		if strings.Contains(rendered, legacy) {
-			t.Fatalf("rendered v5 lockfile contains legacy field %q:\n%s", legacy, rendered)
+			t.Fatalf("rendered current lockfile contains legacy field %q:\n%s", legacy, rendered)
 		}
 	}
 

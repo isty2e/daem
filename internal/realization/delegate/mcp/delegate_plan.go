@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -19,7 +20,6 @@ const (
 	MCPDelegatePlanReasonMissingPackage      MCPDelegatePlanReasonCode = "MISSING_PACKAGE"
 	MCPDelegatePlanReasonInvalidCommand      MCPDelegatePlanReasonCode = "INVALID_COMMAND"
 	MCPDelegatePlanReasonInvalidEnvReference MCPDelegatePlanReasonCode = "INVALID_ENV_REFERENCE"
-	MCPDelegatePlanReasonInvalidPackage      MCPDelegatePlanReasonCode = "INVALID_PACKAGE"
 	MCPDelegatePlanReasonInvalidPlan         MCPDelegatePlanReasonCode = "INVALID_PLAN"
 )
 
@@ -106,19 +106,29 @@ func MCPStdioDelegatePlan(stdio desiredmcp.Stdio) (delegate.DelegatePlan, error)
 	if err != nil {
 		return delegate.DelegatePlan{}, err
 	}
-	runner, packageRef, pinPolicy, err := mcpDelegateRunner(command)
+	runner, err := mcpDelegateRunner(command)
 	if err != nil {
 		return delegate.DelegatePlan{}, err
 	}
 
 	plan, err := delegate.NewDelegatePlan(delegate.DelegatePlanSpec{
-		Runner:     runner,
-		Command:    command,
-		Env:        env,
-		PackageRef: packageRef,
-		PinPolicy:  pinPolicy,
+		Runner:  runner,
+		Command: command,
+		Env:     env,
 	})
 	if err != nil {
+		var validation *delegate.ValidationError
+		if errors.As(err, &validation) {
+			switch validation.Code() {
+			case delegate.ReasonMissingPackage:
+				return delegate.DelegatePlan{}, newMCPDelegatePlanError(
+					MCPDelegatePlanReasonMissingPackage,
+					command.Executable(),
+					"package-backed MCP delegate command requires a package argument",
+					err,
+				)
+			}
+		}
 		return delegate.DelegatePlan{}, newMCPDelegatePlanError(
 			MCPDelegatePlanReasonInvalidPlan,
 			command.Executable(),
@@ -202,21 +212,17 @@ func mcpDelegateEnvBindings(env map[string]desiredmcp.EnvReference) (delegate.En
 	return envBindings, nil
 }
 
-func mcpDelegateRunner(command delegate.CommandSpec) (delegate.Runner, *delegate.PackageRef, delegate.PinPolicy, error) {
+func mcpDelegateRunner(command delegate.CommandSpec) (delegate.Runner, error) {
+	var kind delegate.RunnerKind
 	switch command.Executable() {
 	case "npx":
-		return packageBackedRunner(delegate.RunnerNPX, command, parseNPMDelegatePackage)
+		kind = delegate.RunnerNPX
 	case "uvx":
-		return packageBackedRunner(delegate.RunnerUVX, command, parsePythonDelegatePackage)
+		kind = delegate.RunnerUVX
 	case "docker":
-		return packageBackedRunner(delegate.RunnerDocker, command, parseDockerDelegatePackage)
+		kind = delegate.RunnerDocker
 	default:
-		runner, err := delegate.NewRunner(delegate.RunnerPlain)
-		if err != nil {
-			return delegate.Runner{}, nil, "", err
-		}
-		return runner, nil, delegate.PinNotApplicable, nil
+		kind = delegate.RunnerPlain
 	}
+	return delegate.NewRunner(kind)
 }
-
-type packageParser func([]string) (delegate.PackageRef, delegate.PinPolicy, error)

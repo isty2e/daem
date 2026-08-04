@@ -6,6 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/BurntSushi/toml v1.5.0
+	github.com/aquasecurity/go-pep440-version v0.0.1
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.0
@@ -18,6 +19,7 @@ require (
 )
 
 require (
+	github.com/aquasecurity/go-version v0.0.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.13 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.24 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.29 // indirect
@@ -35,4 +37,5 @@ require (
 	github.com/aws/smithy-go v1.27.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
+	golang.org/x/xerrors v0.0.0-20231012003039-104605ab7028 // indirect
 )

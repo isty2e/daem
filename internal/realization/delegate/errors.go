@@ -13,7 +13,7 @@ const (
 	ReasonInvalidArgument     ReasonCode = "invalid_argument"
 	ReasonInvalidEnvRef       ReasonCode = "invalid_env_ref"
 	ReasonInvalidPackageRef   ReasonCode = "invalid_package_ref"
-	ReasonInvalidPinPolicy    ReasonCode = "invalid_pin_policy"
+	ReasonMissingPackage      ReasonCode = "missing_package"
 	ReasonInvalidDelegatePlan ReasonCode = "invalid_delegate_plan"
 )
 
