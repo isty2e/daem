@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/contractversion"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/target"
@@ -235,7 +236,7 @@ func TestPlanAndApplyJSONEnvelopesIncludeRelationOrderActions(t *testing.T) {
 	if err := json.Unmarshal(planOutput.Bytes(), &planPayload); err != nil {
 		t.Fatal(err)
 	}
-	if planPayload.SchemaVersion != planJSONSchemaVersion ||
+	if planPayload.SchemaVersion != contractversion.ReconciliationPlanJSON ||
 		len(planPayload.RelationOrders) != 1 {
 		t.Fatalf("plan payload = %#v", planPayload)
 	}
@@ -250,7 +251,7 @@ func TestPlanAndApplyJSONEnvelopesIncludeRelationOrderActions(t *testing.T) {
 	if err := json.Unmarshal(applyOutput.Bytes(), &applyPayload); err != nil {
 		t.Fatal(err)
 	}
-	if applyPayload.SchemaVersion != applyResultJSONSchemaVersion ||
+	if applyPayload.SchemaVersion != contractversion.ApplyResultJSON ||
 		len(applyPayload.RelationOrders) != 1 {
 		t.Fatalf("apply payload = %#v", applyPayload)
 	}

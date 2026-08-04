@@ -6,11 +6,10 @@ import (
 	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/target"
 	authoringworkflow "github.com/isty2e/daem/internal/workflow/authoring"
 )
-
-const manifestAuthoringJSONSchemaVersion = 2
 
 type AuthoringLockfile struct {
 	Path   string
@@ -141,7 +140,7 @@ type ImportManifestAuthoringJSONInput struct {
 }
 
 func PrintManifestAuthoringJSON(output io.Writer, payload ManifestAuthoringJSONOutput) error {
-	payload.SchemaVersion = manifestAuthoringJSONSchemaVersion
+	payload.SchemaVersion = contractversion.ManifestAuthoringJSON
 	payload.ChangeCount = len(payload.Changes)
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")

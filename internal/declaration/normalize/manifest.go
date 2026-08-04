@@ -9,7 +9,7 @@ import (
 
 // Manifest normalizes one decoded declaration into canonical desired state.
 func Manifest(raw declaration.Manifest) (desired.Environment, error) {
-	if raw.Version != declaration.SupportedManifestVersion {
+	if raw.Version != declaration.CurrentManifestVersion {
 		return desired.Environment{}, fmt.Errorf("unsupported manifest version %d", raw.Version)
 	}
 

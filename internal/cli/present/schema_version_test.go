@@ -1,7 +1,6 @@
 package clipresent
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -11,60 +10,24 @@ import (
 	"testing"
 )
 
-func TestCommandJSONSchemaVersionOwners(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		got  int
-		want int
-	}{
-		{name: "version", got: versionJSONSchemaVersion, want: 1},
-		{name: "init", got: initJSONSchemaVersion, want: 1},
-		{name: "manifest authoring", got: manifestAuthoringJSONSchemaVersion, want: 2},
-		{name: "lock comparison", got: lockJSONSchemaVersion, want: 3},
-		{name: "resource inventory", got: listResourcesJSONSchemaVersion, want: 1},
-		{name: "output inventory", got: listOutputsJSONSchemaVersion, want: 4},
-		{name: "reconciliation plan", got: planJSONSchemaVersion, want: 11},
-		{name: "apply result", got: applyResultJSONSchemaVersion, want: 16},
-		{name: "recovery", got: recoveryJSONSchemaVersion, want: 4},
-		{name: "doctor", got: doctorJSONSchemaVersion, want: 1},
-		{name: "MCP probe", got: mcpProbeJSONSchemaVersion, want: 1},
-		{name: "extension refresh", got: refreshJSONSchemaVersion, want: 2},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			if test.got != test.want {
-				t.Fatalf("schema version = %d, want %d", test.got, test.want)
-			}
-		})
-	}
-}
-
-func TestCLIReferenceDocumentsApplyResultSchemaVersion(t *testing.T) {
-	t.Parallel()
-
-	path := filepath.Join("..", "..", "..", "docs", "cli.md")
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read CLI reference: %v", err)
-	}
-	want := fmt.Sprintf(
-		"| confirmed `apply` | Apply result | `%d` |",
-		applyResultJSONSchemaVersion,
+func TestSchemaVersionAssignmentsUseContractRegistry(t *testing.T) {
+	registryPath := filepath.Join("..", "..", "contractversion", "current.go")
+	registry, err := parser.ParseFile(
+		token.NewFileSet(),
+		registryPath,
+		nil,
+		parser.SkipObjectResolution,
 	)
-	if !strings.Contains(string(content), want) {
-		t.Fatalf("CLI reference is missing current apply schema row %q", want)
+	if err != nil {
+		t.Fatalf("parse contract version registry: %v", err)
 	}
-}
+	versions := cliJSONVersionNames(registry)
+	usedVersions := make(map[string]struct{})
 
-func TestSchemaVersionAssignmentsUseEnvelopeOwners(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("read presenter package: %v", err)
 	}
-
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
 			continue
@@ -73,14 +36,12 @@ func TestSchemaVersionAssignmentsUseEnvelopeOwners(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", entry.Name(), err)
 		}
-		owners := schemaVersionOwners(file)
-		usedOwners := make(map[string]struct{})
 		ast.Inspect(file, func(node ast.Node) bool {
 			switch value := node.(type) {
 			case *ast.KeyValueExpr:
 				key, ok := value.Key.(*ast.Ident)
 				if ok && key.Name == "SchemaVersion" {
-					assertSchemaVersionOwner(t, entry.Name(), owners, usedOwners, value.Value)
+					assertRegisteredSchemaVersion(t, entry.Name(), versions, usedVersions, value.Value)
 				}
 			case *ast.AssignStmt:
 				for index, left := range value.Lhs {
@@ -92,21 +53,21 @@ func TestSchemaVersionAssignmentsUseEnvelopeOwners(t *testing.T) {
 						t.Errorf("%s assigns SchemaVersion through an unsupported multi-value expression", entry.Name())
 						continue
 					}
-					assertSchemaVersionOwner(t, entry.Name(), owners, usedOwners, value.Rhs[index])
+					assertRegisteredSchemaVersion(t, entry.Name(), versions, usedVersions, value.Rhs[index])
 				}
 			}
 			return true
 		})
-		for owner := range owners {
-			if _, used := usedOwners[owner]; !used {
-				t.Errorf("%s declares unused schema version owner %s", entry.Name(), owner)
-			}
+	}
+	for version := range versions {
+		if _, used := usedVersions[version]; !used {
+			t.Errorf("contract version registry declares unused CLI JSON schema %s", version)
 		}
 	}
 }
 
-func schemaVersionOwners(file *ast.File) map[string]struct{} {
-	owners := make(map[string]struct{})
+func cliJSONVersionNames(file *ast.File) map[string]struct{} {
+	versions := make(map[string]struct{})
 	for _, declaration := range file.Decls {
 		general, ok := declaration.(*ast.GenDecl)
 		if !ok || general.Tok != token.CONST {
@@ -118,20 +79,20 @@ func schemaVersionOwners(file *ast.File) map[string]struct{} {
 				continue
 			}
 			for _, name := range value.Names {
-				if strings.HasSuffix(name.Name, "JSONSchemaVersion") {
-					owners[name.Name] = struct{}{}
+				if strings.HasSuffix(name.Name, "JSON") {
+					versions[name.Name] = struct{}{}
 				}
 			}
 		}
 	}
-	return owners
+	return versions
 }
 
-func assertSchemaVersionOwner(
+func assertRegisteredSchemaVersion(
 	t *testing.T,
 	filename string,
-	owners map[string]struct{},
-	usedOwners map[string]struct{},
+	versions map[string]struct{},
+	usedVersions map[string]struct{},
 	expression ast.Expr,
 ) {
 	t.Helper()
@@ -142,14 +103,19 @@ func assertSchemaVersionOwner(
 		}
 		expression = parenthesized.X
 	}
-	identifier, ok := expression.(*ast.Ident)
+	selector, ok := expression.(*ast.SelectorExpr)
 	if !ok {
-		t.Errorf("%s assigns SchemaVersion without its envelope owner constant", filename)
+		t.Errorf("%s assigns SchemaVersion without the contract version registry", filename)
 		return
 	}
-	if _, owned := owners[identifier.Name]; !owned {
-		t.Errorf("%s assigns SchemaVersion from non-local owner %s", filename, identifier.Name)
+	packageName, ok := selector.X.(*ast.Ident)
+	if !ok || packageName.Name != "contractversion" {
+		t.Errorf("%s assigns SchemaVersion outside contractversion", filename)
 		return
 	}
-	usedOwners[identifier.Name] = struct{}{}
+	if _, registered := versions[selector.Sel.Name]; !registered {
+		t.Errorf("%s assigns SchemaVersion from unregistered contractversion.%s", filename, selector.Sel.Name)
+		return
+	}
+	usedVersions[selector.Sel.Name] = struct{}{}
 }

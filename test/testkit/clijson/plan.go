@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 type Plan struct {
@@ -125,6 +127,7 @@ func DecodePlan(t *testing.T, content []byte) Plan {
 	if err := decoder.Decode(&extra); err != io.EOF {
 		t.Fatalf("unexpected trailing JSON content: %s", content)
 	}
+	requireSchemaVersion(t, "reconciliation plan", payload.SchemaVersion, contractversion.ReconciliationPlanJSON)
 
 	return payload
 }

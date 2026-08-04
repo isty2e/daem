@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 )
 
@@ -15,7 +16,7 @@ func TestCUXInitJSONIsOneSchemaVersionedDocument(t *testing.T) {
 	root := t.TempDir()
 	testkit.WithWorkingDirectory(t, root)
 	payload := runCUXJSON(t, []string{"init", "--dry-run", "--json"})
-	assertCUXJSONHeader(t, payload, 1, "init", "dry-run")
+	assertCUXJSONHeader(t, payload, contractversion.InitJSON, "init", "dry-run")
 	if payload["action"] != "create" || payload["content"] == "" || payload["manifest_path"] == "" {
 		t.Fatalf("payload = %#v, want exact init plan", payload)
 	}
@@ -33,7 +34,7 @@ source = { path = "skills/oracle", mode = "vendor" }
 targets = ["codex"]
 `)
 	payload := runCUXJSON(t, []string{"list", "resources", "--manifest", manifestPath, "--json"})
-	assertCUXJSONHeader(t, payload, 1, "list resources", "")
+	assertCUXJSONHeader(t, payload, contractversion.ResourceInventoryJSON, "list resources", "")
 	if payload["resource_count"] != float64(1) {
 		t.Fatalf("payload = %#v, want one resource", payload)
 	}
@@ -48,7 +49,7 @@ func TestCUXListOutputsJSONUsesInventoryRoute(t *testing.T) {
 	manifestPath := filepath.Join(root, "daem.toml")
 	testkit.WriteFile(t, root, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
 	payload := runCUXJSON(t, []string{"list", "outputs", "--manifest", manifestPath, "--json"})
-	assertCUXJSONHeader(t, payload, 4, "list outputs", "")
+	assertCUXJSONHeader(t, payload, contractversion.OutputInventoryJSON, "list outputs", "")
 	if managed, ok := payload["managed"].([]any); !ok || len(managed) != 0 {
 		t.Fatalf("payload = %#v, want empty managed inventory array", payload)
 	}
@@ -68,7 +69,7 @@ func TestCUXRecoverYesJSONReportsWriteResult(t *testing.T) {
 	testkit.WriteFile(t, root, "AGENTS.md", "new instructions\n")
 
 	payload := runCUXJSON(t, []string{"recover", "--manifest", manifestPath, "--yes", "--json"})
-	assertCUXJSONHeader(t, payload, 4, "recover", "write")
+	assertCUXJSONHeader(t, payload, contractversion.RecoveryJSON, "recover", "write")
 	if payload["authority_kind"] != "active_journal" ||
 		payload["has_errors"] != false ||
 		payload["classification"] != "needs_rollback" {

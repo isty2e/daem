@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestRunAddMCPServerDryRunPlansWithoutHostWrites(t *testing.T) {
@@ -485,31 +486,8 @@ func TestRunAddMCPServerDryRunJSONDescribesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 
-	var payload struct {
-		SchemaVersion int `json:"schema_version"`
-		Command       string
-		Mode          string
-		Operation     string
-		ManifestPath  string `json:"manifest_path"`
-		Lockfile      *struct {
-			Path   string
-			Status string
-		}
-		Changes []struct {
-			ResourceID    string `json:"resource_id"`
-			ChangeKind    string `json:"change_kind"`
-			ManifestBlock string `json:"manifest_block"`
-			Resource      struct {
-				Kind string
-				Name string
-			}
-		}
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("Unmarshal returned error: %v; stdout = %q", err, stdout.String())
-	}
-	if payload.SchemaVersion != 2 || payload.Command != "add" || payload.Mode != "dry-run" || payload.Operation != "add" {
+	payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
+	if payload.Command != "add" || payload.Mode != "dry-run" || payload.Operation != "add" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ManifestPath != project.manifestPath {
@@ -561,31 +539,8 @@ func TestRunAddAntigravityMCPServerDryRunJSONDescribesManifestAndLockOnly(t *tes
 		t.Fatalf("exitCode = %d, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
 	}
 
-	var payload struct {
-		SchemaVersion int `json:"schema_version"`
-		Command       string
-		Mode          string
-		Operation     string
-		ManifestPath  string `json:"manifest_path"`
-		Lockfile      *struct {
-			Path   string
-			Status string
-		}
-		Changes []struct {
-			ResourceID    string `json:"resource_id"`
-			ChangeKind    string `json:"change_kind"`
-			ManifestBlock string `json:"manifest_block"`
-			Resource      struct {
-				Kind string
-				Name string
-			}
-		}
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
-		t.Fatalf("Unmarshal returned error: %v; stdout = %q", err, stdout.String())
-	}
-	if payload.SchemaVersion != 2 || payload.Command != "add" || payload.Mode != "dry-run" || payload.Operation != "add" {
+	payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
+	if payload.Command != "add" || payload.Mode != "dry-run" || payload.Operation != "add" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if payload.ManifestPath != project.manifestPath {

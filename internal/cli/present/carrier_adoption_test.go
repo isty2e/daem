@@ -13,6 +13,7 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
 )
@@ -44,8 +45,8 @@ func TestPlanJSONDisclosesExactStateOnlyCarrierAdoptionWithoutAuthorityOverclaim
 	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 11 || payload.HasErrors || len(payload.CarrierAdoptions) != 1 {
-		t.Fatalf("payload = %#v, want schema 11 with one nonblocking adoption", payload)
+	if payload.SchemaVersion != contractversion.ReconciliationPlanJSON || payload.HasErrors || len(payload.CarrierAdoptions) != 1 {
+		t.Fatalf("payload = %#v, want current plan schema with one nonblocking adoption", payload)
 	}
 	row := payload.CarrierAdoptions[0]
 	if row.Result != "eligible_exact_relation" ||
@@ -308,7 +309,7 @@ func TestApplyResultJSONDistinguishesCommittedAndFailedCarrierAdoption(t *testin
 			if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
 				t.Fatalf("json.Unmarshal: %v", err)
 			}
-			if payload.SchemaVersion != 16 ||
+			if payload.SchemaVersion != contractversion.ApplyResultJSON ||
 				payload.HasErrors != tt.wantErrors ||
 				len(payload.CarrierAdoptions) != 1 ||
 				payload.CarrierAdoptions[0].ClaimTransition != tt.wantTransition {
@@ -350,7 +351,7 @@ func TestApplyResultDistinguishesPendingInstallRecoveryFromExplicitAdoption(t *t
 	if err := json.Unmarshal(jsonOutput.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 16 || len(payload.CarrierAdoptions) != 1 {
+	if payload.SchemaVersion != contractversion.ApplyResultJSON || len(payload.CarrierAdoptions) != 1 {
 		t.Fatalf("payload = %#v", payload)
 	}
 	row := payload.CarrierAdoptions[0]

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -43,7 +44,7 @@ func TestRunRecoverActiveDryRunJSONPreservesSchemaFourFacts(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode recovery JSON: %v", err)
 	}
-	if payload["schema_version"] != float64(4) ||
+	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
 		payload["authority_kind"] != "active_journal" ||
 		payload["operation_dir"] != fixture.operationDir ||
 		payload["classification"] != "needs_rollback" {
@@ -141,7 +142,7 @@ func TestRunRecoverCleanupDryRunJSONUsesSchemaFourCleanupShape(t *testing.T) {
 		"operation_id",
 		"schema_version",
 	})
-	if payload["schema_version"] != float64(4) ||
+	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
 		payload["command"] != "recover" ||
 		payload["mode"] != "dry-run" ||
 		payload["authority_kind"] != "journal_cleanup" ||
@@ -649,7 +650,7 @@ func assertCleanupWriteJSON(
 		keys = append(keys, "errors")
 	}
 	assertJSONKeys(t, payload, keys)
-	if payload["schema_version"] != float64(4) ||
+	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
 		payload["command"] != "recover" ||
 		payload["mode"] != "write" ||
 		payload["authority_kind"] != "journal_cleanup" ||

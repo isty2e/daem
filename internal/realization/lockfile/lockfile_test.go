@@ -26,7 +26,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 
 	rendered := string(content)
 	assertInOrder(t, rendered, []string{
-		"version = 6",
+		currentLockfileVersionEnvelope(),
 		"[[locked.subject]]",
 		`entity_id = "skill:oracle"`,
 		`subject_id = "resource/skill/oracle"`,
@@ -332,6 +332,10 @@ func writeLockfileText(t *testing.T, content string) string {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 	return path
+}
+
+func currentLockfileVersionEnvelope() string {
+	return fmt.Sprintf("version = %d", lock.CurrentVersion)
 }
 
 func assertInOrder(t *testing.T, content string, fragments []string) {

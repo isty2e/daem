@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
 )
@@ -34,7 +35,7 @@ func TestRunDoctorJSONReportsChecksTargetsAndManifestMetadata(t *testing.T) {
 	}
 
 	payload := decodeDoctorJSONTestPayload(t, stdout.Bytes())
-	if payload.SchemaVersion != 1 || payload.Command != "doctor" {
+	if payload.SchemaVersion != contractversion.DoctorJSON || payload.Command != "doctor" {
 		t.Fatalf("payload header = %#v", payload)
 	}
 	if len(payload.Targets) != 1 || payload.Targets[0] != "codex" {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
@@ -16,8 +17,6 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
-
-const listResourcesJSONSchemaVersion = 1
 
 type ListRow struct {
 	Kind        string `json:"kind"`
@@ -180,7 +179,7 @@ func PrintListResourcesJSON(output io.Writer, manifestPath string, rows []ListRo
 	resources := make([]ListRow, len(rows))
 	copy(resources, rows)
 	payload := listResourcesJSONOutput{
-		SchemaVersion: listResourcesJSONSchemaVersion,
+		SchemaVersion: contractversion.ResourceInventoryJSON,
 		Command:       "list resources",
 		ManifestPath:  manifestPath,
 		ResourceCount: len(rows),

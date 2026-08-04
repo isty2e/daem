@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
@@ -46,8 +47,11 @@ func TestPiExtensionImportLockApplyAndRetryConvergesRuntimeOrder(t *testing.T) {
 		len(lockPayload.OrderConstraintChanges[0].After.Members) != 2 {
 		t.Fatalf("lock order constraints = %#v", lockPayload)
 	}
-	if !strings.HasPrefix(string(testkit.ReadFile(t, filepath.Join(tempDir, "daem.lock.toml"))), "version = 6\n") {
-		t.Fatal("written lockfile is not schema version 6")
+	if !strings.HasPrefix(
+		string(testkit.ReadFile(t, filepath.Join(tempDir, "daem.lock.toml"))),
+		fmt.Sprintf("version = %d\n", contractversion.LockfileSchema),
+	) {
+		t.Fatalf("written lockfile is not schema version %d", contractversion.LockfileSchema)
 	}
 
 	testkit.WriteFile(
@@ -599,7 +603,7 @@ func runExtensionOrderApply(
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-	if payload.SchemaVersion != 16 || payload.HasErrors || len(payload.Errors) != 0 {
+	if payload.HasErrors || len(payload.Errors) != 0 {
 		t.Fatalf("apply payload = %#v", payload)
 	}
 	return payload

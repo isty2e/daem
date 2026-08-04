@@ -118,7 +118,7 @@ type importManifest struct {
 func RenderImportManifest(targets []string, body ImportManifestBody) ([]byte, error) {
 	var output bytes.Buffer
 	if err := toml.NewEncoder(&output).Encode(importManifest{
-		Version:            1,
+		Version:            declaration.CurrentManifestVersion,
 		Targets:            targets,
 		ImportManifestBody: body,
 	}); err != nil {

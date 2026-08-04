@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 func TestRunUnmanageExtensionDryRunDiffIsHostPreservingAndNonMutating(t *testing.T) {
@@ -86,7 +88,7 @@ func TestRunUnmanageExtensionJSONUsesAuthoringEnvelopeAndGlobalCaveat(t *testing
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal: %v; output = %q", err, stdout.String())
 	}
-	if payload.SchemaVersion != 2 ||
+	if payload.SchemaVersion != contractversion.ManifestAuthoringJSON ||
 		len(payload.Changes) != 1 ||
 		payload.Changes[0].ResourceID != "extension/context7" ||
 		payload.Changes[0].ChangeKind != "would_remove" ||

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/target"
 	authoringworkflow "github.com/isty2e/daem/internal/workflow/authoring"
 )
@@ -84,7 +85,7 @@ func TestUnmanageExtensionProjectionDisclosesHostAndManagementBoundaries(t *test
 	if err := json.Unmarshal(encoded.Bytes(), &payload); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
-	if payload.SchemaVersion != 2 ||
+	if payload.SchemaVersion != contractversion.ManifestAuthoringJSON ||
 		payload.Command != "unmanage" ||
 		payload.Mode != "dry-run" ||
 		payload.Operation != "unmanage" ||
