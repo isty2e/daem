@@ -254,10 +254,12 @@ import at a FIFO, socket, device, or directory.
 
 Hook JSON is skipped when the file has the same unsafe filesystem shape,
 exceeds 4 MiB, contains duplicate object keys, exceeds 64 levels of nesting,
-or is not one complete UTF-8 JSON value. JSON comments are not accepted for
-hook documents. Daem enforces the same 4 MiB limit while checking, applying,
-and recovering managed hook files. It also rejects a rendered or restored
-candidate that would exceed that limit before writing it.
+contains more than 256 events, 4,096 groups, or 4,096 handlers, uses an event
+name longer than 256 bytes, or is not one complete UTF-8 JSON value. JSON
+comments are not accepted for hook documents. Daem enforces the same byte,
+depth, and structural limits while checking, applying, and recovering managed
+hook files. It also rejects a rendered or restored candidate that would exceed
+those limits before writing it.
 
 Standalone MCP config is skipped as one document when its final path has the
 same unsafe filesystem shape, changes during the read, or exceeds the selected
@@ -279,10 +281,9 @@ Rerun `daem import --dry-run` after the tree is stable and within those bounds.
 Daem does not publish the generated manifest or a partial vendored skill when
 the copied tree differs from the planned content identity.
 
-Hook import additionally accepts at most 256 events, 4,096 groups, 4,096
-handlers, and 4,096 skipped entries. Event names may contain at most 256 bytes,
-and all skip diagnostics together may contain at most 256 KiB. Exceeding any
-of these limits produces one `hook_import_budget_exceeded` skip and no partial
+Hook import additionally accepts at most 4,096 skipped entries, and all skip
+diagnostics together may contain at most 256 KiB. Exceeding a shared Hook
+document limit produces one `hook_import_budget_exceeded` skip and no partial
 import. Fix the reported live file and rerun `daem import --dry-run`. Daem does
 not import the valid-looking subset of an ambiguous or over-budget hook
 document.

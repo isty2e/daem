@@ -1,6 +1,8 @@
 package hookcodec_test
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -174,6 +176,53 @@ func TestHookCodecObservesContributionOccupancyWithoutInventingIdentity(t *testi
 		if state, covered := duplicateOccupancy.State(item.SubjectID()); !covered || state != aggregate.ContributionAmbiguous {
 			t.Fatalf("duplicate occupancy for %q = %q covered=%t, want ambiguous", item.SubjectID(), state, covered)
 		}
+	}
+}
+
+func TestHookCodecOccupancyDoesNotDuplicateSharedMatcherAllocation(t *testing.T) {
+	placement, codec, selection := hookCodecFixture(t)
+	matcher := strings.Repeat("m", 64<<10)
+	const handlerCount = 1024
+	handlers := make([]string, handlerCount)
+	for index := range handlers {
+		handlers[index] = fmt.Sprintf(
+			`{"type":"command","command":"command-%d"}`,
+			index,
+		)
+	}
+	document := aggregate.ExistingDocument([]byte(
+		`{"hooks":{"Stop":[{"matcher":` + strconv.Quote(matcher) +
+			`,"hooks":[` + strings.Join(handlers, ",") + `]}]}}`,
+	))
+	snapshot, failure := codec.Read(document, selection)
+	if failure != nil {
+		t.Fatalf("Read: %v", failure)
+	}
+	desired := hookContributionSet(t, placement, hookContributionSpec{
+		name: "match", event: "Stop", matcher: matcher, command: "command-512",
+	})
+
+	assertPresent := func() {
+		occupancy, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired)
+		if err != nil {
+			t.Fatalf("ClassifyContributionOccupancy: %v", err)
+		}
+		subject := desired.Contributions()[0].SubjectID()
+		if state, covered := occupancy.State(subject); !covered || state != aggregate.ContributionPresent {
+			t.Fatalf("occupancy = %q covered=%t, want present", state, covered)
+		}
+	}
+	assertPresent()
+
+	benchmark := testing.Benchmark(func(b *testing.B) {
+		for range b.N {
+			if _, err := codec.ClassifyContributionOccupancy(snapshot.States()[0], desired); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	if allocated := benchmark.AllocedBytesPerOp(); allocated >= 16<<20 {
+		t.Fatalf("occupancy allocated %d bytes/op, want less than 16 MiB", allocated)
 	}
 }
 

@@ -255,6 +255,46 @@ func TestListOutputsPreservesForeignOwnershipWhenAggregateDocumentIsMalformed(t 
 	}
 }
 
+func TestListOutputsPreservesForeignOwnershipWhenAlternateConfigBlocksProjection(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("HOME", home)
+	ownerManifest := writeGlobalOpenCodeMCPWorkspace(t, filepath.Join(root, "owner"), "alpha")
+	foreignManifest := writeGlobalOpenCodeMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
+	if exitCode, _, stderr := runOwnershipCLI(
+		"apply",
+		"--manifest",
+		ownerManifest,
+		"--yes",
+	); exitCode != 0 {
+		t.Fatalf("owner apply exit=%d stderr=%q", exitCode, stderr)
+	}
+	testkit.WriteFile(t, home, ".config/opencode/opencode.jsonc", "{}\n")
+
+	exitCode, stdout, stderr := runOwnershipCLI(
+		"list",
+		"outputs",
+		"--manifest",
+		foreignManifest,
+		"--target",
+		"opencode",
+		"--json",
+	)
+	if exitCode != 0 || stderr != "" {
+		t.Fatalf("foreign inventory exit=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
+	}
+	var inventory outputInventoryJSON
+	if err := json.Unmarshal([]byte(stdout), &inventory); err != nil {
+		t.Fatalf("decode foreign inventory: %v\n%s", err, stdout)
+	}
+	if inventory.BlockedCount != 1 || len(inventory.Blocked) != 1 ||
+		inventory.Blocked[0].Subject != "projection/opencode.global.mcp-server/alpha" ||
+		inventory.Blocked[0].Reason != "ownership_conflict" {
+		t.Fatalf("blocked inventory = %#v, want foreign ownership despite alternate config", inventory)
+	}
+}
+
 func TestListOutputsTargetFilterPreservesCompleteHookAssetConsumers(t *testing.T) {
 	root := t.TempDir()
 	manifestPath := filepath.Join(root, "daem.toml")
@@ -423,4 +463,23 @@ type outputInventoryJSONRow struct {
 	ContentPath string   `json:"content_path"`
 	Hash        string   `json:"hash"`
 	Reason      string   `json:"reason"`
+}
+
+func writeGlobalOpenCodeMCPWorkspace(t *testing.T, root string, name string) string {
+	t.Helper()
+	testkit.WriteFile(t, root, "daem.toml", `version = 1
+targets = ["opencode"]
+
+[[mcp_server]]
+name = "`+name+`"
+scope = "global"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@example/`+name+`"]
+`)
+	manifestPath := filepath.Join(root, "daem.toml")
+	if exitCode, _, stderr := runOwnershipCLI("lock", "--manifest", manifestPath); exitCode != 0 {
+		t.Fatalf("lock %s exit=%d stderr=%q", manifestPath, exitCode, stderr)
+	}
+	return manifestPath
 }

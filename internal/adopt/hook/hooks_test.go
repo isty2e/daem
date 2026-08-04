@@ -232,16 +232,16 @@ func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
 func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 	t.Parallel()
 
-	tooLongEvent := strings.Repeat("e", maximumImportHookEventBytes+1)
+	tooLongEvent := strings.Repeat("e", hookdocument.MaximumEventBytes+1)
 	assertHookImportBudgetFailure(t, `{"hooks":{"`+tooLongEvent+`":[]}}`)
 
-	events := make([]string, maximumImportHookEvents+1)
+	events := make([]string, hookdocument.MaximumEvents+1)
 	for index := range events {
 		events[index] = fmt.Sprintf(`"event-%d":[]`, index)
 	}
 	assertHookImportBudgetFailure(t, `{"hooks":{`+strings.Join(events, ",")+`}}`)
 
-	groups := make([]string, maximumImportHookGroups+1)
+	groups := make([]string, hookdocument.MaximumGroups+1)
 	for index := range groups {
 		groups[index] = `{"hooks":[]}`
 	}
@@ -250,7 +250,7 @@ func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 		`{"hooks":{"AnyEvent":[`+strings.Join(groups, ",")+`]}}`,
 	)
 
-	handlers := make([]string, maximumImportHookHandlers+1)
+	handlers := make([]string, hookdocument.MaximumHandlers+1)
 	for index := range handlers {
 		handlers[index] = `{"type":"command","command":"true"}`
 	}
@@ -261,11 +261,11 @@ func TestParseImportHooksCollapsesAggregateBudgetFailures(t *testing.T) {
 
 	assertHookImportBudgetFailure(
 		t,
-		`{"hooks":{"   ":[`+strings.Join(groups[:maximumImportHookGroups], ",")+`],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
+		`{"hooks":{"   ":[`+strings.Join(groups[:hookdocument.MaximumGroups], ",")+`],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
 	)
 	assertHookImportBudgetFailure(
 		t,
-		`{"hooks":{"   ":[{"hooks":[`+strings.Join(handlers[:maximumImportHookHandlers], ",")+`]}],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
+		`{"hooks":{"   ":[{"hooks":[`+strings.Join(handlers[:hookdocument.MaximumHandlers], ",")+`]}],"Valid":[{"hooks":[{"type":"command","command":"true"}]}]}}`,
 	)
 }
 
@@ -285,13 +285,9 @@ func TestScanImportHookStructuralBudgetStopsAtEachLimit(t *testing.T) {
 		{name: "handlers", content: `{"hooks":{"AnyEvent":[{"hooks":[` + handlers + `]}]}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			reader := strings.NewReader(test.content)
-			err := scanImportHookStructuralBudget(reader)
-			if !errors.Is(err, errImportHookStructuralBudgetExceeded) {
-				t.Fatalf("scanImportHookStructuralBudget error = %v, want structural budget error", err)
-			}
-			if consumed := len(test.content) - reader.Len(); consumed >= len(test.content)/2 {
-				t.Fatalf("structural scan consumed %d of %d bytes, want early stop", consumed, len(test.content))
+			err := hookdocument.Validate([]byte(test.content))
+			if !errors.Is(err, hookdocument.ErrStructuralBudgetExceeded) {
+				t.Fatalf("hookdocument.Validate error = %v, want structural budget error", err)
 			}
 		})
 	}
@@ -316,12 +312,12 @@ func TestScanImportHookStructuralBudgetStopsAtEachLimit(t *testing.T) {
 }
 
 func TestScanImportHookStructuralBudgetAdmitsExactLimits(t *testing.T) {
-	events := make([]string, maximumImportHookEvents)
+	events := make([]string, hookdocument.MaximumEvents)
 	for index := range events {
 		events[index] = fmt.Sprintf(`"event-%d":[]`, index)
 	}
-	groups := strings.Repeat(`{},`, maximumImportHookGroups-1) + `{}`
-	handlers := strings.Repeat(`{},`, maximumImportHookHandlers-1) + `{}`
+	groups := strings.Repeat(`{},`, hookdocument.MaximumGroups-1) + `{}`
+	handlers := strings.Repeat(`{},`, hookdocument.MaximumHandlers-1) + `{}`
 	for _, test := range []struct {
 		name    string
 		content string
@@ -331,8 +327,8 @@ func TestScanImportHookStructuralBudgetAdmitsExactLimits(t *testing.T) {
 		{name: "handlers", content: `{"hooks":{"AnyEvent":[{"hooks":[` + handlers + `]}]}}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if err := scanImportHookStructuralBudget(strings.NewReader(test.content)); err != nil {
-				t.Fatalf("scanImportHookStructuralBudget error = %v, want exact limit admitted", err)
+			if err := hookdocument.Validate([]byte(test.content)); err != nil {
+				t.Fatalf("hookdocument.Validate error = %v, want exact limit admitted", err)
 			}
 		})
 	}
@@ -355,13 +351,9 @@ func TestScanImportHookStructuralBudgetStopsAtDepthLimit(t *testing.T) {
 			if test.name == "top-level field" {
 				topLevelContent = content
 			}
-			reader := strings.NewReader(content)
-			err := scanImportHookStructuralBudget(reader)
+			err := hookdocument.Validate([]byte(content))
 			if !errors.Is(err, jsonstrict.ErrMaximumDepthExceeded) {
-				t.Fatalf("scanImportHookStructuralBudget error = %v, want maximum depth error", err)
-			}
-			if consumed := len(content) - reader.Len(); consumed >= len(content)/2 {
-				t.Fatalf("depth scan consumed %d of %d bytes, want early stop", consumed, len(content))
+				t.Fatalf("hookdocument.Validate error = %v, want maximum depth error", err)
 			}
 		})
 	}
@@ -407,12 +399,12 @@ func TestScanImportHookStructuralBudgetMatchesSharedDepthBoundary(t *testing.T) 
 				strings.Repeat(`[`, test.depth) +
 				strings.Repeat(`]`, test.depth) +
 				`,"hooks":{}}`
-			scanErr := scanImportHookStructuralBudget(strings.NewReader(content))
+			scanErr := hookdocument.Validate([]byte(content))
 			if test.reason == "" && scanErr != nil {
-				t.Fatalf("scanImportHookStructuralBudget error = %v, want exact depth admitted", scanErr)
+				t.Fatalf("hookdocument.Validate error = %v, want exact depth admitted", scanErr)
 			}
 			if test.reason != "" && !errors.Is(scanErr, jsonstrict.ErrMaximumDepthExceeded) {
-				t.Fatalf("scanImportHookStructuralBudget error = %v, want maximum depth error", scanErr)
+				t.Fatalf("hookdocument.Validate error = %v, want maximum depth error", scanErr)
 			}
 
 			hooks, skipped := parseImportHooks(
@@ -436,7 +428,7 @@ func TestScanImportHookStructuralBudgetMatchesSharedDepthBoundary(t *testing.T) 
 
 func TestParseImportHooksBudgetPreemptsUnboundedMalformedTail(t *testing.T) {
 	content := `{"hooks":{"AnyEvent":[{"hooks":[` +
-		strings.Repeat(`{},`, maximumImportHookHandlers) +
+		strings.Repeat(`{},`, hookdocument.MaximumHandlers) +
 		`malformed-tail` +
 		`] }]}}`
 	assertHookImportBudgetFailure(t, content)
@@ -445,7 +437,7 @@ func TestParseImportHooksBudgetPreemptsUnboundedMalformedTail(t *testing.T) {
 func TestParseImportHooksBoundsDiagnosticAmplification(t *testing.T) {
 	t.Parallel()
 
-	handlers := make([]string, maximumImportHookHandlers)
+	handlers := make([]string, hookdocument.MaximumHandlers)
 	for index := range handlers {
 		handlers[index] = `{"type":"unsupported"}`
 	}

@@ -21,6 +21,33 @@ func reconcileAggregateDocument(
 	ownershipConflicts map[ownershipObservationKey]struct{},
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
+	decision, err := reconcileAggregateDocumentSemantics(
+		groups,
+		evidenceByDocument,
+		failuresByDocument,
+		preconditionsByDocument,
+		manageUnmanagedMatches,
+		codecs,
+	)
+	if err != nil {
+		return aggregateDecision{}, err
+	}
+	return enforceAggregateDecisionOwnership(
+		decision,
+		owner,
+		ownershipEvidence,
+		ownershipConflicts,
+	), nil
+}
+
+func reconcileAggregateDocumentSemantics(
+	groups []aggregateGroupInput,
+	evidenceByDocument map[aggregate.DocumentAddress]observe.AggregateEvidence,
+	failuresByDocument map[aggregate.DocumentAddress]observe.AggregateObservationFailure,
+	preconditionsByDocument map[aggregate.DocumentAddress][]observe.AggregatePreconditionEvidence,
+	manageUnmanagedMatches bool,
+	codecs aggregate.CodecCatalog,
+) (aggregateDecision, error) {
 	if len(groups) == 0 {
 		return aggregateDecision{}, fmt.Errorf("aggregate document group is empty")
 	}
@@ -49,17 +76,6 @@ func reconcileAggregateDocument(
 			selection.CodecContractID(),
 			reason,
 			failure.Error(),
-		)
-		for index := range decision.projections {
-			decision.projections[index] = enforceAggregateProjectionOwnership(
-				decision.projections[index],
-				owner,
-				ownershipEvidence,
-				ownershipConflicts,
-			)
-		}
-		decision.reason, decision.detail = firstAggregateProjectionFailure(
-			decision.projections,
 		)
 		return decision, nil
 	}
@@ -169,12 +185,6 @@ func reconcileAggregateDocument(
 		if err != nil {
 			return aggregateDecision{}, err
 		}
-		projection = enforceAggregateProjectionOwnership(
-			projection,
-			owner,
-			ownershipEvidence,
-			ownershipConflicts,
-		)
 		if projection.kind == reconcile.AggregateBlocked {
 			blocked = true
 		}

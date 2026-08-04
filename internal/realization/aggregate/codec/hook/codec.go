@@ -64,6 +64,16 @@ type hookHandler struct {
 	StatusMessage string `json:"statusMessage,omitempty"`
 }
 
+type hookOccupancyGroupKey struct {
+	event   string
+	matcher string
+}
+
+type hookOccupancyContributionKey struct {
+	group   hookOccupancyGroupKey
+	handler hookHandler
+}
+
 // CanonicalHookContribution renders one validated subject contribution.
 func CanonicalHookContribution(input commandhook.ContributionInput) (string, error) {
 	contribution := canonicalHookContribution{
@@ -136,21 +146,33 @@ func (codec hookJSONCodec) ContractID() aggregate.CodecContractID { return codec
 func (hookJSONCodec) MaximumDocumentBytes() int64 { return hookdocument.MaximumBytes }
 
 func (codec hookJSONCodec) ValidateContribution(contribution aggregate.ManagedContribution) error {
+	_, err := codec.validatedHookContribution(contribution)
+	return err
+}
+
+func (codec hookJSONCodec) validatedHookContribution(
+	contribution aggregate.ManagedContribution,
+) (canonicalHookContribution, error) {
 	if err := contribution.Validate(); err != nil {
-		return err
+		return canonicalHookContribution{}, err
 	}
 	placement, ok := aggregate.HookPlacementForCodec(codec.contractID)
 	if !ok {
-		return fmt.Errorf("aggregate codec contract %q has no Hook placement", codec.contractID)
+		return canonicalHookContribution{}, fmt.Errorf(
+			"aggregate codec contract %q has no Hook placement",
+			codec.contractID,
+		)
 	}
 	expected, err := placement.Contribution(contribution.CanonicalContribution())
 	if err != nil {
-		return err
+		return canonicalHookContribution{}, err
 	}
 	if !expected.Contract().Equal(contribution.Contract()) {
-		return fmt.Errorf("Hook contribution does not match its codec placement contract")
+		return canonicalHookContribution{}, fmt.Errorf(
+			"Hook contribution does not match its codec placement contract",
+		)
 	}
-	return ValidateCanonicalHookContribution(contribution.CanonicalContribution())
+	return decodeCanonicalHookContribution(contribution.CanonicalContribution())
 }
 
 func (codec hookJSONCodec) Read(document aggregate.Document, selection aggregate.Selection) (aggregate.Snapshot, *aggregate.CodecFailure) {
@@ -208,10 +230,34 @@ func (codec hookJSONCodec) ClassifyContributionOccupancy(
 		)
 	}
 	items := contributions.Contributions()
+	if len(items) > hookdocument.MaximumHandlers {
+		return aggregate.ContributionOccupancySet{}, fmt.Errorf(
+			"Hook contribution occupancy count = %d, maximum = %d: %w",
+			len(items),
+			hookdocument.MaximumHandlers,
+			hookdocument.ErrStructuralBudgetExceeded,
+		)
+	}
+	subjectsByContribution := make(
+		map[hookOccupancyContributionKey][]topology.SubjectID,
+		len(items),
+	)
 	for _, item := range items {
-		if err := codec.ValidateContribution(item.Contribution()); err != nil {
+		contribution, err := codec.validatedHookContribution(item.Contribution())
+		if err != nil {
 			return aggregate.ContributionOccupancySet{}, err
 		}
+		key := hookOccupancyContributionKey{
+			group: hookOccupancyGroupKey{
+				event:   contribution.Event,
+				matcher: contribution.Group.Matcher,
+			},
+			handler: contribution.Group.Hooks[0],
+		}
+		subjectsByContribution[key] = append(
+			subjectsByContribution[key],
+			item.SubjectID(),
+		)
 	}
 	if !state.Present() {
 		return aggregate.NewUniformContributionOccupancySet(
@@ -224,38 +270,28 @@ func (codec hookJSONCodec) ClassifyContributionOccupancy(
 	if err != nil {
 		return aggregate.ContributionOccupancySet{}, err
 	}
-	observedCounts := make(map[string]int)
+	observedCounts := make(map[hookOccupancyGroupKey]map[hookHandler]int)
 	for event, groups := range hooks {
 		for _, group := range groups {
+			groupKey := hookOccupancyGroupKey{event: event, matcher: group.Matcher}
+			handlerCounts := observedCounts[groupKey]
+			if handlerCounts == nil {
+				handlerCounts = make(map[hookHandler]int, len(group.Hooks))
+				observedCounts[groupKey] = handlerCounts
+			}
 			for _, handler := range group.Hooks {
-				candidate := canonicalHookContribution{
-					Event: event,
-					Group: hookGroup{Matcher: group.Matcher, Hooks: []hookHandler{handler}},
-				}
-				content, err := canonicalJSON(candidate)
-				if err != nil {
-					return aggregate.ContributionOccupancySet{}, err
-				}
-				observedCounts[string(content)]++
+				handlerCounts[handler]++
 			}
 		}
 	}
 
-	subjectsByContribution := make(map[string][]topology.SubjectID)
-	for _, item := range items {
-		canonical := item.Contribution().CanonicalContribution()
-		subjectsByContribution[canonical] = append(
-			subjectsByContribution[canonical],
-			item.SubjectID(),
-		)
-	}
 	occupancy := make(
 		map[topology.SubjectID]aggregate.ContributionOccupancyState,
 		len(items),
 	)
-	for canonical, subjects := range subjectsByContribution {
+	for key, subjects := range subjectsByContribution {
 		state := aggregate.ContributionAbsent
-		switch count := observedCounts[canonical]; {
+		switch count := observedCounts[key.group][key.handler]; {
 		case count >= len(subjects):
 			state = aggregate.ContributionPresent
 		case count != 0:
@@ -438,52 +474,56 @@ func validateHookProjection(content []byte) error {
 }
 
 func canonicalHookProjection(content []byte) (string, error) {
+	_, canonical, err := parseHookProjection(content)
+	return canonical, err
+}
+
+func parseHookProjection(content []byte) (map[string][]hookGroup, string, error) {
+	if err := hookdocument.ValidateProjection(content); err != nil {
+		return nil, "", err
+	}
 	var hooks map[string][]hookGroup
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&hooks); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if err := requireJSONEOF(decoder); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	if hooks == nil {
-		return "", fmt.Errorf("Hook projection must be an object")
+		return nil, "", fmt.Errorf("Hook projection must be an object")
 	}
 	for event, groups := range hooks {
 		if strings.TrimSpace(event) == "" || strings.TrimSpace(event) != event {
-			return "", fmt.Errorf("Hook projection event is invalid")
+			return nil, "", fmt.Errorf("Hook projection event is invalid")
 		}
 		for _, group := range groups {
 			if strings.TrimSpace(group.Matcher) != group.Matcher || len(group.Hooks) == 0 {
-				return "", fmt.Errorf("Hook projection group is invalid")
+				return nil, "", fmt.Errorf("Hook projection group is invalid")
 			}
 			for _, handler := range group.Hooks {
 				candidate := canonicalHookContribution{Event: event, Group: hookGroup{Matcher: group.Matcher, Hooks: []hookHandler{handler}}}
 				if err := candidate.validate(); err != nil {
-					return "", err
+					return nil, "", err
 				}
 			}
 		}
 	}
 	canonical, err := canonicalJSON(hooks)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return string(canonical), nil
+	return hooks, string(canonical), nil
 }
 
 func decodeCanonicalHookProjection(content string) (map[string][]hookGroup, error) {
-	canonical, err := canonicalHookProjection([]byte(content))
+	hooks, canonical, err := parseHookProjection([]byte(content))
 	if err != nil {
 		return nil, err
 	}
 	if canonical != content {
 		return nil, fmt.Errorf("Hook projection is not canonical")
-	}
-	var hooks map[string][]hookGroup
-	if err := json.Unmarshal([]byte(content), &hooks); err != nil {
-		return nil, err
 	}
 	return hooks, nil
 }

@@ -227,7 +227,9 @@ regular-file recovery backups larger than 128 MiB are refused before the
 covered host mutation; produced state and journal documents are also
 size-checked before publication. Managed hook and MCP host documents are
 limited to 4 MiB at observation, mutation, recovery, and codec-output
-boundaries. Recovery inventory admits at most 4,096
+boundaries. Hook documents additionally admit at most 256 events, 4,096
+groups, and 4,096 handlers, with event names limited to 256 bytes. Recovery
+inventory admits at most 4,096
 immediate recovery-root entries, 100,000 entries inside one journal directory,
 and 64 entries inside one retirement control.
 Managed directory snapshots are streamed but stop at 100,000 entries, 64

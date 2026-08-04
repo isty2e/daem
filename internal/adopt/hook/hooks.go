@@ -36,10 +36,6 @@ const (
 	importHookSkipBudgetExceeded           = "hook_import_budget_exceeded"
 	importHookSkipInvalidCanonical         = "invalid_canonical_hook"
 	maximumInlineConfigBytes         int64 = 4 << 20
-	maximumImportHookEventBytes            = 256
-	maximumImportHookEvents                = 256
-	maximumImportHookGroups                = 4096
-	maximumImportHookHandlers              = 4096
 	maximumImportHookSkips                 = 4096
 	maximumImportHookDiagnosticBytes       = 256 << 10
 )
@@ -201,12 +197,6 @@ func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, st
 	if int64(len(content)) > hookdocument.MaximumBytes {
 		return nil, false, importHookSkipTooLarge
 	}
-	if err := scanImportHookStructuralBudget(bytes.NewReader(content)); err != nil {
-		if errors.Is(err, errImportHookStructuralBudgetExceeded) {
-			return nil, false, importHookSkipBudgetExceeded
-		}
-		return nil, false, hookSyntaxSkipReason(err)
-	}
 	if err := hookdocument.Validate(content); err != nil {
 		return nil, false, hookSyntaxSkipReason(err)
 	}
@@ -262,6 +252,8 @@ func hookSyntaxSkipReason(err error) string {
 		return importHookSkipDuplicateJSONKey
 	case errors.Is(err, jsonstrict.ErrMaximumDepthExceeded):
 		return importHookSkipJSONDepth
+	case errors.Is(err, hookdocument.ErrStructuralBudgetExceeded):
+		return importHookSkipBudgetExceeded
 	case errors.Is(err, jsonstrict.ErrMultipleValues):
 		return "multiple_json_values"
 	case errors.Is(err, hookdocument.ErrTooLarge):
