@@ -62,6 +62,7 @@ func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 		"attempt_history",
 		"attempted",
 		"class",
+		"detail",
 		"remediation",
 	})
 
@@ -87,6 +88,7 @@ func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 		}
 	}
 	var result struct {
+		Detail      string   `json:"detail"`
 		Remediation []string `json:"remediation"`
 	}
 	if err := json.Unmarshal(document["result"], &result); err != nil {
@@ -94,6 +96,9 @@ func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 	}
 	if result.Remediation == nil {
 		t.Error("remediation encoded as null, want []")
+	}
+	if result.Detail != "" {
+		t.Fatalf("successful detail = %q, want empty", result.Detail)
 	}
 }
 

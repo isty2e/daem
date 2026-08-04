@@ -229,7 +229,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `recover` | Recovery plan/result | `4` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
-| `refresh extension` | Extension refresh | `1` |
+| `refresh extension` | Extension refresh | `2` |
 
 Consumers must select the expected command envelope, inspect
 `schema_version`, and reject unsupported versions before interpreting any
@@ -1084,7 +1084,7 @@ operation. A sanitized,
 operation-indexed attempt row is persisted only for a started process and is
 history, not future skip or removal authority.
 
-Refresh JSON schema version is `1` and has exactly these top-level fields:
+Refresh JSON schema version is `2` and has exactly these top-level fields:
 
 ```text
 schema_version command mode selection route disclosure result has_errors
@@ -1092,10 +1092,27 @@ schema_version command mode selection route disclosure result has_errors
 
 The nested disclosure contains deterministic command/args, environment names
 without values, selected-root cwd policy, timeout, effect and retained-effect
-classes, and non-claims. Process and observation summaries contain no
-subprocess output, raw errors, secret values, protocol payloads, or
-machine-local paths. Current target-specific route availability remains
-authoritative in the feature matrix.
+classes, and non-claims. `result.detail` is empty on success. For an error
+class, it is derived only from the closed `reason_code`, process-outcome, and
+relation-observation values already present in the result. It is never built by
+sanitizing an underlying parser, filesystem, subprocess, or adapter error
+string; those errors remain internal causes. Process and observation summaries
+contain no subprocess output, raw errors, secret values, protocol payloads, or
+machine-local paths. Human refresh failures use the same typed detail instead
+of printing the underlying error.
+
+After a refresh result JSON document has been written to stdout, daem does not
+append failure prose to stderr. Dry-run and pre-execution planning failures
+therefore use one stdout result document and empty stderr. Confirmed
+`--yes --json` execution still writes its complete authorization document to
+stderr before effects; a later failure remains only in the final stdout result,
+so the authorization stream stays one valid JSON document. CLI grammar and
+other failures that occur before a result can be formed continue to use empty
+stdout and a concise stderr diagnostic. A result-write failure is the only
+post-result attempt that may fall back to a bounded stderr diagnostic.
+
+Current target-specific route availability remains authoritative in the
+feature matrix.
 
 ## Progress
 

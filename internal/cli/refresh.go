@@ -173,20 +173,13 @@ func runRefresh(
 			*verbose,
 			false,
 		); renderErr != nil {
-			fmt.Fprintf(
-				stderr,
-				"refresh failed: write result: %s\n",
-				humanDiagnosticError(renderErr),
-			)
 			return 1
 		}
 		if planErr != nil {
-			fmt.Fprintf(
-				stderr,
-				"refresh failed: %s\n",
-				humanDiagnosticError(planErr),
-			)
-			printMissingManifestInitHint(stderr, *manifestPath, planErr)
+			if !*jsonOutput {
+				printRefreshFailure(stderr, result)
+				printMissingManifestInitHint(stderr, *manifestPath, planErr)
+			}
 			return 1
 		}
 		return refreshExitCode(result)
@@ -198,6 +191,7 @@ func runRefresh(
 		options.refreshPlanOptions,
 	)
 	if planErr != nil {
+		resultWritten := false
 		if prepared != nil {
 			defer prepared.Close()
 			if renderErr := printRefreshResult(
@@ -207,20 +201,20 @@ func runRefresh(
 				*verbose,
 				false,
 			); renderErr != nil {
-				fmt.Fprintf(
-					stderr,
-					"refresh failed: write result: %s\n",
-					humanDiagnosticError(renderErr),
-				)
 				return 1
 			}
+			resultWritten = true
 		}
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: %s\n",
-			humanDiagnosticError(planErr),
-		)
-		printMissingManifestInitHint(stderr, *manifestPath, planErr)
+		if !*jsonOutput {
+			if prepared != nil {
+				printRefreshFailure(stderr, prepared.Disclosure())
+			} else {
+				fmt.Fprintln(stderr, "refresh failed")
+			}
+			printMissingManifestInitHint(stderr, *manifestPath, planErr)
+		} else if !resultWritten {
+			fmt.Fprintln(stderr, "refresh failed")
+		}
 		return 1
 	}
 	defer prepared.Close()
@@ -261,11 +255,7 @@ func runRefresh(
 		if !confirmed {
 			cancelled, cancelErr := refreshworkflow.Cancel(prepared)
 			if cancelErr != nil {
-				fmt.Fprintf(
-					stderr,
-					"refresh failed: %s\n",
-					humanDiagnosticError(cancelErr),
-				)
+				printRefreshFailure(stderr, cancelled)
 				return 1
 			}
 			clipresent.PrintRefreshOutcome(
@@ -297,21 +287,21 @@ func runRefresh(
 		*verbose,
 		!*jsonOutput,
 	); renderErr != nil {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: write result: %s\n",
-			humanDiagnosticError(renderErr),
-		)
 		return 1
 	}
-	if executeErr != nil {
-		fmt.Fprintf(
-			stderr,
-			"refresh failed: %s\n",
-			humanDiagnosticError(executeErr),
-		)
+	if executeErr != nil && !*jsonOutput {
+		printRefreshFailure(stderr, result)
 	}
 	return refreshExitCode(result)
+}
+
+func printRefreshFailure(output io.Writer, result refreshworkflow.CommandResult) {
+	detail := result.FailureDetail()
+	if detail == "" {
+		fmt.Fprintln(output, "refresh failed")
+		return
+	}
+	fmt.Fprintf(output, "refresh failed: %s\n", detail)
 }
 
 func printRefreshResult(

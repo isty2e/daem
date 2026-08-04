@@ -58,7 +58,11 @@ func sanitizeGitDiagnosticCapture(value string, truncated bool) string {
 	redacted = gitAuthorizationPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
 	redacted = gitBearerPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
 	result := subprocess.NewCapturePolicy(nil, maxGitDiagnosticRunes).Sanitize(redacted, truncated)
-	return strings.Join(strings.Fields(result.Text()), " ")
+	text := result.Text()
+	if result.Truncated() && !strings.HasSuffix(text, "[truncated]") {
+		text += "\n[truncated]"
+	}
+	return strings.Join(strings.Fields(text), " ")
 }
 
 type gitDiagnosticBuffer struct {

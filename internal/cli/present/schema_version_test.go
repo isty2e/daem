@@ -30,7 +30,7 @@ func TestCommandJSONSchemaVersionOwners(t *testing.T) {
 		{name: "recovery", got: recoveryJSONSchemaVersion, want: 4},
 		{name: "doctor", got: doctorJSONSchemaVersion, want: 1},
 		{name: "MCP probe", got: mcpProbeJSONSchemaVersion, want: 1},
-		{name: "extension refresh", got: refreshJSONSchemaVersion, want: 1},
+		{name: "extension refresh", got: refreshJSONSchemaVersion, want: 2},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

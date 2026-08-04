@@ -6,23 +6,25 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 )
+
+const unavailableFailureDetail = "refresh failed; no additional public detail is available"
 
 // RefusalError is a stable pre-attempt workflow refusal.
 type RefusalError struct {
-	code   ReasonCode
-	detail string
-	cause  error
+	code  ReasonCode
+	cause error
 }
 
 func (err *RefusalError) Error() string {
 	if err == nil {
 		return ""
 	}
-	if err.detail == "" {
+	if err.cause == nil {
 		return string(err.code)
 	}
-	return fmt.Sprintf("%s: %s", err.code, err.detail)
+	return fmt.Sprintf("%s: %s", err.code, err.cause)
 }
 
 func (err *RefusalError) Unwrap() error {
@@ -72,7 +74,163 @@ func refusedResult(
 	if remediation != "" {
 		result.Remediation = []string{remediation}
 	}
-	return result, &RefusalError{code: code, detail: cause.Error(), cause: cause}
+	return result, &RefusalError{code: code, cause: cause}
+}
+
+// FailureDetail derives public prose exclusively from closed workflow facts.
+// External error strings remain internal causes and never participate in this
+// projection.
+func (result CommandResult) FailureDetail() string {
+	if !result.HasErrors() {
+		return ""
+	}
+	switch result.ReasonCode {
+	case ReasonInvalidSelection:
+		return "the selected extension relation is invalid"
+	case ReasonManifestUnavailable:
+		return "the selected manifest is unavailable"
+	case ReasonLockUnavailable:
+		return "the selected lockfile is unavailable"
+	case ReasonLockMismatch:
+		return "the selected lockfile does not match the manifest"
+	case ReasonRefreshUnsupported:
+		return "the selected relation has no supported refresh route"
+	case ReasonRelationMissing:
+		return "the selected relation is missing from current host state"
+	case ReasonRelationAmbiguous:
+		return "the selected relation is ambiguous in current host state"
+	case ReasonObservationUnavailable:
+		return "required current relation evidence is unavailable"
+	case ReasonStalePlan:
+		return "the authorized refresh plan is stale"
+	case ReasonMutationAuthority:
+		return "required mutation authority is unavailable"
+	case ReasonCommandFailed:
+		return result.commandFailureDetail()
+	case ReasonInvalidTimeout:
+		return "the refresh timeout is invalid"
+	case ReasonPostObservationFailed:
+		return result.postObservationFailureDetail()
+	case ReasonAttemptPersistence:
+		return "refresh attempt history could not be persisted"
+	case ReasonCancelled:
+		if detail, ok := result.typedCommandFailureDetail(); ok {
+			return detail
+		}
+		return "refresh was cancelled"
+	case ReasonNone:
+		return unavailableFailureDetail
+	default:
+		return unavailableFailureDetail
+	}
+}
+
+func (result CommandResult) commandFailureDetail() string {
+	if detail, ok := result.typedCommandFailureDetail(); ok {
+		return detail
+	}
+	return "the delegated host command failed"
+}
+
+func (result CommandResult) typedCommandFailureDetail() (string, bool) {
+	if result.ProcessOutcome == nil {
+		return "", false
+	}
+	reason, ok := publicCommandReason(result.ProcessOutcome.Reason)
+	if !ok || reason == "" {
+		return "", false
+	}
+	return "delegated host command result: " + reason, true
+}
+
+func publicCommandReason(reason subprocess.CommandReason) (string, bool) {
+	switch reason {
+	case subprocess.CommandReasonNone:
+		return "", true
+	case subprocess.CommandReasonMissingEnvRef:
+		return "missing_env_ref", true
+	case subprocess.CommandReasonMissingRunner:
+		return "missing_runner", true
+	case subprocess.CommandReasonNonZeroExit:
+		return "nonzero_exit", true
+	case subprocess.CommandReasonTimeout:
+		return "timeout", true
+	case subprocess.CommandReasonCanceled:
+		return "canceled", true
+	case subprocess.CommandReasonSignaled:
+		return "signaled", true
+	case subprocess.CommandReasonRunnerError:
+		return "runner_error", true
+	case subprocess.CommandReasonWorkDirAuthority:
+		return "workdir_authority", true
+	default:
+		return "", false
+	}
+}
+
+func (result CommandResult) postObservationFailureDetail() string {
+	if result.Observation == nil {
+		return "post-attempt relation observation did not satisfy the refresh postcondition"
+	}
+	state, stateOK := publicObservationState(result.Observation.State)
+	reason, reasonOK := publicObservationReason(result.Observation.Reason)
+	if !stateOK || !reasonOK {
+		return "post-attempt relation observation did not satisfy the refresh postcondition"
+	}
+	if reason == "" {
+		return "post-attempt relation observation: state=" + state
+	}
+	return "post-attempt relation observation: state=" + state + " reason=" + reason
+}
+
+func publicObservationState(state observerelation.CorrelationState) (string, bool) {
+	switch state {
+	case observerelation.StateExactCorrelation:
+		return "exact_correlation", true
+	case observerelation.StateMissing:
+		return "missing", true
+	case observerelation.StateUnkeyedSameSubject:
+		return "unkeyed_same_subject", true
+	case observerelation.StateSameSubjectShadow:
+		return "same_name_shadow", true
+	case observerelation.StateManagedKeyDrift:
+		return "managed_key_drift", true
+	case observerelation.StateAmbiguous:
+		return "ambiguous", true
+	case observerelation.StateStaleEvidence:
+		return "stale_evidence", true
+	case observerelation.StateUnsupported:
+		return "unsupported", true
+	case observerelation.StateUnavailableEvidence:
+		return "unavailable_evidence", true
+	default:
+		return "", false
+	}
+}
+
+func publicObservationReason(reason observerelation.ReasonCode) (string, bool) {
+	switch reason {
+	case observerelation.ReasonNone:
+		return "", true
+	case observerelation.ReasonUnsupportedInventory:
+		return "unsupported_passive_inventory", true
+	case observerelation.ReasonStaleEvidence:
+		return "stale_evidence", true
+	case observerelation.ReasonMissing:
+		return "managed_relation_missing", true
+	case observerelation.ReasonUnkeyedSameSubject:
+		return "unkeyed_same_subject", true
+	case observerelation.ReasonSameSubjectShadow:
+		return "same_name_shadow", true
+	case observerelation.ReasonManagedKeyDrift:
+		return "managed_key_drift", true
+	case observerelation.ReasonAmbiguous:
+		return "ambiguous_relation", true
+	case observerelation.ReasonUnavailableEvidence:
+		return "relation_evidence_unavailable", true
+	default:
+		return "", false
+	}
 }
 
 func observationSummary(result observerelation.CorrelationResult) *Observation {

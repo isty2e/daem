@@ -124,6 +124,7 @@ func TestClaudeRefreshCommandFailureCannotBorrowCurrentRelationSuccess(t *testin
 		result.ProcessOutcome == nil ||
 		result.ProcessOutcome.ExitCode == nil ||
 		*result.ProcessOutcome.ExitCode != 23 ||
+		result.FailureDetail() != "delegated host command result: nonzero_exit" ||
 		!result.ProcessOutcome.Redacted ||
 		!result.AttemptHistory.Persisted {
 		t.Fatalf("result=%#v err=%v", result, err)
@@ -169,6 +170,7 @@ func TestClaudeRefreshPostObservationLossIsPartial(t *testing.T) {
 		result.ReasonCode != ReasonPostObservationFailed ||
 		result.Observation == nil ||
 		result.Observation.State != observerelation.StateMissing ||
+		result.FailureDetail() != "post-attempt relation observation: state=missing reason=managed_relation_missing" ||
 		!result.AttemptHistory.Persisted {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}

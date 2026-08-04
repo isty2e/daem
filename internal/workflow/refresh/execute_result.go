@@ -78,6 +78,30 @@ func resultClassAfterClassificationFailure(
 	return ResultFailed
 }
 
+func resultAfterClassificationFailure(
+	result CommandResult,
+	attempt subprocess.CommandAttemptResult,
+) CommandResult {
+	result.ResultClass = resultClassAfterClassificationFailure(attempt)
+	switch {
+	case attempt.Started() && attempt.Succeeded():
+		result.ReasonCode = ReasonPostObservationFailed
+		result.Remediation = []string{
+			"run daem status and inspect the exact extension relation before retrying",
+		}
+	case !attempt.Started() && attempt.Canceled():
+		result.ResultClass = ResultCancelled
+		result.ReasonCode = ReasonCancelled
+		result.Remediation = []string{"retry the explicit refresh when ready"}
+	default:
+		result.ReasonCode = ReasonCommandFailed
+		result.Remediation = []string{
+			"inspect the host CLI and retry the explicit refresh when safe",
+		}
+	}
+	return result
+}
+
 func sameObservationAuthorityPaths(
 	left []observerelation.AuthorityPath,
 	right []observerelation.AuthorityPath,

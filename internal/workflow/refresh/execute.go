@@ -279,12 +279,12 @@ func Execute(
 			},
 		)
 		if classifyErr != nil {
-			result.ResultClass = resultClassAfterClassificationFailure(attempt)
-			result.ReasonCode = ReasonCommandFailed
-			return result, errors.Join(
+			result = resultAfterClassificationFailure(result, attempt)
+			failure := errors.Join(
 				postObservationErr,
 				fmt.Errorf("classify refresh fallback result: %w", classifyErr),
 			)
+			return result, failure
 		}
 	}
 	result = applyClassification(result, classified, attempt)
@@ -326,10 +326,11 @@ func Execute(
 		result.Remediation = []string{
 			"inspect daem status and the statefile before retrying refresh",
 		}
-		return result, errors.Join(
+		failure := errors.Join(
 			fmt.Errorf("persist refresh attempt history: %w", persistenceErr),
 			postObservationErr,
 		)
+		return result, failure
 	}
 	if postObservationErr != nil && attempt.Succeeded() {
 		result.ResultClass = ResultPartial
@@ -337,10 +338,11 @@ func Execute(
 		result.Remediation = []string{
 			"run daem status and inspect the exact extension relation before retrying",
 		}
-		return result, fmt.Errorf(
+		failure := fmt.Errorf(
 			"refresh post-attempt observation: %w",
 			postObservationErr,
 		)
+		return result, failure
 	}
 	if result.HasErrors() {
 		return result, errors.New(string(result.ReasonCode))

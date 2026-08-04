@@ -351,48 +351,69 @@ func TestSyntheticObservedRefreshRefusesMissingPreObservation(t *testing.T) {
 	}
 }
 
-func TestSyntheticObservedRefreshMakesMissingPostObservationPartial(t *testing.T) {
-	manifestPath, inventoryPath := writeObservedRefreshFixture(t)
-	observer := syntheticObserver(
-		t,
-		inventoryPath,
-		observerelation.StateExactCorrelation,
-		observerelation.StateExactCorrelation,
-		observerelation.StateExactCorrelation,
-		observerelation.StateMissing,
-	)
-	prepared, err := PlanWrite(context.Background(), CommandInput{
-		ManifestPath: manifestPath,
-		ExtensionID:  "context7",
-	}, PlanOptions{
-		CommandBuilder: syntheticRefreshCommandBuilder(t),
-		Observer:       observer,
-	})
-	if err != nil {
-		t.Fatalf("PlanWrite returned error: %v", err)
-	}
-	t.Cleanup(func() { _ = prepared.Close() })
-
-	result, err := Execute(context.Background(), prepared, ExecuteOptions{
-		CommandOptions: subprocess.CommandOptions{
-			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
-				return subprocess.CommandResult{
-					Started:     true,
-					ExitCode:    0,
-					HasExitCode: true,
-				}
-			},
+func TestSyntheticObservedRefreshMakesFailedPostObservationPartial(t *testing.T) {
+	tests := []struct {
+		name       string
+		state      observerelation.CorrelationState
+		wantDetail string
+	}{
+		{
+			name:       "missing",
+			state:      observerelation.StateMissing,
+			wantDetail: "post-attempt relation observation: state=missing reason=managed_relation_missing",
 		},
-	})
-	if err == nil {
-		t.Fatal("Execute returned nil error")
+		{
+			name:       "ambiguous",
+			state:      observerelation.StateAmbiguous,
+			wantDetail: "post-attempt relation observation: state=ambiguous reason=ambiguous_relation",
+		},
 	}
-	if result.ResultClass != ResultPartial ||
-		result.ReasonCode != ReasonPostObservationFailed ||
-		result.Observation == nil ||
-		result.Observation.State != observerelation.StateMissing ||
-		!result.AttemptHistory.Persisted {
-		t.Fatalf("result = %#v", result)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			manifestPath, inventoryPath := writeObservedRefreshFixture(t)
+			observer := syntheticObserver(
+				t,
+				inventoryPath,
+				observerelation.StateExactCorrelation,
+				observerelation.StateExactCorrelation,
+				observerelation.StateExactCorrelation,
+				test.state,
+			)
+			prepared, err := PlanWrite(context.Background(), CommandInput{
+				ManifestPath: manifestPath,
+				ExtensionID:  "context7",
+			}, PlanOptions{
+				CommandBuilder: syntheticRefreshCommandBuilder(t),
+				Observer:       observer,
+			})
+			if err != nil {
+				t.Fatalf("PlanWrite returned error: %v", err)
+			}
+			t.Cleanup(func() { _ = prepared.Close() })
+
+			result, err := Execute(context.Background(), prepared, ExecuteOptions{
+				CommandOptions: subprocess.CommandOptions{
+					Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+						return subprocess.CommandResult{
+							Started:     true,
+							ExitCode:    0,
+							HasExitCode: true,
+						}
+					},
+				},
+			})
+			if err == nil {
+				t.Fatal("Execute returned nil error")
+			}
+			if result.ResultClass != ResultPartial ||
+				result.ReasonCode != ReasonPostObservationFailed ||
+				result.Observation == nil ||
+				result.Observation.State != test.state ||
+				result.FailureDetail() != test.wantDetail ||
+				!result.AttemptHistory.Persisted {
+				t.Fatalf("result = %#v", result)
+			}
+		})
 	}
 }
 
@@ -472,6 +493,17 @@ func syntheticObserver(
 				return RelationObservation{}, err
 			}
 			rows = []observerelation.Row{row}
+		case observerelation.StateAmbiguous:
+			expected := delegated.ExpectedRelation()
+			row, err := observerelation.NewRow(observerelation.RowSpec{
+				SubjectKey:            string(expected.SubjectKey()),
+				HasManagedInstanceKey: true,
+				ManagedInstanceKey:    string(expected.ManagedInstanceKey()),
+			})
+			if err != nil {
+				return RelationObservation{}, err
+			}
+			rows = []observerelation.Row{row, row}
 		case observerelation.StateMissing:
 		default:
 			return RelationObservation{}, errors.New("unsupported synthetic observation state")

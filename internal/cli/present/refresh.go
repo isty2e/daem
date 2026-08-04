@@ -9,7 +9,7 @@ import (
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 )
 
-const refreshJSONSchemaVersion = 1
+const refreshJSONSchemaVersion = 2
 
 // RefreshReport is the schema-versioned public projection of one explicit
 // carrier refresh plan or result.
@@ -55,6 +55,7 @@ type RefreshDisclosure struct {
 type RefreshResult struct {
 	Class          string                 `json:"class"`
 	ReasonCode     string                 `json:"reason_code,omitempty"`
+	Detail         string                 `json:"detail"`
 	Attempted      bool                   `json:"attempted"`
 	ProcessOutcome *RefreshProcessOutcome `json:"process_outcome,omitempty"`
 	Observation    *RefreshObservation    `json:"observation,omitempty"`
@@ -127,6 +128,7 @@ func RefreshReportFrom(result refreshworkflow.CommandResult) RefreshReport {
 		Result: RefreshResult{
 			Class:          string(result.ResultClass),
 			ReasonCode:     string(result.ReasonCode),
+			Detail:         result.FailureDetail(),
 			Attempted:      result.Attempted,
 			ProcessOutcome: refreshProcessOutcome(result.ProcessOutcome),
 			Observation:    observation,
