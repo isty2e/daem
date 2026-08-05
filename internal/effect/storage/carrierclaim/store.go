@@ -240,6 +240,42 @@ func (store Store) Remove(
 	return next, nil
 }
 
+// RetireAllIfCurrent commits one strict retirement batch only when the durable
+// registry still equals the caller's confirmed baseline. The caller remains
+// responsible for proving state-only retirement authority for every claim.
+func (store Store) RetireAllIfCurrent(
+	ctx context.Context,
+	expected durablecarrier.GlobalCarrierClaims,
+	claims []durablecarrier.ManagedCarrierClaim,
+) (durablecarrier.GlobalCarrierClaims, error) {
+	if ctx == nil {
+		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf("carrier claim registry context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	current, identity, exists, err := store.loadForCommit(ctx)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	if !current.Equal(expected) {
+		return durablecarrier.GlobalCarrierClaims{}, fmt.Errorf(
+			"carrier claim registry changed since confirmed observation",
+		)
+	}
+	next, err := current.RetireClaims(claims)
+	if err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	if len(claims) == 0 {
+		return current, nil
+	}
+	if err := store.commitRegistry(ctx, next, identity, exists); err != nil {
+		return durablecarrier.GlobalCarrierClaims{}, err
+	}
+	return next, nil
+}
+
 func (store Store) commitRegistry(
 	ctx context.Context,
 	next durablecarrier.GlobalCarrierClaims,

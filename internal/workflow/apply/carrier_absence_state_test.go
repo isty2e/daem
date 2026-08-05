@@ -271,15 +271,50 @@ func TestStateOnlyCarrierClaimRetirementsRejectsInvalidAction(t *testing.T) {
 	}
 }
 
-func TestRetireGlobalCarrierClaimsRejectsAbsentExactClaim(t *testing.T) {
+func TestCommitGlobalCarrierRetirementsRejectsAbsentExactClaim(t *testing.T) {
 	root := t.TempDir()
-	registry, count, err := retireGlobalCarrierClaims(
+	registry, count, err := commitGlobalCarrierRetirements(
 		context.Background(),
 		filepath.Join(root, "carrier-claims.json"),
 		durablecarrier.EmptyGlobalCarrierClaims(),
 		[]durablecarrier.ManagedCarrierClaim{{}},
 	)
 	if err == nil || count != 0 || !registry.Equal(durablecarrier.EmptyGlobalCarrierClaims()) {
-		t.Fatalf("retireGlobalCarrierClaims = (%#v, %d, %v), want validation failure", registry, count, err)
+		t.Fatalf("commitGlobalCarrierRetirements = (%#v, %d, %v), want validation failure", registry, count, err)
+	}
+}
+
+func TestCommitGlobalCarrierRetirementsCommitsOneExactStateOnlyBatch(t *testing.T) {
+	root := t.TempDir()
+	registryPath := filepath.Join(root, "carrier-claims.json")
+	store, err := carrierclaimstore.New(registryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := newWorkflowFixture(t, target.ScopeGlobal).claim
+	second := newWorkflowFixture(t, target.ScopeGlobal).claim
+	current, err := store.UpsertAll(
+		t.Context(),
+		[]durablecarrier.ManagedCarrierClaim{second, first},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	next, count, err := commitGlobalCarrierRetirements(
+		t.Context(),
+		registryPath,
+		current,
+		[]durablecarrier.ManagedCarrierClaim{first, second},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 || len(next.Claims()) != 0 {
+		t.Fatalf("batch retirement = (%#v, count=%d), want empty registry and count 2", next, count)
+	}
+	loaded, err := store.Load(t.Context())
+	if err != nil || !loaded.Equal(next) {
+		t.Fatalf("loaded registry = (%#v, %v), want exact batch successor", loaded, err)
 	}
 }

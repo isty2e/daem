@@ -343,6 +343,168 @@ func TestStoreRemoveRetainsOtherConsumers(t *testing.T) {
 	}
 }
 
+func TestStoreRetireAllIfCurrentCommitsOneExactBatch(t *testing.T) {
+	root := t.TempDir()
+	store, err := New(filepath.Join(root, "claims.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testGlobalClaim(t, "alpha", "alpha@official", filepath.Join(root, "first"))
+	second := testGlobalClaim(t, "beta", "beta@official", filepath.Join(root, "second"))
+	retained := testGlobalClaim(t, "retained", "retained@official", filepath.Join(root, "retained"))
+	current, err := store.UpsertAll(
+		t.Context(),
+		[]durablecarrier.ManagedCarrierClaim{retained, first, second},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := 0
+	commitFile := store.commitFile
+	store.commitFile = func(ctx context.Context, request storagecommit.FileCommit) error {
+		commits++
+		return commitFile(ctx, request)
+	}
+
+	next, err := store.RetireAllIfCurrent(
+		t.Context(),
+		current,
+		[]durablecarrier.ManagedCarrierClaim{second, first},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commits != 1 {
+		t.Fatalf("registry commits = %d, want one", commits)
+	}
+	claims := next.Claims()
+	if len(claims) != 1 || !claims[0].ExactEqual(retained) {
+		t.Fatalf("retained claims = %#v, want exact retained claim", claims)
+	}
+	loaded, err := store.Load(t.Context())
+	if err != nil || !loaded.Equal(next) {
+		t.Fatalf("loaded registry = (%#v, %v), want committed successor", loaded, err)
+	}
+	unchanged, err := store.RetireAllIfCurrent(t.Context(), next, nil)
+	if err != nil || !unchanged.Equal(next) || commits != 1 {
+		t.Fatalf("empty batch = (%#v, %v, commits=%d)", unchanged, err, commits)
+	}
+}
+
+func TestStoreRetireAllIfCurrentRejectsInvalidStaleAndCancelledBatchesBeforeCommit(t *testing.T) {
+	root := t.TempDir()
+	store, err := New(filepath.Join(root, "claims.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := testGlobalClaim(t, "alpha", "alpha@official", filepath.Join(root, "first"))
+	concurrent := testGlobalClaim(t, "beta", "beta@official", filepath.Join(root, "concurrent"))
+	expected, err := store.Upsert(t.Context(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.Upsert(t.Context(), concurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commits := 0
+	store.commitFile = func(context.Context, storagecommit.FileCommit) error {
+		commits++
+		return nil
+	}
+
+	if _, err := store.RetireAllIfCurrent(
+		t.Context(),
+		expected,
+		[]durablecarrier.ManagedCarrierClaim{first},
+	); err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
+		t.Fatalf("stale retirement error = %v", err)
+	}
+	if _, err := store.RetireAllIfCurrent(
+		t.Context(),
+		current,
+		[]durablecarrier.ManagedCarrierClaim{first, first},
+	); err == nil || !strings.Contains(err.Error(), "duplicates") {
+		t.Fatalf("duplicate retirement error = %v", err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := store.RetireAllIfCurrent(
+		cancelled,
+		current,
+		[]durablecarrier.ManagedCarrierClaim{first},
+	); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled retirement error = %v", err)
+	}
+	if commits != 0 {
+		t.Fatalf("rejected batches committed registry %d times", commits)
+	}
+	loaded, err := New(store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := loaded.Load(t.Context())
+	if err != nil || !registry.Equal(current) {
+		t.Fatalf("rejected batches changed registry = (%#v, %v)", registry, err)
+	}
+}
+
+func TestStoreRetireAllIfCurrentPreservesDeterminateAndIndeterminateCommitFacts(t *testing.T) {
+	root := t.TempDir()
+	store, err := New(filepath.Join(root, "claims.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := testGlobalClaim(t, "context7", "context7@official", root)
+	current, err := store.Upsert(t.Context(), claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitFile := store.commitFile
+	determinate := errors.New("injected pre-commit failure")
+	store.commitFile = func(context.Context, storagecommit.FileCommit) error {
+		return determinate
+	}
+	if _, err := store.RetireAllIfCurrent(
+		t.Context(),
+		current,
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	); !errors.Is(err, determinate) {
+		t.Fatalf("determinate retirement error = %v", err)
+	}
+	loaded, err := store.Load(t.Context())
+	if err != nil || !loaded.Equal(current) {
+		t.Fatalf("determinate failure changed registry = (%#v, %v)", loaded, err)
+	}
+
+	indeterminate := errors.New("injected post-commit failure")
+	store.commitFile = func(ctx context.Context, request storagecommit.FileCommit) error {
+		if err := commitFile(ctx, request); err != nil {
+			return err
+		}
+		return indeterminate
+	}
+	if _, err := store.RetireAllIfCurrent(
+		t.Context(),
+		current,
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	); !errors.Is(err, indeterminate) {
+		t.Fatalf("indeterminate retirement error = %v", err)
+	}
+	retired, err := store.Load(t.Context())
+	if err != nil || len(retired.Claims()) != 0 {
+		t.Fatalf("post-commit observation = (%#v, %v), want retired registry", retired, err)
+	}
+	store.commitFile = commitFile
+	if _, err := store.RetireAllIfCurrent(
+		t.Context(),
+		current,
+		[]durablecarrier.ManagedCarrierClaim{claim},
+	); err == nil || !strings.Contains(err.Error(), "changed since confirmed observation") {
+		t.Fatalf("stale prepared retry error = %v", err)
+	}
+}
+
 func TestStoreStaleLastConsumerCommitCannotEraseConcurrentClaim(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(filepath.Join(root, "claims.json"))
