@@ -306,11 +306,11 @@ func analyzePackagePlacements(records []PackageRecord) []GuardrailFinding {
 		detail := ""
 		switch {
 		case len(candidates) == 0:
-			detail = "package has no Pi placement"
+			detail = "package has no architecture placement"
 		case len(candidates) > 1:
-			detail = "package has more than one Pi placement"
+			detail = "package has more than one architecture placement"
 		case candidates[0].validate() != nil:
-			detail = "package has an invalid Pi placement"
+			detail = "package has an invalid architecture placement"
 		}
 		if detail == "" {
 			continue
