@@ -71,8 +71,22 @@ type authorityTest interface {
 }
 
 func mustAuthority(t authorityTest, root string, object identityToken, mount identityToken) Authority {
+	return mustAuthorityWithMountIdentities(t, root, object, mount, mount)
+}
+
+func mustAuthorityWithMountIdentities(
+	t authorityTest,
+	root string,
+	object identityToken,
+	operationMount identityToken,
+	recoveryMount identityToken,
+) Authority {
 	t.Helper()
-	authority, err := newCapturedAuthority(root, object, mount)
+	authority, err := newCapturedAuthority(
+		root,
+		object,
+		newMountIdentities(operationMount, recoveryMount),
+	)
 	if err != nil {
 		t.Fatalf("newCapturedAuthority returned error: %v", err)
 	}

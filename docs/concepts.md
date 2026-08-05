@@ -181,6 +181,15 @@ Mutating `apply` commits a complete recovery journal before it reserves a new
 global claim or mutates host files or state. Under ordinary local-filesystem
 process failures, `recover` can classify the journal and clean it up, roll back
 guarded changes, or finish claim finalization after host and state commit.
+The root authority used by an in-process plan and the root provenance persisted
+for recovery are distinct facts. On Linux, ordinary planning uses the captured
+root object and operation-local mount identity. Recovery provenance additionally
+binds the kernel's unique mount identity to the current boot ID. A clean reboot
+therefore creates no persisted boot dependency for a manifest, lockfile, or
+newly constructed ordinary apply plan. An active journal from an earlier boot
+is deliberately refused before recovery effects because its mount authority
+can no longer be established.
+
 Journal removal itself is also recoverable. Daem first publishes a correlated
 retirement control, renames the exact active journal to a private residue,
 advances the control to finalizing, removes the exact residue, and only then
@@ -216,9 +225,14 @@ the daem version that wrote a valid old tombstone to finish recovery before
 upgrading. Never discard one without independently confirming that no
 interrupted apply or backup remains.
 
-Stable-storage guarantees across an OS crash or power loss are platform-scoped.
-They are current only for operation and local-filesystem rows with native
-evidence; compile-only and unsupported rows are not promoted into a guarantee.
+Stable-storage publication guarantees are platform-scoped. They preserve
+durable evidence across an OS crash or power loss; they do not imply that the
+current binary can automatically execute recovery after a reboot. Automatic
+recovery is claimed for ordinary local-filesystem process failures within the
+same boot. Compile-only and unsupported rows are not promoted into either
+guarantee. On Linux, a kernel that cannot provide a unique mount ID may still
+satisfy operation-local rooted-path checks, but daem refuses to publish a
+recovery journal or begin its covered host effects.
 See [Platform Support](platforms.md).
 Write-mode apply planning refuses a selected manifest or lockfile larger than
 64 MiB before decoding it. Daem refuses input statefiles larger than 16 MiB

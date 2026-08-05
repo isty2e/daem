@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	provenanceFingerprintPrefix = "sha256:"
-	provenanceHashDomain        = "daem-rooted-path-provenance-v1"
+	provenanceFingerprintPrefix    = "sha256:"
+	operationFingerprintHashDomain = "daem-rooted-path-operation-v1"
+	recoveryProvenanceHashDomain   = "daem-rooted-path-recovery-provenance-v2"
 )
 
 // AuthorityProvenance is durable evidence identifying one captured physical root
@@ -43,11 +44,35 @@ func (authority Authority) Provenance() (AuthorityProvenance, error) {
 	if err := authority.Validate(); err != nil {
 		return AuthorityProvenance{}, err
 	}
+	if authority.mount.recovery == (identityToken{}) {
+		return AuthorityProvenance{}, newFailure(
+			FailureUnsupportedPlatform,
+			authority.physicalRoot,
+			"durable recovery mount identity is unavailable; Linux recovery requires STATX_MNT_ID_UNIQUE",
+			nil,
+		)
+	}
 	return NewAuthorityProvenance(
 		authority.physicalRoot,
-		identityFingerprint("object", authority.object),
-		identityFingerprint("mount", authority.mount),
+		recoveryIdentityFingerprint("object", authority.object),
+		recoveryIdentityFingerprint("mount", authority.mount.recovery),
 	)
+}
+
+// OperationFingerprint identifies one root incarnation for an in-process plan.
+// It is not durable recovery evidence and must never be persisted as such.
+func (authority Authority) OperationFingerprint() (string, error) {
+	if err := authority.Validate(); err != nil {
+		return "", err
+	}
+	hasher := sha256.New()
+	hasher.Write([]byte(operationFingerprintHashDomain))
+	hasher.Write([]byte{0})
+	hasher.Write([]byte(authority.physicalRoot))
+	hasher.Write([]byte{0})
+	hasher.Write(authority.object[:])
+	hasher.Write(authority.mount.operation[:])
+	return provenanceFingerprintPrefix + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // Validate checks the canonical durable representation without touching the filesystem.
@@ -92,7 +117,7 @@ func (provenance AuthorityProvenance) ObjectFingerprint() string {
 	return provenance.objectFingerprint
 }
 
-// MountFingerprint returns the opaque root-mount identity fingerprint.
+// MountFingerprint returns the opaque durable-recovery mount fingerprint.
 func (provenance AuthorityProvenance) MountFingerprint() string {
 	return provenance.mountFingerprint
 }
@@ -158,7 +183,15 @@ func (provenance AuthorityProvenance) MatchDescendant(authority Authority) error
 			err,
 		)
 	}
-	if provenance.mountFingerprint != identityFingerprint("mount", authority.mount) {
+	if authority.mount.recovery == (identityToken{}) {
+		return newFailure(
+			FailureUnsupportedPlatform,
+			authority.physicalRoot,
+			"durable recovery mount identity is unavailable; Linux recovery requires STATX_MNT_ID_UNIQUE",
+			nil,
+		)
+	}
+	if provenance.mountFingerprint != recoveryIdentityFingerprint("mount", authority.mount.recovery) {
 		return newFailure(
 			FailureMountChanged,
 			authority.physicalRoot,
@@ -181,9 +214,9 @@ func validProvenanceFingerprint(value string) bool {
 	return err == nil
 }
 
-func identityFingerprint(kind string, token identityToken) string {
+func recoveryIdentityFingerprint(kind string, token identityToken) string {
 	hasher := sha256.New()
-	hasher.Write([]byte(provenanceHashDomain))
+	hasher.Write([]byte(recoveryProvenanceHashDomain))
 	hasher.Write([]byte{0})
 	hasher.Write([]byte(kind))
 	hasher.Write([]byte{0})

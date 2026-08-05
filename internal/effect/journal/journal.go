@@ -46,7 +46,7 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 10
+	recoveryJournalVersion            = 11
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.

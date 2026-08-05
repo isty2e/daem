@@ -16,9 +16,8 @@ import (
 )
 
 type projectRootFingerprintFacts struct {
-	PhysicalRoot      string
-	ObjectFingerprint string
-	MountFingerprint  string
+	PhysicalRoot         string
+	AuthorityFingerprint string
 }
 
 func requiresProjectRootAuthority(planned commandPlan) bool {
@@ -120,14 +119,13 @@ func projectRootFingerprint(planned commandPlan) (*projectRootFingerprintFacts, 
 	if err != nil {
 		return nil, err
 	}
-	provenance, err := authority.Provenance()
+	fingerprint, err := authority.OperationFingerprint()
 	if err != nil {
 		return nil, err
 	}
 	return &projectRootFingerprintFacts{
-		PhysicalRoot:      provenance.PhysicalRoot(),
-		ObjectFingerprint: provenance.ObjectFingerprint(),
-		MountFingerprint:  provenance.MountFingerprint(),
+		PhysicalRoot:         authority.PhysicalRoot(),
+		AuthorityFingerprint: fingerprint,
 	}, nil
 }
 

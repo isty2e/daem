@@ -43,12 +43,14 @@ changes that state records the current schema. Missing, null, populated, or
 unknown fields are not an empty retirement artifact and remain blocked. Field
 names in versioned durable files use exact ASCII `lower_snake_case` spelling;
 case variants such as `CLAIMS` are rejected rather than treated as aliases.
-Every pre-v10 recovery journal is blocked because its presence may represent
-interrupted effects. Journal v9 does not carry the exact ownership-transition
-foreign key or the capture-time global destination binding, including root
-object and mount provenance, required by the current recovery contract. Journal
-v8 already carried path witnesses, but it used an older transaction contract.
-Neither version is rewritten or adopted by the current binary; recover it with
+Every pre-v11 recovery journal is blocked because its presence may represent
+interrupted effects. Journal v10 persists a reusable Linux mount ID that cannot
+establish durable mount identity after unmount/remount cycles or ID reuse.
+Journal v9 does not carry the exact ownership-transition foreign key or the
+capture-time global destination binding, including root object and mount
+provenance, required by the current recovery contract. Journal v8 already
+carried path witnesses, but it used an older transaction contract. None of
+these versions is rewritten or adopted by the current binary; recover it with
 the daem version that wrote it before upgrading.
 
 No action is needed for a new workspace with none of these old durable files.
@@ -82,6 +84,17 @@ dry-run-first retirement and re-adoption route:
 Do not mix the old and current daem versions between these steps. If ordinary
 old-version recovery or retirement cannot complete, preserve the files and
 diagnostics for manual analysis rather than deleting authority evidence.
+
+## Recovery Journal From An Earlier Boot
+
+On Linux, recovery journals bind the unique mount identity to the boot in which
+the journal was captured. If the machine reboots while a journal is active,
+current daem refuses recovery before host, state, ownership, or cleanup effects.
+This does not alter the manifest or lockfile, and it does not prevent ordinary
+work in a clean workspace with no active journal. Preserve the journal and its
+backups for manual analysis; do not delete or edit them to bypass the refusal.
+Daem does not currently claim automatic recovery across an operating-system
+reboot.
 
 ## `ownership_conflict`
 

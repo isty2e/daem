@@ -30,3 +30,7 @@ func nativeMountToken(fd int) (identityToken, error) {
 		uint64(uint32(stat.Fsid.Val[1])),
 	), nil
 }
+
+func nativeRecoveryMountToken(fd int) (identityToken, error) {
+	return nativeMountToken(fd)
+}

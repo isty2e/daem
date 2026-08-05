@@ -28,9 +28,9 @@ type capturedRootPlatform struct {
 func captureRootPlatform(
 	selectedRoot string,
 	selectionMode rootSelectionMode,
-) (string, capturedRootPlatform, identityToken, identityToken, error) {
+) (string, capturedRootPlatform, identityToken, mountIdentities, error) {
 	if strings.TrimSpace(selectedRoot) == "" {
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			selectedRoot,
 			"selected root is required",
@@ -38,7 +38,7 @@ func captureRootPlatform(
 		)
 	}
 	if strings.IndexFunc(selectedRoot, isForbiddenPathRune) >= 0 {
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			selectedRoot,
 			"selected root contains a control character",
@@ -47,7 +47,7 @@ func captureRootPlatform(
 	}
 	absoluteRoot, err := filepath.Abs(selectedRoot)
 	if err != nil {
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureRootUnavailable,
 			selectedRoot,
 			"resolve selected root",
@@ -59,7 +59,7 @@ func captureRootPlatform(
 	case rootSelectionResolveAlias:
 		physicalRoot, err = filepath.EvalSymlinks(absoluteRoot)
 		if err != nil {
-			return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+			return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 				FailureRootUnavailable,
 				absoluteRoot,
 				"resolve selected root alias",
@@ -69,7 +69,7 @@ func captureRootPlatform(
 		physicalRoot = filepath.Clean(physicalRoot)
 	case rootSelectionNoFollow:
 	default:
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			absoluteRoot,
 			"root selection mode is invalid",
@@ -78,20 +78,26 @@ func captureRootPlatform(
 	}
 	platform, err := openPhysicalRootChain(physicalRoot)
 	if err != nil {
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, err
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, err
 	}
 	root := platform.directories[len(platform.directories)-1]
 	object, err := nativeObjectToken(root.fd, root.device, root.inode)
 	if err != nil {
 		_ = closeCapturedRootPlatform(&platform)
-		return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureRootUnavailable,
 			physicalRoot,
 			"capture root object identity",
 			err,
 		)
 	}
-	return physicalRoot, platform, object, root.mount, nil
+	recoveryMount, recoveryErr := nativeRecoveryMountToken(root.fd)
+	if recoveryErr != nil {
+		// Recovery evidence is not part of operation-local root authority. Its
+		// absence is rejected only when a caller requests durable provenance.
+		recoveryMount = identityToken{}
+	}
+	return physicalRoot, platform, object, newMountIdentities(root.mount, recoveryMount), nil
 }
 
 func openPhysicalRootChain(physicalRoot string) (capturedRootPlatform, error) {

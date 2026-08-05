@@ -164,7 +164,7 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -179,12 +179,12 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	}
 }
 
-func TestRecoveryJournalRejectsPreAuthorityVersionNine(t *testing.T) {
+func TestRecoveryJournalRejectsReusableMountVersionTen(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 9`), 1)
+	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 10`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -194,9 +194,9 @@ func TestRecoveryJournalRejectsPreAuthorityVersionNine(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
-	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 9") ||
+	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 10") ||
 		!strings.Contains(err.Error(), "recover before upgrading") {
-		t.Fatalf("loadRecoveryJournal error = %v, want pre-v10 retirement guidance", err)
+		t.Fatalf("loadRecoveryJournal error = %v, want version-10 retirement guidance", err)
 	}
 }
 
@@ -205,7 +205,7 @@ func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 10`), []byte(`"version": 11, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 12, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -507,8 +507,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 10`,
-				`"version": 10, "version": 10`,
+				`"version": 11`,
+				`"version": 11, "version": 11`,
 				1,
 			),
 		},

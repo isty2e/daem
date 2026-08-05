@@ -29,9 +29,8 @@ type authorityFact struct {
 }
 
 type rootFact struct {
-	PhysicalRoot      string
-	ObjectFingerprint string
-	MountFingerprint  string
+	PhysicalRoot         string
+	AuthorityFingerprint string
 }
 
 func validateBeforeHostAttempt(
@@ -74,14 +73,13 @@ func buildAuthorityEvidence(
 	if err != nil {
 		return authorityEvidence{}, err
 	}
-	provenance, err := authority.Provenance()
+	fingerprint, err := authority.OperationFingerprint()
 	if err != nil {
 		return authorityEvidence{}, err
 	}
 	rootIdentity := rootFact{
-		PhysicalRoot:      provenance.PhysicalRoot(),
-		ObjectFingerprint: provenance.ObjectFingerprint(),
-		MountFingerprint:  provenance.MountFingerprint(),
+		PhysicalRoot:         authority.PhysicalRoot(),
+		AuthorityFingerprint: fingerprint,
 	}
 
 	facts := make([]authorityFact, 0)

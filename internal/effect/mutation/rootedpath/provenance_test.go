@@ -70,7 +70,7 @@ func TestAuthorityProvenanceDistinguishesRootAndMountDrift(t *testing.T) {
 	}
 
 	movedMount := base
-	movedMount.mount = identityToken{8}
+	movedMount.mount.recovery = identityToken{8}
 	if err := provenance.Match(movedMount); !hasFailureKind(err, FailureMountChanged) {
 		t.Fatalf("mount drift error = %v, want %s", err, FailureMountChanged)
 	}
@@ -93,7 +93,7 @@ func TestAuthorityProvenanceMatchesOnlySameMountDescendants(t *testing.T) {
 		t,
 		"/project/new-parent",
 		identityToken{3},
-		base.mount,
+		base.mount.recovery,
 	)
 	if err := provenance.MatchDescendant(sameMountDescendant); err != nil {
 		t.Fatalf("same-mount descendant rejected: %v", err)
@@ -106,16 +106,84 @@ func TestAuthorityProvenanceMatchesOnlySameMountDescendants(t *testing.T) {
 	}
 
 	foreignMount := sameMountDescendant
-	foreignMount.mount = identityToken{5}
+	foreignMount.mount.recovery = identityToken{5}
 	if err := provenance.MatchDescendant(foreignMount); !hasFailureKind(err, FailureMountChanged) {
 		t.Fatalf("descendant mount drift error = %v, want %s", err, FailureMountChanged)
 	}
 
 	for _, outside := range []string{"/project-other", "/sibling"} {
-		authority := mustAuthority(t, outside, identityToken{6}, base.mount)
+		authority := mustAuthority(t, outside, identityToken{6}, base.mount.recovery)
 		if err := provenance.MatchDescendant(authority); !hasFailureKind(err, FailureRootReplaced) {
 			t.Fatalf("outside root %q error = %v, want %s", outside, err, FailureRootReplaced)
 		}
+	}
+}
+
+func TestOperationFingerprintDoesNotRequireRecoveryMountIdentity(t *testing.T) {
+	authority := mustAuthorityWithMountIdentities(
+		t,
+		"/project",
+		identityToken{1},
+		identityToken{2},
+		identityToken{},
+	)
+	if _, err := authority.OperationFingerprint(); err != nil {
+		t.Fatalf("OperationFingerprint returned error: %v", err)
+	}
+	if _, err := authority.Provenance(); !hasFailureKind(err, FailureUnsupportedPlatform) {
+		t.Fatalf("Provenance error = %v, want %s", err, FailureUnsupportedPlatform)
+	}
+}
+
+func TestRecoveryProvenanceUsesRecoveryMountInsteadOfOperationMount(t *testing.T) {
+	base := mustAuthorityWithMountIdentities(
+		t,
+		"/project",
+		identityToken{1},
+		identityToken{2},
+		identityToken{3},
+	)
+	sameOperationMount := mustAuthorityWithMountIdentities(
+		t,
+		"/project",
+		identityToken{1},
+		identityToken{2},
+		identityToken{4},
+	)
+	provenance, err := base.Provenance()
+	if err != nil {
+		t.Fatalf("Provenance returned error: %v", err)
+	}
+	if err := provenance.Match(sameOperationMount); !hasFailureKind(err, FailureMountChanged) {
+		t.Fatalf("Match error = %v, want %s", err, FailureMountChanged)
+	}
+}
+
+func TestOperationFingerprintExcludesRecoveryMountIdentity(t *testing.T) {
+	first := mustAuthorityWithMountIdentities(
+		t,
+		"/project",
+		identityToken{1},
+		identityToken{2},
+		identityToken{3},
+	)
+	second := mustAuthorityWithMountIdentities(
+		t,
+		"/project",
+		identityToken{1},
+		identityToken{2},
+		identityToken{4},
+	)
+	firstFingerprint, err := first.OperationFingerprint()
+	if err != nil {
+		t.Fatalf("first OperationFingerprint returned error: %v", err)
+	}
+	secondFingerprint, err := second.OperationFingerprint()
+	if err != nil {
+		t.Fatalf("second OperationFingerprint returned error: %v", err)
+	}
+	if firstFingerprint != secondFingerprint {
+		t.Fatal("durable recovery evidence changed operation-local authority fingerprint")
 	}
 }
 

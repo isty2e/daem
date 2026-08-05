@@ -11,19 +11,31 @@ import (
 
 type identityToken [32]byte
 
+// mountIdentities keeps operation-local and durable-recovery mount evidence
+// separate. Operation identity is required for every captured authority;
+// recovery identity is optional until a caller requests durable provenance.
+type mountIdentities struct {
+	operation identityToken
+	recovery  identityToken
+}
+
+func newMountIdentities(operation identityToken, recovery identityToken) mountIdentities {
+	return mountIdentities{operation: operation, recovery: recovery}
+}
+
 // Authority identifies one physical directory root captured by a native boundary
 // adapter. The object and mount tokens are deliberately opaque outside this
 // package.
 type Authority struct {
 	physicalRoot string
 	object       identityToken
-	mount        identityToken
+	mount        mountIdentities
 }
 
 // newCapturedAuthority is the sole ingress from native root observations into
 // the canonical model. Platform adapters must establish the physical facts
 // before calling it.
-func newCapturedAuthority(physicalRoot string, object identityToken, mount identityToken) (Authority, error) {
+func newCapturedAuthority(physicalRoot string, object identityToken, mount mountIdentities) (Authority, error) {
 	authority := Authority{physicalRoot: physicalRoot, object: object, mount: mount}
 	if err := authority.Validate(); err != nil {
 		return Authority{}, err
@@ -39,7 +51,7 @@ func (authority Authority) Validate() error {
 	if authority.object == (identityToken{}) {
 		return newFailure(FailureInvalidRoot, authority.physicalRoot, "physical root object identity is required", nil)
 	}
-	if authority.mount == (identityToken{}) {
+	if authority.mount.operation == (identityToken{}) {
 		return newFailure(FailureInvalidRoot, authority.physicalRoot, "physical root mount identity is required", nil)
 	}
 	return nil
@@ -74,7 +86,7 @@ func (authority Authority) PhysicalRoot() string {
 func (authority Authority) Equal(other Authority) bool {
 	return authority.Validate() == nil && other.Validate() == nil &&
 		authority.physicalRoot == other.physicalRoot &&
-		authority.object == other.object && authority.mount == other.mount
+		authority.object == other.object && authority.mount.operation == other.mount.operation
 }
 
 // Bind constructs a canonical destination under this authority.
