@@ -99,12 +99,8 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 	}
 
 	currentByAddress := make(map[ManagedAddress]Claim, len(registry.claims))
-	overlapIndex := addressOverlapIndex{roots: make(map[string]*physicalAddressNode)}
-	for index, claim := range registry.claims {
+	for _, claim := range registry.claims {
 		currentByAddress[claim.Address()] = claim
-		if _, overlap := overlapIndex.insert(index, claim.Address()); overlap {
-			return Registry{}, false, fmt.Errorf("ownership registry contains overlapping claims")
-		}
 	}
 	changedAddresses := make(map[ManagedAddress]ClaimValue, len(convergence.changes))
 	for _, change := range convergence.changes {
@@ -116,7 +112,7 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 			if _, targetPresent := change.target.Get(); targetPresent {
 				continue
 			}
-			if conflictIndex, present := overlapIndex.first(change.address); !present {
+			if conflictIndex, present := registry.overlaps.first(change.address); !present {
 				continue
 			} else {
 				actual, _ = PresentClaim(registry.claims[conflictIndex])
@@ -124,7 +120,7 @@ func (convergence ClaimConvergence) Apply(registry Registry) (Registry, bool, er
 		}
 		if !actual.Equal(change.expected) {
 			if _, actualPresent := actual.Get(); !actualPresent {
-				if conflictIndex, present := overlapIndex.first(change.address); present {
+				if conflictIndex, present := registry.overlaps.first(change.address); present {
 					actual, _ = PresentClaim(registry.claims[conflictIndex])
 				}
 			}

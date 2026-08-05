@@ -10,6 +10,7 @@ import (
 // Registry is a canonical, overlap-free set of durable ownership claims.
 type Registry struct {
 	claims      []Claim
+	overlaps    addressOverlapIndex
 	initialized bool
 }
 
@@ -24,17 +25,19 @@ func NewRegistry(claims []Claim) (Registry, error) {
 	sort.Slice(normalized, func(left int, right int) bool {
 		return normalized[left].Address().Less(normalized[right].Address())
 	})
-	addresses := make([]ManagedAddress, len(normalized))
-	for index, claim := range normalized {
-		addresses[index] = claim.Address()
-	}
-	if existing, requested, overlap := firstOverlappingAddress(addresses); overlap {
-		return Registry{}, &ConflictError{
-			Existing:  normalized[existing],
-			Requested: normalized[requested].Address(),
+	overlaps := addressOverlapIndex{}
+	if len(normalized) != 0 {
+		overlaps.roots = make(map[string]*physicalAddressNode)
+		for requested, claim := range normalized {
+			if existing, overlap := overlaps.insert(requested, claim.Address()); overlap {
+				return Registry{}, &ConflictError{
+					Existing:  normalized[existing],
+					Requested: claim.Address(),
+				}
+			}
 		}
 	}
-	return Registry{claims: normalized, initialized: true}, nil
+	return Registry{claims: normalized, overlaps: overlaps, initialized: true}, nil
 }
 
 // EmptyRegistry returns a valid registry with no claims.
