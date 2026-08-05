@@ -472,50 +472,27 @@ func prepareClaimTransitions(
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
 	forwardGate visibilityEffectGate,
-	compensationGate visibilityEffectGate,
 ) error {
 	if len(transitions) == 0 {
 		return nil
 	}
-	for index, transition := range transitions {
-		if err := forwardGate.validateBefore(ctx); err != nil {
-			rollbackErr := rollbackClaimTransitions(
-				context.WithoutCancel(ctx),
-				registryStore,
-				transitions[:index],
-				compensationGate,
-			)
-			if rollbackErr != nil {
-				return fmt.Errorf("validate ownership claim preparation: %w; ownership rollback failed: %v", err, rollbackErr)
-			}
-			return fmt.Errorf("validate ownership claim preparation: %w", err)
-		}
-		if err := convergeClaim(ctx, registryStore, transition.Address(), transition.Before(), transition.Prepared()); err != nil {
-			rollbackErr := rollbackClaimTransitions(
-				context.WithoutCancel(ctx),
-				registryStore,
-				transitions[:index+1],
-				compensationGate,
-			)
-			if rollbackErr != nil {
-				return fmt.Errorf("prepare ownership claim: %w; ownership rollback failed: %v", err, rollbackErr)
-			}
-			return fmt.Errorf("prepare ownership claim: %w", err)
-		}
-		if err := forwardGate.acceptAfter(ctx); err != nil {
-			rollbackErr := rollbackClaimTransitions(
-				context.WithoutCancel(ctx),
-				registryStore,
-				transitions[:index+1],
-				compensationGate,
-			)
-			if rollbackErr != nil {
-				return fmt.Errorf("accept prepared ownership claim: %w; ownership rollback failed: %v", err, rollbackErr)
-			}
-			return fmt.Errorf("accept prepared ownership claim: %w", err)
-		}
+	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
+	if err != nil {
+		return err
 	}
-	return nil
+	convergence, err := set.Preparation()
+	if err != nil {
+		return err
+	}
+	return executeClaimConvergence(
+		ctx,
+		registryStore,
+		convergence,
+		forwardGate,
+		"validate ownership claim preparation",
+		"prepare ownership claim",
+		"accept prepared ownership claim",
+	)
 }
 
 func finalizeClaimTransitions(
@@ -527,18 +504,23 @@ func finalizeClaimTransitions(
 	if len(transitions) == 0 {
 		return nil
 	}
-	for _, transition := range transitions {
-		if err := gate.validateBefore(ctx); err != nil {
-			return fmt.Errorf("validate ownership claim finalization: %w", err)
-		}
-		if err := convergeClaim(ctx, registryStore, transition.Address(), transition.Prepared(), transition.After()); err != nil {
-			return fmt.Errorf("finalize ownership claim: %w", err)
-		}
-		if err := gate.acceptAfter(ctx); err != nil {
-			return fmt.Errorf("accept finalized ownership claim: %w", err)
-		}
+	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
+	if err != nil {
+		return err
 	}
-	return nil
+	convergence, err := set.Finalization()
+	if err != nil {
+		return err
+	}
+	return executeClaimConvergence(
+		ctx,
+		registryStore,
+		convergence,
+		gate,
+		"validate ownership claim finalization",
+		"finalize ownership claim",
+		"accept finalized ownership claim",
+	)
 }
 
 func rollbackClaimsToBefore(
@@ -559,21 +541,54 @@ func rollbackClaimTransitions(
 	transitions []ownershipmutation.ClaimTransition,
 	gate visibilityEffectGate,
 ) error {
-	for index := len(transitions) - 1; index >= 0; index-- {
-		transition := transitions[index]
-		if err := gate.validateBefore(ctx); err != nil {
-			return fmt.Errorf("validate ownership claim rollback: %w", err)
-		}
-		if err := convergeClaim(ctx, registryStore, transition.Address(), transition.Prepared(), transition.Before()); err != nil {
-			return fmt.Errorf("rollback ownership claim: %w", err)
-		}
-		if err := gate.acceptAfter(ctx); err != nil {
-			return fmt.Errorf("accept rolled back ownership claim: %w", err)
-		}
+	if len(transitions) == 0 {
+		return nil
+	}
+	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
+	if err != nil {
+		return err
+	}
+	convergence, err := set.Rollback()
+	if err != nil {
+		return err
+	}
+	return executeClaimConvergence(
+		ctx,
+		registryStore,
+		convergence,
+		gate,
+		"validate ownership claim rollback",
+		"rollback ownership claim",
+		"accept rolled back ownership claim",
+	)
+}
+
+func executeClaimConvergence(
+	ctx context.Context,
+	registryStore ownershipmutation.RegistryStore,
+	convergence ownership.ClaimConvergence,
+	gate visibilityEffectGate,
+	validateDetail string,
+	commitDetail string,
+	acceptDetail string,
+) error {
+	if registryStore == nil {
+		return fmt.Errorf("ownership registry is unavailable")
+	}
+	if err := gate.validateBefore(ctx); err != nil {
+		return fmt.Errorf("%s: %w", validateDetail, err)
+	}
+	if _, err := registryStore.Converge(ctx, convergence); err != nil {
+		return fmt.Errorf("%s: %w", commitDetail, err)
+	}
+	if err := gate.acceptAfter(ctx); err != nil {
+		return fmt.Errorf("%s: %w", acceptDetail, err)
 	}
 	return nil
 }
 
+// convergeClaim remains single-address because provisional outputs become
+// exactly observable at distinct host-effect boundaries.
 func convergeClaim(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
@@ -581,29 +596,15 @@ func convergeClaim(
 	from ownership.ClaimValue,
 	to ownership.ClaimValue,
 ) error {
-	if _, replacementPresent := to.Get(); !replacementPresent {
-		expected, expectedPresent := from.Get()
-		if !expectedPresent {
-			return fmt.Errorf("ownership claim removal requires a present expected claim")
-		}
-		_, err := registryStore.RemoveClaim(ctx, expected)
-		return err
-	}
-	registry, err := registryStore.Load(ctx)
+	change, err := ownership.NewClaimChange(address, from, to)
 	if err != nil {
 		return err
 	}
-	actual := ownership.NoClaim()
-	if claim, present := registry.Conflict(address); present {
-		actual, _ = ownership.PresentClaim(claim)
+	convergence, err := ownership.NewClaimConvergence([]ownership.ClaimChange{change})
+	if err != nil {
+		return err
 	}
-	if actual.Equal(to) {
-		return nil
-	}
-	if !actual.Equal(from) {
-		return &ownership.StaleClaimError{Address: address, Expected: from, Actual: actual}
-	}
-	_, err = registryStore.Apply(ctx, address, from, to)
+	_, err = registryStore.Converge(ctx, convergence)
 	return err
 }
 

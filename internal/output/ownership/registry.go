@@ -9,7 +9,9 @@ import (
 
 // Registry is a canonical, overlap-free set of durable ownership claims.
 type Registry struct {
-	claims []Claim
+	claims      []Claim
+	overlaps    addressOverlapIndex
+	initialized bool
 }
 
 // NewRegistry validates, copies, and canonically orders claims.
@@ -19,21 +21,28 @@ func NewRegistry(claims []Claim) (Registry, error) {
 		if err := claim.Validate(); err != nil {
 			return Registry{}, fmt.Errorf("ownership claim[%d]: %w", index, err)
 		}
-		for previous := range index {
-			if normalized[previous].ConflictsWith(claim) {
-				return Registry{}, &ConflictError{Existing: normalized[previous], Requested: claim.Address()}
-			}
-		}
 	}
 	sort.Slice(normalized, func(left int, right int) bool {
 		return normalized[left].Address().Less(normalized[right].Address())
 	})
-	return Registry{claims: normalized}, nil
+	overlaps := addressOverlapIndex{}
+	if len(normalized) != 0 {
+		overlaps.roots = make(map[string]*physicalAddressNode)
+		for requested, claim := range normalized {
+			if existing, overlap := overlaps.insert(requested, claim.Address()); overlap {
+				return Registry{}, &ConflictError{
+					Existing:  normalized[existing],
+					Requested: claim.Address(),
+				}
+			}
+		}
+	}
+	return Registry{claims: normalized, overlaps: overlaps, initialized: true}, nil
 }
 
 // EmptyRegistry returns a valid registry with no claims.
 func EmptyRegistry() Registry {
-	return Registry{claims: []Claim{}}
+	return Registry{claims: []Claim{}, initialized: true}
 }
 
 // Claims returns a defensive copy in canonical order.
@@ -76,6 +85,9 @@ func (registry Registry) ProvisionalAncestorConflict(candidate pathauthority.Pro
 // Apply returns a new registry after an exact expected-before transition.
 // It never changes claims outside address.
 func (registry Registry) Apply(address ManagedAddress, expected ClaimValue, replacement ClaimValue) (Registry, error) {
+	if !registry.initialized {
+		return Registry{}, fmt.Errorf("ownership registry is required")
+	}
 	if err := address.Validate(); err != nil {
 		return Registry{}, err
 	}

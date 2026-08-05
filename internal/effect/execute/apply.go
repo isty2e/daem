@@ -323,7 +323,6 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 		registryStore,
 		ownershipState.transitions,
 		visibilityGate,
-		compensationGate,
 	); err != nil {
 		rollbackErr := rollbackClaimsToBefore(
 			context.WithoutCancel(ctx),
