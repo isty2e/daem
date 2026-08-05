@@ -94,7 +94,13 @@ deepest existing directory's case behavior. An unavailable or contradictory
 capability is an error, not a case-insensitive fallback. Directory-entry
 authority keeps the final symlink itself, while referent authority follows it.
 
-This does not emulate APFS or HFS+ Unicode normalization in user space. Existing
-normalization aliases can use the stored spelling reported by the operating
-system; aliases that are absent while planning and same-batch provisional
-alias races remain outside this case-semantics contract.
+This does not emulate APFS or HFS+ Unicode normalization in user space or infer
+that two spellings are equivalent. Existing entries use the stored spelling
+reported by the operating system. For an absent, normalization-sensitive
+Darwin destination, daem records the selected spelling and its exact existing
+parent namespace as provisional comparison and exclusion evidence. That record
+does not grant exact path authority. After creation, daem accepts only a fresh
+observation inside the same namespace, at the same depth, with the same
+filesystem semantics. Recovery also fails before effects if the captured root
+directory is replaced or the destination crosses onto a different descendant
+mount.

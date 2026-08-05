@@ -188,6 +188,23 @@ func TestPlatformContractsMatchCanonicalRows(t *testing.T) {
 	}
 }
 
+func TestDarwinPathDocumentationSeparatesProvisionalAndExactAuthority(t *testing.T) {
+	public := strings.Join(strings.Fields(readRepositoryFile(t, "docs/platforms.md")), " ")
+	for _, required := range []string{
+		"provisional comparison and exclusion evidence",
+		"does not grant exact path authority",
+		"fails before effects if the captured root directory is replaced",
+		"destination crosses onto a different descendant mount",
+	} {
+		if !strings.Contains(public, required) {
+			t.Errorf("platform documentation is missing Darwin path-authority contract %q", required)
+		}
+	}
+	if strings.Contains(public, "same-batch provisional alias races remain outside") {
+		t.Error("platform documentation retains the superseded provisional-authority exclusion")
+	}
+}
+
 func TestActiveUserDocumentsPointToPlatformAuthority(t *testing.T) {
 	references := map[string]string{
 		"README.md":               "docs/platforms.md",

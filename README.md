@@ -97,9 +97,11 @@ In the project you want to manage, create a manifest and one instruction source:
 ```bash
 mkdir -p ~/daem-example
 cd ~/daem-example
+daem init --dry-run
 daem init
 mkdir -p instructions
 printf '%s\n' '# Project instructions' 'Use concise, direct answers.' > instructions/project.md
+daem add instruction project ./instructions/project.md --target codex --dry-run --diff
 daem add instruction project ./instructions/project.md --target codex
 ```
 
@@ -139,6 +141,7 @@ state/cache directories. Imported durable source material defaults to
 | --- | --- | --- |
 | Start | `init`, `import` | Create desired state |
 | Author | `add`, `remove` | Edit desired state and refresh the lock |
+| Author | `unmanage extension` | Release daem authority while preserving host-installed state |
 | Resolve | `lock`, `outdated` | Resolve or inspect source identity |
 | Inspect | `list`, `status`, `version` | Enumerate resources, convergence, and executable identity |
 | Diagnose | `doctor`, `probe` | Check passive prerequisites or explicit runtime evidence |
@@ -152,16 +155,23 @@ the manifest rather than an expanding flag surface.
 
 This repository includes a portable [`daem` agent skill](skills/daem/SKILL.md)
 that routes instruction, skill, hook, MCP, and extension changes through the
-selected manifest, lockfile, and apply workflow. Bootstrap it into a global
-Codex environment with:
+selected manifest, lockfile, and apply workflow. For a first-time global Codex
+setup, create the user manifest before adding the skill. Skip the two `init`
+commands when that manifest already exists.
 
 ```bash
+DAEM_USER_MANIFEST="${XDG_CONFIG_HOME:-$HOME/.config}/daem/daem.toml"
+daem init --manifest "$DAEM_USER_MANIFEST" --dry-run
+daem init --manifest "$DAEM_USER_MANIFEST"
 daem add skill https://github.com/isty2e/daem.git \
   --path skills/daem --ref v0.1.0 --name daem \
-  --target codex --scope global --dry-run --diff
-# Review the preview, then repeat without --dry-run --diff.
-daem apply --dry-run --diff
-daem apply
+  --target codex --scope global --manifest "$DAEM_USER_MANIFEST" \
+  --dry-run --diff
+daem add skill https://github.com/isty2e/daem.git \
+  --path skills/daem --ref v0.1.0 --name daem \
+  --target codex --scope global --manifest "$DAEM_USER_MANIFEST"
+daem apply --manifest "$DAEM_USER_MANIFEST" --dry-run --diff
+daem apply --manifest "$DAEM_USER_MANIFEST"
 ```
 
 Choose or repeat `--target` for other agent hosts supported by the installed

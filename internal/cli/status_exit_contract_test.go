@@ -103,7 +103,7 @@ func TestStatusExitContractIsDocumentedAsModeSpecific(t *testing.T) {
 
 	for _, row := range []string{
 		"| `status` | any valid report | never because of reported state |",
-		"| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, non-exact extension order, blocked carrier relation, or carrier-adoption claim conflict |",
+		"| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending output action; non-exact extension order; or blocked relation, adoption, or extension-removal action |",
 		"| Report-only `status`, including pending or blocked rows | normal result | empty | `0` |",
 		"| Clean `status --check` | normal result | empty | `0` |",
 		"| Non-clean `status --check` | normal result | empty | `1` |",

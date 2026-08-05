@@ -14,6 +14,7 @@ belongs in [Platform Support](platforms.md).
 | Start | `import` | Build desired state from existing host configuration. |
 | Author | `add` | Add or extend one desired resource and refresh its lock result. |
 | Author | `remove` | Narrow or remove one desired resource and refresh its lock result. |
+| Author | `unmanage` | Release exact daem authority for one extension while preserving host state. |
 | Resolve | `lock` | Resolve the manifest into the exact adjacent lockfile. |
 | Resolve | `outdated` | Check whether locked source identities can advance. |
 | Inspect | `list` | Enumerate declarations or managed-output ownership. |
@@ -36,13 +37,12 @@ The exact supported platforms and their verification requirements are
 authoritative in [Platform Support](platforms.md).
 
 On an unsupported platform, all help and version routes remain available and
-`doctor` reports the platform error in human or JSON form. `add`, `apply`,
-`import`, `init`, `lock`, `outdated`, `recover`, `refresh`, and `remove` fail
-before path resolution or effects, including in dry-run mode. Their normal
-command errors use stderr; `doctor --json` is the structured platform
-diagnostic. Doctor resolves its selected manifest path, then stops before
-storage, manifest, environment, or host checks on a not-admitted platform; see
-[Platform Support](platforms.md) for the exact contract.
+`doctor` reports the platform error in human or JSON form. Commands identified
+as platform-gated in [Platform Support](platforms.md) fail before path
+resolution or effects, including in dry-run mode. Their normal command errors
+use stderr; `doctor --json` is the structured platform diagnostic. Doctor
+resolves its selected manifest path, then stops before storage, manifest,
+environment, or host checks on a not-admitted platform.
 
 ## Workspace Selection
 
@@ -707,11 +707,13 @@ still return `1` before or while emitting their applicable result contract.
 | Invocation | Exit `0` | Exit `1` |
 | --- | --- | --- |
 | `status` | any valid report | never because of reported state |
-| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked carrier-relation or carrier-adoption action | lockfile missing, pending output action, non-exact extension order, blocked carrier relation, or carrier-adoption claim conflict |
+| `status --check` | lockfile present, no pending output action, exact extension order, and no blocked relation, adoption, or extension-removal action | lockfile missing; pending output action; non-exact extension order; or blocked relation, adoption, or extension-removal action |
 
-Warning-only diagnostics, selected missing carrier relations, and observe-only
-relation rows do not make `--check` fail. A normalize, conditional, or blocked
-extension-order row is non-clean. JSON and human modes use the same exit predicate.
+Warning-only diagnostics, selected missing extension relations, and observe-only
+relation rows do not make `--check` fail. A blocked removal of a managed
+extension relation does fail. A normalize, conditional, or blocked
+extension-order row is also non-clean. JSON and human modes use the same exit
+predicate.
 
 ## `apply`
 
