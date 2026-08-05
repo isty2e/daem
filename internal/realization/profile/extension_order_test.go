@@ -78,11 +78,13 @@ func TestExtensionOrderCapabilityMatrixAdmitsOnlyOpenCodeAndPi(t *testing.T) {
 			if !reflect.DeepEqual(gotSequenceIDs, test.sequenceIDs) {
 				t.Fatalf("sequence ids = %v, want %v", gotSequenceIDs, test.sequenceIDs)
 			}
-			if capability.MemberIdentityContract() == "" ||
-				capability.observerContract == "" ||
-				capability.mutatorContract == "" ||
-				capability.codecContractVersion == "" {
+			if capability.MemberIdentityContract() == "" {
 				t.Fatalf("capability has an incomplete contract: %#v", capability)
+			}
+			for _, sequenceID := range capability.PhysicalSequenceIDs() {
+				if !capability.AdmitsPhysicalSequenceID(sequenceID) {
+					t.Fatalf("capability rejected admitted sequence %q", sequenceID)
+				}
 			}
 		})
 	}
@@ -152,10 +154,7 @@ func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *t
 			mustPhysicalSequenceID("test:tui"),
 			mustPhysicalSequenceID("test:server"),
 		},
-		ObserverContract:     "test-observer-v1",
-		MutatorContract:      "test-mutator-v1",
-		CodecContractVersion: "test-codec-v1",
-		RuntimeMeaning:       hostrelation.ConfigOrderOnly,
+		RuntimeMeaning: hostrelation.ConfigOrderOnly,
 	}
 	capability, err := NewExtensionOrderCapability(input)
 	if err != nil {
@@ -167,6 +166,7 @@ func TestExtensionOrderCapabilityDefensivelyCopiesAndCanonicalizesSequences(t *t
 
 	got := capability.PhysicalSequenceIDs()
 	if capability.Validate() != nil ||
+		capability.AdmitsPhysicalSequenceID("") ||
 		!reflect.DeepEqual(got, []hostrelation.PhysicalSequenceID{
 			mustPhysicalSequenceID("test:server"),
 			mustPhysicalSequenceID("test:tui"),
@@ -183,9 +183,6 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 		MemberIdentityContract: "test-member-v1",
 		SequenceMembership:     LoadedClassSubset,
 		PhysicalSequenceIDs:    []hostrelation.PhysicalSequenceID{mustPhysicalSequenceID("test:server")},
-		ObserverContract:       "test-observer-v1",
-		MutatorContract:        "test-mutator-v1",
-		CodecContractVersion:   "test-codec-v1",
 		RuntimeMeaning:         hostrelation.ConfigOrderOnly,
 	}
 
@@ -193,9 +190,6 @@ func TestExtensionOrderCapabilityRejectsPartialAndCollidingContracts(t *testing.
 		func(input *ExtensionOrderCapabilityInput) { input.MemberIdentityContract = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.SequenceMembership = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.PhysicalSequenceIDs = nil },
-		func(input *ExtensionOrderCapabilityInput) { input.ObserverContract = "" },
-		func(input *ExtensionOrderCapabilityInput) { input.MutatorContract = "" },
-		func(input *ExtensionOrderCapabilityInput) { input.CodecContractVersion = "" },
 		func(input *ExtensionOrderCapabilityInput) { input.RuntimeMeaning = "" },
 	} {
 		input := base

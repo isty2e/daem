@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
-	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -357,9 +355,19 @@ func newObservedOrderSequence(
 	document Document,
 	rows []observerelation.ObservedRelationRow,
 ) (observerelation.ObservedRelationSequence, error) {
-	sequenceID, err := sequenceIDForDocument(selection.capability, document)
+	sequenceID, err := opencodeconfig.PhysicalSequenceID(
+		selection.scope,
+		document.kind,
+		document.path,
+	)
 	if err != nil {
 		return observerelation.ObservedRelationSequence{}, err
+	}
+	if !selection.capability.AdmitsPhysicalSequenceID(sequenceID) {
+		return observerelation.ObservedRelationSequence{}, fmt.Errorf(
+			"OpenCode plugin order capability does not admit physical sequence %q",
+			sequenceID,
+		)
 	}
 	authority, err := observerelation.NewSequenceAuthority(
 		"opencode:" + string(selection.scope) + ":" +
@@ -378,27 +386,6 @@ func newObservedOrderSequence(
 		authority,
 		revision,
 		rows,
-	)
-}
-
-func sequenceIDForDocument(
-	capability profile.ExtensionOrderCapability,
-	document Document,
-) (hostrelation.PhysicalSequenceID, error) {
-	variant := configVariant(document.path)
-	if variant == "" {
-		return "", fmt.Errorf("OpenCode plugin order document has unsupported config variant")
-	}
-	suffix := ":" + string(document.kind) + "." + variant + ".plugins"
-	for _, sequenceID := range capability.PhysicalSequenceIDs() {
-		if strings.HasSuffix(string(sequenceID), suffix) {
-			return sequenceID, nil
-		}
-	}
-	return "", fmt.Errorf(
-		"OpenCode plugin order capability has no %s %s physical sequence",
-		document.kind,
-		variant,
 	)
 }
 

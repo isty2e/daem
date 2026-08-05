@@ -12,13 +12,7 @@ import (
 
 const (
 	openCodeOrderMemberIdentityV1 = "opencode-plugin-package-v1"
-	openCodeOrderObserverV1       = "opencode-plugin-order-observer-v1"
-	openCodeOrderMutatorV1        = "opencode-plugin-order-mutator-v1"
-	openCodeOrderCodecV1          = "opencode-plugin-list-v1"
 	piOrderMemberIdentityV1       = "pi-package-load-identity-v1"
-	piOrderObserverV1             = "pi-package-order-observer-v1"
-	piOrderMutatorV1              = "pi-package-order-mutator-v1"
-	piOrderCodecV1                = "pi-package-list-v1"
 )
 
 // SequenceMembershipContract defines whether each physical sequence must
@@ -48,9 +42,6 @@ type ExtensionOrderCapabilityInput struct {
 	MemberIdentityContract string
 	SequenceMembership     SequenceMembershipContract
 	PhysicalSequenceIDs    []hostrelation.PhysicalSequenceID
-	ObserverContract       string
-	MutatorContract        string
-	CodecContractVersion   string
 	RuntimeMeaning         hostrelation.RuntimeMeaning
 }
 
@@ -63,9 +54,6 @@ type ExtensionOrderCapability struct {
 	memberIdentityContract string
 	sequenceMembership     SequenceMembershipContract
 	physicalSequenceIDs    []hostrelation.PhysicalSequenceID
-	observerContract       string
-	mutatorContract        string
-	codecContractVersion   string
 	runtimeMeaning         hostrelation.RuntimeMeaning
 }
 
@@ -88,18 +76,11 @@ func NewExtensionOrderCapability(
 	if err := input.SequenceMembership.validate(); err != nil {
 		return ExtensionOrderCapability{}, err
 	}
-	for _, field := range []struct {
-		label string
-		value string
-	}{
-		{label: "extension order member identity contract", value: input.MemberIdentityContract},
-		{label: "extension order observer contract", value: input.ObserverContract},
-		{label: "extension order mutator contract", value: input.MutatorContract},
-		{label: "extension order codec contract", value: input.CodecContractVersion},
-	} {
-		if err := validateProfileToken(field.label, field.value); err != nil {
-			return ExtensionOrderCapability{}, err
-		}
+	if err := validateProfileToken(
+		"extension order member identity contract",
+		input.MemberIdentityContract,
+	); err != nil {
+		return ExtensionOrderCapability{}, err
 	}
 	if len(input.PhysicalSequenceIDs) == 0 {
 		return ExtensionOrderCapability{}, fmt.Errorf(
@@ -133,9 +114,6 @@ func NewExtensionOrderCapability(
 		memberIdentityContract: input.MemberIdentityContract,
 		sequenceMembership:     input.SequenceMembership,
 		physicalSequenceIDs:    sequenceIDs,
-		observerContract:       input.ObserverContract,
-		mutatorContract:        input.MutatorContract,
-		codecContractVersion:   input.CodecContractVersion,
 		runtimeMeaning:         input.RuntimeMeaning,
 	}, nil
 }
@@ -149,9 +127,6 @@ func (capability ExtensionOrderCapability) Validate() error {
 		MemberIdentityContract: capability.memberIdentityContract,
 		SequenceMembership:     capability.sequenceMembership,
 		PhysicalSequenceIDs:    capability.physicalSequenceIDs,
-		ObserverContract:       capability.observerContract,
-		MutatorContract:        capability.mutatorContract,
-		CodecContractVersion:   capability.codecContractVersion,
 		RuntimeMeaning:         capability.runtimeMeaning,
 	})
 	if err != nil {
@@ -163,9 +138,6 @@ func (capability ExtensionOrderCapability) Validate() error {
 		capability.memberIdentityContract != canonical.memberIdentityContract ||
 		capability.sequenceMembership != canonical.sequenceMembership ||
 		!slices.Equal(capability.physicalSequenceIDs, canonical.physicalSequenceIDs) ||
-		capability.observerContract != canonical.observerContract ||
-		capability.mutatorContract != canonical.mutatorContract ||
-		capability.codecContractVersion != canonical.codecContractVersion ||
 		capability.runtimeMeaning != canonical.runtimeMeaning {
 		return fmt.Errorf("extension order capability is not canonical")
 	}
@@ -194,6 +166,14 @@ func (capability ExtensionOrderCapability) PhysicalSequenceIDs() []hostrelation.
 	return append([]hostrelation.PhysicalSequenceID(nil), capability.physicalSequenceIDs...)
 }
 
+// AdmitsPhysicalSequenceID reports whether one independently mutable sequence
+// belongs to this static order capability.
+func (capability ExtensionOrderCapability) AdmitsPhysicalSequenceID(
+	sequenceID hostrelation.PhysicalSequenceID,
+) bool {
+	return slices.Contains(capability.physicalSequenceIDs, sequenceID)
+}
+
 func (capability ExtensionOrderCapability) RuntimeMeaning() hostrelation.RuntimeMeaning {
 	return capability.runtimeMeaning
 }
@@ -218,10 +198,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 				mustPhysicalSequenceID("opencode:project:tui.json.plugins"),
 				mustPhysicalSequenceID("opencode:project:tui.jsonc.plugins"),
 			},
-			ObserverContract:     openCodeOrderObserverV1,
-			MutatorContract:      openCodeOrderMutatorV1,
-			CodecContractVersion: openCodeOrderCodecV1,
-			RuntimeMeaning:       hostrelation.ConfigOrderOnly,
+			RuntimeMeaning: hostrelation.ConfigOrderOnly,
 		}),
 	},
 	{
@@ -238,10 +215,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 				mustPhysicalSequenceID("opencode:global:tui.json.plugins"),
 				mustPhysicalSequenceID("opencode:global:tui.jsonc.plugins"),
 			},
-			ObserverContract:     openCodeOrderObserverV1,
-			MutatorContract:      openCodeOrderMutatorV1,
-			CodecContractVersion: openCodeOrderCodecV1,
-			RuntimeMeaning:       hostrelation.ConfigOrderOnly,
+			RuntimeMeaning: hostrelation.ConfigOrderOnly,
 		}),
 	},
 	{
@@ -255,10 +229,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("pi:project:settings.packages"),
 			},
-			ObserverContract:     piOrderObserverV1,
-			MutatorContract:      piOrderMutatorV1,
-			CodecContractVersion: piOrderCodecV1,
-			RuntimeMeaning:       hostrelation.RuntimePrecedence,
+			RuntimeMeaning: hostrelation.RuntimePrecedence,
 		}),
 	},
 	{
@@ -272,10 +243,7 @@ var extensionOrderCapabilityCatalog = []extensionOrderCapabilityRow{
 			PhysicalSequenceIDs: []hostrelation.PhysicalSequenceID{
 				mustPhysicalSequenceID("pi:global:settings.packages"),
 			},
-			ObserverContract:     piOrderObserverV1,
-			MutatorContract:      piOrderMutatorV1,
-			CodecContractVersion: piOrderCodecV1,
-			RuntimeMeaning:       hostrelation.RuntimePrecedence,
+			RuntimeMeaning: hostrelation.RuntimePrecedence,
 		}),
 	},
 }

@@ -13,6 +13,7 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/realization/profile"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/target"
@@ -152,13 +153,20 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			}
 			rows = append(rows, row)
 		}
-		sequenceID, err := openCodeSequenceID(
-			capability,
+		sequenceID, err := opencodeconfig.PhysicalSequenceID(
+			scope,
 			document.Kind(),
 			document.Path(),
 		)
 		if err != nil {
 			return err
+		}
+		if !capability.AdmitsPhysicalSequenceID(sequenceID) {
+			return fmt.Errorf(
+				"OpenCode extension order class %q does not admit physical sequence %q",
+				capability.ClassID(),
+				sequenceID,
+			)
 		}
 		authority, err := relationobserve.NewSequenceAuthority(
 			"opencode:" + string(scope) + ":" + string(document.Kind()) +

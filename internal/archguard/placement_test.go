@@ -29,7 +29,7 @@ func TestBuildSelectedRepositoryPackagesHaveExactArchitectureOwnership(t *testin
 			currentPackages[packagePath] = struct{}{}
 			candidates := packagePlacementCandidates(packagePlacementRows, packagePath)
 			if len(candidates) != 1 {
-				t.Errorf("%s has %d Pi placements, want exactly one", packagePath, len(candidates))
+				t.Errorf("%s has %d architecture placements, want exactly one", packagePath, len(candidates))
 				continue
 			}
 			if err := candidates[0].validate(); err != nil {
@@ -51,7 +51,7 @@ func TestBuildSelectedRepositoryPackagesHaveExactArchitectureOwnership(t *testin
 	}
 
 	if findings := analyzePackagePlacements(records); len(findings) != 0 {
-		t.Fatalf("current Pi placement findings:\n%s", FormatReport(findings))
+		t.Fatalf("current architecture placement findings:\n%s", FormatReport(findings))
 	}
 	for _, row := range packagePlacementRows {
 		for _, packagePath := range row.packages {
@@ -155,7 +155,7 @@ func TestPackagePlacementRejectsUnknownAndImplicitDescendantPackages(t *testing.
 	} {
 		t.Run(packagePath, func(t *testing.T) {
 			if _, ok := packagePlacementFor(packagePath); ok {
-				t.Fatalf("%s inherited a Pi placement", packagePath)
+				t.Fatalf("%s inherited an architecture placement", packagePath)
 			}
 			findings := analyzePackagePlacements([]PackageRecord{{
 				ImportPath: "example.com/project/" + packagePath,

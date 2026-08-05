@@ -45,7 +45,7 @@ func analyzeArchitectureDependencyDirections(records []PackageRecord) []Guardrai
 					PackagePath: packagePath,
 					ImportPath:  importedPackage,
 					Path:        importedPackage,
-					Detail:      "imported package has no unique valid Pi placement",
+					Detail:      "imported package has no unique valid architecture placement",
 				})
 				continue
 			}
@@ -140,7 +140,7 @@ func analyzeDesiredImports(packagePath string, imports []string) []GuardrailFind
 				PackagePath: packagePath,
 				ImportPath:  importedPackage,
 				Path:        importedPackage,
-				Detail:      "imported package has no unique valid Pi placement",
+				Detail:      "imported package has no unique valid architecture placement",
 			})
 			continue
 		}
@@ -184,7 +184,7 @@ func analyzeTopologyImports(packagePath string, imports []string) []GuardrailFin
 				PackagePath: packagePath,
 				ImportPath:  importedPackage,
 				Path:        importedPackage,
-				Detail:      "imported package has no unique valid Pi placement",
+				Detail:      "imported package has no unique valid architecture placement",
 			})
 			continue
 		}

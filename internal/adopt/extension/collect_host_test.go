@@ -114,6 +114,14 @@ func TestCollectPreservesOpenCodePhysicalSequencesAndExactSources(t *testing.T) 
 	if len(sequences) != 2 {
 		t.Fatalf("sequences = %#v, want server and TUI", sequences)
 	}
+	if sequences[0].SequenceID() != "opencode:project:server.json.plugins" ||
+		sequences[1].SequenceID() != "opencode:project:tui.jsonc.plugins" {
+		t.Fatalf(
+			"sequence identities = %q, %q",
+			sequences[0].SequenceID(),
+			sequences[1].SequenceID(),
+		)
+	}
 	serverRows := sequences[0].OrderedRows()
 	if len(serverRows) != 2 ||
 		string(serverRows[0].HostLoadIdentity()) != "@acme/tool" ||

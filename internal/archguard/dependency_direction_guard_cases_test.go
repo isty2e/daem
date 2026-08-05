@@ -504,7 +504,7 @@ func TestArchitectureContractKeepsBoundaryAdaptersOutOfSemanticKernelRules(t *te
 func TestArchitectureContractClassifiesMCPRuntimeProbeAdapterByIndependentAxes(t *testing.T) {
 	placement, ok := packagePlacementFor("internal/assurance/runtimeprobe/mcp")
 	if !ok {
-		t.Fatal("MCP runtime probe has no Pi placement")
+		t.Fatal("MCP runtime probe has no architecture placement")
 	}
 	if placement.affinity != affinityAssurance ||
 		placement.role != roleObservationAdapter ||
