@@ -587,6 +587,8 @@ func executeClaimConvergence(
 	return nil
 }
 
+// convergeClaim remains single-address because provisional outputs become
+// exactly observable at distinct host-effect boundaries.
 func convergeClaim(
 	ctx context.Context,
 	registryStore ownershipmutation.RegistryStore,
