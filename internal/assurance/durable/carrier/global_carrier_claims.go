@@ -136,6 +136,79 @@ func (registry GlobalCarrierClaims) WithClaims(
 	return result, true, nil
 }
 
+// RetireClaims derives one exact all-or-nothing retirement batch. Every
+// requested claim must exist exactly; input order does not affect the canonical
+// successor or conflict precedence.
+func (registry GlobalCarrierClaims) RetireClaims(
+	claims []ManagedCarrierClaim,
+) (GlobalCarrierClaims, error) {
+	if len(claims) == 0 {
+		return registry, nil
+	}
+	canonical := append([]ManagedCarrierClaim(nil), claims...)
+	for index, claim := range canonical {
+		if err := claim.Validate(); err != nil {
+			return GlobalCarrierClaims{}, fmt.Errorf(
+				"global carrier retirement claim[%d]: %w",
+				index,
+				err,
+			)
+		}
+		if claim.Identity().Scope() != target.ScopeGlobal {
+			return GlobalCarrierClaims{}, fmt.Errorf(
+				"global carrier retirement claim[%d] requires global scope",
+				index,
+			)
+		}
+	}
+	sort.Slice(canonical, func(left int, right int) bool {
+		return canonical[left].Compare(canonical[right]) < 0
+	})
+
+	retirements := make(map[CarrierFactKey]ManagedCarrierClaim, len(canonical))
+	for _, claim := range canonical {
+		key := claim.FactKey()
+		if previous, duplicate := retirements[key]; duplicate {
+			if previous.ExactEqual(claim) {
+				return GlobalCarrierClaims{}, fmt.Errorf(
+					"global carrier retirement duplicates one exact claim",
+				)
+			}
+			return GlobalCarrierClaims{}, fmt.Errorf(
+				"global carrier retirement conflicts within one owner relation",
+			)
+		}
+		retirements[key] = claim
+	}
+
+	current := make(map[CarrierFactKey]ManagedCarrierClaim, len(registry.claims))
+	for _, claim := range registry.claims {
+		current[claim.FactKey()] = claim
+	}
+	for _, retirement := range canonical {
+		retained, present := current[retirement.FactKey()]
+		if !present {
+			return GlobalCarrierClaims{}, fmt.Errorf(
+				"global carrier retirement exact claim is absent",
+			)
+		}
+		if !retained.ExactEqual(retirement) {
+			return GlobalCarrierClaims{}, fmt.Errorf(
+				"global carrier retirement conflicts with retained owner relation",
+			)
+		}
+	}
+
+	next := make([]ManagedCarrierClaim, 0, len(registry.claims)-len(canonical))
+	for _, claim := range registry.claims {
+		if _, retire := retirements[claim.FactKey()]; retire {
+			continue
+		}
+		next = append(next, claim)
+	}
+	return NewGlobalCarrierClaims(next)
+}
+
 // WithoutClaim removes only one exact claim. Absence is idempotent; a
 // different claim for the same owner relation is a contradiction.
 func (registry GlobalCarrierClaims) WithoutClaim(

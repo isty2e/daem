@@ -298,7 +298,7 @@ func runAfterCarrierClaimRetirements(
 	relationObservations observerelation.Batch,
 	options runOptions,
 ) (runResult, error) {
-	nextGlobalClaims, globalRetirementCount, err := retireGlobalCarrierClaims(
+	nextGlobalClaims, globalRetirementCount, err := commitGlobalCarrierRetirements(
 		ctx,
 		paths.CarrierClaimRegistryPath,
 		globalClaims,
@@ -371,7 +371,7 @@ func runAfterCarrierClaimRetirements(
 	return next, err
 }
 
-func retireGlobalCarrierClaims(
+func commitGlobalCarrierRetirements(
 	ctx context.Context,
 	registryPath string,
 	current durablecarrier.GlobalCarrierClaims,
@@ -384,23 +384,9 @@ func retireGlobalCarrierClaims(
 	if err != nil {
 		return current, 0, err
 	}
-	next := current
-	for index, claim := range claims {
-		updated, err := store.Remove(ctx, claim)
-		if err != nil {
-			return next, index, fmt.Errorf(
-				"retire global carrier claim[%d]: %w",
-				index,
-				err,
-			)
-		}
-		if updated.Equal(next) {
-			return next, index, fmt.Errorf(
-				"retire global carrier claim[%d]: exact claim is absent",
-				index,
-			)
-		}
-		next = updated
+	next, err := store.RetireAllIfCurrent(ctx, current, claims)
+	if err != nil {
+		return current, 0, fmt.Errorf("commit global carrier retirements: %w", err)
 	}
 	return next, len(claims), nil
 }
