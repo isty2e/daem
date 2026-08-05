@@ -12,6 +12,8 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
 func classifyImportInstructionMerge(existing existingDeclarations, source adoptmodel.Source) (adoptmodel.MergeResult, []targetpkg.Target) {
@@ -142,27 +144,88 @@ func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil
 }
 
-func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer) adoptmodel.MergeResult {
+func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer) (adoptmodel.MergeResult, error) {
 	resource := "mcp_server/" + server.ResourceName
+	importedSubject, err := topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)
+	if err != nil {
+		return adoptmodel.MergeResult{}, fmt.Errorf("imported %s projection identity: %w", resource, err)
+	}
 	imported := manifestMCPServerFromImportMCPServer(server)
+	var matching declarationcodec.MCPServer
+	matchingFound := false
 	for _, block := range existing.MCPServers {
 		if block.Server.Name != server.ResourceName {
 			continue
 		}
-		if sameImportedMCPServer(block.Server, imported) {
-			return adoptmodel.MergeResult{
-				Resource: resource,
-				Status:   adoptmodel.MergeStatusNoop,
-				Detail:   "existing mcp_server already matches imported standalone projection",
-			}
+		existingSubject, err := existingMCPServerProjectionSubject(existing.Header, block.Server)
+		if err != nil {
+			return adoptmodel.MergeResult{}, fmt.Errorf("existing %s projection identity: %w", resource, err)
 		}
+		if existingSubject != importedSubject {
+			continue
+		}
+		if matchingFound {
+			return adoptmodel.MergeResult{}, fmt.Errorf(
+				"existing manifest has duplicate mcp_server subject %q",
+				importedSubject.String(),
+			)
+		}
+		matching = block.Server
+		matchingFound = true
+	}
+	if !matchingFound {
 		return adoptmodel.MergeResult{
 			Resource: resource,
-			Status:   adoptmodel.MergeStatusConflict,
-			Detail:   "existing mcp_server has the same name with a different standalone projection shape",
-		}
+			Subject:  importedSubject,
+			Status:   adoptmodel.MergeStatusAdd,
+			Detail: fmt.Sprintf(
+				"append imported mcp_server projection target=%s scope=%s",
+				server.Target,
+				server.Scope,
+			),
+		}, nil
 	}
-	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported mcp_server"}
+	if declarationcodec.SameMCPServerProjectionPayload(matching, imported) {
+		return adoptmodel.MergeResult{
+			Resource: resource,
+			Subject:  importedSubject,
+			Status:   adoptmodel.MergeStatusNoop,
+			Detail: fmt.Sprintf(
+				"existing mcp_server projection target=%s scope=%s already matches imported standalone payload",
+				server.Target,
+				server.Scope,
+			),
+		}, nil
+	}
+	return adoptmodel.MergeResult{
+		Resource: resource,
+		Subject:  importedSubject,
+		Status:   adoptmodel.MergeStatusConflict,
+		Detail: fmt.Sprintf(
+			"existing mcp_server projection target=%s scope=%s has a different standalone payload",
+			server.Target,
+			server.Scope,
+		),
+	}, nil
+}
+
+func existingMCPServerProjectionSubject(
+	header declaration.ManifestHeader,
+	server declarationcodec.MCPServer,
+) (topology.SubjectID, error) {
+	effectiveTargets := header.EffectiveTargets(server.Targets)
+	if len(effectiveTargets) != 1 {
+		return topology.SubjectID{}, fmt.Errorf("MCP server projection requires exactly one effective target")
+	}
+	selectedTarget, err := targetpkg.ParseTarget(effectiveTargets[0])
+	if err != nil {
+		return topology.SubjectID{}, err
+	}
+	selectedScope, err := targetpkg.ParseScope(header.EffectiveScope(server.Scope))
+	if err != nil {
+		return topology.SubjectID{}, err
+	}
+	return topologymcp.ProjectionSubject(selectedTarget, selectedScope, server.Name)
 }
 
 func classifyImportExtensionMerge(
@@ -281,29 +344,6 @@ func sameImportedHookOverride(existing declaration.Hook, imported adoptmodel.Hoo
 		return !ok || (override.Condition == "" && override.Matcher == "")
 	}
 	return ok && override.Condition == imported.Condition && override.Matcher == ""
-}
-
-func sameImportedMCPServer(existing declarationcodec.MCPServer, imported declarationcodec.MCPServer) bool {
-	return existing.Name == imported.Name &&
-		existing.Scope == imported.Scope &&
-		existing.Transport == imported.Transport &&
-		existing.Command == imported.Command &&
-		sameStringSlice(existing.Targets, imported.Targets) &&
-		sameStringSlice(existing.Args, imported.Args) &&
-		sameMCPServerEnv(existing.Env, imported.Env)
-}
-
-func sameMCPServerEnv(left map[string]declarationcodec.MCPEnvReference, right map[string]declarationcodec.MCPEnvReference) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	for key, leftReference := range left {
-		rightReference, ok := right[key]
-		if !ok || leftReference.FromEnv != rightReference.FromEnv {
-			return false
-		}
-	}
-	return true
 }
 
 func sameStringSlice(left []string, right []string) bool {

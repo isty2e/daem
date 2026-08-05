@@ -10,7 +10,6 @@ import (
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
 	adoptmerge "github.com/isty2e/daem/internal/adopt/merge"
 	adoptskill "github.com/isty2e/daem/internal/adopt/skill"
-	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
@@ -57,20 +56,11 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 		if err != nil {
 			return adoptmodel.Plan{}, fmt.Errorf("read merge output manifest: %w", err)
 		}
-		extensionBlocks, err := declarationcodec.ScanExtensionBlocks(originalContent)
+		environment, err := declarationmanifest.Decode(originalContent)
 		if err != nil {
-			return adoptmodel.Plan{}, fmt.Errorf("scan merge output extensions: %w", err)
+			return adoptmodel.Plan{}, fmt.Errorf("decode merge output manifest: %w", err)
 		}
-		if len(extensionBlocks) != 0 {
-			environment, err := declarationmanifest.Decode(originalContent)
-			if err != nil {
-				return adoptmodel.Plan{}, fmt.Errorf(
-					"decode merge output manifest extensions: %w",
-					err,
-				)
-			}
-			existingExtensions = environment.Extensions()
-		}
+		existingExtensions = environment.Extensions()
 	}
 	var sources []adoptmodel.Source
 	var skills []adoptmodel.Skill

@@ -108,7 +108,10 @@ func IntoManifest(
 		}
 	}
 	for _, server := range mcpServers {
-		action := classifyImportMCPServerMerge(existing, server)
+		action, err := classifyImportMCPServerMerge(existing, server)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
 		mergeResults = append(mergeResults, action)
 		if action.Status == adoptmodel.MergeStatusAdd {
 			addMCPServers = append(addMCPServers, server)
@@ -186,7 +189,7 @@ func IntoManifest(
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	if err := validateManifestSyntax(content); err != nil {
+	if err := validateCanonicalManifest(content); err != nil {
 		mergeResults = append(mergeResults, adoptmodel.MergeResult{
 			Resource: "manifest",
 			Status:   adoptmodel.MergeStatusConflict,

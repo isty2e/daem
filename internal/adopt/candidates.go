@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 // CandidateSetInput names each independent import candidate and observation
@@ -59,6 +60,9 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 		if err := validateMCPServer(server); err != nil {
 			return CandidateSet{}, fmt.Errorf("mcp server candidate %d: %w", index, err)
 		}
+	}
+	if err := validateMCPServerSubjects(input.MCPServers); err != nil {
+		return CandidateSet{}, err
 	}
 	for index, extension := range input.Extensions.Extensions() {
 		if err := extension.Validate(); err != nil {
@@ -128,12 +132,6 @@ func (candidates CandidateSet) MCPServers() []MCPServer {
 // Extensions returns canonical exact extension declarations in proposal order.
 func (candidates CandidateSet) Extensions() []desiredextension.Extension {
 	return candidates.extensionResult.Extensions()
-}
-
-// OrderedExtensions returns the complete proposal including fixed existing
-// declarations needed for merge placement.
-func (candidates CandidateSet) OrderedExtensions() []desiredextension.Extension {
-	return candidates.extensionResult.OrderedExtensions()
 }
 
 // ExtensionResult returns the immutable exact-import order and evidence proposal.
@@ -297,6 +295,24 @@ func validateMCPServer(server MCPServer) error {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
 			return fmt.Errorf("environment references require non-empty names")
 		}
+	}
+	if _, err := server.projectionSubject(); err != nil {
+		return fmt.Errorf("projection identity: %w", err)
+	}
+	return nil
+}
+
+func validateMCPServerSubjects(servers []MCPServer) error {
+	seen := make(map[topology.SubjectID]struct{}, len(servers))
+	for _, server := range servers {
+		subject, err := server.projectionSubject()
+		if err != nil {
+			return err
+		}
+		if _, exists := seen[subject]; exists {
+			return fmt.Errorf("duplicate imported mcp_server subject %q", subject.String())
+		}
+		seen[subject] = struct{}{}
 	}
 	return nil
 }

@@ -186,6 +186,30 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 	}
 }
 
+func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
+	servers := []MCPServer{
+		{
+			ResourceName: "context7",
+			Target:       targetpkg.TargetCodex,
+			Scope:        targetpkg.ScopeProject,
+			LivePath:     "project-config",
+			Command:      "npx",
+		},
+		{
+			ResourceName: "context7",
+			Target:       targetpkg.TargetCodex,
+			Scope:        targetpkg.ScopeProject,
+			LivePath:     "other-project-config",
+			Command:      "node",
+		},
+	}
+
+	_, err := NewCandidateSet(CandidateSetInput{MCPServers: servers})
+	if err == nil || !strings.Contains(err.Error(), "duplicate imported mcp_server subject") {
+		t.Fatalf("NewCandidateSet error = %v, want duplicate projection subject", err)
+	}
+}
+
 func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing.T) {
 	base := Skill{
 		ResourceName: "review",

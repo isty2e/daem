@@ -8,6 +8,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
 // ErrNothingToImport reports that all selected live roots were absent, empty, or unsupported.
@@ -23,9 +25,11 @@ const (
 	MergeStatusConflict     MergeStatus = "conflict"
 )
 
-// MergeResult is one merge decision for an imported resource.
+// MergeResult is one merge decision for an imported resource. Subject identifies
+// a projection-specific decision and remains zero for aggregate-level decisions.
 type MergeResult struct {
 	Resource string
+	Subject  topology.SubjectID
 	Status   MergeStatus
 	Detail   string
 }
@@ -34,6 +38,11 @@ type MergeResult struct {
 func (result MergeResult) Validate() error {
 	if result.Resource == "" || result.Detail == "" {
 		return fmt.Errorf("merge result requires resource and detail")
+	}
+	if !result.Subject.IsZero() {
+		if err := result.Subject.Validate(); err != nil {
+			return fmt.Errorf("merge result subject: %w", err)
+		}
 	}
 	switch result.Status {
 	case MergeStatusAdd, MergeStatusMergeTargets, MergeStatusNoop, MergeStatusConflict:
@@ -105,7 +114,9 @@ type Hook struct {
 	Condition     string
 }
 
-// MCPServer is one imported standalone MCP declaration candidate.
+// MCPServer is one imported standalone MCP projection candidate. ResourceName
+// names the desired server aggregate; target and scope identify this candidate's
+// projection subject within that aggregate.
 type MCPServer struct {
 	ResourceName string
 	Target       targetpkg.Target
@@ -114,6 +125,10 @@ type MCPServer struct {
 	Command      string
 	Args         []string
 	Env          map[string]string
+}
+
+func (server MCPServer) projectionSubject() (topology.SubjectID, error) {
+	return topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)
 }
 
 // Skill is one imported skill directory candidate.

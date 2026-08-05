@@ -59,11 +59,6 @@ func (result Result) Extensions() []desiredextension.Extension {
 	return append([]desiredextension.Extension(nil), result.extensions...)
 }
 
-// Order returns the complete merge-safe carrier relation order.
-func (result Result) Order() []desiredextension.CarrierKey {
-	return append([]desiredextension.CarrierKey(nil), result.order...)
-}
-
 // OrderedExtensions returns the complete ordered declaration proposal,
 // including fixed existing relations needed for merge placement.
 func (result Result) OrderedExtensions() []desiredextension.Extension {
@@ -71,12 +66,6 @@ func (result Result) OrderedExtensions() []desiredextension.Extension {
 		[]desiredextension.Extension(nil),
 		result.orderedExtensions...,
 	)
-}
-
-// Constraints returns class-relative desired order constraints derived from
-// the proposal.
-func (result Result) Constraints() []hostrelation.RelationOrderConstraint {
-	return append([]hostrelation.RelationOrderConstraint(nil), result.constraints...)
 }
 
 // Scans returns selected physical inventory evidence.

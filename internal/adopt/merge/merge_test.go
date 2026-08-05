@@ -460,6 +460,9 @@ env = { TOKEN = { from_env = "TOKEN" } }
 	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
 		t.Fatalf("status = %s, want noop", got)
 	}
+	if got := merged.MergeResults()[0].Subject.String(); got != "projection/claude-code.project.mcp-server/context7" {
+		t.Fatalf("subject = %q, want canonical Claude project projection", got)
+	}
 }
 
 func TestIntoManifestReportsSameNameMCPServerConflict(t *testing.T) {
@@ -498,12 +501,15 @@ args = ["server.js"]
 	if string(merged.ManifestContent()) != string(plan.OriginalContent) {
 		t.Fatalf("manifest content changed on conflict")
 	}
-	if got := merged.MergeResults()[0].Detail; !strings.Contains(got, "different standalone projection shape") {
+	if got := merged.MergeResults()[0].Detail; !strings.Contains(got, "projection target=claude-code scope=project has a different standalone payload") {
 		t.Fatalf("detail = %q", got)
+	}
+	if got := merged.MergeResults()[0].Subject.String(); got != "projection/claude-code.project.mcp-server/context7" {
+		t.Fatalf("subject = %q, want canonical conflicting projection", got)
 	}
 }
 
-func TestIntoManifestReportsSameNameMCPTargetScopeConflict(t *testing.T) {
+func TestIntoManifestAppendsSameNameMCPAtDifferentProjectionSubject(t *testing.T) {
 	plan := mergeTestInput{
 		Merge: true,
 		OriginalContent: []byte(`version = 1
@@ -530,17 +536,181 @@ args = ["-y", "@upstash/context7-mcp"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !merged.HasMergeConflicts() {
-		t.Fatalf("merge results = %#v, want target/scope conflict", merged.MergeResults())
+	if merged.HasMergeConflicts() {
+		t.Fatalf("merge results = %#v, want distinct subject addition", merged.MergeResults())
 	}
-	if len(merged.MCPServers()) != 0 {
-		t.Fatalf("mcp servers = %#v, want conflicting server removed from writable additions", merged.MCPServers())
+	if len(merged.MCPServers()) != 1 {
+		t.Fatalf("mcp servers = %#v, want imported distinct subject", merged.MCPServers())
 	}
-	if string(merged.ManifestContent()) != string(plan.OriginalContent) {
-		t.Fatalf("manifest content changed on conflict")
+	if count := strings.Count(string(merged.ManifestContent()), `name = "context7"`); count != 2 {
+		t.Fatalf("manifest content = %q, want two same-name MCP rows", merged.ManifestContent())
 	}
-	if got := merged.MergeResults()[0].Detail; !strings.Contains(got, "different standalone projection shape") {
-		t.Fatalf("detail = %q", got)
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusAdd {
+		t.Fatalf("status = %q, want add", got)
+	}
+	if got := merged.MergeResults()[0].Subject.String(); got != "projection/claude-code.project.mcp-server/context7" {
+		t.Fatalf("subject = %q, want canonical added projection", got)
+	}
+}
+
+func TestIntoManifestRejectsGlobalMCPThatInheritsScopeFromDefaults(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "global"
+
+[[mcp_server]]
+name = "context7"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+`),
+		MCPServers: []adopt.MCPServer{{
+			ResourceName: "context7",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeGlobal,
+			Command:      "npx",
+			Args:         []string{"-y", "@upstash/context7-mcp"},
+		}},
+	}
+
+	_, err := mergeTestPlan(t, plan)
+	if err == nil || !strings.Contains(err.Error(), "global MCP projection requires explicit scope") {
+		t.Fatalf("merge error = %v, want explicit global scope rejection", err)
+	}
+}
+
+func TestIntoManifestNoopsMCPThatInheritsProjectScopeFromDefaults(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+
+[[mcp_server]]
+name = "context7"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+`),
+		MCPServers: []adopt.MCPServer{{
+			ResourceName: "context7",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			Command:      "npx",
+			Args:         []string{"-y", "@upstash/context7-mcp"},
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.HasMergeConflicts() || len(merged.MCPServers()) != 0 {
+		t.Fatalf("merge = %#v, want inherited project-scope noop", merged)
+	}
+	result := merged.MergeResults()[0]
+	if result.Status != adopt.MergeStatusNoop ||
+		result.Subject.String() != "projection/codex.project.mcp-server/context7" {
+		t.Fatalf("merge result = %#v, want canonical project-scope noop", result)
+	}
+}
+
+func TestIntoManifestNoopsExistingScopeAndAddsMissingScopeForSameMCPName(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["project-server"]
+`),
+		MCPServers: []adopt.MCPServer{
+			{
+				ResourceName: "context7",
+				Target:       target.TargetCodex,
+				Scope:        target.ScopeProject,
+				Command:      "npx",
+				Args:         []string{"project-server"},
+			},
+			{
+				ResourceName: "context7",
+				Target:       target.TargetCodex,
+				Scope:        target.ScopeGlobal,
+				Command:      "uvx",
+				Args:         []string{"global-server==1.2.3"},
+			},
+		},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.HasMergeConflicts() || len(merged.MCPServers()) != 1 {
+		t.Fatalf("merge results = %#v candidates = %#v, want one noop and one add", merged.MergeResults(), merged.MCPServers())
+	}
+	results := merged.MergeResults()
+	if len(results) != 2 || results[0].Status != adopt.MergeStatusNoop || results[1].Status != adopt.MergeStatusAdd {
+		t.Fatalf("merge results = %#v, want project noop then global add", results)
+	}
+	wantSubjects := []string{
+		"projection/codex.project.mcp-server/context7",
+		"projection/codex.global.mcp-server/context7",
+	}
+	for index, result := range results {
+		if got := result.Subject.String(); got != wantSubjects[index] {
+			t.Fatalf("merge result %d subject = %q, want %q", index, got, wantSubjects[index])
+		}
+	}
+	content := string(merged.ManifestContent())
+	if strings.Count(content, `name = "context7"`) != 2 || !strings.Contains(content, `scope = "global"`) {
+		t.Fatalf("manifest = %q, want project and global same-name rows", content)
+	}
+}
+
+func TestIntoManifestRejectsDuplicateExistingMCPProjectionSubject(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+`),
+		MCPServers: []adopt.MCPServer{{
+			ResourceName: "context7",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			Command:      "npx",
+		}},
+	}
+
+	_, err := mergeTestPlan(t, plan)
+	if err == nil || !strings.Contains(err.Error(), "duplicate") ||
+		!strings.Contains(err.Error(), "target=codex scope=project") {
+		t.Fatalf("merge error = %v, want duplicate existing subject rejection", err)
 	}
 }
 

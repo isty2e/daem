@@ -126,11 +126,6 @@ func (plan Plan) Extensions() []desiredextension.Extension {
 	return plan.candidates.Extensions()
 }
 
-// OrderedExtensions returns the complete merge-safe extension proposal.
-func (plan Plan) OrderedExtensions() []desiredextension.Extension {
-	return plan.candidates.OrderedExtensions()
-}
-
 // ExtensionResult returns the exact extension evidence and ordering proposal.
 func (plan Plan) ExtensionResult() adoptextension.Result {
 	return plan.candidates.ExtensionResult()
@@ -182,7 +177,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Extensions      json.RawMessage
 		Scans           []Scan
 		Skipped         []Skipped
-		MergeResults    []MergeResult
+		MergeResults    []mergeResultIdentity
 	}{
 		Output:          plan.Output(),
 		SourceDir:       plan.SourceDirectory().Root(),
@@ -196,8 +191,31 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Extensions:      extensionIdentity,
 		Scans:           plan.Scans(),
 		Skipped:         plan.Skipped(),
-		MergeResults:    plan.MergeResults(),
+		MergeResults:    mergeResultIdentities(plan.MergeResults()),
 	})
+}
+
+type mergeResultIdentity struct {
+	Resource string
+	Subject  string
+	Status   MergeStatus
+	Detail   string
+}
+
+func mergeResultIdentities(results []MergeResult) []mergeResultIdentity {
+	if results == nil {
+		return nil
+	}
+	identities := make([]mergeResultIdentity, 0, len(results))
+	for _, result := range results {
+		identities = append(identities, mergeResultIdentity{
+			Resource: result.Resource,
+			Subject:  result.Subject.String(),
+			Status:   result.Status,
+			Detail:   result.Detail,
+		})
+	}
+	return identities
 }
 
 func validateCandidatesAgainstRequest(request Request, candidates CandidateSet) error {

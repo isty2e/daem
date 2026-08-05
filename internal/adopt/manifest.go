@@ -11,6 +11,7 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 const (
@@ -186,16 +187,27 @@ func importManifestTables(
 		manifestHooks = append(manifestHooks, manifestHook)
 	}
 	manifestMCPServers := make([]declarationcodec.MCPServer, 0, len(mcpServers))
-	manifestMCPServerNames := make(map[string]struct{}, len(mcpServers))
+	manifestMCPServerSubjects := make(map[topology.SubjectID]struct{}, len(mcpServers))
 	for _, server := range mcpServers {
 		if _, ok := targetSeen[server.Target]; !ok {
 			targetSeen[server.Target] = struct{}{}
 			targets = append(targets, string(server.Target))
 		}
-		if _, ok := manifestMCPServerNames[server.ResourceName]; ok {
-			return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf("duplicate imported mcp_server resource %q", server.ResourceName)
+		subject, err := server.projectionSubject()
+		if err != nil {
+			return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf(
+				"imported mcp_server %q projection identity: %w",
+				server.ResourceName,
+				err,
+			)
 		}
-		manifestMCPServerNames[server.ResourceName] = struct{}{}
+		if _, ok := manifestMCPServerSubjects[subject]; ok {
+			return declarationcodec.ImportManifestBody{}, nil, fmt.Errorf(
+				"duplicate imported mcp_server subject %q",
+				subject.String(),
+			)
+		}
+		manifestMCPServerSubjects[subject] = struct{}{}
 		manifestMCPServers = append(manifestMCPServers, declarationcodec.MCPServer{
 			Name:      server.ResourceName,
 			Targets:   []string{string(server.Target)},

@@ -86,12 +86,12 @@ func TestImportManifestTablesRejectsDuplicateResourceIdentities(t *testing.T) {
 			want: `duplicate imported skill resource "review" has incompatible source or skill name`,
 		},
 		{
-			name: "mcp server",
+			name: "mcp server subject",
 			mcpServers: []MCPServer{
 				{ResourceName: "context7", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal},
-				{ResourceName: "context7", Target: targetpkg.TargetClaudeCode, Scope: targetpkg.ScopeGlobal},
+				{ResourceName: "context7", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal},
 			},
-			want: `duplicate imported mcp_server resource "context7"`,
+			want: `duplicate imported mcp_server subject "projection/codex.global.mcp-server/context7"`,
 		},
 	}
 
@@ -110,6 +110,33 @@ func TestImportManifestTablesRejectsDuplicateResourceIdentities(t *testing.T) {
 				t.Fatalf("importManifestTables error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestImportManifestTablesAllowsSameMCPNameAcrossProjectionSubjects(t *testing.T) {
+	body, _, err := importManifestTables(
+		nil,
+		nil,
+		nil,
+		[]MCPServer{
+			{ResourceName: "context7", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject},
+			{ResourceName: "context7", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeGlobal},
+			{ResourceName: "context7", Target: targetpkg.TargetClaudeCode, Scope: targetpkg.ScopeProject},
+		},
+		nil,
+		nil,
+		make(map[targetpkg.Target]struct{}),
+	)
+	if err != nil {
+		t.Fatalf("importManifestTables returned error: %v", err)
+	}
+	if len(body.MCPServers) != 3 {
+		t.Fatalf("mcp servers = %#v, want three distinct projection subjects", body.MCPServers)
+	}
+	if body.MCPServers[0].Scope != "project" ||
+		body.MCPServers[1].Scope != "global" ||
+		body.MCPServers[2].Targets[0] != "claude-code" {
+		t.Fatalf("mcp servers = %#v, want declaration order and distinct target/scope rows", body.MCPServers)
 	}
 }
 
