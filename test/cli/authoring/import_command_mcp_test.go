@@ -299,6 +299,139 @@ env = { API_TOKEN = "SECRET_CANARY" }
 	}
 }
 
+func TestRunImportWritesSameNameCodexMCPAcrossSelectedScopes(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	t.Setenv("HOME", homeDir)
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.imported.toml")
+	testkit.WriteFile(t, tempDir, aggregate.CodexProjectMCPConfigPath, `
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@project"]
+`)
+	globalPath := filepath.Join(homeDir, strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"))
+	testkit.WriteFile(t, filepath.Dir(globalPath), filepath.Base(globalPath), `
+[mcp_servers.context7]
+command = "uvx"
+args = ["context7-mcp==1.2.3"]
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"import",
+			"--target", "codex",
+			"--scope", "project",
+			"--scope", "global",
+			"--manifest", outputPath,
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("import exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+
+	server := readImportedMCPServer(t, outputPath, "context7")
+	bindings := server.Bindings()
+	if len(bindings) != 2 {
+		t.Fatalf("bindings = %#v, want project and global", bindings)
+	}
+	wantCommands := map[target.Scope]string{
+		target.ScopeProject: "npx",
+		target.ScopeGlobal:  "uvx",
+	}
+	for _, binding := range bindings {
+		stdio, ok := binding.Transport().Stdio()
+		if !ok || binding.Target() != target.TargetCodex {
+			t.Fatalf("binding = %#v, want Codex stdio", binding)
+		}
+		if got := stdio.Command().Executable(); got != wantCommands[binding.Scope()] {
+			t.Fatalf("binding %s command = %q, want %q", binding.Scope(), got, wantCommands[binding.Scope()])
+		}
+	}
+	if content := string(testkit.ReadFile(t, outputPath)); strings.Count(content, `name = "context7"`) != 2 {
+		t.Fatalf("manifest = %q, want two same-name scoped MCP rows", content)
+	}
+}
+
+func TestRunImportMergeNoopsExistingScopeAndAddsSameNameMCPAtMissingScope(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	t.Setenv("HOME", homeDir)
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.toml")
+	testkit.WriteFile(t, tempDir, "daem.toml", `
+version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@project"]
+`)
+	testkit.WriteFile(t, tempDir, aggregate.CodexProjectMCPConfigPath, `
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@project"]
+`)
+	globalPath := filepath.Join(homeDir, strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"))
+	testkit.WriteFile(t, filepath.Dir(globalPath), filepath.Base(globalPath), `
+[mcp_servers.context7]
+command = "uvx"
+args = ["context7-mcp==1.2.3"]
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"import",
+			"--target", "codex",
+			"--scope", "project",
+			"--scope", "global",
+			"--manifest", outputPath,
+			"--merge",
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("import --merge exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `merge resource="mcp_server/context7" status=noop detail="existing mcp_server projection target=codex scope=project`) ||
+		!strings.Contains(stdout.String(), `merge resource="mcp_server/context7" status=add detail="append imported mcp_server projection target=codex scope=global`) {
+		t.Fatalf("stdout = %q, want project noop and global add", stdout.String())
+	}
+
+	server := readImportedMCPServer(t, outputPath, "context7")
+	bindings := server.Bindings()
+	if len(bindings) != 2 {
+		t.Fatalf("bindings = %#v, want project and global", bindings)
+	}
+	wantCommands := map[target.Scope]string{
+		target.ScopeProject: "npx",
+		target.ScopeGlobal:  "uvx",
+	}
+	for _, binding := range bindings {
+		stdio, ok := binding.Transport().Stdio()
+		if !ok || binding.Target() != target.TargetCodex {
+			t.Fatalf("binding = %#v, want Codex stdio", binding)
+		}
+		if got := stdio.Command().Executable(); got != wantCommands[binding.Scope()] {
+			t.Fatalf("binding %s command = %q, want %q", binding.Scope(), got, wantCommands[binding.Scope()])
+		}
+	}
+	if content := string(testkit.ReadFile(t, outputPath)); strings.Count(content, `name = "context7"`) != 2 {
+		t.Fatalf("manifest = %q, want two same-name scoped MCP rows", content)
+	}
+}
+
 func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {
 	tempDir := t.TempDir()
 	homeDir := filepath.Join(tempDir, "home")

@@ -126,11 +126,6 @@ func (plan Plan) Extensions() []desiredextension.Extension {
 	return plan.candidates.Extensions()
 }
 
-// OrderedExtensions returns the complete merge-safe extension proposal.
-func (plan Plan) OrderedExtensions() []desiredextension.Extension {
-	return plan.candidates.OrderedExtensions()
-}
-
 // ExtensionResult returns the exact extension evidence and ordering proposal.
 func (plan Plan) ExtensionResult() adoptextension.Result {
 	return plan.candidates.ExtensionResult()

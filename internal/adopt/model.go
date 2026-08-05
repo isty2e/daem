@@ -8,6 +8,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
 // ErrNothingToImport reports that all selected live roots were absent, empty, or unsupported.
@@ -105,7 +107,9 @@ type Hook struct {
 	Condition     string
 }
 
-// MCPServer is one imported standalone MCP declaration candidate.
+// MCPServer is one imported standalone MCP projection candidate. ResourceName
+// names the desired server aggregate; target and scope identify this candidate's
+// projection subject within that aggregate.
 type MCPServer struct {
 	ResourceName string
 	Target       targetpkg.Target
@@ -114,6 +118,10 @@ type MCPServer struct {
 	Command      string
 	Args         []string
 	Env          map[string]string
+}
+
+func (server MCPServer) projectionSubject() (topology.SubjectID, error) {
+	return topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)
 }
 
 // Skill is one imported skill directory candidate.

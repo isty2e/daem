@@ -5,11 +5,13 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 )
 
 type existingDeclarations struct {
+	Header       declaration.ManifestHeader
 	Instructions []declarationcodec.InstructionBlock
 	Skills       []declarationcodec.SkillBlock
 	Hooks        []declarationcodec.HookBlock
@@ -20,6 +22,10 @@ type existingDeclarations struct {
 func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 	if err := validateManifestSyntax(content); err != nil {
 		return existingDeclarations{}, fmt.Errorf("parse merge output manifest: %w", err)
+	}
+	header, err := declaration.DecodeManifestHeader(content)
+	if err != nil {
+		return existingDeclarations{}, err
 	}
 	instructions, err := declarationcodec.ScanInstructionBlocks(content)
 	if err != nil {
@@ -42,6 +48,7 @@ func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 		return existingDeclarations{}, err
 	}
 	return existingDeclarations{
+		Header:       header,
 		Instructions: instructions,
 		Skills:       skills,
 		Hooks:        hooks,
