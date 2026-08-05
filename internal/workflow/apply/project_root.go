@@ -129,6 +129,28 @@ func projectRootFingerprint(planned commandPlan) (*projectRootFingerprintFacts, 
 	}, nil
 }
 
+func preflightRecoveryJournalProjectRoot(planned commandPlan) error {
+	if planned.projectRoot == nil {
+		return rootedpath.NewBoundaryFailure(
+			rootedpath.FailureRootUnavailable,
+			planned.context.Paths.ManifestRoot,
+			"recovery journal requires retained project-root authority",
+			nil,
+		)
+	}
+	if err := planned.projectRoot.ValidateSelection(planned.context.Paths.ManifestRoot); err != nil {
+		return fmt.Errorf("validate recovery journal project root: %w", err)
+	}
+	authority, err := planned.projectRoot.Authority()
+	if err != nil {
+		return fmt.Errorf("read recovery journal project-root authority: %w", err)
+	}
+	if _, err := authority.Provenance(); err != nil {
+		return fmt.Errorf("derive recovery journal project-root provenance: %w", err)
+	}
+	return nil
+}
+
 func validateHostRouteProjectRoot(options runOptions, selectedRoot string) error {
 	if options.projectRoot == nil {
 		return rootedpath.NewBoundaryFailure(

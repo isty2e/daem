@@ -35,7 +35,9 @@ invocation therefore is not rejected merely because the machine rebooted. An
 active journal is different: recovery after a reboot fails closed before
 effects because the persisted mount authority belonged to the earlier boot. If
 the running Linux kernel cannot provide the unique mount identity, daem rejects
-journal construction before publication or host mutation rather than weakening
+the durable-provenance preflight before provider-prerequisite state publication
+or delegated provider installation. Final journal capture validates that
+provenance again before its covered host mutations rather than weakening
 durable recovery authority.
 
 The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases

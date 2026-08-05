@@ -11,6 +11,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -59,6 +60,39 @@ func TestExecuteInstallsPiMCPProviderBeforeConfigProjection(t *testing.T) {
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("Pi MCP config was not projected after provider verification: %v", err)
 	}
+}
+
+func TestPrepareMCPProviderPrerequisiteActionsRequiresRecoveryAuthorityOnlyForEffects(t *testing.T) {
+	t.Run("install required", func(t *testing.T) {
+		_, manifestPath := writePiProviderMCPFixture(t)
+		prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+		if err != nil {
+			t.Fatalf("PlanWrite returned error: %v", err)
+		}
+		defer func() {
+			if err := prepared.Close(); err != nil {
+				t.Fatalf("close prepared write: %v", err)
+			}
+		}()
+
+		planned := prepared.lifecycle.planned
+		planned.projectRoot = nil
+		_, err = prepareMCPProviderPrerequisiteActions(planned)
+		var failure *rootedpath.Failure
+		if !errors.As(err, &failure) || failure.Kind() != rootedpath.FailureRootUnavailable {
+			t.Fatalf("prepare actions error = %v, want recovery root authority failure", err)
+		}
+	})
+
+	t.Run("no provider effect", func(t *testing.T) {
+		actions, err := prepareMCPProviderPrerequisiteActions(commandPlan{})
+		if err != nil {
+			t.Fatalf("prepare actions returned error without provider effects: %v", err)
+		}
+		if len(actions) != 0 {
+			t.Fatalf("provider actions = %#v, want none", actions)
+		}
+	})
 }
 
 func TestExecuteDoesNotProjectPiMCPConfigWhenProviderPostconditionIsAbsent(t *testing.T) {

@@ -232,7 +232,10 @@ recovery is claimed for ordinary local-filesystem process failures within the
 same boot. Compile-only and unsupported rows are not promoted into either
 guarantee. On Linux, a kernel that cannot provide a unique mount ID may still
 satisfy operation-local rooted-path checks, but daem refuses to publish a
-recovery journal or begin its covered host effects.
+recovery journal or begin its covered host effects. Before a provider
+prerequisite can publish pending state or invoke the host, daem preflights the
+durable manifest-root provenance that the later recovery journal requires.
+After provider replan, final journal capture derives and validates it again.
 See [Platform Support](platforms.md).
 Write-mode apply planning refuses a selected manifest or lockfile larger than
 64 MiB before decoding it. Daem refuses input statefiles larger than 16 MiB
