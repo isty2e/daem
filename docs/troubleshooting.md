@@ -277,16 +277,17 @@ target's canonical route supplies the copied bytes. Imported skill planning and
 staging are both limited to 100,000 entries and 64 descendant-directory levels
 so a preview admits only trees that private staging can create and clean up.
 This is a structural limit, not a whole-skill byte limit.
-Rerun `daem import --dry-run` after the tree is stable and within those bounds.
+Rerun `daem import --target <target> --dry-run` after the tree is stable and
+within those bounds.
 Daem does not publish the generated manifest or a partial vendored skill when
 the copied tree differs from the planned content identity.
 
 Hook import additionally accepts at most 4,096 skipped entries, and all skip
 diagnostics together may contain at most 256 KiB. Exceeding a shared Hook
 document limit produces one `hook_import_budget_exceeded` skip and no partial
-import. Fix the reported live file and rerun `daem import --dry-run`. Daem does
-not import the valid-looking subset of an ambiguous or over-budget hook
-document.
+import. Fix the reported live file and rerun
+`daem import --target <target> --dry-run`. Daem does not import the
+valid-looking subset of an ambiguous or over-budget hook document.
 
 Each imported Hook candidate must also satisfy the canonical Hook model before
 it is written to the manifest. Invalid UTF-8, control or bidirectional-control

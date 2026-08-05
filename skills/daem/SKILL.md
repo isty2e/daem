@@ -152,8 +152,9 @@ For extensions, distinguish two removal intents:
 - Use `daem refresh extension` only for an explicitly selected extension route
   supported by the installed daem. Preview it before execution.
 - To bring existing host state under declaration, start with
-  `daem import --dry-run`. Import does not write a lockfile. After a successful
-  import, run the lock and apply previews separately.
+  `daem import --target <target> --dry-run`. Repeat `--target` when needed.
+  Import does not write a lockfile. After a successful import, run the lock and
+  apply previews separately.
 - Use `daem apply --manage-existing --dry-run` only when the user explicitly
   wants daem to adopt eligible exact existing state. Never infer adoption from
   matching files alone.
