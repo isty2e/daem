@@ -29,7 +29,7 @@ func (store Store) RemoveClaim(
 		return ownership.Registry{}, fmt.Errorf("removed ownership claim: %w", err)
 	}
 
-	current, expectedEntry, exists, capability, err := store.loadForClaimRemoval(ctx, expected)
+	current, expectedEntry, exists, capability, err := store.loadForClaimRemovals(ctx, []ownership.Claim{expected})
 	if err != nil {
 		return ownership.Registry{}, err
 	}
@@ -78,9 +78,9 @@ func (store Store) RemoveClaim(
 	return next, nil
 }
 
-func (store Store) loadForClaimRemoval(
+func (store Store) loadForClaimRemovals(
 	ctx context.Context,
-	expected ownership.Claim,
+	expected []ownership.Claim,
 ) (
 	ownership.Registry,
 	storagecommit.EntryIdentity,
@@ -119,7 +119,7 @@ func (store Store) loadForClaimRemoval(
 				mode.Perm(),
 			)
 		}
-		registry, err := decodePersistedRegistryForClaimRemovals(ctx, content, []ownership.Claim{expected})
+		registry, err := decodePersistedRegistryForClaimRemovals(ctx, content, expected)
 		if err != nil {
 			_ = capability.Close()
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
@@ -155,7 +155,7 @@ func (store Store) loadForClaimRemoval(
 			snapshot.Identity(),
 		)
 	}
-	registry, err := decodePersistedRegistryForClaimRemovals(ctx, snapshot.Content(), []ownership.Claim{expected})
+	registry, err := decodePersistedRegistryForClaimRemovals(ctx, snapshot.Content(), expected)
 	if err != nil {
 		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
 	}

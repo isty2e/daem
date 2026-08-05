@@ -17,13 +17,7 @@ type RegistryReader interface {
 type RegistryStore interface {
 	RegistryReader
 	Path() string
-	Apply(
-		context.Context,
-		outputownership.ManagedAddress,
-		outputownership.ClaimValue,
-		outputownership.ClaimValue,
-	) (outputownership.Registry, error)
-	RemoveClaim(context.Context, outputownership.Claim) (outputownership.Registry, error)
+	Converge(context.Context, outputownership.ClaimConvergence) (outputownership.Registry, error)
 }
 
 // RootedRegistryBinder binds one registry store to retained physical-root authority.
