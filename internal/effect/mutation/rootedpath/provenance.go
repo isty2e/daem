@@ -44,18 +44,14 @@ func (authority Authority) Provenance() (AuthorityProvenance, error) {
 	if err := authority.Validate(); err != nil {
 		return AuthorityProvenance{}, err
 	}
-	if authority.mount.recovery == (identityToken{}) {
-		return AuthorityProvenance{}, newFailure(
-			FailureUnsupportedPlatform,
-			authority.physicalRoot,
-			"durable recovery mount identity is unavailable; Linux recovery requires STATX_MNT_ID_UNIQUE",
-			nil,
-		)
+	recoveryMount, err := authority.mount.recovery.tokenOrFailure(authority.physicalRoot)
+	if err != nil {
+		return AuthorityProvenance{}, err
 	}
 	return NewAuthorityProvenance(
 		authority.physicalRoot,
 		recoveryIdentityFingerprint("object", authority.object),
-		recoveryIdentityFingerprint("mount", authority.mount.recovery),
+		recoveryIdentityFingerprint("mount", recoveryMount),
 	)
 }
 
@@ -183,15 +179,11 @@ func (provenance AuthorityProvenance) MatchDescendant(authority Authority) error
 			err,
 		)
 	}
-	if authority.mount.recovery == (identityToken{}) {
-		return newFailure(
-			FailureUnsupportedPlatform,
-			authority.physicalRoot,
-			"durable recovery mount identity is unavailable; Linux recovery requires STATX_MNT_ID_UNIQUE",
-			nil,
-		)
+	recoveryMount, err := authority.mount.recovery.tokenOrFailure(authority.physicalRoot)
+	if err != nil {
+		return err
 	}
-	if provenance.mountFingerprint != recoveryIdentityFingerprint("mount", authority.mount.recovery) {
+	if provenance.mountFingerprint != recoveryIdentityFingerprint("mount", recoveryMount) {
 		return newFailure(
 			FailureMountChanged,
 			authority.physicalRoot,

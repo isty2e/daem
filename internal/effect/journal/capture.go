@@ -25,7 +25,7 @@ import (
 // CaptureOptions supplies boundary authority and ownership facts for journal capture.
 // Managed path before-state comes from exact subject/address evidence; aggregate
 // before-state comes from each validated mutation's snapshot and document. Callers
-// do not supply a parallel raw observation model. ProjectRoot, OperationAuthority,
+// do not supply a parallel raw observation model. ManifestRoot, OperationAuthority,
 // and the RootedCapability callback are borrowed. Capture closes every capability
 // returned by the authorities.
 type CaptureOptions struct {
@@ -35,7 +35,7 @@ type CaptureOptions struct {
 	ManagedAggregateMutations []ManagedAggregateMutation
 	ManagedPathEvidence       []observe.ManagedPathEvidence
 	Resolver                  func(destination output.Destination) (string, error)
-	ProjectRoot               *rootedpath.CapturedRoot
+	ManifestRoot              *rootedpath.CapturedRoot
 	OperationAuthority        *rootedpath.EntryAuthority
 	RootedCapability          RootedCapabilityResolver
 	Codecs                    aggregate.CodecCatalog
@@ -311,15 +311,15 @@ func buildRecoveryJournal(
 		return recoveryJournal{}, err
 	}
 	boundResolver := globalPathBindings.resolver(options.Resolver)
-	projectAuthority, err := projectAuthorityForCapture(paths, mutations, options.ProjectRoot)
+	manifestAuthority, err := manifestAuthorityForCapture(paths, options.ManifestRoot)
 	if err != nil {
 		return recoveryJournal{}, err
 	}
-	if projectAuthority != nil && projectAuthority.owned {
+	if manifestAuthority.owned {
 		defer func() {
-			if closeErr := projectAuthority.close(); closeErr != nil {
+			if closeErr := manifestAuthority.close(); closeErr != nil {
 				result = recoveryJournal{}
-				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal project root: %w", closeErr))
+				resultErr = errors.Join(resultErr, fmt.Errorf("close recovery journal manifest root: %w", closeErr))
 			}
 		}()
 	}
@@ -349,7 +349,7 @@ func buildRecoveryJournal(
 			action,
 			options.Filesystem,
 			boundResolver,
-			projectAuthority,
+			manifestAuthority,
 			options.RootedCapability,
 			contentPathBaselines,
 		)
@@ -409,16 +409,16 @@ func buildRecoveryJournal(
 		return recoveryJournal{}, err
 	}
 	return recoveryJournal{
-		Version:               recoveryJournalVersion,
-		OperationID:           operationID,
-		Operation:             recoveryOperationApply,
-		CreatedAt:             createdAt.UTC().Format(time.RFC3339),
-		ProjectRootProvenance: projectAuthority.persisted(),
-		Entries:               entries,
-		StatefileBefore:       currentState,
-		StatefileAfter:        nextState,
-		ClaimTransitions:      persistedTransitions,
-		ProvisionalAcquires:   persistedIntents,
+		Version:                recoveryJournalVersion,
+		OperationID:            operationID,
+		Operation:              recoveryOperationApply,
+		CreatedAt:              createdAt.UTC().Format(time.RFC3339),
+		ManifestRootProvenance: manifestAuthority.persisted(),
+		Entries:                entries,
+		StatefileBefore:        currentState,
+		StatefileAfter:         nextState,
+		ClaimTransitions:       persistedTransitions,
+		ProvisionalAcquires:    persistedIntents,
 	}, nil
 }
 

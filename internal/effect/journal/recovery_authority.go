@@ -26,7 +26,7 @@ func canonicalRecoveryAuthority(
 		entries = append(entries, entry)
 	}
 
-	projectProvenance, err := canonicalRecoveryProjectProvenance(journal.ProjectRootProvenance)
+	manifestProvenance, err := canonicalRecoveryManifestRootProvenance(journal.ManifestRootProvenance)
 	if err != nil {
 		return recovery.Authority{}, err
 	}
@@ -38,7 +38,7 @@ func canonicalRecoveryAuthority(
 		journal.StatefileAfter,
 		claimTransitions,
 		provisionalIntents,
-		projectProvenance,
+		manifestProvenance,
 		fingerprint,
 	)
 }
@@ -93,25 +93,22 @@ func parseRecoveryTargets(values []string) ([]target.Target, error) {
 	return result, nil
 }
 
-func canonicalRecoveryProjectProvenance(
-	persisted *recoveryRootProvenance,
-) (*recovery.ProjectRootProvenance, error) {
-	if persisted == nil {
-		return nil, nil
-	}
+func canonicalRecoveryManifestRootProvenance(
+	persisted recoveryRootProvenance,
+) (recovery.ManifestRootProvenance, error) {
 	validated, err := persisted.canonical()
 	if err != nil {
-		return nil, fmt.Errorf("recovery project_root_provenance: %w", err)
+		return recovery.ManifestRootProvenance{}, fmt.Errorf("recovery manifest_root_provenance: %w", err)
 	}
-	canonical, err := recovery.NewProjectRootProvenance(
+	canonical, err := recovery.NewManifestRootProvenance(
 		validated.PhysicalRoot(),
 		validated.ObjectFingerprint(),
 		validated.MountFingerprint(),
 	)
 	if err != nil {
-		return nil, err
+		return recovery.ManifestRootProvenance{}, err
 	}
-	return &canonical, nil
+	return canonical, nil
 }
 
 func canonicalRecoveryPathEvidence(values []recoveryPathObservation) []recovery.PathEvidence {

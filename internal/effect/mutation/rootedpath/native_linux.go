@@ -51,7 +51,7 @@ func nativeRecoveryMountToken(fd int) (identityToken, error) {
 	}
 	bootID, err := currentLinuxBootID()
 	if err != nil {
-		return identityToken{}, fmt.Errorf("%w: observe Linux boot identity: %v", errMountIdentityUnsupported, err)
+		return identityToken{}, fmt.Errorf("observe Linux boot identity: %w", err)
 	}
 	return linuxRecoveryMountToken(mountID, bootID), nil
 }

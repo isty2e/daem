@@ -210,17 +210,22 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	validProvenance := ManifestRootProvenance{
+		physicalRoot:      "/manifest",
+		objectFingerprint: "sha256:object",
+		mountFingerprint:  "sha256:mount",
+	}
 	tests := []struct {
 		name        string
 		entries     []Entry
 		transitions []ownershipmutation.ClaimTransition
 		intents     []ownership.ProvisionalAcquireIntent
-		provenance  *ProjectRootProvenance
+		provenance  ManifestRootProvenance
 	}{
-		{name: "zero entry", entries: []Entry{{}}},
-		{name: "zero claim transition", entries: []Entry{entry}, transitions: []ownershipmutation.ClaimTransition{{}}},
-		{name: "zero provisional intent", entries: []Entry{entry}, intents: []ownership.ProvisionalAcquireIntent{{}}},
-		{name: "zero project provenance", entries: []Entry{entry}, provenance: &ProjectRootProvenance{}},
+		{name: "zero entry", entries: []Entry{{}}, provenance: validProvenance},
+		{name: "zero claim transition", entries: []Entry{entry}, transitions: []ownershipmutation.ClaimTransition{{}}, provenance: validProvenance},
+		{name: "zero provisional intent", entries: []Entry{entry}, intents: []ownership.ProvisionalAcquireIntent{{}}, provenance: validProvenance},
+		{name: "zero manifest provenance", entries: []Entry{entry}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -337,7 +342,11 @@ func testAuthority(t *testing.T, fingerprint string) Authority {
 		after,
 		nil,
 		nil,
-		nil,
+		ManifestRootProvenance{
+			physicalRoot:      "/manifest",
+			objectFingerprint: "sha256:object",
+			mountFingerprint:  "sha256:mount",
+		},
 		fingerprint,
 	)
 	if err != nil {

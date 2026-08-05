@@ -44,7 +44,7 @@ func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
   "operation_id": "20260625T000000.000000000Z-apply",
   "operation": "apply",
   "created_at": "2026-06-25T00:00:00Z",
-  "project_root_provenance": {
+  "manifest_root_provenance": {
     "physical_root": "/test/project",
     "object_fingerprint": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
     "mount_fingerprint": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -149,7 +149,7 @@ func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recoveryJournalAuthorityFingerprint() error = %v", err)
 	}
-	const wantFingerprint = "sha256:a630cd841c86281eb26c4a0f4ec15a83ea66a4de7d8005fb15ac20375b9b43e9"
+	const wantFingerprint = "sha256:99a4bda2efa2f5b28ef6679ca74deac1d027707d000eca17fd946e7a448c4357"
 	if fingerprint != wantFingerprint {
 		t.Fatalf("journal fingerprint = %q, want %q", fingerprint, wantFingerprint)
 	}

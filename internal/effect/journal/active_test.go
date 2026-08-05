@@ -23,7 +23,7 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 	journalPath := filepath.Join(operationDir, recoveryJournalFileName)
 	if err := os.WriteFile(
 		journalPath,
-		[]byte(`{"version":11,"entries":[],"unexpected":true}`),
+		[]byte(`{"version":11,"manifest_root_provenance":{},"entries":[],"unexpected":true}`),
 		0o600,
 	); err != nil {
 		t.Fatalf("WriteFile returned error: %v", err)
@@ -58,7 +58,7 @@ func TestRecoveryInventoryIgnoresUnrelatedHiddenEntries(t *testing.T) {
 	operationID := "20260711T120000.000000000Z-apply"
 	if _, err := CaptureJournalWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		operationID,
 		time.Date(2026, time.July, 11, 12, 0, 0, 0, time.UTC),
 		beforeStatefile(),

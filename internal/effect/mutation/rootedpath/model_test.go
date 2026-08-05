@@ -35,7 +35,7 @@ func TestAuthorityAdapterIngressRejectsInvalidOrContradictoryFacts(t *testing.T)
 			_, err := newCapturedAuthority(
 				test.root,
 				test.object,
-				newMountIdentities(test.mount, test.mount),
+				newMountIdentities(test.mount, availableRecoveryMountEvidence(test.mount)),
 			)
 			if !hasFailureKind(err, FailureInvalidRoot) {
 				t.Fatalf("newCapturedAuthority error = %v, want %s", err, FailureInvalidRoot)

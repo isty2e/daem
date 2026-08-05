@@ -56,16 +56,16 @@ const (
 )
 
 type recoveryJournalDTO struct {
-	Version               int                                `json:"version"`
-	OperationID           string                             `json:"operation_id"`
-	Operation             string                             `json:"operation"`
-	CreatedAt             string                             `json:"created_at"`
-	ProjectRootProvenance *recoveryRootProvenance            `json:"project_root_provenance,omitempty"`
-	Entries               []recoveryEntry                    `json:"entries"`
-	StatefileBefore       json.RawMessage                    `json:"statefile_before"`
-	StatefileAfter        json.RawMessage                    `json:"statefile_after"`
-	ClaimTransitions      []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
-	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
+	Version                int                                `json:"version"`
+	OperationID            string                             `json:"operation_id"`
+	Operation              string                             `json:"operation"`
+	CreatedAt              string                             `json:"created_at"`
+	ManifestRootProvenance recoveryRootProvenance             `json:"manifest_root_provenance"`
+	Entries                []recoveryEntry                    `json:"entries"`
+	StatefileBefore        json.RawMessage                    `json:"statefile_before"`
+	StatefileAfter         json.RawMessage                    `json:"statefile_after"`
+	ClaimTransitions       []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
+	ProvisionalAcquires    []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
 func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
@@ -81,6 +81,9 @@ func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
 	}
 	if _, present := fields["entries"]; !present {
 		return fmt.Errorf(`recovery journal field "entries" is required`)
+	}
+	if _, present := fields["manifest_root_provenance"]; !present {
+		return fmt.Errorf(`recovery journal field "manifest_root_provenance" is required`)
 	}
 
 	type wire recoveryJournalDTO
@@ -139,16 +142,16 @@ func encodeRecoveryJournal(
 	statefileAfter []byte,
 ) ([]byte, error) {
 	persisted := recoveryJournalDTO{
-		Version:               journal.Version,
-		OperationID:           journal.OperationID,
-		Operation:             journal.Operation,
-		CreatedAt:             journal.CreatedAt,
-		ProjectRootProvenance: journal.ProjectRootProvenance,
-		Entries:               append([]recoveryEntry(nil), journal.Entries...),
-		StatefileBefore:       json.RawMessage(statefileBefore),
-		StatefileAfter:        json.RawMessage(statefileAfter),
-		ClaimTransitions:      append([]recoveryClaimTransition(nil), journal.ClaimTransitions...),
-		ProvisionalAcquires:   append([]recoveryProvisionalAcquireIntent(nil), journal.ProvisionalAcquires...),
+		Version:                journal.Version,
+		OperationID:            journal.OperationID,
+		Operation:              journal.Operation,
+		CreatedAt:              journal.CreatedAt,
+		ManifestRootProvenance: journal.ManifestRootProvenance,
+		Entries:                append([]recoveryEntry(nil), journal.Entries...),
+		StatefileBefore:        json.RawMessage(statefileBefore),
+		StatefileAfter:         json.RawMessage(statefileAfter),
+		ClaimTransitions:       append([]recoveryClaimTransition(nil), journal.ClaimTransitions...),
+		ProvisionalAcquires:    append([]recoveryProvisionalAcquireIntent(nil), journal.ProvisionalAcquires...),
 	}
 	sortRecoveryEntries(persisted.Entries)
 
@@ -223,16 +226,16 @@ func decodeRecoveryJournalSnapshot(
 		return recoveryJournal{}, fmt.Errorf("recovery journal statefile_after: %w", err)
 	}
 	journal := recoveryJournal{
-		Version:               persisted.Version,
-		OperationID:           persisted.OperationID,
-		Operation:             persisted.Operation,
-		CreatedAt:             persisted.CreatedAt,
-		ProjectRootProvenance: persisted.ProjectRootProvenance,
-		Entries:               persisted.Entries,
-		StatefileBefore:       before,
-		StatefileAfter:        after,
-		ClaimTransitions:      persisted.ClaimTransitions,
-		ProvisionalAcquires:   persisted.ProvisionalAcquires,
+		Version:                persisted.Version,
+		OperationID:            persisted.OperationID,
+		Operation:              persisted.Operation,
+		CreatedAt:              persisted.CreatedAt,
+		ManifestRootProvenance: persisted.ManifestRootProvenance,
+		Entries:                persisted.Entries,
+		StatefileBefore:        before,
+		StatefileAfter:         after,
+		ClaimTransitions:       persisted.ClaimTransitions,
+		ProvisionalAcquires:    persisted.ProvisionalAcquires,
 	}
 	if err := validateRecoveryJournal(journal, stateCodec); err != nil {
 		return recoveryJournal{}, err
@@ -246,6 +249,11 @@ func unsupportedRecoveryJournalVersion(version int) error {
 		return fmt.Errorf(
 			"unsupported recovery journal version %d; it was written by a newer daem, so upgrade daem before recovery and never discard it without confirming no interrupted apply remains",
 			version,
+		)
+	}
+	if version == 10 {
+		return fmt.Errorf(
+			"unsupported recovery journal version 10; its durable Linux mount witness may be reusable, so use the daem version that wrote it only after independently establishing that recovery remains in the same boot with no intervening unmount or remount; otherwise preserve the journal and backups for manual analysis and never discard them while interrupted effects may remain",
 		)
 	}
 	return fmt.Errorf(
@@ -287,7 +295,7 @@ func validateRecoveryJournalEnvelope(journal recoveryJournal) error {
 	if err := validateRecoveryEntries(journal.Entries); err != nil {
 		return err
 	}
-	if err := validateProjectRootProvenanceCoverage(journal); err != nil {
+	if err := validateManifestRootProvenance(journal); err != nil {
 		return err
 	}
 	return nil

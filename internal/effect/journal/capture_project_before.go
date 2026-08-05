@@ -21,9 +21,9 @@ func validateAbsentProjectRecoveryPath(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
 	action pathMutation,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 ) error {
-	capability, err := projectAuthority.acquire(action.Destination)
+	capability, err := manifestAuthority.acquire(action.Destination)
 	if err != nil {
 		return err
 	}
@@ -46,7 +46,7 @@ func captureProjectContentPathRecoveryBeforePath(
 	backupIndex int,
 	action pathMutation,
 	filesystem mutationfs.Reader,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, int, error) {
 	if action.Kind == pathMutationCreate {
@@ -61,7 +61,7 @@ func captureProjectContentPathRecoveryBeforePath(
 			ctx,
 			action,
 			filesystem,
-			projectAuthority,
+			manifestAuthority,
 			contentPathBaselines,
 		)
 		return before, backupIndex, err
@@ -89,7 +89,7 @@ func captureProjectContentPathRecoveryBeforePath(
 		)
 	}
 
-	baseline, err := contentPathBaselines.capture(ctx, action, nil, projectAuthority, nil)
+	baseline, err := contentPathBaselines.capture(ctx, action, nil, manifestAuthority, nil)
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, err
 	}
@@ -144,16 +144,16 @@ func captureAbsentProjectContentPathRecoveryBefore(
 	ctx context.Context,
 	action pathMutation,
 	filesystem mutationfs.Reader,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, error) {
 	if !action.LivePathExists {
-		if err := validateAbsentProjectRecoveryPath(ctx, filesystem, action, projectAuthority); err != nil {
+		if err := validateAbsentProjectRecoveryPath(ctx, filesystem, action, manifestAuthority); err != nil {
 			return recovery.BeforePathState{}, err
 		}
 		return recovery.BeforePathState{Existed: false}, nil
 	}
-	baseline, err := contentPathBaselines.capture(ctx, action, nil, projectAuthority, nil)
+	baseline, err := contentPathBaselines.capture(ctx, action, nil, manifestAuthority, nil)
 	if err != nil {
 		return recovery.BeforePathState{}, err
 	}
@@ -178,9 +178,9 @@ func captureProjectExistingRecoveryBeforePath(
 	operationDir string,
 	backupIndex int,
 	action pathMutation,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 ) (recovery.BeforePathState, int, error) {
-	capability, err := projectAuthority.acquire(action.Destination)
+	capability, err := manifestAuthority.acquire(action.Destination)
 	if err != nil {
 		return recovery.BeforePathState{}, backupIndex, err
 	}
@@ -285,10 +285,10 @@ func readProjectRecoveryRegularFile(
 	ctx context.Context,
 	filesystem mutationfs.RootedReader,
 	destination output.Destination,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	maximumBytes int64,
 ) ([]byte, fs.FileMode, error) {
-	capability, err := projectAuthority.acquire(destination)
+	capability, err := manifestAuthority.acquire(destination)
 	if err != nil {
 		return nil, 0, err
 	}

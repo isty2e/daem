@@ -21,16 +21,16 @@ type Paths struct {
 }
 
 type recoveryJournal struct {
-	Version               int                                `json:"version"`
-	OperationID           string                             `json:"operation_id"`
-	Operation             string                             `json:"operation"`
-	CreatedAt             string                             `json:"created_at"`
-	ProjectRootProvenance *recoveryRootProvenance            `json:"project_root_provenance,omitempty"`
-	Entries               []recoveryEntry                    `json:"entries"`
-	StatefileBefore       durable.Snapshot                   `json:"-"`
-	StatefileAfter        durable.Snapshot                   `json:"-"`
-	ClaimTransitions      []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
-	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
+	Version                int                                `json:"version"`
+	OperationID            string                             `json:"operation_id"`
+	Operation              string                             `json:"operation"`
+	CreatedAt              string                             `json:"created_at"`
+	ManifestRootProvenance recoveryRootProvenance             `json:"manifest_root_provenance"`
+	Entries                []recoveryEntry                    `json:"entries"`
+	StatefileBefore        durable.Snapshot                   `json:"-"`
+	StatefileAfter         durable.Snapshot                   `json:"-"`
+	ClaimTransitions       []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
+	ProvisionalAcquires    []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
 type recoveryRootProvenance struct {

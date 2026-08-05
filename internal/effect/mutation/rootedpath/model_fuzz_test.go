@@ -85,10 +85,17 @@ func mustAuthorityWithMountIdentities(
 	authority, err := newCapturedAuthority(
 		root,
 		object,
-		newMountIdentities(operationMount, recoveryMount),
+		newMountIdentities(operationMount, testRecoveryMountEvidence(recoveryMount)),
 	)
 	if err != nil {
 		t.Fatalf("newCapturedAuthority returned error: %v", err)
 	}
 	return authority
+}
+
+func testRecoveryMountEvidence(token identityToken) recoveryMountEvidence {
+	if token == (identityToken{}) {
+		return unavailableRecoveryMountEvidence(errMountIdentityUnsupported)
+	}
+	return availableRecoveryMountEvidence(token)
 }

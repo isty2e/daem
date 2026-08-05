@@ -19,6 +19,8 @@ const (
 	FailureRootReplaced FailureKind = "rooted_path_root_replaced"
 	// FailureMountChanged means a captured root or ancestor mount identity no longer matches.
 	FailureMountChanged FailureKind = "rooted_path_destination_mount_changed"
+	// FailureRecoveryEvidenceUnavailable means durable recovery evidence could not be observed.
+	FailureRecoveryEvidenceUnavailable FailureKind = "rooted_path_recovery_evidence_unavailable"
 	// FailureAncestorSymlink means an existing destination ancestor is a symlink.
 	FailureAncestorSymlink FailureKind = "rooted_path_destination_ancestor_symlink"
 	// FailureDanglingAncestorSymlink means an existing destination ancestor is a dangling symlink.

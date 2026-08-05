@@ -1,6 +1,7 @@
 package rootedpath
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -70,7 +71,7 @@ func TestAuthorityProvenanceDistinguishesRootAndMountDrift(t *testing.T) {
 	}
 
 	movedMount := base
-	movedMount.mount.recovery = identityToken{8}
+	movedMount.mount.recovery = availableRecoveryMountEvidence(identityToken{8})
 	if err := provenance.Match(movedMount); !hasFailureKind(err, FailureMountChanged) {
 		t.Fatalf("mount drift error = %v, want %s", err, FailureMountChanged)
 	}
@@ -93,7 +94,7 @@ func TestAuthorityProvenanceMatchesOnlySameMountDescendants(t *testing.T) {
 		t,
 		"/project/new-parent",
 		identityToken{3},
-		base.mount.recovery,
+		base.mount.recovery.token,
 	)
 	if err := provenance.MatchDescendant(sameMountDescendant); err != nil {
 		t.Fatalf("same-mount descendant rejected: %v", err)
@@ -106,13 +107,13 @@ func TestAuthorityProvenanceMatchesOnlySameMountDescendants(t *testing.T) {
 	}
 
 	foreignMount := sameMountDescendant
-	foreignMount.mount.recovery = identityToken{5}
+	foreignMount.mount.recovery = availableRecoveryMountEvidence(identityToken{5})
 	if err := provenance.MatchDescendant(foreignMount); !hasFailureKind(err, FailureMountChanged) {
 		t.Fatalf("descendant mount drift error = %v, want %s", err, FailureMountChanged)
 	}
 
 	for _, outside := range []string{"/project-other", "/sibling"} {
-		authority := mustAuthority(t, outside, identityToken{6}, base.mount.recovery)
+		authority := mustAuthority(t, outside, identityToken{6}, base.mount.recovery.token)
 		if err := provenance.MatchDescendant(authority); !hasFailureKind(err, FailureRootReplaced) {
 			t.Fatalf("outside root %q error = %v, want %s", outside, err, FailureRootReplaced)
 		}
@@ -132,6 +133,20 @@ func TestOperationFingerprintDoesNotRequireRecoveryMountIdentity(t *testing.T) {
 	}
 	if _, err := authority.Provenance(); !hasFailureKind(err, FailureUnsupportedPlatform) {
 		t.Fatalf("Provenance error = %v, want %s", err, FailureUnsupportedPlatform)
+	}
+}
+
+func TestAuthorityProvenancePreservesRecoveryEvidenceFailureCause(t *testing.T) {
+	cause := errors.New("boot identity permission denied")
+	authority := provenanceTestAuthority(t)
+	authority.mount.recovery = unavailableRecoveryMountEvidence(cause)
+
+	_, err := authority.Provenance()
+	if !hasFailureKind(err, FailureRecoveryEvidenceUnavailable) {
+		t.Fatalf("Provenance error = %v, want %s", err, FailureRecoveryEvidenceUnavailable)
+	}
+	if !errors.Is(err, cause) {
+		t.Fatalf("Provenance error = %v, want original cause", err)
 	}
 }
 

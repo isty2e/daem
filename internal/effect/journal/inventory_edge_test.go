@@ -329,7 +329,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 
 		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
-			Paths{RecoveryDir: recoveryRoot},
+			Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
@@ -372,7 +372,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 
 		plan, err := LoadRecoverablePlanWithOptions(
 			t.Context(),
-			Paths{RecoveryDir: recoveryRoot},
+			Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),

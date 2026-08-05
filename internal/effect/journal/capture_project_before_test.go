@@ -41,7 +41,7 @@ func TestCaptureProjectExistingDirectoryCreatesHashEquivalentRootedBackup(t *tes
 	if err != nil {
 		t.Fatalf("hash project directory: %v", err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
@@ -93,7 +93,7 @@ func TestCaptureProjectExistingDirectoryRejectsAncestorSymlinkWithoutBackup(t *t
 	if err := os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
 		t.Fatalf("create project ancestor symlink: %v", err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
@@ -139,7 +139,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind: pathMutationReplace, Scope: target.ScopeProject,
@@ -183,7 +183,7 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 
 	observation := observeProjectRecoveryPath(
@@ -213,7 +213,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 	if err != nil {
 		t.Fatalf("hash directory: %v", err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 	observation := observeProjectRecoveryPath(
 		context.Background(),
@@ -254,7 +254,7 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatalf("create project root: %v", err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 
 	observation := observeProjectRecoveryPath(
@@ -271,13 +271,13 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 	}
 }
 
-func mustProjectAuthoritySession(t *testing.T, root string) *projectAuthoritySession {
+func mustManifestAuthoritySession(t *testing.T, root string) *manifestAuthoritySession {
 	t.Helper()
 	captured := mustJournalProjectRoot(t, root)
-	session, err := newProjectAuthoritySession(captured, false)
+	session, err := newManifestAuthoritySession(captured, false)
 	if err != nil {
 		_ = captured.Close()
-		t.Fatalf("newProjectAuthoritySession returned error: %v", err)
+		t.Fatalf("newManifestAuthoritySession returned error: %v", err)
 	}
 	return session
 }

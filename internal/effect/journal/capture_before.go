@@ -25,7 +25,7 @@ func captureRecoveryBeforePath(
 	action pathMutation,
 	filesystem mutationfs.Reader,
 	resolver func(destination output.Destination) (string, error),
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, int, error) {
@@ -37,7 +37,7 @@ func captureRecoveryBeforePath(
 				backupIndex,
 				action,
 				filesystem,
-				projectAuthority,
+				manifestAuthority,
 				contentPathBaselines,
 			)
 		}
@@ -47,7 +47,7 @@ func captureRecoveryBeforePath(
 			backupIndex,
 			action,
 			resolver,
-			projectAuthority,
+			manifestAuthority,
 			rootedCapability,
 			contentPathBaselines,
 		)
@@ -58,7 +58,7 @@ func captureRecoveryBeforePath(
 		}
 		if !action.LivePathExists {
 			if action.Scope == target.ScopeProject {
-				if err := validateAbsentProjectRecoveryPath(ctx, filesystem, action, projectAuthority); err != nil {
+				if err := validateAbsentProjectRecoveryPath(ctx, filesystem, action, manifestAuthority); err != nil {
 					return recovery.BeforePathState{}, backupIndex, err
 				}
 			} else if capability, present, err := acquireRootedJournalCapability(
@@ -87,7 +87,7 @@ func captureRecoveryBeforePath(
 				operationDir,
 				backupIndex,
 				action,
-				projectAuthority,
+				manifestAuthority,
 			)
 		}
 		if capability, present, err := acquireRootedJournalCapability(
@@ -125,7 +125,7 @@ func captureRecoveryBeforePath(
 			operationDir,
 			backupIndex,
 			action,
-			projectAuthority,
+			manifestAuthority,
 		)
 	}
 	if capability, present, err := acquireRootedJournalCapability(
@@ -193,7 +193,7 @@ func captureContentPathRecoveryBeforePath(
 	backupIndex int,
 	action pathMutation,
 	resolver func(destination output.Destination) (string, error),
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, int, error) {
@@ -205,7 +205,7 @@ func captureContentPathRecoveryBeforePath(
 			ctx,
 			action,
 			resolver,
-			projectAuthority,
+			manifestAuthority,
 			rootedCapability,
 			contentPathBaselines,
 		)
@@ -225,7 +225,7 @@ func captureContentPathRecoveryBeforePath(
 		ctx,
 		action,
 		resolver,
-		projectAuthority,
+		manifestAuthority,
 		rootedCapability,
 	)
 	if err != nil {
@@ -267,7 +267,7 @@ func captureAbsentContentPathRecoveryBefore(
 	ctx context.Context,
 	action pathMutation,
 	resolver func(destination output.Destination) (string, error),
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 	contentPathBaselines *recoveryContentPathBaselineCache,
 ) (recovery.BeforePathState, error) {
@@ -278,7 +278,7 @@ func captureAbsentContentPathRecoveryBefore(
 		ctx,
 		action,
 		resolver,
-		projectAuthority,
+		manifestAuthority,
 		rootedCapability,
 	)
 	if err != nil {

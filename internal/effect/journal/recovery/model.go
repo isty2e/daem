@@ -13,37 +13,37 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-// ProjectRootProvenance is the wire-neutral physical root identity recorded by
-// one journal. It never grants current filesystem authority.
-type ProjectRootProvenance struct {
+// ManifestRootProvenance is the wire-neutral physical root identity recorded by
+// every journal. It never grants current filesystem authority.
+type ManifestRootProvenance struct {
 	physicalRoot      string
 	objectFingerprint string
 	mountFingerprint  string
 }
 
-// NewProjectRootProvenance constructs validated canonical root provenance from
+// NewManifestRootProvenance constructs validated canonical root provenance from
 // an already validated persistence or retained-authority boundary.
-func NewProjectRootProvenance(physicalRoot string, objectFingerprint string, mountFingerprint string) (ProjectRootProvenance, error) {
-	provenance := ProjectRootProvenance{
+func NewManifestRootProvenance(physicalRoot string, objectFingerprint string, mountFingerprint string) (ManifestRootProvenance, error) {
+	provenance := ManifestRootProvenance{
 		physicalRoot:      physicalRoot,
 		objectFingerprint: objectFingerprint,
 		mountFingerprint:  mountFingerprint,
 	}
 	if err := provenance.validate(); err != nil {
-		return ProjectRootProvenance{}, fmt.Errorf("project root provenance requires physical root, object fingerprint, and mount fingerprint")
+		return ManifestRootProvenance{}, fmt.Errorf("manifest root provenance requires physical root, object fingerprint, and mount fingerprint")
 	}
 	return provenance, nil
 }
 
-func (provenance ProjectRootProvenance) validate() error {
+func (provenance ManifestRootProvenance) validate() error {
 	if provenance.physicalRoot == "" || provenance.objectFingerprint == "" || provenance.mountFingerprint == "" {
-		return fmt.Errorf("project root provenance requires physical root, object fingerprint, and mount fingerprint")
+		return fmt.Errorf("manifest root provenance requires physical root, object fingerprint, and mount fingerprint")
 	}
 	return nil
 }
 
 // Equal reports whether two provenance facts name the same physical root.
-func (provenance ProjectRootProvenance) Equal(other ProjectRootProvenance) bool {
+func (provenance ManifestRootProvenance) Equal(other ManifestRootProvenance) bool {
 	return provenance == other
 }
 
@@ -57,7 +57,7 @@ type Authority struct {
 	statefileAfter     durable.Snapshot
 	claimTransitions   []ownershipmutation.ClaimTransition
 	provisionalIntents []outputownership.ProvisionalAcquireIntent
-	projectProvenance  *ProjectRootProvenance
+	manifestProvenance ManifestRootProvenance
 	fingerprint        string
 }
 
@@ -71,7 +71,7 @@ func NewAuthority(
 	statefileAfter durable.Snapshot,
 	claimTransitions []ownershipmutation.ClaimTransition,
 	provisionalIntents []outputownership.ProvisionalAcquireIntent,
-	projectProvenance *ProjectRootProvenance,
+	manifestProvenance ManifestRootProvenance,
 	fingerprint string,
 ) (Authority, error) {
 	if operationID == "" || operationDir == "" || fingerprint == "" {
@@ -95,10 +95,8 @@ func NewAuthority(
 			return Authority{}, fmt.Errorf("recovery authority provisional intents[%d]: %w", index, err)
 		}
 	}
-	if projectProvenance != nil {
-		if err := projectProvenance.validate(); err != nil {
-			return Authority{}, fmt.Errorf("recovery authority project root: %w", err)
-		}
+	if err := manifestProvenance.validate(); err != nil {
+		return Authority{}, fmt.Errorf("recovery authority manifest root: %w", err)
 	}
 	authority := Authority{
 		operationID:        operationID,
@@ -108,11 +106,8 @@ func NewAuthority(
 		statefileAfter:     statefileAfter,
 		claimTransitions:   append([]ownershipmutation.ClaimTransition(nil), claimTransitions...),
 		provisionalIntents: append([]outputownership.ProvisionalAcquireIntent(nil), provisionalIntents...),
+		manifestProvenance: manifestProvenance,
 		fingerprint:        fingerprint,
-	}
-	if projectProvenance != nil {
-		provenance := *projectProvenance
-		authority.projectProvenance = &provenance
 	}
 	return authority, nil
 }
@@ -320,14 +315,11 @@ func (plan Plan) HasErrors() bool {
 	return false
 }
 
-// MatchProjectRootProvenance compares fresh retained-root facts without
+// MatchManifestRootProvenance compares fresh retained-root facts without
 // accepting or granting a capability.
-func (plan Plan) MatchProjectRootProvenance(actual ProjectRootProvenance) error {
-	if plan.authority.projectProvenance == nil {
-		return nil
-	}
-	if !plan.authority.projectProvenance.Equal(actual) {
-		return fmt.Errorf("project root provenance changed")
+func (plan Plan) MatchManifestRootProvenance(actual ManifestRootProvenance) error {
+	if !plan.authority.manifestProvenance.Equal(actual) {
+		return fmt.Errorf("manifest root provenance changed")
 	}
 	return nil
 }
@@ -341,7 +333,7 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 		plan.classification != other.classification ||
 		!plan.authority.statefileBefore.Equal(other.authority.statefileBefore) ||
 		!plan.authority.statefileAfter.Equal(other.authority.statefileAfter) ||
-		!sameProjectRootProvenance(plan.authority.projectProvenance, other.authority.projectProvenance) ||
+		!plan.authority.manifestProvenance.Equal(other.authority.manifestProvenance) ||
 		len(plan.actions) != len(other.actions) ||
 		len(plan.guardedActions) != len(other.guardedActions) ||
 		len(plan.authority.claimTransitions) != len(other.authority.claimTransitions) ||
@@ -404,13 +396,6 @@ func (action Action) sameExecutionAuthority(other Action) bool {
 }
 
 func aggregateContractsEqual(left *aggregate.ProjectionContract, right *aggregate.ProjectionContract) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
-	}
-	return left.Equal(*right)
-}
-
-func sameProjectRootProvenance(left *ProjectRootProvenance, right *ProjectRootProvenance) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

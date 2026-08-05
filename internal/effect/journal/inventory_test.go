@@ -430,7 +430,7 @@ func TestRecoveryRootInventoryBlocksMalformedAndCrossPairedEvidence(t *testing.T
 			}
 			if _, err := LoadRecoverablePlanWithOptions(
 				t.Context(),
-				Paths{RecoveryDir: recoveryRoot},
+				Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 				PlanLoadOptions{
 					Filesystem: journalTestFilesystem(),
 					StateCodec: testStateCodec(),
@@ -579,7 +579,7 @@ func captureInventoryJournal(
 
 	result, err := CaptureJournalWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		operationID,
 		time.Date(2026, time.July, 30, 12, 0, 0, 0, time.UTC),
 		beforeStatefile(),

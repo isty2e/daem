@@ -77,7 +77,7 @@ func TestValidateAbsentProjectRecoveryPathRejectsAliasesAndDrift(t *testing.T) {
 				t.Fatalf("create outside root: %v", err)
 			}
 			tt.prepare(t, root, outside)
-			session := mustProjectAuthoritySession(t, root)
+			session := mustManifestAuthoritySession(t, root)
 			defer session.root.Close()
 			mutation := pathMutation{
 				Kind:        pathMutationCreate,
@@ -109,7 +109,7 @@ func TestValidateAbsentProjectRecoveryPathAcceptsMissingDestination(t *testing.T
 	if err := os.Mkdir(root, 0o700); err != nil {
 		t.Fatalf("create project root: %v", err)
 	}
-	session := mustProjectAuthoritySession(t, root)
+	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 	mutation := pathMutation{
 		Kind:        pathMutationCreate,

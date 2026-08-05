@@ -13,13 +13,13 @@ type identityToken [32]byte
 
 // mountIdentities keeps operation-local and durable-recovery mount evidence
 // separate. Operation identity is required for every captured authority;
-// recovery identity is optional until a caller requests durable provenance.
+// recovery evidence is interpreted only when durable provenance is requested.
 type mountIdentities struct {
 	operation identityToken
-	recovery  identityToken
+	recovery  recoveryMountEvidence
 }
 
-func newMountIdentities(operation identityToken, recovery identityToken) mountIdentities {
+func newMountIdentities(operation identityToken, recovery recoveryMountEvidence) mountIdentities {
 	return mountIdentities{operation: operation, recovery: recovery}
 }
 

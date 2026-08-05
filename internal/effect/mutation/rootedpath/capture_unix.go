@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var errMountIdentityUnsupported = errors.New("native mount identity is unavailable")
-
 type capturedDirectory struct {
 	fd     int
 	name   string
@@ -94,10 +92,16 @@ func captureRootPlatform(
 	recoveryMount, recoveryErr := nativeRecoveryMountToken(root.fd)
 	if recoveryErr != nil {
 		// Recovery evidence is not part of operation-local root authority. Its
-		// absence is rejected only when a caller requests durable provenance.
-		recoveryMount = identityToken{}
+		// failure is rejected only when a caller requests durable provenance.
+		return physicalRoot, platform, object, newMountIdentities(
+			root.mount,
+			unavailableRecoveryMountEvidence(recoveryErr),
+		), nil
 	}
-	return physicalRoot, platform, object, newMountIdentities(root.mount, recoveryMount), nil
+	return physicalRoot, platform, object, newMountIdentities(
+		root.mount,
+		availableRecoveryMountEvidence(recoveryMount),
+	), nil
 }
 
 func openPhysicalRootChain(physicalRoot string) (capturedRootPlatform, error) {

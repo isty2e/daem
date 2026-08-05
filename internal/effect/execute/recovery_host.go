@@ -156,15 +156,6 @@ func requireRecoveryGlobalBindings(authority *mutationAuthority, actions []recov
 	return nil
 }
 
-func hasProjectRecoveryAction(actions []recoveryHostAction) bool {
-	for _, action := range actions {
-		if action.Scope == target.ScopeProject {
-			return true
-		}
-	}
-	return false
-}
-
 func executeRecoveryHostActions(
 	ctx context.Context,
 	operationDir string,

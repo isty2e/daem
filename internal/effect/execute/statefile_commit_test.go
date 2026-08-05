@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
@@ -18,7 +19,9 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/effect/payload"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
@@ -267,6 +270,91 @@ func TestStateOnlyApplyRetainsCleanBeforeJournalWhenIndeterminateCommitIsNotVisi
 	}
 	if recoveryPlan.Classification() != recovery.ClassificationCleanBefore || recoveryPlan.HasErrors() {
 		t.Fatalf("state-only recovery plan = %q errors=%t, want clean_before", recoveryPlan.Classification(), recoveryPlan.HasErrors())
+	}
+}
+
+func TestStateOnlyRecoveryRejectsManifestRootReplacementAfterFinalReload(t *testing.T) {
+	base := t.TempDir()
+	manifestRoot := filepath.Join(base, "manifest")
+	stateRoot := filepath.Join(base, "state")
+	if err := os.MkdirAll(manifestRoot, 0o700); err != nil {
+		t.Fatalf("create manifest root: %v", err)
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		t.Fatalf("create state root: %v", err)
+	}
+	paths := Paths{
+		RecoveryDir:   filepath.Join(stateRoot, "recovery"),
+		StateDir:      stateRoot,
+		StatefilePath: filepath.Join(stateRoot, "state.json"),
+		ManifestRoot:  manifestRoot,
+		DataDir:       filepath.Join(stateRoot, "data"),
+	}
+	_, pending := statefileCommitRelationAction(
+		t,
+		paths.StatefilePath,
+		filepath.Join(manifestRoot, "daem.toml"),
+	)
+	before := statefileCommitSnapshot(t, pending)
+	after := durable.EmptySnapshot()
+	writeRecoveryTestStatefile(t, paths.StatefilePath, before)
+
+	if _, err := journal.CaptureJournalWithOptions(
+		context.Background(),
+		paths.journalPaths(),
+		"state-only-root-replacement",
+		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
+		before,
+		after,
+		journal.CaptureOptions{
+			Filesystem: testFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
+		},
+	); err != nil {
+		t.Fatalf("capture state-only journal: %v", err)
+	}
+	plan, err := journal.LoadActivePlanWithOptions(
+		context.Background(),
+		paths.journalPaths(),
+		testPlanLoadOptions(paths),
+	)
+	if err != nil {
+		t.Fatalf("load state-only recovery plan: %v", err)
+	}
+
+	movedRoot := manifestRoot + "-moved"
+	err = executeRecoveryPlanWithOptionsForTest(context.Background(), plan, paths, RecoveryOptions{
+		Resolver:    destinationResolver(paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
+			current, err := journal.LoadActivePlanWithOptions(ctx, paths.journalPaths(), options)
+			if err != nil {
+				return recovery.Plan{}, err
+			}
+			if err := os.Rename(manifestRoot, movedRoot); err != nil {
+				t.Fatalf("move manifest root: %v", err)
+			}
+			if err := os.Mkdir(manifestRoot, 0o700); err != nil {
+				t.Fatalf("create replacement manifest root: %v", err)
+			}
+			return current, nil
+		},
+	})
+	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want %s", err, rootedpath.FailureRootReplaced)
+	}
+	visible, loadErr := statefile.Load(t.Context(), paths.StatefilePath)
+	if loadErr != nil {
+		t.Fatalf("load statefile after rejected recovery: %v", loadErr)
+	}
+	if !visible.Equal(before) {
+		t.Fatal("rejected state-only recovery changed the statefile")
+	}
+	if _, statErr := os.Stat(plan.OperationDir()); statErr != nil {
+		t.Fatalf("rejected state-only recovery did not retain journal: %v", statErr)
 	}
 }
 

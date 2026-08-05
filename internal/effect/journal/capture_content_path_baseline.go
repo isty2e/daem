@@ -145,7 +145,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 	ctx context.Context,
 	action pathMutation,
 	resolver func(destination output.Destination) (string, error),
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	rootedCapability RootedCapabilityResolver,
 ) (recoveryContentPathBaseline, error) {
 	if cache == nil {
@@ -174,7 +174,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 			ctx,
 			cache.filesystem,
 			action.Destination,
-			projectAuthority,
+			manifestAuthority,
 			request.codec.MaximumDocumentBytes(),
 		)
 	case target.ScopeGlobal:

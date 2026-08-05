@@ -370,10 +370,6 @@ func (effect AggregateEffect) OperationPreconditions() []aggregate.OperationPrec
 	return append([]aggregate.OperationPrecondition(nil), effect.preconditions...)
 }
 
-func (effect AggregateEffect) MutatesHost() bool {
-	return effect.kind == AggregateEffectCreate || effect.kind == AggregateEffectReplace || effect.kind == AggregateEffectRemove
-}
-
 func (effect AggregateEffect) journaledProjectionCount() int {
 	count := 0
 	for _, projection := range effect.projections {

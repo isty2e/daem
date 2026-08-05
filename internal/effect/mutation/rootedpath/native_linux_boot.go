@@ -25,7 +25,34 @@ type linuxBootID struct {
 	low  uint64
 }
 
-var currentLinuxBootID = sync.OnceValues(readLinuxBootID)
+type linuxBootIDCache struct {
+	mutex sync.Mutex
+	value linuxBootID
+	ready bool
+	read  func() (linuxBootID, error)
+}
+
+var processLinuxBootID = linuxBootIDCache{read: readLinuxBootID}
+
+func currentLinuxBootID() (linuxBootID, error) {
+	return processLinuxBootID.current()
+}
+
+func (cache *linuxBootIDCache) current() (linuxBootID, error) {
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+
+	if cache.ready {
+		return cache.value, nil
+	}
+	value, err := cache.read()
+	if err != nil {
+		return linuxBootID{}, err
+	}
+	cache.value = value
+	cache.ready = true
+	return value, nil
+}
 
 func readLinuxBootID() (result linuxBootID, resultErr error) {
 	fd, err := unix.Open(

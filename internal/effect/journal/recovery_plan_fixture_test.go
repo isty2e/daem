@@ -66,28 +66,23 @@ func recoveryJournalFor(entries ...recoveryEntry) recoveryJournal {
 	}
 
 	return recoveryJournal{
-		Version:               recoveryJournalVersion,
-		OperationID:           testOperationID,
-		Operation:             recoveryOperationApply,
-		CreatedAt:             "2026-06-25T00:00:00Z",
-		ProjectRootProvenance: testRecoveryProjectRootProvenance(entries),
-		Entries:               append([]recoveryEntry(nil), entries...),
-		StatefileBefore:       statefileFor(beforeResources...),
-		StatefileAfter:        statefileFor(afterResources...),
+		Version:                recoveryJournalVersion,
+		OperationID:            testOperationID,
+		Operation:              recoveryOperationApply,
+		CreatedAt:              "2026-06-25T00:00:00Z",
+		ManifestRootProvenance: testRecoveryManifestRootProvenance(),
+		Entries:                append([]recoveryEntry(nil), entries...),
+		StatefileBefore:        statefileFor(beforeResources...),
+		StatefileAfter:         statefileFor(afterResources...),
 	}
 }
 
-func testRecoveryProjectRootProvenance(entries []recoveryEntry) *recoveryRootProvenance {
-	for _, entry := range entries {
-		if entry.Scope == string(target.ScopeProject) {
-			return &recoveryRootProvenance{
-				PhysicalRoot:      "/test/project",
-				ObjectFingerprint: "sha256:" + strings.Repeat("1", 64),
-				MountFingerprint:  "sha256:" + strings.Repeat("2", 64),
-			}
-		}
+func testRecoveryManifestRootProvenance() recoveryRootProvenance {
+	return recoveryRootProvenance{
+		PhysicalRoot:      "/test/project",
+		ObjectFingerprint: "sha256:" + strings.Repeat("1", 64),
+		MountFingerprint:  "sha256:" + strings.Repeat("2", 64),
 	}
-	return nil
 }
 
 func testRecoveryGlobalPathBinding(resolvedPath string) *recoveryGlobalPathBinding {
@@ -303,14 +298,14 @@ func matchingBackupObservation(entry recoveryEntry) recoveryBackupObservation {
 
 func recoveryActionFromEntryForTest(entry recoveryEntry) (recovery.Action, error) {
 	journal := recoveryJournal{
-		Version:               recoveryJournalVersion,
-		OperationID:           testOperationID,
-		Operation:             recoveryOperationApply,
-		CreatedAt:             "2026-06-25T00:00:00Z",
-		ProjectRootProvenance: testRecoveryProjectRootProvenance([]recoveryEntry{entry}),
-		Entries:               []recoveryEntry{entry},
-		StatefileBefore:       durable.EmptySnapshot(),
-		StatefileAfter:        durable.EmptySnapshot(),
+		Version:                recoveryJournalVersion,
+		OperationID:            testOperationID,
+		Operation:              recoveryOperationApply,
+		CreatedAt:              "2026-06-25T00:00:00Z",
+		ManifestRootProvenance: testRecoveryManifestRootProvenance(),
+		Entries:                []recoveryEntry{entry},
+		StatefileBefore:        durable.EmptySnapshot(),
+		StatefileAfter:         durable.EmptySnapshot(),
 	}
 	plan, err := buildRecoveryPlan(
 		testOperationID,

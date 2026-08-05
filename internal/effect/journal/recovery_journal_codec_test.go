@@ -195,8 +195,10 @@ func TestRecoveryJournalRejectsReusableMountVersionTen(t *testing.T) {
 	}
 	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
 	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 10") ||
-		!strings.Contains(err.Error(), "recover before upgrading") {
-		t.Fatalf("loadRecoveryJournal error = %v, want version-10 retirement guidance", err)
+		!strings.Contains(err.Error(), "same boot") ||
+		!strings.Contains(err.Error(), "no intervening unmount or remount") ||
+		!strings.Contains(err.Error(), "preserve the journal and backups for manual analysis") {
+		t.Fatalf("loadRecoveryJournal error = %v, want conditional version-10 guidance", err)
 	}
 }
 
@@ -424,7 +426,6 @@ func TestLoadRecoveryJournalRejectsInvalidNestedStateSchemas(t *testing.T) {
 func TestLoadRecoveryJournalRequiresTopLevelEntriesPresence(t *testing.T) {
 	journal := defaultRecoveryJournal()
 	journal.Entries = nil
-	journal.ProjectRootProvenance = nil
 	content, err := marshalRecoveryJournal(journal, testStateCodec())
 	if err != nil {
 		t.Fatal(err)
@@ -487,6 +488,67 @@ func TestLoadRecoveryJournalRequiresTopLevelEntriesPresence(t *testing.T) {
 				}
 				return
 			}
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("loadRecoveryJournal error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestLoadRecoveryJournalRequiresCanonicalManifestRootProvenance(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		mutate  func(map[string]json.RawMessage)
+		wantErr string
+	}{
+		{
+			name: "missing",
+			mutate: func(candidate map[string]json.RawMessage) {
+				delete(candidate, "manifest_root_provenance")
+			},
+			wantErr: `field "manifest_root_provenance" is required`,
+		},
+		{
+			name: "null",
+			mutate: func(candidate map[string]json.RawMessage) {
+				candidate["manifest_root_provenance"] = json.RawMessage(`null`)
+			},
+			wantErr: "physical root is required",
+		},
+		{
+			name: "legacy project spelling",
+			mutate: func(candidate map[string]json.RawMessage) {
+				candidate["project_root_provenance"] = candidate["manifest_root_provenance"]
+				delete(candidate, "manifest_root_provenance")
+			},
+			wantErr: `field "manifest_root_provenance" is required`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := make(map[string]json.RawMessage, len(document)+1)
+			for name, value := range document {
+				candidate[name] = append(json.RawMessage(nil), value...)
+			}
+			test.mutate(candidate)
+			directory, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(directory, recoveryJournalFileName)
+			if err := os.WriteFile(path, mustMarshalRecoveryJSON(t, candidate), recoveryJournalMode); err != nil {
+				t.Fatal(err)
+			}
+			_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
 				t.Fatalf("loadRecoveryJournal error = %v, want %q", err, test.wantErr)
 			}
@@ -803,7 +865,7 @@ func malformedRecoveryJournalErrors(
 	)
 	plan, planErr := LoadRecoverablePlanWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		PlanLoadOptions{
 			Filesystem: journalTestFilesystem(),
 			StateCodec: testStateCodec(),

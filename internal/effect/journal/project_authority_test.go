@@ -44,7 +44,7 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 		current,
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
-			ProjectRoot:          captured,
+			ManifestRoot:         captured,
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			StateCodec:           testStateCodec(),
@@ -60,15 +60,37 @@ func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.
 	if err != nil {
 		t.Fatalf("borrowed root was closed by journal capture: %v", err)
 	}
-	if journal.ProjectRootProvenance == nil {
-		t.Fatal("journal project_root_provenance is nil")
-	}
-	persisted, err := journal.ProjectRootProvenance.canonical()
+	persisted, err := journal.ManifestRootProvenance.canonical()
 	if err != nil {
 		t.Fatalf("canonical persisted provenance: %v", err)
 	}
 	if err := persisted.Match(authority); err != nil {
 		t.Fatalf("persisted provenance does not match borrowed authority: %v", err)
+	}
+}
+
+func TestBuildRecoveryJournalRejectsBorrowedRootForDifferentManifest(t *testing.T) {
+	manifestRoot := t.TempDir()
+	borrowed := mustJournalProjectRoot(t, t.TempDir())
+	defer borrowed.Close()
+
+	_, err := buildRecoveryJournal(
+		context.Background(),
+		Paths{ManifestRoot: manifestRoot},
+		t.TempDir(),
+		"mismatched-manifest-root",
+		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		afterStatefile(),
+		CaptureOptions{
+			Filesystem:   journalTestFilesystem(),
+			ManifestRoot: borrowed,
+			Resolver:     func(output.Destination) (string, error) { return "", nil },
+			StateCodec:   testStateCodec(),
+		},
+	)
+	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
+		t.Fatalf("buildRecoveryJournal error = %v, want %s", err, rootedpath.FailureRootReplaced)
 	}
 }
 
@@ -105,7 +127,7 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 		current,
 		CaptureOptions{
 			Filesystem:           journalTestFilesystem(),
-			ProjectRoot:          captured,
+			ManifestRoot:         captured,
 			ManagedPathMutations: []ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
 			StateCodec:           testStateCodec(),
@@ -146,24 +168,80 @@ func TestLoadActivePlanRejectsReplacedProjectRootBeforePathClassification(t *tes
 	}
 }
 
-func TestValidateProjectRootProvenanceCoverageIsBijective(t *testing.T) {
+func TestLoadStateOnlyPlanRejectsReplacedManifestRootBeforeClassification(t *testing.T) {
+	base := t.TempDir()
+	manifestRoot := filepath.Join(base, "manifest")
+	stateRoot := filepath.Join(base, "state")
+	if err := os.MkdirAll(manifestRoot, 0o700); err != nil {
+		t.Fatalf("create manifest root: %v", err)
+	}
+	if err := os.MkdirAll(stateRoot, 0o700); err != nil {
+		t.Fatalf("create state root: %v", err)
+	}
+	paths := Paths{
+		RecoveryDir:   filepath.Join(stateRoot, "recovery"),
+		StatefilePath: filepath.Join(stateRoot, "state.json"),
+		ManifestRoot:  manifestRoot,
+		DataDir:       filepath.Join(stateRoot, "data"),
+	}
+	if _, err := CaptureJournalWithOptions(
+		context.Background(),
+		paths,
+		"replace-state-only-root",
+		time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC),
+		durable.EmptySnapshot(),
+		afterStatefile(),
+		CaptureOptions{
+			Filesystem: journalTestFilesystem(),
+			Resolver:   func(output.Destination) (string, error) { return "", nil },
+			StateCodec: testStateCodec(),
+		},
+	); err != nil {
+		t.Fatalf("CaptureJournalWithOptions returned error: %v", err)
+	}
+
+	moved := filepath.Join(base, "original-manifest")
+	if err := os.Rename(manifestRoot, moved); err != nil {
+		t.Fatalf("move original manifest root: %v", err)
+	}
+	if err := os.Mkdir(manifestRoot, 0o700); err != nil {
+		t.Fatalf("create replacement manifest root: %v", err)
+	}
+
+	_, err := LoadActivePlanWithOptions(context.Background(), paths, PlanLoadOptions{
+		Filesystem:  journalTestFilesystem(),
+		Resolver:    func(output.Destination) (string, error) { return "", nil },
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(paths.StatefilePath),
+	})
+	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
+		t.Fatalf("LoadActivePlan error = %v, want %s", err, rootedpath.FailureRootReplaced)
+	}
+}
+
+func TestValidateManifestRootProvenanceIsMandatoryForEveryJournalShape(t *testing.T) {
 	journal := defaultRecoveryJournal()
-	journal.ProjectRootProvenance = nil
-	if err := validateProjectRootProvenanceCoverage(journal); err == nil ||
-		!strings.Contains(err.Error(), "require project_root_provenance") {
+	journal.ManifestRootProvenance = recoveryRootProvenance{}
+	if err := validateManifestRootProvenance(journal); err == nil ||
+		!strings.Contains(err.Error(), "physical root is required") {
 		t.Fatalf("missing provenance error = %v", err)
 	}
 
 	journal = defaultRecoveryJournal()
 	journal.Entries[0].Scope = string(target.ScopeGlobal)
-	if err := validateProjectRootProvenanceCoverage(journal); err == nil ||
-		!strings.Contains(err.Error(), "must not contain project_root_provenance") {
-		t.Fatalf("extraneous provenance error = %v", err)
+	if err := validateManifestRootProvenance(journal); err != nil {
+		t.Fatalf("global journal provenance error = %v", err)
 	}
 
 	journal = defaultRecoveryJournal()
-	journal.ProjectRootProvenance.ObjectFingerprint = "sha256:short"
-	if err := validateProjectRootProvenanceCoverage(journal); err == nil ||
+	journal.Entries = nil
+	if err := validateManifestRootProvenance(journal); err != nil {
+		t.Fatalf("state-only journal provenance error = %v", err)
+	}
+
+	journal = defaultRecoveryJournal()
+	journal.ManifestRootProvenance.ObjectFingerprint = "sha256:short"
+	if err := validateManifestRootProvenance(journal); err == nil ||
 		!strings.Contains(err.Error(), "object fingerprint is invalid") {
 		t.Fatalf("invalid provenance error = %v", err)
 	}

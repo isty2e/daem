@@ -265,10 +265,6 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 	if err := visibilityGate.validateBefore(ctx); err != nil {
 		return ApplyResult{}, err
 	}
-	journalProjectRoot := mutationAuthority.capturedRoot
-	if !hasProjectJournalEntries(input.ManagedPathEffects, input.AggregateEffects) {
-		journalProjectRoot = nil
-	}
 	if err := mutationAuthority.bindRecoveryJournal(
 		input.Paths.ManifestRoot,
 		filepath.Join(input.Paths.RecoveryDir, operationID),
@@ -291,7 +287,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			ManagedAggregateMutations: aggregateMutations,
 			ManagedPathEvidence:       input.ManagedPathEvidence,
 			Resolver:                  journalResolver,
-			ProjectRoot:               journalProjectRoot,
+			ManifestRoot:              mutationAuthority.capturedRoot,
 			OperationAuthority:        mutationAuthority.recoveryJournal,
 			RootedCapability:          mutationAuthority.rootedJournalCapability,
 			Codecs:                    input.Codecs,

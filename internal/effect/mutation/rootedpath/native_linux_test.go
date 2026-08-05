@@ -59,6 +59,40 @@ func TestLinuxRecoveryMountTokenBindsMountAndBootIdentity(t *testing.T) {
 	}
 }
 
+func TestLinuxBootIDCacheRetriesFailureAndCachesOnlySuccess(t *testing.T) {
+	want, err := parseLinuxBootID("12345678-90ab-cdef-1234-567890abcdef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transient := errors.New("transient boot identity read failure")
+	calls := 0
+	cache := linuxBootIDCache{read: func() (linuxBootID, error) {
+		calls++
+		if calls == 1 {
+			return linuxBootID{}, transient
+		}
+		return want, nil
+	}}
+
+	if _, err := cache.current(); !errors.Is(err, transient) {
+		t.Fatalf("first current error = %v, want transient failure", err)
+	}
+	got, err := cache.current()
+	if err != nil {
+		t.Fatalf("second current returned error: %v", err)
+	}
+	if got != want {
+		t.Fatalf("second current = %#v, want %#v", got, want)
+	}
+	got, err = cache.current()
+	if err != nil || got != want {
+		t.Fatalf("cached current = %#v, %v; want %#v, nil", got, err, want)
+	}
+	if calls != 2 {
+		t.Fatalf("boot identity reader calls = %d, want 2", calls)
+	}
+}
+
 func TestLinuxUniqueMountIDRejectsReusableMountObservation(t *testing.T) {
 	if _, err := linuxUniqueMountID(unix.Statx_t{
 		Mask:   unix.STATX_MNT_ID,

@@ -51,7 +51,16 @@ capture-time global destination binding, including root object and mount
 provenance, required by the current recovery contract. Journal v8 already
 carried path witnesses, but it used an older transaction contract. None of
 these versions is rewritten or adopted by the current binary; recover it with
-the daem version that wrote it before upgrading.
+the daem version that wrote it before upgrading, subject to the v10 exception
+below.
+
+Do not unconditionally open a v10 journal with its old writer. That writer can
+authorize Linux recovery with the reusable mount witness that current daem
+rejects. Use it only after independently establishing that the journal was
+created in the current boot and that no relevant filesystem was unmounted or
+remounted since capture. If either fact is unknown, stop: preserve the journal,
+its backups, and the affected filesystem state for manual analysis. Do not run
+the old writer merely to bypass the current refusal.
 
 No action is needed for a new workspace with none of these old durable files.
 If a populated old artifact or any old recovery journal exists, do not hand-edit
@@ -66,8 +75,12 @@ dry-run-first retirement and re-adoption route:
 
 1. Keep an exact copy of the manifest and lockfile in version control, and use
    the daem binary that wrote the old schema against the same manifest path.
-2. If that version reports an active journal, run `daem recover --dry-run`,
-   review it, and complete that recovery before changing declarations.
+2. If that version reports an active v10 journal, first apply the v10
+   continuity rule above. For any old journal whose old-writer recovery remains
+   authorized, run `daem recover --dry-run`, review it, and complete that
+   recovery before changing declarations. If v10 continuity cannot be
+   established, stop and preserve the evidence instead of continuing this
+   procedure.
 3. Capture `daem status --json` and `daem apply --dry-run --diff` as evidence of
    the old managed state.
 4. With the old version, remove the manifest's managed resources through
@@ -88,8 +101,10 @@ diagnostics for manual analysis rather than deleting authority evidence.
 ## Recovery Journal From An Earlier Boot
 
 On Linux, recovery journals bind the unique mount identity to the boot in which
-the journal was captured. If the machine reboots while a journal is active,
-current daem refuses recovery before host, state, ownership, or cleanup effects.
+the journal was captured. This includes state-only journals with no host-entry
+actions: every journal binds the selected manifest root. If the machine reboots
+while a journal is active, current daem refuses recovery before host, state,
+ownership, or cleanup effects.
 This does not alter the manifest or lockfile, and it does not prevent ordinary
 work in a clean workspace with no active journal. Preserve the journal and its
 backups for manual analysis; do not delete or edit them to bypass the refusal.
