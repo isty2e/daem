@@ -105,6 +105,73 @@ func TestClaimTransitionSetRejectsDifferentStateAuthorities(t *testing.T) {
 	}
 }
 
+func TestClaimTransitionSetPreservesDistinctProvenanceForOneStateAuthority(t *testing.T) {
+	root := t.TempDir()
+	statefilePath := filepath.Join(root, "state.json")
+	oldOwner := mustAuthority(t, statefilePath, filepath.Join(root, "old.toml"))
+	currentOwner := mustAuthority(t, statefilePath, filepath.Join(root, "current.toml"))
+	oldAddress := mustAddress(t, filepath.Join(root, "old"), "")
+	currentAddress := mustAddress(t, filepath.Join(root, "current"), "")
+
+	oldActive, err := outputownership.NewActiveClaim(oldAddress, oldOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := NewReleaseTransition(oldActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquire, err := NewAcquireTransition(currentAddress, currentOwner, "operation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, err := NewClaimTransitionSet([]ClaimTransition{acquire, release})
+	if err != nil {
+		t.Fatalf("NewClaimTransitionSet returned error: %v", err)
+	}
+
+	initial, err := outputownership.NewRegistry([]outputownership.Claim{oldActive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, err := set.Preparation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, changed, err := preparation.Apply(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("preparation did not change the registry")
+	}
+	if retained, present := prepared.Exact(oldAddress); !present || !retained.Equal(oldActive) {
+		t.Fatalf("retained claim = %#v, %t, want exact old provenance", retained, present)
+	}
+	reserved, present := prepared.Exact(currentAddress)
+	if !present || reserved.State() != outputownership.ClaimReserved || !reserved.Owner().ExactEqual(currentOwner) {
+		t.Fatalf("reserved claim = %#v, %t, want current provenance", reserved, present)
+	}
+
+	rollback, err := set.Rollback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rolledBack, changed, err := rollback.Apply(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("rollback did not change the registry")
+	}
+	if restored, present := rolledBack.Exact(oldAddress); !present || !restored.Equal(oldActive) {
+		t.Fatalf("restored claim = %#v, %t, want exact old provenance", restored, present)
+	}
+	if _, present := rolledBack.Exact(currentAddress); present {
+		t.Fatal("rollback retained the current-provenance acquisition")
+	}
+}
+
 func TestClaimTransitionSetRejectsDifferentOperations(t *testing.T) {
 	root := t.TempDir()
 	authority := mustAuthority(t, filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))

@@ -7,7 +7,8 @@ import (
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 )
 
-// ClaimTransitionSet is one canonical set of independent ownership lifecycles.
+// ClaimTransitionSet is one canonical set of independent ownership lifecycles
+// under one statefile identity. Each lifecycle retains its exact manifest provenance.
 type ClaimTransitionSet struct {
 	transitions []ClaimTransition
 	initialized bool
@@ -28,7 +29,7 @@ func NewClaimTransitionSet(transitions []ClaimTransition) (ClaimTransitionSet, e
 		owner := canonical[0].Owner()
 		operationID := ""
 		for index, transition := range canonical[1:] {
-			if !owner.ExactEqual(transition.Owner()) {
+			if !owner.Equal(transition.Owner()) {
 				return ClaimTransitionSet{}, fmt.Errorf(
 					"ownership claim transition[%d] has a different state authority",
 					index+1,

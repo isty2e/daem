@@ -37,6 +37,60 @@ func TestOwnershipClaimPhasesUseOneStoreAndGateOperation(t *testing.T) {
 	}
 }
 
+func TestApplyOwnershipClaimPhasesAcceptMixedManifestProvenance(t *testing.T) {
+	fixture := mixedProvenanceOwnershipBatch(t)
+	initial, err := ownership.NewRegistry([]ownership.Claim{fixture.oldActive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &countingOwnershipRegistryStore{registry: initial}
+	gate := &countingVisibilityGate{}
+
+	if err := prepareClaimTransitions(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+		t.Fatalf("prepareClaimTransitions returned error: %v", err)
+	}
+	if err := finalizeClaimTransitions(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+		t.Fatalf("finalizeClaimTransitions returned error: %v", err)
+	}
+	assertOwnershipBatchCounts(t, store, gate, 2)
+	claims := store.registry.Claims()
+	if len(claims) != 1 || !claims[0].Address().Equal(fixture.currentAddress) ||
+		claims[0].State() != ownership.ClaimActive || !claims[0].Owner().ExactEqual(fixture.currentOwner) {
+		t.Fatalf("final claims = %#v, want one active claim with current manifest provenance", claims)
+	}
+}
+
+func TestRecoveryOwnershipRollbackAcceptsMixedManifestProvenance(t *testing.T) {
+	fixture := mixedProvenanceOwnershipBatch(t)
+	set, err := ownershipmutation.NewClaimTransitionSet(fixture.transitions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial, err := ownership.NewRegistry([]ownership.Claim{fixture.oldActive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, err := set.Preparation()
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, _, err := preparation.Apply(initial)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &countingOwnershipRegistryStore{registry: prepared}
+	gate := &countingVisibilityGate{}
+
+	if err := rollbackClaimsToBefore(t.Context(), store, fixture.transitions, gate.effectGate()); err != nil {
+		t.Fatalf("rollbackClaimsToBefore returned error: %v", err)
+	}
+	assertOwnershipBatchCounts(t, store, gate, 1)
+	claims := store.registry.Claims()
+	if len(claims) != 1 || !claims[0].Equal(fixture.oldActive) {
+		t.Fatalf("rolled-back claims = %#v, want exact old manifest provenance", claims)
+	}
+}
+
 func TestOwnershipClaimRollbackConvergesMixedPreparedSnapshotOnce(t *testing.T) {
 	transitions := ownershipBatchTransitions(t, 4)
 	set, err := ownershipmutation.NewClaimTransitionSet(transitions)
@@ -331,6 +385,59 @@ func ownershipBatchTransitions(t *testing.T, count int) []ownershipmutation.Clai
 		transitions = append(transitions, transition)
 	}
 	return transitions
+}
+
+type mixedProvenanceOwnershipBatchFixture struct {
+	transitions    []ownershipmutation.ClaimTransition
+	oldActive      ownership.Claim
+	currentAddress ownership.ManagedAddress
+	currentOwner   stateauthority.Authority
+}
+
+func mixedProvenanceOwnershipBatch(t *testing.T) mixedProvenanceOwnershipBatchFixture {
+	t.Helper()
+	root := t.TempDir()
+	statefileAuthority := mustObservedPathAuthority(t, filepath.Join(root, "state.json"))
+	oldOwner, err := stateauthority.New(statefileAuthority, filepath.Join(root, "old.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentOwner, err := stateauthority.New(statefileAuthority, filepath.Join(root, "current.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldAddress, err := ownership.NewManagedAddress(
+		mustObservedPathAuthority(t, filepath.Join(root, "old")),
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentAddress, err := ownership.NewManagedAddress(
+		mustObservedPathAuthority(t, filepath.Join(root, "current")),
+		"",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldActive, err := ownership.NewActiveClaim(oldAddress, oldOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release, err := ownershipmutation.NewReleaseTransition(oldActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acquire, err := ownershipmutation.NewAcquireTransition(currentAddress, currentOwner, "operation-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mixedProvenanceOwnershipBatchFixture{
+		transitions:    []ownershipmutation.ClaimTransition{release, acquire},
+		oldActive:      oldActive,
+		currentAddress: currentAddress,
+		currentOwner:   currentOwner,
+	}
 }
 
 func assertOwnershipBatchCounts(
