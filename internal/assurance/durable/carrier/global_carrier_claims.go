@@ -145,8 +145,7 @@ func (registry GlobalCarrierClaims) RetireClaims(
 	if len(claims) == 0 {
 		return registry, nil
 	}
-	canonical := append([]ManagedCarrierClaim(nil), claims...)
-	for index, claim := range canonical {
+	for index, claim := range claims {
 		if err := claim.Validate(); err != nil {
 			return GlobalCarrierClaims{}, fmt.Errorf(
 				"global carrier retirement claim[%d]: %w",
@@ -161,31 +160,48 @@ func (registry GlobalCarrierClaims) RetireClaims(
 			)
 		}
 	}
-	sort.Slice(canonical, func(left int, right int) bool {
-		return canonical[left].Compare(canonical[right]) < 0
+	type retirementGroup struct {
+		key    CarrierFactKey
+		claims []ManagedCarrierClaim
+	}
+	groupsByKey := make(map[CarrierFactKey][]ManagedCarrierClaim, len(claims))
+	for _, claim := range claims {
+		key := claim.FactKey()
+		groupsByKey[key] = append(groupsByKey[key], claim)
+	}
+	groups := make([]retirementGroup, 0, len(groupsByKey))
+	for key, groupedClaims := range groupsByKey {
+		groups = append(groups, retirementGroup{key: key, claims: groupedClaims})
+	}
+	sort.Slice(groups, func(left int, right int) bool {
+		return groups[left].key.compare(groups[right].key) < 0
 	})
 
-	retirements := make(map[CarrierFactKey]ManagedCarrierClaim, len(canonical))
-	for _, claim := range canonical {
-		key := claim.FactKey()
-		if previous, duplicate := retirements[key]; duplicate {
-			if previous.ExactEqual(claim) {
+	retirements := make(map[CarrierFactKey]ManagedCarrierClaim, len(groups))
+	for _, group := range groups {
+		if len(group.claims) > 1 {
+			first := group.claims[0]
+			for _, claim := range group.claims[1:] {
+				if first.ExactEqual(claim) {
+					continue
+				}
 				return GlobalCarrierClaims{}, fmt.Errorf(
-					"global carrier retirement duplicates one exact claim",
+					"global carrier retirement conflicts within one owner relation",
 				)
 			}
 			return GlobalCarrierClaims{}, fmt.Errorf(
-				"global carrier retirement conflicts within one owner relation",
+				"global carrier retirement duplicates one exact claim",
 			)
 		}
-		retirements[key] = claim
+		retirements[group.key] = group.claims[0]
 	}
 
 	current := make(map[CarrierFactKey]ManagedCarrierClaim, len(registry.claims))
 	for _, claim := range registry.claims {
 		current[claim.FactKey()] = claim
 	}
-	for _, retirement := range canonical {
+	for _, group := range groups {
+		retirement := group.claims[0]
 		retained, present := current[retirement.FactKey()]
 		if !present {
 			return GlobalCarrierClaims{}, fmt.Errorf(
@@ -199,7 +215,7 @@ func (registry GlobalCarrierClaims) RetireClaims(
 		}
 	}
 
-	next := make([]ManagedCarrierClaim, 0, len(registry.claims)-len(canonical))
+	next := make([]ManagedCarrierClaim, 0, len(registry.claims)-len(groups))
 	for _, claim := range registry.claims {
 		if _, retire := retirements[claim.FactKey()]; retire {
 			continue

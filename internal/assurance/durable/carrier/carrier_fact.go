@@ -1,6 +1,7 @@
 package carrier
 
 import (
+	"cmp"
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
@@ -37,4 +38,11 @@ func (key CarrierFactKey) Validate() error {
 		return fmt.Errorf("carrier fact key requires host_relation subject")
 	}
 	return nil
+}
+
+func (key CarrierFactKey) compare(other CarrierFactKey) int {
+	return cmp.Or(
+		key.statefileKey.Compare(other.statefileKey),
+		cmp.Compare(key.relationSubject.String(), other.relationSubject.String()),
+	)
 }

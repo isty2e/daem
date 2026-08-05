@@ -1,10 +1,12 @@
 package carrier_test
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -206,6 +208,22 @@ func TestGlobalCarrierClaimsRetireBatchRejectsEveryInexactSetWithoutSuccessor(t 
 	if err != nil {
 		t.Fatal(err)
 	}
+	otherOwner, err := stateauthority.New(
+		owner.StatefileAuthority(),
+		filepath.Join(filepath.Dir(owner.ManifestPath()), "other.toml"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provenanceConflict, err := durablecarrier.NewManagedCarrierClaim(
+		otherOwner,
+		fixture.identity,
+		claim.InstallRequest(),
+		claim.Provenance(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	absentFixture := carrierFixtureFor(t, "absent", "absent@official", target.ScopeGlobal)
 	absent := claimForFixture(t, absentFixture, mustAuthority(t, t.TempDir(), "absent.toml"))
 	projectFixture := carrierFixtureFor(t, "project", "project@official", target.ScopeProject)
@@ -233,5 +251,20 @@ func TestGlobalCarrierClaimsRetireBatchRejectsEveryInexactSetWithoutSuccessor(t 
 				t.Fatalf("failed retirement mutated source registry: %#v", claims)
 			}
 		})
+	}
+
+	permutations := [][]durablecarrier.ManagedCarrierClaim{
+		{claim, claim, provenanceConflict},
+		{claim, provenanceConflict, claim},
+		{provenanceConflict, claim, claim},
+		{claim, provenanceConflict, provenanceConflict},
+		{provenanceConflict, claim, provenanceConflict},
+		{provenanceConflict, provenanceConflict, claim},
+	}
+	const wantConflict = "global carrier retirement conflicts within one owner relation"
+	for index, permutation := range permutations {
+		if _, err := registry.RetireClaims(permutation); err == nil || err.Error() != wantConflict {
+			t.Fatalf("RetireClaims permutation[%d] error = %v, want deterministic conflict", index, err)
+		}
 	}
 }
