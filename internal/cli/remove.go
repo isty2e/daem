@@ -76,7 +76,7 @@ func runRemoveExtension(ctx context.Context, args []string, stdout io.Writer, st
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
 		return 2
@@ -175,7 +175,7 @@ func runRemoveMCPServer(ctx context.Context, args []string, stdout io.Writer, st
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
 		return 2
@@ -259,7 +259,7 @@ func runRemoveSkill(ctx context.Context, args []string, stdout io.Writer, stderr
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "remove failed: %s\n", humanDiagnosticError(err))
 		return 2

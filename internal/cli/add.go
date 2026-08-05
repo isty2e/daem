@@ -77,7 +77,7 @@ func runAddExtension(ctx context.Context, args []string, stdout io.Writer, stder
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
 		return 2
@@ -201,7 +201,7 @@ func runAddMCPServer(ctx context.Context, args []string, stdout io.Writer, stder
 	}
 
 	targets := targetValues.strings()
-	scope, err := addScope(scopeValues)
+	scope, err := singleScopeValue(scopeValues)
 	if err != nil {
 		fmt.Fprintf(stderr, "add failed: %s\n", humanDiagnosticError(err))
 		return 2
