@@ -43,8 +43,8 @@ targets = ["pi"]
 scope = "project"
 source = { host_source = "npm:existing" }
 
-[future]
-keep = "exact bytes"
+[defaults]
+scope = "project"
 `)
 	result, err := adoptextension.Collect(adoptextension.Input{
 		ManifestRoot: root,
@@ -89,7 +89,7 @@ keep = "exact bytes"
 	}
 	rendered := plan.ManifestContent()
 	if !bytes.Contains(rendered, []byte("# existing extension comment")) ||
-		!bytes.Contains(rendered, []byte("[future]\nkeep = \"exact bytes\"")) {
+		!bytes.Contains(rendered, []byte("[defaults]\nscope = \"project\"")) {
 		t.Fatalf("merge rewrote retained bytes:\n%s", rendered)
 	}
 	newIndex := bytes.Index(rendered, []byte(`source = { host_source = "npm:new" }`))

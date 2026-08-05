@@ -3,9 +3,11 @@ package adopt
 import (
 	"bytes"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	targetpkg "github.com/isty2e/daem/internal/target"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 func TestPlanOwnsBytesCollectionsAndIdentityDisclosure(t *testing.T) {
@@ -92,7 +94,16 @@ func TestMergePlanOwnsOriginalBytesAndResults(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := []byte("version = 1\n")
-	results := []MergeResult{{Resource: "instructions/existing", Status: MergeStatusNoop, Detail: "already present"}}
+	subject, err := topology.ParseSubjectID("projection/codex.project.mcp-server/context7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := []MergeResult{{
+		Resource: "mcp_server/context7",
+		Subject:  subject,
+		Status:   MergeStatusNoop,
+		Detail:   "already present",
+	}}
 	plan, err := NewPlan(request, original, original, candidates, results)
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +116,13 @@ func TestMergePlanOwnsOriginalBytesAndResults(t *testing.T) {
 	disclosedResults[0].Detail = "changed again"
 	if string(plan.OriginalContent()) != "version = 1\n" || plan.MergeResults()[0].Detail != "already present" {
 		t.Fatalf("merge plan changed through caller aliases")
+	}
+	identity, err := plan.IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(identity), subject.String()) {
+		t.Fatalf("plan identity = %s, want canonical merge subject %q", identity, subject.String())
 	}
 }
 

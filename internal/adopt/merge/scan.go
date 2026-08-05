@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 )
 
@@ -20,8 +20,8 @@ type existingDeclarations struct {
 }
 
 func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
-	if err := validateManifestSyntax(content); err != nil {
-		return existingDeclarations{}, fmt.Errorf("parse merge output manifest: %w", err)
+	if err := validateCanonicalManifest(content); err != nil {
+		return existingDeclarations{}, fmt.Errorf("decode merge output manifest: %w", err)
 	}
 	header, err := declaration.DecodeManifestHeader(content)
 	if err != nil {
@@ -57,9 +57,8 @@ func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 	}, nil
 }
 
-func validateManifestSyntax(content []byte) error {
-	var decoded map[string]any
-	_, err := toml.Decode(string(content), &decoded)
+func validateCanonicalManifest(content []byte) error {
+	_, err := declarationmanifest.Decode(content)
 	return err
 }
 

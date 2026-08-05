@@ -176,6 +176,7 @@ func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmod
 	if !matchingFound {
 		return adoptmodel.MergeResult{
 			Resource: resource,
+			Subject:  importedSubject,
 			Status:   adoptmodel.MergeStatusAdd,
 			Detail: fmt.Sprintf(
 				"append imported mcp_server projection target=%s scope=%s",
@@ -187,6 +188,7 @@ func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmod
 	if declarationcodec.SameMCPServerProjectionPayload(matching, imported) {
 		return adoptmodel.MergeResult{
 			Resource: resource,
+			Subject:  importedSubject,
 			Status:   adoptmodel.MergeStatusNoop,
 			Detail: fmt.Sprintf(
 				"existing mcp_server projection target=%s scope=%s already matches imported standalone payload",
@@ -197,6 +199,7 @@ func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmod
 	}
 	return adoptmodel.MergeResult{
 		Resource: resource,
+		Subject:  importedSubject,
 		Status:   adoptmodel.MergeStatusConflict,
 		Detail: fmt.Sprintf(
 			"existing mcp_server projection target=%s scope=%s has a different standalone payload",

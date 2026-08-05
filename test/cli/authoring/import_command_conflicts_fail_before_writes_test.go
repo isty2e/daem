@@ -109,7 +109,7 @@ func TestRunImportMergeMissingInputSuggestsExistingManifestDestination(t *testin
 	tempDir := t.TempDir()
 	testkit.WithWorkingDirectory(t, tempDir)
 	outputPath := filepath.Join(tempDir, "daem.toml")
-	testkit.WriteFile(t, tempDir, "daem.toml", "version = 1\n")
+	testkit.WriteFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

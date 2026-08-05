@@ -219,7 +219,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `2` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `3` |
 | `lock`, `outdated` | Lock comparison | `3` |
 | `list resources` | Resource inventory | `1` |
 | `list outputs` | Output inventory | `4` |
@@ -304,7 +304,8 @@ A relative source directory must stay within the manifest directory and may not
 be `.daem`, contain the manifest, or overlap daem-managed metadata.
 
 Without `--merge`, the selected manifest must not exist. With `--merge`, it
-must exist. Conflicts fail before mutation. Unsupported or lossy live forms are
+must exist and decode as a valid current manifest before live resources are
+scanned. Conflicts fail before mutation. Unsupported or lossy live forms are
 reported as skipped instead of being imported approximately.
 
 Imported instruction files must be stable regular files no larger than 128
@@ -484,7 +485,7 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output extends authoring schema `2` without changing existing
+Structured output uses authoring schema `3` without changing existing
 add/remove rows:
 
 - `command` and `operation` are `unmanage`;
@@ -516,7 +517,7 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, and import use schema `2` with these common
+Init uses schema `1`. Add, remove, and import use schema `3` with these common
 fields:
 
 | Field | Meaning |
@@ -533,7 +534,12 @@ exact `carrier`, `target`, `scope`, and `source`. Import summary rows include an
 `extensions` count; scan rows identify their resource kind so extension
 inventory evidence is not reported as a skill scan.
 
-Human next-command prose is deliberately absent from schema `2`. CLI misuse or
+Projection-specific import merge rows include a canonical `subject_id` in
+`kind/namespace/key` form. It distinguishes rows that share an aggregate
+`resource_id`, such as project and global MCP projections with the same server
+name. Aggregate-level merge rows omit `subject_id`.
+
+Human next-command prose is deliberately absent from schema `3`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.

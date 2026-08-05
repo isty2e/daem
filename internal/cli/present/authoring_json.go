@@ -104,6 +104,7 @@ type ImportAuthoringJSONSkipped struct {
 
 type ImportAuthoringJSONMerge struct {
 	ResourceID string `json:"resource_id"`
+	SubjectID  string `json:"subject_id,omitempty"`
 	Status     string `json:"status"`
 	Detail     string `json:"detail"`
 }
@@ -385,6 +386,7 @@ func importPlanJSONMergeResults(results []adoptmodel.MergeResult) []ImportAuthor
 	for _, result := range results {
 		merges = append(merges, ImportAuthoringJSONMerge{
 			ResourceID: result.Resource,
+			SubjectID:  result.Subject.String(),
 			Status:     string(result.Status),
 			Detail:     result.Detail,
 		})

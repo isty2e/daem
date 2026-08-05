@@ -61,7 +61,7 @@ func AuthoringChangeFrom(
 	}
 }
 
-// ManifestAuthoringJSONFrom projects one canonical authoring result into schema v2.
+// ManifestAuthoringJSONFrom projects one canonical authoring result into the current schema.
 func ManifestAuthoringJSONFrom(
 	operation AuthoringOperation,
 	resourceKind AuthoringResourceKind,

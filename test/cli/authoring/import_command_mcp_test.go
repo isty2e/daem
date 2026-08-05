@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 )
 
 func TestRunImportYesWritesClaudeProjectMCPManifestOnly(t *testing.T) {
@@ -430,6 +431,128 @@ args = ["context7-mcp==1.2.3"]
 	if content := string(testkit.ReadFile(t, outputPath)); strings.Count(content, `name = "context7"`) != 2 {
 		t.Fatalf("manifest = %q, want two same-name scoped MCP rows", content)
 	}
+}
+
+func TestRunImportMergeJSONDistinguishesSameNameMCPProjectionSubjects(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	t.Setenv("HOME", homeDir)
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.toml")
+	testkit.WriteFile(t, tempDir, "daem.toml", `
+version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@project"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "global"
+transport = "stdio"
+command = "uvx"
+args = ["context7-mcp==1.2.3"]
+`)
+	testkit.WriteFile(t, tempDir, aggregate.CodexProjectMCPConfigPath, `
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp@project"]
+`)
+	globalPath := filepath.Join(homeDir, strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"))
+	testkit.WriteFile(t, filepath.Dir(globalPath), filepath.Base(globalPath), `
+[mcp_servers.context7]
+command = "uvx"
+args = ["context7-mcp==1.2.3"]
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"import",
+			"--target", "codex",
+			"--scope", "project",
+			"--scope", "global",
+			"--manifest", outputPath,
+			"--merge",
+			"--dry-run",
+			"--json",
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("import --merge exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+
+	payload := clijson.DecodeManifestAuthoring(t, stdout.Bytes())
+	if len(payload.MergeResults) != 2 {
+		t.Fatalf("merge results = %#v, want project and global rows", payload.MergeResults)
+	}
+	wantSubjects := []string{
+		"projection/codex.project.mcp-server/context7",
+		"projection/codex.global.mcp-server/context7",
+	}
+	for index, result := range payload.MergeResults {
+		if result.ResourceID != "mcp_server/context7" || result.Status != "noop" || result.SubjectID != wantSubjects[index] {
+			t.Fatalf("merge result %d = %#v, want subject %q", index, result, wantSubjects[index])
+		}
+	}
+}
+
+func TestRunImportMergeRejectsInheritedGlobalMCPScopeWithoutMutation(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	t.Setenv("HOME", homeDir)
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.toml")
+	original := []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "global"
+
+[[mcp_server]]
+name = "context7"
+transport = "stdio"
+command = "npx"
+`)
+	testkit.WriteFile(t, tempDir, "daem.toml", string(original))
+	globalPath := filepath.Join(homeDir, strings.TrimPrefix(aggregate.CodexGlobalMCPConfigPath, "~/"))
+	testkit.WriteFile(t, filepath.Dir(globalPath), filepath.Base(globalPath), `
+[mcp_servers.context7]
+command = "npx"
+`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{
+			"import",
+			"--target", "codex",
+			"--scope", "global",
+			"--manifest", outputPath,
+			"--merge",
+		},
+		&stdout,
+		&stderr,
+	)
+	if exitCode == 0 || !strings.Contains(stderr.String(), "global MCP projection requires explicit scope") {
+		t.Fatalf("import --merge exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want no success envelope", stdout.String())
+	}
+	if got := testkit.ReadFile(t, outputPath); !bytes.Equal(got, original) {
+		t.Fatalf("manifest changed after rejected merge:\n%s", got)
+	}
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.d"))
 }
 
 func TestRunImportYesWritesClaudeGlobalMCPManifestOnly(t *testing.T) {

@@ -189,7 +189,7 @@ func IntoManifest(
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	if err := validateManifestSyntax(content); err != nil {
+	if err := validateCanonicalManifest(content); err != nil {
 		mergeResults = append(mergeResults, adoptmodel.MergeResult{
 			Resource: "manifest",
 			Status:   adoptmodel.MergeStatusConflict,
