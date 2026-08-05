@@ -129,7 +129,17 @@ func projectRootFingerprint(planned commandPlan) (*projectRootFingerprintFacts, 
 	}, nil
 }
 
-func preflightRecoveryJournalProjectRoot(planned commandPlan) error {
+type recoveryProvenancePreflight func(rootedpath.Authority) error
+
+func requireRecoveryProvenance(authority rootedpath.Authority) error {
+	_, err := authority.Provenance()
+	return err
+}
+
+func preflightRecoveryJournalProjectRoot(
+	planned commandPlan,
+	preflight recoveryProvenancePreflight,
+) error {
 	if planned.projectRoot == nil {
 		return rootedpath.NewBoundaryFailure(
 			rootedpath.FailureRootUnavailable,
@@ -145,7 +155,10 @@ func preflightRecoveryJournalProjectRoot(planned commandPlan) error {
 	if err != nil {
 		return fmt.Errorf("read recovery journal project-root authority: %w", err)
 	}
-	if _, err := authority.Provenance(); err != nil {
+	if preflight == nil {
+		preflight = requireRecoveryProvenance
+	}
+	if err := preflight(authority); err != nil {
 		return fmt.Errorf("derive recovery journal project-root provenance: %w", err)
 	}
 	return nil

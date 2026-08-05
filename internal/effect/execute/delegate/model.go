@@ -68,6 +68,7 @@ type AttemptRecord struct {
 	identityKey     string
 	status          AttemptStatus
 	reason          Reason
+	runnerInvoked   bool
 	exitCode        int
 	hasExitCode     bool
 	timedOut        bool
@@ -131,6 +132,12 @@ func (record AttemptRecord) Reason() Reason {
 	return record.reason
 }
 
+// RunnerInvoked reports whether environment and working-directory preflight
+// reached the runner boundary.
+func (record AttemptRecord) RunnerInvoked() bool {
+	return record.runnerInvoked
+}
+
 // ExitCode returns the process exit code when the runner observed one.
 func (record AttemptRecord) ExitCode() (int, bool) {
 	return record.exitCode, record.hasExitCode
@@ -191,6 +198,7 @@ func newAttemptRecord(
 		identityKey:     action.Plan().IdentityKey(),
 		status:          status,
 		reason:          reason,
+		runnerInvoked:   result.RunnerInvoked(),
 		exitCode:        exitCode,
 		hasExitCode:     hasExitCode,
 		timedOut:        result.TimedOut(),

@@ -59,7 +59,8 @@ func TestApplyWithOptionsNoOpDoesNotRequireStatePersistence(t *testing.T) {
 	}
 	if result.ActionCount != 0 ||
 		result.StatePath != fixture.paths.StatefilePath ||
-		!result.State.Equal(fixture.current) {
+		!result.State.Equal(fixture.current) ||
+		result.ExecutionAttempted {
 		t.Fatalf("no-op result = %#v, want unchanged state and selected path", result)
 	}
 	assertHostMissing(t, fixture.paths.StatefilePath)
@@ -74,7 +75,9 @@ func TestApplyWithOptionsNilSinkPreservesSuccessfulApplyBehavior(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ApplyWithOptions returned error: %v", err)
 	}
-	if result.ActionCount != 1 || result.StatePath != fixture.paths.StatefilePath {
+	if result.ActionCount != 1 ||
+		result.StatePath != fixture.paths.StatefilePath ||
+		!result.ExecutionAttempted {
 		t.Fatalf("result = %#v, want one action state path", result)
 	}
 	assertHostFileContent(t, fixture.hostPath("CREATE.md"), "created\n")

@@ -102,6 +102,7 @@ type CommandExecutor struct {
 
 // CommandAttemptResult is the sanitized mechanical result of one command attempt.
 type CommandAttemptResult struct {
+	runnerInvoked   bool
 	started         bool
 	attemptedAt     time.Time
 	reason          CommandReason
@@ -116,6 +117,12 @@ type CommandAttemptResult struct {
 	stderrTruncated bool
 	redacted        bool
 	errorDetail     string
+}
+
+// RunnerInvoked reports whether environment and working-directory preflight
+// reached the runner boundary.
+func (result CommandAttemptResult) RunnerInvoked() bool {
+	return result.runnerInvoked
 }
 
 // AttemptedAt returns the execution-boundary timestamp for this attempt result.

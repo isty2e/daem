@@ -153,10 +153,11 @@ func runDelegatesAndPersistAttemptRecords(
 		if bindForAction != nil {
 			bind = bindForAction(action)
 		}
-		delegateAttempts = append(
-			delegateAttempts,
-			options.DelegateExecutor.Execute(ctx, action, bind),
-		)
+		attempt := options.DelegateExecutor.Execute(ctx, action, bind)
+		if attempt.RunnerInvoked() {
+			options.markAttempted()
+		}
+		delegateAttempts = append(delegateAttempts, attempt)
 		declarationErr = options.executionGuard.requireDeclarationsCurrent(
 			ctx,
 			"after "+phase,
@@ -212,6 +213,7 @@ func runDelegatesAndPersistAttemptRecords(
 			DelegateAttempts: delegateResults,
 		}, errors.Join(delegateErr, declarationErr)
 	}
+	options.markAttempted()
 	nextState, persistErr := execute.CommitDelegateAttempts(
 		ctx,
 		storagecommit.Adapter{},

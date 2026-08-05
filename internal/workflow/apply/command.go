@@ -68,6 +68,9 @@ type CommandResult struct {
 	LockOnly               []readiness.UnsupportedProjection
 	MCPProjections         []mcpobserve.LockedProjectionObservation
 	ActionCount            int
+	// ExecutionAttempted reports whether apply crossed a durable mutation or
+	// delegated command-runner boundary.
+	ExecutionAttempted bool
 }
 
 // HasBlockedRelationActions reports whether relation planning blocks ordinary apply.

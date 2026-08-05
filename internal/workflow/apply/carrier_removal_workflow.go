@@ -65,7 +65,14 @@ type carrierRemovalInput struct {
 	BaselineObserver       CarrierRemovalBaselineObserver
 	RemoveGlobalClaim      carrierRemovalGlobalClaimRemover
 	ValidateBeforeEffects  func(context.Context, mutation.PhysicalAuthoritySet) error
+	MarkExecutionAttempted func()
 	Clock                  func() time.Time
+}
+
+func (input carrierRemovalInput) markAttempted() {
+	if input.MarkExecutionAttempted != nil {
+		input.MarkExecutionAttempted()
+	}
 }
 
 // Result reports the last durably committed state and bounded attempt history.
@@ -218,6 +225,7 @@ func runOne(
 	); err != nil {
 		return errors.Join(err, binding.Close())
 	}
+	input.markAttempted()
 	next, pending, err := execute.CommitPendingCarrierRemoval(
 		ctx,
 		filesystem(input),
@@ -452,6 +460,7 @@ func persistAttempt(
 	result *carrierRemovalResult,
 	record durableattempt.HostRouteAttempt,
 ) error {
+	input.markAttempted()
 	next, err := execute.CommitHostRouteAttempts(
 		ctx,
 		filesystem(input),

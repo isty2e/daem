@@ -102,6 +102,7 @@ func runDirectProjectionRemoval(
 	if err != nil {
 		return err
 	}
+	input.markAttempted()
 	next, pending, err := execute.CommitPendingCarrierRemoval(
 		ctx,
 		filesystem(input),

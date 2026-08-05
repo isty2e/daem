@@ -817,11 +817,12 @@ effects and non-claims, and `claim_transition`. An eligible dry-run uses
 pending install already owns the same transition, success instead uses
 `completed_by_install_recovery`; `final_claim_provenance` then reports
 `installed_observed_transition` rather than implying explicit adoption. A
-failure before execution uses `not_recorded`. Once execution was attempted, a
-later error preserves `recorded` or `completed_by_install_recovery` for each
-exact durable result returned by the commit boundary; only actions without such
-a result use `unknown_after_error`. Run `daem status` to resolve any remaining
-unknown action instead of inferring it from the error alone.
+failure before any durable commit or delegated host-command boundary uses
+`not_recorded`. Once one of those effects was attempted, a later error preserves
+`recorded` or `completed_by_install_recovery` for each exact durable result
+returned by the commit boundary; only actions without such a result use
+`unknown_after_error`. Run `daem status` to resolve any remaining unknown action
+instead of inferring it from the error alone.
 
 Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "direct_config"` for an exact host-config edit,

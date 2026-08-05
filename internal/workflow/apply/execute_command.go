@@ -29,7 +29,24 @@ type ExecuteOptions struct {
 	PlanWasDisclosed               bool
 }
 
-func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options ExecuteOptions) (result CommandResult, returnErr error) {
+type executeDependencies struct {
+	recoveryProvenancePreflight recoveryProvenancePreflight
+}
+
+func ExecuteWithOptions(
+	ctx context.Context,
+	prepared *PreparedWrite,
+	options ExecuteOptions,
+) (CommandResult, error) {
+	return executeWithDependencies(ctx, prepared, options, executeDependencies{})
+}
+
+func executeWithDependencies(
+	ctx context.Context,
+	prepared *PreparedWrite,
+	options ExecuteOptions,
+	dependencies executeDependencies,
+) (result CommandResult, returnErr error) {
 	execution, err := prepared.beginExecution()
 	if err != nil {
 		return CommandResult{}, err
@@ -41,9 +58,13 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 	}()
 
 	planned := execution.planned
+	executionAttempted := false
 	disclose := func(planned commandPlan) CommandResult {
-		return cloneCommandResult(planned.result)
+		result := cloneCommandResult(planned.result)
+		result.ExecutionAttempted = executionAttempted
+		return result
 	}
+	markExecutionAttempted := func() { executionAttempted = true }
 	if err := rejectBlockedRelationActions(planned.assessment.Reconciliation); err != nil {
 		return disclose(planned), err
 	}
@@ -303,6 +324,8 @@ func ExecuteWithOptions(ctx context.Context, prepared *PreparedWrite, options Ex
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,
 		projectRoot:                   planned.projectRoot,
+		markExecutionAttempted:        markExecutionAttempted,
+		recoveryProvenancePreflight:   dependencies.recoveryProvenancePreflight,
 	}
 
 	providerPhase, err := runMCPProviderPrerequisitePhase(

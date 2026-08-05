@@ -16,7 +16,7 @@ func TestApplyWithOptionsRejectsMissingDestinationResolverBeforeEffects(t *testi
 	input.Resolver = nil
 	var events []Event
 
-	_, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
+	result, err := ApplyWithOptions(context.Background(), input, ApplyOptions{
 		Events: func(event Event) { events = append(events, event) },
 	})
 	if err == nil || !strings.Contains(err.Error(), "apply destination resolver is required") {
@@ -24,6 +24,9 @@ func TestApplyWithOptionsRejectsMissingDestinationResolverBeforeEffects(t *testi
 	}
 	if len(events) != 0 {
 		t.Fatalf("missing resolver emitted events: %#v", events)
+	}
+	if result.ExecutionAttempted {
+		t.Fatal("missing resolver reported crossing the execution boundary")
 	}
 	assertHostMissing(t, fixture.hostPath("CREATE.md"))
 	assertHostMissing(t, fixture.paths.StatefilePath)
@@ -95,7 +98,12 @@ func TestApplyWithOptionsJournalCaptureFailureEmitsOnlyCaptureEvents(t *testing.
 	fixture.paths.RecoveryDir = filepath.Join(fixture.root, "recovery-file")
 	writeApplyEventFile(t, fixture.paths.RecoveryDir, "not a directory")
 
-	events, err := fixture.applyExpectError(action)
+	var events []Event
+	result, err := ApplyWithOptions(
+		context.Background(),
+		fixture.input([]applyEventAction{action}),
+		ApplyOptions{Events: func(event Event) { events = append(events, event) }},
+	)
 
 	if err == nil || !strings.Contains(err.Error(), "capture recovery journal") {
 		t.Fatalf("error = %v, want capture recovery journal failure", err)
@@ -106,6 +114,9 @@ func TestApplyWithOptionsJournalCaptureFailureEmitsOnlyCaptureEvents(t *testing.
 	})
 	if events[1].Err == nil {
 		t.Fatalf("capture failed event Err = nil")
+	}
+	if !result.ExecutionAttempted {
+		t.Fatal("journal capture failure did not report crossing the execution boundary")
 	}
 }
 

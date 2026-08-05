@@ -66,6 +66,7 @@ func providerInstallActions(
 
 func prepareMCPProviderPrerequisiteActions(
 	current commandPlan,
+	preflight recoveryProvenancePreflight,
 ) ([]reconcile.RelationAction, error) {
 	actions, err := providerInstallActions(current.assessment.MCPProviders)
 	if err != nil {
@@ -74,7 +75,7 @@ func prepareMCPProviderPrerequisiteActions(
 	if len(actions) == 0 {
 		return actions, nil
 	}
-	if err := preflightRecoveryJournalProjectRoot(current); err != nil {
+	if err := preflightRecoveryJournalProjectRoot(current, preflight); err != nil {
 		return nil, fmt.Errorf("preflight MCP provider recovery authority: %w", err)
 	}
 	return actions, nil
@@ -255,7 +256,10 @@ func runMCPProviderPrerequisitePhase(
 		leases:               leases,
 		firstEffectRevisions: firstEffectRevisions,
 	}
-	actions, err := prepareMCPProviderPrerequisiteActions(*current)
+	actions, err := prepareMCPProviderPrerequisiteActions(
+		*current,
+		options.recoveryProvenancePreflight,
+	)
 	if err != nil {
 		return result, err
 	}

@@ -60,6 +60,14 @@ type runOptions struct {
 	validateCompensationAuthority  func(context.Context) error
 	acceptCompensationChanges      func(context.Context) error
 	projectRoot                    *rootedpath.CapturedRoot
+	markExecutionAttempted         func()
+	recoveryProvenancePreflight    recoveryProvenancePreflight
+}
+
+func (options runOptions) markAttempted() {
+	if options.markExecutionAttempted != nil {
+		options.markExecutionAttempted()
+	}
 }
 
 // HostRouteObserver returns a post-attempt observation fact for one host route
@@ -135,6 +143,9 @@ func runWithOptions(
 			ValidateCompensationAuthority:       options.validateCompensationAuthority,
 			AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
 		})
+		if stateResult.ExecutionAttempted {
+			options.markAttempted()
+		}
 		if err != nil {
 			return runResult{
 				ActionCount:         stateResult.ActionCount,
@@ -200,6 +211,9 @@ func runWithOptions(
 		ValidateCompensationAuthority:       options.validateCompensationAuthority,
 		AcceptCompensationVisibilityChanges: options.acceptCompensationChanges,
 	})
+	if applyResult.ExecutionAttempted {
+		options.markAttempted()
+	}
 	if err != nil {
 		return runResult{
 			ActionCount:         applyResult.ActionCount,

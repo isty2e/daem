@@ -167,6 +167,7 @@ func commitGlobalCarrierAdoptions(
 	registryPath string,
 	current durablecarrier.GlobalCarrierClaims,
 	adoptions []durablecarrier.ManagedCarrierClaim,
+	markExecutionAttempted func(),
 ) (durablecarrier.GlobalCarrierClaims, int, error) {
 	if len(adoptions) == 0 {
 		return current, 0, nil
@@ -174,6 +175,9 @@ func commitGlobalCarrierAdoptions(
 	store, err := carrierclaimstore.New(registryPath)
 	if err != nil {
 		return current, 0, err
+	}
+	if markExecutionAttempted != nil {
+		markExecutionAttempted()
 	}
 	next, err := store.UpsertAllIfCurrent(ctx, current, adoptions)
 	if err != nil {
