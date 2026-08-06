@@ -325,6 +325,21 @@ func CommitRootedEntryCleanup(
 	return outcomeFromError(err), err
 }
 
+// ConfirmRootedEntryAbsentWithOutcome returns unsupported_guarantee without effects.
+func ConfirmRootedEntryAbsentWithOutcome(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+) (mutationfs.CommitOutcome, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		_ = closeRootedCapability(capability)
+		return outcomeFromError(err), err
+	}
+	_ = closeRootedCapability(capability)
+	err = newUnsupportedPlatformFailure(path)
+	return outcomeFromError(err), err
+}
+
 func newUnsupportedPlatformFailure(path string) error {
 	return newFailure(
 		failureUnsupportedGuarantee,
