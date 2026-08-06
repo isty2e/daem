@@ -145,11 +145,28 @@ func Decode(content []byte) (Record, error) {
 	if len(content) > MaximumRecordBytes {
 		return Record{}, fmt.Errorf("journal retirement record exceeds %d bytes", MaximumRecordBytes)
 	}
-	if err := jsonstrict.Validate(
+	envelope, err := jsonstrict.DecodeVersionEnvelope(
 		content,
 		"journal retirement record",
 		maximumRecordJSONDepth,
-	); err != nil {
+		currentVersion,
+	)
+	if err != nil {
+		return Record{}, err
+	}
+	switch envelope.Disposition {
+	case jsonstrict.VersionLegacy:
+		return Record{}, fmt.Errorf(
+			"unsupported legacy journal retirement record version %d; use the daem version that wrote it before upgrading",
+			envelope.Version,
+		)
+	case jsonstrict.VersionFuture:
+		return Record{}, fmt.Errorf(
+			"unsupported journal retirement record version %d; it was written by a newer daem, so upgrade daem before reading it",
+			envelope.Version,
+		)
+	}
+	if err := validateRecordPresence(content); err != nil {
 		return Record{}, err
 	}
 	var persisted recordDTO
@@ -175,4 +192,28 @@ func Decode(content []byte) (Record, error) {
 		persisted.JournalAuthorityFingerprint,
 		Phase(persisted.Phase),
 	)
+}
+
+func validateRecordPresence(content []byte) error {
+	// Inspect raw fields before typed decoding can turn omitted or null
+	// authority into zero-value retirement identity or phase.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &fields); err != nil {
+		return fmt.Errorf("decode journal retirement record fields: %w", err)
+	}
+	for _, field := range []string{
+		"version",
+		"phase",
+		"operation_id",
+		"journal_authority_fingerprint",
+	} {
+		value, ok := fields[field]
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return fmt.Errorf(
+				"journal retirement record field %q is required and must not be null",
+				field,
+			)
+		}
+	}
+	return nil
 }

@@ -2,6 +2,7 @@ package jsonstrict
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -125,6 +126,34 @@ func TestValidateVersionedObjectRejectsNonCanonicalFieldSpellings(t *testing.T) 
 			_, err := ValidateVersionedObject([]byte(test.content), "test document", 4)
 			if err == nil || !strings.Contains(err.Error(), "ASCII lower_snake_case") {
 				t.Fatalf("ValidateVersionedObject error = %v, want canonical-field rejection", err)
+			}
+		})
+	}
+}
+
+func TestDecodeVersionEnvelopeClassifiesLegacyCurrentAndFuture(t *testing.T) {
+	tests := []struct {
+		name    string
+		version int
+		want    VersionDisposition
+	}{
+		{name: "legacy", version: 1, want: VersionLegacy},
+		{name: "current", version: 2, want: VersionCurrent},
+		{name: "future", version: 3, want: VersionFuture},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			envelope, err := DecodeVersionEnvelope(
+				[]byte(`{"version":`+strconv.Itoa(test.version)+`}`),
+				"test document",
+				4,
+				2,
+			)
+			if err != nil {
+				t.Fatalf("DecodeVersionEnvelope returned error: %v", err)
+			}
+			if envelope.Version != test.version || envelope.Disposition != test.want {
+				t.Fatalf("DecodeVersionEnvelope = %#v, want version %d disposition %d", envelope, test.version, test.want)
 			}
 		})
 	}
