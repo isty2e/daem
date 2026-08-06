@@ -19,6 +19,8 @@ type cliRecoveryJournalForTest struct {
 	StatefileBefore        json.RawMessage   `json:"statefile_before"`
 	StatefileAfter         json.RawMessage   `json:"statefile_after"`
 	ClaimTransitions       []json.RawMessage `json:"claim_transitions,omitempty"`
+	RemovalIntents         []json.RawMessage `json:"removal_intents"`
+	ProvisionalAcquires    []json.RawMessage `json:"provisional_acquire_intents,omitempty"`
 }
 
 func loadCLIRecoveryJournalForTest(t *testing.T, path string) cliRecoveryJournalForTest {
