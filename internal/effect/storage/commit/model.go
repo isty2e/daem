@@ -23,6 +23,7 @@ const (
 const (
 	temporaryPrefix = ".daem-tmp-"
 	tombstonePrefix = ".daem-tombstone-"
+	cleanupPrefix   = ".daem-cleanup-"
 )
 
 // EntryIdentity is ephemeral evidence for revalidating one directory entry.
@@ -217,6 +218,7 @@ type LogicalRemoval struct {
 	path       string
 	expected   EntryIdentity
 	capability rootedpath.CommitCapability
+	names      *mutationfs.LogicalRemovalNames
 }
 
 // RootedEntryRename is one exact, no-replace same-parent namespace transition.
@@ -226,6 +228,7 @@ type RootedEntryRename struct {
 	destinationName string
 	expected        EntryIdentity
 	capability      rootedpath.CommitCapability
+	moved           *EntryIdentity
 }
 
 // NewRootedEntryRename constructs an identity-guarded sibling rename. The
@@ -265,9 +268,10 @@ func NewRootedEntryRename(
 // RootedEntryCleanup is one exact identity-guarded removal under retained-root
 // authority. It does not create an intermediate tombstone.
 type RootedEntryCleanup struct {
-	path       string
-	expected   EntryIdentity
-	capability rootedpath.CommitCapability
+	path         string
+	expected     EntryIdentity
+	capability   rootedpath.CommitCapability
+	removalNames *mutationfs.LogicalRemovalNames
 }
 
 // NewRootedEntryCleanup constructs exact cleanup of a regular file or
@@ -277,9 +281,33 @@ func NewRootedEntryCleanup(
 	capability rootedpath.CommitCapability,
 	expected EntryIdentity,
 ) (RootedEntryCleanup, error) {
+	return newRootedEntryCleanup(capability, expected, nil)
+}
+
+// NewRootedRemovalStageCleanup constructs exact cleanup of the reserved
+// cleanup-stage name selected by one journal authority.
+func NewRootedRemovalStageCleanup(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+) (RootedEntryCleanup, error) {
+	if !names.Valid() {
+		return RootedEntryCleanup{}, fmt.Errorf("logical removal names are invalid")
+	}
+	return newRootedEntryCleanup(capability, expected, &names)
+}
+
+func newRootedEntryCleanup(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names *mutationfs.LogicalRemovalNames,
+) (RootedEntryCleanup, error) {
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return RootedEntryCleanup{}, err
+	}
+	if names != nil && filepath.Base(path) != names.Cleanup() {
+		return RootedEntryCleanup{}, fmt.Errorf("rooted removal cleanup path does not match the authorized cleanup-stage name")
 	}
 	if !expected.valid() || expected.path != path {
 		return RootedEntryCleanup{}, fmt.Errorf("expected identity must describe %q", path)
@@ -290,9 +318,10 @@ func NewRootedEntryCleanup(
 		return RootedEntryCleanup{}, fmt.Errorf("expected identity has unsupported entry kind")
 	}
 	return RootedEntryCleanup{
-		path:       path,
-		expected:   expected,
-		capability: capability,
+		path:         path,
+		expected:     expected,
+		capability:   capability,
+		removalNames: names,
 	}, nil
 }
 
@@ -316,6 +345,25 @@ func NewRootedLogicalRemoval(
 		return LogicalRemoval{}, err
 	}
 	request.capability = capability
+	return request, nil
+}
+
+// NewRootedLogicalRemovalWithResidue constructs a journal-authorized rooted
+// removal. The caller-selected namespace pair is opaque storage syntax;
+// storage never derives it from an operation, resource, or action ordinal.
+func NewRootedLogicalRemovalWithResidue(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+) (LogicalRemoval, error) {
+	if !names.Valid() {
+		return LogicalRemoval{}, fmt.Errorf("logical removal names are invalid")
+	}
+	request, err := NewRootedLogicalRemoval(capability, expected)
+	if err != nil {
+		return LogicalRemoval{}, err
+	}
+	request.names = &names
 	return request, nil
 }
 
@@ -351,7 +399,8 @@ func validateCommitPath(path string) error {
 		return err
 	}
 	base := filepath.Base(path)
-	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
+	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) ||
+		strings.HasPrefix(base, cleanupPrefix) {
 		return fmt.Errorf("path uses a reserved storage commit name")
 	}
 	return nil

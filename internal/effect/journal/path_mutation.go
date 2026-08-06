@@ -54,6 +54,8 @@ type pathMutation struct {
 	LiveHash           artifact.ContentHash
 	LivePathExists     bool
 	LivePathHash       artifact.ContentHash
+	LivePathMode       os.FileMode
+	ExpectedPathHash   artifact.ContentHash
 	ContentKind        realization.PathProjectionContentKind
 	PreviousState      *previousPathState
 	AggregateContract  *aggregate.ProjectionContract
@@ -300,7 +302,8 @@ func pathMutationFromManaged(
 		ExpectedExists: mutation.kind() != pathMutationRemove, ExpectedPathMode: facts.expectedMode,
 		LiveExists: evidence.Exists(), LiveHash: evidence.ContentHash(),
 		LivePathExists: evidence.Exists(), LivePathHash: evidence.ContentHash(),
-		ContentKind: facts.contentKind,
+		LivePathMode: evidence.FileMode(),
+		ContentKind:  facts.contentKind,
 	}
 	if facts.previous != nil {
 		result.PreviousState = previousPathStateFromManaged(*facts.previous)
@@ -445,8 +448,12 @@ func expectedPathStateFromMutation(action pathMutation) (recovery.ExpectedPathSt
 		PathExisted: action.ExpectedPathExists,
 		PathMode:    expectedPermissionMode(pathKind == recovery.PathKindFile, action.ExpectedPathMode),
 		Kind:        pathKind,
-		ContentHash: string(action.DesiredHash),
+		ContentHash: string(expectedPathContentHash(action)),
 	}, nil
+}
+
+func expectedPathContentHash(action pathMutation) artifact.ContentHash {
+	return action.DesiredHash
 }
 
 func expectedPermissionMode(applies bool, mode os.FileMode) *recovery.PermissionMode {

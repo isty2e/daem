@@ -120,7 +120,7 @@ func TestAnalyzeImportsEmitsStableResidualRuleNames(t *testing.T) {
 		{
 			name:        "journal recovery effect import",
 			packagePath: "internal/effect/journal/recovery",
-			importPath:  "example.com/project/internal/effect/mutation/filesystem",
+			importPath:  "example.com/project/internal/effect/storage/commit",
 			wantRule:    ruleJournalRecoveryImport,
 		},
 		{

@@ -184,6 +184,19 @@ func (authority *mutationAuthority) retireActiveJournal(
 	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
 		return err
 	}
+	if err := authority.bindRemovalIntents(plan); err != nil {
+		return fmt.Errorf("validate complete removal authority before retirement: %w", err)
+	}
+	if plan.Blocked() || plan.HasErrors() {
+		return fmt.Errorf("recovery journal retirement requires an effect-admissible clean plan")
+	}
+	if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&
+		classification != recovery.ClassificationCleanAfter {
+		return fmt.Errorf("recovery journal retirement requires a clean classified plan")
+	}
+	if _, err := authority.cleanupRemovalResidues(ctx, plan); err != nil {
+		return fmt.Errorf("reconcile journaled removal residues before retirement: %w", err)
+	}
 	root, err := rootedpath.CaptureRoot(paths.RecoveryDir)
 	if err != nil {
 		return fmt.Errorf("capture recovery root for journal retirement: %w", err)

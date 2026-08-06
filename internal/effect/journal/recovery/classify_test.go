@@ -239,6 +239,7 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 				test.intents,
 				test.provenance,
 				"fingerprint",
+				nil,
 			); err == nil {
 				t.Fatal("NewAuthority accepted malformed owned value")
 			}
@@ -348,6 +349,7 @@ func testAuthority(t *testing.T, fingerprint string) Authority {
 			mountFingerprint:  "sha256:mount",
 		},
 		fingerprint,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

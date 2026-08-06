@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
@@ -31,6 +32,11 @@ var (
 	testAfterHash  = testContentHashString("after")
 	testDirtyHash  = testContentHashString("dirty")
 )
+
+type requiredRemovalStates struct {
+	before   bool
+	expected bool
+}
 
 func mustBuildRecoveryPlan(
 	t *testing.T,
@@ -65,6 +71,7 @@ func recoveryJournalFor(entries ...recoveryEntry) recoveryJournal {
 		}
 	}
 
+	removalIntents := testRemovalIntents(entries)
 	return recoveryJournal{
 		Version:                recoveryJournalVersion,
 		OperationID:            testOperationID,
@@ -72,8 +79,101 @@ func recoveryJournalFor(entries ...recoveryEntry) recoveryJournal {
 		CreatedAt:              "2026-06-25T00:00:00Z",
 		ManifestRootProvenance: testRecoveryManifestRootProvenance(),
 		Entries:                append([]recoveryEntry(nil), entries...),
+		RemovalIntents:         removalIntents,
 		StatefileBefore:        statefileFor(beforeResources...),
 		StatefileAfter:         statefileFor(afterResources...),
+	}
+}
+
+func testRemovalIntents(entries []recoveryEntry) []recoveryRemovalIntent {
+	intents := make([]recovery.RemovalIntent, 0, len(entries))
+	for index, entry := range entries {
+		requirements, required := testRemovalStateRequirements(entry)
+		if !required {
+			continue
+		}
+		scope, err := target.ParseScope(entry.Scope)
+		if err != nil {
+			panic(err)
+		}
+		destination, err := output.Parse(entry.Path)
+		if err != nil {
+			panic(err)
+		}
+		states := make([]recovery.RemovalState, 0, 2)
+		if requirements.before {
+			state, err := recovery.NewBeforeRemovalState(entry.Before.canonical())
+			if err != nil {
+				panic(err)
+			}
+			states = append(states, state)
+		}
+		if requirements.expected {
+			state, err := recovery.NewExpectedRemovalState(entry.ExpectedAfter.canonical())
+			if err != nil {
+				panic(err)
+			}
+			states = append(states, state)
+		}
+		names, err := mutationfs.NewLogicalRemovalNames(
+			fmt.Sprintf(".daem-tombstone-%032x", index),
+			fmt.Sprintf(".daem-cleanup-%032x", index),
+		)
+		if err != nil {
+			panic(err)
+		}
+		manifestRoot, err := canonicalRecoveryManifestRootProvenance(testRecoveryManifestRootProvenance())
+		if err != nil {
+			panic(err)
+		}
+		retainedRoot := recoveryRootProvenance{
+			PhysicalRoot:      "/test",
+			ObjectFingerprint: "sha256:" + strings.Repeat("3", 64),
+			MountFingerprint:  "sha256:" + strings.Repeat("4", 64),
+		}
+		retained, err := canonicalRecoveryManifestRootProvenance(retainedRoot)
+		if err != nil {
+			panic(err)
+		}
+		namespace, err := recovery.NewExistingParentAuthority(manifestRoot, retained, "project", names)
+		if err != nil {
+			panic(err)
+		}
+		demand, err := recovery.NewRemovalDemand(scope, destination, states)
+		if err != nil {
+			panic(err)
+		}
+		intent, err := recovery.NewRemovalIntent(demand, namespace)
+		if err != nil {
+			panic(err)
+		}
+		intents = append(intents, intent)
+	}
+	persisted, err := persistedRecoveryRemovalIntents(intents)
+	if err != nil {
+		panic(err)
+	}
+	return persisted
+}
+
+func testRemovalStateRequirements(entry recoveryEntry) (requiredRemovalStates, bool) {
+	if entry.ContentPath != "" {
+		return testRemovalStateTransition(entry.Before.Existed, entry.ExpectedAfter.Existed)
+	}
+	if entry.ContentKind == string(realization.PathProjectionDirectory) && entry.Before.Existed && entry.ExpectedAfter.Existed {
+		return requiredRemovalStates{before: true, expected: true}, true
+	}
+	return testRemovalStateTransition(entry.Before.Existed, entry.ExpectedAfter.Existed)
+}
+
+func testRemovalStateTransition(before bool, expected bool) (requiredRemovalStates, bool) {
+	switch {
+	case !before && expected:
+		return requiredRemovalStates{expected: true}, true
+	case before && !expected:
+		return requiredRemovalStates{before: true}, true
+	default:
+		return requiredRemovalStates{}, false
 	}
 }
 

@@ -116,6 +116,7 @@ func TestRecoveryJournalBeforeEvidenceHasSingleCanonicalInput(t *testing.T) {
 	}
 	wantOptionFields := []string{
 		"ClaimTransitions", "ProvisionalAcquires", "ManagedPathMutations", "ManagedAggregateMutations", "ManagedPathEvidence",
+		"RemovalDemands",
 		"Resolver", "ManifestRoot", "OperationAuthority", "RootedCapability", "Codecs", "StateCodec", "Filesystem",
 	}
 	slices.Sort(optionFields)
@@ -180,7 +181,8 @@ func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
 				switch typed := specification.(type) {
 				case *ast.TypeSpec:
 					if typed.Name.IsExported() &&
-						expressionReferencesImport(typed.Type, imports, "github.com/isty2e/daem/internal/effect/journal/recovery") {
+						expressionReferencesImport(typed.Type, imports, "github.com/isty2e/daem/internal/effect/journal/recovery") &&
+						!isApprovedRecoveryBoundaryType(typed.Name.Name, typed.Type, imports) {
 						t.Fatalf("%s re-exports or wraps recovery type %s", path, typed.Name.Name)
 					}
 				case *ast.ValueSpec:
@@ -223,6 +225,28 @@ func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
 			t.Fatalf("journal declares retired recovery transport %s", retired)
 		}
 	}
+}
+
+func isApprovedRecoveryBoundaryType(name string, expression ast.Expr, imports map[string]string) bool {
+	if name != "CaptureOptions" {
+		return false
+	}
+	structure, ok := expression.(*ast.StructType)
+	if !ok {
+		return false
+	}
+	for _, field := range structure.Fields.List {
+		if len(field.Names) != 1 || field.Names[0].Name != "RemovalDemands" {
+			continue
+		}
+		selector, ok := field.Type.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "RemovalDemandSet" {
+			return false
+		}
+		qualifier, ok := selector.X.(*ast.Ident)
+		return ok && imports[qualifier.Name] == "github.com/isty2e/daem/internal/effect/journal/recovery"
+	}
+	return false
 }
 
 func parseProductionGoFiles(t *testing.T, directory string) (*token.FileSet, map[string]*ast.File) {

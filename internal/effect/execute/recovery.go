@@ -159,6 +159,9 @@ func ExecuteRecoveryPlanWithOptions(ctx context.Context, plan recovery.Plan, pat
 	if err := authority.validateActiveJournalAuthority(ctx); err != nil {
 		return err
 	}
+	if err := authority.bindRemovalIntents(plan); err != nil {
+		return fmt.Errorf("bind recovery removal authority: %w", err)
+	}
 	if err := executeRecoveryPlanEffects(ctx, plan, paths, options); err != nil {
 		return err
 	}
@@ -250,6 +253,9 @@ func executeRecoveryPlanEffects(ctx context.Context, plan recovery.Plan, paths P
 		return err
 	}
 	plan = current
+	if err := authority.bindRemovalIntents(plan); err != nil {
+		return fmt.Errorf("bind reloaded recovery removal authority: %w", err)
+	}
 	visibilityGate := recoveryVisibilityGate(options)
 
 	switch plan.Classification() {

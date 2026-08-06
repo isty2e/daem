@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -47,12 +48,26 @@ func (provenance ManifestRootProvenance) Equal(other ManifestRootProvenance) boo
 	return provenance == other
 }
 
+// PhysicalRoot returns the canonical physical root spelling in the evidence.
+func (provenance ManifestRootProvenance) PhysicalRoot() string { return provenance.physicalRoot }
+
+// ObjectFingerprint returns opaque durable object evidence.
+func (provenance ManifestRootProvenance) ObjectFingerprint() string {
+	return provenance.objectFingerprint
+}
+
+// MountFingerprint returns opaque durable mount evidence.
+func (provenance ManifestRootProvenance) MountFingerprint() string {
+	return provenance.mountFingerprint
+}
+
 // Authority is the complete canonical durable journal authority. Selection
 // may narrow observations and actions but never this value.
 type Authority struct {
 	operationID        string
 	operationDir       string
 	entries            []Entry
+	removalIntents     []RemovalIntent
 	statefileBefore    durable.Snapshot
 	statefileAfter     durable.Snapshot
 	claimTransitions   []ownershipmutation.ClaimTransition
@@ -73,6 +88,7 @@ func NewAuthority(
 	provisionalIntents []outputownership.ProvisionalAcquireIntent,
 	manifestProvenance ManifestRootProvenance,
 	fingerprint string,
+	removalIntents []RemovalIntent,
 ) (Authority, error) {
 	if operationID == "" || operationDir == "" || fingerprint == "" {
 		return Authority{}, fmt.Errorf("recovery authority requires operation identity, directory, and fingerprint")
@@ -95,6 +111,24 @@ func NewAuthority(
 			return Authority{}, fmt.Errorf("recovery authority provisional intents[%d]: %w", index, err)
 		}
 	}
+	removalIntents = append([]RemovalIntent(nil), removalIntents...)
+	removalNames := make(map[string]struct{}, len(removalIntents)*2)
+	for index, intent := range removalIntents {
+		if err := intent.validate(); err != nil {
+			return Authority{}, fmt.Errorf("recovery authority removal intents[%d]: %w", index, err)
+		}
+		for prior := range index {
+			if removalIntents[prior].scope == intent.scope && removalIntents[prior].destination == intent.destination {
+				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate relation %q", intent.destination)
+			}
+		}
+		for _, name := range []string{intent.namespace.names.Residue(), intent.namespace.names.Cleanup()} {
+			if _, duplicate := removalNames[name]; duplicate {
+				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate namespace name %q", name)
+			}
+			removalNames[name] = struct{}{}
+		}
+	}
 	if err := manifestProvenance.validate(); err != nil {
 		return Authority{}, fmt.Errorf("recovery authority manifest root: %w", err)
 	}
@@ -102,6 +136,7 @@ func NewAuthority(
 		operationID:        operationID,
 		operationDir:       operationDir,
 		entries:            cloneEntries(entries),
+		removalIntents:     append([]RemovalIntent(nil), removalIntents...),
 		statefileBefore:    statefileBefore,
 		statefileAfter:     statefileAfter,
 		claimTransitions:   append([]ownershipmutation.ClaimTransition(nil), claimTransitions...),
@@ -262,16 +297,18 @@ func (action Action) SubjectID() (topology.SubjectID, bool) {
 // Plan is a pure classification over complete durable authority and fresh
 // evidence.
 type Plan struct {
-	authority      Authority
-	classification Classification
-	actions        []Action
-	guardedActions []Action
+	authority          Authority
+	classification     Classification
+	actions            []Action
+	guardedActions     []Action
+	removalObligations []RemovalCleanupObligation
 }
 
 // Clone returns a disclosure-safe plan copy.
 func (plan Plan) Clone() Plan {
 	plan.actions = cloneActions(plan.actions)
 	plan.guardedActions = cloneActions(plan.guardedActions)
+	plan.removalObligations = slices.Clone(plan.removalObligations)
 	return plan
 }
 
@@ -284,6 +321,55 @@ func (plan Plan) ClaimTransitions() []ownershipmutation.ClaimTransition {
 // have not yet been promoted to exact durable claims.
 func (plan Plan) ProvisionalAcquireIntents() []outputownership.ProvisionalAcquireIntent {
 	return append([]outputownership.ProvisionalAcquireIntent(nil), plan.authority.provisionalIntents...)
+}
+
+// RemovalIntents returns complete operation-scoped cleanup authority. Selection
+// never narrows this set.
+func (plan Plan) RemovalIntents() []RemovalIntent {
+	return append([]RemovalIntent(nil), plan.authority.removalIntents...)
+}
+
+// RemovalIntentFor returns the exact intent for one rooted destination relation.
+func (plan Plan) RemovalIntentFor(scope target.Scope, destination output.Destination) (RemovalIntent, bool) {
+	for _, intent := range plan.authority.removalIntents {
+		if intent.scope == scope && intent.destination == destination {
+			return intent, true
+		}
+	}
+	return RemovalIntent{}, false
+}
+
+// RemovalCleanupObligations returns the complete operation-scoped cleanup
+// basis. Selection never narrows this set; freshly reconciled results are
+// checked against it by RetirementReady.
+func (plan Plan) RemovalCleanupObligations() []RemovalCleanupObligation {
+	return slices.Clone(plan.removalObligations)
+}
+
+// RetirementReady reports whether visible convergence and every complete
+// authority cleanup obligation have both been established. The caller must
+// supply the discharged results from the effect-time retirement gate; a plan
+// cannot self-authorize retirement from semantic clean classification alone.
+func (plan Plan) RetirementReady(discharged []RemovalCleanupObligation) bool {
+	if plan.classification != ClassificationCleanBefore && plan.classification != ClassificationCleanAfter {
+		return false
+	}
+	if len(discharged) != len(plan.removalObligations) {
+		return false
+	}
+	for _, expected := range plan.removalObligations {
+		matched := false
+		for _, actual := range discharged {
+			if actual.Readiness() == RemovalCleanupDischarged && expected.SameBasis(actual) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
 }
 
 func (plan Plan) Blocked() bool                     { return plan.classification == ClassificationBlocked }
@@ -337,7 +423,9 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 		len(plan.actions) != len(other.actions) ||
 		len(plan.guardedActions) != len(other.guardedActions) ||
 		len(plan.authority.claimTransitions) != len(other.authority.claimTransitions) ||
-		len(plan.authority.provisionalIntents) != len(other.authority.provisionalIntents) {
+		len(plan.authority.provisionalIntents) != len(other.authority.provisionalIntents) ||
+		len(plan.authority.removalIntents) != len(other.authority.removalIntents) ||
+		len(plan.removalObligations) != len(other.removalObligations) {
 		return false
 	}
 	for index := range plan.actions {
@@ -357,6 +445,16 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 	}
 	for index := range plan.authority.provisionalIntents {
 		if !plan.authority.provisionalIntents[index].Equal(other.authority.provisionalIntents[index]) {
+			return false
+		}
+	}
+	for index := range plan.authority.removalIntents {
+		if !plan.authority.removalIntents[index].equal(other.authority.removalIntents[index]) {
+			return false
+		}
+	}
+	for index := range plan.removalObligations {
+		if !plan.removalObligations[index].Equal(other.removalObligations[index]) {
 			return false
 		}
 	}

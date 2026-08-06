@@ -83,7 +83,7 @@ func commitRootedDirectoryWithPrecondition(
 		// The captured absence is enforced by the prepared publication's
 		// no-clobber commit; there is no existing destination to retire.
 	} else if removalCapability != nil && (precondition != nil || err == nil) {
-		if err := authority.filesystem.RemoveRootedEntry(ctx, removalCapability, expected); err != nil {
+		if _, err := authority.removeJournaledRootedEntry(ctx, destination, removalCapability, expected); err != nil {
 			return err
 		}
 		destinationRetired = true

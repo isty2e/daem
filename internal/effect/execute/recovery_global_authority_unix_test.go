@@ -685,6 +685,17 @@ func TestRecoveryHostActionsStopAtLostVisibilityAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = authority.close() })
+	for index, action := range hostActions {
+		logical, parseErr := output.Parse(action.Destination)
+		if parseErr != nil {
+			t.Fatalf("parse recovery test destination %d: %v", index, parseErr)
+		}
+		destination, resolveErr := authority.resolveBoundDestination(action.Scope, logical)
+		if resolveErr != nil {
+			t.Fatalf("resolve recovery test destination %d: %v", index, resolveErr)
+		}
+		bindTestFileRemovalIntent(t, authority, destination, contents[index])
+	}
 	rollback, err := stageRecoveryRollback(t.Context(), authority, hostActions, testAggregateCodecs())
 	if err != nil {
 		t.Fatal(err)
@@ -1003,6 +1014,10 @@ func newGlobalFileRecoveryFixture(
 	if _, err := registry.Apply(context.Background(), address, ownership.NoClaim(), claim); err != nil {
 		t.Fatalf("seed global recovery ownership claim: %v", err)
 	}
+	removalDemands := recovery.RemovalDemandSet{}
+	if !beforeExists {
+		removalDemands = testManagedPathRemovalDemandSet(t, nil, 0, &nextPath, stateMode)
+	}
 	if _, err := journal.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
@@ -1015,6 +1030,7 @@ func newGlobalFileRecoveryFixture(
 			ClaimTransitions:     []ownershipmutation.ClaimTransition{transition},
 			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
+			RemovalDemands:       removalDemands,
 			Resolver:             resolver.Resolve,
 			StateCodec:           testStateCodec(),
 		},

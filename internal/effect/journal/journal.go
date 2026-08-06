@@ -46,7 +46,7 @@ func recoveryJournalRecordFingerprint(content []byte) string {
 const (
 	maximumRecoveryJournalBytes int64 = 64 << 20
 	recoveryJournalMode               = 0o600
-	recoveryJournalVersion            = 11
+	recoveryJournalVersion            = 12
 
 	// MaximumRecoveryBackupFileBytes is the largest single regular file that
 	// recovery capture, observation, staging, or execution may admit.
@@ -66,6 +66,7 @@ type recoveryJournalDTO struct {
 	StatefileAfter         json.RawMessage                    `json:"statefile_after"`
 	ClaimTransitions       []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
 	ProvisionalAcquires    []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
+	RemovalIntents         []recoveryRemovalIntent            `json:"removal_intents"`
 }
 
 func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
@@ -84,6 +85,13 @@ func (persisted *recoveryJournalDTO) UnmarshalJSON(content []byte) error {
 	}
 	if _, present := fields["manifest_root_provenance"]; !present {
 		return fmt.Errorf(`recovery journal field "manifest_root_provenance" is required`)
+	}
+	removalIntents, present := fields["removal_intents"]
+	if !present {
+		return fmt.Errorf(`recovery journal field "removal_intents" is required`)
+	}
+	if bytes.Equal(bytes.TrimSpace(removalIntents), []byte("null")) {
+		return fmt.Errorf(`recovery journal field "removal_intents" must not be null`)
 	}
 
 	type wire recoveryJournalDTO
@@ -141,6 +149,10 @@ func encodeRecoveryJournal(
 	statefileBefore []byte,
 	statefileAfter []byte,
 ) ([]byte, error) {
+	removalIntents := journal.RemovalIntents
+	if removalIntents == nil {
+		removalIntents = []recoveryRemovalIntent{}
+	}
 	persisted := recoveryJournalDTO{
 		Version:                journal.Version,
 		OperationID:            journal.OperationID,
@@ -152,6 +164,7 @@ func encodeRecoveryJournal(
 		StatefileAfter:         json.RawMessage(statefileAfter),
 		ClaimTransitions:       append([]recoveryClaimTransition(nil), journal.ClaimTransitions...),
 		ProvisionalAcquires:    append([]recoveryProvisionalAcquireIntent(nil), journal.ProvisionalAcquires...),
+		RemovalIntents:         append([]recoveryRemovalIntent{}, removalIntents...),
 	}
 	sortRecoveryEntries(persisted.Entries)
 
@@ -236,6 +249,7 @@ func decodeRecoveryJournalSnapshot(
 		StatefileAfter:         after,
 		ClaimTransitions:       persisted.ClaimTransitions,
 		ProvisionalAcquires:    persisted.ProvisionalAcquires,
+		RemovalIntents:         persisted.RemovalIntents,
 	}
 	if err := validateRecoveryJournal(journal, stateCodec); err != nil {
 		return recoveryJournal{}, err
@@ -337,6 +351,16 @@ func validateRecoveryJournalRelationships(journal recoveryJournal) error {
 		provisionalAcquires,
 	); err != nil {
 		return fmt.Errorf("validate recovery ownership coverage: %w", err)
+	}
+	removalIntents, err := canonicalRecoveryRemovalIntents(journal.RemovalIntents)
+	if err != nil {
+		return fmt.Errorf("canonicalize recovery removal intents: %w", err)
+	}
+	if err := validateRecoveryRemovalIntents(removalIntents); err != nil {
+		return fmt.Errorf("validate recovery removal intents: %w", err)
+	}
+	if err := validatePersistedRemovalIntentRelations(journal.Entries, removalIntents); err != nil {
+		return fmt.Errorf("validate recovery removal intent relations: %w", err)
 	}
 	if len(journal.Entries) == 0 {
 		if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {

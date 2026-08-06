@@ -203,6 +203,14 @@ func ApplyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	removalDemands, err := removalDemandSetForExecution(
+		input.ManagedPathEffects,
+		input.AggregateEffects,
+		input.ManagedPathEvidence,
+	)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	entrySelections, err := journal.EntrySelections(managedMutations, aggregateMutations)
 	if err != nil {
 		return ApplyResult{}, err
@@ -298,6 +306,7 @@ func ApplyWithOptions(
 			ManagedPathMutations:      managedMutations,
 			ManagedAggregateMutations: aggregateMutations,
 			ManagedPathEvidence:       input.ManagedPathEvidence,
+			RemovalDemands:            removalDemands,
 			Resolver:                  journalResolver,
 			ManifestRoot:              mutationAuthority.capturedRoot,
 			OperationAuthority:        mutationAuthority.recoveryJournal,
@@ -313,6 +322,22 @@ func ApplyWithOptions(
 	if err := mutationAuthority.captureActiveJournalAuthority(ctx); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, err
+	}
+	activePlan, err := loadApplyActivePlanForState(
+		ctx,
+		input.Paths,
+		input.CurrentState,
+		mutationAuthority,
+		input.StateCodec,
+		input.Codecs,
+	)
+	if err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
+	}
+	if err := mutationAuthority.bindRemovalIntents(activePlan); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
 	}
 	if err := ownershipState.setJournalFingerprint(captureResult.RecordFingerprint); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)

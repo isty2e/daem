@@ -74,7 +74,8 @@ func mutateFileDestinationWithOutcome(
 			_ = capability.Close()
 			return fileMutationOutcome{}
 		}
-		return attemptedFileMutation(authority.filesystem.RemoveRootedEntry(ctx, capability, expected))
+		_, err := authority.removeJournaledRootedEntry(ctx, destination, capability, expected)
+		return attemptedFileMutation(err)
 	}
 	if !exists {
 		return attemptedFileMutation(authority.filesystem.CreateRootedFile(ctx, capability, content, fileMode))
@@ -135,11 +136,13 @@ func removeDestinationAgainst(
 	if err != nil {
 		return err
 	}
-	return authority.filesystem.RemoveRootedEntry(ctx, capability, expected)
+	_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, expected)
+	return err
 }
 
 func removeManagedPathDestination(
 	ctx context.Context,
+	authority *mutationAuthority,
 	destination mutationDestination,
 	precondition *managedPathPrecondition,
 ) error {
@@ -153,7 +156,8 @@ func removeManagedPathDestination(
 	if err != nil {
 		return err
 	}
-	return precondition.filesystem.RemoveRootedEntry(ctx, capability, precondition.identity)
+	_, err = authority.removeJournaledRootedEntry(ctx, destination, capability, precondition.identity)
+	return err
 }
 
 func commitManagedFileDestination(

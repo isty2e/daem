@@ -342,6 +342,7 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 	if isInternal {
 		switch internalImport {
 		case "internal/assurance/durable",
+			"internal/effect/mutation/filesystem",
 			"internal/effect/mutation/ownership",
 			"internal/output",
 			"internal/output/ownership",

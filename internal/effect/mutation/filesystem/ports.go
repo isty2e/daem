@@ -99,6 +99,12 @@ type RootedCommitter interface {
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
 	) error
+	RemoveRootedEntryWithResidue(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+	) (CommitOutcome, error)
 	PrepareRootedTree(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -116,6 +122,12 @@ type RootedEntryCommitter interface {
 		destinationName string,
 		expected EntryIdentity,
 	) (CommitOutcome, error)
+	PromoteRootedRemovalResidue(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+	) (CommitOutcome, EntryIdentity, error)
 	ReplaceRootedFileWithOutcome(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -135,6 +147,16 @@ type RootedEntryCommitter interface {
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
+	) (CommitOutcome, error)
+	CleanupRootedRemovalStage(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+	) (CommitOutcome, error)
+	ConfirmRootedEntryAbsent(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
 	) (CommitOutcome, error)
 }
 
