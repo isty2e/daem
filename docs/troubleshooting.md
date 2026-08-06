@@ -43,7 +43,7 @@ changes that state records the current schema. Missing, null, populated, or
 unknown fields are not an empty retirement artifact and remain blocked. Field
 names in versioned durable files use exact ASCII `lower_snake_case` spelling;
 case variants such as `CLAIMS` are rejected rather than treated as aliases.
-Every pre-v11 recovery journal is blocked because its presence may represent
+Every pre-v12 recovery journal is blocked because its presence may represent
 interrupted effects. Journal v10 persists a reusable Linux mount ID that cannot
 establish durable mount identity after unmount/remount cycles or ID reuse.
 Journal v9 does not carry the exact ownership-transition foreign key or the

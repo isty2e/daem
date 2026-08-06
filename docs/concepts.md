@@ -201,6 +201,27 @@ before renaming the directory. Identity or content drift fails closed. As with
 other guarded filesystem effects, this is not an atomic compare-and-rename
 against a non-daem writer racing after the final validation.
 
+Every journaled rooted removal also publishes one exact removal intent before
+the first covered effect. The intent binds the portable scope and destination
+to a relation-specific parent authority, an opaque same-parent residue name,
+and the complete before/expected-after whole-path states that execution may
+move into that name. Aggregate contributors share the document-level intent;
+the intent is never keyed by a resource name, target, action ordinal, or
+content path. A replacement parent cannot inherit the old authority, and an
+initially absent parent is admitted only through its retained ancestor and
+missing suffix without creating that parent during validation.
+
+Visible recovery classification and residue reconciliation are separate. A
+journal may be `clean_before` or `clean_after` while a removal obligation is
+still pending. Immediately before retirement, daem observes every complete
+intent rather than only selected recovery entries. A matching residue is
+removed through the exact rooted storage protocol; an absent residue is
+confirmed only after nearest-existing-ancestor synchronization and a second
+exact absence observation. Changed namespace, mismatched or unsupported
+residue, unavailable evidence, or failed durability retains the journal and
+reports a typed blocker or retry condition. Only after every obligation is
+discharged may the retirement gate rename the active journal.
+
 Once the control-to-GC rename is durable, semantic recovery is complete.
 Physical GC removal is best effort: interruption may leave private
 retirement-control metadata, but not the retired journal or its backups. That

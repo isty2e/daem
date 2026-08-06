@@ -890,6 +890,13 @@ lockfile. Both forms replan after acquiring authority. A prior dry-run grants
 no execution authority. Blocked or stale recovery keeps the current evidence
 and writes nothing.
 
+Before any active journal is retired, the retirement gate reconciles every
+persisted removal intent, including intents for entries outside a selected
+recovery subset. The gate reports the logical destination and a typed
+namespace, residue, or durability reason when reconciliation is blocked or
+must be retried; it never exposes the private residue sibling path. A clean
+visible classification alone is not a retirement guarantee.
+
 For active recovery, default output shows classification, operation identity,
 every action, destination/content subject, blocker, and recovery limitation.
 It omits backup paths/hashes and journal layout; `--verbose` adds operation
