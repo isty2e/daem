@@ -289,6 +289,18 @@ func CommitLogicalRemoval(_ context.Context, request LogicalRemoval) error {
 	return newUnsupportedPlatformFailure(request.path)
 }
 
+// CommitLogicalRemovalWithOutcome fails closed without effects.
+func CommitLogicalRemovalWithOutcome(
+	_ context.Context,
+	request LogicalRemoval,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.path)
+	return outcomeFromError(err), err
+}
+
 // CommitRootedEntryRename returns unsupported_guarantee without effects.
 func CommitRootedEntryRename(
 	_ context.Context,

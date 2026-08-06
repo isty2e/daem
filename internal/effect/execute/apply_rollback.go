@@ -294,6 +294,10 @@ func progressAfterMutationError(err error) hostEffectProgress {
 	if errors.As(err, &indeterminate) {
 		return hostEffectIndeterminate
 	}
+	var removalFailure *rootedRemovalCommitError
+	if errors.As(err, &removalFailure) {
+		return progressAfterCommitOutcome(removalFailure.Outcome(), err)
+	}
 	kind, classified := mutationfs.FailureKindOf(err)
 	if !classified {
 		return hostEffectIndeterminate
@@ -304,6 +308,24 @@ func progressAfterMutationError(err error) hostEffectProgress {
 	case mutationfs.FailureIndeterminateCommit, mutationfs.FailureRetainedResidue:
 		return hostEffectIndeterminate
 	default:
+		return hostEffectIndeterminate
+	}
+}
+
+func progressAfterCommitOutcome(outcome mutationfs.CommitOutcome, err error) hostEffectProgress {
+	if err == nil {
+		return hostEffectExpectedAfter
+	}
+	switch outcome.State() {
+	case mutationfs.CommitOutcomeUncommitted:
+		return hostEffectNotStarted
+	case mutationfs.CommitOutcomeIndeterminate, mutationfs.CommitOutcomeRetainedRecoverable,
+		mutationfs.CommitOutcomeComplete:
+		return hostEffectIndeterminate
+	default:
+		// A rooted removal must always carry a canonical storage outcome. Treat
+		// an unknown outcome as indeterminate rather than recursively trying to
+		// classify the same wrapped error again.
 		return hostEffectIndeterminate
 	}
 }

@@ -182,6 +182,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	if err := capability.Close(); err != nil {
 		t.Fatalf("close original destination capability: %v", err)
 	}
+	bindTestFileRemovalIntent(t, authority, destination, []byte("inside"))
 	if err := os.Remove(destinationPath); err != nil {
 		t.Fatalf("remove original destination: %v", err)
 	}
@@ -190,8 +191,8 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	}
 
 	err = removeDestinationAgainst(context.Background(), authority, destination, expected)
-	if err == nil || !strings.Contains(err.Error(), "entry identity changed") {
-		t.Fatalf("removeDestinationAgainst error = %v, want identity-change rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "rooted removal commit outcome uncommitted") {
+		t.Fatalf("removeDestinationAgainst error = %v, want uncommitted identity-change rejection", err)
 	}
 	assertMutationTestFile(t, outsideFile, "outside")
 }

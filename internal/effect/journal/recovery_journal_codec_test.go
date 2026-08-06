@@ -164,7 +164,7 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 12`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +184,7 @@ func TestRecoveryJournalRejectsReusableMountVersionTen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 10`), 1)
+	content = bytes.Replace(content, []byte(`"version": 12`), []byte(`"version": 10`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +207,7 @@ func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 12, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 12`), []byte(`"version": 13, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -569,8 +569,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 11`,
-				`"version": 11, "version": 11`,
+				`"version": 12`,
+				`"version": 12, "version": 12`,
 				1,
 			),
 		},

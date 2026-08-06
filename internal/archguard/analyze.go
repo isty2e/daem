@@ -343,6 +343,7 @@ func isAllowedJournalRecoveryImport(importPath string, internalImport string, is
 		switch internalImport {
 		case "internal/assurance/durable",
 			"internal/effect/mutation/ownership",
+			"internal/effect/mutation/residue",
 			"internal/output",
 			"internal/output/ownership",
 			"internal/realization",
@@ -390,6 +391,7 @@ func isAllowedImportRuleException(rule string, packagePath string, importPath st
 
 func isAllowedStorageCommitImport(importPath string) bool {
 	return importPath == "internal/effect/mutation/filesystem" ||
+		importPath == "internal/effect/mutation/residue" ||
 		importPath == "internal/effect/mutation/rootedpath"
 }
 

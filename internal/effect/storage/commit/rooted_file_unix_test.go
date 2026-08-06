@@ -28,6 +28,95 @@ func TestMissingRootedEntryPreservesNotExistCause(t *testing.T) {
 	}
 }
 
+func TestConfirmRootedEntryAbsentSyncsNearestExistingAncestorWithoutCreatingParents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "missing/nested/.daem-tombstone-residue")
+	if _, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability); err != nil {
+		t.Fatalf("ConfirmRootedEntryAbsent returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	if _, err := os.Stat(filepath.Join(root, "missing")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing parent stat error = %v, want not exist", err)
+	}
+}
+
+func TestConfirmRootedEntryAbsentRejectsReappearedResidue(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	residue := filepath.Join(root, ".daem-tombstone-residue")
+	if err := os.WriteFile(residue, []byte("foreign"), 0o600); err != nil {
+		t.Fatalf("create residue: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, filepath.Base(residue))
+	_, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability)
+	if err == nil || !strings.Contains(err.Error(), "reappeared") {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want reappeared blocker", err)
+	}
+	assertFile(t, residue, "foreign", 0o600)
+}
+
+func TestConfirmRootedEntryAbsentRejectsSymlinkAncestor(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatalf("create outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "missing")); err != nil {
+		t.Fatalf("create ancestor symlink: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	_, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability)
+	if err == nil || !strings.Contains(err.Error(), "symbolic-link ancestor") {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want symlink blocker", err)
+	}
+}
+
+func TestConfirmRootedEntryAbsentHonorsCancellation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "residue")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := ConfirmRootedEntryAbsentWithOutcome(ctx, capability)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want context cancellation", err)
+	}
+	assertClosedRootedCapability(t, capability)
+}
+
+func TestConfirmRootedEntryAbsentRetriesAfterDurabilityFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	first := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	faults := faultPlan{failures: map[phase]error{
+		phaseSyncCleanupParent: errors.New("injected absence sync failure"),
+	}}
+	if err := confirmRootedEntryAbsentWithFaults(t.Context(), first, faults); err == nil || !strings.Contains(err.Error(), "injected absence sync failure") {
+		t.Fatalf("first absence confirmation error = %v, want injected failure", err)
+	}
+	second := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	if _, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), second); err != nil {
+		t.Fatalf("retry absence confirmation returned error: %v", err)
+	}
+}
+
 func TestRootedFileCommitCreateReplaceAndRemoveStayRooted(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {

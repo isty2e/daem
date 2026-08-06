@@ -124,18 +124,18 @@ func Classify(
 
 	if pathsBefore && stateBefore && claimsBefore {
 		return newPlan(authority, ClassificationCleanBefore,
-			[]Action{cleanupAction(authority.operationID, ClassificationCleanBefore)}, actions), nil
+			[]Action{cleanupAction(authority.operationID, ClassificationCleanBefore)}, actions)
 	}
 	if pathsAfter && stateAfter && claimsAfter {
 		return newPlan(authority, ClassificationCleanAfter,
-			[]Action{cleanupAction(authority.operationID, ClassificationCleanAfter)}, actions), nil
+			[]Action{cleanupAction(authority.operationID, ClassificationCleanAfter)}, actions)
 	}
 	if pathsAfter && stateAfter && claimsFinalizeEligible && !claimsAfter {
 		return newPlan(authority, ClassificationNeedsFinalize,
-			[]Action{{Kind: ActionKindFinalizeClaims, Reason: string(ClassificationNeedsFinalize), Destination: authority.operationID}}, actions), nil
+			[]Action{{Kind: ActionKindFinalizeClaims, Reason: string(ClassificationNeedsFinalize), Destination: authority.operationID}}, actions)
 	}
 	if pathsRecoverable && stateBefore && claimsRollbackEligible {
-		return newPlan(authority, ClassificationNeedsRollback, actions, actions), nil
+		return newPlan(authority, ClassificationNeedsRollback, actions, actions)
 	}
 
 	if !stateBefore && !stateAfter {
@@ -157,16 +157,26 @@ func Classify(
 		actions = append(actions, Action{Kind: ActionKindError, Reason: "claim_mismatch", Detail: "ownership claims cannot be finalized from the observed phase"})
 	}
 
-	return newPlan(authority, ClassificationBlocked, actions, actions), nil
+	return newPlan(authority, ClassificationBlocked, actions, actions)
 }
 
-func newPlan(authority Authority, classification Classification, actions []Action, guarded []Action) Plan {
-	return Plan{
-		authority:      authority,
-		classification: classification,
-		actions:        cloneActions(actions),
-		guardedActions: cloneActions(guarded),
+func newPlan(
+	authority Authority,
+	classification Classification,
+	actions []Action,
+	guarded []Action,
+) (Plan, error) {
+	removalObligations, err := NewPendingRemovalCleanupObligations(authority.removalIntents)
+	if err != nil {
+		return Plan{}, err
 	}
+	return Plan{
+		authority:          authority,
+		classification:     classification,
+		actions:            cloneActions(actions),
+		guardedActions:     cloneActions(guarded),
+		removalObligations: removalObligations,
+	}, nil
 }
 
 func cleanupAction(operationID string, classification Classification) Action {

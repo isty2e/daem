@@ -4,6 +4,7 @@ import (
 	"context"
 	"io/fs"
 
+	"github.com/isty2e/daem/internal/effect/mutation/residue"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -99,6 +100,12 @@ type RootedCommitter interface {
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
 	) error
+	RemoveRootedEntryWithResidue(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		residue residue.LogicalRemovalResidueName,
+	) (CommitOutcome, error)
 	PrepareRootedTree(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -135,6 +142,10 @@ type RootedEntryCommitter interface {
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
+	) (CommitOutcome, error)
+	ConfirmRootedEntryAbsent(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
 	) (CommitOutcome, error)
 }
 

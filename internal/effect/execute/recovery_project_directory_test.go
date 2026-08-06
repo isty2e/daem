@@ -154,6 +154,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 		t.Fatalf("construct next snapshot: %v", err)
 	}
 	createdAt := time.Date(2026, time.July, 13, 13, 0, 0, 0, time.UTC)
+	removalDemands := testManagedPathRemovalDemandSet(t, &previous, 0, &next, 0)
 	if _, err := journal.CaptureJournalWithOptions(
 		context.Background(),
 		paths.journalPaths(),
@@ -165,6 +166,7 @@ func TestRecoveryRestoresProjectDirectoryThroughRootAuthority(t *testing.T) {
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
+			RemovalDemands:       removalDemands,
 			Resolver:             destinationResolver(paths),
 			StateCodec:           testStateCodec(),
 		},

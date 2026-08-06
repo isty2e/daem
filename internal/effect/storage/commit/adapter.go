@@ -7,6 +7,7 @@ import (
 	"io/fs"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/residue"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -248,6 +249,31 @@ func (Adapter) RemoveRootedEntry(
 	return CommitLogicalRemoval(ctx, request)
 }
 
+func (Adapter) RemoveRootedEntryWithResidue(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+	residue residue.LogicalRemovalResidueName,
+) (mutationfs.CommitOutcome, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	request, err := NewRootedLogicalRemovalWithResidue(capability, identity, residue)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	return CommitLogicalRemovalWithOutcome(ctx, request)
+}
+
 func (Adapter) RenameRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
@@ -295,6 +321,13 @@ func (Adapter) CleanupRootedEntry(
 		return outcomeFromError(failure), failure
 	}
 	return CommitRootedEntryCleanup(ctx, request)
+}
+
+func (Adapter) ConfirmRootedEntryAbsent(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+) (mutationfs.CommitOutcome, error) {
+	return ConfirmRootedEntryAbsentWithOutcome(ctx, capability)
 }
 
 func (Adapter) PrepareRootedTree(

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
@@ -50,6 +51,8 @@ type mutationAuthority struct {
 	globalDestinationBindings map[output.Destination]globalDestinationBinding
 	physicalAuthorityRequests []mutation.PhysicalAuthorityRequest
 	retainedGlobalRoots       []*rootedpath.CapturedRoot
+	removalIntents            map[removalRelationKey]recovery.RemovalIntent
+	removalAuthorityBound     bool
 	ownershipRegistry         ownershipmutation.RegistryStore
 	ownershipRegistryBinder   ownershipmutation.RootedRegistryBinder
 	hasOwnershipRegistry      bool
@@ -430,6 +433,8 @@ func (authority *mutationAuthority) close() error {
 	for destination := range authority.globalDestinationBindings {
 		delete(authority.globalDestinationBindings, destination)
 	}
+	authority.removalIntents = nil
+	authority.removalAuthorityBound = false
 	authority.ownershipRegistry = nil
 	authority.ownershipRegistryBinder = nil
 	authority.filesystem = nil

@@ -131,6 +131,7 @@ var packagePlacementRows = []packagePlacementRow{
 		packages: []string{
 			"internal/effect/mutation/filesystem",
 			"internal/effect/mutation/ownership",
+			"internal/effect/mutation/residue",
 			"internal/effect/payload",
 		},
 	},

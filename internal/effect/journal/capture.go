@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/filesystem/artifactstage"
@@ -34,6 +35,7 @@ type CaptureOptions struct {
 	ManagedPathMutations      []ManagedPathMutation
 	ManagedAggregateMutations []ManagedAggregateMutation
 	ManagedPathEvidence       []observe.ManagedPathEvidence
+	RemovalDemands            recovery.RemovalDemandSet
 	Resolver                  func(destination output.Destination) (string, error)
 	ManifestRoot              *rootedpath.CapturedRoot
 	OperationAuthority        *rootedpath.EntryAuthority
@@ -337,6 +339,7 @@ func buildRecoveryJournal(
 		return recoveryJournal{}, err
 	}
 	entries := make([]recoveryEntry, 0, len(mutations))
+	removalCandidates := make([]capturedRemovalCandidate, 0, len(mutations))
 	for _, action := range mutations {
 		if err := ctx.Err(); err != nil {
 			return recoveryJournal{}, err
@@ -365,6 +368,9 @@ func buildRecoveryJournal(
 		if err != nil {
 			return recoveryJournal{}, err
 		}
+		removalCandidates = append(removalCandidates, capturedRemovalCandidate{
+			action: action, before: before, expected: expectedAfter,
+		})
 
 		globalPathBinding, err := globalPathBindings.persisted(action.Scope, action.Destination)
 		if err != nil {
@@ -387,6 +393,27 @@ func buildRecoveryJournal(
 			Aggregate:           persistedAggregateContractFromMutation(action),
 			StateIndependent:    action.StateIndependent,
 		})
+	}
+	if err := options.RemovalDemands.Validate(); err != nil {
+		return recoveryJournal{}, fmt.Errorf("validate executable removal demands: %w", err)
+	}
+	capturedStates, err := capturedRemovalStates(removalCandidates)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
+	if err := validateRecoveryRemovalDemandStates(options.RemovalDemands, capturedStates); err != nil {
+		return recoveryJournal{}, err
+	}
+	removalIntents, err := captureRemovalIntents(ctx, options.RemovalDemands, boundResolver)
+	if err != nil {
+		return recoveryJournal{}, err
+	}
+	if err := validateRecoveryRemovalCoverage(options.RemovalDemands, removalIntents); err != nil {
+		return recoveryJournal{}, err
+	}
+	persistedRemovalIntents, err := persistedRecoveryRemovalIntents(removalIntents)
+	if err != nil {
+		return recoveryJournal{}, err
 	}
 
 	sortRecoveryEntries(entries)
@@ -419,6 +446,7 @@ func buildRecoveryJournal(
 		StatefileAfter:         nextState,
 		ClaimTransitions:       persistedTransitions,
 		ProvisionalAcquires:    persistedIntents,
+		RemovalIntents:         persistedRemovalIntents,
 	}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
@@ -14,7 +15,18 @@ import (
 // CommitLogicalRemoval durably retires the active name, then removes its
 // private tombstone.
 func CommitLogicalRemoval(ctx context.Context, request LogicalRemoval) error {
-	return commitLogicalRemovalWithFaults(ctx, request, faultPlan{})
+	_, err := CommitLogicalRemovalWithOutcome(ctx, request)
+	return err
+}
+
+// CommitLogicalRemovalWithOutcome is the outcome-bearing rooted-removal
+// boundary used by journal-authorized execution.
+func CommitLogicalRemovalWithOutcome(
+	ctx context.Context,
+	request LogicalRemoval,
+) (mutationfs.CommitOutcome, error) {
+	err := commitLogicalRemovalWithFaults(ctx, request, faultPlan{})
+	return outcomeFromError(err), err
 }
 
 func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval, faults faultPlan) error {
@@ -41,9 +53,26 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 		return failureBeforeVisibility(phaseValidate, request.path, err)
 	}
 
-	tombstoneName, err := unusedSiblingName(anchor.parentFD(), tombstonePrefix)
-	if err != nil {
-		return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+	tombstoneName := tombstonePrefix
+	if request.residue != nil {
+		tombstoneName = request.residue.String()
+		exists, err := entryExists(anchor.parentFD(), tombstoneName)
+		if err != nil {
+			return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+		}
+		if exists {
+			return failureBeforeVisibility(
+				phaseCommitTombstone,
+				request.path,
+				fmt.Errorf("journal-authorized residue name %q is already occupied", tombstoneName),
+			)
+		}
+	} else {
+		var err error
+		tombstoneName, err = unusedSiblingName(anchor.parentFD(), tombstonePrefix)
+		if err != nil {
+			return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+		}
 	}
 	tombstonePath := filepath.Join(filepath.Dir(request.path), tombstoneName)
 	var tombstoneIdentity EntryIdentity

@@ -31,6 +31,7 @@ type recoveryJournal struct {
 	StatefileAfter         durable.Snapshot                   `json:"-"`
 	ClaimTransitions       []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
 	ProvisionalAcquires    []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
+	RemovalIntents         []recoveryRemovalIntent            `json:"removal_intents"`
 }
 
 type recoveryRootProvenance struct {
@@ -44,7 +45,27 @@ type recoveryGlobalPathBinding struct {
 	RootProvenance recoveryRootProvenance `json:"root_provenance"`
 }
 
-// recoveryEntry is the exact journal-v11 persistence DTO. Subject is the sole
+type recoveryRemovalNamespaceAuthority struct {
+	Variant                    string                  `json:"variant"`
+	ParentProvenance           *recoveryRootProvenance `json:"parent_provenance,omitempty"`
+	RetainedAncestorProvenance *recoveryRootProvenance `json:"retained_ancestor_provenance,omitempty"`
+	MissingSuffix              string                  `json:"missing_suffix,omitempty"`
+	ResidueName                string                  `json:"residue_name"`
+}
+
+type recoveryRemovalState struct {
+	Before        *recoveryBeforePathDTO   `json:"before,omitempty"`
+	ExpectedAfter *recoveryExpectedPathDTO `json:"expected_after,omitempty"`
+}
+
+type recoveryRemovalIntent struct {
+	Scope       string                            `json:"scope"`
+	Destination string                            `json:"destination"`
+	Namespace   recoveryRemovalNamespaceAuthority `json:"namespace_authority"`
+	States      []recoveryRemovalState            `json:"states"`
+}
+
+// recoveryEntry is the exact journal-v12 persistence DTO. Subject is the sole
 // semantic identity carried across the recovery boundary. GlobalPathBinding
 // binds a global logical destination to its capture-time physical root
 // incarnation; OwnershipPathAuthority is a separate foreign key to one exact
@@ -73,7 +94,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v11 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal-v12 persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`

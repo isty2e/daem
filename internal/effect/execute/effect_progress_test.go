@@ -92,3 +92,31 @@ func TestClassifiedPreCommitFailureIsNotMarkedAsStarted(t *testing.T) {
 		t.Fatalf("progress = %v, want hostEffectNotStarted", got)
 	}
 }
+
+func TestRootedRemovalOutcomeControlsEffectProgressWithoutRecursion(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		state mutationfs.CommitOutcomeState
+		want  hostEffectProgress
+	}{
+		{name: "uncommitted", state: mutationfs.CommitOutcomeUncommitted, want: hostEffectNotStarted},
+		{name: "indeterminate", state: mutationfs.CommitOutcomeIndeterminate, want: hostEffectIndeterminate},
+		{name: "retained recoverable", state: mutationfs.CommitOutcomeRetainedRecoverable, want: hostEffectIndeterminate},
+		{name: "complete", state: mutationfs.CommitOutcomeComplete, want: hostEffectIndeterminate},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var retained []string
+			if test.state == mutationfs.CommitOutcomeRetainedRecoverable {
+				retained = []string{".daem-tombstone-test"}
+			}
+			outcome, err := mutationfs.NewCommitOutcome(test.state, retained)
+			if err != nil {
+				t.Fatalf("NewCommitOutcome returned error: %v", err)
+			}
+			failure := &rootedRemovalCommitError{outcome: outcome, cause: errors.New("private storage cause")}
+			if got := progressAfterMutationError(failure); got != test.want {
+				t.Fatalf("progressAfterMutationError = %v, want %v", got, test.want)
+			}
+		})
+	}
+}

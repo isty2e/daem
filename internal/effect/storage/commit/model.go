@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/residue"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -217,6 +218,7 @@ type LogicalRemoval struct {
 	path       string
 	expected   EntryIdentity
 	capability rootedpath.CommitCapability
+	residue    *residue.LogicalRemovalResidueName
 }
 
 // RootedEntryRename is one exact, no-replace same-parent namespace transition.
@@ -316,6 +318,25 @@ func NewRootedLogicalRemoval(
 		return LogicalRemoval{}, err
 	}
 	request.capability = capability
+	return request, nil
+}
+
+// NewRootedLogicalRemovalWithResidue constructs a journal-authorized rooted
+// removal. The caller-selected residue is opaque storage syntax; storage never
+// derives it from an operation, resource, or action ordinal.
+func NewRootedLogicalRemovalWithResidue(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	residue residue.LogicalRemovalResidueName,
+) (LogicalRemoval, error) {
+	if !residue.Valid() {
+		return LogicalRemoval{}, fmt.Errorf("logical removal residue name is invalid")
+	}
+	request, err := NewRootedLogicalRemoval(capability, expected)
+	if err != nil {
+		return LogicalRemoval{}, err
+	}
+	request.residue = &residue
 	return request, nil
 }
 
