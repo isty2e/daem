@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -384,6 +385,72 @@ func TestLoadMarkerRejectsCorruptAndExposedEvidence(t *testing.T) {
 	if _, err := loadMarker(context.Background(), activeMarker); err == nil ||
 		!strings.Contains(err.Error(), "permissions") {
 		t.Fatalf("loadMarker error = %v, want permission rejection", err)
+	}
+}
+
+func TestLoadMarkerRejectsNonCanonicalAndAbsentAuthorityFields(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "value")
+	valid := fmt.Sprintf(
+		`{"version":2,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
+		path,
+		strings.Repeat("a", 64),
+	)
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "root alias", content: strings.Replace(valid, `"version"`, `"Version"`, 1), want: "ASCII lower_snake_case"},
+		{name: "nested alias", content: strings.Replace(valid, `"before"`, `"Before"`, 1), want: "ASCII lower_snake_case"},
+		{name: "case-folded duplicate", content: strings.Replace(valid, `"version":2`, `"version":2,"Version":2`, 1), want: "ASCII lower_snake_case"},
+		{name: "unknown field", content: strings.Replace(valid, `"version":2`, `"version":2,"unknown":true`, 1), want: "unknown field"},
+		{name: "nested unknown field", content: strings.Replace(valid, `"exists":false`, `"exists":false,"unknown":true`, 1), want: "unknown field"},
+		{name: "missing path", content: strings.Replace(valid, `"path":`+fmt.Sprintf("%q", path)+`,`, "", 1), want: `targets[0] field "path" is required`},
+		{name: "missing targets", content: strings.Replace(valid, `,"targets":[{"path":`+fmt.Sprintf("%q", path)+`,"before":{"exists":false},"write":true,"after_hash":"sha256:`+strings.Repeat("a", 64)+`"}]`, "", 1), want: `field "targets" is required`},
+		{name: "missing before", content: strings.Replace(valid, `"before":{"exists":false},`, "", 1), want: `targets[0] field "before" is required`},
+		{name: "null before", content: strings.Replace(valid, `"before":{"exists":false}`, `"before":null`, 1), want: `targets[0] field "before" is required`},
+		{name: "missing exists", content: strings.Replace(valid, `"exists":false`, "", 1), want: `targets[0].before field "exists" is required`},
+		{name: "null exists", content: strings.Replace(valid, `"exists":false`, `"exists":null`, 1), want: `targets[0].before field "exists" is required`},
+		{name: "null commit point", content: strings.Replace(valid, `"write":true`, `"write":true,"commit_point":null`, 1), want: `targets[0] field "commit_point" must not be null`},
+		{name: "missing write", content: strings.Replace(valid, `"write":true,`, "", 1), want: `targets[0] field "write" is required`},
+		{name: "null write", content: strings.Replace(valid, `"write":true`, `"write":null`, 1), want: `targets[0] field "write" is required`},
+		{name: "missing after hash", content: strings.Replace(valid, `,"after_hash":"sha256:`+strings.Repeat("a", 64)+`"`, "", 1), want: `targets[0] field "after_hash" is required`},
+		{name: "null after hash", content: strings.Replace(valid, `"after_hash":"sha256:`+strings.Repeat("a", 64)+`"`, `"after_hash":null`, 1), want: `targets[0] field "after_hash" must not be null`},
+		{name: "missing existing hash", content: strings.Replace(valid, `"exists":false`, `"exists":true`, 1), want: `targets[0].before field "hash" is required`},
+		{name: "future version", content: strings.Replace(valid, `"version":2`, `"version":3`, 1), want: "written by a newer daem"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			markerPath := filepath.Join(t.TempDir(), transactionMarkerFile)
+			if err := os.WriteFile(markerPath, []byte(test.content), transactionEvidenceMode); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := loadMarker(context.Background(), markerPath); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("loadMarker error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadMarkerAcceptsLegacyVersion(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "value")
+	content := fmt.Sprintf(
+		`{"version":1,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
+		path,
+		strings.Repeat("a", 64),
+	)
+	markerPath := filepath.Join(t.TempDir(), transactionMarkerFile)
+	if err := os.WriteFile(markerPath, []byte(content), transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+	marker, err := loadMarker(context.Background(), markerPath)
+	if err != nil {
+		t.Fatalf("loadMarker legacy version returned error: %v", err)
+	}
+	if marker.Version != 1 {
+		t.Fatalf("marker version = %d, want legacy version 1", marker.Version)
 	}
 }
 

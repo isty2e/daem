@@ -21,6 +21,23 @@ var (
 	ErrMultipleValues = errors.New("multiple JSON values")
 )
 
+// VersionDisposition classifies a valid positive version relative to the
+// current schema version selected by the caller.
+type VersionDisposition uint8
+
+const (
+	VersionLegacy VersionDisposition = iota
+	VersionCurrent
+	VersionFuture
+)
+
+// VersionEnvelope is the schema-independent authority boundary for one
+// canonical versioned JSON object.
+type VersionEnvelope struct {
+	Version     int
+	Disposition VersionDisposition
+}
+
 type classifiedError struct {
 	kind    error
 	message string
@@ -69,6 +86,33 @@ func ValidateVersionedObject(content []byte, document string, maximumDepth int) 
 		return 0, err
 	}
 	return exactObjectVersion(content, document)
+}
+
+// DecodeVersionEnvelope validates one canonical versioned object and
+// classifies its version before schema-specific decoding begins.
+func DecodeVersionEnvelope(
+	content []byte,
+	document string,
+	maximumDepth int,
+	currentVersion int,
+) (VersionEnvelope, error) {
+	if currentVersion <= 0 {
+		return VersionEnvelope{}, fmt.Errorf("%s current version must be positive", document)
+	}
+	version, err := ValidateVersionedObject(content, document, maximumDepth)
+	if err != nil {
+		return VersionEnvelope{}, err
+	}
+	disposition := VersionCurrent
+	if version < currentVersion {
+		disposition = VersionLegacy
+	} else if version > currentVersion {
+		disposition = VersionFuture
+	}
+	return VersionEnvelope{
+		Version:     version,
+		Disposition: disposition,
+	}, nil
 }
 
 func exactObjectVersion(content []byte, document string) (int, error) {

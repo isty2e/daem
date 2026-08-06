@@ -124,6 +124,37 @@ func TestDecodeRejectsMalformedRecord(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsNonCanonicalAndNullAuthorityFields(t *testing.T) {
+	valid := fmt.Sprintf(
+		`{"version":1,"phase":"prepared","operation_id":%q,"journal_authority_fingerprint":%q}`,
+		testOperationID,
+		testFingerprint,
+	)
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{name: "case alias", content: strings.Replace(valid, `"phase"`, `"Phase"`, 1), want: "ASCII lower_snake_case"},
+		{name: "case-folded duplicate", content: strings.Replace(valid, `"phase":"prepared"`, `"phase":"prepared","Phase":"prepared"`, 1), want: "ASCII lower_snake_case"},
+		{name: "unknown field", content: strings.TrimSuffix(valid, "}") + `,"unknown":true}`, want: "unknown field"},
+		{name: "missing phase", content: strings.Replace(valid, `,"phase":"prepared"`, "", 1), want: `field "phase" is required`},
+		{name: "null phase", content: strings.Replace(valid, `"phase":"prepared"`, `"phase":null`, 1), want: `field "phase" is required`},
+		{name: "missing operation id", content: strings.Replace(valid, `,"operation_id":`+fmt.Sprintf("%q", testOperationID), "", 1), want: `field "operation_id" is required`},
+		{name: "null operation id", content: strings.Replace(valid, `"operation_id":`+fmt.Sprintf("%q", testOperationID), `"operation_id":null`, 1), want: `field "operation_id" is required`},
+		{name: "missing fingerprint", content: strings.Replace(valid, `,"journal_authority_fingerprint":`+fmt.Sprintf("%q", testFingerprint), "", 1), want: `field "journal_authority_fingerprint" is required`},
+		{name: "null fingerprint", content: strings.Replace(valid, `"journal_authority_fingerprint":`+fmt.Sprintf("%q", testFingerprint), `"journal_authority_fingerprint":null`, 1), want: `field "journal_authority_fingerprint" is required`},
+		{name: "future version", content: strings.Replace(valid, `"version":1`, `"version":2`, 1), want: "written by a newer daem"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Decode([]byte(test.content)); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Decode error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestDecodeAcceptsMaximumSizedDocumentAndCanonicalizesIt(t *testing.T) {
 	record := mustRecord(t, testOperationID, testFingerprint, PhasePrepared)
 	canonical, err := Encode(record)

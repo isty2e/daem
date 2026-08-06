@@ -148,7 +148,22 @@ func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
 		)
 	}
 	content := snapshot.Content()
-	if err := jsonstrict.Validate(content, "file-set transaction marker", maximumMarkerJSONDepth); err != nil {
+	envelope, err := jsonstrict.DecodeVersionEnvelope(
+		content,
+		"file-set transaction marker",
+		maximumMarkerJSONDepth,
+		transactionVersion,
+	)
+	if err != nil {
+		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
+	}
+	if envelope.Disposition == jsonstrict.VersionFuture {
+		return transactionMarker{}, fmt.Errorf(
+			"file-set transaction marker version %d was written by a newer daem",
+			envelope.Version,
+		)
+	}
+	if err := validateMarkerPresence(content); err != nil {
 		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
 	var marker transactionMarker
@@ -167,6 +182,108 @@ func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
 		return transactionMarker{}, err
 	}
 	return marker, nil
+}
+
+func validateMarkerPresence(content []byte) error {
+	// Inspect raw fields before typed decoding can turn omitted or null
+	// authority into zero-value before-image evidence.
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(content, &root); err != nil {
+		return fmt.Errorf("decode marker fields: %w", err)
+	}
+	if _, err := requireMarkerField(root, "version", "file-set transaction marker"); err != nil {
+		return err
+	}
+	targets, err := requireMarkerField(root, "targets", "file-set transaction marker")
+	if err != nil {
+		return err
+	}
+	var targetValues []json.RawMessage
+	if err := json.Unmarshal(targets, &targetValues); err != nil {
+		return fmt.Errorf("file-set transaction marker field %q must be an array: %w", "targets", err)
+	}
+	for index, targetValue := range targetValues {
+		var target map[string]json.RawMessage
+		if err := json.Unmarshal(targetValue, &target); err != nil {
+			return fmt.Errorf("targets[%d] must be an object: %w", index, err)
+		}
+		prefix := fmt.Sprintf("targets[%d]", index)
+		if _, err := requireMarkerField(target, "path", prefix); err != nil {
+			return err
+		}
+		if err := rejectMarkerNull(target, "after_hash", prefix); err != nil {
+			return err
+		}
+		if err := rejectMarkerNull(target, "commit_point", prefix); err != nil {
+			return err
+		}
+		before, err := requireMarkerField(target, "before", prefix)
+		if err != nil {
+			return err
+		}
+		write, err := requireMarkerField(target, "write", prefix)
+		if err != nil {
+			return err
+		}
+		var writeValue bool
+		if err := json.Unmarshal(write, &writeValue); err != nil {
+			return fmt.Errorf("%s field %q must be a boolean: %w", prefix, "write", err)
+		}
+		if writeValue {
+			if _, err := requireMarkerField(target, "after_hash", prefix); err != nil {
+				return err
+			}
+		}
+		if err := validateBeforePresence(before, prefix+".before"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBeforePresence(content json.RawMessage, name string) error {
+	var state map[string]json.RawMessage
+	if err := json.Unmarshal(content, &state); err != nil {
+		return fmt.Errorf("%s must be an object: %w", name, err)
+	}
+	exists, err := requireMarkerField(state, "exists", name)
+	if err != nil {
+		return err
+	}
+	var existsValue bool
+	if err := json.Unmarshal(exists, &existsValue); err != nil {
+		return fmt.Errorf("%s field %q must be a boolean: %w", name, "exists", err)
+	}
+	for _, field := range []string{"hash", "backup_path", "mode"} {
+		if err := rejectMarkerNull(state, field, name); err != nil {
+			return err
+		}
+	}
+	if !existsValue {
+		return nil
+	}
+	for _, field := range []string{"hash", "backup_path", "mode"} {
+		if _, err := requireMarkerField(state, field, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireMarkerField(fields map[string]json.RawMessage, field string, object string) (json.RawMessage, error) {
+	value, ok := fields[field]
+	if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return nil, fmt.Errorf("%s field %q is required and must not be null", object, field)
+	}
+	return value, nil
+}
+
+func rejectMarkerNull(fields map[string]json.RawMessage, field string, object string) error {
+	value, ok := fields[field]
+	if ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		return fmt.Errorf("%s field %q must not be null", object, field)
+	}
+	return nil
 }
 
 func validateMarker(path string, marker transactionMarker) error {
