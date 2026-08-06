@@ -439,18 +439,18 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, err
 		}
 	}
-	projectAuthority, err := projectAuthorityForRecovery(paths, journal)
+	manifestAuthority, err := manifestAuthorityForRecovery(paths, journal)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	if projectAuthority != nil {
-		defer projectAuthority.close()
+	if manifestAuthority != nil {
+		defer manifestAuthority.close()
 	}
 	observations := recoveryPathObservations(
 		ctx,
 		planningEntries,
 		options.Filesystem,
-		projectAuthority,
+		manifestAuthority,
 		resolver,
 		options.RootedCapability,
 		options.Codecs,
@@ -462,9 +462,9 @@ func loadActivePlanFromInventory(
 		registry,
 		resolver,
 	)
-	if projectAuthority != nil {
-		if err := projectAuthority.close(); err != nil {
-			return recovery.Plan{}, fmt.Errorf("close recovery project root authority: %w", err)
+	if manifestAuthority != nil {
+		if err := manifestAuthority.close(); err != nil {
+			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
 		}
 	}
 	backupObservations := recoveryBackupObservations(

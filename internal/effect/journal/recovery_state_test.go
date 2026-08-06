@@ -245,7 +245,6 @@ func TestValidateRecoveryJournalAllowsOnlyMeaningfulStateOnlyOperations(t *testi
 	journal := defaultRecoveryJournal()
 	entry := journal.Entries[0]
 	journal.Entries = nil
-	journal.ProjectRootProvenance = nil
 	journal.StatefileBefore = durable.EmptySnapshot()
 	journal.StatefileAfter = statefileFor(
 		resourceState(entry, entry.ExpectedAfter.ContentHash),

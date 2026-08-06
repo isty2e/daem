@@ -12,8 +12,8 @@ type capturedRootPlatform struct{}
 func captureRootPlatform(
 	selectedRoot string,
 	_ rootSelectionMode,
-) (string, capturedRootPlatform, identityToken, identityToken, error) {
-	return "", capturedRootPlatform{}, identityToken{}, identityToken{}, newFailure(
+) (string, capturedRootPlatform, identityToken, mountIdentities, error) {
+	return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 		FailureUnsupportedPlatform,
 		selectedRoot,
 		"native rooted-path authority is unavailable on this platform",

@@ -35,7 +35,10 @@ func TestExecuteClassifiesSuccessExit(t *testing.T) {
 
 	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "success-test"})
 
-	if !result.Succeeded() || result.Reason() != CommandReasonNone || !result.Started() {
+	if !result.Succeeded() ||
+		result.Reason() != CommandReasonNone ||
+		!result.RunnerInvoked() ||
+		!result.Started() {
 		t.Fatalf("result = %#v, want started success", result)
 	}
 	if result.Stdout() != "ok" {
@@ -290,6 +293,9 @@ func TestExecuteReportsMissingEnvRefWithoutLaunchingRunner(t *testing.T) {
 	if called {
 		t.Fatal("runner was called for missing env refs")
 	}
+	if result.RunnerInvoked() {
+		t.Fatal("missing env refs reported reaching the runner boundary")
+	}
 	if result.Reason() != CommandReasonMissingEnvRef {
 		t.Fatalf("result = %#v, want missing env ref", result)
 	}
@@ -347,7 +353,9 @@ func TestExecuteInWorkingDirectoryRejectsMissingBinderWithoutLaunching(t *testin
 				nil,
 			)
 
-			if result.Started() || result.Reason() != CommandReasonWorkDirAuthority {
+			if result.RunnerInvoked() ||
+				result.Started() ||
+				result.Reason() != CommandReasonWorkDirAuthority {
 				t.Fatalf("result = %#v, want unstarted working-directory authority failure", result)
 			}
 			if !strings.Contains(result.ErrorDetail(), "binder is required") {

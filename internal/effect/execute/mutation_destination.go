@@ -207,26 +207,6 @@ func (authority *mutationAuthority) captureProjectRoot(
 	return nil
 }
 
-func hasProjectJournalEntries(
-	managedPaths []ManagedPathEffect,
-	aggregates []AggregateEffect,
-) bool {
-	for _, effect := range managedPaths {
-		if effect.Scope() == target.ScopeProject {
-			return true
-		}
-		if previous, present := effect.PreviousState(); present && previous.Scope() == target.ScopeProject {
-			return true
-		}
-	}
-	for _, effect := range aggregates {
-		if effect.MutatesHost() && effect.Scope() == target.ScopeProject {
-			return true
-		}
-	}
-	return false
-}
-
 func (authority *mutationAuthority) resolveBoundDestination(
 	scope target.Scope,
 	destination output.Destination,

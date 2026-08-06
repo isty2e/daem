@@ -125,13 +125,16 @@ func TestCarrierAdoptionDryRunAndStaleReobservationRemainPassive(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PlanWrite: %v", err)
 			}
-			_, err = ExecuteWithOptions(context.Background(), planning, ExecuteOptions{
+			result, err := ExecuteWithOptions(context.Background(), planning, ExecuteOptions{
 				RelationObservations: &missing,
 				PlanWasDisclosed:     true,
 			})
 			var stale mutation.StalePlanError
 			if !errors.As(err, &stale) {
 				t.Fatalf("ExecuteWithOptions error = %v, want StalePlanError", err)
+			}
+			if result.ExecutionAttempted {
+				t.Fatal("stale carrier adoption reported crossing the execution boundary")
 			}
 			assertNoAdoptedCarrierClaim(t, root, manifestPath, scope)
 		})

@@ -21,16 +21,16 @@ type Paths struct {
 }
 
 type recoveryJournal struct {
-	Version               int                                `json:"version"`
-	OperationID           string                             `json:"operation_id"`
-	Operation             string                             `json:"operation"`
-	CreatedAt             string                             `json:"created_at"`
-	ProjectRootProvenance *recoveryRootProvenance            `json:"project_root_provenance,omitempty"`
-	Entries               []recoveryEntry                    `json:"entries"`
-	StatefileBefore       durable.Snapshot                   `json:"-"`
-	StatefileAfter        durable.Snapshot                   `json:"-"`
-	ClaimTransitions      []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
-	ProvisionalAcquires   []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
+	Version                int                                `json:"version"`
+	OperationID            string                             `json:"operation_id"`
+	Operation              string                             `json:"operation"`
+	CreatedAt              string                             `json:"created_at"`
+	ManifestRootProvenance recoveryRootProvenance             `json:"manifest_root_provenance"`
+	Entries                []recoveryEntry                    `json:"entries"`
+	StatefileBefore        durable.Snapshot                   `json:"-"`
+	StatefileAfter         durable.Snapshot                   `json:"-"`
+	ClaimTransitions       []recoveryClaimTransition          `json:"claim_transitions,omitempty"`
+	ProvisionalAcquires    []recoveryProvisionalAcquireIntent `json:"provisional_acquire_intents,omitempty"`
 }
 
 type recoveryRootProvenance struct {
@@ -44,7 +44,7 @@ type recoveryGlobalPathBinding struct {
 	RootProvenance recoveryRootProvenance `json:"root_provenance"`
 }
 
-// recoveryEntry is the exact journal-v10 persistence DTO. Subject is the sole
+// recoveryEntry is the exact journal-v11 persistence DTO. Subject is the sole
 // semantic identity carried across the recovery boundary. GlobalPathBinding
 // binds a global logical destination to its capture-time physical root
 // incarnation; OwnershipPathAuthority is a separate foreign key to one exact
@@ -73,7 +73,7 @@ type recoveryManagedMembership struct {
 	ContentHash string `json:"content_hash,omitempty"`
 }
 
-// recoveryStateIdentity is the exact nested journal-v10 persistence DTO used to
+// recoveryStateIdentity is the exact nested journal-v11 persistence DTO used to
 // correlate statefile rows.
 type recoveryStateIdentity struct {
 	Subject     persistedSubjectRef `json:"subject"`

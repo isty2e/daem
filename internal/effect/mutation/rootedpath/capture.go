@@ -170,7 +170,7 @@ func validateSelectionAgainstAuthority(
 			nil,
 		)
 	}
-	if expected.mount != observed.mount {
+	if expected.mount.operation != observed.mount.operation {
 		return newFailure(
 			FailureMountChanged,
 			selectedRoot,

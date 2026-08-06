@@ -366,7 +366,8 @@ func TestApplyResultDistinguishesPendingInstallRecoveryFromExplicitAdoption(t *t
 		&humanOutput,
 		[]carrieradoption.Action{action},
 		[]durablecarrier.ManagedCarrierClaim{recovered},
-		false,
+		errors.New("apply failed after recovery completion"),
+		true,
 		HumanOptions{},
 	)
 	if !strings.Contains(humanOutput.String(), "completed pending carrier install recovery") ||
@@ -417,7 +418,22 @@ func TestCarrierAdoptionResultHumanOutputDoesNotCallFailedClaimManaged(t *testin
 		&output,
 		[]carrieradoption.Action{action},
 		nil,
+		errors.New("readiness changed"),
 		false,
+		HumanOptions{},
+	)
+	if !strings.Contains(output.String(), "claim not recorded before apply effects") ||
+		strings.Contains(output.String(), "claim outcome unconfirmed") {
+		t.Fatalf("pre-effect failure output = %q", output.String())
+	}
+
+	output.Reset()
+	PrintCarrierAdoptionResultsWithOptions(
+		&output,
+		[]carrieradoption.Action{action},
+		nil,
+		errors.New("host route failed"),
+		true,
 		HumanOptions{},
 	)
 	if !strings.Contains(output.String(), "claim outcome unconfirmed after apply error") ||
@@ -438,7 +454,8 @@ func TestCarrierAdoptionResultHumanOutputDoesNotCallFailedClaimManaged(t *testin
 		&output,
 		[]carrieradoption.Action{action},
 		[]durablecarrier.ManagedCarrierClaim{recorded},
-		false,
+		errors.New("later apply phase failed"),
+		true,
 		HumanOptions{},
 	)
 	if !strings.Contains(output.String(), "recorded external carrier claim") ||

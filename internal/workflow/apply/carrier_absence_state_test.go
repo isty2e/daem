@@ -278,6 +278,7 @@ func TestCommitGlobalCarrierRetirementsRejectsAbsentExactClaim(t *testing.T) {
 		filepath.Join(root, "carrier-claims.json"),
 		durablecarrier.EmptyGlobalCarrierClaims(),
 		[]durablecarrier.ManagedCarrierClaim{{}},
+		nil,
 	)
 	if err == nil || count != 0 || !registry.Equal(durablecarrier.EmptyGlobalCarrierClaims()) {
 		t.Fatalf("commitGlobalCarrierRetirements = (%#v, %d, %v), want validation failure", registry, count, err)
@@ -306,6 +307,7 @@ func TestCommitGlobalCarrierRetirementsCommitsOneExactStateOnlyBatch(t *testing.
 		registryPath,
 		current,
 		[]durablecarrier.ManagedCarrierClaim{first, second},
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

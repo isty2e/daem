@@ -99,7 +99,7 @@ func TestCaptureJournalLeavesPrivateResidueUntouchedWhenActiveEvidenceBlocksCapt
 
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		"20260720T130000.000000000Z-apply",
 		time.Now().UTC(),
 		durable.Snapshot{},
@@ -143,7 +143,7 @@ func TestCaptureJournalPublicationFailureFollowsVisibilityClassification(t *test
 
 			_, err := CaptureJournalWithOptions(
 				t.Context(),
-				Paths{RecoveryDir: recoveryRoot},
+				Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 				operationID,
 				time.Now().UTC(),
 				beforeStatefile(),
@@ -196,7 +196,7 @@ func TestCaptureJournalRejectsMismatchedOperationAuthorityBeforeConstruction(t *
 
 	_, err = CaptureJournalWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		"20260720T150000.000000000Z-apply",
 		time.Now().UTC(),
 		beforeStatefile(),

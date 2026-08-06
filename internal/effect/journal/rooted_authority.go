@@ -12,9 +12,9 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-// projectAuthoritySession retains project-root provenance and native authority
+// manifestAuthoritySession retains manifest-root provenance and native authority
 // for one capture or final recovery classification.
-type projectAuthoritySession struct {
+type manifestAuthoritySession struct {
 	root       *rootedpath.CapturedRoot
 	authority  rootedpath.Authority
 	provenance rootedpath.AuthorityProvenance
@@ -267,36 +267,23 @@ func (binding recoveryGlobalPathBinding) match(
 	return nil
 }
 
-func projectAuthorityForCapture(
+func manifestAuthorityForCapture(
 	paths Paths,
-	actions []pathMutation,
 	supplied *rootedpath.CapturedRoot,
-) (*projectAuthoritySession, error) {
-	required := false
-	for _, action := range actions {
-		if action.Scope == target.ScopeProject {
-			required = true
-			break
-		}
-	}
-	if !required {
-		if supplied != nil {
-			return nil, fmt.Errorf("project root witness supplied for a journal without project entries")
-		}
-		return nil, nil
-	}
-
+) (*manifestAuthoritySession, error) {
 	root := supplied
 	owned := false
 	if root == nil {
 		var err error
 		root, err = rootedpath.CaptureRoot(paths.ManifestRoot)
 		if err != nil {
-			return nil, fmt.Errorf("capture project root for recovery journal: %w", err)
+			return nil, fmt.Errorf("capture manifest root for recovery journal: %w", err)
 		}
 		owned = true
+	} else if err := root.ValidateSelection(paths.ManifestRoot); err != nil {
+		return nil, fmt.Errorf("validate borrowed manifest root for recovery journal: %w", err)
 	}
-	session, err := newProjectAuthoritySession(root, owned)
+	session, err := newManifestAuthoritySession(root, owned)
 	if err != nil {
 		if owned {
 			_ = root.Close()
@@ -306,22 +293,19 @@ func projectAuthorityForCapture(
 	return session, nil
 }
 
-func projectAuthorityForRecovery(
+func manifestAuthorityForRecovery(
 	paths Paths,
 	journal recoveryJournal,
-) (*projectAuthoritySession, error) {
-	if journal.ProjectRootProvenance == nil {
-		return nil, nil
-	}
-	expected, err := journal.ProjectRootProvenance.canonical()
+) (*manifestAuthoritySession, error) {
+	expected, err := journal.ManifestRootProvenance.canonical()
 	if err != nil {
 		return nil, err
 	}
 	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
 	if err != nil {
-		return nil, fmt.Errorf("recapture project root for recovery: %w", err)
+		return nil, fmt.Errorf("recapture manifest root for recovery: %w", err)
 	}
-	session, err := newProjectAuthoritySession(root, true)
+	session, err := newManifestAuthoritySession(root, true)
 	if err != nil {
 		_ = root.Close()
 		return nil, err
@@ -329,26 +313,26 @@ func projectAuthorityForRecovery(
 	if err := expected.Match(session.authority); err != nil {
 		closeErr := session.close()
 		return nil, errors.Join(
-			fmt.Errorf("match recovery project root provenance: %w", err),
+			fmt.Errorf("match recovery manifest root provenance: %w", err),
 			closeErr,
 		)
 	}
 	return session, nil
 }
 
-func newProjectAuthoritySession(root *rootedpath.CapturedRoot, owned bool) (*projectAuthoritySession, error) {
+func newManifestAuthoritySession(root *rootedpath.CapturedRoot, owned bool) (*manifestAuthoritySession, error) {
 	if root == nil {
-		return nil, fmt.Errorf("captured project root is required")
+		return nil, fmt.Errorf("captured manifest root is required")
 	}
 	authority, err := root.Authority()
 	if err != nil {
-		return nil, fmt.Errorf("read captured project root authority: %w", err)
+		return nil, fmt.Errorf("read captured manifest root authority: %w", err)
 	}
 	provenance, err := authority.Provenance()
 	if err != nil {
-		return nil, fmt.Errorf("derive project root provenance: %w", err)
+		return nil, fmt.Errorf("derive manifest root provenance: %w", err)
 	}
-	return &projectAuthoritySession{
+	return &manifestAuthoritySession{
 		root:       root,
 		authority:  authority,
 		provenance: provenance,
@@ -356,12 +340,8 @@ func newProjectAuthoritySession(root *rootedpath.CapturedRoot, owned bool) (*pro
 	}, nil
 }
 
-func (session *projectAuthoritySession) persisted() *recoveryRootProvenance {
-	if session == nil {
-		return nil
-	}
-	persisted := persistedRecoveryRootProvenance(session.provenance)
-	return &persisted
+func (session *manifestAuthoritySession) persisted() recoveryRootProvenance {
+	return persistedRecoveryRootProvenance(session.provenance)
 }
 
 func persistedRecoveryRootProvenance(provenance rootedpath.AuthorityProvenance) recoveryRootProvenance {
@@ -372,7 +352,7 @@ func persistedRecoveryRootProvenance(provenance rootedpath.AuthorityProvenance) 
 	}
 }
 
-func (session *projectAuthoritySession) acquire(
+func (session *manifestAuthoritySession) acquire(
 	destination output.Destination,
 ) (rootedpath.CommitCapability, error) {
 	if session == nil || session.root == nil {
@@ -389,7 +369,7 @@ func (session *projectAuthoritySession) acquire(
 	return session.root.Acquire(bound)
 }
 
-func (session *projectAuthoritySession) close() error {
+func (session *manifestAuthoritySession) close() error {
 	if session == nil || !session.owned || session.root == nil {
 		return nil
 	}
@@ -406,8 +386,7 @@ func (provenance recoveryRootProvenance) canonical() (rootedpath.AuthorityProven
 	)
 }
 
-func validateProjectRootProvenanceCoverage(journal recoveryJournal) error {
-	hasProjectEntries := false
+func validateManifestRootProvenance(journal recoveryJournal) error {
 	for index, entry := range journal.Entries {
 		scope, err := target.ParseScope(entry.Scope)
 		if err != nil {
@@ -416,21 +395,12 @@ func validateProjectRootProvenanceCoverage(journal recoveryJournal) error {
 		if scope != target.ScopeProject {
 			continue
 		}
-		hasProjectEntries = true
 		if _, err := rootedpath.NewRelativeDestination(entry.Path); err != nil {
 			return fmt.Errorf("recovery entries[%d] project destination: %w", index, err)
 		}
 	}
-	if hasProjectEntries != (journal.ProjectRootProvenance != nil) {
-		if hasProjectEntries {
-			return fmt.Errorf("recovery journal project entries require project_root_provenance")
-		}
-		return fmt.Errorf("recovery journal without project entries must not contain project_root_provenance")
-	}
-	if journal.ProjectRootProvenance != nil {
-		if _, err := journal.ProjectRootProvenance.canonical(); err != nil {
-			return fmt.Errorf("recovery journal project_root_provenance: %w", err)
-		}
+	if _, err := journal.ManifestRootProvenance.canonical(); err != nil {
+		return fmt.Errorf("recovery journal manifest_root_provenance: %w", err)
 	}
 	return nil
 }

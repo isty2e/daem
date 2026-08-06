@@ -421,27 +421,25 @@ func executeRecoveryRollbackEffects(
 	}
 	hostActions = orderRecoveryHostActions(hostActions)
 
-	if hasProjectRecoveryAction(hostActions) {
-		if authority.capturedRoot == nil {
-			if err := authority.captureProjectRoot(paths, nil); err != nil {
-				return err
-			}
+	if authority.capturedRoot == nil {
+		if err := authority.captureProjectRoot(paths, nil); err != nil {
+			return err
 		}
-		provenance, err := authority.projectAuthority.Provenance()
-		if err != nil {
-			return fmt.Errorf("derive recovery project root provenance: %w", err)
-		}
-		canonicalProvenance, err := recovery.NewProjectRootProvenance(
-			provenance.PhysicalRoot(),
-			provenance.ObjectFingerprint(),
-			provenance.MountFingerprint(),
-		)
-		if err != nil {
-			return fmt.Errorf("canonicalize recovery project root provenance: %w", err)
-		}
-		if err := plan.MatchProjectRootProvenance(canonicalProvenance); err != nil {
-			return fmt.Errorf("match recovery project root authority: %w", err)
-		}
+	}
+	provenance, err := authority.projectAuthority.Provenance()
+	if err != nil {
+		return fmt.Errorf("derive recovery manifest root provenance: %w", err)
+	}
+	canonicalProvenance, err := recovery.NewManifestRootProvenance(
+		provenance.PhysicalRoot(),
+		provenance.ObjectFingerprint(),
+		provenance.MountFingerprint(),
+	)
+	if err != nil {
+		return fmt.Errorf("canonicalize recovery manifest root provenance: %w", err)
+	}
+	if err := plan.MatchManifestRootProvenance(canonicalProvenance); err != nil {
+		return fmt.Errorf("match recovery manifest root authority: %w", err)
 	}
 
 	rollback, err := stageRecoveryRollback(ctx, authority, hostActions, codecs)

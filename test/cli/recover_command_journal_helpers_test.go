@@ -10,15 +10,15 @@ import (
 )
 
 type cliRecoveryJournalForTest struct {
-	Version               int               `json:"version"`
-	OperationID           string            `json:"operation_id"`
-	Operation             string            `json:"operation"`
-	CreatedAt             string            `json:"created_at"`
-	ProjectRootProvenance json.RawMessage   `json:"project_root_provenance,omitempty"`
-	Entries               []json.RawMessage `json:"entries"`
-	StatefileBefore       json.RawMessage   `json:"statefile_before"`
-	StatefileAfter        json.RawMessage   `json:"statefile_after"`
-	ClaimTransitions      []json.RawMessage `json:"claim_transitions,omitempty"`
+	Version                int               `json:"version"`
+	OperationID            string            `json:"operation_id"`
+	Operation              string            `json:"operation"`
+	CreatedAt              string            `json:"created_at"`
+	ManifestRootProvenance json.RawMessage   `json:"manifest_root_provenance"`
+	Entries                []json.RawMessage `json:"entries"`
+	StatefileBefore        json.RawMessage   `json:"statefile_before"`
+	StatefileAfter         json.RawMessage   `json:"statefile_after"`
+	ClaimTransitions       []json.RawMessage `json:"claim_transitions,omitempty"`
 }
 
 func loadCLIRecoveryJournalForTest(t *testing.T, path string) cliRecoveryJournalForTest {

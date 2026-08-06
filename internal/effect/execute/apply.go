@@ -87,10 +87,21 @@ type ApplyResult struct {
 	ActionCount int
 	StatePath   string
 	State       durable.Snapshot
+	// ExecutionAttempted reports whether apply reached journal capture or a
+	// later mutation boundary.
+	ExecutionAttempted bool
 }
 
 // ApplyWithOptions commits typed executable effects and emits observational execution events.
-func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOptions) (ApplyResult, error) {
+func ApplyWithOptions(
+	ctx context.Context,
+	input ApplyInput,
+	options ApplyOptions,
+) (result ApplyResult, resultErr error) {
+	executionAttempted := false
+	defer func() {
+		result.ExecutionAttempted = executionAttempted
+	}()
 	for index, effect := range input.ManagedPathEffects {
 		if err := effect.validate(); err != nil {
 			return ApplyResult{}, fmt.Errorf("managed path effect[%d]: %w", index, err)
@@ -265,10 +276,6 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 	if err := visibilityGate.validateBefore(ctx); err != nil {
 		return ApplyResult{}, err
 	}
-	journalProjectRoot := mutationAuthority.capturedRoot
-	if !hasProjectJournalEntries(input.ManagedPathEffects, input.AggregateEffects) {
-		journalProjectRoot = nil
-	}
 	if err := mutationAuthority.bindRecoveryJournal(
 		input.Paths.ManifestRoot,
 		filepath.Join(input.Paths.RecoveryDir, operationID),
@@ -276,6 +283,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 		return ApplyResult{}, err
 	}
 	events.emit(EventJournalCaptureStarted, EventStageJournalCapture, nil, nil)
+	executionAttempted = true
 	captureResult, err := journal.CaptureJournalWithOptions(
 		ctx,
 		input.Paths.journalPaths(),
@@ -291,7 +299,7 @@ func ApplyWithOptions(ctx context.Context, input ApplyInput, options ApplyOption
 			ManagedAggregateMutations: aggregateMutations,
 			ManagedPathEvidence:       input.ManagedPathEvidence,
 			Resolver:                  journalResolver,
-			ProjectRoot:               journalProjectRoot,
+			ManifestRoot:              mutationAuthority.capturedRoot,
 			OperationAuthority:        mutationAuthority.recoveryJournal,
 			RootedCapability:          mutationAuthority.rootedJournalCapability,
 			Codecs:                    input.Codecs,

@@ -99,6 +99,9 @@ func TestExecuteWithOptionsRejectsBlockedClaudePluginCarrierActionBeforeExecutio
 	if len(result.DelegateAttempts) != 0 {
 		t.Fatalf("delegate attempts = %#v, want none", result.DelegateAttempts)
 	}
+	if result.ExecutionAttempted {
+		t.Fatal("blocked relation reported crossing the execution boundary")
+	}
 }
 
 func TestExecuteWithOptionsRejectsBlockedClaudePluginCarrierBeforeDelegateExecutor(t *testing.T) {

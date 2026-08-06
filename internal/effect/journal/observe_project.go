@@ -21,11 +21,11 @@ func observeProjectRecoveryPath(
 	contentPath string,
 	aggregateContract *aggregate.ProjectionContract,
 	filesystem mutationfs.RootedReader,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	codecs aggregate.CodecCatalog,
 ) recoveryPathObservation {
 	base := recoveryPathObservation{Path: journalPath, ContentPath: contentPath}
-	if projectAuthority == nil {
+	if manifestAuthority == nil {
 		base.Error = "project root authority is required"
 		return base
 	}
@@ -34,7 +34,7 @@ func observeProjectRecoveryPath(
 		base.Error = fmt.Sprintf("parse project destination: %v", err)
 		return base
 	}
-	capability, err := projectAuthority.acquire(destination)
+	capability, err := manifestAuthority.acquire(destination)
 	if err != nil {
 		base.Error = fmt.Sprintf("acquire project destination: %v", err)
 		return base

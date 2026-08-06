@@ -118,7 +118,7 @@ func recoveryPathObservations(
 	ctx context.Context,
 	entries []recoveryEntry,
 	filesystem mutationfs.Reader,
-	projectAuthority *projectAuthoritySession,
+	manifestAuthority *manifestAuthoritySession,
 	resolver func(destination output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	codecs aggregate.CodecCatalog,
@@ -148,7 +148,7 @@ func recoveryPathObservations(
 					entry.ContentPath,
 					aggregateContract,
 					filesystem,
-					projectAuthority,
+					manifestAuthority,
 					codecs,
 				),
 			)

@@ -24,6 +24,22 @@ workflow or another row's result is not that evidence. This does not claim that
 every filesystem, distribution, kernel, host CLI version, or machine
 configuration has been exercised.
 
+Linux rooted-path authority has two levels. Operation-local checks use the
+ordinary mount identity retained with the selected root. A journal-bearing
+mutation additionally requires `STATX_MNT_ID_UNIQUE` and a canonical boot UUID
+from the verified procfs `kernel/random/boot_id` entry. This evidence is stored
+only as recovery provenance; it is not part of the manifest, lockfile, or
+ordinary operation fingerprint. Every journal records the selected manifest
+root provenance, including a state-only journal with no host entries. A clean
+invocation therefore is not rejected merely because the machine rebooted. An
+active journal is different: recovery after a reboot fails closed before
+effects because the persisted mount authority belonged to the earlier boot. If
+the running Linux kernel cannot provide the unique mount identity, daem rejects
+the durable-provenance preflight before provider-prerequisite state publication
+or delegated provider installation. Final journal capture validates that
+provenance again before its covered host mutations rather than weakening
+durable recovery authority.
+
 The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases
 are outside the support contract because their directory rename semantics can
 reject write-disabled trees before daem's atomic publication or logical-removal

@@ -615,7 +615,7 @@ func loadCleanActiveRetirementPlan(
 	t.Helper()
 	plan, err := LoadActivePlanForStateWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		beforeStatefile(),
 		PlanLoadOptions{
 			Filesystem: filesystem,
@@ -681,7 +681,7 @@ func loadCleanupRetirementPlan(
 	t.Helper()
 	recoverable, err := LoadRecoverablePlanWithOptions(
 		t.Context(),
-		Paths{RecoveryDir: recoveryRoot},
+		Paths{RecoveryDir: recoveryRoot, ManifestRoot: filepath.Dir(recoveryRoot)},
 		PlanLoadOptions{
 			Filesystem: filesystem,
 			StateCodec: testStateCodec(),

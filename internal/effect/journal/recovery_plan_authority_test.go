@@ -109,11 +109,11 @@ func TestRecoveryPlanJournalAuthorityFingerprintIncludesCompleteDurableEvidence(
 			},
 		},
 		{
-			name: "project root provenance",
+			name: "manifest root provenance",
 			mutate: func(candidate *recoveryJournal) {
-				provenance := *candidate.ProjectRootProvenance
+				provenance := candidate.ManifestRootProvenance
 				provenance.ObjectFingerprint = "sha256:" + strings.Repeat("3", 64)
-				candidate.ProjectRootProvenance = &provenance
+				candidate.ManifestRootProvenance = provenance
 			},
 		},
 	}

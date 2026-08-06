@@ -73,7 +73,7 @@ func (executor CommandExecutor) execute(
 	if len(missing) != 0 {
 		raw := CommandResult{Err: errors.New("missing env refs: " + strings.Join(missing, ", "))}
 		capture := sanitizeCapture(raw, secrets, outputLimit)
-		return newCommandAttemptResult(attemptedAt, CommandReasonMissingEnvRef, raw, capture)
+		return newCommandAttemptResult(attemptedAt, false, CommandReasonMissingEnvRef, raw, capture)
 	}
 
 	var nativeWorkDir *os.File
@@ -110,14 +110,14 @@ func (executor CommandExecutor) execute(
 			raw.Err = errors.Join(raw.Err, fmt.Errorf("working-directory authority changed: %w", err))
 		}
 		capture := sanitizeCapture(raw, secrets, outputLimit)
-		return newCommandAttemptResult(attemptedAt, classifyCommandResult(raw), raw, capture)
+		return newCommandAttemptResult(attemptedAt, true, classifyCommandResult(raw), raw, capture)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, executor.timeout)
 	defer cancel()
 	raw := executor.run(runCtx, request, env, outputLimit, nativeWorkDir)
 	capture := sanitizeCapture(raw, secrets, outputLimit)
-	return newCommandAttemptResult(attemptedAt, classifyCommandResult(raw), raw, capture)
+	return newCommandAttemptResult(attemptedAt, true, classifyCommandResult(raw), raw, capture)
 }
 
 func (executor CommandExecutor) run(
@@ -162,7 +162,7 @@ func (executor CommandExecutor) workDirAuthorityFailure(
 		Err:                    fmt.Errorf("working-directory authority: %w", err),
 	}
 	capture := sanitizeCapture(raw, secrets, outputLimit)
-	return newCommandAttemptResult(attemptedAt, CommandReasonWorkDirAuthority, raw, capture)
+	return newCommandAttemptResult(attemptedAt, false, CommandReasonWorkDirAuthority, raw, capture)
 }
 
 func (executor CommandExecutor) withDefaults() CommandExecutor {
@@ -233,11 +233,13 @@ func classifyCommandResult(result CommandResult) CommandReason {
 
 func newCommandAttemptResult(
 	attemptedAt time.Time,
+	runnerInvoked bool,
 	reason CommandReason,
 	result CommandResult,
 	capture sanitizedCapture,
 ) CommandAttemptResult {
 	return CommandAttemptResult{
+		runnerInvoked:   runnerInvoked,
 		started:         result.Started,
 		attemptedAt:     attemptedAt,
 		reason:          reason,

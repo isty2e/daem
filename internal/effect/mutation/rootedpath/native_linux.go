@@ -4,6 +4,7 @@ package rootedpath
 
 import (
 	"errors"
+	"fmt"
 
 	"golang.org/x/sys/unix"
 )
@@ -37,6 +38,38 @@ func nativeMountToken(fd int) (identityToken, error) {
 		return identityToken{}, errMountIdentityUnsupported
 	}
 	return identityTokenFromValues("linux-rooted-path-mount-v1", stat.Mnt_id), nil
+}
+
+func nativeRecoveryMountToken(fd int) (identityToken, error) {
+	stat, err := statxDescriptor(fd, unix.STATX_MNT_ID_UNIQUE)
+	if err != nil {
+		return identityToken{}, err
+	}
+	mountID, err := linuxUniqueMountID(stat)
+	if err != nil {
+		return identityToken{}, err
+	}
+	bootID, err := currentLinuxBootID()
+	if err != nil {
+		return identityToken{}, fmt.Errorf("observe Linux boot identity: %w", err)
+	}
+	return linuxRecoveryMountToken(mountID, bootID), nil
+}
+
+func linuxUniqueMountID(stat unix.Statx_t) (uint64, error) {
+	if stat.Mask&unix.STATX_MNT_ID_UNIQUE == 0 {
+		return 0, errMountIdentityUnsupported
+	}
+	return stat.Mnt_id, nil
+}
+
+func linuxRecoveryMountToken(mountID uint64, bootID linuxBootID) identityToken {
+	return identityTokenFromValues(
+		"linux-rooted-path-recovery-mount-v1",
+		mountID,
+		bootID.high,
+		bootID.low,
+	)
 }
 
 func statxDescriptor(fd int, mask int) (unix.Statx_t, error) {

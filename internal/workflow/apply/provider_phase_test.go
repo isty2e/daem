@@ -11,6 +11,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -52,12 +53,93 @@ func TestExecuteInstallsPiMCPProviderBeforeConfigProjection(t *testing.T) {
 	if len(result.HostRouteAttempts) != 1 {
 		t.Fatalf("HostRouteAttempts = %#v, want one provider attempt", result.HostRouteAttempts)
 	}
+	if !result.ExecutionAttempted {
+		t.Fatal("provider execution did not report crossing the effect boundary")
+	}
 	if len(result.MCPProjections) != 1 ||
 		result.MCPProjections[0].Provider().Version() != "2.15.0" {
 		t.Fatalf("MCPProjections = %#v, want current provider version 2.15.0", result.MCPProjections)
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("Pi MCP config was not projected after provider verification: %v", err)
+	}
+}
+
+func TestExecuteRejectsUnavailableProviderRecoveryProvenanceBeforeEffects(t *testing.T) {
+	_, manifestPath := writePiProviderMCPFixture(t)
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	planned := prepared.lifecycle.planned
+	if planned.projectRoot == nil {
+		t.Fatal("provider plan did not retain its non-nil project root")
+	}
+	statePath := planned.context.Paths.StatefilePath
+	recoveryDir := planned.context.Paths.RecoveryDir
+	for _, path := range []string{statePath, recoveryDir} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("pre-execution path %q exists: %v", path, statErr)
+		}
+	}
+
+	providerCalls := 0
+	provenanceChecks := 0
+	result, err := executeWithDependencies(t.Context(), prepared, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+				providerCalls++
+				return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+			},
+		}),
+	}, executeDependencies{
+		recoveryProvenancePreflight: func(authority rootedpath.Authority) error {
+			provenanceChecks++
+			return rootedpath.NewBoundaryFailure(
+				rootedpath.FailureRecoveryEvidenceUnavailable,
+				authority.PhysicalRoot(),
+				"injected unavailable durable recovery evidence",
+				errors.New("injected recovery evidence failure"),
+			)
+		},
+	})
+	var failure *rootedpath.Failure
+	if !errors.As(err, &failure) ||
+		failure.Kind() != rootedpath.FailureRecoveryEvidenceUnavailable {
+		t.Fatalf("ExecuteWithOptions error = %v, want unavailable recovery evidence", err)
+	}
+	if provenanceChecks != 1 || providerCalls != 0 || result.ExecutionAttempted {
+		t.Fatalf(
+			"provenance checks/provider calls/execution attempted = %d/%d/%t, want 1/0/false",
+			provenanceChecks,
+			providerCalls,
+			result.ExecutionAttempted,
+		)
+	}
+	if len(result.HostRouteAttempts) != 0 {
+		t.Fatalf("HostRouteAttempts = %#v, want none", result.HostRouteAttempts)
+	}
+	for _, path := range []string{statePath, recoveryDir} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("post-failure path %q exists: %v", path, statErr)
+		}
+	}
+}
+
+func TestPrepareMCPProviderPrerequisiteActionsSkipsRecoveryPreflightWithoutEffects(t *testing.T) {
+	preflightCalls := 0
+	actions, err := prepareMCPProviderPrerequisiteActions(
+		commandPlan{},
+		func(rootedpath.Authority) error {
+			preflightCalls++
+			return errors.New("unexpected recovery preflight")
+		},
+	)
+	if err != nil {
+		t.Fatalf("prepare actions returned error without provider effects: %v", err)
+	}
+	if len(actions) != 0 || preflightCalls != 0 {
+		t.Fatalf("provider actions/preflight calls = %#v/%d, want none/0", actions, preflightCalls)
 	}
 }
 

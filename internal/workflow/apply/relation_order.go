@@ -321,6 +321,7 @@ func runRelationOrderConvergence(
 		if err != nil {
 			return result, err
 		}
+		options.markAttempted()
 		changed, executeErr := bound.Execute(
 			ctx,
 			storagecommit.Adapter{},

@@ -46,6 +46,9 @@ func TestExecuteMissingEnvRefDoesNotLaunchRunner(t *testing.T) {
 	if called {
 		t.Fatal("runner was called for missing env ref")
 	}
+	if record.RunnerInvoked() {
+		t.Fatal("missing env ref reported reaching the runner boundary")
+	}
 	if record.Status() != AttemptFailed || record.Reason() != ReasonMissingEnvRef {
 		t.Fatalf("record = %#v, want missing env failure", record)
 	}
@@ -87,6 +90,9 @@ func TestExecuteMapsMultipleChildNamesFromOneHostSource(t *testing.T) {
 
 	record := executor.Execute(context.Background(), action, testWorkingDirectoryBinder(t))
 
+	if !record.RunnerInvoked() {
+		t.Fatal("mapped environment attempt did not report reaching the runner boundary")
+	}
 	if record.Status() != AttemptSucceeded || record.Reason() != ReasonNone {
 		t.Fatalf("record = %#v, want successful mapped environment attempt", record)
 	}
@@ -217,6 +223,9 @@ func TestExecuteFailsClosedWithoutWorkingDirectoryAuthority(t *testing.T) {
 
 	if called {
 		t.Fatal("runner called without working-directory authority")
+	}
+	if record.RunnerInvoked() {
+		t.Fatal("workdir authority failure reported reaching the runner boundary")
 	}
 	if record.Status() != AttemptFailed ||
 		record.Reason() != ReasonWorkDirAuthority ||

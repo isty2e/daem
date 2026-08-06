@@ -116,6 +116,7 @@ func runHostRoutesAndPersistAttemptRecords(
 	}
 	if len(records) != 0 {
 		var err error
+		options.markAttempted()
 		nextState, err = execute.CommitHostRouteAttempts(
 			ctx,
 			storagecommit.Adapter{},
@@ -130,6 +131,9 @@ func runHostRoutesAndPersistAttemptRecords(
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
+	}
+	if len(globalPromotions) != 0 {
+		options.markAttempted()
 	}
 	nextState, globalCarrierClaims, err = commitInterruptedGlobalCarrierClaims(
 		ctx,
@@ -187,6 +191,7 @@ func runHostRoutesAndPersistAttemptRecords(
 			)
 		}
 		var err error
+		options.markAttempted()
 		nextState, err = execute.CommitPendingCarrierInstalls(
 			ctx,
 			storagecommit.Adapter{},

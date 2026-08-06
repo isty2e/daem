@@ -32,7 +32,11 @@ func TestAuthorityAdapterIngressRejectsInvalidOrContradictoryFacts(t *testing.T)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := newCapturedAuthority(test.root, test.object, test.mount)
+			_, err := newCapturedAuthority(
+				test.root,
+				test.object,
+				newMountIdentities(test.mount, availableRecoveryMountEvidence(test.mount)),
+			)
 			if !hasFailureKind(err, FailureInvalidRoot) {
 				t.Fatalf("newCapturedAuthority error = %v, want %s", err, FailureInvalidRoot)
 			}
@@ -63,6 +67,29 @@ func TestAuthorityIdentityIncludesPhysicalRootObjectAndMount(t *testing.T) {
 	}
 	if authority.Equal(Authority{}) {
 		t.Fatal("valid authority compared equal to zero authority")
+	}
+}
+
+func TestAuthorityIdentityIgnoresRecoveryEvidenceAvailability(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	object := testIdentityToken(1)
+	operationMount := testIdentityToken(2)
+	withRecovery := mustAuthorityWithMountIdentities(
+		t,
+		root,
+		object,
+		operationMount,
+		testIdentityToken(3),
+	)
+	withoutRecovery := mustAuthorityWithMountIdentities(
+		t,
+		root,
+		object,
+		operationMount,
+		identityToken{},
+	)
+	if !withRecovery.Equal(withoutRecovery) {
+		t.Fatal("recovery evidence availability changed operation-local authority identity")
 	}
 }
 

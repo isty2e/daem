@@ -293,7 +293,7 @@ func TestCaptureJournalWithOptionsRejectsMissingResolverBeforeFilesystemWork(t *
 	recoveryDir := filepath.Join(t.TempDir(), "recovery")
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"missing-resolver",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
@@ -312,7 +312,7 @@ func TestCaptureJournalWithOptionsRejectsMissingStateCodecBeforeFilesystemWork(t
 	recoveryDir := filepath.Join(t.TempDir(), "recovery")
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"missing-codec",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
@@ -333,7 +333,7 @@ func TestCaptureJournalWithOptionsRejectsMissingFilesystemBeforeFilesystemWork(t
 	recoveryDir := filepath.Join(t.TempDir(), "recovery")
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"missing-filesystem",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
@@ -356,7 +356,7 @@ func TestCaptureJournalWithOptionsRejectsStateEncodingFailureBeforeFilesystemWor
 	codecErr := fmt.Errorf("injected state encoding failure")
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"encoding-failure",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
@@ -379,7 +379,7 @@ func TestCaptureJournalWithOptionsRejectsInvalidStateEncodingBeforeFilesystemWor
 	recoveryDir := filepath.Join(t.TempDir(), "recovery")
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"invalid-encoding",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),
@@ -404,7 +404,7 @@ func TestCaptureJournalWithOptionsRejectsAfterStateEncodingFailureBeforeFilesyst
 	encoder := &failAtCallStateEncoder{failureAt: 2, err: codecErr}
 	_, err := CaptureJournalWithOptions(
 		context.Background(),
-		Paths{RecoveryDir: recoveryDir},
+		Paths{RecoveryDir: recoveryDir, ManifestRoot: filepath.Dir(recoveryDir)},
 		"after-encoding-failure",
 		time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC),
 		durable.EmptySnapshot(),

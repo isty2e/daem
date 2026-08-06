@@ -234,6 +234,7 @@ func retireClaim(
 ) error {
 	switch action.Scope() {
 	case target.ScopeProject:
+		input.markAttempted()
 		next, err := execute.CommitRetiredProjectCarrierRemoval(
 			ctx,
 			filesystem(input),
@@ -258,6 +259,7 @@ func retireClaim(
 		if !changed {
 			return fmt.Errorf("derive retired global carrier registry: exact claim is absent")
 		}
+		input.markAttempted()
 		next, err := execute.CommitClearedGlobalCarrierRemovalPending(
 			ctx,
 			filesystem(input),
@@ -303,6 +305,7 @@ func runAfterCarrierClaimRetirements(
 		paths.CarrierClaimRegistryPath,
 		globalClaims,
 		globalRetirements,
+		options.markExecutionAttempted,
 	)
 	if err != nil {
 		return runResult{
@@ -333,7 +336,8 @@ func runAfterCarrierClaimRetirements(
 			}
 			return store.Remove(ctx, claim)
 		},
-		ValidateBeforeEffects: options.validateBeforeEffects,
+		ValidateBeforeEffects:  options.validateBeforeEffects,
+		MarkExecutionAttempted: options.markExecutionAttempted,
 	})
 	if err != nil {
 		return runResult{
@@ -365,6 +369,7 @@ func runAfterCarrierClaimRetirements(
 		paths.CarrierClaimRegistryPath,
 		next.GlobalCarrierClaims,
 		globalAdoptions,
+		options.markExecutionAttempted,
 	)
 	next.GlobalCarrierClaims = nextGlobalClaims
 	next.ActionCount += adoptionCount
@@ -376,6 +381,7 @@ func commitGlobalCarrierRetirements(
 	registryPath string,
 	current durablecarrier.GlobalCarrierClaims,
 	claims []durablecarrier.ManagedCarrierClaim,
+	markExecutionAttempted func(),
 ) (durablecarrier.GlobalCarrierClaims, int, error) {
 	if len(claims) == 0 {
 		return current, 0, nil
@@ -383,6 +389,9 @@ func commitGlobalCarrierRetirements(
 	store, err := carrierclaimstore.New(registryPath)
 	if err != nil {
 		return current, 0, err
+	}
+	if markExecutionAttempted != nil {
+		markExecutionAttempted()
 	}
 	next, err := store.RetireAllIfCurrent(ctx, current, claims)
 	if err != nil {

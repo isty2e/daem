@@ -16,9 +16,8 @@ import (
 )
 
 type projectRootFingerprintFacts struct {
-	PhysicalRoot      string
-	ObjectFingerprint string
-	MountFingerprint  string
+	PhysicalRoot         string
+	AuthorityFingerprint string
 }
 
 func requiresProjectRootAuthority(planned commandPlan) bool {
@@ -120,15 +119,49 @@ func projectRootFingerprint(planned commandPlan) (*projectRootFingerprintFacts, 
 	if err != nil {
 		return nil, err
 	}
-	provenance, err := authority.Provenance()
+	fingerprint, err := authority.OperationFingerprint()
 	if err != nil {
 		return nil, err
 	}
 	return &projectRootFingerprintFacts{
-		PhysicalRoot:      provenance.PhysicalRoot(),
-		ObjectFingerprint: provenance.ObjectFingerprint(),
-		MountFingerprint:  provenance.MountFingerprint(),
+		PhysicalRoot:         authority.PhysicalRoot(),
+		AuthorityFingerprint: fingerprint,
 	}, nil
+}
+
+type recoveryProvenancePreflight func(rootedpath.Authority) error
+
+func requireRecoveryProvenance(authority rootedpath.Authority) error {
+	_, err := authority.Provenance()
+	return err
+}
+
+func preflightRecoveryJournalProjectRoot(
+	planned commandPlan,
+	preflight recoveryProvenancePreflight,
+) error {
+	if planned.projectRoot == nil {
+		return rootedpath.NewBoundaryFailure(
+			rootedpath.FailureRootUnavailable,
+			planned.context.Paths.ManifestRoot,
+			"recovery journal requires retained project-root authority",
+			nil,
+		)
+	}
+	if err := planned.projectRoot.ValidateSelection(planned.context.Paths.ManifestRoot); err != nil {
+		return fmt.Errorf("validate recovery journal project root: %w", err)
+	}
+	authority, err := planned.projectRoot.Authority()
+	if err != nil {
+		return fmt.Errorf("read recovery journal project-root authority: %w", err)
+	}
+	if preflight == nil {
+		preflight = requireRecoveryProvenance
+	}
+	if err := preflight(authority); err != nil {
+		return fmt.Errorf("derive recovery journal project-root provenance: %w", err)
+	}
+	return nil
 }
 
 func validateHostRouteProjectRoot(options runOptions, selectedRoot string) error {

@@ -174,7 +174,8 @@ func PrintCarrierAdoptionResultsWithOptions(
 	output io.Writer,
 	actions []carrieradoption.Action,
 	results []durablecarrier.ManagedCarrierClaim,
-	succeeded bool,
+	executionErr error,
+	executionAttempted bool,
 	options HumanOptions,
 ) {
 	stateOnly := make([]carrieradoption.Action, 0, len(actions))
@@ -187,10 +188,7 @@ func PrintCarrierAdoptionResultsWithOptions(
 		return
 	}
 	fmt.Fprintf(output, "carrier adoption results: %d subjects\n", len(stateOnly))
-	phase := carrierAdoptionUnconfirmed
-	if succeeded {
-		phase = carrierAdoptionCommitted
-	}
+	phase := applyResultCarrierAdoptionPhase(executionErr, executionAttempted)
 	for _, action := range stateOnly {
 		actionPhase, _, _ := carrierAdoptionResult(action, phase, results)
 		if options.Verbose {
@@ -223,6 +221,16 @@ func PrintCarrierAdoptionResultsWithOptions(
 				row.Scope,
 				row.SourceNamespace,
 				row.FinalClaimProvenance,
+			)
+			continue
+		case carrierAdoptionNotRecorded:
+			fmt.Fprintf(
+				output,
+				"  - external carrier claim not recorded before apply effects subject=%q target=%s scope=%s source=%q\n",
+				subjectString(*row.Subject),
+				row.Target,
+				row.Scope,
+				row.SourceNamespace,
 			)
 			continue
 		}

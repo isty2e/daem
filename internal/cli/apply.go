@@ -241,7 +241,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 				StatefilePath:          result.StatefilePath,
 				LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 				Reconciliation:         result.Reconciliation,
-				ExecutionAttempted:     true,
+				ExecutionAttempted:     result.ExecutionAttempted,
 				CarrierAdoptionResults: result.CarrierAdoptionResults,
 				RelationOrderResults:   result.RelationOrderResults,
 				HostRouteAttempts:      result.HostRouteAttempts,
@@ -261,7 +261,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			stderr,
 			result.Reconciliation.CarrierAdoptions(),
 			result.CarrierAdoptionResults,
-			false,
+			err,
+			result.ExecutionAttempted,
 			humanOptions,
 		)
 		clipresent.PrintRelationOrderResults(stderr, result.RelationOrderResults)
@@ -279,7 +280,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			StatefilePath:          result.StatefilePath,
 			LockOnly:               clipresent.LockOnlyResourcesFrom(result.LockOnly),
 			Reconciliation:         result.Reconciliation,
-			ExecutionAttempted:     true,
+			ExecutionAttempted:     result.ExecutionAttempted,
 			CarrierAdoptionResults: result.CarrierAdoptionResults,
 			RelationOrderResults:   result.RelationOrderResults,
 			HostRouteAttempts:      result.HostRouteAttempts,
@@ -298,7 +299,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		stdout,
 		result.Reconciliation.CarrierAdoptions(),
 		result.CarrierAdoptionResults,
-		true,
+		nil,
+		result.ExecutionAttempted,
 		humanOptions,
 	)
 	clipresent.PrintRelationOrderResults(stdout, result.RelationOrderResults)
