@@ -893,9 +893,12 @@ and writes nothing.
 Before any active journal is retired, the retirement gate reconciles every
 persisted removal intent, including intents for entries outside a selected
 recovery subset. The gate reports the logical destination and a typed
-namespace, residue, or durability reason when reconciliation is blocked or
-must be retried; it never exposes the private residue sibling path. A clean
-visible classification alone is not a retirement guarantee.
+namespace, residue, cleanup-stage, or durability reason when reconciliation is
+blocked or must be retried; it never exposes either private sibling path. A
+clean visible classification alone is not a retirement guarantee. A retained
+cleanup-stage directory may contain only the unremoved part of its original
+tree; its exact preselected name records cleanup progress, while the original
+whole-state hash remains mandatory before residue promotion.
 
 For active recovery, default output shows classification, operation identity,
 every action, destination/content subject, blocker, and recovery limitation.

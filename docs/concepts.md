@@ -203,24 +203,35 @@ against a non-daem writer racing after the final validation.
 
 Every journaled rooted removal also publishes one exact removal intent before
 the first covered effect. The intent binds the portable scope and destination
-to a relation-specific parent authority, an opaque same-parent residue name,
-and the complete before/expected-after whole-path states that execution may
-move into that name. Aggregate contributors share the document-level intent;
-the intent is never keyed by a resource name, target, action ordinal, or
-content path. A replacement parent cannot inherit the old authority, and an
-initially absent parent is admitted only through its retained ancestor and
-missing suffix without creating that parent during validation.
+to a relation-specific parent authority, two opaque same-parent names, and the
+complete before/expected-after whole-path states that execution may remove.
+The residue name is valid only while the complete original state can still be
+verified. After that verification, daem atomically promotes the entry to the
+separate cleanup-stage name before recursively deleting it. The cleanup-stage
+name is durable progress evidence, so a retry can continue after some children
+were already removed without pretending that the partial tree still has the
+original hash. Both names contain a preselected 128-bit opaque token. A
+same-user process that reads an active journal and forges either exact private
+name remains outside the local authority threat model; daem does not weaken
+the exact-name contract by scanning a prefix. Aggregate contributors share the
+document-level intent; the intent is never keyed by a resource name, target,
+action ordinal, or content path. A replacement parent cannot inherit the old
+authority, and an initially absent parent is admitted only through its
+retained ancestor and missing
+suffix without creating that parent during validation.
 
 Visible recovery classification and residue reconciliation are separate. A
 journal may be `clean_before` or `clean_after` while a removal obligation is
 still pending. Immediately before retirement, daem observes every complete
 intent rather than only selected recovery entries. A matching residue is
-removed through the exact rooted storage protocol; an absent residue is
-confirmed only after nearest-existing-ancestor synchronization and a second
-exact absence observation. Changed namespace, mismatched or unsupported
-residue, unavailable evidence, or failed durability retains the journal and
-reports a typed blocker or retry condition. Only after every obligation is
-discharged may the retirement gate rename the active journal.
+promoted through a no-replace rooted rename and then removed through the exact
+cleanup-stage protocol. A cleanup-stage entry resumes bounded recursive
+cleanup; both names absent are confirmed only after
+nearest-existing-ancestor synchronization and exact re-observation. Both names
+present, a changed namespace, a mismatched or unsupported residue, unavailable
+evidence, or failed durability retains the journal and reports a typed blocker
+or retry condition. Only after every obligation is discharged may the
+retirement gate rename the active journal.
 
 Once the control-to-GC rename is durable, semantic recovery is complete.
 Physical GC removal is best effort: interruption may leave private
