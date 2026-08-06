@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -253,7 +253,7 @@ func (Adapter) RemoveRootedEntryWithResidue(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
-	residue residue.LogicalRemovalResidueName,
+	names mutationfs.LogicalRemovalNames,
 ) (mutationfs.CommitOutcome, error) {
 	identity, err := concreteEntryIdentity(expected)
 	if err != nil {
@@ -263,7 +263,7 @@ func (Adapter) RemoveRootedEntryWithResidue(
 		)
 		return outcomeFromError(failure), failure
 	}
-	request, err := NewRootedLogicalRemovalWithResidue(capability, identity, residue)
+	request, err := NewRootedLogicalRemovalWithResidue(capability, identity, names)
 	if err != nil {
 		failure := errors.Join(
 			rootedAdapterValidationFailure(capability, err),
@@ -299,6 +299,56 @@ func (Adapter) RenameRootedEntry(
 	return CommitRootedEntryRename(ctx, request)
 }
 
+func (Adapter) PromoteRootedRemovalResidue(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+) (mutationfs.CommitOutcome, mutationfs.EntryIdentity, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), nil, failure
+	}
+	if !names.Valid() || filepath.Base(identity.path) != names.Residue() {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(
+				capability,
+				fmt.Errorf("rooted removal source does not match the authorized residue name"),
+			),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), nil, failure
+	}
+	request, err := NewRootedEntryRename(capability, names.Cleanup(), identity)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), nil, failure
+	}
+	var moved EntryIdentity
+	request.moved = &moved
+	outcome, err := CommitRootedEntryRename(ctx, request)
+	if err != nil {
+		return outcome, nil, err
+	}
+	if !moved.valid() || moved.path != filepath.Join(filepath.Dir(identity.path), names.Cleanup()) {
+		failure := newFailure(
+			failureIndeterminateCommit,
+			phaseVerifyEntry,
+			identity.path,
+			fmt.Errorf("rooted removal promotion did not return the verified cleanup-stage identity"),
+		)
+		return outcomeFromError(failure), nil, failure
+	}
+	return outcome, moved, nil
+}
+
 func (Adapter) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
@@ -313,6 +363,31 @@ func (Adapter) CleanupRootedEntry(
 		return outcomeFromError(failure), failure
 	}
 	request, err := NewRootedEntryCleanup(capability, identity)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	return CommitRootedEntryCleanup(ctx, request)
+}
+
+func (Adapter) CleanupRootedRemovalStage(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+) (mutationfs.CommitOutcome, error) {
+	identity, err := concreteEntryIdentity(expected)
+	if err != nil {
+		failure := errors.Join(
+			rootedAdapterValidationFailure(capability, err),
+			closeRootedCapability(capability),
+		)
+		return outcomeFromError(failure), failure
+	}
+	request, err := NewRootedRemovalStageCleanup(capability, identity, names)
 	if err != nil {
 		failure := errors.Join(
 			rootedAdapterValidationFailure(capability, err),

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
@@ -176,49 +176,63 @@ func captureRemovalNamespace(
 			return recovery.RemovalNamespaceAuthority{}, fmt.Errorf("derive removal parent suffix: %w", err)
 		}
 		missingSuffix = filepath.ToSlash(missingSuffix)
-		residue, err := allocateRemovalResidueName(parentProvenance.PhysicalRoot(), usedNames)
+		names, err := allocateLogicalRemovalNames(parentProvenance.PhysicalRoot(), usedNames)
 		if err != nil {
 			return recovery.RemovalNamespaceAuthority{}, err
 		}
-		return recovery.NewExistingParentAuthority(persistedParent, persistedRetained, missingSuffix, residue)
+		return recovery.NewExistingParentAuthority(persistedParent, persistedRetained, missingSuffix, names)
 	}
 	if !os.IsNotExist(parentErr) {
 		return recovery.RemovalNamespaceAuthority{}, fmt.Errorf("inspect removal parent %q: %w", parentPath, parentErr)
 	}
-	residue, err := allocateRemovalResidueName("", usedNames)
+	names, err := allocateLogicalRemovalNames("", usedNames)
 	if err != nil {
 		return recovery.RemovalNamespaceAuthority{}, err
 	}
-	return recovery.NewInitiallyAbsentParentAuthority(retainedAncestor, relativeParent, residue)
+	return recovery.NewInitiallyAbsentParentAuthority(retainedAncestor, relativeParent, names)
 }
 
-func allocateRemovalResidueName(parent string, usedNames map[string]struct{}) (residue.LogicalRemovalResidueName, error) {
+func allocateLogicalRemovalNames(
+	parent string,
+	usedNames map[string]struct{},
+) (mutationfs.LogicalRemovalNames, error) {
 	for range 64 {
 		var random [16]byte
 		if _, err := rand.Read(random[:]); err != nil {
-			return residue.LogicalRemovalResidueName{}, fmt.Errorf("generate removal residue name: %w", err)
+			return mutationfs.LogicalRemovalNames{}, fmt.Errorf("generate logical removal names: %w", err)
 		}
-		candidate, err := residue.NewLogicalRemovalResidueName(
-			".daem-tombstone-" + fmt.Sprintf("%x", random[:]),
+		token := fmt.Sprintf("%x", random[:])
+		candidate, err := mutationfs.NewLogicalRemovalNames(
+			".daem-tombstone-"+token,
+			".daem-cleanup-"+token,
 		)
 		if err != nil {
-			return residue.LogicalRemovalResidueName{}, err
+			return mutationfs.LogicalRemovalNames{}, err
 		}
-		name := candidate.String()
-		if _, used := usedNames[name]; used {
+		if _, used := usedNames[candidate.Residue()]; used {
+			continue
+		}
+		if _, used := usedNames[candidate.Cleanup()]; used {
 			continue
 		}
 		if parent != "" {
-			_, statErr := os.Lstat(filepath.Join(parent, name))
-			switch {
-			case statErr == nil:
+			occupied := false
+			for _, name := range []string{candidate.Residue(), candidate.Cleanup()} {
+				_, statErr := os.Lstat(filepath.Join(parent, name))
+				switch {
+				case statErr == nil:
+					occupied = true
+				case !os.IsNotExist(statErr):
+					return mutationfs.LogicalRemovalNames{}, fmt.Errorf("check logical removal name %q: %w", name, statErr)
+				}
+			}
+			if occupied {
 				continue
-			case !os.IsNotExist(statErr):
-				return residue.LogicalRemovalResidueName{}, fmt.Errorf("check removal residue name %q: %w", name, statErr)
 			}
 		}
-		usedNames[name] = struct{}{}
+		usedNames[candidate.Residue()] = struct{}{}
+		usedNames[candidate.Cleanup()] = struct{}{}
 		return candidate, nil
 	}
-	return residue.LogicalRemovalResidueName{}, fmt.Errorf("could not allocate a unique removal residue name")
+	return mutationfs.LogicalRemovalNames{}, fmt.Errorf("could not allocate unique logical removal names")
 }

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
@@ -61,11 +61,14 @@ func canonicalRecoveryRemovalIntents(values []recoveryRemovalIntent) ([]recovery
 		if err != nil {
 			return nil, fmt.Errorf("recovery removal intents[%d].destination: %w", index, err)
 		}
-		residueName, err := residue.NewLogicalRemovalResidueName(persisted.Namespace.ResidueName)
+		names, err := mutationfs.NewLogicalRemovalNames(
+			persisted.Namespace.ResidueName,
+			persisted.Namespace.CleanupName,
+		)
 		if err != nil {
-			return nil, fmt.Errorf("recovery removal intents[%d].namespace.residue_name: %w", index, err)
+			return nil, fmt.Errorf("recovery removal intents[%d].namespace.names: %w", index, err)
 		}
-		namespace, err := canonicalRemovalNamespace(persisted.Namespace, residueName)
+		namespace, err := canonicalRemovalNamespace(persisted.Namespace, names)
 		if err != nil {
 			return nil, fmt.Errorf("recovery removal intents[%d].namespace: %w", index, err)
 		}
@@ -121,7 +124,7 @@ func canonicalRecoveryRemovalStates(
 
 func canonicalRemovalNamespace(
 	persisted recoveryRemovalNamespaceAuthority,
-	residueName residue.LogicalRemovalResidueName,
+	names mutationfs.LogicalRemovalNames,
 ) (recovery.RemovalNamespaceAuthority, error) {
 	switch recovery.RemovalNamespaceVariant(persisted.Variant) {
 	case recovery.RemovalNamespaceExistingParent:
@@ -136,7 +139,7 @@ func canonicalRemovalNamespace(
 		if err != nil {
 			return recovery.RemovalNamespaceAuthority{}, err
 		}
-		return recovery.NewExistingParentAuthority(parent, retained, persisted.MissingSuffix, residueName)
+		return recovery.NewExistingParentAuthority(parent, retained, persisted.MissingSuffix, names)
 	case recovery.RemovalNamespaceInitiallyAbsentParent:
 		if persisted.RetainedAncestorProvenance == nil || persisted.ParentProvenance != nil || persisted.MissingSuffix == "" {
 			return recovery.RemovalNamespaceAuthority{}, fmt.Errorf("initially absent parent authority has invalid variant fields")
@@ -145,7 +148,7 @@ func canonicalRemovalNamespace(
 		if err != nil {
 			return recovery.RemovalNamespaceAuthority{}, err
 		}
-		return recovery.NewInitiallyAbsentParentAuthority(ancestor, persisted.MissingSuffix, residueName)
+		return recovery.NewInitiallyAbsentParentAuthority(ancestor, persisted.MissingSuffix, names)
 	default:
 		return recovery.RemovalNamespaceAuthority{}, fmt.Errorf("unsupported namespace variant %q", persisted.Variant)
 	}
@@ -164,7 +167,8 @@ func persistedRecoveryRemovalIntents(intents []recovery.RemovalIntent) ([]recove
 		persistedNamespace := recoveryRemovalNamespaceAuthority{
 			Variant:       string(namespace.Variant()),
 			MissingSuffix: namespace.MissingSuffix(),
-			ResidueName:   namespace.ResidueName().String(),
+			ResidueName:   namespace.Names().Residue(),
+			CleanupName:   namespace.Names().Cleanup(),
 		}
 		if parent, present := namespace.ParentProvenance(); present {
 			persistedNamespace.ParentProvenance = persistedRecoveryRootProvenanceFromCanonical(parent)

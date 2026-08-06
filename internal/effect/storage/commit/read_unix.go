@@ -88,8 +88,14 @@ func readRegularFileSnapshotWithFaults(
 	maximumBytes int64,
 	faults faultPlan,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	if err := validateCommitPath(path); err != nil {
-		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, err)
+	var validationErr error
+	if capability == nil {
+		validationErr = validateCommitPath(path)
+	} else {
+		validationErr = validateRootedPath(path)
+	}
+	if validationErr != nil {
+		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, validationErr)
 	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, err)

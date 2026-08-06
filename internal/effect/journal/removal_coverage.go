@@ -116,7 +116,7 @@ func validateRecoveryRemovalCoverage(
 // residue cardinality on reload.
 func validateRecoveryRemovalIntents(intents []recovery.RemovalIntent) error {
 	relations := make(map[removalRelationKey]struct{}, len(intents))
-	residueNames := make(map[string]struct{}, len(intents))
+	namespaceNames := make(map[string]struct{}, len(intents)*2)
 	previousRelation := ""
 	for index, intent := range intents {
 		if err := intent.Validate(); err != nil {
@@ -132,11 +132,15 @@ func validateRecoveryRemovalIntents(intents []recovery.RemovalIntent) error {
 			return fmt.Errorf("intent[%d] duplicates rooted relation %q", index, intent.Destination())
 		}
 		relations[key] = struct{}{}
-		name := intent.Namespace().ResidueName().String()
-		if _, duplicate := residueNames[name]; duplicate {
-			return fmt.Errorf("intent[%d] duplicates residue name %q", index, name)
+		for _, name := range []string{
+			intent.Namespace().Names().Residue(),
+			intent.Namespace().Names().Cleanup(),
+		} {
+			if _, duplicate := namespaceNames[name]; duplicate {
+				return fmt.Errorf("intent[%d] duplicates removal namespace name %q", index, name)
+			}
+			namespaceNames[name] = struct{}{}
 		}
-		residueNames[name] = struct{}{}
 	}
 	return nil
 }

@@ -38,6 +38,7 @@ func (persisted *recoveryRemovalNamespaceAuthority) UnmarshalJSON(content []byte
 		"recovery removal namespace authority",
 		"variant",
 		"residue_name",
+		"cleanup_name",
 	); err != nil {
 		return err
 	}

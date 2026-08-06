@@ -112,17 +112,21 @@ func NewAuthority(
 		}
 	}
 	removalIntents = append([]RemovalIntent(nil), removalIntents...)
+	removalNames := make(map[string]struct{}, len(removalIntents)*2)
 	for index, intent := range removalIntents {
 		if err := intent.validate(); err != nil {
 			return Authority{}, fmt.Errorf("recovery authority removal intents[%d]: %w", index, err)
 		}
-		for prior := 0; prior < index; prior++ {
+		for prior := range index {
 			if removalIntents[prior].scope == intent.scope && removalIntents[prior].destination == intent.destination {
 				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate relation %q", intent.destination)
 			}
-			if removalIntents[prior].namespace.residueName.String() == intent.namespace.residueName.String() {
-				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate residue name %q", intent.namespace.residueName.String())
+		}
+		for _, name := range []string{intent.namespace.names.Residue(), intent.namespace.names.Cleanup()} {
+			if _, duplicate := removalNames[name]; duplicate {
+				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate namespace name %q", name)
 			}
+			removalNames[name] = struct{}{}
 		}
 	}
 	if err := manifestProvenance.validate(); err != nil {

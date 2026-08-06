@@ -4,22 +4,28 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
 
 func testRemovalIntent(t *testing.T) RemovalIntent {
 	t.Helper()
+	return testRemovalIntentForKind(t, PathKindFile)
+}
+
+func testRemovalIntentForKind(t *testing.T, kind string) RemovalIntent {
+	t.Helper()
 	destination, err := output.Parse("skills/runner")
 	if err != nil {
 		t.Fatalf("parse removal destination: %v", err)
 	}
-	residue, err := residue.NewLogicalRemovalResidueName(
-		".daem-tombstone-" + strings.Repeat("a", 32),
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-"+strings.Repeat("a", 32),
+		".daem-cleanup-"+strings.Repeat("a", 32),
 	)
 	if err != nil {
-		t.Fatalf("construct residue name: %v", err)
+		t.Fatalf("construct removal names: %v", err)
 	}
 	ancestor, err := NewManifestRootProvenance(
 		"/test",
@@ -29,16 +35,20 @@ func testRemovalIntent(t *testing.T) RemovalIntent {
 	if err != nil {
 		t.Fatalf("construct retained ancestor: %v", err)
 	}
-	namespace, err := NewInitiallyAbsentParentAuthority(ancestor, "project", residue)
+	namespace, err := NewInitiallyAbsentParentAuthority(ancestor, "project", names)
 	if err != nil {
 		t.Fatalf("construct namespace: %v", err)
+	}
+	pathMode := NewPermissionMode(0o600)
+	if kind == PathKindDirectory {
+		pathMode = nil
 	}
 	state, err := NewBeforeRemovalState(BeforePathState{
 		Existed:       true,
 		PathExisted:   true,
 		ParentExisted: true,
-		PathMode:      NewPermissionMode(0o600),
-		Kind:          PathKindFile,
+		PathMode:      pathMode,
+		Kind:          kind,
 		ContentHash:   "sha256:" + strings.Repeat("3", 64),
 	})
 	if err != nil {
@@ -72,12 +82,19 @@ func TestRemovalIntentAssessesNamespaceAndEntryAxesIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct present residue: %v", err)
 	}
-	obligation, err := intent.AssessCleanup(matched, present)
+	absent, err := NewRemovalResidueEntryObservation(RemovalResidueEntryAbsent, "", "", nil, "", "")
+	if err != nil {
+		t.Fatalf("construct absent residue: %v", err)
+	}
+	obligation, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(present, absent),
+	)
 	if err != nil {
 		t.Fatalf("assess present residue: %v", err)
 	}
-	if obligation.Readiness() != RemovalCleanupReady || obligation.Action() != RemovalCleanupActionCleanupResidue {
-		t.Fatalf("present obligation = %#v, want ready cleanup", obligation)
+	if obligation.Readiness() != RemovalCleanupReady || obligation.Action() != RemovalCleanupActionPromoteResidue {
+		t.Fatalf("present residue obligation = %#v, want ready promotion", obligation)
 	}
 	discharged, err := obligation.Discharge()
 	if err != nil {
@@ -87,11 +104,10 @@ func TestRemovalIntentAssessesNamespaceAndEntryAxesIndependently(t *testing.T) {
 		t.Fatalf("discharged readiness = %q, want discharged", discharged.Readiness())
 	}
 
-	absent, err := NewRemovalResidueEntryObservation(RemovalResidueEntryAbsent, "", "", nil, "", "")
-	if err != nil {
-		t.Fatalf("construct absent residue: %v", err)
-	}
-	absentObligation, err := intent.AssessCleanup(matched, absent)
+	absentObligation, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(absent, absent),
+	)
 	if err != nil {
 		t.Fatalf("assess absent residue: %v", err)
 	}
@@ -103,7 +119,7 @@ func TestRemovalIntentAssessesNamespaceAndEntryAxesIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct changed namespace: %v", err)
 	}
-	blocked, err := intent.AssessCleanup(changed, present)
+	blocked, err := intent.AssessCleanup(changed, NewRemovalResidueObservation(present, absent))
 	if err != nil {
 		t.Fatalf("assess changed namespace: %v", err)
 	}
@@ -115,12 +131,113 @@ func TestRemovalIntentAssessesNamespaceAndEntryAxesIndependently(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct unavailable namespace: %v", err)
 	}
-	retry, err := intent.AssessCleanup(unavailable, present)
+	retry, err := intent.AssessCleanup(unavailable, NewRemovalResidueObservation(present, absent))
 	if err != nil {
 		t.Fatalf("assess unavailable namespace: %v", err)
 	}
 	if retry.Readiness() != RemovalCleanupRetry || retry.Reason() != RemovalCleanupReasonNamespaceUnavailable {
 		t.Fatalf("unavailable namespace obligation = %#v, want retry", retry)
+	}
+}
+
+func TestRemovalIntentTreatsCleanupStageAsDurableProgress(t *testing.T) {
+	intent := testRemovalIntentForKind(t, PathKindDirectory)
+	matched, err := NewRemovalNamespaceObservation(RemovalNamespaceMatched, "")
+	if err != nil {
+		t.Fatalf("construct matched namespace: %v", err)
+	}
+	absent, err := NewRemovalResidueEntryObservation(RemovalResidueEntryAbsent, "", "", nil, "", "")
+	if err != nil {
+		t.Fatalf("construct absent observation: %v", err)
+	}
+	partial, err := NewRemovalResidueEntryObservation(
+		RemovalResidueEntryPresent,
+		PathKindDirectory,
+		"sha256:"+strings.Repeat("9", 64),
+		nil,
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("construct partial cleanup observation: %v", err)
+	}
+
+	obligation, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(absent, partial),
+	)
+	if err != nil {
+		t.Fatalf("assess cleanup progress: %v", err)
+	}
+	if obligation.Readiness() != RemovalCleanupReady || obligation.Action() != RemovalCleanupActionCleanupProgress {
+		t.Fatalf("cleanup progress obligation = %#v, want resumable cleanup", obligation)
+	}
+
+	collision, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(partial, partial),
+	)
+	if err != nil {
+		t.Fatalf("assess cleanup collision: %v", err)
+	}
+	if collision.Readiness() != RemovalCleanupBlocked || collision.Reason() != RemovalCleanupReasonCleanupCollision {
+		t.Fatalf("cleanup collision = %#v, want blocked", collision)
+	}
+
+	wrongKind, err := NewRemovalResidueEntryObservation(
+		RemovalResidueEntryPresent,
+		PathKindFile,
+		"sha256:"+strings.Repeat("8", 64),
+		NewPermissionMode(0o600),
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("construct wrong-kind cleanup observation: %v", err)
+	}
+	mismatch, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(absent, wrongKind),
+	)
+	if err != nil {
+		t.Fatalf("assess cleanup kind mismatch: %v", err)
+	}
+	if mismatch.Readiness() != RemovalCleanupBlocked || mismatch.Reason() != RemovalCleanupReasonCleanupMismatch {
+		t.Fatalf("cleanup kind mismatch = %#v, want blocked", mismatch)
+	}
+}
+
+func TestRemovalIntentRequiresExactFileStateDuringCleanup(t *testing.T) {
+	intent := testRemovalIntent(t)
+	matched, err := NewRemovalNamespaceObservation(RemovalNamespaceMatched, "")
+	if err != nil {
+		t.Fatalf("construct matched namespace: %v", err)
+	}
+	absent, err := NewRemovalResidueEntryObservation(RemovalResidueEntryAbsent, "", "", nil, "", "")
+	if err != nil {
+		t.Fatalf("construct absent observation: %v", err)
+	}
+	mismatchedFile, err := NewRemovalResidueEntryObservation(
+		RemovalResidueEntryPresent,
+		PathKindFile,
+		"sha256:"+strings.Repeat("9", 64),
+		NewPermissionMode(0o600),
+		"",
+		"",
+	)
+	if err != nil {
+		t.Fatalf("construct mismatched file observation: %v", err)
+	}
+
+	obligation, err := intent.AssessCleanup(
+		matched,
+		NewRemovalResidueObservation(absent, mismatchedFile),
+	)
+	if err != nil {
+		t.Fatalf("assess mismatched file cleanup: %v", err)
+	}
+	if obligation.Readiness() != RemovalCleanupBlocked || obligation.Reason() != RemovalCleanupReasonCleanupMismatch {
+		t.Fatalf("mismatched file cleanup = %#v, want blocked", obligation)
 	}
 }
 
@@ -138,7 +255,7 @@ func TestRemovalCleanupObligationBasisSurvivesReadinessChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct absent residue: %v", err)
 	}
-	ready, err := intent.AssessCleanup(matched, absent)
+	ready, err := intent.AssessCleanup(matched, NewRemovalResidueObservation(absent, absent))
 	if err != nil {
 		t.Fatalf("assess cleanup: %v", err)
 	}
@@ -172,7 +289,7 @@ func TestPlanRetirementReadyRequiresCompleteDischargedObligations(t *testing.T) 
 	if err != nil {
 		t.Fatalf("construct absent residue: %v", err)
 	}
-	ready, err := intent.AssessCleanup(matched, absent)
+	ready, err := intent.AssessCleanup(matched, NewRemovalResidueObservation(absent, absent))
 	if err != nil {
 		t.Fatalf("assess clean plan obligation: %v", err)
 	}

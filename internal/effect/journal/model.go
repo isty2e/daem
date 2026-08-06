@@ -51,6 +51,7 @@ type recoveryRemovalNamespaceAuthority struct {
 	RetainedAncestorProvenance *recoveryRootProvenance `json:"retained_ancestor_provenance,omitempty"`
 	MissingSuffix              string                  `json:"missing_suffix,omitempty"`
 	ResidueName                string                  `json:"residue_name"`
+	CleanupName                string                  `json:"cleanup_name"`
 }
 
 type recoveryRemovalState struct {

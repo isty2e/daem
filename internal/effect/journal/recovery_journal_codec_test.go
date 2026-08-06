@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 )
 
 func TestRecoveryJournalValidatesExactBeforeAndAfterIdentities(t *testing.T) {
@@ -696,6 +698,102 @@ func TestLoadRecoveryJournalRequiresEntryFieldPresence(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLoadRecoveryJournalRequiresCanonicalCleanupStageName(t *testing.T) {
+	entry := defaultRecoveryEntry()
+	entry.ExpectedAfter = persistedExpectedPathState(recovery.ExpectedPathState{Existed: false})
+	entry.StateExpectedAfter = recoveryManagedMembership{}
+	content, err := marshalRecoveryJournal(recoveryJournalFor(entry), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]json.RawMessage)
+		want   string
+	}{
+		{
+			name: "missing",
+			mutate: func(namespace map[string]json.RawMessage) {
+				delete(namespace, "cleanup_name")
+			},
+			want: `field "cleanup_name" is required`,
+		},
+		{
+			name: "null",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage("null")
+			},
+			want: `field "cleanup_name" must not be null`,
+		},
+		{
+			name: "case alias",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["Cleanup_Name"] = namespace["cleanup_name"]
+				delete(namespace, "cleanup_name")
+			},
+			want: "canonical ASCII lower_snake_case",
+		},
+		{
+			name: "different token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-fedcba9876543210fedcba9876543210"`)
+			},
+			want: "same opaque token",
+		},
+		{
+			name: "short token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-0123456789abcdef"`)
+			},
+			want: "128-bit lowercase hexadecimal token",
+		},
+		{
+			name: "uppercase token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-0123456789ABCDEF0123456789ABCDEF"`)
+			},
+			want: "128-bit lowercase hexadecimal token",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(content, &document); err != nil {
+				t.Fatal(err)
+			}
+			var intents []map[string]json.RawMessage
+			if err := json.Unmarshal(document["removal_intents"], &intents); err != nil {
+				t.Fatal(err)
+			}
+			if len(intents) == 0 {
+				t.Fatal("default recovery journal has no removal intent")
+			}
+			var namespace map[string]json.RawMessage
+			if err := json.Unmarshal(intents[0]["namespace_authority"], &namespace); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(namespace)
+			intents[0]["namespace_authority"], err = json.Marshal(namespace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document["removal_intents"], err = json.Marshal(intents)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			loadErr, planErr := malformedRecoveryJournalErrors(t, mutated)
+			for label, err := range map[string]error{"load": loadErr, "plan": planErr} {
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("%s error = %v, want %q", label, err, test.want)
+				}
+			}
+		})
 	}
 }
 

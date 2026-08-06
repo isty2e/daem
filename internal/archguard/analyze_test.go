@@ -30,6 +30,7 @@ func TestAnalyzeRecordsKeepsJournalRecoveryPureAndWireNeutral(t *testing.T) {
 			"fmt",
 			"io/fs",
 			"example.com/project/internal/assurance/durable",
+			"example.com/project/internal/effect/mutation/filesystem",
 			"example.com/project/internal/output",
 			"example.com/project/internal/topology",
 		},
@@ -42,13 +43,13 @@ func TestAnalyzeRecordsKeepsJournalRecoveryPureAndWireNeutral(t *testing.T) {
 		ImportPath: "example.com/project/internal/effect/journal/recovery",
 		Imports: []string{
 			"context",
-			"example.com/project/internal/effect/mutation/filesystem",
+			"example.com/project/internal/effect/storage/commit",
 			"gopkg.in/yaml.v3",
 		},
 	}}))
 	for _, want := range []string{
 		"journal-recovery-boundary-import: internal/effect/journal/recovery -> context",
-		"journal-recovery-boundary-import: internal/effect/journal/recovery -> internal/effect/mutation/filesystem",
+		"journal-recovery-boundary-import: internal/effect/journal/recovery -> internal/effect/storage/commit",
 		"journal-recovery-boundary-import: internal/effect/journal/recovery -> gopkg.in/yaml.v3",
 	} {
 		if !strings.Contains(report, want) {

@@ -142,7 +142,7 @@ func (authority *mutationAuthority) removeJournaledRootedEntry(
 		ctx,
 		capability,
 		expected,
-		intent.Namespace().ResidueName(),
+		intent.Namespace().Names(),
 	)
 	if err != nil {
 		return outcome, &rootedRemovalCommitError{outcome: outcome, cause: err}
@@ -336,11 +336,17 @@ type removalCleanupCandidate struct {
 	intent      recovery.RemovalIntent
 	destination mutationDestination
 	residuePath string
+	cleanupPath string
 	obligation  recovery.RemovalCleanupObligation
 }
 
+type removalSlotObservation struct {
+	entry    recovery.RemovalResidueEntryObservation
+	identity mutationfs.EntryIdentity
+}
+
 // cleanupRemovalResidues performs a complete read-only retirement preflight
-// before executing any residue action. This prevents one blocked intent from
+// before executing any removal-slot action. This prevents one blocked intent from
 // being discovered after another intent has already been mutated.
 func (authority *mutationAuthority) cleanupRemovalResidues(
 	ctx context.Context,
@@ -364,38 +370,39 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 		if err != nil {
 			return nil, fmt.Errorf("observe removal intent[%d] namespace contract: %w", index, err)
 		}
-		residuePath, err := removalResiduePath(intent.Namespace())
+		residuePath, cleanupPath, err := removalNamespacePaths(intent.Namespace())
 		if err != nil {
-			return nil, fmt.Errorf("derive removal intent[%d] residue path: %w", index, err)
+			return nil, fmt.Errorf("derive removal intent[%d] namespace paths: %w", index, err)
 		}
-		entry, err := unavailableRemovalEntryObservation("residue was not observed")
+		residue, err := unavailableRemovalSlotObservation("residue was not observed")
+		if err != nil {
+			return nil, err
+		}
+		cleanup, err := unavailableRemovalSlotObservation("cleanup stage was not observed")
 		if err != nil {
 			return nil, err
 		}
 		if namespace.Status() == recovery.RemovalNamespaceMatched {
-			capability, acquireErr := authority.acquireResidue(destination, residuePath)
-			if acquireErr == nil {
-				entry, _, err = journal.ObserveRootedRemovalEntry(ctx, authority.filesystem, capability)
-				closeErr := capability.Close()
-				if err != nil {
-					return nil, fmt.Errorf("observe removal intent[%d] residue contract: %w", index, err)
-				}
-				if closeErr != nil {
-					return nil, fmt.Errorf("close removal intent[%d] residue capability: %w", index, closeErr)
-				}
-			} else {
-				entry, err = unavailableRemovalEntryObservation("residue authority could not be bound")
-				if err != nil {
-					return nil, err
-				}
+			residue, err = authority.observeRemovalSlot(ctx, destination, residuePath, "residue")
+			if err != nil {
+				return nil, err
+			}
+			cleanup, err = authority.observeRemovalSlot(ctx, destination, cleanupPath, "cleanup stage")
+			if err != nil {
+				return nil, err
 			}
 		}
-		obligation, err := intent.AssessCleanup(namespace, entry)
+		obligation, err := intent.AssessCleanup(
+			namespace,
+			recovery.NewRemovalResidueObservation(residue.entry, cleanup.entry),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("assess removal intent[%d] cleanup: %w", index, err)
 		}
 		candidates = append(candidates, removalCleanupCandidate{
-			intent: intent, destination: destination, residuePath: residuePath, obligation: obligation,
+			intent: intent, destination: destination,
+			residuePath: residuePath, cleanupPath: cleanupPath,
+			obligation: obligation,
 		})
 	}
 
@@ -430,11 +437,14 @@ func unavailableRemovalObligation(
 	if err != nil {
 		return recovery.RemovalCleanupObligation{}, err
 	}
-	entry, err := unavailableRemovalEntryObservation("residue was not observed")
+	entries, err := unavailableRemovalSlots()
 	if err != nil {
 		return recovery.RemovalCleanupObligation{}, err
 	}
-	return intent.AssessCleanup(namespace, entry)
+	return intent.AssessCleanup(
+		namespace,
+		entries,
+	)
 }
 
 func unavailableRemovalEntryObservation(detail string) (recovery.RemovalResidueEntryObservation, error) {
@@ -442,6 +452,44 @@ func unavailableRemovalEntryObservation(detail string) (recovery.RemovalResidueE
 		recovery.RemovalResidueEntryUnavailable,
 		"", "", nil, "", detail,
 	)
+}
+
+func unavailableRemovalSlotObservation(detail string) (removalSlotObservation, error) {
+	observation, err := unavailableRemovalEntryObservation(detail)
+	if err != nil {
+		return removalSlotObservation{}, err
+	}
+	return removalSlotObservation{entry: observation}, nil
+}
+
+func unavailableRemovalSlots() (recovery.RemovalResidueObservation, error) {
+	residue, err := unavailableRemovalEntryObservation("residue was not observed")
+	if err != nil {
+		return recovery.RemovalResidueObservation{}, err
+	}
+	cleanup, err := unavailableRemovalEntryObservation("cleanup stage was not observed")
+	if err != nil {
+		return recovery.RemovalResidueObservation{}, err
+	}
+	return recovery.NewRemovalResidueObservation(residue, cleanup), nil
+}
+
+func (authority *mutationAuthority) observeRemovalSlot(
+	ctx context.Context,
+	destination mutationDestination,
+	path string,
+	role string,
+) (removalSlotObservation, error) {
+	capability, err := authority.acquireRemovalSlot(destination, path)
+	if err != nil {
+		return unavailableRemovalSlotObservation(role + " authority could not be bound")
+	}
+	entry, identity, observeErr := journal.ObserveRootedRemovalEntry(ctx, authority.filesystem, capability)
+	closeErr := capability.Close()
+	if observeErr != nil || closeErr != nil {
+		return unavailableRemovalSlotObservation(role + " could not be observed")
+	}
+	return removalSlotObservation{entry: entry, identity: identity}, nil
 }
 
 func newRemovalCleanupError(
@@ -485,83 +533,147 @@ func (authority *mutationAuthority) executeRemovalCleanupCandidate(
 		return recovery.RemovalCleanupObligation{}, err
 	}
 	if namespace.Status() != recovery.RemovalNamespaceMatched {
-		entry, entryErr := unavailableRemovalEntryObservation("residue was not observed")
-		if entryErr != nil {
-			return recovery.RemovalCleanupObligation{}, entryErr
+		entries, entriesErr := unavailableRemovalSlots()
+		if entriesErr != nil {
+			return recovery.RemovalCleanupObligation{}, entriesErr
 		}
 		obligation, obligationErr := candidate.intent.AssessCleanup(
 			namespace,
-			entry,
+			entries,
 		)
 		if obligationErr != nil {
 			return recovery.RemovalCleanupObligation{}, obligationErr
 		}
 		return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
 	}
-	capability, err := authority.acquireResidue(candidate.destination, candidate.residuePath)
+	residue, err := authority.observeRemovalSlot(ctx, candidate.destination, candidate.residuePath, "residue")
 	if err != nil {
-		obligation, obligationErr := unavailableRemovalObligation(candidate.intent, "residue authority could not be bound")
-		if obligationErr != nil {
-			return recovery.RemovalCleanupObligation{}, obligationErr
-		}
-		return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, err)
-	}
-	observation, identity, err := journal.ObserveRootedRemovalEntry(ctx, authority.filesystem, capability)
-	if err != nil {
-		_ = capability.Close()
 		return recovery.RemovalCleanupObligation{}, err
 	}
-	obligation, err := candidate.intent.AssessCleanup(namespace, observation)
+	cleanup, err := authority.observeRemovalSlot(ctx, candidate.destination, candidate.cleanupPath, "cleanup stage")
 	if err != nil {
-		_ = capability.Close()
+		return recovery.RemovalCleanupObligation{}, err
+	}
+	obligation, err := candidate.intent.AssessCleanup(
+		namespace,
+		recovery.NewRemovalResidueObservation(residue.entry, cleanup.entry),
+	)
+	if err != nil {
 		return recovery.RemovalCleanupObligation{}, err
 	}
 	switch obligation.Readiness() {
 	case recovery.RemovalCleanupBlocked, recovery.RemovalCleanupRetry:
-		_ = capability.Close()
 		return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
 	case recovery.RemovalCleanupReady:
 	default:
-		_ = capability.Close()
 		return recovery.RemovalCleanupObligation{}, fmt.Errorf("removal cleanup candidate is not actionable")
 	}
 
 	switch obligation.Action() {
 	case recovery.RemovalCleanupActionConfirmAbsence:
-		outcome, err := authority.filesystem.ConfirmRootedEntryAbsent(ctx, capability)
-		if err != nil {
-			return recovery.RemovalCleanupObligation{}, newRemovalCleanupErrorWithOutcome(obligation, err, outcome, true)
+		if err := authority.confirmRemovalSlotsAbsent(ctx, candidate, obligation); err != nil {
+			return recovery.RemovalCleanupObligation{}, err
 		}
-	case recovery.RemovalCleanupActionCleanupResidue:
-		if identity == nil {
-			_ = capability.Close()
+	case recovery.RemovalCleanupActionPromoteResidue:
+		if residue.identity == nil {
 			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
 		}
-		outcome, err := authority.filesystem.CleanupRootedEntry(ctx, capability, identity)
-		if err != nil {
-			return recovery.RemovalCleanupObligation{}, newRemovalCleanupErrorWithOutcome(obligation, err, outcome, true)
+		capability, acquireErr := authority.acquireRemovalSlot(candidate.destination, candidate.residuePath)
+		if acquireErr != nil {
+			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, acquireErr)
+		}
+		outcome, movedIdentity, renameErr := authority.filesystem.PromoteRootedRemovalResidue(
+			ctx,
+			capability,
+			residue.identity,
+			candidate.intent.Namespace().Names(),
+		)
+		if renameErr != nil {
+			return recovery.RemovalCleanupObligation{}, newRemovalCleanupErrorWithOutcome(obligation, renameErr, outcome, true)
+		}
+		if err := authority.cleanupRemovalProgress(ctx, candidate, obligation, movedIdentity); err != nil {
+			return recovery.RemovalCleanupObligation{}, err
+		}
+	case recovery.RemovalCleanupActionCleanupProgress:
+		if cleanup.identity == nil {
+			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, nil)
+		}
+		capability, acquireErr := authority.acquireRemovalSlot(candidate.destination, candidate.cleanupPath)
+		if acquireErr != nil {
+			return recovery.RemovalCleanupObligation{}, newRemovalCleanupError(obligation, acquireErr)
+		}
+		outcome, cleanupErr := authority.filesystem.CleanupRootedRemovalStage(
+			ctx,
+			capability,
+			cleanup.identity,
+			candidate.intent.Namespace().Names(),
+		)
+		if cleanupErr != nil {
+			return recovery.RemovalCleanupObligation{}, newRemovalCleanupErrorWithOutcome(obligation, cleanupErr, outcome, true)
+		}
+		if err := authority.confirmRemovalSlotsAbsent(ctx, candidate, obligation); err != nil {
+			return recovery.RemovalCleanupObligation{}, err
 		}
 	default:
-		_ = capability.Close()
 		return recovery.RemovalCleanupObligation{}, fmt.Errorf("removal cleanup action is unavailable")
 	}
 	return obligation.Discharge()
 }
 
-func (authority *mutationAuthority) acquireResidue(
+func (authority *mutationAuthority) cleanupRemovalProgress(
+	ctx context.Context,
+	candidate removalCleanupCandidate,
+	obligation recovery.RemovalCleanupObligation,
+	identity mutationfs.EntryIdentity,
+) error {
+	capability, err := authority.acquireRemovalSlot(candidate.destination, candidate.cleanupPath)
+	if err != nil {
+		return newRemovalCleanupError(obligation, err)
+	}
+	outcome, err := authority.filesystem.CleanupRootedRemovalStage(
+		ctx,
+		capability,
+		identity,
+		candidate.intent.Namespace().Names(),
+	)
+	if err != nil {
+		return newRemovalCleanupErrorWithOutcome(obligation, err, outcome, true)
+	}
+	return authority.confirmRemovalSlotsAbsent(ctx, candidate, obligation)
+}
+
+func (authority *mutationAuthority) confirmRemovalSlotsAbsent(
+	ctx context.Context,
+	candidate removalCleanupCandidate,
+	obligation recovery.RemovalCleanupObligation,
+) error {
+	for _, path := range []string{candidate.residuePath, candidate.cleanupPath} {
+		capability, err := authority.acquireRemovalSlot(candidate.destination, path)
+		if err != nil {
+			return newRemovalCleanupError(obligation, err)
+		}
+		outcome, err := authority.filesystem.ConfirmRootedEntryAbsent(ctx, capability)
+		if err != nil {
+			return newRemovalCleanupErrorWithOutcome(obligation, err, outcome, true)
+		}
+	}
+	return nil
+}
+
+func (authority *mutationAuthority) acquireRemovalSlot(
 	destination mutationDestination,
-	residuePath string,
+	slotPath string,
 ) (rootedpath.CommitCapability, error) {
 	if authority == nil || destination.root == nil {
-		return nil, fmt.Errorf("residue root authority is unavailable")
+		return nil, fmt.Errorf("removal slot root authority is unavailable")
 	}
 	rootAuthority, err := destination.root.Authority()
 	if err != nil {
 		return nil, err
 	}
-	relative, err := filepath.Rel(rootAuthority.PhysicalRoot(), filepath.Clean(residuePath))
+	relative, err := filepath.Rel(rootAuthority.PhysicalRoot(), filepath.Clean(slotPath))
 	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return nil, fmt.Errorf("residue path %q escaped destination root", residuePath)
+		return nil, fmt.Errorf("removal slot path %q escaped destination root", slotPath)
 	}
 	rootRelative, err := rootedpath.NewRelativeDestination(filepath.ToSlash(relative))
 	if err != nil {
@@ -574,25 +686,26 @@ func (authority *mutationAuthority) acquireResidue(
 	return destination.root.Acquire(bound)
 }
 
-func removalResiduePath(namespace recovery.RemovalNamespaceAuthority) (string, error) {
+func removalNamespacePaths(namespace recovery.RemovalNamespaceAuthority) (string, string, error) {
 	var parent string
 	switch namespace.Variant() {
 	case recovery.RemovalNamespaceExistingParent:
 		provenance, present := namespace.ParentProvenance()
 		if !present {
-			return "", fmt.Errorf("existing-parent namespace lacks parent provenance")
+			return "", "", fmt.Errorf("existing-parent namespace lacks parent provenance")
 		}
 		parent = provenance.PhysicalRoot()
 	case recovery.RemovalNamespaceInitiallyAbsentParent:
 		provenance, present := namespace.RetainedAncestorProvenance()
 		if !present {
-			return "", fmt.Errorf("initially-absent namespace lacks retained ancestor provenance")
+			return "", "", fmt.Errorf("initially-absent namespace lacks retained ancestor provenance")
 		}
 		parent = filepath.Join(provenance.PhysicalRoot(), filepath.FromSlash(namespace.MissingSuffix()))
 	default:
-		return "", fmt.Errorf("unsupported removal namespace variant %q", namespace.Variant())
+		return "", "", fmt.Errorf("unsupported removal namespace variant %q", namespace.Variant())
 	}
-	return filepath.Join(parent, namespace.ResidueName().String()), nil
+	return filepath.Join(parent, namespace.Names().Residue()),
+		filepath.Join(parent, namespace.Names().Cleanup()), nil
 }
 
 func requireExactRootProvenance(

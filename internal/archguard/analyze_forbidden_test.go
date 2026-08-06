@@ -129,7 +129,6 @@ func TestAnalyzeRecordsAllowsStorageCommitEffectContractsOnly(t *testing.T) {
 		ImportPath: "github.com/isty2e/daem/internal/effect/storage/commit",
 		Imports: []string{
 			"github.com/isty2e/daem/internal/effect/mutation/filesystem",
-			"github.com/isty2e/daem/internal/effect/mutation/residue",
 			"github.com/isty2e/daem/internal/effect/mutation/rootedpath",
 		},
 	}})

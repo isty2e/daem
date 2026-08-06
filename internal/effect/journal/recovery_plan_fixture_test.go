@@ -11,7 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
@@ -115,8 +115,9 @@ func testRemovalIntents(entries []recoveryEntry) []recoveryRemovalIntent {
 			}
 			states = append(states, state)
 		}
-		residue, err := residue.NewLogicalRemovalResidueName(
-			fmt.Sprintf(".daem-tombstone-test-%03d", index),
+		names, err := mutationfs.NewLogicalRemovalNames(
+			fmt.Sprintf(".daem-tombstone-%032x", index),
+			fmt.Sprintf(".daem-cleanup-%032x", index),
 		)
 		if err != nil {
 			panic(err)
@@ -134,7 +135,7 @@ func testRemovalIntents(entries []recoveryEntry) []recoveryRemovalIntent {
 		if err != nil {
 			panic(err)
 		}
-		namespace, err := recovery.NewExistingParentAuthority(manifestRoot, retained, "project", residue)
+		namespace, err := recovery.NewExistingParentAuthority(manifestRoot, retained, "project", names)
 		if err != nil {
 			panic(err)
 		}

@@ -54,18 +54,22 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 	}
 
 	tombstoneName := tombstonePrefix
-	if request.residue != nil {
-		tombstoneName = request.residue.String()
-		exists, err := entryExists(anchor.parentFD(), tombstoneName)
-		if err != nil {
-			return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
-		}
-		if exists {
-			return failureBeforeVisibility(
-				phaseCommitTombstone,
-				request.path,
-				fmt.Errorf("journal-authorized residue name %q is already occupied", tombstoneName),
-			)
+	cleanupName := ""
+	if request.names != nil {
+		tombstoneName = request.names.Residue()
+		cleanupName = request.names.Cleanup()
+		for _, name := range []string{tombstoneName, cleanupName} {
+			exists, err := entryExists(anchor.parentFD(), name)
+			if err != nil {
+				return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+			}
+			if exists {
+				return failureBeforeVisibility(
+					phaseCommitTombstone,
+					request.path,
+					fmt.Errorf("journal-authorized removal name %q is already occupied", name),
+				)
+			}
 		}
 	} else {
 		var err error
@@ -118,22 +122,65 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, tombstonePath)
 	}
 
+	cleanupEntryName := tombstoneName
+	cleanupPath := tombstonePath
+	cleanupIdentity := tombstoneIdentity
+	if cleanupName != "" {
+		cleanupPath = filepath.Join(filepath.Dir(request.path), cleanupName)
+		err = faults.run(ctx, phasePromoteCleanup, func() error {
+			return renameNoReplace(anchor.parentFD(), tombstoneName, anchor.parentFD(), cleanupName)
+		})
+		if err != nil {
+			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, tombstonePath)
+		}
+		err = faults.run(ctx, phaseVerifyEntry, func() error {
+			if err := anchor.verifyChain(); err != nil {
+				return err
+			}
+			moved, _, observeErr := anchor.observe(cleanupName, cleanupPath)
+			if observeErr != nil {
+				return observeErr
+			}
+			if !tombstoneIdentity.sameObject(moved) {
+				return fmt.Errorf("cleanup-stage identity does not match validated residue")
+			}
+			cleanupIdentity = moved
+			return nil
+		})
+		if err != nil {
+			return newFailure(
+				failureIndeterminateCommit,
+				phaseVerifyEntry,
+				request.path,
+				err,
+				tombstonePath,
+				cleanupPath,
+			)
+		}
+		err = faults.run(ctx, phaseSyncParent, func() error { return syncDirectory(anchor.parentFD()) })
+		if err != nil {
+			return newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err, cleanupPath)
+		}
+		cleanupEntryName = cleanupName
+	}
+
 	err = faults.run(ctx, phaseCleanupTombstone, func() error {
-		return removeEntryAt(
+		return removeEntryAtWithFaults(
 			ctx,
 			anchor.parentFD(),
-			tombstoneName,
-			tombstonePath,
-			tombstoneIdentity,
+			cleanupEntryName,
+			cleanupPath,
+			cleanupIdentity,
 			request.capability,
+			faults,
 		)
 	})
 	if err != nil {
-		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, tombstonePath)
+		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, cleanupPath)
 	}
 	err = faults.run(ctx, phaseSyncCleanupParent, func() error { return syncDirectory(anchor.parentFD()) })
 	if err != nil {
-		return newFailure(failureRetainedResidue, phaseSyncCleanupParent, request.path, err, tombstonePath)
+		return newFailure(failureRetainedResidue, phaseSyncCleanupParent, request.path, err, cleanupPath)
 	}
 	if err := anchor.verifyChain(); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)

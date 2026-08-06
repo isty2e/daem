@@ -129,6 +129,9 @@ func commitRootedEntryRenameWithFaults(
 		if sourceExists {
 			return fmt.Errorf("source name reappeared during rename")
 		}
+		if request.moved != nil {
+			*request.moved = moved
+		}
 		return nil
 	}
 	if err := faults.run(ctx, phaseVerifyEntry, verifyMoved); err != nil {
@@ -299,8 +302,17 @@ func validateRootedEntryRename(request RootedEntryRename) error {
 }
 
 func validateRootedEntryCleanup(request RootedEntryCleanup) error {
-	if err := validateCommitPath(request.path); err != nil {
-		return err
+	if request.removalNames == nil {
+		if err := validateCommitPath(request.path); err != nil {
+			return err
+		}
+	} else {
+		if err := validateRootedPath(request.path); err != nil {
+			return err
+		}
+		if !request.removalNames.Valid() || filepath.Base(request.path) != request.removalNames.Cleanup() {
+			return fmt.Errorf("rooted removal cleanup path is not the authorized cleanup stage")
+		}
 	}
 	if err := validateRootedCapability(request.path, request.capability); err != nil {
 		return err

@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/isty2e/daem/internal/effect/mutation/residue"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -28,7 +28,7 @@ type RemovalNamespaceAuthority struct {
 	parent           ManifestRootProvenance
 	retainedAncestor ManifestRootProvenance
 	missingSuffix    string
-	residueName      residue.LogicalRemovalResidueName
+	names            mutationfs.LogicalRemovalNames
 }
 
 // NewExistingParentAuthority binds a residue to the exact parent incarnation
@@ -38,7 +38,7 @@ func NewExistingParentAuthority(
 	parent ManifestRootProvenance,
 	retainedAncestor ManifestRootProvenance,
 	missingSuffix string,
-	residueName residue.LogicalRemovalResidueName,
+	names mutationfs.LogicalRemovalNames,
 ) (RemovalNamespaceAuthority, error) {
 	if err := parent.validate(); err != nil {
 		return RemovalNamespaceAuthority{}, fmt.Errorf("existing parent provenance: %w", err)
@@ -49,15 +49,15 @@ func NewExistingParentAuthority(
 	if err := validateParentRelation(parent, retainedAncestor, missingSuffix); err != nil {
 		return RemovalNamespaceAuthority{}, fmt.Errorf("existing parent relation: %w", err)
 	}
-	if !residueName.Valid() {
-		return RemovalNamespaceAuthority{}, fmt.Errorf("existing parent residue name is invalid")
+	if !names.Valid() {
+		return RemovalNamespaceAuthority{}, fmt.Errorf("existing parent removal names are invalid")
 	}
 	return RemovalNamespaceAuthority{
 		variant:          RemovalNamespaceExistingParent,
 		parent:           parent,
 		retainedAncestor: retainedAncestor,
 		missingSuffix:    missingSuffix,
-		residueName:      residueName,
+		names:            names,
 	}, nil
 }
 
@@ -66,7 +66,7 @@ func NewExistingParentAuthority(
 func NewInitiallyAbsentParentAuthority(
 	retainedAncestor ManifestRootProvenance,
 	missingSuffix string,
-	residueName residue.LogicalRemovalResidueName,
+	names mutationfs.LogicalRemovalNames,
 ) (RemovalNamespaceAuthority, error) {
 	if err := retainedAncestor.validate(); err != nil {
 		return RemovalNamespaceAuthority{}, fmt.Errorf("retained ancestor provenance: %w", err)
@@ -74,14 +74,14 @@ func NewInitiallyAbsentParentAuthority(
 	if strings.TrimSpace(missingSuffix) != missingSuffix || !canonicalRelativeSuffix(missingSuffix) {
 		return RemovalNamespaceAuthority{}, fmt.Errorf("missing parent suffix must be canonical and relative")
 	}
-	if !residueName.Valid() {
-		return RemovalNamespaceAuthority{}, fmt.Errorf("initially absent parent residue name is invalid")
+	if !names.Valid() {
+		return RemovalNamespaceAuthority{}, fmt.Errorf("initially absent parent removal names are invalid")
 	}
 	return RemovalNamespaceAuthority{
 		variant:          RemovalNamespaceInitiallyAbsentParent,
 		retainedAncestor: retainedAncestor,
 		missingSuffix:    missingSuffix,
-		residueName:      residueName,
+		names:            names,
 	}, nil
 }
 
@@ -110,9 +110,9 @@ func (authority RemovalNamespaceAuthority) RetainedAncestorProvenance() (Manifes
 // MissingSuffix returns the canonical missing-parent suffix, when applicable.
 func (authority RemovalNamespaceAuthority) MissingSuffix() string { return authority.missingSuffix }
 
-// ResidueName returns the exact sibling selected before effects.
-func (authority RemovalNamespaceAuthority) ResidueName() residue.LogicalRemovalResidueName {
-	return authority.residueName
+// Names returns the exact pre-effect residue and cleanup-stage namespace slots.
+func (authority RemovalNamespaceAuthority) Names() mutationfs.LogicalRemovalNames {
+	return authority.names
 }
 
 func (authority RemovalNamespaceAuthority) validate() error {
@@ -140,8 +140,8 @@ func (authority RemovalNamespaceAuthority) validate() error {
 	default:
 		return fmt.Errorf("unsupported removal namespace variant %q", authority.variant)
 	}
-	if !authority.residueName.Valid() {
-		return fmt.Errorf("removal namespace residue name is invalid")
+	if !authority.names.Valid() {
+		return fmt.Errorf("removal namespace names are invalid")
 	}
 	return nil
 }
@@ -167,7 +167,7 @@ func (authority RemovalNamespaceAuthority) equal(other RemovalNamespaceAuthority
 		authority.parent.Equal(other.parent) &&
 		authority.retainedAncestor.Equal(other.retainedAncestor) &&
 		authority.missingSuffix == other.missingSuffix &&
-		authority.residueName.String() == other.residueName.String()
+		authority.names.Equal(other.names)
 }
 
 // RemovalState is one complete whole-path state that a journaled removal may
@@ -527,8 +527,9 @@ func (observation RemovalNamespaceObservation) Detail() string { return observat
 type RemovalCleanupActionKind string
 
 const (
-	RemovalCleanupActionCleanupResidue RemovalCleanupActionKind = "cleanup_residue"
-	RemovalCleanupActionConfirmAbsence RemovalCleanupActionKind = "confirm_absence"
+	RemovalCleanupActionPromoteResidue  RemovalCleanupActionKind = "promote_residue"
+	RemovalCleanupActionCleanupProgress RemovalCleanupActionKind = "cleanup_progress"
+	RemovalCleanupActionConfirmAbsence  RemovalCleanupActionKind = "confirm_absence"
 )
 
 // RemovalCleanupReadiness is the physical-reconciliation state independent of
@@ -554,6 +555,10 @@ const (
 	RemovalCleanupReasonResidueMismatch      RemovalCleanupReason = "residue_mismatch"
 	RemovalCleanupReasonResidueUnsupported   RemovalCleanupReason = "residue_unsupported"
 	RemovalCleanupReasonResidueUnavailable   RemovalCleanupReason = "residue_unavailable"
+	RemovalCleanupReasonCleanupCollision     RemovalCleanupReason = "cleanup_stage_collision"
+	RemovalCleanupReasonCleanupMismatch      RemovalCleanupReason = "cleanup_stage_mismatch"
+	RemovalCleanupReasonCleanupUnsupported   RemovalCleanupReason = "cleanup_stage_unsupported"
+	RemovalCleanupReasonCleanupUnavailable   RemovalCleanupReason = "cleanup_stage_unavailable"
 )
 
 // RemovalCleanupObligation is the immutable operation-scoped obligation
@@ -562,7 +567,7 @@ const (
 type RemovalCleanupObligation struct {
 	scope       target.Scope
 	destination output.Destination
-	residueName residue.LogicalRemovalResidueName
+	names       mutationfs.LogicalRemovalNames
 	action      RemovalCleanupActionKind
 	readiness   RemovalCleanupReadiness
 	reason      RemovalCleanupReason
@@ -578,7 +583,7 @@ func NewPendingRemovalCleanupObligation(intent RemovalIntent) (RemovalCleanupObl
 	return RemovalCleanupObligation{
 		scope:       intent.Scope(),
 		destination: intent.Destination(),
-		residueName: intent.Namespace().ResidueName(),
+		names:       intent.Namespace().Names(),
 		readiness:   RemovalCleanupPending,
 	}, nil
 }
@@ -591,9 +596,9 @@ func (obligation RemovalCleanupObligation) Destination() output.Destination {
 	return obligation.destination
 }
 
-// ResidueName returns the exact selected sibling name.
-func (obligation RemovalCleanupObligation) ResidueName() residue.LogicalRemovalResidueName {
-	return obligation.residueName
+// Names returns both exact namespace slots carried by the obligation.
+func (obligation RemovalCleanupObligation) Names() mutationfs.LogicalRemovalNames {
+	return obligation.names
 }
 
 // Action returns the exact ready physical action, when one is selected.
@@ -626,7 +631,7 @@ func (obligation RemovalCleanupObligation) Discharge() (RemovalCleanupObligation
 func (obligation RemovalCleanupObligation) Equal(other RemovalCleanupObligation) bool {
 	return obligation.scope == other.scope &&
 		obligation.destination == other.destination &&
-		obligation.residueName.String() == other.residueName.String() &&
+		obligation.names.Equal(other.names) &&
 		obligation.action == other.action &&
 		obligation.readiness == other.readiness &&
 		obligation.reason == other.reason &&
@@ -638,7 +643,7 @@ func (obligation RemovalCleanupObligation) Equal(other RemovalCleanupObligation)
 func (obligation RemovalCleanupObligation) SameBasis(other RemovalCleanupObligation) bool {
 	return obligation.scope == other.scope &&
 		obligation.destination == other.destination &&
-		obligation.residueName.String() == other.residueName.String()
+		obligation.names.Equal(other.names)
 }
 
 // NewPendingRemovalCleanupObligations derives the complete ordered obligation
@@ -688,6 +693,32 @@ func NewRemovalResidueEntryObservation(
 	}, nil
 }
 
+// RemovalResidueObservation keeps the pre-cleanup residue and durable cleanup
+// stage separate. Presence under the cleanup-stage name is progress evidence;
+// it is never reinterpreted as an unvalidated original residue.
+type RemovalResidueObservation struct {
+	residue RemovalResidueEntryObservation
+	cleanup RemovalResidueEntryObservation
+}
+
+// NewRemovalResidueObservation constructs one complete two-slot observation.
+func NewRemovalResidueObservation(
+	residue RemovalResidueEntryObservation,
+	cleanup RemovalResidueEntryObservation,
+) RemovalResidueObservation {
+	return RemovalResidueObservation{residue: residue, cleanup: cleanup}
+}
+
+// Residue returns the exact pre-cleanup slot observation.
+func (observation RemovalResidueObservation) Residue() RemovalResidueEntryObservation {
+	return observation.residue
+}
+
+// Cleanup returns the exact durable cleanup-stage slot observation.
+func (observation RemovalResidueObservation) Cleanup() RemovalResidueEntryObservation {
+	return observation.cleanup
+}
+
 // Status returns the orthogonal entry observation status.
 func (observation RemovalResidueEntryObservation) Status() RemovalResidueEntryStatus {
 	return observation.status
@@ -728,6 +759,27 @@ func (intent RemovalIntent) AdmitsEntry(observation RemovalResidueEntryObservati
 	return false
 }
 
+// AdmitsCleanupProgress reports whether a cleanup-stage entry remains within
+// an authorized removable state. Recursive cleanup may change a directory's
+// tree hash, but regular files and symlinks remain exact until atomic unlink.
+func (intent RemovalIntent) AdmitsCleanupProgress(observation RemovalResidueEntryObservation) bool {
+	if observation.status != RemovalResidueEntryPresent {
+		return false
+	}
+	if observation.kind != PathKindDirectory {
+		return intent.AdmitsEntry(observation)
+	}
+	for _, state := range intent.states {
+		if before, present := state.Before(); present && before.Existed && before.Kind == observation.kind {
+			return true
+		}
+		if expected, present := state.Expected(); present && expected.Existed && expected.Kind == observation.kind {
+			return true
+		}
+	}
+	return false
+}
+
 func removalStateAdmitsEntry(state RemovalState, observation RemovalResidueEntryObservation) bool {
 	kind, hash, mode, linkTarget := observation.kind, observation.contentHash, observation.pathMode, observation.linkTarget
 	if before, present := state.Before(); present {
@@ -748,7 +800,7 @@ type RemovalIntent struct {
 	states      []RemovalState
 }
 
-// NewRemovalIntent binds a demand to exact namespace authority and residue name.
+// NewRemovalIntent binds a demand to exact namespace authority and removal names.
 func NewRemovalIntent(demand RemovalDemand, namespace RemovalNamespaceAuthority) (RemovalIntent, error) {
 	if err := demand.validate(); err != nil {
 		return RemovalIntent{}, err
@@ -798,7 +850,7 @@ func (intent RemovalIntent) AdmitsState(state RemovalState) bool {
 // separate Plan/execute decision.
 func (intent RemovalIntent) AssessCleanup(
 	namespace RemovalNamespaceObservation,
-	entry RemovalResidueEntryObservation,
+	entries RemovalResidueObservation,
 ) (RemovalCleanupObligation, error) {
 	obligation, err := NewPendingRemovalCleanupObligation(intent)
 	if err != nil {
@@ -820,33 +872,88 @@ func (intent RemovalIntent) AssessCleanup(
 		return RemovalCleanupObligation{}, fmt.Errorf("unsupported namespace observation status %q", namespace.Status())
 	}
 
-	switch entry.Status() {
-	case RemovalResidueEntryAbsent:
+	residueEntry := entries.Residue()
+	cleanupEntry := entries.Cleanup()
+	if result, decided := assessUnavailableOrUnsupportedCleanupSlot(obligation, cleanupEntry); decided {
+		return result, nil
+	}
+	if result, decided := assessUnavailableOrUnsupportedResidueSlot(obligation, residueEntry); decided {
+		return result, nil
+	}
+
+	switch {
+	case residueEntry.Status() == RemovalResidueEntryAbsent && cleanupEntry.Status() == RemovalResidueEntryAbsent:
 		obligation.readiness = RemovalCleanupReady
 		obligation.action = RemovalCleanupActionConfirmAbsence
-		return obligation, nil
-	case RemovalResidueEntryPresent:
-		if !intent.AdmitsEntry(entry) {
+	case residueEntry.Status() == RemovalResidueEntryPresent && cleanupEntry.Status() == RemovalResidueEntryAbsent:
+		if !intent.AdmitsEntry(residueEntry) {
 			obligation.readiness = RemovalCleanupBlocked
 			obligation.reason = RemovalCleanupReasonResidueMismatch
 			obligation.detail = "residue does not match an authorized whole-path state"
 			return obligation, nil
 		}
 		obligation.readiness = RemovalCleanupReady
-		obligation.action = RemovalCleanupActionCleanupResidue
-		return obligation, nil
+		obligation.action = RemovalCleanupActionPromoteResidue
+	case residueEntry.Status() == RemovalResidueEntryAbsent && cleanupEntry.Status() == RemovalResidueEntryPresent:
+		if !intent.AdmitsCleanupProgress(cleanupEntry) {
+			obligation.readiness = RemovalCleanupBlocked
+			obligation.reason = RemovalCleanupReasonCleanupMismatch
+			obligation.detail = "cleanup-stage entry does not match authorized cleanup progress"
+			return obligation, nil
+		}
+		obligation.readiness = RemovalCleanupReady
+		obligation.action = RemovalCleanupActionCleanupProgress
+	case residueEntry.Status() == RemovalResidueEntryPresent && cleanupEntry.Status() == RemovalResidueEntryPresent:
+		obligation.readiness = RemovalCleanupBlocked
+		obligation.reason = RemovalCleanupReasonCleanupCollision
+		obligation.detail = "residue and cleanup-stage names are both occupied"
+	default:
+		return RemovalCleanupObligation{}, fmt.Errorf(
+			"unsupported removal slot state %q/%q",
+			residueEntry.Status(),
+			cleanupEntry.Status(),
+		)
+	}
+	return obligation, nil
+}
+
+func assessUnavailableOrUnsupportedCleanupSlot(
+	obligation RemovalCleanupObligation,
+	entry RemovalResidueEntryObservation,
+) (RemovalCleanupObligation, bool) {
+	switch entry.Status() {
+	case RemovalResidueEntryUnsupported:
+		obligation.readiness = RemovalCleanupBlocked
+		obligation.reason = RemovalCleanupReasonCleanupUnsupported
+		obligation.detail = entry.Detail()
+		return obligation, true
+	case RemovalResidueEntryUnavailable:
+		obligation.readiness = RemovalCleanupRetry
+		obligation.reason = RemovalCleanupReasonCleanupUnavailable
+		obligation.detail = entry.Detail()
+		return obligation, true
+	default:
+		return RemovalCleanupObligation{}, false
+	}
+}
+
+func assessUnavailableOrUnsupportedResidueSlot(
+	obligation RemovalCleanupObligation,
+	entry RemovalResidueEntryObservation,
+) (RemovalCleanupObligation, bool) {
+	switch entry.Status() {
 	case RemovalResidueEntryUnsupported:
 		obligation.readiness = RemovalCleanupBlocked
 		obligation.reason = RemovalCleanupReasonResidueUnsupported
 		obligation.detail = entry.Detail()
-		return obligation, nil
+		return obligation, true
 	case RemovalResidueEntryUnavailable:
 		obligation.readiness = RemovalCleanupRetry
 		obligation.reason = RemovalCleanupReasonResidueUnavailable
 		obligation.detail = entry.Detail()
-		return obligation, nil
+		return obligation, true
 	default:
-		return RemovalCleanupObligation{}, fmt.Errorf("unsupported residue entry status %q", entry.Status())
+		return RemovalCleanupObligation{}, false
 	}
 }
 

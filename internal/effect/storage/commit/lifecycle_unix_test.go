@@ -474,6 +474,115 @@ func TestRootedEntryCleanupIsRetryableAfterPartialCancellation(t *testing.T) {
 	}
 }
 
+func TestJournaledLogicalRemovalMovesValidatedResidueToRetryableCleanupStage(t *testing.T) {
+	root := canonicalTempDir(t)
+	active := filepath.Join(root, "active")
+	if err := os.Mkdir(active, 0o700); err != nil {
+		t.Fatalf("create active directory: %v", err)
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		writeTestFile(t, filepath.Join(active, name), name, 0o600)
+	}
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-0123456789abcdef0123456789abcdef",
+		".daem-cleanup-0123456789abcdef0123456789abcdef",
+	)
+	if err != nil {
+		t.Fatalf("construct logical removal names: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "active")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture active identity: %v", err)
+	}
+	request, err := NewRootedLogicalRemovalWithResidue(capability, expected, names)
+	if err != nil {
+		t.Fatalf("NewRootedLogicalRemovalWithResidue: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	faults := faultPlan{actions: map[phase]func(){phaseCleanupEntry: cancel}}
+	outcome, err := func() (mutationfs.CommitOutcome, error) {
+		failure := commitLogicalRemovalWithFaults(ctx, request, faults)
+		return outcomeFromError(failure), failure
+	}()
+	assertFailure(t, err, failureRetainedResidue, phaseCleanupTombstone)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, names.Cleanup())
+	if _, err := os.Lstat(active); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("active entry after partial cleanup = %v, want absent", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, names.Residue())); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("pre-cleanup residue after promotion = %v, want absent", err)
+	}
+	cleanupPath := filepath.Join(root, names.Cleanup())
+	entries, err := os.ReadDir(cleanupPath)
+	if err != nil {
+		t.Fatalf("read partial cleanup stage: %v", err)
+	}
+	if len(entries) == 0 || len(entries) == 3 {
+		t.Fatalf("partial cleanup stage contains %d entries, want strict subset", len(entries))
+	}
+
+	retryCapability := rootedCapabilityForCommitTest(t, captured, names.Cleanup())
+	retryExpected, err := CaptureRootedEntryIdentity(t.Context(), retryCapability)
+	if err != nil {
+		t.Fatalf("capture partial cleanup identity: %v", err)
+	}
+	retry, err := NewRootedRemovalStageCleanup(retryCapability, retryExpected, names)
+	if err != nil {
+		t.Fatalf("NewRootedRemovalStageCleanup(retry): %v", err)
+	}
+	if _, err := CommitRootedEntryCleanup(t.Context(), retry); err != nil {
+		t.Fatalf("CommitRootedEntryCleanup(retry): %v", err)
+	}
+	if _, err := os.Lstat(cleanupPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("cleanup stage after retry = %v, want absent", err)
+	}
+}
+
+func TestJournaledLogicalRemovalRejectsEitherOccupiedPrivateSlotBeforeVisibility(t *testing.T) {
+	for _, occupiedRole := range []string{"residue", "cleanup"} {
+		t.Run(occupiedRole, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			active := filepath.Join(root, "active")
+			writeTestFile(t, active, "managed", 0o600)
+			names, err := mutationfs.NewLogicalRemovalNames(
+				".daem-tombstone-fedcba9876543210fedcba9876543210",
+				".daem-cleanup-fedcba9876543210fedcba9876543210",
+			)
+			if err != nil {
+				t.Fatalf("construct logical removal names: %v", err)
+			}
+			occupiedName := names.Residue()
+			if occupiedRole == "cleanup" {
+				occupiedName = names.Cleanup()
+			}
+			writeTestFile(t, filepath.Join(root, occupiedName), "foreign", 0o600)
+
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, "active")
+			expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+			if err != nil {
+				t.Fatalf("capture active identity: %v", err)
+			}
+			request, err := NewRootedLogicalRemovalWithResidue(capability, expected, names)
+			if err != nil {
+				t.Fatalf("NewRootedLogicalRemovalWithResidue: %v", err)
+			}
+			err = CommitLogicalRemoval(t.Context(), request)
+			assertFailure(t, err, failureUncommitted, phaseCommitTombstone)
+			content, err := os.ReadFile(active)
+			if err != nil || string(content) != "managed" {
+				t.Fatalf("active entry changed before collision rejection: content=%q err=%v", content, err)
+			}
+			content, err = os.ReadFile(filepath.Join(root, occupiedName))
+			if err != nil || string(content) != "foreign" {
+				t.Fatalf("occupied private slot changed: content=%q err=%v", content, err)
+			}
+		})
+	}
+}
+
 func TestRootedEntryCleanupRemovesExactRegularFile(t *testing.T) {
 	root := canonicalTempDir(t)
 	residue := filepath.Join(root, ".retained")
