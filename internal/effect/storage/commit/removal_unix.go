@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
 
@@ -175,9 +174,9 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 			cleanupEntryName,
 			cleanupPath,
 			cleanupIdentity,
-			request.capability,
 			limits,
 			faults,
+			anchor.verifyChain,
 		)
 	})
 	if err != nil {
@@ -259,35 +258,15 @@ func unusedSiblingName(parentFD int, prefix string) (string, error) {
 	return "", fmt.Errorf("could not allocate a collision-free tombstone name")
 }
 
-func removeEntryAt(
-	ctx context.Context,
-	parentFD int,
-	name string,
-	path string,
-	expected EntryIdentity,
-	capability rootedpath.CommitCapability,
-) error {
-	return removeEntryAtWithFaults(
-		ctx,
-		parentFD,
-		name,
-		path,
-		expected,
-		capability,
-		defaultTreeTraversalLimits(),
-		faultPlan{},
-	)
-}
-
 func removeEntryAtWithFaults(
 	ctx context.Context,
 	parentFD int,
 	name string,
 	path string,
 	expected EntryIdentity,
-	capability rootedpath.CommitCapability,
 	limits mutationfs.TreeTraversalLimits,
 	faults faultPlan,
+	validateNamespace func() error,
 ) error {
 	_, err := removeEntryAtWithFaultsAndOutcome(
 		ctx,
@@ -295,9 +274,9 @@ func removeEntryAtWithFaults(
 		name,
 		path,
 		expected,
-		capability,
 		limits,
 		faults,
+		validateNamespace,
 	)
 	return err
 }
@@ -308,52 +287,34 @@ func removeEntryAtWithFaultsAndOutcome(
 	name string,
 	path string,
 	expected EntryIdentity,
-	capability rootedpath.CommitCapability,
 	limits mutationfs.TreeTraversalLimits,
 	faults faultPlan,
+	validateNamespace func() error,
 ) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	snapshot, validateMount, err := captureRemovalTreeSnapshot(
+	snapshot, authority, captureChanged, err := captureRemovalTreeSnapshot(
 		ctx,
 		parentFD,
 		name,
 		path,
 		expected,
-		capability,
 		limits,
+		validateNamespace,
+		faults,
 	)
 	if err != nil {
-		return false, err
+		return captureChanged, err
 	}
-	return removeRemovalTreeSnapshot(
+	removeChanged, err := removeRemovalTreeSnapshot(
 		ctx,
 		parentFD,
 		path,
 		&snapshot,
-		validateMount,
+		authority,
 		limits,
 		faults,
 	)
-}
-
-func removalMountValidator(
-	capability rootedpath.CommitCapability,
-	rootFD int,
-) (func(uintptr) error, error) {
-	if capability != nil {
-		if err := capability.ValidateDirectoryHandle(uintptr(rootFD)); err != nil {
-			return nil, err
-		}
-		return capability.ValidateDirectoryHandle, nil
-	}
-	boundary, err := rootedpath.CaptureDirectoryMountBoundary(uintptr(rootFD))
-	if err != nil {
-		return nil, err
-	}
-	if err := boundary.ValidateDirectoryHandle(uintptr(rootFD)); err != nil {
-		return nil, err
-	}
-	return boundary.ValidateDirectoryHandle, nil
+	return captureChanged || removeChanged, err
 }

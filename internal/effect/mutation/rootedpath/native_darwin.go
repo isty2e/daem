@@ -2,7 +2,13 @@
 
 package rootedpath
 
-import "golang.org/x/sys/unix"
+import (
+	"fmt"
+	"runtime"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
+)
 
 func nativeObjectToken(fd int, device uint64, inode uint64) (identityToken, error) {
 	var stat unix.Stat_t
@@ -28,6 +34,46 @@ func nativeMountToken(fd int) (identityToken, error) {
 		"darwin-rooted-path-mount-v1",
 		uint64(uint32(stat.Fsid.Val[0])),
 		uint64(uint32(stat.Fsid.Val[1])),
+	), nil
+}
+
+type darwinMountAttributeBuffer struct {
+	length uint32
+	fsid   [2]int32
+}
+
+func nativeMountTokenAt(parentFD int, name string) (identityToken, error) {
+	namePointer, err := unix.BytePtrFromString(name)
+	if err != nil {
+		return identityToken{}, err
+	}
+	attributes := unix.Attrlist{
+		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
+		Commonattr:  unix.ATTR_CMN_FSID,
+	}
+	var buffer darwinMountAttributeBuffer
+	_, _, errno := unix.Syscall6(
+		unix.SYS_GETATTRLISTAT,
+		uintptr(parentFD),
+		uintptr(unsafe.Pointer(namePointer)),
+		uintptr(unsafe.Pointer(&attributes)),
+		uintptr(unsafe.Pointer(&buffer)),
+		unsafe.Sizeof(buffer),
+		unix.FSOPT_NOFOLLOW,
+	)
+	runtime.KeepAlive(namePointer)
+	runtime.KeepAlive(&attributes)
+	runtime.KeepAlive(&buffer)
+	if errno != 0 {
+		return identityToken{}, errno
+	}
+	if buffer.length != uint32(unsafe.Sizeof(buffer)) {
+		return identityToken{}, fmt.Errorf("inspect entry mount: invalid attribute size %d", buffer.length)
+	}
+	return identityTokenFromValues(
+		"darwin-rooted-path-mount-v1",
+		uint64(uint32(buffer.fsid[0])),
+		uint64(uint32(buffer.fsid[1])),
 	), nil
 }
 

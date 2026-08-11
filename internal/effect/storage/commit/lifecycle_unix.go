@@ -240,9 +240,9 @@ func commitRootedEntryCleanupWithFaults(
 		anchor.base,
 		request.path,
 		request.expected,
-		request.capability,
 		request.limits,
 		faults,
+		anchor.verifyChain,
 	)
 	if err != nil {
 		return fail(classifyExactCleanupFailure(anchor, request, changed, err))
@@ -350,15 +350,6 @@ func requireOwnedExpectedEntry(
 	}
 	if err := validateOwnedStat(path, &stat); err != nil {
 		return EntryIdentity{}, unix.Stat_t{}, err
-	}
-	if expected.kind != entryKindSymlink {
-		fd, _, err := anchor.openExpected(name, path, expected)
-		if fd >= 0 {
-			_ = unix.Close(fd)
-		}
-		if err != nil {
-			return EntryIdentity{}, unix.Stat_t{}, err
-		}
 	}
 	return observed, stat, nil
 }
