@@ -5,12 +5,14 @@ package commit
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"golang.org/x/sys/unix"
 )
 
@@ -139,5 +141,65 @@ func TestCommitFileRejectsInheritedACLOnCreatedAncestor(t *testing.T) {
 	}
 	if info, err := os.Stat(residue[0]); err != nil || !info.IsDir() {
 		t.Fatalf("reported staging residue is not retained: info=%v err=%v", info, err)
+	}
+}
+
+func TestPrepareRootedTreeRejectsInheritedACL(t *testing.T) {
+	root := canonicalTempDir(t)
+	if output, err := exec.Command(
+		"chmod",
+		"+a",
+		"everyone deny delete_child,file_inherit,directory_inherit",
+		root,
+	).CombinedOutput(); err != nil {
+		t.Fatalf("chmod +a returned error: %v: %s", err, output)
+	}
+	defer exec.Command("chmod", "-N", root).Run()
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "published")
+	var stagePath string
+	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		stagePath = writer.(*rootedTreeWriterUnix).prepared.stagePath
+		return writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned"))
+	})
+	if stagePath != "" {
+		defer func() {
+			_ = exec.Command("chmod", "-RN", stagePath).Run()
+			_ = os.RemoveAll(stagePath)
+		}()
+	}
+	if prepared != nil {
+		t.Fatal("PrepareRootedTree returned a stage with inherited ACL metadata")
+	}
+	assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
+	assertClosedRootedCapability(t, capability)
+	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("ACL-bearing tree was published: %v", statErr)
+	}
+}
+
+func TestPrepareRootedTreeRejectsDescendantFileFlag(t *testing.T) {
+	root := canonicalTempDir(t)
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "published")
+	var entry string
+	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		if err := writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned")); err != nil {
+			return err
+		}
+		concrete := writer.(*rootedTreeWriterUnix)
+		entry = filepath.Join(concrete.prepared.stagePath, "entry")
+		return unix.Chflags(entry, unix.UF_NODUMP)
+	})
+	if entry != "" {
+		defer unix.Chflags(entry, 0)
+	}
+	if prepared != nil {
+		t.Fatal("PrepareRootedTree returned a stage with file flags")
+	}
+	assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
+	assertClosedRootedCapability(t, capability)
+	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("flag-bearing tree was published: %v", statErr)
 	}
 }

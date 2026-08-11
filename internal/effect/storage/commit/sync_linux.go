@@ -75,3 +75,7 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 func isLinuxACL(name string) bool {
 	return name == "system.posix_acl_access" || name == "system.posix_acl_default"
 }
+
+func isAllowedPreparedTreeXattr(string) bool {
+	return false
+}

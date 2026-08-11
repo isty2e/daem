@@ -37,7 +37,8 @@ type PreparedRootedTree struct {
 	limits         mutationfs.TreeTraversalLimits
 	rootMode       fs.FileMode
 	rootModeSet    bool
-	directoryModes []preparedTreeDirectoryMode
+	plannedEntries map[string]preparedTreeEntryExpectation
+	snapshot       preparedTreeSnapshot
 }
 
 // PrepareRootedTree creates and populates a private stage beside the bound
@@ -141,7 +142,7 @@ func PrepareRootedTreeWithLimits(
 	}
 
 	prepared.mu.Lock()
-	err = prepared.captureExpectedLocked()
+	err = prepared.captureSnapshotLocked(ctx)
 	if err != nil {
 		err = prepared.failBeforeVisibilityLocked(phaseValidate, err, faultPlan{})
 	}
@@ -190,25 +191,29 @@ func commitPreparedRootedTreeWithFaults(
 	if err := prepared.verifyExpectedLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseValidate, err, faults)
 	}
+	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseValidate, err, faults)
+	}
 	if err := prepared.requireDestinationAbsentLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseValidate, err, faults)
 	}
-	if err := syncPreparedDirectory(ctx, prepared.stageFD, prepared.stagePath, faults); err != nil {
+	if err := syncPreparedTreeSnapshotLocked(ctx, prepared, faults); err != nil {
 		return prepared.failBeforeVisibilityLocked(errorPhase(err, phaseSyncTreeDirectory), err, faults)
 	}
-	if err := faults.run(ctx, phaseApplyMode, func() error {
-		return prepared.applyTreeModesLocked(ctx)
-	}); err != nil {
+	if err := faults.check(ctx, phaseApplyMode); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseApplyMode, err, faults)
 	}
-	if err := syncDirectory(prepared.stageFD); err != nil {
-		return prepared.failBeforeVisibilityLocked(phaseSyncTreeDirectory, err, faults)
-	}
-	if err := prepared.captureExpectedLocked(); err != nil {
-		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
+	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseApplyMode, err, faults)
 	}
 	if err := faults.check(ctx, phaseRevalidateEntry); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
+	}
+	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
+	}
+	if err := prepared.applyTreeModesLocked(ctx); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseApplyMode, err, faults)
 	}
 	if err := prepared.verifyExpectedLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)

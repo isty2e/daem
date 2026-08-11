@@ -63,8 +63,12 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 		return unsupported("ACL or extended security metadata cannot be preserved", nil)
 	}
 	return verifyXattrs(fd, metadata, func(name string) bool {
-		return name == "com.apple.provenance"
+		return isAllowedPreparedTreeXattr(name)
 	})
+}
+
+func isAllowedPreparedTreeXattr(name string) bool {
+	return name == "com.apple.provenance"
 }
 
 func hasDarwinACL(fd int) (bool, error) {
