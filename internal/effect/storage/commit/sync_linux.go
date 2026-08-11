@@ -10,6 +10,18 @@ import (
 
 const linuxUserModifiableFlags = 0x000380ff
 
+const linuxSELinuxXattrName = "security.selinux"
+
+const linuxPreparedTreeKernelManagedFlags = 0x00000100 | // FS_DIRTY_FL
+	0x00000200 | // FS_COMPRBLK_FL
+	0x00001000 | // FS_INDEX_FL
+	0x00002000 | // FS_IMAGIC_FL
+	0x00040000 | // FS_HUGE_FILE_FL
+	0x00080000 | // FS_EXTENT_FL
+	0x00200000 | // FS_EA_INODE_FL
+	0x00400000 | // FS_EOFBLOCKS_FL
+	0x10000000 // FS_INLINE_DATA_FL
+
 func syncPayload(fd int) error {
 	if err := unix.Fsync(fd); err != nil {
 		return unsupportedOperationError("file fsync is unavailable", err)
@@ -70,6 +82,31 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 		}
 	}
 	return verifyObservedXattrs(observed, metadata, func(string) bool { return false })
+}
+
+func capturePreparedTreePlatformMetadataFacts(fd int, path string, _ *unix.Stat_t) (uint64, error) {
+	flags, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	if err != nil {
+		return 0, unsupported("prepared tree file flags cannot be inspected", err)
+	}
+	if err := validatePreparedTreeLinuxFlags(path, flags); err != nil {
+		return 0, err
+	}
+	return uint64(flags), nil
+}
+
+func validatePreparedTreeLinuxFlags(path string, flags int) error {
+	if unsupportedFlags := flags &^ linuxPreparedTreeKernelManagedFlags; unsupportedFlags != 0 {
+		return unsupported(
+			fmt.Sprintf("prepared tree entry %q contains unsupported file flags 0x%x", path, unsupportedFlags),
+			nil,
+		)
+	}
+	return nil
+}
+
+func isAllowedPreparedTreeXattr(name string) bool {
+	return name == linuxSELinuxXattrName
 }
 
 func isLinuxACL(name string) bool {

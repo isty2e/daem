@@ -169,7 +169,7 @@ func openExpectedAt(parentFD int, name string, path string, expected EntryIdenti
 	if !expected.sameEntry(observed) {
 		return -1, fmt.Errorf("entry identity changed at %q", path)
 	}
-	flags := unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	flags := unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK
 	if observed.kind == entryKindDirectory {
 		flags |= unix.O_DIRECTORY
 	}

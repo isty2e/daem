@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	preparedTreePrivateDirectoryMode fs.FileMode = 0o700
+	preparedTreePrivateFileMode      fs.FileMode = 0o600
+)
+
 func createPreparedRootedTree(
 	path string,
 	anchor *anchoredParent,
@@ -25,19 +31,20 @@ func createPreparedRootedTree(
 	if err != nil {
 		return nil, err
 	}
-	if err := unix.Mkdirat(anchor.parentFD(), stageName, 0o700); err != nil {
+	if err := unix.Mkdirat(anchor.parentFD(), stageName, uint32(preparedTreePrivateDirectoryMode)); err != nil {
 		return nil, err
 	}
 	stagePath := filepath.Join(filepath.Dir(path), stageName)
 	prepared := &PreparedRootedTree{
-		state:       preparedRootedTreeReady,
-		destination: path,
-		anchor:      anchor,
-		stageName:   stageName,
-		stagePath:   stagePath,
-		stageFD:     -1,
-		limits:      limits,
-		rootMode:    0o700,
+		state:          preparedRootedTreeReady,
+		destination:    path,
+		anchor:         anchor,
+		stageName:      stageName,
+		stagePath:      stagePath,
+		stageFD:        -1,
+		limits:         limits,
+		rootMode:       preparedTreePrivateDirectoryMode,
+		plannedEntries: make(map[string]preparedTreeEntryExpectation),
 	}
 	identity, stat, err := anchor.observe(stageName, stagePath)
 	if err != nil {
@@ -58,25 +65,22 @@ func createPreparedRootedTree(
 	if err := anchor.capability.ValidateDirectoryHandle(uintptr(stageFD)); err != nil {
 		return prepared, err
 	}
+	rootMetadata, err := capturePreparedTreeMetadataFacts(stageFD, stagePath, &stat)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.rootCreationMetadata = rootMetadata.creationMetadata()
 	return prepared, nil
 }
 
-func (prepared *PreparedRootedTree) captureExpectedLocked() error {
-	if err := prepared.verifyStageObjectLocked(); err != nil {
-		return err
-	}
-	expected, err := refreshOpenedIdentity(prepared.stageFD, prepared.stagePath)
+func (prepared *PreparedRootedTree) captureSnapshotLocked(ctx context.Context) error {
+	snapshot, err := capturePreparedTreeSnapshotLocked(ctx, prepared)
 	if err != nil {
 		return err
 	}
-	observed, _, err := prepared.anchor.observe(prepared.stageName, prepared.stagePath)
-	if err != nil {
-		return err
-	}
-	if !expected.sameEntry(observed) {
-		return fmt.Errorf("rooted tree stage changed while capturing identity")
-	}
-	prepared.expected = expected
+	prepared.snapshot = snapshot
+	prepared.expected = snapshot.root.identity
+	prepared.plannedEntries = nil
 	return nil
 }
 
@@ -130,7 +134,7 @@ func (writer *rootedTreeWriterUnix) CreateDirectory(path mutationfs.TreeRelative
 		return err
 	}
 	defer parent.close()
-	if err := unix.Mkdirat(parent.fd, parent.base, 0o700); err != nil {
+	if err := unix.Mkdirat(parent.fd, parent.base, uint32(preparedTreePrivateDirectoryMode)); err != nil {
 		return err
 	}
 	identity, stat, err := observeAt(parent.fd, parent.base, parent.path)
@@ -148,17 +152,25 @@ func (writer *rootedTreeWriterUnix) CreateDirectory(path mutationfs.TreeRelative
 		return err
 	}
 	defer unix.Close(fd)
-	if err := verifyTreeEntryMode(fd, parent.path, 0o700); err != nil {
+	creationMetadata, err := capturePreparedTreeMetadataFacts(fd, parent.path, &stat)
+	if err != nil {
+		return err
+	}
+	if err := verifyTreeEntryMode(fd, parent.path, preparedTreePrivateDirectoryMode); err != nil {
 		return err
 	}
 	if err := writer.prepared.anchor.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
 		return err
 	}
-	writer.prepared.directoryModes = append(writer.prepared.directoryModes, preparedTreeDirectoryMode{
-		path: path,
-		mode: mode.Perm(),
+	if err := writer.verifyStage(); err != nil {
+		return err
+	}
+	return writer.recordPlannedEntry(preparedTreeEntryExpectation{
+		relativePath:     path.Path(),
+		kind:             entryKindDirectory,
+		mode:             mode.Perm(),
+		creationMetadata: creationMetadata.creationMetadata(),
 	})
-	return writer.verifyStage()
 }
 
 func (writer *rootedTreeWriterUnix) WriteFile(
@@ -186,7 +198,7 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 		parent.fd,
 		parent.base,
 		unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_CLOEXEC|unix.O_NOFOLLOW,
-		0o600,
+		uint32(preparedTreePrivateFileMode),
 	)
 	if err != nil {
 		return err
@@ -197,12 +209,21 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 			_ = unix.Close(fd)
 		}
 	}()
-	if err := unix.Fchmod(fd, uint32(mode.Perm())); err != nil {
+	if err := unix.Fchmod(fd, uint32(preparedTreePrivateFileMode)); err != nil {
+		return err
+	}
+	var creationStat unix.Stat_t
+	if err := unix.Fstat(fd, &creationStat); err != nil {
+		return err
+	}
+	creationMetadata, err := capturePreparedTreeMetadataFacts(fd, parent.path, &creationStat)
+	if err != nil {
 		return err
 	}
 	reader := contextReader{ctx: writer.ctx, reader: content}
+	digest := sha256.New()
 	remainingBytes := writer.budget.remainingBytes()
-	written, err := io.CopyN(fdWriter{fd: fd}, reader, remainingBytes)
+	written, err := io.CopyN(io.MultiWriter(fdWriter{fd: fd}, digest), reader, remainingBytes)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
@@ -229,14 +250,26 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	if err := writer.budget.admitBytes(stat.Size); err != nil {
 		return fmt.Errorf("prepared tree file %q: %w", path.Path(), err)
 	}
-	if fs.FileMode(stat.Mode).Perm() != mode.Perm() {
-		return unsupported(fmt.Sprintf("prepared tree file %q did not retain requested mode", parent.path), nil)
+	if fs.FileMode(stat.Mode).Perm() != preparedTreePrivateFileMode {
+		return unsupported(fmt.Sprintf("prepared tree file %q did not retain private staging mode", parent.path), nil)
 	}
 	if err := unix.Close(fd); err != nil {
 		return err
 	}
 	closed = true
-	return writer.verifyStage()
+	if err := writer.verifyStage(); err != nil {
+		return err
+	}
+	var contentDigest preparedTreeContentDigest
+	copy(contentDigest[:], digest.Sum(nil))
+	return writer.recordPlannedEntry(preparedTreeEntryExpectation{
+		relativePath:     path.Path(),
+		kind:             entryKindRegular,
+		mode:             mode.Perm(),
+		size:             stat.Size,
+		content:          contentDigest,
+		creationMetadata: creationMetadata.creationMetadata(),
+	})
 }
 
 func readerHasContent(reader io.Reader) (bool, error) {
@@ -271,6 +304,17 @@ func (writer *rootedTreeWriterUnix) validate(path mutationfs.TreeRelativePath, m
 
 func (writer *rootedTreeWriterUnix) verifyStage() error {
 	return writer.prepared.verifyStageObjectLocked()
+}
+
+func (writer *rootedTreeWriterUnix) recordPlannedEntry(entry preparedTreeEntryExpectation) error {
+	if err := entry.validate(false); err != nil {
+		return err
+	}
+	if _, exists := writer.prepared.plannedEntries[entry.relativePath]; exists {
+		return fmt.Errorf("prepared tree entry %q was planned more than once", entry.relativePath)
+	}
+	writer.prepared.plannedEntries[entry.relativePath] = entry
+	return nil
 }
 
 type openedTreeParent struct {
