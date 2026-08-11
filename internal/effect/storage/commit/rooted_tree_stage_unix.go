@@ -207,17 +207,16 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 		return err
 	}
 	if written == remainingBytes {
-		var probe [1]byte
-		count, probeErr := reader.Read(probe[:])
-		if count != 0 {
+		hasExtra, probeErr := readerHasContent(reader)
+		if probeErr != nil {
+			return probeErr
+		}
+		if hasExtra {
 			return fmt.Errorf(
 				"prepared tree file %q: tree exceeds %d regular-file bytes",
 				path.Path(),
 				writer.budget.limits.MaximumBytes(),
 			)
-		}
-		if probeErr != nil && !errors.Is(probeErr, io.EOF) {
-			return probeErr
 		}
 	}
 	var stat unix.Stat_t
@@ -238,6 +237,23 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	}
 	closed = true
 	return writer.verifyStage()
+}
+
+func readerHasContent(reader io.Reader) (bool, error) {
+	var probe [1]byte
+	for range 100 {
+		count, err := reader.Read(probe[:])
+		if count != 0 {
+			return true, nil
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return false, nil
+			}
+			return false, err
+		}
+	}
+	return false, io.ErrNoProgress
 }
 
 func (writer *rootedTreeWriterUnix) validate(path mutationfs.TreeRelativePath, mode fs.FileMode) error {

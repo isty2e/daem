@@ -289,6 +289,38 @@ func TestPrepareRootedTreeWithLimitsAcceptsExactRegularFileBytes(t *testing.T) {
 	}
 }
 
+func TestPrepareRootedTreeWithLimitsRejectsDelayedExtraByte(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
+	limits, err := mutationfs.NewTreeTraversalLimits(1, 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareRootedTreeWithLimits(
+		t.Context(),
+		capability,
+		limits,
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				treePathForTest(t, "content"),
+				0o600,
+				&delayedExtraByteReader{},
+			)
+		},
+	)
+	if prepared != nil {
+		t.Fatal("prepare returned a stage with delayed over-limit content")
+	}
+	assertFailure(t, err, failureUncommitted, phaseWritePayload)
+	if !strings.Contains(err.Error(), "tree exceeds 3 regular-file bytes") {
+		t.Fatalf("prepare error = %v, want byte-bound rejection", err)
+	}
+}
+
 func TestPrepareRootedTreeRejectsDefaultCleanupDepthBoundaryWithoutResidue(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {
@@ -570,4 +602,20 @@ func treeLimitsForTest(t *testing.T, maximumEntries int, maximumDepth int) mutat
 		t.Fatal(err)
 	}
 	return limits
+}
+
+type delayedExtraByteReader struct {
+	step int
+}
+
+func (reader *delayedExtraByteReader) Read(payload []byte) (int, error) {
+	reader.step++
+	switch reader.step {
+	case 1:
+		return copy(payload, "yes"), nil
+	case 2:
+		return 0, nil
+	default:
+		return copy(payload, "x"), nil
+	}
 }
