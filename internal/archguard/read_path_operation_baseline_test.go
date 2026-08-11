@@ -125,22 +125,16 @@ func TestReadPathBaselineCacheHashAndVerificationSites(t *testing.T) {
 		role   string
 	}{
 		{
-			path:   "internal/supply/source/cache/entry.go",
-			needle: "access.HashPath(ctx, contentPath)",
-			want:   1,
-			role:   "complete-entry verification hash",
+			path:   "internal/supply/source/cache/rooted_entry.go",
+			needle: "storagecommit.SnapshotRootedDirectory(",
+			want:   2,
+			role:   "rooted entry verification and bounded file snapshot",
 		},
 		{
-			path:   "internal/supply/source/cache/publish.go",
-			needle: "access.HashPath(ctx, contentPath)",
-			want:   1,
-			role:   "prepared-content verification hash",
-		},
-		{
-			path:   "internal/supply/source/cache/publish.go",
-			needle: "VerifyDirectory(ctx, finalRoot, spec)",
-			want:   3,
-			role:   "reuse, uncertain-commit, and post-publish verification",
+			path:   "internal/supply/source/cache/rooted_publish.go",
+			needle: "storagecommit.SnapshotRootedDirectory(",
+			want:   2,
+			role:   "private-stage copy and content verification",
 		},
 		{
 			path:   "internal/supply/source/backend/gitcli/export.go",
@@ -150,9 +144,15 @@ func TestReadPathBaselineCacheHashAndVerificationSites(t *testing.T) {
 		},
 		{
 			path:   "internal/supply/source/backend/s3object/immutable_reuse.go",
-			needle: "sourcecache.VerifyDirectory(ctx, entryRoot, spec)",
+			needle: "sourcecache.VerifyFileRooted(",
 			want:   1,
-			role:   "immutable S3 cache verification",
+			role:   "bounded immutable S3 file verification",
+		},
+		{
+			path:   "internal/supply/source/backend/s3object/immutable_reuse.go",
+			needle: "sourcecache.VerifyDirectoryRooted(",
+			want:   1,
+			role:   "immutable S3 directory verification",
 		},
 	}
 

@@ -44,41 +44,25 @@ func PublishDirectoryOnceRooted(
 		return "", "", false, fmt.Errorf("rooted cache publish build function is required")
 	}
 
-	state, verifiedHash, verifiedKind, verifyErr := verifyRootedDirectory(
-		ctx,
-		root,
-		relativeRoot,
-		spec,
-	)
-	switch state {
-	case rootedEntryValid:
+	ready, verifiedHash, verifiedKind, verifyErr := prepareRootedDestination(ctx, root, relativeRoot, spec)
+	if ready {
 		return verifiedHash, verifiedKind, false, nil
-	case rootedEntryMissing:
-	case rootedEntryOwnedInvalid:
-		if err := retireRootedDirectory(ctx, root, relativeRoot); err != nil {
-			return "", "", false, errors.Join(verifyErr, err)
-		}
-	default:
+	}
+	if verifyErr != nil {
 		return "", "", false, verifyErr
 	}
 
-	stage, err := newPrivateBuildStage(ctx)
+	prepared, err := PrepareDirectory(ctx, spec.contentPath, build)
 	if err != nil {
 		return "", "", false, err
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, stage.close(context.WithoutCancel(ctx)))
+		returnErr = errors.Join(returnErr, prepared.Close(context.WithoutCancel(ctx)))
 	}()
 
-	hash, kind, err := build(stage.path)
+	hash, kind, err := prepared.ContentIdentity()
 	if err != nil {
 		return "", "", false, err
-	}
-	if err := stage.validate(ctx); err != nil {
-		return "", "", false, fmt.Errorf("validate rooted cache build stage: %w", err)
-	}
-	if err := validateContentIdentity(hash, kind); err != nil {
-		return "", "", false, fmt.Errorf("validate built cache content identity: %w", err)
 	}
 	if !spec.accepts(hash, kind) {
 		return "", "", false, fmt.Errorf(
@@ -89,12 +73,57 @@ func PublishDirectoryOnceRooted(
 			spec.expectedKind,
 		)
 	}
-	observedHash, observedKind, err := stage.contentIdentity(ctx, spec.contentPath)
+	return publishPreparedRootedDirectory(ctx, root, relativeRoot, spec, prepared)
+}
+
+// PreparedDirectory owns one exact private build stage until Close. It allows a
+// content-addressed caller to choose the final cache key after hashing without
+// creating a pathname stage below the cache root.
+type PreparedDirectory struct {
+	stage       *privateBuildStage
+	contentHash artifact.ContentHash
+	contentKind artifact.ArtifactKind
+}
+
+// PrepareDirectory materializes and verifies one private directory stage.
+func PrepareDirectory(
+	ctx context.Context,
+	contentPath string,
+	build func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error),
+) (prepared *PreparedDirectory, returnErr error) {
+	if err := validateContext(ctx, "cache directory preparation"); err != nil {
+		return nil, err
+	}
+	if build == nil {
+		return nil, fmt.Errorf("cache directory preparation build function is required")
+	}
+	normalizedPath, err := normalizeContentPath(contentPath)
 	if err != nil {
-		return "", "", false, fmt.Errorf("verify rooted cache build stage content: %w", err)
+		return nil, err
+	}
+	stage, err := newPrivateBuildStage(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if prepared == nil {
+			returnErr = errors.Join(returnErr, stage.close(context.WithoutCancel(ctx)))
+		}
+	}()
+
+	hash, kind, err := build(stage.path)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateContentIdentity(hash, kind); err != nil {
+		return nil, fmt.Errorf("validate built cache content identity: %w", err)
+	}
+	observedHash, observedKind, err := stage.contentIdentity(ctx, normalizedPath)
+	if err != nil {
+		return nil, fmt.Errorf("verify private cache build stage content: %w", err)
 	}
 	if observedHash != hash || observedKind != kind {
-		return "", "", false, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"built cache content identity %q/%q does not match staged %q/%q",
 			hash,
 			kind,
@@ -102,7 +131,107 @@ func PublishDirectoryOnceRooted(
 			observedKind,
 		)
 	}
+	return &PreparedDirectory{
+		stage:       stage,
+		contentHash: hash,
+		contentKind: kind,
+	}, nil
+}
 
+// ContentIdentity returns the exact identity observed in the private stage.
+func (prepared *PreparedDirectory) ContentIdentity() (
+	artifact.ContentHash,
+	artifact.ArtifactKind,
+	error,
+) {
+	if prepared == nil || prepared.stage == nil {
+		return "", "", fmt.Errorf("prepared cache directory is closed or uninitialized")
+	}
+	return prepared.contentHash, prepared.contentKind, nil
+}
+
+// PublishRooted publishes this exact stage below root. Spec must require the
+// prepared identity so a concurrent cache hit cannot substitute other content.
+func (prepared *PreparedDirectory) PublishRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+) (bool, error) {
+	if err := validateContext(ctx, "prepared rooted directory publish"); err != nil {
+		return false, err
+	}
+	hash, kind, err := prepared.ContentIdentity()
+	if err != nil {
+		return false, err
+	}
+	if err := spec.validate(); err != nil {
+		return false, err
+	}
+	if spec.expectedHash != hash || spec.expectedKind != kind {
+		return false, fmt.Errorf(
+			"prepared rooted cache publication requires exact identity %q/%q",
+			hash,
+			kind,
+		)
+	}
+	ready, _, _, err := prepareRootedDestination(ctx, root, relativeRoot, spec)
+	if err != nil || ready {
+		return false, err
+	}
+	_, _, published, err := publishPreparedRootedDirectory(
+		ctx,
+		root,
+		relativeRoot,
+		spec,
+		prepared,
+	)
+	return published, err
+}
+
+// Close removes the exact private stage. It is safe to call more than once.
+func (prepared *PreparedDirectory) Close(ctx context.Context) error {
+	if prepared == nil || prepared.stage == nil {
+		return nil
+	}
+	stage := prepared.stage
+	prepared.stage = nil
+	return stage.close(ctx)
+}
+
+func prepareRootedDestination(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+) (bool, artifact.ContentHash, artifact.ArtifactKind, error) {
+	state, hash, kind, verifyErr := verifyRootedDirectory(ctx, root, relativeRoot, spec)
+	switch state {
+	case rootedEntryValid:
+		return true, hash, kind, nil
+	case rootedEntryMissing:
+		return false, "", "", nil
+	case rootedEntryOwnedInvalid:
+		if err := retireRootedDirectory(ctx, root, relativeRoot); err != nil {
+			return false, "", "", errors.Join(verifyErr, err)
+		}
+		return false, "", "", nil
+	default:
+		return false, "", "", verifyErr
+	}
+}
+
+func publishPreparedRootedDirectory(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+	prepared *PreparedDirectory,
+) (artifact.ContentHash, artifact.ArtifactKind, bool, error) {
+	hash, kind, err := prepared.ContentIdentity()
+	if err != nil {
+		return "", "", false, err
+	}
 	record, err := newCompletionRecord(spec, hash, kind)
 	if err != nil {
 		return "", "", false, err
@@ -111,7 +240,7 @@ func PublishDirectoryOnceRooted(
 	if err != nil {
 		return "", "", false, err
 	}
-	if err := publishPrivateBuildStage(ctx, root, relativeRoot, stage, recordContent); err != nil {
+	if err := publishPrivateBuildStage(ctx, root, relativeRoot, prepared.stage, recordContent); err != nil {
 		state, verifiedHash, verifiedKind, verifyErr := verifyRootedDirectory(
 			ctx,
 			root,
@@ -123,7 +252,7 @@ func PublishDirectoryOnceRooted(
 		}
 		return "", "", false, errors.Join(err, verifyErr)
 	}
-	state, verifiedHash, verifiedKind, err = verifyRootedDirectory(
+	state, verifiedHash, verifiedKind, err := verifyRootedDirectory(
 		ctx,
 		root,
 		relativeRoot,

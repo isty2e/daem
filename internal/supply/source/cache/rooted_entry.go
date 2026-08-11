@@ -102,6 +102,18 @@ func verifyRootedDirectory(
 	return rootedEntryUnknown, "", "", invalidEntry(lexicalPath, verifyErr.Error())
 }
 
+// VerifyDirectoryRooted verifies one cache entry below a retained cache root.
+// Missing entries return valid=false without error.
+func VerifyDirectoryRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+) (bool, error) {
+	state, _, _, err := verifyRootedDirectory(ctx, root, relativeRoot, spec)
+	return state == rootedEntryValid, err
+}
+
 func isMissingRootedEntry(err error) bool {
 	return errors.Is(err, fs.ErrNotExist)
 }
@@ -138,6 +150,132 @@ func retireRootedDirectory(
 	return nil
 }
 
+// RetireDirectoryRooted identity-guards removal of one cache entry below a
+// retained cache root. The caller must hold the entry's exact advisory lock.
+func RetireDirectoryRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+) error {
+	if err := validateContext(ctx, "rooted cache entry retirement"); err != nil {
+		return err
+	}
+	return retireRootedDirectory(ctx, root, relativeRoot)
+}
+
+// VerifiedFileLimitError reports a rooted cache file whose observed size
+// exceeds the caller's read or verification ceiling.
+type VerifiedFileLimitError struct {
+	maximum  int64
+	observed int64
+}
+
+func (err *VerifiedFileLimitError) Error() string {
+	if err == nil {
+		return "rooted verified cache file exceeds its byte limit"
+	}
+	return fmt.Sprintf(
+		"rooted verified cache file exceeds its byte limit: observed=%d limit=%d",
+		err.observed,
+		err.maximum,
+	)
+}
+
+// Observed returns the file size that exceeded the ceiling.
+func (err *VerifiedFileLimitError) Observed() int64 {
+	if err == nil {
+		return 0
+	}
+	return err.observed
+}
+
+// ReadVerifiedFileRooted returns one bounded file snapshot only when its
+// containing entry verifies below the same retained cache root. Missing entries
+// return found=false without error.
+func ReadVerifiedFileRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+	maximumBytes int,
+) (VerifiedFile, bool, error) {
+	return readVerifiedFileRooted(ctx, root, relativeRoot, spec, maximumBytes, true)
+}
+
+// VerifyFileRooted verifies one bounded file-backed cache entry without
+// retaining its payload bytes. Missing entries return valid=false without error.
+func VerifyFileRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+	maximumBytes int,
+) (bool, error) {
+	_, valid, err := readVerifiedFileRooted(
+		ctx,
+		root,
+		relativeRoot,
+		spec,
+		maximumBytes,
+		false,
+	)
+	return valid, err
+}
+
+func readVerifiedFileRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	relativeRoot string,
+	spec EntrySpec,
+	maximumBytes int,
+	captureContent bool,
+) (VerifiedFile, bool, error) {
+	if err := validateContext(ctx, "rooted verified file read"); err != nil {
+		return VerifiedFile{}, false, err
+	}
+	if maximumBytes <= 0 {
+		return VerifiedFile{}, false, fmt.Errorf("verified cache file maximum bytes must be positive")
+	}
+	if err := spec.validate(); err != nil {
+		return VerifiedFile{}, false, err
+	}
+	destination, lexicalPath, err := rootedEntryDestination(root, relativeRoot)
+	if err != nil {
+		return VerifiedFile{}, false, err
+	}
+	capability, err := root.Acquire(destination)
+	if err != nil {
+		return VerifiedFile{}, false, err
+	}
+	defer capability.Close()
+
+	sink := newRootedVerifiedFileSink(ctx, spec, maximumBytes, captureContent)
+	_, err = storagecommit.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		cacheTreeTraversalLimits(),
+		sink,
+	)
+	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return VerifiedFile{}, false, contextErr
+		}
+		if isMissingRootedEntry(err) {
+			return VerifiedFile{}, false, nil
+		}
+		return VerifiedFile{}, false, fmt.Errorf(
+			"read rooted cache file from %q: %w",
+			lexicalPath,
+			err,
+		)
+	}
+	file, verifyErr := sink.result()
+	if verifyErr != nil {
+		return VerifiedFile{}, false, invalidEntry(lexicalPath, verifyErr.Error())
+	}
+	return file, true, nil
+}
+
 type rootedEntryVerificationSink struct {
 	content *rootedContentHashSink
 	spec    EntrySpec
@@ -146,6 +284,105 @@ type rootedEntryVerificationSink struct {
 	recordMode    fs.FileMode
 	recordPresent bool
 	recordFailure error
+}
+
+type rootedVerifiedFileSink struct {
+	entry        *rootedEntryVerificationSink
+	contentPath  string
+	maximumBytes int
+	capture      bool
+
+	content []byte
+	mode    fs.FileMode
+	seen    bool
+	failure error
+}
+
+func newRootedVerifiedFileSink(
+	ctx context.Context,
+	spec EntrySpec,
+	maximumBytes int,
+	capture bool,
+) *rootedVerifiedFileSink {
+	return &rootedVerifiedFileSink{
+		entry:        newRootedEntryVerificationSink(ctx, spec),
+		contentPath:  spec.contentPath,
+		maximumBytes: maximumBytes,
+		capture:      capture,
+	}
+}
+
+func (sink *rootedVerifiedFileSink) VisitRoot(mode fs.FileMode) error {
+	return sink.entry.VisitRoot(mode)
+}
+
+func (sink *rootedVerifiedFileSink) VisitDirectory(
+	relative mutationfs.TreeRelativePath,
+	mode fs.FileMode,
+) error {
+	return sink.entry.VisitDirectory(relative, mode)
+}
+
+func (sink *rootedVerifiedFileSink) VisitRegularFile(
+	relative mutationfs.TreeRelativePath,
+	mode fs.FileMode,
+	size int64,
+	content io.Reader,
+) error {
+	if relative.Path() != sink.contentPath {
+		return sink.entry.VisitRegularFile(relative, mode, size, content)
+	}
+	if sink.seen {
+		sink.failure = fmt.Errorf("cache file %q appears more than once", sink.contentPath)
+	}
+	sink.seen = true
+	sink.mode = mode.Perm()
+	if size > int64(sink.maximumBytes) {
+		return &VerifiedFileLimitError{
+			maximum:  int64(sink.maximumBytes),
+			observed: size,
+		}
+	}
+	if !sink.capture {
+		return sink.entry.VisitRegularFile(relative, mode, size, content)
+	}
+
+	var captured bytes.Buffer
+	if err := sink.entry.VisitRegularFile(
+		relative,
+		mode,
+		size,
+		io.TeeReader(content, &captured),
+	); err != nil {
+		return err
+	}
+	if int64(captured.Len()) != size {
+		return fmt.Errorf(
+			"captured cache file %q has %d bytes, want %d",
+			sink.contentPath,
+			captured.Len(),
+			size,
+		)
+	}
+	sink.content = captured.Bytes()
+	return nil
+}
+
+func (sink *rootedVerifiedFileSink) result() (VerifiedFile, error) {
+	_, _, kind, err := sink.entry.result()
+	if err != nil {
+		return VerifiedFile{}, err
+	}
+	if sink.failure != nil {
+		return VerifiedFile{}, sink.failure
+	}
+	if !sink.seen || kind != artifact.ArtifactKindFile {
+		return VerifiedFile{}, fmt.Errorf("cache content path %q is not a regular file", sink.contentPath)
+	}
+	return VerifiedFile{
+		content: bytes.Clone(sink.content),
+		mode:    sink.mode,
+	}, nil
 }
 
 func newRootedEntryVerificationSink(
@@ -232,8 +469,11 @@ func (sink *rootedEntryVerificationSink) result() (
 	if !bytes.Equal(sink.record, canonical) {
 		return false, "", "", fmt.Errorf("completion record is not canonical")
 	}
-	if err := record.validate(sink.spec); err != nil {
+	if err := record.validateOwnership(sink.spec); err != nil {
 		return false, "", "", err
+	}
+	if err := record.validate(sink.spec); err != nil {
+		return true, "", "", err
 	}
 
 	contentHash, contentKind, err := sink.content.result()

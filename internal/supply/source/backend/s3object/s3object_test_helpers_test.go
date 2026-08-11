@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
@@ -173,6 +175,47 @@ func mustS3SourceID(t *testing.T, sourceSpec sourcepkg.Source) artifact.SourceID
 	}
 
 	return sourceID
+}
+
+func mustCaptureS3CacheRoot(t testing.TB, resolver Resolver) *rootedpath.CapturedRoot {
+	t.Helper()
+	root, err := resolver.captureCacheRoot(context.Background())
+	if err != nil {
+		t.Fatalf("captureCacheRoot returned error: %v", err)
+	}
+	return root
+}
+
+func holdImmutableLookupLock(
+	t *testing.T,
+	resolver Resolver,
+	identity immutableLookupIdentity,
+) func() {
+	t.Helper()
+	root := mustCaptureS3CacheRoot(t, resolver)
+	acquired := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan error, 1)
+	go func() {
+		lockErr := resolver.state.immutableIndex.doRooted(
+			context.Background(),
+			root,
+			identity,
+			func() error {
+				close(acquired)
+				<-release
+				return nil
+			},
+		)
+		done <- errors.Join(lockErr, root.Close())
+	}()
+	waitForS3TestSignal(t, acquired, "immutable lookup lock acquisition")
+	return func() {
+		close(release)
+		if err := <-done; err != nil {
+			t.Errorf("release immutable lookup lock: %v", err)
+		}
+	}
 }
 
 func assertNoS3TempEntries(t *testing.T, artifactParent string) {

@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	sourcecache "github.com/isty2e/daem/internal/supply/source/cache"
@@ -135,26 +137,30 @@ func decodeImmutableLookupRecord(content []byte) (immutableLookupRecord, error) 
 }
 
 type immutableLookupIndex struct {
-	root   string
-	locker sourcecache.Locker
+	root         string
+	relativeRoot string
+	locker       sourcecache.Locker
 }
 
 func newImmutableLookupIndex(cacheRoot string) immutableLookupIndex {
 	return immutableLookupIndex{
-		root:   filepath.Join(cacheRoot, "indexes", "s3-immutable"),
-		locker: sourcecache.NewLocker(filepath.Join(cacheRoot, "locks", "s3-immutable")),
+		root:         filepath.Join(cacheRoot, "indexes", "s3-immutable"),
+		relativeRoot: path.Join("indexes", "s3-immutable"),
+		locker:       sourcecache.NewLocker(filepath.Join(cacheRoot, "locks", "s3-immutable")),
 	}
 }
 
-func (index immutableLookupIndex) acquire(
+func (index immutableLookupIndex) doRooted(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	identity immutableLookupIdentity,
-) (*sourcecache.Lock, error) {
+	fn func() error,
+) error {
 	key, err := identity.key()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return index.locker.Acquire(ctx, key)
+	return index.locker.DoRooted(ctx, cacheRoot, key, fn)
 }
 
 func (index immutableLookupIndex) entryRoot(identity immutableLookupIdentity) (string, error) {
@@ -165,15 +171,24 @@ func (index immutableLookupIndex) entryRoot(identity immutableLookupIdentity) (s
 	return filepath.Join(index.root, key.PathComponent()), nil
 }
 
+func (index immutableLookupIndex) entryRelativeRoot(identity immutableLookupIdentity) (string, error) {
+	key, err := identity.key()
+	if err != nil {
+		return "", err
+	}
+	return path.Join(index.relativeRoot, key.PathComponent()), nil
+}
+
 func (index immutableLookupIndex) read(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	identity immutableLookupIdentity,
 ) (immutableLookupRecord, bool, error) {
 	key, err := identity.key()
 	if err != nil {
 		return immutableLookupRecord{}, false, err
 	}
-	entryRoot, err := index.entryRoot(identity)
+	entryRoot, err := index.entryRelativeRoot(identity)
 	if err != nil {
 		return immutableLookupRecord{}, false, err
 	}
@@ -181,7 +196,13 @@ func (index immutableLookupIndex) read(
 	if err != nil {
 		return immutableLookupRecord{}, false, err
 	}
-	verifiedFile, found, err := sourcecache.ReadVerifiedFile(ctx, entryRoot, spec, maximumLookupRecordBytes)
+	verifiedFile, found, err := sourcecache.ReadVerifiedFileRooted(
+		ctx,
+		cacheRoot,
+		entryRoot,
+		spec,
+		maximumLookupRecordBytes,
+	)
 	if err != nil || !found {
 		return immutableLookupRecord{}, false, err
 	}
@@ -204,6 +225,7 @@ func (index immutableLookupIndex) read(
 
 func (index immutableLookupIndex) publish(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	identity immutableLookupIdentity,
 	record immutableLookupRecord,
 ) error {
@@ -223,11 +245,11 @@ func (index immutableLookupIndex) publish(
 	if err != nil {
 		return err
 	}
-	entryRoot, err := index.entryRoot(identity)
+	entryRoot, err := index.entryRelativeRoot(identity)
 	if err != nil {
 		return err
 	}
-	_, err = sourcecache.PublishDirectoryOnce(ctx, entryRoot, spec, func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+	_, _, _, err = sourcecache.PublishDirectoryOnceRooted(ctx, cacheRoot, entryRoot, spec, func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
 		recordPath := filepath.Join(tempRoot, immutableLookupRecordName)
 		if err := os.WriteFile(recordPath, content, 0o600); err != nil {
 			return "", "", fmt.Errorf("write immutable S3 lookup record: %w", err)
@@ -240,10 +262,14 @@ func (index immutableLookupIndex) publish(
 	return err
 }
 
-func (index immutableLookupIndex) retire(ctx context.Context, identity immutableLookupIdentity) error {
-	entryRoot, err := index.entryRoot(identity)
+func (index immutableLookupIndex) retire(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	identity immutableLookupIdentity,
+) error {
+	entryRoot, err := index.entryRelativeRoot(identity)
 	if err != nil {
 		return err
 	}
-	return sourcecache.RetireDirectory(ctx, entryRoot)
+	return sourcecache.RetireDirectoryRooted(ctx, cacheRoot, entryRoot)
 }

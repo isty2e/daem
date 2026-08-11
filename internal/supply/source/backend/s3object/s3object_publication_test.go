@@ -85,7 +85,7 @@ func TestResolveRebuildsPoisonedSameKeyFinalEntry(t *testing.T) {
 	}
 }
 
-func TestResolveRecoversStalePartialFinalEntry(t *testing.T) {
+func TestResolveRejectsUnownedPartialFinalEntry(t *testing.T) {
 	body := []byte("recover\n")
 	client := &fakeS3Client{body: body, versionID: "v1"}
 	resolver, err := newResolverWithClient(t.TempDir(), client)
@@ -103,19 +103,10 @@ func TestResolveRecoversStalePartialFinalEntry(t *testing.T) {
 		t.Fatalf("WriteFile returned error: %v", err)
 	}
 
-	resolved, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
-	if err != nil {
-		t.Fatalf("Resolve returned error: %v", err)
+	if _, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions); err == nil {
+		t.Fatal("Resolve succeeded with an unowned partial final entry")
 	}
-	if !s3EntryExists(entryRoot) {
-		t.Fatalf("final entry %q was not published", entryRoot)
-	}
-	if _, err := os.Lstat(filepath.Join(entryRoot, "partial.txt")); !os.IsNotExist(err) {
-		t.Fatalf("partial file exists or stat failed unexpectedly: %v", err)
-	}
-	if got := s3ResolutionContentPath(resolver, resolved); got != filepath.Join(entryRoot, "content") {
-		t.Fatalf("content path = %q, want rebuilt final content", got)
-	}
+	assertFileContent(t, filepath.Join(entryRoot, "partial.txt"), []byte("partial\n"))
 }
 
 func TestResolveBodyReadErrorCleansTemp(t *testing.T) {

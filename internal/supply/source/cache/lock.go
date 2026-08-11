@@ -16,6 +16,10 @@ import (
 
 const defaultLockPollInterval = 10 * time.Millisecond
 
+// ErrRootedLockAuthority classifies failure to establish a descriptor-rooted
+// lock namespace. Callers must not demote it to an unlocked cache operation.
+var ErrRootedLockAuthority = errors.New("rooted cache lock authority unavailable")
+
 // Locker serializes exact-key cache mutations across processes using persistent
 // OS advisory-lock records.
 type Locker struct {
@@ -100,19 +104,26 @@ func (locker Locker) acquireRooted(
 		return nil, fmt.Errorf("cache lock root is required for key %q", key)
 	}
 	if root == nil {
-		return nil, fmt.Errorf("rooted cache lock authority is required for key %q", key)
+		return nil, fmt.Errorf(
+			"%w: cache root authority is required for key %q",
+			ErrRootedLockAuthority,
+			key,
+		)
 	}
 	authority, err := root.Authority()
 	if err != nil {
-		return nil, err
+		return nil, rootedLockAuthorityFailure(key, "capture cache root authority", err)
 	}
 	relativeRoot, err := filepath.Rel(authority.PhysicalRoot(), locker.root)
-	if err != nil ||
-		filepath.IsAbs(relativeRoot) ||
+	if err != nil {
+		return nil, rootedLockAuthorityFailure(key, "relativize cache lock root", err)
+	}
+	if filepath.IsAbs(relativeRoot) ||
 		relativeRoot == ".." ||
 		strings.HasPrefix(relativeRoot, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf(
-			"cache lock root %q is outside retained cache root %q",
+			"%w: cache lock root %q is outside retained cache root %q",
+			ErrRootedLockAuthority,
 			locker.root,
 			authority.PhysicalRoot(),
 		)
@@ -123,26 +134,50 @@ func (locker Locker) acquireRooted(
 	}
 	relative, err := rootedpath.NewRelativeDestination(filepath.ToSlash(lockRelative))
 	if err != nil {
-		return nil, fmt.Errorf("bind rooted cache lock %q: %w", key, err)
+		return nil, rootedLockAuthorityFailure(key, "validate cache lock destination", err)
 	}
 	destination, err := authority.Bind(relative)
 	if err != nil {
-		return nil, err
+		return nil, rootedLockAuthorityFailure(key, "bind cache lock destination", err)
 	}
 	capability, err := root.Acquire(destination)
 	if err != nil {
-		return nil, err
+		return nil, rootedLockAuthorityFailure(key, "acquire cache lock destination", err)
 	}
 	lockPath, err := destination.LexicalPath()
 	if err != nil {
 		_ = capability.Close()
-		return nil, err
+		return nil, rootedLockAuthorityFailure(key, "project cache lock path", err)
 	}
 	lockFile, err := acquireRootedAdvisoryLock(ctx, capability, locker.pollInterval)
 	if err != nil {
-		return nil, fmt.Errorf("acquire rooted cache lock %q at %q: %w", key, lockPath, err)
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, fmt.Errorf(
+				"wait for rooted cache lock %q at %q: %w",
+				key,
+				lockPath,
+				contextErr,
+			)
+		}
+		return nil, fmt.Errorf(
+			"%w for %q at %q: %w",
+			ErrRootedLockAuthority,
+			key,
+			lockPath,
+			err,
+		)
 	}
 	return &Lock{path: lockPath, file: lockFile}, nil
+}
+
+func rootedLockAuthorityFailure(key Key, action string, cause error) error {
+	return fmt.Errorf(
+		"%w: %s for %q: %w",
+		ErrRootedLockAuthority,
+		action,
+		key,
+		cause,
+	)
 }
 
 // Do runs fn while holding key's advisory lock.

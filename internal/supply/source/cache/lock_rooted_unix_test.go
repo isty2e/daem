@@ -129,6 +129,26 @@ func TestRootedLockerRejectsReboundLockBeforeOperation(t *testing.T) {
 	}
 }
 
+func TestRootedLockerClassifiesAuthorityEstablishmentFailures(t *testing.T) {
+	rootPath := t.TempDir()
+	root := mustCaptureCacheRoot(t, rootPath)
+	defer root.Close()
+	key := mustKey(t, "rooted-authority", "outside")
+	locker := NewLocker(filepath.Join(t.TempDir(), "locks"))
+	called := false
+
+	err := locker.DoRooted(t.Context(), root, key, func() error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, ErrRootedLockAuthority) {
+		t.Fatalf("DoRooted error = %v, want rooted lock authority failure", err)
+	}
+	if called {
+		t.Fatal("DoRooted ran the operation without a confined lock namespace")
+	}
+}
+
 func physicalTestRoot(t *testing.T, root string) string {
 	t.Helper()
 	physical, err := filepath.EvalSymlinks(root)
