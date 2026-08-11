@@ -279,11 +279,15 @@ input allowance.
 | Decompressed tar stream | 768 MiB |
 | Total extracted regular-file bytes | 512 MiB |
 | One regular file | 128 MiB |
-| Logical entries | 100,000 |
+| Logical archive entries | 100,000 |
+| Extracted files and directories | 100,000 |
 | Canonical path | 4,096 bytes and 64 components |
 
 Source-cache wrapper directories and completion metadata have separate reserved
 capacity and do not consume these archive entry, depth, or byte limits.
+Implicit parent directories count toward the extracted-entry limit. Archive
+entries and extracted descendants are limited independently, so duplicate
+logical entries cannot bypass materialized-tree bounds.
 
 Known transport sizes and archive headers are early rejection evidence only.
 Streaming readers and extraction accounting enforce the same limits. Limit
