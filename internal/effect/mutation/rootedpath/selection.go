@@ -22,6 +22,21 @@ func (root *CapturedRoot) bindSelectedEntry(
 	if err := root.ValidateSelection(selectedRoot); err != nil {
 		return Destination{}, err
 	}
+	return root.bindSelectedEntryAfterValidation(selectedRoot, selectedPath)
+}
+
+func (root *CapturedRoot) bindSelectedEntryAfterValidation(
+	selectedRoot string,
+	selectedPath string,
+) (Destination, error) {
+	if root == nil {
+		return Destination{}, newFailure(
+			FailureRootUnavailable,
+			selectedRoot,
+			"captured root is required",
+			nil,
+		)
+	}
 	rootPath, err := filepath.Abs(filepath.Clean(selectedRoot))
 	if err != nil {
 		return Destination{}, newFailure(
@@ -64,9 +79,15 @@ func (root *CapturedRoot) bindSelectedEntry(
 	if err != nil {
 		return Destination{}, err
 	}
-	authority, err := root.Authority()
-	if err != nil {
-		return Destination{}, err
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.closed {
+		return Destination{}, newFailure(
+			FailureRootUnavailable,
+			selectedRoot,
+			"captured root is closed",
+			nil,
+		)
 	}
-	return authority.Bind(relative)
+	return root.authority.Bind(relative)
 }

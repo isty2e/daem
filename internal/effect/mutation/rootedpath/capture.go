@@ -1,6 +1,7 @@
 package rootedpath
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -39,11 +40,74 @@ func CaptureRootNoFollow(selectedRoot string) (*CapturedRoot, error) {
 	return captureRoot(selectedRoot, rootSelectionNoFollow)
 }
 
-func captureRoot(selectedRoot string, selectionMode rootSelectionMode) (*CapturedRoot, error) {
-	physicalRoot, platform, object, mount, err := captureRootPlatform(selectedRoot, selectionMode)
+// CaptureRootNoFollowBounded retains one physical root while charging every
+// opened component to the supplied operation budget.
+func CaptureRootNoFollowBounded(
+	selectedRoot string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
 	if err != nil {
 		return nil, err
 	}
+	return captureRootWithTraversal(selectedRoot, rootSelectionNoFollow, traversal)
+}
+
+// CaptureRootBounded resolves one selected root while charging every native
+// component visit to the supplied operation budget.
+func CaptureRootBounded(
+	selectedRoot string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, err
+	}
+	return captureRootWithTraversal(selectedRoot, rootSelectionResolveAlias, traversal)
+}
+
+func captureRootBounded(
+	selectedRoot string,
+	selectionMode rootSelectionMode,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, err
+	}
+	return captureRootWithTraversal(selectedRoot, selectionMode, traversal)
+}
+
+func captureRoot(selectedRoot string, selectionMode rootSelectionMode) (*CapturedRoot, error) {
+	return captureRootWithTraversal(selectedRoot, selectionMode, nil)
+}
+
+func captureRootWithTraversal(
+	selectedRoot string,
+	selectionMode rootSelectionMode,
+	traversal *physicalTraversal,
+) (*CapturedRoot, error) {
+	physicalRoot, platform, object, mount, err := captureRootPlatform(
+		selectedRoot,
+		selectionMode,
+		traversal,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return newCapturedRoot(physicalRoot, platform, object, mount, selectionMode)
+}
+
+func newCapturedRoot(
+	physicalRoot string,
+	platform capturedRootPlatform,
+	object identityToken,
+	mount mountIdentities,
+	selectionMode rootSelectionMode,
+) (*CapturedRoot, error) {
 	authority, err := newCapturedAuthority(physicalRoot, object, mount)
 	if err != nil {
 		_ = closeCapturedRootPlatform(&platform)
@@ -56,23 +120,102 @@ func captureRoot(selectedRoot string, selectionMode rootSelectionMode) (*Capture
 	}, nil
 }
 
+// PhysicalTraversalBudget charges actual component visits while a selected
+// path is resolved and its physical root is opened. The owner of an operation
+// budget supplies the policy; rootedpath owns where traversal work occurs.
+type PhysicalTraversalBudget interface {
+	AdmitPathComponents(count int) error
+}
+
+// ChildrenExistNoFollow observes one immediate-child pair through one fresh
+// retained-root validation without interpreting names as paths or following
+// symlinks.
+func (root *CapturedRoot) ChildrenExistNoFollow(
+	ctx context.Context,
+	names [2]string,
+	budget PhysicalTraversalBudget,
+) ([2]bool, error) {
+	if root == nil {
+		return [2]bool{}, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
+	}
+	if ctx == nil {
+		return [2]bool{}, fmt.Errorf("root child observation context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return [2]bool{}, err
+	}
+	if budget == nil {
+		return [2]bool{}, fmt.Errorf("root child observation budget is required")
+	}
+	for _, name := range names {
+		if name == "" || name == "." || name == ".." || filepath.Clean(name) != name ||
+			filepath.IsAbs(name) || filepath.Base(name) != name ||
+			strings.IndexFunc(name, isForbiddenPathRune) >= 0 {
+			return [2]bool{}, newFailure(FailureInvalidDestination, name, "immediate child name is invalid", nil)
+		}
+	}
+	if names[0] == names[1] {
+		return [2]bool{}, newFailure(FailureInvalidDestination, names[0], "immediate child name is duplicated", nil)
+	}
+
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.closed {
+		return [2]bool{}, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	validationVisits, err := capturedRootValidationPathComponents(&root.platform)
+	if err != nil {
+		return [2]bool{}, err
+	}
+	if err := budget.AdmitPathComponents(validationVisits); err != nil {
+		return [2]bool{}, fmt.Errorf("admit retained-root validation: %w", err)
+	}
+	if err := budget.AdmitPathComponents(len(names)); err != nil {
+		return [2]bool{}, fmt.Errorf("admit retained-root child probes: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return [2]bool{}, err
+	}
+	if err := validateCapturedRootPlatform(&root.platform); err != nil {
+		return [2]bool{}, err
+	}
+	var result [2]bool
+	for index, name := range names {
+		if err := ctx.Err(); err != nil {
+			return [2]bool{}, err
+		}
+		exists, err := capturedRootChildExistsNoFollow(&root.platform, name)
+		if err != nil {
+			return [2]bool{}, err
+		}
+		result[index] = exists
+	}
+	return result, nil
+}
+
+// CaptureDestinationBounded binds one destination while bounding both alias
+// resolution and physical-root opening. The maximum applies to the resolved
+// physical destination, not merely the selected lexical spelling.
+func CaptureDestinationBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, Destination, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, Destination{}, err
+	}
+	return captureDestinationBounded(path, traversal)
+}
+
 // CaptureDestination binds one absolute destination to the nearest existing
 // directory ancestor and retains that ancestor's native witness. Missing
 // descendants remain root-relative names, so later mutation never resolves
 // the selected path through ambient ancestors again.
 func CaptureDestination(path string) (*CapturedRoot, Destination, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, Destination{}, newFailure(FailureInvalidDestination, path, "destination is required", nil)
-	}
-	if strings.IndexFunc(path, isForbiddenPathRune) >= 0 {
-		return nil, Destination{}, newFailure(FailureInvalidDestination, path, "destination contains a control character", nil)
-	}
-	absolute, err := filepath.Abs(filepath.Clean(path))
+	absolute, err := canonicalDestinationPath(path)
 	if err != nil {
-		return nil, Destination{}, newFailure(FailureInvalidDestination, path, "resolve destination", err)
-	}
-	if filepath.Dir(absolute) == absolute {
-		return nil, Destination{}, newFailure(FailureInvalidDestination, absolute, "destination must name an entry below a capturable directory", nil)
+		return nil, Destination{}, err
 	}
 
 	ancestor := filepath.Dir(absolute)
@@ -138,6 +281,35 @@ func (root *CapturedRoot) Authority() (Authority, error) {
 	return root.authority, nil
 }
 
+// AuthorityBounded returns retained authority after charging the complete
+// validation chain to the caller's operation budget.
+func (root *CapturedRoot) AuthorityBounded(
+	budget PhysicalTraversalBudget,
+) (Authority, error) {
+	if root == nil {
+		return Authority{}, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
+	}
+	if budget == nil {
+		return Authority{}, fmt.Errorf("captured root authority budget is required")
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.closed {
+		return Authority{}, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	visits, err := capturedRootValidationPathComponents(&root.platform)
+	if err != nil {
+		return Authority{}, err
+	}
+	if err := budget.AdmitPathComponents(visits); err != nil {
+		return Authority{}, fmt.Errorf("admit captured root validation: %w", err)
+	}
+	if err := validateCapturedRootPlatform(&root.platform); err != nil {
+		return Authority{}, err
+	}
+	return root.authority, nil
+}
+
 // ValidateSelection verifies that selectedRoot still resolves to the physical
 // root incarnation retained by this witness.
 func (root *CapturedRoot) ValidateSelection(selectedRoot string) error {
@@ -145,20 +317,63 @@ func (root *CapturedRoot) ValidateSelection(selectedRoot string) error {
 	if err != nil {
 		return err
 	}
-	return validateSelectionAgainstAuthority(expected, selectedRoot, root.selectionMode)
+	return validateSelectionAgainstAuthority(expected, selectedRoot, root.selectionMode, 0, nil)
+}
+
+// ValidateSelectionBounded verifies one selected root while charging every
+// physical traversal to the caller's operation budget.
+func (root *CapturedRoot) ValidateSelectionBounded(
+	selectedRoot string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) error {
+	if budget == nil {
+		return fmt.Errorf("selected root validation budget is required")
+	}
+	expected, err := root.AuthorityBounded(budget)
+	if err != nil {
+		return err
+	}
+	return validateSelectionAgainstAuthority(
+		expected,
+		selectedRoot,
+		root.selectionMode,
+		maximumPhysicalDepth,
+		budget,
+	)
 }
 
 func validateSelectionAgainstAuthority(
 	expected Authority,
 	selectedRoot string,
 	selectionMode rootSelectionMode,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
 ) error {
-	current, err := captureRoot(selectedRoot, selectionMode)
+	var (
+		current *CapturedRoot
+		err     error
+	)
+	if budget == nil {
+		current, err = captureRoot(selectedRoot, selectionMode)
+	} else {
+		current, err = captureRootBounded(
+			selectedRoot,
+			selectionMode,
+			maximumPhysicalDepth,
+			budget,
+		)
+	}
 	if err != nil {
 		return err
 	}
 	defer current.Close()
-	observed, err := current.Authority()
+	var observed Authority
+	if budget == nil {
+		observed, err = current.Authority()
+	} else {
+		observed, err = current.AuthorityBounded(budget)
+	}
 	if err != nil {
 		return err
 	}
@@ -193,6 +408,71 @@ func validateSelectionAgainstAuthority(
 // captured root. The returned capability remains independent of later root
 // witness closure.
 func (root *CapturedRoot) Acquire(destination Destination) (CommitCapability, error) {
+	return root.acquire(destination, 0, nil)
+}
+
+// AcquireBounded issues one capability whose root validation and every later
+// destination-bound storage operation consume the caller's operation budget.
+func (root *CapturedRoot) AcquireBounded(
+	destination Destination,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (CommitCapability, error) {
+	if maximumPhysicalDepth <= 0 {
+		return nil, fmt.Errorf("commit capability maximum physical depth must be positive")
+	}
+	if budget == nil {
+		return nil, fmt.Errorf("captured root acquisition budget is required")
+	}
+	return root.acquire(destination, maximumPhysicalDepth, budget)
+}
+
+// ReserveDestinationAccess charges the exact path work later consumed by one
+// AcquireBounded plus one destination-bound filesystem operation. It performs
+// no filesystem I/O and grants no capability.
+func (root *CapturedRoot) ReserveDestinationAccess(
+	destination Destination,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) error {
+	if root == nil {
+		return newFailure(FailureRootUnavailable, "", "captured root is required", nil)
+	}
+	if budget == nil {
+		return fmt.Errorf("destination access reservation budget is required")
+	}
+	if err := destination.Validate(); err != nil {
+		return err
+	}
+
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.closed {
+		return newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	if !root.authority.Equal(destination.root) {
+		return newFailure(
+			FailureInvalidDestination,
+			destination.relative.value,
+			"destination belongs to a different root authority",
+			nil,
+		)
+	}
+	visits, err := capturedRootValidationPathComponents(&root.platform)
+	if err != nil {
+		return err
+	}
+	if err := budget.AdmitPathComponents(visits * 2); err != nil {
+		return fmt.Errorf("reserve captured root capability acquisition: %w", err)
+	}
+	return ChargeDestinationPath(destination, maximumPhysicalDepth, budget)
+}
+
+func (root *CapturedRoot) acquire(
+	destination Destination,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (CommitCapability, error) {
 	if root == nil {
 		return nil, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
 	}
@@ -213,6 +493,15 @@ func (root *CapturedRoot) Acquire(destination Destination) (CommitCapability, er
 			nil,
 		)
 	}
+	if budget != nil {
+		visits, err := capturedRootValidationPathComponents(&root.platform)
+		if err != nil {
+			return nil, err
+		}
+		if err := budget.AdmitPathComponents(visits * 2); err != nil {
+			return nil, fmt.Errorf("admit captured root capability acquisition: %w", err)
+		}
+	}
 	if err := validateCapturedRootPlatform(&root.platform); err != nil {
 		return nil, err
 	}
@@ -220,7 +509,12 @@ func (root *CapturedRoot) Acquire(destination Destination) (CommitCapability, er
 	if err != nil {
 		return nil, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "duplicate captured root witness", err)
 	}
-	capability := &commitCapability{destination: destination, platform: platform}
+	capability := &commitCapability{
+		destination:          destination,
+		platform:             platform,
+		maximumPhysicalDepth: maximumPhysicalDepth,
+		budget:               budget,
+	}
 	if err := validateCapturedRootPlatform(&capability.platform); err != nil {
 		_ = capability.Close()
 		return nil, err
@@ -232,7 +526,18 @@ func (root *CapturedRoot) Acquire(destination Destination) (CommitCapability, er
 // from the captured root. The capability remains independent of later root
 // witness closure.
 func (root *CapturedRoot) AcquireWorkingDirectory() (WorkingDirectoryCapability, error) {
-	return root.acquireWorkingDirectory("")
+	return root.acquireWorkingDirectory("", nil)
+}
+
+// AcquireWorkingDirectoryBounded issues a root-directory capability after
+// charging both retained-root validation passes to the operation budget.
+func (root *CapturedRoot) AcquireWorkingDirectoryBounded(
+	budget PhysicalTraversalBudget,
+) (WorkingDirectoryCapability, error) {
+	if budget == nil {
+		return nil, fmt.Errorf("working-directory acquisition budget is required")
+	}
+	return root.acquireWorkingDirectory("", budget)
 }
 
 // AcquireSelectedWorkingDirectory issues a process-directory capability that
@@ -241,10 +546,13 @@ func (root *CapturedRoot) AcquireSelectedWorkingDirectory(selectedRoot string) (
 	if err := root.ValidateSelection(selectedRoot); err != nil {
 		return nil, err
 	}
-	return root.acquireWorkingDirectory(selectedRoot)
+	return root.acquireWorkingDirectory(selectedRoot, nil)
 }
 
-func (root *CapturedRoot) acquireWorkingDirectory(selectedRoot string) (WorkingDirectoryCapability, error) {
+func (root *CapturedRoot) acquireWorkingDirectory(
+	selectedRoot string,
+	budget PhysicalTraversalBudget,
+) (WorkingDirectoryCapability, error) {
 	if root == nil {
 		return nil, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
 	}
@@ -252,6 +560,15 @@ func (root *CapturedRoot) acquireWorkingDirectory(selectedRoot string) (WorkingD
 	defer root.mu.Unlock()
 	if root.closed {
 		return nil, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	if budget != nil {
+		visits, err := capturedRootValidationPathComponents(&root.platform)
+		if err != nil {
+			return nil, err
+		}
+		if err := budget.AdmitPathComponents(visits * 2); err != nil {
+			return nil, fmt.Errorf("admit working-directory capability acquisition: %w", err)
+		}
 	}
 	if err := validateCapturedRootPlatform(&root.platform); err != nil {
 		return nil, err
@@ -289,10 +606,12 @@ func (root *CapturedRoot) Close() error {
 }
 
 type commitCapability struct {
-	mu          sync.Mutex
-	destination Destination
-	platform    capturedRootPlatform
-	closed      bool
+	mu                   sync.Mutex
+	destination          Destination
+	platform             capturedRootPlatform
+	maximumPhysicalDepth int
+	budget               PhysicalTraversalBudget
+	closed               bool
 }
 
 type workingDirectoryCapability struct {
@@ -314,11 +633,38 @@ func (capability *workingDirectoryCapability) Validate() error {
 }
 
 func (capability *workingDirectoryCapability) OpenDirectory() (*os.File, error) {
+	return capability.openDirectory(nil)
+}
+
+func (capability *workingDirectoryCapability) OpenDirectoryBounded(
+	budget PhysicalTraversalBudget,
+) (*os.File, error) {
+	if budget == nil {
+		return nil, fmt.Errorf("working-directory open budget is required")
+	}
+	return capability.openDirectory(budget)
+}
+
+func (capability *workingDirectoryCapability) openDirectory(
+	budget PhysicalTraversalBudget,
+) (*os.File, error) {
 	if capability == nil {
 		return nil, newFailure(FailureRootUnavailable, "", "working-directory capability is required", nil)
 	}
 	capability.mu.Lock()
 	defer capability.mu.Unlock()
+	if budget != nil {
+		if capability.selectedRoot != "" {
+			return nil, fmt.Errorf("bounded working-directory open does not admit a selected-root re-resolution")
+		}
+		visits, err := capturedRootValidationPathComponents(&capability.platform)
+		if err != nil {
+			return nil, err
+		}
+		if err := budget.AdmitPathComponents(visits); err != nil {
+			return nil, fmt.Errorf("admit working-directory open: %w", err)
+		}
+	}
 	if err := capability.validateLocked(); err != nil {
 		return nil, err
 	}
@@ -369,6 +715,8 @@ func (capability *workingDirectoryCapability) validateLocked() error {
 			capability.authority,
 			capability.selectedRoot,
 			capability.selectionMode,
+			0,
+			nil,
 		)
 	}
 	return nil
@@ -396,6 +744,15 @@ func (capability *commitCapability) OpenRootDirectory() (*os.File, error) {
 	}
 	capability.mu.Lock()
 	defer capability.mu.Unlock()
+	if capability.budget != nil {
+		if err := ChargeDestinationPath(
+			capability.destination,
+			capability.maximumPhysicalDepth,
+			capability.budget,
+		); err != nil {
+			return nil, fmt.Errorf("admit rooted destination operation: %w", err)
+		}
+	}
 	if err := capability.validateLocked(); err != nil {
 		return nil, err
 	}

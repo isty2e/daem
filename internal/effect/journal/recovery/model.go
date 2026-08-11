@@ -6,6 +6,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -13,38 +14,50 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-// ManifestRootProvenance is the wire-neutral physical root identity recorded by
-// every journal. It never grants current filesystem authority.
-type ManifestRootProvenance struct {
+// RootProvenance is wire-neutral physical root identity evidence. It never
+// grants current filesystem authority.
+type RootProvenance struct {
 	physicalRoot      string
 	objectFingerprint string
 	mountFingerprint  string
 }
 
-// NewManifestRootProvenance constructs validated canonical root provenance from
-// an already validated persistence or retained-authority boundary.
-func NewManifestRootProvenance(physicalRoot string, objectFingerprint string, mountFingerprint string) (ManifestRootProvenance, error) {
-	provenance := ManifestRootProvenance{
+// NewRootProvenance constructs canonical evidence from an already validated
+// persistence or retained-authority boundary.
+func NewRootProvenance(physicalRoot string, objectFingerprint string, mountFingerprint string) (RootProvenance, error) {
+	provenance := RootProvenance{
 		physicalRoot:      physicalRoot,
 		objectFingerprint: objectFingerprint,
 		mountFingerprint:  mountFingerprint,
 	}
 	if err := provenance.validate(); err != nil {
-		return ManifestRootProvenance{}, fmt.Errorf("manifest root provenance requires physical root, object fingerprint, and mount fingerprint")
+		return RootProvenance{}, fmt.Errorf("root provenance requires physical root, object fingerprint, and mount fingerprint")
 	}
 	return provenance, nil
 }
 
-func (provenance ManifestRootProvenance) validate() error {
+func (provenance RootProvenance) validate() error {
 	if provenance.physicalRoot == "" || provenance.objectFingerprint == "" || provenance.mountFingerprint == "" {
-		return fmt.Errorf("manifest root provenance requires physical root, object fingerprint, and mount fingerprint")
+		return fmt.Errorf("root provenance requires physical root, object fingerprint, and mount fingerprint")
 	}
 	return nil
 }
 
-// Equal reports whether two provenance facts name the same physical root.
-func (provenance ManifestRootProvenance) Equal(other ManifestRootProvenance) bool {
+func (provenance RootProvenance) equal(other RootProvenance) bool {
 	return provenance == other
+}
+
+// PhysicalRoot returns the canonical physical root spelling in the evidence.
+func (provenance RootProvenance) PhysicalRoot() string { return provenance.physicalRoot }
+
+// ObjectFingerprint returns opaque durable object evidence.
+func (provenance RootProvenance) ObjectFingerprint() string {
+	return provenance.objectFingerprint
+}
+
+// MountFingerprint returns opaque durable mount evidence.
+func (provenance RootProvenance) MountFingerprint() string {
+	return provenance.mountFingerprint
 }
 
 // Authority is the complete canonical durable journal authority. Selection
@@ -53,11 +66,12 @@ type Authority struct {
 	operationID        string
 	operationDir       string
 	entries            []Entry
+	removalIntents     []RemovalIntent
 	statefileBefore    durable.Snapshot
 	statefileAfter     durable.Snapshot
 	claimTransitions   []ownershipmutation.ClaimTransition
 	provisionalIntents []outputownership.ProvisionalAcquireIntent
-	manifestProvenance ManifestRootProvenance
+	manifestProvenance RootProvenance
 	fingerprint        string
 }
 
@@ -71,8 +85,9 @@ func NewAuthority(
 	statefileAfter durable.Snapshot,
 	claimTransitions []ownershipmutation.ClaimTransition,
 	provisionalIntents []outputownership.ProvisionalAcquireIntent,
-	manifestProvenance ManifestRootProvenance,
+	manifestProvenance RootProvenance,
 	fingerprint string,
+	removalIntents []RemovalIntent,
 ) (Authority, error) {
 	if operationID == "" || operationDir == "" || fingerprint == "" {
 		return Authority{}, fmt.Errorf("recovery authority requires operation identity, directory, and fingerprint")
@@ -95,6 +110,32 @@ func NewAuthority(
 			return Authority{}, fmt.Errorf("recovery authority provisional intents[%d]: %w", index, err)
 		}
 	}
+	if len(removalIntents) > MaximumRemovalIntents {
+		return Authority{}, fmt.Errorf(
+			"recovery authority removal intent count %d exceeds operation maximum %d",
+			len(removalIntents),
+			MaximumRemovalIntents,
+		)
+	}
+	removalIntents = append([]RemovalIntent(nil), removalIntents...)
+	removalRelations := make(map[removalDemandKey]struct{}, len(removalIntents))
+	removalNames := make(map[string]struct{}, len(removalIntents)*2)
+	for index, intent := range removalIntents {
+		if err := intent.validate(); err != nil {
+			return Authority{}, fmt.Errorf("recovery authority removal intents[%d]: %w", index, err)
+		}
+		relation := removalDemandKey{scope: intent.Scope(), destination: intent.Destination()}
+		if _, duplicate := removalRelations[relation]; duplicate {
+			return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate relation %q", intent.Destination())
+		}
+		removalRelations[relation] = struct{}{}
+		for _, name := range []string{intent.namespace.names.Residue(), intent.namespace.names.Cleanup()} {
+			if _, duplicate := removalNames[name]; duplicate {
+				return Authority{}, fmt.Errorf("recovery authority removal intents contain duplicate namespace name %q", name)
+			}
+			removalNames[name] = struct{}{}
+		}
+	}
 	if err := manifestProvenance.validate(); err != nil {
 		return Authority{}, fmt.Errorf("recovery authority manifest root: %w", err)
 	}
@@ -102,6 +143,7 @@ func NewAuthority(
 		operationID:        operationID,
 		operationDir:       operationDir,
 		entries:            cloneEntries(entries),
+		removalIntents:     append([]RemovalIntent(nil), removalIntents...),
 		statefileBefore:    statefileBefore,
 		statefileAfter:     statefileAfter,
 		claimTransitions:   append([]ownershipmutation.ClaimTransition(nil), claimTransitions...),
@@ -205,6 +247,7 @@ type BackupEvidence struct {
 	Kind        string
 	ContentHash string
 	Error       string
+	Work        ArtifactWork
 }
 
 // Classification reports whether active journal authority is clean,
@@ -246,6 +289,7 @@ type Action struct {
 	BackupPath          string
 	BackupHash          string
 	BackupKind          string
+	BackupWork          ArtifactWork
 	BeforePathMode      *PermissionMode
 	BeforePathExisted   bool
 	BeforeParentExisted bool
@@ -262,16 +306,18 @@ func (action Action) SubjectID() (topology.SubjectID, bool) {
 // Plan is a pure classification over complete durable authority and fresh
 // evidence.
 type Plan struct {
-	authority      Authority
-	classification Classification
-	actions        []Action
-	guardedActions []Action
+	authority          Authority
+	classification     Classification
+	actions            []Action
+	guardedActions     []Action
+	removalObligations []RemovalCleanupObligation
 }
 
 // Clone returns a disclosure-safe plan copy.
 func (plan Plan) Clone() Plan {
 	plan.actions = cloneActions(plan.actions)
 	plan.guardedActions = cloneActions(plan.guardedActions)
+	plan.removalObligations = slices.Clone(plan.removalObligations)
 	return plan
 }
 
@@ -286,7 +332,113 @@ func (plan Plan) ProvisionalAcquireIntents() []outputownership.ProvisionalAcquir
 	return append([]outputownership.ProvisionalAcquireIntent(nil), plan.authority.provisionalIntents...)
 }
 
-func (plan Plan) Blocked() bool                     { return plan.classification == ClassificationBlocked }
+// RemovalIntents returns complete operation-scoped cleanup authority. Selection
+// never narrows this set.
+func (plan Plan) RemovalIntents() []RemovalIntent {
+	return append([]RemovalIntent(nil), plan.authority.removalIntents...)
+}
+
+// RemovalIntentFor returns the exact intent for one rooted destination relation.
+func (plan Plan) RemovalIntentFor(scope target.Scope, destination output.Destination) (RemovalIntent, bool) {
+	for _, intent := range plan.authority.removalIntents {
+		if intent.Scope() == scope && intent.Destination() == destination {
+			return intent, true
+		}
+	}
+	return RemovalIntent{}, false
+}
+
+// RemovalCleanupObligations returns the complete operation-scoped cleanup
+// basis. Selection never narrows this set; freshly reconciled results are
+// checked against it by RetirementReady.
+func (plan Plan) RemovalCleanupObligations() []RemovalCleanupObligation {
+	return slices.Clone(plan.removalObligations)
+}
+
+// WithRemovalCleanupAssessment replaces pending cleanup obligations with one
+// complete, freshly observed result per durable removal intent. The assessment
+// is disclosure and stale-plan evidence; it grants no mutation authority.
+func (plan Plan) WithRemovalCleanupAssessment(
+	assessed []RemovalCleanupObligation,
+) (Plan, error) {
+	if len(assessed) != len(plan.removalObligations) {
+		return Plan{}, fmt.Errorf(
+			"removal cleanup assessment cardinality %d does not match authority cardinality %d",
+			len(assessed),
+			len(plan.removalObligations),
+		)
+	}
+	for index, actual := range assessed {
+		expected := plan.removalObligations[index]
+		if !expected.SameBasis(actual) {
+			return Plan{}, fmt.Errorf("removal cleanup assessment[%d] changed its authority basis", index)
+		}
+		switch actual.Readiness() {
+		case RemovalCleanupReady, RemovalCleanupBlocked, RemovalCleanupRetry:
+		default:
+			return Plan{}, fmt.Errorf(
+				"removal cleanup assessment[%d] has non-planning readiness %q",
+				index,
+				actual.Readiness(),
+			)
+		}
+	}
+	plan.removalObligations = slices.Clone(assessed)
+	return plan, nil
+}
+
+// RetirementReady reports whether visible convergence and every complete
+// authority cleanup obligation have both been established. The caller must
+// supply the discharged results from the effect-time retirement gate; a plan
+// cannot self-authorize retirement from semantic clean classification alone.
+func (plan Plan) RetirementReady(discharged []RemovalCleanupObligation) bool {
+	if plan.classification != ClassificationCleanBefore && plan.classification != ClassificationCleanAfter {
+		return false
+	}
+	if len(discharged) != len(plan.removalObligations) {
+		return false
+	}
+	type obligationKey struct {
+		scope       target.Scope
+		destination output.Destination
+		residue     string
+		cleanup     string
+	}
+	actualByKey := make(map[obligationKey]RemovalCleanupObligation, len(discharged))
+	for _, actual := range discharged {
+		key := obligationKey{
+			scope: actual.Scope(), destination: actual.Destination(),
+			residue: actual.Names().Residue(), cleanup: actual.Names().Cleanup(),
+		}
+		if _, duplicate := actualByKey[key]; duplicate {
+			return false
+		}
+		actualByKey[key] = actual
+	}
+	for _, expected := range plan.removalObligations {
+		key := obligationKey{
+			scope: expected.Scope(), destination: expected.Destination(),
+			residue: expected.Names().Residue(), cleanup: expected.Names().Cleanup(),
+		}
+		actual, present := actualByKey[key]
+		if !present || actual.Readiness() != RemovalCleanupDischarged || !expected.SameBasis(actual) {
+			return false
+		}
+	}
+	return true
+}
+
+func (plan Plan) Blocked() bool {
+	if plan.classification == ClassificationBlocked {
+		return true
+	}
+	for _, obligation := range plan.removalObligations {
+		if obligation.Readiness() == RemovalCleanupBlocked {
+			return true
+		}
+	}
+	return false
+}
 func (plan Plan) Classification() Classification    { return plan.classification }
 func (plan Plan) OperationID() string               { return plan.authority.operationID }
 func (plan Plan) OperationDir() string              { return plan.authority.operationDir }
@@ -307,6 +459,11 @@ func (plan Plan) HasErrors() bool {
 	if plan.Blocked() {
 		return true
 	}
+	for _, obligation := range plan.removalObligations {
+		if obligation.Readiness() == RemovalCleanupRetry {
+			return true
+		}
+	}
 	for _, action := range plan.actions {
 		if action.Kind == ActionKindError {
 			return true
@@ -317,8 +474,8 @@ func (plan Plan) HasErrors() bool {
 
 // MatchManifestRootProvenance compares fresh retained-root facts without
 // accepting or granting a capability.
-func (plan Plan) MatchManifestRootProvenance(actual ManifestRootProvenance) error {
-	if !plan.authority.manifestProvenance.Equal(actual) {
+func (plan Plan) MatchManifestRootProvenance(actual RootProvenance) error {
+	if !plan.authority.manifestProvenance.equal(actual) {
 		return fmt.Errorf("manifest root provenance changed")
 	}
 	return nil
@@ -333,11 +490,13 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 		plan.classification != other.classification ||
 		!plan.authority.statefileBefore.Equal(other.authority.statefileBefore) ||
 		!plan.authority.statefileAfter.Equal(other.authority.statefileAfter) ||
-		!plan.authority.manifestProvenance.Equal(other.authority.manifestProvenance) ||
+		!plan.authority.manifestProvenance.equal(other.authority.manifestProvenance) ||
 		len(plan.actions) != len(other.actions) ||
 		len(plan.guardedActions) != len(other.guardedActions) ||
 		len(plan.authority.claimTransitions) != len(other.authority.claimTransitions) ||
-		len(plan.authority.provisionalIntents) != len(other.authority.provisionalIntents) {
+		len(plan.authority.provisionalIntents) != len(other.authority.provisionalIntents) ||
+		len(plan.authority.removalIntents) != len(other.authority.removalIntents) ||
+		len(plan.removalObligations) != len(other.removalObligations) {
 		return false
 	}
 	for index := range plan.actions {
@@ -357,6 +516,16 @@ func (plan Plan) SameExecutionAuthority(other Plan) bool {
 	}
 	for index := range plan.authority.provisionalIntents {
 		if !plan.authority.provisionalIntents[index].Equal(other.authority.provisionalIntents[index]) {
+			return false
+		}
+	}
+	for index := range plan.authority.removalIntents {
+		if !plan.authority.removalIntents[index].equal(other.authority.removalIntents[index]) {
+			return false
+		}
+	}
+	for index := range plan.removalObligations {
+		if !plan.removalObligations[index].Equal(other.removalObligations[index]) {
 			return false
 		}
 	}
@@ -389,6 +558,7 @@ func (action Action) sameExecutionAuthority(other Action) bool {
 		action.ContentPath == other.ContentPath && action.ContentKind == other.ContentKind &&
 		action.BackupPath == other.BackupPath && action.BackupHash == other.BackupHash &&
 		action.BackupKind == other.BackupKind && action.ExpectedAfter.Equal(other.ExpectedAfter) &&
+		action.BackupWork.Equal(other.BackupWork) &&
 		aggregateContractsEqual(action.AggregateContract, other.AggregateContract) &&
 		permissionModesEqual(action.BeforePathMode, other.BeforePathMode) &&
 		action.BeforePathExisted == other.BeforePathExisted &&

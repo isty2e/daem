@@ -52,8 +52,40 @@ func (authority *mutationAuthority) bindRecoveryJournal(
 	return nil
 }
 
-func (authority *mutationAuthority) captureActiveJournalAuthority(
+type journalExecutionBasis struct {
+	recordFingerprint string
+	activeAuthority   journal.ActiveJournalAuthority
+}
+
+func newJournalExecutionBasis(
+	recordFingerprint string,
+	activeAuthority journal.ActiveJournalAuthority,
+) (journalExecutionBasis, error) {
+	if recordFingerprint == "" {
+		return journalExecutionBasis{}, fmt.Errorf(
+			"recovery journal record fingerprint is required",
+		)
+	}
+	if err := activeAuthority.Validate(); err != nil {
+		return journalExecutionBasis{}, err
+	}
+	return journalExecutionBasis{
+		recordFingerprint: recordFingerprint,
+		activeAuthority:   activeAuthority,
+	}, nil
+}
+
+func (basis journalExecutionBasis) validate() error {
+	_, err := newJournalExecutionBasis(
+		basis.recordFingerprint,
+		basis.activeAuthority,
+	)
+	return err
+}
+
+func (authority *mutationAuthority) captureJournalExecutionBasis(
 	ctx context.Context,
+	recordFingerprint string,
 ) error {
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
@@ -66,34 +98,52 @@ func (authority *mutationAuthority) captureActiveJournalAuthority(
 	if err != nil {
 		return fmt.Errorf("capture active recovery journal authority: %w", err)
 	}
-	authority.activeJournalAuthority = captured
+	basis, err := newJournalExecutionBasis(recordFingerprint, captured)
+	if err != nil {
+		return fmt.Errorf("build recovery journal execution basis: %w", err)
+	}
+	authority.journalBasis = basis
 	return nil
 }
 
-func (authority *mutationAuthority) setActiveJournalAuthority(
-	active journal.ActiveJournalAuthority,
+func (authority *mutationAuthority) setJournalExecutionBasis(
+	recordFingerprint string,
+	activeAuthority journal.ActiveJournalAuthority,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	if err := active.Validate(); err != nil {
+	basis, err := newJournalExecutionBasis(recordFingerprint, activeAuthority)
+	if err != nil {
 		return err
 	}
-	authority.activeJournalAuthority = active
+	authority.journalBasis = basis
 	return nil
 }
 
-func (authority *mutationAuthority) validateActiveJournalAuthority(
+func (authority *mutationAuthority) validateJournalExecutionBasis(
 	ctx context.Context,
+	plan recovery.Plan,
+	phase string,
 ) error {
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	return journal.ValidateActiveJournalAuthority(
+	if err := authority.journalBasis.validate(); err != nil {
+		return fmt.Errorf("recovery journal execution basis is unavailable: %w", err)
+	}
+	if err := journal.ValidateActiveJournalAuthority(
 		ctx,
 		authority.filesystem,
 		authority.recoveryJournal,
-		authority.activeJournalAuthority,
+		authority.journalBasis.activeAuthority,
+	); err != nil {
+		return fmt.Errorf("active recovery journal changed %s: %w", phase, err)
+	}
+	return requireJournalAuthorityFingerprint(
+		authority.journalBasis.recordFingerprint,
+		plan,
+		phase,
 	)
 }
 
@@ -104,10 +154,15 @@ func (authority *mutationAuthority) bindProjectControlEntry(
 	if authority == nil {
 		return nil, fmt.Errorf("project mutation authority is unavailable")
 	}
-	return rootedpath.BindSelectedEntryAuthority(
+	if authority.generalTraversalPhase == nil {
+		return nil, fmt.Errorf("project control traversal authority is unavailable")
+	}
+	return rootedpath.BindSelectedEntryAuthorityBounded(
 		authority.capturedRoot,
 		selectedRoot,
 		path,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
 	)
 }
 
@@ -115,7 +170,11 @@ func (authority *mutationAuthority) validateProjectSelection(selectedRoot string
 	if authority == nil || authority.capturedRoot == nil {
 		return fmt.Errorf("project mutation authority is unavailable")
 	}
-	return authority.capturedRoot.ValidateSelection(selectedRoot)
+	return authority.capturedRoot.ValidateSelectionBounded(
+		selectedRoot,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 }
 
 func (authority *mutationAuthority) commitProjectStatefile(
@@ -174,29 +233,79 @@ func commitRootedControlFile(
 
 func (authority *mutationAuthority) retireActiveJournal(
 	ctx context.Context,
-	paths Paths,
 	plan recovery.Plan,
-	stateCodec durable.SnapshotCodec,
-) (returnErr error) {
+) error {
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery journal retirement authority is unavailable")
 	}
-	if err := authority.validateProjectSelection(paths.ManifestRoot); err != nil {
-		return err
+	if authority.preparedRetirement == nil {
+		return fmt.Errorf("prepared recovery journal retirement is unavailable")
 	}
-	root, err := rootedpath.CaptureRoot(paths.RecoveryDir)
-	if err != nil {
-		return fmt.Errorf("capture recovery root for journal retirement: %w", err)
-	}
-	defer func() {
-		returnErr = errors.Join(returnErr, root.Close())
-	}()
-	return journal.RetireActiveJournal(
+	if err := authority.validateJournalExecutionBasis(
 		ctx,
 		plan,
-		authority.activeJournalAuthority,
-		root,
+		"before removal cleanup",
+	); err != nil {
+		return err
+	}
+	if err := authority.bindRemovalIntents(plan); err != nil {
+		return fmt.Errorf("validate complete removal authority before retirement: %w", err)
+	}
+	if plan.Blocked() || plan.HasErrors() {
+		return fmt.Errorf("recovery journal retirement requires an effect-admissible clean plan")
+	}
+	if classification := plan.Classification(); classification != recovery.ClassificationCleanBefore &&
+		classification != recovery.ClassificationCleanAfter {
+		return fmt.Errorf("recovery journal retirement requires a clean classified plan")
+	}
+	if err := authority.preparedRetirement.AdvanceActiveBasis(
+		ctx,
+		plan,
+		authority.journalBasis.activeAuthority,
+	); err != nil {
+		return fmt.Errorf("advance prepared journal retirement basis: %w", err)
+	}
+	if _, err := authority.cleanupRemovalResidues(ctx, plan); err != nil {
+		return fmt.Errorf("reconcile journaled removal residues before retirement: %w", err)
+	}
+	if err := authority.validateJournalExecutionBasis(
+		ctx,
+		plan,
+		"before journal retirement",
+	); err != nil {
+		return err
+	}
+	if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+		return err
+	}
+	return authority.preparedRetirement.ExecuteActive(ctx, plan)
+}
+
+func (authority *mutationAuthority) prepareActiveJournalRetirement(
+	ctx context.Context,
+	paths Paths,
+	plan recovery.Plan,
+	stateCodec durable.SnapshotCodec,
+) error {
+	if authority == nil || authority.filesystem == nil || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("recovery journal retirement authority is unavailable")
+	}
+	if authority.preparedRetirement != nil {
+		return authority.preparedRetirement.RequireActivePlan(plan)
+	}
+	prepared, err := journal.PrepareActiveJournalRetirement(
+		ctx,
+		plan,
+		authority.journalBasis.activeAuthority,
+		paths.RecoveryDir,
+		recovery.MaximumPhysicalPathDepth,
+		authority.physicalWorkBudget,
 		authority.filesystem,
 		stateCodec,
 	)
+	if err != nil {
+		return err
+	}
+	authority.preparedRetirement = prepared
+	return nil
 }

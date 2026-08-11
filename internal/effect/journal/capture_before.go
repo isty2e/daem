@@ -159,7 +159,7 @@ func acquireRootedJournalCapability(
 	if err != nil {
 		return nil, false, fmt.Errorf("resolve destination %q: %w", destination, err)
 	}
-	capability, present, err := acquireMatchingRootedCapability(destination, resolvedPath, acquire)
+	capability, present, err := acquireMatchingRootedCapability(destination, resolvedPath, acquire, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -341,7 +341,7 @@ func captureExistingRecoveryBeforePath(
 		snapshot, err := filesystem.ReadRegularFileSnapshotUpTo(
 			ctx,
 			commitPath,
-			MaximumRecoveryBackupFileBytes,
+			recovery.MaximumRecoveryBackupFileBytes,
 		)
 		if err != nil {
 			return recovery.BeforePathState{}, backupIndex, fmt.Errorf("read recovery backup for %q: %w", action.Destination, err)

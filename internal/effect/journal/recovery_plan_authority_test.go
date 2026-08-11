@@ -37,7 +37,7 @@ func TestLoadActivePlanRequiresResolverForRootedAuthority(t *testing.T) {
 	resolver := func(output.Destination) (string, error) {
 		return "/unused", nil
 	}
-	capability := func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+	capability := func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 		return nil, false, nil
 	}
 	if _, err := LoadActivePlanWithOptions(

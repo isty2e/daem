@@ -11,6 +11,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/assurance/observe"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/supply/artifact"
@@ -20,6 +21,37 @@ import (
 func hasRootedPathFailureKind(err error, kind rootedpath.FailureKind) bool {
 	var failure *rootedpath.Failure
 	return errors.As(err, &failure) && failure.Kind() == kind
+}
+
+func TestObserveGlobalRecoveryPathPreservesSymlinkTargetThroughRootedFallback(t *testing.T) {
+	root := t.TempDir()
+	hostPath := filepath.Join(root, "current")
+	if err := os.Symlink("nested/target", hostPath); err != nil {
+		t.Fatalf("create global symbolic link: %v", err)
+	}
+	destination, err := output.Parse("~/.daem-test/current")
+	if err != nil {
+		t.Fatalf("parse global destination: %v", err)
+	}
+	observation, err := observeGlobalRecoveryPath(
+		t.Context(),
+		destination.String(),
+		"",
+		nil,
+		hostPath,
+		journalTestFilesystem(),
+		nil,
+		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
+	)
+	if err != nil {
+		t.Fatalf("observe global symbolic link: %v", err)
+	}
+	if observation.Error != "" ||
+		observation.Kind != recovery.PathKindSymlink ||
+		observation.LinkTarget != "nested/target" {
+		t.Fatalf("global symbolic-link observation = %#v, want exact target", observation)
+	}
 }
 
 func TestBuildRecoveryJournalBorrowsProjectRootAndPersistsProvenance(t *testing.T) {
@@ -219,6 +251,46 @@ func TestLoadStateOnlyPlanRejectsReplacedManifestRootBeforeClassification(t *tes
 	}
 }
 
+func TestManifestRecoveryAuthorityAdmitsBudgetBeforeRootObservation(t *testing.T) {
+	base := t.TempDir()
+	manifestRoot := filepath.Join(base, "manifest")
+	if err := os.Mkdir(manifestRoot, 0o700); err != nil {
+		t.Fatalf("create manifest root: %v", err)
+	}
+	captured := mustJournalProjectRoot(t, manifestRoot)
+	authority, err := captured.Authority()
+	if err != nil {
+		t.Fatalf("read captured manifest authority: %v", err)
+	}
+	provenance, err := authority.Provenance()
+	if err != nil {
+		t.Fatalf("derive manifest provenance: %v", err)
+	}
+	if err := captured.Close(); err != nil {
+		t.Fatalf("close captured manifest authority: %v", err)
+	}
+	journal := defaultRecoveryJournal()
+	journal.ManifestRootProvenance = persistedRecoveryRootProvenance(provenance)
+	budget := newRecoveryPathBudget(t)
+	for budget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	}
+	if err := os.Rename(manifestRoot, manifestRoot+"-moved"); err != nil {
+		t.Fatalf("move manifest root: %v", err)
+	}
+	if err := os.Mkdir(manifestRoot, 0o700); err != nil {
+		t.Fatalf("create replacement manifest root: %v", err)
+	}
+
+	_, err = manifestAuthorityForRecovery(
+		Paths{ManifestRoot: manifestRoot},
+		journal,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {
+		t.Fatalf("manifest recovery authority error = %v, want pre-I/O budget rejection", err)
+	}
+}
+
 func TestValidateManifestRootProvenanceIsMandatoryForEveryJournalShape(t *testing.T) {
 	journal := defaultRecoveryJournal()
 	journal.ManifestRootProvenance = recoveryRootProvenance{}
@@ -257,18 +329,22 @@ func TestValidateRecoveryJournalRejectsVersionThree(t *testing.T) {
 }
 
 func TestObserveGlobalRecoveryPathRejectsNilPresentCapability(t *testing.T) {
-	observation := observeGlobalRecoveryPath(
+	observation, err := observeGlobalRecoveryPath(
 		context.Background(),
 		"~/.codex/config.toml",
 		"",
 		nil,
 		"/expected/config.toml",
 		journalTestFilesystem(),
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			return nil, true, nil
 		},
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe nil global capability: %v", err)
+	}
 	if !strings.Contains(observation.Error, "nil retained root authority") {
 		t.Fatalf("observation error = %q, want nil capability refusal", observation.Error)
 	}
@@ -281,19 +357,23 @@ func TestObserveGlobalRecoveryPathRejectsResolverCapabilityMismatch(t *testing.T
 	}
 	defer root.Close()
 
-	observation := observeGlobalRecoveryPath(
+	observation, err := observeGlobalRecoveryPath(
 		context.Background(),
 		"~/.codex/config.toml",
 		"",
 		nil,
 		filepath.Join(t.TempDir(), "different.toml"),
 		journalTestFilesystem(),
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			capability, err := root.Acquire(destination)
 			return capability, true, err
 		},
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe mismatched global capability: %v", err)
+	}
 	if !strings.Contains(observation.Error, "does not match retained authority path") {
 		t.Fatalf("observation error = %q, want resolver/capability mismatch refusal", observation.Error)
 	}

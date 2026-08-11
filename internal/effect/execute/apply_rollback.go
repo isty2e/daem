@@ -20,13 +20,14 @@ func validateApplyRecoveryPrepared(
 	stateCodec durable.SnapshotCodec,
 	codecs aggregate.CodecCatalog,
 ) error {
-	plan, err := loadApplyActivePlanForState(
+	plan, err := loadCapturedJournalPlan(
 		ctx,
 		paths,
 		currentState,
 		authority,
 		stateCodec,
 		codecs,
+		"before host effects",
 	)
 	if err != nil {
 		return err
@@ -43,6 +44,19 @@ func validateApplyRecoveryPrepared(
 				action.Detail,
 			)
 		}
+		for _, obligation := range plan.RemovalCleanupObligations() {
+			if obligation.Readiness() != recovery.RemovalCleanupBlocked &&
+				obligation.Readiness() != recovery.RemovalCleanupRetry {
+				continue
+			}
+			return fmt.Errorf(
+				"captured recovery journal removal cleanup is %s (%s) for %q: %s",
+				obligation.Readiness(),
+				obligation.Reason(),
+				obligation.Destination(),
+				obligation.Detail(),
+			)
+		}
 		return fmt.Errorf("captured recovery journal is blocked by current path or state evidence")
 	}
 	switch plan.Classification() {
@@ -51,6 +65,99 @@ func validateApplyRecoveryPrepared(
 	default:
 		return fmt.Errorf("captured recovery journal classified as %q before host effects", plan.Classification())
 	}
+}
+
+func validateCapturedJournalFingerprint(
+	ctx context.Context,
+	paths Paths,
+	currentState durable.Snapshot,
+	authority *mutationAuthority,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+	phase string,
+) error {
+	_, err := loadCapturedJournalPlan(
+		ctx,
+		paths,
+		currentState,
+		authority,
+		stateCodec,
+		codecs,
+		phase,
+	)
+	return err
+}
+
+func loadCapturedJournalPlan(
+	ctx context.Context,
+	paths Paths,
+	currentState durable.Snapshot,
+	authority *mutationAuthority,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+	phase string,
+) (recovery.Plan, error) {
+	plan, err := loadApplyActivePlanForState(
+		ctx,
+		paths,
+		currentState,
+		authority,
+		stateCodec,
+		codecs,
+	)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	if err := authority.validateJournalExecutionBasis(ctx, plan, phase); err != nil {
+		return recovery.Plan{}, err
+	}
+	return plan, nil
+}
+
+func loadCapturedJournalPlanForStateEntries(
+	ctx context.Context,
+	paths Paths,
+	currentState durable.Snapshot,
+	selected []journal.EntrySelection,
+	authority *mutationAuthority,
+	stateCodec durable.SnapshotCodec,
+	codecs aggregate.CodecCatalog,
+	phase string,
+) (recovery.Plan, error) {
+	plan, err := loadApplyActivePlanForStateEntries(
+		ctx,
+		paths,
+		currentState,
+		selected,
+		authority,
+		stateCodec,
+		codecs,
+	)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	if err := authority.validateJournalExecutionBasis(ctx, plan, phase); err != nil {
+		return recovery.Plan{}, err
+	}
+	return plan, nil
+}
+
+func requireJournalAuthorityFingerprint(
+	expected string,
+	plan recovery.Plan,
+	phase string,
+) error {
+	if expected == "" {
+		return fmt.Errorf("captured recovery journal fingerprint is unavailable")
+	}
+	current, err := plan.JournalAuthorityFingerprint()
+	if err != nil {
+		return fmt.Errorf("fingerprint current recovery journal: %w", err)
+	}
+	if current != expected {
+		return fmt.Errorf("captured recovery journal changed %s", phase)
+	}
+	return nil
 }
 
 func loadApplyActivePlanForState(
@@ -133,19 +240,15 @@ func applyRecoveryErrorWithEvents(
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
 		return fmt.Errorf("%w; select guarded rollback entries failed: %v; recovery journal retained; run: daem recover --dry-run", primary, err)
 	}
-	plan, err := journal.LoadActivePlanForStateEntriesWithOptions(
+	plan, err := loadCapturedJournalPlanForStateEntries(
 		recoveryCtx,
-		paths.journalPaths(),
+		paths,
 		currentState,
 		rollbackEntries,
-		journal.PlanLoadOptions{
-			Filesystem:        authority.filesystem,
-			RootedCapability:  authority.rootedJournalCapability,
-			Resolver:          authority.rootedJournalResolver(authority.lexical),
-			OwnershipRegistry: authority.rootedOwnershipRegistryOption(),
-			Codecs:            codecs,
-			StateCodec:        stateCodec,
-		},
+		authority,
+		stateCodec,
+		codecs,
+		"before guarded rollback",
 	)
 	if err != nil {
 		events.emit(EventRollbackRestoreFailed, EventStageRollbackRestore, nil, err)
@@ -170,7 +273,7 @@ func applyRecoveryErrorWithEvents(
 			)
 		},
 		mutationAuthority:           authority,
-		ActiveJournalAuthority:      authority.activeJournalAuthority,
+		ActiveJournalAuthority:      authority.journalBasis.activeAuthority,
 		ValidateVisibilityAuthority: gate.before,
 		AcceptVisibilityChanges:     gate.after,
 		Resolver:                    authority.lexical,
@@ -183,14 +286,28 @@ func applyRecoveryErrorWithEvents(
 	}
 	events.emit(EventRollbackRestored, EventStageRollbackRestore, nil, nil)
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-		return loadApplyActivePlanForStateEntries(
+		return reloadRecoveryPlanAfterEffects(
 			ctx,
-			paths,
-			currentState,
-			rollbackEntries,
+			plan,
+			RecoveryOptions{
+				Resolver:   authority.lexical,
+				Codecs:     codecs,
+				StateCodec: stateCodec,
+				Filesystem: authority.filesystem,
+				reloadPlan: func(
+					ctx context.Context,
+					loadOptions journal.PlanLoadOptions,
+				) (recovery.Plan, error) {
+					return journal.LoadActivePlanForStateEntriesWithOptions(
+						ctx,
+						paths.journalPaths(),
+						currentState,
+						rollbackEntries,
+						loadOptions,
+					)
+				},
+			},
 			authority,
-			stateCodec,
-			codecs,
 		)
 	}
 	if err := retireRecoveryJournalWithEvents(
@@ -294,6 +411,10 @@ func progressAfterMutationError(err error) hostEffectProgress {
 	if errors.As(err, &indeterminate) {
 		return hostEffectIndeterminate
 	}
+	var removalFailure *rootedRemovalCommitError
+	if errors.As(err, &removalFailure) {
+		return progressAfterCommitOutcome(removalFailure.Outcome(), err)
+	}
 	kind, classified := mutationfs.FailureKindOf(err)
 	if !classified {
 		return hostEffectIndeterminate
@@ -304,6 +425,24 @@ func progressAfterMutationError(err error) hostEffectProgress {
 	case mutationfs.FailureIndeterminateCommit, mutationfs.FailureRetainedResidue:
 		return hostEffectIndeterminate
 	default:
+		return hostEffectIndeterminate
+	}
+}
+
+func progressAfterCommitOutcome(outcome mutationfs.CommitOutcome, err error) hostEffectProgress {
+	if err == nil {
+		return hostEffectExpectedAfter
+	}
+	switch outcome.State() {
+	case mutationfs.CommitOutcomeUncommitted:
+		return hostEffectNotStarted
+	case mutationfs.CommitOutcomeIndeterminate, mutationfs.CommitOutcomeRetainedRecoverable,
+		mutationfs.CommitOutcomeComplete:
+		return hostEffectIndeterminate
+	default:
+		// A rooted removal must always carry a canonical storage outcome. Treat
+		// an unknown outcome as indeterminate rather than recursively trying to
+		// classify the same wrapped error again.
 		return hostEffectIndeterminate
 	}
 }

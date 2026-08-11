@@ -3,10 +3,678 @@
 package rootedpath
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+type boundedCaptureTestBudget struct {
+	limit  int
+	visits int
+}
+
+func (budget *boundedCaptureTestBudget) AdmitPathComponents(count int) error {
+	if count < 0 || budget.visits+count > budget.limit {
+		return errors.New("injected physical traversal budget exhausted")
+	}
+	budget.visits += count
+	return nil
+}
+
+func TestChargeDestinationPathRequiresCompleteCapacityBeforeFilesystemUse(t *testing.T) {
+	rootPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	root := mustCaptureRoot(t, rootPath)
+	defer root.Close()
+	relative, err := NewRelativeDestination("nested/entry")
+	if err != nil {
+		t.Fatalf("construct relative destination: %v", err)
+	}
+	destination, err := mustCapturedAuthority(t, root).Bind(relative)
+	if err != nil {
+		t.Fatalf("bind destination: %v", err)
+	}
+	depth, err := absolutePathDepth(filepath.Join(rootPath, "nested", "entry"))
+	if err != nil {
+		t.Fatalf("measure destination depth: %v", err)
+	}
+
+	insufficient := &boundedCaptureTestBudget{limit: depth - 1}
+	if err := ChargeDestinationPath(destination, 256, insufficient); err == nil {
+		t.Fatal("ChargeDestinationPath accepted incomplete traversal capacity")
+	}
+	if insufficient.visits != 0 {
+		t.Fatalf("failed destination charge consumed %d visits", insufficient.visits)
+	}
+	exact := &boundedCaptureTestBudget{limit: depth}
+	if err := ChargeDestinationPath(destination, 256, exact); err != nil {
+		t.Fatalf("ChargeDestinationPath exact capacity: %v", err)
+	}
+	if exact.visits != depth {
+		t.Fatalf("destination path visits = %d, want %d", exact.visits, depth)
+	}
+}
+
+func TestBoundedEntryAuthorityRetainsTraversalBudgetForAcquire(t *testing.T) {
+	selectedPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize selected root: %v", err)
+	}
+	selected := mustCaptureRoot(t, selectedPath)
+	defer selected.Close()
+	budget := &boundedCaptureTestBudget{limit: 1 << 20}
+	authority, err := BindSelectedEntryAuthorityBounded(
+		selected,
+		selectedPath,
+		filepath.Join(selectedPath, "state.json"),
+		256,
+		budget,
+	)
+	if err != nil {
+		t.Fatalf("bind bounded entry authority: %v", err)
+	}
+	defer authority.Close()
+
+	budget.limit = budget.visits
+	if capability, err := authority.Acquire(); err == nil {
+		_ = capability.Close()
+		t.Fatal("bounded entry authority acquired without remaining traversal capacity")
+	}
+	budget.limit = 1 << 20
+	capability, err := authority.Acquire()
+	if err != nil {
+		t.Fatalf("acquire bounded entry authority: %v", err)
+	}
+	if err := capability.Close(); err != nil {
+		t.Fatalf("close bounded entry capability: %v", err)
+	}
+}
+
+func TestCaptureDestinationBoundedRejectsDeepPhysicalAliasTarget(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	baseDepth, err := absolutePathDepth(base)
+	if err != nil {
+		t.Fatalf("measure test root depth: %v", err)
+	}
+	components := make([]string, 5)
+	for index := range components {
+		components[index] = "d"
+	}
+	deepParent := filepath.Join(append([]string{base}, components...)...)
+	if err := os.MkdirAll(deepParent, 0o700); err != nil {
+		t.Fatalf("create deep physical parent: %v", err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(deepParent, alias); err != nil {
+		t.Fatalf("create short alias: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 1_000}
+
+	_, _, err = CaptureDestinationBounded(
+		filepath.Join(alias, "entry"),
+		baseDepth+3,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "physical path depth") {
+		t.Fatalf("CaptureDestinationBounded error = %v, want physical-depth rejection", err)
+	}
+}
+
+func TestCaptureDestinationBoundedStopsAtAggregateVisitLimit(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 1}
+
+	_, _, err = CaptureDestinationBounded(
+		filepath.Join(base, "missing", "entry"),
+		256,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "injected physical traversal budget exhausted") {
+		t.Fatalf("CaptureDestinationBounded error = %v, want aggregate-budget rejection", err)
+	}
+	if budget.visits != budget.limit {
+		t.Fatalf("charged visits = %d, want exact limit %d", budget.visits, budget.limit)
+	}
+}
+
+func TestCapturedRootBoundedAuthorityOperationsChargeBeforeValidation(t *testing.T) {
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	depth, err := absolutePathDepth(path)
+	if err != nil {
+		t.Fatalf("measure test root depth: %v", err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatalf("capture test root: %v", err)
+	}
+	defer root.Close()
+
+	insufficientAuthority := &boundedCaptureTestBudget{limit: depth - 1}
+	if _, err := root.AuthorityBounded(insufficientAuthority); err == nil {
+		t.Fatal("AuthorityBounded accepted insufficient validation capacity")
+	}
+	if insufficientAuthority.visits != 0 {
+		t.Fatalf("failed authority validation charged %d visits, want atomic rejection", insufficientAuthority.visits)
+	}
+	authorityBudget := &boundedCaptureTestBudget{limit: depth}
+	authority, err := root.AuthorityBounded(authorityBudget)
+	if err != nil {
+		t.Fatalf("AuthorityBounded: %v", err)
+	}
+	if authorityBudget.visits != depth {
+		t.Fatalf("authority validation charged %d visits, want %d", authorityBudget.visits, depth)
+	}
+
+	relative, err := NewRelativeDestination("entry")
+	if err != nil {
+		t.Fatalf("construct relative destination: %v", err)
+	}
+	destination, err := authority.Bind(relative)
+	if err != nil {
+		t.Fatalf("bind destination: %v", err)
+	}
+	insufficientAcquire := &boundedCaptureTestBudget{limit: 2*depth - 1}
+	if capability, err := root.AcquireBounded(destination, 256, insufficientAcquire); err == nil {
+		_ = capability.Close()
+		t.Fatal("AcquireBounded accepted insufficient two-pass capacity")
+	}
+	if insufficientAcquire.visits != 0 {
+		t.Fatalf("failed capability acquisition charged %d visits, want atomic rejection", insufficientAcquire.visits)
+	}
+	acquireBudget := &boundedCaptureTestBudget{limit: 2 * depth}
+	capability, err := root.AcquireBounded(destination, 256, acquireBudget)
+	if err != nil {
+		t.Fatalf("AcquireBounded: %v", err)
+	}
+	defer capability.Close()
+	if acquireBudget.visits != 2*depth {
+		t.Fatalf("capability acquisition charged %d visits, want %d", acquireBudget.visits, 2*depth)
+	}
+	if opened, err := capability.OpenRootDirectory(); err == nil {
+		_ = opened.Close()
+		t.Fatal("bounded capability opened a destination without operation capacity")
+	}
+
+	insufficientWorking := &boundedCaptureTestBudget{limit: 2*depth - 1}
+	if working, err := root.AcquireWorkingDirectoryBounded(insufficientWorking); err == nil {
+		_ = working.Close()
+		t.Fatal("AcquireWorkingDirectoryBounded accepted insufficient two-pass capacity")
+	}
+	if insufficientWorking.visits != 0 {
+		t.Fatalf("failed working-directory acquisition charged %d visits, want atomic rejection", insufficientWorking.visits)
+	}
+	workingBudget := &boundedCaptureTestBudget{limit: 3 * depth}
+	working, err := root.AcquireWorkingDirectoryBounded(workingBudget)
+	if err != nil {
+		t.Fatalf("AcquireWorkingDirectoryBounded: %v", err)
+	}
+	defer working.Close()
+	opened, err := working.OpenDirectoryBounded(workingBudget)
+	if err != nil {
+		t.Fatalf("OpenDirectoryBounded: %v", err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatalf("close bounded working directory: %v", err)
+	}
+	if workingBudget.visits != 3*depth {
+		t.Fatalf("bounded working directory charged %d visits, want %d", workingBudget.visits, 3*depth)
+	}
+}
+
+func TestReserveDestinationAccessMatchesBoundedAcquisitionAndUse(t *testing.T) {
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	authority, err := root.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := NewRelativeDestination("nested/entry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := authority.Bind(relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootDepth, err := capturedRootValidationPathComponents(&root.platform)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinationDepth, err := absolutePathDepth(filepath.Join(path, "nested", "entry"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 2*rootDepth + destinationDepth
+
+	reservation := &boundedCaptureTestBudget{limit: want}
+	if err := root.ReserveDestinationAccess(destination, 256, reservation); err != nil {
+		t.Fatalf("reserve destination access: %v", err)
+	}
+	if reservation.visits != want {
+		t.Fatalf("reserved visits = %d, want %d", reservation.visits, want)
+	}
+
+	execution := &boundedCaptureTestBudget{limit: want}
+	capability, err := root.AcquireBounded(destination, 256, execution)
+	if err != nil {
+		t.Fatalf("acquire reserved destination: %v", err)
+	}
+	defer capability.Close()
+	opened, err := capability.OpenRootDirectory()
+	if err != nil {
+		t.Fatalf("open reserved destination root: %v", err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatalf("close reserved destination root: %v", err)
+	}
+	if execution.visits != reservation.visits {
+		t.Fatalf("execution visits = %d, reserved %d", execution.visits, reservation.visits)
+	}
+}
+
+func TestCapturedRootChildObservationBatchIsDescriptorBoundAndBudgeted(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "root")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "present"), []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing-target", filepath.Join(path, "dangling")); err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	depth, err := absolutePathDepth(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantVisits := 2 * (depth + 2)
+	budget := &boundedCaptureTestBudget{limit: wantVisits}
+
+	present, err := root.ChildrenExistNoFollow(
+		t.Context(),
+		[2]string{"present", "missing"},
+		budget,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present[0] || present[1] {
+		t.Fatalf("child presence = %#v", present)
+	}
+	dangling, err := root.ChildrenExistNoFollow(
+		t.Context(),
+		[2]string{"dangling", "missing"},
+		budget,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !dangling[0] || dangling[1] {
+		t.Fatalf("dangling child presence = %#v", dangling)
+	}
+	if budget.visits != wantVisits {
+		t.Fatalf("child observation visits = %d, want %d", budget.visits, wantVisits)
+	}
+	if _, err := root.ChildrenExistNoFollow(t.Context(), [2]string{"another", "missing"}, budget); err == nil ||
+		!strings.Contains(err.Error(), "budget exhausted") {
+		t.Fatalf("exhausted child probe error = %v", err)
+	}
+}
+
+func TestCapturedRootChildObservationRejectsReplacedBinding(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "root")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	if err := os.Rename(path, filepath.Join(parent, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "replacement"), []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	depth, err := absolutePathDepth(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budget := &boundedCaptureTestBudget{limit: depth + 2}
+	if _, err := root.ChildrenExistNoFollow(t.Context(), [2]string{"replacement", "other"}, budget); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("replaced-root child observation error = %v, want %s", err, FailureRootReplaced)
+	}
+	if budget.visits != depth+2 {
+		t.Fatalf("replaced-root child observation visits = %d, want %d", budget.visits, depth+2)
+	}
+}
+
+func TestCapturedRootChildObservationAdmitsBudgetBeforeFilesystemValidation(t *testing.T) {
+	parent, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "root")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	if err := os.Rename(path, filepath.Join(parent, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 0}
+	if _, err := root.ChildrenExistNoFollow(t.Context(), [2]string{"replacement", "other"}, budget); err == nil ||
+		!strings.Contains(err.Error(), "budget exhausted") {
+		t.Fatalf("child observation error = %v, want pre-observation budget rejection", err)
+	}
+}
+
+func TestCapturedRootChildObservationCancellationBeforeWorkDoesNotCharge(t *testing.T) {
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	budget := &boundedCaptureTestBudget{limit: 1_000}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	if _, err := root.ChildrenExistNoFollow(ctx, [2]string{"child", "other"}, budget); !errors.Is(err, context.Canceled) {
+		t.Fatalf("child observation error = %v, want cancellation", err)
+	}
+	if budget.visits != 0 {
+		t.Fatalf("canceled child observation visits = %d, want 0", budget.visits)
+	}
+}
+
+func TestCapturedRootChildObservationRejectsInvalidBatchBeforeWork(t *testing.T) {
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := CaptureRootNoFollow(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+
+	for _, test := range []struct {
+		name  string
+		names [2]string
+	}{
+		{name: "empty", names: [2]string{}},
+		{name: "duplicate", names: [2]string{"child", "child"}},
+		{name: "path", names: [2]string{"nested/child", "other"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			budget := &boundedCaptureTestBudget{limit: 1_000}
+			if _, err := root.ChildrenExistNoFollow(t.Context(), test.names, budget); err == nil {
+				t.Fatal("invalid child observation batch succeeded")
+			}
+			if budget.visits != 0 {
+				t.Fatalf("invalid child observation visits = %d, want 0", budget.visits)
+			}
+		})
+	}
+}
+
+func TestCaptureDestinationBoundedChargesEachNativeComponentOnce(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	depth, err := absolutePathDepth(base)
+	if err != nil {
+		t.Fatalf("measure test root depth: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 100_000}
+
+	root, _, err := CaptureDestinationBounded(
+		filepath.Join(base, "entry"),
+		256,
+		budget,
+	)
+	if err != nil {
+		t.Fatalf("CaptureDestinationBounded: %v", err)
+	}
+	defer root.Close()
+	want := depth
+	if budget.visits != want {
+		t.Fatalf("charged visits = %d, want %d", budget.visits, want)
+	}
+}
+
+func TestCaptureDestinationBoundedRejectsNativeInvalidAliasParentTraversal(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	regular := filepath.Join(base, "not-a-directory")
+	if err := os.WriteFile(regular, []byte("content"), 0o600); err != nil {
+		t.Fatalf("create regular file: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		target string
+	}{
+		{name: "non-directory", target: "not-a-directory/.."},
+		{name: "missing", target: "missing/.."},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			alias := filepath.Join(base, "alias-"+test.name)
+			if err := os.Symlink(test.target, alias); err != nil {
+				t.Fatalf("create alias: %v", err)
+			}
+			selected := filepath.Join(alias, "entry")
+			if _, err := os.Stat(filepath.Dir(selected)); err == nil {
+				t.Fatalf("native path unexpectedly resolved")
+			}
+			budget := &boundedCaptureTestBudget{limit: 10_000}
+			_, _, err := CaptureDestinationBounded(selected, 256, budget)
+			if err == nil {
+				t.Fatalf("CaptureDestinationBounded succeeded for native-invalid target %q", test.target)
+			}
+		})
+	}
+}
+
+func TestCaptureDestinationBoundedRejectsNoncanonicalSelectedPath(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 10_000}
+	_, _, err = CaptureDestinationBounded(
+		base+string(filepath.Separator)+"missing"+string(filepath.Separator)+".."+
+			string(filepath.Separator)+"entry",
+		256,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "canonical lexical spelling") {
+		t.Fatalf("CaptureDestinationBounded error = %v, want noncanonical-path rejection", err)
+	}
+}
+
+func TestCaptureDestinationBoundedRejectsDanglingAliasTarget(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	alias := filepath.Join(base, "alias")
+	if err := os.Symlink(filepath.Join(base, "missing-target"), alias); err != nil {
+		t.Fatalf("create dangling alias: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 1_000}
+
+	_, _, err = CaptureDestinationBounded(
+		filepath.Join(alias, "entry"),
+		256,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "alias target is unavailable") {
+		t.Fatalf("CaptureDestinationBounded error = %v, want dangling-alias rejection", err)
+	}
+}
+
+func TestCaptureDestinationBoundedPreservesAliasResolutionSemantics(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	target := filepath.Join(base, "target")
+	nested := filepath.Join(base, "nested")
+	for _, directory := range []string{target, nested} {
+		if err := os.Mkdir(directory, 0o700); err != nil {
+			t.Fatalf("create directory %q: %v", directory, err)
+		}
+	}
+	if err := os.Symlink("target", filepath.Join(base, "relative")); err != nil {
+		t.Fatalf("create relative alias: %v", err)
+	}
+	if err := os.Symlink("relative", filepath.Join(base, "chained")); err != nil {
+		t.Fatalf("create chained alias: %v", err)
+	}
+	if err := os.Symlink(filepath.Join("..", "target"), filepath.Join(nested, "parent")); err != nil {
+		t.Fatalf("create parent-traversing alias: %v", err)
+	}
+
+	for _, test := range []struct {
+		name     string
+		selected string
+	}{
+		{name: "relative", selected: filepath.Join(base, "relative", "missing", "entry")},
+		{name: "chained", selected: filepath.Join(base, "chained", "missing", "entry")},
+		{name: "parent traversal", selected: filepath.Join(nested, "parent", "missing", "entry")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			budget := &boundedCaptureTestBudget{limit: 10_000}
+			root, destination, err := CaptureDestinationBounded(test.selected, 256, budget)
+			if err != nil {
+				t.Fatalf("CaptureDestinationBounded: %v", err)
+			}
+			defer root.Close()
+			got, err := destination.LexicalPath()
+			if err != nil {
+				t.Fatalf("read bounded destination: %v", err)
+			}
+			want := filepath.Join(target, "missing", "entry")
+			if got != want {
+				t.Fatalf("bounded destination = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestCaptureDestinationBoundedAppliesDepthToResolvedAliasTarget(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	baseDepth, err := absolutePathDepth(base)
+	if err != nil {
+		t.Fatalf("measure test root depth: %v", err)
+	}
+	deep := filepath.Join(base, "one", "two")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		t.Fatalf("create depth-bound directory: %v", err)
+	}
+	if err := os.Symlink("..", filepath.Join(deep, "up")); err != nil {
+		t.Fatalf("create parent alias: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 10_000}
+	root, destination, err := CaptureDestinationBounded(
+		filepath.Join(deep, "up", "entry"),
+		baseDepth+2,
+		budget,
+	)
+	if err != nil {
+		t.Fatalf("CaptureDestinationBounded: %v", err)
+	}
+	defer root.Close()
+	got, err := destination.LexicalPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(base, "one", "entry")
+	if got != want {
+		t.Fatalf("resolved destination = %q, want %q", got, want)
+	}
+}
+
+func TestCaptureDestinationBoundedRejectsAliasCycle(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize test root: %v", err)
+	}
+	if err := os.Symlink("second", filepath.Join(base, "first")); err != nil {
+		t.Fatalf("create first cycle alias: %v", err)
+	}
+	if err := os.Symlink("first", filepath.Join(base, "second")); err != nil {
+		t.Fatalf("create second cycle alias: %v", err)
+	}
+	budget := &boundedCaptureTestBudget{limit: 100_000}
+
+	_, _, err = CaptureDestinationBounded(
+		filepath.Join(base, "first", "entry"),
+		256,
+		budget,
+	)
+	if err == nil || !strings.Contains(err.Error(), "too many symbolic links") {
+		t.Fatalf("CaptureDestinationBounded error = %v, want symlink-cycle rejection", err)
+	}
+}
 
 func TestCaptureDestinationBindsMissingDescendantsToNearestExistingAncestor(t *testing.T) {
 	ancestor := filepath.Join(t.TempDir(), "admitted")

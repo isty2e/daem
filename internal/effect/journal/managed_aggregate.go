@@ -171,6 +171,8 @@ func pathMutationFromAggregate(mutation ManagedAggregateMutation) pathMutation {
 		DesiredHash: projectionStateHash(expectedState), ExpectedExists: expectedState.Present(),
 		ExpectedPathExists: expectedDocument.Exists(), ExpectedPathMode: expectedPathMode,
 		LivePathExists: mutation.before.Exists(), LivePathHash: documentHash(mutation.before, mutation.fileMode),
+		LivePathMode:      mutation.fileMode,
+		ExpectedPathHash:  documentHash(expectedDocument, aggregate.DocumentFileMode),
 		AggregateContract: pointerToAggregateContract(mutation.contract),
 		StateIndependent:  true,
 	}

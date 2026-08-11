@@ -35,7 +35,23 @@ func (entry *recoveryEntry) UnmarshalJSON(content []byte) error {
 	return nil
 }
 
-// recoveryBeforePathDTO is the exact journal-v11 representation of physical
+func (transition *recoveryRemovalTransition) UnmarshalJSON(content []byte) error {
+	if transition == nil {
+		return fmt.Errorf("recovery removal transition destination is nil")
+	}
+	type wire recoveryRemovalTransition
+	var decoded wire
+	if err := decodeRecoveryJSONStrict(content, &decoded); err != nil {
+		return err
+	}
+	if decoded.Before == nil && decoded.ExpectedAfter == nil {
+		return fmt.Errorf("recovery removal transition requires before or expected_after")
+	}
+	*transition = recoveryRemovalTransition(decoded)
+	return nil
+}
+
+// recoveryBeforePathDTO is the exact journal-v13 representation of physical
 // before-state facts. It remains private so wire syntax cannot become recovery
 // policy.
 type recoveryBeforePathDTO struct {
@@ -95,7 +111,7 @@ func (persisted recoveryBeforePathDTO) canonical() recovery.BeforePathState {
 	}
 }
 
-// recoveryExpectedPathDTO is the exact journal-v11 representation of physical
+// recoveryExpectedPathDTO is the exact journal-v13 representation of physical
 // expected-after facts.
 type recoveryExpectedPathDTO struct {
 	Existed     bool                     `json:"existed"`

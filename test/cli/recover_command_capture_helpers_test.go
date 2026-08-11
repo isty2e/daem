@@ -11,6 +11,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
@@ -59,7 +61,15 @@ func captureCLIRecoveryUpdateJournal(t *testing.T, manifestPath string) (daempat
 		t.Fatalf("NewManagedPathReplaceMutation returned error: %v", err)
 	}
 	evidence := managedInstructionEvidence(t, previous.Subject(), true, oldHash, 0o600)
-	captureCLIManagedPathJournal(t, paths, mutation, evidence, currentState, nextState)
+	captureCLIManagedPathJournal(
+		t,
+		paths,
+		mutation,
+		evidence,
+		currentState,
+		nextState,
+		cliRemovalDemandSet(t, target.ScopeProject, outputtest.Parse(t, "AGENTS.md")),
+	)
 
 	return paths, currentState, nextState, oldHash, newHash
 }
@@ -94,7 +104,24 @@ func captureCLIRecoveryCreateJournal(t *testing.T, manifestPath string) (daempat
 		t.Fatalf("NewManagedPathCreateMutation returned error: %v", err)
 	}
 	evidence := managedInstructionEvidence(t, desired.Subject(), false, "", 0)
-	captureCLIManagedPathJournal(t, paths, mutation, evidence, currentState, nextState)
+	removalState, err := recovery.NewExpectedRemovalState(recovery.ExpectedPathState{
+		Existed:     true,
+		Kind:        recovery.PathKindFile,
+		ContentHash: newHash,
+		PathMode:    recovery.NewPermissionMode(0o600),
+	})
+	if err != nil {
+		t.Fatalf("NewExpectedRemovalState returned error: %v", err)
+	}
+	captureCLIManagedPathJournal(
+		t,
+		paths,
+		mutation,
+		evidence,
+		currentState,
+		nextState,
+		cliRemovalDemandSet(t, target.ScopeProject, outputtest.Parse(t, "AGENTS.md"), removalState),
+	)
 
 	return paths, currentState, nextState, newHash
 }
@@ -120,7 +147,24 @@ func captureCLIRecoveryDeleteJournal(t *testing.T, manifestPath string) (daempat
 		t.Fatalf("NewManagedPathRemoveMutation returned error: %v", err)
 	}
 	evidence := managedInstructionEvidence(t, previous.Subject(), true, oldHash, 0o600)
-	captureCLIManagedPathJournal(t, paths, mutation, evidence, currentState, nextState)
+	removalState, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{
+		Existed:     true,
+		Kind:        recovery.PathKindFile,
+		ContentHash: oldHash,
+		PathMode:    recovery.NewPermissionMode(0o600),
+	})
+	if err != nil {
+		t.Fatalf("NewBeforeRemovalState returned error: %v", err)
+	}
+	captureCLIManagedPathJournal(
+		t,
+		paths,
+		mutation,
+		evidence,
+		currentState,
+		nextState,
+		cliRemovalDemandSet(t, target.ScopeProject, outputtest.Parse(t, "AGENTS.md"), removalState),
+	)
 
 	return paths, currentState, nextState, oldHash
 }
@@ -132,6 +176,31 @@ func singleCLIManagedPath(t *testing.T, snapshot durable.Snapshot) durable.Manag
 		t.Fatalf("managed paths = %#v, want exactly one", states)
 	}
 	return states[0]
+}
+
+func cliRemovalDemandSet(
+	t *testing.T,
+	scope target.Scope,
+	destination output.Destination,
+	states ...recovery.RemovalState,
+) recovery.RemovalDemandSet {
+	t.Helper()
+	if len(states) == 0 {
+		set, err := recovery.NewRemovalDemandSet(nil)
+		if err != nil {
+			t.Fatalf("NewRemovalDemandSet returned error: %v", err)
+		}
+		return set
+	}
+	demand, err := recovery.NewRemovalDemand(scope, destination, states)
+	if err != nil {
+		t.Fatalf("NewRemovalDemand returned error: %v", err)
+	}
+	set, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
+	if err != nil {
+		t.Fatalf("NewRemovalDemandSet returned error: %v", err)
+	}
+	return set
 }
 
 func managedInstructionEvidence(
@@ -162,6 +231,7 @@ func captureCLIManagedPathJournal(
 	evidence observe.ManagedPathEvidence,
 	currentState durable.Snapshot,
 	nextState durable.Snapshot,
+	removalDemands recovery.RemovalDemandSet,
 ) {
 	t.Helper()
 	_, err := journal.CaptureJournalWithOptions(
@@ -175,6 +245,7 @@ func captureCLIManagedPathJournal(
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
+			RemovalDemands:       removalDemands,
 			Resolver:             hostpath.NewResolver(paths.ManifestRoot).Resolve,
 			StateCodec:           statefile.Codec{},
 		},
@@ -242,6 +313,22 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 	if err != nil {
 		t.Fatalf("NewManagedPathEvidence returned error: %v", err)
 	}
+	beforeState, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{
+		Existed:     true,
+		Kind:        recovery.PathKindDirectory,
+		ContentHash: oldHash,
+	})
+	if err != nil {
+		t.Fatalf("NewBeforeRemovalState returned error: %v", err)
+	}
+	expectedState, err := recovery.NewExpectedRemovalState(recovery.ExpectedPathState{
+		Existed:     true,
+		Kind:        recovery.PathKindDirectory,
+		ContentHash: newHash,
+	})
+	if err != nil {
+		t.Fatalf("NewExpectedRemovalState returned error: %v", err)
+	}
 
 	_, err = journal.CaptureJournalWithOptions(
 		context.Background(),
@@ -254,8 +341,15 @@ func captureCLIRecoverySkillUpdateJournal(t *testing.T, manifestPath string) (da
 			Filesystem:           testFilesystem(),
 			ManagedPathMutations: []journal.ManagedPathMutation{mutation},
 			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
-			Resolver:             hostpath.NewResolver(paths.ManifestRoot).Resolve,
-			StateCodec:           statefile.Codec{},
+			RemovalDemands: cliRemovalDemandSet(
+				t,
+				target.ScopeProject,
+				outputtest.Parse(t, ".agents/skills/oracle"),
+				beforeState,
+				expectedState,
+			),
+			Resolver:   hostpath.NewResolver(paths.ManifestRoot).Resolve,
+			StateCodec: statefile.Codec{},
 		},
 	)
 	if err != nil {

@@ -33,7 +33,7 @@ func TestCaptureGlobalExistingDirectoryUsesRootedCapabilityAndHashEquivalentBack
 			return destination.LexicalPath()
 		},
 		nil,
-		func(requested output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(requested output.Destination, _ rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			callbackUsed = true
 			if requested != action.Destination {
 				return nil, false, fmt.Errorf("unexpected rooted destination %q", requested)
@@ -83,7 +83,7 @@ func TestCaptureGlobalExistingDirectoryRejectsBackupHashDifferentFromObservation
 			return destination.LexicalPath()
 		},
 		nil,
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			capability, err := root.Acquire(destination)
 			return capability, true, err
 		},
@@ -123,7 +123,7 @@ func TestCaptureGlobalExistingDirectoryRefusesMissingStrictRootAuthority(t *test
 		journalTestFilesystem(),
 		func(output.Destination) (string, error) { return resolvedPath, nil },
 		nil,
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			return nil, false, nil
 		},
 		nil,

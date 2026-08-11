@@ -8,6 +8,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -312,6 +313,8 @@ func (store *countingOwnershipRegistryStore) Load(context.Context) (ownership.Re
 func (store *countingOwnershipRegistryStore) LoadForClaimRemovals(
 	context.Context,
 	[]ownership.Claim,
+	int,
+	rootedpath.PhysicalTraversalBudget,
 ) (ownership.Registry, error) {
 	return store.registry, nil
 }

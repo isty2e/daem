@@ -1,15 +1,61 @@
 package execute
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/output"
+	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+type phaseBudgetProbe struct {
+	remaining int
+	admitted  int
+}
+
+func (budget *phaseBudgetProbe) AdmitPathComponents(count int) error {
+	if count < 0 || count > budget.remaining {
+		return errors.New("physical traversal budget exhausted")
+	}
+	budget.remaining -= count
+	budget.admitted += count
+	return nil
+}
+
+func TestPhysicalTraversalPhaseRoutesRetainedAuthorityToExecutionBudget(t *testing.T) {
+	planning := &phaseBudgetProbe{remaining: 10}
+	phase, err := newPhysicalTraversalPhase(planning)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := phase.AdmitPathComponents(3); err != nil {
+		t.Fatal(err)
+	}
+	execution := &phaseBudgetProbe{remaining: 10}
+	if err := phase.advance(execution); err != nil {
+		t.Fatal(err)
+	}
+	if err := phase.AdmitPathComponents(4); err != nil {
+		t.Fatal(err)
+	}
+	if planning.admitted != 3 || execution.admitted != 4 {
+		t.Fatalf(
+			"phase routing admitted planning=%d execution=%d, want 3 and 4",
+			planning.admitted,
+			execution.admitted,
+		)
+	}
+	if err := phase.advance(&phaseBudgetProbe{remaining: 10}); err == nil {
+		t.Fatal("physical traversal phase advanced twice")
+	}
+}
 
 func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
@@ -33,6 +79,7 @@ func TestMutationAuthoritySeparatesProjectAndGlobalDestinations(t *testing.T) {
 		paths,
 		effects,
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -95,6 +142,7 @@ func TestMutationAuthorityRejectsScopePathContradictions(t *testing.T) {
 			paths,
 			[]ManagedPathEffect{effect},
 			nil,
+			emptyRemovalDemandsForTest(),
 			nil,
 			destinationResolver(paths),
 			testFilesystem(),
@@ -122,6 +170,7 @@ func TestMutationAuthorityRetainsProjectRootForNonHostJournalEntry(t *testing.T)
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -149,6 +198,7 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -177,5 +227,100 @@ func TestMutationAuthorityBindsGlobalRootForNonHostJournalEntry(t *testing.T) {
 		if candidate.isRooted() {
 			t.Fatalf("partially initialized mutation destination remained valid: %+v", candidate)
 		}
+	}
+}
+
+func TestMutationAuthorityHasNoUnboundedBindingFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	paths := Paths{DataDir: filepath.Join(home, ".local", "share", "daem")}
+	authority, err := captureMutationAuthority(
+		paths,
+		false,
+		nil,
+		destinationResolver(paths),
+		testFilesystem(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.close()
+	for authority.physicalWorkBudget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	}
+
+	destination := outputtest.Parse(t, "~/.codex/config.toml")
+	if err := authority.bindPhysicalAuthority(
+		target.ScopeGlobal,
+		destination,
+		[]target.Target{target.TargetCodex},
+	); err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {
+		t.Fatalf("global binding error = %v, want physical-budget refusal", err)
+	}
+	authority.ownershipRegistryBinder = bindNilOwnershipRegistryStore
+	if err := authority.bindOwnershipRegistry(
+		filepath.Join(paths.DataDir, "ownership", "claims.json"),
+	); err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {
+		t.Fatalf("ownership binding error = %v, want physical-budget refusal", err)
+	}
+}
+
+func TestRetainedRecoveryAuthoritiesFollowExecutionPhaseBudget(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	paths := Paths{DataDir: filepath.Join(home, ".local", "share", "daem")}
+	authority, err := captureMutationAuthority(
+		paths,
+		false,
+		nil,
+		destinationResolver(paths),
+		testFilesystem(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer authority.close()
+	destination := outputtest.Parse(t, "~/.codex/config.toml")
+	if err := authority.bindPhysicalAuthority(
+		target.ScopeGlobal,
+		destination,
+		[]target.Target{target.TargetCodex},
+	); err != nil {
+		t.Fatal(err)
+	}
+	authority.ownershipRegistryBinder = ownershipstore.BindRooted
+	if err := authority.bindOwnershipRegistry(
+		filepath.Join(paths.DataDir, "ownership", "claims.json"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := authority.physicalWorkBudget.ConcludeScratchCleanupNotApplicable(); err != nil {
+		t.Fatal(err)
+	}
+	beginGeneralRecoveryExecutionForTest(t, authority)
+	for authority.generalExecutionWorkBudget.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	}
+	for authority.generalExecutionWorkBudget.AdmitPathComponents(1) == nil {
+	}
+	for authority.generalTraversalPhase.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	}
+	for authority.generalTraversalPhase.AdmitPathComponents(1) == nil {
+	}
+
+	bound, err := authority.resolveBoundDestination(target.ScopeGlobal, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capability, err := authority.acquire(bound); err == nil {
+		_ = capability.Close()
+		t.Fatal("retained global destination escaped exhausted execution budget")
+	}
+	registry, err := authority.rootedOwnershipRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Load(t.Context()); err == nil {
+		t.Fatal("retained ownership registry escaped exhausted execution budget")
 	}
 }

@@ -192,6 +192,10 @@ func TestBuildRecoveryPlanReportsPathObservationErrors(t *testing.T) {
 
 func TestBuildRecoveryPlanReportsBackupMismatches(t *testing.T) {
 	entry := defaultRecoveryEntry()
+	invalidFileWork, err := recovery.NewArtifactWork(1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cases := []struct {
 		name        string
 		observation []recoveryBackupObservation
@@ -238,6 +242,19 @@ func TestBuildRecoveryPlanReportsBackupMismatches(t *testing.T) {
 				},
 			},
 			wantDetail: `backup hash "` + testDirtyHash + `" does not match before hash "` + testBeforeHash + `"`,
+		},
+		{
+			name: "invalid file work",
+			observation: []recoveryBackupObservation{
+				{
+					BackupPath:  entry.Before.BackupPath,
+					Exists:      true,
+					Kind:        entry.Before.Kind,
+					ContentHash: entry.Before.ContentHash,
+					Work:        invalidFileWork,
+				},
+			},
+			wantDetail: "file backup work entries=1 bytes=0 exceeds entries=0 bytes=134217728",
 		},
 	}
 

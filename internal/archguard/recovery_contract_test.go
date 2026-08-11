@@ -116,6 +116,7 @@ func TestRecoveryJournalBeforeEvidenceHasSingleCanonicalInput(t *testing.T) {
 	}
 	wantOptionFields := []string{
 		"ClaimTransitions", "ProvisionalAcquires", "ManagedPathMutations", "ManagedAggregateMutations", "ManagedPathEvidence",
+		"RemovalDemands",
 		"Resolver", "ManifestRoot", "OperationAuthority", "RootedCapability", "Codecs", "StateCodec", "Filesystem",
 	}
 	slices.Sort(optionFields)
@@ -145,6 +146,96 @@ func TestRecoveryJournalBeforeEvidenceHasSingleCanonicalInput(t *testing.T) {
 	if !slices.Equal(gotParameterTypes, wantParameterTypes) {
 		t.Fatalf("pathMutations parameter types = %#v, want %#v", gotParameterTypes, wantParameterTypes)
 	}
+}
+
+func TestRecoveryExecutionOmitsAmbientRootedAuthorityConstructors(t *testing.T) {
+	root := findRepoRoot(t)
+	executeRoot := filepath.Join(root, "internal", "effect", "execute")
+	recoveryOwnedFiles := []string{
+		"host_rollback.go",
+		"journal_cleanup.go",
+		"mutation_destination.go",
+		"ownership.go",
+		"project_control.go",
+		"recovery.go",
+		"recovery_effect_guard.go",
+		"recovery_host.go",
+		"removal_authority.go",
+		"rollback_backup.go",
+	}
+	forbidden := map[string]map[string]struct{}{
+		"github.com/isty2e/daem/internal/effect/mutation": {
+			"CanonicalDirectoryEntryKey":     {},
+			"ObserveDirectoryEntryAuthority": {},
+		},
+		"github.com/isty2e/daem/internal/effect/mutation/rootedpath": {
+			"BindSelectedEntryAuthority": {},
+			"CaptureDestination":         {},
+			"CaptureRoot":                {},
+		},
+	}
+
+	for _, name := range recoveryOwnedFiles {
+		path := filepath.Join(executeRoot, name)
+		fileSet := token.NewFileSet()
+		file, err := parser.ParseFile(fileSet, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("ParseFile(%s) returned error: %v", path, err)
+		}
+		imports := importNames(file)
+		ast.Inspect(file, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			qualifier, ok := selector.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			functions, guarded := forbidden[imports[qualifier.Name]]
+			if _, rejected := functions[selector.Sel.Name]; guarded && rejected {
+				position := fileSet.Position(call.Pos())
+				t.Errorf(
+					"%s:%d uses ambient %s.%s instead of the recovery physical capability",
+					name,
+					position.Line,
+					qualifier.Name,
+					selector.Sel.Name,
+				)
+			}
+			return true
+		})
+	}
+}
+
+func TestRecoveryRollbackCopyRetainsTraversalLimits(t *testing.T) {
+	root := findRepoRoot(t)
+	path := filepath.Join(root, "internal", "effect", "execute", "rollback_backup.go")
+	fileSet := token.NewFileSet()
+	file, err := parser.ParseFile(fileSet, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("ParseFile(%s) returned error: %v", path, err)
+	}
+	ast.Inspect(file, func(node ast.Node) bool {
+		call, ok := node.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		selector, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "CopyVerified" {
+			return true
+		}
+		position := fileSet.Position(call.Pos())
+		t.Errorf(
+			"rollback_backup.go:%d uses unbounded CopyVerified instead of CopyVerifiedWithLimits",
+			position.Line,
+		)
+		return true
+	})
 }
 
 func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
@@ -180,7 +271,8 @@ func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
 				switch typed := specification.(type) {
 				case *ast.TypeSpec:
 					if typed.Name.IsExported() &&
-						expressionReferencesImport(typed.Type, imports, "github.com/isty2e/daem/internal/effect/journal/recovery") {
+						expressionReferencesImport(typed.Type, imports, "github.com/isty2e/daem/internal/effect/journal/recovery") &&
+						!isApprovedRecoveryBoundaryType(typed.Name.Name, typed.Type, imports) {
 						t.Fatalf("%s re-exports or wraps recovery type %s", path, typed.Name.Name)
 					}
 				case *ast.ValueSpec:
@@ -223,6 +315,28 @@ func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
 			t.Fatalf("journal declares retired recovery transport %s", retired)
 		}
 	}
+}
+
+func isApprovedRecoveryBoundaryType(name string, expression ast.Expr, imports map[string]string) bool {
+	if name != "CaptureOptions" {
+		return false
+	}
+	structure, ok := expression.(*ast.StructType)
+	if !ok {
+		return false
+	}
+	for _, field := range structure.Fields.List {
+		if len(field.Names) != 1 || field.Names[0].Name != "RemovalDemands" {
+			continue
+		}
+		selector, ok := field.Type.(*ast.SelectorExpr)
+		if !ok || selector.Sel.Name != "RemovalDemandSet" {
+			return false
+		}
+		qualifier, ok := selector.X.(*ast.Ident)
+		return ok && imports[qualifier.Name] == "github.com/isty2e/daem/internal/effect/journal/recovery"
+	}
+	return false
 }
 
 func parseProductionGoFiles(t *testing.T, directory string) (*token.FileSet, map[string]*ast.File) {

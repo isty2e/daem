@@ -156,7 +156,8 @@ func commitAggregateEffect(
 	}
 	outcome := commitRootedAggregateCandidate(
 		ctx,
-		authority.filesystem,
+		authority,
+		destination,
 		capability,
 		identity,
 		exists,
@@ -173,7 +174,8 @@ func commitAggregateEffect(
 
 func commitRootedAggregateCandidate(
 	ctx context.Context,
-	filesystem mutationfs.RootedCommitter,
+	authority *mutationAuthority,
+	destination mutationDestination,
 	capability rootedpath.CommitCapability,
 	identity mutationfs.EntryIdentity,
 	exists bool,
@@ -186,16 +188,17 @@ func commitRootedAggregateCandidate(
 		}
 		return fileMutationOutcome{}
 	case !candidate.Exists():
-		return attemptedFileMutation(filesystem.RemoveRootedEntry(ctx, capability, identity))
+		_, err := authority.removeJournaledRootedEntry(ctx, destination, capability, identity)
+		return attemptedFileMutation(err)
 	case !exists:
-		return attemptedFileMutation(filesystem.CreateRootedFile(
+		return attemptedFileMutation(authority.filesystem.CreateRootedFile(
 			ctx,
 			capability,
 			candidate.Content(),
 			aggregate.DocumentFileMode,
 		))
 	default:
-		return attemptedFileMutation(filesystem.ReplaceRootedFile(
+		return attemptedFileMutation(authority.filesystem.ReplaceRootedFile(
 			ctx,
 			capability,
 			candidate.Content(),

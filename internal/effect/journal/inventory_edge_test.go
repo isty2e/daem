@@ -376,7 +376,7 @@ func TestRecoveryPlanLoadersSelectOneAuthorityKind(t *testing.T) {
 			PlanLoadOptions{
 				Filesystem: journalTestFilesystem(),
 				StateCodec: testStateCodec(),
-				RootedCapability: func(output.Destination) (
+				RootedCapability: func(output.Destination, rootedpath.PhysicalTraversalBudget) (
 					rootedpath.CommitCapability,
 					bool,
 					error,

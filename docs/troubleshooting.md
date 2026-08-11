@@ -43,8 +43,11 @@ changes that state records the current schema. Missing, null, populated, or
 unknown fields are not an empty retirement artifact and remain blocked. Field
 names in versioned durable files use exact ASCII `lower_snake_case` spelling;
 case variants such as `CLAIMS` are rejected rather than treated as aliases.
-Every pre-v11 recovery journal is blocked because its presence may represent
-interrupted effects. Journal v10 persists a reusable Linux mount ID that cannot
+Every pre-v13 recovery journal is blocked because its presence may represent
+interrupted effects. Journal v12 does not persist the transition-derived
+removal demand needed to prove exact coverage by its cleanup intents, so the
+current binary cannot safely infer or add that authority during reload.
+Journal v10 persists a reusable Linux mount ID that cannot
 establish durable mount identity after unmount/remount cycles or ID reuse.
 Journal v9 does not carry the exact ownership-transition foreign key or the
 capture-time global destination binding, including root object and mount
@@ -372,6 +375,15 @@ recovery is already complete. The only legal action is
 Review the dry-run and rerun recovery; do not delete hidden residue or the
 visible retirement control manually. A stale, replaced, malformed, or
 cross-paired artifact is intentionally refused instead of being guessed safe.
+
+If a cleanup obligation reports `namespace_changed` because a captured
+existing parent is absent, daem cannot tell whether that exact directory was
+unlinked or moved elsewhere. It retains the journal and performs no cleanup.
+If an operator or tool moved the same directory, restore that exact directory
+object to its original path and rerun `recover --dry-run`; do not create a
+replacement directory. If the directory was actually unlinked, preserve the
+journal for manual analysis because current daem has no durable evidence that
+can authorize automatic retirement.
 
 If recovery reports a pre-1.0 `.daem-tombstone-<32 lowercase hex>`, stop the
 upgrade path. The current binary recognizes that exact old format only to

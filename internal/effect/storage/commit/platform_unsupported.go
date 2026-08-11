@@ -47,6 +47,30 @@ func CaptureRootedEntryIdentity(_ context.Context, capability rootedpath.CommitC
 	return EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// CaptureWorkingDirectoryIdentity returns unsupported_guarantee without I/O.
+func CaptureWorkingDirectoryIdentity(
+	ctx context.Context,
+	capability rootedpath.WorkingDirectoryCapability,
+	budget rootedpath.PhysicalTraversalBudget,
+) (EntryIdentity, error) {
+	if ctx == nil {
+		return EntryIdentity{}, fmt.Errorf("working-directory identity context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return EntryIdentity{}, err
+	}
+	if capability == nil {
+		return EntryIdentity{}, fmt.Errorf("working-directory identity capability is required")
+	}
+	if budget == nil {
+		return EntryIdentity{}, fmt.Errorf("working-directory identity budget is required")
+	}
+	if err := capability.Validate(); err != nil {
+		return EntryIdentity{}, err
+	}
+	return EntryIdentity{}, newUnsupportedPlatformFailure("")
+}
+
 // AncestorCleanup is an inert cleanup authority on compile-only platforms.
 type AncestorCleanup struct {
 	closed bool
@@ -209,6 +233,18 @@ func ReadRootedRegularFileUpTo(
 	return nil, 0, EntryIdentity{}, newUnsupportedPlatformFailure(path)
 }
 
+// ReadRootedSymlinkTarget returns unsupported_guarantee without reading.
+func ReadRootedSymlinkTarget(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+) (string, EntryIdentity, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return "", EntryIdentity{}, err
+	}
+	return "", EntryIdentity{}, newUnsupportedPlatformFailure(path)
+}
+
 // SnapshotRootedDirectoryEntries returns unsupported_guarantee without
 // reading.
 func SnapshotRootedDirectoryEntries(
@@ -289,6 +325,18 @@ func CommitLogicalRemoval(_ context.Context, request LogicalRemoval) error {
 	return newUnsupportedPlatformFailure(request.path)
 }
 
+// CommitLogicalRemovalWithOutcome fails closed without effects.
+func CommitLogicalRemovalWithOutcome(
+	_ context.Context,
+	request LogicalRemoval,
+) (mutationfs.CommitOutcome, error) {
+	if request.capability != nil {
+		defer request.capability.Close()
+	}
+	err := newUnsupportedPlatformFailure(request.path)
+	return outcomeFromError(err), err
+}
+
 // CommitRootedEntryRename returns unsupported_guarantee without effects.
 func CommitRootedEntryRename(
 	_ context.Context,
@@ -310,6 +358,21 @@ func CommitRootedEntryCleanup(
 		defer request.capability.Close()
 	}
 	err := newUnsupportedPlatformFailure(request.path)
+	return outcomeFromError(err), err
+}
+
+// ConfirmRootedEntryAbsentWithOutcome returns unsupported_guarantee without effects.
+func ConfirmRootedEntryAbsentWithOutcome(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+) (mutationfs.CommitOutcome, error) {
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		_ = closeRootedCapability(capability)
+		return outcomeFromError(err), err
+	}
+	_ = closeRootedCapability(capability)
+	err = newUnsupportedPlatformFailure(path)
 	return outcomeFromError(err), err
 }
 

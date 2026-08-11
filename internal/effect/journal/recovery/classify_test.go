@@ -210,7 +210,7 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	validProvenance := ManifestRootProvenance{
+	validProvenance := RootProvenance{
 		physicalRoot:      "/manifest",
 		objectFingerprint: "sha256:object",
 		mountFingerprint:  "sha256:mount",
@@ -220,7 +220,7 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 		entries     []Entry
 		transitions []ownershipmutation.ClaimTransition
 		intents     []ownership.ProvisionalAcquireIntent
-		provenance  ManifestRootProvenance
+		provenance  RootProvenance
 	}{
 		{name: "zero entry", entries: []Entry{{}}, provenance: validProvenance},
 		{name: "zero claim transition", entries: []Entry{entry}, transitions: []ownershipmutation.ClaimTransition{{}}, provenance: validProvenance},
@@ -239,6 +239,7 @@ func TestNewAuthorityRejectsMalformedOwnedValues(t *testing.T) {
 				test.intents,
 				test.provenance,
 				"fingerprint",
+				nil,
 			); err == nil {
 				t.Fatal("NewAuthority accepted malformed owned value")
 			}
@@ -308,6 +309,15 @@ func TestActionExecutionAuthorityComparesAllCanonicalIdentity(t *testing.T) {
 	if base.sameExecutionAuthority(differentExpected) {
 		t.Fatal("different expected state retained authority")
 	}
+	differentBackupWork := base
+	backupWork, err := NewArtifactWork(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentBackupWork.BackupWork = backupWork
+	if base.sameExecutionAuthority(differentBackupWork) {
+		t.Fatal("different backup work retained authority")
+	}
 }
 
 func testAuthority(t *testing.T, fingerprint string) Authority {
@@ -342,12 +352,13 @@ func testAuthority(t *testing.T, fingerprint string) Authority {
 		after,
 		nil,
 		nil,
-		ManifestRootProvenance{
+		RootProvenance{
 			physicalRoot:      "/manifest",
 			objectFingerprint: "sha256:object",
 			mountFingerprint:  "sha256:mount",
 		},
 		fingerprint,
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)

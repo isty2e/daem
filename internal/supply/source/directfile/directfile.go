@@ -112,7 +112,7 @@ func (value policy) hash(ctx context.Context, view access.View) (artifact.Conten
 	if err != nil {
 		return "", err
 	}
-	contentHash, err := view.HashWithLimit(ctx, limit)
+	contentHash, _, err := view.HashWithLimit(ctx, limit)
 	if err != nil {
 		return "", value.mapAccessLimit(err)
 	}

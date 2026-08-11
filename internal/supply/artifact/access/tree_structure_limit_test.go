@@ -25,7 +25,6 @@ func TestTreeStructureLimitRejectsInvalidBounds(t *testing.T) {
 		entries int
 		depth   int
 	}{
-		{name: "zero entries", entries: 0, depth: 1},
 		{name: "negative entries", entries: -1, depth: 1},
 		{name: "negative depth", entries: 1, depth: -1},
 	} {
@@ -34,6 +33,11 @@ func TestTreeStructureLimitRejectsInvalidBounds(t *testing.T) {
 				t.Fatal("NewTreeStructureLimit accepted invalid bounds")
 			}
 		})
+	}
+	if limit, err := NewTreeStructureLimit(0, 0); err != nil {
+		t.Fatalf("NewTreeStructureLimit rejected an empty-tree bound: %v", err)
+	} else if err := limit.validate(); err != nil {
+		t.Fatalf("empty-tree limit validation failed: %v", err)
 	}
 	if err := (TreeStructureLimit{}).validate(); err == nil {
 		t.Fatal("zero TreeStructureLimit passed validation")

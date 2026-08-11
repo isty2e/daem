@@ -50,6 +50,19 @@ func (registry Registry) Claims() []Claim {
 	return append([]Claim(nil), registry.claims...)
 }
 
+// Equal reports semantic equality between two canonical registries.
+func (registry Registry) Equal(other Registry) bool {
+	if !registry.initialized || !other.initialized || len(registry.claims) != len(other.claims) {
+		return false
+	}
+	for index := range registry.claims {
+		if !registry.claims[index].Equal(other.claims[index]) {
+			return false
+		}
+	}
+	return true
+}
+
 // Exact returns the claim for an exact address.
 func (registry Registry) Exact(address ManagedAddress) (Claim, bool) {
 	for _, claim := range registry.claims {

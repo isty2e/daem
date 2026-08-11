@@ -2,7 +2,11 @@
 
 package mutation
 
-import "path/filepath"
+import (
+	"path/filepath"
+
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+)
 
 func platformCanonicalPath(selection pathSelection, _ PathEffect) (canonicalPath, error) {
 	path := selectedAccessPath(selection)
@@ -11,4 +15,13 @@ func platformCanonicalPath(selection pathSelection, _ PathEffect) (canonicalPath
 		return canonicalPath{}, err
 	}
 	return canonicalPath{keyPath: filepath.Clean(path), accessPath: path, witness: witness}, nil
+}
+
+func platformCanonicalPathBounded(
+	selection pathSelection,
+	effect PathEffect,
+	_ int,
+	_ rootedpath.PhysicalTraversalBudget,
+) (canonicalPath, error) {
+	return platformCanonicalPath(selection, effect)
 }

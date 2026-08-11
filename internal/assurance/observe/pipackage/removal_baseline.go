@@ -65,7 +65,7 @@ func captureLocalSourceBaseline(
 	if err != nil {
 		return durablecarrier.EffectBaseline{}, err
 	}
-	contentHash, err := view.HashWithLimit(ctx, limit)
+	contentHash, _, err := view.HashWithLimit(ctx, limit)
 	if err != nil {
 		return durablecarrier.EffectBaseline{}, fmt.Errorf("hash Pi local removal source: %w", err)
 	}
@@ -110,7 +110,7 @@ func observeLocalSourceUnchanged(
 	if err != nil {
 		return "", err
 	}
-	currentHash, err := view.HashWithLimit(ctx, limit)
+	currentHash, _, err := view.HashWithLimit(ctx, limit)
 	if err != nil {
 		return observepostcondition.EvidenceUnavailable, nil
 	}

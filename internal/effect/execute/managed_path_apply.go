@@ -163,7 +163,7 @@ func applyManagedPathSingleMutation(
 	defer precondition.close()
 
 	if effect.Kind() == ManagedPathEffectRemove {
-		if err := removeManagedPathDestination(ctx, destination, &precondition); err != nil {
+		if err := removeManagedPathDestination(ctx, authority, destination, &precondition); err != nil {
 			progress.record(mutationIndex, progressAfterMutationError(err))
 			return fmt.Errorf("remove managed destination %q: %w", effect.Destination(), err)
 		}
@@ -260,7 +260,7 @@ func applyManagedPathRelocationRetire(
 		return err
 	}
 	defer oldPrecondition.close()
-	if err := removeManagedPathDestination(ctx, oldDestination, &oldPrecondition); err != nil {
+	if err := removeManagedPathDestination(ctx, authority, oldDestination, &oldPrecondition); err != nil {
 		progress.record(mutationIndex, progressAfterMutationError(err))
 		return fmt.Errorf("remove previous managed destination %q: %w", previous.Destination(), err)
 	}

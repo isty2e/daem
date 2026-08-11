@@ -193,6 +193,7 @@ func (cache *recoveryContentPathBaselineCache) capture(
 				action.Destination,
 				hostPath,
 				rootedCapability,
+				nil,
 			)
 			if err == nil && !present {
 				err = fmt.Errorf("destination %q has no retained root authority", action.Destination)

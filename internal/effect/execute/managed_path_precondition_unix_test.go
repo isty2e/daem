@@ -121,6 +121,7 @@ func TestManagedPathAuthorityRetainsBoundGlobalPathAfterAncestorSymlinkRetarget(
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -209,6 +210,7 @@ func TestManagedPathAuthorityRetainsDataRootRoleAfterDataDirSymlinkRetarget(t *t
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -295,6 +297,7 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 		paths,
 		effects,
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),
@@ -307,10 +310,10 @@ func TestManagedPathAuthoritySharesCapturedRootAcrossGlobalSiblings(t *testing.T
 	if len(authority.globalDestinationBindings) != effectCount {
 		t.Fatalf("global bindings = %d, want %d", len(authority.globalDestinationBindings), effectCount)
 	}
-	if len(authority.retainedGlobalRoots) != 1 {
-		t.Fatalf("retained global roots = %d, want 1 shared root", len(authority.retainedGlobalRoots))
+	if len(authority.retainedRoots) != 1 {
+		t.Fatalf("retained roots = %d, want 1 shared root", len(authority.retainedRoots))
 	}
-	retained := authority.retainedGlobalRoots[0]
+	retained := authority.retainedRoots[0]
 	for logical, binding := range authority.globalDestinationBindings {
 		if binding.root != retained {
 			t.Fatalf("binding %q retained a duplicate root witness", logical)
@@ -345,6 +348,7 @@ func captureBoundGlobalManagedPathPrecondition(
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),

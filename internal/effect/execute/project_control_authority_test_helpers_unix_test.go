@@ -63,6 +63,7 @@ func (filesystem *rootSwapOnJournalGCCleanupStore) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
 ) (mutationfs.CommitOutcome, error) {
 	if capability != nil {
 		path, err := capability.Destination().LexicalPath()
@@ -73,7 +74,7 @@ func (filesystem *rootSwapOnJournalGCCleanupStore) CleanupRootedEntry(
 			})
 		}
 	}
-	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
 }
 
 func (filesystem *rootSwapOnJournalGCCleanupStore) swapCount() int {
@@ -91,6 +92,7 @@ func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
 ) (mutationfs.CommitOutcome, error) {
 	isJournalGC := false
 	if capability != nil {
@@ -98,7 +100,7 @@ func (filesystem *rootSwapAfterProjectJournalGCCleanupStore) CleanupRootedEntry(
 		isJournalGC = pathErr == nil &&
 			strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-")
 	}
-	outcome, err := filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+	outcome, err := filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
 	if err != nil {
 		return outcome, err
 	}
@@ -124,6 +126,7 @@ func (filesystem *failProjectJournalGCCleanupStore) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
 ) (mutationfs.CommitOutcome, error) {
 	if capability != nil {
 		path, err := capability.Destination().LexicalPath()
@@ -142,7 +145,7 @@ func (filesystem *failProjectJournalGCCleanupStore) CleanupRootedEntry(
 			)
 		}
 	}
-	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
 }
 
 type rootSwapBeforeRootedTreeStore struct {

@@ -33,14 +33,16 @@ type EntryIdentity interface {
 type TreeStructureLimits struct {
 	maximumEntries int
 	maximumDepth   int
+	initialized    bool
 }
 
-// NewTreeStructureLimits constructs finite tree-shape bounds. Entry cardinality
-// must be positive; zero depth permits only regular files directly below root.
+// NewTreeStructureLimits constructs finite tree-shape bounds. Zero entries is
+// an exact empty-tree ceiling; zero depth permits only regular files directly
+// below root.
 func NewTreeStructureLimits(maximumEntries int, maximumDepth int) (TreeStructureLimits, error) {
-	if maximumEntries <= 0 {
+	if maximumEntries < 0 {
 		return TreeStructureLimits{}, fmt.Errorf(
-			"tree structure maximum entries must be positive",
+			"tree structure maximum entries must not be negative",
 		)
 	}
 	if maximumDepth < 0 {
@@ -51,6 +53,7 @@ func NewTreeStructureLimits(maximumEntries int, maximumDepth int) (TreeStructure
 	return TreeStructureLimits{
 		maximumEntries: maximumEntries,
 		maximumDepth:   maximumDepth,
+		initialized:    true,
 	}, nil
 }
 
@@ -64,11 +67,12 @@ func (limits TreeStructureLimits) MaximumDepth() int { return limits.maximumDept
 type TreeTraversalLimits struct {
 	structure    TreeStructureLimits
 	maximumBytes int64
+	initialized  bool
 }
 
-// NewTreeTraversalLimits constructs finite traversal bounds. Entry and byte
-// cardinality must be positive; zero depth permits only regular files directly
-// below the selected root.
+// NewTreeTraversalLimits constructs finite traversal bounds. Zero entries or
+// bytes represent an exact empty-content ceiling; zero depth permits only
+// regular files directly below the selected root.
 func NewTreeTraversalLimits(
 	maximumEntries int,
 	maximumDepth int,
@@ -78,14 +82,15 @@ func NewTreeTraversalLimits(
 	if err != nil {
 		return TreeTraversalLimits{}, err
 	}
-	if maximumBytes <= 0 {
+	if maximumBytes < 0 {
 		return TreeTraversalLimits{}, fmt.Errorf(
-			"tree traversal maximum bytes must be positive",
+			"tree traversal maximum bytes must not be negative",
 		)
 	}
 	return TreeTraversalLimits{
 		structure:    structure,
 		maximumBytes: maximumBytes,
+		initialized:  true,
 	}, nil
 }
 
@@ -106,6 +111,9 @@ func (limits TreeTraversalLimits) MaximumBytes() int64 {
 
 // Validate rejects an uninitialized traversal limit.
 func (limits TreeTraversalLimits) Validate() error {
+	if !limits.initialized || !limits.structure.initialized {
+		return fmt.Errorf("tree traversal limits are uninitialized")
+	}
 	_, err := NewTreeTraversalLimits(
 		limits.MaximumEntries(),
 		limits.MaximumDepth(),

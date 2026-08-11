@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -23,7 +24,7 @@ import (
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 )
 
-func TestRunRecoverActiveDryRunJSONPreservesSchemaFourFacts(t *testing.T) {
+func TestRunRecoverActiveDryRunJSONPreservesSchemaSixFacts(t *testing.T) {
 	fixture := writeRecoverConfirmationFixture(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -45,10 +46,15 @@ func TestRunRecoverActiveDryRunJSONPreservesSchemaFourFacts(t *testing.T) {
 		t.Fatalf("decode recovery JSON: %v", err)
 	}
 	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
+		payload["phase"] != "planned" ||
 		payload["authority_kind"] != "active_journal" ||
 		payload["operation_dir"] != fixture.operationDir ||
 		payload["classification"] != "needs_rollback" {
 		t.Fatalf("active recovery JSON = %#v", payload)
+	}
+	cleanup, ok := payload["cleanup_obligations"].([]any)
+	if !ok || payload["cleanup_obligation_count"] != float64(len(cleanup)) {
+		t.Fatalf("active recovery cleanup obligations = %#v", payload)
 	}
 	actions, ok := payload["actions"].([]any)
 	if !ok || len(actions) == 0 {
@@ -87,7 +93,7 @@ func TestRecoverActiveFailureProjectionPreservesDetailedCause(t *testing.T) {
 	defer prepared.Close()
 	disclosure := prepared.Disclosure()
 	cause := fmt.Errorf("active recovery destination %s changed", fixture.hostPath)
-	if projected := clipresent.RecoverResultError(disclosure, cause); projected != cause {
+	if projected := clipresent.RecoverResultError(disclosure, nil, cause); projected != cause {
 		t.Fatalf("active recovery error was replaced: %v", projected)
 	}
 
@@ -96,6 +102,7 @@ func TestRecoverActiveFailureProjectionPreservesDetailedCause(t *testing.T) {
 		&output,
 		"write",
 		disclosure,
+		nil,
 		cause,
 	); err != nil {
 		t.Fatal(err)
@@ -110,7 +117,7 @@ func TestRecoverActiveFailureProjectionPreservesDetailedCause(t *testing.T) {
 	}
 }
 
-func TestRunRecoverCleanupDryRunJSONUsesSchemaFourCleanupShape(t *testing.T) {
+func TestRunRecoverCleanupDryRunJSONUsesSchemaSixCleanupShape(t *testing.T) {
 	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhasePrepared, true)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -136,15 +143,19 @@ func TestRunRecoverCleanupDryRunJSONUsesSchemaFourCleanupShape(t *testing.T) {
 		"actions",
 		"authority_kind",
 		"classification",
+		"cleanup_obligation_count",
+		"cleanup_obligations",
 		"command",
 		"has_errors",
 		"mode",
 		"operation_id",
+		"phase",
 		"schema_version",
 	})
 	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
 		payload["command"] != "recover" ||
 		payload["mode"] != "dry-run" ||
+		payload["phase"] != "planned" ||
 		payload["authority_kind"] != "journal_cleanup" ||
 		payload["operation_id"] != fixture.operationID ||
 		payload["classification"] != "retained_cleanup_residue" ||
@@ -231,7 +242,7 @@ func TestRecoverCleanupFailureProjectionIsSharedAndPathNeutral(t *testing.T) {
 	}
 	cause := fmt.Errorf("remove %s: permission denied", fixture.garbageDir)
 	resultErr := journal.WrapCleanupFailure(cleanup.Action(), cause)
-	projected := clipresent.RecoverResultError(disclosure, resultErr)
+	projected := clipresent.RecoverResultError(disclosure, nil, resultErr)
 	const want = "journal cleanup failed: phase=execution action=finalize_journal_cleanup"
 	if projected.Error() != want || humanDiagnosticError(projected) != want {
 		t.Fatalf(
@@ -247,6 +258,7 @@ func TestRecoverCleanupFailureProjectionIsSharedAndPathNeutral(t *testing.T) {
 		&output,
 		"write",
 		disclosure,
+		nil,
 		resultErr,
 	); err != nil {
 		t.Fatal(err)
@@ -260,11 +272,14 @@ func TestRecoverCleanupFailureProjectionIsSharedAndPathNeutral(t *testing.T) {
 		"actions",
 		"authority_kind",
 		"classification",
+		"cleanup_obligation_count",
+		"cleanup_obligations",
 		"command",
 		"errors",
 		"has_errors",
 		"mode",
 		"operation_id",
+		"phase",
 		"schema_version",
 	})
 	errorsValue, ok := payload["errors"].([]any)
@@ -321,6 +336,8 @@ func TestRunRecoverCleanupYesFinalizesOnlyRetirementArtifacts(t *testing.T) {
 		t,
 		stdout.Bytes(),
 		fixture,
+		"completed",
+		false,
 		false,
 		"",
 	)
@@ -364,7 +381,15 @@ func TestRunRecoverCleanupExecutionFailureIsPathNeutral(t *testing.T) {
 	if filesystem.calls != 1 {
 		t.Fatalf("cleanup calls = %d, want 1", filesystem.calls)
 	}
-	assertCleanupWriteJSON(t, stdout.Bytes(), fixture, true, want)
+	assertCleanupWriteJSON(
+		t,
+		stdout.Bytes(),
+		fixture,
+		"cleanup_authority_retained",
+		true,
+		true,
+		want,
+	)
 	assertNoCleanupPrivateCause(t, stdout.String(), fixture)
 	for _, path := range []string{fixture.controlDir, fixture.residueDir} {
 		if _, err := os.Lstat(path); err != nil {
@@ -399,7 +424,7 @@ func TestRunRecoverCleanupGarbageCollectionFailureIsPathNeutral(t *testing.T) {
 		"operation: " + fixture.operationID + "\n" +
 		"finalize_journal_cleanup\n" +
 		"journal cleanup only; host, statefile, and ownership data are unchanged\n"
-	const wantError = "recover failed: journal cleanup incomplete: phase=garbage_collection action=finalize_journal_cleanup; semantic retirement is committed and no recovery action remains\n"
+	const wantError = "recover failed: recovery authority retired; hidden GC cleanup did not complete successfully; no recovery action remains\n"
 	if exitCode != 1 || stdout.String() != wantPlan || stderr.String() != wantError {
 		t.Fatalf(
 			"exitCode = %d stdout = %q stderr = %q",
@@ -418,6 +443,230 @@ func TestRunRecoverCleanupGarbageCollectionFailureIsPathNeutral(t *testing.T) {
 	for _, path := range []string{fixture.controlDir, fixture.residueDir} {
 		if _, err := os.Lstat(path); !os.IsNotExist(err) {
 			t.Fatalf("retired cleanup path %q exists or stat failed unexpectedly: %v", path, err)
+		}
+	}
+}
+
+func TestRunRecoverCleanupGarbageCollectionFailureJSONReportsRetiredAuthority(t *testing.T) {
+	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+	filesystem := &failNthCleanupStore{
+		Store:  storagecommit.Adapter{},
+		failOn: 2,
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := RunWithOptions(
+		[]string{"recover", "--yes", "--json", "--manifest", fixture.manifestPath},
+		RunOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+			RecoverExecuteOptions: recoverworkflow.ExecuteOptions{
+				Filesystem: filesystem,
+			},
+		},
+	)
+	const want = "recovery authority retired; hidden GC cleanup did not complete successfully; no recovery action remains"
+	if exitCode != 1 || stderr.Len() != 0 {
+		t.Fatalf(
+			"exitCode = %d stdout = %q stderr = %q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	assertCleanupWriteJSON(
+		t,
+		stdout.Bytes(),
+		fixture,
+		"authority_retired",
+		false,
+		true,
+		want,
+	)
+	assertNoCleanupPrivateCause(t, stdout.String(), fixture)
+	if _, err := os.Lstat(fixture.garbageDir); err != nil {
+		t.Fatalf("garbage-collection residue missing: %v", err)
+	}
+	for _, path := range []string{fixture.controlDir, fixture.residueDir} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("retired cleanup path %q exists or stat failed unexpectedly: %v", path, err)
+		}
+	}
+}
+
+func TestRunRecoverActiveGarbageCollectionFailureJSONReportsRetiredAuthority(t *testing.T) {
+	fixture := writeRecoverConfirmationFixture(t)
+	paths, err := daempaths.Resolve(fixture.manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &failActiveJournalGCCleanupStore{Store: storagecommit.Adapter{}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := RunWithOptions(
+		[]string{"recover", "--yes", "--json", "--manifest", fixture.manifestPath},
+		RunOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+			RecoverExecuteOptions: recoverworkflow.ExecuteOptions{
+				Filesystem: filesystem,
+			},
+		},
+	)
+	if exitCode != 1 || stderr.Len() != 0 || filesystem.attempts != 1 {
+		t.Fatalf(
+			"exitCode = %d attempts = %d stdout = %q stderr = %q",
+			exitCode,
+			filesystem.attempts,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode recovery JSON: %v", err)
+	}
+	assertJSONKeys(t, payload, []string{
+		"action_count",
+		"actions",
+		"cleanup_obligation_count",
+		"cleanup_obligations",
+		"command",
+		"errors",
+		"has_errors",
+		"mode",
+		"operation_id",
+		"phase",
+		"schema_version",
+	})
+	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
+		payload["command"] != "recover" ||
+		payload["mode"] != "write" ||
+		payload["phase"] != "authority_retired" ||
+		payload["has_errors"] != true ||
+		payload["action_count"] != float64(0) ||
+		payload["cleanup_obligation_count"] != float64(0) {
+		t.Fatalf("active terminal recovery JSON = %#v", payload)
+	}
+	errorsValue, ok := payload["errors"].([]any)
+	const wantError = "recovery authority retired; hidden GC cleanup did not complete successfully; no recovery action remains"
+	if !ok || len(errorsValue) != 1 || errorsValue[0] != wantError {
+		t.Fatalf("active terminal recovery errors = %#v, want %q", payload["errors"], wantError)
+	}
+	for _, stale := range []string{"authority_kind", "operation_dir", "classification"} {
+		if _, present := payload[stale]; present {
+			t.Fatalf("terminal recovery payload retained %q: %#v", stale, payload)
+		}
+	}
+	if strings.Contains(stdout.String(), fixture.operationDir) ||
+		strings.Contains(stdout.String(), paths.RecoveryDir) {
+		t.Fatalf("terminal recovery JSON exposed retired authority path: %s", stdout.String())
+	}
+	if _, err := os.Lstat(fixture.operationDir); !os.IsNotExist(err) {
+		t.Fatalf("retired operation directory exists or stat failed unexpectedly: %v", err)
+	}
+}
+
+func TestRunRecoverActivePartialRetirementJSONReportsCleanupAuthority(t *testing.T) {
+	fixture := writeRecoverConfirmationFixture(t)
+	filesystem := &failActiveRetirementRecordAdvanceStore{Store: storagecommit.Adapter{}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := RunWithOptions(
+		[]string{"recover", "--yes", "--json", "--manifest", fixture.manifestPath},
+		RunOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+			RecoverExecuteOptions: recoverworkflow.ExecuteOptions{
+				Filesystem: filesystem,
+			},
+		},
+	)
+	if exitCode != 1 || stderr.Len() != 0 || filesystem.attempts != 1 {
+		t.Fatalf(
+			"exitCode = %d attempts = %d stdout = %q stderr = %q",
+			exitCode,
+			filesystem.attempts,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode recovery JSON: %v", err)
+	}
+	if payload["phase"] != "cleanup_authority_retained" ||
+		payload["authority_kind"] != "journal_cleanup" ||
+		payload["classification"] != "retained_cleanup_residue" ||
+		payload["action_count"] != float64(1) ||
+		payload["has_errors"] != true {
+		t.Fatalf("partial-retirement recovery JSON = %#v", payload)
+	}
+	actions, ok := payload["actions"].([]any)
+	if !ok || len(actions) != 1 {
+		t.Fatalf("partial-retirement actions = %#v, want one cleanup action", payload["actions"])
+	}
+	action, ok := actions[0].(map[string]any)
+	if !ok || action["kind"] != "finalize_journal_cleanup" {
+		t.Fatalf("partial-retirement action = %#v", actions[0])
+	}
+	if _, present := payload["operation_dir"]; present ||
+		strings.Contains(stdout.String(), fixture.operationDir) {
+		t.Fatalf("partial-retirement payload retained stale active authority: %s", stdout.String())
+	}
+}
+
+func TestRunRecoverCleanupUnknownAuthorityOverridesStaleCleanupAction(t *testing.T) {
+	fixture := writeRecoverCleanupCLIFixture(t, retirement.PhaseFinalizing, true)
+	filesystem := &failCleanupAndInventoryStore{Store: storagecommit.Adapter{}}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	exitCode := RunWithOptions(
+		[]string{"recover", "--yes", "--json", "--manifest", fixture.manifestPath},
+		RunOptions{
+			Stdout: &stdout,
+			Stderr: &stderr,
+			RecoverExecuteOptions: recoverworkflow.ExecuteOptions{
+				Filesystem: filesystem,
+			},
+		},
+	)
+	if exitCode != 1 || stderr.Len() != 0 || filesystem.attempts != 1 {
+		t.Fatalf(
+			"exitCode = %d attempts = %d stdout = %q stderr = %q",
+			exitCode,
+			filesystem.attempts,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode recovery JSON: %v", err)
+	}
+	if payload["phase"] != "authority_unknown" ||
+		payload["action_count"] != float64(0) ||
+		payload["cleanup_obligation_count"] != float64(0) ||
+		payload["has_errors"] != true {
+		t.Fatalf("unknown-authority recovery JSON = %#v", payload)
+	}
+	for _, stale := range []string{"authority_kind", "operation_dir", "classification"} {
+		if _, present := payload[stale]; present {
+			t.Fatalf("unknown-authority payload retained %q: %#v", stale, payload)
+		}
+	}
+	errorsValue, ok := payload["errors"].([]any)
+	const want = "recovery write failed and current durable authority could not be classified; preserve recovery artifacts and inspect again"
+	if !ok || len(errorsValue) != 1 || errorsValue[0] != want {
+		t.Fatalf("unknown-authority errors = %#v, want %q", payload["errors"], want)
+	}
+	for _, leaked := range []string{"finalize_journal_cleanup", "private inventory path"} {
+		if strings.Contains(stdout.String(), leaked) {
+			t.Fatalf("unknown-authority JSON leaked %q: %s", leaked, stdout.String())
 		}
 	}
 }
@@ -492,14 +741,117 @@ type failNthCleanupStore struct {
 	calls  int
 }
 
+type failActiveJournalGCCleanupStore struct {
+	mutationfs.Store
+	attempts int
+}
+
+type failActiveRetirementRecordAdvanceStore struct {
+	mutationfs.Store
+	attempts int
+}
+
+type failCleanupAndInventoryStore struct {
+	mutationfs.Store
+	attempts int
+	failRead bool
+}
+
+func (filesystem *failCleanupAndInventoryStore) SnapshotDirectory(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if filesystem.failRead {
+		return mutationfs.DirectorySnapshot{}, errors.New("inspect private inventory path: permission denied")
+	}
+	return filesystem.Store.SnapshotDirectory(ctx, path, maximumEntries)
+}
+
+func (filesystem *failCleanupAndInventoryStore) CleanupRootedEntry(
+	_ context.Context,
+	capability rootedpath.CommitCapability,
+	_ mutationfs.EntryIdentity,
+	_ mutationfs.TreeTraversalLimits,
+) (mutationfs.CommitOutcome, error) {
+	filesystem.attempts++
+	filesystem.failRead = true
+	outcome, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
+	if err != nil {
+		panic(err)
+	}
+	return outcome, errors.Join(
+		errors.New("injected cleanup failure"),
+		capability.Close(),
+	)
+}
+
+func (filesystem *failActiveRetirementRecordAdvanceStore) ReplaceRootedFileWithOutcome(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	content []byte,
+	mode fs.FileMode,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	path, pathErr := capability.Destination().LexicalPath()
+	if pathErr == nil && filepath.Base(path) == retirement.RecordFileName {
+		filesystem.attempts++
+		outcome, outcomeErr := mutationfs.NewCommitOutcome(
+			mutationfs.CommitOutcomeUncommitted,
+			nil,
+		)
+		if outcomeErr != nil {
+			panic(outcomeErr)
+		}
+		return outcome, errors.Join(
+			errors.New("injected retirement record advancement failure"),
+			capability.Close(),
+		)
+	}
+	return filesystem.Store.ReplaceRootedFileWithOutcome(
+		ctx,
+		capability,
+		content,
+		mode,
+		expected,
+	)
+}
+
+func (filesystem *failActiveJournalGCCleanupStore) CleanupRootedEntry(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
+) (mutationfs.CommitOutcome, error) {
+	if capability != nil {
+		path, pathErr := capability.Destination().LexicalPath()
+		if pathErr == nil && strings.HasPrefix(filepath.Base(path), ".daem-journal-gc-") {
+			filesystem.attempts++
+			outcome, outcomeErr := mutationfs.NewCommitOutcome(
+				mutationfs.CommitOutcomeUncommitted,
+				nil,
+			)
+			if outcomeErr != nil {
+				panic(outcomeErr)
+			}
+			return outcome, errors.Join(
+				fmt.Errorf("remove private path %s: permission denied", path),
+				capability.Close(),
+			)
+		}
+	}
+	return filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
+}
+
 func (filesystem *failNthCleanupStore) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
 ) (mutationfs.CommitOutcome, error) {
 	filesystem.calls++
 	if filesystem.calls != filesystem.failOn {
-		return filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+		return filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
 	}
 	outcome, outcomeErr := mutationfs.NewCommitOutcome(
 		mutationfs.CommitOutcomeUncommitted,
@@ -627,6 +979,8 @@ func assertCleanupWriteJSON(
 	t *testing.T,
 	content []byte,
 	fixture recoverCleanupCLIFixture,
+	wantPhase string,
+	authorityRetained bool,
 	hasErrors bool,
 	wantError string,
 ) {
@@ -638,13 +992,17 @@ func assertCleanupWriteJSON(
 	keys := []string{
 		"action_count",
 		"actions",
-		"authority_kind",
-		"classification",
+		"cleanup_obligation_count",
+		"cleanup_obligations",
 		"command",
 		"has_errors",
 		"mode",
 		"operation_id",
+		"phase",
 		"schema_version",
+	}
+	if authorityRetained {
+		keys = append(keys, "authority_kind", "classification")
 	}
 	if hasErrors {
 		keys = append(keys, "errors")
@@ -653,24 +1011,36 @@ func assertCleanupWriteJSON(
 	if payload["schema_version"] != float64(contractversion.RecoveryJSON) ||
 		payload["command"] != "recover" ||
 		payload["mode"] != "write" ||
-		payload["authority_kind"] != "journal_cleanup" ||
 		payload["operation_id"] != fixture.operationID ||
-		payload["classification"] != "retained_cleanup_residue" ||
-		payload["action_count"] != float64(1) ||
+		payload["phase"] != wantPhase ||
 		payload["has_errors"] != hasErrors {
 		t.Fatalf("cleanup write JSON = %#v", payload)
 	}
+	wantActionCount := 0
+	if authorityRetained {
+		wantActionCount = 1
+		if payload["authority_kind"] != "journal_cleanup" ||
+			payload["classification"] != "retained_cleanup_residue" {
+			t.Fatalf("retained cleanup authority = %#v", payload)
+		}
+	}
+	if payload["action_count"] != float64(wantActionCount) ||
+		payload["cleanup_obligation_count"] != float64(0) {
+		t.Fatalf("cleanup result counts = %#v", payload)
+	}
 	actions, ok := payload["actions"].([]any)
-	if !ok || len(actions) != 1 {
-		t.Fatalf("cleanup actions = %#v, want one action", payload["actions"])
+	if !ok || len(actions) != wantActionCount {
+		t.Fatalf("cleanup actions = %#v, want %d", payload["actions"], wantActionCount)
 	}
-	action, ok := actions[0].(map[string]any)
-	if !ok {
-		t.Fatalf("cleanup action = %#v, want object", actions[0])
-	}
-	assertJSONKeys(t, action, []string{"kind"})
-	if action["kind"] != "finalize_journal_cleanup" {
-		t.Fatalf("cleanup action = %#v", action)
+	if authorityRetained {
+		action, ok := actions[0].(map[string]any)
+		if !ok {
+			t.Fatalf("cleanup action = %#v, want object", actions[0])
+		}
+		assertJSONKeys(t, action, []string{"kind"})
+		if action["kind"] != "finalize_journal_cleanup" {
+			t.Fatalf("cleanup action = %#v", action)
+		}
 	}
 	if hasErrors {
 		errorsValue, ok := payload["errors"].([]any)

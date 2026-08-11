@@ -39,31 +39,22 @@ func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
 }
 
 func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, error) {
+	return planRecoveryWithFilesystem(ctx, input, storagecommit.Adapter{})
+}
+
+func planRecoveryWithFilesystem(
+	ctx context.Context,
+	input PlanInput,
+	filesystem mutationfs.Reader,
+) (recoveryPreparation, error) {
+	if filesystem == nil {
+		return recoveryPreparation{}, fmt.Errorf("recovery planning filesystem is required")
+	}
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
-	stateReader := stateReaderForPath(paths.StatefilePath)
-	registry, err := ownershipstore.New(paths.OwnershipRegistryPath)
-	if err != nil {
-		return recoveryPreparation{}, err
-	}
-
-	recoverable, err := journal.LoadRecoverablePlanWithOptions(
-		ctx,
-		journalPaths(paths),
-		journal.PlanLoadOptions{
-			Filesystem:        storagecommit.Adapter{},
-			Resolver:          destinationResolver(paths).Resolve,
-			OwnershipRegistry: registry,
-			Codecs:            aggregatecodec.Catalog(),
-			StateCodec:        statefile.Codec{},
-			StateReader:       stateReader,
-			ValidateBeforeActiveObservation: func(ctx context.Context) error {
-				return transaction.RequireClearFileSet(ctx, paths.StateDir)
-			},
-		},
-	)
+	recoverable, err := loadRecoverySelection(ctx, paths, filesystem)
 	if err != nil {
 		if transactionErr := transaction.RequireClearFileSet(
 			ctx,
@@ -95,29 +86,59 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 	return planned, nil
 }
 
+func loadRecoverySelection(
+	ctx context.Context,
+	paths daempaths.Paths,
+	filesystem mutationfs.Reader,
+) (journal.RecoverablePlan, error) {
+	stateReader := stateReaderForPath(paths.StatefilePath)
+	registry, err := ownershipstore.NewRecoveryReader(paths.OwnershipRegistryPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return journal.LoadRecoverablePlanWithOptions(
+		ctx,
+		journalPaths(paths),
+		journal.PlanLoadOptions{
+			Filesystem:        filesystem,
+			Resolver:          destinationResolver(paths).Resolve,
+			OwnershipRegistry: registry,
+			Codecs:            aggregatecodec.Catalog(),
+			StateCodec:        statefile.Codec{},
+			StateReader:       stateReader,
+			ValidateBeforeActiveObservation: func(ctx context.Context) error {
+				return transaction.RequireClearFileSet(ctx, paths.StateDir)
+			},
+		},
+	)
+}
+
 // Execute executes one prepared recovery with explicit effect dependencies.
 func Execute(
 	ctx context.Context,
 	prepared *PreparedRecovery,
 	options ExecuteOptions,
-) (returnErr error) {
+) (result ExecutionResult, returnErr error) {
 	execution, err := prepared.beginExecution()
 	if err != nil {
-		return err
+		return ExecutionResult{}, err
 	}
-	if cleanup, ok := journal.JournalCleanupPlan(execution.plan); ok {
-		defer func() {
-			returnErr = journal.WrapCleanupFailure(cleanup.Action(), returnErr)
-		}()
+	result, err = retainedExecutionResult(execution.plan)
+	if err != nil {
+		return ExecutionResult{}, err
 	}
+	defer func() {
+		returnErr = result.SemanticError(returnErr)
+	}()
 	if ctx == nil {
-		return fmt.Errorf("recovery context is required")
+		return result, fmt.Errorf("recovery context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return result, err
 	}
 	if execution.plan.Blocked() || execution.plan.HasErrors() {
-		return fmt.Errorf("recovery is blocked")
+		return result, fmt.Errorf("recovery is blocked")
 	}
 	filesystem := options.Filesystem
 	if filesystem == nil {
@@ -125,71 +146,55 @@ func Execute(
 	}
 	visibleOperation, err := recoveryOperationFingerprint(execution.paths, execution.plan)
 	if err != nil || !execution.operationEvidence.Equal(visibleOperation) {
-		return errors.Join(mutation.StaleSnapshotError{}, err)
+		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	visibleAuthority, err := buildRecoveryAuthorityEvidence(execution.paths, execution.plan)
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
-		return errors.Join(mutation.StaleSnapshotError{}, err)
+		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	store, err := mutation.NewStore(execution.paths.DataDir)
 	if err != nil {
-		return err
+		return result, err
 	}
 	effectPaths, err := execution.paths.WithDataDir(store.DataDir())
 	if err != nil {
-		return err
+		return result, err
 	}
 	leases, err := store.Acquire(ctx, execution.authorityEvidence.domains...)
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer func() {
 		if err := leases.Release(); err != nil {
+			result = result.withExecutionFailure()
 			returnErr = errors.Join(returnErr, err)
 		}
 	}()
 	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
-		return err
+		return result, err
 	} else if !matches {
-		return mutation.StaleSnapshotError{}
+		return result, mutation.StaleSnapshotError{}
 	}
-	revisions, err := mutation.CaptureRevisionSet(ctx, execution.authorityEvidence.revisions...)
-	if err != nil {
-		return err
-	}
-
 	current, err := planRecovery(ctx, execution.input)
 	if err != nil {
-		return errors.Join(mutation.StaleSnapshotError{}, err)
+		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
 	if current.plan.Blocked() || current.plan.HasErrors() {
-		return errors.Join(mutation.StaleSnapshotError{}, fmt.Errorf("recovery is blocked by current evidence"))
+		return result, errors.Join(mutation.StaleSnapshotError{}, fmt.Errorf("recovery is blocked by current evidence"))
 	}
 	if !execution.operationEvidence.Equal(current.operationEvidence) ||
 		!execution.authorityEvidence.authorityFingerprint.Equal(current.authorityEvidence.authorityFingerprint) ||
 		!execution.plan.SameExecutionAuthority(current.plan) {
-		return mutation.StaleSnapshotError{}
-	}
-	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
-		return err
-	} else if !matches {
-		return mutation.StaleSnapshotError{}
+		return result, mutation.StaleSnapshotError{}
 	}
 	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
-		return err
+		return result, err
 	} else if !matches {
-		return mutation.StaleSnapshotError{}
+		return result, mutation.StaleSnapshotError{}
 	}
 
 	validateCurrentAuthority := func(ctx context.Context) error {
-		matches, err := revisions.MatchesCurrent(ctx)
-		if err != nil {
-			return err
-		}
-		if !matches {
-			return mutation.StaleSnapshotError{}
-		}
-		matches, err = leases.DomainsMatchCurrent(ctx)
+		matches, err := leases.DomainsMatchCurrent(ctx)
 		if err != nil {
 			return err
 		}
@@ -238,13 +243,13 @@ func Execute(
 	case journal.RecoveryAuthorityActiveJournal:
 		active, ok := journal.ActiveRecoveryPlan(current.plan)
 		if !ok {
-			return fmt.Errorf("active recovery selection is unavailable")
+			return result, fmt.Errorf("active recovery selection is unavailable")
 		}
 		activeAuthority, ok := journal.ActiveRecoveryJournalAuthority(current.plan)
 		if !ok {
-			return fmt.Errorf("active recovery journal authority is unavailable")
+			return result, fmt.Errorf("active recovery journal authority is unavailable")
 		}
-		return execute.ExecuteRecoveryPlanWithOptions(
+		err := execute.ExecuteRecoveryPlanWithOptions(
 			ctx,
 			active,
 			executePaths(effectPaths),
@@ -261,12 +266,19 @@ func Execute(
 				Filesystem:                  filesystem,
 			},
 		)
+		return classifyPostExecutionAuthority(
+			ctx,
+			execution,
+			filesystem,
+			result,
+			err,
+		)
 	case journal.RecoveryAuthorityJournalCleanup:
 		cleanup, ok := journal.JournalCleanupPlan(current.plan)
 		if !ok {
-			return fmt.Errorf("journal cleanup selection is unavailable")
+			return result, fmt.Errorf("journal cleanup selection is unavailable")
 		}
-		return execute.ExecuteJournalCleanupWithOptions(
+		err := execute.ExecuteJournalCleanupWithOptions(
 			ctx,
 			cleanup,
 			execute.JournalCleanupPaths{
@@ -277,12 +289,54 @@ func Execute(
 				Filesystem:            filesystem,
 			},
 		)
+		return classifyPostExecutionAuthority(
+			ctx,
+			execution,
+			filesystem,
+			result,
+			err,
+		)
 	default:
-		return fmt.Errorf(
+		return result, fmt.Errorf(
 			"recovery authority kind %q is unsupported",
 			current.plan.AuthorityKind(),
 		)
 	}
+}
+
+func classifyPostExecutionAuthority(
+	ctx context.Context,
+	execution recoveryPreparation,
+	filesystem mutationfs.Reader,
+	prior ExecutionResult,
+	executionErr error,
+) (ExecutionResult, error) {
+	current, classificationErr := loadRecoverySelection(ctx, execution.paths, filesystem)
+	if classificationErr == nil {
+		result, err := retainedExecutionResult(current)
+		if err != nil {
+			return unknownExecutionResult(prior.OperationID()), errors.Join(executionErr, err)
+		}
+		if result.OperationID() != prior.OperationID() {
+			return unknownExecutionResult(prior.OperationID()), errors.Join(
+				executionErr,
+				fmt.Errorf("recovery authority changed operation identity after execution"),
+			)
+		}
+		if executionErr == nil {
+			executionErr = fmt.Errorf(
+				"recovery execution returned success while durable authority remains",
+			)
+		}
+		return result.withExecutionFailure(), executionErr
+	}
+	if errors.Is(classificationErr, journal.ErrNoRecoverableJournal) {
+		return retiredExecutionResult(prior.OperationID(), executionErr == nil), executionErr
+	}
+	return unknownExecutionResult(prior.OperationID()), errors.Join(
+		executionErr,
+		fmt.Errorf("classify durable recovery authority after execution: %w", classificationErr),
+	)
 }
 
 func stateReaderForPath(path string) durable.SnapshotReader {

@@ -369,14 +369,6 @@ func loadActivePlanFromInventory(
 	}
 	operationDir := inventory.active.operationDir
 	journal := inventory.active.journal
-	if err := validateRecoveryGlobalPathBindings(
-		ctx,
-		journal.Entries,
-		options.Resolver,
-		options.RootedCapability,
-	); err != nil {
-		return recovery.Plan{}, err
-	}
 	claimTransitions, err := canonicalClaimTransitions(journal.ClaimTransitions)
 	if err != nil {
 		return recovery.Plan{}, err
@@ -385,8 +377,45 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
+	resolver := options.Resolver
+	planningEntries := journal.Entries
+	var selectedIndexes []int
+	if selected != nil {
+		selectedIndexes, err = selectedRecoveryEntryIndexes(journal.Entries, *selected)
+		if err != nil {
+			return recovery.Plan{}, err
+		}
+		planningEntries = recoveryEntriesAtIndexes(journal.Entries, selectedIndexes)
+	}
+	authority, err := canonicalRecoveryAuthority(
+		journal,
+		operationDir,
+		claimTransitions,
+		provisionalAcquires,
+		inventory.active.identity.JournalAuthorityFingerprint(),
+	)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	planningBudget, err := recovery.NewPhysicalWorkBudget(len(journal.RemovalIntents))
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	if err := validateRecoveryGlobalPathBindings(
+		ctx,
+		journal.Entries,
+		options.Resolver,
+		options.RootedCapability,
+		planningBudget,
+	); err != nil {
+		return recovery.Plan{}, err
+	}
 	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
-		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthority(paths.StatefilePath)
+		statefileAuthority, err := mutation.ObservePersistedDirectoryEntryAuthorityBounded(
+			paths.StatefilePath,
+			recovery.MaximumPhysicalPathDepth,
+			planningBudget,
+		)
 		if err != nil {
 			return recovery.Plan{}, fmt.Errorf("canonicalize recovery state authority: %w", err)
 		}
@@ -403,16 +432,6 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, err
 		}
 	}
-	resolver := options.Resolver
-	planningEntries := journal.Entries
-	var selectedIndexes []int
-	if selected != nil {
-		selectedIndexes, err = selectedRecoveryEntryIndexes(journal.Entries, *selected)
-		if err != nil {
-			return recovery.Plan{}, err
-		}
-		planningEntries = recoveryEntriesAtIndexes(journal.Entries, selectedIndexes)
-	}
 	registry := ownership.EmptyRegistry()
 	if len(claimTransitions) != 0 || len(provisionalAcquires) != 0 {
 		if options.OwnershipRegistry == nil {
@@ -421,6 +440,8 @@ func loadActivePlanFromInventory(
 		registry, err = options.OwnershipRegistry.LoadForClaimRemovals(
 			ctx,
 			recoveryClaimRemovalCandidates(claimTransitions),
+			recovery.MaximumPhysicalPathDepth,
+			planningBudget,
 		)
 		if err != nil {
 			return recovery.Plan{}, err
@@ -439,14 +460,14 @@ func loadActivePlanFromInventory(
 			return recovery.Plan{}, err
 		}
 	}
-	manifestAuthority, err := manifestAuthorityForRecovery(paths, journal)
+	manifestAuthority, err := manifestAuthorityForRecovery(paths, journal, planningBudget)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
 	if manifestAuthority != nil {
 		defer manifestAuthority.close()
 	}
-	observations := recoveryPathObservations(
+	observations, err := recoveryPathObservations(
 		ctx,
 		planningEntries,
 		options.Filesystem,
@@ -454,30 +475,34 @@ func loadActivePlanFromInventory(
 		resolver,
 		options.RootedCapability,
 		options.Codecs,
+		planningBudget,
 	)
-	observations = applyRecoveryIntentOwnershipEvidence(
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	observations, err = applyRecoveryIntentOwnershipEvidence(
 		ctx,
 		observations,
 		provisionalAcquires,
 		registry,
 		resolver,
+		planningBudget,
 	)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
 	if manifestAuthority != nil {
 		if err := manifestAuthority.close(); err != nil {
 			return recovery.Plan{}, fmt.Errorf("close recovery manifest root authority: %w", err)
 		}
 	}
-	backupObservations := recoveryBackupObservations(
+	backupObservations, err := recoveryBackupObservations(
 		ctx,
 		operationDir,
+		inventory.active.physicalAuthority,
 		planningEntries,
-	)
-	authority, err := canonicalRecoveryAuthority(
-		journal,
-		operationDir,
-		claimTransitions,
-		provisionalAcquires,
-		inventory.active.identity.JournalAuthorityFingerprint(),
+		options.Filesystem,
+		planningBudget,
 	)
 	if err != nil {
 		return recovery.Plan{}, err
@@ -486,7 +511,7 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	return recovery.Classify(
+	plan, err := recovery.Classify(
 		authority,
 		selection,
 		currentState,
@@ -494,6 +519,10 @@ func loadActivePlanFromInventory(
 		canonicalRecoveryBackupEvidence(backupObservations),
 		registry,
 	)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	return assessRemovalCleanupPlan(ctx, plan, options, planningBudget)
 }
 
 func recoveryClaimRemovalCandidates(transitions []ownershipmutation.ClaimTransition) []ownership.Claim {

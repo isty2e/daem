@@ -194,6 +194,7 @@ type CommitCapability interface {
 type WorkingDirectoryCapability interface {
 	Validate() error
 	OpenDirectory() (*os.File, error)
+	OpenDirectoryBounded(budget PhysicalTraversalBudget) (*os.File, error)
 	Close() error
 	rootedPathWorkingDirectoryCapability()
 }

@@ -31,6 +31,40 @@ func CaptureRootedEntryIdentity(
 	return captureEntryIdentity(ctx, path, capability)
 }
 
+// CaptureWorkingDirectoryIdentity observes the exact retained directory object
+// without re-resolving its diagnostic path.
+func CaptureWorkingDirectoryIdentity(
+	ctx context.Context,
+	capability rootedpath.WorkingDirectoryCapability,
+	budget rootedpath.PhysicalTraversalBudget,
+) (EntryIdentity, error) {
+	if ctx == nil {
+		return EntryIdentity{}, fmt.Errorf("working-directory identity context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return EntryIdentity{}, err
+	}
+	if capability == nil {
+		return EntryIdentity{}, fmt.Errorf("working-directory identity capability is required")
+	}
+	file, err := capability.OpenDirectoryBounded(budget)
+	if err != nil {
+		return EntryIdentity{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return EntryIdentity{}, errors.Join(err, file.Close())
+	}
+	identity, identityErr := refreshOpenedIdentity(int(file.Fd()), file.Name())
+	closeErr := file.Close()
+	if identityErr != nil || closeErr != nil {
+		return EntryIdentity{}, errors.Join(identityErr, closeErr)
+	}
+	if identity.kind != entryKindDirectory {
+		return EntryIdentity{}, fmt.Errorf("working-directory capability does not identify a directory")
+	}
+	return identity, nil
+}
+
 func captureEntryIdentity(
 	ctx context.Context,
 	path string,

@@ -9,6 +9,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -23,9 +24,8 @@ type ownershipMutationPlan struct {
 }
 
 type ownershipMutationState struct {
-	transitions        []ownershipmutation.ClaimTransition
-	provisional        []ownership.ProvisionalAcquireIntent
-	journalFingerprint string
+	transitions []ownershipmutation.ClaimTransition
+	provisional []ownership.ProvisionalAcquireIntent
 }
 
 func newOwnershipMutationState(plans ...ownershipMutationPlan) ownershipMutationState {
@@ -39,17 +39,6 @@ func newOwnershipMutationState(plans ...ownershipMutationPlan) ownershipMutation
 
 func (state ownershipMutationState) hasMutations() bool {
 	return len(state.transitions) != 0 || len(state.provisional) != 0
-}
-
-func (state *ownershipMutationState) setJournalFingerprint(fingerprint string) error {
-	if state == nil {
-		return fmt.Errorf("ownership mutation state is required")
-	}
-	if fingerprint == "" {
-		return fmt.Errorf("ownership mutation journal fingerprint is required")
-	}
-	state.journalFingerprint = fingerprint
-	return nil
 }
 
 func ownershipPlanForManagedPathEffects(
@@ -327,7 +316,6 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 		transition, fingerprint, promoted, err := promoteVisibleAcquire(
 			ctx,
 			intent,
-			state.journalFingerprint,
 			authority,
 			registryStore,
 			stateCodec,
@@ -345,7 +333,9 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 			index++
 			continue
 		}
-		state.journalFingerprint = fingerprint
+		if fingerprint == "" {
+			return fmt.Errorf("promoted recovery journal fingerprint is unavailable")
+		}
 		state.transitions = append(state.transitions, transition)
 		state.provisional = append(state.provisional[:index], state.provisional[index+1:]...)
 	}
@@ -355,12 +345,17 @@ func (state *ownershipMutationState) promoteVisibleAcquires(
 func promoteVisibleAcquire(
 	ctx context.Context,
 	intent ownership.ProvisionalAcquireIntent,
-	journalFingerprint string,
 	authority *mutationAuthority,
 	registryStore ownershipmutation.RegistryStore,
 	stateCodec durable.SnapshotCodec,
 	gate visibilityEffectGate,
 ) (ownershipmutation.ClaimTransition, string, bool, error) {
+	if authority == nil || authority.journalBasis.validate() != nil {
+		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf(
+			"recovery journal execution basis is unavailable",
+		)
+	}
+	journalFingerprint := authority.journalBasis.recordFingerprint
 	if authority == nil || authority.recoveryJournalRecord == nil {
 		return ownershipmutation.ClaimTransition{}, "", false, fmt.Errorf("recovery journal record authority is unavailable")
 	}
@@ -374,7 +369,11 @@ func promoteVisibleAcquire(
 	if err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
-	observed, err := mutation.ObserveDirectoryEntryAuthority(destination.hostPath)
+	observed, err := mutation.ObserveDirectoryEntryAuthorityBounded(
+		destination.hostPath,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
 		return ownershipmutation.ClaimTransition{}, "", false, err
 	}
@@ -416,15 +415,26 @@ func promoteVisibleAcquire(
 		authority.filesystem,
 		authority.recoveryJournalRecord,
 		authority.recoveryJournal,
-		authority.activeJournalAuthority,
+		authority.journalBasis.activeAuthority,
 		journalFingerprint,
 		intent,
 		transition,
 		stateCodec,
 	)
 	if refreshed, available := promotion.ActiveJournalAuthority(); available {
-		if refreshErr := authority.setActiveJournalAuthority(refreshed); refreshErr != nil {
-			err = errors.Join(err, fmt.Errorf("refresh active recovery journal authority: %w", refreshErr))
+		if authority.preparedRetirement != nil {
+			if refreshErr := authority.preparedRetirement.AdvanceActiveAuthority(
+				authority.journalBasis.activeAuthority,
+				refreshed,
+			); refreshErr != nil {
+				err = errors.Join(err, fmt.Errorf("advance prepared journal retirement authority: %w", refreshErr))
+			}
+		}
+		if refreshErr := authority.setJournalExecutionBasis(
+			promotion.RecordFingerprint(),
+			refreshed,
+		); refreshErr != nil {
+			err = errors.Join(err, fmt.Errorf("refresh recovery journal execution basis: %w", refreshErr))
 		}
 	}
 	if err != nil {
@@ -492,6 +502,7 @@ func prepareClaimTransitions(
 		"validate ownership claim preparation",
 		"prepare ownership claim",
 		"accept prepared ownership claim",
+		nil,
 	)
 }
 
@@ -500,6 +511,16 @@ func finalizeClaimTransitions(
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
 	gate visibilityEffectGate,
+) error {
+	return finalizeClaimTransitionsWithAcceptance(ctx, registryStore, transitions, gate, nil)
+}
+
+func finalizeClaimTransitionsWithAcceptance(
+	ctx context.Context,
+	registryStore ownershipmutation.RegistryStore,
+	transitions []ownershipmutation.ClaimTransition,
+	gate visibilityEffectGate,
+	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if len(transitions) == 0 {
 		return nil
@@ -520,6 +541,7 @@ func finalizeClaimTransitions(
 		"validate ownership claim finalization",
 		"finalize ownership claim",
 		"accept finalized ownership claim",
+		acceptSuccessor,
 	)
 }
 
@@ -529,10 +551,20 @@ func rollbackClaimsToBefore(
 	transitions []ownershipmutation.ClaimTransition,
 	gate visibilityEffectGate,
 ) error {
+	return rollbackClaimsToBeforeWithAcceptance(ctx, registryStore, transitions, gate, nil)
+}
+
+func rollbackClaimsToBeforeWithAcceptance(
+	ctx context.Context,
+	registryStore ownershipmutation.RegistryStore,
+	transitions []ownershipmutation.ClaimTransition,
+	gate visibilityEffectGate,
+	acceptSuccessor func(context.Context, ownership.Registry) error,
+) error {
 	if len(transitions) == 0 {
 		return nil
 	}
-	return rollbackClaimTransitions(ctx, registryStore, transitions, gate)
+	return rollbackClaimTransitions(ctx, registryStore, transitions, gate, acceptSuccessor)
 }
 
 func rollbackClaimTransitions(
@@ -540,6 +572,7 @@ func rollbackClaimTransitions(
 	registryStore ownershipmutation.RegistryStore,
 	transitions []ownershipmutation.ClaimTransition,
 	gate visibilityEffectGate,
+	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if len(transitions) == 0 {
 		return nil
@@ -560,6 +593,7 @@ func rollbackClaimTransitions(
 		"validate ownership claim rollback",
 		"rollback ownership claim",
 		"accept rolled back ownership claim",
+		acceptSuccessor,
 	)
 }
 
@@ -571,6 +605,7 @@ func executeClaimConvergence(
 	validateDetail string,
 	commitDetail string,
 	acceptDetail string,
+	acceptSuccessor func(context.Context, ownership.Registry) error,
 ) error {
 	if registryStore == nil {
 		return fmt.Errorf("ownership registry is unavailable")
@@ -578,8 +613,14 @@ func executeClaimConvergence(
 	if err := gate.validateBefore(ctx); err != nil {
 		return fmt.Errorf("%s: %w", validateDetail, err)
 	}
-	if _, err := registryStore.Converge(ctx, convergence); err != nil {
+	next, err := registryStore.Converge(ctx, convergence)
+	if err != nil {
 		return fmt.Errorf("%s: %w", commitDetail, err)
+	}
+	if acceptSuccessor != nil {
+		if err := acceptSuccessor(ctx, next); err != nil {
+			return fmt.Errorf("%s: %w", acceptDetail, err)
+		}
 	}
 	if err := gate.acceptAfter(ctx); err != nil {
 		return fmt.Errorf("%s: %w", acceptDetail, err)
@@ -612,9 +653,20 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	if authority == nil {
 		return fmt.Errorf("mutation authority is required")
 	}
+	if authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
+	}
 	if authority.hasOwnershipRegistry {
-		existingKey, existingErr := mutation.CanonicalDirectoryEntryKey(authority.ownershipRegistry.Path())
-		requestedKey, requestedErr := mutation.CanonicalDirectoryEntryKey(path)
+		existingKey, existingErr := mutation.CanonicalDirectoryEntryKeyBounded(
+			authority.ownershipRegistry.Path(),
+			recovery.MaximumPhysicalPathDepth,
+			authority.generalTraversalPhase,
+		)
+		requestedKey, requestedErr := mutation.CanonicalDirectoryEntryKeyBounded(
+			path,
+			recovery.MaximumPhysicalPathDepth,
+			authority.generalTraversalPhase,
+		)
 		if existingErr != nil || requestedErr != nil {
 			return errors.Join(existingErr, requestedErr)
 		}
@@ -626,23 +678,57 @@ func (authority *mutationAuthority) bindOwnershipRegistry(path string) error {
 	if authority.ownershipRegistryBinder == nil {
 		return fmt.Errorf("rooted ownership registry binder is required")
 	}
-	root, destination, err := rootedpath.CaptureDestination(path)
+	root, destination, err := rootedpath.CaptureDestinationBounded(
+		path,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
 		return fmt.Errorf("capture ownership registry authority: %w", err)
 	}
-	root, err = authority.retainGlobalRoot(root, destination)
+	root, err = authority.retainRoot(root, destination)
 	if err != nil {
 		return err
 	}
-	registry, err := authority.ownershipRegistryBinder(root, destination)
+	registry, err := authority.ownershipRegistryBinder(
+		root,
+		destination,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
 		return err
 	}
 	if registry == nil {
 		return fmt.Errorf("rooted ownership registry binder returned a nil store")
 	}
+	if err := authority.bindOwnershipSemanticEntry(root, destination); err != nil {
+		return err
+	}
 	authority.ownershipRegistry = registry
 	authority.hasOwnershipRegistry = true
+	return nil
+}
+
+func (authority *mutationAuthority) beginGeneralRecoveryExecution() error {
+	if authority == nil || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
+	}
+	if authority.generalExecutionWorkBudget != nil {
+		return fmt.Errorf("general recovery execution was already started")
+	}
+	if err := authority.beginRecoverySemanticExecution(); err != nil {
+		return err
+	}
+	hostBudget, controlBudget, err := authority.physicalWorkBudget.BeginGeneralExecution()
+	if err != nil {
+		return err
+	}
+	if err := authority.generalTraversalPhase.advance(controlBudget); err != nil {
+		return err
+	}
+	authority.hostExecutionTraversal = hostBudget
+	authority.generalExecutionWorkBudget = hostBudget
 	return nil
 }
 

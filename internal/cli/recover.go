@@ -58,7 +58,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 
 	if *dryRun {
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(stdout, "dry-run", plan, nil); err != nil {
+			if err := clipresent.PrintRecoverResultJSON(stdout, "dry-run", plan, nil, nil); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
 				return 1
 			}
@@ -74,9 +74,9 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 		return 0
 	}
 
-	if plan.Blocked() {
+	if plan.Blocked() || plan.HasErrors() {
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, nil); err != nil {
+			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, nil, nil); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
 				return 1
 			}
@@ -102,13 +102,19 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 		}
 	}
 	if *yes || interactiveConfirmation {
-		executeErr := recoverworkflow.Execute(
+		executionResult, executeErr := recoverworkflow.Execute(
 			options.context,
 			prepared,
 			options.recoverExecuteOptions,
 		)
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, executeErr); err != nil {
+			if err := clipresent.PrintRecoverResultJSON(
+				stdout,
+				"write",
+				plan,
+				&executionResult,
+				executeErr,
+			); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
 				return 1
 			}
@@ -121,7 +127,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			fmt.Fprintf(
 				stderr,
 				"recover failed: %s\n",
-				humanDiagnosticError(clipresent.RecoverResultError(plan, executeErr)),
+				humanDiagnosticError(clipresent.RecoverResultError(plan, &executionResult, executeErr)),
 			)
 			return 1
 		}

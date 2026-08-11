@@ -12,10 +12,24 @@ type capturedRootPlatform struct{}
 func captureRootPlatform(
 	selectedRoot string,
 	_ rootSelectionMode,
+	_ *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, error) {
 	return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 		FailureUnsupportedPlatform,
 		selectedRoot,
+		"native rooted-path authority is unavailable on this platform",
+		nil,
+	)
+}
+
+func resolveDirectoryPathPlatform(
+	selectedPath string,
+	_ bool,
+	_ *physicalTraversal,
+) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
+	return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, newFailure(
+		FailureUnsupportedPlatform,
+		selectedPath,
 		"native rooted-path authority is unavailable on this platform",
 		nil,
 	)
@@ -39,4 +53,22 @@ func openCapturedRootDirectory(_ *capturedRootPlatform) (*os.File, error) {
 
 func validateCapturedDirectoryHandle(_ *capturedRootPlatform, _ uintptr) error {
 	return newFailure(FailureUnsupportedPlatform, "", "native rooted-path authority is unavailable on this platform", nil)
+}
+
+func capturedRootChildExistsNoFollow(_ *capturedRootPlatform, name string) (bool, error) {
+	return false, newFailure(
+		FailureUnsupportedPlatform,
+		name,
+		"native rooted-path child observation is unavailable on this platform",
+		nil,
+	)
+}
+
+func capturedRootValidationPathComponents(_ *capturedRootPlatform) (int, error) {
+	return 0, newFailure(
+		FailureUnsupportedPlatform,
+		"",
+		"native rooted-path child observation is unavailable on this platform",
+		nil,
+	)
 }

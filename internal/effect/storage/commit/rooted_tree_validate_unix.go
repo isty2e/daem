@@ -163,6 +163,9 @@ func validateDirectoryEntries(
 				return closeErr
 			}
 		case entryKindRegular:
+			if err := budget.admitBytes(stat.Size); err != nil {
+				return err
+			}
 			entryFD, err := openExpectedAt(directoryFD, name, entryPath, identity)
 			if err != nil {
 				return err

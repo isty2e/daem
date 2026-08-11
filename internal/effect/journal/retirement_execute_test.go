@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -53,6 +54,112 @@ func TestRetireActiveJournalUsesCanonicalProtocolAndRejectsStaleReplay(t *testin
 	assertRetirementState(t, recoveryRoot, retirement.StateClean)
 }
 
+func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
+	t.Run("active journal", func(t *testing.T) {
+		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+		_, _ = captureInventoryJournal(t, recoveryRoot, "retire-read-capacity")
+		filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+		plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+		authority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := PrepareActiveJournalRetirement(
+			t.Context(),
+			plan,
+			authority,
+			recoveryRoot,
+			recovery.MaximumPhysicalPathDepth,
+			retirementTestBudget(t),
+			filesystem,
+			testStateCodec(),
+		)
+		if err != nil {
+			t.Fatalf("PrepareActiveJournalRetirement: %v", err)
+		}
+		defer prepared.Close()
+
+		currentRecord, err := retirement.Encode(prepared.execution.record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalizing, err := prepared.execution.record.Finalizing()
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalRecord, err := retirement.Encode(finalizing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantBytes := int64(6)*prepared.evidence.activeEnvelopeLimits.MaximumBytes() +
+			maximumRecoveryJournalBytes +
+			2*prepared.evidence.controlCurrentWork.Bytes() +
+			3*prepared.evidence.controlFinalWork.Bytes() +
+			int64(len(currentRecord)+len(finalRecord))
+		if got := prepared.executionBudget.RemainingBytes(); got != wantBytes {
+			t.Fatalf("reserved retirement bytes = %d, want %d", got, wantBytes)
+		}
+
+		filesystem.resetReadObservations()
+		if err := prepared.ExecuteActive(t.Context(), plan); err != nil {
+			t.Fatalf("ExecuteActive: %v", err)
+		}
+		journalPath := filepath.Join(plan.OperationDir(), recoveryJournalFileName)
+		if got := filesystem.regularFileReadLimits[journalPath]; !slices.Equal(got, []int64{maximumRecoveryJournalBytes}) {
+			t.Fatalf("active journal read limits = %v, want [%d]", got, maximumRecoveryJournalBytes)
+		}
+	})
+
+	t.Run("prepared control", func(t *testing.T) {
+		recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+		identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-read-capacity")
+		writeInventoryControl(t, recoveryRoot, identity, retirement.PhasePrepared)
+		renameInventoryJournalToResidue(t, result, identity)
+		filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+		plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+		prepared, err := PrepareJournalCleanup(
+			t.Context(),
+			plan,
+			recoveryRoot,
+			recovery.MaximumPhysicalPathDepth,
+			retirementTestBudget(t),
+			filesystem,
+		)
+		if err != nil {
+			t.Fatalf("PrepareJournalCleanup: %v", err)
+		}
+		defer prepared.Close()
+
+		currentRecord, err := retirement.Encode(prepared.execution.record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalizing, err := prepared.execution.record.Finalizing()
+		if err != nil {
+			t.Fatal(err)
+		}
+		finalRecord, err := retirement.Encode(finalizing)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantBytes := 2*prepared.evidence.controlCurrentWork.Bytes() +
+			3*prepared.evidence.controlFinalWork.Bytes() +
+			int64(len(currentRecord)+len(finalRecord)) +
+			5*prepared.evidence.residue.work.Bytes()
+		if got := prepared.executionBudget.RemainingBytes(); got != wantBytes {
+			t.Fatalf("reserved cleanup bytes = %d, want %d", got, wantBytes)
+		}
+
+		filesystem.resetReadObservations()
+		if err := prepared.ExecuteCleanup(t.Context(), plan); err != nil {
+			t.Fatalf("ExecuteCleanup: %v", err)
+		}
+		if got := filesystem.controlSnapshots[retirement.PhasePrepared]; got != 2 {
+			t.Fatalf("prepared control snapshots = %d, want 2", got)
+		}
+	})
+}
+
 func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testing.T) {
 	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
 	_, result := captureInventoryJournal(t, recoveryRoot, "retire-replaced")
@@ -83,11 +190,13 @@ func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testi
 		t.Fatal(err)
 	}
 
-	err = RetireActiveJournal(
+	err = retireActiveJournalWithAuthorityForTest(
 		t.Context(),
 		plan,
 		activeAuthority,
 		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
 	)
@@ -100,6 +209,51 @@ func TestRetireActiveJournalRejectsReplacedPlannedArtifactBeforeEffects(t *testi
 	if _, err := os.Lstat(result.JournalPath); err != nil {
 		t.Fatalf("replacement was changed: %v", err)
 	}
+}
+
+func TestPreparedRetirementRejectsNonRecordTreeGrowthBeforeEffects(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	_, _ = captureInventoryJournal(t, recoveryRoot, "retire-tree-growth")
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanActiveRetirementPlan(t, recoveryRoot, filesystem)
+	activeAuthority, err := activeJournalAuthorityForTest(t.Context(), plan, filesystem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareActiveJournalRetirement(
+		t.Context(),
+		plan,
+		activeAuthority,
+		recoveryRoot,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+		testStateCodec(),
+	)
+	if err != nil {
+		t.Fatalf("PrepareActiveJournalRetirement: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := prepared.Close(); err != nil {
+			t.Errorf("close prepared retirement: %v", err)
+		}
+	})
+	if err := os.WriteFile(
+		filepath.Join(plan.OperationDir(), "late-backup"),
+		[]byte("late\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	err = prepared.ExecuteActive(t.Context(), plan)
+	if err == nil {
+		t.Fatal("ExecuteActive accepted non-record tree growth")
+	}
+	if len(filesystem.operations) != 0 {
+		t.Fatalf("operations = %v, want none", filesystem.operations)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateActive)
 }
 
 func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testing.T) {
@@ -138,11 +292,13 @@ func TestRetireActiveJournalRevalidatesFingerprintAfterPreparedControl(t *testin
 	}
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	err = RetireActiveJournal(
+	err = retireActiveJournalWithAuthorityForTest(
 		t.Context(),
 		plan,
 		activeAuthority,
 		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
 		filesystem,
 		testStateCodec(),
 	)
@@ -262,10 +418,12 @@ func TestRetirementRevalidatesExactControlBeforeEffects(t *testing.T) {
 		}
 		root := captureRetirementTestRoot(t, recoveryRoot)
 
-		err := FinalizeJournalCleanup(
+		err := finalizeJournalCleanupForTest(
 			t.Context(),
 			plan,
 			root,
+			recovery.MaximumPhysicalPathDepth,
+			retirementTestBudget(t),
 			filesystem,
 		)
 		if err == nil || !strings.Contains(err.Error(), "unexpected child") {
@@ -300,10 +458,12 @@ func TestFinalizeJournalCleanupAdmitsInterruptedRecordTemporary(t *testing.T) {
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
 
-	if err := FinalizeJournalCleanup(
+	if err := finalizeJournalCleanupForTest(
 		t.Context(),
 		plan,
 		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
 		filesystem,
 	); err != nil {
 		t.Fatalf("FinalizeJournalCleanup: %v", err)
@@ -329,10 +489,12 @@ func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testin
 	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
 	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 	root := captureRetirementTestRoot(t, recoveryRoot)
-	err := FinalizeJournalCleanup(
+	err := finalizeJournalCleanupForTest(
 		t.Context(),
 		plan,
 		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
 		filesystem,
 	)
 	if err == nil || !strings.Contains(err.Error(), "unsupported entry") {
@@ -349,6 +511,45 @@ func TestFinalizeJournalCleanupRejectsSpecialResidueBeforePhaseAdvance(t *testin
 	if info, statErr := os.Lstat(special); statErr != nil || info.Mode()&os.ModeNamedPipe == 0 {
 		t.Fatalf("special child changed: info=%v err=%v", info, statErr)
 	}
+}
+
+func TestFinalizeJournalCleanupRejectsResidueCreatedAfterPlanning(t *testing.T) {
+	recoveryRoot := filepath.Join(t.TempDir(), "recovery")
+	identity, result := captureInventoryJournal(t, recoveryRoot, "cleanup-late-residue")
+	writeInventoryControl(t, recoveryRoot, identity, retirement.PhaseFinalizing)
+	if err := os.RemoveAll(result.Directory); err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &retirementRecordingFilesystem{Store: journalTestFilesystem()}
+	plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
+	residue := filepath.Join(recoveryRoot, identity.ResidueName())
+	if err := os.Mkdir(residue, retirement.DirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(residue, "late"),
+		[]byte("late\n"),
+		retirement.RecordMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	root := captureRetirementTestRoot(t, recoveryRoot)
+
+	err := finalizeJournalCleanupForTest(
+		t.Context(),
+		plan,
+		root,
+		recovery.MaximumPhysicalPathDepth,
+		retirementTestBudget(t),
+		filesystem,
+	)
+	if err == nil || !strings.Contains(err.Error(), "appeared after cleanup planning") {
+		t.Fatalf("FinalizeJournalCleanup error = %v, want late-residue rejection", err)
+	}
+	if len(filesystem.operations) != 0 {
+		t.Fatalf("operations = %v, want none", filesystem.operations)
+	}
+	assertRetirementState(t, recoveryRoot, retirement.StateFinalizing)
 }
 
 func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
@@ -405,10 +606,12 @@ func TestFinalizeJournalCleanupResumesEveryCleanupPhase(t *testing.T) {
 			plan := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
 			root := captureRetirementTestRoot(t, recoveryRoot)
 
-			if err := FinalizeJournalCleanup(
+			if err := finalizeJournalCleanupForTest(
 				t.Context(),
 				plan,
 				root,
+				recovery.MaximumPhysicalPathDepth,
+				retirementTestBudget(t),
 				filesystem,
 			); err != nil {
 				t.Fatalf("FinalizeJournalCleanup: %v", err)
@@ -533,10 +736,12 @@ func TestRetirementPostVisibilityFailuresRemainClassifiableAndResumable(t *testi
 				}
 			} else {
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := FinalizeJournalCleanup(
+				if err := finalizeJournalCleanupForTest(
 					t.Context(),
 					cleanup,
 					root,
+					recovery.MaximumPhysicalPathDepth,
+					retirementTestBudget(t),
 					filesystem,
 				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
@@ -591,10 +796,12 @@ func TestRetirementCancellationAfterEachPhaseRemainsClassifiableAndResumable(t *
 				}
 			case retirement.StateRetained, retirement.StateFinalizing:
 				cleanup := loadCleanupRetirementPlan(t, recoveryRoot, filesystem)
-				if err := FinalizeJournalCleanup(
+				if err := finalizeJournalCleanupForTest(
 					t.Context(),
 					cleanup,
 					root,
+					recovery.MaximumPhysicalPathDepth,
+					retirementTestBudget(t),
 					filesystem,
 				); err != nil {
 					t.Fatalf("resume cleanup retirement: %v", err)
@@ -644,14 +851,95 @@ func retireActiveJournalForTest(
 	if err != nil {
 		return err
 	}
-	return RetireActiveJournal(
+	budget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		return err
+	}
+	return retireActiveJournalWithAuthorityForTest(
 		ctx,
 		plan,
 		authority,
 		root,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
 		filesystem,
 		testStateCodec(),
 	)
+}
+
+func retireActiveJournalWithAuthorityForTest(
+	ctx context.Context,
+	plan recovery.Plan,
+	authority ActiveJournalAuthority,
+	root *rootedpath.CapturedRoot,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	filesystem mutationfs.RootedStore,
+	stateCodec durable.SnapshotCodec,
+) error {
+	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
+	if !ok {
+		return fmt.Errorf("test retirement requires the canonical physical work budget")
+	}
+	rootAuthority, err := root.AuthorityBounded(budget)
+	if err != nil {
+		return err
+	}
+	prepared, err := PrepareActiveJournalRetirement(
+		ctx,
+		plan,
+		authority,
+		rootAuthority.PhysicalRoot(),
+		maximumPhysicalDepth,
+		budget,
+		filesystem,
+		stateCodec,
+	)
+	if err != nil {
+		return err
+	}
+	defer prepared.Close()
+	return prepared.ExecuteActive(ctx, plan)
+}
+
+func finalizeJournalCleanupForTest(
+	ctx context.Context,
+	plan retirement.CleanupPlan,
+	root *rootedpath.CapturedRoot,
+	maximumPhysicalDepth int,
+	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	filesystem mutationfs.RootedStore,
+) error {
+	budget, ok := physicalWorkBudget.(*recovery.PhysicalWorkBudget)
+	if !ok {
+		return fmt.Errorf("test cleanup requires the canonical physical work budget")
+	}
+	rootAuthority, err := root.AuthorityBounded(budget)
+	if err != nil {
+		return err
+	}
+	prepared, err := PrepareJournalCleanup(
+		ctx,
+		plan,
+		rootAuthority.PhysicalRoot(),
+		maximumPhysicalDepth,
+		budget,
+		filesystem,
+	)
+	if err != nil {
+		return err
+	}
+	defer prepared.Close()
+	return prepared.ExecuteCleanup(ctx, plan)
+}
+
+func retirementTestBudget(t *testing.T) *recovery.PhysicalWorkBudget {
+	t.Helper()
+	budget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return budget
 }
 
 func activeJournalAuthorityForTest(
@@ -739,12 +1027,50 @@ func assertRetirementState(t *testing.T, recoveryRoot string, want retirement.St
 
 type retirementRecordingFilesystem struct {
 	mutationfs.Store
-	operations     []string
-	failBefore     string
-	failAfter      string
-	cancelAfter    string
-	cancel         context.CancelFunc
-	afterOperation func(string)
+	operations            []string
+	regularFileReadLimits map[string][]int64
+	controlSnapshots      map[retirement.Phase]int
+	failBefore            string
+	failAfter             string
+	cancelAfter           string
+	cancel                context.CancelFunc
+	afterOperation        func(string)
+}
+
+func (filesystem *retirementRecordingFilesystem) resetReadObservations() {
+	filesystem.regularFileReadLimits = make(map[string][]int64)
+	filesystem.controlSnapshots = make(map[retirement.Phase]int)
+}
+
+func (filesystem *retirementRecordingFilesystem) ReadRootedRegularFileUpTo(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	maximumBytes int64,
+) ([]byte, os.FileMode, mutationfs.EntryIdentity, error) {
+	if filesystem.regularFileReadLimits != nil {
+		path, err := capability.Destination().LexicalPath()
+		if err != nil {
+			_ = capability.Close()
+			return nil, 0, nil, err
+		}
+		filesystem.regularFileReadLimits[path] = append(
+			filesystem.regularFileReadLimits[path],
+			maximumBytes,
+		)
+	}
+	return filesystem.Store.ReadRootedRegularFileUpTo(ctx, capability, maximumBytes)
+}
+
+func (filesystem *retirementRecordingFilesystem) SnapshotRootedDirectory(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
+	sink mutationfs.RootedTreeSnapshotSink,
+) (mutationfs.EntryIdentity, error) {
+	if control, ok := sink.(*retirementControlSnapshotSink); ok && filesystem.controlSnapshots != nil {
+		filesystem.controlSnapshots[control.expected.Phase()]++
+	}
+	return filesystem.Store.SnapshotRootedDirectory(ctx, capability, limits, sink)
 }
 
 func (filesystem *retirementRecordingFilesystem) PrepareRootedTree(
@@ -833,6 +1159,7 @@ func (filesystem *retirementRecordingFilesystem) CleanupRootedEntry(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	expected mutationfs.EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
 ) (mutationfs.CommitOutcome, error) {
 	path, err := capability.Destination().LexicalPath()
 	if err != nil {
@@ -850,7 +1177,7 @@ func (filesystem *retirementRecordingFilesystem) CleanupRootedEntry(
 			capability.Close(),
 		)
 	}
-	outcome, err := filesystem.Store.CleanupRootedEntry(ctx, capability, expected)
+	outcome, err := filesystem.Store.CleanupRootedEntry(ctx, capability, expected, limits)
 	if err == nil {
 		filesystem.cancelAfterOperation(operation)
 	}

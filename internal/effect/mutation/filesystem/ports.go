@@ -7,6 +7,12 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
+// RootedAbsencePathObservationCount is the complete-path observation count
+// required by ConfirmRootedEntryAbsent: three sync-and-reobserve attempts plus
+// one final observation. Recovery admission and storage execution share this
+// contract so the operation-wide path budget cannot undercount durability work.
+const RootedAbsencePathObservationCount = 4
+
 // PathReader performs bounded, no-follow reads of operation-selected paths.
 type PathReader interface {
 	CaptureEntryIdentity(ctx context.Context, path string) (EntryIdentity, error)
@@ -47,6 +53,11 @@ type PathCommitter interface {
 // RootedReader observes one destination through retained-root authority without
 // consuming the capability.
 type RootedReader interface {
+	CaptureWorkingDirectoryIdentity(
+		ctx context.Context,
+		capability rootedpath.WorkingDirectoryCapability,
+		budget rootedpath.PhysicalTraversalBudget,
+	) (EntryIdentity, error)
 	CaptureRootedEntryIdentity(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -60,6 +71,10 @@ type RootedReader interface {
 		capability rootedpath.CommitCapability,
 		maximumBytes int64,
 	) ([]byte, fs.FileMode, EntryIdentity, error)
+	ReadRootedSymlinkTarget(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+	) (string, EntryIdentity, error)
 	SnapshotRootedDirectoryEntries(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -99,6 +114,13 @@ type RootedCommitter interface {
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
 	) error
+	RemoveRootedEntryWithResidue(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+		limits TreeTraversalLimits,
+	) (CommitOutcome, error)
 	PrepareRootedTree(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -116,6 +138,12 @@ type RootedEntryCommitter interface {
 		destinationName string,
 		expected EntryIdentity,
 	) (CommitOutcome, error)
+	PromoteRootedRemovalResidue(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+	) (CommitOutcome, EntryIdentity, error)
 	ReplaceRootedFileWithOutcome(
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
@@ -135,6 +163,18 @@ type RootedEntryCommitter interface {
 		ctx context.Context,
 		capability rootedpath.CommitCapability,
 		expected EntryIdentity,
+		limits TreeTraversalLimits,
+	) (CommitOutcome, error)
+	CleanupRootedRemovalStage(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
+		expected EntryIdentity,
+		names LogicalRemovalNames,
+		limits TreeTraversalLimits,
+	) (CommitOutcome, error)
+	ConfirmRootedEntryAbsent(
+		ctx context.Context,
+		capability rootedpath.CommitCapability,
 	) (CommitOutcome, error)
 }
 

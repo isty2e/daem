@@ -65,6 +65,40 @@ func TestRegistryApplyRejectsStaleExpectedClaim(t *testing.T) {
 	}
 }
 
+func TestRegistryEqualUsesCanonicalClaimsAndRejectsZeroValue(t *testing.T) {
+	root := t.TempDir()
+	owner := mustAuthority(t, filepath.Join(root, "state.json"), filepath.Join(root, "daem.toml"))
+	alpha, err := NewActiveClaim(mustAddress(t, filepath.Join(root, "alpha"), ""), owner)
+	if err != nil {
+		t.Fatalf("construct alpha claim: %v", err)
+	}
+	beta, err := NewActiveClaim(mustAddress(t, filepath.Join(root, "beta"), ""), owner)
+	if err != nil {
+		t.Fatalf("construct beta claim: %v", err)
+	}
+	left, err := NewRegistry([]Claim{beta, alpha})
+	if err != nil {
+		t.Fatalf("construct left registry: %v", err)
+	}
+	right, err := NewRegistry([]Claim{alpha, beta})
+	if err != nil {
+		t.Fatalf("construct right registry: %v", err)
+	}
+	if !left.Equal(right) {
+		t.Fatal("canonical registries with the same claims compare unequal")
+	}
+	if left.Equal(Registry{}) || (Registry{}).Equal(left) {
+		t.Fatal("initialized registry compares equal to the zero value")
+	}
+	empty, err := NewRegistry(nil)
+	if err != nil {
+		t.Fatalf("construct empty registry: %v", err)
+	}
+	if !empty.Equal(EmptyRegistry()) {
+		t.Fatal("canonical empty registries compare unequal")
+	}
+}
+
 func TestRegistryFindsExactAncestorOfProvisionalCandidate(t *testing.T) {
 	root := t.TempDir()
 	namespace := filepath.Join(root, "skills")

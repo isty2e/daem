@@ -2,18 +2,16 @@ package journal
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
-	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -29,6 +27,7 @@ type recoveryPathObservation struct {
 	BlockedReason string
 	BlockedDetail string
 	Error         string
+	Work          recovery.ArtifactWork
 }
 
 type recoveryBackupObservation struct {
@@ -37,6 +36,7 @@ type recoveryBackupObservation struct {
 	Kind        string
 	ContentHash string
 	Error       string
+	Work        recovery.ArtifactWork
 }
 
 func applyRecoveryIntentOwnershipEvidence(
@@ -45,7 +45,8 @@ func applyRecoveryIntentOwnershipEvidence(
 	intents []outputownership.ProvisionalAcquireIntent,
 	registry outputownership.Registry,
 	resolver func(output.Destination) (string, error),
-) []recoveryPathObservation {
+	budget *recovery.PhysicalWorkBudget,
+) ([]recoveryPathObservation, error) {
 	observationIndexes := make(map[recoveryPathObservationKey]int, len(observations))
 	for index, observation := range observations {
 		key := recoveryPathObservationKey{path: observation.Path, contentPath: observation.ContentPath}
@@ -62,8 +63,7 @@ func applyRecoveryIntentOwnershipEvidence(
 			continue
 		}
 		if err := ctx.Err(); err != nil {
-			observations[index].Error = err.Error()
-			continue
+			return nil, err
 		}
 		if resolver == nil {
 			observations[index].Error = "ownership intent destination resolver is required"
@@ -74,10 +74,13 @@ func applyRecoveryIntentOwnershipEvidence(
 			observations[index].Error = fmt.Sprintf("resolve ownership intent destination: %v", err)
 			continue
 		}
-		authority, err := mutation.ObserveDirectoryEntryAuthority(hostPath)
+		authority, err := mutation.ObserveDirectoryEntryAuthorityBounded(
+			hostPath,
+			recovery.MaximumPhysicalPathDepth,
+			budget,
+		)
 		if err != nil {
-			observations[index].Error = fmt.Sprintf("observe ownership intent destination: %v", err)
-			continue
+			return nil, fmt.Errorf("observe ownership intent destination: %w", err)
 		}
 
 		var conflict outputownership.Claim
@@ -111,7 +114,7 @@ func applyRecoveryIntentOwnershipEvidence(
 			)
 		}
 	}
-	return observations
+	return observations, nil
 }
 
 func recoveryPathObservations(
@@ -122,10 +125,14 @@ func recoveryPathObservations(
 	resolver func(destination output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
 	codecs aggregate.CodecCatalog,
-) []recoveryPathObservation {
+	budget *recovery.PhysicalWorkBudget,
+) ([]recoveryPathObservation, error) {
 	observations := make([]recoveryPathObservation, 0, len(entries))
 	seen := make(map[recoveryPathObservationKey]struct{}, len(entries))
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		key := recoveryPathObservationKey{path: entry.Path, contentPath: entry.ContentPath}
 		if _, exists := seen[key]; exists {
 			continue
@@ -140,18 +147,20 @@ func recoveryPathObservations(
 		}
 
 		if entry.Scope == string(target.ScopeProject) {
-			observations = append(
-				observations,
-				observeProjectRecoveryPath(
-					ctx,
-					entry.Path,
-					entry.ContentPath,
-					aggregateContract,
-					filesystem,
-					manifestAuthority,
-					codecs,
-				),
+			observation, observeErr := observeProjectRecoveryPath(
+				ctx,
+				entry.Path,
+				entry.ContentPath,
+				aggregateContract,
+				filesystem,
+				manifestAuthority,
+				codecs,
+				budget,
 			)
+			if observeErr != nil {
+				return nil, fmt.Errorf("observe project recovery path %q: %w", entry.Path, observeErr)
+			}
+			observations = append(observations, observation)
 			continue
 		}
 		destination, err := output.Parse(entry.Path)
@@ -170,29 +179,24 @@ func recoveryPathObservations(
 			})
 			continue
 		}
-		if rootedCapability != nil {
-			observations = append(
-				observations,
-				observeGlobalRecoveryPath(
-					ctx,
-					entry.Path,
-					entry.ContentPath,
-					aggregateContract,
-					hostPath,
-					filesystem,
-					rootedCapability,
-					codecs,
-				),
-			)
-			continue
+		observation, observeErr := observeGlobalRecoveryPath(
+			ctx,
+			entry.Path,
+			entry.ContentPath,
+			aggregateContract,
+			hostPath,
+			filesystem,
+			rootedCapability,
+			codecs,
+			budget,
+		)
+		if observeErr != nil {
+			return nil, fmt.Errorf("observe recovery path %q: %w", entry.Path, observeErr)
 		}
-
-		observations = append(observations, observeRecoveryPath(
-			ctx, filesystem, entry.Path, entry.ContentPath, hostPath, aggregateContract, codecs,
-		))
+		observations = append(observations, observation)
 	}
 
-	return observations
+	return observations, nil
 }
 
 func canonicalRecoveryAggregateContract(
@@ -246,10 +250,20 @@ type recoveryPathObservationKey struct {
 	contentPath string
 }
 
-func recoveryBackupObservations(ctx context.Context, operationDir string, entries []recoveryEntry) []recoveryBackupObservation {
-	observations := make([]recoveryBackupObservation, 0, len(entries))
+func recoveryBackupObservations(
+	ctx context.Context,
+	operationDir string,
+	activeAuthority ActiveJournalAuthority,
+	entries []recoveryEntry,
+	filesystem mutationfs.RootedReader,
+	budget *recovery.PhysicalWorkBudget,
+) ([]recoveryBackupObservation, error) {
+	backupPaths := make([]string, 0, len(entries))
 	seen := make(map[string]struct{}, len(entries))
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if !entry.Before.Existed ||
 			(entry.Before.Kind != recovery.PathKindFile && entry.Before.Kind != recovery.PathKindDirectory) {
 			continue
@@ -258,140 +272,104 @@ func recoveryBackupObservations(ctx context.Context, operationDir string, entrie
 			continue
 		}
 		seen[entry.Before.BackupPath] = struct{}{}
-
-		backupPath := filepath.Join(operationDir, filepath.FromSlash(entry.Before.BackupPath))
-		observations = append(observations, observeRecoveryBackup(ctx, entry.Before.BackupPath, backupPath))
+		backupPaths = append(backupPaths, entry.Before.BackupPath)
+	}
+	if len(backupPaths) == 0 {
+		return []recoveryBackupObservation{}, nil
+	}
+	if filesystem == nil {
+		return nil, fmt.Errorf("recovery backup filesystem is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
-	return observations
-}
-
-func observeRecoveryPath(
-	ctx context.Context,
-	filesystem mutationfs.PathReader,
-	journalPath string,
-	contentPath string,
-	hostPath string,
-	aggregateContract *aggregate.ProjectionContract,
-	codecs aggregate.CodecCatalog,
-) recoveryPathObservation {
-	info, err := os.Lstat(hostPath)
+	root, err := rootedpath.CaptureRootNoFollowBounded(
+		operationDir,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: false}
-		}
-		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Error: fmt.Sprintf("stat destination: %v", err)}
+		return nil, fmt.Errorf("bind recovery operation directory: %w", err)
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		linkTarget, err := os.Readlink(hostPath)
-		if err != nil {
-			return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Error: fmt.Sprintf("read symlink destination: %v", err)}
-		}
-		if contentPath != "" {
-			return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: "content path requires a regular file"}
-		}
-		return recoveryPathObservation{
-			Path:       journalPath,
-			Exists:     true,
-			Kind:       recovery.PathKindSymlink,
-			LinkTarget: linkTarget,
-		}
-	}
-	if !info.Mode().IsRegular() && !info.IsDir() {
-		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: fmt.Sprintf("unsupported file mode %s", info.Mode())}
-	}
-	if contentPath != "" {
-		return observeRecoveryContentPath(
-			ctx,
-			filesystem,
-			journalPath,
-			contentPath,
-			hostPath,
-			aggregateContract,
-			codecs,
-		)
-	}
-
-	contentHash, artifactKind, err := access.HashPath(ctx, hostPath)
-	if err != nil {
-		return recoveryPathObservation{Path: journalPath, Exists: true, Error: fmt.Sprintf("hash destination: %v", err)}
-	}
-	if artifactKind != artifact.ArtifactKindFile && artifactKind != artifact.ArtifactKindDirectory {
-		return recoveryPathObservation{Path: journalPath, Exists: true, Error: fmt.Sprintf("expected regular file or directory, found %s", artifactKind)}
-	}
-
-	return recoveryPathObservation{
-		Path:        journalPath,
-		Exists:      true,
-		PathMode:    regularFilePermissionMode(info),
-		Kind:        string(artifactKind),
-		ContentHash: string(contentHash),
-	}
-}
-
-func observeRecoveryContentPath(
-	ctx context.Context,
-	filesystem mutationfs.PathReader,
-	journalPath string,
-	contentPath string,
-	hostPath string,
-	aggregateContract *aggregate.ProjectionContract,
-	codecs aggregate.CodecCatalog,
-) recoveryPathObservation {
-	maximumBytes, err := recoveryRegularFileMaximumBytes(contentPath, aggregateContract, codecs)
-	if err != nil {
-		return recoveryPathObservation{
-			Path: journalPath, ContentPath: contentPath, Exists: true, Error: err.Error(),
-		}
-	}
-	commitPath, err := mutation.CanonicalDirectoryEntryPath(hostPath)
-	if err != nil {
-		return recoveryPathObservation{
-			Path: journalPath, ContentPath: contentPath, Exists: true,
-			Error: fmt.Sprintf("canonicalize content-path destination: %v", err),
-		}
-	}
-	snapshot, err := filesystem.ReadRegularFileSnapshotUpTo(
+	observations, observeErr := observeRecoveryBackupsRooted(
 		ctx,
-		commitPath,
-		maximumBytes,
+		root,
+		activeAuthority,
+		backupPaths,
+		filesystem,
+		budget,
 	)
-	if err != nil {
-		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: fmt.Sprintf("read content-path destination: %v", err)}
+	return observations, errors.Join(observeErr, root.Close())
+}
+
+func observeRecoveryBackupsRooted(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	activeAuthority ActiveJournalAuthority,
+	backupPaths []string,
+	filesystem mutationfs.RootedReader,
+	budget *recovery.PhysicalWorkBudget,
+) ([]recoveryBackupObservation, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	content := snapshot.Content()
-	destination, err := output.Parse(journalPath)
-	if err != nil {
-		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: err.Error()}
+	if err := ValidateActiveJournalRoot(
+		ctx,
+		filesystem,
+		root,
+		budget,
+		activeAuthority,
+	); err != nil {
+		return nil, fmt.Errorf("revalidate recovery operation directory: %w", err)
 	}
-	projection, present, err := extractRecoveryObservationProjection(
-		content,
-		destination,
-		output.ContentPath(contentPath),
-		aggregateContract,
-		codecs,
-	)
+
+	rootAuthority, err := root.AuthorityBounded(budget)
 	if err != nil {
-		return recoveryPathObservation{Path: journalPath, ContentPath: contentPath, Exists: true, Error: err.Error()}
+		return nil, err
 	}
-	if !present {
-		return recoveryPathObservation{
-			Path:        journalPath,
-			ContentPath: contentPath,
-			Exists:      false,
-			PathExisted: true,
-			PathMode:    recovery.NewPermissionMode(snapshot.Mode()),
+	observations := make([]recoveryBackupObservation, 0, len(backupPaths))
+	for _, backupPath := range backupPaths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
 		}
+		backupRelative, err := rootedpath.NewRelativeDestination(backupPath)
+		if err != nil {
+			return nil, fmt.Errorf("recovery backup %q: %w", backupPath, err)
+		}
+		destination, err := rootAuthority.Bind(backupRelative)
+		if err != nil {
+			return nil, fmt.Errorf("bind recovery backup %q: %w", backupPath, err)
+		}
+		capability, err := root.AcquireBounded(
+			destination,
+			recovery.MaximumPhysicalPathDepth,
+			budget,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("acquire recovery backup %q: %w", backupPath, err)
+		}
+		observation, observeErr := observeRecoveryBackup(
+			ctx,
+			backupPath,
+			filesystem,
+			capability,
+			budget,
+		)
+		closeErr := capability.Close()
+		if observeErr != nil {
+			return nil, errors.Join(
+				fmt.Errorf("observe recovery backup %q: %w", backupPath, observeErr),
+				closeErr,
+			)
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		observations = append(observations, observation)
 	}
-	return recoveryPathObservation{
-		Path:        journalPath,
-		ContentPath: contentPath,
-		Exists:      true,
-		PathExisted: true,
-		PathMode:    recovery.NewPermissionMode(snapshot.Mode()),
-		Kind:        recovery.PathKindFile,
-		ContentHash: string(artifact.HashFileContent(projection)),
-	}
+
+	return observations, nil
 }
 
 func recoveryRegularFileMaximumBytes(
@@ -403,7 +381,7 @@ func recoveryRegularFileMaximumBytes(
 		if aggregateContract != nil {
 			return 0, fmt.Errorf("whole-path recovery observation carries an aggregate contract")
 		}
-		return MaximumRecoveryBackupFileBytes, nil
+		return recovery.MaximumRecoveryBackupFileBytes, nil
 	}
 	if aggregateContract == nil {
 		return 0, fmt.Errorf("recovery content path %q has no aggregate contract", contentPath)
@@ -417,13 +395,6 @@ func recoveryRegularFileMaximumBytes(
 		return 0, fmt.Errorf("unsupported recovery aggregate codec %q", contract.CodecContractID())
 	}
 	return codec.MaximumDocumentBytes(), nil
-}
-
-func regularFilePermissionMode(info os.FileInfo) *recovery.PermissionMode {
-	if !info.Mode().IsRegular() {
-		return nil
-	}
-	return recovery.NewPermissionMode(info.Mode())
 }
 
 func extractRecoveryObservationProjection(
@@ -469,30 +440,77 @@ func extractRecoveryObservationProjection(
 	return []byte(states[0].CanonicalProjection()), states[0].Present(), nil
 }
 
-func observeRecoveryBackup(ctx context.Context, journalPath string, hostPath string) recoveryBackupObservation {
-	info, err := os.Lstat(hostPath)
+func observeRecoveryBackup(
+	ctx context.Context,
+	journalPath string,
+	filesystem mutationfs.RootedReader,
+	capability rootedpath.CommitCapability,
+	budget *recovery.PhysicalWorkBudget,
+) (recoveryBackupObservation, error) {
+	observed, err := observeRootedRecoveryCapability(
+		ctx,
+		journalPath,
+		"",
+		nil,
+		filesystem,
+		capability,
+		aggregate.CodecCatalog{},
+		budget,
+	)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return recoveryBackupObservation{BackupPath: journalPath, Exists: false}
-		}
-		return recoveryBackupObservation{BackupPath: journalPath, Error: fmt.Sprintf("stat backup: %v", err)}
+		return recoveryBackupObservation{}, err
 	}
-	if !info.Mode().IsRegular() && !info.IsDir() {
-		return recoveryBackupObservation{BackupPath: journalPath, Exists: true, Error: fmt.Sprintf("unsupported backup file mode %s", info.Mode())}
-	}
-
-	contentHash, artifactKind, err := access.HashPath(ctx, hostPath)
-	if err != nil {
-		return recoveryBackupObservation{BackupPath: journalPath, Exists: true, Error: fmt.Sprintf("hash backup: %v", err)}
-	}
-	if artifactKind != artifact.ArtifactKindFile && artifactKind != artifact.ArtifactKindDirectory {
-		return recoveryBackupObservation{BackupPath: journalPath, Exists: true, Error: fmt.Sprintf("expected backup file or directory, found %s", artifactKind)}
-	}
-
-	return recoveryBackupObservation{
+	result := recoveryBackupObservation{
 		BackupPath:  journalPath,
-		Exists:      true,
-		Kind:        string(artifactKind),
-		ContentHash: string(contentHash),
+		Exists:      observed.Exists,
+		Kind:        observed.Kind,
+		ContentHash: observed.ContentHash,
+		Error:       observed.Error,
+		Work:        observed.Work,
 	}
+	if result.Exists && result.Error == "" &&
+		result.Kind != recovery.PathKindFile && result.Kind != recovery.PathKindDirectory {
+		result.Error = fmt.Sprintf("unsupported backup kind %q", result.Kind)
+	}
+	return result, nil
+}
+
+func recoveryArtifactWorkLimits(
+	directory bool,
+	maximumFileBytes int64,
+	budget *recovery.PhysicalWorkBudget,
+) (recovery.ArtifactWork, recovery.ArtifactWork, error) {
+	if budget == nil {
+		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+			"recovery artifact work budget is required",
+		)
+	}
+	if maximumFileBytes <= 0 {
+		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+			"recovery artifact file-byte limit must be positive",
+		)
+	}
+	remaining := budget.RemainingTreeWork()
+	maximumEntries := 0
+	readerEntries := 0
+	maximumBytes := min(maximumFileBytes, remaining.Bytes())
+	if directory {
+		if remaining.Entries() <= 0 {
+			return recovery.ArtifactWork{}, recovery.ArtifactWork{}, fmt.Errorf(
+				"recovery directory observation exceeds remaining operation entry capacity",
+			)
+		}
+		maximumEntries = min(recovery.MaximumArtifactTreeEntries, remaining.Entries()-1)
+		readerEntries = maximumEntries + 1
+		maximumBytes = min(recovery.MaximumArtifactTreeBytes, remaining.Bytes())
+	}
+	maximum, err := recovery.NewArtifactWork(maximumEntries, maximumBytes)
+	if err != nil {
+		return recovery.ArtifactWork{}, recovery.ArtifactWork{}, err
+	}
+	readerCapacity, err := recovery.NewArtifactWork(
+		readerEntries,
+		max(int64(1), maximumBytes),
+	)
+	return maximum, readerCapacity, err
 }

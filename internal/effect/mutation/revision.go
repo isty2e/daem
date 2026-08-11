@@ -41,10 +41,13 @@ type SnapshotRevision struct {
 
 // Equal reports whether two revisions captured the same semantic observation.
 func (revision SnapshotRevision) Equal(other SnapshotRevision) bool {
-	return revision.valid && other.valid &&
-		revision.kind == other.kind &&
-		revision.canonicalPath == other.canonicalPath &&
-		revision.digest == other.digest
+	if !revision.valid || !other.valid ||
+		revision.kind != other.kind ||
+		revision.canonicalPath != other.canonicalPath ||
+		revision.digest != other.digest {
+		return false
+	}
+	return true
 }
 
 // CaptureRevision captures a context-aware immutable filesystem revision.

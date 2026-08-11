@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 )
 
 func TestRecoveryJournalValidatesExactBeforeAndAfterIdentities(t *testing.T) {
@@ -164,7 +166,7 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 6`), 1)
+	content = bytes.Replace(content, []byte(`"version": 13`), []byte(`"version": 6`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -179,12 +181,33 @@ func TestRecoveryJournalRejectsVersionSix(t *testing.T) {
 	}
 }
 
+func TestRecoveryJournalRejectsVersionTwelveWithoutRemovalTransitionAuthority(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatalf("marshalRecoveryJournal returned error: %v", err)
+	}
+	content = bytes.Replace(content, []byte(`"version": 13`), []byte(`"version": 12`), 1)
+	directory, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, recoveryJournalFileName)
+	if err := os.WriteFile(path, content, recoveryJournalMode); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = loadRecoveryJournal(t.Context(), journalTestFilesystem(), path, testStateCodec())
+	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 12") {
+		t.Fatalf("loadRecoveryJournal error = %v, want version-12 rejection", err)
+	}
+}
+
 func TestRecoveryJournalRejectsReusableMountVersionTen(t *testing.T) {
 	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 10`), 1)
+	content = bytes.Replace(content, []byte(`"version": 13`), []byte(`"version": 10`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -207,7 +230,7 @@ func TestRecoveryJournalClassifiesFutureVersionBeforeStrictSchema(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	content = bytes.Replace(content, []byte(`"version": 11`), []byte(`"version": 12, "future": true`), 1)
+	content = bytes.Replace(content, []byte(`"version": 13`), []byte(`"version": 14, "future": true`), 1)
 	directory, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -569,8 +592,8 @@ func TestLoadRecoveryJournalRejectsDuplicateKeys(t *testing.T) {
 			name: "top level",
 			content: strings.Replace(
 				string(content),
-				`"version": 11`,
-				`"version": 11, "version": 11`,
+				`"version": 13`,
+				`"version": 13, "version": 13`,
 				1,
 			),
 		},
@@ -696,6 +719,294 @@ func TestLoadRecoveryJournalRequiresEntryFieldPresence(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestLoadRecoveryJournalRequiresCanonicalCleanupStageName(t *testing.T) {
+	entry := defaultRecoveryEntry()
+	entry.ExpectedAfter = persistedExpectedPathState(recovery.ExpectedPathState{Existed: false})
+	entry.StateExpectedAfter = recoveryManagedMembership{}
+	content, err := marshalRecoveryJournal(recoveryJournalFor(entry), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]json.RawMessage)
+		want   string
+	}{
+		{
+			name: "missing",
+			mutate: func(namespace map[string]json.RawMessage) {
+				delete(namespace, "cleanup_name")
+			},
+			want: `field "cleanup_name" is required`,
+		},
+		{
+			name: "null",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage("null")
+			},
+			want: `field "cleanup_name" must not be null`,
+		},
+		{
+			name: "case alias",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["Cleanup_Name"] = namespace["cleanup_name"]
+				delete(namespace, "cleanup_name")
+			},
+			want: "canonical ASCII lower_snake_case",
+		},
+		{
+			name: "different token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-fedcba9876543210fedcba9876543210"`)
+			},
+			want: "same opaque token",
+		},
+		{
+			name: "short token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-0123456789abcdef"`)
+			},
+			want: "128-bit lowercase hexadecimal token",
+		},
+		{
+			name: "uppercase token",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["cleanup_name"] = json.RawMessage(`".daem-cleanup-0123456789ABCDEF0123456789ABCDEF"`)
+			},
+			want: "128-bit lowercase hexadecimal token",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(content, &document); err != nil {
+				t.Fatal(err)
+			}
+			var intents []map[string]json.RawMessage
+			if err := json.Unmarshal(document["removal_intents"], &intents); err != nil {
+				t.Fatal(err)
+			}
+			if len(intents) == 0 {
+				t.Fatal("default recovery journal has no removal intent")
+			}
+			var namespace map[string]json.RawMessage
+			if err := json.Unmarshal(intents[0]["namespace_authority"], &namespace); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(namespace)
+			intents[0]["namespace_authority"], err = json.Marshal(namespace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			document["removal_intents"], err = json.Marshal(intents)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutated, err := json.Marshal(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			loadErr, planErr := malformedRecoveryJournalErrors(t, mutated)
+			for label, err := range map[string]error{"load": loadErr, "plan": planErr} {
+				if err == nil || !strings.Contains(err.Error(), test.want) {
+					t.Fatalf("%s error = %v, want %q", label, err, test.want)
+				}
+			}
+		})
+	}
+}
+
+func TestLoadRecoveryJournalRejectsNamespaceVariantFieldMixing(t *testing.T) {
+	entry := defaultRecoveryEntry()
+	entry.ExpectedAfter = persistedExpectedPathState(recovery.ExpectedPathState{Existed: false})
+	entry.StateExpectedAfter = recoveryManagedMembership{}
+	content, err := marshalRecoveryJournal(recoveryJournalFor(entry), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]json.RawMessage)
+	}{
+		{
+			name: "existing parent with retained ancestor facts",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["retained_ancestor_provenance"] = namespace["parent_provenance"]
+				namespace["missing_suffix"] = json.RawMessage(`"project"`)
+			},
+		},
+		{
+			name: "initially absent parent with exact parent facts",
+			mutate: func(namespace map[string]json.RawMessage) {
+				namespace["variant"] = json.RawMessage(`"initially_absent_parent"`)
+				namespace["retained_ancestor_provenance"] = namespace["parent_provenance"]
+				namespace["missing_suffix"] = json.RawMessage(`"project"`)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var document map[string]json.RawMessage
+			if err := json.Unmarshal(content, &document); err != nil {
+				t.Fatal(err)
+			}
+			var intents []map[string]json.RawMessage
+			if err := json.Unmarshal(document["removal_intents"], &intents); err != nil {
+				t.Fatal(err)
+			}
+			var namespace map[string]json.RawMessage
+			if err := json.Unmarshal(intents[0]["namespace_authority"], &namespace); err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(namespace)
+			intents[0]["namespace_authority"] = mustMarshalRecoveryJSON(t, namespace)
+			document["removal_intents"] = mustMarshalRecoveryJSON(t, intents)
+			loadErr, planErr := malformedRecoveryJournalErrors(t, mustMarshalRecoveryJSON(t, document))
+			for label, err := range map[string]error{"load": loadErr, "plan": planErr} {
+				if err == nil || !strings.Contains(err.Error(), "invalid variant fields") {
+					t.Fatalf("%s error = %v, want invalid variant fields", label, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRecoveryJournalRejectsRemovalCardinalityBeforeCanonicalDecode(t *testing.T) {
+	content, err := marshalRecoveryJournal(defaultRecoveryJournal(), testStateCodec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatal(err)
+	}
+	document["removal_intents"] = json.RawMessage(
+		"[" + strings.Repeat("{},", recovery.MaximumRemovalIntents) + "{}]",
+	)
+	mutated := mustMarshalRecoveryJSON(t, document)
+	var decoded recoveryJournalDTO
+	if err := json.Unmarshal(mutated, &decoded); err == nil ||
+		!strings.Contains(err.Error(), "removal_intents count exceeds maximum") {
+		t.Fatalf("oversized removal_intents error = %v", err)
+	}
+
+	intent := []byte(`{
+		"scope":"project",
+		"destination":"managed/config",
+		"namespace_authority":{},
+		"states":[{},{},{}]
+	}`)
+	var decodedIntent recoveryRemovalIntent
+	if err := json.Unmarshal(intent, &decodedIntent); err == nil ||
+		!strings.Contains(err.Error(), "states count exceeds maximum") {
+		t.Fatalf("oversized removal states error = %v", err)
+	}
+}
+
+func TestRecoveryJournalRequiresExactRemovalTransitionCoverage(t *testing.T) {
+	removedEntry := defaultRecoveryEntry()
+	removedEntry.ExpectedAfter = persistedExpectedPathState(recovery.ExpectedPathState{})
+	removedEntry.StateExpectedAfter = recoveryManagedMembership{}
+	removed := recoveryJournalFor(removedEntry)
+	if err := validateRecoveryJournal(removed, testStateCodec()); err != nil {
+		t.Fatalf("valid removal journal rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(recoveryJournal) recoveryJournal
+		want   string
+	}{
+		{
+			name: "missing intent",
+			mutate: func(journal recoveryJournal) recoveryJournal {
+				journal.RemovalIntents = []recoveryRemovalIntent{}
+				return journal
+			},
+			want: "do not exactly cover",
+		},
+		{
+			name: "missing transition",
+			mutate: func(journal recoveryJournal) recoveryJournal {
+				journal.Entries[0].RemovalTransition = nil
+				return journal
+			},
+			want: "do not exactly cover",
+		},
+		{
+			name: "surplus intent state",
+			mutate: func(journal recoveryJournal) recoveryJournal {
+				state := persistedExpectedPathState(recovery.ExpectedPathState{
+					Existed:     true,
+					PathMode:    testRecoveryPermissionMode(0o600),
+					Kind:        recovery.PathKindFile,
+					ContentHash: testAfterHash,
+				})
+				journal.RemovalIntents[0].States = append(
+					journal.RemovalIntents[0].States,
+					recoveryRemovalState{ExpectedAfter: &state},
+				)
+				return journal
+			},
+			want: "do not exactly cover",
+		},
+		{
+			name: "malformed transition hash",
+			mutate: func(journal recoveryJournal) recoveryJournal {
+				journal.Entries[0].RemovalTransition.Before.ContentHash = "sha256:short"
+				return journal
+			},
+			want: "content hash",
+		},
+		{
+			name: "invalid transition mode",
+			mutate: func(journal recoveryJournal) recoveryJournal {
+				mode := recovery.PermissionMode(0o1000)
+				journal.Entries[0].RemovalTransition.Before.PathMode = &mode
+				return journal
+			},
+			want: "permission bits",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			journal := test.mutate(recoveryJournalFor(removedEntry))
+			if err := validateRecoveryJournal(journal, testStateCodec()); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validateRecoveryJournal error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRecoveryJournalRejectsMissingAndNoncanonicalRemovalStates(t *testing.T) {
+	entry := managedPathRecoveryEntry()
+	journal := recoveryJournalFor(entry)
+	if len(journal.RemovalIntents) != 1 || len(journal.RemovalIntents[0].States) != 2 {
+		t.Fatalf("directory replacement removal states = %#v, want before and expected-after", journal.RemovalIntents)
+	}
+
+	missing := journal
+	missing.RemovalIntents = append([]recoveryRemovalIntent(nil), journal.RemovalIntents...)
+	missing.RemovalIntents[0].States = append(
+		[]recoveryRemovalState(nil),
+		journal.RemovalIntents[0].States[:1]...,
+	)
+	if err := validateRecoveryJournal(missing, testStateCodec()); err == nil ||
+		!strings.Contains(err.Error(), "do not exactly cover") {
+		t.Fatalf("missing removal state error = %v", err)
+	}
+
+	noncanonical := journal
+	noncanonical.RemovalIntents = append([]recoveryRemovalIntent(nil), journal.RemovalIntents...)
+	noncanonical.RemovalIntents[0].States = []recoveryRemovalState{
+		journal.RemovalIntents[0].States[1],
+		journal.RemovalIntents[0].States[0],
+	}
+	if err := validateRecoveryJournal(noncanonical, testStateCodec()); err == nil ||
+		!strings.Contains(err.Error(), "states order is not canonical") {
+		t.Fatalf("noncanonical removal state order error = %v", err)
 	}
 }
 

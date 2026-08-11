@@ -27,24 +27,27 @@ func TestValidateRootedDirectoryTreeEnforcesMetadataContract(t *testing.T) {
 	}
 	captured := captureRootForCommitTest(t, root)
 
-	validate := func(limitsEntries int, limitsDepth int) error {
+	validate := func(limitsEntries int, limitsDepth int, limitsBytes int64) error {
 		capability := rootedCapabilityForCommitTest(t, captured, ".agents/tree")
 		defer capability.Close()
 		_, err := ValidateRootedDirectoryTree(
 			t.Context(),
 			capability,
-			mustTreeTraversalLimits(t, limitsEntries, limitsDepth, 1),
+			mustTreeTraversalLimits(t, limitsEntries, limitsDepth, limitsBytes),
 		)
 		return err
 	}
-	if err := validate(3, 1); err != nil {
+	if err := validate(3, 1, 7); err != nil {
 		t.Fatalf("exact metadata limits failed: %v", err)
 	}
-	if err := validate(2, 1); err == nil {
+	if err := validate(2, 1, 7); err == nil {
 		t.Fatal("entry cardinality limit was not enforced")
 	}
-	if err := validate(3, 0); err == nil {
+	if err := validate(3, 0, 7); err == nil {
 		t.Fatal("directory depth limit was not enforced")
+	}
+	if err := validate(3, 1, 6); err == nil {
+		t.Fatal("regular-file byte limit was not enforced")
 	}
 }
 

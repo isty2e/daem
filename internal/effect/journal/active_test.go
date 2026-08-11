@@ -34,8 +34,8 @@ func TestLoadActivePlanRetainsCorruptJournalEvidence(t *testing.T) {
 		StatefilePath: filepath.Join(root, "state.json"),
 		ManifestRoot:  root,
 	}, PlanLoadOptions{Filesystem: journalTestFilesystem()})
-	if err == nil || !strings.Contains(err.Error(), "unknown field") {
-		t.Fatalf("LoadActivePlan error = %v, want unknown-field rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "unsupported recovery journal version 11") {
+		t.Fatalf("LoadActivePlan error = %v, want pre-v13 rejection", err)
 	}
 	if _, statErr := os.Stat(operationDir); statErr != nil {
 		t.Fatalf("corrupt recovery evidence was not retained: %v", statErr)

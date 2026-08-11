@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
@@ -34,7 +35,16 @@ func TestRootedStoreKeepsRegistryOnCapturedDataRootAfterAliasRetarget(t *testing
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = captured.Close() })
-	registryStore, err := NewRooted(captured, destination)
+	budget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registryStore, err := NewRooted(
+		captured,
+		destination,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

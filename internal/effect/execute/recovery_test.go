@@ -394,7 +394,6 @@ func recoveryTestHostRouteAttempt() durableattempt.HostRouteAttempt {
 func TestRecoveryHostActionsRequireAggregateContractForContentPath(t *testing.T) {
 	err := executeRecoveryHostActions(
 		context.Background(),
-		t.TempDir(),
 		nil,
 		[]recoveryHostAction{{
 			Kind:        recovery.ActionKindRestoreDelete,
@@ -457,7 +456,6 @@ func TestRecoveryHostActionsRejectMismatchedAggregateContract(t *testing.T) {
 			test.edit(&action)
 			err := executeRecoveryHostActions(
 				context.Background(),
-				t.TempDir(),
 				nil,
 				[]recoveryHostAction{action},
 				[]hostRollbackEntry{{}},

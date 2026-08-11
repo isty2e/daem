@@ -70,6 +70,7 @@ func TestRunRecoverDryRunReportsNeedsFinalizeInHumanAndJSON(t *testing.T) {
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
+		payload.Phase != "planned" ||
 		payload.AuthorityKind != "active_journal" {
 		t.Fatalf("payload header = %#v", payload)
 	}
