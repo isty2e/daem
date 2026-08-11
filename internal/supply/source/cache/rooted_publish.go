@@ -240,17 +240,24 @@ func publishPreparedRootedDirectory(
 	if err != nil {
 		return "", "", false, err
 	}
-	if err := publishPrivateBuildStage(ctx, root, relativeRoot, prepared.stage, recordContent); err != nil {
+	commitOutcome, commitErr := publishPrivateBuildStage(
+		ctx,
+		root,
+		relativeRoot,
+		prepared.stage,
+		recordContent,
+	)
+	if commitErr != nil {
 		state, verifiedHash, verifiedKind, verifyErr := verifyRootedDirectory(
 			ctx,
 			root,
 			relativeRoot,
 			spec,
 		)
-		if state == rootedEntryValid {
+		if state == rootedEntryValid && rootedPublicationLostNoClobberRace(commitOutcome, commitErr) {
 			return verifiedHash, verifiedKind, false, nil
 		}
-		return "", "", false, errors.Join(err, verifyErr)
+		return "", "", false, errors.Join(commitErr, verifyErr)
 	}
 	state, verifiedHash, verifiedKind, err := verifyRootedDirectory(
 		ctx,
@@ -273,19 +280,19 @@ func publishPrivateBuildStage(
 	relativeRoot string,
 	stage *privateBuildStage,
 	recordContent []byte,
-) error {
+) (mutationfs.CommitOutcome, error) {
 	destination, lexicalPath, err := rootedEntryDestination(cacheRoot, relativeRoot)
 	if err != nil {
-		return err
+		return mutationfs.CommitOutcome{}, err
 	}
 	capability, err := cacheRoot.Acquire(destination)
 	if err != nil {
-		return err
+		return mutationfs.CommitOutcome{}, err
 	}
 	recordPath, err := mutationfs.NewTreeRelativePath(completionRecordName)
 	if err != nil {
 		_ = capability.Close()
-		return err
+		return mutationfs.CommitOutcome{}, err
 	}
 	prepared, err := storagecommit.PrepareRootedTree(
 		ctx,
@@ -316,12 +323,24 @@ func publishPrivateBuildStage(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("prepare rooted cache publication for %q: %w", lexicalPath, err)
+		return mutationfs.CommitOutcome{}, fmt.Errorf(
+			"prepare rooted cache publication for %q: %w",
+			lexicalPath,
+			err,
+		)
 	}
-	if err := prepared.Commit(ctx); err != nil {
-		return fmt.Errorf("commit rooted cache publication for %q: %w", lexicalPath, err)
+	outcome, err := prepared.CommitWithOutcome(ctx)
+	if err != nil {
+		return outcome, fmt.Errorf("commit rooted cache publication for %q: %w", lexicalPath, err)
 	}
-	return nil
+	return outcome, nil
+}
+
+func rootedPublicationLostNoClobberRace(
+	outcome mutationfs.CommitOutcome,
+	err error,
+) bool {
+	return outcome.State() == mutationfs.CommitOutcomeUncommitted && errors.Is(err, fs.ErrExist)
 }
 
 type privateBuildStage struct {

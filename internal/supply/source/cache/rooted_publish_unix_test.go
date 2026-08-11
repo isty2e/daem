@@ -3,14 +3,37 @@
 package cache
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
+
+func TestRootedPublicationOnlyTreatsUncommittedNoClobberAsReuse(t *testing.T) {
+	uncommitted, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indeterminate, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeIndeterminate, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rootedPublicationLostNoClobberRace(uncommitted, fs.ErrExist) {
+		t.Fatal("uncommitted no-clobber loss was not classified as reuse")
+	}
+	if rootedPublicationLostNoClobberRace(indeterminate, fs.ErrExist) {
+		t.Fatal("indeterminate visible publication was classified as reuse")
+	}
+	if rootedPublicationLostNoClobberRace(uncommitted, errors.New("validation failed")) {
+		t.Fatal("non-race uncommitted failure was classified as reuse")
+	}
+}
 
 func assertFileContent(t *testing.T, path string, want string) {
 	t.Helper()
@@ -61,6 +84,51 @@ func TestPublishDirectoryOnceRootedPublishesAndReusesValidEntry(t *testing.T) {
 		t.Fatalf("build calls = %d, want 1", buildCalls)
 	}
 	assertFileContent(t, filepath.Join(cacheRoot, "artifacts", "valid", "content.txt"), "valid")
+}
+
+func TestPublishDirectoryOnceRootedTreatsValidNoClobberWinnerAsReuse(t *testing.T) {
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	spec := rootedTestEntrySpec(t, "winner")
+	winnerPublished := false
+
+	contentHash, contentKind, published, err := PublishDirectoryOnceRooted(
+		t.Context(),
+		root,
+		"artifacts/race",
+		spec,
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			winnerHash, winnerKind, nestedPublished, nestedErr := PublishDirectoryOnceRooted(
+				t.Context(),
+				root,
+				"artifacts/race",
+				spec,
+				func(winnerRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+					return writeRootedTestContent(winnerRoot, "winner")
+				},
+			)
+			if nestedErr != nil {
+				return "", "", nestedErr
+			}
+			winnerPublished = nestedPublished
+			if winnerHash != artifact.HashFileContent([]byte("winner")) ||
+				winnerKind != artifact.ArtifactKindFile {
+				return "", "", errors.New("nested publisher returned wrong identity")
+			}
+			return writeRootedTestContent(tempRoot, "winner")
+		},
+	)
+	if err != nil {
+		t.Fatalf("PublishDirectoryOnceRooted returned error: %v", err)
+	}
+	if !winnerPublished || published {
+		t.Fatalf("published = outer:%t winner:%t, want false/true", published, winnerPublished)
+	}
+	if contentHash != artifact.HashFileContent([]byte("winner")) ||
+		contentKind != artifact.ArtifactKindFile {
+		t.Fatalf("content identity = %q/%q, want winner file", contentHash, contentKind)
+	}
 }
 
 func TestPublishDirectoryOnceRootedRejectsSymlinkedAncestorWithoutBuilding(t *testing.T) {

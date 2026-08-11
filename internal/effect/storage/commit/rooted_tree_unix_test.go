@@ -406,6 +406,33 @@ func TestPreparedRootedTreeReportsAncestorMoveAtVisibility(t *testing.T) {
 	}
 }
 
+func TestPreparedRootedTreeVisibleFailuresRemainIndeterminate(t *testing.T) {
+	for _, failedPhase := range []phase{phaseVerifyEntry, phaseSyncParent} {
+		t.Run(string(failedPhase), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, "published")
+			prepared := prepareRootedTreeForTest(t, capability)
+
+			err := commitPreparedRootedTreeWithFaults(
+				t.Context(),
+				prepared,
+				faultAt(failedPhase),
+			)
+			assertFailure(t, err, failureIndeterminateCommit, failedPhase)
+			assertCommitOutcome(
+				t,
+				outcomeFromError(err),
+				mutationfs.CommitOutcomeIndeterminate,
+			)
+			assertFileContent(t, filepath.Join(root, "published", "entry"), "payload")
+		})
+	}
+}
+
 func prepareRootedTreeForTest(t *testing.T, capability rootedpath.CommitCapability) *PreparedRootedTree {
 	t.Helper()
 	prepared, err := PrepareRootedTree(context.Background(), capability, func(writer mutationfs.RootedTreeWriter) error {
