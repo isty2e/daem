@@ -2,40 +2,39 @@ package cache
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 	"slices"
 	"strings"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 const (
 	completionRecordName    = ".daem-complete"
 	completionRecordVersion = 1
 	maximumCompletionBytes  = 16 * 1024
-	maximumCacheTreeEntries = 100_000
-	maximumCacheTreeDepth   = 64
-	maximumCacheTreeBytes   = 4 << 30
+
+	maximumCachedContentEntries = 100_000
+	maximumCachedContentDepth   = 64
+	maximumCachedContentBytes   = 4 << 30
+
+	cacheEnvelopeEntryOverhead = 2
+	cacheEnvelopeDepthOverhead = 1
 )
 
 var ErrInvalidEntry = errors.New("invalid cache entry")
 
-func cacheTreeTraversalLimits() mutationfs.TreeTraversalLimits {
+func cacheEnvelopeTraversalLimits() mutationfs.TreeTraversalLimits {
 	limits, err := mutationfs.NewTreeTraversalLimits(
-		maximumCacheTreeEntries,
-		maximumCacheTreeDepth,
-		maximumCacheTreeBytes,
+		maximumCachedContentEntries+cacheEnvelopeEntryOverhead,
+		maximumCachedContentDepth+cacheEnvelopeDepthOverhead,
+		maximumCachedContentBytes+maximumCompletionBytes,
 	)
 	if err != nil {
 		panic(err)
@@ -155,6 +154,19 @@ func newCompletionRecord(
 }
 
 func (record completionRecord) validate(spec EntrySpec) error {
+	if err := record.validateOwnership(spec); err != nil {
+		return err
+	}
+	if err := validateContentIdentity(record.ContentHash, record.Kind); err != nil {
+		return err
+	}
+	if !spec.accepts(record.ContentHash, record.Kind) {
+		return fmt.Errorf("completion record content identity does not match expected identity")
+	}
+	return nil
+}
+
+func (record completionRecord) validateOwnership(spec EntrySpec) error {
 	if record.Version != completionRecordVersion {
 		return fmt.Errorf("unsupported completion record version %d", record.Version)
 	}
@@ -163,12 +175,6 @@ func (record completionRecord) validate(spec EntrySpec) error {
 	}
 	if record.ContentPath != spec.contentPath {
 		return fmt.Errorf("completion record content path does not match requested path")
-	}
-	if err := validateContentIdentity(record.ContentHash, record.Kind); err != nil {
-		return err
-	}
-	if !spec.accepts(record.ContentHash, record.Kind) {
-		return fmt.Errorf("completion record content identity does not match expected identity")
 	}
 	return nil
 }
@@ -201,205 +207,6 @@ func decodeCompletionRecord(content []byte) (completionRecord, error) {
 		return completionRecord{}, fmt.Errorf("decode completion record trailing data: %w", err)
 	}
 	return record, nil
-}
-
-// VerifyDirectory reports whether root is a complete cache entry matching spec.
-// Missing roots return false without error; present invalid roots return
-// ErrInvalidEntry. Callers that use the result to authorize reuse must hold the
-// exact entry lock through the resulting operation.
-func VerifyDirectory(ctx context.Context, root string, spec EntrySpec) (bool, error) {
-	if err := validateContext(ctx, "entry verification"); err != nil {
-		return false, err
-	}
-	if err := ctx.Err(); err != nil {
-		return false, err
-	}
-	if root == "" {
-		return false, fmt.Errorf("cache entry root is required")
-	}
-	if err := spec.validate(); err != nil {
-		return false, err
-	}
-	root, err := canonicalCacheEntryPath(root)
-	if err != nil {
-		return false, err
-	}
-	info, err := os.Lstat(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("stat cache entry root %q: %w", root, err)
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return false, invalidEntry(root, "entry root is not a non-symlink directory")
-	}
-
-	recordPath := filepath.Join(root, completionRecordName)
-	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, recordPath, maximumCompletionBytes)
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return false, contextErr
-		}
-		return false, invalidEntry(root, fmt.Sprintf("read completion record: %v", err))
-	}
-	content := snapshot.Content()
-	mode := snapshot.Mode()
-	if mode.Perm() != 0o600 {
-		return false, invalidEntry(root, fmt.Sprintf("completion record mode is %04o, want 0600", mode.Perm()))
-	}
-	record, err := decodeCompletionRecord(content)
-	if err != nil {
-		return false, invalidEntry(root, err.Error())
-	}
-	canonical, err := encodeCompletionRecord(record)
-	if err != nil {
-		return false, invalidEntry(root, err.Error())
-	}
-	if !bytes.Equal(content, canonical) {
-		return false, invalidEntry(root, "completion record is not canonical")
-	}
-	if err := record.validate(spec); err != nil {
-		return false, invalidEntry(root, err.Error())
-	}
-
-	contentPath, err := nonSymlinkContentPath(root, spec.contentPath)
-	if err != nil {
-		return false, invalidEntry(root, err.Error())
-	}
-	hash, kind, err := access.HashPath(ctx, contentPath)
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return false, contextErr
-		}
-		return false, invalidEntry(root, fmt.Sprintf("hash cached content: %v", err))
-	}
-	if hash != record.ContentHash || kind != record.Kind {
-		return false, invalidEntry(root, fmt.Sprintf(
-			"cached content identity %q/%q does not match completion record %q/%q",
-			hash,
-			kind,
-			record.ContentHash,
-			record.Kind,
-		))
-	}
-	return true, nil
-}
-
-// ReadVerifiedFile returns one bounded, no-follow file snapshot only when the
-// containing cache entry verifies against the snapshot's exact content hash.
-// Missing entries return found=false without error.
-func ReadVerifiedFile(
-	ctx context.Context,
-	root string,
-	spec EntrySpec,
-	maximumBytes int,
-) (VerifiedFile, bool, error) {
-	if err := validateContext(ctx, "verified file read"); err != nil {
-		return VerifiedFile{}, false, err
-	}
-	if maximumBytes <= 0 {
-		return VerifiedFile{}, false, fmt.Errorf("verified cache file maximum bytes must be positive")
-	}
-	if err := spec.validate(); err != nil {
-		return VerifiedFile{}, false, err
-	}
-	canonicalRoot, err := canonicalCacheEntryPath(root)
-	if err != nil {
-		return VerifiedFile{}, false, err
-	}
-	contentPath := filepath.Join(canonicalRoot, filepath.FromSlash(spec.contentPath))
-	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, contentPath, int64(maximumBytes))
-	if err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return VerifiedFile{}, false, contextErr
-		}
-		if errors.Is(err, fs.ErrNotExist) {
-			return VerifiedFile{}, false, nil
-		}
-		kind, classified := mutationfs.FailureKindOf(err)
-		if classified && kind == mutationfs.FailureUnsupportedGuarantee {
-			return VerifiedFile{}, false, err
-		}
-		return VerifiedFile{}, false, invalidEntry(canonicalRoot, fmt.Sprintf("read cache file: %v", err))
-	}
-	content := snapshot.Content()
-	if len(content) > maximumBytes {
-		return VerifiedFile{}, false, invalidEntry(canonicalRoot, fmt.Sprintf(
-			"cache file %q exceeds %d bytes",
-			spec.contentPath,
-			maximumBytes,
-		))
-	}
-	hash := artifact.HashFileContent(content)
-	if !spec.accepts(hash, artifact.ArtifactKindFile) {
-		return VerifiedFile{}, false, invalidEntry(canonicalRoot, "cache file identity does not match expected identity")
-	}
-	verifiedSpec := spec
-	verifiedSpec.expectedHash = hash
-	verifiedSpec.expectedKind = artifact.ArtifactKindFile
-	valid, err := VerifyDirectory(ctx, canonicalRoot, verifiedSpec)
-	if err != nil || !valid {
-		return VerifiedFile{}, false, err
-	}
-	return VerifiedFile{
-		content: slices.Clone(content),
-		mode:    snapshot.Mode().Perm(),
-	}, true, nil
-}
-
-func nonSymlinkContentPath(root string, relativePath string) (string, error) {
-	current := root
-	for component := range strings.SplitSeq(relativePath, "/") {
-		current = filepath.Join(current, component)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return "", fmt.Errorf("inspect cache content path %q: %w", current, err)
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return "", fmt.Errorf("cache content path component %q is a symlink", current)
-		}
-	}
-	return current, nil
-}
-
-func canonicalCacheEntryPath(value string) (string, error) {
-	absolute, err := filepath.Abs(value)
-	if err != nil {
-		return "", fmt.Errorf("resolve cache entry path %q: %w", value, err)
-	}
-	absolute = filepath.Clean(absolute)
-	parent := filepath.Dir(absolute)
-	missing := make([]string, 0)
-	for {
-		_, err := os.Lstat(parent)
-		if err == nil {
-			resolved, err := filepath.EvalSymlinks(parent)
-			if err != nil {
-				return "", fmt.Errorf("resolve cache entry parent %q: %w", parent, err)
-			}
-			resolvedInfo, err := os.Lstat(resolved)
-			if err != nil {
-				return "", fmt.Errorf("inspect resolved cache entry parent %q: %w", resolved, err)
-			}
-			if !resolvedInfo.IsDir() {
-				return "", fmt.Errorf("cache entry ancestor %q is not a directory", parent)
-			}
-			for index := len(missing) - 1; index >= 0; index-- {
-				resolved = filepath.Join(resolved, missing[index])
-			}
-			return filepath.Join(resolved, filepath.Base(absolute)), nil
-		}
-		if !os.IsNotExist(err) {
-			return "", fmt.Errorf("inspect cache entry ancestor %q: %w", parent, err)
-		}
-		next := filepath.Dir(parent)
-		if next == parent {
-			return "", fmt.Errorf("cache entry path %q has no existing ancestor", value)
-		}
-		missing = append(missing, filepath.Base(parent))
-		parent = next
-	}
 }
 
 func normalizeContentPath(value string) (string, error) {

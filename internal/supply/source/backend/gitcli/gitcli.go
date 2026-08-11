@@ -51,7 +51,7 @@ func NewResolver(cacheRoot string) (Resolver, error) {
 		return Resolver{}, fmt.Errorf("resolve git source cache root %q: %w", root, err)
 	}
 
-	cleanRoot, err := canonicalGitCacheRoot(filepath.Clean(absoluteRoot))
+	cleanRoot, err := sourcecache.CanonicalRootPath(filepath.Clean(absoluteRoot))
 	if err != nil {
 		return Resolver{}, fmt.Errorf("resolve physical git source cache root %q: %w", root, err)
 	}

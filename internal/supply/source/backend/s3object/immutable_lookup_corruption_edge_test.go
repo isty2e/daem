@@ -69,7 +69,7 @@ func TestResolveRejectsCompleteButInvalidImmutableLookupRows(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newImmutableCorruptionFixture(t, t.TempDir(), "s3://daem/object", "v1", []byte("trusted\n"))
 			valid := mustEncodeImmutableLookupRecord(t, fixture.record)
-			replaceImmutableLookupRow(t, fixture.resolver.state.immutableIndex, fixture.identity, test.mutate(fixture.record, valid), 0o600)
+			replaceImmutableLookupRow(t, fixture.resolver, fixture.identity, test.mutate(fixture.record, valid), 0o600)
 
 			assertImmutableFallbackRepairs(t, fixture)
 		})
@@ -102,7 +102,7 @@ func TestResolveRepairsIncompleteImmutableLookupRows(t *testing.T) {
 	}
 }
 
-func TestResolveRepairsImmutableLookupSymlinksWithoutFollowingTargets(t *testing.T) {
+func TestResolveRejectsImmutableLookupSymlinksWithoutFollowingTargets(t *testing.T) {
 	t.Run("record symlink", func(t *testing.T) {
 		fixture := newImmutableCorruptionFixture(t, t.TempDir(), "s3://daem/object", "v1", []byte("trusted\n"))
 		recordPath := filepath.Join(fixture.rowRoot, immutableLookupRecordName)
@@ -114,8 +114,13 @@ func TestResolveRepairsImmutableLookupSymlinksWithoutFollowingTargets(t *testing
 			t.Skipf("symlink unavailable: %v", err)
 		}
 
-		assertImmutableFallbackRepairs(t, fixture)
+		if _, err := fixture.resolver.Resolve(t.Context(), fixture.sourceSpec, noOperationOptions); err == nil {
+			t.Fatal("Resolve succeeded with a symlinked immutable lookup record")
+		}
 		assertFileContent(t, targetPath, mustEncodeImmutableLookupRecord(t, fixture.record))
+		if calls := fixture.client.callCount(); calls != 1 {
+			t.Fatalf("GetObject calls = %d, want no repair fetch", calls)
+		}
 	})
 
 	t.Run("row root symlink", func(t *testing.T) {
@@ -128,9 +133,14 @@ func TestResolveRepairsImmutableLookupSymlinksWithoutFollowingTargets(t *testing
 			t.Skipf("symlink unavailable: %v", err)
 		}
 
-		assertImmutableFallbackRepairs(t, fixture)
+		if _, err := fixture.resolver.Resolve(t.Context(), fixture.sourceSpec, noOperationOptions); err == nil {
+			t.Fatal("Resolve succeeded with a symlinked immutable lookup row")
+		}
 		if _, err := os.Stat(filepath.Join(targetRoot, immutableLookupRecordName)); err != nil {
 			t.Fatalf("row symlink target was changed: %v", err)
+		}
+		if calls := fixture.client.callCount(); calls != 1 {
+			t.Fatalf("GetObject calls = %d, want no repair fetch", calls)
 		}
 	})
 }
@@ -182,46 +192,58 @@ func TestResolveRepairsSwappedLookupRowsWithoutTouchingUnrelatedRow(t *testing.T
 
 func replaceImmutableLookupRow(
 	t *testing.T,
-	index immutableLookupIndex,
+	resolver Resolver,
 	identity immutableLookupIdentity,
 	content []byte,
 	mode os.FileMode,
 ) {
 	t.Helper()
-	lock, err := index.acquire(t.Context(), identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := lock.Release(); err != nil {
-			t.Errorf("release immutable lookup lock: %v", err)
+	cacheAuthority := mustCaptureS3CacheRoot(t, resolver)
+	defer cacheAuthority.Close()
+	err := resolver.state.immutableIndex.doRooted(t.Context(), cacheAuthority, identity, func() error {
+		index := resolver.state.immutableIndex
+		if err := index.retire(t.Context(), cacheAuthority, identity); err != nil {
+			return err
 		}
-	}()
-	if err := index.retire(t.Context(), identity); err != nil {
-		t.Fatal(err)
-	}
-	key, err := identity.key()
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash := artifact.HashFileContent(content)
-	spec, err := sourcecache.NewEntrySpec(key, immutableLookupRecordName, hash, artifact.ArtifactKindFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	entryRoot := mustImmutableLookupRoot(t, index, identity)
-	published, err := sourcecache.PublishDirectoryOnce(t.Context(), entryRoot, spec, func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
-		recordPath := filepath.Join(tempRoot, immutableLookupRecordName)
-		if err := os.WriteFile(recordPath, content, mode); err != nil {
-			return "", "", err
+		key, err := identity.key()
+		if err != nil {
+			return err
 		}
-		if err := os.Chmod(recordPath, mode); err != nil {
-			return "", "", err
+		hash := artifact.HashFileContent(content)
+		spec, err := sourcecache.NewEntrySpec(key, immutableLookupRecordName, hash, artifact.ArtifactKindFile)
+		if err != nil {
+			return err
 		}
-		return hash, artifact.ArtifactKindFile, nil
+		entryRoot, err := index.entryRelativeRoot(identity)
+		if err != nil {
+			return err
+		}
+		_, _, published, err := sourcecache.PublishDirectoryOnceRooted(
+			t.Context(),
+			cacheAuthority,
+			entryRoot,
+			spec,
+			func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+				recordPath := filepath.Join(tempRoot, immutableLookupRecordName)
+				if err := os.WriteFile(recordPath, content, mode); err != nil {
+					return "", "", err
+				}
+				if err := os.Chmod(recordPath, mode); err != nil {
+					return "", "", err
+				}
+				return hash, artifact.ArtifactKindFile, nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+		if !published {
+			return errors.New("forged immutable row was not published")
+		}
+		return nil
 	})
-	if err != nil || !published {
-		t.Fatalf("publish forged immutable row = %t, %v", published, err)
+	if err != nil {
+		t.Fatalf("publish forged immutable row: %v", err)
 	}
 }
 
@@ -250,7 +272,7 @@ func mustImmutableLookupRoot(
 func TestResolveCorruptLookupDoesNotMaskRemoteFailure(t *testing.T) {
 	cacheRoot := t.TempDir()
 	fixture := newImmutableCorruptionFixture(t, cacheRoot, "s3://daem/object", "v1", []byte("trusted\n"))
-	replaceImmutableLookupRow(t, fixture.resolver.state.immutableIndex, fixture.identity, []byte("not json\n"), 0o600)
+	replaceImmutableLookupRow(t, fixture.resolver, fixture.identity, []byte("not json\n"), 0o600)
 	remoteErr := errors.New("remote unavailable")
 	failingClient := &fakeS3Client{err: remoteErr}
 	failingResolver, err := newResolverWithClient(cacheRoot, failingClient)
@@ -264,5 +286,15 @@ func TestResolveCorruptLookupDoesNotMaskRemoteFailure(t *testing.T) {
 	}
 	if calls := failingClient.callCount(); calls != 1 {
 		t.Fatalf("GetObject calls = %d, want one failed fallback", calls)
+	}
+}
+
+func TestS3CacheAuthorityFailureDominatesJoinedCorruption(t *testing.T) {
+	err := errors.Join(sourcecache.ErrInvalidEntry, sourcecache.ErrRootedLockAuthority)
+	if !isS3CacheAuthorityFailure(err) {
+		t.Fatal("joined cache corruption masked a rooted authority failure")
+	}
+	if isS3CacheAuthorityFailure(sourcecache.ErrInvalidEntry) {
+		t.Fatal("ordinary cache corruption was classified as an authority failure")
 	}
 }

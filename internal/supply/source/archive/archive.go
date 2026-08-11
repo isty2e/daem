@@ -37,6 +37,7 @@ func extractTar(ctx context.Context, input io.Reader, outputRoot string, budget 
 
 	reader := tar.NewReader(input)
 	accounting := archiveAccounting{budget: budget}
+	materializer := archiveMaterializer{root: root, accounting: &accounting}
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -50,7 +51,7 @@ func extractTar(ctx context.Context, input io.Reader, outputRoot string, budget 
 			return fmt.Errorf("read archive: %w", err)
 		}
 
-		if err := accounting.countEntry(header.Name); err != nil {
+		if err := accounting.countLogicalEntry(header.Name); err != nil {
 			return err
 		}
 		name, err := cleanArchiveName(header.Name)
@@ -70,15 +71,18 @@ func extractTar(ctx context.Context, input io.Reader, outputRoot string, budget 
 		case tar.TypeXGlobalHeader, tar.TypeXHeader:
 			continue
 		case tar.TypeDir:
-			if err := os.MkdirAll(targetPath, 0o700); err != nil {
-				return fmt.Errorf("create archive directory %q: %w", targetPath, err)
+			if err := materializer.ensureDirectory(targetPath); err != nil {
+				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			if err := accounting.admitFile(header.Size, name); err != nil {
 				return err
 			}
-			if err := os.MkdirAll(filepath.Dir(targetPath), 0o700); err != nil {
-				return fmt.Errorf("create archive parent directory %q: %w", filepath.Dir(targetPath), err)
+			if err := materializer.ensureDirectory(filepath.Dir(targetPath)); err != nil {
+				return err
+			}
+			if err := materializer.admitFile(targetPath); err != nil {
+				return err
 			}
 
 			if err := writeArchiveFile(ctx, reader, targetPath, os.FileMode(header.Mode).Perm()); err != nil {
@@ -182,20 +186,89 @@ func writeArchiveFile(ctx context.Context, reader io.Reader, path string, mode o
 }
 
 type archiveAccounting struct {
-	budget       budget
-	entryCount   int64
-	expandedSize int64
+	budget                 budget
+	logicalEntryCount      int64
+	materializedEntryCount int64
+	expandedSize           int64
 }
 
-func (accounting *archiveAccounting) countEntry(name string) error {
-	accounting.entryCount++
-	if accounting.entryCount > accounting.budget.entryCount {
-		return newLimitError(LimitEntryCount, accounting.budget.entryCount, accounting.entryCount, name)
+func (accounting *archiveAccounting) countLogicalEntry(name string) error {
+	accounting.logicalEntryCount++
+	if accounting.logicalEntryCount > accounting.budget.entryCount {
+		return newLimitError(LimitEntryCount, accounting.budget.entryCount, accounting.logicalEntryCount, name)
 	}
 	if int64(len(name)) > accounting.budget.pathBytes {
 		return newLimitError(LimitPathBytes, accounting.budget.pathBytes, int64(len(name)), name)
 	}
 	return nil
+}
+
+func (accounting *archiveAccounting) admitMaterializedEntry(name string) error {
+	accounting.materializedEntryCount++
+	if accounting.materializedEntryCount > accounting.budget.entryCount {
+		return newLimitError(LimitEntryCount, accounting.budget.entryCount, accounting.materializedEntryCount, name)
+	}
+	return nil
+}
+
+type archiveMaterializer struct {
+	root       string
+	accounting *archiveAccounting
+}
+
+func (materializer archiveMaterializer) ensureDirectory(directory string) error {
+	relative, err := filepath.Rel(materializer.root, directory)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("archive directory %q escapes artifact directory", directory)
+	}
+	if relative == "." {
+		return nil
+	}
+
+	current := materializer.root
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		current = filepath.Join(current, component)
+		info, statErr := os.Lstat(current)
+		switch {
+		case statErr == nil:
+			if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("archive directory %q is not a directory", current)
+			}
+		case os.IsNotExist(statErr):
+			entryName, relativeErr := filepath.Rel(materializer.root, current)
+			if relativeErr != nil {
+				return fmt.Errorf("identify archive directory %q: %w", current, relativeErr)
+			}
+			if err := materializer.accounting.admitMaterializedEntry(filepath.ToSlash(entryName)); err != nil {
+				return err
+			}
+			if err := os.Mkdir(current, 0o700); err != nil {
+				return fmt.Errorf("create archive directory %q: %w", current, err)
+			}
+		default:
+			return fmt.Errorf("inspect archive directory %q: %w", current, statErr)
+		}
+	}
+	return nil
+}
+
+func (materializer archiveMaterializer) admitFile(path string) error {
+	info, err := os.Lstat(path)
+	switch {
+	case err == nil:
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("archive file %q is not a regular file", path)
+		}
+		return nil
+	case os.IsNotExist(err):
+		entryName, relativeErr := filepath.Rel(materializer.root, path)
+		if relativeErr != nil {
+			return fmt.Errorf("identify archive file %q: %w", path, relativeErr)
+		}
+		return materializer.accounting.admitMaterializedEntry(filepath.ToSlash(entryName))
+	default:
+		return fmt.Errorf("inspect archive file %q: %w", path, err)
+	}
 }
 
 func (accounting *archiveAccounting) admitPath(name string) error {

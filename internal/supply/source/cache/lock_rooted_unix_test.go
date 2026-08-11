@@ -121,11 +121,33 @@ func TestRootedLockerRejectsReboundLockBeforeOperation(t *testing.T) {
 		called = true
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "binding changed") {
-		t.Fatalf("rooted lock run error = %v, want rebound rejection", err)
+	if err == nil ||
+		!errors.Is(err, ErrRootedLockAuthority) ||
+		!strings.Contains(err.Error(), "binding changed") {
+		t.Fatalf("rooted lock run error = %v, want classified rebound rejection", err)
 	}
 	if called {
 		t.Fatal("protected operation ran after rooted lock rebinding")
+	}
+}
+
+func TestRootedLockerClassifiesAuthorityEstablishmentFailures(t *testing.T) {
+	rootPath := t.TempDir()
+	root := mustCaptureCacheRoot(t, rootPath)
+	defer root.Close()
+	key := mustKey(t, "rooted-authority", "outside")
+	locker := NewLocker(filepath.Join(t.TempDir(), "locks"))
+	called := false
+
+	err := locker.DoRooted(t.Context(), root, key, func() error {
+		called = true
+		return nil
+	})
+	if !errors.Is(err, ErrRootedLockAuthority) {
+		t.Fatalf("DoRooted error = %v, want rooted lock authority failure", err)
+	}
+	if called {
+		t.Fatal("DoRooted ran the operation without a confined lock namespace")
 	}
 }
 

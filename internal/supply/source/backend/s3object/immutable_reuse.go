@@ -5,14 +5,19 @@ import (
 	"errors"
 	"path/filepath"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	sourcecache "github.com/isty2e/daem/internal/supply/source/cache"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
 )
 
-func (resolver Resolver) resolveOnce(ctx context.Context, request resolveRequest) (acquisition.Resolution, error) {
+func (resolver Resolver) resolveOnce(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	request resolveRequest,
+) (acquisition.Resolution, error) {
 	state, err := resolver.requireState()
 	if err != nil {
 		return acquisition.Resolution{}, err
@@ -22,35 +27,32 @@ func (resolver Resolver) resolveOnce(ctx context.Context, request resolveRequest
 		return acquisition.Resolution{}, err
 	}
 	if !eligible {
-		return resolver.resolveRemote(ctx, request)
+		return resolver.resolveRemote(ctx, cacheRoot, request)
 	}
 
-	lookupLock, err := state.immutableIndex.acquire(ctx, identity)
+	var resolved acquisition.Resolution
+	lockBodyRan := false
+	err = state.immutableIndex.doRooted(ctx, cacheRoot, identity, func() error {
+		lockBodyRan = true
+		var resolveErr error
+		resolved, resolveErr = resolver.resolveImmutableLocked(ctx, cacheRoot, request, identity)
+		return resolveErr
+	})
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return acquisition.Resolution{}, contextErr
 		}
-		return resolver.resolveRemote(ctx, request)
-	}
-
-	resolved, resolveErr := resolver.resolveImmutableLocked(ctx, request, identity)
-	releaseErr := lookupLock.Release()
-	return finishImmutableLookup(resolved, resolveErr, releaseErr)
-}
-
-func finishImmutableLookup(
-	resolved acquisition.Resolution,
-	resolveErr error,
-	releaseErr error,
-) (acquisition.Resolution, error) {
-	if err := errors.Join(resolveErr, releaseErr); err != nil {
-		return acquisition.Resolution{}, err
+		if lockBodyRan || isS3CacheAuthorityFailure(err) {
+			return acquisition.Resolution{}, err
+		}
+		return resolver.resolveRemote(ctx, cacheRoot, request)
 	}
 	return resolved, nil
 }
 
 func (resolver Resolver) resolveImmutableLocked(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	request resolveRequest,
 	identity immutableLookupIdentity,
 ) (acquisition.Resolution, error) {
@@ -59,12 +61,15 @@ func (resolver Resolver) resolveImmutableLocked(
 		return acquisition.Resolution{}, err
 	}
 
-	record, found, lookupErr := state.immutableIndex.read(ctx, identity)
+	record, found, lookupErr := state.immutableIndex.read(ctx, cacheRoot, identity)
 	if lookupErr == nil && found {
-		resolved, valid, verifyErr := resolver.verifyImmutableLookupArtifact(ctx, request, record)
+		resolved, valid, verifyErr := resolver.verifyImmutableLookupArtifact(ctx, cacheRoot, request, record)
 		if verifyErr == nil && valid {
 			request.options.Emit(acquisition.EventCacheHit, request.sourceSpec, request.sourceID, record.ResolvedRef, nil)
 			return resolved, nil
+		}
+		if isS3CacheAuthorityFailure(verifyErr) {
+			return acquisition.Resolution{}, verifyErr
 		}
 		if errors.Is(verifyErr, directfile.ErrLimitExceeded) {
 			return acquisition.Resolution{}, verifyErr
@@ -77,11 +82,16 @@ func (resolver Resolver) resolveImmutableLocked(
 			return acquisition.Resolution{}, contextErr
 		}
 		if lookupErr != nil {
-			_ = state.immutableIndex.retire(ctx, identity)
+			if isS3CacheAuthorityFailure(lookupErr) {
+				return acquisition.Resolution{}, lookupErr
+			}
+			if retireErr := state.immutableIndex.retire(ctx, cacheRoot, identity); isS3CacheAuthorityFailure(retireErr) {
+				return acquisition.Resolution{}, retireErr
+			}
 		}
 	}
 
-	resolved, err := resolver.resolveRemote(ctx, request)
+	resolved, err := resolver.resolveRemote(ctx, cacheRoot, request)
 	if err != nil {
 		return acquisition.Resolution{}, err
 	}
@@ -89,9 +99,12 @@ func (resolver Resolver) resolveImmutableLocked(
 	if err != nil {
 		return resolved, nil
 	}
-	if err := state.immutableIndex.publish(ctx, identity, record); err != nil {
+	if err := state.immutableIndex.publish(ctx, cacheRoot, identity, record); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return acquisition.Resolution{}, contextErr
+		}
+		if isS3CacheAuthorityFailure(err) {
+			return acquisition.Resolution{}, err
 		}
 	}
 	return resolved, nil
@@ -99,6 +112,7 @@ func (resolver Resolver) resolveImmutableLocked(
 
 func (resolver Resolver) verifyImmutableLookupArtifact(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	request resolveRequest,
 	record immutableLookupRecord,
 ) (acquisition.Resolution, bool, error) {
@@ -118,18 +132,33 @@ func (resolver Resolver) verifyImmutableLookupArtifact(
 
 	request.options.Emit(acquisition.EventCacheWait, request.sourceSpec, request.sourceID, record.ResolvedRef, nil)
 	valid := false
-	err = state.artifactLocker.Do(ctx, key, func() error {
-		if record.Kind == artifact.ArtifactKindFile {
-			view, openErr := access.OpenView(filepath.Join(entryRoot, "content"))
-			if openErr != nil {
-				return openErr
-			}
-			if _, hashErr := directfile.Hash(ctx, view); hashErr != nil {
-				return hashErr
-			}
-		}
+	err = state.artifactLocker.DoRooted(ctx, cacheRoot, key, func() error {
 		var verifyErr error
-		valid, verifyErr = sourcecache.VerifyDirectory(ctx, entryRoot, spec)
+		relativeRoot := resolver.artifactEntryRelativeRoot(
+			request.sourceID,
+			record.ResolvedRef,
+			record.ContentHash,
+		)
+		if record.Kind == artifact.ArtifactKindFile {
+			valid, verifyErr = sourcecache.VerifyFileRooted(
+				ctx,
+				cacheRoot,
+				relativeRoot,
+				spec,
+				int(directfile.MaximumBytes),
+			)
+			var limitErr *sourcecache.VerifiedFileLimitError
+			if errors.As(verifyErr, &limitErr) {
+				return directfile.CheckKnownSize(limitErr.Observed())
+			}
+			return verifyErr
+		}
+		valid, verifyErr = sourcecache.VerifyDirectoryRooted(
+			ctx,
+			cacheRoot,
+			relativeRoot,
+			spec,
+		)
 		return verifyErr
 	})
 	if err != nil {
@@ -151,4 +180,26 @@ func (resolver Resolver) verifyImmutableLookupArtifact(
 		return acquisition.Resolution{}, false, err
 	}
 	return resolved, true, nil
+}
+
+func isS3CacheAuthorityFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sourcecache.ErrRootedLockAuthority) {
+		return true
+	}
+	var pathFailure *rootedpath.Failure
+	if errors.As(err, &pathFailure) {
+		return true
+	}
+	var limitErr *sourcecache.VerifiedFileLimitError
+	if errors.As(err, &limitErr) {
+		return false
+	}
+	_, classified := mutationfs.FailureKindOf(err)
+	if classified {
+		return true
+	}
+	return false
 }

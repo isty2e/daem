@@ -34,6 +34,7 @@ type PreparedRootedTree struct {
 	stageFD        int
 	stageObject    EntryIdentity
 	expected       EntryIdentity
+	limits         mutationfs.TreeTraversalLimits
 	rootMode       fs.FileMode
 	rootModeSet    bool
 	directoryModes []preparedTreeDirectoryMode
@@ -48,7 +49,7 @@ func PrepareRootedTree(
 	capability rootedpath.CommitCapability,
 	populate func(mutationfs.RootedTreeWriter) error,
 ) (*PreparedRootedTree, error) {
-	return prepareRootedTreeWithLimits(
+	return PrepareRootedTreeWithLimits(
 		ctx,
 		capability,
 		defaultTreeTraversalLimits(),
@@ -56,7 +57,9 @@ func PrepareRootedTree(
 	)
 }
 
-func prepareRootedTreeWithLimits(
+// PrepareRootedTreeWithLimits creates a private rooted stage whose writer and
+// failure cleanup share one caller-owned finite traversal bound.
+func PrepareRootedTreeWithLimits(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	limits mutationfs.TreeTraversalLimits,
@@ -100,7 +103,7 @@ func prepareRootedTreeWithLimits(
 		_ = capability.Close()
 		return nil, failure
 	}
-	prepared, err := createPreparedRootedTree(path, anchor)
+	prepared, err := createPreparedRootedTree(path, anchor, limits)
 	if err != nil {
 		var failure error
 		if prepared != nil {
@@ -348,13 +351,15 @@ func (prepared *PreparedRootedTree) cleanupStageLocked(ctx context.Context, faul
 		case errors.Is(err, unix.ENOENT):
 		case err != nil || !prepared.stageObject.sameObject(observed):
 			residue = append(residue, prepared.stagePath)
-		case removeEntryAt(
+		case removeEntryAtWithFaults(
 			cleanupContext,
 			prepared.anchor.parentFD(),
 			prepared.stageName,
 			prepared.stagePath,
 			observed,
 			prepared.anchor.capability,
+			prepared.limits,
+			faultPlan{},
 		) != nil:
 			residue = append(residue, prepared.stagePath)
 		case syncDirectory(prepared.anchor.parentFD()) != nil:

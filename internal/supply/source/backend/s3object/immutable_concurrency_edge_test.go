@@ -133,8 +133,12 @@ func TestResolveFailedExactVersionOwnerAllowsLaterFiller(t *testing.T) {
 	}
 	sourceID := mustS3SourceID(t, sourceSpec)
 	identity := mustImmutableLookupIdentity(t, sourceID, "v1")
-	if _, found, err := failingResolver.state.immutableIndex.read(t.Context(), identity); err != nil || found {
+	cacheAuthority := mustCaptureS3CacheRoot(t, failingResolver)
+	if _, found, err := failingResolver.state.immutableIndex.read(t.Context(), cacheAuthority, identity); err != nil || found {
 		t.Fatalf("row after failed owner = found %t, error %v", found, err)
+	}
+	if err := cacheAuthority.Close(); err != nil {
+		t.Fatalf("close cache authority: %v", err)
 	}
 
 	goodClient := &fakeS3Client{body: []byte("recovered\n"), versionID: "v1"}
@@ -156,29 +160,7 @@ func TestResolveFailedExactVersionOwnerAllowsLaterFiller(t *testing.T) {
 	}
 }
 
-func TestFinishImmutableLookupSurfacesReleaseFailure(t *testing.T) {
-	resolver, err := newResolverWithClient(t.TempDir(), &fakeS3Client{
-		body:      []byte("immutable\n"),
-		versionID: "v1",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceSpec := sourcetest.S3(t, "s3://daem/object", "v1", "", sourcepkg.S3ObjectFormatFile)
-	want := mustResolveS3(t, resolver, sourceSpec)
-	releaseErr := errors.New("release failed")
-	got, err := finishImmutableLookup(want, nil, releaseErr)
-	if got != (acquisition.Resolution{}) || !errors.Is(err, releaseErr) {
-		t.Fatalf("finishImmutableLookup release failure = %#v, %v, want zero result and release error", got, err)
-	}
-	resolveErr := errors.New("resolve failed")
-	got, err = finishImmutableLookup(want, resolveErr, releaseErr)
-	if got != (acquisition.Resolution{}) || !errors.Is(err, resolveErr) || !errors.Is(err, releaseErr) {
-		t.Fatalf("finishImmutableLookup failure = %#v, %v, want both failures", got, err)
-	}
-}
-
-func TestResolveIndexInfrastructureFailuresFallBackToRemote(t *testing.T) {
+func TestResolveRejectsInvalidIndexNamespaceInfrastructure(t *testing.T) {
 	tests := []struct {
 		name  string
 		setup func(*testing.T, string)
@@ -214,15 +196,13 @@ func TestResolveIndexInfrastructureFailuresFallBackToRemote(t *testing.T) {
 			}
 			sourceSpec := sourcetest.S3(t, "s3://daem/object", "v1", "", sourcepkg.S3ObjectFormatFile)
 
-			first := mustResolveS3(t, resolver, sourceSpec)
-			second := mustResolveS3(t, resolver, sourceSpec)
-			if first != second {
-				t.Fatalf("fallback artifacts differ: first=%#v second=%#v", first, second)
+			_, firstErr := resolver.Resolve(t.Context(), sourceSpec, noOperationOptions)
+			if firstErr == nil {
+				t.Fatal("Resolve succeeded with invalid immutable-index namespace")
 			}
-			if calls := client.callCount(); calls != 2 {
-				t.Fatalf("GetObject calls = %d, want index-independent refetch", calls)
+			if calls := client.callCount(); calls != 0 {
+				t.Fatalf("GetObject calls = %d, want no network work", calls)
 			}
-			assertFileContent(t, s3ResolutionContentPath(resolver, second), []byte("available\n"))
 		})
 	}
 }

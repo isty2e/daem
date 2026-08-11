@@ -117,12 +117,30 @@ func PrepareCommitParent(_ context.Context, path string) error {
 
 // PrepareRootedTree fails closed before invoking populate.
 func PrepareRootedTree(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	populate func(mutationfs.RootedTreeWriter) error,
+) (*PreparedRootedTree, error) {
+	return PrepareRootedTreeWithLimits(
+		ctx,
+		capability,
+		defaultTreeTraversalLimits(),
+		populate,
+	)
+}
+
+// PrepareRootedTreeWithLimits fails closed before invoking populate.
+func PrepareRootedTreeWithLimits(
 	_ context.Context,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	_ func(mutationfs.RootedTreeWriter) error,
 ) (*PreparedRootedTree, error) {
 	if capability != nil {
 		defer capability.Close()
+	}
+	if err := limits.Validate(); err != nil {
+		return nil, err
 	}
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {

@@ -16,7 +16,8 @@ func TestPublicManifestDocumentsArchiveBudgets(t *testing.T) {
 		fmt.Sprintf("| Decompressed tar stream | %d MiB |", budget.tarStreamBytes>>20),
 		fmt.Sprintf("| Total extracted regular-file bytes | %d MiB |", budget.expandedBytes>>20),
 		fmt.Sprintf("| One regular file | %d MiB |", budget.entryBytes>>20),
-		fmt.Sprintf("| Logical entries | %s |", formatArchiveCount(budget.entryCount)),
+		fmt.Sprintf("| Logical archive entries | %s |", formatArchiveCount(budget.entryCount)),
+		fmt.Sprintf("| Extracted files and directories | %s |", formatArchiveCount(budget.entryCount)),
 		fmt.Sprintf(
 			"| Canonical path | %s bytes and %s components |",
 			formatArchiveCount(budget.pathBytes),

@@ -38,9 +38,13 @@ func newImmutableCorruptionFixture(
 	sourceSpec := sourcetest.S3(t, uri, requestedVersion, "", sourcepkg.S3ObjectFormatFile)
 	first := mustResolveS3(t, resolver, sourceSpec)
 	identity := mustImmutableLookupIdentity(t, first.Identity().SourceID(), requestedVersion)
-	record, found, err := resolver.state.immutableIndex.read(t.Context(), identity)
+	cacheAuthority := mustCaptureS3CacheRoot(t, resolver)
+	record, found, err := resolver.state.immutableIndex.read(t.Context(), cacheAuthority, identity)
 	if err != nil || !found {
 		t.Fatalf("initial immutable row = found %t, error %v", found, err)
+	}
+	if err := cacheAuthority.Close(); err != nil {
+		t.Fatalf("close cache authority: %v", err)
 	}
 	return immutableCorruptionFixture{
 		resolver:   resolver,
@@ -63,8 +67,12 @@ func assertImmutableFallbackRepairs(t *testing.T, fixture immutableCorruptionFix
 	if calls := fixture.client.callCount(); calls != 2 {
 		t.Fatalf("GetObject calls = %d, want initial fetch plus one repair", calls)
 	}
-	if _, found, err := fixture.resolver.state.immutableIndex.read(t.Context(), fixture.identity); err != nil || !found {
+	cacheAuthority := mustCaptureS3CacheRoot(t, fixture.resolver)
+	if _, found, err := fixture.resolver.state.immutableIndex.read(t.Context(), cacheAuthority, fixture.identity); err != nil || !found {
 		t.Fatalf("repaired lookup row = found %t, error %v", found, err)
+	}
+	if err := cacheAuthority.Close(); err != nil {
+		t.Fatalf("close cache authority: %v", err)
 	}
 }
 

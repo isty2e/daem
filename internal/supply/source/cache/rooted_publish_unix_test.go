@@ -3,14 +3,49 @@
 package cache
 
 import (
+	"errors"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
+
+func TestRootedPublicationOnlyTreatsUncommittedNoClobberAsReuse(t *testing.T) {
+	uncommitted, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeUncommitted, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indeterminate, err := mutationfs.NewCommitOutcome(mutationfs.CommitOutcomeIndeterminate, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rootedPublicationLostNoClobberRace(uncommitted, fs.ErrExist) {
+		t.Fatal("uncommitted no-clobber loss was not classified as reuse")
+	}
+	if rootedPublicationLostNoClobberRace(indeterminate, fs.ErrExist) {
+		t.Fatal("indeterminate visible publication was classified as reuse")
+	}
+	if rootedPublicationLostNoClobberRace(uncommitted, errors.New("validation failed")) {
+		t.Fatal("non-race uncommitted failure was classified as reuse")
+	}
+}
+
+func assertFileContent(t *testing.T, path string, want string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %q: %v", path, err)
+	}
+	if string(content) != want {
+		t.Fatalf("content %q = %q, want %q", path, content, want)
+	}
+}
 
 func TestPublishDirectoryOnceRootedPublishesAndReusesValidEntry(t *testing.T) {
 	cacheRoot := t.TempDir()
@@ -50,6 +85,51 @@ func TestPublishDirectoryOnceRootedPublishesAndReusesValidEntry(t *testing.T) {
 		t.Fatalf("build calls = %d, want 1", buildCalls)
 	}
 	assertFileContent(t, filepath.Join(cacheRoot, "artifacts", "valid", "content.txt"), "valid")
+}
+
+func TestPublishDirectoryOnceRootedTreatsValidNoClobberWinnerAsReuse(t *testing.T) {
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	spec := rootedTestEntrySpec(t, "winner")
+	winnerPublished := false
+
+	contentHash, contentKind, published, err := PublishDirectoryOnceRooted(
+		t.Context(),
+		root,
+		"artifacts/race",
+		spec,
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			winnerHash, winnerKind, nestedPublished, nestedErr := PublishDirectoryOnceRooted(
+				t.Context(),
+				root,
+				"artifacts/race",
+				spec,
+				func(winnerRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+					return writeRootedTestContent(winnerRoot, "winner")
+				},
+			)
+			if nestedErr != nil {
+				return "", "", nestedErr
+			}
+			winnerPublished = nestedPublished
+			if winnerHash != artifact.HashFileContent([]byte("winner")) ||
+				winnerKind != artifact.ArtifactKindFile {
+				return "", "", errors.New("nested publisher returned wrong identity")
+			}
+			return writeRootedTestContent(tempRoot, "winner")
+		},
+	)
+	if err != nil {
+		t.Fatalf("PublishDirectoryOnceRooted returned error: %v", err)
+	}
+	if !winnerPublished || published {
+		t.Fatalf("published = outer:%t winner:%t, want false/true", published, winnerPublished)
+	}
+	if contentHash != artifact.HashFileContent([]byte("winner")) ||
+		contentKind != artifact.ArtifactKindFile {
+		t.Fatalf("content identity = %q/%q, want winner file", contentHash, contentKind)
+	}
 }
 
 func TestPublishDirectoryOnceRootedRejectsSymlinkedAncestorWithoutBuilding(t *testing.T) {
@@ -238,6 +318,157 @@ func TestPublishDirectoryOnceRootedRejectsReplacedBuildStage(t *testing.T) {
 	}
 }
 
+func TestPreparedDirectoryPublishesAndReadsBelowRetainedRoot(t *testing.T) {
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	content := "prepared"
+	contentHash := artifact.HashFileContent([]byte(content))
+	spec := rootedExactTestEntrySpec(t, content, contentHash)
+	prepared, err := PrepareDirectory(
+		t.Context(),
+		"content.txt",
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			return writeRootedTestContent(tempRoot, content)
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareDirectory returned error: %v", err)
+	}
+	stagePath := prepared.stage.path
+	defer prepared.Close(t.Context())
+
+	published, err := prepared.PublishRooted(
+		t.Context(),
+		root,
+		"artifacts/prepared",
+		spec,
+	)
+	if err != nil || !published {
+		t.Fatalf("PublishRooted = %t, %v, want published", published, err)
+	}
+	verified, found, err := ReadVerifiedFileRooted(
+		t.Context(),
+		root,
+		"artifacts/prepared",
+		spec,
+		1024,
+	)
+	if err != nil || !found {
+		t.Fatalf("ReadVerifiedFileRooted = %t, %v, want found", found, err)
+	}
+	if got := string(verified.Content()); got != content {
+		t.Fatalf("verified content = %q, want %q", got, content)
+	}
+	if err := prepared.Close(t.Context()); err != nil {
+		t.Fatalf("PreparedDirectory.Close returned error: %v", err)
+	}
+	if _, err := os.Lstat(stagePath); !os.IsNotExist(err) {
+		t.Fatalf("private stage stat error = %v, want missing", err)
+	}
+}
+
+func TestCacheLifecycleAcceptsExactCachedContentDepthAndCleansStage(t *testing.T) {
+	prepared, err := PrepareDirectory(
+		t.Context(),
+		"content",
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			contentRoot := filepath.Join(tempRoot, "content")
+			if err := os.Mkdir(contentRoot, 0o700); err != nil {
+				return "", "", err
+			}
+			builder := artifact.NewDirectoryHashBuilder()
+			relative := ""
+			physical := contentRoot
+			for range maximumCachedContentDepth {
+				relative = path.Join(relative, "nested")
+				physical = filepath.Join(physical, "nested")
+				if err := os.Mkdir(physical, 0o700); err != nil {
+					return "", "", err
+				}
+				if err := builder.AddDirectory(relative); err != nil {
+					return "", "", err
+				}
+			}
+			hash, err := builder.Sum()
+			return hash, artifact.ArtifactKindDirectory, err
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareDirectory returned error: %v", err)
+	}
+	stagePath := prepared.stage.path
+	contentHash, contentKind, err := prepared.ContentIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := NewKey("rooted-depth", "exact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := NewEntrySpec(key, "content", contentHash, contentKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	published, err := prepared.PublishRooted(t.Context(), root, "artifacts/deep", spec)
+	if err != nil || !published {
+		t.Fatalf("PublishRooted = %t, %v, want published", published, err)
+	}
+	valid, err := VerifyDirectoryRooted(t.Context(), root, "artifacts/deep", spec)
+	if err != nil || !valid {
+		t.Fatalf("VerifyDirectoryRooted = %t, %v, want valid", valid, err)
+	}
+	if err := prepared.Close(t.Context()); err != nil {
+		t.Fatalf("PreparedDirectory.Close returned error: %v", err)
+	}
+	if _, err := os.Lstat(stagePath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("private stage stat error = %v, want missing", err)
+	}
+}
+
+func TestPreparedDirectoryRejectsReplacedNamespaceWithoutExternalPublication(t *testing.T) {
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	external := t.TempDir()
+	content := "confined"
+	contentHash := artifact.HashFileContent([]byte(content))
+	prepared, err := PrepareDirectory(
+		t.Context(),
+		"content.txt",
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			return writeRootedTestContent(tempRoot, content)
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareDirectory returned error: %v", err)
+	}
+	defer prepared.Close(t.Context())
+	if err := os.Symlink(external, filepath.Join(cacheRoot, "artifacts")); err != nil {
+		t.Fatalf("create replacement namespace symlink: %v", err)
+	}
+
+	_, err = prepared.PublishRooted(
+		t.Context(),
+		root,
+		"artifacts/redirected",
+		rootedExactTestEntrySpec(t, content, contentHash),
+	)
+	if err == nil || !strings.Contains(err.Error(), "symbolic link") {
+		t.Fatalf("PublishRooted error = %v, want symlink rejection", err)
+	}
+	entries, err := os.ReadDir(external)
+	if err != nil {
+		t.Fatalf("read external directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("external directory entries = %v, want none", entries)
+	}
+}
+
 func rootedTestEntrySpec(t *testing.T, content string) EntrySpec {
 	t.Helper()
 	key, err := NewKey("rooted-test", content)
@@ -245,6 +476,28 @@ func rootedTestEntrySpec(t *testing.T, content string) EntrySpec {
 		t.Fatalf("NewKey returned error: %v", err)
 	}
 	spec, err := NewEntrySpec(key, "content.txt", "", "")
+	if err != nil {
+		t.Fatalf("NewEntrySpec returned error: %v", err)
+	}
+	return spec
+}
+
+func rootedExactTestEntrySpec(
+	t *testing.T,
+	content string,
+	contentHash artifact.ContentHash,
+) EntrySpec {
+	t.Helper()
+	key, err := NewKey("rooted-test", content)
+	if err != nil {
+		t.Fatalf("NewKey returned error: %v", err)
+	}
+	spec, err := NewEntrySpec(
+		key,
+		"content.txt",
+		contentHash,
+		artifact.ArtifactKindFile,
+	)
 	if err != nil {
 		t.Fatalf("NewEntrySpec returned error: %v", err)
 	}

@@ -137,7 +137,7 @@ func TestPrepareRootedTreeRejectsStructureOutsideCleanupLimitsWithoutResidue(t *
 			}
 			captured := captureRootForCommitTest(t, root)
 			capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
-			prepared, err := prepareRootedTreeWithLimits(
+			prepared, err := PrepareRootedTreeWithLimits(
 				context.Background(),
 				capability,
 				test.limits,
@@ -192,7 +192,7 @@ func TestPrepareRootedTreeAcceptsExactCleanupStructureBoundary(t *testing.T) {
 	}
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
-	prepared, err := prepareRootedTreeWithLimits(
+	prepared, err := PrepareRootedTreeWithLimits(
 		context.Background(),
 		capability,
 		treeLimitsForTest(t, 2, 1),
@@ -215,6 +215,109 @@ func TestPrepareRootedTreeAcceptsExactCleanupStructureBoundary(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(filepath.Join(root, ".agents")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("aborted boundary tree retained staging ancestry: %v", statErr)
+	}
+}
+
+func TestPrepareRootedTreeWithLimitsEnforcesRegularFileBytes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
+	limits, err := mutationfs.NewTreeTraversalLimits(1, 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareRootedTreeWithLimits(
+		t.Context(),
+		capability,
+		limits,
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				treePathForTest(t, "content"),
+				0o600,
+				strings.NewReader("four"),
+			)
+		},
+	)
+	if prepared != nil {
+		t.Fatal("prepare returned an over-limit stage")
+	}
+	assertFailure(t, err, failureUncommitted, phaseWritePayload)
+	if !strings.Contains(err.Error(), "tree exceeds 3 regular-file bytes") {
+		t.Fatalf("prepare error = %v, want byte-bound rejection", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("over-limit preparation retained entries: %v", entries)
+	}
+}
+
+func TestPrepareRootedTreeWithLimitsAcceptsExactRegularFileBytes(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
+	limits, err := mutationfs.NewTreeTraversalLimits(1, 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareRootedTreeWithLimits(
+		t.Context(),
+		capability,
+		limits,
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				treePathForTest(t, "content"),
+				0o600,
+				strings.NewReader("yes"),
+			)
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareRootedTreeWithLimits returned error: %v", err)
+	}
+	if err := prepared.Abort(t.Context()); err != nil {
+		t.Fatalf("Abort returned error: %v", err)
+	}
+}
+
+func TestPrepareRootedTreeWithLimitsRejectsDelayedExtraByte(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
+	limits, err := mutationfs.NewTreeTraversalLimits(1, 0, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareRootedTreeWithLimits(
+		t.Context(),
+		capability,
+		limits,
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				treePathForTest(t, "content"),
+				0o600,
+				&delayedExtraByteReader{},
+			)
+		},
+	)
+	if prepared != nil {
+		t.Fatal("prepare returned a stage with delayed over-limit content")
+	}
+	assertFailure(t, err, failureUncommitted, phaseWritePayload)
+	if !strings.Contains(err.Error(), "tree exceeds 3 regular-file bytes") {
+		t.Fatalf("prepare error = %v, want byte-bound rejection", err)
 	}
 }
 
@@ -294,6 +397,45 @@ func TestPreparedRootedTreeAbortCleansPrivateStage(t *testing.T) {
 	}
 	if _, err := os.Lstat(filepath.Join(root, ".agents")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("aborted stage ancestry remains: %v", err)
+	}
+}
+
+func TestPreparedRootedTreeAbortUsesItsCustomEnvelopeDepth(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
+	const envelopeDepth = defaultTreeTraversalMaximumDepth + 1
+	limits, err := mutationfs.NewTreeTraversalLimits(envelopeDepth, envelopeDepth, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareRootedTreeWithLimits(
+		t.Context(),
+		capability,
+		limits,
+		func(writer mutationfs.RootedTreeWriter) error {
+			components := make([]string, 0, envelopeDepth)
+			for range envelopeDepth {
+				components = append(components, "nested")
+				if err := writer.CreateDirectory(treePathForTest(t, components...), 0o700); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareRootedTreeWithLimits returned error: %v", err)
+	}
+	stagePath := prepared.stagePath
+	if err := prepared.Abort(t.Context()); err != nil {
+		t.Fatalf("Abort returned error: %v", err)
+	}
+	if _, err := os.Lstat(stagePath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("custom-depth stage stat error = %v, want missing", err)
 	}
 }
 
@@ -406,6 +548,33 @@ func TestPreparedRootedTreeReportsAncestorMoveAtVisibility(t *testing.T) {
 	}
 }
 
+func TestPreparedRootedTreeVisibleFailuresRemainIndeterminate(t *testing.T) {
+	for _, failedPhase := range []phase{phaseVerifyEntry, phaseSyncParent} {
+		t.Run(string(failedPhase), func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, "published")
+			prepared := prepareRootedTreeForTest(t, capability)
+
+			err := commitPreparedRootedTreeWithFaults(
+				t.Context(),
+				prepared,
+				faultAt(failedPhase),
+			)
+			assertFailure(t, err, failureIndeterminateCommit, failedPhase)
+			assertCommitOutcome(
+				t,
+				outcomeFromError(err),
+				mutationfs.CommitOutcomeIndeterminate,
+			)
+			assertFileContent(t, filepath.Join(root, "published", "entry"), "payload")
+		})
+	}
+}
+
 func prepareRootedTreeForTest(t *testing.T, capability rootedpath.CommitCapability) *PreparedRootedTree {
 	t.Helper()
 	prepared, err := PrepareRootedTree(context.Background(), capability, func(writer mutationfs.RootedTreeWriter) error {
@@ -428,9 +597,25 @@ func treePathForTest(t *testing.T, components ...string) mutationfs.TreeRelative
 
 func treeLimitsForTest(t *testing.T, maximumEntries int, maximumDepth int) mutationfs.TreeTraversalLimits {
 	t.Helper()
-	limits, err := mutationfs.NewTreeTraversalLimits(maximumEntries, maximumDepth, 1)
+	limits, err := mutationfs.NewTreeTraversalLimits(maximumEntries, maximumDepth, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return limits
+}
+
+type delayedExtraByteReader struct {
+	step int
+}
+
+func (reader *delayedExtraByteReader) Read(payload []byte) (int, error) {
+	reader.step++
+	switch reader.step {
+	case 1:
+		return copy(payload, "yes"), nil
+	case 2:
+		return 0, nil
+	default:
+		return copy(payload, "x"), nil
+	}
 }

@@ -42,8 +42,12 @@ func TestResolveExactVersionReusesVerifiedArtifactAcrossResolverInstances(t *tes
 		t.Fatalf("first Resolve returned error: %v", err)
 	}
 	identity := mustImmutableLookupIdentity(t, first.Identity().SourceID(), "requested-version")
-	if _, found, err := resolver.state.immutableIndex.read(context.Background(), identity); err != nil || !found {
+	cacheAuthority := mustCaptureS3CacheRoot(t, resolver)
+	if _, found, err := resolver.state.immutableIndex.read(context.Background(), cacheAuthority, identity); err != nil || !found {
 		t.Fatalf("published lookup read = found %t, error %v", found, err)
+	}
+	if err := cacheAuthority.Close(); err != nil {
+		t.Fatalf("close cache authority: %v", err)
 	}
 	copied := resolver
 	second, err := copied.Resolve(context.Background(), sourceSpec, noOperationOptions)
@@ -145,8 +149,12 @@ func TestResolveRepairsCorruptImmutableLookupRecord(t *testing.T) {
 	if calls := client.callCount(); calls != 2 {
 		t.Fatalf("GetObject calls = %d, want initial fetch plus corruption fallback", calls)
 	}
-	if _, found, err := resolver.state.immutableIndex.read(context.Background(), identity); err != nil || !found {
+	cacheAuthority := mustCaptureS3CacheRoot(t, resolver)
+	if _, found, err := resolver.state.immutableIndex.read(context.Background(), cacheAuthority, identity); err != nil || !found {
 		t.Fatalf("repaired lookup read = found %t, error %v", found, err)
+	}
+	if err := cacheAuthority.Close(); err != nil {
+		t.Fatalf("close cache authority: %v", err)
 	}
 }
 
@@ -203,11 +211,8 @@ func TestResolveCanceledWhileWaitingForImmutableLookupDoesNotCreateClient(t *tes
 	sourceSpec := sourcetest.S3(t, "s3://daem/object", "v1", "", sourcepkg.S3ObjectFormatFile)
 	sourceID := mustS3SourceID(t, sourceSpec)
 	identity := mustImmutableLookupIdentity(t, sourceID, "v1")
-	heldLock, err := resolver.state.immutableIndex.acquire(context.Background(), identity)
-	if err != nil {
-		t.Fatalf("acquire held lookup lock: %v", err)
-	}
-	defer heldLock.Release()
+	releaseHeldLock := holdImmutableLookupLock(t, resolver, identity)
+	defer releaseHeldLock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()

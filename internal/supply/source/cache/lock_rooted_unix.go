@@ -243,6 +243,13 @@ func (lock *rootedAdvisoryLock) tryAcquire(
 }
 
 func (lock *rootedAdvisoryLock) Validate() error {
+	if err := lock.validate(); err != nil {
+		return fmt.Errorf("%w: validate rooted cache lock: %w", ErrRootedLockAuthority, err)
+	}
+	return nil
+}
+
+func (lock *rootedAdvisoryLock) validate() error {
 	if lock == nil || lock.capability == nil || lock.rootFile == nil || lock.recordFD < 0 {
 		return fmt.Errorf("rooted cache lock is not initialized")
 	}

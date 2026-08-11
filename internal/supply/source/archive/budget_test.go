@@ -136,7 +136,7 @@ func TestExtractTarEnforcesHeaderBudgetsBeforeCreatingEntry(t *testing.T) {
 	}
 }
 
-func TestExtractTarAcceptsExactHeaderBudgetBoundaries(t *testing.T) {
+func TestExtractTarAcceptsExactResourceBudgetBoundaries(t *testing.T) {
 	entries := []tarTestEntry{
 		{header: tar.Header{Name: "a", Typeflag: tar.TypeReg}, content: "12"},
 		{header: tar.Header{Name: "b/c", Typeflag: tar.TypeReg}, content: "345"},
@@ -146,7 +146,7 @@ func TestExtractTarAcceptsExactHeaderBudgetBoundaries(t *testing.T) {
 	budget.inputBytes = int64(len(archive))
 	budget.entryBytes = 3
 	budget.expandedBytes = 5
-	budget.entryCount = 2
+	budget.entryCount = 3
 	budget.pathBytes = 3
 	budget.pathDepth = 2
 	if err := extractTarWithBudget(context.Background(), bytes.NewReader(archive), t.TempDir(), budget); err != nil {
@@ -159,6 +159,55 @@ func TestExtractTarAcceptsExactHeaderBudgetBoundaries(t *testing.T) {
 		extractTarWithBudget(context.Background(), bytes.NewReader(archive), t.TempDir(), budget),
 		LimitInputBytes,
 	)
+}
+
+func TestExtractTarAcceptsExactLogicalEntryBoundary(t *testing.T) {
+	archive := tarEntries(t, []tarTestEntry{
+		{header: tar.Header{Name: "directory", Typeflag: tar.TypeDir}},
+		{header: tar.Header{Name: "directory", Typeflag: tar.TypeDir}},
+	})
+	budget := testBudget()
+	budget.entryCount = 2
+
+	if err := extractTarWithBudget(context.Background(), bytes.NewReader(archive), t.TempDir(), budget); err != nil {
+		t.Fatalf("exact logical-entry boundary returned error: %v", err)
+	}
+}
+
+func TestExtractTarCountsImplicitParentDirectoriesAsMaterializedEntries(t *testing.T) {
+	archive := tarEntries(t, []tarTestEntry{{
+		header:  tar.Header{Name: "a/b/file", Typeflag: tar.TypeReg},
+		content: "content",
+	}})
+	budget := testBudget()
+	budget.entryCount = 2
+
+	root := t.TempDir()
+	err := extractTarWithBudget(context.Background(), bytes.NewReader(archive), root, budget)
+	requireLimitKind(t, err, LimitEntryCount)
+	if info, statErr := os.Lstat(filepath.Join(root, "a", "b")); statErr != nil || !info.IsDir() {
+		t.Fatalf("within-budget implicit parents were not retained: %v", statErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "a", "b", "file")); !os.IsNotExist(statErr) {
+		t.Fatalf("over-budget file exists or stat failed: %v", statErr)
+	}
+}
+
+func TestExtractTarDoesNotDoubleCountExplicitMaterializedDirectory(t *testing.T) {
+	archive := tarEntries(t, []tarTestEntry{
+		{header: tar.Header{Name: "a", Typeflag: tar.TypeDir}},
+		{header: tar.Header{Name: "a/file", Typeflag: tar.TypeReg}, content: "content"},
+	})
+	budget := testBudget()
+	budget.entryCount = 2
+
+	root := t.TempDir()
+	if err := extractTarWithBudget(context.Background(), bytes.NewReader(archive), root, budget); err != nil {
+		t.Fatalf("exact materialized entry boundary returned error: %v", err)
+	}
+	if content, err := os.ReadFile(filepath.Join(root, "a", "file")); err != nil || string(content) != "content" {
+		t.Fatalf("materialized file = %q, %v", content, err)
+	}
 }
 
 func TestExtractTarGzipBoundsDecompressedMetadataStream(t *testing.T) {

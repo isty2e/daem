@@ -4,15 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -38,7 +41,8 @@ type resolverState struct {
 	immutableIndex immutableLookupIndex
 	resolveGroup   resolutionGroup
 
-	testBeforeHash func()
+	testAfterCacheRootCapture func()
+	testBeforeHash            func()
 }
 
 // NewResolver constructs an S3 resolver rooted at cacheRoot.
@@ -60,7 +64,10 @@ func newResolverWithClientFactory(cacheRoot string, clientFactory clientFactory)
 		return Resolver{}, fmt.Errorf("s3 client factory is required")
 	}
 
-	cleanRoot := filepath.Clean(absoluteRoot)
+	cleanRoot, err := sourcecache.CanonicalRootPath(filepath.Clean(absoluteRoot))
+	if err != nil {
+		return Resolver{}, fmt.Errorf("resolve physical S3 source cache root %q: %w", root, err)
+	}
 	return Resolver{
 		state: &resolverState{
 			cacheRoot:      cleanRoot,
@@ -108,7 +115,19 @@ func (resolver Resolver) Resolve(
 	}
 
 	return state.resolveGroup.do(ctx, sourceID, func(ctx context.Context) (acquisition.Resolution, error) {
-		return resolver.resolveOnce(ctx, request)
+		cacheRoot, err := resolver.captureCacheRoot(ctx)
+		if err != nil {
+			return acquisition.Resolution{}, err
+		}
+		if state.testAfterCacheRootCapture != nil {
+			state.testAfterCacheRootCapture()
+		}
+		resolved, resolveErr := resolver.resolveOnce(ctx, cacheRoot, request)
+		closeErr := cacheRoot.Close()
+		if err := errors.Join(resolveErr, closeErr); err != nil {
+			return acquisition.Resolution{}, err
+		}
+		return resolved, nil
 	})
 }
 
@@ -121,7 +140,11 @@ type resolveRequest struct {
 	options    acquisition.OperationOptions
 }
 
-func (resolver Resolver) resolveRemote(ctx context.Context, request resolveRequest) (acquisition.Resolution, error) {
+func (resolver Resolver) resolveRemote(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	request resolveRequest,
+) (acquisition.Resolution, error) {
 	if err := ctx.Err(); err != nil {
 		return acquisition.Resolution{}, err
 	}
@@ -176,6 +199,7 @@ func (resolver Resolver) resolveRemote(ctx context.Context, request resolveReque
 
 	contentPath, artifactKind, contentHash, err := resolver.materialize(
 		ctx,
+		cacheRoot,
 		request.sourceSpec,
 		request.sourceID,
 		canonicalResolvedRef,
@@ -213,61 +237,66 @@ func defaultClientFactory(ctx context.Context, configuration clientConfiguration
 
 func (resolver Resolver) materialize(
 	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
 	sourceSpec source.Source,
 	sourceID artifact.SourceID,
 	resolvedRef artifact.ResolvedRef,
 	format source.S3ObjectFormat,
 	body io.Reader,
 	options acquisition.OperationOptions,
-) (string, artifact.ArtifactKind, artifact.ContentHash, error) {
+) (
+	contentPath string,
+	artifactKind artifact.ArtifactKind,
+	contentHash artifact.ContentHash,
+	returnErr error,
+) {
 	state, err := resolver.requireState()
 	if err != nil {
 		return "", "", "", err
 	}
 
-	artifactParent := resolver.artifactParent(sourceID)
-	if err := os.MkdirAll(artifactParent, 0o700); err != nil {
-		return "", "", "", fmt.Errorf("create s3 artifact cache directory %q: %w", artifactParent, err)
-	}
+	prepared, err := sourcecache.PrepareDirectory(
+		ctx,
+		"content",
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			stagedContentPath := filepath.Join(tempRoot, "content")
+			if err := materializeBody(ctx, body, stagedContentPath, format); err != nil {
+				return "", "", err
+			}
+			if state.testBeforeHash != nil {
+				state.testBeforeHash()
+			}
 
-	tempRoot, err := os.MkdirTemp(artifactParent, ".tmp.*")
+			options.Emit(acquisition.EventHash, sourceSpec, sourceID, resolvedRef, nil)
+			view, err := access.OpenNoFollowView(stagedContentPath)
+			if err != nil {
+				return "", "", err
+			}
+			var hash artifact.ContentHash
+			if view.Kind() == artifact.ArtifactKindFile {
+				hash, err = directfile.Hash(ctx, view)
+			} else {
+				hash, err = view.Hash(ctx)
+			}
+			if err != nil {
+				return "", "", err
+			}
+			return hash, view.Kind(), nil
+		},
+	)
 	if err != nil {
-		return "", "", "", fmt.Errorf("create temporary s3 artifact directory: %w", err)
+		return "", "", "", err
 	}
-
-	committed := false
 	defer func() {
-		if !committed {
-			os.RemoveAll(tempRoot)
-		}
+		returnErr = errors.Join(returnErr, prepared.Close(context.WithoutCancel(ctx)))
 	}()
-
-	contentPath := filepath.Join(tempRoot, "content")
-	if err := materializeBody(ctx, body, contentPath, format); err != nil {
-		return "", "", "", err
-	}
-
-	if state.testBeforeHash != nil {
-		state.testBeforeHash()
-	}
-
-	options.Emit(acquisition.EventHash, sourceSpec, sourceID, resolvedRef, nil)
-	view, err := access.OpenView(contentPath)
+	contentHash, artifactKind, err = prepared.ContentIdentity()
 	if err != nil {
 		return "", "", "", err
 	}
-	var contentHash artifact.ContentHash
-	if view.Kind() == artifact.ArtifactKindFile {
-		contentHash, err = directfile.Hash(ctx, view)
-	} else {
-		contentHash, err = view.Hash(ctx)
-	}
-	if err != nil {
-		return "", "", "", err
-	}
-	artifactKind := view.Kind()
 
 	finalRoot := resolver.artifactEntryRoot(sourceID, resolvedRef, contentHash)
+	relativeRoot := resolver.artifactEntryRelativeRoot(sourceID, resolvedRef, contentHash)
 	key, err := cacheKeyForS3Artifact(sourceID, resolvedRef, contentHash)
 	if err != nil {
 		return "", "", "", err
@@ -278,20 +307,17 @@ func (resolver Resolver) materialize(
 	}
 
 	options.Emit(acquisition.EventCacheWait, sourceSpec, sourceID, resolvedRef, nil)
-	if err := state.artifactLocker.Do(ctx, key, func() error {
-		published, err := sourcecache.PublishPreparedDirectory(
+	if err := state.artifactLocker.DoRooted(ctx, cacheRoot, key, func() error {
+		published, err := prepared.PublishRooted(
 			ctx,
-			tempRoot,
-			finalRoot,
+			cacheRoot,
+			relativeRoot,
 			spec,
-			contentHash,
-			artifactKind,
 		)
 		if err != nil {
 			return fmt.Errorf("publish verified s3 artifact cache entry %q: %w", finalRoot, err)
 		}
 
-		committed = published
 		if published {
 			options.Emit(acquisition.EventPublished, sourceSpec, sourceID, resolvedRef, nil)
 		} else {
@@ -314,7 +340,7 @@ func resolutionFromMaterialized(
 	kind artifact.ArtifactKind,
 	contentHash artifact.ContentHash,
 ) (acquisition.Resolution, error) {
-	view, err := access.OpenView(contentPath)
+	view, err := access.OpenNoFollowView(contentPath)
 	if err != nil {
 		return acquisition.Resolution{}, err
 	}
@@ -400,6 +426,18 @@ func (resolver Resolver) artifactParent(sourceID artifact.SourceID) string {
 
 func (resolver Resolver) artifactEntryRoot(sourceID artifact.SourceID, resolvedRef artifact.ResolvedRef, contentHash artifact.ContentHash) string {
 	return filepath.Join(resolver.artifactParent(sourceID), cacheKey(string(resolvedRef)+"\n"+string(contentHash)))
+}
+
+func (resolver Resolver) artifactEntryRelativeRoot(
+	sourceID artifact.SourceID,
+	resolvedRef artifact.ResolvedRef,
+	contentHash artifact.ContentHash,
+) string {
+	return path.Join(
+		"artifacts",
+		cacheKey(string(sourceID)),
+		cacheKey(string(resolvedRef)+"\n"+string(contentHash)),
+	)
 }
 
 func cacheKeyForS3Artifact(sourceID artifact.SourceID, resolvedRef artifact.ResolvedRef, contentHash artifact.ContentHash) (sourcecache.Key, error) {
