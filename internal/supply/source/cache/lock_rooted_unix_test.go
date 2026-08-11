@@ -121,8 +121,10 @@ func TestRootedLockerRejectsReboundLockBeforeOperation(t *testing.T) {
 		called = true
 		return nil
 	})
-	if err == nil || !strings.Contains(err.Error(), "binding changed") {
-		t.Fatalf("rooted lock run error = %v, want rebound rejection", err)
+	if err == nil ||
+		!errors.Is(err, ErrRootedLockAuthority) ||
+		!strings.Contains(err.Error(), "binding changed") {
+		t.Fatalf("rooted lock run error = %v, want classified rebound rejection", err)
 	}
 	if called {
 		t.Fatal("protected operation ran after rooted lock rebinding")

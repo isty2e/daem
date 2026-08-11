@@ -68,6 +68,9 @@ func (resolver Resolver) resolveImmutableLocked(
 			request.options.Emit(acquisition.EventCacheHit, request.sourceSpec, request.sourceID, record.ResolvedRef, nil)
 			return resolved, nil
 		}
+		if isS3CacheAuthorityFailure(verifyErr) {
+			return acquisition.Resolution{}, verifyErr
+		}
 		if errors.Is(verifyErr, directfile.ErrLimitExceeded) {
 			return acquisition.Resolution{}, verifyErr
 		}

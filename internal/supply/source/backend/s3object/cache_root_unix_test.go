@@ -166,6 +166,34 @@ func TestResolveRejectsCacheNamespaceReplacementAfterRootCapture(t *testing.T) {
 	}
 }
 
+func TestResolveDoesNotRefetchAfterImmutableArtifactAuthorityLoss(t *testing.T) {
+	cacheRoot := t.TempDir()
+	fixture := newImmutableCorruptionFixture(
+		t,
+		cacheRoot,
+		"s3://daem/object",
+		"v1",
+		[]byte("trusted\n"),
+	)
+	artifactRoot := filepath.Join(cacheRoot, "artifacts")
+	movedRoot := artifactRoot + ".moved"
+	if err := os.Rename(artifactRoot, movedRoot); err != nil {
+		t.Fatalf("move artifact namespace: %v", err)
+	}
+	external := t.TempDir()
+	if err := os.Symlink(external, artifactRoot); err != nil {
+		t.Fatalf("replace artifact namespace: %v", err)
+	}
+
+	if _, err := fixture.resolver.Resolve(t.Context(), fixture.sourceSpec, noOperationOptions); err == nil {
+		t.Fatal("Resolve accepted immutable artifact authority loss")
+	}
+	if calls := fixture.client.callCount(); calls != 1 {
+		t.Fatalf("GetObject calls = %d, want no refetch after authority loss", calls)
+	}
+	assertEmptyS3Directory(t, external)
+}
+
 func assertEmptyS3Directory(t *testing.T, root string) {
 	t.Helper()
 	entries, err := os.ReadDir(root)
