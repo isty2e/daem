@@ -33,6 +33,7 @@ const (
 	phaseCommitTombstone   phase = "commit_tombstone"
 	phasePromoteCleanup    phase = "promote_cleanup_stage"
 	phaseCleanupTombstone  phase = "cleanup_tombstone"
+	phaseRevalidateCleanup phase = "revalidate_cleanup_entry"
 	phaseCleanupEntry      phase = "cleanup_entry"
 	phaseSyncCleanupParent phase = "sync_cleanup_parent"
 	phaseUnsupported       phase = "unsupported_platform"

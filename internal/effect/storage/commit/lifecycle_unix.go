@@ -234,7 +234,7 @@ func commitRootedEntryCleanupWithFaults(
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
 
-	err = removeEntryAtWithFaults(
+	changed, err := removeEntryAtWithFaultsAndOutcome(
 		ctx,
 		anchor.parentFD(),
 		anchor.base,
@@ -245,7 +245,7 @@ func commitRootedEntryCleanupWithFaults(
 		faults,
 	)
 	if err != nil {
-		return fail(classifyExactCleanupFailure(anchor, request, err))
+		return fail(classifyExactCleanupFailure(anchor, request, changed, err))
 	}
 	if err := faults.run(ctx, phaseSyncCleanupParent, func() error {
 		return syncDirectory(anchor.parentFD())
@@ -366,16 +366,27 @@ func requireOwnedExpectedEntry(
 func classifyExactCleanupFailure(
 	anchor *anchoredParent,
 	request RootedEntryCleanup,
+	changed bool,
 	cause error,
 ) error {
+	currentPhase := errorPhase(cause, phaseCleanupEntry)
+	if changed {
+		return newFailure(
+			failureRetainedResidue,
+			currentPhase,
+			request.path,
+			cause,
+			request.path,
+		)
+	}
 	observed, _, observeErr := anchor.observe(anchor.base, request.path)
 	switch {
 	case observeErr == nil && request.expected.sameEntry(observed):
-		return failureBeforeVisibility(phaseCleanupEntry, request.path, cause)
+		return failureBeforeVisibility(currentPhase, request.path, cause)
 	case observeErr == nil && request.expected.sameObject(observed):
 		return newFailure(
 			failureRetainedResidue,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			cause,
 			request.path,
@@ -383,7 +394,7 @@ func classifyExactCleanupFailure(
 	case errors.Is(observeErr, unix.ENOENT):
 		return newFailure(
 			failureIndeterminateCommit,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			cause,
 			request.path,
@@ -391,7 +402,7 @@ func classifyExactCleanupFailure(
 	default:
 		return newFailure(
 			failureIndeterminateCommit,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			errors.Join(cause, observeErr),
 			request.path,

@@ -289,226 +289,53 @@ func removeEntryAtWithFaults(
 	limits mutationfs.TreeTraversalLimits,
 	faults faultPlan,
 ) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	observed, stat, err := observeAt(parentFD, name, path)
-	if err != nil {
-		return err
-	}
-	if !expected.sameEntry(observed) {
-		return fmt.Errorf("entry identity changed before cleanup at %q", path)
-	}
-	if err := validateOwnedStat(path, &stat); err != nil {
-		return err
-	}
-	if observed.kind == entryKindRegular {
-		budget, err := newTreeTraversalBudget(limits)
-		if err != nil {
-			return err
-		}
-		if err := budget.admitBytes(stat.Size); err != nil {
-			return err
-		}
-	}
-	if observed.kind == entryKindDirectory {
-		observed, err = prepareRemovalDirectory(parentFD, name, path, observed, stat)
-		if err != nil {
-			return err
-		}
-		fd, err := openExpectedAt(parentFD, name, path, observed)
-		if err != nil {
-			return err
-		}
-		validateMount, err := removalMountValidator(capability, fd)
-		if err != nil {
-			_ = unix.Close(fd)
-			return err
-		}
-		preflightBudget, err := newTreeTraversalBudget(limits)
-		if err == nil {
-			err = validateDirectoryEntries(
-				ctx,
-				validateMount,
-				fd,
-				path,
-				0,
-				preflightBudget,
-			)
-		}
-		if err == nil {
-			cleanupBudget, budgetErr := newTreeTraversalBudget(limits)
-			if budgetErr != nil {
-				err = budgetErr
-			} else {
-				err = removeDirectoryContentsWithFaults(
-					ctx,
-					validateMount,
-					fd,
-					path,
-					0,
-					cleanupBudget,
-					faults,
-				)
-			}
-		}
-		_ = unix.Close(fd)
-		if err != nil {
-			return err
-		}
-		current, _, err := observeAt(parentFD, name, path)
-		if err != nil {
-			return err
-		}
-		if !observed.sameObject(current) {
-			return fmt.Errorf("directory identity changed before cleanup at %q", path)
-		}
-	}
-	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
-		return err
-	}
-	return unix.Unlinkat(parentFD, name, removalFlags(observed.kind))
+	_, err := removeEntryAtWithFaultsAndOutcome(
+		ctx,
+		parentFD,
+		name,
+		path,
+		expected,
+		capability,
+		limits,
+		faults,
+	)
+	return err
 }
 
-func removeDirectoryContentsWithFaults(
+func removeEntryAtWithFaultsAndOutcome(
 	ctx context.Context,
-	validateMount func(uintptr) error,
-	directoryFD int,
+	parentFD int,
+	name string,
 	path string,
-	depth int,
-	budget *treeTraversalBudget,
+	expected EntryIdentity,
+	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	faults faultPlan,
-) error {
-	if validateMount == nil {
-		return fmt.Errorf("directory mount validator is required")
+) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
 	}
-	if err := validateMount(uintptr(directoryFD)); err != nil {
-		return err
-	}
-	if err := budget.admitDepth(depth); err != nil {
-		return err
-	}
-	names, err := readDirectoryNames(
+	snapshot, validateMount, err := captureRemovalTreeSnapshot(
 		ctx,
-		directoryFD,
+		parentFD,
+		name,
 		path,
-		budget.remainingEntries(),
+		expected,
+		capability,
+		limits,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if err := budget.admitEntries(len(names)); err != nil {
-		return err
-	}
-	for _, name := range names {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		entryPath := filepath.Join(path, name)
-		identity, stat, err := observeAt(directoryFD, name, entryPath)
-		if err != nil {
-			return err
-		}
-		if err := validateOwnedStat(entryPath, &stat); err != nil {
-			return err
-		}
-		switch identity.kind {
-		case entryKindDirectory:
-			identity, err = prepareRemovalDirectory(directoryFD, name, entryPath, identity, stat)
-			if err != nil {
-				return err
-			}
-			fd, err := openExpectedAt(directoryFD, name, entryPath, identity)
-			if err != nil {
-				return err
-			}
-			if err := validateMount(uintptr(fd)); err != nil {
-				_ = unix.Close(fd)
-				return err
-			}
-			err = removeDirectoryContentsWithFaults(
-				ctx,
-				validateMount,
-				fd,
-				entryPath,
-				depth+1,
-				budget,
-				faults,
-			)
-			_ = unix.Close(fd)
-			if err != nil {
-				return err
-			}
-			current, _, err := observeAt(directoryFD, name, entryPath)
-			if err != nil {
-				return err
-			}
-			if !identity.sameObject(current) {
-				return fmt.Errorf("directory identity changed before cleanup at %q", entryPath)
-			}
-			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
-				return err
-			}
-			if err := unix.Unlinkat(directoryFD, name, unix.AT_REMOVEDIR); err != nil {
-				return err
-			}
-		case entryKindRegular:
-			if err := budget.admitBytes(stat.Size); err != nil {
-				return err
-			}
-			fd, err := openExpectedAt(directoryFD, name, entryPath, identity)
-			if err != nil {
-				return err
-			}
-			if err := validateMount(uintptr(fd)); err != nil {
-				_ = unix.Close(fd)
-				return err
-			}
-			if err := verifySnapshotEntry(
-				directoryFD,
-				name,
-				fd,
-				entryPath,
-				identity,
-			); err != nil {
-				_ = unix.Close(fd)
-				return err
-			}
-			if err := unix.Close(fd); err != nil {
-				return err
-			}
-			current, _, err := observeAt(directoryFD, name, entryPath)
-			if err != nil {
-				return err
-			}
-			if !identity.sameEntry(current) {
-				return fmt.Errorf("entry identity changed before cleanup at %q", entryPath)
-			}
-			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
-				return err
-			}
-			if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
-				return err
-			}
-		case entryKindSymlink:
-			current, _, err := observeAt(directoryFD, name, entryPath)
-			if err != nil {
-				return err
-			}
-			if !identity.sameEntry(current) {
-				return fmt.Errorf("entry identity changed before cleanup at %q", entryPath)
-			}
-			if err := faults.check(ctx, phaseCleanupEntry); err != nil {
-				return err
-			}
-			if err := unix.Unlinkat(directoryFD, name, 0); err != nil {
-				return err
-			}
-		default:
-			return unsupported(fmt.Sprintf("cannot safely remove special entry %q", entryPath), nil)
-		}
-	}
-	return nil
+	return removeRemovalTreeSnapshot(
+		ctx,
+		parentFD,
+		path,
+		&snapshot,
+		validateMount,
+		limits,
+		faults,
+	)
 }
 
 func removalMountValidator(
@@ -529,37 +356,4 @@ func removalMountValidator(
 		return nil, err
 	}
 	return boundary.ValidateDirectoryHandle, nil
-}
-
-func prepareRemovalDirectory(
-	parentFD int,
-	name string,
-	path string,
-	expected EntryIdentity,
-	stat unix.Stat_t,
-) (EntryIdentity, error) {
-	if expected.kind != entryKindDirectory {
-		return EntryIdentity{}, fmt.Errorf("removal entry %q is not a directory", path)
-	}
-	if stat.Mode&0o700 == 0o700 {
-		return expected, nil
-	}
-	mode := uint32(stat.Mode&0o777) | 0o700
-	if err := unix.Fchmodat(parentFD, name, mode, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-		return EntryIdentity{}, fmt.Errorf("make retired directory removable at %q: %w", path, err)
-	}
-	current, currentStat, err := observeAt(parentFD, name, path)
-	if err != nil {
-		return EntryIdentity{}, err
-	}
-	if current.kind != entryKindDirectory || !expected.sameObject(current) {
-		return EntryIdentity{}, fmt.Errorf("retired directory identity changed while preparing cleanup at %q", path)
-	}
-	if err := validateOwnedStat(path, &currentStat); err != nil {
-		return EntryIdentity{}, err
-	}
-	if currentStat.Mode&0o700 != 0o700 {
-		return EntryIdentity{}, unsupported(fmt.Sprintf("retired directory %q did not retain private cleanup mode", path), nil)
-	}
-	return current, nil
 }

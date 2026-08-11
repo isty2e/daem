@@ -700,6 +700,10 @@ func TestRootedEntryCleanupPreflightsSpecialChildrenBeforeDeletingSiblings(t *te
 	if err := unix.Mkfifo(special, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(residue, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(residue, 0o700) })
 
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, ".retained")
@@ -717,6 +721,183 @@ func TestRootedEntryCleanupPreflightsSpecialChildrenBeforeDeletingSiblings(t *te
 	assertFile(t, preserved, "keep", 0o600)
 	if info, statErr := os.Lstat(special); statErr != nil || info.Mode()&fs.ModeNamedPipe == 0 {
 		t.Fatalf("special child changed: info=%v err=%v", info, statErr)
+	}
+	if info, statErr := os.Stat(residue); statErr != nil || info.Mode().Perm() != 0o500 {
+		t.Fatalf("preflight changed root mode: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestRootedEntryCleanupRejectsDescendantReplacementFromSnapshot(t *testing.T) {
+	tests := []struct {
+		name        string
+		create      func(*testing.T, string)
+		replace     func(*testing.T, string)
+		assertAlive func(*testing.T, string)
+	}{
+		{
+			name: "regular file",
+			create: func(t *testing.T, path string) {
+				writeTestFile(t, path, "planned", 0o600)
+			},
+			replace: func(t *testing.T, path string) {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, path, "replacement", 0o640)
+			},
+			assertAlive: func(t *testing.T, path string) {
+				assertFile(t, path, "replacement", 0o640)
+			},
+		},
+		{
+			name: "directory",
+			create: func(t *testing.T, path string) {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+			replace: func(t *testing.T, path string) {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				writeTestFile(t, filepath.Join(path, "foreign"), "replacement", 0o600)
+			},
+			assertAlive: func(t *testing.T, path string) {
+				assertFile(t, filepath.Join(path, "foreign"), "replacement", 0o600)
+			},
+		},
+		{
+			name: "symlink",
+			create: func(t *testing.T, path string) {
+				if err := os.Symlink("planned", path); err != nil {
+					t.Fatal(err)
+				}
+			},
+			replace: func(t *testing.T, path string) {
+				if err := os.Remove(path); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("replacement", path); err != nil {
+					t.Fatal(err)
+				}
+			},
+			assertAlive: func(t *testing.T, path string) {
+				target, err := os.Readlink(path)
+				if err != nil || target != "replacement" {
+					t.Fatalf("replacement symlink = %q, %v", target, err)
+				}
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			residue := filepath.Join(root, ".retained")
+			if err := os.Mkdir(residue, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			victim := filepath.Join(residue, "victim")
+			test.create(t, victim)
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, ".retained")
+			expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+			if err != nil {
+				t.Fatal(err)
+			}
+			request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var replace sync.Once
+			outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
+				actions: map[phase]func(){
+					phaseCleanupEntry: func() {
+						replace.Do(func() { test.replace(t, victim) })
+					},
+				},
+			})
+			assertFailure(t, err, failureRetainedResidue, phaseCleanupEntry)
+			assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, ".retained")
+			test.assertAlive(t, victim)
+		})
+	}
+}
+
+func TestRootedEntryCleanupDoesNotChmodReplacementDirectory(t *testing.T) {
+	root := canonicalTempDir(t)
+	residue := filepath.Join(root, ".retained")
+	victim := filepath.Join(residue, "victim")
+	moved := filepath.Join(residue, "moved")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(victim, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".retained")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replace sync.Once
+	outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
+		actions: map[phase]func(){
+			phaseApplyMode: func() {
+				replace.Do(func() {
+					if renameErr := os.Rename(victim, moved); renameErr != nil {
+						t.Fatal(renameErr)
+					}
+					if mkdirErr := os.Mkdir(victim, 0o500); mkdirErr != nil {
+						t.Fatal(mkdirErr)
+					}
+				})
+			},
+		},
+	})
+	assertFailure(t, err, failureRetainedResidue, phaseApplyMode)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, ".retained")
+	if info, statErr := os.Stat(victim); statErr != nil || info.Mode().Perm() != 0o500 {
+		t.Fatalf("replacement mode = %v, err=%v, want 0500", info, statErr)
+	}
+}
+
+func TestRootedEntryCleanupClassifiesDescriptorModeRepairAsMutation(t *testing.T) {
+	root := canonicalTempDir(t)
+	residue := filepath.Join(root, ".retained")
+	victim := filepath.Join(residue, "victim")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(victim, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".retained")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := commitRootedEntryCleanupWithFaults(
+		t.Context(),
+		request,
+		faultAt(phaseCleanupEntry),
+	)
+	assertFailure(t, err, failureRetainedResidue, phaseCleanupEntry)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, ".retained")
+	if info, statErr := os.Stat(victim); statErr != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("planned directory mode = %v, err=%v, want 0700", info, statErr)
 	}
 }
 
