@@ -716,6 +716,51 @@ func TestPrepareRootedTreeRejectsUnrepresentedExtendedAttribute(t *testing.T) {
 	}
 }
 
+func TestPrepareRootedTreeRejectsUnrepresentedModeAndLinkAuthority(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(string, string) error
+	}{
+		{
+			name: "set-user-ID mode",
+			mutate: func(entry string, _ string) error {
+				return unix.Chmod(entry, 0o4600)
+			},
+		},
+		{
+			name: "external hard link",
+			mutate: func(entry string, root string) error {
+				return os.Link(entry, filepath.Join(root, "outside-link"))
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "project")
+			if err := os.Mkdir(root, 0o700); err != nil {
+				t.Fatalf("create captured root: %v", err)
+			}
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, "published")
+			prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
+				if err := writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned")); err != nil {
+					return err
+				}
+				concrete := writer.(*rootedTreeWriterUnix)
+				return test.mutate(filepath.Join(concrete.prepared.stagePath, "entry"), root)
+			})
+			if prepared != nil {
+				t.Fatal("PrepareRootedTree returned a stage with unrepresented authority")
+			}
+			assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
+			assertClosedRootedCapability(t, capability)
+			if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+				t.Fatalf("authority-bearing tree was published: %v", statErr)
+			}
+		})
+	}
+}
+
 func TestPreparedRootedTreeRejectsRootReplacementBeforePublish(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "project")

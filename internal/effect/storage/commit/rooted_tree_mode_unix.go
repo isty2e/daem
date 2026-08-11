@@ -67,7 +67,7 @@ func applyPreparedTreeDirectoryMode(
 	if err := budget.admitDepth(depth); err != nil {
 		return err
 	}
-	if err := verifyOpenedPreparedTreeEntry(ctx, directoryFD, directoryPath, *expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeAuthority(ctx, directoryFD, directoryPath, *expected, budget); err != nil {
 		return err
 	}
 	names, err := readDirectoryNames(ctx, directoryFD, directoryPath, len(expected.children))
@@ -136,7 +136,7 @@ func applyPreparedTreeDirectoryMode(
 	if err := unix.Fstat(directoryFD, &after); err != nil {
 		return err
 	}
-	if err := validateOwnedStat(directoryPath, &after); err != nil {
+	if err := validatePreparedTreeStat(directoryPath, &after, entryKindDirectory); err != nil {
 		return err
 	}
 	afterIdentity := identityFromStat(directoryPath, &after)
@@ -173,7 +173,7 @@ func applyPreparedTreeFileMode(
 	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
-	if err := verifyOpenedPreparedTreeEntry(ctx, fileFD, filePath, *expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeAuthority(ctx, fileFD, filePath, *expected, budget); err != nil {
 		return err
 	}
 	if expected.facts.mode != expected.expectation.mode.Perm() {
@@ -185,7 +185,7 @@ func applyPreparedTreeFileMode(
 	if err := unix.Fstat(fileFD, &after); err != nil {
 		return err
 	}
-	if err := validateOwnedStat(filePath, &after); err != nil {
+	if err := validatePreparedTreeStat(filePath, &after, entryKindRegular); err != nil {
 		return err
 	}
 	afterIdentity := identityFromStat(filePath, &after)

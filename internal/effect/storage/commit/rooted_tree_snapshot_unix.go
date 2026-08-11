@@ -334,7 +334,7 @@ func captureOpenedPreparedTreeEntry(
 	if identity.kind != kind || identity.kind != expectation.kind {
 		return preparedTreeSnapshotEntry{}, fmt.Errorf("prepared tree entry %q kind changed", path)
 	}
-	if err := validateOwnedStat(path, &before); err != nil {
+	if err := validatePreparedTreeStat(path, &before, kind); err != nil {
 		return preparedTreeSnapshotEntry{}, err
 	}
 	facts := preparedTreeFactsFromStat(&before)
@@ -421,7 +421,7 @@ func verifyPreparedTreeSnapshotDirectory(
 	if err := budget.admitDepth(depth); err != nil {
 		return err
 	}
-	if err := verifyOpenedPreparedTreeEntry(ctx, directoryFD, directoryPath, expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeAuthority(ctx, directoryFD, directoryPath, expected, budget); err != nil {
 		return err
 	}
 	names, err := readDirectoryNames(ctx, directoryFD, directoryPath, len(expected.children))
@@ -464,7 +464,7 @@ func verifyPreparedTreeSnapshotDirectory(
 				budget,
 			)
 		} else {
-			err = verifyOpenedPreparedTreeEntry(ctx, childFD, childPath, child, budget)
+			err = verifyOpenedPreparedTreeAuthority(ctx, childFD, childPath, child, budget)
 		}
 		closeErr := unix.Close(childFD)
 		if err != nil {
@@ -484,6 +484,27 @@ func verifyOpenedPreparedTreeEntry(
 	expected preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
+	return verifyOpenedPreparedTreeEntryWithContent(ctx, fd, path, expected, budget, true)
+}
+
+func verifyOpenedPreparedTreeAuthority(
+	ctx context.Context,
+	fd int,
+	path string,
+	expected preparedTreeSnapshotEntry,
+	budget *treeTraversalBudget,
+) error {
+	return verifyOpenedPreparedTreeEntryWithContent(ctx, fd, path, expected, budget, false)
+}
+
+func verifyOpenedPreparedTreeEntryWithContent(
+	ctx context.Context,
+	fd int,
+	path string,
+	expected preparedTreeSnapshotEntry,
+	budget *treeTraversalBudget,
+	verifyContent bool,
+) error {
 	var before unix.Stat_t
 	if err := unix.Fstat(fd, &before); err != nil {
 		return err
@@ -492,10 +513,10 @@ func verifyOpenedPreparedTreeEntry(
 		!expected.facts.equal(preparedTreeFactsFromStat(&before)) {
 		return fmt.Errorf("prepared tree entry %q changed", path)
 	}
-	if err := validateOwnedStat(path, &before); err != nil {
+	if err := validatePreparedTreeStat(path, &before, expected.expectation.kind); err != nil {
 		return err
 	}
-	if expected.expectation.kind == entryKindRegular {
+	if expected.expectation.kind == entryKindRegular && verifyContent {
 		if err := budget.admitBytes(expected.facts.size); err != nil {
 			return err
 		}
@@ -600,6 +621,26 @@ func requirePreparedTreeMetadataAbsent(fd int, path string, stat *unix.Stat_t) e
 				nil,
 			)
 		}
+	}
+	return nil
+}
+
+func validatePreparedTreeStat(path string, stat *unix.Stat_t, kind entryKind) error {
+	if err := validateOwnedStat(path, stat); err != nil {
+		return err
+	}
+	const unsupportedModeBits = unix.S_ISUID | unix.S_ISGID | unix.S_ISVTX
+	if stat.Mode&unsupportedModeBits != 0 {
+		return unsupported(
+			fmt.Sprintf("prepared tree entry %q carries unsupported mode bits %#o", path, stat.Mode&unsupportedModeBits),
+			nil,
+		)
+	}
+	if kind == entryKindRegular && stat.Nlink != 1 {
+		return unsupported(
+			fmt.Sprintf("prepared tree file %q has %d hard links", path, stat.Nlink),
+			nil,
+		)
 	}
 	return nil
 }
