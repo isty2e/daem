@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"io/fs"
 	"os"
@@ -16,6 +17,21 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
+
+func TestPreparedTreeMetadataFactsDistinguishXattrValues(t *testing.T) {
+	left := preparedTreeMetadataFacts{xattrs: []preparedTreeXattrFact{{
+		name: "platform.metadata", size: 4, digest: sha256.Sum256([]byte("left")),
+	}}}
+	right := preparedTreeMetadataFacts{xattrs: []preparedTreeXattrFact{{
+		name: "platform.metadata", size: 5, digest: sha256.Sum256([]byte("right")),
+	}}}
+	if left.equal(right) {
+		t.Fatal("prepared tree metadata facts treated different xattr values as equal")
+	}
+	if left.creationMetadata().equal(right.creationMetadata()) {
+		t.Fatal("prepared tree creation metadata treated different xattr values as equal")
+	}
+}
 
 func TestPreparedRootedTreePublishesRootedTreeAndConsumesWriter(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
@@ -610,6 +626,7 @@ func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testin
 		{name: "during file sync", phase: phaseSyncTreeFile, wantPhase: phaseValidate},
 		{name: "before mode transition", phase: phaseApplyMode, wantPhase: phaseApplyMode},
 		{name: "before publication revalidation", phase: phaseRevalidateEntry, wantPhase: phaseRevalidateEntry},
+		{name: "at publication boundary", phase: phaseCommitEntry, wantPhase: phaseCommitEntry},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -630,6 +647,44 @@ func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testin
 				t.Fatalf("mutated tree was published: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestPreparedRootedTreeCleansRestrictiveStageAfterModeTransitionFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "published")
+	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		if err := writer.SetRootMode(0o000); err != nil {
+			return err
+		}
+		if err := writer.CreateDirectory(treePathForTest(t, "nested"), 0o000); err != nil {
+			return err
+		}
+		return writer.WriteFile(treePathForTest(t, "nested", "entry"), 0o000, strings.NewReader("planned"))
+	})
+	if err != nil {
+		t.Fatalf("PrepareRootedTree returned error: %v", err)
+	}
+	stagePath := prepared.stagePath
+	prepared.mu.Lock()
+	if err := prepared.applyTreeModesLocked(t.Context()); err != nil {
+		prepared.mu.Unlock()
+		t.Fatalf("apply restrictive modes: %v", err)
+	}
+	failure := prepared.failBeforeVisibilityLocked(phaseCommitEntry, errors.New("injected failure"), faultPlan{})
+	prepared.mu.Unlock()
+
+	assertFailure(t, failure, failureUncommitted, phaseCommitEntry)
+	assertClosedRootedCapability(t, capability)
+	if _, statErr := os.Lstat(stagePath); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("restrictive private stage remains after failure cleanup: %v; failure: %v", statErr, failure)
+	}
+	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("failed restrictive tree was published: %v", statErr)
 	}
 }
 
@@ -792,7 +847,7 @@ func TestPreparedRootedTreeRejectsRootReplacementBeforePublish(t *testing.T) {
 	}
 }
 
-func TestPreparedRootedTreeReportsAncestorMoveAtVisibility(t *testing.T) {
+func TestPreparedRootedTreeRejectsAncestorMoveBeforeVisibility(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "project")
 	outside := filepath.Join(parent, "outside")
@@ -817,12 +872,15 @@ func TestPreparedRootedTreeReportsAncestorMoveAtVisibility(t *testing.T) {
 		},
 	}}
 	err := commitPreparedRootedTreeWithFaults(context.Background(), prepared, faults)
-	assertFailure(t, err, failureIndeterminateCommit, phaseVerifyEntry)
+	assertFailure(t, err, failureUncommitted, phaseCommitEntry)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorChanged) {
 		t.Fatalf("PreparedRootedTree.Commit error = %v, want %s", err, rootedpath.FailureAncestorChanged)
 	}
 	assertClosedRootedCapability(t, capability)
-	assertFileContent(t, filepath.Join(movedAgents, "skills", "review", "entry"), "payload")
+	if _, statErr := os.Lstat(filepath.Join(movedAgents, "skills", "review")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("moved ancestor received rooted tree: %v", statErr)
+	}
+	assertNoPrivateEntries(t, filepath.Join(movedAgents, "skills"))
 	if _, statErr := os.Lstat(filepath.Join(root, ".agents", "skills")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("replacement ancestor received rooted tree: %v", statErr)
 	}

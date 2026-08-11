@@ -15,38 +15,57 @@ type preservedMetadata struct {
 }
 
 func captureXattrs(fd int) (preservedMetadata, error) {
-	size, err := unix.Flistxattr(fd, nil)
-	if err != nil {
-		return preservedMetadata{}, unsupported("extended attributes cannot be inspected", err)
-	}
 	metadata := preservedMetadata{xattrs: make(map[string][]byte)}
-	if size == 0 {
-		return metadata, nil
-	}
-	buffer := make([]byte, size)
-	written, err := unix.Flistxattr(fd, buffer)
+	names, err := listXattrNames(fd)
 	if err != nil {
-		return preservedMetadata{}, unsupported("extended attributes cannot be inspected", err)
+		return preservedMetadata{}, err
 	}
-	for name := range strings.SplitSeq(string(buffer[:written]), "\x00") {
-		if name == "" {
-			continue
-		}
-		valueSize, err := unix.Fgetxattr(fd, name, nil)
+	for _, name := range names {
+		value, err := readXattrValue(fd, name)
 		if err != nil {
-			return preservedMetadata{}, unsupported(fmt.Sprintf("extended attribute %q cannot be read", name), err)
-		}
-		value := make([]byte, valueSize)
-		if valueSize != 0 {
-			valueSize, err = unix.Fgetxattr(fd, name, value)
-			if err != nil {
-				return preservedMetadata{}, unsupported(fmt.Sprintf("extended attribute %q cannot be read", name), err)
-			}
-			value = value[:valueSize]
+			return preservedMetadata{}, err
 		}
 		metadata.xattrs[name] = value
 	}
 	return metadata, nil
+}
+
+func listXattrNames(fd int) ([]string, error) {
+	size, err := unix.Flistxattr(fd, nil)
+	if err != nil {
+		return nil, unsupported("extended attributes cannot be inspected", err)
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	buffer := make([]byte, size)
+	written, err := unix.Flistxattr(fd, buffer)
+	if err != nil {
+		return nil, unsupported("extended attributes cannot be inspected", err)
+	}
+	names := make([]string, 0)
+	for name := range strings.SplitSeq(string(buffer[:written]), "\x00") {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names, nil
+}
+
+func readXattrValue(fd int, name string) ([]byte, error) {
+	size, err := unix.Fgetxattr(fd, name, nil)
+	if err != nil {
+		return nil, unsupported(fmt.Sprintf("extended attribute %q cannot be read", name), err)
+	}
+	value := make([]byte, size)
+	if size == 0 {
+		return value, nil
+	}
+	written, err := unix.Fgetxattr(fd, name, value)
+	if err != nil {
+		return nil, unsupported(fmt.Sprintf("extended attribute %q cannot be read", name), err)
+	}
+	return value[:written], nil
 }
 
 func applyXattrs(fd int, metadata preservedMetadata) error {

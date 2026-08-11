@@ -63,12 +63,33 @@ func verifyPreservedMetadata(fd int, metadata preservedMetadata) error {
 		return unsupported("ACL or extended security metadata cannot be preserved", nil)
 	}
 	return verifyXattrs(fd, metadata, func(name string) bool {
-		return isAllowedPreparedTreeXattr(name)
+		return isAllowedReplacementXattr(name)
 	})
+}
+
+func isAllowedReplacementXattr(name string) bool {
+	return name == "com.apple.provenance"
 }
 
 func isAllowedPreparedTreeXattr(name string) bool {
 	return name == "com.apple.provenance"
+}
+
+func capturePreparedTreePlatformMetadataFacts(fd int, path string, stat *unix.Stat_t) (uint64, error) {
+	if stat.Flags != 0 {
+		return 0, unsupported(
+			fmt.Sprintf("prepared tree entry %q contains unsupported file flags 0x%x", path, stat.Flags),
+			nil,
+		)
+	}
+	hasACL, err := hasDarwinACL(fd)
+	if err != nil {
+		return 0, unsupported("prepared tree ACL metadata cannot be inspected", err)
+	}
+	if hasACL {
+		return 0, unsupported(fmt.Sprintf("prepared tree entry %q contains unsupported ACL metadata", path), nil)
+	}
+	return 0, nil
 }
 
 func hasDarwinACL(fd int) (bool, error) {

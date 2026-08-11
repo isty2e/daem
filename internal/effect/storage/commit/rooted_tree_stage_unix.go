@@ -65,6 +65,11 @@ func createPreparedRootedTree(
 	if err := anchor.capability.ValidateDirectoryHandle(uintptr(stageFD)); err != nil {
 		return prepared, err
 	}
+	rootMetadata, err := capturePreparedTreeMetadataFacts(stageFD, stagePath, &stat)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.rootCreationMetadata = rootMetadata.creationMetadata()
 	return prepared, nil
 }
 
@@ -147,6 +152,10 @@ func (writer *rootedTreeWriterUnix) CreateDirectory(path mutationfs.TreeRelative
 		return err
 	}
 	defer unix.Close(fd)
+	creationMetadata, err := capturePreparedTreeMetadataFacts(fd, parent.path, &stat)
+	if err != nil {
+		return err
+	}
 	if err := verifyTreeEntryMode(fd, parent.path, preparedTreePrivateDirectoryMode); err != nil {
 		return err
 	}
@@ -157,9 +166,10 @@ func (writer *rootedTreeWriterUnix) CreateDirectory(path mutationfs.TreeRelative
 		return err
 	}
 	return writer.recordPlannedEntry(preparedTreeEntryExpectation{
-		relativePath: path.Path(),
-		kind:         entryKindDirectory,
-		mode:         mode.Perm(),
+		relativePath:     path.Path(),
+		kind:             entryKindDirectory,
+		mode:             mode.Perm(),
+		creationMetadata: creationMetadata.creationMetadata(),
 	})
 }
 
@@ -200,6 +210,14 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 		}
 	}()
 	if err := unix.Fchmod(fd, uint32(preparedTreePrivateFileMode)); err != nil {
+		return err
+	}
+	var creationStat unix.Stat_t
+	if err := unix.Fstat(fd, &creationStat); err != nil {
+		return err
+	}
+	creationMetadata, err := capturePreparedTreeMetadataFacts(fd, parent.path, &creationStat)
+	if err != nil {
 		return err
 	}
 	reader := contextReader{ctx: writer.ctx, reader: content}
@@ -245,11 +263,12 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	var contentDigest preparedTreeContentDigest
 	copy(contentDigest[:], digest.Sum(nil))
 	return writer.recordPlannedEntry(preparedTreeEntryExpectation{
-		relativePath: path.Path(),
-		kind:         entryKindRegular,
-		mode:         mode.Perm(),
-		size:         stat.Size,
-		content:      contentDigest,
+		relativePath:     path.Path(),
+		kind:             entryKindRegular,
+		mode:             mode.Perm(),
+		size:             stat.Size,
+		content:          contentDigest,
+		creationMetadata: creationMetadata.creationMetadata(),
 	})
 }
 

@@ -18,12 +18,40 @@ import (
 
 type preparedTreeContentDigest [sha256.Size]byte
 
+type preparedTreeXattrFact struct {
+	name   string
+	size   int
+	digest preparedTreeContentDigest
+}
+
+type preparedTreeMetadataFacts struct {
+	platform uint64
+	xattrs   []preparedTreeXattrFact
+}
+
+func (facts preparedTreeMetadataFacts) equal(other preparedTreeMetadataFacts) bool {
+	return facts.platform == other.platform && slices.Equal(facts.xattrs, other.xattrs)
+}
+
+func (facts preparedTreeMetadataFacts) creationMetadata() preparedTreeCreationMetadata {
+	return preparedTreeCreationMetadata{xattrs: slices.Clone(facts.xattrs)}
+}
+
+type preparedTreeCreationMetadata struct {
+	xattrs []preparedTreeXattrFact
+}
+
+func (metadata preparedTreeCreationMetadata) equal(other preparedTreeCreationMetadata) bool {
+	return slices.Equal(metadata.xattrs, other.xattrs)
+}
+
 type preparedTreeEntryExpectation struct {
-	relativePath string
-	kind         entryKind
-	mode         fs.FileMode
-	size         int64
-	content      preparedTreeContentDigest
+	relativePath     string
+	kind             entryKind
+	mode             fs.FileMode
+	size             int64
+	content          preparedTreeContentDigest
+	creationMetadata preparedTreeCreationMetadata
 }
 
 func (expectation preparedTreeEntryExpectation) validate(root bool) error {
@@ -90,6 +118,7 @@ type preparedTreeSnapshotEntry struct {
 	expectation preparedTreeEntryExpectation
 	identity    EntryIdentity
 	facts       preparedTreeStatFacts
+	metadata    preparedTreeMetadataFacts
 	children    []preparedTreeSnapshotEntry
 }
 
@@ -161,8 +190,9 @@ func capturePreparedTreeSnapshotLocked(
 		return preparedTreeSnapshot{}, err
 	}
 	rootExpectation := preparedTreeEntryExpectation{
-		kind: entryKindDirectory,
-		mode: prepared.rootMode.Perm(),
+		kind:             entryKindDirectory,
+		mode:             prepared.rootMode.Perm(),
+		creationMetadata: prepared.rootCreationMetadata,
 	}
 	root, count, err := capturePreparedTreeDirectory(
 		ctx,
@@ -366,8 +396,12 @@ func captureOpenedPreparedTreeEntry(
 			return preparedTreeSnapshotEntry{}, fmt.Errorf("prepared tree file %q content changed", path)
 		}
 	}
-	if err := requirePreparedTreeMetadataAbsent(fd, path, &before); err != nil {
+	metadata, err := capturePreparedTreeMetadataFacts(fd, path, &before)
+	if err != nil {
 		return preparedTreeSnapshotEntry{}, err
+	}
+	if !expectation.creationMetadata.equal(metadata.creationMetadata()) {
+		return preparedTreeSnapshotEntry{}, fmt.Errorf("prepared tree entry %q metadata changed after creation", path)
 	}
 	var after unix.Stat_t
 	if err := unix.Fstat(fd, &after); err != nil {
@@ -381,6 +415,7 @@ func captureOpenedPreparedTreeEntry(
 		expectation: expectation,
 		identity:    identity,
 		facts:       facts,
+		metadata:    metadata,
 	}, nil
 }
 
@@ -528,8 +563,12 @@ func verifyOpenedPreparedTreeEntryWithContent(
 			return fmt.Errorf("prepared tree file %q content changed", path)
 		}
 	}
-	if err := requirePreparedTreeMetadataAbsent(fd, path, &before); err != nil {
+	metadata, err := capturePreparedTreeMetadataFacts(fd, path, &before)
+	if err != nil {
 		return err
+	}
+	if !expected.metadata.equal(metadata) {
+		return fmt.Errorf("prepared tree entry %q metadata changed", path)
 	}
 	var after unix.Stat_t
 	if err := unix.Fstat(fd, &after); err != nil {
@@ -609,20 +648,42 @@ func digestPreparedTreeFile(
 	return result, nil
 }
 
-func requirePreparedTreeMetadataAbsent(fd int, path string, stat *unix.Stat_t) error {
-	metadata, err := capturePreservedMetadata(fd, stat)
+func capturePreparedTreeMetadataFacts(
+	fd int,
+	path string,
+	stat *unix.Stat_t,
+) (preparedTreeMetadataFacts, error) {
+	platform, err := capturePreparedTreePlatformMetadataFacts(fd, path, stat)
 	if err != nil {
-		return err
+		return preparedTreeMetadataFacts{}, err
 	}
-	for name := range metadata.xattrs {
+	names, err := listXattrNames(fd)
+	if err != nil {
+		return preparedTreeMetadataFacts{}, err
+	}
+	slices.Sort(names)
+	facts := preparedTreeMetadataFacts{
+		platform: platform,
+		xattrs:   make([]preparedTreeXattrFact, 0, len(names)),
+	}
+	for _, name := range names {
 		if !isAllowedPreparedTreeXattr(name) {
-			return unsupported(
+			return preparedTreeMetadataFacts{}, unsupported(
 				fmt.Sprintf("prepared tree entry %q contains unsupported extended attribute %q", path, name),
 				nil,
 			)
 		}
+		value, err := readXattrValue(fd, name)
+		if err != nil {
+			return preparedTreeMetadataFacts{}, err
+		}
+		facts.xattrs = append(facts.xattrs, preparedTreeXattrFact{
+			name:   name,
+			size:   len(value),
+			digest: sha256.Sum256(value),
+		})
 	}
-	return nil
+	return facts, nil
 }
 
 func validatePreparedTreeStat(path string, stat *unix.Stat_t, kind entryKind) error {

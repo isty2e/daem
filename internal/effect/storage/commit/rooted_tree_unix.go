@@ -25,20 +25,22 @@ const (
 // PreparedRootedTree owns one private rooted stage and its destination-bound
 // capability until Commit or Abort consumes both.
 type PreparedRootedTree struct {
-	mu             sync.Mutex
-	state          preparedRootedTreeState
-	destination    string
-	anchor         *anchoredParent
-	stageName      string
-	stagePath      string
-	stageFD        int
-	stageObject    EntryIdentity
-	expected       EntryIdentity
-	limits         mutationfs.TreeTraversalLimits
-	rootMode       fs.FileMode
-	rootModeSet    bool
-	plannedEntries map[string]preparedTreeEntryExpectation
-	snapshot       preparedTreeSnapshot
+	mu                      sync.Mutex
+	state                   preparedRootedTreeState
+	destination             string
+	anchor                  *anchoredParent
+	stageName               string
+	stagePath               string
+	stageFD                 int
+	stageObject             EntryIdentity
+	expected                EntryIdentity
+	limits                  mutationfs.TreeTraversalLimits
+	rootMode                fs.FileMode
+	rootModeSet             bool
+	plannedEntries          map[string]preparedTreeEntryExpectation
+	snapshot                preparedTreeSnapshot
+	rootCreationMetadata    preparedTreeCreationMetadata
+	modesMayRestrictCleanup bool
 }
 
 // PrepareRootedTree creates and populates a private stage beside the bound
@@ -212,6 +214,18 @@ func commitPreparedRootedTreeWithFaults(
 	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
 	}
+	if err := faults.check(ctx, phaseCommitEntry); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
+	}
+	if err := prepared.verifyExpectedLocked(); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
+	}
+	if err := verifyPreparedTreeSnapshotLocked(ctx, prepared); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
+	}
+	if err := prepared.requireDestinationAbsentLocked(); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
+	}
 	if err := prepared.applyTreeModesLocked(ctx); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseApplyMode, err, faults)
 	}
@@ -222,14 +236,12 @@ func commitPreparedRootedTreeWithFaults(
 		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
 	}
 
-	err := faults.run(ctx, phaseCommitEntry, func() error {
-		return renameNoReplace(
-			prepared.anchor.parentFD(),
-			prepared.stageName,
-			prepared.anchor.parentFD(),
-			prepared.anchor.base,
-		)
-	})
+	err := renameNoReplace(
+		prepared.anchor.parentFD(),
+		prepared.stageName,
+		prepared.anchor.parentFD(),
+		prepared.anchor.base,
+	)
 	if err != nil {
 		if errors.Is(err, fs.ErrExist) || errors.Is(err, unix.EEXIST) {
 			if destinationErr := prepared.requireDestinationAbsentLocked(); destinationErr != nil {
@@ -356,19 +368,26 @@ func (prepared *PreparedRootedTree) cleanupStageLocked(ctx context.Context, faul
 		case errors.Is(err, unix.ENOENT):
 		case err != nil || !prepared.stageObject.sameObject(observed):
 			residue = append(residue, prepared.stagePath)
-		case removeEntryAtWithFaults(
-			cleanupContext,
-			prepared.anchor.parentFD(),
-			prepared.stageName,
-			prepared.stagePath,
-			observed,
-			prepared.anchor.capability,
-			prepared.limits,
-			faultPlan{},
-		) != nil:
+		case prepared.normalizeStageModesForCleanupLocked(cleanupContext) != nil:
 			residue = append(residue, prepared.stagePath)
-		case syncDirectory(prepared.anchor.parentFD()) != nil:
-			residue = append(residue, prepared.stagePath)
+		default:
+			observed, _, err = prepared.anchor.observe(prepared.stageName, prepared.stagePath)
+			if err != nil || !prepared.stageObject.sameObject(observed) {
+				residue = append(residue, prepared.stagePath)
+			} else if removeEntryAtWithFaults(
+				cleanupContext,
+				prepared.anchor.parentFD(),
+				prepared.stageName,
+				prepared.stagePath,
+				observed,
+				prepared.anchor.capability,
+				prepared.limits,
+				faultPlan{},
+			) != nil {
+				residue = append(residue, prepared.stagePath)
+			} else if syncDirectory(prepared.anchor.parentFD()) != nil {
+				residue = append(residue, prepared.stagePath)
+			}
 		}
 	}
 	residue = append(residue, cleanupCreatedAncestors(prepared.anchor, faults)...)

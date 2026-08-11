@@ -33,6 +33,7 @@ func (writer *rootedTreeWriterUnix) SetRootMode(mode fs.FileMode) error {
 }
 
 func (prepared *PreparedRootedTree) applyTreeModesLocked(ctx context.Context) error {
+	prepared.modesMayRestrictCleanup = true
 	budget, err := newTreeTraversalBudget(prepared.limits)
 	if err != nil {
 		return err
@@ -173,7 +174,7 @@ func applyPreparedTreeFileMode(
 	expected *preparedTreeSnapshotEntry,
 	budget *treeTraversalBudget,
 ) error {
-	if err := verifyOpenedPreparedTreeAuthority(ctx, fileFD, filePath, *expected, budget); err != nil {
+	if err := verifyOpenedPreparedTreeEntry(ctx, fileFD, filePath, *expected, budget); err != nil {
 		return err
 	}
 	if expected.facts.mode != expected.expectation.mode.Perm() {
@@ -212,6 +213,194 @@ func applyPreparedTreeFileMode(
 	}
 	expected.identity = synchronizedIdentity
 	expected.facts = afterFacts
+	return nil
+}
+
+func (prepared *PreparedRootedTree) normalizeStageModesForCleanupLocked(ctx context.Context) error {
+	if !prepared.modesMayRestrictCleanup || prepared.snapshot.root.identity.kind == entryKindInvalid {
+		return nil
+	}
+	budget, err := newTreeTraversalBudget(prepared.limits)
+	if err != nil {
+		return err
+	}
+	return normalizePreparedTreeDirectoryForCleanup(
+		ctx,
+		prepared.stageFD,
+		prepared.stagePath,
+		&prepared.snapshot.root,
+		0,
+		prepared.anchor.capability.ValidateDirectoryHandle,
+		budget,
+	)
+}
+
+func normalizePreparedTreeDirectoryForCleanup(
+	ctx context.Context,
+	directoryFD int,
+	directoryPath string,
+	expected *preparedTreeSnapshotEntry,
+	depth int,
+	validateMount func(uintptr) error,
+	budget *treeTraversalBudget,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := budget.admitDepth(depth); err != nil {
+		return err
+	}
+	if err := normalizeOpenedPreparedTreeModeForCleanup(
+		directoryFD,
+		directoryPath,
+		expected,
+		preparedTreePrivateDirectoryMode,
+	); err != nil {
+		return err
+	}
+	if err := validateMount(uintptr(directoryFD)); err != nil {
+		return err
+	}
+	names, err := readDirectoryNames(ctx, directoryFD, directoryPath, len(expected.children))
+	if err != nil {
+		return err
+	}
+	if err := budget.admitEntries(len(names)); err != nil {
+		return err
+	}
+	if !slices.Equal(names, preparedTreeSnapshotChildNames(*expected)) {
+		return fmt.Errorf("prepared tree directory entries changed at %q", directoryPath)
+	}
+	for index, name := range names {
+		child := &expected.children[index]
+		childPath := filepath.Join(directoryPath, name)
+		identity, stat, err := observeAnyAt(directoryFD, name, childPath)
+		if err != nil {
+			return err
+		}
+		if err := validatePreparedTreeCleanupTransition(childPath, child, identity, &stat); err != nil {
+			return err
+		}
+		cleanupMode := preparedTreePrivateFileMode
+		if child.expectation.kind == entryKindDirectory {
+			cleanupMode = preparedTreePrivateDirectoryMode
+		}
+		if fs.FileMode(stat.Mode).Perm() != cleanupMode {
+			if err := unix.Fchmodat(
+				directoryFD,
+				name,
+				uint32(cleanupMode),
+				unix.AT_SYMLINK_NOFOLLOW,
+			); err != nil {
+				return err
+			}
+			identity, stat, err = observeAnyAt(directoryFD, name, childPath)
+			if err != nil {
+				return err
+			}
+			if err := validatePreparedTreeCleanupTransition(childPath, child, identity, &stat); err != nil {
+				return err
+			}
+		}
+		child.identity = identity
+		child.facts = preparedTreeFactsFromStat(&stat)
+		childFD, err := openExpectedAt(directoryFD, name, childPath, identity)
+		if err != nil {
+			return err
+		}
+		if err := validateMount(uintptr(childFD)); err != nil {
+			_ = unix.Close(childFD)
+			return err
+		}
+		if child.expectation.kind == entryKindDirectory {
+			err = normalizePreparedTreeDirectoryForCleanup(
+				ctx,
+				childFD,
+				childPath,
+				child,
+				depth+1,
+				validateMount,
+				budget,
+			)
+		} else {
+			err = verifyOpenedPreparedTreeEntry(ctx, childFD, childPath, *child, budget)
+		}
+		closeErr := unix.Close(childFD)
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return verifyPreparedTreeDirectoryBinding(ctx, directoryFD, directoryPath, *expected)
+}
+
+func normalizeOpenedPreparedTreeModeForCleanup(
+	fd int,
+	path string,
+	expected *preparedTreeSnapshotEntry,
+	cleanupMode fs.FileMode,
+) error {
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	identity := identityFromStat(path, &stat)
+	if err := validatePreparedTreeCleanupTransition(path, expected, identity, &stat); err != nil {
+		return err
+	}
+	if fs.FileMode(stat.Mode).Perm() != cleanupMode {
+		if err := unix.Fchmod(fd, uint32(cleanupMode)); err != nil {
+			return err
+		}
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return err
+		}
+		identity = identityFromStat(path, &stat)
+		if err := validatePreparedTreeCleanupTransition(path, expected, identity, &stat); err != nil {
+			return err
+		}
+	}
+	metadata, err := capturePreparedTreeMetadataFacts(fd, path, &stat)
+	if err != nil {
+		return err
+	}
+	if !expected.metadata.equal(metadata) {
+		return fmt.Errorf("prepared tree entry %q metadata changed before cleanup", path)
+	}
+	expected.identity = identity
+	expected.facts = preparedTreeFactsFromStat(&stat)
+	return nil
+}
+
+func validatePreparedTreeCleanupTransition(
+	path string,
+	expected *preparedTreeSnapshotEntry,
+	identity EntryIdentity,
+	stat *unix.Stat_t,
+) error {
+	if !expected.identity.sameObject(identity) || identity.kind != expected.expectation.kind {
+		return fmt.Errorf("prepared tree entry %q identity changed before cleanup", path)
+	}
+	if err := validatePreparedTreeStat(path, stat, expected.expectation.kind); err != nil {
+		return err
+	}
+	actual := preparedTreeFactsFromStat(stat)
+	want := expected.facts
+	want.mode = actual.mode
+	if !want.equal(actual) {
+		return fmt.Errorf("prepared tree entry %q facts changed before cleanup", path)
+	}
+	allowedMode := actual.mode == expected.facts.mode || actual.mode == expected.expectation.mode.Perm()
+	if expected.expectation.kind == entryKindDirectory {
+		allowedMode = allowedMode || actual.mode == preparedTreePrivateDirectoryMode
+	} else {
+		allowedMode = allowedMode || actual.mode == preparedTreePrivateFileMode
+	}
+	if !allowedMode {
+		return fmt.Errorf("prepared tree entry %q mode changed before cleanup", path)
+	}
 	return nil
 }
 
