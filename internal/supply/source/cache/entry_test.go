@@ -57,3 +57,16 @@ func TestCompletionRecordOwnershipIsNarrowerThanContentValidity(t *testing.T) {
 		t.Fatal("validateOwnership accepted another cache key")
 	}
 }
+
+func TestCacheEnvelopeReservesContentWrapperAndCompletionOverhead(t *testing.T) {
+	limits := cacheEnvelopeTraversalLimits()
+	if got, want := limits.MaximumEntries(), maximumCachedContentEntries+2; got != want {
+		t.Fatalf("cache envelope entries = %d, want %d", got, want)
+	}
+	if got, want := limits.MaximumDepth(), maximumCachedContentDepth+1; got != want {
+		t.Fatalf("cache envelope depth = %d, want %d", got, want)
+	}
+	if got, want := limits.MaximumBytes(), int64(maximumCachedContentBytes+maximumCompletionBytes); got != want {
+		t.Fatalf("cache envelope bytes = %d, want %d", got, want)
+	}
+}

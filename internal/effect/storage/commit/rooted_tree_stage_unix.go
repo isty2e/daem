@@ -16,7 +16,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func createPreparedRootedTree(path string, anchor *anchoredParent) (*PreparedRootedTree, error) {
+func createPreparedRootedTree(
+	path string,
+	anchor *anchoredParent,
+	limits mutationfs.TreeTraversalLimits,
+) (*PreparedRootedTree, error) {
 	stageName, err := unusedSiblingName(anchor.parentFD(), temporaryPrefix)
 	if err != nil {
 		return nil, err
@@ -32,6 +36,7 @@ func createPreparedRootedTree(path string, anchor *anchoredParent) (*PreparedRoo
 		stageName:   stageName,
 		stagePath:   stagePath,
 		stageFD:     -1,
+		limits:      limits,
 		rootMode:    0o700,
 	}
 	identity, stat, err := anchor.observe(stageName, stagePath)
@@ -195,8 +200,25 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	if err := unix.Fchmod(fd, uint32(mode.Perm())); err != nil {
 		return err
 	}
-	if _, err := io.Copy(fdWriter{fd: fd}, contextReader{ctx: writer.ctx, reader: content}); err != nil {
+	reader := contextReader{ctx: writer.ctx, reader: content}
+	remainingBytes := writer.budget.remainingBytes()
+	written, err := io.CopyN(fdWriter{fd: fd}, reader, remainingBytes)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return err
+	}
+	if written == remainingBytes {
+		var probe [1]byte
+		count, probeErr := reader.Read(probe[:])
+		if count != 0 {
+			return fmt.Errorf(
+				"prepared tree file %q: tree exceeds %d regular-file bytes",
+				path.Path(),
+				writer.budget.limits.MaximumBytes(),
+			)
+		}
+		if probeErr != nil && !errors.Is(probeErr, io.EOF) {
+			return probeErr
+		}
 	}
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {
@@ -204,6 +226,9 @@ func (writer *rootedTreeWriterUnix) WriteFile(
 	}
 	if err := validateOwnedStat(parent.path, &stat); err != nil {
 		return err
+	}
+	if err := writer.budget.admitBytes(stat.Size); err != nil {
+		return fmt.Errorf("prepared tree file %q: %w", path.Path(), err)
 	}
 	if fs.FileMode(stat.Mode).Perm() != mode.Perm() {
 		return unsupported(fmt.Sprintf("prepared tree file %q did not retain requested mode", parent.path), nil)

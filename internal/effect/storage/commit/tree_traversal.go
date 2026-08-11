@@ -67,6 +67,13 @@ func (budget *treeTraversalBudget) admitBytes(count int64) error {
 	return nil
 }
 
+func (budget *treeTraversalBudget) remainingBytes() int64 {
+	if budget == nil {
+		return 0
+	}
+	return budget.limits.MaximumBytes() - budget.bytes
+}
+
 func (budget *treeTraversalBudget) remainingEntries() int {
 	if budget == nil {
 		return 0

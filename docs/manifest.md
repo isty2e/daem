@@ -282,6 +282,9 @@ input allowance.
 | Logical entries | 100,000 |
 | Canonical path | 4,096 bytes and 64 components |
 
+Source-cache wrapper directories and completion metadata have separate reserved
+capacity and do not consume these archive entry, depth, or byte limits.
+
 Known transport sizes and archive headers are early rejection evidence only.
 Streaming readers and extraction accounting enforce the same limits. Limit
 failure does not publish a source cache completion record, lockfile result, or

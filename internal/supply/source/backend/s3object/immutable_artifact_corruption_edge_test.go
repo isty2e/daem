@@ -48,17 +48,18 @@ func TestResolveRejectsCorruptReferencedArtifactsAndRepairs(t *testing.T) {
 
 func TestResolveDoesNotRetireUnownedOrRedirectedArtifactEntries(t *testing.T) {
 	tests := []struct {
-		name   string
-		mutate func(*testing.T, immutableCorruptionFixture) func(*testing.T)
+		name         string
+		wantGetCalls int
+		mutate       func(*testing.T, immutableCorruptionFixture) func(*testing.T)
 	}{
-		{name: "missing completion", mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
+		{name: "missing completion", wantGetCalls: 2, mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
 			contentPath := s3ResolutionContentPath(fixture.resolver, fixture.first)
 			if err := os.Remove(filepath.Join(filepath.Dir(contentPath), immutableTestCompletionRecordName)); err != nil {
 				t.Fatal(err)
 			}
 			return func(t *testing.T) { assertFileContent(t, contentPath, []byte("trusted\n")) }
 		}},
-		{name: "content symlink", mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
+		{name: "content symlink", wantGetCalls: 1, mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
 			contentPath := s3ResolutionContentPath(fixture.resolver, fixture.first)
 			targetPath := filepath.Join(filepath.Dir(filepath.Dir(contentPath)), "outside-content")
 			if err := os.WriteFile(targetPath, []byte("trusted\n"), 0o600); err != nil {
@@ -72,7 +73,7 @@ func TestResolveDoesNotRetireUnownedOrRedirectedArtifactEntries(t *testing.T) {
 			}
 			return func(t *testing.T) { assertFileContent(t, targetPath, []byte("trusted\n")) }
 		}},
-		{name: "artifact root symlink", mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
+		{name: "artifact root symlink", wantGetCalls: 1, mutate: func(t *testing.T, fixture immutableCorruptionFixture) func(*testing.T) {
 			artifactRoot := filepath.Dir(s3ResolutionContentPath(fixture.resolver, fixture.first))
 			targetRoot := artifactRoot + ".outside"
 			if err := os.Rename(artifactRoot, targetRoot); err != nil {
@@ -94,8 +95,8 @@ func TestResolveDoesNotRetireUnownedOrRedirectedArtifactEntries(t *testing.T) {
 			if _, err := fixture.resolver.Resolve(t.Context(), fixture.sourceSpec, noOperationOptions); err == nil {
 				t.Fatal("Resolve succeeded after cache ownership or authority became unprovable")
 			}
-			if calls := fixture.client.callCount(); calls != 2 {
-				t.Fatalf("GetObject calls = %d, want one initial fetch and one blocked repair attempt", calls)
+			if calls := fixture.client.callCount(); calls != test.wantGetCalls {
+				t.Fatalf("GetObject calls = %d, want %d", calls, test.wantGetCalls)
 			}
 			verifyTarget(t)
 		})

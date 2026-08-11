@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -363,6 +364,67 @@ func TestPreparedDirectoryPublishesAndReadsBelowRetainedRoot(t *testing.T) {
 		t.Fatalf("PreparedDirectory.Close returned error: %v", err)
 	}
 	if _, err := os.Lstat(stagePath); !os.IsNotExist(err) {
+		t.Fatalf("private stage stat error = %v, want missing", err)
+	}
+}
+
+func TestCacheLifecycleAcceptsExactCachedContentDepthAndCleansStage(t *testing.T) {
+	prepared, err := PrepareDirectory(
+		t.Context(),
+		"content",
+		func(tempRoot string) (artifact.ContentHash, artifact.ArtifactKind, error) {
+			contentRoot := filepath.Join(tempRoot, "content")
+			if err := os.Mkdir(contentRoot, 0o700); err != nil {
+				return "", "", err
+			}
+			builder := artifact.NewDirectoryHashBuilder()
+			relative := ""
+			physical := contentRoot
+			for range maximumCachedContentDepth {
+				relative = path.Join(relative, "nested")
+				physical = filepath.Join(physical, "nested")
+				if err := os.Mkdir(physical, 0o700); err != nil {
+					return "", "", err
+				}
+				if err := builder.AddDirectory(relative); err != nil {
+					return "", "", err
+				}
+			}
+			hash, err := builder.Sum()
+			return hash, artifact.ArtifactKindDirectory, err
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareDirectory returned error: %v", err)
+	}
+	stagePath := prepared.stage.path
+	contentHash, contentKind, err := prepared.ContentIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := NewKey("rooted-depth", "exact")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := NewEntrySpec(key, "content", contentHash, contentKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cacheRoot := t.TempDir()
+	root := mustCaptureCacheRoot(t, cacheRoot)
+	defer root.Close()
+	published, err := prepared.PublishRooted(t.Context(), root, "artifacts/deep", spec)
+	if err != nil || !published {
+		t.Fatalf("PublishRooted = %t, %v, want published", published, err)
+	}
+	valid, err := VerifyDirectoryRooted(t.Context(), root, "artifacts/deep", spec)
+	if err != nil || !valid {
+		t.Fatalf("VerifyDirectoryRooted = %t, %v, want valid", valid, err)
+	}
+	if err := prepared.Close(t.Context()); err != nil {
+		t.Fatalf("PreparedDirectory.Close returned error: %v", err)
+	}
+	if _, err := os.Lstat(stagePath); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("private stage stat error = %v, want missing", err)
 	}
 }

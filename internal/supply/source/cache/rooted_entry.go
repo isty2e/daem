@@ -76,7 +76,7 @@ func verifyRootedDirectory(
 	_, err = storagecommit.SnapshotRootedDirectory(
 		ctx,
 		capability,
-		cacheTreeTraversalLimits(),
+		cacheEnvelopeTraversalLimits(),
 		sink,
 	)
 	if err != nil {
@@ -253,7 +253,7 @@ func readVerifiedFileRooted(
 	_, err = storagecommit.SnapshotRootedDirectory(
 		ctx,
 		capability,
-		cacheTreeTraversalLimits(),
+		cacheEnvelopeTraversalLimits(),
 		sink,
 	)
 	if err != nil {

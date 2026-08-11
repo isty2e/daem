@@ -294,9 +294,10 @@ func publishPrivateBuildStage(
 		_ = capability.Close()
 		return mutationfs.CommitOutcome{}, err
 	}
-	prepared, err := storagecommit.PrepareRootedTree(
+	prepared, err := storagecommit.PrepareRootedTreeWithLimits(
 		ctx,
 		capability,
+		cacheEnvelopeTraversalLimits(),
 		func(writer mutationfs.RootedTreeWriter) error {
 			sourceCapability, err := stage.capability()
 			if err != nil {
@@ -310,7 +311,7 @@ func publishPrivateBuildStage(
 			_, err = storagecommit.SnapshotRootedDirectory(
 				ctx,
 				sourceCapability,
-				cacheTreeTraversalLimits(),
+				cacheEnvelopeTraversalLimits(),
 				sink,
 			)
 			if err != nil {
@@ -444,7 +445,7 @@ func (stage *privateBuildStage) contentIdentity(
 	_, err = storagecommit.SnapshotRootedDirectory(
 		ctx,
 		capability,
-		cacheTreeTraversalLimits(),
+		cacheEnvelopeTraversalLimits(),
 		sink,
 	)
 	if err != nil {
@@ -481,12 +482,16 @@ func (stage *privateBuildStage) close(ctx context.Context) error {
 		}
 		return errors.Join(err, closeWitness(), stage.root.Close())
 	}
-	request, err := storagecommit.NewRootedLogicalRemoval(capability, observed)
+	request, err := storagecommit.NewRootedEntryCleanup(
+		capability,
+		observed,
+		cacheEnvelopeTraversalLimits(),
+	)
 	if err != nil {
 		_ = capability.Close()
 		return errors.Join(err, closeWitness(), stage.root.Close())
 	}
-	removeErr := storagecommit.CommitLogicalRemoval(ctx, request)
+	_, removeErr := storagecommit.CommitRootedEntryCleanup(ctx, request)
 	return errors.Join(removeErr, closeWitness(), stage.root.Close())
 }
 
