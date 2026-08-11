@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 // PersistedDirectoryEntryAuthority is one immutable observation used to
@@ -43,6 +44,36 @@ func ObserveDirectoryEntryAuthority(path string) (DirectoryEntryAuthorityObserva
 	if err != nil {
 		return DirectoryEntryAuthorityObservation{}, err
 	}
+	return directoryEntryAuthorityObservation(identity)
+}
+
+// ObserveDirectoryEntryAuthorityBounded captures directory-entry authority
+// while charging every physical path observation to one operation budget.
+func ObserveDirectoryEntryAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (DirectoryEntryAuthorityObservation, error) {
+	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return DirectoryEntryAuthorityObservation{}, err
+	}
+	identity, err := canonicalPathIdentityFromSelectionBounded(
+		path,
+		selection,
+		PathEffectDirectoryEntry,
+		maximumPhysicalDepth,
+		budget,
+	)
+	if err != nil {
+		return DirectoryEntryAuthorityObservation{}, err
+	}
+	return directoryEntryAuthorityObservation(identity)
+}
+
+func directoryEntryAuthorityObservation(
+	identity canonicalPath,
+) (DirectoryEntryAuthorityObservation, error) {
 	if !identity.provisional.IsZero() {
 		observation := DirectoryEntryAuthorityObservation{provisional: identity.provisional}
 		if err := observation.Validate(); err != nil {
@@ -85,6 +116,27 @@ func ObservePersistedDirectoryEntryAuthority(path string) (PersistedDirectoryEnt
 	return PersistedDirectoryEntryAuthority{
 		exact: exact,
 	}, nil
+}
+
+// ObservePersistedDirectoryEntryAuthorityBounded captures exact persisted
+// authority under one bounded physical traversal budget.
+func ObservePersistedDirectoryEntryAuthorityBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (PersistedDirectoryEntryAuthority, error) {
+	observation, err := ObserveDirectoryEntryAuthorityBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return PersistedDirectoryEntryAuthority{}, err
+	}
+	exact, ok := observation.Exact()
+	if !ok {
+		return PersistedDirectoryEntryAuthority{}, fmt.Errorf(
+			"path %q has provisional authority until its normalization-sensitive entry becomes visible",
+			path,
+		)
+	}
+	return PersistedDirectoryEntryAuthority{exact: exact}, nil
 }
 
 // Exact returns the canonical key and observed versioned semantics.

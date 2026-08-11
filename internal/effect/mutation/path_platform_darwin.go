@@ -11,6 +11,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
 
@@ -25,6 +26,28 @@ func platformCanonicalPath(selection pathSelection, effect PathEffect) (canonica
 	return canonicalDarwinPath(selection, effect, darwinPathObservation{
 		descriptorPath: darwinDescriptorPath,
 		directoryCase:  darwinDirectoryCaseSemantics,
+	})
+}
+
+func platformCanonicalPathBounded(
+	selection pathSelection,
+	effect PathEffect,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (canonicalPath, error) {
+	return canonicalDarwinPath(selection, effect, darwinPathObservation{
+		descriptorPath: func(path string, noFollow bool) (string, error) {
+			if err := admitPlatformPathTraversal(path, maximumPhysicalDepth, budget); err != nil {
+				return "", err
+			}
+			return darwinDescriptorPath(path, noFollow)
+		},
+		directoryCase: func(path string) (pathCaseSemantics, error) {
+			if err := admitPlatformPathTraversal(path, maximumPhysicalDepth, budget); err != nil {
+				return 0, err
+			}
+			return darwinDirectoryCaseSemantics(path)
+		},
 	})
 }
 

@@ -38,7 +38,7 @@ func TestCleanupOnlyRecoveryIgnoresUnrelatedMetadataTransaction(t *testing.T) {
 	if got := prepared.Disclosure().AuthorityKind(); got != journal.RecoveryAuthorityJournalCleanup {
 		t.Fatalf("authority kind = %q, want journal cleanup", got)
 	}
-	if err := Execute(t.Context(), prepared, ExecuteOptions{}); err != nil {
+	if _, err := Execute(t.Context(), prepared, ExecuteOptions{}); err != nil {
 		t.Fatalf("Execute cleanup-only recovery: %v", err)
 	}
 	assertRecoverPathAbsent(t, fixture.controlDir)

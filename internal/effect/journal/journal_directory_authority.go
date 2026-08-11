@@ -85,6 +85,50 @@ func ValidateActiveJournalAuthority(
 	return nil
 }
 
+// ValidateActiveJournalRoot compares a freshly retained operation-directory
+// root with the physical authority selected during planning. Every descriptor
+// acquisition and validation consumes the caller's recovery budget.
+func ValidateActiveJournalRoot(
+	ctx context.Context,
+	filesystem mutationfs.RootedReader,
+	root *rootedpath.CapturedRoot,
+	budget rootedpath.PhysicalTraversalBudget,
+	expected ActiveJournalAuthority,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("active journal root context is required")
+	}
+	if filesystem == nil {
+		return fmt.Errorf("active journal root filesystem is required")
+	}
+	if root == nil {
+		return fmt.Errorf("active journal root authority is required")
+	}
+	if budget == nil {
+		return fmt.Errorf("active journal root budget is required")
+	}
+	if err := expected.Validate(); err != nil {
+		return err
+	}
+	capability, err := root.AcquireWorkingDirectoryBounded(budget)
+	if err != nil {
+		return err
+	}
+	identity, captureErr := filesystem.CaptureWorkingDirectoryIdentity(
+		ctx,
+		capability,
+		budget,
+	)
+	closeErr := capability.Close()
+	if captureErr != nil || closeErr != nil {
+		return errors.Join(captureErr, closeErr)
+	}
+	if !expected.matches(identity) {
+		return fmt.Errorf("active recovery journal identity changed")
+	}
+	return nil
+}
+
 func (authority ActiveJournalAuthority) valid() bool {
 	return authority.identity != nil &&
 		authority.identity.Kind() == mutationfs.EntryKindDirectory

@@ -1,11 +1,13 @@
 package journal
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
@@ -61,8 +63,26 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 		Path:              destination.String(),
 		GlobalPathBinding: persisted,
 	}
-	if err := validateRecoveryGlobalPathBindings(t.Context(), []recoveryEntry{entry}, resolver, nil); err != nil {
+	if err := validateRecoveryGlobalPathBindings(
+		t.Context(),
+		[]recoveryEntry{entry},
+		resolver,
+		nil,
+		newRecoveryPathBudget(t),
+	); err != nil {
 		t.Fatalf("same physical root through an alias was rejected: %v", err)
+	}
+	exhausted := newRecoveryPathBudget(t)
+	for exhausted.AdmitPathComponents(recovery.MaximumPhysicalPathDepth) == nil {
+	}
+	if err := validateRecoveryGlobalPathBindings(
+		t.Context(),
+		[]recoveryEntry{entry},
+		resolver,
+		nil,
+		exhausted,
+	); err == nil || !strings.Contains(err.Error(), "path-component work exceeds operation limit") {
+		t.Fatalf("exhausted global path budget error = %v, want pre-observation rejection", err)
 	}
 	for _, test := range []struct {
 		name string
@@ -98,6 +118,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 				[]recoveryEntry{forged},
 				resolver,
 				nil,
+				newRecoveryPathBudget(t),
 			)
 			if !hasRootedPathFailureKind(err, test.kind) {
 				t.Fatalf("forged %s provenance error = %v, want %s", test.name, err, test.kind)
@@ -113,6 +134,7 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 		[]recoveryEntry{entry, conflicting},
 		resolver,
 		nil,
+		newRecoveryPathBudget(t),
 	); err == nil || !strings.Contains(err.Error(), "inconsistent capture-time bindings") {
 		t.Fatalf("inconsistent duplicate binding error = %v", err)
 	}
@@ -125,9 +147,75 @@ func TestRecoveryGlobalPathBindingCanonicalizesRootAliasesOnce(t *testing.T) {
 			return filepath.Join(differentRoot, ".codex", "AGENTS.md"), nil
 		},
 		nil,
+		newRecoveryPathBudget(t),
 	)
 	if err == nil || !strings.Contains(err.Error(), "root selection changed") {
 		t.Fatalf("different physical root error = %v, want root-selection drift refusal", err)
+	}
+}
+
+func TestRecoveryGlobalPathBindingPassesSharedBudgetIntoRetainedCapability(t *testing.T) {
+	rootPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize global root: %v", err)
+	}
+	hostPath := filepath.Join(rootPath, "config.toml")
+	if err := os.WriteFile(hostPath, []byte("inside"), 0o600); err != nil {
+		t.Fatalf("write global destination: %v", err)
+	}
+	destination, err := output.Parse("~/.codex/config.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := func(output.Destination) (string, error) { return hostPath, nil }
+	captured, err := observeRecoveryGlobalPathBinding(destination, resolver, nil)
+	if err != nil {
+		t.Fatalf("capture global path binding: %v", err)
+	}
+	persisted, err := captured.persisted()
+	if err != nil {
+		t.Fatalf("persist global path binding: %v", err)
+	}
+	root, bound, err := rootedpath.CaptureDestination(hostPath)
+	if err != nil {
+		t.Fatalf("capture retained global destination: %v", err)
+	}
+	defer root.Close()
+	budget := newRecoveryPathBudget(t)
+	sawSharedBudget := false
+	err = validateRecoveryGlobalPathBindings(
+		t.Context(),
+		[]recoveryEntry{{
+			Scope:             string(target.ScopeGlobal),
+			Path:              destination.String(),
+			GlobalPathBinding: persisted,
+		}},
+		resolver,
+		func(
+			requested output.Destination,
+			supplied rootedpath.PhysicalTraversalBudget,
+		) (rootedpath.CommitCapability, bool, error) {
+			if requested != destination {
+				return nil, false, fmt.Errorf("unexpected destination %q", requested)
+			}
+			if supplied != budget {
+				return nil, false, fmt.Errorf("recovery planning supplied a different path budget")
+			}
+			sawSharedBudget = true
+			capability, acquireErr := root.AcquireBounded(
+				bound,
+				recovery.MaximumPhysicalPathDepth,
+				supplied,
+			)
+			return capability, true, acquireErr
+		},
+		budget,
+	)
+	if err != nil {
+		t.Fatalf("validate retained global path binding: %v", err)
+	}
+	if !sawSharedBudget {
+		t.Fatal("retained capability resolver did not receive the shared planning budget")
 	}
 }
 
@@ -182,6 +270,7 @@ func TestRecoveryGlobalPathBindingRejectsSamePathRootReplacement(t *testing.T) {
 		[]recoveryEntry{entry},
 		resolver,
 		nil,
+		newRecoveryPathBudget(t),
 	)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
 		t.Fatalf("same-path replacement error = %v, want %s", err, rootedpath.FailureRootReplaced)
@@ -236,7 +325,17 @@ func TestRecoveryGlobalPathBindingAcceptsNewSameMountDescendantRoot(t *testing.T
 		[]recoveryEntry{entry},
 		resolver,
 		nil,
+		newRecoveryPathBudget(t),
 	); err != nil {
 		t.Fatalf("new same-mount descendant root rejected: %v", err)
 	}
+}
+
+func newRecoveryPathBudget(t *testing.T) *recovery.PhysicalWorkBudget {
+	t.Helper()
+	budget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		t.Fatalf("new recovery path budget: %v", err)
+	}
+	return budget
 }

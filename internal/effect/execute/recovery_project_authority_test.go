@@ -17,6 +17,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -180,10 +181,205 @@ func TestRecoveryRejectsDurableJournalDriftAfterFinalValidation(t *testing.T) {
 			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "durable recovery journal changed before effects") {
+	if err == nil || !strings.Contains(err.Error(), "captured recovery journal changed before recovery effects") {
 		t.Fatalf("ExecuteRecoveryPlan error = %v, want durable-journal drift rejection", err)
 	}
 	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.after["AGENTS.md"])
+	assertRecoveryJournalRetained(t, fixture.plan)
+}
+
+func TestRecoveryRejectsDurableJournalDriftAfterEffectsBeforeRetirement(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	journalPath := filepath.Join(fixture.plan.OperationDir(), "journal.json")
+	reloads := 0
+
+	err := executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver:    destinationResolver(fixture.paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(fixture.paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
+			reloads++
+			if reloads == 2 {
+				if err := mutatePublishedJournalTimestamp(journalPath); err != nil {
+					t.Fatalf("mutate recovery journal after effects: %v", err)
+				}
+			}
+			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "captured recovery journal changed after recovery effects") {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want post-effect journal drift rejection", err)
+	}
+	if reloads != 2 {
+		t.Fatalf("recovery reloads = %d, want 2", reloads)
+	}
+	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.before["AGENTS.md"])
+	assertRecoveryJournalRetained(t, fixture.plan)
+}
+
+func TestRecoveryRejectsStatefileRewriteImmediatelyBeforeHostEffect(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	statefileContent, err := os.ReadFile(fixture.paths.StatefilePath)
+	if err != nil {
+		t.Fatalf("read recovery statefile: %v", err)
+	}
+	hostActions := 0
+
+	err = executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver:    destinationResolver(fixture.paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(fixture.paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		beforeHostAction: func(int) error {
+			hostActions++
+			return os.WriteFile(
+				fixture.paths.StatefilePath,
+				append(append([]byte(nil), statefileContent...), '\n'),
+				0o600,
+			)
+		},
+	})
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want stale semantic witness", err)
+	}
+	if hostActions != 1 {
+		t.Fatalf("before-host callbacks = %d, want 1", hostActions)
+	}
+	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.after["AGENTS.md"])
+	assertRecoveryJournalRetained(t, fixture.plan)
+}
+
+func TestRecoveryRejectsStatefileRewriteImmediatelyBeforeRetirement(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	statefileContent, err := os.ReadFile(fixture.paths.StatefilePath)
+	if err != nil {
+		t.Fatalf("read recovery statefile: %v", err)
+	}
+
+	err = executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver:    destinationResolver(fixture.paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(fixture.paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		beforeRetirement: func() error {
+			return os.WriteFile(
+				fixture.paths.StatefilePath,
+				append(append([]byte(nil), statefileContent...), '\n'),
+				0o600,
+			)
+		},
+	})
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want stale semantic witness", err)
+	}
+	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.before["AGENTS.md"])
+	assertRecoveryJournalRetained(t, fixture.plan)
+}
+
+func TestRecoveryRejectsStatefileSuccessorAdoptedAfterFinalHostEffect(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	stateBefore, err := testStateCodec().Encode(fixture.plan.StatefileBefore())
+	if err != nil {
+		t.Fatalf("encode recovery statefile before-image: %v", err)
+	}
+	acceptedEffects := 0
+
+	err = executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver:    destinationResolver(fixture.paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(fixture.paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		AcceptVisibilityChanges: func(context.Context) error {
+			acceptedEffects++
+			if acceptedEffects != 1 {
+				return nil
+			}
+			return os.WriteFile(fixture.paths.StatefilePath, stateBefore, 0o600)
+		},
+	})
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want stale post-effect statefile basis", err)
+	}
+	if acceptedEffects != 1 {
+		t.Fatalf("accepted recovery effects = %d, want 1", acceptedEffects)
+	}
+	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.before["AGENTS.md"])
+	assertRecoveryJournalRetained(t, fixture.plan)
+}
+
+func TestRecoveryRejectsByteIdenticalJournalDirectoryReplacementAfterEffects(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	original := filepath.Join(fixture.base, "held-journal")
+	reloads := 0
+
+	err := executeRecoveryPlanWithOptionsForTest(t.Context(), fixture.plan, fixture.paths, RecoveryOptions{
+		Resolver:    destinationResolver(fixture.paths),
+		StateCodec:  testStateCodec(),
+		StateReader: testStateReader(fixture.paths.StatefilePath),
+		Filesystem:  testFilesystem(),
+		reloadPlan: func(ctx context.Context, options journal.PlanLoadOptions) (recovery.Plan, error) {
+			reloads++
+			if reloads == 2 {
+				if err := os.Rename(fixture.plan.OperationDir(), original); err != nil {
+					t.Fatalf("move original recovery journal: %v", err)
+				}
+				if err := os.Mkdir(fixture.plan.OperationDir(), 0o700); err != nil {
+					t.Fatalf("create replacement recovery journal: %v", err)
+				}
+				if err := os.CopyFS(fixture.plan.OperationDir(), os.DirFS(original)); err != nil {
+					t.Fatalf("copy byte-identical recovery journal: %v", err)
+				}
+				if err := filepath.WalkDir(original, func(path string, entry os.DirEntry, walkErr error) error {
+					if walkErr != nil {
+						return walkErr
+					}
+					relative, err := filepath.Rel(original, path)
+					if err != nil {
+						return err
+					}
+					info, err := entry.Info()
+					if err != nil {
+						return err
+					}
+					return os.Chmod(filepath.Join(fixture.plan.OperationDir(), relative), info.Mode().Perm())
+				}); err != nil {
+					t.Fatalf("preserve replacement journal modes: %v", err)
+				}
+			}
+			return journal.LoadActivePlanWithOptions(ctx, fixture.paths.journalPaths(), options)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "active recovery journal changed after recovery effects") {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want post-effect directory identity rejection", err)
+	}
+	if reloads != 2 {
+		t.Fatalf("recovery reloads = %d, want 2", reloads)
+	}
+	assertRecoveryTestContent(t, filepath.Join(fixture.projectRoot, "AGENTS.md"), fixture.before["AGENTS.md"])
 	assertRecoveryJournalRetained(t, fixture.plan)
 }
 
@@ -296,8 +492,9 @@ func TestRecoveryFailureRollsBackPriorProjectWritesThroughRootAuthority(t *testi
 			return current, nil
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "does not match expected hash") {
-		t.Fatalf("ExecuteRecoveryPlan error = %v, want backup hash mismatch", err)
+	if err == nil || (!strings.Contains(err.Error(), "backup work changed") &&
+		!strings.Contains(err.Error(), "does not match expected hash")) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want bounded backup mismatch", err)
 	}
 	if tamperedDestination == "" {
 		t.Fatal("test did not select a backup to tamper")
@@ -313,6 +510,7 @@ type projectPathRecoveryFixture struct {
 	projectRoot string
 	paths       Paths
 	plan        recovery.Plan
+	before      map[string][]byte
 	after       map[string][]byte
 }
 
@@ -393,6 +591,7 @@ func newProjectPathRecoveryFixture(
 	currentPaths := make([]durable.ManagedPathState, 0, len(specs))
 	nextPaths := make([]durable.ManagedPathState, 0, len(specs))
 	afterSources := make(map[string]string, len(specs))
+	beforeContent := make(map[string][]byte, len(specs))
 	afterContent := make(map[string][]byte, len(specs))
 	for index, spec := range specs {
 		entityID, err := entity.New(spec.entityKind, spec.name)
@@ -487,6 +686,7 @@ func newProjectPathRecoveryFixture(
 		currentPaths = append(currentPaths, previous)
 		nextPaths = append(nextPaths, next)
 		afterSources[spec.destination] = afterSource
+		beforeContent[markerDestination] = before
 		afterContent[markerDestination] = after
 	}
 	currentState, err := durable.NewSnapshot(durable.SnapshotInput{
@@ -552,6 +752,7 @@ func newProjectPathRecoveryFixture(
 		projectRoot: projectRoot,
 		paths:       paths,
 		plan:        recoveryPlan,
+		before:      beforeContent,
 		after:       afterContent,
 	}
 }

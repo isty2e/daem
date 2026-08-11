@@ -120,7 +120,7 @@ func TestAnalyzeImportsEmitsStableResidualRuleNames(t *testing.T) {
 		{
 			name:        "journal recovery effect import",
 			packagePath: "internal/effect/journal/recovery",
-			importPath:  "example.com/project/internal/effect/mutation/filesystem",
+			importPath:  "example.com/project/internal/effect/storage/commit",
 			wantRule:    ruleJournalRecoveryImport,
 		},
 		{
@@ -144,7 +144,7 @@ func TestAnalyzeImportsEmitsStableResidualRuleNames(t *testing.T) {
 		{
 			name:        "unadmitted presentation workflow import",
 			packagePath: "internal/cli/present",
-			importPath:  "example.com/project/internal/workflow/recover",
+			importPath:  "example.com/project/internal/workflow/readiness",
 			wantRule:    rulePresentWorkflowImport,
 		},
 		{

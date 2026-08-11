@@ -132,7 +132,7 @@ func TestCaptureProjectExistingFileRejectsOversizedRecoveryBackup(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(MaximumRecoveryBackupFileBytes + 1); err != nil {
+	if err := file.Truncate(recovery.MaximumRecoveryBackupFileBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(MaximumRecoveryBackupFileBytes + 1); err != nil {
+	if err := file.Truncate(recovery.MaximumRecoveryBackupFileBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 
-	observation := observeProjectRecoveryPath(
+	observation, err := observeProjectRecoveryPath(
 		t.Context(),
 		"large.bin",
 		"",
@@ -194,7 +194,11 @@ func TestObserveProjectRecoveryPathRejectsOversizedRegularFile(t *testing.T) {
 		journalTestFilesystem(),
 		session,
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe oversized project recovery path: %v", err)
+	}
 	if !observation.Exists || !strings.Contains(observation.Error, "exceeds 134217728 bytes") {
 		t.Fatalf("observation = %#v, want bounded regular-file error", observation)
 	}
@@ -215,7 +219,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 	}
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
-	observation := observeProjectRecoveryPath(
+	observation, err := observeProjectRecoveryPath(
 		context.Background(),
 		"tree",
 		"",
@@ -223,7 +227,11 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 		journalTestFilesystem(),
 		session,
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe project recovery directory: %v", err)
+	}
 	if observation.Error != "" || observation.Kind != recovery.PathKindDirectory ||
 		observation.ContentHash != string(wantHash) {
 		t.Fatalf("observation = %#v, want rooted directory hash %s", observation, wantHash)
@@ -235,7 +243,7 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 	if err := os.Symlink("moved", destination); err != nil {
 		t.Fatalf("create final symlink: %v", err)
 	}
-	blocked := observeProjectRecoveryPath(
+	symlinkObservation, err := observeProjectRecoveryPath(
 		context.Background(),
 		"tree",
 		"",
@@ -243,9 +251,15 @@ func TestObserveProjectRecoveryPathUsesRootedDirectoryHashAndBlocksSymlink(t *te
 		journalTestFilesystem(),
 		session,
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
-	if !strings.Contains(blocked.Error, string(rootedpath.FailureFinalSymlink)) {
-		t.Fatalf("blocked observation error = %q, want %s", blocked.Error, rootedpath.FailureFinalSymlink)
+	if err != nil {
+		t.Fatalf("observe symlinked project recovery path: %v", err)
+	}
+	if symlinkObservation.Error != "" ||
+		symlinkObservation.Kind != recovery.PathKindSymlink ||
+		symlinkObservation.LinkTarget != "moved" {
+		t.Fatalf("symlink observation = %#v, want target moved", symlinkObservation)
 	}
 }
 
@@ -257,7 +271,7 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 	session := mustManifestAuthoritySession(t, root)
 	defer session.root.Close()
 
-	observation := observeProjectRecoveryPath(
+	observation, err := observeProjectRecoveryPath(
 		context.Background(),
 		"missing",
 		"",
@@ -265,7 +279,11 @@ func TestObserveProjectRecoveryPathReportsRootedAbsence(t *testing.T) {
 		journalTestFilesystem(),
 		session,
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe absent project recovery path: %v", err)
+	}
 	if observation.Error != "" || observation.Exists || observation.Path != "missing" {
 		t.Fatalf("missing observation = %#v", observation)
 	}

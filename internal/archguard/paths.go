@@ -127,6 +127,7 @@ func isAllowedPresentWorkflowResultImport(packagePath string, importPath string)
 		"internal/workflow/init",
 		"internal/workflow/list",
 		"internal/workflow/probe",
+		"internal/workflow/recover",
 		"internal/workflow/refresh",
 		"internal/workflow/status":
 		return true

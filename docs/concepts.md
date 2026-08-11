@@ -195,11 +195,105 @@ retirement control, renames the exact active journal to a private residue,
 advances the control to finalizing, removes the exact residue, and only then
 retires the control to inert GC. A restart observes the durable phase rather
 than trusting a prior command's success. The active directory identity selected
-for execution remains bound through retirement, and daem decodes and
-fingerprints `journal.json` again after publishing the prepared control and
-before renaming the directory. Identity or content drift fails closed. As with
-other guarded filesystem effects, this is not an atomic compare-and-rename
+for execution and the exact published `journal.json` fingerprint form one
+immutable execution basis. Daem revalidates both facts after every reload and
+immediately before rollback, cleanup, or retirement effects. Identity or
+content drift fails closed. As with other guarded filesystem effects, this is
+not an atomic compare-and-rename
 against a non-daem writer racing after the final validation.
+
+Every journaled rooted removal also publishes one exact removal intent before
+the first covered effect. The intent binds the portable scope and destination
+to a relation-specific parent authority, two opaque same-parent names, and the
+complete before/expected-after whole-path states that execution may remove.
+The canonical intent is the composition of that transition-derived removal
+demand and its namespace authority; cleanup obligations retain the complete
+intent as their immutable basis rather than reconstructing a partial relation
+key.
+
+Each entry persists only the before and/or expected-after whole-path facts that
+contribute to removal reachability. Every reload independently reconstructs the
+canonical demand set from those transition facts and requires exact equality
+with the persisted intents. Missing or surplus relations or states, malformed
+hashes or modes, and noncanonical state ordering are rejected before cleanup or
+retirement authority is constructed.
+
+The residue name is valid only while the complete original state can still be
+verified. After that verification, daem atomically promotes the entry to the
+separate cleanup-stage name before recursively deleting it. The cleanup-stage
+name is durable progress evidence, so a retry can continue after some children
+were already removed without pretending that the partial tree still has the
+original hash. Both names contain a preselected 128-bit opaque token. A
+same-user process that reads an active journal and forges either exact private
+name remains outside the local authority threat model; daem does not weaken
+the exact-name contract by scanning a prefix. Aggregate contributors share the
+document-level intent; the intent is never keyed by a resource name, target,
+action ordinal, or content path. A replacement parent cannot inherit the old
+authority. An existing parent must remain observable as the exact captured
+object at its original path: once that path disappears, daem cannot distinguish
+unlink from relocation and retains the journal. Its authority therefore stores
+only the exact parent provenance and the two reserved names. An initially
+absent parent is admitted only through its retained ancestor, missing suffix,
+and reserved names without creating that parent during validation. The two
+namespace variants reject each other's provenance fields.
+
+Visible recovery classification and residue reconciliation are separate. A
+journal may be `clean_before` or `clean_after` while a removal obligation is
+still pending. Immediately before retirement, daem observes every complete
+intent rather than only selected recovery entries. A matching residue is
+promoted through a no-replace rooted rename and then removed through the exact
+cleanup-stage protocol. A cleanup-stage entry resumes bounded recursive
+cleanup; both names absent are confirmed only after three
+nearest-existing-ancestor synchronization and re-observation attempts plus one
+final exact re-observation. Both names
+present, a changed namespace, a mismatched or unsupported residue, unavailable
+evidence, or failed durability retains the journal and reports a typed blocker
+or retry condition. Only after every obligation is discharged may the
+retirement gate rename the active journal.
+
+One journal may contain at most 4,096 removal intents and each intent carries
+at most its before and expected-after whole-path states. Each journal planning
+pass creates one operation-wide budget before observing current host paths,
+recovery backups, or cleanup state; exact path and backup traversal work plus
+cleanup assessment consume that same budget without reset. Global destination
+binding, persisted-root and manifest-root recapture, and state or ownership
+path-authority observation are included before their physical I/O; recovery
+planning has no unbounded authority fallback. Each planning pass and bound
+execution lifecycle is limited to
+90,112 namespace/slot
+observations, 524,288 root/path component visits, 400,000 recursive entry
+visits, and 16 GiB of regular-file content. Alias resolution and physical-root
+opening consume that component budget directly; a short alias cannot hide a
+deeper authority path. One bound physical path may have at most 256 components.
+Confirmed rollback keeps backup lease identity separate from backup content
+freshness: it retains the active operation root, reserves every future rooted
+read or snapshot before effects, and verifies exact work and content while
+copying the backup. Generic mutation revisions never hash backup payloads.
+Before the first recovery effect, the remaining traversal authority is split
+into disjoint general-effect and removal-cleanup capabilities. Retained project,
+global, active-journal, and ownership-registry authorities follow that phase
+capability; they cannot fall back to ambient or unbounded path observation.
+Every reachable forward-removal state is bounded before the first effect. The
+currently visible state is measured through its retained rooted capability;
+states that apply or recovery can create require a verified payload, backup, or
+codec-bound producer certificate. Each state reserves its fresh pre-removal
+observation plus every destination, namespace, and candidate path revalidation;
+that capacity is transferred into a forward-only execution budget before the
+recovery journal is published. Directory removal additionally reserves both
+storage validation and deletion traversals. Storage receives the exact fresh
+ceiling and rejects a tree that grows beyond it. Empty-entry proof capacity is
+a local reader bound and does not count as positive semantic work or mutation
+authority. Capacity for the extra directory name needed only to prove an
+entry-count overflow is reserved before enumeration and charged when observed.
+It never expands the admitted semantic tree. Storage
+receives the exact observed cleanup ceiling, including zero, so content that
+appears after re-observation is rejected rather than deleted. An incomplete bounded
+observation whose exact work is unavailable conservatively consumes its
+admitted maximum. The existing
+per-tree limits of 100,000 entries, 64
+descendant-directory levels, and 4 GiB remain independent fail-closed guards.
+Correlation and coverage use canonical keyed indexes rather than repeated
+intent scans.
 
 Once the control-to-GC rename is durable, semantic recovery is complete.
 Physical GC removal is best effort: interruption may leave private

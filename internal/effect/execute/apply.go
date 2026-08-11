@@ -203,6 +203,14 @@ func ApplyWithOptions(
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	removalDemands, err := removalDemandSetForExecution(
+		input.ManagedPathEffects,
+		input.AggregateEffects,
+		input.ManagedPathEvidence,
+	)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	entrySelections, err := journal.EntrySelections(managedMutations, aggregateMutations)
 	if err != nil {
 		return ApplyResult{}, err
@@ -233,6 +241,7 @@ func ApplyWithOptions(
 		input.Paths,
 		input.ManagedPathEffects,
 		input.AggregateEffects,
+		removalDemands,
 		input.ProjectRoot,
 		input.Resolver,
 		input.Filesystem,
@@ -273,6 +282,14 @@ func ApplyWithOptions(
 		before: options.validateCompensationAuthority,
 		after:  options.acceptCompensationVisibilityChanges,
 	}
+	if err := mutationAuthority.prepareApplyForwardRemovals(
+		ctx,
+		input.ManagedPathEffects,
+		input.AggregateEffects,
+		input.Payloads,
+	); err != nil {
+		return ApplyResult{}, fmt.Errorf("prepare bounded forward removals: %w", err)
+	}
 	if err := visibilityGate.validateBefore(ctx); err != nil {
 		return ApplyResult{}, err
 	}
@@ -298,6 +315,7 @@ func ApplyWithOptions(
 			ManagedPathMutations:      managedMutations,
 			ManagedAggregateMutations: aggregateMutations,
 			ManagedPathEvidence:       input.ManagedPathEvidence,
+			RemovalDemands:            removalDemands,
 			Resolver:                  journalResolver,
 			ManifestRoot:              mutationAuthority.capturedRoot,
 			OperationAuthority:        mutationAuthority.recoveryJournal,
@@ -310,13 +328,45 @@ func ApplyWithOptions(
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, fmt.Errorf("capture recovery journal: %w", err)
 	}
-	if err := mutationAuthority.captureActiveJournalAuthority(ctx); err != nil {
+	if err := mutationAuthority.captureJournalExecutionBasis(
+		ctx,
+		captureResult.RecordFingerprint,
+	); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
 		return ApplyResult{}, err
 	}
-	if err := ownershipState.setJournalFingerprint(captureResult.RecordFingerprint); err != nil {
+	activePlan, err := loadApplyActivePlanForState(
+		ctx,
+		input.Paths,
+		input.CurrentState,
+		mutationAuthority,
+		input.StateCodec,
+		input.Codecs,
+	)
+	if err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
-		return ApplyResult{}, fmt.Errorf("capture recovery journal fingerprint: %w", err)
+		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
+	}
+	if err := mutationAuthority.validateJournalExecutionBasis(
+		ctx,
+		activePlan,
+		"after publication",
+	); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, err
+	}
+	if err := mutationAuthority.bindRemovalIntents(activePlan); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, fmt.Errorf("bind captured removal authority: %w", err)
+	}
+	if err := mutationAuthority.prepareActiveJournalRetirement(
+		ctx,
+		input.Paths,
+		activePlan,
+		input.StateCodec,
+	); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, fmt.Errorf("prepare bounded journal retirement: %w", err)
 	}
 	if err := visibilityGate.acceptAfter(ctx); err != nil {
 		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
@@ -324,6 +374,18 @@ func ApplyWithOptions(
 			"accept recovery journal visibility: %w; recovery journal retained; run: daem recover --dry-run",
 			err,
 		)
+	}
+	if err := validateCapturedJournalFingerprint(
+		ctx,
+		input.Paths,
+		input.CurrentState,
+		mutationAuthority,
+		input.StateCodec,
+		input.Codecs,
+		"before prepared effects",
+	); err != nil {
+		events.emit(EventJournalCaptureFailed, EventStageJournalCapture, nil, err)
+		return ApplyResult{}, err
 	}
 	events.emit(EventJournalCaptured, EventStageJournalCapture, nil, nil)
 	if err := prepareClaimTransitions(
@@ -342,7 +404,7 @@ func ApplyWithOptions(
 			return ApplyResult{}, fmt.Errorf("%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run", err, rollbackErr)
 		}
 		loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-			return loadApplyActivePlanForStateEntries(
+			return loadCapturedJournalPlanForStateEntries(
 				ctx,
 				input.Paths,
 				input.CurrentState,
@@ -350,6 +412,7 @@ func ApplyWithOptions(
 				mutationAuthority,
 				input.StateCodec,
 				input.Codecs,
+				"before claim-preparation rollback retirement",
 			)
 		}
 		cleanupErr := retireRecoveryJournalWithEvents(
@@ -390,7 +453,7 @@ func ApplyWithOptions(
 			return ApplyResult{}, fmt.Errorf("%w; ownership rollback failed: %v; recovery journal retained; run: daem recover --dry-run", err, claimErr)
 		}
 		loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-			return loadApplyActivePlanForStateEntries(
+			return loadCapturedJournalPlanForStateEntries(
 				ctx,
 				input.Paths,
 				input.CurrentState,
@@ -398,6 +461,7 @@ func ApplyWithOptions(
 				mutationAuthority,
 				input.StateCodec,
 				input.Codecs,
+				"before prepared-effect rollback retirement",
 			)
 		}
 		cleanupErr := retireRecoveryJournalWithEvents(
@@ -550,13 +614,14 @@ func ApplyWithOptions(
 		return committedResult, fmt.Errorf("%w; apply effects and statefile committed; recovery journal retained; run: daem recover --dry-run", err)
 	}
 	loadRetirementPlan := func(ctx context.Context) (recovery.Plan, error) {
-		return loadApplyActivePlanForState(
+		return loadCapturedJournalPlan(
 			ctx,
 			input.Paths,
 			nextState,
 			mutationAuthority,
 			input.StateCodec,
 			input.Codecs,
+			"before successful apply retirement",
 		)
 	}
 	if err := retireRecoveryJournalWithEvents(
@@ -689,7 +754,7 @@ func retireRecoveryJournalWithEvents(
 	}
 	plan, err := loadPlan(ctx)
 	if err == nil {
-		err = authority.retireActiveJournal(ctx, paths, plan, stateCodec)
+		err = authority.retireActiveJournal(ctx, plan)
 	}
 	if err != nil {
 		events.emit(EventJournalCleanupFailed, EventStageJournalCleanup, nil, err)

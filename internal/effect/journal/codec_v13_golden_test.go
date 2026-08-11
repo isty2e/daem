@@ -2,6 +2,7 @@ package journal
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -30,7 +31,7 @@ func marshalRecoveryJournal(journal recoveryJournal, stateEncoder durable.Snapsh
 	return encodeRecoveryJournal(journal, before, after)
 }
 
-func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
+func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
 	t.Parallel()
 
 	journal := defaultRecoveryJournal()
@@ -40,7 +41,7 @@ func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
 	}
 
 	wantContent := []byte(`{
-  "version": 11,
+  "version": 13,
   "operation_id": "20260625T000000.000000000Z-apply",
   "operation": "apply",
   "created_at": "2026-06-25T00:00:00Z",
@@ -136,7 +137,8 @@ func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
     "managed_carrier_claims": [],
     "delegate_attempts": [],
     "host_route_attempts": []
-  }
+  },
+  "removal_intents": []
 }`)
 	if !bytes.Equal(content, wantContent) {
 		t.Fatalf("journal bytes changed:\n%s", content)
@@ -149,13 +151,49 @@ func TestRecoveryJournalV11GoldenBytesAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recoveryJournalAuthorityFingerprint() error = %v", err)
 	}
-	const wantFingerprint = "sha256:99a4bda2efa2f5b28ef6679ca74deac1d027707d000eca17fd946e7a448c4357"
+	const wantFingerprint = "sha256:a2a2fbd0b33e8e90562c3e20275b055303cf34dfa7870910328e5cc59d6e07bd"
 	if fingerprint != wantFingerprint {
 		t.Fatalf("journal fingerprint = %q, want %q", fingerprint, wantFingerprint)
 	}
 }
 
-func TestRecoveryJournalV11PathDTOConversionOwnsExplicitZeroMode(t *testing.T) {
+func TestRecoveryJournalV13PersistsRemovalTransitionAuthority(t *testing.T) {
+	t.Parallel()
+
+	removedEntry := defaultRecoveryEntry()
+	removedEntry.ExpectedAfter = persistedExpectedPathState(recovery.ExpectedPathState{})
+	removedEntry.StateExpectedAfter = recoveryManagedMembership{}
+	content, err := marshalRecoveryJournal(recoveryJournalFor(removedEntry), testStateCodec())
+	if err != nil {
+		t.Fatalf("marshalRecoveryJournal() error = %v", err)
+	}
+
+	var document struct {
+		Entries []struct {
+			RemovalTransition json.RawMessage `json:"removal_transition"`
+		} `json:"entries"`
+		RemovalIntents []json.RawMessage `json:"removal_intents"`
+	}
+	if err := json.Unmarshal(content, &document); err != nil {
+		t.Fatalf("decode recovery journal: %v", err)
+	}
+	if len(document.Entries) != 1 || len(document.Entries[0].RemovalTransition) == 0 {
+		t.Fatalf("recovery journal omitted removal transition authority: %s", content)
+	}
+	if len(document.RemovalIntents) != 1 {
+		t.Fatalf("recovery journal removal intent count = %d, want 1", len(document.RemovalIntents))
+	}
+
+	var transition map[string]json.RawMessage
+	if err := json.Unmarshal(document.Entries[0].RemovalTransition, &transition); err != nil {
+		t.Fatalf("decode removal transition: %v", err)
+	}
+	if len(transition) != 1 || transition["before"] == nil {
+		t.Fatalf("removal transition keys = %v, want before only", transition)
+	}
+}
+
+func TestRecoveryJournalV13PathDTOConversionOwnsExplicitZeroMode(t *testing.T) {
 	t.Parallel()
 
 	zero := recovery.PermissionMode(0)

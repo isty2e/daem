@@ -89,7 +89,20 @@ func (store Store) loadForClaimRemovals(
 	error,
 ) {
 	if store.root != nil {
-		capability, err := store.root.Acquire(store.destination)
+		observations, observationErr := store.newPathAuthorityObservationSession()
+		if observationErr != nil {
+			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
+		}
+		if !observations.bounded() {
+			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
+				"rooted ownership registry budget is unavailable",
+			)
+		}
+		capability, err := store.root.AcquireBounded(
+			store.destination,
+			observations.maximumPhysicalDepth,
+			observations.budget,
+		)
 		if err != nil {
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 				"acquire ownership registry: %w",
@@ -119,7 +132,12 @@ func (store Store) loadForClaimRemovals(
 				mode.Perm(),
 			)
 		}
-		registry, err := decodePersistedRegistryForClaimRemovals(ctx, content, expected)
+		registry, err := decodePersistedRegistryForClaimRemovals(
+			ctx,
+			content,
+			expected,
+			observations,
+		)
 		if err != nil {
 			_ = capability.Close()
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
@@ -155,7 +173,12 @@ func (store Store) loadForClaimRemovals(
 			snapshot.Identity(),
 		)
 	}
-	registry, err := decodePersistedRegistryForClaimRemovals(ctx, snapshot.Content(), expected)
+	registry, err := decodePersistedRegistryForClaimRemovals(
+		ctx,
+		snapshot.Content(),
+		expected,
+		newPathAuthorityObservationSession(),
+	)
 	if err != nil {
 		return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err
 	}

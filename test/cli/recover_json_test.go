@@ -14,16 +14,18 @@ import (
 )
 
 type recoverJSONTestPayload struct {
-	SchemaVersion  int    `json:"schema_version"`
-	Command        string `json:"command"`
-	Mode           string `json:"mode"`
-	AuthorityKind  string `json:"authority_kind"`
-	OperationID    string `json:"operation_id"`
-	OperationDir   string `json:"operation_dir"`
-	Classification string `json:"classification"`
-	ActionCount    int    `json:"action_count"`
-	HasErrors      bool   `json:"has_errors"`
-	Actions        []struct {
+	SchemaVersion          int    `json:"schema_version"`
+	Command                string `json:"command"`
+	Mode                   string `json:"mode"`
+	Phase                  string `json:"phase"`
+	AuthorityKind          string `json:"authority_kind"`
+	OperationID            string `json:"operation_id"`
+	OperationDir           string `json:"operation_dir"`
+	Classification         string `json:"classification"`
+	ActionCount            int    `json:"action_count"`
+	CleanupObligationCount int    `json:"cleanup_obligation_count"`
+	HasErrors              bool   `json:"has_errors"`
+	Actions                []struct {
 		Kind    string `json:"kind"`
 		Reason  string `json:"reason"`
 		Subject struct {
@@ -46,6 +48,14 @@ type recoverJSONTestPayload struct {
 		BackupKind  string   `json:"backup_kind"`
 		Detail      string   `json:"detail"`
 	} `json:"actions"`
+	CleanupObligations []struct {
+		Action      string `json:"action"`
+		Readiness   string `json:"readiness"`
+		Reason      string `json:"reason"`
+		Scope       string `json:"scope"`
+		Destination string `json:"destination"`
+		Detail      string `json:"detail"`
+	} `json:"cleanup_obligations"`
 }
 
 func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing.T) {
@@ -63,9 +73,17 @@ func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing
 	}
 	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
+		payload.Phase != "planned" ||
 		payload.AuthorityKind != "active_journal" ||
-		len(payload.Actions) != 1 {
+		len(payload.Actions) != 1 ||
+		payload.CleanupObligationCount != len(payload.CleanupObligations) ||
+		len(payload.CleanupObligations) != 1 {
 		t.Fatalf("payload = %#v", payload)
+	}
+	cleanup := payload.CleanupObligations[0]
+	if cleanup.Action != "confirm_absence" || cleanup.Readiness != "ready" ||
+		cleanup.Scope != "project" || cleanup.Destination != ".agents/skills/oracle" {
+		t.Fatalf("cleanup obligation = %#v", cleanup)
 	}
 	action := payload.Actions[0]
 	if action.ResourceID != "skill/oracle" || action.Resource.Kind != "skill" || action.Resource.Name != "oracle" ||
@@ -73,6 +91,74 @@ func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing
 		action.Target != "" || len(action.Targets) != 1 || action.Targets[0] != "codex" ||
 		action.ContentKind != "directory" {
 		t.Fatalf("managed Skill recovery action = %#v", action)
+	}
+}
+
+func TestRecoverBlocksRelocatedRemovalParentAndRetainsJournal(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	paths, currentState, _, _, _ := captureCLIRecoverySkillUpdateJournal(t, manifestPath)
+	testkit.WriteStatefile(t, paths.StatefilePath, currentState)
+	originalParent := filepath.Join(tempDir, ".agents", "skills")
+	relocatedParent := filepath.Join(tempDir, "skills-relocated")
+	if err := os.Rename(originalParent, relocatedParent); err != nil {
+		t.Fatalf("relocate removal parent: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"recover", "--manifest", manifestPath, "--dry-run"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 || stderr.Len() != 0 ||
+		!strings.Contains(stdout.String(), "removal_cleanup readiness=blocked") ||
+		!strings.Contains(stdout.String(), "reason=namespace_changed") {
+		t.Fatalf("human dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), ".daem-tombstone-") ||
+		strings.Contains(stdout.String(), ".daem-cleanup-") {
+		t.Fatalf("human recovery output exposed private removal names: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI(
+		[]string{"recover", "--manifest", manifestPath, "--dry-run", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 || stderr.Len() != 0 {
+		t.Fatalf("dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	payload := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	if !payload.HasErrors || len(payload.CleanupObligations) != 1 {
+		t.Fatalf("relocated-parent recovery payload = %#v", payload)
+	}
+	cleanup := payload.CleanupObligations[0]
+	if cleanup.Readiness != "blocked" || cleanup.Reason != "namespace_changed" ||
+		!strings.Contains(cleanup.Detail, "unlink and relocation cannot be distinguished") {
+		t.Fatalf("relocated-parent cleanup obligation = %#v", cleanup)
+	}
+	if strings.Contains(stdout.String(), ".daem-tombstone-") ||
+		strings.Contains(stdout.String(), ".daem-cleanup-") {
+		t.Fatalf("recovery output exposed private removal names: %s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI(
+		[]string{"recover", "--manifest", manifestPath, "--yes", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 {
+		t.Fatalf("write recovery exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	assertCLIRecoveryJournalActive(t, paths.RecoveryDir)
+	if _, err := os.Lstat(relocatedParent); err != nil {
+		t.Fatalf("relocated parent changed during blocked recovery: %v", err)
 	}
 }
 
@@ -100,6 +186,7 @@ func TestRunRecoverDryRunJSONReportsRollbackPlan(t *testing.T) {
 	if payload.SchemaVersion != contractversion.RecoveryJSON ||
 		payload.Command != "recover" ||
 		payload.Mode != "dry-run" ||
+		payload.Phase != "planned" ||
 		payload.AuthorityKind != "active_journal" {
 		t.Fatalf("payload header = %#v", payload)
 	}

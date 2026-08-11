@@ -5,6 +5,7 @@ package commit
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
+
+const maximumSymlinkTargetBytes = 1 << 20
 
 // ReadRegularFile returns one identity-stable, no-follow regular-file snapshot.
 func ReadRegularFile(ctx context.Context, path string) ([]byte, fs.FileMode, error) {
@@ -81,6 +84,78 @@ func ReadRootedRegularFileUpTo(
 	return readRegularFileSnapshotWithFaults(ctx, path, capability, maximumBytes, faultPlan{})
 }
 
+// ReadRootedSymlinkTarget returns one identity-stable, no-follow symbolic-link
+// target without consuming the supplied capability.
+func ReadRootedSymlinkTarget(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+) (string, EntryIdentity, error) {
+	if err := ctx.Err(); err != nil {
+		return "", EntryIdentity{}, err
+	}
+	path, err := rootedCapabilityPath(capability)
+	if err != nil {
+		return "", EntryIdentity{}, err
+	}
+	if err := validateRootedPath(path); err != nil {
+		return "", EntryIdentity{}, failureBeforeVisibility(phaseValidate, path, err)
+	}
+	anchor, err := openCommitParent(path, capability, false)
+	if anchor != nil {
+		defer anchor.close()
+	}
+	if err != nil {
+		return "", EntryIdentity{}, failureBeforeVisibility(phaseCaptureIdentity, path, err)
+	}
+	before, _, err := anchor.observe(anchor.base, path)
+	if err != nil {
+		return "", EntryIdentity{}, failureBeforeVisibility(phaseCaptureIdentity, path, err)
+	}
+	if before.kind != entryKindSymlink {
+		return "", EntryIdentity{}, failureBeforeVisibility(
+			phaseValidate,
+			path,
+			fmt.Errorf("entry is not a symbolic link"),
+		)
+	}
+	target, err := readRootedSymlinkAt(ctx, anchor.parentFD(), anchor.base)
+	if err != nil {
+		return "", EntryIdentity{}, failureBeforeVisibility(phaseReadPayload, path, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", EntryIdentity{}, err
+	}
+	after, _, err := anchor.observe(anchor.base, path)
+	if err != nil {
+		return "", EntryIdentity{}, failureBeforeVisibility(phaseRevalidateEntry, path, err)
+	}
+	if !before.sameEntry(after) {
+		return "", EntryIdentity{}, failureBeforeVisibility(
+			phaseRevalidateEntry,
+			path,
+			fmt.Errorf("symbolic link changed while reading target"),
+		)
+	}
+	return target, before, nil
+}
+
+func readRootedSymlinkAt(ctx context.Context, parentFD int, name string) (string, error) {
+	for size := 256; size <= maximumSymlinkTargetBytes; size *= 2 {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		buffer := make([]byte, size)
+		count, err := unix.Readlinkat(parentFD, name, buffer)
+		if err != nil {
+			return "", err
+		}
+		if count < len(buffer) {
+			return string(buffer[:count]), nil
+		}
+	}
+	return "", errors.New("symbolic link target exceeds 1 MiB")
+}
+
 func readRegularFileSnapshotWithFaults(
 	ctx context.Context,
 	path string,
@@ -88,8 +163,14 @@ func readRegularFileSnapshotWithFaults(
 	maximumBytes int64,
 	faults faultPlan,
 ) ([]byte, fs.FileMode, EntryIdentity, error) {
-	if err := validateCommitPath(path); err != nil {
-		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, err)
+	var validationErr error
+	if capability == nil {
+		validationErr = validateCommitPath(path)
+	} else {
+		validationErr = validateRootedPath(path)
+	}
+	if validationErr != nil {
+		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, validationErr)
 	}
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, err)

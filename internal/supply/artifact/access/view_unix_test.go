@@ -188,7 +188,7 @@ func TestHashWithLimitRejectsEntryAndByteOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTraversalLimit returned error: %v", err)
 	}
-	if _, err := view.HashWithLimit(context.Background(), entryLimit); err == nil ||
+	if _, _, err := view.HashWithLimit(context.Background(), entryLimit); err == nil ||
 		!strings.Contains(err.Error(), "entry limit 2") {
 		t.Fatalf("HashWithLimit entry error = %v, want bounded rejection", err)
 	}
@@ -197,7 +197,7 @@ func TestHashWithLimitRejectsEntryAndByteOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewTraversalLimit returned error: %v", err)
 	}
-	if _, err := view.HashWithLimit(context.Background(), byteLimit); err == nil ||
+	if _, _, err := view.HashWithLimit(context.Background(), byteLimit); err == nil ||
 		!strings.Contains(err.Error(), "byte limit 5") {
 		t.Fatalf("HashWithLimit byte error = %v, want bounded rejection", err)
 	}
@@ -215,9 +215,16 @@ func TestHashWithLimitMatchesUnboundedHashWithinBudget(t *testing.T) {
 		t.Fatalf("NewTraversalLimit returned error: %v", err)
 	}
 
-	bounded, err := view.HashWithLimit(context.Background(), limit)
+	bounded, measurement, err := view.HashWithLimit(context.Background(), limit)
 	if err != nil {
 		t.Fatalf("HashWithLimit returned error: %v", err)
+	}
+	if measurement.DescendantEntries() != 2 || measurement.RegularFileBytes() != 4 {
+		t.Fatalf(
+			"bounded measurement = entries:%d bytes:%d, want 2/4",
+			measurement.DescendantEntries(),
+			measurement.RegularFileBytes(),
+		)
 	}
 	unbounded, err := view.Hash(context.Background())
 	if err != nil {
@@ -225,6 +232,90 @@ func TestHashWithLimitMatchesUnboundedHashWithinBudget(t *testing.T) {
 	}
 	if bounded != unbounded {
 		t.Fatalf("bounded hash = %q, unbounded hash = %q", bounded, unbounded)
+	}
+}
+
+func TestHashDirectoryWithLimitsDistinguishesEmptyTreeFromFirstOverflowEntry(t *testing.T) {
+	traversal, err := NewTraversalLimit(1, 1)
+	if err != nil {
+		t.Fatalf("construct proof traversal limit: %v", err)
+	}
+	structure := accessTreeStructureLimitForTest(t, 0, 0)
+
+	emptyRoot := resolvedAccessTestRoot(t)
+	emptyView, err := OpenNoFollowView(emptyRoot)
+	if err != nil {
+		t.Fatalf("open empty directory: %v", err)
+	}
+	_, measurement, err := emptyView.HashDirectoryWithLimits(
+		context.Background(),
+		traversal,
+		structure,
+	)
+	if err != nil {
+		t.Fatalf("hash empty directory under zero semantic bound: %v", err)
+	}
+	if measurement.DescendantEntries() != 0 || measurement.RegularFileBytes() != 0 {
+		t.Fatalf(
+			"empty directory measurement = entries:%d bytes:%d, want 0/0",
+			measurement.DescendantEntries(),
+			measurement.RegularFileBytes(),
+		)
+	}
+
+	nonemptyRoot := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(nonemptyRoot, "child"), nil)
+	nonemptyView, err := OpenNoFollowView(nonemptyRoot)
+	if err != nil {
+		t.Fatalf("open non-empty directory: %v", err)
+	}
+	if _, _, err := nonemptyView.HashDirectoryWithLimits(
+		context.Background(),
+		traversal,
+		structure,
+	); err == nil || !strings.Contains(err.Error(), "exceeds 0 entries") {
+		t.Fatalf("first overflow entry error = %v, want zero-bound rejection", err)
+	}
+}
+
+func TestMeasureVerifiedDirectoryReturnsExactBoundedWork(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "one"), []byte("1234"))
+	writeAccessTestFile(t, filepath.Join(root, "nested", "two"), []byte("56"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatalf("OpenNoFollowView returned error: %v", err)
+	}
+	identity := accessTestIdentity(t, root)
+	traversal, err := NewTraversalLimit(4, 6)
+	if err != nil {
+		t.Fatalf("NewTraversalLimit returned error: %v", err)
+	}
+	measurement, err := view.MeasureVerifiedDirectory(
+		context.Background(),
+		identity,
+		traversal,
+		accessTreeStructureLimitForTest(t, 3, 1),
+	)
+	if err != nil {
+		t.Fatalf("MeasureVerifiedDirectory returned error: %v", err)
+	}
+	if measurement.DescendantEntries() != 3 || measurement.RegularFileBytes() != 6 {
+		t.Fatalf(
+			"directory measurement = entries:%d bytes:%d, want 3/6",
+			measurement.DescendantEntries(),
+			measurement.RegularFileBytes(),
+		)
+	}
+
+	tooShallow := accessTreeStructureLimitForTest(t, 3, 0)
+	if _, err := view.MeasureVerifiedDirectory(
+		context.Background(),
+		identity,
+		traversal,
+		tooShallow,
+	); err == nil || !strings.Contains(err.Error(), "maximum depth 0") {
+		t.Fatalf("MeasureVerifiedDirectory depth error = %v, want bounded rejection", err)
 	}
 }
 
@@ -402,6 +493,35 @@ func TestCopyVerifiedRejectsNilSinkWriter(t *testing.T) {
 
 	if err := view.CopyVerified(context.Background(), identity, sink); err == nil || !strings.Contains(err.Error(), "returned no writer") {
 		t.Fatalf("CopyVerified error = %v, want nil-writer rejection", err)
+	}
+}
+
+func TestCopyVerifiedWithLimitsRejectsDirectoryGrowthBeyondExactWork(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	identity := accessTestIdentity(t, root)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAccessTestFile(t, filepath.Join(root, "appeared"), nil)
+	traversal, err := NewTraversalLimit(1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure := accessTreeStructureLimitForTest(t, 0, 0)
+	sink := accessTestSink{openFile: func(string, fs.FileMode, int64) (io.WriteCloser, error) {
+		return discardWriteCloser{}, nil
+	}}
+
+	err = view.CopyVerifiedWithLimits(
+		context.Background(),
+		identity,
+		sink,
+		traversal,
+		structure,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 0 entries") {
+		t.Fatalf("CopyVerifiedWithLimits error = %v, want exact growth rejection", err)
 	}
 }
 

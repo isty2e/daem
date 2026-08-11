@@ -225,7 +225,7 @@ func captureRootedExistingWithCapability(
 		content, mode, _, err := filesystem.ReadRootedRegularFileUpTo(
 			ctx,
 			capability,
-			MaximumRecoveryBackupFileBytes,
+			recovery.MaximumRecoveryBackupFileBytes,
 		)
 		if err != nil {
 			return recovery.BeforePathState{}, backupIndex, err

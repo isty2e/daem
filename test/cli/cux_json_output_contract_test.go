@@ -70,10 +70,17 @@ func TestCUXRecoverYesJSONReportsWriteResult(t *testing.T) {
 
 	payload := runCUXJSON(t, []string{"recover", "--manifest", manifestPath, "--yes", "--json"})
 	assertCUXJSONHeader(t, payload, contractversion.RecoveryJSON, "recover", "write")
-	if payload["authority_kind"] != "active_journal" ||
+	if payload["phase"] != "completed" ||
 		payload["has_errors"] != false ||
-		payload["classification"] != "needs_rollback" {
+		payload["operation_id"] != "20260621T120000.000000000Z-apply" ||
+		payload["action_count"] != float64(0) ||
+		payload["cleanup_obligation_count"] != float64(0) {
 		t.Fatalf("payload = %#v, want successful recovery result", payload)
+	}
+	for _, stale := range []string{"authority_kind", "operation_dir", "classification"} {
+		if _, present := payload[stale]; present {
+			t.Fatalf("terminal recovery payload retained %q: %#v", stale, payload)
+		}
 	}
 }
 

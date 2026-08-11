@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/target"
@@ -87,6 +88,7 @@ func validateRecoveryGlobalPathBindings(
 	entries []recoveryEntry,
 	resolver func(output.Destination) (string, error),
 	rootedCapability RootedCapabilityResolver,
+	budget *recovery.PhysicalWorkBudget,
 ) error {
 	validated := make(map[output.Destination]recoveryGlobalPathBinding)
 	currentRoots := make(map[string]rootedpath.Authority)
@@ -114,20 +116,87 @@ func validateRecoveryGlobalPathBindings(
 			}
 			continue
 		}
-		current, err := observeRecoveryGlobalPathBinding(
+		current, err := observeRecoveryGlobalPathBindingForRecovery(
 			destination,
 			resolver,
 			rootedCapability,
+			budget,
 		)
 		if err != nil {
 			return fmt.Errorf("recovery entries[%d]: %w", index, err)
 		}
-		if err := entry.GlobalPathBinding.match(current, currentRoots); err != nil {
+		if err := entry.GlobalPathBinding.match(current, currentRoots, budget); err != nil {
 			return fmt.Errorf("recovery entries[%d] global destination %q: %w", index, destination, err)
 		}
 		validated[destination] = *entry.GlobalPathBinding
 	}
 	return nil
+}
+
+func observeRecoveryGlobalPathBindingForRecovery(
+	destination output.Destination,
+	resolver func(output.Destination) (string, error),
+	rootedCapability RootedCapabilityResolver,
+	budget *recovery.PhysicalWorkBudget,
+) (recoveryGlobalPathObservation, error) {
+	if budget == nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery path work budget is required")
+	}
+	if resolver == nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("recovery global destination resolver is required")
+	}
+	resolved, err := resolver(destination)
+	if err != nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("resolve global destination %q: %w", destination, err)
+	}
+	if rootedCapability != nil {
+		capability, present, err := acquireMatchingRootedCapability(
+			destination,
+			resolved,
+			rootedCapability,
+			budget,
+		)
+		if err != nil {
+			return recoveryGlobalPathObservation{}, err
+		}
+		if !present {
+			return recoveryGlobalPathObservation{}, fmt.Errorf(
+				"global destination %q has no retained root authority",
+				destination,
+			)
+		}
+		bound := capability.Destination()
+		path, pathErr := bound.LexicalPath()
+		closeErr := capability.Close()
+		if pathErr != nil || closeErr != nil {
+			return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+		}
+		return recoveryGlobalPathObservation{
+			resolvedPath:  path,
+			rootAuthority: bound.Root(),
+		}, nil
+	}
+	root, bound, err := rootedpath.CaptureDestinationBounded(
+		resolved,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
+	if err != nil {
+		return recoveryGlobalPathObservation{}, fmt.Errorf("bind global destination %q: %w", destination, err)
+	}
+	path, pathErr := bound.LexicalPath()
+	if pathErr != nil {
+		pathErr = fmt.Errorf("read global destination %q lexical path: %w", destination, pathErr)
+	}
+	authority := bound.Root()
+	closeErr := root.Close()
+	if closeErr != nil {
+		closeErr = fmt.Errorf("close global destination %q root authority: %w", destination, closeErr)
+	}
+	if pathErr != nil || closeErr != nil {
+		return recoveryGlobalPathObservation{}, errors.Join(pathErr, closeErr)
+	}
+	return recoveryGlobalPathObservation{resolvedPath: path, rootAuthority: authority}, nil
 }
 
 func observeRecoveryGlobalPathBinding(
@@ -147,6 +216,7 @@ func observeRecoveryGlobalPathBinding(
 			destination,
 			resolved,
 			rootedCapability,
+			nil,
 		)
 		if err != nil {
 			return recoveryGlobalPathObservation{}, err
@@ -226,6 +296,7 @@ func (binding recoveryGlobalPathBinding) canonical() (string, rootedpath.Authori
 func (binding recoveryGlobalPathBinding) match(
 	current recoveryGlobalPathObservation,
 	currentRoots map[string]rootedpath.Authority,
+	budget *recovery.PhysicalWorkBudget,
 ) error {
 	expectedPath, expectedRoot, err := binding.canonical()
 	if err != nil {
@@ -248,11 +319,15 @@ func (binding recoveryGlobalPathBinding) match(
 		present = true
 	}
 	if !present {
-		recaptured, err := rootedpath.CaptureRoot(expectedRoot.PhysicalRoot())
+		recaptured, err := rootedpath.CaptureRootBounded(
+			expectedRoot.PhysicalRoot(),
+			recovery.MaximumPhysicalPathDepth,
+			budget,
+		)
 		if err != nil {
 			return fmt.Errorf("recapture capture-time global root: %w", err)
 		}
-		currentRoot, err = recaptured.Authority()
+		currentRoot, err = recaptured.AuthorityBounded(budget)
 		if err != nil {
 			return errors.Join(err, recaptured.Close())
 		}
@@ -296,16 +371,26 @@ func manifestAuthorityForCapture(
 func manifestAuthorityForRecovery(
 	paths Paths,
 	journal recoveryJournal,
+	budget *recovery.PhysicalWorkBudget,
 ) (*manifestAuthoritySession, error) {
 	expected, err := journal.ManifestRootProvenance.canonical()
 	if err != nil {
 		return nil, err
 	}
-	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
+	root, err := rootedpath.CaptureRootBounded(
+		paths.ManifestRoot,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("recapture manifest root for recovery: %w", err)
 	}
-	session, err := newManifestAuthoritySession(root, true)
+	authority, err := root.AuthorityBounded(budget)
+	if err != nil {
+		_ = root.Close()
+		return nil, fmt.Errorf("read recovery manifest root authority: %w", err)
+	}
+	session, err := newManifestAuthoritySessionFromAuthority(root, authority, true)
 	if err != nil {
 		_ = root.Close()
 		return nil, err
@@ -328,6 +413,14 @@ func newManifestAuthoritySession(root *rootedpath.CapturedRoot, owned bool) (*ma
 	if err != nil {
 		return nil, fmt.Errorf("read captured manifest root authority: %w", err)
 	}
+	return newManifestAuthoritySessionFromAuthority(root, authority, owned)
+}
+
+func newManifestAuthoritySessionFromAuthority(
+	root *rootedpath.CapturedRoot,
+	authority rootedpath.Authority,
+	owned bool,
+) (*manifestAuthoritySession, error) {
 	provenance, err := authority.Provenance()
 	if err != nil {
 		return nil, fmt.Errorf("derive manifest root provenance: %w", err)
@@ -369,6 +462,28 @@ func (session *manifestAuthoritySession) acquire(
 	return session.root.Acquire(bound)
 }
 
+func (session *manifestAuthoritySession) acquireBounded(
+	destination output.Destination,
+	budget *recovery.PhysicalWorkBudget,
+) (rootedpath.CommitCapability, error) {
+	if session == nil || session.root == nil {
+		return nil, fmt.Errorf("project root authority is unavailable for %q", destination)
+	}
+	relative, err := rootedpath.NewRelativeDestination(destination.RelativePath())
+	if err != nil {
+		return nil, err
+	}
+	bound, err := session.authority.Bind(relative)
+	if err != nil {
+		return nil, err
+	}
+	return session.root.AcquireBounded(
+		bound,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
+}
+
 func (session *manifestAuthoritySession) close() error {
 	if session == nil || !session.owned || session.root == nil {
 		return nil
@@ -406,21 +521,24 @@ func validateManifestRootProvenance(journal recoveryJournal) error {
 }
 
 // RootedCapabilityResolver acquires a borrowed, current capability for one
-// already-bound global destination. The caller retains the root authority; the
-// receiver closes each returned capability.
+// already-bound global destination. A non-nil budget must cover acquisition
+// before descriptor validation begins. The caller retains the root authority;
+// the receiver closes each returned capability.
 type RootedCapabilityResolver func(
 	destination output.Destination,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (rootedpath.CommitCapability, bool, error)
 
 func acquireMatchingRootedCapability(
 	destination output.Destination,
 	resolvedPath string,
 	acquire RootedCapabilityResolver,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (rootedpath.CommitCapability, bool, error) {
 	if acquire == nil {
 		return nil, false, nil
 	}
-	capability, present, err := acquire(destination)
+	capability, present, err := acquire(destination, budget)
 	if err != nil {
 		if capability != nil {
 			err = errors.Join(err, capability.Close())

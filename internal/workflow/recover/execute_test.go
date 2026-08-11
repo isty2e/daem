@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,9 +17,48 @@ import (
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 )
+
+type failRetirementRecordAdvanceStore struct {
+	mutationfs.Store
+	failures int
+}
+
+func (filesystem *failRetirementRecordAdvanceStore) ReplaceRootedFileWithOutcome(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	content []byte,
+	mode fs.FileMode,
+	expected mutationfs.EntryIdentity,
+) (mutationfs.CommitOutcome, error) {
+	path, err := capability.Destination().LexicalPath()
+	if err == nil && filepath.Base(path) == retirement.RecordFileName {
+		filesystem.failures++
+		outcome, outcomeErr := mutationfs.NewCommitOutcome(
+			mutationfs.CommitOutcomeUncommitted,
+			nil,
+		)
+		if outcomeErr != nil {
+			panic(outcomeErr)
+		}
+		return outcome, errors.Join(
+			errors.New("injected retirement record advancement failure"),
+			capability.Close(),
+		)
+	}
+	return filesystem.Store.ReplaceRootedFileWithOutcome(
+		ctx,
+		capability,
+		content,
+		mode,
+		expected,
+	)
+}
 
 func TestExecuteRejectsActiveJournalReplacement(t *testing.T) {
 	fixture := prepareRecoveryFixture(t, true)
@@ -52,7 +92,7 @@ func TestExecuteRejectsActiveJournalReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = Execute(context.Background(), prepared, ExecuteOptions{})
+	_, err = Execute(context.Background(), prepared, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -81,8 +121,23 @@ func TestExecuteReplansAndRestoresCurrentRecoveryPlan(t *testing.T) {
 	if active.Classification() != recovery.ClassificationNeedsRollback {
 		t.Fatalf("classification = %q", active.Classification())
 	}
-	if err := Execute(context.Background(), planned, ExecuteOptions{}); err != nil {
+	backupPaths := make(map[string]struct{})
+	for _, action := range active.Actions() {
+		if action.BackupPath != "" {
+			backupPaths[filepath.Join(active.OperationDir(), action.BackupPath)] = struct{}{}
+		}
+	}
+	if len(backupPaths) == 0 {
+		t.Fatal("rollback fixture has no backup authority")
+	}
+	result, err := Execute(context.Background(), planned, ExecuteOptions{})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if result.Phase() != ExecutionPhaseCompleted ||
+		result.OperationID() != active.OperationID() ||
+		result.AuthorityRetained() {
+		t.Fatalf("execution result = %#v, want retired active-journal authority", result)
 	}
 	content, err := os.ReadFile(fixture.hostPath)
 	if err != nil {
@@ -96,6 +151,56 @@ func TestExecuteReplansAndRestoresCurrentRecoveryPlan(t *testing.T) {
 	}
 }
 
+func TestActiveRecoveryAuthorityObservesRecoveryRootIdentity(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, true)
+	planned, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceRecoverTestTreeWithClone(t, paths.RecoveryDir)
+	if _, err := Execute(t.Context(), planned, ExecuteOptions{}); err == nil {
+		t.Fatal("Execute accepted a replacement recovery root")
+	}
+}
+
+func TestExecuteReclassifiesPartialRetirementAsCleanupAuthority(t *testing.T) {
+	fixture := prepareRecoveryFixture(t, false)
+	prepared, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filesystem := &failRetirementRecordAdvanceStore{Store: storagecommit.Adapter{}}
+
+	result, err := Execute(t.Context(), prepared, ExecuteOptions{Filesystem: filesystem})
+	var cleanupFailure *journal.CleanupFailure
+	if !errors.As(err, &cleanupFailure) ||
+		cleanupFailure.Action() != retirement.ActionFinalizeJournalCleanup {
+		t.Fatalf("Execute error = %v, want fresh cleanup-authority failure", err)
+	}
+	if filesystem.failures != 1 {
+		t.Fatalf("retirement record failures = %d, want 1", filesystem.failures)
+	}
+	if result.Phase() != ExecutionPhaseCleanupAuthorityRetained ||
+		result.AuthorityKind() != journal.RecoveryAuthorityJournalCleanup {
+		t.Fatalf("execution result = %#v, want fresh cleanup-only authority", result)
+	}
+	disclosure, ok := result.CurrentDisclosure()
+	if !ok {
+		t.Fatal("cleanup-only result has no current disclosure")
+	}
+	cleanup, ok := journal.JournalCleanupPlan(disclosure)
+	if !ok || cleanup.Action() != retirement.ActionFinalizeJournalCleanup {
+		t.Fatalf("current disclosure = %#v, want journal cleanup continuation", disclosure)
+	}
+	if _, statErr := os.Stat(fixture.operationDir); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("active journal stat error = %v, want renamed authority", statErr)
+	}
+}
+
 func TestExecuteRejectsRecoveryDriftAndRetainsJournal(t *testing.T) {
 	fixture := prepareRecoveryFixture(t, true)
 	planned, err := Plan(context.Background(), fixture.input)
@@ -105,10 +210,13 @@ func TestExecuteRejectsRecoveryDriftAndRetainsJournal(t *testing.T) {
 	dirty := []byte("neither before nor expected after\n")
 	writeRecoverTestFile(t, fixture.hostPath, dirty)
 
-	err = Execute(context.Background(), planned, ExecuteOptions{})
+	result, err := Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
+	}
+	if result.Phase() != ExecutionPhaseActiveAuthorityRetained || !result.AuthorityRetained() {
+		t.Fatalf("execution result = %#v, want retained recovery authority", result)
 	}
 	content, readErr := os.ReadFile(fixture.hostPath)
 	if readErr != nil {
@@ -180,7 +288,7 @@ func TestExecuteRejectsStatefileAfterAuthorityDrift(t *testing.T) {
 		t.Fatal("statefile_after drift retained the disclosed recovery operation fingerprint")
 	}
 
-	err = Execute(context.Background(), planned, ExecuteOptions{})
+	_, err = Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -211,13 +319,97 @@ func TestActiveJournalRetirementRevalidatesGuardedHostPaths(t *testing.T) {
 	}
 	writeRecoverTestFile(t, fixture.hostPath, fixture.newContent)
 
-	err = Execute(context.Background(), planned, ExecuteOptions{})
+	_, err = Execute(context.Background(), planned, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
 	}
 	if _, statErr := os.Stat(fixture.operationDir); statErr != nil {
 		t.Fatalf("stale cleanup removed journal: %v", statErr)
+	}
+}
+
+func TestActiveRecoveryAuthorityCoversCompleteRemovalContinuation(t *testing.T) {
+	fixture := prepareRemovalRecoveryFixture(t)
+	prepared, err := Plan(t.Context(), fixture.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	active, ok := journal.ActiveRecoveryPlan(prepared.Disclosure())
+	if !ok {
+		t.Fatal("active recovery plan is unavailable")
+	}
+	intents := active.RemovalIntents()
+	if len(intents) == 0 {
+		t.Fatal("fixture has no removal continuation authority")
+	}
+	for _, action := range active.GuardedActions() {
+		if action.Kind != recovery.ActionKindNoOp {
+			t.Fatalf("guarded action = %#v, want semantically complete removal-only recovery", action)
+		}
+	}
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence := prepared.lifecycle.planned.authorityEvidence
+	resolver := destinationResolver(paths)
+	var leasedRemovalPaths []string
+	var oneParentPath string
+	for _, intent := range intents {
+		destinationPath, err := resolver.Resolve(intent.Destination())
+		if err != nil {
+			t.Fatal(err)
+		}
+		residuePath, cleanupPath, err := journal.RemovalNamespacePaths(intent.Namespace())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(leasedRemovalPaths) == 0 {
+			leasedRemovalPaths = []string{destinationPath, residuePath, cleanupPath}
+		}
+		parentPath := filepath.Dir(residuePath)
+		oneParentPath = parentPath
+	}
+
+	store, err := mutation.NewStore(paths.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leases, err := store.Acquire(t.Context(), evidence.domains...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer leases.Release()
+	for _, path := range leasedRemovalPaths {
+		competitor, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+			Path: path, Access: mutation.AccessExclusive,
+			Effect: mutation.PathEffectDirectoryEntry,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		_, acquireErr := store.Acquire(ctx, competitor)
+		cancel()
+		if !errors.Is(acquireErr, context.DeadlineExceeded) {
+			t.Fatalf("overlapping removal lease %q error = %v, want deadline", path, acquireErr)
+		}
+	}
+	parentCompetitor, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+		Path: oneParentPath, Access: mutation.AccessExclusive,
+		Effect: mutation.PathEffectDirectoryEntry,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentCtx, parentCancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer parentCancel()
+	_, err = store.Acquire(parentCtx, parentCompetitor)
+	if err == nil || (!errors.Is(err, context.DeadlineExceeded) &&
+		!strings.Contains(err.Error(), "contains the lease store")) {
+		t.Fatalf("overlapping removal-parent lease error = %v, want exclusion", err)
 	}
 }
 
@@ -257,14 +449,7 @@ func TestCleanupOnlyRecoveryUsesOnlyRetirementAuthority(t *testing.T) {
 			cleanup.Action(),
 		)
 	}
-	for _, revision := range prepared.lifecycle.planned.authorityEvidence.revisions {
-		if !strings.HasPrefix(revision.Path, fixture.paths.RecoveryDir+string(os.PathSeparator)) &&
-			revision.Path != fixture.paths.RecoveryDir {
-			t.Fatalf("cleanup authority includes non-recovery path %q", revision.Path)
-		}
-	}
-
-	if err := Execute(t.Context(), prepared, ExecuteOptions{}); err != nil {
+	if _, err := Execute(t.Context(), prepared, ExecuteOptions{}); err != nil {
 		t.Fatalf("Execute cleanup-only recovery: %v", err)
 	}
 	assertRecoverPathAbsent(t, fixture.controlDir)
@@ -293,7 +478,7 @@ func TestCleanupOnlyRecoveryRejectsStaleRecordBeforeEffects(t *testing.T) {
 	}
 	writeRetirementRecord(t, fixture.recordPath, finalizing)
 
-	err = Execute(t.Context(), prepared, ExecuteOptions{})
+	_, err = Execute(t.Context(), prepared, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -313,10 +498,10 @@ func TestCleanupOnlyRecoveryRejectsDuplicatePreparedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Execute(t.Context(), first, ExecuteOptions{}); err != nil {
+	if _, err := Execute(t.Context(), first, ExecuteOptions{}); err != nil {
 		t.Fatalf("first Execute: %v", err)
 	}
-	err = Execute(t.Context(), second, ExecuteOptions{})
+	_, err = Execute(t.Context(), second, ExecuteOptions{})
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("second Execute error = %v, want StaleSnapshotError", err)
@@ -334,7 +519,7 @@ func TestCleanupOnlyRecoveryHonorsCancellationBeforeEffects(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	err = Execute(ctx, prepared, ExecuteOptions{})
+	_, err = Execute(ctx, prepared, ExecuteOptions{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Execute error = %v, want context.Canceled", err)
 	}
@@ -421,7 +606,7 @@ func TestCleanupOnlyRecoveryRejectsPhysicalAndNamespaceDrift(t *testing.T) {
 			}
 			test.drift(t, fixture)
 
-			err = Execute(t.Context(), prepared, ExecuteOptions{})
+			_, err = Execute(t.Context(), prepared, ExecuteOptions{})
 			var stale mutation.StaleSnapshotError
 			if !errors.As(err, &stale) {
 				t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -449,7 +634,8 @@ func TestCleanupOnlyRecoverySerializesIndependentPreparedPlans(t *testing.T) {
 	for _, prepared := range []*PreparedRecovery{first, second} {
 		go func(prepared *PreparedRecovery) {
 			<-start
-			results <- Execute(ctx, prepared, ExecuteOptions{})
+			_, err := Execute(ctx, prepared, ExecuteOptions{})
+			results <- err
 		}(prepared)
 	}
 	close(start)
@@ -574,7 +760,7 @@ func TestCleanupOnlyRecoveryRejectsNewlyBlockedEvidenceBeforeEffects(t *testing.
 			}
 			test.drift(t, fixture)
 
-			err = Execute(t.Context(), prepared, ExecuteOptions{})
+			_, err = Execute(t.Context(), prepared, ExecuteOptions{})
 			var stale mutation.StaleSnapshotError
 			if !errors.As(err, &stale) {
 				t.Fatalf("Execute error = %v, want StaleSnapshotError", err)
@@ -593,7 +779,7 @@ func TestResolveRecoveryGuardedDestinationsRejectsPhysicalAliases(t *testing.T) 
 		ManifestRoot: root,
 		DataDir:      filepath.Join(root, ".daem", "data"),
 	}
-	_, err := resolveRecoveryGuardedDestinations(paths, []recovery.Action{
+	_, _, err := resolveRecoveryAuthorityPaths(paths, []recovery.Action{
 		{
 			Scope:       target.ScopeProject,
 			Destination: ".agents/skills/review",
@@ -602,9 +788,9 @@ func TestResolveRecoveryGuardedDestinationsRejectsPhysicalAliases(t *testing.T) 
 			Scope:       target.ScopeGlobal,
 			Destination: "~/.agents/skills/review",
 		},
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "aliases incompatible logical occupancies") {
-		t.Fatalf("resolveRecoveryGuardedDestinations error = %v, want physical occupancy rejection", err)
+		t.Fatalf("resolveRecoveryAuthorityPaths error = %v, want physical occupancy rejection", err)
 	}
 }
 
@@ -615,7 +801,7 @@ func TestResolveRecoveryGuardedDestinationsAllowsSharedAggregateDocument(t *test
 		DataDir:      filepath.Join(root, ".daem", "data"),
 	}
 	destination := ".claude/settings.json"
-	resolved, err := resolveRecoveryGuardedDestinations(paths, []recovery.Action{
+	resolved, _, err := resolveRecoveryAuthorityPaths(paths, []recovery.Action{
 		{
 			Scope:       target.ScopeProject,
 			Destination: destination,
@@ -626,7 +812,7 @@ func TestResolveRecoveryGuardedDestinationsAllowsSharedAggregateDocument(t *test
 			Destination: destination,
 			ContentPath: "/hooks/PostToolUse",
 		},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

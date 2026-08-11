@@ -58,6 +58,28 @@ func backupMismatch(before BeforePathState, backups map[string]BackupEvidence) s
 	if backup.ContentHash != before.ContentHash {
 		return fmt.Sprintf("backup hash %q does not match before hash %q", backup.ContentHash, before.ContentHash)
 	}
+	switch backup.Kind {
+	case PathKindFile:
+		if backup.Work.entries != 0 || backup.Work.bytes > MaximumRecoveryBackupFileBytes {
+			return fmt.Sprintf(
+				"file backup work entries=%d bytes=%d exceeds entries=0 bytes=%d",
+				backup.Work.entries,
+				backup.Work.bytes,
+				MaximumRecoveryBackupFileBytes,
+			)
+		}
+	case PathKindDirectory:
+		if backup.Work.entries > MaximumArtifactTreeEntries ||
+			backup.Work.bytes > MaximumArtifactTreeBytes {
+			return fmt.Sprintf(
+				"directory backup work entries=%d bytes=%d exceeds entries=%d bytes=%d",
+				backup.Work.entries,
+				backup.Work.bytes,
+				MaximumArtifactTreeEntries,
+				MaximumArtifactTreeBytes,
+			)
+		}
+	}
 	return ""
 }
 

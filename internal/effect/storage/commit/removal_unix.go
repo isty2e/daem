@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/unix"
 )
@@ -14,7 +15,18 @@ import (
 // CommitLogicalRemoval durably retires the active name, then removes its
 // private tombstone.
 func CommitLogicalRemoval(ctx context.Context, request LogicalRemoval) error {
-	return commitLogicalRemovalWithFaults(ctx, request, faultPlan{})
+	_, err := CommitLogicalRemovalWithOutcome(ctx, request)
+	return err
+}
+
+// CommitLogicalRemovalWithOutcome is the outcome-bearing rooted-removal
+// boundary used by journal-authorized execution.
+func CommitLogicalRemovalWithOutcome(
+	ctx context.Context,
+	request LogicalRemoval,
+) (mutationfs.CommitOutcome, error) {
+	err := commitLogicalRemovalWithFaults(ctx, request, faultPlan{})
+	return outcomeFromError(err), err
 }
 
 func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval, faults faultPlan) error {
@@ -41,9 +53,30 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 		return failureBeforeVisibility(phaseValidate, request.path, err)
 	}
 
-	tombstoneName, err := unusedSiblingName(anchor.parentFD(), tombstonePrefix)
-	if err != nil {
-		return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+	tombstoneName := tombstonePrefix
+	cleanupName := ""
+	if request.names != nil {
+		tombstoneName = request.names.Residue()
+		cleanupName = request.names.Cleanup()
+		for _, name := range []string{tombstoneName, cleanupName} {
+			exists, err := entryExists(anchor.parentFD(), name)
+			if err != nil {
+				return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+			}
+			if exists {
+				return failureBeforeVisibility(
+					phaseCommitTombstone,
+					request.path,
+					fmt.Errorf("journal-authorized removal name %q is already occupied", name),
+				)
+			}
+		}
+	} else {
+		var err error
+		tombstoneName, err = unusedSiblingName(anchor.parentFD(), tombstonePrefix)
+		if err != nil {
+			return failureBeforeVisibility(phaseCommitTombstone, request.path, err)
+		}
 	}
 	tombstonePath := filepath.Join(filepath.Dir(request.path), tombstoneName)
 	var tombstoneIdentity EntryIdentity
@@ -89,22 +122,70 @@ func commitLogicalRemovalWithFaults(ctx context.Context, request LogicalRemoval,
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, tombstonePath)
 	}
 
+	cleanupEntryName := tombstoneName
+	cleanupPath := tombstonePath
+	cleanupIdentity := tombstoneIdentity
+	if cleanupName != "" {
+		cleanupPath = filepath.Join(filepath.Dir(request.path), cleanupName)
+		err = faults.run(ctx, phasePromoteCleanup, func() error {
+			return renameNoReplace(anchor.parentFD(), tombstoneName, anchor.parentFD(), cleanupName)
+		})
+		if err != nil {
+			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, tombstonePath)
+		}
+		err = faults.run(ctx, phaseVerifyEntry, func() error {
+			if err := anchor.verifyChain(); err != nil {
+				return err
+			}
+			moved, _, observeErr := anchor.observe(cleanupName, cleanupPath)
+			if observeErr != nil {
+				return observeErr
+			}
+			if !tombstoneIdentity.sameObject(moved) {
+				return fmt.Errorf("cleanup-stage identity does not match validated residue")
+			}
+			cleanupIdentity = moved
+			return nil
+		})
+		if err != nil {
+			return newFailure(
+				failureIndeterminateCommit,
+				phaseVerifyEntry,
+				request.path,
+				err,
+				tombstonePath,
+				cleanupPath,
+			)
+		}
+		err = faults.run(ctx, phaseSyncParent, func() error { return syncDirectory(anchor.parentFD()) })
+		if err != nil {
+			return newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err, cleanupPath)
+		}
+		cleanupEntryName = cleanupName
+	}
+
 	err = faults.run(ctx, phaseCleanupTombstone, func() error {
-		return removeEntryAt(
+		limits := defaultTreeTraversalLimits()
+		if request.names != nil {
+			limits = request.limits
+		}
+		return removeEntryAtWithFaults(
 			ctx,
 			anchor.parentFD(),
-			tombstoneName,
-			tombstonePath,
-			tombstoneIdentity,
+			cleanupEntryName,
+			cleanupPath,
+			cleanupIdentity,
 			request.capability,
+			limits,
+			faults,
 		)
 	})
 	if err != nil {
-		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, tombstonePath)
+		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, cleanupPath)
 	}
 	err = faults.run(ctx, phaseSyncCleanupParent, func() error { return syncDirectory(anchor.parentFD()) })
 	if err != nil {
-		return newFailure(failureRetainedResidue, phaseSyncCleanupParent, request.path, err, tombstonePath)
+		return newFailure(failureRetainedResidue, phaseSyncCleanupParent, request.path, err, cleanupPath)
 	}
 	if err := anchor.verifyChain(); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
@@ -124,6 +205,16 @@ func validateRemovalRequest(request LogicalRemoval) error {
 	}
 	if request.capability != nil && request.expected.kind == entryKindSymlink {
 		return rootedFinalSymlinkFailure(request.path)
+	}
+	if request.names != nil {
+		if err := request.limits.Validate(); err != nil {
+			return fmt.Errorf("journal-authorized removal traversal limits: %w", err)
+		}
+		if request.limits.MaximumEntries() > defaultTreeTraversalMaximumEntries ||
+			request.limits.MaximumDepth() > defaultTreeTraversalMaximumDepth ||
+			request.limits.MaximumBytes() > defaultTreeTraversalMaximumBytes {
+			return fmt.Errorf("journal-authorized removal traversal limits exceed storage maximum")
+		}
 	}
 	switch request.expected.kind {
 	case entryKindRegular, entryKindDirectory, entryKindSymlink:
@@ -183,6 +274,7 @@ func removeEntryAt(
 		path,
 		expected,
 		capability,
+		defaultTreeTraversalLimits(),
 		faultPlan{},
 	)
 }
@@ -194,6 +286,7 @@ func removeEntryAtWithFaults(
 	path string,
 	expected EntryIdentity,
 	capability rootedpath.CommitCapability,
+	limits mutationfs.TreeTraversalLimits,
 	faults faultPlan,
 ) error {
 	if err := ctx.Err(); err != nil {
@@ -209,6 +302,15 @@ func removeEntryAtWithFaults(
 	if err := validateOwnedStat(path, &stat); err != nil {
 		return err
 	}
+	if observed.kind == entryKindRegular {
+		budget, err := newTreeTraversalBudget(limits)
+		if err != nil {
+			return err
+		}
+		if err := budget.admitBytes(stat.Size); err != nil {
+			return err
+		}
+	}
 	if observed.kind == entryKindDirectory {
 		observed, err = prepareRemovalDirectory(parentFD, name, path, observed, stat)
 		if err != nil {
@@ -223,9 +325,7 @@ func removeEntryAtWithFaults(
 			_ = unix.Close(fd)
 			return err
 		}
-		preflightBudget, err := newTreeTraversalBudget(
-			defaultTreeTraversalLimits(),
-		)
+		preflightBudget, err := newTreeTraversalBudget(limits)
 		if err == nil {
 			err = validateDirectoryEntries(
 				ctx,
@@ -237,9 +337,7 @@ func removeEntryAtWithFaults(
 			)
 		}
 		if err == nil {
-			cleanupBudget, budgetErr := newTreeTraversalBudget(
-				defaultTreeTraversalLimits(),
-			)
+			cleanupBudget, budgetErr := newTreeTraversalBudget(limits)
 			if budgetErr != nil {
 				err = budgetErr
 			} else {
@@ -355,6 +453,9 @@ func removeDirectoryContentsWithFaults(
 				return err
 			}
 		case entryKindRegular:
+			if err := budget.admitBytes(stat.Size); err != nil {
+				return err
+			}
 			fd, err := openExpectedAt(directoryFD, name, entryPath, identity)
 			if err != nil {
 				return err

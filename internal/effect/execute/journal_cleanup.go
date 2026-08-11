@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 // JournalCleanupPaths contains only the recovery root reachable by cleanup-only
@@ -63,22 +63,28 @@ func ExecuteJournalCleanupWithOptions(
 	if options.Filesystem == nil {
 		return fmt.Errorf("journal cleanup filesystem is required")
 	}
-	root, err := rootedpath.CaptureRoot(paths.RecoveryDir)
+	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
 	if err != nil {
-		return fmt.Errorf("capture recovery root for journal cleanup: %w", err)
+		return fmt.Errorf("construct journal cleanup physical work budget: %w", err)
+	}
+	prepared, err := journal.PrepareJournalCleanup(
+		ctx,
+		plan,
+		paths.RecoveryDir,
+		recovery.MaximumPhysicalPathDepth,
+		physicalWorkBudget,
+		options.Filesystem,
+	)
+	if err != nil {
+		return fmt.Errorf("prepare bounded journal cleanup: %w", err)
 	}
 	defer func() {
-		returnErr = errors.Join(returnErr, root.Close())
+		returnErr = errors.Join(returnErr, prepared.Close())
 	}()
 	if options.ValidateBeforeEffects != nil {
 		if err := options.ValidateBeforeEffects(ctx); err != nil {
 			return err
 		}
 	}
-	return journal.FinalizeJournalCleanup(
-		ctx,
-		plan,
-		root,
-		options.Filesystem,
-	)
+	return prepared.ExecuteCleanup(ctx, plan)
 }

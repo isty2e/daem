@@ -30,9 +30,11 @@ const (
 
 // Store owns strict serialization and atomic guarded writes for one registry path.
 type Store struct {
-	path        string
-	root        *rootedpath.CapturedRoot
-	destination rootedpath.Destination
+	path                 string
+	root                 *rootedpath.CapturedRoot
+	destination          rootedpath.Destination
+	maximumPhysicalDepth int
+	physicalWorkBudget   rootedpath.PhysicalTraversalBudget
 }
 
 var _ ownershipmutation.RegistryStore = Store{}
@@ -41,36 +43,71 @@ var _ ownershipmutation.RegistryStore = Store{}
 func BindRooted(
 	root *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (ownershipmutation.RegistryStore, error) {
-	store, err := NewRooted(root, destination)
+	store, err := NewRooted(root, destination, maximumPhysicalDepth, budget)
 	if err != nil {
 		return nil, err
 	}
 	return store, nil
 }
 
-// New validates the absolute registry path.
+// New validates and canonicalizes the absolute registry path for ambient
+// read/write use.
 func New(path string) (Store, error) {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return Store{}, fmt.Errorf("ownership registry path %q must be absolute and clean", path)
+	store, err := newLexicalStore(path)
+	if err != nil {
+		return Store{}, err
 	}
-	canonical, err := mutation.CanonicalDirectoryEntryPath(path)
+	canonical, err := mutation.CanonicalDirectoryEntryPath(store.path)
 	if err != nil {
 		return Store{}, fmt.Errorf("canonicalize ownership registry path: %w", err)
 	}
-	return Store{path: canonical}, nil
+	store.path = canonical
+	return store, nil
 }
 
-// NewRooted constructs a registry store bound to a retained physical root.
-// The caller owns root and must keep it open for the store's lifetime.
-func NewRooted(root *rootedpath.CapturedRoot, destination rootedpath.Destination) (Store, error) {
+// NewRecoveryReader configures a recovery-only reader without observing the
+// filesystem. LoadForClaimRemovals performs the only physical resolution under
+// the caller's recovery budget.
+func NewRecoveryReader(path string) (ownershipmutation.RegistryReader, error) {
+	store, err := newLexicalStore(path)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+func newLexicalStore(path string) (Store, error) {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return Store{}, fmt.Errorf("ownership registry path %q must be absolute and clean", path)
+	}
+	return Store{path: path}, nil
+}
+
+// NewRooted constructs a rooted store whose every physical authority
+// observation consumes the supplied operation-wide budget. The caller owns
+// root and must keep it open for the store's lifetime.
+func NewRooted(
+	root *rootedpath.CapturedRoot,
+	destination rootedpath.Destination,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (Store, error) {
+	if maximumPhysicalDepth <= 0 {
+		return Store{}, fmt.Errorf("ownership registry maximum physical depth must be positive")
+	}
+	if budget == nil {
+		return Store{}, fmt.Errorf("ownership registry physical work budget is required")
+	}
 	if root == nil {
 		return Store{}, fmt.Errorf("ownership registry root authority is required")
 	}
 	if err := destination.Validate(); err != nil {
 		return Store{}, fmt.Errorf("ownership registry destination: %w", err)
 	}
-	capability, err := root.Acquire(destination)
+	capability, err := root.AcquireBounded(destination, maximumPhysicalDepth, budget)
 	if err != nil {
 		return Store{}, fmt.Errorf("bind ownership registry destination: %w", err)
 	}
@@ -79,7 +116,11 @@ func NewRooted(root *rootedpath.CapturedRoot, destination rootedpath.Destination
 	if pathErr != nil || closeErr != nil {
 		return Store{}, errors.Join(pathErr, closeErr)
 	}
-	return Store{path: path, root: root, destination: destination}, nil
+	return Store{
+		path: path, root: root, destination: destination,
+		maximumPhysicalDepth: maximumPhysicalDepth,
+		physicalWorkBudget:   budget,
+	}, nil
 }
 
 // Path returns the persisted registry path.
@@ -89,24 +130,53 @@ func (store Store) Path() string {
 
 // Load reads current or exact empty retired ownership state. A missing file is empty.
 func (store Store) Load(ctx context.Context) (ownership.Registry, error) {
-	return store.load(ctx, nil)
+	observations, err := store.newPathAuthorityObservationSession()
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.load(ctx, nil, observations)
+}
+
+func (store Store) newPathAuthorityObservationSession() (*pathAuthorityObservationSession, error) {
+	if store.physicalWorkBudget == nil {
+		return newPathAuthorityObservationSession(), nil
+	}
+	return newBoundedPathAuthorityObservationSession(
+		store.maximumPhysicalDepth,
+		store.physicalWorkBudget,
+	)
 }
 
 // LoadForClaimRemovals reads the registry while admitting a missing path only
 // for an exact expected claim that durable recovery is authorized to remove.
+// Every registry and claim-authority traversal consumes the caller's recovery
+// planning budget before filesystem observation begins.
 func (store Store) LoadForClaimRemovals(
 	ctx context.Context,
 	expected []ownership.Claim,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (ownership.Registry, error) {
 	for index, claim := range expected {
 		if err := claim.Validate(); err != nil {
 			return ownership.Registry{}, fmt.Errorf("removed ownership claim[%d]: %w", index, err)
 		}
 	}
-	return store.load(ctx, expected)
+	observations, err := newBoundedPathAuthorityObservationSession(
+		maximumPhysicalDepth,
+		budget,
+	)
+	if err != nil {
+		return ownership.Registry{}, err
+	}
+	return store.load(ctx, expected, observations)
 }
 
-func (store Store) load(ctx context.Context, expectedRemovals []ownership.Claim) (ownership.Registry, error) {
+func (store Store) load(
+	ctx context.Context,
+	expectedRemovals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
+) (ownership.Registry, error) {
 	if ctx == nil {
 		return ownership.Registry{}, fmt.Errorf("ownership registry context is required")
 	}
@@ -114,7 +184,10 @@ func (store Store) load(ctx context.Context, expectedRemovals []ownership.Claim)
 		return ownership.Registry{}, err
 	}
 	if store.root != nil {
-		return store.loadRooted(ctx, expectedRemovals)
+		return store.loadRooted(ctx, expectedRemovals, observations)
+	}
+	if observations.bounded() {
+		return store.loadAmbientBounded(ctx, expectedRemovals, observations)
 	}
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, store.path, maximumOwnershipRegistryBytes)
 	if err != nil {
@@ -133,37 +206,62 @@ func (store Store) load(ctx context.Context, expectedRemovals []ownership.Claim)
 	if err := ctx.Err(); err != nil {
 		return ownership.Registry{}, err
 	}
-	return decodePersistedRegistryForClaimRemovals(ctx, snapshot.Content(), expectedRemovals)
+	return decodePersistedRegistryForClaimRemovals(
+		ctx,
+		snapshot.Content(),
+		expectedRemovals,
+		observations,
+	)
 }
 
 func decodePersistedRegistry(ctx context.Context, content []byte) (ownership.Registry, error) {
-	return decodePersistedRegistryForClaimRemovals(ctx, content, nil)
+	return decodePersistedRegistryForClaimRemovals(
+		ctx,
+		content,
+		nil,
+		newPathAuthorityObservationSession(),
+	)
 }
 
 func decodePersistedRegistryForClaimRemovals(
 	ctx context.Context,
 	content []byte,
 	expected []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) (ownership.Registry, error) {
 	registry, err := decode(content)
 	if err != nil {
 		return ownership.Registry{}, err
 	}
-	if err := validateCurrentAuthoritiesForClaimRemovals(ctx, registry, expected); err != nil {
+	if err := validateCurrentAuthoritiesForClaimRemovals(
+		ctx,
+		registry,
+		expected,
+		observations,
+	); err != nil {
 		return ownership.Registry{}, err
 	}
 	return registry, nil
 }
 
 func validateCurrentAuthorities(ctx context.Context, registry ownership.Registry) error {
-	return validateCurrentAuthoritiesForClaimRemovals(ctx, registry, nil)
+	return validateCurrentAuthoritiesForClaimRemovals(
+		ctx,
+		registry,
+		nil,
+		newPathAuthorityObservationSession(),
+	)
 }
 
 func validateCurrentAuthoritiesForClaimRemovals(
 	ctx context.Context,
 	registry ownership.Registry,
 	expected []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) error {
+	if observations == nil {
+		return fmt.Errorf("ownership path-authority observation session is required")
+	}
 	// Claim is a canonical comparable value, and direct equality is the same
 	// exact persisted identity as Claim.Equal. Index once so registry admission
 	// remains O(claims + expected removals).
@@ -176,53 +274,52 @@ func validateCurrentAuthoritiesForClaimRemovals(
 			return err
 		}
 		if _, selected := selectedForRemoval[claim]; selected {
-			if err := validateClaimRemovalPathAuthority(claim); err != nil {
-				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
-			}
-		} else {
-			currentPath, err := mutation.ObservePersistedDirectoryEntryAuthority(
-				claim.Address().Path(),
-			)
+			observed, err := observations.observe(claim.Address().Path())
 			if err != nil {
 				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
 			}
-			if !currentPath.Exact().Equal(claim.Address().PathAuthority()) {
+			if err := validateClaimRemovalPathAuthority(claim, observed); err != nil {
+				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
+			}
+		} else {
+			currentPath, err := observations.observePersisted(claim.Address().Path())
+			if err != nil {
+				return fmt.Errorf("observe ownership registry claims[%d] path authority: %w", index, err)
+			}
+			if !currentPath.Equal(claim.Address().PathAuthority()) {
 				return fmt.Errorf(
 					"ownership registry claims[%d] path authority %q with semantics %q is not current; observed %q with semantics %q",
 					index,
 					claim.Address().Path(),
 					claim.Address().PathAuthority().Witness(),
-					currentPath.Exact().Key(),
-					currentPath.Exact().Witness(),
+					currentPath.Key(),
+					currentPath.Witness(),
 				)
 			}
 		}
 
-		currentStatefile, err := mutation.ObservePersistedDirectoryEntryAuthority(
-			claim.Owner().StatefileKey(),
-		)
+		currentStatefile, err := observations.observePersisted(claim.Owner().StatefileKey())
 		if err != nil {
 			return fmt.Errorf("observe ownership registry claims[%d] statefile authority: %w", index, err)
 		}
-		if !currentStatefile.Exact().Equal(claim.Owner().StatefileAuthority()) {
+		if !currentStatefile.Equal(claim.Owner().StatefileAuthority()) {
 			return fmt.Errorf(
 				"ownership registry claims[%d] statefile authority %q with semantics %q is not current; observed %q with semantics %q",
 				index,
 				claim.Owner().StatefileKey(),
 				claim.Owner().StatefileAuthority().Witness(),
-				currentStatefile.Exact().Key(),
-				currentStatefile.Exact().Witness(),
+				currentStatefile.Key(),
+				currentStatefile.Witness(),
 			)
 		}
 	}
 	return nil
 }
 
-func validateClaimRemovalPathAuthority(claim ownership.Claim) error {
-	observed, err := mutation.ObserveDirectoryEntryAuthority(claim.Address().Path())
-	if err != nil {
-		return err
-	}
+func validateClaimRemovalPathAuthority(
+	claim ownership.Claim,
+	observed mutation.DirectoryEntryAuthorityObservation,
+) error {
 	if exact, present := observed.Exact(); present {
 		if exact.Equal(claim.Address().PathAuthority()) {
 			return nil
@@ -254,11 +351,61 @@ func validateClaimRemovalPathAuthority(claim ownership.Claim) error {
 func (store Store) loadRooted(
 	ctx context.Context,
 	expectedRemovals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
 ) (ownership.Registry, error) {
-	capability, err := store.root.Acquire(store.destination)
+	if !observations.bounded() {
+		return ownership.Registry{}, fmt.Errorf("rooted ownership registry budget is unavailable")
+	}
+	capability, err := store.root.AcquireBounded(
+		store.destination,
+		observations.maximumPhysicalDepth,
+		observations.budget,
+	)
 	if err != nil {
 		return ownership.Registry{}, fmt.Errorf("acquire ownership registry: %w", err)
 	}
+	return store.loadRootedCapability(ctx, capability, expectedRemovals, observations)
+}
+
+func (store Store) loadAmbientBounded(
+	ctx context.Context,
+	expectedRemovals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
+) (ownership.Registry, error) {
+	root, destination, err := rootedpath.CaptureDestinationBounded(
+		store.path,
+		observations.maximumPhysicalDepth,
+		observations.budget,
+	)
+	if err != nil {
+		return ownership.Registry{}, fmt.Errorf("bind ownership registry: %w", err)
+	}
+	capability, acquireErr := root.AcquireBounded(
+		destination,
+		observations.maximumPhysicalDepth,
+		observations.budget,
+	)
+	if acquireErr != nil {
+		return ownership.Registry{}, errors.Join(
+			fmt.Errorf("acquire ownership registry: %w", acquireErr),
+			root.Close(),
+		)
+	}
+	registry, loadErr := store.loadRootedCapability(
+		ctx,
+		capability,
+		expectedRemovals,
+		observations,
+	)
+	return registry, errors.Join(loadErr, root.Close())
+}
+
+func (store Store) loadRootedCapability(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	expectedRemovals []ownership.Claim,
+	observations *pathAuthorityObservationSession,
+) (ownership.Registry, error) {
 	content, mode, _, readErr := storagecommit.ReadRootedRegularFileUpTo(
 		ctx,
 		capability,
@@ -281,7 +428,93 @@ func (store Store) loadRooted(
 			mode.Perm(),
 		)
 	}
-	return decodePersistedRegistryForClaimRemovals(ctx, content, expectedRemovals)
+	return decodePersistedRegistryForClaimRemovals(
+		ctx,
+		content,
+		expectedRemovals,
+		observations,
+	)
+}
+
+type pathAuthorityObservationSession struct {
+	maximumPhysicalDepth int
+	budget               rootedpath.PhysicalTraversalBudget
+	byPath               map[string]mutation.DirectoryEntryAuthorityObservation
+}
+
+func newPathAuthorityObservationSession() *pathAuthorityObservationSession {
+	return &pathAuthorityObservationSession{
+		byPath: make(map[string]mutation.DirectoryEntryAuthorityObservation),
+	}
+}
+
+func newBoundedPathAuthorityObservationSession(
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (*pathAuthorityObservationSession, error) {
+	if maximumPhysicalDepth <= 0 {
+		return nil, fmt.Errorf("ownership path-authority maximum physical depth must be positive")
+	}
+	if budget == nil {
+		return nil, fmt.Errorf("ownership path-authority traversal budget is required")
+	}
+	return &pathAuthorityObservationSession{
+		maximumPhysicalDepth: maximumPhysicalDepth,
+		budget:               budget,
+		byPath:               make(map[string]mutation.DirectoryEntryAuthorityObservation),
+	}, nil
+}
+
+func (session *pathAuthorityObservationSession) bounded() bool {
+	return session != nil && session.budget != nil
+}
+
+func (session *pathAuthorityObservationSession) observe(
+	path string,
+) (mutation.DirectoryEntryAuthorityObservation, error) {
+	if session == nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, fmt.Errorf(
+			"ownership path-authority observation session is required",
+		)
+	}
+	if observed, ok := session.byPath[path]; ok {
+		return observed, nil
+	}
+	var (
+		observed mutation.DirectoryEntryAuthorityObservation
+		err      error
+	)
+	if session.bounded() {
+		observed, err = mutation.ObserveDirectoryEntryAuthorityBounded(
+			path,
+			session.maximumPhysicalDepth,
+			session.budget,
+		)
+	} else {
+		observed, err = mutation.ObserveDirectoryEntryAuthority(path)
+	}
+	if err != nil {
+		return mutation.DirectoryEntryAuthorityObservation{}, err
+	}
+	session.byPath[path] = observed
+	return observed, nil
+}
+
+func (session *pathAuthorityObservationSession) observePersisted(
+	path string,
+) (pathauthority.Exact, error) {
+	observed, err := session.observe(path)
+	if err != nil {
+		return pathauthority.Exact{}, err
+	}
+	exact, ok := observed.Exact()
+	if !ok {
+		return pathauthority.Exact{}, fmt.Errorf(
+			"path %q has provisional authority until its normalization-sensitive entry becomes visible",
+			path,
+		)
+	}
+	return exact, nil
 }
 
 // Apply writes one exact expected-before transition without changing unrelated claims.
@@ -350,7 +583,20 @@ func (store Store) loadForCommit(
 	error,
 ) {
 	if store.root != nil {
-		capability, err := store.root.Acquire(store.destination)
+		observations, observationErr := store.newPathAuthorityObservationSession()
+		if observationErr != nil {
+			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, observationErr
+		}
+		if !observations.bounded() {
+			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
+				"rooted ownership registry budget is unavailable",
+			)
+		}
+		capability, err := store.root.AcquireBounded(
+			store.destination,
+			observations.maximumPhysicalDepth,
+			observations.budget,
+		)
 		if err != nil {
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, fmt.Errorf(
 				"acquire ownership registry: %w",
@@ -380,7 +626,12 @@ func (store Store) loadForCommit(
 				mode.Perm(),
 			)
 		}
-		registry, err := decodePersistedRegistry(ctx, content)
+		registry, err := decodePersistedRegistryForClaimRemovals(
+			ctx,
+			content,
+			nil,
+			observations,
+		)
 		if err != nil {
 			_ = capability.Close()
 			return ownership.Registry{}, storagecommit.EntryIdentity{}, false, nil, err

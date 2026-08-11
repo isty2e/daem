@@ -23,6 +23,7 @@ const (
 const (
 	temporaryPrefix = ".daem-tmp-"
 	tombstonePrefix = ".daem-tombstone-"
+	cleanupPrefix   = ".daem-cleanup-"
 )
 
 // EntryIdentity is ephemeral evidence for revalidating one directory entry.
@@ -217,6 +218,8 @@ type LogicalRemoval struct {
 	path       string
 	expected   EntryIdentity
 	capability rootedpath.CommitCapability
+	names      *mutationfs.LogicalRemovalNames
+	limits     mutationfs.TreeTraversalLimits
 }
 
 // RootedEntryRename is one exact, no-replace same-parent namespace transition.
@@ -226,6 +229,7 @@ type RootedEntryRename struct {
 	destinationName string
 	expected        EntryIdentity
 	capability      rootedpath.CommitCapability
+	moved           *EntryIdentity
 }
 
 // NewRootedEntryRename constructs an identity-guarded sibling rename. The
@@ -265,9 +269,11 @@ func NewRootedEntryRename(
 // RootedEntryCleanup is one exact identity-guarded removal under retained-root
 // authority. It does not create an intermediate tombstone.
 type RootedEntryCleanup struct {
-	path       string
-	expected   EntryIdentity
-	capability rootedpath.CommitCapability
+	path         string
+	expected     EntryIdentity
+	capability   rootedpath.CommitCapability
+	removalNames *mutationfs.LogicalRemovalNames
+	limits       mutationfs.TreeTraversalLimits
 }
 
 // NewRootedEntryCleanup constructs exact cleanup of a regular file or
@@ -276,13 +282,43 @@ type RootedEntryCleanup struct {
 func NewRootedEntryCleanup(
 	capability rootedpath.CommitCapability,
 	expected EntryIdentity,
+	limits mutationfs.TreeTraversalLimits,
+) (RootedEntryCleanup, error) {
+	return newRootedEntryCleanup(capability, expected, nil, limits)
+}
+
+// NewRootedRemovalStageCleanup constructs exact cleanup of the reserved
+// cleanup-stage name selected by one journal authority.
+func NewRootedRemovalStageCleanup(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+	limits mutationfs.TreeTraversalLimits,
+) (RootedEntryCleanup, error) {
+	if !names.Valid() {
+		return RootedEntryCleanup{}, fmt.Errorf("logical removal names are invalid")
+	}
+	return newRootedEntryCleanup(capability, expected, &names, limits)
+}
+
+func newRootedEntryCleanup(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names *mutationfs.LogicalRemovalNames,
+	limits mutationfs.TreeTraversalLimits,
 ) (RootedEntryCleanup, error) {
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return RootedEntryCleanup{}, err
 	}
+	if names != nil && filepath.Base(path) != names.Cleanup() {
+		return RootedEntryCleanup{}, fmt.Errorf("rooted removal cleanup path does not match the authorized cleanup-stage name")
+	}
 	if !expected.valid() || expected.path != path {
 		return RootedEntryCleanup{}, fmt.Errorf("expected identity must describe %q", path)
+	}
+	if err := limits.Validate(); err != nil {
+		return RootedEntryCleanup{}, fmt.Errorf("rooted cleanup traversal limits: %w", err)
 	}
 	switch expected.kind {
 	case entryKindRegular, entryKindDirectory:
@@ -290,9 +326,11 @@ func NewRootedEntryCleanup(
 		return RootedEntryCleanup{}, fmt.Errorf("expected identity has unsupported entry kind")
 	}
 	return RootedEntryCleanup{
-		path:       path,
-		expected:   expected,
-		capability: capability,
+		path:         path,
+		expected:     expected,
+		capability:   capability,
+		removalNames: names,
+		limits:       limits,
 	}, nil
 }
 
@@ -316,6 +354,30 @@ func NewRootedLogicalRemoval(
 		return LogicalRemoval{}, err
 	}
 	request.capability = capability
+	return request, nil
+}
+
+// NewRootedLogicalRemovalWithResidue constructs a journal-authorized rooted
+// removal. The caller-selected namespace pair is opaque storage syntax;
+// storage never derives it from an operation, resource, or action ordinal.
+func NewRootedLogicalRemovalWithResidue(
+	capability rootedpath.CommitCapability,
+	expected EntryIdentity,
+	names mutationfs.LogicalRemovalNames,
+	limits mutationfs.TreeTraversalLimits,
+) (LogicalRemoval, error) {
+	if !names.Valid() {
+		return LogicalRemoval{}, fmt.Errorf("logical removal names are invalid")
+	}
+	if err := limits.Validate(); err != nil {
+		return LogicalRemoval{}, fmt.Errorf("logical removal traversal limits: %w", err)
+	}
+	request, err := NewRootedLogicalRemoval(capability, expected)
+	if err != nil {
+		return LogicalRemoval{}, err
+	}
+	request.names = &names
+	request.limits = limits
 	return request, nil
 }
 
@@ -351,7 +413,8 @@ func validateCommitPath(path string) error {
 		return err
 	}
 	base := filepath.Base(path)
-	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) {
+	if strings.HasPrefix(base, temporaryPrefix) || strings.HasPrefix(base, tombstonePrefix) ||
+		strings.HasPrefix(base, cleanupPrefix) {
 		return fmt.Errorf("path uses a reserved storage commit name")
 	}
 	return nil
@@ -397,10 +460,11 @@ func rootedCapabilityPath(capability rootedpath.CommitCapability) (string, error
 	if capability == nil {
 		return "", fmt.Errorf("rooted commit capability is required")
 	}
-	if err := capability.Validate(); err != nil {
+	destination := capability.Destination()
+	if err := destination.Validate(); err != nil {
 		return "", err
 	}
-	path, err := capability.Destination().LexicalPath()
+	path, err := destination.LexicalPath()
 	if err != nil {
 		return "", err
 	}

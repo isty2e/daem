@@ -226,7 +226,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `11` |
 | confirmed `apply` | Apply result | `16` |
-| `recover` | Recovery plan/result | `4` |
+| `recover` | Recovery plan/result | `7` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `2` |
@@ -890,6 +890,19 @@ lockfile. Both forms replan after acquiring authority. A prior dry-run grants
 no execution authority. Blocked or stale recovery keeps the current evidence
 and writes nothing.
 
+Before any active journal is retired, the retirement gate reconciles every
+persisted removal intent, including intents for entries outside a selected
+recovery subset. The gate reports the logical destination and a typed
+namespace, residue, cleanup-stage, or durability reason when reconciliation is
+blocked or must be retried; it never exposes either private sibling path. A
+clean visible classification alone is not a retirement guarantee. A retained
+cleanup-stage directory may contain only the unremoved part of its original
+tree; its exact preselected name records cleanup progress, while the original
+whole-state hash remains mandatory before residue promotion.
+An attempted promotion, cleanup, or absence confirmation that does not finish
+is reported as `cleanup_action_failed` together with the selected action; raw
+filesystem error text and private sibling paths remain internal.
+
 For active recovery, default output shows classification, operation identity,
 every action, destination/content subject, blocker, and recovery limitation.
 It omits backup paths/hashes and journal layout; `--verbose` adds operation
@@ -901,28 +914,59 @@ in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before a plan is disclosed; current daem does not inspect or migrate
 it. Other names in that reserved namespace are blocked as malformed.
 
-Recovery JSON schema version is `4` for both `--dry-run --json` and
-`--yes --json`. Every result declares `authority_kind` as `active_journal` or
-`journal_cleanup`. Active-journal output preserves its populated operation
-directory and typed action facts: resource-owned actions report `resource` and
-singular `target`, while subject-owned managed paths report `subject`, the
-complete `targets` consumer set, and `content_kind` without inventing a primary
-target. Entity-backed projection subjects also report the correlated resource
-identity for user-facing attribution.
+Recovery JSON schema version is `7` for both `--dry-run --json` and
+`--yes --json`. Every result declares one `phase`. Dry-run results and write
+attempts rejected before execution use `planned`. After execution begins, a
+freshly reclassified active journal uses `active_authority_retained`; a
+freshly reclassified cleanup-only continuation uses
+`cleanup_authority_retained`. These retained phases declare `authority_kind`
+as `active_journal` or `journal_cleanup` and preserve only that fresh current
+classification and retry authority. Active-journal output in these phases
+includes its operation directory and typed action facts: resource-owned actions report
+`resource` and singular `target`, while subject-owned managed paths report
+`subject`, the complete `targets` consumer set, and `content_kind` without
+inventing a primary target. Entity-backed projection subjects also report the
+correlated resource identity for user-facing attribution.
 
-Cleanup-only output contains the operation id, its cleanup classification, and
-exactly one action whose only field is `kind = "finalize_journal_cleanup"`. It
+After execution, successful write results use `completed`. A failure after
+durable authority retirement uses `authority_retired`. If post-execution
+inventory cannot classify whether active, cleanup-only, or no authority remains,
+the result uses `authority_unknown`, exposes no retry plan, and instructs the
+operator to preserve recovery evidence. Terminal and unknown results retain
+only the path-neutral operation id, phase, error status, and empty action and
+cleanup-obligation arrays. They omit
+`authority_kind`, `operation_dir`, `classification`, and the pre-execution plan
+because those facts no longer describe a retryable authority. A
+cleanup action error is projected only when fresh cleanup-only authority
+remains; `authority_unknown` and `authority_retired` take precedence over the
+action from the pre-execution plan. A
+post-retirement validation error remains an error result with
+`phase = "authority_retired"`; it does not advertise another recovery attempt.
+
+Active-journal output separately reports `cleanup_obligation_count` and
+`cleanup_obligations`. Each obligation contains only its logical scope and
+destination, readiness, selected action, typed reason, and path-neutral detail.
+This discloses residue promotion, partial cleanup continuation, durable absence
+confirmation, and namespace or slot blockers without exposing the private
+residue and cleanup-stage names. Execution re-observes the same facts before
+performing any cleanup effect.
+
+Planned or retained cleanup-only output contains the operation id, its cleanup
+classification, and exactly one action whose only field is
+`kind = "finalize_journal_cleanup"`. It reports zero cleanup obligations and
 omits `operation_dir` and all resource, subject, target, scope, destination,
 content, backup, and detail fields instead of emitting synthetic empty
-active-plan placeholders.
+active-plan placeholders. Terminal cleanup output follows the common terminal
+shape described above.
 
 Cleanup execution failures use the same path-neutral semantic error in human
-and JSON output. The error names the cleanup action and either
-`phase=execution` or `phase=garbage_collection`; it does not include retirement
-paths or wrapped filesystem errors. A garbage-collection failure occurs after
-semantic retirement has committed. It remains a command failure, but no
-recovery action remains and later commands are not blocked by the private GC
-residue.
+and JSON output. While fresh cleanup authority remains, the error names the
+cleanup action and `phase=execution`; it does not include retirement paths or
+wrapped filesystem errors. A garbage-collection failure occurs after semantic
+retirement has committed, so its terminal error reports retired authority and
+hidden GC residue without naming the former cleanup action. It remains a
+command failure and JSON reports `phase = "authority_retired"`, but no recovery
+action remains and later commands are not blocked by the private GC residue.
 
 ## `doctor`
 

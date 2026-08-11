@@ -8,12 +8,13 @@ import "fmt"
 type TreeStructureLimit struct {
 	maximumEntries int
 	maximumDepth   int
+	initialized    bool
 }
 
 // NewTreeStructureLimit constructs a finite directory-artifact shape bound.
 func NewTreeStructureLimit(maximumEntries int, maximumDepth int) (TreeStructureLimit, error) {
-	if maximumEntries <= 0 {
-		return TreeStructureLimit{}, fmt.Errorf("artifact tree maximum entries must be positive")
+	if maximumEntries < 0 {
+		return TreeStructureLimit{}, fmt.Errorf("artifact tree maximum entries must not be negative")
 	}
 	if maximumDepth < 0 {
 		return TreeStructureLimit{}, fmt.Errorf("artifact tree maximum depth must not be negative")
@@ -21,10 +22,14 @@ func NewTreeStructureLimit(maximumEntries int, maximumDepth int) (TreeStructureL
 	return TreeStructureLimit{
 		maximumEntries: maximumEntries,
 		maximumDepth:   maximumDepth,
+		initialized:    true,
 	}, nil
 }
 
 func (limit TreeStructureLimit) validate() error {
+	if !limit.initialized {
+		return fmt.Errorf("artifact tree structure limit is uninitialized")
+	}
 	_, err := NewTreeStructureLimit(limit.maximumEntries, limit.maximumDepth)
 	return err
 }

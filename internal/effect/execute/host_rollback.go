@@ -6,30 +6,57 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
+const (
+	recoveryBaselineObservationAccesses = 3
+	recoveryHostMutationAccesses        = 4
+	recoveryRollbackObservationAccesses = 3
+	recoveryRollbackMutationAccesses    = 4
+	recoveryPostconditionAccesses       = 2
+	maximumRollbackScratchTreeDepth     = recovery.MaximumArtifactTreeDepth + 1
+	recoveryHostDestinationAccesses     = recoveryBaselineObservationAccesses +
+		recoveryHostMutationAccesses +
+		recoveryRollbackObservationAccesses +
+		recoveryRollbackMutationAccesses +
+		recoveryPostconditionAccesses
+)
+
 type hostRollback struct {
-	dir     string
-	entries []hostRollbackEntry
+	dir          string
+	entries      []hostRollbackEntry
+	cleanupState *preparedRollbackCleanup
+}
+
+type preparedRollbackCleanup struct {
+	root      *rootedpath.CapturedRoot
+	authority *rootedpath.EntryAuthority
+	identity  mutationfs.EntryIdentity
+	limits    mutationfs.TreeTraversalLimits
+	complete  bool
 }
 
 type hostRollbackEntry struct {
-	destination      mutationDestination
-	existed          bool
-	kind             string
-	maximumFileBytes int64
-	backupPath       string
-	backup           recoveryBackup
-	fileMode         os.FileMode
-	identity         mutationfs.EntryIdentity
-	stagedState      recoveryWholePathState
-	effectState      recoveryWholePathState
-	effectKnown      bool
-	attempted        bool
+	destination        mutationDestination
+	existed            bool
+	kind               string
+	maximumFileBytes   int64
+	backupPath         string
+	backup             rollbackBackup
+	fileMode           os.FileMode
+	identity           mutationfs.EntryIdentity
+	stagedState        recoveryWholePathState
+	stagedWork         recovery.ArtifactWork
+	effectMaximumKinds map[string]recovery.ArtifactWork
+	effectState        recoveryWholePathState
+	effectKnown        bool
+	attempted          bool
 }
 
 type rollbackStageAction struct {
@@ -50,6 +77,191 @@ func (state recoveryWholePathState) equal(other recoveryWholePathState) bool {
 		state.kind == other.kind &&
 		state.contentHash == other.contentHash &&
 		state.fileMode.Perm() == other.fileMode.Perm()
+}
+
+type recoveryGeneralPathReservation struct {
+	budget *recovery.PhysicalWorkBudget
+}
+
+type recoveryScratchPathReservation struct {
+	budget *recovery.PhysicalWorkBudget
+}
+
+func (reservation recoveryScratchPathReservation) AdmitPathComponents(count int) error {
+	return reservation.budget.ReserveScratchPathComponents(count)
+}
+
+func (reservation recoveryGeneralPathReservation) AdmitPathComponents(count int) error {
+	return reservation.budget.ReserveGeneralPathComponents(count)
+}
+
+func reserveRecoveryHostExecution(
+	authority *mutationAuthority,
+	destination mutationDestination,
+	baseline *hostRollbackEntry,
+	actions []rollbackStageAction,
+) error {
+	if authority == nil || authority.physicalWorkBudget == nil ||
+		baseline == nil || !destination.isRooted() {
+		return fmt.Errorf("recovery host execution reservation requires bounded destination authority")
+	}
+	reservation := recoveryGeneralPathReservation{budget: authority.physicalWorkBudget}
+	for range recoveryHostDestinationAccesses {
+		if err := destination.root.ReserveDestinationAccess(
+			destination.destination,
+			recovery.MaximumPhysicalPathDepth,
+			reservation,
+		); err != nil {
+			return fmt.Errorf("reserve recovery host destination access: %w", err)
+		}
+	}
+
+	if baseline.existed {
+		for range 2 {
+			if err := reserveRecoveryObservation(
+				authority.physicalWorkBudget,
+				baseline.kind,
+				baseline.stagedWork,
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	effectKinds := make(map[string]recovery.ArtifactWork)
+	for _, action := range actions {
+		kind, work, present, err := recoveryActionMaximumWork(action.action, baseline.maximumFileBytes)
+		if err != nil {
+			return err
+		}
+		if !present {
+			continue
+		}
+		current, exists := effectKinds[kind]
+		if !exists {
+			effectKinds[kind] = work
+			continue
+		}
+		effectKinds[kind] = maximumRecoveryArtifactWork(current, work)
+	}
+	baseline.effectMaximumKinds = make(map[string]recovery.ArtifactWork, len(effectKinds))
+	for kind, work := range effectKinds {
+		baseline.effectMaximumKinds[kind] = work
+		// One postcondition read is used only by aggregate documents. Reserving it
+		// for every group keeps the certificate independent of branch order.
+		if err := reserveRecoveryObservation(authority.physicalWorkBudget, kind, work); err != nil {
+			return err
+		}
+	}
+
+	// A failed or indeterminate mutation can leave either the staged baseline or
+	// any admitted effect kind visible. Reserve one fresh rollback observation
+	// for every structurally possible kind before the first host effect.
+	rollbackKinds := make(map[string]recovery.ArtifactWork, len(effectKinds)+1)
+	if baseline.existed {
+		rollbackKinds[baseline.kind] = baseline.stagedWork
+	}
+	for kind, work := range effectKinds {
+		if current, exists := rollbackKinds[kind]; exists {
+			work = maximumRecoveryArtifactWork(current, work)
+		}
+		rollbackKinds[kind] = work
+	}
+	for kind, work := range rollbackKinds {
+		if err := reserveRecoveryObservation(authority.physicalWorkBudget, kind, work); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func recoveryActionMaximumWork(
+	action recoveryHostAction,
+	maximumDocumentBytes int64,
+) (string, recovery.ArtifactWork, bool, error) {
+	if action.ContentPath != "" {
+		maximumBytes := maximumDocumentBytes
+		if !action.BeforePathExisted {
+			maximumBytes = 0
+		}
+		work, err := recovery.NewArtifactWork(0, maximumBytes)
+		return recovery.PathKindFile, work, true, err
+	}
+	switch action.Kind {
+	case recovery.ActionKindRestoreDelete:
+		return "", recovery.ArtifactWork{}, false, nil
+	case recovery.ActionKindRestoreWrite:
+		return action.BackupKind, action.BackupWork, true, nil
+	default:
+		return "", recovery.ArtifactWork{}, false, fmt.Errorf(
+			"recovery action %q has no execution work model",
+			action.Kind,
+		)
+	}
+}
+
+func reserveRecoveryObservation(
+	budget *recovery.PhysicalWorkBudget,
+	kind string,
+	work recovery.ArtifactWork,
+) error {
+	switch kind {
+	case recovery.PathKindFile:
+		return budget.ReserveGeneralFileObservation(work)
+	case recovery.PathKindDirectory:
+		return budget.ReserveGeneralDirectoryObservation(work)
+	default:
+		return fmt.Errorf("recovery observation kind %q is unsupported", kind)
+	}
+}
+
+func admitRecoveryObservation(
+	budget *recovery.PhysicalWorkBudget,
+	kind string,
+	work recovery.ArtifactWork,
+) error {
+	if budget == nil {
+		return fmt.Errorf("general recovery execution budget is unavailable")
+	}
+	switch kind {
+	case recovery.PathKindFile:
+		readerBytes := max(int64(1), work.Bytes())
+		readerWork, err := recovery.NewArtifactWork(0, readerBytes)
+		if err != nil {
+			return err
+		}
+		return budget.AdmitIndeterminateTreeWork(work, readerWork)
+	case recovery.PathKindDirectory:
+		readerWork, err := recovery.NewArtifactWork(work.Entries()+1, work.Bytes())
+		if err != nil {
+			return err
+		}
+		return budget.AdmitIndeterminateDirectoryWork(work, readerWork)
+	default:
+		return fmt.Errorf("recovery observation kind %q is unsupported", kind)
+	}
+}
+
+func recoveryTraversalLimits(work recovery.ArtifactWork) (mutationfs.TreeTraversalLimits, error) {
+	return mutationfs.NewTreeTraversalLimits(
+		work.Entries(),
+		recovery.MaximumArtifactTreeDepth,
+		work.Bytes(),
+	)
+}
+
+func maximumRecoveryArtifactWork(
+	left recovery.ArtifactWork,
+	right recovery.ArtifactWork,
+) recovery.ArtifactWork {
+	work, err := recovery.NewArtifactWork(
+		max(left.Entries(), right.Entries()),
+		max(left.Bytes(), right.Bytes()),
+	)
+	if err != nil {
+		panic(err)
+	}
+	return work
 }
 
 func stageRollbackDestinations(
@@ -95,11 +307,11 @@ func stageRecoveryRollback(
 	for index, action := range actions {
 		logical, err := recoveryDestination(action.Scope, action.Destination)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.cleanup())
+			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
 		}
 		destination, err := authority.resolveBoundDestination(action.Scope, logical)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.cleanup())
+			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
 		}
 		key := filepath.Clean(destination.hostPath)
 		groupIndex, present := stageGroupByDestination[key]
@@ -117,12 +329,12 @@ func stageRecoveryRollback(
 	for groupIndex, group := range stageGroups {
 		entries, err := stageRollbackDestinations(ctx, authority, group, rollbackDir, groupIndex, codecs)
 		if err != nil {
-			return hostRollback{}, errors.Join(err, rollback.cleanup())
+			return hostRollback{}, errors.Join(err, rollback.abortCleanup(context.WithoutCancel(ctx), authority))
 		}
 		if len(entries) != len(group) {
 			return hostRollback{}, errors.Join(
 				fmt.Errorf("rollback stage entry count %d does not match action count %d", len(entries), len(group)),
-				rollback.cleanup(),
+				rollback.abortCleanup(context.WithoutCancel(ctx), authority),
 			)
 		}
 		for index, entry := range entries {
@@ -130,6 +342,12 @@ func stageRecoveryRollback(
 		}
 	}
 
+	if err := rollback.prepareCleanup(ctx, authority); err != nil {
+		return hostRollback{}, errors.Join(
+			err,
+			rollback.abortCleanup(context.WithoutCancel(ctx), authority),
+		)
+	}
 	return rollback, nil
 }
 
@@ -182,29 +400,246 @@ func rollbackGroupAttempted(entries []hostRollbackEntry) bool {
 	return false
 }
 
-func (rollback hostRollback) cleanup() error {
-	if rollback.dir == "" {
-		return nil
+func (rollback *hostRollback) prepareCleanup(
+	ctx context.Context,
+	authority *mutationAuthority,
+) (returnErr error) {
+	if rollback == nil || rollback.dir == "" {
+		return fmt.Errorf("recovery rollback stage is unavailable")
 	}
-	if err := makeRollbackTreeWritable(rollback.dir); err != nil {
+	if rollback.cleanupState != nil {
+		return fmt.Errorf("recovery rollback cleanup is already prepared")
+	}
+	if authority == nil || authority.physicalWorkBudget == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery rollback cleanup requires bounded mutation authority")
+	}
+	work, err := rollback.cleanupWork()
+	if err != nil {
 		return err
 	}
-	return os.RemoveAll(rollback.dir)
+	root, destination, err := rootedpath.CaptureDestinationBounded(
+		rollback.dir,
+		recovery.MaximumPhysicalPathDepth,
+		authority.physicalWorkBudget,
+	)
+	if err != nil {
+		return fmt.Errorf("capture recovery rollback cleanup authority: %w", err)
+	}
+	defer func() {
+		if returnErr != nil {
+			returnErr = errors.Join(returnErr, root.Close())
+		}
+	}()
+
+	reservation := recoveryScratchPathReservation{budget: authority.physicalWorkBudget}
+	for range 3 {
+		if err := root.ReserveDestinationAccess(
+			destination,
+			recovery.MaximumPhysicalPathDepth,
+			reservation,
+		); err != nil {
+			return fmt.Errorf("reserve recovery rollback cleanup path: %w", err)
+		}
+	}
+	if err := authority.physicalWorkBudget.ReserveScratchCleanup(work); err != nil {
+		return fmt.Errorf("reserve recovery rollback cleanup tree: %w", err)
+	}
+	executionBudget, reservedWork, err := authority.physicalWorkBudget.BeginReservedScratchCleanup()
+	if err != nil {
+		return err
+	}
+	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
+		root,
+		destination,
+		recovery.MaximumPhysicalPathDepth,
+		executionBudget,
+	)
+	if err != nil {
+		return fmt.Errorf("bind recovery rollback cleanup entry: %w", err)
+	}
+	capability, err := entryAuthority.Acquire()
+	if err != nil {
+		return errors.Join(err, entryAuthority.Close())
+	}
+	identity, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	if err != nil {
+		return errors.Join(err, capability.Close(), entryAuthority.Close())
+	}
+	if identity.Kind() != mutationfs.EntryKindDirectory {
+		return errors.Join(
+			fmt.Errorf("recovery rollback stage is not a directory"),
+			capability.Close(),
+			entryAuthority.Close(),
+		)
+	}
+	if err := capability.Close(); err != nil {
+		return errors.Join(err, entryAuthority.Close())
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		reservedWork.Entries(),
+		maximumRollbackScratchTreeDepth,
+		reservedWork.Bytes(),
+	)
+	if err != nil {
+		return errors.Join(err, entryAuthority.Close())
+	}
+	rollback.cleanupState = &preparedRollbackCleanup{
+		root: root, authority: entryAuthority, identity: identity, limits: limits,
+	}
+	return nil
 }
 
-func makeRollbackTreeWritable(root string) error {
-	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+func (rollback hostRollback) cleanupWork() (recovery.ArtifactWork, error) {
+	seen := make(map[string]struct{}, len(rollback.entries))
+	entries := 0
+	var bytes int64
+	for _, entry := range rollback.entries {
+		if !entry.existed || entry.backupPath == "" {
+			continue
 		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("rollback stage %q contains a symlink", path)
+		backupPath := filepath.Clean(entry.backupPath)
+		if backupPath == rollback.dir ||
+			!strings.HasPrefix(backupPath, rollback.dir+string(filepath.Separator)) {
+			return recovery.ArtifactWork{}, fmt.Errorf("rollback backup escaped its private stage")
 		}
-		if entry.IsDir() {
-			return os.Chmod(path, 0o700)
+		if _, duplicate := seen[backupPath]; duplicate {
+			continue
 		}
+		seen[backupPath] = struct{}{}
+		entries += entry.stagedWork.Entries() + 1
+		bytes += entry.stagedWork.Bytes()
+	}
+	return recovery.NewArtifactWork(entries, bytes)
+}
+
+func (rollback *hostRollback) cleanup(
+	ctx context.Context,
+	authority *mutationAuthority,
+) error {
+	if rollback == nil || rollback.dir == "" {
 		return nil
-	})
+	}
+	if rollback.cleanupState == nil {
+		return fmt.Errorf("recovery rollback cleanup was not prepared")
+	}
+	if rollback.cleanupState.complete {
+		return nil
+	}
+	if authority == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery rollback cleanup filesystem is unavailable")
+	}
+	return rollback.cleanupState.execute(ctx, authority.filesystem)
+}
+
+func (cleanup *preparedRollbackCleanup) execute(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+) (returnErr error) {
+	if cleanup == nil || cleanup.root == nil || cleanup.authority == nil || cleanup.identity == nil {
+		return fmt.Errorf("recovery rollback cleanup is uninitialized")
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, cleanup.authority.Close(), cleanup.root.Close())
+		if returnErr == nil {
+			cleanup.complete = true
+		}
+	}()
+	capability, err := cleanup.authority.Acquire()
+	if err != nil {
+		return err
+	}
+	current, err := filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	if err != nil {
+		return errors.Join(err, capability.Close())
+	}
+	if !cleanup.identity.Equal(current) {
+		return errors.Join(
+			fmt.Errorf("recovery rollback stage changed before cleanup"),
+			capability.Close(),
+		)
+	}
+	outcome, err := filesystem.CleanupRootedEntry(
+		ctx,
+		capability,
+		current,
+		cleanup.limits,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"cleanup recovery rollback stage (%s): %w",
+			outcome.State(),
+			err,
+		)
+	}
+	return nil
+}
+
+func (rollback *hostRollback) abortCleanup(
+	ctx context.Context,
+	authority *mutationAuthority,
+) error {
+	if rollback == nil || rollback.dir == "" {
+		return nil
+	}
+	if rollback.cleanupState != nil {
+		return rollback.cleanup(ctx, authority)
+	}
+	if authority == nil || authority.filesystem == nil {
+		return fmt.Errorf("recovery rollback abort cleanup filesystem is unavailable")
+	}
+	budget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		return err
+	}
+	root, destination, err := rootedpath.CaptureDestinationBounded(
+		rollback.dir,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
+	if err != nil {
+		return err
+	}
+	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
+		root,
+		destination,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
+	if err != nil {
+		return errors.Join(err, root.Close())
+	}
+	capability, err := entryAuthority.Acquire()
+	if err != nil {
+		return errors.Join(err, entryAuthority.Close(), root.Close())
+	}
+	identity, err := authority.filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	if err != nil {
+		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		recovery.MaximumPhysicalEntries,
+		maximumRollbackScratchTreeDepth,
+		recovery.MaximumPhysicalBytes,
+	)
+	if err != nil {
+		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())
+	}
+	outcome, cleanupErr := authority.filesystem.CleanupRootedEntry(
+		ctx,
+		capability,
+		identity,
+		limits,
+	)
+	return errors.Join(
+		func() error {
+			if cleanupErr == nil {
+				return nil
+			}
+			return fmt.Errorf("abort recovery rollback stage (%s): %w", outcome.State(), cleanupErr)
+		}(),
+		entryAuthority.Close(),
+		root.Close(),
+	)
 }
 
 func restoreRollbackGroup(
@@ -229,14 +664,30 @@ func restoreRollbackGroup(
 	if !attempted {
 		return nil
 	}
+	maximumKinds := make(map[string]recovery.ArtifactWork, len(baseline.effectMaximumKinds)+1)
+	for kind, work := range baseline.effectMaximumKinds {
+		maximumKinds[kind] = work
+	}
+	if baseline.existed {
+		if work, present := maximumKinds[baseline.kind]; present {
+			maximumKinds[baseline.kind] = maximumRecoveryArtifactWork(work, baseline.stagedWork)
+		} else {
+			maximumKinds[baseline.kind] = baseline.stagedWork
+		}
+	}
 	current, identity, err := observeRecoveryWholePathState(
 		ctx,
 		authority,
 		baseline.destination,
 		baseline.maximumFileBytes,
+		maximumKinds,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf(
+			"rollback destination %q changed outside the recovery attempt: %w",
+			baseline.destination.logical,
+			err,
+		)
 	}
 	if current.equal(baseline.stagedState) {
 		return nil
@@ -252,6 +703,9 @@ func restoreRollbackGroup(
 		return fmt.Errorf("rollback destination %q changed outside the recovery attempt", baseline.destination.logical)
 	}
 	if !baseline.existed {
+		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+			return fmt.Errorf("validate recovery compensation semantics: %w", err)
+		}
 		if err := removeDestinationAgainst(ctx, authority, baseline.destination, identity); err != nil {
 			return fmt.Errorf("rollback remove %q: %w", baseline.destination.logical, err)
 		}
@@ -259,9 +713,19 @@ func restoreRollbackGroup(
 	}
 	switch baseline.kind {
 	case recovery.PathKindFile:
-		content, err := baseline.backup.readFile(ctx)
+		if err := admitRecoveryObservation(
+			authority.generalExecutionWorkBudget,
+			baseline.kind,
+			baseline.stagedWork,
+		); err != nil {
+			return err
+		}
+		content, err := baseline.backup.readFile(ctx, max(int64(1), baseline.stagedWork.Bytes()))
 		if err != nil {
 			return fmt.Errorf("read rollback file for %q: %w", baseline.destination.logical, err)
+		}
+		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+			return fmt.Errorf("validate recovery compensation semantics: %w", err)
 		}
 		if err := commitFileDestinationAgainst(
 			ctx,
@@ -275,10 +739,23 @@ func restoreRollbackGroup(
 			return fmt.Errorf("rollback restore file %q: %w", baseline.destination.logical, err)
 		}
 	case recovery.PathKindDirectory:
+		if err := admitRecoveryObservation(
+			authority.generalExecutionWorkBudget,
+			baseline.kind,
+			baseline.stagedWork,
+		); err != nil {
+			return err
+		}
+		if err := authority.validateRecoverySemanticWitness(ctx); err != nil {
+			return fmt.Errorf("validate recovery compensation semantics: %w", err)
+		}
 		if err := commitRecoveryDirectoryDestinationAgainst(
 			ctx,
 			authority,
-			baseline.backup,
+			boundedRollbackDirectorySource{
+				backup: baseline.backup,
+				work:   baseline.stagedWork,
+			},
 			baseline.destination,
 			current.existed,
 			identity,

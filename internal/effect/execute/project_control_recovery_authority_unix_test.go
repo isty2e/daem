@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -78,5 +79,51 @@ func TestRecoveryCleanupRejectsProjectRootReplacementWithoutTouchingReplacement(
 			movedOperationDir,
 			statErr,
 		)
+	}
+}
+
+func TestRecoveryResultReportsJournalRetiredAfterAcceptanceFailure(t *testing.T) {
+	fixture := newProjectPathRecoveryFixture(t, projectInstructionRecoverySpec(
+		"codex-project",
+		target.TargetCodex,
+		"AGENTS.md",
+	))
+	acceptanceFailure := errors.New("injected post-retirement acceptance failure")
+	journalRetired := false
+	filesystem := &rootSwapAfterProjectJournalGCCleanupStore{
+		Store: testFilesystem(),
+		swap: func() {
+			journalRetired = true
+		},
+	}
+
+	err := executeRecoveryPlanWithOptionsForTest(
+		t.Context(),
+		fixture.plan,
+		fixture.paths,
+		RecoveryOptions{
+			Resolver:    destinationResolver(fixture.paths),
+			StateCodec:  testStateCodec(),
+			StateReader: testStateReader(fixture.paths.StatefilePath),
+			Filesystem:  filesystem,
+			AcceptVisibilityChanges: func(context.Context) error {
+				if journalRetired {
+					return acceptanceFailure
+				}
+				return nil
+			},
+		},
+	)
+	if !errors.Is(err, acceptanceFailure) ||
+		!strings.Contains(err.Error(), "recovery journal retired") {
+		t.Fatalf("ExecuteRecoveryPlanWithOptions error = %v, want post-retirement failure", err)
+	}
+	assertRecoveryTestContent(
+		t,
+		filepath.Join(fixture.projectRoot, "AGENTS.md"),
+		[]byte("before:AGENTS.md\n"),
+	)
+	if _, statErr := os.Stat(fixture.plan.OperationDir()); !os.IsNotExist(statErr) {
+		t.Fatalf("retired recovery journal stat error = %v, want absent", statErr)
 	}
 }

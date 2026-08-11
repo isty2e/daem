@@ -76,15 +76,19 @@ func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
 			structure.MaximumDepth(),
 		)
 	}
+	emptyStructure, err := NewTreeStructureLimits(0, 0)
+	if err != nil || emptyStructure.MaximumEntries() != 0 {
+		t.Fatalf("exact-empty structure limit = %#v, constructor = %v", emptyStructure, err)
+	}
 
 	for _, test := range []struct {
 		entries int
 		depth   int
 		bytes   int64
 	}{
-		{entries: 0, depth: 0, bytes: 1},
+		{entries: -1, depth: 0, bytes: 1},
 		{entries: 1, depth: -1, bytes: 1},
-		{entries: 1, depth: 0, bytes: 0},
+		{entries: 1, depth: 0, bytes: -1},
 	} {
 		if _, err := NewTreeTraversalLimits(
 			test.entries,
@@ -98,6 +102,13 @@ func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
 				test.bytes,
 			)
 		}
+	}
+	exactEmpty, err := NewTreeTraversalLimits(0, 0, 0)
+	if err != nil || exactEmpty.Validate() != nil {
+		t.Fatalf("exact-empty traversal limits validation = %v, constructor = %v", exactEmpty.Validate(), err)
+	}
+	if err := (TreeTraversalLimits{}).Validate(); err == nil {
+		t.Fatal("zero-value traversal limits passed validation")
 	}
 	limits, err := NewTreeTraversalLimits(3, 0, 7)
 	if err != nil {

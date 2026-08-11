@@ -31,6 +31,8 @@ import (
 func bindNilOwnershipRegistryStore(
 	*rootedpath.CapturedRoot,
 	rootedpath.Destination,
+	int,
+	rootedpath.PhysicalTraversalBudget,
 ) (ownershipmutation.RegistryStore, error) {
 	return nil, nil
 }
@@ -311,6 +313,87 @@ func TestGlobalOwnershipCancellationAfterStateCommitRecoversByFinalizingClaim(t 
 		t.Fatalf("finalized claim = %#v, want active without operation id", claim)
 	}
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
+}
+
+func TestGlobalOwnershipRecoveryRejectsUnadmittedSuccessorAfterConvergence(t *testing.T) {
+	fixture, input := globalOwnershipCreateInput(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err := ApplyWithOptions(ctx, input, ApplyOptions{Events: func(event Event) {
+		if event.Kind == EventStatefileWritten {
+			cancel()
+		}
+	}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ApplyWithOptions error = %v, want context cancellation", err)
+	}
+	recoveryPlan, err := loadActivePlanWithTestCodecs(context.Background(), input.Paths)
+	if err != nil {
+		t.Fatalf("LoadActivePlan returned error: %v", err)
+	}
+	if recoveryPlan.Classification() != recovery.ClassificationNeedsFinalize {
+		t.Fatalf("classification = %q, want needs_finalize", recoveryPlan.Classification())
+	}
+
+	prepared := requireOnlyOwnershipClaim(t, input.Paths.OwnershipRegistryPath)
+	unrelatedAddress, err := ownership.NewManagedAddress(
+		mustObservedPathAuthority(t, fixture.hostConfigPath+".unrelated"),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("construct unrelated ownership address: %v", err)
+	}
+	unrelatedClaim, err := ownership.NewActiveClaim(unrelatedAddress, prepared.Owner())
+	if err != nil {
+		t.Fatalf("construct unrelated ownership claim: %v", err)
+	}
+	unrelatedValue, _ := ownership.PresentClaim(unrelatedClaim)
+	store, err := ownershipstore.New(input.Paths.OwnershipRegistryPath)
+	if err != nil {
+		t.Fatalf("construct ownership store: %v", err)
+	}
+	acceptedEffects := 0
+
+	err = executeRecoveryPlanWithOptionsForTest(
+		context.Background(),
+		recoveryPlan,
+		input.Paths,
+		RecoveryOptions{
+			Resolver:                destinationResolver(input.Paths),
+			Codecs:                  testAggregateCodecs(),
+			OwnershipRegistryBinder: testOwnershipRegistryBinder(),
+			StateCodec:              testStateCodec(),
+			StateReader:             testStateReader(input.Paths.StatefilePath),
+			Filesystem:              testFilesystem(),
+			AcceptVisibilityChanges: func(context.Context) error {
+				acceptedEffects++
+				if acceptedEffects != 1 {
+					return nil
+				}
+				_, applyErr := store.Apply(
+					context.Background(),
+					unrelatedAddress,
+					ownership.NoClaim(),
+					unrelatedValue,
+				)
+				return applyErr
+			},
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteRecoveryPlan error = %v, want stale ownership successor", err)
+	}
+	if acceptedEffects != 1 {
+		t.Fatalf("accepted recovery effects = %d, want 1", acceptedEffects)
+	}
+	registry, err := store.Load(context.Background())
+	if err != nil {
+		t.Fatalf("load mutated ownership registry: %v", err)
+	}
+	if claims := registry.Claims(); len(claims) != 2 {
+		t.Fatalf("ownership claims = %#v, want finalized plus unrelated", claims)
+	}
+	assertRecoveryJournalRetained(t, recoveryPlan)
 }
 
 func TestGlobalOwnershipReleaseRemainsActiveUntilRecoveryFinalizesRemoval(t *testing.T) {

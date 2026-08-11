@@ -123,6 +123,52 @@ func TestApplyRollsBackSharedAggregateAfterStatefileFailure(t *testing.T) {
 	}
 }
 
+func TestApplyAtomicallyRollsBackNewSharedAggregateAfterStatefileFailure(t *testing.T) {
+	root := t.TempDir()
+	dataDir := filepath.Join(root, ".daem")
+	configPath := filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath)
+	effects := managedMCPAggregateEffects(t, aggregate.AbsentDocument(), []mcpEffectSpec{
+		{serverID: "alpha", command: "alpha-command"},
+		{serverID: "beta", command: "beta-command"},
+	})
+	paths := Paths{
+		RecoveryDir:           filepath.Join(dataDir, "recovery"),
+		StateDir:              dataDir,
+		StatefilePath:         filepath.Join(dataDir, "state.json"),
+		ManifestRoot:          root,
+		DataDir:               dataDir,
+		OwnershipRegistryPath: filepath.Join(dataDir, "ownership.json"),
+	}
+
+	_, err := ApplyWithOptions(context.Background(), ApplyInput{
+		Paths:            paths,
+		Resolver:         destinationResolver(paths),
+		AggregateEffects: effects,
+		CurrentState:     durable.EmptySnapshot(),
+		Codecs:           testAggregateCodecs(),
+		StateCodec:       testStateCodec(),
+		Filesystem:       testFilesystem(),
+	}, ApplyOptions{
+		commitStatefile: func(context.Context, string, []byte, os.FileMode) statefileCommitOutcome {
+			return statefileCommitOutcome{
+				status: statefileUncommitted,
+				err:    errors.New("injected statefile failure"),
+			}
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected statefile failure") {
+		t.Fatalf("ApplyWithOptions error = %v, want injected statefile failure", err)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("aggregate document stat error = %v, want absent after atomic rollback", err)
+	}
+	if entries, err := os.ReadDir(paths.RecoveryDir); err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read recovery directory: %v", err)
+	} else if len(entries) != 0 {
+		t.Fatalf("recovery directory retains %d entries after atomic rollback", len(entries))
+	}
+}
+
 func TestRecoveryStageUsesAggregateCodecDocumentLimit(t *testing.T) {
 	t.Parallel()
 
@@ -690,7 +736,11 @@ func managedMCPAggregateEffects(
 	if failure != nil {
 		t.Fatalf("codec Read returned failure: %v", failure)
 	}
-	evidence, err := observe.NewAggregateEvidence(before, snapshot, aggregate.DocumentFileMode)
+	fileMode := os.FileMode(0)
+	if before.Exists() {
+		fileMode = aggregate.DocumentFileMode
+	}
+	evidence, err := observe.NewAggregateEvidence(before, snapshot, fileMode)
 	if err != nil {
 		t.Fatalf("NewAggregateEvidence returned error: %v", err)
 	}

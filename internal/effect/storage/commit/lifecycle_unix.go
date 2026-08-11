@@ -129,6 +129,9 @@ func commitRootedEntryRenameWithFaults(
 		if sourceExists {
 			return fmt.Errorf("source name reappeared during rename")
 		}
+		if request.moved != nil {
+			*request.moved = moved
+		}
 		return nil
 	}
 	if err := faults.run(ctx, phaseVerifyEntry, verifyMoved); err != nil {
@@ -238,6 +241,7 @@ func commitRootedEntryCleanupWithFaults(
 		request.path,
 		request.expected,
 		request.capability,
+		request.limits,
 		faults,
 	)
 	if err != nil {
@@ -299,11 +303,23 @@ func validateRootedEntryRename(request RootedEntryRename) error {
 }
 
 func validateRootedEntryCleanup(request RootedEntryCleanup) error {
-	if err := validateCommitPath(request.path); err != nil {
-		return err
+	if request.removalNames == nil {
+		if err := validateCommitPath(request.path); err != nil {
+			return err
+		}
+	} else {
+		if err := validateRootedPath(request.path); err != nil {
+			return err
+		}
+		if !request.removalNames.Valid() || filepath.Base(request.path) != request.removalNames.Cleanup() {
+			return fmt.Errorf("rooted removal cleanup path is not the authorized cleanup stage")
+		}
 	}
 	if err := validateRootedCapability(request.path, request.capability); err != nil {
 		return err
+	}
+	if err := request.limits.Validate(); err != nil {
+		return fmt.Errorf("rooted cleanup traversal limits: %w", err)
 	}
 	return validateLifecycleIdentity(request.path, request.expected)
 }

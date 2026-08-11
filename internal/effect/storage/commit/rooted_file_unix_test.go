@@ -14,6 +14,72 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
+func TestCaptureWorkingDirectoryIdentityUsesRetainedRoot(t *testing.T) {
+	rootPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize retained root: %v", err)
+	}
+	expected, err := CaptureEntryIdentity(t.Context(), rootPath)
+	if err != nil {
+		t.Fatalf("capture ambient directory identity: %v", err)
+	}
+	root, err := rootedpath.CaptureRootNoFollow(rootPath)
+	if err != nil {
+		t.Fatalf("capture retained root: %v", err)
+	}
+	defer root.Close()
+	budget := &workingDirectoryIdentityTestBudget{}
+	capability, err := root.AcquireWorkingDirectoryBounded(budget)
+	if err != nil {
+		t.Fatalf("acquire retained working directory: %v", err)
+	}
+	defer capability.Close()
+	observed, err := CaptureWorkingDirectoryIdentity(t.Context(), capability, budget)
+	if err != nil {
+		t.Fatalf("capture retained directory identity: %v", err)
+	}
+	if !expected.Equal(observed) {
+		t.Fatal("retained directory identity differs from ambient observation")
+	}
+}
+
+func TestCaptureWorkingDirectoryIdentityPreservesPreexistingCancellation(t *testing.T) {
+	rootPath, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("canonicalize retained root: %v", err)
+	}
+	root, err := rootedpath.CaptureRootNoFollow(rootPath)
+	if err != nil {
+		t.Fatalf("capture retained root: %v", err)
+	}
+	defer root.Close()
+	acquireBudget := &workingDirectoryIdentityTestBudget{}
+	capability, err := root.AcquireWorkingDirectoryBounded(acquireBudget)
+	if err != nil {
+		t.Fatalf("acquire retained working directory: %v", err)
+	}
+	defer capability.Close()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	observationBudget := &workingDirectoryIdentityTestBudget{}
+	_, err = CaptureWorkingDirectoryIdentity(ctx, capability, observationBudget)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled retained identity error = %v, want context.Canceled", err)
+	}
+	if observationBudget.calls != 0 {
+		t.Fatalf("canceled retained identity consumed %d path-budget calls", observationBudget.calls)
+	}
+}
+
+type workingDirectoryIdentityTestBudget struct {
+	calls int
+}
+
+func (budget *workingDirectoryIdentityTestBudget) AdmitPathComponents(int) error {
+	budget.calls++
+	return nil
+}
+
 func TestMissingRootedEntryPreservesNotExistCause(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {
@@ -25,6 +91,95 @@ func TestMissingRootedEntryPreservesNotExistCause(t *testing.T) {
 	_, err := CaptureRootedEntryIdentity(context.Background(), capability)
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("CaptureRootedEntryIdentity error = %T %v, want errors.Is(os.ErrNotExist)", err, err)
+	}
+}
+
+func TestConfirmRootedEntryAbsentSyncsNearestExistingAncestorWithoutCreatingParents(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "missing/nested/.daem-tombstone-residue")
+	if _, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability); err != nil {
+		t.Fatalf("ConfirmRootedEntryAbsent returned error: %v", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	if _, err := os.Stat(filepath.Join(root, "missing")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing parent stat error = %v, want not exist", err)
+	}
+}
+
+func TestConfirmRootedEntryAbsentRejectsReappearedResidue(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	residue := filepath.Join(root, ".daem-tombstone-residue")
+	if err := os.WriteFile(residue, []byte("foreign"), 0o600); err != nil {
+		t.Fatalf("create residue: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, filepath.Base(residue))
+	_, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability)
+	if err == nil || !strings.Contains(err.Error(), "reappeared") {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want reappeared blocker", err)
+	}
+	assertFile(t, residue, "foreign", 0o600)
+}
+
+func TestConfirmRootedEntryAbsentRejectsSymlinkAncestor(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatalf("create outside: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "missing")); err != nil {
+		t.Fatalf("create ancestor symlink: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	_, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability)
+	if err == nil || !strings.Contains(err.Error(), "symbolic-link ancestor") {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want symlink blocker", err)
+	}
+}
+
+func TestConfirmRootedEntryAbsentHonorsCancellation(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "residue")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := ConfirmRootedEntryAbsentWithOutcome(ctx, capability)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ConfirmRootedEntryAbsent error = %v, want context cancellation", err)
+	}
+	assertClosedRootedCapability(t, capability)
+}
+
+func TestConfirmRootedEntryAbsentRetriesAfterDurabilityFailure(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	first := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	faults := faultPlan{failures: map[phase]error{
+		phaseSyncCleanupParent: errors.New("injected absence sync failure"),
+	}}
+	if err := confirmRootedEntryAbsentWithFaults(t.Context(), first, faults); err == nil || !strings.Contains(err.Error(), "injected absence sync failure") {
+		t.Fatalf("first absence confirmation error = %v, want injected failure", err)
+	}
+	second := rootedCapabilityForCommitTest(t, captured, "missing/residue")
+	if _, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), second); err != nil {
+		t.Fatalf("retry absence confirmation returned error: %v", err)
 	}
 }
 
@@ -220,6 +375,43 @@ func TestReadRootedRegularFileUpToEnforcesPayloadBound(t *testing.T) {
 	}
 	if err := invalid.Close(); err != nil {
 		t.Fatalf("close invalid-bound capability: %v", err)
+	}
+}
+
+func TestReadRootedSymlinkTargetReturnsStableNoFollowTarget(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.MkdirAll(filepath.Join(root, ".agents"), 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	linkPath := filepath.Join(root, ".agents", "current")
+	if err := os.Symlink("nested/target", linkPath); err != nil {
+		t.Fatalf("create rooted symbolic link: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, ".agents/current")
+
+	target, identity, err := ReadRootedSymlinkTarget(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("ReadRootedSymlinkTarget returned error: %v", err)
+	}
+	if target != "nested/target" {
+		t.Fatalf("symbolic-link target = %q, want nested/target", target)
+	}
+	if identity.kind != entryKindSymlink {
+		t.Fatalf("symbolic-link identity kind = %d, want symlink", identity.kind)
+	}
+	if err := capability.Close(); err != nil {
+		t.Fatalf("close symbolic-link capability: %v", err)
+	}
+
+	writeTestFile(t, filepath.Join(root, ".agents", "regular"), "content", 0o600)
+	regular := rootedCapabilityForCommitTest(t, captured, ".agents/regular")
+	if _, _, err := ReadRootedSymlinkTarget(t.Context(), regular); err == nil ||
+		!strings.Contains(err.Error(), "not a symbolic link") {
+		t.Fatalf("regular-file symbolic-link read error = %v, want kind rejection", err)
+	}
+	if err := regular.Close(); err != nil {
+		t.Fatalf("close regular-file capability: %v", err)
 	}
 }
 

@@ -6,10 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"github.com/isty2e/daem/internal/assurance/durable"
-	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -77,204 +74,9 @@ type retirementBindings struct {
 	garbage      *rootedpath.EntryAuthority
 }
 
-// RetireActiveJournal advances one clean active journal through the canonical
-// retirement protocol. Root must be an open, caller-owned witness captured
-// from the recovery directory used to build Plan. The function borrows Root
-// and Filesystem and does not perform host or state recovery.
-func RetireActiveJournal(
+func executePreparedRetirement(
 	ctx context.Context,
-	plan recovery.Plan,
-	activeAuthority ActiveJournalAuthority,
-	root *rootedpath.CapturedRoot,
-	filesystem mutationfs.RootedStore,
-	stateCodec durable.SnapshotCodec,
-) error {
-	if filesystem == nil {
-		return fmt.Errorf("journal retirement filesystem is required")
-	}
-	if root == nil {
-		return fmt.Errorf("journal retirement root authority is required")
-	}
-	if err := activeAuthority.Validate(); err != nil {
-		return err
-	}
-	if stateCodec == nil {
-		return fmt.Errorf("journal retirement state codec is required")
-	}
-	if plan.Blocked() || plan.HasErrors() {
-		return fmt.Errorf("active recovery plan is not clean enough to retire")
-	}
-	switch plan.Classification() {
-	case recovery.ClassificationCleanBefore, recovery.ClassificationCleanAfter:
-	default:
-		return fmt.Errorf(
-			"active recovery plan classification %q cannot be retired",
-			plan.Classification(),
-		)
-	}
-
-	fingerprint, err := plan.JournalAuthorityFingerprint()
-	if err != nil {
-		return fmt.Errorf("read active journal retirement identity: %w", err)
-	}
-	record, err := retirement.NewRecord(
-		plan.OperationID(),
-		fingerprint,
-		retirement.PhasePrepared,
-	)
-	if err != nil {
-		return fmt.Errorf("build active journal retirement record: %w", err)
-	}
-	rootAuthority, err := root.Authority()
-	if err != nil {
-		return fmt.Errorf("read journal retirement root authority: %w", err)
-	}
-	recoveryRoot := rootAuthority.PhysicalRoot()
-	activePath := filepath.Join(recoveryRoot, plan.OperationID())
-	if filepath.Clean(plan.OperationDir()) != filepath.Clean(activePath) {
-		return fmt.Errorf("active recovery operation directory does not match its operation id")
-	}
-
-	execution := retirementExecution{
-		record:             record,
-		activePath:         activePath,
-		activeAuthority:    activeAuthority,
-		journalFingerprint: fingerprint,
-		start:              retirementStartActive,
-	}
-	bindings, err := bindRetirement(
-		root,
-		execution,
-	)
-	if err != nil {
-		return err
-	}
-	defer bindings.close()
-	return executeRetirement(ctx, filesystem, stateCodec, execution, bindings)
-}
-
-// FinalizeJournalCleanup resumes only the exact cleanup phase selected by a
-// cleanup-only plan. Root must be an open, caller-owned witness captured from
-// the recovery directory used to build Plan. The function borrows Root and
-// Filesystem and grants no host, statefile, or ownership authority.
-func FinalizeJournalCleanup(
-	ctx context.Context,
-	plan retirement.CleanupPlan,
-	root *rootedpath.CapturedRoot,
-	filesystem mutationfs.RootedStore,
-) error {
-	if filesystem == nil {
-		return fmt.Errorf("journal cleanup filesystem is required")
-	}
-	if root == nil {
-		return fmt.Errorf("journal cleanup root authority is required")
-	}
-	authority := plan.Authority()
-	record, err := authority.CurrentRecord()
-	if err != nil {
-		return err
-	}
-	start := retirementStartFinalizingWithoutResidue
-	switch {
-	case authority.RequiresPhaseAdvance():
-		start = retirementStartPrepared
-	case authority.ResiduePresent():
-		start = retirementStartFinalizingWithResidue
-	}
-	execution := retirementExecution{
-		record: record,
-		start:  start,
-	}
-	bindings, err := bindRetirement(
-		root,
-		execution,
-	)
-	if err != nil {
-		return err
-	}
-	defer bindings.close()
-	return executeRetirement(ctx, filesystem, nil, execution, bindings)
-}
-
-func bindRetirement(
-	root *rootedpath.CapturedRoot,
-	execution retirementExecution,
-) (retirementBindings, error) {
-	if !execution.valid() {
-		return retirementBindings{}, fmt.Errorf("journal retirement execution is uninitialized")
-	}
-	authority, err := root.Authority()
-	if err != nil {
-		return retirementBindings{}, fmt.Errorf("read journal retirement root authority: %w", err)
-	}
-	recoveryRoot := authority.PhysicalRoot()
-	identity := execution.record.Identity()
-	paths := struct {
-		active       string
-		activeRecord string
-		control      string
-		record       string
-		residue      string
-		garbage      string
-	}{
-		active:       execution.activePath,
-		activeRecord: filepath.Join(execution.activePath, recoveryJournalFileName),
-		control:      filepath.Join(recoveryRoot, identity.ControlName()),
-		record:       filepath.Join(recoveryRoot, identity.ControlName(), retirement.RecordFileName),
-		residue:      filepath.Join(recoveryRoot, identity.ResidueName()),
-		garbage:      filepath.Join(recoveryRoot, identity.GCName()),
-	}
-
-	var bindings retirementBindings
-	bind := func(path string) (*rootedpath.EntryAuthority, error) {
-		return rootedpath.BindSelectedEntryAuthority(root, recoveryRoot, path)
-	}
-	if paths.active != "" {
-		bindings.active, err = bind(paths.active)
-		if err != nil {
-			return retirementBindings{}, fmt.Errorf("bind active recovery journal: %w", err)
-		}
-		bindings.activeRecord, err = bind(paths.activeRecord)
-		if err != nil {
-			return retirementBindings{}, errors.Join(
-				fmt.Errorf("bind active recovery journal record: %w", err),
-				bindings.close(),
-			)
-		}
-	}
-	if bindings.control, err = bind(paths.control); err != nil {
-		return retirementBindings{}, errors.Join(
-			fmt.Errorf("bind journal retirement control: %w", err),
-			bindings.close(),
-		)
-	}
-	if bindings.record, err = bind(paths.record); err != nil {
-		return retirementBindings{}, errors.Join(
-			fmt.Errorf("bind journal retirement record: %w", err),
-			bindings.close(),
-		)
-	}
-	if bindings.residue, err = bind(paths.residue); err != nil {
-		return retirementBindings{}, errors.Join(
-			fmt.Errorf("bind journal retirement residue: %w", err),
-			bindings.close(),
-		)
-	}
-	if bindings.garbage, err = bind(paths.garbage); err != nil {
-		return retirementBindings{}, errors.Join(
-			fmt.Errorf("bind journal retirement GC residue: %w", err),
-			bindings.close(),
-		)
-	}
-	return bindings, nil
-}
-
-func executeRetirement(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	stateCodec durable.SnapshotCodec,
-	execution retirementExecution,
-	bindings retirementBindings,
+	prepared *RetirementContinuation,
 ) error {
 	if ctx == nil {
 		return fmt.Errorf("journal retirement context is required")
@@ -282,8 +84,15 @@ func executeRetirement(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !execution.valid() {
+	if prepared == nil || prepared.retirementContinuationState == nil || !prepared.execution.valid() {
 		return fmt.Errorf("journal retirement execution is uninitialized")
+	}
+	execution := prepared.execution
+	bindings := prepared.bindings
+	filesystem := prepared.filesystem
+	evidence := prepared.evidence
+	if err := requirePreparedRetirementLayout(ctx, prepared); err != nil {
+		return err
 	}
 	if execution.start == retirementStartActive {
 		activeCapability, activeIdentity, err := captureRetirementEntry(
@@ -307,7 +116,13 @@ func executeRetirement(
 				_ = activeCapability.Close()
 			}
 		}()
-		if err := ensurePreparedControl(ctx, filesystem, execution.record, bindings); err != nil {
+		if err := ensurePreparedControl(
+			ctx,
+			filesystem,
+			execution.record,
+			bindings,
+			evidence.controlPresent,
+		); err != nil {
 			return err
 		}
 		if err := requireJournalFingerprint(
@@ -315,7 +130,7 @@ func executeRetirement(
 			filesystem,
 			bindings.activeRecord,
 			execution.journalFingerprint,
-			stateCodec,
+			prepared.stateCodec,
 			"active recovery journal",
 		); err != nil {
 			return err
@@ -338,13 +153,22 @@ func executeRetirement(
 			filesystem,
 			bindings.control,
 			execution.record,
+			evidence.controlCurrentLimits,
 		); err != nil {
 			return fmt.Errorf("verify prepared journal retirement control: %w", err)
 		}
-		if err := requireRetirementResidueTree(
+		residueEvidence := evidence.residue
+		if execution.start == retirementStartActive {
+			residueEvidence = evidence.active
+		}
+		if err := requireRetirementTreeEvidence(
 			ctx,
 			filesystem,
 			bindings.residue,
+			residueEvidence,
+			residueLimitsForExecution(evidence, execution),
+			false,
+			"journal retirement residue",
 		); err != nil {
 			return fmt.Errorf("verify journal retirement residue before finalizing: %w", err)
 		}
@@ -361,18 +185,43 @@ func executeRetirement(
 		filesystem,
 		bindings.control,
 		finalizing,
+		evidence.controlFinalLimits,
 	); err != nil {
 		return fmt.Errorf("verify finalizing journal retirement control: %w", err)
 	}
 	if execution.hasResidue() {
+		residueEvidence := evidence.residue
+		if execution.start == retirementStartActive {
+			residueEvidence = evidence.active
+		}
+		residueLimits := residueLimitsForExecution(evidence, execution)
+		if err := requireRetirementTreeEvidence(
+			ctx,
+			filesystem,
+			bindings.residue,
+			residueEvidence,
+			residueLimits,
+			false,
+			"journal retirement residue",
+		); err != nil {
+			return err
+		}
 		if err := cleanupRetirementEntry(
 			ctx,
 			filesystem,
 			bindings.residue,
 			"journal retirement residue",
+			residueLimits,
 		); err != nil {
 			return err
 		}
+	} else if err := requireRetirementEntryAbsent(
+		ctx,
+		filesystem,
+		bindings.residue,
+		"journal retirement residue",
+	); err != nil {
+		return err
 	}
 	if err := renameRetirementControl(
 		ctx,
@@ -388,6 +237,7 @@ func executeRetirement(
 		filesystem,
 		bindings.garbage,
 		"journal retirement GC residue",
+		evidence.controlFinalLimits,
 	); err != nil {
 		return finalizedWithGCResidue(err)
 	}
@@ -399,7 +249,11 @@ func ensurePreparedControl(
 	filesystem mutationfs.RootedStore,
 	record retirement.Record,
 	bindings retirementBindings,
+	present bool,
 ) error {
+	if present {
+		return nil
+	}
 	capability, err := bindings.control.Acquire()
 	if err != nil {
 		return fmt.Errorf("acquire journal retirement control: %w", err)
@@ -407,18 +261,10 @@ func ensurePreparedControl(
 	_, err = filesystem.CaptureRootedEntryIdentity(ctx, capability)
 	switch {
 	case err == nil:
-		if closeErr := capability.Close(); closeErr != nil {
-			return fmt.Errorf("close journal retirement control capability: %w", closeErr)
-		}
-		if err := requireRetirementControl(
-			ctx,
-			filesystem,
-			bindings.control,
-			record,
-		); err != nil {
-			return fmt.Errorf("validate prepared journal retirement control: %w", err)
-		}
-		return nil
+		return errors.Join(
+			fmt.Errorf("journal retirement control appeared after preparation"),
+			capability.Close(),
+		)
 	case errors.Is(err, os.ErrNotExist):
 	default:
 		return errors.Join(
@@ -501,32 +347,6 @@ func advanceRetirementRecord(
 		)
 	}
 	return nil
-}
-
-func renameRetirementEntry(
-	ctx context.Context,
-	filesystem mutationfs.RootedStore,
-	authority *rootedpath.EntryAuthority,
-	destinationName string,
-	label string,
-) error {
-	capability, identity, err := captureRetirementEntry(
-		ctx,
-		filesystem,
-		authority,
-		label,
-	)
-	if err != nil {
-		return err
-	}
-	return renameCapturedRetirementEntry(
-		ctx,
-		filesystem,
-		capability,
-		identity,
-		destinationName,
-		label,
-	)
 }
 
 func renameRetirementControl(
@@ -619,6 +439,7 @@ func cleanupRetirementEntry(
 	filesystem mutationfs.RootedStore,
 	authority *rootedpath.EntryAuthority,
 	label string,
+	limits mutationfs.TreeTraversalLimits,
 ) error {
 	if authority == nil {
 		return fmt.Errorf("%s authority is required", label)
@@ -631,7 +452,12 @@ func cleanupRetirementEntry(
 	if err != nil {
 		return errors.Join(fmt.Errorf("capture %s identity: %w", label, err), capability.Close())
 	}
-	outcome, err := filesystem.CleanupRootedEntry(ctx, capability, identity)
+	outcome, err := filesystem.CleanupRootedEntry(
+		ctx,
+		capability,
+		identity,
+		limits,
+	)
 	if err != nil {
 		return fmt.Errorf(
 			"clean %s (%s): %w",
@@ -641,6 +467,148 @@ func cleanupRetirementEntry(
 		)
 	}
 	return nil
+}
+
+func requirePreparedRetirementLayout(
+	ctx context.Context,
+	prepared *RetirementContinuation,
+) error {
+	execution := prepared.execution
+	evidence := prepared.evidence
+	bindings := prepared.bindings
+	filesystem := prepared.filesystem
+
+	if execution.start == retirementStartActive {
+		if err := requireRetirementTreeEvidence(
+			ctx,
+			filesystem,
+			bindings.active,
+			evidence.active,
+			evidence.activeLimits,
+			true,
+			"active recovery journal",
+		); err != nil {
+			return err
+		}
+	}
+	if evidence.controlPresent {
+		current, err := observeRetirementControl(
+			ctx,
+			filesystem,
+			bindings.control,
+			execution.record,
+			evidence.controlCurrentLimits,
+		)
+		if err != nil {
+			return fmt.Errorf("verify prepared journal retirement control: %w", err)
+		}
+		if !evidence.control.sameTree(current) ||
+			!evidence.control.identity.Equal(current.identity) {
+			return fmt.Errorf("journal retirement control changed after preparation")
+		}
+	} else if err := requireRetirementEntryAbsent(
+		ctx,
+		filesystem,
+		bindings.control,
+		"journal retirement control",
+	); err != nil {
+		return err
+	}
+	if evidence.residuePresent {
+		if err := requireRetirementTreeEvidence(
+			ctx,
+			filesystem,
+			bindings.residue,
+			evidence.residue,
+			evidence.residueLimits,
+			true,
+			"journal retirement residue",
+		); err != nil {
+			return err
+		}
+	} else if err := requireRetirementEntryAbsent(
+		ctx,
+		filesystem,
+		bindings.residue,
+		"journal retirement residue",
+	); err != nil {
+		return err
+	}
+	return requireRetirementEntryAbsent(
+		ctx,
+		filesystem,
+		bindings.garbage,
+		"journal retirement GC residue",
+	)
+}
+
+func requireRetirementTreeEvidence(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	expected retirementTreeEvidence,
+	limits mutationfs.TreeTraversalLimits,
+	requireIdentity bool,
+	label string,
+) error {
+	if !expected.valid() {
+		return fmt.Errorf("%s evidence is unavailable", label)
+	}
+	capability, err := authority.Acquire()
+	if err != nil {
+		return err
+	}
+	sink := newRetirementTreeSnapshotSink()
+	identity, snapshotErr := filesystem.SnapshotRootedDirectory(
+		ctx,
+		capability,
+		limits,
+		sink,
+	)
+	current, evidenceErr := sink.evidence(identity)
+	closeErr := capability.Close()
+	if snapshotErr != nil || evidenceErr != nil || closeErr != nil {
+		return errors.Join(snapshotErr, evidenceErr, closeErr)
+	}
+	if !expected.sameTree(current) ||
+		(requireIdentity && !expected.identity.Equal(current.identity)) {
+		return fmt.Errorf("%s changed after retirement preparation", label)
+	}
+	return nil
+}
+
+func residueLimitsForExecution(
+	evidence retirementExecutionEvidence,
+	execution retirementExecution,
+) mutationfs.TreeTraversalLimits {
+	if execution.start == retirementStartActive {
+		return evidence.activeLimits
+	}
+	return evidence.residueLimits
+}
+
+func requireRetirementEntryAbsent(
+	ctx context.Context,
+	filesystem mutationfs.RootedStore,
+	authority *rootedpath.EntryAuthority,
+	label string,
+) error {
+	if authority == nil {
+		return fmt.Errorf("%s authority is required", label)
+	}
+	capability, err := authority.Acquire()
+	if err != nil {
+		return fmt.Errorf("acquire %s absence authority: %w", label, err)
+	}
+	_, observeErr := filesystem.CaptureRootedEntryIdentity(ctx, capability)
+	closeErr := capability.Close()
+	if errors.Is(observeErr, os.ErrNotExist) {
+		return closeErr
+	}
+	if observeErr != nil {
+		return errors.Join(fmt.Errorf("observe %s absence: %w", label, observeErr), closeErr)
+	}
+	return errors.Join(fmt.Errorf("%s appeared after cleanup planning", label), closeErr)
 }
 
 func commitOutcomeDetail(outcome mutationfs.CommitOutcome) string {

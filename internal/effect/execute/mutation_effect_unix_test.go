@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -128,12 +129,25 @@ func TestAggregateRecoveryRejectsNewlyAppearedEmptyDocument(t *testing.T) {
 	}
 	contract := contribution.Contract()
 
-	_, _, err = restoreAggregateProjection(t.Context(), authority, destination, recoveryHostAction{
+	action := recoveryHostAction{
+		Kind:  recovery.ActionKindRestoreDelete,
 		Scope: target.ScopeProject, Destination: ".codex/hooks.json", ContentPath: aggregate.HooksContentPath,
 		AggregateContract: &contract,
-	}, nil, false, nil, testAggregateCodecs())
-	if err == nil || !strings.Contains(err.Error(), "document presence changed") {
-		t.Fatalf("restoreAggregateProjection error = %v, want appeared-document rejection", err)
+	}
+	installGeneralRecoveryExecutionBudgetForTest(t, authority)
+	_, err = executeRecoveryAggregateActionGroup(
+		t.Context(),
+		authority,
+		[]recoveryHostAction{action},
+		[]hostRollbackEntry{{destination: destination}},
+		recoveryAggregateActionGroup{indexes: []int{0}, destination: destination},
+		nil,
+		nil,
+		testAggregateCodecs(),
+		visibilityEffectGate{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "changed between recovery actions") {
+		t.Fatalf("executeRecoveryAggregateActionGroup error = %v, want appeared-document rejection", err)
 	}
 	content, readErr := os.ReadFile(destinationPath)
 	if readErr != nil || len(content) != 0 {
@@ -182,6 +196,7 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	if err := capability.Close(); err != nil {
 		t.Fatalf("close original destination capability: %v", err)
 	}
+	bindTestFileRemovalIntent(t, authority, destination, []byte("inside"))
 	if err := os.Remove(destinationPath); err != nil {
 		t.Fatalf("remove original destination: %v", err)
 	}
@@ -190,8 +205,8 @@ func TestRemoveDestinationAgainstRejectsFinalSymlinkSubstitution(t *testing.T) {
 	}
 
 	err = removeDestinationAgainst(context.Background(), authority, destination, expected)
-	if err == nil || !strings.Contains(err.Error(), "entry identity changed") {
-		t.Fatalf("removeDestinationAgainst error = %v, want identity-change rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "rooted removal commit outcome uncommitted") {
+		t.Fatalf("removeDestinationAgainst error = %v, want uncommitted identity-change rejection", err)
 	}
 	assertMutationTestFile(t, outsideFile, "outside")
 }
@@ -219,6 +234,7 @@ func projectMutationDestinationForTest(
 		paths,
 		[]ManagedPathEffect{effect},
 		nil,
+		emptyRemovalDemandsForTest(),
 		nil,
 		destinationResolver(paths),
 		testFilesystem(),

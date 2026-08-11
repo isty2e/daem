@@ -6,11 +6,13 @@ import (
 	"path/filepath"
 
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
+	outputownership "github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -21,6 +23,46 @@ type mutationDestination struct {
 	hostPath    string
 	root        *rootedpath.CapturedRoot
 	destination rootedpath.Destination
+}
+
+// physicalTraversalPhase keeps retained rooted capabilities attached to the
+// currently admitted operation phase. It grants no capacity of its own.
+type physicalTraversalPhase struct {
+	current rootedpath.PhysicalTraversalBudget
+	sealed  bool
+}
+
+func newPhysicalTraversalPhase(
+	initial rootedpath.PhysicalTraversalBudget,
+) (*physicalTraversalPhase, error) {
+	if initial == nil {
+		return nil, fmt.Errorf("initial physical traversal budget is required")
+	}
+	return &physicalTraversalPhase{current: initial}, nil
+}
+
+func (phase *physicalTraversalPhase) AdmitPathComponents(count int) error {
+	if phase == nil || phase.current == nil {
+		return fmt.Errorf("physical traversal phase is unavailable")
+	}
+	return phase.current.AdmitPathComponents(count)
+}
+
+func (phase *physicalTraversalPhase) advance(
+	next rootedpath.PhysicalTraversalBudget,
+) error {
+	if phase == nil || phase.current == nil {
+		return fmt.Errorf("physical traversal phase is unavailable")
+	}
+	if phase.sealed {
+		return fmt.Errorf("physical traversal phase was already advanced")
+	}
+	if next == nil {
+		return fmt.Errorf("next physical traversal budget is required")
+	}
+	phase.current = next
+	phase.sealed = true
+	return nil
 }
 
 // DestinationResolver expands one canonical portable destination at the boundary.
@@ -39,21 +81,44 @@ func (destination mutationDestination) isRooted() bool {
 }
 
 type mutationAuthority struct {
-	lexical                   DestinationResolver
-	filesystem                mutationfs.Store
-	capturedRoot              *rootedpath.CapturedRoot
-	projectAuthority          rootedpath.Authority
-	projectStatefile          *rootedpath.EntryAuthority
-	recoveryJournal           *rootedpath.EntryAuthority
-	recoveryJournalRecord     *rootedpath.EntryAuthority
-	activeJournalAuthority    journal.ActiveJournalAuthority
-	globalDestinationBindings map[output.Destination]globalDestinationBinding
-	physicalAuthorityRequests []mutation.PhysicalAuthorityRequest
-	retainedGlobalRoots       []*rootedpath.CapturedRoot
-	ownershipRegistry         ownershipmutation.RegistryStore
-	ownershipRegistryBinder   ownershipmutation.RootedRegistryBinder
-	hasOwnershipRegistry      bool
-	ownsCapturedRoot          bool
+	lexical                     DestinationResolver
+	filesystem                  mutationfs.Store
+	capturedRoot                *rootedpath.CapturedRoot
+	projectAuthority            rootedpath.Authority
+	projectStatefile            *rootedpath.EntryAuthority
+	recoveryJournal             *rootedpath.EntryAuthority
+	recoveryJournalRecord       *rootedpath.EntryAuthority
+	journalBasis                journalExecutionBasis
+	statefileSemanticEntry      recoverySemanticEntryBinding
+	ownershipSemanticEntry      recoverySemanticEntryBinding
+	semanticWitness             recoverySemanticWitness
+	ownershipSuccessor          outputownership.Registry
+	hasOwnershipSuccessor       bool
+	recoverySemanticValidation  bool
+	globalDestinationBindings   map[output.Destination]globalDestinationBinding
+	physicalAuthorityRequests   []mutation.PhysicalAuthorityRequest
+	retainedRoots               []*rootedpath.CapturedRoot
+	removalDemands              recovery.RemovalDemandSet
+	removalIntents              map[removalRelationKey]recovery.RemovalIntent
+	removalDestinations         map[removalRelationKey]mutationDestination
+	physicalWorkBudget          *recovery.PhysicalWorkBudget
+	generalTraversalPhase       *physicalTraversalPhase
+	hostExecutionTraversal      rootedpath.PhysicalTraversalBudget
+	removalBindingsPrepared     bool
+	removalAuthorityBound       bool
+	forwardRemovalReservations  map[removalRelationKey][]forwardRemovalReservation
+	forwardRemovalPrepared      bool
+	forwardRemovalExecution     *recovery.PhysicalWorkBudget
+	recoveryBackups             map[string]recoveryBackup
+	recoveryBackupExecution     *recovery.PhysicalWorkBudget
+	generalExecutionWorkBudget  *recovery.PhysicalWorkBudget
+	semanticExecutionWorkBudget *recovery.PhysicalWorkBudget
+	removalCleanupExecution     *recovery.PhysicalWorkBudget
+	preparedRetirement          *journal.RetirementContinuation
+	ownershipRegistry           ownershipmutation.RegistryStore
+	ownershipRegistryBinder     ownershipmutation.RootedRegistryBinder
+	hasOwnershipRegistry        bool
+	ownsCapturedRoot            bool
 }
 
 type globalDestinationBinding struct {
@@ -67,22 +132,35 @@ func newMutationAuthorityWithProjectionEffects(
 	paths Paths,
 	managedPaths []ManagedPathEffect,
 	aggregates []AggregateEffect,
+	removalDemands recovery.RemovalDemandSet,
 	borrowedRoot *rootedpath.CapturedRoot,
 	resolver DestinationResolver,
 	filesystem mutationfs.Store,
 	ownershipRegistryBinder ownershipmutation.RootedRegistryBinder,
 ) (*mutationAuthority, error) {
-	authority, err := captureMutationAuthority(
+	if err := removalDemands.Validate(); err != nil {
+		return nil, fmt.Errorf("removal demands: %w", err)
+	}
+	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(removalDemands.Len())
+	if err != nil {
+		return nil, err
+	}
+	authority, err := captureMutationAuthorityWithPhysicalWorkBudget(
 		paths,
 		paths.ManifestRoot != "" || hasProjectAuthorityUse(managedPaths, aggregates),
 		borrowedRoot,
 		resolver,
 		filesystem,
+		physicalWorkBudget,
 	)
 	if err != nil {
 		return nil, err
 	}
 	authority.ownershipRegistryBinder = ownershipRegistryBinder
+	if err := authority.prepareRemovalDemands(removalDemands, physicalWorkBudget); err != nil {
+		_ = authority.close()
+		return nil, err
+	}
 	for _, effect := range managedPaths {
 		consumers := effect.ConsumerTargets()
 		if len(consumers) == 0 {
@@ -157,13 +235,45 @@ func captureMutationAuthority(
 	resolver DestinationResolver,
 	filesystem mutationfs.Store,
 ) (*mutationAuthority, error) {
+	physicalWorkBudget, err := recovery.NewPhysicalWorkBudget(0)
+	if err != nil {
+		return nil, err
+	}
+	return captureMutationAuthorityWithPhysicalWorkBudget(
+		paths,
+		projectRequired,
+		borrowedRoot,
+		resolver,
+		filesystem,
+		physicalWorkBudget,
+	)
+}
+
+func captureMutationAuthorityWithPhysicalWorkBudget(
+	paths Paths,
+	projectRequired bool,
+	borrowedRoot *rootedpath.CapturedRoot,
+	resolver DestinationResolver,
+	filesystem mutationfs.Store,
+	physicalWorkBudget *recovery.PhysicalWorkBudget,
+) (*mutationAuthority, error) {
 	if resolver == nil {
 		return nil, fmt.Errorf("mutation destination resolver is required")
 	}
 	if filesystem == nil {
 		return nil, fmt.Errorf("mutation filesystem is required")
 	}
-	authority := &mutationAuthority{lexical: resolver, filesystem: filesystem}
+	if physicalWorkBudget == nil {
+		return nil, fmt.Errorf("mutation physical work budget is required")
+	}
+	traversalPhase, err := newPhysicalTraversalPhase(physicalWorkBudget)
+	if err != nil {
+		return nil, err
+	}
+	authority := &mutationAuthority{
+		lexical: resolver, filesystem: filesystem,
+		physicalWorkBudget: physicalWorkBudget, generalTraversalPhase: traversalPhase,
+	}
 	if projectRequired {
 		if err := authority.captureProjectRoot(paths, borrowedRoot); err != nil {
 			return nil, err
@@ -182,24 +292,32 @@ func (authority *mutationAuthority) captureProjectRoot(
 	if authority.capturedRoot != nil {
 		return fmt.Errorf("project mutation root is already captured")
 	}
-	captured := borrowedRoot
-	ownsCapturedRoot := false
-	if captured == nil {
-		var err error
-		captured, err = rootedpath.CaptureRoot(paths.ManifestRoot)
-		if err != nil {
-			return fmt.Errorf("capture project mutation root: %w", err)
-		}
-		ownsCapturedRoot = true
-	} else if err := captured.ValidateSelection(paths.ManifestRoot); err != nil {
-		return fmt.Errorf("validate borrowed project mutation root: %w", err)
+	if authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
 	}
-	projectAuthority, err := captured.Authority()
+	var captured *rootedpath.CapturedRoot
+	ownsCapturedRoot := false
+	var err error
+	captured, err = rootedpath.CaptureRootBounded(
+		paths.ManifestRoot,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
-		if ownsCapturedRoot {
+		return fmt.Errorf("capture bounded project mutation root: %w", err)
+	}
+	ownsCapturedRoot = true
+	projectAuthority, err := captured.AuthorityBounded(authority.generalTraversalPhase)
+	if err != nil {
+		_ = captured.Close()
+		return fmt.Errorf("read bounded project mutation authority: %w", err)
+	}
+	if borrowedRoot != nil {
+		borrowedAuthority, borrowedErr := borrowedRoot.AuthorityBounded(authority.generalTraversalPhase)
+		if borrowedErr != nil || !projectAuthority.Equal(borrowedAuthority) {
 			_ = captured.Close()
+			return fmt.Errorf("borrowed project root differs from bounded mutation authority")
 		}
-		return fmt.Errorf("read project mutation authority: %w", err)
 	}
 	authority.capturedRoot = captured
 	authority.projectAuthority = projectAuthority
@@ -228,6 +346,9 @@ func (authority *mutationAuthority) resolveBoundDestination(
 }
 
 func (authority *mutationAuthority) bindScopedDestination(scope target.Scope, destination output.Destination) error {
+	if authority == nil || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
+	}
 	switch scope {
 	case target.ScopeProject:
 		_, err := authority.resolveProject(destination)
@@ -236,11 +357,27 @@ func (authority *mutationAuthority) bindScopedDestination(scope target.Scope, de
 	default:
 		return fmt.Errorf("mutation scope %q is unsupported", scope)
 	}
+	return authority.bindGlobalDestination(destination)
+}
+
+func (authority *mutationAuthority) bindGlobalDestination(
+	destination output.Destination,
+) error {
+	if authority == nil || authority.physicalWorkBudget == nil {
+		return fmt.Errorf("mutation physical work budget is required")
+	}
+	if _, bound := authority.globalDestinationBindings[destination]; bound {
+		return nil
+	}
 	resolvedHostPath, err := authority.resolveGlobalHostPath(destination)
 	if err != nil {
 		return err
 	}
-	root, destinationBinding, err := rootedpath.CaptureDestination(resolvedHostPath)
+	root, destinationBinding, err := rootedpath.CaptureDestinationBounded(
+		resolvedHostPath,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
 		return err
 	}
@@ -249,7 +386,11 @@ func (authority *mutationAuthority) bindScopedDestination(scope target.Scope, de
 		_ = root.Close()
 		return err
 	}
-	physicalKey, err := mutation.CanonicalDirectoryEntryKey(hostPath)
+	physicalKey, err := mutation.CanonicalDirectoryEntryKeyBounded(
+		hostPath,
+		recovery.MaximumPhysicalPathDepth,
+		authority.generalTraversalPhase,
+	)
 	if err != nil {
 		_ = root.Close()
 		return err
@@ -257,16 +398,7 @@ func (authority *mutationAuthority) bindScopedDestination(scope target.Scope, de
 	if authority.globalDestinationBindings == nil {
 		authority.globalDestinationBindings = make(map[output.Destination]globalDestinationBinding)
 	}
-	if existing, duplicate := authority.globalDestinationBindings[destination]; duplicate {
-		if err := root.Close(); err != nil {
-			return err
-		}
-		if existing.physicalKey != physicalKey {
-			return fmt.Errorf("global destination %q has conflicting physical bindings", destination)
-		}
-		return nil
-	}
-	root, err = authority.retainGlobalRoot(root, destinationBinding)
+	root, err = authority.retainRoot(root, destinationBinding)
 	if err != nil {
 		return err
 	}
@@ -311,16 +443,22 @@ func (authority *mutationAuthority) physicalAuthority() (mutation.PhysicalAuthor
 	return mutation.NewPhysicalAuthoritySet(authority.physicalAuthorityRequests...)
 }
 
-func (authority *mutationAuthority) retainGlobalRoot(
+func (authority *mutationAuthority) retainRoot(
 	candidate *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
 ) (*rootedpath.CapturedRoot, error) {
 	if authority == nil || candidate == nil {
-		return nil, fmt.Errorf("global root authority is required")
+		return nil, fmt.Errorf("retained root authority is required")
+	}
+	if authority.physicalWorkBudget == nil {
+		return nil, errors.Join(
+			fmt.Errorf("mutation physical work budget is required"),
+			candidate.Close(),
+		)
 	}
 	want := destination.Root()
-	for _, retained := range authority.retainedGlobalRoots {
-		have, err := retained.Authority()
+	for _, retained := range authority.retainedRoots {
+		have, err := retained.AuthorityBounded(authority.generalTraversalPhase)
 		if err != nil {
 			return nil, errors.Join(err, candidate.Close())
 		}
@@ -332,7 +470,7 @@ func (authority *mutationAuthority) retainGlobalRoot(
 		}
 		return retained, nil
 	}
-	authority.retainedGlobalRoots = append(authority.retainedGlobalRoots, candidate)
+	authority.retainedRoots = append(authority.retainedRoots, candidate)
 	return candidate, nil
 }
 
@@ -352,15 +490,23 @@ func (authority *mutationAuthority) rootedJournalResolver(
 
 func (authority *mutationAuthority) rootedJournalCapability(
 	destination output.Destination,
+	budget rootedpath.PhysicalTraversalBudget,
 ) (rootedpath.CommitCapability, bool, error) {
-	if authority == nil {
-		return nil, false, fmt.Errorf("mutation authority is required")
+	if authority == nil || authority.physicalWorkBudget == nil {
+		return nil, false, fmt.Errorf("mutation physical work budget is required")
 	}
 	binding, present := authority.globalDestinationBindings[destination]
 	if !present {
 		return nil, false, nil
 	}
-	capability, err := binding.root.Acquire(binding.destination)
+	if budget == nil {
+		budget = authority.generalTraversalPhase
+	}
+	capability, err := binding.root.AcquireBounded(
+		binding.destination,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 	return capability, true, err
 }
 
@@ -400,7 +546,15 @@ func (authority *mutationAuthority) acquire(destination mutationDestination) (ro
 	if authority == nil || !destination.isRooted() {
 		return nil, fmt.Errorf("rooted mutation capability is unavailable")
 	}
-	return destination.root.Acquire(destination.destination)
+	budget := rootedpath.PhysicalTraversalBudget(authority.generalTraversalPhase)
+	if authority.hostExecutionTraversal != nil {
+		budget = authority.hostExecutionTraversal
+	}
+	return destination.root.AcquireBounded(
+		destination.destination,
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 }
 
 func (authority *mutationAuthority) close() error {
@@ -408,12 +562,12 @@ func (authority *mutationAuthority) close() error {
 		return nil
 	}
 	var closeErr error
-	for index, root := range authority.retainedGlobalRoots {
+	for index, root := range authority.retainedRoots {
 		if err := root.Close(); err != nil {
-			closeErr = errors.Join(closeErr, fmt.Errorf("close global root authority[%d]: %w", index, err))
+			closeErr = errors.Join(closeErr, fmt.Errorf("close retained root authority[%d]: %w", index, err))
 		}
 	}
-	authority.retainedGlobalRoots = nil
+	authority.retainedRoots = nil
 	if err := authority.projectStatefile.Close(); err != nil {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close project statefile authority: %w", err))
 	}
@@ -426,10 +580,29 @@ func (authority *mutationAuthority) close() error {
 		closeErr = errors.Join(closeErr, fmt.Errorf("close recovery journal record authority: %w", err))
 	}
 	authority.recoveryJournalRecord = nil
-	authority.activeJournalAuthority = journal.ActiveJournalAuthority{}
+	authority.journalBasis = journalExecutionBasis{}
 	for destination := range authority.globalDestinationBindings {
 		delete(authority.globalDestinationBindings, destination)
 	}
+	authority.removalIntents = nil
+	authority.removalDemands = recovery.RemovalDemandSet{}
+	authority.removalDestinations = nil
+	authority.physicalWorkBudget = nil
+	authority.removalBindingsPrepared = false
+	authority.removalAuthorityBound = false
+	authority.forwardRemovalReservations = nil
+	authority.forwardRemovalPrepared = false
+	authority.forwardRemovalExecution = nil
+	authority.recoveryBackups = nil
+	authority.recoveryBackupExecution = nil
+	authority.generalExecutionWorkBudget = nil
+	authority.generalTraversalPhase = nil
+	authority.hostExecutionTraversal = nil
+	authority.removalCleanupExecution = nil
+	if err := authority.preparedRetirement.Close(); err != nil {
+		closeErr = errors.Join(closeErr, fmt.Errorf("close prepared journal retirement: %w", err))
+	}
+	authority.preparedRetirement = nil
 	authority.ownershipRegistry = nil
 	authority.ownershipRegistryBinder = nil
 	authority.filesystem = nil

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -164,6 +165,86 @@ func prepareRecoveryFixture(t *testing.T, applied bool) recoveryFixture {
 		input: input, hostPath: hostPath, operationDir: captured.Directory,
 		oldContent: oldContent, newContent: newContent,
 	}
+}
+
+func prepareRemovalRecoveryFixture(t *testing.T) recoveryFixture {
+	t.Helper()
+	fixture := prepareRecoveryFixture(t, false)
+	paths, err := daempaths.Resolve(fixture.input.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(fixture.operationDir); err != nil {
+		t.Fatal(err)
+	}
+	currentState, err := statefile.Load(t.Context(), paths.StatefilePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	managed := currentState.ManagedPaths()
+	if len(managed) != 1 {
+		t.Fatalf("managed paths = %d, want 1", len(managed))
+	}
+	previous := managed[0]
+	mutationRequest, err := journal.NewManagedPathRemoveMutation(
+		previous,
+		previous.ContentHash(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := observe.NewManagedPathEvidence(
+		previous.Subject(),
+		previous.Destination(),
+		true,
+		previous.ContentHash(),
+		0o600,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := recovery.NewBeforeRemovalState(recovery.BeforePathState{
+		Existed:     true,
+		Kind:        recovery.PathKindFile,
+		ContentHash: string(previous.ContentHash()),
+		PathMode:    recovery.NewPermissionMode(0o600),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	demand, err := recovery.NewRemovalDemand(
+		previous.Scope(),
+		previous.Destination(),
+		[]recovery.RemovalState{state},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demands, err := recovery.NewRemovalDemandSet([]recovery.RemovalDemand{demand})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, err := journal.CaptureJournalWithOptions(
+		t.Context(),
+		journalPaths(paths),
+		journal.OperationID(time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC)),
+		time.Date(2026, 7, 12, 0, 0, 0, 0, time.UTC),
+		currentState,
+		durable.EmptySnapshot(),
+		journal.CaptureOptions{
+			Filesystem:           storagecommit.Adapter{},
+			ManagedPathMutations: []journal.ManagedPathMutation{mutationRequest},
+			ManagedPathEvidence:  []observe.ManagedPathEvidence{evidence},
+			RemovalDemands:       demands,
+			Resolver:             hostpath.NewResolver(filepath.Dir(fixture.input.ManifestPath)).Resolve,
+			StateCodec:           statefile.Codec{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.operationDir = captured.Directory
+	return fixture
 }
 
 func prepareCleanupRecoveryFixture(

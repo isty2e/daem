@@ -79,6 +79,23 @@ type TraversalLimit struct {
 	maxBytes   int64
 }
 
+// TraversalMeasurement is exact bounded work observed during one complete
+// artifact traversal. Entries exclude the selected root.
+type TraversalMeasurement struct {
+	descendantEntries int
+	regularFileBytes  int64
+}
+
+// DescendantEntries returns the complete descendant cardinality.
+func (measurement TraversalMeasurement) DescendantEntries() int {
+	return measurement.descendantEntries
+}
+
+// RegularFileBytes returns cumulative regular-file content bytes.
+func (measurement TraversalMeasurement) RegularFileBytes() int64 {
+	return measurement.regularFileBytes
+}
+
 // NewTraversalLimit constructs a positive entry and regular-file byte budget.
 func NewTraversalLimit(maxEntries uint64, maxBytes int64) (TraversalLimit, error) {
 	limit := TraversalLimit{maxEntries: maxEntries, maxBytes: maxBytes}
@@ -254,20 +271,87 @@ func (view View) HashDirectoryRequiringRootFile(
 	return contentHash, nil
 }
 
-// HashWithLimit computes hash-v1 while refusing a traversal whose entry count
-// or cumulative regular-file bytes exceed the exact caller-selected budget.
+// HashWithLimit computes hash-v1 and exact completed work while refusing a
+// traversal whose entry count or cumulative regular-file bytes exceed the
+// caller-selected budget.
 func (view View) HashWithLimit(
 	ctx context.Context,
 	limit TraversalLimit,
-) (artifact.ContentHash, error) {
+) (artifact.ContentHash, TraversalMeasurement, error) {
 	if err := view.validateOperation(ctx); err != nil {
-		return "", err
+		return "", TraversalMeasurement{}, err
 	}
 	if err := limit.validate(); err != nil {
-		return "", err
+		return "", TraversalMeasurement{}, err
 	}
 	budget := traversalBudget{limit: limit}
-	return walkNative(ctx, view.root, view.kind, nil, &budget)
+	contentHash, err := walkNative(ctx, view.root, view.kind, nil, &budget)
+	if err != nil {
+		return "", TraversalMeasurement{}, err
+	}
+	return contentHash, traversalMeasurement(budget), nil
+}
+
+// HashDirectoryWithLimits computes hash-v1 and exact work while enforcing
+// both traversal-resource and directory-structure limits.
+func (view View) HashDirectoryWithLimits(
+	ctx context.Context,
+	traversalLimit TraversalLimit,
+	structureLimit TreeStructureLimit,
+) (artifact.ContentHash, TraversalMeasurement, error) {
+	if view.kind != artifact.ArtifactKindDirectory {
+		return "", TraversalMeasurement{}, fmt.Errorf("bounded directory hash requires a directory artifact")
+	}
+	if err := view.validateOperation(ctx); err != nil {
+		return "", TraversalMeasurement{}, err
+	}
+	if err := traversalLimit.validate(); err != nil {
+		return "", TraversalMeasurement{}, err
+	}
+	if err := structureLimit.validate(); err != nil {
+		return "", TraversalMeasurement{}, err
+	}
+	budget := traversalBudget{limit: traversalLimit, structureLimit: &structureLimit}
+	contentHash, err := walkNative(ctx, view.root, view.kind, nil, &budget)
+	if err != nil {
+		return "", TraversalMeasurement{}, err
+	}
+	return contentHash, traversalMeasurement(budget), nil
+}
+
+// MeasureVerifiedDirectory verifies one exact directory identity while
+// returning the bounded work consumed by the same descriptor-bound traversal.
+func (view View) MeasureVerifiedDirectory(
+	ctx context.Context,
+	expected artifact.ExactIdentity,
+	limit TraversalLimit,
+	structureLimit TreeStructureLimit,
+) (TraversalMeasurement, error) {
+	if err := expected.Validate(); err != nil {
+		return TraversalMeasurement{}, fmt.Errorf("measure artifact identity: %w", err)
+	}
+	if view.kind != artifact.ArtifactKindDirectory || expected.Kind() != artifact.ArtifactKindDirectory {
+		return TraversalMeasurement{}, fmt.Errorf("measured artifact must be a directory")
+	}
+	contentHash, measurement, err := view.HashDirectoryWithLimits(ctx, limit, structureLimit)
+	if err != nil {
+		return TraversalMeasurement{}, err
+	}
+	if contentHash != expected.ContentHash() {
+		return TraversalMeasurement{}, fmt.Errorf(
+			"measured artifact content hash %q does not match expected hash %q",
+			contentHash,
+			expected.ContentHash(),
+		)
+	}
+	return measurement, nil
+}
+
+func traversalMeasurement(budget traversalBudget) TraversalMeasurement {
+	return TraversalMeasurement{
+		descendantEntries: budget.structureEntries,
+		regularFileBytes:  budget.bytes,
+	}
 }
 
 // Verify checks that the bytes consumed now match expected exactly.
@@ -296,6 +380,34 @@ func (view View) CopyVerified(
 	expected artifact.ExactIdentity,
 	sink TreeSink,
 ) error {
+	return view.copyVerified(ctx, expected, sink, nil)
+}
+
+// CopyVerifiedWithLimits streams and verifies one artifact while enforcing
+// caller-owned traversal and directory-structure ceilings.
+func (view View) CopyVerifiedWithLimits(
+	ctx context.Context,
+	expected artifact.ExactIdentity,
+	sink TreeSink,
+	traversalLimit TraversalLimit,
+	structureLimit TreeStructureLimit,
+) error {
+	if err := traversalLimit.validate(); err != nil {
+		return err
+	}
+	if err := structureLimit.validate(); err != nil {
+		return err
+	}
+	budget := traversalBudget{limit: traversalLimit, structureLimit: &structureLimit}
+	return view.copyVerified(ctx, expected, sink, &budget)
+}
+
+func (view View) copyVerified(
+	ctx context.Context,
+	expected artifact.ExactIdentity,
+	sink TreeSink,
+	budget *traversalBudget,
+) error {
 	if sink == nil {
 		return fmt.Errorf("artifact access tree sink is required")
 	}
@@ -308,7 +420,7 @@ func (view View) CopyVerified(
 	if err := view.validateOperation(ctx); err != nil {
 		return err
 	}
-	contentHash, err := walkNative(ctx, view.root, view.kind, sink, nil)
+	contentHash, err := walkNative(ctx, view.root, view.kind, sink, budget)
 	if err != nil {
 		return err
 	}
@@ -439,6 +551,7 @@ func (budget *traversalBudget) consumeEntry(
 		return err
 	}
 	if budget.structureLimit == nil {
+		budget.structureEntries++
 		return nil
 	}
 	depth := parentDepth

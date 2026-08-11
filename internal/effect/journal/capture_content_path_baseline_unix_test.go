@@ -135,15 +135,20 @@ func TestObserveRecoveryContentPathRejectsOversizedAggregateDocument(t *testing.
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	observation := observeRecoveryPath(
+	observation, err := observeGlobalRecoveryPath(
 		t.Context(),
-		journalTestFilesystem(),
 		action.Destination.String(),
 		string(action.ContentPath),
-		hostPath,
 		action.AggregateContract,
+		hostPath,
+		journalTestFilesystem(),
+		nil,
 		journalTestCodecs(),
+		recoveryBackupBudgetForTest(t),
 	)
+	if err != nil {
+		t.Fatalf("observe oversized recovery path: %v", err)
+	}
 	if !observation.Exists || !strings.Contains(observation.Error, fmt.Sprintf("exceeds %d bytes", maximumBytes)) {
 		t.Fatalf("observation = %#v, want bounded aggregate-document error", observation)
 	}
@@ -198,7 +203,7 @@ func TestRecoveryContentPathBaselineRejectsPhysicalRootReplacement(t *testing.T)
 		action,
 		func(output.Destination) (string, error) { return resolvedPath, nil },
 		nil,
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			capability, acquireErr := root.Acquire(destination)
 			return capability, true, acquireErr
 		},
@@ -246,7 +251,7 @@ func TestRecoveryContentPathBaselineRejectsMismatchedResolverAndCapability(t *te
 		action,
 		func(output.Destination) (string, error) { return firstResolved, nil },
 		nil,
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			capability, acquireErr := secondRoot.Acquire(secondDestination)
 			return capability, true, acquireErr
 		},
@@ -260,9 +265,10 @@ func TestAcquireMatchingRootedCapabilityRejectsNilPresentCapability(t *testing.T
 	_, _, err := acquireMatchingRootedCapability(
 		outputtest.Parse(t, "~/.claude.json"),
 		filepath.Join(t.TempDir(), "config.json"),
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			return nil, true, nil
 		},
+		nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "nil retained root authority") {
 		t.Fatalf("acquire error = %v, want nil-present rejection", err)
@@ -291,9 +297,10 @@ func TestAcquireMatchingRootedCapabilityClosesContradictoryAbsentCapability(t *t
 	_, _, err = acquireMatchingRootedCapability(
 		outputtest.Parse(t, "~/.claude.json"),
 		resolvedPath,
-		func(output.Destination) (rootedpath.CommitCapability, bool, error) {
+		func(output.Destination, rootedpath.PhysicalTraversalBudget) (rootedpath.CommitCapability, bool, error) {
 			return capability, false, nil
 		},
+		nil,
 	)
 	if err == nil || !strings.Contains(err.Error(), "while reporting it absent") {
 		t.Fatalf("acquire error = %v, want contradictory-absence rejection", err)

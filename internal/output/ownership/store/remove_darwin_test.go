@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/output/ownership"
 )
 
@@ -31,7 +32,16 @@ func TestStoreRemovesClaimAfterNonASCIIFinalPathBecomesProvisional(t *testing.T)
 		!strings.Contains(err.Error(), "provisional authority") {
 		t.Fatalf("strict Load error = %v, want provisional-authority refusal", err)
 	}
-	loaded, err := registryStore.LoadForClaimRemovals(t.Context(), []ownership.Claim{claim})
+	budget, err := recovery.NewPhysicalWorkBudget(1)
+	if err != nil {
+		t.Fatalf("construct removal work budget: %v", err)
+	}
+	loaded, err := registryStore.LoadForClaimRemovals(
+		t.Context(),
+		[]ownership.Claim{claim},
+		recovery.MaximumPhysicalPathDepth,
+		budget,
+	)
 	if err != nil {
 		t.Fatalf("LoadForClaimRemovals returned error: %v", err)
 	}

@@ -133,7 +133,7 @@ func TestRootedEntryRequestsRejectInvalidNamesAndIdentities(t *testing.T) {
 		{
 			name: "cleanup stale identity",
 			run: func(capability rootedpath.CommitCapability) error {
-				_, err := NewRootedEntryCleanup(capability, stale)
+				_, err := NewRootedEntryCleanup(capability, stale, defaultTreeTraversalLimits())
 				return err
 			},
 		},
@@ -436,7 +436,7 @@ func TestRootedEntryCleanupIsRetryableAfterPartialCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture residue identity: %v", err)
 	}
-	request, err := NewRootedEntryCleanup(capability, expected)
+	request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 	if err != nil {
 		t.Fatalf("NewRootedEntryCleanup: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestRootedEntryCleanupIsRetryableAfterPartialCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture partial residue identity: %v", err)
 	}
-	retry, err := NewRootedEntryCleanup(retryCapability, retryExpected)
+	retry, err := NewRootedEntryCleanup(retryCapability, retryExpected, defaultTreeTraversalLimits())
 	if err != nil {
 		t.Fatalf("NewRootedEntryCleanup(retry): %v", err)
 	}
@@ -474,6 +474,196 @@ func TestRootedEntryCleanupIsRetryableAfterPartialCancellation(t *testing.T) {
 	}
 }
 
+func TestJournaledLogicalRemovalMovesValidatedResidueToRetryableCleanupStage(t *testing.T) {
+	root := canonicalTempDir(t)
+	active := filepath.Join(root, "active")
+	if err := os.Mkdir(active, 0o700); err != nil {
+		t.Fatalf("create active directory: %v", err)
+	}
+	for _, name := range []string{"a", "b", "c"} {
+		writeTestFile(t, filepath.Join(active, name), name, 0o600)
+	}
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-0123456789abcdef0123456789abcdef",
+		".daem-cleanup-0123456789abcdef0123456789abcdef",
+	)
+	if err != nil {
+		t.Fatalf("construct logical removal names: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "active")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture active identity: %v", err)
+	}
+	request, err := NewRootedLogicalRemovalWithResidue(
+		capability, expected, names, defaultTreeTraversalLimits(),
+	)
+	if err != nil {
+		t.Fatalf("NewRootedLogicalRemovalWithResidue: %v", err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	faults := faultPlan{actions: map[phase]func(){phaseCleanupEntry: cancel}}
+	outcome, err := func() (mutationfs.CommitOutcome, error) {
+		failure := commitLogicalRemovalWithFaults(ctx, request, faults)
+		return outcomeFromError(failure), failure
+	}()
+	assertFailure(t, err, failureRetainedResidue, phaseCleanupTombstone)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, names.Cleanup())
+	if _, err := os.Lstat(active); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("active entry after partial cleanup = %v, want absent", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root, names.Residue())); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("pre-cleanup residue after promotion = %v, want absent", err)
+	}
+	cleanupPath := filepath.Join(root, names.Cleanup())
+	entries, err := os.ReadDir(cleanupPath)
+	if err != nil {
+		t.Fatalf("read partial cleanup stage: %v", err)
+	}
+	if len(entries) == 0 || len(entries) == 3 {
+		t.Fatalf("partial cleanup stage contains %d entries, want strict subset", len(entries))
+	}
+
+	retryCapability := rootedCapabilityForCommitTest(t, captured, names.Cleanup())
+	retryExpected, err := CaptureRootedEntryIdentity(t.Context(), retryCapability)
+	if err != nil {
+		t.Fatalf("capture partial cleanup identity: %v", err)
+	}
+	retry, err := NewRootedRemovalStageCleanup(
+		retryCapability, retryExpected, names, defaultTreeTraversalLimits(),
+	)
+	if err != nil {
+		t.Fatalf("NewRootedRemovalStageCleanup(retry): %v", err)
+	}
+	if _, err := CommitRootedEntryCleanup(t.Context(), retry); err != nil {
+		t.Fatalf("CommitRootedEntryCleanup(retry): %v", err)
+	}
+	if _, err := os.Lstat(cleanupPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("cleanup stage after retry = %v, want absent", err)
+	}
+}
+
+func TestJournaledLogicalRemovalRetainsDirectoryThatExceedsExactForwardLimit(t *testing.T) {
+	root := canonicalTempDir(t)
+	active := filepath.Join(root, "active")
+	if err := os.Mkdir(active, 0o700); err != nil {
+		t.Fatalf("create active directory: %v", err)
+	}
+	writeTestFile(t, filepath.Join(active, "appeared"), "", 0o600)
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-0123456789abcdef0123456789abcdef",
+		".daem-cleanup-0123456789abcdef0123456789abcdef",
+	)
+	if err != nil {
+		t.Fatalf("construct logical removal names: %v", err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(0, 0, 0)
+	if err != nil {
+		t.Fatalf("construct exact empty traversal limit: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "active")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture active identity: %v", err)
+	}
+	request, err := NewRootedLogicalRemovalWithResidue(capability, expected, names, limits)
+	if err != nil {
+		t.Fatalf("construct bounded logical removal: %v", err)
+	}
+	outcome, err := CommitLogicalRemovalWithOutcome(t.Context(), request)
+	assertFailure(t, err, failureRetainedResidue, phaseCleanupTombstone)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, names.Cleanup())
+	retained := filepath.Join(root, names.Cleanup(), "appeared")
+	if _, statErr := os.Stat(retained); statErr != nil {
+		t.Fatalf("entry beyond exact forward limit was deleted: %v", statErr)
+	}
+}
+
+func TestJournaledLogicalRemovalRetainsFileThatExceedsExactForwardLimit(t *testing.T) {
+	root := canonicalTempDir(t)
+	active := filepath.Join(root, "active")
+	writeTestFile(t, active, "appeared", 0o600)
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-1123456789abcdef0123456789abcdef",
+		".daem-cleanup-1123456789abcdef0123456789abcdef",
+	)
+	if err != nil {
+		t.Fatalf("construct logical removal names: %v", err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(0, 0, 0)
+	if err != nil {
+		t.Fatalf("construct exact empty traversal limit: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "active")
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture active identity: %v", err)
+	}
+	request, err := NewRootedLogicalRemovalWithResidue(capability, expected, names, limits)
+	if err != nil {
+		t.Fatalf("construct bounded logical removal: %v", err)
+	}
+	outcome, err := CommitLogicalRemovalWithOutcome(t.Context(), request)
+	assertFailure(t, err, failureRetainedResidue, phaseCleanupTombstone)
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, names.Cleanup())
+	retained := filepath.Join(root, names.Cleanup())
+	content, readErr := os.ReadFile(retained)
+	if readErr != nil {
+		t.Fatalf("read retained file beyond exact limit: %v", readErr)
+	}
+	if string(content) != "appeared" {
+		t.Fatalf("retained file content = %q, want appeared", content)
+	}
+}
+
+func TestJournaledLogicalRemovalRejectsEitherOccupiedPrivateSlotBeforeVisibility(t *testing.T) {
+	for _, occupiedRole := range []string{"residue", "cleanup"} {
+		t.Run(occupiedRole, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			active := filepath.Join(root, "active")
+			writeTestFile(t, active, "managed", 0o600)
+			names, err := mutationfs.NewLogicalRemovalNames(
+				".daem-tombstone-fedcba9876543210fedcba9876543210",
+				".daem-cleanup-fedcba9876543210fedcba9876543210",
+			)
+			if err != nil {
+				t.Fatalf("construct logical removal names: %v", err)
+			}
+			occupiedName := names.Residue()
+			if occupiedRole == "cleanup" {
+				occupiedName = names.Cleanup()
+			}
+			writeTestFile(t, filepath.Join(root, occupiedName), "foreign", 0o600)
+
+			captured := captureRootForCommitTest(t, root)
+			capability := rootedCapabilityForCommitTest(t, captured, "active")
+			expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+			if err != nil {
+				t.Fatalf("capture active identity: %v", err)
+			}
+			request, err := NewRootedLogicalRemovalWithResidue(
+				capability, expected, names, defaultTreeTraversalLimits(),
+			)
+			if err != nil {
+				t.Fatalf("NewRootedLogicalRemovalWithResidue: %v", err)
+			}
+			err = CommitLogicalRemoval(t.Context(), request)
+			assertFailure(t, err, failureUncommitted, phaseCommitTombstone)
+			content, err := os.ReadFile(active)
+			if err != nil || string(content) != "managed" {
+				t.Fatalf("active entry changed before collision rejection: content=%q err=%v", content, err)
+			}
+			content, err = os.ReadFile(filepath.Join(root, occupiedName))
+			if err != nil || string(content) != "foreign" {
+				t.Fatalf("occupied private slot changed: content=%q err=%v", content, err)
+			}
+		})
+	}
+}
+
 func TestRootedEntryCleanupRemovesExactRegularFile(t *testing.T) {
 	root := canonicalTempDir(t)
 	residue := filepath.Join(root, ".retained")
@@ -484,7 +674,7 @@ func TestRootedEntryCleanupRemovesExactRegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture residue identity: %v", err)
 	}
-	request, err := NewRootedEntryCleanup(capability, expected)
+	request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 	if err != nil {
 		t.Fatalf("NewRootedEntryCleanup: %v", err)
 	}
@@ -517,7 +707,7 @@ func TestRootedEntryCleanupPreflightsSpecialChildrenBeforeDeletingSiblings(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := NewRootedEntryCleanup(capability, expected)
+	request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,6 +718,159 @@ func TestRootedEntryCleanupPreflightsSpecialChildrenBeforeDeletingSiblings(t *te
 	if info, statErr := os.Lstat(special); statErr != nil || info.Mode()&fs.ModeNamedPipe == 0 {
 		t.Fatalf("special child changed: info=%v err=%v", info, statErr)
 	}
+}
+
+func TestRootedRemovalStageCleanupHonorsOperationTraversalLimit(t *testing.T) {
+	root := canonicalTempDir(t)
+	cleanupPath := filepath.Join(root, ".daem-cleanup-0123456789abcdef0123456789abcdef")
+	if err := os.Mkdir(cleanupPath, 0o700); err != nil {
+		t.Fatalf("create cleanup stage: %v", err)
+	}
+	for _, name := range []string{"first", "second"} {
+		if err := os.WriteFile(filepath.Join(cleanupPath, name), []byte(name), 0o600); err != nil {
+			t.Fatalf("write cleanup child: %v", err)
+		}
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, filepath.Base(cleanupPath))
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture cleanup stage identity: %v", err)
+	}
+	names, err := mutationfs.NewLogicalRemovalNames(
+		".daem-tombstone-0123456789abcdef0123456789abcdef",
+		filepath.Base(cleanupPath),
+	)
+	if err != nil {
+		t.Fatalf("construct removal names: %v", err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(1, 64, 64)
+	if err != nil {
+		t.Fatalf("construct traversal limits: %v", err)
+	}
+	request, err := NewRootedRemovalStageCleanup(capability, expected, names, limits)
+	if err != nil {
+		t.Fatalf("construct cleanup request: %v", err)
+	}
+	if _, err := CommitRootedEntryCleanup(t.Context(), request); err == nil {
+		t.Fatal("cleanup accepted a tree larger than its operation reservation")
+	}
+	if _, err := os.Lstat(cleanupPath); err != nil {
+		t.Fatalf("cleanup stage changed after bounded preflight failure: %v", err)
+	}
+}
+
+func TestRootedRemovalStageCleanupHonorsByteLimitDuringPreflight(t *testing.T) {
+	root := canonicalTempDir(t)
+	cleanupPath := filepath.Join(root, ".daem-cleanup-1123456789abcdef0123456789abcdef")
+	if err := os.Mkdir(cleanupPath, 0o700); err != nil {
+		t.Fatalf("create cleanup stage: %v", err)
+	}
+	writeTestFile(t, filepath.Join(cleanupPath, "payload"), "too-large", 0o600)
+
+	request := rootedRemovalStageCleanupForTest(t, root, cleanupPath, 4, 8)
+	if _, err := CommitRootedEntryCleanup(t.Context(), request); err == nil {
+		t.Fatal("cleanup accepted a tree larger than its byte reservation")
+	}
+	assertFile(t, filepath.Join(cleanupPath, "payload"), "too-large", 0o600)
+}
+
+func TestRootedRemovalStageCleanupHonorsByteLimitDuringDeletion(t *testing.T) {
+	root := canonicalTempDir(t)
+	cleanupPath := filepath.Join(root, ".daem-cleanup-2123456789abcdef0123456789abcdef")
+	if err := os.Mkdir(cleanupPath, 0o700); err != nil {
+		t.Fatalf("create cleanup stage: %v", err)
+	}
+	first := filepath.Join(cleanupPath, "a-first")
+	second := filepath.Join(cleanupPath, "z-second")
+	writeTestFile(t, first, "", 0o600)
+	writeTestFile(t, second, "", 0o600)
+
+	request := rootedRemovalStageCleanupForTest(t, root, cleanupPath, 4, 1)
+	var growSecond sync.Once
+	outcome, err := commitRootedEntryCleanupWithFaults(t.Context(), request, faultPlan{
+		actions: map[phase]func(){
+			phaseCleanupEntry: func() {
+				growSecond.Do(func() {
+					if writeErr := os.WriteFile(second, []byte("expanded"), 0o600); writeErr != nil {
+						t.Errorf("grow second cleanup entry: %v", writeErr)
+					}
+				})
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("cleanup accepted deletion-pass byte growth beyond its reservation")
+	}
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeRetainedRecoverable, filepath.Base(cleanupPath))
+	assertFile(t, second, "expanded", 0o600)
+}
+
+func TestRootedRemovalStageRegularFileHonorsByteLimit(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		content      string
+		maximumBytes int64
+		wantRemoved  bool
+	}{
+		{name: "zero byte", content: "", maximumBytes: 0, wantRemoved: true},
+		{name: "exact limit", content: "exact", maximumBytes: 5, wantRemoved: true},
+		{name: "over limit", content: "beyond", maximumBytes: 5, wantRemoved: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := canonicalTempDir(t)
+			cleanupPath := filepath.Join(root, ".daem-cleanup-3123456789abcdef0123456789abcdef")
+			writeTestFile(t, cleanupPath, test.content, 0o600)
+
+			request := rootedRemovalStageCleanupForTest(t, root, cleanupPath, 0, test.maximumBytes)
+			_, err := CommitRootedEntryCleanup(t.Context(), request)
+			if test.wantRemoved {
+				if err != nil {
+					t.Fatalf("cleanup regular root: %v", err)
+				}
+				if _, statErr := os.Lstat(cleanupPath); !os.IsNotExist(statErr) {
+					t.Fatalf("regular cleanup root remains: %v", statErr)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), "regular-file bytes") {
+				t.Fatalf("over-limit regular cleanup error = %v", err)
+			}
+			assertFile(t, cleanupPath, test.content, 0o600)
+		})
+	}
+}
+
+func rootedRemovalStageCleanupForTest(
+	t *testing.T,
+	root string,
+	cleanupPath string,
+	maximumEntries int,
+	maximumBytes int64,
+) RootedEntryCleanup {
+	t.Helper()
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, filepath.Base(cleanupPath))
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		t.Fatalf("capture cleanup stage identity: %v", err)
+	}
+	names, err := mutationfs.NewLogicalRemovalNames(
+		strings.Replace(filepath.Base(cleanupPath), ".daem-cleanup-", ".daem-tombstone-", 1),
+		filepath.Base(cleanupPath),
+	)
+	if err != nil {
+		t.Fatalf("construct removal names: %v", err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(maximumEntries, 64, maximumBytes)
+	if err != nil {
+		t.Fatalf("construct traversal limits: %v", err)
+	}
+	request, err := NewRootedRemovalStageCleanup(capability, expected, names, limits)
+	if err != nil {
+		t.Fatalf("construct cleanup request: %v", err)
+	}
+	return request
 }
 
 func TestRootedEntryCleanupFaultClassification(t *testing.T) {
@@ -568,7 +911,7 @@ func TestRootedEntryCleanupFaultClassification(t *testing.T) {
 			if err != nil {
 				t.Fatalf("capture residue identity: %v", err)
 			}
-			request, err := NewRootedEntryCleanup(capability, expected)
+			request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 			if err != nil {
 				t.Fatalf("NewRootedEntryCleanup: %v", err)
 			}
@@ -610,7 +953,7 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 			t.Fatalf("create replacement residue: %v", err)
 		}
 		writeTestFile(t, filepath.Join(residue, "keep"), "replacement", 0o600)
-		request, err := NewRootedEntryCleanup(capability, expected)
+		request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 		if err != nil {
 			t.Fatalf("NewRootedEntryCleanup: %v", err)
 		}
@@ -634,7 +977,7 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 		expected := captureIdentity(t, residue)
 		captured := captureRootForCommitTest(t, root)
 		capability := rootedCapabilityForCommitTest(t, captured, ".retained")
-		if _, err := NewRootedEntryCleanup(capability, expected); err == nil {
+		if _, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits()); err == nil {
 			t.Fatal("NewRootedEntryCleanup accepted symlink")
 		}
 		if err := capability.Close(); err != nil {
@@ -656,7 +999,7 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 		expected := identityFromStat(path, &stat)
 		captured := captureRootForCommitTest(t, root)
 		capability := rootedCapabilityForCommitTest(t, captured, ".retained")
-		if _, err := NewRootedEntryCleanup(capability, expected); err == nil {
+		if _, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits()); err == nil {
 			t.Fatal("NewRootedEntryCleanup accepted special entry")
 		}
 		if err := capability.Close(); err != nil {
@@ -690,7 +1033,7 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 		if err := os.Symlink(outside, residue); err != nil {
 			t.Fatalf("substitute residue symlink: %v", err)
 		}
-		request, err := NewRootedEntryCleanup(capability, expected)
+		request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 		if err != nil {
 			t.Fatalf("NewRootedEntryCleanup: %v", err)
 		}
@@ -718,7 +1061,7 @@ func TestRootedEntryCleanupRejectsReplacementSymlinkAndSpecialEntry(t *testing.T
 		if err := unix.Mkfifo(residue, 0o600); err != nil {
 			t.Fatalf("substitute residue FIFO: %v", err)
 		}
-		request, err := NewRootedEntryCleanup(capability, expected)
+		request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 		if err != nil {
 			t.Fatalf("NewRootedEntryCleanup: %v", err)
 		}
@@ -752,7 +1095,7 @@ func TestRootedEntryCleanupConcurrentAttemptsNeverDeleteReplacement(t *testing.T
 		if err != nil {
 			t.Fatalf("capture identity %d: %v", index, err)
 		}
-		request, err := NewRootedEntryCleanup(capability, expected)
+		request, err := NewRootedEntryCleanup(capability, expected, defaultTreeTraversalLimits())
 		if err != nil {
 			t.Fatalf("NewRootedEntryCleanup %d: %v", index, err)
 		}
@@ -975,6 +1318,7 @@ func TestAdapterExposesRootedEntryCommitProtocol(t *testing.T) {
 		t.Context(),
 		cleanupCapability,
 		residueIdentity,
+		defaultTreeTraversalLimits(),
 	)
 	if err != nil {
 		t.Fatalf("CleanupRootedEntry: %v", err)

@@ -9,11 +9,13 @@ import (
 // EntryAuthority owns one exact entry binding. It borrows the selected root
 // for descendants and owns an independently captured root for external entries.
 type EntryAuthority struct {
-	mu          sync.Mutex
-	root        *CapturedRoot
-	destination Destination
-	ownsRoot    bool
-	closed      bool
+	mu                   sync.Mutex
+	root                 *CapturedRoot
+	destination          Destination
+	maximumPhysicalDepth int
+	budget               PhysicalTraversalBudget
+	ownsRoot             bool
+	closed               bool
 }
 
 // BindSelectedEntryAuthority validates the selected root and binds one exact
@@ -24,6 +26,109 @@ func BindSelectedEntryAuthority(
 	selectedRoot string,
 	selectedPath string,
 ) (*EntryAuthority, error) {
+	return bindSelectedEntryAuthority(selected, selectedRoot, selectedPath, 0, nil)
+}
+
+// BindSelectedEntryAuthorityBounded binds one exact entry while charging
+// selected-root validation and any external path capture to one operation
+// budget. Every later Acquire uses that supplied budget.
+func BindSelectedEntryAuthorityBounded(
+	selected *CapturedRoot,
+	selectedRoot string,
+	selectedPath string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*EntryAuthority, error) {
+	if maximumPhysicalDepth <= 0 {
+		return nil, newFailure(
+			FailureInvalidRoot,
+			selectedRoot,
+			"maximum physical depth must be positive",
+			nil,
+		)
+	}
+	if budget == nil {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			selectedRoot,
+			"entry authority traversal budget is required",
+			nil,
+		)
+	}
+	return bindSelectedEntryAuthority(
+		selected,
+		selectedRoot,
+		selectedPath,
+		maximumPhysicalDepth,
+		budget,
+	)
+}
+
+// BindCapturedEntryAuthorityBounded attaches bounded future access to one
+// destination already issued by the same captured root. It performs no path
+// traversal; callers must have established and budgeted the root/destination
+// pair before using this pure binding step.
+func BindCapturedEntryAuthorityBounded(
+	root *CapturedRoot,
+	destination Destination,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*EntryAuthority, error) {
+	if root == nil {
+		return nil, newFailure(FailureRootUnavailable, "", "captured root is required", nil)
+	}
+	if maximumPhysicalDepth <= 0 {
+		return nil, newFailure(
+			FailureInvalidRoot,
+			"",
+			"maximum physical depth must be positive",
+			nil,
+		)
+	}
+	if budget == nil {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			"",
+			"entry authority traversal budget is required",
+			nil,
+		)
+	}
+	if err := destination.Validate(); err != nil {
+		return nil, err
+	}
+	root.mu.Lock()
+	defer root.mu.Unlock()
+	if root.closed {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			root.authority.physicalRoot,
+			"captured root is closed",
+			nil,
+		)
+	}
+	if !root.authority.Equal(destination.root) {
+		return nil, newFailure(
+			FailureInvalidDestination,
+			destination.relative.value,
+			"destination belongs to a different root authority",
+			nil,
+		)
+	}
+	return &EntryAuthority{
+		root:                 root,
+		destination:          destination,
+		maximumPhysicalDepth: maximumPhysicalDepth,
+		budget:               budget,
+	}, nil
+}
+
+func bindSelectedEntryAuthority(
+	selected *CapturedRoot,
+	selectedRoot string,
+	selectedPath string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*EntryAuthority, error) {
 	if selected == nil {
 		return nil, newFailure(
 			FailureRootUnavailable,
@@ -32,8 +137,18 @@ func BindSelectedEntryAuthority(
 			nil,
 		)
 	}
-	if err := selected.ValidateSelection(selectedRoot); err != nil {
-		return nil, err
+	var validationErr error
+	if budget == nil {
+		validationErr = selected.ValidateSelection(selectedRoot)
+	} else {
+		validationErr = selected.ValidateSelectionBounded(
+			selectedRoot,
+			maximumPhysicalDepth,
+			budget,
+		)
+	}
+	if validationErr != nil {
+		return nil, validationErr
 	}
 	child, same, err := selectedEntryRelation(selectedRoot, selectedPath)
 	if err != nil {
@@ -48,23 +163,37 @@ func BindSelectedEntryAuthority(
 		)
 	}
 	if child {
-		destination, err := selected.bindSelectedEntry(selectedRoot, selectedPath)
+		destination, err := selected.bindSelectedEntryAfterValidation(selectedRoot, selectedPath)
 		if err != nil {
 			return nil, err
 		}
 		return &EntryAuthority{
-			root:        selected,
-			destination: destination,
+			root:                 selected,
+			destination:          destination,
+			maximumPhysicalDepth: maximumPhysicalDepth,
+			budget:               budget,
 		}, nil
 	}
-	root, destination, err := CaptureDestination(selectedPath)
+	var root *CapturedRoot
+	var destination Destination
+	if budget == nil {
+		root, destination, err = CaptureDestination(selectedPath)
+	} else {
+		root, destination, err = CaptureDestinationBounded(
+			selectedPath,
+			maximumPhysicalDepth,
+			budget,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &EntryAuthority{
-		root:        root,
-		destination: destination,
-		ownsRoot:    true,
+		root:                 root,
+		destination:          destination,
+		maximumPhysicalDepth: maximumPhysicalDepth,
+		budget:               budget,
+		ownsRoot:             true,
 	}, nil
 }
 
@@ -86,6 +215,13 @@ func (authority *EntryAuthority) Acquire() (CommitCapability, error) {
 			"",
 			"entry authority is closed",
 			nil,
+		)
+	}
+	if authority.budget != nil {
+		return authority.root.AcquireBounded(
+			authority.destination,
+			authority.maximumPhysicalDepth,
+			authority.budget,
 		)
 	}
 	return authority.root.Acquire(authority.destination)

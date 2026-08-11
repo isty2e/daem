@@ -1,12 +1,14 @@
 package mutation
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 type pathCaseSemantics uint8
@@ -104,6 +106,30 @@ func CanonicalDirectoryEntryKey(path string) (string, error) {
 	return identity.keyPath, nil
 }
 
+// CanonicalDirectoryEntryKeyBounded returns the platform-normalized comparison
+// key while charging every physical path observation to one operation budget.
+func CanonicalDirectoryEntryKeyBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, error) {
+	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	identity, err := canonicalPathIdentityFromSelectionBounded(
+		path,
+		selection,
+		PathEffectDirectoryEntry,
+		maximumPhysicalDepth,
+		budget,
+	)
+	if err != nil {
+		return "", err
+	}
+	return identity.keyPath, nil
+}
+
 func canonicalPathIdentity(path string, effect PathEffect) (canonicalPath, error) {
 	selection, err := selectPath(path, effect)
 	if err != nil {
@@ -118,6 +144,30 @@ func canonicalPathIdentityFromSelection(
 	effect PathEffect,
 ) (canonicalPath, error) {
 	identity, err := platformCanonicalPath(selection, effect)
+	return validateCanonicalPathIdentity(path, identity, err)
+}
+
+func canonicalPathIdentityFromSelectionBounded(
+	path string,
+	selection pathSelection,
+	effect PathEffect,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (canonicalPath, error) {
+	identity, err := platformCanonicalPathBounded(
+		selection,
+		effect,
+		maximumPhysicalDepth,
+		budget,
+	)
+	return validateCanonicalPathIdentity(path, identity, err)
+}
+
+func validateCanonicalPathIdentity(
+	path string,
+	identity canonicalPath,
+	err error,
+) (canonicalPath, error) {
 	if err != nil {
 		return canonicalPath{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
 	}
@@ -170,6 +220,75 @@ func selectPath(path string, effect PathEffect) (pathSelection, error) {
 		return pathSelection{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
 	}
 	return selection, nil
+}
+
+func selectDirectoryEntryPathBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (pathSelection, error) {
+	if strings.TrimSpace(path) == "" {
+		return pathSelection{}, fmt.Errorf("mutation path is required")
+	}
+	if strings.ContainsRune(path, '\x00') {
+		return pathSelection{}, fmt.Errorf("mutation path contains a NUL byte")
+	}
+	absolutePath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return pathSelection{}, fmt.Errorf("resolve mutation path %q: %w", path, err)
+	}
+	root, destination, err := rootedpath.CaptureDestinationBounded(
+		absolutePath,
+		maximumPhysicalDepth,
+		budget,
+	)
+	if err != nil {
+		return pathSelection{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
+	}
+	components := strings.Split(destination.Relative().Path(), "/")
+	selection := pathSelection{
+		anchorPath:         destination.Root().PhysicalRoot(),
+		missingComponents:  components,
+		finalEntryMayExist: len(components) == 1,
+	}
+	if closeErr := root.Close(); closeErr != nil {
+		return pathSelection{}, errors.Join(
+			fmt.Errorf("close mutation path root %q", path),
+			closeErr,
+		)
+	}
+	return selection, nil
+}
+
+func admitPlatformPathTraversal(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) error {
+	if budget == nil {
+		return fmt.Errorf("physical path traversal budget is required")
+	}
+	clean := filepath.Clean(path)
+	if !filepath.IsAbs(clean) || clean != path {
+		return fmt.Errorf("physical path %q must be absolute and clean", path)
+	}
+	volumeRoot := filepath.VolumeName(clean) + string(filepath.Separator)
+	relative := strings.TrimPrefix(clean, volumeRoot)
+	if relative == clean {
+		return fmt.Errorf("physical path %q has no rooted prefix", path)
+	}
+	depth := 0
+	if relative != "" {
+		depth = len(strings.Split(relative, string(filepath.Separator)))
+	}
+	if depth > maximumPhysicalDepth {
+		return fmt.Errorf(
+			"physical path depth %d exceeds maximum %d",
+			depth,
+			maximumPhysicalDepth,
+		)
+	}
+	return budget.AdmitPathComponents(depth)
 }
 
 func resolveDeepestExisting(path string) (pathSelection, error) {

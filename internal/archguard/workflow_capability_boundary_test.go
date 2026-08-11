@@ -20,7 +20,8 @@ func TestPreparedWorkflowCapabilitiesRemainAtAdmittedBoundaries(t *testing.T) {
 			modulePath + "internal/cli/present": {},
 		},
 		modulePath + "internal/workflow/recover": {
-			cliImportPath: {},
+			cliImportPath:                       {},
+			modulePath + "internal/cli/present": {},
 		},
 	}
 
@@ -37,6 +38,49 @@ func TestPreparedWorkflowCapabilitiesRemainAtAdmittedBoundaries(t *testing.T) {
 					imported,
 				)
 			}
+		}
+	}
+}
+
+func TestRecoveryWorkflowLeavesFreshnessToTypedEffectOwners(t *testing.T) {
+	forbiddenSelectors := map[string]struct{}{
+		"CaptureRevisionSet":                  {},
+		"NewDirectoryIdentityRevisionRequest": {},
+		"NewPathIdentityRevisionRequest":      {},
+	}
+	for _, record := range loadRepoPackageRecords(t) {
+		packagePath, internal := internalPath(record.ImportPath)
+		if !internal || packagePath != "internal/workflow/recover" {
+			continue
+		}
+		for _, fileName := range productionFiles(record) {
+			content, ok := packageFileContent(record, fileName)
+			if !ok {
+				t.Fatalf("read production source %s/%s", packagePath, fileName)
+			}
+			file, err := parser.ParseFile(
+				token.NewFileSet(),
+				fileName,
+				content,
+				parser.SkipObjectResolution,
+			)
+			if err != nil {
+				t.Fatalf("parse production source %s/%s: %v", packagePath, fileName, err)
+			}
+			ast.Inspect(file, func(node ast.Node) bool {
+				selector, ok := node.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				if _, forbidden := forbiddenSelectors[selector.Sel.Name]; forbidden {
+					t.Errorf(
+						"recovery workflow %s reintroduced generic revision freshness through %s",
+						fileName,
+						selector.Sel.Name,
+					)
+				}
+				return true
+			})
 		}
 	}
 }
