@@ -10,6 +10,8 @@ import (
 
 const linuxUserModifiableFlags = 0x000380ff
 
+const linuxSELinuxXattrName = "security.selinux"
+
 const linuxPreparedTreeKernelManagedFlags = 0x00000100 | // FS_DIRTY_FL
 	0x00000200 | // FS_COMPRBLK_FL
 	0x00001000 | // FS_INDEX_FL
@@ -103,8 +105,8 @@ func validatePreparedTreeLinuxFlags(path string, flags int) error {
 	return nil
 }
 
-func isAllowedPreparedTreeXattr(string) bool {
-	return false
+func isAllowedPreparedTreeXattr(name string) bool {
+	return name == linuxSELinuxXattrName
 }
 
 func isLinuxACL(name string) bool {

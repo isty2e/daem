@@ -235,6 +235,9 @@ func commitPreparedRootedTreeWithFaults(
 	if err := prepared.requireDestinationAbsentLocked(); err != nil {
 		return prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err, faults)
 	}
+	if err := ctx.Err(); err != nil {
+		return prepared.failBeforeVisibilityLocked(phaseCommitEntry, err, faults)
+	}
 
 	err := renameNoReplace(
 		prepared.anchor.parentFD(),

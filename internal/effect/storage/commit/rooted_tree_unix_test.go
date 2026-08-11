@@ -688,6 +688,40 @@ func TestPreparedRootedTreeCleansRestrictiveStageAfterModeTransitionFailure(t *t
 	}
 }
 
+func TestPreparedRootedTreeCancellationAfterFinalSyncPreventsPublication(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatalf("create captured root: %v", err)
+	}
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "published")
+	prepared, err := PrepareRootedTree(t.Context(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		if err := writer.SetRootMode(0o500); err != nil {
+			return err
+		}
+		return writer.WriteFile(treePathForTest(t, "entry"), 0o600, strings.NewReader("planned"))
+	})
+	if err != nil {
+		t.Fatalf("PrepareRootedTree returned error: %v", err)
+	}
+	ctx := &cancelWhenModeAppliedContext{
+		Context: t.Context(),
+		path:    prepared.stagePath,
+		mode:    0o500,
+	}
+
+	err = prepared.Commit(ctx)
+	assertFailure(t, err, failureUncommitted, phaseCommitEntry)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("PreparedRootedTree.Commit error = %v, want context cancellation", err)
+	}
+	assertClosedRootedCapability(t, capability)
+	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("tree was published after cancellation during final synchronization: %v", statErr)
+	}
+	assertNoPrivateEntries(t, root)
+}
+
 func TestPreparedRootedTreeSynchronizesEveryPlannedDescendant(t *testing.T) {
 	root, prepared, capability := prepareNestedRootedTreeForMutationTest(t)
 	fileSyncs := 0
@@ -970,6 +1004,20 @@ func treeLimitsForTest(t *testing.T, maximumEntries int, maximumDepth int) mutat
 
 type delayedExtraByteReader struct {
 	step int
+}
+
+type cancelWhenModeAppliedContext struct {
+	context.Context
+	path string
+	mode fs.FileMode
+}
+
+func (ctx *cancelWhenModeAppliedContext) Err() error {
+	info, err := os.Stat(ctx.path)
+	if err == nil && info.Mode().Perm() == ctx.mode {
+		return context.Canceled
+	}
+	return ctx.Context.Err()
 }
 
 func (reader *delayedExtraByteReader) Read(payload []byte) (int, error) {
