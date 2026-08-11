@@ -204,7 +204,7 @@ func TestPrepareRootedTreeRejectsDescendantFileFlag(t *testing.T) {
 	}
 }
 
-func TestPrepareRootedTreeRejectsDarwinProvenanceXattr(t *testing.T) {
+func TestPrepareRootedTreeRejectsDarwinProvenanceXattrDrift(t *testing.T) {
 	root := canonicalTempDir(t)
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, "published")
@@ -242,9 +242,9 @@ func TestPrepareRootedTreeRejectsDarwinProvenanceXattr(t *testing.T) {
 		t.Skip("macOS retained its kernel-owned provenance value")
 	}
 	if prepared != nil {
-		t.Fatal("PrepareRootedTree returned a stage with unrepresented provenance metadata")
+		t.Fatal("PrepareRootedTree returned a stage after provenance metadata drift")
 	}
-	assertFailure(t, err, failureUnsupportedGuarantee, phaseValidate)
+	assertFailure(t, err, failureUncommitted, phaseValidate)
 	assertClosedRootedCapability(t, capability)
 	if _, statErr := os.Lstat(filepath.Join(root, "published")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("provenance-bearing tree was published: %v", statErr)
