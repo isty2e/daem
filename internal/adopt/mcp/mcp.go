@@ -25,6 +25,21 @@ const (
 	skipChangedDuringRead = "mcp_config_changed_during_read"
 )
 
+type importSource struct {
+	primaryPath string
+}
+
+func newImportSource(primaryPath string) importSource {
+	return importSource{primaryPath: primaryPath}
+}
+
+func (source importSource) route(contentPath string) (adopt.MCPSourceRoute, error) {
+	return adopt.NewMCPSourceRoute(adopt.MCPSourceRouteInput{
+		PrimaryPath: source.primaryPath,
+		ContentPath: contentPath,
+	})
+}
+
 // Candidates imports only admitted standalone MCP config projection rows.
 func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Scope) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	if ctx == nil {
@@ -33,7 +48,7 @@ func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Sc
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	var importConfig func(context.Context, string, int64) ([]adopt.MCPServer, []adopt.Skipped, error)
+	var importConfig func(context.Context, importSource, int64) ([]adopt.MCPServer, []adopt.Skipped, error)
 	switch {
 	case target == targetpkg.TargetClaudeCode && scope == targetpkg.ScopeProject:
 		importConfig = claudeProjectCandidates
@@ -64,175 +79,203 @@ func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Sc
 	if err != nil {
 		return nil, nil, err
 	}
-	return importConfig(ctx, livePath, codec.MaximumDocumentBytes())
+	return importConfig(ctx, newImportSource(livePath), codec.MaximumDocumentBytes())
 }
 
-func claudeProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func claudeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetClaudeCode,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     livePath + "#" + mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          hostEnvReferences(projection.Env),
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func claudeGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func claudeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetClaudeCode,
 			Scope:        targetpkg.ScopeGlobal,
-			LivePath:     livePath + "#" + mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          hostEnvReferences(projection.Env),
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func openCodeProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func openCodeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetOpenCode,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     livePath + "#" + mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          map[string]string{},
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func openCodeGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func openCodeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetOpenCode,
 			Scope:        targetpkg.ScopeGlobal,
-			LivePath:     livePath + "#" + mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          openCodeEnvReferences(projection.Environment),
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func codexProjectCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func codexProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.CodexProjectMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     livePath + "#" + mcpcodec.CodexProjectMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          map[string]string{},
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func codexGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func codexGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.CodexGlobalMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeGlobal,
-			LivePath:     livePath + "#" + mcpcodec.CodexGlobalMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          sameNameEnvReferences(projection.EnvVars),
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
-func antigravityGlobalCandidates(ctx context.Context, livePath string, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, livePath, maximumBytes)
+func antigravityGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
+	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
 	projections, rejections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(content)
 	if err != nil {
-		return nil, []adopt.Skipped{{LivePath: livePath, Reason: skipReason(err)}}, nil
+		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
+		route, err := source.route(mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID))
+		if err != nil {
+			return nil, nil, err
+		}
 		servers = append(servers, adopt.MCPServer{
 			ResourceName: projection.ServerID,
 			Target:       targetpkg.TargetAntigravityCLI,
 			Scope:        targetpkg.ScopeGlobal,
-			LivePath:     livePath + "#" + mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID),
+			SourceRoute:  route,
 			Command:      projection.Command,
 			Args:         append([]string(nil), projection.Args...),
 			Env:          map[string]string{},
 		})
 	}
-	return servers, rejectionSkips(livePath, rejections), nil
+	return servers, rejectionSkips(source.primaryPath, rejections), nil
 }
 
 func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (string, error) {

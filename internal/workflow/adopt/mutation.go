@@ -216,7 +216,7 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		}
 	}
 	for _, server := range plan.MCPServers() {
-		if err := addPhysical(server.LivePath, string(server.Target), string(server.Scope), mutation.PathEffectReferent); err != nil {
+		if err := addPhysical(server.SourceRoute.PrimaryPath, string(server.Target), string(server.Scope), mutation.PathEffectReferent); err != nil {
 			return nil, nil, nil, err
 		}
 	}

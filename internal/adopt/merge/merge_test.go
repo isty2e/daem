@@ -764,8 +764,16 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 		}
 	}
 	for index := range input.MCPServers {
-		if input.MCPServers[index].LivePath == "" {
-			input.MCPServers[index].LivePath = filepath.Join(root, "live-mcp")
+		if input.MCPServers[index].SourceRoute.PrimaryPath == "" {
+			primaryPath := filepath.Join(root, "live-mcp")
+			route, routeErr := adopt.NewMCPSourceRoute(adopt.MCPSourceRouteInput{
+				PrimaryPath: primaryPath,
+				ContentPath: "/mcp/" + input.MCPServers[index].ResourceName,
+			})
+			if routeErr != nil {
+				t.Fatal(routeErr)
+			}
+			input.MCPServers[index].SourceRoute = route
 		}
 	}
 	candidates, err := adopt.NewCandidateSet(adopt.CandidateSetInput{

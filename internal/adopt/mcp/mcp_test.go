@@ -30,7 +30,7 @@ func TestCandidatesImportsClaudeProjectMCPAndReportsRejectedRows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(servers) != 1 || servers[0].ResourceName != "context7" || servers[0].LivePath != ".mcp.json#/mcpServers/context7" {
+	if len(servers) != 1 || servers[0].ResourceName != "context7" || servers[0].LivePath() != ".mcp.json#/mcpServers/context7" {
 		t.Fatalf("servers = %#v, want context7 project live path", servers)
 	}
 	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json#/mcpServers/remote" || skipped[0].Reason != "unsupported_mcp_transport" {
@@ -71,7 +71,7 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetClaudeCode ||
 		servers[0].Scope != target.ScopeGlobal ||
-		servers[0].LivePath != livePath+"#/mcpServers/context7" ||
+		servers[0].LivePath() != livePath+"#/mcpServers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
 		len(servers[0].Env) != 1 ||
@@ -115,7 +115,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetCodex ||
 		servers[0].Scope != target.ScopeProject ||
-		servers[0].LivePath != ".codex/config.toml#/mcp_servers/context7" ||
+		servers[0].LivePath() != ".codex/config.toml#/mcp_servers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
 		len(servers[0].Env) != 0 {
@@ -184,7 +184,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetCodex ||
 		servers[0].Scope != target.ScopeGlobal ||
-		servers[0].LivePath != livePath+"#/mcp_servers/context7" ||
+		servers[0].LivePath() != livePath+"#/mcp_servers/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
 		len(servers[0].Env) != 1 ||
@@ -225,7 +225,7 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 		servers[0].ResourceName != "context7" ||
 		servers[0].Target != target.TargetOpenCode ||
 		servers[0].Scope != target.ScopeGlobal ||
-		servers[0].LivePath != livePath+"#/mcp/context7" ||
+		servers[0].LivePath() != livePath+"#/mcp/context7" ||
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
 		len(servers[0].Env) != 0 ||
@@ -431,7 +431,7 @@ command = "plugin-owned"
 				servers[0].ResourceName != "context7" ||
 				servers[0].Target != test.target ||
 				servers[0].Scope != target.ScopeGlobal ||
-				servers[0].LivePath != livePath+test.wantPath ||
+				servers[0].LivePath() != livePath+test.wantPath ||
 				servers[0].Command != "npx" {
 				t.Fatalf("servers = %#v, want only standalone global context7", servers)
 			}

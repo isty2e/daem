@@ -114,6 +114,37 @@ type Hook struct {
 	Condition     string
 }
 
+// MCPSourceRoute separates one projection's logical content identity from the
+// physical config files whose observed state authorized the import.
+type MCPSourceRoute struct {
+	PrimaryPath string
+	ContentPath string
+}
+
+// MCPSourceRouteInput carries one imported MCP projection source route.
+type MCPSourceRouteInput struct {
+	PrimaryPath string
+	ContentPath string
+}
+
+// NewMCPSourceRoute constructs one canonical MCP import source route.
+func NewMCPSourceRoute(input MCPSourceRouteInput) (MCPSourceRoute, error) {
+	route := MCPSourceRoute{
+		PrimaryPath: input.PrimaryPath,
+		ContentPath: input.ContentPath,
+	}
+	if err := validateMCPSourceRoute(route); err != nil {
+		return MCPSourceRoute{}, err
+	}
+	return route, nil
+}
+
+// LivePath returns the existing boundary spelling used to disclose one MCP
+// projection without treating it as a filesystem path.
+func (route MCPSourceRoute) LivePath() string {
+	return route.PrimaryPath + "#" + route.ContentPath
+}
+
 // MCPServer is one imported standalone MCP projection candidate. ResourceName
 // names the desired server aggregate; target and scope identify this candidate's
 // projection subject within that aggregate.
@@ -121,11 +152,14 @@ type MCPServer struct {
 	ResourceName string
 	Target       targetpkg.Target
 	Scope        targetpkg.Scope
-	LivePath     string
+	SourceRoute  MCPSourceRoute
 	Command      string
 	Args         []string
 	Env          map[string]string
 }
+
+// LivePath returns the projection-specific import disclosure path.
+func (server MCPServer) LivePath() string { return server.SourceRoute.LivePath() }
 
 func (server MCPServer) projectionSubject() (topology.SubjectID, error) {
 	return topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)

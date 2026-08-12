@@ -38,10 +38,13 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		ResourceName: "context7",
 		Target:       targetpkg.TargetCodex,
 		Scope:        targetpkg.ScopeProject,
-		LivePath:     ".codex/config.toml#/mcp_servers/context7",
-		Command:      "npx",
-		Args:         serverArgs,
-		Env:          serverEnv,
+		SourceRoute: MCPSourceRoute{
+			PrimaryPath: ".codex/config.toml",
+			ContentPath: "/mcp_servers/context7",
+		},
+		Command: "npx",
+		Args:    serverArgs,
+		Env:     serverEnv,
 	}}
 	candidates, err := NewCandidateSet(CandidateSetInput{
 		Sources: sources,
@@ -130,7 +133,14 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 		t.Fatal("candidate set accepted a source without content")
 	}
 	if _, err := NewCandidateSet(CandidateSetInput{
-		MCPServers: []MCPServer{{ResourceName: "bad", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Command: "npx", Env: map[string]string{"TOKEN": ""}}},
+		MCPServers: []MCPServer{{
+			ResourceName: "bad",
+			Target:       targetpkg.TargetCodex,
+			Scope:        targetpkg.ScopeProject,
+			SourceRoute:  testMCPSourceRoute(t, "live", "/mcp/bad"),
+			Command:      "npx",
+			Env:          map[string]string{"TOKEN": ""},
+		}},
 	}); err == nil {
 		t.Fatal("candidate set accepted an empty environment reference")
 	}
@@ -192,14 +202,14 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 			ResourceName: "context7",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     "project-config",
+			SourceRoute:  testMCPSourceRoute(t, "project-config", "/mcp/context7"),
 			Command:      "npx",
 		},
 		{
 			ResourceName: "context7",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     "other-project-config",
+			SourceRoute:  testMCPSourceRoute(t, "other-project-config", "/mcp/context7"),
 			Command:      "node",
 		},
 	}
@@ -208,6 +218,18 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "duplicate imported mcp_server subject") {
 		t.Fatalf("NewCandidateSet error = %v, want duplicate projection subject", err)
 	}
+}
+
+func testMCPSourceRoute(t *testing.T, primaryPath string, contentPath string) MCPSourceRoute {
+	t.Helper()
+	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath: primaryPath,
+		ContentPath: contentPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return route
 }
 
 func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing.T) {

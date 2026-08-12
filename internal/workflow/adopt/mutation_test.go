@@ -614,6 +614,82 @@ func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 	assertImportRevisionRequest(t, stable, filepath.Join(root, "daem.toml"), mutation.PathEffectReferent)
 }
 
+func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("initial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	route, err := adoptmodel.NewMCPSourceRoute(adoptmodel.MCPSourceRouteInput{
+		PrimaryPath: configPath,
+		ContentPath: "/mcp_servers/context7",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "daem.toml")
+	sourceDirectory, err := adoptmodel.NewSourceDirectory(output, filepath.Join(root, "daem.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := adoptmodel.NewRequest(
+		profile.ImportableTargets(),
+		[]target.Scope{target.ScopeProject, target.ScopeGlobal},
+		output,
+		sourceDirectory,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := adoptmodel.NewCandidateSet(adoptmodel.CandidateSetInput{
+		MCPServers: []adoptmodel.MCPServer{{
+			ResourceName: "context7",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			SourceRoute:  route,
+			Command:      "npx",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := adoptmodel.NewPlan(request, nil, []byte("version = 1\n"), candidates, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, requests, stableRequests, err := importMutationEvidence(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertImportRevisionRequest(t, requests, configPath, mutation.PathEffectReferent)
+	assertImportRevisionRequest(t, stableRequests, configPath, mutation.PathEffectReferent)
+	for _, request := range append(append([]mutation.RevisionRequest(nil), requests...), stableRequests...) {
+		if request.Path == route.LivePath() {
+			t.Fatalf("projection disclosure path became filesystem evidence: %#v", request)
+		}
+	}
+
+	revisions, err := mutation.CaptureRevisionSet(context.Background(), stableRequests...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	matches, err := revisions.MatchesCurrent(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if matches {
+		t.Fatal("MCP config drift preserved the stable import revision")
+	}
+}
+
 func TestImportStableRevisionRejectsNonprimarySkillRouteDrift(t *testing.T) {
 	root := t.TempDir()
 	primary := filepath.Join(root, "claude-skill")
