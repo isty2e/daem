@@ -219,6 +219,10 @@ mode = "vendor"
 	if len(merged.Skills()) != 0 {
 		t.Fatalf("skills = %#v, want target merge instead of new skill", merged.Skills())
 	}
+	authorities := merged.SkillSourceAuthorities()
+	if len(authorities) != 1 || authorities[0].ResourceName != "review" || len(authorities[0].Routes) != 1 {
+		t.Fatalf("skill source authorities = %#v, want retained merge-target route", authorities)
+	}
 	requireContains(t, string(merged.ManifestContent()), `targets = ["codex", "claude-code"]`)
 	requireContains(t, string(merged.ManifestContent()), `[skill.source]`)
 	requireContains(t, string(merged.ManifestContent()), `[skill.target."claude-code"]`)
@@ -298,6 +302,9 @@ install_to = ".agents/skills"
 	}
 	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
 		t.Fatalf("status = %q, want noop", got)
+	}
+	if got := len(merged.SkillSourceAuthorities()); got != 1 {
+		t.Fatalf("skill source authorities = %d, want retained noop route", got)
 	}
 }
 

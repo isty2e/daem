@@ -249,7 +249,8 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 		t.Fatalf("source kind = %q, want directory", kind)
 	}
 	created, err := copyImportedSkillDirectory(context.Background(), adoptmodel.Skill{
-		Target: target.TargetCodex,
+		Target:  target.TargetCodex,
+		Targets: []target.Target{target.TargetCodex},
 		SourceRoutes: []adoptmodel.SkillSourceRoute{{
 			Target: target.TargetCodex, LivePath: source, ReadPath: source,
 		}},
@@ -464,8 +465,9 @@ func plannedImportedSkill(t *testing.T, source string, destination string) adopt
 		t.Fatalf("source kind = %q, want directory", kind)
 	}
 	return adoptmodel.Skill{
-		Target: target.TargetCodex,
-		Scope:  target.ScopeProject,
+		Target:  target.TargetCodex,
+		Targets: []target.Target{target.TargetCodex},
+		Scope:   target.ScopeProject,
 		SourceRoutes: []adoptmodel.SkillSourceRoute{{
 			Target: target.TargetCodex, LivePath: source, ReadPath: readPath,
 		}},

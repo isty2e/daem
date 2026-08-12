@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 )
@@ -69,6 +70,120 @@ func TestPlanOwnsBytesCollectionsAndIdentityDisclosure(t *testing.T) {
 	}
 	if err := plan.Validate(); err != nil {
 		t.Fatalf("plan became invalid: %v", err)
+	}
+}
+
+func TestPlanIdentityIncludesEverySkillSourceRoute(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourceDirectory, err := NewSourceDirectory(output, filepath.Join(root, "daem.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRequest(
+		[]targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetClaudeCode},
+		[]targetpkg.Scope{targetpkg.ScopeProject},
+		output,
+		sourceDirectory,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPlan := func(claudePath string) Plan {
+		t.Helper()
+		skillPath := filepath.Join(sourceDirectory.Root(), "skills", "review")
+		candidates, candidateErr := NewCandidateSet(CandidateSetInput{Skills: []Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       targetpkg.TargetCodex,
+			Targets:      []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetClaudeCode},
+			Scope:        targetpkg.ScopeProject,
+			SourceRoutes: []SkillSourceRoute{
+				{Target: targetpkg.TargetClaudeCode, LivePath: claudePath, ReadPath: claudePath},
+				{Target: targetpkg.TargetCodex, LivePath: "/codex/skills/review", ReadPath: "/codex/skills/review"},
+			},
+			SourcePath:  skillPath,
+			ContentHash: artifact.HashFileContent([]byte("review")),
+		}}})
+		if candidateErr != nil {
+			t.Fatal(candidateErr)
+		}
+		plan, planErr := NewPlan(request, nil, []byte("version = 1\n"), candidates, nil)
+		if planErr != nil {
+			t.Fatal(planErr)
+		}
+		return plan
+	}
+
+	before, err := newPlan("/claude/skills/review").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := newPlan("/claude/skills/other").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("plan identity ignored non-primary skill source route")
+	}
+}
+
+func TestPlanIdentityIncludesNonwritableSkillSourceAuthority(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourceDirectory, err := NewSourceDirectory(output, filepath.Join(root, "daem.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRequest(
+		[]targetpkg.Target{targetpkg.TargetCodex},
+		[]targetpkg.Scope{targetpkg.ScopeProject},
+		output,
+		sourceDirectory,
+		true,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPlan := func(readPath string) Plan {
+		t.Helper()
+		candidates, candidateErr := NewCandidateSet(CandidateSetInput{
+			SkillSourceAuthorities: []SkillSourceAuthority{{
+				ResourceName: "review",
+				Scope:        targetpkg.ScopeProject,
+				ContentHash:  artifact.HashFileContent([]byte("review")),
+				Routes: []SkillSourceRoute{{
+					Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: readPath,
+				}},
+			}},
+		})
+		if candidateErr != nil {
+			t.Fatal(candidateErr)
+		}
+		plan, planErr := NewPlan(
+			request,
+			[]byte("version = 1\n"),
+			[]byte("version = 1\n"),
+			candidates,
+			[]MergeResult{{Resource: "skill/review", Status: MergeStatusNoop, Detail: "already declared"}},
+		)
+		if planErr != nil {
+			t.Fatal(planErr)
+		}
+		return plan
+	}
+
+	before, err := newPlan("/resolved/skills/review").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := newPlan("/resolved/skills/other").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("plan identity ignored nonwritable skill source authority")
 	}
 }
 

@@ -106,9 +106,15 @@ func (plan Plan) Sources() []Source {
 	return plan.candidates.Sources()
 }
 
-// Skills returns an owned copy of planned skills.
+// Skills returns the planned skill artifacts selected for publication.
 func (plan Plan) Skills() []Skill {
 	return plan.candidates.Skills()
+}
+
+// SkillSourceAuthorities returns all exact source evidence supporting skill
+// decisions in this plan, whether or not an artifact will be copied.
+func (plan Plan) SkillSourceAuthorities() []SkillSourceAuthority {
+	return plan.candidates.SkillSourceAuthorities()
 }
 
 // Hooks returns an owned copy of planned hooks.
@@ -171,35 +177,37 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		return nil, fmt.Errorf("extension identity: %w", err)
 	}
 	return json.Marshal(struct {
-		Output          string
-		SourceDir       string
-		Merge           bool
-		OriginalContent []byte
-		ManifestContent []byte
-		Sources         []Source
-		Skills          []Skill
-		Hooks           []Hook
-		MCPServers      []MCPServer
-		MCPAuthorities  []MCPSourceAuthority
-		Extensions      json.RawMessage
-		Scans           []Scan
-		Skipped         []Skipped
-		MergeResults    []mergeResultIdentity
+		Output           string
+		SourceDir        string
+		Merge            bool
+		OriginalContent  []byte
+		ManifestContent  []byte
+		Sources          []Source
+		Skills           []Skill
+		SkillAuthorities []SkillSourceAuthority
+		Hooks            []Hook
+		MCPServers       []MCPServer
+		MCPAuthorities   []MCPSourceAuthority
+		Extensions       json.RawMessage
+		Scans            []Scan
+		Skipped          []Skipped
+		MergeResults     []mergeResultIdentity
 	}{
-		Output:          plan.Output(),
-		SourceDir:       plan.SourceDirectory().Root(),
-		Merge:           plan.Merge(),
-		OriginalContent: plan.OriginalContent(),
-		ManifestContent: plan.ManifestContent(),
-		Sources:         plan.Sources(),
-		Skills:          plan.Skills(),
-		Hooks:           plan.Hooks(),
-		MCPServers:      plan.MCPServers(),
-		MCPAuthorities:  plan.MCPSourceAuthorities(),
-		Extensions:      extensionIdentity,
-		Scans:           plan.Scans(),
-		Skipped:         plan.Skipped(),
-		MergeResults:    mergeResultIdentities(plan.MergeResults()),
+		Output:           plan.Output(),
+		SourceDir:        plan.SourceDirectory().Root(),
+		Merge:            plan.Merge(),
+		OriginalContent:  plan.OriginalContent(),
+		ManifestContent:  plan.ManifestContent(),
+		Sources:          plan.Sources(),
+		Skills:           plan.Skills(),
+		SkillAuthorities: plan.SkillSourceAuthorities(),
+		Hooks:            plan.Hooks(),
+		MCPServers:       plan.MCPServers(),
+		MCPAuthorities:   plan.MCPSourceAuthorities(),
+		Extensions:       extensionIdentity,
+		Scans:            plan.Scans(),
+		Skipped:          plan.Skipped(),
+		MergeResults:     mergeResultIdentities(plan.MergeResults()),
 	})
 }
 
@@ -252,6 +260,13 @@ func validateCandidatesAgainstRequest(request Request, candidates CandidateSet) 
 	for _, skill := range candidates.skills {
 		for _, target := range skill.Targets {
 			if err := validate("skill candidate", string(target), string(skill.Scope)); err != nil {
+				return err
+			}
+		}
+	}
+	for _, authority := range candidates.skillAuthorities {
+		for _, route := range authority.Routes {
+			if err := validate("skill source authority", string(route.Target), string(authority.Scope)); err != nil {
 				return err
 			}
 		}
