@@ -27,7 +27,7 @@ func TestSnapshotRootedDirectoryStreamsStableCanonicalTree(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(destination, "a", "run"), []byte("run\n"), 0o700); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(destination, "z"), []byte("plain\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(destination, "a-file"), []byte("plain\n"), 0o600); err != nil {
 		t.Fatalf("write plain file: %v", err)
 	}
 
@@ -60,7 +60,7 @@ func TestSnapshotRootedDirectoryStreamsStableCanonicalTree(t *testing.T) {
 	if kind != artifact.ArtifactKindDirectory || streamed != fromPath {
 		t.Fatalf("snapshot hash = %s (%s), path hash = %s (%s)", streamed, artifact.ArtifactKindDirectory, fromPath, kind)
 	}
-	wantEvents := []string{"root", "dir:a", "file:a/run:run\n", "file:z:plain\n"}
+	wantEvents := []string{"root", "dir:a", "file:a/run:run\n", "file:a-file:plain\n"}
 	if fmt.Sprint(sink.events) != fmt.Sprint(wantEvents) {
 		t.Fatalf("events = %q, want %q", sink.events, wantEvents)
 	}

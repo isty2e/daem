@@ -58,6 +58,32 @@ func TestResolveVendorLocalDirectory(t *testing.T) {
 	}
 }
 
+func TestResolveVendorLocalDirectoryWithPrefixSibling(t *testing.T) {
+	root := t.TempDir()
+	writeLocalTestFile(t, root, "skills/demo/a/child", "nested\n")
+	writeLocalTestFile(t, root, "skills/demo/a-file", "sibling\n")
+
+	resolver, err := NewResolver(root)
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolution, err := resolver.Resolve(
+		context.Background(),
+		sourcetest.Local(t, "skills/demo", source.LocalSourceModeVendor),
+		noOperationOptions,
+	)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	const wantHash = artifactpkg.ContentHash("sha256:d9ad1458e5212cc4afc07473e769702a0b4748502200cddbea1bac5e05d45e80")
+	if got := resolution.Identity().ContentHash(); got != wantHash {
+		t.Fatalf("ContentHash = %s, want %s", got, wantHash)
+	}
+	if err := resolution.View().Verify(context.Background(), resolution.Identity()); err != nil {
+		t.Fatalf("View.Verify returned error: %v", err)
+	}
+}
+
 func TestResolveEmitsHashEvent(t *testing.T) {
 	root := t.TempDir()
 	writeLocalTestFile(t, root, "instructions/project.md", "project instructions\n")

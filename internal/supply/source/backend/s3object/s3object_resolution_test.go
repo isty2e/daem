@@ -261,6 +261,38 @@ func TestResolveS3TarGzipObject(t *testing.T) {
 	assertCompletionRecordOutsideContent(t, resolver, resolvedArtifact)
 }
 
+func TestResolveS3TarGzipObjectWithPrefixSibling(t *testing.T) {
+	client := &fakeS3Client{
+		body: tarGzipContent(t, []tarTestEntry{
+			{name: "a/child", content: "nested\n"},
+			{name: "a-file", content: "sibling\n"},
+		}),
+		versionID: "archive-version",
+	}
+	resolver, err := newResolverWithClient(t.TempDir(), client)
+	if err != nil {
+		t.Fatalf("newResolverWithClient returned error: %v", err)
+	}
+
+	resolvedArtifact, err := resolver.Resolve(context.Background(), sourcetest.S3(
+		t,
+		"s3://daem/skills/prefix-sibling.tar.gz",
+		"",
+		"",
+		sourcepkg.S3ObjectFormatTarGzip,
+	), noOperationOptions)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	const wantHash = artifact.ContentHash("sha256:d9ad1458e5212cc4afc07473e769702a0b4748502200cddbea1bac5e05d45e80")
+	if got := resolvedArtifact.Identity().ContentHash(); got != wantHash {
+		t.Fatalf("ContentHash = %s, want %s", got, wantHash)
+	}
+	if err := resolvedArtifact.View().Verify(context.Background(), resolvedArtifact.Identity()); err != nil {
+		t.Fatalf("View.Verify returned error: %v", err)
+	}
+}
+
 func TestResolveS3ArchiveRejectsLinks(t *testing.T) {
 	client := &fakeS3Client{
 		body: tarGzipRaw(t, func(writer *tar.Writer) {
