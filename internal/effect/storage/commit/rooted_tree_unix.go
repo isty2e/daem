@@ -343,6 +343,15 @@ func (prepared *PreparedRootedTree) failBeforeVisibilityLocked(
 	cause error,
 	faults faultPlan,
 ) error {
+	if err := prepared.anchor.verifyChain(); err != nil {
+		prepared.releaseLocked()
+		return newFailure(
+			failureIndeterminateCommit,
+			failedPhase,
+			prepared.destination,
+			errors.Join(cause, err),
+		)
+	}
 	residue := prepared.cleanupStageLocked(context.Background(), faults)
 	prepared.releaseLocked()
 	kind := failureUncommitted
@@ -383,9 +392,9 @@ func (prepared *PreparedRootedTree) cleanupStageLocked(ctx context.Context, faul
 				prepared.stageName,
 				prepared.stagePath,
 				observed,
-				prepared.anchor.capability,
 				prepared.limits,
 				faultPlan{},
+				prepared.anchor.verifyChain,
 			) != nil {
 				residue = append(residue, prepared.stagePath)
 			} else if syncDirectory(prepared.anchor.parentFD()) != nil {

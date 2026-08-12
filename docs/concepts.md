@@ -279,10 +279,13 @@ states that apply or recovery can create require a verified payload, backup, or
 codec-bound producer certificate. Each state reserves its fresh pre-removal
 observation plus every destination, namespace, and candidate path revalidation;
 that capacity is transferred into a forward-only execution budget before the
-recovery journal is published. Directory removal additionally reserves both
-storage validation and deletion traversals. Storage receives the exact fresh
-ceiling and rejects a tree that grows beyond it. Empty-entry proof capacity is
-a local reader bound and does not count as positive semantic work or mutation
+recovery journal is published. Rooted removal also reserves storage's complete
+cleanup envelope: snapshot capture, every pre-effect whole-tree seal,
+destructive traversal, one possible overflow-name probe, and every
+destination-parent chain revalidation. Storage consumes that same envelope
+before touching the selected entry and rejects a tree that grows beyond its
+fresh ceiling. Empty-entry proof capacity is a local reader bound and does not
+count as positive semantic work or mutation
 authority. Capacity for the extra directory name needed only to prove an
 entry-count overflow is reserved before enumeration and charged when observed.
 It never expands the admitted semantic tree. Storage

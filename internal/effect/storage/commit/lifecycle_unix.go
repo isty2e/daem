@@ -199,8 +199,11 @@ func commitRootedEntryCleanupWithFaults(
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
+	if err := admitRootedCleanupWork(request); err != nil {
+		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
+	}
 
-	anchor, err := openCommitParent(request.path, request.capability, false)
+	anchor, err := openCommitParentForRootedCleanup(request.path, request.capability)
 	if anchor != nil {
 		defer anchor.close()
 	}
@@ -215,7 +218,7 @@ func commitRootedEntryCleanupWithFaults(
 	); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
 	err = faults.run(ctx, phaseRevalidateEntry, func() error {
@@ -230,22 +233,22 @@ func commitRootedEntryCleanupWithFaults(
 	if err != nil {
 		return fail(failureBeforeVisibility(phaseRevalidateEntry, request.path, err))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
 
-	err = removeEntryAtWithFaults(
+	changed, err := removeEntryAtWithFaultsAndOutcome(
 		ctx,
 		anchor.parentFD(),
 		anchor.base,
 		request.path,
 		request.expected,
-		request.capability,
 		request.limits,
 		faults,
+		anchor.verifyRetainedChain,
 	)
 	if err != nil {
-		return fail(classifyExactCleanupFailure(anchor, request, err))
+		return fail(classifyExactCleanupFailure(anchor, request, changed, err))
 	}
 	if err := faults.run(ctx, phaseSyncCleanupParent, func() error {
 		return syncDirectory(anchor.parentFD())
@@ -258,7 +261,7 @@ func commitRootedEntryCleanupWithFaults(
 			request.path,
 		))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(newFailure(
 			failureIndeterminateCommit,
 			phaseVerifyEntry,
@@ -287,6 +290,33 @@ func commitRootedEntryCleanupWithFaults(
 		))
 	}
 	return outcomeFromError(nil), nil
+}
+
+func admitRootedCleanupWork(request RootedEntryCleanup) error {
+	kind := mutationfs.EntryKindFile
+	if request.expected.kind == entryKindDirectory {
+		kind = mutationfs.EntryKindDirectory
+	}
+	envelope, err := mutationfs.NewRootedCleanupWorkEnvelope(kind, request.limits)
+	if err != nil {
+		return err
+	}
+	parentValidationWork, err := request.capability.Destination().ParentChainValidationWork()
+	if err != nil {
+		return err
+	}
+	pathWork, err := envelope.PathWork(parentValidationWork)
+	if err != nil {
+		return err
+	}
+	if err := request.capability.AdmitPhysicalWork(
+		pathWork,
+		envelope.EntryWork(),
+		envelope.ByteWork(),
+	); err != nil {
+		return fmt.Errorf("admit rooted cleanup physical work: %w", err)
+	}
+	return nil
 }
 
 func validateRootedEntryRename(request RootedEntryRename) error {
@@ -351,31 +381,33 @@ func requireOwnedExpectedEntry(
 	if err := validateOwnedStat(path, &stat); err != nil {
 		return EntryIdentity{}, unix.Stat_t{}, err
 	}
-	if expected.kind != entryKindSymlink {
-		fd, _, err := anchor.openExpected(name, path, expected)
-		if fd >= 0 {
-			_ = unix.Close(fd)
-		}
-		if err != nil {
-			return EntryIdentity{}, unix.Stat_t{}, err
-		}
-	}
 	return observed, stat, nil
 }
 
 func classifyExactCleanupFailure(
 	anchor *anchoredParent,
 	request RootedEntryCleanup,
+	changed bool,
 	cause error,
 ) error {
+	currentPhase := errorPhase(cause, phaseCleanupEntry)
+	if changed {
+		return newFailure(
+			failureRetainedResidue,
+			currentPhase,
+			request.path,
+			cause,
+			request.path,
+		)
+	}
 	observed, _, observeErr := anchor.observe(anchor.base, request.path)
 	switch {
 	case observeErr == nil && request.expected.sameEntry(observed):
-		return failureBeforeVisibility(phaseCleanupEntry, request.path, cause)
+		return failureBeforeVisibility(currentPhase, request.path, cause)
 	case observeErr == nil && request.expected.sameObject(observed):
 		return newFailure(
 			failureRetainedResidue,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			cause,
 			request.path,
@@ -383,7 +415,7 @@ func classifyExactCleanupFailure(
 	case errors.Is(observeErr, unix.ENOENT):
 		return newFailure(
 			failureIndeterminateCommit,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			cause,
 			request.path,
@@ -391,7 +423,7 @@ func classifyExactCleanupFailure(
 	default:
 		return newFailure(
 			failureIndeterminateCommit,
-			phaseCleanupEntry,
+			currentPhase,
 			request.path,
 			errors.Join(cause, observeErr),
 			request.path,

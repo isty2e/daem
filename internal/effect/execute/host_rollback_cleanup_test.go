@@ -91,3 +91,32 @@ func TestRollbackScratchCleanupKeepsSourceDepthCeiling(t *testing.T) {
 		)
 	}
 }
+
+func TestRollbackAbortCleanupUsesExactStagedWorkEnvelope(t *testing.T) {
+	rollbackDir := filepath.Join(t.TempDir(), "rollback")
+	if err := os.Mkdir(rollbackDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	backupPath := filepath.Join(rollbackDir, "000000")
+	content := []byte("before")
+	if err := os.WriteFile(backupPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	work, err := recovery.NewArtifactWork(0, int64(len(content)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rollback := hostRollback{
+		dir: rollbackDir,
+		entries: []hostRollbackEntry{{
+			existed: true, backupPath: backupPath, stagedWork: work,
+		}},
+	}
+	authority := &mutationAuthority{filesystem: testFilesystem()}
+	if err := rollback.abortCleanup(t.Context(), authority); err != nil {
+		t.Fatalf("abort rollback cleanup: %v", err)
+	}
+	if _, err := os.Stat(rollbackDir); !os.IsNotExist(err) {
+		t.Fatalf("rollback stage stat error = %v, want absence", err)
+	}
+}

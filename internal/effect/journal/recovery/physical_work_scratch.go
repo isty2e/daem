@@ -27,10 +27,13 @@ func (budget *PhysicalWorkBudget) ReserveScratchPathComponents(count int) error 
 	return nil
 }
 
-// ReserveScratchCleanup charges both exact recursive storage passes and one
-// overflow-name probe per pass. The probes detect growth but do not enlarge the
-// semantic cleanup ceiling returned to storage.
-func (budget *PhysicalWorkBudget) ReserveScratchCleanup(work ArtifactWork) error {
+// ReserveScratchCleanup charges the complete rooted-cleanup storage and
+// destination-parent validation envelope for the process-private rollback
+// stage. The semantic cleanup ceiling remains distinct from execution work.
+func (budget *PhysicalWorkBudget) ReserveScratchCleanup(
+	work ArtifactWork,
+	parentValidationWork int,
+) error {
 	if budget == nil {
 		return fmt.Errorf("physical work budget is required")
 	}
@@ -43,19 +46,30 @@ func (budget *PhysicalWorkBudget) ReserveScratchCleanup(work ArtifactWork) error
 	if work.entries < 0 || work.bytes < 0 {
 		return fmt.Errorf("recovery scratch cleanup work must not be negative")
 	}
-	if budget.RemainingEntries() < 2 ||
-		work.entries > (budget.RemainingEntries()-2)/2 ||
-		work.bytes > budget.RemainingBytes()/2 {
-		return fmt.Errorf("recovery scratch cleanup exceeds operation capacity")
-	}
-	reservedEntries := 2 * (work.entries + 1)
-	reservedBytes := 2 * work.bytes
-	if err := budget.AdmitTree(ArtifactWork{entries: reservedEntries, bytes: reservedBytes}); err != nil {
+	envelope, err := rootedCleanupWorkEnvelope(work, true)
+	if err != nil {
 		return err
 	}
-	budget.reservedScratchEntries = work.entries
-	budget.reservedScratchBytes = work.bytes
-	budget.scratchCleanupReserved = true
+	reserved := *budget
+	if err := reserved.AdmitTree(ArtifactWork{
+		entries: envelope.EntryWork(),
+		bytes:   envelope.ByteWork(),
+	}); err != nil {
+		return fmt.Errorf("recovery scratch cleanup exceeds operation capacity: %w", err)
+	}
+	reserved.reservedScratchEntries += envelope.EntryWork()
+	reserved.reservedScratchBytes += envelope.ByteWork()
+	pathWork, err := envelope.PathWork(parentValidationWork)
+	if err != nil {
+		return fmt.Errorf("reserve recovery scratch cleanup namespace: %w", err)
+	}
+	if err := reserved.admitAggregatePathComponents(pathWork); err != nil {
+		return fmt.Errorf("reserve recovery scratch cleanup namespace: %w", err)
+	}
+	reserved.reservedScratchPathComponents += pathWork
+	reserved.scratchCleanupWork = work
+	reserved.scratchCleanupReserved = true
+	*budget = reserved
 	return nil
 }
 
@@ -80,11 +94,10 @@ func (budget *PhysicalWorkBudget) BeginReservedScratchCleanup() (
 	}
 	budget.scratchCleanupDisposition = scratchCleanupTransferred
 	return &PhysicalWorkBudget{
-			pathComponentLimit: budget.reservedScratchPathComponents,
-		}, ArtifactWork{
-			entries: budget.reservedScratchEntries,
-			bytes:   budget.reservedScratchBytes,
-		}, nil
+		pathComponentLimit: budget.reservedScratchPathComponents,
+		entryLimit:         budget.reservedScratchEntries,
+		byteLimit:          budget.reservedScratchBytes,
+	}, budget.scratchCleanupWork, nil
 }
 
 // ConcludeScratchCleanupNotApplicable closes the scratch-cleanup phase when

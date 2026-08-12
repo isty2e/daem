@@ -239,6 +239,10 @@ func (authority *mutationAuthority) prepareForwardRemovalReservations(
 	reservations := make(map[removalRelationKey][]forwardRemovalReservation, authority.removalDemands.Len())
 	for _, demand := range authority.removalDemands.Demands() {
 		relation := removalRelationKey{scope: demand.Scope(), destination: demand.Destination()}
+		destination, present := authority.removalDestinations[relation]
+		if !present || !destination.isRooted() {
+			return fmt.Errorf("forward removal relation %q has no physical destination", relation.destination)
+		}
 		states := demand.States()
 		currentState, currentWork, currentPresent, err := authority.observeForwardRemovalCurrent(
 			ctx,
@@ -280,7 +284,9 @@ func (authority *mutationAuthority) prepareForwardRemovalReservations(
 			if err != nil {
 				return fmt.Errorf("establish forward removal capacity for %q: %w", demand.Destination(), err)
 			}
-			capacity, err := authority.physicalWorkBudget.ReserveForwardRemoval(
+			capacity, err := journal.ReserveForwardRootedCleanupWork(
+				authority.physicalWorkBudget,
+				destination.destination,
 				work,
 				kind == recovery.PathKindDirectory,
 			)

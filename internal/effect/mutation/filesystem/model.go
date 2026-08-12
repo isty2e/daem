@@ -70,6 +70,98 @@ type TreeTraversalLimits struct {
 	initialized  bool
 }
 
+// RootedCleanupWorkEnvelope is the complete storage work admitted for one
+// exact rooted cleanup. EntryWork includes snapshot capture, every whole-tree
+// seal, destructive traversal, and one overflow-name probe. ByteWork covers
+// the three passes that account regular-file sizes. PathWork covers every
+// destination-parent chain check performed by those phases and the surrounding
+// commit lifecycle.
+type RootedCleanupWorkEnvelope struct {
+	entryWork            int
+	byteWork             int64
+	namespaceValidations int
+}
+
+// NewRootedCleanupWorkEnvelope derives the fixed cleanup algorithm envelope
+// from one exact root kind and its per-pass traversal limits.
+func NewRootedCleanupWorkEnvelope(
+	kind EntryKind,
+	limits TreeTraversalLimits,
+) (RootedCleanupWorkEnvelope, error) {
+	if err := limits.Validate(); err != nil {
+		return RootedCleanupWorkEnvelope{}, fmt.Errorf("rooted cleanup traversal limits: %w", err)
+	}
+	maximumInt := int(^uint(0) >> 1)
+	switch kind {
+	case EntryKindFile:
+		if limits.MaximumBytes() > int64(^uint64(0)>>1)/3 {
+			return RootedCleanupWorkEnvelope{}, fmt.Errorf(
+				"rooted file cleanup byte envelope overflows",
+			)
+		}
+		return RootedCleanupWorkEnvelope{
+			byteWork:             limits.MaximumBytes() * 3,
+			namespaceValidations: 8,
+		}, nil
+	case EntryKindDirectory:
+		// Capture performs two logical descendant passes, the pre-effect seal
+		// performs three, and destructive traversal performs two. Any
+		// over-limit observation aborts at its first extra directory name, so
+		// the complete operation needs one additional probe entry rather than
+		// one per pass.
+		if limits.MaximumEntries() > (maximumInt-1)/7 {
+			return RootedCleanupWorkEnvelope{}, fmt.Errorf(
+				"rooted directory cleanup entry envelope overflows",
+			)
+		}
+		// Let N be descendant entries, D directories including the root, and L
+		// non-directory leaves. Mode repair and destructive preparation perform
+		// at most three authority checks per directory together; the remaining
+		// destructive phase performs 1+3D+N+L checks. Every authority check
+		// validates the destination-parent chain twice, and parent setup plus
+		// the surrounding lifecycle add four checks. Since L=N-D+1 and
+		// D <= N+1, the maximum is 14N+18.
+		if limits.MaximumEntries() > (maximumInt-18)/14 {
+			return RootedCleanupWorkEnvelope{}, fmt.Errorf(
+				"rooted directory cleanup namespace envelope overflows",
+			)
+		}
+		if limits.MaximumBytes() > int64(^uint64(0)>>1)/3 {
+			return RootedCleanupWorkEnvelope{}, fmt.Errorf(
+				"rooted directory cleanup byte envelope overflows",
+			)
+		}
+		return RootedCleanupWorkEnvelope{
+			entryWork:            7*limits.MaximumEntries() + 1,
+			byteWork:             3 * limits.MaximumBytes(),
+			namespaceValidations: 14*limits.MaximumEntries() + 18,
+		}, nil
+	default:
+		return RootedCleanupWorkEnvelope{}, fmt.Errorf(
+			"unsupported rooted cleanup entry kind %q",
+			kind,
+		)
+	}
+}
+
+// EntryWork returns aggregate recursive descendant and overflow-probe work.
+func (envelope RootedCleanupWorkEnvelope) EntryWork() int { return envelope.entryWork }
+
+// ByteWork returns aggregate regular-file size work across cleanup phases.
+func (envelope RootedCleanupWorkEnvelope) ByteWork() int64 { return envelope.byteWork }
+
+// PathWork returns aggregate component work for every cleanup namespace gate.
+func (envelope RootedCleanupWorkEnvelope) PathWork(parentValidationWork int) (int, error) {
+	if parentValidationWork < 0 {
+		return 0, fmt.Errorf("rooted cleanup parent-validation work must not be negative")
+	}
+	maximumInt := int(^uint(0) >> 1)
+	if parentValidationWork != 0 && envelope.namespaceValidations > maximumInt/parentValidationWork {
+		return 0, fmt.Errorf("rooted cleanup path-work envelope overflows")
+	}
+	return envelope.namespaceValidations * parentValidationWork, nil
+}
+
 // NewTreeTraversalLimits constructs finite traversal bounds. Zero entries or
 // bytes represent an exact empty-content ceiling; zero depth permits only
 // regular files directly below the selected root.

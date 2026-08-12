@@ -40,6 +40,27 @@ func nativeMountToken(fd int) (identityToken, error) {
 	return identityTokenFromValues("linux-rooted-path-mount-v1", stat.Mnt_id), nil
 }
 
+func nativeMountTokenAt(parentFD int, name string) (identityToken, error) {
+	var stat unix.Statx_t
+	err := unix.Statx(
+		parentFD,
+		name,
+		unix.AT_SYMLINK_NOFOLLOW|unix.AT_NO_AUTOMOUNT,
+		unix.STATX_MNT_ID,
+		&stat,
+	)
+	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) || errors.Is(err, unix.EOPNOTSUPP) {
+		return identityToken{}, errMountIdentityUnsupported
+	}
+	if err != nil {
+		return identityToken{}, err
+	}
+	if stat.Mask&unix.STATX_MNT_ID == 0 {
+		return identityToken{}, errMountIdentityUnsupported
+	}
+	return identityTokenFromValues("linux-rooted-path-mount-v1", stat.Mnt_id), nil
+}
+
 func nativeRecoveryMountToken(fd int) (identityToken, error) {
 	stat, err := statxDescriptor(fd, unix.STATX_MNT_ID_UNIQUE)
 	if err != nil {

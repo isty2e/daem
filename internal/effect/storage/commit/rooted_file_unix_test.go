@@ -454,6 +454,42 @@ func rootedCapabilityForCommitTest(
 	return capability
 }
 
+func boundedRootedCapabilityForCommitTest(
+	t *testing.T,
+	captured *rootedpath.CapturedRoot,
+	relativePath string,
+	budget rootedpath.PhysicalTraversalBudget,
+) (rootedpath.CommitCapability, *rootedpath.EntryAuthority) {
+	t.Helper()
+	authority, err := captured.Authority()
+	if err != nil {
+		t.Fatalf("CapturedRoot.Authority returned error: %v", err)
+	}
+	relative, err := rootedpath.NewRelativeDestination(relativePath)
+	if err != nil {
+		t.Fatalf("NewRelativeDestination(%q) returned error: %v", relativePath, err)
+	}
+	destination, err := authority.Bind(relative)
+	if err != nil {
+		t.Fatalf("Authority.Bind returned error: %v", err)
+	}
+	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
+		captured,
+		destination,
+		256,
+		budget,
+	)
+	if err != nil {
+		t.Fatalf("BindCapturedEntryAuthorityBounded returned error: %v", err)
+	}
+	capability, err := entryAuthority.Acquire()
+	if err != nil {
+		_ = entryAuthority.Close()
+		t.Fatalf("EntryAuthority.Acquire returned error: %v", err)
+	}
+	return capability, entryAuthority
+}
+
 func assertClosedRootedCapability(t *testing.T, capability rootedpath.CommitCapability) {
 	t.Helper()
 	if err := capability.Validate(); !hasRootedPathFailureKind(err, rootedpath.FailureRootUnavailable) {

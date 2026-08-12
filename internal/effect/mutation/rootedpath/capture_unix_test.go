@@ -1136,6 +1136,84 @@ func TestDirectoryMountBoundaryRejectsForeignMount(t *testing.T) {
 	if err := boundary.ValidateDirectoryHandle(foreign.Fd()); !hasFailureKind(err, FailureMountChanged) {
 		t.Fatalf("foreign mount validation error = %v, want %s", err, FailureMountChanged)
 	}
+
+	filesystemRoot, err := os.Open("/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer filesystemRoot.Close()
+	rootBoundary, err := CaptureDirectoryMountBoundary(filesystemRoot.Fd())
+	if err != nil {
+		t.Fatalf("capture filesystem-root boundary: %v", err)
+	}
+	if err := rootBoundary.ValidateEntryAt(filesystemRoot.Fd(), "dev"); !hasFailureKind(err, FailureMountChanged) {
+		t.Fatalf("foreign entry mount validation error = %v, want %s", err, FailureMountChanged)
+	}
+}
+
+func TestDirectoryMountBoundaryObservesRestrictiveEntriesWithoutOpeningThem(t *testing.T) {
+	root := t.TempDir()
+	rootDirectory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootDirectory.Close()
+	boundary, err := CaptureDirectoryMountBoundary(rootDirectory.Fd())
+	if err != nil {
+		t.Fatalf("CaptureDirectoryMountBoundary: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		create func(string) error
+	}{
+		{
+			name: "regular",
+			create: func(path string) error {
+				return os.WriteFile(path, []byte("payload"), 0o600)
+			},
+		},
+		{
+			name: "directory",
+			create: func(path string) error {
+				return os.Mkdir(path, 0o700)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(root, test.name)
+			if err := test.create(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(path, 0); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+
+			if err := boundary.ValidateEntryAt(rootDirectory.Fd(), test.name); err != nil {
+				t.Fatalf("ValidateEntryAt: %v", err)
+			}
+		})
+	}
+}
+
+func TestDirectoryMountBoundaryRejectsNonEntryNames(t *testing.T) {
+	root := t.TempDir()
+	rootDirectory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rootDirectory.Close()
+	boundary, err := CaptureDirectoryMountBoundary(rootDirectory.Fd())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"", ".", "..", "nested/entry", "entry\x00suffix"} {
+		if err := boundary.ValidateEntryAt(rootDirectory.Fd(), name); !hasFailureKind(err, FailureInvalidDestination) {
+			t.Fatalf("ValidateEntryAt(%q) error = %v, want %s", name, err, FailureInvalidDestination)
+		}
+	}
 }
 
 func TestClosedCapturedRootCannotIssueCapability(t *testing.T) {

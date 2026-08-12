@@ -906,7 +906,7 @@ func TestPreparedRootedTreeRejectsAncestorMoveBeforeVisibility(t *testing.T) {
 		},
 	}}
 	err := commitPreparedRootedTreeWithFaults(context.Background(), prepared, faults)
-	assertFailure(t, err, failureUncommitted, phaseCommitEntry)
+	assertFailure(t, err, failureIndeterminateCommit, phaseCommitEntry)
 	if !hasRootedPathFailureKind(err, rootedpath.FailureAncestorChanged) {
 		t.Fatalf("PreparedRootedTree.Commit error = %v, want %s", err, rootedpath.FailureAncestorChanged)
 	}
@@ -914,7 +914,19 @@ func TestPreparedRootedTreeRejectsAncestorMoveBeforeVisibility(t *testing.T) {
 	if _, statErr := os.Lstat(filepath.Join(movedAgents, "skills", "review")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("moved ancestor received rooted tree: %v", statErr)
 	}
-	assertNoPrivateEntries(t, filepath.Join(movedAgents, "skills"))
+	entries, readErr := os.ReadDir(filepath.Join(movedAgents, "skills"))
+	if readErr != nil {
+		t.Fatalf("read moved ancestor: %v", readErr)
+	}
+	privateEntries := 0
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), temporaryPrefix) {
+			privateEntries++
+		}
+	}
+	if privateEntries != 1 {
+		t.Fatalf("retained private stage count = %d, want 1", privateEntries)
+	}
 	if _, statErr := os.Lstat(filepath.Join(root, ".agents", "skills")); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("replacement ancestor received rooted tree: %v", statErr)
 	}

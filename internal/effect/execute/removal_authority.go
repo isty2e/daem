@@ -496,9 +496,18 @@ func (authority *mutationAuthority) cleanupRemovalResidues(
 			if reserveErr != nil {
 				return nil, fmt.Errorf("reserve removal intent[%d] reobservation work: %w", index, reserveErr)
 			}
-			if cleanupRecursive {
-				if err := budget.ReserveDirectoryCleanup(cleanupWork); err != nil {
-					return nil, fmt.Errorf("reserve removal intent[%d] directory cleanup work: %w", index, err)
+			cleanupFile := cleanup.entry.Kind() == recovery.PathKindFile
+			if obligation.Action() == recovery.RemovalCleanupActionPromoteResidue {
+				cleanupFile = residue.entry.Kind() == recovery.PathKindFile
+			}
+			if cleanupRecursive || cleanupFile {
+				if err := journal.ReserveRootedCleanupWork(
+					budget,
+					destination.destination,
+					cleanupWork,
+					cleanupRecursive,
+				); err != nil {
+					return nil, fmt.Errorf("reserve removal intent[%d] rooted cleanup work: %w", index, err)
 				}
 			}
 		}
