@@ -372,6 +372,13 @@ func reserveRetirementExecution(
 		}
 		return nil
 	}
+	reserveCleanup := func(destination rootedpath.Destination, work recovery.ArtifactWork) error {
+		validationWork, err := destination.ParentChainValidationWork()
+		if err != nil {
+			return err
+		}
+		return budget.ReserveRetirementRootedCleanup(work, validationWork)
+	}
 
 	if execution.start == retirementStartActive {
 		for _, item := range []struct {
@@ -407,9 +414,12 @@ func reserveRetirementExecution(
 		if err != nil {
 			return err
 		}
-		// One authorized basis refresh, three exact snapshots around the
-		// visibility transitions, and storage validation/deletion passes.
-		if err := budget.ReserveRetirementDirectoryPasses(activeEnvelopeWork, 6); err != nil {
+		// One authorized basis refresh and three exact snapshots surround the
+		// visibility transitions. Rooted cleanup reserves its own fixed envelope.
+		if err := budget.ReserveRetirementDirectoryPasses(activeEnvelopeWork, 4); err != nil {
+			return err
+		}
+		if err := reserveCleanup(destinations.residue, activeEnvelopeWork); err != nil {
 			return err
 		}
 		journalWork, err := recovery.NewArtifactWork(0, maximumRecoveryJournalBytes)
@@ -434,7 +444,7 @@ func reserveRetirementExecution(
 	controlFinalWork := evidence.controlFinalWork
 
 	currentPasses := 0
-	finalPasses := 3
+	finalPasses := 1
 	switch execution.start {
 	case retirementStartActive:
 		if evidence.controlPresent {
@@ -446,7 +456,7 @@ func reserveRetirementExecution(
 		currentPasses = 2
 	case retirementStartFinalizingWithResidue, retirementStartFinalizingWithoutResidue:
 		currentPasses = 1
-		finalPasses = 3
+		finalPasses = 1
 	}
 	if currentPasses > 0 {
 		if err := budget.ReserveRetirementDirectoryPasses(controlCurrentWork, currentPasses); err != nil {
@@ -454,6 +464,9 @@ func reserveRetirementExecution(
 		}
 	}
 	if err := budget.ReserveRetirementDirectoryPasses(controlFinalWork, finalPasses); err != nil {
+		return err
+	}
+	if err := reserveCleanup(destinations.garbage, controlFinalWork); err != nil {
 		return err
 	}
 	if execution.advancesPhase() {
@@ -501,11 +514,14 @@ func reserveRetirementExecution(
 		}
 	}
 	if evidence.residuePresent {
-		passes := 4
+		passes := 2
 		if execution.start == retirementStartPrepared {
-			passes = 5
+			passes = 3
 		}
 		if err := budget.ReserveRetirementDirectoryPasses(evidence.residue.work, passes); err != nil {
+			return err
+		}
+		if err := reserveCleanup(destinations.residue, evidence.residue.work); err != nil {
 			return err
 		}
 	}

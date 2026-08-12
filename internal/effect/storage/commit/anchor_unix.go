@@ -33,6 +33,7 @@ type anchoredParent struct {
 	unpublishedResidue       []string
 	rootFile                 *os.File
 	capability               rootedpath.CommitCapability
+	retainedRootValidation   bool
 	ancestorPublicationHooks ancestorPublicationHooks
 }
 
@@ -63,6 +64,20 @@ func openCommitParentWithPublicationHooks(
 		capability,
 		createAncestors,
 		hooks,
+		false,
+	)
+}
+
+func openCommitParentForRootedCleanup(
+	path string,
+	capability rootedpath.CommitCapability,
+) (*anchoredParent, error) {
+	return openRootedAnchoredParentWithPublicationHooks(
+		path,
+		capability,
+		false,
+		ancestorPublicationHooks{},
+		true,
 	)
 }
 
@@ -123,6 +138,7 @@ func openRootedAnchoredParent(
 		capability,
 		createAncestors,
 		ancestorPublicationHooks{},
+		false,
 	)
 }
 
@@ -131,6 +147,7 @@ func openRootedAnchoredParentWithPublicationHooks(
 	capability rootedpath.CommitCapability,
 	createAncestors bool,
 	hooks ancestorPublicationHooks,
+	retainedRootValidation bool,
 ) (*anchoredParent, error) {
 	if err := validateRootedCapability(path, capability); err != nil {
 		return nil, err
@@ -149,7 +166,11 @@ func openRootedAnchoredParentWithPublicationHooks(
 			err,
 		)
 	}
-	if err := capability.ValidateDirectoryHandle(rootFile.Fd()); err != nil {
+	validateRootHandle := capability.ValidateDirectoryHandle
+	if retainedRootValidation {
+		validateRootHandle = capability.ValidateRetainedDirectoryHandle
+	}
+	if err := validateRootHandle(rootFile.Fd()); err != nil {
 		_ = rootFile.Close()
 		return nil, err
 	}
@@ -160,6 +181,7 @@ func openRootedAnchoredParentWithPublicationHooks(
 		base:                     filepath.Base(filepath.FromSlash(destination.Relative().Path())),
 		rootFile:                 rootFile,
 		capability:               capability,
+		retainedRootValidation:   retainedRootValidation,
 		ancestorPublicationHooks: hooks,
 		directories: []openedDirectory{{
 			fd:       int(rootFile.Fd()),
@@ -169,11 +191,23 @@ func openRootedAnchoredParentWithPublicationHooks(
 	}
 	parent := filepath.Dir(filepath.FromSlash(destination.Relative().Path()))
 	if parent == "." {
+		if retainedRootValidation {
+			if err := capability.Validate(); err != nil {
+				anchor.close()
+				return nil, err
+			}
+		}
 		return anchor, nil
 	}
 	for component := range strings.SplitSeq(parent, string(filepath.Separator)) {
 		if err := anchor.openChildDirectory(component, createAncestors); err != nil {
 			return anchor, err
+		}
+	}
+	if retainedRootValidation {
+		if err := capability.Validate(); err != nil {
+			anchor.close()
+			return nil, err
 		}
 	}
 	return anchor, nil
@@ -254,7 +288,11 @@ func (anchor *anchoredParent) openObservedChildDirectory(
 		identity: openedIdentity,
 	})
 	if anchor.capability != nil {
-		if err := anchor.capability.ValidateDirectoryHandle(uintptr(fd)); err != nil {
+		validateHandle := anchor.capability.ValidateDirectoryHandle
+		if anchor.retainedRootValidation {
+			validateHandle = anchor.capability.ValidateRetainedDirectoryHandle
+		}
+		if err := validateHandle(uintptr(fd)); err != nil {
 			return err
 		}
 	}
@@ -286,6 +324,10 @@ func (anchor *anchoredParent) close() {
 }
 
 func (anchor *anchoredParent) verifyChain() error {
+	return anchor.verifyChainWithRetainedHandles(false)
+}
+
+func (anchor *anchoredParent) verifyChainWithRetainedHandles(retainedHandles bool) error {
 	if anchor.capability != nil {
 		if err := anchor.capability.Validate(); err != nil {
 			return err
@@ -310,7 +352,13 @@ func (anchor *anchoredParent) verifyChain() error {
 			return fmt.Errorf("ancestor identity changed at %q", current.path)
 		}
 		if anchor.capability != nil {
-			if err := anchor.capability.ValidateDirectoryHandle(uintptr(current.fd)); err != nil {
+			var err error
+			if retainedHandles {
+				err = anchor.capability.ValidateRetainedDirectoryHandle(uintptr(current.fd))
+			} else {
+				err = anchor.capability.ValidateDirectoryHandle(uintptr(current.fd))
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -319,4 +367,11 @@ func (anchor *anchoredParent) verifyChain() error {
 		return anchor.capability.Validate()
 	}
 	return nil
+}
+
+func (anchor *anchoredParent) verifyRetainedChain() error {
+	if anchor == nil {
+		return fmt.Errorf("anchored parent is required")
+	}
+	return anchor.verifyChainWithRetainedHandles(true)
 }

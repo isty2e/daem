@@ -330,7 +330,7 @@ func TestForwardPathCapacityIsPreparedBeforeJournalIntentBinding(t *testing.T) {
 	}
 }
 
-func TestForwardPathCapacityFailureDoesNotPublishPartialPreparation(t *testing.T) {
+func TestForwardCleanupCapacityFailureDoesNotPublishPartialPreparation(t *testing.T) {
 	root := newProjectRootForMutationTest(t)
 	parent := filepath.Join(root, ".agent")
 	if err := os.Mkdir(parent, 0o700); err != nil {
@@ -363,8 +363,8 @@ func TestForwardPathCapacityFailureDoesNotPublishPartialPreparation(t *testing.T
 	}
 
 	err := authority.prepareForwardRemovalReservations(t.Context(), []forwardRemovalCertificate{certificate})
-	if err == nil || !strings.Contains(err.Error(), "reserve forward removal path work") {
-		t.Fatalf("forward preparation error = %v, want effect-path reservation failure", err)
+	if err == nil || !strings.Contains(err.Error(), "reserve forward removal capacity") {
+		t.Fatalf("forward preparation error = %v, want cleanup-capacity reservation failure", err)
 	}
 	if authority.forwardRemovalPrepared {
 		t.Fatal("failed forward path reservation published prepared state")
@@ -1222,10 +1222,13 @@ func preflightRemovalCleanupCandidateWithWorkForTest(
 	if reserveErr != nil {
 		t.Fatalf("reserve removal reobservation: %v", reserveErr)
 	}
-	if recursive {
-		if err := budget.ReserveDirectoryCleanup(work); err != nil {
-			t.Fatalf("reserve removal directory cleanup: %v", err)
-		}
+	if err := journal.ReserveRootedCleanupWork(
+		budget,
+		candidate.destination.destination,
+		work,
+		recursive,
+	); err != nil {
+		t.Fatalf("reserve rooted removal cleanup: %v", err)
 	}
 	executionBudget, err := budget.BeginReservedExecution()
 	if err != nil {

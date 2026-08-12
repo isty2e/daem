@@ -128,6 +128,58 @@ func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
 	}
 }
 
+func TestRootedCleanupWorkEnvelopeOwnsCompleteStorageWork(t *testing.T) {
+	fileLimits, err := NewTreeTraversalLimits(0, 0, 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := NewRootedCleanupWorkEnvelope(EntryKindFile, fileLimits)
+	if err != nil {
+		t.Fatalf("construct file cleanup envelope: %v", err)
+	}
+	filePathWork, err := file.PathWork(1)
+	if err != nil {
+		t.Fatalf("file cleanup path work: %v", err)
+	}
+	if file.EntryWork() != 0 || file.ByteWork() != 33 || filePathWork != 8 {
+		t.Fatalf(
+			"file cleanup envelope = entries:%d bytes:%d namespace:%d",
+			file.EntryWork(),
+			file.ByteWork(),
+			filePathWork,
+		)
+	}
+
+	directoryLimits, err := NewTreeTraversalLimits(5, 3, 11)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := NewRootedCleanupWorkEnvelope(EntryKindDirectory, directoryLimits)
+	if err != nil {
+		t.Fatalf("construct directory cleanup envelope: %v", err)
+	}
+	directoryPathWork, err := directory.PathWork(1)
+	if err != nil {
+		t.Fatalf("directory cleanup path work: %v", err)
+	}
+	if directory.EntryWork() != 36 || directory.ByteWork() != 33 ||
+		directoryPathWork != 88 {
+		t.Fatalf(
+			"directory cleanup envelope = entries:%d bytes:%d namespace:%d",
+			directory.EntryWork(),
+			directory.ByteWork(),
+			directoryPathWork,
+		)
+	}
+	if pathWork, err := directory.PathWork(7); err != nil || pathWork != 616 {
+		t.Fatalf("directory path work = %d, err=%v, want 616", pathWork, err)
+	}
+
+	if _, err := NewRootedCleanupWorkEnvelope(EntryKindSymlink, directoryLimits); err == nil {
+		t.Fatal("cleanup envelope accepted an unsupported root kind")
+	}
+}
+
 func TestDirectorySnapshotNormalizesAndOwnsEntries(t *testing.T) {
 	root := testEntryIdentity{value: "root", kind: EntryKindDirectory}
 	second, err := NewDirectoryEntrySnapshot(

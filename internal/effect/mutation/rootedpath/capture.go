@@ -127,6 +127,10 @@ type PhysicalTraversalBudget interface {
 	AdmitPathComponents(count int) error
 }
 
+type physicalWorkBudget interface {
+	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
+}
+
 // ChildrenExistNoFollow observes one immediate-child pair through one fresh
 // retained-root validation without interpreting names as paths or following
 // symlinks.
@@ -780,6 +784,44 @@ func (capability *commitCapability) ValidateDirectoryHandle(handle uintptr) erro
 	return validateCapturedDirectoryHandle(&capability.platform, handle)
 }
 
+func (capability *commitCapability) ValidateRetainedDirectoryHandle(handle uintptr) error {
+	if capability == nil {
+		return newFailure(FailureRootUnavailable, "", "commit capability is required", nil)
+	}
+	capability.mu.Lock()
+	defer capability.mu.Unlock()
+	if err := capability.validateStateLocked(); err != nil {
+		return err
+	}
+	return validateCapturedDirectoryHandle(&capability.platform, handle)
+}
+
+func (capability *commitCapability) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	if capability == nil {
+		return newFailure(FailureRootUnavailable, "", "commit capability is required", nil)
+	}
+	capability.mu.Lock()
+	defer capability.mu.Unlock()
+	if err := capability.validateStateLocked(); err != nil {
+		return err
+	}
+	if pathComponents < 0 || entries < 0 || bytes < 0 {
+		return fmt.Errorf("commit physical work must not be negative")
+	}
+	if capability.budget == nil {
+		return nil
+	}
+	budget, ok := capability.budget.(physicalWorkBudget)
+	if !ok {
+		return fmt.Errorf("bounded commit capability lacks physical-work capacity")
+	}
+	return budget.AdmitPhysicalWork(pathComponents, entries, bytes)
+}
+
 func (capability *commitCapability) Close() error {
 	if capability == nil {
 		return nil
@@ -796,6 +838,13 @@ func (capability *commitCapability) Close() error {
 func (capability *commitCapability) rootedPathCommitCapability() {}
 
 func (capability *commitCapability) validateLocked() error {
+	if err := capability.validateStateLocked(); err != nil {
+		return err
+	}
+	return validateCapturedRootPlatform(&capability.platform)
+}
+
+func (capability *commitCapability) validateStateLocked() error {
 	if capability.closed {
 		return newFailure(
 			FailureRootUnavailable,
@@ -807,5 +856,5 @@ func (capability *commitCapability) validateLocked() error {
 	if err := capability.destination.Validate(); err != nil {
 		return fmt.Errorf("validate commit destination: %w", err)
 	}
-	return validateCapturedRootPlatform(&capability.platform)
+	return nil
 }

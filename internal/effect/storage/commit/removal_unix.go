@@ -5,6 +5,7 @@ package commit
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -317,4 +318,320 @@ func removeEntryAtWithFaultsAndOutcome(
 		faults,
 	)
 	return captureChanged || removeChanged, err
+}
+
+func removeRemovalTreeSnapshot(
+	ctx context.Context,
+	parentFD int,
+	path string,
+	entry *removalTreeSnapshotEntry,
+	authority removalEffectAuthority,
+	limits mutationfs.TreeTraversalLimits,
+	faults faultPlan,
+) (bool, error) {
+	if err := faults.check(ctx, phaseRevalidateCleanup); err != nil {
+		return false, atPhase(phaseRevalidateCleanup, err)
+	}
+	if err := verifyRemovalTreeSnapshot(
+		ctx,
+		parentFD,
+		path,
+		*entry,
+		authority,
+		limits,
+		faults,
+	); err != nil {
+		return false, atPhase(phaseRevalidateCleanup, err)
+	}
+	if err := authority.verify(nil); err != nil {
+		return false, atPhase(phaseRevalidateCleanup, err)
+	}
+	budget, err := newTreeTraversalBudget(limits)
+	if err != nil {
+		return false, err
+	}
+	state := &removalTreeEffectState{}
+	err = removeRemovalSnapshotEntry(
+		ctx,
+		parentFD,
+		path,
+		entry,
+		authority,
+		nil,
+		0,
+		budget,
+		faults,
+		state,
+	)
+	return state.changed, err
+}
+
+func removeRemovalSnapshotEntry(
+	ctx context.Context,
+	parentFD int,
+	path string,
+	entry *removalTreeSnapshotEntry,
+	authority removalEffectAuthority,
+	ancestors []removalDirectoryBinding,
+	depth int,
+	budget *treeTraversalBudget,
+	faults faultPlan,
+	state *removalTreeEffectState,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	switch entry.identity.kind {
+	case entryKindRegular:
+		return removeRemovalSnapshotFile(
+			ctx,
+			parentFD,
+			path,
+			*entry,
+			authority,
+			ancestors,
+			budget,
+			faults,
+			state,
+		)
+	case entryKindSymlink:
+		return removeRemovalSnapshotSymlink(
+			ctx,
+			parentFD,
+			path,
+			*entry,
+			authority,
+			ancestors,
+			faults,
+			state,
+		)
+	case entryKindDirectory:
+		return removeRemovalSnapshotDirectory(
+			ctx,
+			parentFD,
+			path,
+			entry,
+			authority,
+			ancestors,
+			depth,
+			budget,
+			faults,
+			state,
+		)
+	default:
+		return unsupported(fmt.Sprintf("cannot safely remove special entry %q", path), nil)
+	}
+}
+
+func removeRemovalSnapshotFile(
+	ctx context.Context,
+	parentFD int,
+	path string,
+	entry removalTreeSnapshotEntry,
+	authority removalEffectAuthority,
+	ancestors []removalDirectoryBinding,
+	budget *treeTraversalBudget,
+	faults faultPlan,
+	state *removalTreeEffectState,
+) error {
+	if err := budget.admitBytes(entry.size); err != nil {
+		return err
+	}
+	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+		return err
+	}
+	if err := authority.verify(ancestors); err != nil {
+		return err
+	}
+	if err := verifyRemovalSnapshotEntryAt(parentFD, path, entry, authority); err != nil {
+		return err
+	}
+	if err := unix.Unlinkat(parentFD, entry.name, 0); err != nil {
+		return err
+	}
+	state.changed = true
+	return nil
+}
+
+func removeRemovalSnapshotSymlink(
+	ctx context.Context,
+	parentFD int,
+	path string,
+	entry removalTreeSnapshotEntry,
+	authority removalEffectAuthority,
+	ancestors []removalDirectoryBinding,
+	faults faultPlan,
+	state *removalTreeEffectState,
+) error {
+	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+		return err
+	}
+	if err := authority.verify(ancestors); err != nil {
+		return err
+	}
+	if err := verifyRemovalSnapshotEntryAt(parentFD, path, entry, authority); err != nil {
+		return err
+	}
+	if err := unix.Unlinkat(parentFD, entry.name, 0); err != nil {
+		return err
+	}
+	state.changed = true
+	return nil
+}
+
+func removeRemovalSnapshotDirectory(
+	ctx context.Context,
+	parentFD int,
+	path string,
+	entry *removalTreeSnapshotEntry,
+	authority removalEffectAuthority,
+	ancestors []removalDirectoryBinding,
+	depth int,
+	budget *treeTraversalBudget,
+	faults faultPlan,
+	state *removalTreeEffectState,
+) error {
+	if err := budget.admitDepth(depth); err != nil {
+		return err
+	}
+	fd, err := openExpectedAt(parentFD, entry.name, path, entry.identity.entryAt(path))
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	if err := authority.validateDirectoryHandle(fd); err != nil {
+		return err
+	}
+	bindings := append(ancestors, removalDirectoryBinding{
+		parentFD:    parentFD,
+		directoryFD: fd,
+		path:        path,
+		entry:       entry,
+	})
+	if err := prepareOpenedRemovalDirectory(
+		ctx,
+		bindings,
+		authority,
+		faults,
+		state,
+	); err != nil {
+		return err
+	}
+	if err := authority.verify(bindings); err != nil {
+		return err
+	}
+	if err := budget.admitEntries(len(entry.children)); err != nil {
+		return err
+	}
+	if err := verifyRemovalDirectorySnapshot(ctx, fd, path, *entry, authority, faults); err != nil {
+		return err
+	}
+	for index := range entry.children {
+		if err := faults.checkCleanupChild(ctx); err != nil {
+			return err
+		}
+		child := &entry.children[index]
+		childPath := filepath.Join(path, child.name)
+		if err := removeRemovalSnapshotEntry(
+			ctx,
+			fd,
+			childPath,
+			child,
+			authority,
+			bindings,
+			depth+1,
+			budget,
+			faults,
+			state,
+		); err != nil {
+			return err
+		}
+		if err := refreshRemovalDirectoryBinding(parentFD, path, fd, entry, authority); err != nil {
+			return err
+		}
+		if err := authority.verify(bindings); err != nil {
+			return err
+		}
+	}
+	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+		return err
+	}
+	if err := authority.verify(bindings); err != nil {
+		return err
+	}
+	names, err := readDirectoryNames(ctx, fd, path, 0)
+	if err != nil {
+		return err
+	}
+	faults.finishCleanupDirectoryRead()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if len(names) != 0 {
+		return fmt.Errorf("directory entries changed before cleanup at %q", path)
+	}
+	if err := authority.verify(bindings); err != nil {
+		return err
+	}
+	if err := unix.Unlinkat(parentFD, entry.name, unix.AT_REMOVEDIR); err != nil {
+		return err
+	}
+	state.changed = true
+	return nil
+}
+
+func prepareOpenedRemovalDirectory(
+	ctx context.Context,
+	bindings []removalDirectoryBinding,
+	authority removalEffectAuthority,
+	faults faultPlan,
+	state *removalTreeEffectState,
+) error {
+	if len(bindings) == 0 {
+		return fmt.Errorf("removal directory binding is required")
+	}
+	binding := bindings[len(bindings)-1]
+	if binding.entry == nil {
+		return fmt.Errorf("removal directory binding is uninitialized")
+	}
+	if binding.entry.mode&0o700 == 0o700 {
+		return authority.verify(bindings)
+	}
+	if state == nil {
+		return fmt.Errorf("removal tree effect state is required")
+	}
+	if err := faults.check(ctx, phaseApplyMode); err != nil {
+		return atPhase(phaseApplyMode, err)
+	}
+	if err := authority.verify(bindings); err != nil {
+		return atPhase(phaseApplyMode, err)
+	}
+	mode := uint32(binding.entry.mode.Perm()) | 0o700
+	if err := unix.Fchmod(binding.directoryFD, mode); err != nil {
+		return atPhase(phaseApplyMode, fmt.Errorf("make retired directory removable at %q: %w", binding.path, err))
+	}
+	state.changed = true
+	var stat unix.Stat_t
+	if err := unix.Fstat(binding.directoryFD, &stat); err != nil {
+		return atPhase(phaseApplyMode, err)
+	}
+	current := identityFromStat(binding.path, &stat)
+	if !binding.entry.identity.sameObject(current) || current.kind != entryKindDirectory {
+		return atPhase(phaseApplyMode, fmt.Errorf("retired directory identity changed while preparing cleanup at %q", binding.path))
+	}
+	if err := validateOwnedStat(binding.path, &stat); err != nil {
+		return atPhase(phaseApplyMode, err)
+	}
+	if fs.FileMode(stat.Mode).Perm() != fs.FileMode(mode).Perm() {
+		return atPhase(
+			phaseApplyMode,
+			unsupported(fmt.Sprintf("retired directory %q did not retain private cleanup mode", binding.path), nil),
+		)
+	}
+	binding.entry.identity = newRemovalEntryIdentity(current)
+	binding.entry.mode = fs.FileMode(stat.Mode).Perm()
+	if err := authority.verify(bindings); err != nil {
+		return atPhase(phaseApplyMode, err)
+	}
+	return nil
 }

@@ -199,8 +199,11 @@ func commitRootedEntryCleanupWithFaults(
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
+	if err := admitRootedCleanupWork(request); err != nil {
+		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
+	}
 
-	anchor, err := openCommitParent(request.path, request.capability, false)
+	anchor, err := openCommitParentForRootedCleanup(request.path, request.capability)
 	if anchor != nil {
 		defer anchor.close()
 	}
@@ -215,7 +218,7 @@ func commitRootedEntryCleanupWithFaults(
 	); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
 	err = faults.run(ctx, phaseRevalidateEntry, func() error {
@@ -230,7 +233,7 @@ func commitRootedEntryCleanupWithFaults(
 	if err != nil {
 		return fail(failureBeforeVisibility(phaseRevalidateEntry, request.path, err))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(failureBeforeVisibility(phaseValidate, request.path, err))
 	}
 
@@ -242,7 +245,7 @@ func commitRootedEntryCleanupWithFaults(
 		request.expected,
 		request.limits,
 		faults,
-		anchor.verifyChain,
+		anchor.verifyRetainedChain,
 	)
 	if err != nil {
 		return fail(classifyExactCleanupFailure(anchor, request, changed, err))
@@ -258,7 +261,7 @@ func commitRootedEntryCleanupWithFaults(
 			request.path,
 		))
 	}
-	if err := anchor.verifyChain(); err != nil {
+	if err := anchor.verifyRetainedChain(); err != nil {
 		return fail(newFailure(
 			failureIndeterminateCommit,
 			phaseVerifyEntry,
@@ -287,6 +290,33 @@ func commitRootedEntryCleanupWithFaults(
 		))
 	}
 	return outcomeFromError(nil), nil
+}
+
+func admitRootedCleanupWork(request RootedEntryCleanup) error {
+	kind := mutationfs.EntryKindFile
+	if request.expected.kind == entryKindDirectory {
+		kind = mutationfs.EntryKindDirectory
+	}
+	envelope, err := mutationfs.NewRootedCleanupWorkEnvelope(kind, request.limits)
+	if err != nil {
+		return err
+	}
+	parentValidationWork, err := request.capability.Destination().ParentChainValidationWork()
+	if err != nil {
+		return err
+	}
+	pathWork, err := envelope.PathWork(parentValidationWork)
+	if err != nil {
+		return err
+	}
+	if err := request.capability.AdmitPhysicalWork(
+		pathWork,
+		envelope.EntryWork(),
+		envelope.ByteWork(),
+	); err != nil {
+		return fmt.Errorf("admit rooted cleanup physical work: %w", err)
+	}
+	return nil
 }
 
 func validateRootedEntryRename(request RootedEntryRename) error {

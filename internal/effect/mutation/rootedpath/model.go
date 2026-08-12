@@ -2,6 +2,7 @@
 package rootedpath
 
 import (
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -184,6 +185,8 @@ type CommitCapability interface {
 	Validate() error
 	OpenRootDirectory() (*os.File, error)
 	ValidateDirectoryHandle(handle uintptr) error
+	ValidateRetainedDirectoryHandle(handle uintptr) error
+	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
 	Close() error
 	rootedPathCommitCapability()
 }
@@ -215,6 +218,25 @@ func (destination Destination) Root() Authority {
 // Relative returns the canonical path beneath the captured root.
 func (destination Destination) Relative() RelativeDestination {
 	return destination.relative
+}
+
+// ParentChainValidationWork returns the component work for one bounded
+// destination-parent validation. The gate verifies the retained physical root
+// before and after checking every root-relative parent binding.
+func (destination Destination) ParentChainValidationWork() (int, error) {
+	if err := destination.Validate(); err != nil {
+		return 0, err
+	}
+	rootDepth, err := absolutePathDepth(destination.root.physicalRoot)
+	if err != nil {
+		return 0, err
+	}
+	parentDepth := strings.Count(destination.relative.value, "/")
+	maximumInt := int(^uint(0) >> 1)
+	if rootDepth > (maximumInt-parentDepth)/2 {
+		return 0, fmt.Errorf("destination parent-chain validation work overflows")
+	}
+	return 2*rootDepth + parentDepth, nil
 }
 
 // LexicalPath returns the physical-root spelling joined with the relative path.

@@ -112,8 +112,13 @@ func assessRemovalCleanupIntent(
 			if reserveErr != nil {
 				return recovery.RemovalCleanupObligation{}, reserveErr
 			}
-			if kind == recovery.PathKindDirectory {
-				if err := budget.ReserveDirectoryCleanup(work); err != nil {
+			if kind == recovery.PathKindDirectory || kind == recovery.PathKindFile {
+				if err := ReserveRootedCleanupWork(
+					budget,
+					destination,
+					work,
+					kind == recovery.PathKindDirectory,
+				); err != nil {
 					return recovery.RemovalCleanupObligation{}, err
 				}
 			}
@@ -224,6 +229,50 @@ func ReserveForwardRemovalExecutionWork(
 		depths = append(depths, destinationDepth)
 	}
 	return budget.ReserveForwardExecutionPathWork(depths)
+}
+
+// ReserveForwardRootedCleanupWork charges one future observation plus the
+// complete bounded storage cleanup envelope for a reachable removal state.
+func ReserveForwardRootedCleanupWork(
+	budget *recovery.PhysicalWorkBudget,
+	destination rootedpath.Destination,
+	work recovery.ArtifactWork,
+	directory bool,
+) (recovery.ForwardRemovalCapacity, error) {
+	validationWork, err := destination.ParentChainValidationWork()
+	if err != nil {
+		return recovery.ForwardRemovalCapacity{}, err
+	}
+	return budget.ReserveForwardRemoval(work, directory, validationWork)
+}
+
+// ReserveRootedCleanupWork charges the complete bounded storage cleanup
+// envelope for one effect-time candidate.
+func ReserveRootedCleanupWork(
+	budget *recovery.PhysicalWorkBudget,
+	destination rootedpath.Destination,
+	work recovery.ArtifactWork,
+	directory bool,
+) error {
+	validationWork, err := destination.ParentChainValidationWork()
+	if err != nil {
+		return err
+	}
+	return budget.ReserveRootedCleanup(work, directory, validationWork)
+}
+
+// ReserveScratchRootedCleanupWork charges the complete rollback-stage cleanup
+// envelope against the operation budget.
+func ReserveScratchRootedCleanupWork(
+	budget *recovery.PhysicalWorkBudget,
+	destination rootedpath.Destination,
+	work recovery.ArtifactWork,
+) error {
+	validationWork, err := destination.ParentChainValidationWork()
+	if err != nil {
+		return err
+	}
+	return budget.ReserveScratchCleanup(work, validationWork)
 }
 
 // ReserveRemovalExecutionObservationWork reserves every physical-path visit

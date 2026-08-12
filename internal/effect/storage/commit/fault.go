@@ -40,9 +40,11 @@ const (
 )
 
 type faultPlan struct {
-	failures     map[phase]error
-	actions      map[phase]func()
-	payloadWrite func(context.Context, io.Writer, []byte) error
+	failures                  map[phase]error
+	actions                   map[phase]func()
+	payloadWrite              func(context.Context, io.Writer, []byte) error
+	afterCleanupDirectoryRead func()
+	beforeCleanupChild        func()
 }
 
 func (plan faultPlan) check(ctx context.Context, current phase) error {
@@ -60,6 +62,22 @@ func (plan faultPlan) run(ctx context.Context, current phase, effect func() erro
 		return err
 	}
 	return effect()
+}
+
+func (plan faultPlan) finishCleanupDirectoryRead() {
+	if plan.afterCleanupDirectoryRead != nil {
+		plan.afterCleanupDirectoryRead()
+	}
+}
+
+func (plan faultPlan) checkCleanupChild(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if plan.beforeCleanupChild != nil {
+		plan.beforeCleanupChild()
+	}
+	return ctx.Err()
 }
 
 func (plan faultPlan) writePayload(ctx context.Context, writer io.Writer, payload []byte) error {

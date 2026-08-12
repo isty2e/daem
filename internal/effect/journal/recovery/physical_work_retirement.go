@@ -80,6 +80,43 @@ func (budget *PhysicalWorkBudget) ReserveRetirementDirectoryPasses(
 	return nil
 }
 
+// ReserveRetirementRootedCleanup charges the complete recursive cleanup and
+// destination-parent validation envelope owned by a prepared retirement.
+func (budget *PhysicalWorkBudget) ReserveRetirementRootedCleanup(
+	work ArtifactWork,
+	parentValidationWork int,
+) error {
+	if budget == nil {
+		return fmt.Errorf("physical work budget is required")
+	}
+	if budget.retirementDisposition != retirementPending || budget.generalExecutionBegun {
+		return fmt.Errorf("journal retirement capacity was already transferred")
+	}
+	envelope, err := rootedCleanupWorkEnvelope(work, true)
+	if err != nil {
+		return err
+	}
+	reserved := *budget
+	if err := reserved.AdmitTree(ArtifactWork{
+		entries: envelope.EntryWork(),
+		bytes:   envelope.ByteWork(),
+	}); err != nil {
+		return fmt.Errorf("journal retirement cleanup exceeds operation capacity: %w", err)
+	}
+	reserved.reservedRetirementEntries += envelope.EntryWork()
+	reserved.reservedRetirementBytes += envelope.ByteWork()
+	pathWork, err := envelope.PathWork(parentValidationWork)
+	if err != nil {
+		return fmt.Errorf("reserve journal retirement cleanup namespace: %w", err)
+	}
+	if err := reserved.admitAggregatePathComponents(pathWork); err != nil {
+		return fmt.Errorf("reserve journal retirement cleanup namespace: %w", err)
+	}
+	reserved.reservedRetirementPathComponents += pathWork
+	*budget = reserved
+	return nil
+}
+
 // ReserveRetirementArtifactWork charges predictable non-traversal work such
 // as creating one canonical control tree. It reserves no overflow probe.
 func (budget *PhysicalWorkBudget) ReserveRetirementArtifactWork(work ArtifactWork) error {

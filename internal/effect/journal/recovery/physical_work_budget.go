@@ -81,62 +81,6 @@ func (work ArtifactWork) Equal(other ArtifactWork) bool {
 	return work == other
 }
 
-// ForwardRemovalCapacity is operation-budgeted capacity for one removable
-// whole-path state. It carries no filesystem identity or deletion authority.
-type ForwardRemovalCapacity struct {
-	maximum     ArtifactWork
-	directory   bool
-	initialized bool
-}
-
-// MaximumWork returns the bounded semantic work ceiling reserved for the state.
-func (capacity ForwardRemovalCapacity) MaximumWork() ArtifactWork {
-	return capacity.maximum
-}
-
-// Admits reports whether fresh candidate work remains within this reservation.
-func (capacity ForwardRemovalCapacity) Admits(work ArtifactWork) bool {
-	return capacity.initialized &&
-		work.entries <= capacity.maximum.entries &&
-		work.bytes <= capacity.maximum.bytes
-}
-
-// Envelope returns a read-only observation ceiling covering both already
-// reserved capacities. It does not reserve additional operation work.
-func (capacity ForwardRemovalCapacity) Envelope(
-	other ForwardRemovalCapacity,
-) (ForwardRemovalCapacity, error) {
-	if !capacity.initialized || !other.initialized {
-		return ForwardRemovalCapacity{}, fmt.Errorf("forward removal capacity is uninitialized")
-	}
-	return ForwardRemovalCapacity{
-		maximum: ArtifactWork{
-			entries: max(capacity.maximum.entries, other.maximum.entries),
-			bytes:   max(capacity.maximum.bytes, other.maximum.bytes),
-		},
-		directory:   capacity.directory || other.directory,
-		initialized: true,
-	}, nil
-}
-
-// BeginObservation opens the bounded local budget for one fresh candidate
-// observation. Aggregate work was charged when the capacity was reserved.
-func (capacity ForwardRemovalCapacity) BeginObservation() (*PhysicalWorkBudget, error) {
-	if !capacity.initialized {
-		return nil, fmt.Errorf("forward removal capacity is uninitialized")
-	}
-	entryLimit := capacity.maximum.entries
-	if capacity.directory {
-		entryLimit++
-	}
-	return &PhysicalWorkBudget{
-		observationLimit: 1,
-		entryLimit:       entryLimit,
-		byteLimit:        capacity.maximum.bytes,
-		probeByteLimit:   max(int64(1), capacity.maximum.bytes) - capacity.maximum.bytes,
-	}, nil
-}
-
 // PhysicalWorkBudget bounds physical observations and artifact traversal for
 // one recovery planning or effect pass. Planning charges current-path,
 // ownership, backup, and cleanup evidence to the same operation ceilings;
@@ -150,6 +94,8 @@ type PhysicalWorkBudget struct {
 	pathComponents                   int
 	pathComponentLimit               int
 	reservedForwardPathComponents    int
+	reservedForwardEntries           int
+	reservedForwardBytes             int64
 	reservedBackupPathComponents     int
 	reservedCleanupObservations      int
 	reservedCleanupPathComponents    int
@@ -166,6 +112,8 @@ type PhysicalWorkBudget struct {
 	probeByteLimit                   int64
 	reservedReobservationEntries     int
 	reservedReobservationBytes       int64
+	reservedCleanupEntries           int
+	reservedCleanupBytes             int64
 	reservedProbeBytes               int64
 	reservedBackupEntries            int
 	reservedBackupBytes              int64
@@ -174,6 +122,7 @@ type PhysicalWorkBudget struct {
 	reservedGeneralProbeBytes        int64
 	reservedScratchEntries           int
 	reservedScratchBytes             int64
+	scratchCleanupWork               ArtifactWork
 	reservedRetirementEntries        int
 	reservedRetirementBytes          int64
 	scratchCleanupReserved           bool
@@ -553,13 +502,20 @@ func (budget *PhysicalWorkBudget) AdmitPathComponents(depth int) error {
 			MaximumPhysicalPathDepth,
 		)
 	}
-	if depth > budget.pathComponentLimit-budget.pathComponents {
+	return budget.admitAggregatePathComponents(depth)
+}
+
+func (budget *PhysicalWorkBudget) admitAggregatePathComponents(count int) error {
+	if count < 0 {
+		return fmt.Errorf("removal aggregate path-component work must not be negative")
+	}
+	if count > budget.pathComponentLimit-budget.pathComponents {
 		return fmt.Errorf(
 			"removal path-component work exceeds operation limit %d",
 			budget.pathComponentLimit,
 		)
 	}
-	budget.pathComponents += depth
+	budget.pathComponents += count
 	return nil
 }
 
@@ -668,115 +624,26 @@ func (budget *PhysicalWorkBudget) AdmitTree(work ArtifactWork) error {
 	return nil
 }
 
-// ReserveForwardRemoval charges one future fresh observation and, for a
-// directory, both recursive storage passes. The observation that established
-// work is charged separately by its producer.
-func (budget *PhysicalWorkBudget) ReserveForwardRemoval(
-	work ArtifactWork,
-	directory bool,
-) (ForwardRemovalCapacity, error) {
-	if budget == nil {
-		return ForwardRemovalCapacity{}, fmt.Errorf("physical work budget is required")
-	}
-	if work.entries < 0 || work.bytes < 0 {
-		return ForwardRemovalCapacity{}, fmt.Errorf("forward removal work must not be negative")
-	}
-	if work.entries > MaximumArtifactTreeEntries || work.bytes > MaximumArtifactTreeBytes {
-		return ForwardRemovalCapacity{}, fmt.Errorf(
-			"forward removal work exceeds per-tree limit entries=%d bytes=%d",
-			MaximumArtifactTreeEntries,
-			MaximumArtifactTreeBytes,
-		)
-	}
-	if !directory && work.entries != 0 {
-		return ForwardRemovalCapacity{}, fmt.Errorf(
-			"forward file removal work must not contain descendant entries",
-		)
-	}
-	if budget.observations >= budget.observationLimit {
-		return ForwardRemovalCapacity{}, fmt.Errorf(
-			"removal observation count exceeds operation limit %d",
-			budget.observationLimit,
-		)
-	}
-	multiplier := 1
-	overflowEntries := 0
-	if directory {
-		multiplier = 3
-		overflowEntries = 1
-	}
-	if overflowEntries > budget.RemainingEntries() ||
-		work.entries > (budget.RemainingEntries()-overflowEntries)/multiplier {
-		return ForwardRemovalCapacity{}, fmt.Errorf(
-			"forward removal entries exceed operation limit %d",
-			budget.entryLimit,
-		)
-	}
-	if work.bytes > budget.RemainingBytes()/int64(multiplier) {
-		return ForwardRemovalCapacity{}, fmt.Errorf(
-			"forward removal bytes exceed operation limit %d",
-			budget.byteLimit,
-		)
-	}
-	budget.observations++
-	budget.entries += work.entries*multiplier + overflowEntries
-	budget.bytes += work.bytes * int64(multiplier)
-	return ForwardRemovalCapacity{
-		maximum: work, directory: directory, initialized: true,
-	}, nil
-}
-
-// ReserveForwardExecutionPathWork charges the namespace observation and every
-// worst-case physical path traversal for one reachable forward-removal state.
-// Candidate content work remains owned by ForwardRemovalCapacity.
-func (budget *PhysicalWorkBudget) ReserveForwardExecutionPathWork(
-	destinationDepths []int,
+// AdmitPhysicalWork atomically charges storage-owned path and tree work carried
+// by a bounded rooted commit capability.
+func (budget *PhysicalWorkBudget) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
 ) error {
-	if budget == nil {
-		return fmt.Errorf("physical work budget is required")
-	}
-	if budget.forwardExecutionBegun {
-		return fmt.Errorf("forward removal execution capacity was already transferred")
+	work, err := NewArtifactWork(entries, bytes)
+	if err != nil {
+		return err
 	}
 	reserved := *budget
-	for _, destinationDepth := range destinationDepths {
-		if err := reserved.AdmitObservation(); err != nil {
-			return err
-		}
-		reserved.reservedForwardObservations++
-		// Execution acquires a fresh removal capability, validates the selected
-		// namespace, may recapture both a retained ancestor and a newly appeared
-		// parent, and revalidates the candidate path. Every chain is no deeper
-		// than the already bound physical destination.
-		passes := forwardRemovalCapabilityPasses +
-			forwardRemovalNamespacePasses +
-			forwardRemovalCandidatePasses
-		for range passes {
-			before := reserved.pathComponents
-			if err := reserved.AdmitPathComponents(destinationDepth); err != nil {
-				return err
-			}
-			reserved.reservedForwardPathComponents += reserved.pathComponents - before
-		}
+	if err := reserved.admitAggregatePathComponents(pathComponents); err != nil {
+		return err
+	}
+	if err := reserved.AdmitTree(work); err != nil {
+		return err
 	}
 	*budget = reserved
 	return nil
-}
-
-// BeginReservedForwardExecution transfers only pre-effect namespace and path
-// capacity into the forward-removal execution phase.
-func (budget *PhysicalWorkBudget) BeginReservedForwardExecution() (*PhysicalWorkBudget, error) {
-	if budget == nil {
-		return nil, fmt.Errorf("physical work budget is required")
-	}
-	if budget.forwardExecutionBegun {
-		return nil, fmt.Errorf("forward removal execution capacity was already transferred")
-	}
-	budget.forwardExecutionBegun = true
-	return &PhysicalWorkBudget{
-		observationLimit:   budget.reservedForwardObservations,
-		pathComponentLimit: budget.reservedForwardPathComponents,
-	}, nil
 }
 
 // AdmitTreeWithin charges one observation only when it remains within the
@@ -895,23 +762,46 @@ func (budget *PhysicalWorkBudget) ReserveDirectoryReobservation(work ArtifactWor
 	return nil
 }
 
-// ReserveDirectoryCleanup charges the two recursive storage passes used to
-// validate and remove one directory. Callers reserve every ready directory
-// before any candidate starts an effect.
-func (budget *PhysicalWorkBudget) ReserveDirectoryCleanup(work ArtifactWork) error {
-	if work.entries > (MaximumPhysicalEntries-2)/2 || work.bytes > MaximumPhysicalBytes/2 {
-		return fmt.Errorf("removal directory cleanup work exceeds operation capacity")
+// ReserveRootedCleanup charges the complete storage and destination-parent
+// validation envelope for one ready file or directory before any candidate
+// begins an effect.
+func (budget *PhysicalWorkBudget) ReserveRootedCleanup(
+	work ArtifactWork,
+	directory bool,
+	parentValidationWork int,
+) error {
+	if budget == nil {
+		return fmt.Errorf("physical work budget is required")
 	}
-	return budget.AdmitTree(ArtifactWork{
-		entries: (work.entries + 1) * 2,
-		bytes:   work.bytes * 2,
-	})
+	envelope, err := rootedCleanupWorkEnvelope(work, directory)
+	if err != nil {
+		return err
+	}
+	reserved := *budget
+	if err := reserved.AdmitTree(ArtifactWork{
+		entries: envelope.EntryWork(),
+		bytes:   envelope.ByteWork(),
+	}); err != nil {
+		return fmt.Errorf("reserve rooted cleanup tree work: %w", err)
+	}
+	reserved.reservedCleanupEntries += envelope.EntryWork()
+	reserved.reservedCleanupBytes += envelope.ByteWork()
+	pathWork, err := envelope.PathWork(parentValidationWork)
+	if err != nil {
+		return fmt.Errorf("reserve rooted cleanup namespace: %w", err)
+	}
+	if err := reserved.admitAggregatePathComponents(pathWork); err != nil {
+		return fmt.Errorf("reserve rooted cleanup namespace: %w", err)
+	}
+	reserved.reservedExecutionPathComponents += pathWork
+	*budget = reserved
+	return nil
 }
 
 // BeginReservedExecution realizes the aggregate effect-time re-observation
 // capacity proved by preflight while preserving operation-wide namespace and
-// path work already consumed. Directory storage passes remain enforced by the
-// per-candidate limits derived from the same preflight observations.
+// path work already consumed. The child carries the exact storage work that
+// bounded rooted cleanup consumes before touching its selected entry.
 func (budget *PhysicalWorkBudget) BeginReservedExecution() (*PhysicalWorkBudget, error) {
 	if budget == nil {
 		return nil, fmt.Errorf("physical work budget is required")
@@ -919,8 +809,27 @@ func (budget *PhysicalWorkBudget) BeginReservedExecution() (*PhysicalWorkBudget,
 	return &PhysicalWorkBudget{
 		observationLimit:   budget.reservedExecutionObservations,
 		pathComponentLimit: budget.reservedExecutionPathComponents,
-		entryLimit:         budget.reservedReobservationEntries,
-		byteLimit:          budget.reservedReobservationBytes,
+		entryLimit:         budget.reservedReobservationEntries + budget.reservedCleanupEntries,
+		byteLimit:          budget.reservedReobservationBytes + budget.reservedCleanupBytes,
 		probeByteLimit:     budget.reservedProbeBytes,
 	}, nil
+}
+
+func rootedCleanupWorkEnvelope(
+	work ArtifactWork,
+	directory bool,
+) (mutationfs.RootedCleanupWorkEnvelope, error) {
+	kind := mutationfs.EntryKindFile
+	if directory {
+		kind = mutationfs.EntryKindDirectory
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(
+		work.entries,
+		MaximumArtifactTreeDepth,
+		work.bytes,
+	)
+	if err != nil {
+		return mutationfs.RootedCleanupWorkEnvelope{}, err
+	}
+	return mutationfs.NewRootedCleanupWorkEnvelope(kind, limits)
 }

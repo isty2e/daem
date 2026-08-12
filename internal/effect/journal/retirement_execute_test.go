@@ -91,10 +91,10 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wantBytes := int64(6)*prepared.evidence.activeEnvelopeLimits.MaximumBytes() +
+		wantBytes := int64(7)*prepared.evidence.activeEnvelopeLimits.MaximumBytes() +
 			maximumRecoveryJournalBytes +
 			2*prepared.evidence.controlCurrentWork.Bytes() +
-			3*prepared.evidence.controlFinalWork.Bytes() +
+			4*prepared.evidence.controlFinalWork.Bytes() +
 			int64(len(currentRecord)+len(finalRecord))
 		if got := prepared.executionBudget.RemainingBytes(); got != wantBytes {
 			t.Fatalf("reserved retirement bytes = %d, want %d", got, wantBytes)
@@ -143,9 +143,9 @@ func TestPreparedRetirementCapacityMatchesExecutableReadPasses(t *testing.T) {
 			t.Fatal(err)
 		}
 		wantBytes := 2*prepared.evidence.controlCurrentWork.Bytes() +
-			3*prepared.evidence.controlFinalWork.Bytes() +
+			4*prepared.evidence.controlFinalWork.Bytes() +
 			int64(len(currentRecord)+len(finalRecord)) +
-			5*prepared.evidence.residue.work.Bytes()
+			6*prepared.evidence.residue.work.Bytes()
 		if got := prepared.executionBudget.RemainingBytes(); got != wantBytes {
 			t.Fatalf("reserved cleanup bytes = %d, want %d", got, wantBytes)
 		}

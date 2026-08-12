@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -441,7 +442,11 @@ func (rollback *hostRollback) prepareCleanup(
 			return fmt.Errorf("reserve recovery rollback cleanup path: %w", err)
 		}
 	}
-	if err := authority.physicalWorkBudget.ReserveScratchCleanup(work); err != nil {
+	if err := journal.ReserveScratchRootedCleanupWork(
+		authority.physicalWorkBudget,
+		destination,
+		work,
+	); err != nil {
 		return fmt.Errorf("reserve recovery rollback cleanup tree: %w", err)
 	}
 	executionBudget, reservedWork, err := authority.physicalWorkBudget.BeginReservedScratchCleanup()
@@ -587,6 +592,10 @@ func (rollback *hostRollback) abortCleanup(
 	if authority == nil || authority.filesystem == nil {
 		return fmt.Errorf("recovery rollback abort cleanup filesystem is unavailable")
 	}
+	work, err := rollback.cleanupWork()
+	if err != nil {
+		return err
+	}
 	budget, err := recovery.NewPhysicalWorkBudget(0)
 	if err != nil {
 		return err
@@ -599,11 +608,28 @@ func (rollback *hostRollback) abortCleanup(
 	if err != nil {
 		return err
 	}
+	reservation := recoveryScratchPathReservation{budget: budget}
+	for range 3 {
+		if err := root.ReserveDestinationAccess(
+			destination,
+			recovery.MaximumPhysicalPathDepth,
+			reservation,
+		); err != nil {
+			return errors.Join(err, root.Close())
+		}
+	}
+	if err := journal.ReserveScratchRootedCleanupWork(budget, destination, work); err != nil {
+		return errors.Join(err, root.Close())
+	}
+	executionBudget, reservedWork, err := budget.BeginReservedScratchCleanup()
+	if err != nil {
+		return errors.Join(err, root.Close())
+	}
 	entryAuthority, err := rootedpath.BindCapturedEntryAuthorityBounded(
 		root,
 		destination,
 		recovery.MaximumPhysicalPathDepth,
-		budget,
+		executionBudget,
 	)
 	if err != nil {
 		return errors.Join(err, root.Close())
@@ -617,9 +643,9 @@ func (rollback *hostRollback) abortCleanup(
 		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())
 	}
 	limits, err := mutationfs.NewTreeTraversalLimits(
-		recovery.MaximumPhysicalEntries,
+		reservedWork.Entries(),
 		maximumRollbackScratchTreeDepth,
-		recovery.MaximumPhysicalBytes,
+		reservedWork.Bytes(),
 	)
 	if err != nil {
 		return errors.Join(err, capability.Close(), entryAuthority.Close(), root.Close())

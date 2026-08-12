@@ -570,7 +570,7 @@ func TestPhysicalWorkBudgetBoundsAggregateExecutionPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
-	observed, err := NewArtifactWork(99_999, 4<<30)
+	observed, err := NewArtifactWork(44_444, MaximumPhysicalBytes/5)
 	if err != nil {
 		t.Fatalf("construct observed work: %v", err)
 	}
@@ -580,13 +580,13 @@ func TestPhysicalWorkBudgetBoundsAggregateExecutionPasses(t *testing.T) {
 	if err := budget.ReserveDirectoryReobservation(observed); err != nil {
 		t.Fatalf("reserve effect-time reobservation: %v", err)
 	}
-	if err := budget.ReserveDirectoryCleanup(observed); err != nil {
+	if err := budget.ReserveRootedCleanup(observed, true, 0); err != nil {
 		t.Fatalf("reserve directory cleanup: %v", err)
 	}
-	if budget.RemainingEntries() != 1 || budget.RemainingBytes() != 0 {
+	if budget.RemainingEntries() != 2 || budget.RemainingBytes() != MaximumPhysicalBytes%5 {
 		t.Fatalf(
 			"remaining budget = entries:%d bytes:%d, want entries:%d bytes:%d",
-			budget.RemainingEntries(), budget.RemainingBytes(), 1, int64(0),
+			budget.RemainingEntries(), budget.RemainingBytes(), 2, MaximumPhysicalBytes%5,
 		)
 	}
 	if err := budget.ReserveDirectoryReobservation(observed); err == nil {
@@ -599,22 +599,23 @@ func TestPhysicalWorkBudgetReservesForwardObservationAndDirectoryPasses(t *testi
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
-	work, err := NewArtifactWork(99_999, 4<<30)
+	work, err := NewArtifactWork(44_444, MaximumPhysicalBytes/5)
 	if err != nil {
 		t.Fatalf("construct forward work: %v", err)
 	}
 	if err := budget.AdmitTree(work); err != nil {
 		t.Fatalf("charge capacity evidence: %v", err)
 	}
-	capacity, err := budget.ReserveForwardRemoval(work, true)
+	capacity, err := budget.ReserveForwardRemoval(work, true, 0)
 	if err != nil {
 		t.Fatalf("reserve forward removal: %v", err)
 	}
-	if budget.RemainingEntries() != 3 || budget.RemainingBytes() != 0 {
+	if budget.RemainingEntries() != 2 || budget.RemainingBytes() != MaximumPhysicalBytes%5 {
 		t.Fatalf(
-			"remaining budget = entries:%d bytes:%d, want 3/0",
+			"remaining budget = entries:%d bytes:%d, want 2/%d",
 			budget.RemainingEntries(),
 			budget.RemainingBytes(),
+			MaximumPhysicalBytes%5,
 		)
 	}
 	observation, err := capacity.BeginObservation()
@@ -647,7 +648,7 @@ func TestForwardRemovalCapacityKeepsZeroWorkProbeSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct empty work: %v", err)
 	}
-	capacity, err := budget.ReserveForwardRemoval(empty, true)
+	capacity, err := budget.ReserveForwardRemoval(empty, true, 1)
 	if err != nil {
 		t.Fatalf("reserve empty forward removal: %v", err)
 	}
@@ -679,7 +680,7 @@ func TestForwardRemovalCapacityRejectsPerTreeOverflowBeforeReservation(t *testin
 	if err != nil {
 		t.Fatalf("construct excessive tree work: %v", err)
 	}
-	if _, err := budget.ReserveForwardRemoval(tooManyEntries, true); err == nil {
+	if _, err := budget.ReserveForwardRemoval(tooManyEntries, true, 1); err == nil {
 		t.Fatal("forward removal admitted work beyond the per-tree entry limit")
 	}
 }
@@ -693,7 +694,7 @@ func TestForwardRemovalCapacityRejectsDescendantWorkForFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct invalid file work: %v", err)
 	}
-	if _, err := budget.ReserveForwardRemoval(work, false); err == nil {
+	if _, err := budget.ReserveForwardRemoval(work, false, 1); err == nil {
 		t.Fatal("forward file removal admitted descendant-entry work")
 	}
 }
@@ -703,22 +704,48 @@ func TestForwardRemovalCapacityBoundsAggregateDirectoryPasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("construct removal work budget: %v", err)
 	}
-	maximum, err := NewArtifactWork(MaximumArtifactTreeEntries-1, MaximumArtifactTreeBytes)
+	maximum, err := NewArtifactWork(44_444, MaximumPhysicalBytes/5)
 	if err != nil {
 		t.Fatalf("construct maximum directory work: %v", err)
 	}
 	if err := budget.AdmitTree(maximum); err != nil {
 		t.Fatalf("charge maximum directory evidence: %v", err)
 	}
-	if _, err := budget.ReserveForwardRemoval(maximum, true); err != nil {
+	if _, err := budget.ReserveForwardRemoval(maximum, true, 0); err != nil {
 		t.Fatalf("reserve maximum directory removal: %v", err)
 	}
-	positive, err := NewArtifactWork(1, 1)
+	positive, err := NewArtifactWork(0, budget.RemainingBytes()+1)
 	if err != nil {
 		t.Fatalf("construct positive directory work: %v", err)
 	}
 	if err := budget.AdmitTree(positive); err == nil {
-		t.Fatal("operation budget admitted a second non-empty directory after four maximum passes")
+		t.Fatal("operation budget admitted work after the complete cleanup envelope")
+	}
+}
+
+func TestForwardRemovalCapacityBoundsRecursiveCleanupNamespaceWork(t *testing.T) {
+	budget, err := NewPhysicalWorkBudget(1)
+	if err != nil {
+		t.Fatalf("construct removal work budget: %v", err)
+	}
+	maximum, err := NewArtifactWork(37_447, 0)
+	if err != nil {
+		t.Fatalf("construct namespace-bounded work: %v", err)
+	}
+	if _, err := budget.ReserveForwardRemoval(maximum, true, 1); err != nil {
+		t.Fatalf("reserve exact namespace-bound cleanup: %v", err)
+	}
+
+	overflowBudget, err := NewPhysicalWorkBudget(1)
+	if err != nil {
+		t.Fatalf("construct overflow work budget: %v", err)
+	}
+	overflow, err := NewArtifactWork(37_448, 0)
+	if err != nil {
+		t.Fatalf("construct namespace overflow work: %v", err)
+	}
+	if _, err := overflowBudget.ReserveForwardRemoval(overflow, true, 1); err == nil {
+		t.Fatal("forward cleanup admitted namespace work beyond the operation limit")
 	}
 }
 
@@ -735,11 +762,11 @@ func TestForwardRemovalCapacityEnvelopeDoesNotAuthorizeSyntheticWork(t *testing.
 	if err != nil {
 		t.Fatalf("construct byte-heavy work: %v", err)
 	}
-	entryCapacity, err := budget.ReserveForwardRemoval(entryWork, true)
+	entryCapacity, err := budget.ReserveForwardRemoval(entryWork, true, 1)
 	if err != nil {
 		t.Fatalf("reserve entry-heavy capacity: %v", err)
 	}
-	byteCapacity, err := budget.ReserveForwardRemoval(byteWork, false)
+	byteCapacity, err := budget.ReserveForwardRemoval(byteWork, false, 1)
 	if err != nil {
 		t.Fatalf("reserve byte-heavy capacity: %v", err)
 	}
@@ -835,7 +862,7 @@ func TestPhysicalWorkBudgetTransfersReservedHostAndRemainingControlCapacity(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.ReserveScratchCleanup(emptyScratch); err != nil {
+	if err := budget.ReserveScratchCleanup(emptyScratch, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := budget.BeginReservedCleanupLifecycle(); err != nil {
@@ -928,7 +955,7 @@ func TestPhysicalWorkBudgetRequiresExplicitScratchDisposition(t *testing.T) {
 	if err := budget.ConcludeScratchCleanupNotApplicable(); err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.ReserveScratchCleanup(ArtifactWork{}); err == nil {
+	if err := budget.ReserveScratchCleanup(ArtifactWork{}, 1); err == nil {
 		t.Fatal("not-applicable recovery scratch accepted a later reservation")
 	}
 }
@@ -978,7 +1005,7 @@ func TestPhysicalWorkBudgetTransfersOnlyReservedGeneralContent(t *testing.T) {
 	if err := budget.ReserveGeneralDirectoryObservation(directory); err != nil {
 		t.Fatalf("reserve directory observation: %v", err)
 	}
-	if err := budget.ReserveScratchCleanup(emptyFile); err != nil {
+	if err := budget.ReserveScratchCleanup(emptyFile, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := budget.BeginReservedCleanupLifecycle(); err != nil {
@@ -1369,7 +1396,7 @@ func TestPhysicalWorkBudgetPartitionsGeneralAndCleanupExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := budget.ReserveScratchCleanup(emptyScratch); err != nil {
+	if err := budget.ReserveScratchCleanup(emptyScratch, 1); err != nil {
 		t.Fatal(err)
 	}
 	cleanup, err := budget.BeginReservedCleanupLifecycle()
