@@ -259,6 +259,15 @@ type Skill struct {
 	ContentHash  artifact.ContentHash
 }
 
+// SkillSourceAuthority is the exact source evidence that supports one imported
+// skill decision, independently of whether its artifact will be copied.
+type SkillSourceAuthority struct {
+	ResourceName string
+	Scope        targetpkg.Scope
+	ContentHash  artifact.ContentHash
+	Routes       []SkillSourceRoute
+}
+
 // SkillSourceRoute is one target-specific live entry and its fully resolved
 // artifact read route. Every route that contributed to a merged skill remains
 // freshness authority for the resulting plan.
@@ -268,11 +277,24 @@ type SkillSourceRoute struct {
 	ReadPath string
 }
 
+func (skill Skill) sourceAuthority() SkillSourceAuthority {
+	return SkillSourceAuthority{
+		ResourceName: skill.ResourceName,
+		Scope:        skill.Scope,
+		ContentHash:  skill.ContentHash,
+		Routes:       append([]SkillSourceRoute(nil), skill.SourceRoutes...),
+	}
+}
+
 // PrimarySourceRoute returns the canonical route for the representative
 // target used to materialize the planned artifact. All SourceRoutes remain
 // freshness evidence.
 func (skill Skill) PrimarySourceRoute() (SkillSourceRoute, error) {
-	for _, route := range skill.SourceRoutes {
+	routes, err := skill.CanonicalSourceRoutes()
+	if err != nil {
+		return SkillSourceRoute{}, fmt.Errorf("skill source routes: %w", err)
+	}
+	for _, route := range routes {
 		if route.Target == skill.Target {
 			return route, nil
 		}

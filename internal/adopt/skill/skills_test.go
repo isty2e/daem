@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
@@ -93,6 +94,23 @@ func TestFinalizePreservesFirstSeenRepresentativeTargetOrder(t *testing.T) {
 	}
 	if primaryRoute != piRoute {
 		t.Fatalf("primary source route = %#v, want representative-target route %#v", primaryRoute, piRoute)
+	}
+}
+
+func TestFinalizeRejectsDistinctSourceRoutesForOneTarget(t *testing.T) {
+	contentHash := artifact.HashFileContent([]byte("same"))
+	_, err := Finalize([]adopt.Skill{
+		{
+			InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash,
+			SourceRoutes: []adopt.SkillSourceRoute{{Target: targetpkg.TargetPi, LivePath: "/pi/alpha", ReadPath: "/pi/alpha"}},
+		},
+		{
+			InstallName: "alpha", Target: targetpkg.TargetPi, Scope: targetpkg.ScopeGlobal, ContentHash: contentHash,
+			SourceRoutes: []adopt.SkillSourceRoute{{Target: targetpkg.TargetPi, LivePath: "/other/alpha", ReadPath: "/other/alpha"}},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicting source routes") {
+		t.Fatalf("Finalize error = %v, want target route conflict", err)
 	}
 }
 

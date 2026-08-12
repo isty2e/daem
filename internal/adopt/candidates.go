@@ -2,7 +2,7 @@ package adopt
 
 import (
 	"fmt"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
@@ -16,26 +16,28 @@ import (
 // CandidateSetInput names each independent import candidate and observation
 // axis.
 type CandidateSetInput struct {
-	Sources              []Source
-	Skills               []Skill
-	Hooks                []Hook
-	MCPServers           []MCPServer
-	MCPSourceAuthorities []MCPSourceAuthority
-	Extensions           adoptextension.Result
-	Scans                []Scan
-	Skipped              []Skipped
+	Sources                []Source
+	Skills                 []Skill
+	SkillSourceAuthorities []SkillSourceAuthority
+	Hooks                  []Hook
+	MCPServers             []MCPServer
+	MCPSourceAuthorities   []MCPSourceAuthority
+	Extensions             adoptextension.Result
+	Scans                  []Scan
+	Skipped                []Skipped
 }
 
 // CandidateSet is one validated, immutable collection of live import facts.
 type CandidateSet struct {
-	sources         []Source
-	skills          []Skill
-	hooks           []Hook
-	mcpServers      []MCPServer
-	mcpAuthorities  []MCPSourceAuthority
-	extensionResult adoptextension.Result
-	scans           []Scan
-	skipped         []Skipped
+	sources          []Source
+	skills           []Skill
+	skillAuthorities []SkillSourceAuthority
+	hooks            []Hook
+	mcpServers       []MCPServer
+	mcpAuthorities   []MCPSourceAuthority
+	extensionResult  adoptextension.Result
+	scans            []Scan
+	skipped          []Skipped
 }
 
 // NewCandidateSet validates and owns all candidate and observation facts.
@@ -51,6 +53,14 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 		}
 	}
 	if err := validateSkillSourceCorrelations(input.Skills); err != nil {
+		return CandidateSet{}, err
+	}
+	skillAuthorities := input.SkillSourceAuthorities
+	if skillAuthorities == nil {
+		skillAuthorities = skillSourceAuthorities(input.Skills)
+	}
+	skillAuthorities = canonicalSkillSourceAuthorities(skillAuthorities)
+	if err := validateSkillSourceAuthorities(skillAuthorities, input.Skills); err != nil {
 		return CandidateSet{}, err
 	}
 	for index, hook := range input.Hooks {
@@ -95,28 +105,30 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 	}
 
 	return CandidateSet{
-		sources:         cloneSources(input.Sources),
-		skills:          cloneSkills(input.Skills),
-		hooks:           cloneHooks(input.Hooks),
-		mcpServers:      cloneMCPServers(input.MCPServers),
-		mcpAuthorities:  cloneMCPSourceAuthorities(mcpAuthorities),
-		extensionResult: input.Extensions,
-		scans:           cloneScans(input.Scans),
-		skipped:         cloneSkipped(input.Skipped),
+		sources:          cloneSources(input.Sources),
+		skills:           cloneSkills(input.Skills),
+		skillAuthorities: cloneSkillSourceAuthorities(skillAuthorities),
+		hooks:            cloneHooks(input.Hooks),
+		mcpServers:       cloneMCPServers(input.MCPServers),
+		mcpAuthorities:   cloneMCPSourceAuthorities(mcpAuthorities),
+		extensionResult:  input.Extensions,
+		scans:            cloneScans(input.Scans),
+		skipped:          cloneSkipped(input.Skipped),
 	}, nil
 }
 
 // Validate rejects zero or internally inconsistent candidate collections.
 func (candidates CandidateSet) Validate() error {
 	_, err := NewCandidateSet(CandidateSetInput{
-		Sources:              candidates.sources,
-		Skills:               candidates.skills,
-		Hooks:                candidates.hooks,
-		MCPServers:           candidates.mcpServers,
-		MCPSourceAuthorities: candidates.mcpAuthorities,
-		Extensions:           candidates.extensionResult,
-		Scans:                candidates.scans,
-		Skipped:              candidates.skipped,
+		Sources:                candidates.sources,
+		Skills:                 candidates.skills,
+		SkillSourceAuthorities: candidates.skillAuthorities,
+		Hooks:                  candidates.hooks,
+		MCPServers:             candidates.mcpServers,
+		MCPSourceAuthorities:   candidates.mcpAuthorities,
+		Extensions:             candidates.extensionResult,
+		Scans:                  candidates.scans,
+		Skipped:                candidates.skipped,
 	})
 	return err
 }
@@ -126,9 +138,15 @@ func (candidates CandidateSet) Sources() []Source {
 	return cloneSources(candidates.sources)
 }
 
-// Skills returns an owned copy of imported skills.
+// Skills returns the imported skill artifacts selected for publication.
 func (candidates CandidateSet) Skills() []Skill {
 	return cloneSkills(candidates.skills)
+}
+
+// SkillSourceAuthorities returns every exact source route that supports a
+// planned skill decision, including routes whose merge result writes no artifact.
+func (candidates CandidateSet) SkillSourceAuthorities() []SkillSourceAuthority {
+	return cloneSkillSourceAuthorities(candidates.skillAuthorities)
 }
 
 // Hooks returns an owned copy of imported hooks.
@@ -199,19 +217,15 @@ func validateSkill(skill Skill) error {
 	if err := validateTargetScope(skill.Target, skill.Scope); err != nil {
 		return err
 	}
-	if len(skill.Targets) == 0 {
-		return fmt.Errorf("at least one target is required")
+	canonicalRoutes, err := skill.CanonicalSourceRoutes()
+	if err != nil {
+		return fmt.Errorf("source routes: %w", err)
 	}
-	seen := make(map[targetpkg.Target]struct{}, len(skill.Targets))
 	representativePresent := false
 	for _, target := range skill.Targets {
 		if !profile.Profile(target).HasImportableDiscovery() {
 			return fmt.Errorf("target %q is not supported by import", target)
 		}
-		if _, duplicate := seen[target]; duplicate {
-			return fmt.Errorf("target %q is duplicated", target)
-		}
-		seen[target] = struct{}{}
 		representativePresent = representativePresent || target == skill.Target
 	}
 	if !representativePresent {
@@ -220,30 +234,8 @@ func validateSkill(skill Skill) error {
 	if strings.TrimSpace(skill.SourcePath) == "" {
 		return fmt.Errorf("source path is required")
 	}
-	if len(skill.SourceRoutes) == 0 {
-		return fmt.Errorf("at least one skill source route is required")
-	}
-	var previous SkillSourceRoute
-	liveRouteReads := make(map[string]string, len(skill.SourceRoutes))
-	for index, route := range skill.SourceRoutes {
-		if _, present := seen[route.Target]; !present {
-			return fmt.Errorf("source route target %q is not present in targets", route.Target)
-		}
-		if strings.TrimSpace(route.LivePath) == "" {
-			return fmt.Errorf("source route %d live path is required", index)
-		}
-		if !filepath.IsAbs(route.ReadPath) || filepath.Clean(route.ReadPath) != route.ReadPath {
-			return fmt.Errorf("source route %d read path %q must be canonical and absolute", index, route.ReadPath)
-		}
-		if index > 0 && compareSkillSourceRoute(previous, route) >= 0 {
-			return fmt.Errorf("skill source routes must be strictly ordered")
-		}
-		liveKey := string(route.Target) + "\x00" + route.LivePath
-		if readPath, exists := liveRouteReads[liveKey]; exists && readPath != route.ReadPath {
-			return fmt.Errorf("skill live route %q resolves to conflicting read paths", route.LivePath)
-		}
-		liveRouteReads[liveKey] = route.ReadPath
-		previous = route
+	if !slices.Equal(skill.SourceRoutes, canonicalRoutes) {
+		return fmt.Errorf("skill source routes must be canonical")
 	}
 	if _, err := skill.ExpectedSourceIdentity(); err != nil {
 		return fmt.Errorf("source identity: %w", err)
@@ -266,19 +258,6 @@ func validateSkillSourceCorrelations(skills []Skill) error {
 		identities[skill.SourcePath] = skill.ContentHash
 	}
 	return nil
-}
-
-func compareSkillSourceRoute(left SkillSourceRoute, right SkillSourceRoute) int {
-	for _, pair := range [][2]string{
-		{string(left.Target), string(right.Target)},
-		{left.LivePath, right.LivePath},
-		{left.ReadPath, right.ReadPath},
-	} {
-		if compared := strings.Compare(pair[0], pair[1]); compared != 0 {
-			return compared
-		}
-	}
-	return 0
 }
 
 func validateHook(hook Hook) error {

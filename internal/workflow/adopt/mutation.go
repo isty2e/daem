@@ -21,6 +21,14 @@ type importObservedPath struct {
 
 // ExecuteCommandPlan revalidates and writes an import candidate under one complete lease set.
 func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result CommandPlan, returnErr error) {
+	return executeCommandPlan(ctx, optimistic, BuildPlan)
+}
+
+func executeCommandPlan(
+	ctx context.Context,
+	optimistic CommandPlan,
+	buildCurrentPlan func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error),
+) (result CommandPlan, returnErr error) {
 	if ctx == nil {
 		return CommandPlan{}, fmt.Errorf("import context is required")
 	}
@@ -72,7 +80,7 @@ func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result Com
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	currentPlan, err := BuildPlan(ctx, optimistic.request)
+	currentPlan, err := buildCurrentPlan(ctx, optimistic.request)
 	if err != nil {
 		return CommandPlan{}, err
 	}
@@ -278,11 +286,13 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		if err := addLogical(skill.SourcePath, mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, false); err != nil {
 			return nil, nil, nil, err
 		}
-		for _, route := range skill.SourceRoutes {
-			if err := addPhysical(route.LivePath, string(route.Target), string(skill.Scope), mutation.PathEffectDirectoryEntry); err != nil {
+	}
+	for _, authority := range plan.SkillSourceAuthorities() {
+		for _, route := range authority.Routes {
+			if err := addPhysical(route.LivePath, string(route.Target), string(authority.Scope), mutation.PathEffectDirectoryEntry); err != nil {
 				return nil, nil, nil, err
 			}
-			if err := addPhysical(route.ReadPath, string(route.Target), string(skill.Scope), mutation.PathEffectReferent); err != nil {
+			if err := addPhysical(route.ReadPath, string(route.Target), string(authority.Scope), mutation.PathEffectReferent); err != nil {
 				return nil, nil, nil, err
 			}
 		}

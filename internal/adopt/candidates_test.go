@@ -91,6 +91,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 
 	disclosedSources := candidates.Sources()
 	disclosedSkills := candidates.Skills()
+	disclosedSkillAuthorities := candidates.SkillSourceAuthorities()
 	disclosedHooks := candidates.Hooks()
 	disclosedServers := candidates.MCPServers()
 	disclosedAuthorities := candidates.MCPSourceAuthorities()
@@ -101,6 +102,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedSkills[0].Targets[0] = targetpkg.TargetClaudeCode
 	disclosedSkills[0].InstallName = "changed"
 	disclosedSkills[0].SourceRoutes[0].ReadPath = "/changed"
+	disclosedSkillAuthorities[0].Routes[0].ReadPath = "/changed"
 	disclosedHooks[0].Command = "changed"
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
@@ -119,6 +121,9 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.Skills(); got[0].InstallName != "review" || got[0].Targets[0] != targetpkg.TargetCodex ||
 		got[0].SourceRoutes[0].ReadPath != "/host/skills/review" {
 		t.Fatalf("skills changed through alias: %#v", got)
+	}
+	if got := candidates.SkillSourceAuthorities(); got[0].Routes[0].ReadPath != "/host/skills/review" {
+		t.Fatalf("skill source authorities changed through alias: %#v", got)
 	}
 	if got := candidates.Hooks(); got[0].Command != "lint" {
 		t.Fatalf("hooks changed through alias: %#v", got)
@@ -174,8 +179,8 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 			SourcePath:  "/workspace/daem.d/skills/review",
 			ContentHash: artifact.HashFileContent([]byte("review")),
 		}},
-	}); err == nil || !strings.Contains(err.Error(), "representative target") {
-		t.Fatalf("candidate set missing representative source route error = %v", err)
+	}); err == nil || !strings.Contains(err.Error(), "requires exactly one source route") {
+		t.Fatalf("candidate set incomplete source coverage error = %v", err)
 	}
 
 	for name, contentHash := range map[string]artifact.ContentHash{
@@ -205,6 +210,105 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 				t.Fatalf("candidate set accepted malformed skill content hash %q", contentHash)
 			}
 		})
+	}
+}
+
+func TestCandidateSetRequiresCanonicalSkillSourceRouteCoverage(t *testing.T) {
+	contentHash := artifact.HashFileContent([]byte("review"))
+	shared := "/host/skills/review"
+	base := Skill{
+		ResourceName: "review",
+		InstallName:  "review",
+		Target:       targetpkg.TargetCodex,
+		Targets:      []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetClaudeCode},
+		Scope:        targetpkg.ScopeProject,
+		SourcePath:   "/workspace/daem.d/skills/review",
+		ContentHash:  contentHash,
+	}
+
+	base.SourceRoutes = []SkillSourceRoute{
+		{Target: targetpkg.TargetClaudeCode, LivePath: shared, ReadPath: shared},
+		{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+	}
+	if _, err := NewCandidateSet(CandidateSetInput{Skills: []Skill{base}}); err != nil {
+		t.Fatalf("candidate set rejected shared physical routes with complete target coverage: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		routes []SkillSourceRoute
+		want   string
+	}{
+		{
+			name: "missing target route",
+			routes: []SkillSourceRoute{
+				{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+			},
+			want: "requires exactly one source route",
+		},
+		{
+			name: "duplicate target route",
+			routes: []SkillSourceRoute{
+				{Target: targetpkg.TargetClaudeCode, LivePath: shared, ReadPath: shared},
+				{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+				{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+			},
+			want: "must be canonical",
+		},
+		{
+			name: "conflicting target routes",
+			routes: []SkillSourceRoute{
+				{Target: targetpkg.TargetClaudeCode, LivePath: shared, ReadPath: shared},
+				{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+				{Target: targetpkg.TargetCodex, LivePath: "/other/review", ReadPath: "/other/review"},
+			},
+			want: "conflicting source routes",
+		},
+		{
+			name: "unstable route order",
+			routes: []SkillSourceRoute{
+				{Target: targetpkg.TargetCodex, LivePath: shared, ReadPath: shared},
+				{Target: targetpkg.TargetClaudeCode, LivePath: shared, ReadPath: shared},
+			},
+			want: "must be canonical",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			candidate.SourceRoutes = test.routes
+			_, err := NewCandidateSet(CandidateSetInput{Skills: []Skill{candidate}})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("NewCandidateSet error = %v, want containing %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestCandidateSetRequiresExactSourceAuthorityForWritableSkill(t *testing.T) {
+	contentHash := artifact.HashFileContent([]byte("review"))
+	skill := Skill{
+		ResourceName: "review",
+		InstallName:  "review",
+		Target:       targetpkg.TargetCodex,
+		Targets:      []targetpkg.Target{targetpkg.TargetCodex},
+		Scope:        targetpkg.ScopeProject,
+		SourceRoutes: []SkillSourceRoute{{
+			Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: "/host/skills/review",
+		}},
+		SourcePath:  "/workspace/daem.d/skills/review",
+		ContentHash: contentHash,
+	}
+	conflicting := skill.sourceAuthority()
+	conflicting.ContentHash = artifact.HashFileContent([]byte("other"))
+
+	_, err := NewCandidateSet(CandidateSetInput{
+		Skills:                 []Skill{skill},
+		SkillSourceAuthorities: []SkillSourceAuthority{conflicting},
+	})
+	if err == nil || !strings.Contains(err.Error(), "has no source authority") {
+		t.Fatalf("NewCandidateSet error = %v, want exact skill source authority", err)
 	}
 }
 
@@ -335,9 +439,10 @@ func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing
 func TestSkillExpectedSourceIdentityRetainsResolvedLocalProvenance(t *testing.T) {
 	readPath := filepath.Join(string(filepath.Separator), "host", "skills", "review")
 	skill := Skill{
-		Target: targetpkg.TargetCodex,
+		Target:  targetpkg.TargetCodex,
+		Targets: []targetpkg.Target{targetpkg.TargetCodex},
 		SourceRoutes: []SkillSourceRoute{{
-			Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
+			Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: readPath,
 		}},
 		ContentHash: artifact.HashFileContent([]byte("review")),
 	}
@@ -362,9 +467,10 @@ func TestSkillExpectedSourceIdentityRejectsUnresolvedReadPath(t *testing.T) {
 		filepath.Join(root, "nested") + string(filepath.Separator) + ".." + string(filepath.Separator) + "skill",
 	} {
 		skill := Skill{
-			Target: targetpkg.TargetCodex,
+			Target:  targetpkg.TargetCodex,
+			Targets: []targetpkg.Target{targetpkg.TargetCodex},
 			SourceRoutes: []SkillSourceRoute{{
-				Target: targetpkg.TargetCodex, LivePath: readPath, ReadPath: readPath,
+				Target: targetpkg.TargetCodex, LivePath: "/host/skills/review", ReadPath: readPath,
 			}},
 			ContentHash: artifact.HashFileContent([]byte("review")),
 		}

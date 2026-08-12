@@ -412,6 +412,89 @@ command = "npx"
 	}
 }
 
+func TestExecuteCommandPlanRejectsMergeTargetSkillRouteDriftAfterRebuild(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	firstSource := filepath.Join(root, "skill-sources", "first")
+	secondSource := filepath.Join(root, "skill-sources", "second")
+	for _, source := range []string{firstSource, secondSource} {
+		if err := os.MkdirAll(source, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("same skill\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeLink := filepath.Join(root, ".claude", "skills", "review")
+	codexLink := filepath.Join(root, ".agents", "skills", "review")
+	for _, link := range []string{claudeLink, codexLink} {
+		if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(firstSource, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	initial, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"claude-code"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := initial.AdoptionPlan().ManifestContent()
+	if err := os.WriteFile(output, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		Merge:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(planned.AdoptionPlan().Skills()); got != 0 {
+		t.Fatalf("writable skill candidates = %d, want target-only merge", got)
+	}
+	if got := len(planned.AdoptionPlan().SkillSourceAuthorities()); got != 1 {
+		t.Fatalf("skill source authorities = %d, want merge-target route", got)
+	}
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			current, buildErr := BuildPlan(ctx, request)
+			if buildErr != nil {
+				return adoptmodel.Plan{}, buildErr
+			}
+			if removeErr := os.Remove(codexLink); removeErr != nil {
+				return adoptmodel.Plan{}, removeErr
+			}
+			if linkErr := os.Symlink(secondSource, codexLink); linkErr != nil {
+				return adoptmodel.Plan{}, linkErr
+			}
+			return current, nil
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("executeCommandPlan error = %v, want stale skill source route", err)
+	}
+	current, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatalf("stale merge-target route changed manifest: %q", current)
+	}
+}
+
 func enterAdoptTestDirectory(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

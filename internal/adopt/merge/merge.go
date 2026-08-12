@@ -132,14 +132,15 @@ func IntoManifest(
 
 	filteredCandidates, err := adoptmodel.NewCandidateSet(
 		adoptmodel.CandidateSetInput{
-			Sources:              addSources,
-			Skills:               addSkills,
-			Hooks:                addHooks,
-			MCPServers:           addMCPServers,
-			MCPSourceAuthorities: candidates.MCPSourceAuthorities(),
-			Extensions:           filteredExtensionResult,
-			Scans:                candidates.Scans(),
-			Skipped:              candidates.Skipped(),
+			Sources:                addSources,
+			Skills:                 addSkills,
+			SkillSourceAuthorities: candidates.SkillSourceAuthorities(),
+			Hooks:                  addHooks,
+			MCPServers:             addMCPServers,
+			MCPSourceAuthorities:   candidates.MCPSourceAuthorities(),
+			Extensions:             filteredExtensionResult,
+			Scans:                  candidates.Scans(),
+			Skipped:                candidates.Skipped(),
 		},
 	)
 	if err != nil {
