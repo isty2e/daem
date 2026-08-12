@@ -19,15 +19,11 @@ import (
 func observeProviderEffectiveMCP(
 	paths daempaths.Paths,
 	resolver liveobserve.DestinationResolver,
-	locked lock.File,
+	contracts []lock.LockedSubjectContract,
 	currentState durable.Snapshot,
 	selection targetselection.Selection,
 	codecs aggregate.CodecCatalog,
 ) (mcpeffectivehost.ObservationSet, error) {
-	contracts, err := selectedMCPProjectionContracts(locked, selection)
-	if err != nil {
-		return mcpeffectivehost.ObservationSet{}, err
-	}
 	retiring, err := retiringMCPProjections(
 		contracts,
 		currentState,

@@ -17,27 +17,7 @@ func blockedAggregateDocument(
 	detail string,
 ) aggregateDecision {
 	projections := make([]aggregateProjectionDecision, 0, len(groups))
-	for _, group := range groups {
-		desired, _ := aggregateContributionSet(group.desired)
-		projection := aggregateProjectionDecision{
-			contract: group.contract,
-			desired:  cloneContributionSetPointer(desired),
-			previous: append([]durable.ManagedAggregateState(nil), group.previous...),
-		}
-		projections = append(projections, blockAggregateProjection(projection, reason, detail))
-	}
-	return aggregateDecision{
-		kind: reconcile.AggregateBlocked, reason: reason, detail: detail,
-		documentAddress: address, codecContractID: codecContractID, projections: projections,
-	}
-}
-
-func blockedAggregateDocumentWithoutEvidence(
-	groups []aggregateGroupInput,
-	address aggregate.DocumentAddress,
-	codecContractID aggregate.CodecContractID,
-) aggregateDecision {
-	projections := make([]aggregateProjectionDecision, 0, len(groups))
+	hasLockBlocker := aggregateGroupsHaveBlockedSubjects(groups)
 	for _, group := range groups {
 		desired, _ := aggregateContributionSet(group.desired)
 		projection := aggregateProjectionDecision{
@@ -49,15 +29,19 @@ func blockedAggregateDocumentWithoutEvidence(
 			projections = append(projections, blockAggregateProjectionFromFacts(projection, group))
 			continue
 		}
-		projections = append(projections, blockAggregateProjection(
-			projection,
-			reconcile.ReasonMissingLiveObservation,
-			"fresh aggregate evidence is required",
-		))
+		if hasLockBlocker {
+			projections = append(projections, blockAggregateProjection(
+				projection,
+				reconcile.ReasonAggregateLockBlocked,
+				"aggregate projection is blocked by another contribution's lock readiness",
+			))
+			continue
+		}
+		projections = append(projections, blockAggregateProjection(projection, reason, detail))
 	}
-	reason, detail := firstAggregateProjectionLockFailure(projections)
+	decisionReason, decisionDetail := firstAggregateProjectionLockFailure(projections)
 	return aggregateDecision{
-		kind: reconcile.AggregateBlocked, reason: reason, detail: detail,
+		kind: reconcile.AggregateBlocked, reason: decisionReason, detail: decisionDetail,
 		documentAddress: address, codecContractID: codecContractID, projections: projections,
 	}
 }

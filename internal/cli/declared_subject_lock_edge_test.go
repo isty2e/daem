@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,11 @@ func TestRemovedMCPDeclarationRequiresRelockBeforeCleanup(t *testing.T) {
 				ConfigPath string `json:"config_path"`
 			} `json:"projection"`
 		} `json:"actions"`
+		MCPStatuses []struct {
+			Subject struct {
+				Name string `json:"name"`
+			} `json:"subject"`
+		} `json:"mcp_statuses"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("Unmarshal status JSON: %v\n%s", err, stdout)
@@ -134,6 +140,9 @@ func TestRemovedMCPDeclarationRequiresRelockBeforeCleanup(t *testing.T) {
 		payload.Actions[0].Projection.ConfigPath != aggregate.ClaudeProjectMCPConfigPath {
 		t.Fatalf("JSON actions = %#v, want exact old locked projection blocker", payload.Actions)
 	}
+	if len(payload.MCPStatuses) != 1 || payload.MCPStatuses[0].Subject.Name != "context7" {
+		t.Fatalf("JSON MCP statuses = %#v, want the durable lock-only subject", payload.MCPStatuses)
+	}
 
 	if _, err := workflowlock.RunLock(context.Background(), workflowlock.LockInput{ManifestPath: manifestPath}); err != nil {
 		t.Fatalf("RunLock after removal returned error: %v", err)
@@ -146,6 +155,84 @@ func TestRemovedMCPDeclarationRequiresRelockBeforeCleanup(t *testing.T) {
 	}, RunOptions{})
 	if exitCode != 0 || stderr != "" {
 		t.Fatalf("post-relock status exitCode=%d stdout=%q stderr=%q, want clean", exitCode, stdout, stderr)
+	}
+}
+
+func TestRemovedMCPDeclarationBlocksDesiredSiblingWithoutState(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "project with spaces")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Setenv("HOME", filepath.Join(root, "home"))
+	manifestPath := filepath.Join(root, "daem.toml")
+	writeCLILockCoverageManifest(t, manifestPath, true)
+	if _, err := workflowlock.RunLock(context.Background(), workflowlock.LockInput{ManifestPath: manifestPath}); err != nil {
+		t.Fatalf("RunLock returned error: %v", err)
+	}
+	writeCLILockCoverageManifest(t, manifestPath, false)
+
+	stdout, stderr, exitCode := runCLIEdge(t, []string{
+		"status", "--manifest", manifestPath, "--target", string(target.TargetClaudeCode), "--check", "--json",
+	}, RunOptions{})
+	if exitCode != 1 || stderr != "" {
+		t.Fatalf("JSON status exitCode=%d stdout=%q stderr=%q, want 1 and empty stderr", exitCode, stdout, stderr)
+	}
+	var payload struct {
+		Actions []struct {
+			Kind    string `json:"kind"`
+			Reason  string `json:"reason"`
+			Subject *struct {
+				Name string `json:"name"`
+			} `json:"subject"`
+		} `json:"actions"`
+		MCPStatuses []struct {
+			Subject struct {
+				Name string `json:"name"`
+			} `json:"subject"`
+		} `json:"mcp_statuses"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("Unmarshal status JSON: %v\n%s", err, stdout)
+	}
+	actions := make(map[string]struct {
+		kind   string
+		reason string
+	}, len(payload.Actions))
+	for _, action := range payload.Actions {
+		if action.Subject == nil {
+			t.Fatalf("JSON action = %#v, want projection subject", action)
+		}
+		actions[action.Subject.Name] = struct {
+			kind   string
+			reason string
+		}{kind: action.Kind, reason: action.Reason}
+	}
+	if len(actions) != 2 ||
+		actions["filesystem"].kind != string(reconcile.ActionKindError) ||
+		actions["filesystem"].reason != string(reconcile.ReasonUnexpectedLockSubject) ||
+		actions["context7"].kind != string(reconcile.ActionKindError) ||
+		actions["context7"].reason != string(reconcile.ReasonAggregateLockBlocked) {
+		t.Fatalf("JSON actions = %#v, want exact lock-only and blocked-sibling reasons", payload.Actions)
+	}
+	if len(payload.MCPStatuses) != 1 || payload.MCPStatuses[0].Subject.Name != "context7" {
+		t.Fatalf("JSON MCP statuses = %#v, want only the declared lock-ready subject", payload.MCPStatuses)
+	}
+
+	stdout, stderr, exitCode = runCLIEdge(t, []string{
+		"apply", "--manifest", manifestPath, "--target", string(target.TargetClaudeCode), "--yes",
+	}, RunOptions{})
+	if exitCode != 1 || stdout != "" ||
+		!strings.Contains(stderr, string(reconcile.ReasonUnexpectedLockSubject)) ||
+		!strings.Contains(stderr, "next: run daem lock --manifest") {
+		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q, want typed lock refusal", exitCode, stdout, stderr)
+	}
+	for _, path := range []string{
+		filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath),
+		filepath.Join(root, ".daem", "state.json"),
+	} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("file %q stat error = %v, want absent after blocked apply", path, err)
+		}
 	}
 }
 
