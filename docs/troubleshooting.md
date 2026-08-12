@@ -296,6 +296,15 @@ Standalone MCP config is skipped as one document when its final path has the
 same unsafe filesystem shape, changes during the read, or exceeds the selected
 MCP codec's 4 MiB limit. Daem applies that codec-owned limit before reading the
 document and produces no partial MCP server import from a rejected file.
+OpenCode MCP import also skips the strict `opencode.json` document when the
+cataloged `opencode.jsonc` alternate exists for the same scope. Remove or move
+the alternate only when strict JSON should become the host source of truth,
+then rerun the import preview. Daem watches the alternate's absence through
+manifest publication and does not edit either host file. An appeared alternate
+is rejected from its directory entry alone; Daem does not traverse a directory
+or read a file placed at that path. Replacing or rewriting the primary MCP
+config after preview also makes the preview stale, even when the selected MCP
+rows are unchanged or the replacement bytes are identical.
 
 If import fails while writing an imported skill source, verify that the
 resolved skill directory stopped changing and contains only directories and

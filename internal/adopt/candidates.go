@@ -16,13 +16,14 @@ import (
 // CandidateSetInput names each independent import candidate and observation
 // axis.
 type CandidateSetInput struct {
-	Sources    []Source
-	Skills     []Skill
-	Hooks      []Hook
-	MCPServers []MCPServer
-	Extensions adoptextension.Result
-	Scans      []Scan
-	Skipped    []Skipped
+	Sources              []Source
+	Skills               []Skill
+	Hooks                []Hook
+	MCPServers           []MCPServer
+	MCPSourceAuthorities []MCPSourceAuthority
+	Extensions           adoptextension.Result
+	Scans                []Scan
+	Skipped              []Skipped
 }
 
 // CandidateSet is one validated, immutable collection of live import facts.
@@ -31,6 +32,7 @@ type CandidateSet struct {
 	skills          []Skill
 	hooks           []Hook
 	mcpServers      []MCPServer
+	mcpAuthorities  []MCPSourceAuthority
 	extensionResult adoptextension.Result
 	scans           []Scan
 	skipped         []Skipped
@@ -64,6 +66,14 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 	if err := validateMCPServerSubjects(input.MCPServers); err != nil {
 		return CandidateSet{}, err
 	}
+	mcpAuthorities := input.MCPSourceAuthorities
+	if mcpAuthorities == nil {
+		mcpAuthorities = mcpSourceAuthorities(input.MCPServers)
+	}
+	mcpAuthorities = canonicalMCPSourceAuthorities(mcpAuthorities)
+	if err := validateMCPSourceAuthorities(mcpAuthorities, input.MCPServers); err != nil {
+		return CandidateSet{}, err
+	}
 	for index, extension := range input.Extensions.Extensions() {
 		if err := extension.Validate(); err != nil {
 			return CandidateSet{}, fmt.Errorf(
@@ -89,6 +99,7 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 		skills:          cloneSkills(input.Skills),
 		hooks:           cloneHooks(input.Hooks),
 		mcpServers:      cloneMCPServers(input.MCPServers),
+		mcpAuthorities:  cloneMCPSourceAuthorities(mcpAuthorities),
 		extensionResult: input.Extensions,
 		scans:           cloneScans(input.Scans),
 		skipped:         cloneSkipped(input.Skipped),
@@ -98,13 +109,14 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 // Validate rejects zero or internally inconsistent candidate collections.
 func (candidates CandidateSet) Validate() error {
 	_, err := NewCandidateSet(CandidateSetInput{
-		Sources:    candidates.sources,
-		Skills:     candidates.skills,
-		Hooks:      candidates.hooks,
-		MCPServers: candidates.mcpServers,
-		Extensions: candidates.extensionResult,
-		Scans:      candidates.scans,
-		Skipped:    candidates.skipped,
+		Sources:              candidates.sources,
+		Skills:               candidates.skills,
+		Hooks:                candidates.hooks,
+		MCPServers:           candidates.mcpServers,
+		MCPSourceAuthorities: candidates.mcpAuthorities,
+		Extensions:           candidates.extensionResult,
+		Scans:                candidates.scans,
+		Skipped:              candidates.skipped,
 	})
 	return err
 }
@@ -127,6 +139,12 @@ func (candidates CandidateSet) Hooks() []Hook {
 // MCPServers returns an owned copy of imported MCP servers.
 func (candidates CandidateSet) MCPServers() []MCPServer {
 	return cloneMCPServers(candidates.mcpServers)
+}
+
+// MCPSourceAuthorities returns every physical source route that supports a
+// planned MCP decision, including routes whose merge result is a no-op.
+func (candidates CandidateSet) MCPSourceAuthorities() []MCPSourceAuthority {
+	return cloneMCPSourceAuthorities(candidates.mcpAuthorities)
 }
 
 // Extensions returns canonical exact extension declarations in proposal order.
@@ -288,8 +306,11 @@ func validateMCPServer(server MCPServer) error {
 	if err := validateTargetScope(server.Target, server.Scope); err != nil {
 		return err
 	}
-	if strings.TrimSpace(server.LivePath) == "" || strings.TrimSpace(server.Command) == "" {
-		return fmt.Errorf("live path and command are required")
+	if err := server.SourceRoute.validate(); err != nil {
+		return fmt.Errorf("source route: %w", err)
+	}
+	if strings.TrimSpace(server.Command) == "" {
+		return fmt.Errorf("command is required")
 	}
 	for key, value := range server.Env {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
@@ -378,6 +399,7 @@ func cloneMCPServers(values []MCPServer) []MCPServer {
 	cloned := make([]MCPServer, len(values))
 	copy(cloned, values)
 	for index := range cloned {
+		cloned[index].SourceRoute.RequiredAbsentPaths = cloneStrings(cloned[index].SourceRoute.RequiredAbsentPaths)
 		cloned[index].Args = cloneStrings(cloned[index].Args)
 		if cloned[index].Env == nil {
 			continue

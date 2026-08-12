@@ -319,7 +319,7 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 			ResourceID: "mcp_server/" + server.ResourceName,
 			Target:     string(server.Target),
 			Scope:      string(server.Scope),
-			LivePath:   server.LivePath,
+			LivePath:   server.LivePath(),
 			Command:    server.Command,
 			MCPServer:  true,
 		})

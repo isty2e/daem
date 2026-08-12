@@ -20,6 +20,14 @@ const (
 	revisionFile
 	revisionDirectory
 	revisionSymlink
+	revisionShallowEntry
+)
+
+type revisionCaptureMode uint8
+
+const (
+	revisionCaptureRecursive revisionCaptureMode = iota
+	revisionCaptureRequiredAbsentEntry
 )
 
 // RevisionRequest identifies the boundary observation used to capture a revision.
@@ -29,6 +37,26 @@ type RevisionRequest struct {
 
 	maximumRegularFileBytes int64
 	requireBoundedFile      bool
+	captureMode             revisionCaptureMode
+}
+
+// NewRequiredAbsentRevisionRequest observes only the final namespace entry.
+// Existing directories and special files are never traversed or opened.
+func NewRequiredAbsentRevisionRequest(path string) RevisionRequest {
+	return RevisionRequest{
+		Path:        path,
+		Effect:      PathEffectDirectoryEntry,
+		captureMode: revisionCaptureRequiredAbsentEntry,
+	}
+}
+
+// Equal reports whether two requests ask for the same revision semantics.
+func (request RevisionRequest) Equal(other RevisionRequest) bool {
+	return request.Path == other.Path &&
+		request.Effect == other.Effect &&
+		request.maximumRegularFileBytes == other.maximumRegularFileBytes &&
+		request.requireBoundedFile == other.requireBoundedFile &&
+		request.captureMode == other.captureMode
 }
 
 // SnapshotRevision is immutable evidence for one filesystem observation.
@@ -52,7 +80,23 @@ func (revision SnapshotRevision) Equal(other SnapshotRevision) bool {
 
 // CaptureRevision captures a context-aware immutable filesystem revision.
 func CaptureRevision(ctx context.Context, request RevisionRequest) (SnapshotRevision, error) {
-	return captureRevision(ctx, request, nil)
+	revision, err := captureRevision(ctx, request, nil)
+	if err != nil {
+		return SnapshotRevision{}, err
+	}
+	if err := validateRevisionBaseline(request, revision); err != nil {
+		return SnapshotRevision{}, err
+	}
+	return revision, nil
+}
+
+func validateRevisionBaseline(request RevisionRequest, revision SnapshotRevision) error {
+	if request.captureMode == revisionCaptureRequiredAbsentEntry {
+		if revision.kind != revisionAbsent {
+			return StaleSnapshotError{}
+		}
+	}
+	return nil
 }
 
 type revisionFileCacheEntry struct {
@@ -83,6 +127,9 @@ func captureRevision(
 			return newSnapshotRevision(revisionAbsent, identity.keyPath, hasher), nil
 		}
 		return SnapshotRevision{}, fmt.Errorf("inspect mutation revision path %q: %w", request.Path, err)
+	}
+	if request.captureMode == revisionCaptureRequiredAbsentEntry {
+		return shallowEntryRevision(identity, info), nil
 	}
 
 	switch {
@@ -149,6 +196,12 @@ func captureRevision(
 	default:
 		return SnapshotRevision{}, fmt.Errorf("mutation revision path %q has unsupported file mode %s", request.Path, info.Mode())
 	}
+}
+
+func shallowEntryRevision(identity canonicalPath, info os.FileInfo) SnapshotRevision {
+	hasher := newRevisionHasher(identity.keyPath, revisionShallowEntry)
+	writeRevisionRecord(hasher, "mode", info.Mode().String())
+	return newSnapshotRevision(revisionShallowEntry, identity.keyPath, hasher)
 }
 
 func sameRevisionFileInfo(left os.FileInfo, right os.FileInfo) bool {

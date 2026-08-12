@@ -8,14 +8,15 @@ import (
 	"strconv"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 type importObservedPath struct {
-	path   string
-	effect mutation.PathEffect
+	request       mutation.RevisionRequest
+	authoritative bool
 }
 
 // ExecuteCommandPlan revalidates and writes an import candidate under one complete lease set.
@@ -59,6 +60,9 @@ func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result Com
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
 		return CommandPlan{}, err
 	}
+	if err := validateMCPSourceAuthoritiesCurrent(ctx, optimistic.plan); err != nil {
+		return CommandPlan{}, err
+	}
 
 	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
@@ -78,6 +82,9 @@ func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result Com
 	}
 	if !optimisticFingerprint.Equal(currentFingerprint) {
 		return CommandPlan{}, mutation.StaleSnapshotError{}
+	}
+	if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
+		return CommandPlan{}, err
 	}
 	currentDomains, currentRequests, currentStableRequests, err := importMutationEvidence(currentPlan)
 	if err != nil {
@@ -116,6 +123,9 @@ func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result Com
 		if !matches {
 			return mutation.StaleSnapshotError{}
 		}
+		if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
+			return err
+		}
 		return nil
 	}
 	if err := writePlan(ctx, currentPlan, validateStable); err != nil {
@@ -139,8 +149,29 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 	domains := make([]mutation.Domain, 0)
 	observed := make(map[string]importObservedPath)
 	stableObserved := make(map[string]importObservedPath)
-	addObserved := func(destination map[string]importObservedPath, path string, effect mutation.PathEffect) {
-		destination[importObservedPathKey(path, effect)] = importObservedPath{path: path, effect: effect}
+	physicalDomains := make(map[string]struct{})
+	externallyValidated := make(map[string]struct{})
+	addObserved := func(
+		destination map[string]importObservedPath,
+		key string,
+		request mutation.RevisionRequest,
+		authoritative bool,
+	) error {
+		if existing, exists := destination[key]; exists {
+			switch {
+			case existing.request.Equal(request):
+				return nil
+			case existing.authoritative && !authoritative:
+				return nil
+			case !existing.authoritative && authoritative:
+				destination[key] = importObservedPath{request: request, authoritative: true}
+				return nil
+			default:
+				return fmt.Errorf("import path %q carries conflicting revision semantics", request.Path)
+			}
+		}
+		destination[key] = importObservedPath{request: request, authoritative: authoritative}
+		return nil
 	}
 	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
 		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: access, Effect: effect})
@@ -148,23 +179,69 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			return err
 		}
 		domains = append(domains, domain)
-		addObserved(observed, path, effect)
+		request := mutation.RevisionRequest{Path: path, Effect: effect}
+		key := importObservedPathKey(path, effect)
+		if err := addObserved(observed, key, request, false); err != nil {
+			return err
+		}
 		if stable {
-			addObserved(stableObserved, path, effect)
+			if err := addObserved(stableObserved, key, request, false); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
-	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
+	ensurePhysicalDomain := func(
+		path string,
+		target string,
+		scope string,
+		effect mutation.PathEffect,
+	) error {
+		key := target + "\x00" + scope + "\x00" + importObservedPathKey(path, effect)
+		if _, exists := physicalDomains[key]; exists {
+			return nil
+		}
 		domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
 			Path: path, Access: mutation.AccessShared, Effect: effect, Target: target, Scope: scope,
 		})
 		if err != nil {
 			return err
 		}
+		physicalDomains[key] = struct{}{}
 		domains = append(domains, domain)
-		addObserved(observed, path, effect)
-		addObserved(stableObserved, path, effect)
 		return nil
+	}
+	addPhysicalRevision := func(
+		path string,
+		target string,
+		scope string,
+		effect mutation.PathEffect,
+		revisionKey string,
+		request mutation.RevisionRequest,
+		authoritative bool,
+	) error {
+		if err := ensurePhysicalDomain(path, target, scope, effect); err != nil {
+			return err
+		}
+		if err := addObserved(observed, revisionKey, request, authoritative); err != nil {
+			return err
+		}
+		if err := addObserved(stableObserved, revisionKey, request, authoritative); err != nil {
+			return err
+		}
+		return nil
+	}
+	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
+		request := mutation.RevisionRequest{Path: path, Effect: effect}
+		return addPhysicalRevision(
+			path,
+			target,
+			scope,
+			effect,
+			importObservedPathKey(path, effect),
+			request,
+			false,
+		)
 	}
 
 	if err := addLogical(plan.Output(), mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, true); err != nil {
@@ -215,15 +292,41 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			return nil, nil, nil, err
 		}
 	}
-	for _, server := range plan.MCPServers() {
-		if err := addPhysical(server.LivePath, string(server.Target), string(server.Scope), mutation.PathEffectReferent); err != nil {
+	for _, authority := range plan.MCPSourceAuthorities() {
+		if err := ensurePhysicalDomain(
+			authority.Route.PrimaryPath,
+			string(authority.Target),
+			string(authority.Scope),
+			mutation.PathEffectReferent,
+		); err != nil {
 			return nil, nil, nil, err
+		}
+		externallyValidated[importObservedPathKey(
+			authority.Route.PrimaryPath,
+			mutation.PathEffectReferent,
+		)] = struct{}{}
+		for _, requiredAbsentPath := range authority.Route.RequiredAbsentPaths {
+			if err := addPhysicalRevision(
+				requiredAbsentPath,
+				string(authority.Target),
+				string(authority.Scope),
+				mutation.PathEffectDirectoryEntry,
+				importObservedPathKey(requiredAbsentPath, mutation.PathEffectDirectoryEntry),
+				mutation.NewRequiredAbsentRevisionRequest(requiredAbsentPath),
+				true,
+			); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	for _, scan := range plan.Scans() {
 		if err := addPhysical(scan.LivePath, string(scan.Target), string(scan.Scope), mutation.PathEffectReferent); err != nil {
 			return nil, nil, nil, err
 		}
+	}
+	for key := range externallyValidated {
+		delete(observed, key)
+		delete(stableObserved, key)
 	}
 	return domains, sortedImportRevisionRequests(observed), sortedImportRevisionRequests(stableObserved), nil
 }
@@ -236,8 +339,7 @@ func sortedImportRevisionRequests(observed map[string]importObservedPath) []muta
 	sort.Strings(keys)
 	revisions := make([]mutation.RevisionRequest, 0, len(keys))
 	for _, key := range keys {
-		path := observed[key]
-		revisions = append(revisions, mutation.RevisionRequest{Path: path.path, Effect: path.effect})
+		revisions = append(revisions, observed[key].request)
 	}
 	return revisions
 }
@@ -251,9 +353,72 @@ func equalImportRevisionRequests(left []mutation.RevisionRequest, right []mutati
 		return false
 	}
 	for index := range left {
-		if left[index] != right[index] {
+		if !left[index].Equal(right[index]) {
 			return false
 		}
 	}
 	return true
+}
+
+func validateMCPSourceAuthoritiesCurrent(ctx context.Context, plan adoptmodel.Plan) error {
+	if err := plan.Validate(); err != nil {
+		return err
+	}
+	type primarySource struct {
+		maximumBytes int64
+		revision     string
+	}
+	primarySources := make(map[string]primarySource)
+	requiredAbsent := make(map[string]struct{})
+	for _, authority := range plan.MCPSourceAuthorities() {
+		primarySources[authority.Route.PrimaryPath] = primarySource{
+			maximumBytes: authority.Route.MaximumBytes,
+			revision:     authority.Route.PrimaryRevision,
+		}
+		for _, path := range authority.Route.RequiredAbsentPaths {
+			requiredAbsent[path] = struct{}{}
+		}
+	}
+	primaryPaths := make([]string, 0, len(primarySources))
+	for path := range primarySources {
+		primaryPaths = append(primaryPaths, path)
+	}
+	sort.Strings(primaryPaths)
+	for _, path := range primaryPaths {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		expected := primarySources[path]
+		snapshot, exists, err := filesnapshot.ReadRegularFileSnapshotContext(
+			ctx,
+			path,
+			expected.maximumBytes,
+		)
+		if err != nil {
+			if errors.Is(err, filesnapshot.ErrSymlink) ||
+				errors.Is(err, filesnapshot.ErrNotRegular) ||
+				errors.Is(err, filesnapshot.ErrLimitExceeded) ||
+				errors.Is(err, filesnapshot.ErrChanged) {
+				return mutation.StaleSnapshotError{}
+			}
+			return fmt.Errorf("revalidate MCP source %q: %w", path, err)
+		}
+		if !exists || snapshot.Revision() != expected.revision {
+			return mutation.StaleSnapshotError{}
+		}
+	}
+	if len(requiredAbsent) == 0 {
+		return nil
+	}
+	absentPaths := make([]string, 0, len(requiredAbsent))
+	for path := range requiredAbsent {
+		absentPaths = append(absentPaths, path)
+	}
+	sort.Strings(absentPaths)
+	requests := make([]mutation.RevisionRequest, 0, len(absentPaths))
+	for _, path := range absentPaths {
+		requests = append(requests, mutation.NewRequiredAbsentRevisionRequest(path))
+	}
+	_, err := mutation.CaptureRevisionSet(ctx, requests...)
+	return err
 }

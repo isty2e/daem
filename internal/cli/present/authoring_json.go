@@ -317,7 +317,7 @@ func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
 			Resource:   authoringJSONResource("mcp_server", server.ResourceName),
 			Target:     string(server.Target),
 			Scope:      string(server.Scope),
-			LivePath:   server.LivePath,
+			LivePath:   server.LivePath(),
 			Detail:     server.Command,
 		})
 	}

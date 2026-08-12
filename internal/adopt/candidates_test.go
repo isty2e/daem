@@ -14,6 +14,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	skillTargets := []targetpkg.Target{targetpkg.TargetCodex}
 	serverArgs := []string{"-y", "server"}
 	serverEnv := map[string]string{"TOKEN": "TOKEN"}
+	serverRequiredAbsentPaths := []string{".codex/config.jsonc"}
 	sources := []Source{{
 		ResourceName: "instructions",
 		Target:       targetpkg.TargetCodex,
@@ -38,10 +39,16 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		ResourceName: "context7",
 		Target:       targetpkg.TargetCodex,
 		Scope:        targetpkg.ScopeProject,
-		LivePath:     ".codex/config.toml#/mcp_servers/context7",
-		Command:      "npx",
-		Args:         serverArgs,
-		Env:          serverEnv,
+		SourceRoute: MCPSourceRoute{
+			PrimaryPath:         ".codex/config.toml",
+			PrimaryRevision:     "test-source-revision",
+			MaximumBytes:        1024,
+			ContentPath:         "/mcp_servers/context7",
+			RequiredAbsentPaths: serverRequiredAbsentPaths,
+		},
+		Command: "npx",
+		Args:    serverArgs,
+		Env:     serverEnv,
 	}}
 	candidates, err := NewCandidateSet(CandidateSetInput{
 		Sources: sources,
@@ -75,6 +82,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	skillTargets[0] = targetpkg.TargetClaudeCode
 	serverArgs[0] = "--changed"
 	serverEnv["TOKEN"] = "CHANGED"
+	serverRequiredAbsentPaths[0] = "changed"
 	sources[0].ResourceName = "changed"
 	skills[0].InstallName = "changed"
 	skills[0].SourceRoutes[0].ReadPath = "/changed"
@@ -85,6 +93,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedSkills := candidates.Skills()
 	disclosedHooks := candidates.Hooks()
 	disclosedServers := candidates.MCPServers()
+	disclosedAuthorities := candidates.MCPSourceAuthorities()
 	disclosedScans := candidates.Scans()
 	disclosedSkipped := candidates.Skipped()
 	disclosedSources[0].Content[0] = 'Y'
@@ -95,6 +104,8 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedHooks[0].Command = "changed"
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
+	disclosedServers[0].SourceRoute.RequiredAbsentPaths[0] = "changed"
+	disclosedAuthorities[0].Route.RequiredAbsentPaths[0] = "changed"
 	disclosedScans[0].Status = "changed"
 	disclosedSkipped[0].Reason = "changed"
 	assertCandidateSetUnchanged(t, candidates)
@@ -112,8 +123,12 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.Hooks(); got[0].Command != "lint" {
 		t.Fatalf("hooks changed through alias: %#v", got)
 	}
-	if got := candidates.MCPServers(); got[0].Command != "npx" || got[0].Args[0] != "-y" || got[0].Env["TOKEN"] != "TOKEN" {
+	if got := candidates.MCPServers(); got[0].Command != "npx" || got[0].Args[0] != "-y" || got[0].Env["TOKEN"] != "TOKEN" ||
+		got[0].SourceRoute.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP servers changed through alias: %#v", got)
+	}
+	if got := candidates.MCPSourceAuthorities(); got[0].Route.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
+		t.Fatalf("MCP source authorities changed through alias: %#v", got)
 	}
 	if got := candidates.Scans(); got[0].Status != "scanned" {
 		t.Fatalf("scans changed through alias: %#v", got)
@@ -130,7 +145,14 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 		t.Fatal("candidate set accepted a source without content")
 	}
 	if _, err := NewCandidateSet(CandidateSetInput{
-		MCPServers: []MCPServer{{ResourceName: "bad", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Command: "npx", Env: map[string]string{"TOKEN": ""}}},
+		MCPServers: []MCPServer{{
+			ResourceName: "bad",
+			Target:       targetpkg.TargetCodex,
+			Scope:        targetpkg.ScopeProject,
+			SourceRoute:  testMCPSourceRoute(t, "live", "/mcp/bad"),
+			Command:      "npx",
+			Env:          map[string]string{"TOKEN": ""},
+		}},
 	}); err == nil {
 		t.Fatal("candidate set accepted an empty environment reference")
 	}
@@ -192,14 +214,14 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 			ResourceName: "context7",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     "project-config",
+			SourceRoute:  testMCPSourceRoute(t, "project-config", "/mcp/context7"),
 			Command:      "npx",
 		},
 		{
 			ResourceName: "context7",
 			Target:       targetpkg.TargetCodex,
 			Scope:        targetpkg.ScopeProject,
-			LivePath:     "other-project-config",
+			SourceRoute:  testMCPSourceRoute(t, "other-project-config", "/mcp/context7"),
 			Command:      "node",
 		},
 	}
@@ -207,6 +229,79 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 	_, err := NewCandidateSet(CandidateSetInput{MCPServers: servers})
 	if err == nil || !strings.Contains(err.Error(), "duplicate imported mcp_server subject") {
 		t.Fatalf("NewCandidateSet error = %v, want duplicate projection subject", err)
+	}
+}
+
+func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOneSubject(t *testing.T) {
+	route := testMCPSourceRoute(t, "project-config", "/mcp/context7")
+	conflictingRoute := route
+	conflictingRoute.PrimaryRevision = "other-source-revision"
+
+	_, err := NewCandidateSet(CandidateSetInput{
+		MCPSourceAuthorities: []MCPSourceAuthority{
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: route},
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: conflictingRoute},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicting exact revisions") {
+		t.Fatalf("NewCandidateSet error = %v, want conflicting source authority", err)
+	}
+}
+
+func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOnePhysicalFile(t *testing.T) {
+	left := testMCPSourceRoute(t, "project-config", "/mcp/context7")
+	right := testMCPSourceRoute(t, "project-config", "/mcp/other")
+	right.PrimaryRevision = "other-source-revision"
+
+	_, err := NewCandidateSet(CandidateSetInput{
+		MCPSourceAuthorities: []MCPSourceAuthority{
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: left},
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: right},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "primary source") {
+		t.Fatalf("NewCandidateSet error = %v, want conflicting physical source authority", err)
+	}
+}
+
+func testMCPSourceRoute(t *testing.T, primaryPath string, contentPath string) MCPSourceRoute {
+	t.Helper()
+	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath:     primaryPath,
+		PrimaryRevision: "test-source-revision",
+		MaximumBytes:    1024,
+		ContentPath:     contentPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return route
+}
+
+func TestNewMCPSourceRouteCanonicalizesAndValidatesAbsencePreconditions(t *testing.T) {
+	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath:         "opencode.json",
+		PrimaryRevision:     "test-source-revision",
+		MaximumBytes:        1024,
+		ContentPath:         "/mcp/context7",
+		RequiredAbsentPaths: []string{"z.jsonc", "a.jsonc", "z.jsonc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(route.RequiredAbsentPaths) != 2 ||
+		route.RequiredAbsentPaths[0] != "a.jsonc" ||
+		route.RequiredAbsentPaths[1] != "z.jsonc" {
+		t.Fatalf("required-absent paths = %#v, want sorted unique paths", route.RequiredAbsentPaths)
+	}
+	if _, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath:         "opencode.json",
+		PrimaryRevision:     "test-source-revision",
+		MaximumBytes:        1024,
+		ContentPath:         "/mcp/context7",
+		RequiredAbsentPaths: []string{"opencode.json"},
+	}); err == nil {
+		t.Fatal("source route accepted the primary config as required absent")
 	}
 }
 

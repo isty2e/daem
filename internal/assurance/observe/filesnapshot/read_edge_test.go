@@ -32,8 +32,13 @@ func TestReadRegularFileSnapshotContextReturnsDescriptorMode(t *testing.T) {
 	if err != nil || !exists {
 		t.Fatalf("snapshot read = (%t, %v)", exists, err)
 	}
-	if string(snapshot.Content()) != "content" || snapshot.Mode().Perm() != 0o640 {
-		t.Fatalf("snapshot = (%q, %04o), want content mode 0640", snapshot.Content(), snapshot.Mode().Perm())
+	if string(snapshot.Content()) != "content" || snapshot.Mode().Perm() != 0o640 || snapshot.Revision() == "" {
+		t.Fatalf(
+			"snapshot = (%q, %04o, %q), want content mode 0640 and a revision",
+			snapshot.Content(),
+			snapshot.Mode().Perm(),
+			snapshot.Revision(),
+		)
 	}
 }
 

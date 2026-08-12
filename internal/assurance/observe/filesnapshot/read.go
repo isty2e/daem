@@ -33,8 +33,9 @@ type changeVersion struct {
 
 // Snapshot is one identity-stable regular-file observation.
 type Snapshot struct {
-	content []byte
-	mode    os.FileMode
+	content  []byte
+	mode     os.FileMode
+	revision string
 }
 
 // Content returns a defensive copy of the observed bytes.
@@ -42,6 +43,10 @@ func (snapshot Snapshot) Content() []byte { return append([]byte(nil), snapshot.
 
 // Mode returns the mode observed from the same file descriptor as Content.
 func (snapshot Snapshot) Mode() os.FileMode { return snapshot.mode }
+
+// Revision returns the exact content, metadata, and object identity observed
+// from the same stable file descriptor as Content.
+func (snapshot Snapshot) Revision() string { return snapshot.revision }
 
 type limitExceededError struct {
 	maximumBytes int64
@@ -211,7 +216,11 @@ func readRegularFileSnapshotContext(
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, false, err
 	}
-	return Snapshot{content: content, mode: opened.Mode()}, true, nil
+	return Snapshot{
+		content:  content,
+		mode:     opened.Mode(),
+		revision: regularFileSnapshotRevision(opened, content),
+	}, true, nil
 }
 
 func classifyOpenFailure(path string, before os.FileInfo, openErr error) error {

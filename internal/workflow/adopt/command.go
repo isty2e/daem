@@ -69,6 +69,9 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 		return result, err
 	}
 	result.plan = plan
+	if err := validateMCPSourceAuthoritiesCurrent(ctx, plan); err != nil {
+		return result, err
+	}
 	return result, nil
 }
 
