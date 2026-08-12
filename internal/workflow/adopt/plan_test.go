@@ -281,6 +281,155 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 	}
 }
 
+func TestExecuteCommandPlanRejectsMCPSourceContentDriftOutsideProjection(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	before := []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}},"theme":"one"}`)
+	after := []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}},"theme":"two"}`)
+	if err := os.WriteFile(aggregate.OpenCodeProjectMCPConfigPath, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"opencode"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aggregate.OpenCodeProjectMCPConfigPath, after, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ExecuteCommandPlan(t.Context(), planned)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want stale MCP source", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("stale MCP source published manifest: %v", statErr)
+	}
+}
+
+func TestExecuteCommandPlanRejectsIdenticalMCPSourceReplacement(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	content := []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}}}`)
+	if err := os.WriteFile(aggregate.OpenCodeProjectMCPConfigPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"opencode"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(aggregate.OpenCodeProjectMCPConfigPath, "displaced-opencode.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aggregate.OpenCodeProjectMCPConfigPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ExecuteCommandPlan(t.Context(), planned)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want stale replacement", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("replacement MCP source published manifest: %v", statErr)
+	}
+}
+
+func TestExecuteCommandPlanRetainsNoopMCPSourceAuthority(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	if err := os.Mkdir(".codex", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		aggregate.OpenCodeProjectMCPConfigPath,
+		[]byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		aggregate.CodexProjectMCPConfigPath,
+		[]byte("[mcp_servers.other]\ncommand = \"node\"\nargs = [\"server.js\"]\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "daem.toml")
+	original := []byte(`version = 1
+targets = ["opencode", "codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["opencode"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+`)
+	if err := os.WriteFile(output, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"opencode", "codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		Merge:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(planned.AdoptionPlan().MCPServers()); got != 1 {
+		t.Fatalf("writable MCP candidates = %d, want only the Codex addition", got)
+	}
+	if got := len(planned.AdoptionPlan().MCPSourceAuthorities()); got != 2 {
+		t.Fatalf("MCP source authorities = %d, want noop and add routes", got)
+	}
+	if err := os.Mkdir("opencode.jsonc", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("opencode.jsonc", "unrelated"), []byte("large tree must not be read"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ExecuteCommandPlan(t.Context(), planned)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want stale noop authority", err)
+	}
+	current, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatalf("stale noop authority changed manifest: %q", current)
+	}
+}
+
+func enterAdoptTestDirectory(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+	return root
+}
+
 func TestMalformedExtensionInventoryProducesNoPartialManifest(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)

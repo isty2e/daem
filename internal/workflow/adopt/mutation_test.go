@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -624,8 +625,14 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 	if err := os.WriteFile(configPath, []byte("initial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	snapshot, exists, err := filesnapshot.ReadRegularFileSnapshotContext(t.Context(), configPath, 1024)
+	if err != nil || !exists {
+		t.Fatalf("read MCP source snapshot: exists=%t err=%v", exists, err)
+	}
 	route, err := adoptmodel.NewMCPSourceRoute(adoptmodel.MCPSourceRouteInput{
 		PrimaryPath:         configPath,
+		PrimaryRevision:     snapshot.Revision(),
+		MaximumBytes:        1024,
 		ContentPath:         "/mcp_servers/context7",
 		RequiredAbsentPaths: []string{alternatePath},
 	})
@@ -634,6 +641,8 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 	}
 	otherRoute, err := adoptmodel.NewMCPSourceRoute(adoptmodel.MCPSourceRouteInput{
 		PrimaryPath:         configPath,
+		PrimaryRevision:     snapshot.Revision(),
+		MaximumBytes:        1024,
 		ContentPath:         "/mcp_servers/other",
 		RequiredAbsentPaths: []string{alternatePath},
 	})
@@ -688,10 +697,13 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 	if len(domains) != 5 {
 		t.Fatalf("mutation domains = %d, want shared MCP source authority deduplicated to 5", len(domains))
 	}
-	assertImportRevisionRequest(t, requests, configPath, mutation.PathEffectReferent)
-	assertImportRevisionRequest(t, stableRequests, configPath, mutation.PathEffectReferent)
 	assertImportRevisionRequest(t, requests, alternatePath, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stableRequests, alternatePath, mutation.PathEffectDirectoryEntry)
+	assertNoImportRevisionRequest(t, requests, configPath, mutation.PathEffectReferent)
+	assertNoImportRevisionRequest(t, stableRequests, configPath, mutation.PathEffectReferent)
+	expectedAbsentRequest := mutation.NewRequiredAbsentRevisionRequest(alternatePath)
+	assertExactImportRevisionRequest(t, requests, expectedAbsentRequest)
+	assertExactImportRevisionRequest(t, stableRequests, expectedAbsentRequest)
 	for _, request := range append(append([]mutation.RevisionRequest(nil), requests...), stableRequests...) {
 		if request.Path == route.LivePath() {
 			t.Fatalf("projection disclosure path became filesystem evidence: %#v", request)
@@ -701,31 +713,28 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 		}
 	}
 
-	revisions, err := mutation.CaptureRevisionSet(context.Background(), stableRequests...)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(configPath, []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	matches, err := revisions.MatchesCurrent(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if matches {
-		t.Fatal("MCP config drift preserved the stable import revision")
+	validationErr := validateMCPSourceAuthoritiesCurrent(context.Background(), plan)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(validationErr, &stale) {
+		t.Fatalf("MCP source validation error = %v, want stale plan-owned authority", validationErr)
 	}
 	if err := os.WriteFile(configPath, []byte("initial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	revisions, err = mutation.CaptureRevisionSet(context.Background(), stableRequests...)
+	revisions, err := mutation.CaptureRevisionSet(
+		context.Background(),
+		mutation.NewRequiredAbsentRevisionRequest(alternatePath),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(alternatePath, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	matches, err = revisions.MatchesCurrent(context.Background())
+	matches, err := revisions.MatchesCurrent(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,4 +866,27 @@ func assertImportRevisionRequest(t *testing.T, requests []mutation.RevisionReque
 		}
 	}
 	t.Fatalf("revision request %q/%d missing from %#v", path, effect, requests)
+}
+
+func assertNoImportRevisionRequest(t *testing.T, requests []mutation.RevisionRequest, path string, effect mutation.PathEffect) {
+	t.Helper()
+	for _, request := range requests {
+		if request.Path == path && request.Effect == effect {
+			t.Fatalf("revision request %q/%d unexpectedly used generic evidence: %#v", path, effect, request)
+		}
+	}
+}
+
+func assertExactImportRevisionRequest(
+	t *testing.T,
+	requests []mutation.RevisionRequest,
+	expected mutation.RevisionRequest,
+) {
+	t.Helper()
+	for _, request := range requests {
+		if request.Equal(expected) {
+			return
+		}
+	}
+	t.Fatalf("exact revision request %#v missing from %#v", expected, requests)
 }

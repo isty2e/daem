@@ -664,6 +664,9 @@ args = ["project-server"]
 	if len(results) != 2 || results[0].Status != adopt.MergeStatusNoop || results[1].Status != adopt.MergeStatusAdd {
 		t.Fatalf("merge results = %#v, want project noop then global add", results)
 	}
+	if authorities := merged.MCPSourceAuthorities(); len(authorities) != 2 {
+		t.Fatalf("MCP source authorities = %#v, want noop and add routes", authorities)
+	}
 	wantSubjects := []string{
 		"projection/codex.project.mcp-server/context7",
 		"projection/codex.global.mcp-server/context7",
@@ -767,8 +770,10 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 		if input.MCPServers[index].SourceRoute.PrimaryPath == "" {
 			primaryPath := filepath.Join(root, "live-mcp")
 			route, routeErr := adopt.NewMCPSourceRoute(adopt.MCPSourceRouteInput{
-				PrimaryPath: primaryPath,
-				ContentPath: "/mcp/" + input.MCPServers[index].ResourceName,
+				PrimaryPath:     primaryPath,
+				PrimaryRevision: "merge-test-source-revision",
+				MaximumBytes:    1024,
+				ContentPath:     "/mcp/" + input.MCPServers[index].ResourceName,
 			})
 			if routeErr != nil {
 				t.Fatal(routeErr)

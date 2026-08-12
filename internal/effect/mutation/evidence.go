@@ -44,6 +44,11 @@ func CaptureRevisionSet(ctx context.Context, requests ...RevisionRequest) (Revis
 	if err != nil {
 		return RevisionSet{}, err
 	}
+	for _, observation := range observations {
+		if err := validateRevisionBaseline(observation.request, observation.revision); err != nil {
+			return RevisionSet{}, err
+		}
+	}
 
 	return RevisionSet{observations: observations, valid: true}, nil
 }

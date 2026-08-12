@@ -121,6 +121,8 @@ type Hook struct {
 // physical config files whose observed state authorized the import.
 type MCPSourceRoute struct {
 	PrimaryPath         string
+	PrimaryRevision     string
+	MaximumBytes        int64
 	ContentPath         string
 	RequiredAbsentPaths []string
 }
@@ -128,6 +130,8 @@ type MCPSourceRoute struct {
 // MCPSourceRouteInput carries one imported MCP projection source route.
 type MCPSourceRouteInput struct {
 	PrimaryPath         string
+	PrimaryRevision     string
+	MaximumBytes        int64
 	ContentPath         string
 	RequiredAbsentPaths []string
 }
@@ -144,6 +148,8 @@ func NewMCPSourceRoute(input MCPSourceRouteInput) (MCPSourceRoute, error) {
 	}
 	route := MCPSourceRoute{
 		PrimaryPath:         input.PrimaryPath,
+		PrimaryRevision:     input.PrimaryRevision,
+		MaximumBytes:        input.MaximumBytes,
 		ContentPath:         input.ContentPath,
 		RequiredAbsentPaths: unique,
 	}
@@ -159,6 +165,13 @@ func (route MCPSourceRoute) validate() error {
 	}
 	if filepath.Clean(route.PrimaryPath) != route.PrimaryPath {
 		return fmt.Errorf("primary config path must be canonical")
+	}
+	if strings.TrimSpace(route.PrimaryRevision) == "" ||
+		strings.TrimSpace(route.PrimaryRevision) != route.PrimaryRevision {
+		return fmt.Errorf("primary config revision must be non-empty and trimmed")
+	}
+	if route.MaximumBytes <= 0 {
+		return fmt.Errorf("primary config maximum bytes must be positive")
 	}
 	if _, err := aggregate.ParseContentPath(route.ContentPath); err != nil {
 		return fmt.Errorf("content path: %w", err)
@@ -186,6 +199,24 @@ func (route MCPSourceRoute) LivePath() string {
 	return route.PrimaryPath + "#" + route.ContentPath
 }
 
+// MCPSourceAuthority is the exact physical source evidence that supports one
+// imported MCP projection decision, independently of whether it is writable.
+type MCPSourceAuthority struct {
+	Target targetpkg.Target
+	Scope  targetpkg.Scope
+	Route  MCPSourceRoute
+}
+
+func (authority MCPSourceAuthority) validate() error {
+	if err := validateTargetScope(authority.Target, authority.Scope); err != nil {
+		return err
+	}
+	if err := authority.Route.validate(); err != nil {
+		return fmt.Errorf("source route: %w", err)
+	}
+	return nil
+}
+
 // MCPServer is one imported standalone MCP projection candidate. ResourceName
 // names the desired server aggregate; target and scope identify this candidate's
 // projection subject within that aggregate.
@@ -201,6 +232,14 @@ type MCPServer struct {
 
 // LivePath returns the projection-specific import disclosure path.
 func (server MCPServer) LivePath() string { return server.SourceRoute.LivePath() }
+
+func (server MCPServer) sourceAuthority() MCPSourceAuthority {
+	return MCPSourceAuthority{
+		Target: server.Target,
+		Scope:  server.Scope,
+		Route:  server.SourceRoute,
+	}
+}
 
 func (server MCPServer) projectionSubject() (topology.SubjectID, error) {
 	return topologymcp.ProjectionSubject(server.Target, server.Scope, server.ResourceName)

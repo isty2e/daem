@@ -875,7 +875,11 @@ alternate for the selected scope. When that file exists, the strict
 `opencode.json` MCP document is skipped as unsupported and no MCP declaration
 is generated. When it is absent, its directory entry remains part of the
 import plan's freshness evidence, so appearance before manifest publication
-invalidates the plan.
+invalidates the plan without reading the appeared entry's contents. The exact
+regular-file content and object read during planning remain authoritative
+through publication. This also applies to source routes reported as merge
+no-ops; filtering a declaration from the write set does not discard the
+evidence that justified its merge result.
 
 Codex MCP requires effective `targets = ["codex"]` and either effective project
 scope or explicit row-local `scope = "global"`. `daem add mcp-server --target

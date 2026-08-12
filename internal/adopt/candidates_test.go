@@ -41,6 +41,8 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		Scope:        targetpkg.ScopeProject,
 		SourceRoute: MCPSourceRoute{
 			PrimaryPath:         ".codex/config.toml",
+			PrimaryRevision:     "test-source-revision",
+			MaximumBytes:        1024,
 			ContentPath:         "/mcp_servers/context7",
 			RequiredAbsentPaths: serverRequiredAbsentPaths,
 		},
@@ -91,6 +93,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedSkills := candidates.Skills()
 	disclosedHooks := candidates.Hooks()
 	disclosedServers := candidates.MCPServers()
+	disclosedAuthorities := candidates.MCPSourceAuthorities()
 	disclosedScans := candidates.Scans()
 	disclosedSkipped := candidates.Skipped()
 	disclosedSources[0].Content[0] = 'Y'
@@ -102,6 +105,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
 	disclosedServers[0].SourceRoute.RequiredAbsentPaths[0] = "changed"
+	disclosedAuthorities[0].Route.RequiredAbsentPaths[0] = "changed"
 	disclosedScans[0].Status = "changed"
 	disclosedSkipped[0].Reason = "changed"
 	assertCandidateSetUnchanged(t, candidates)
@@ -122,6 +126,9 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.MCPServers(); got[0].Command != "npx" || got[0].Args[0] != "-y" || got[0].Env["TOKEN"] != "TOKEN" ||
 		got[0].SourceRoute.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP servers changed through alias: %#v", got)
+	}
+	if got := candidates.MCPSourceAuthorities(); got[0].Route.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
+		t.Fatalf("MCP source authorities changed through alias: %#v", got)
 	}
 	if got := candidates.Scans(); got[0].Status != "scanned" {
 		t.Fatalf("scans changed through alias: %#v", got)
@@ -225,11 +232,45 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 	}
 }
 
+func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOneSubject(t *testing.T) {
+	route := testMCPSourceRoute(t, "project-config", "/mcp/context7")
+	conflictingRoute := route
+	conflictingRoute.PrimaryRevision = "other-source-revision"
+
+	_, err := NewCandidateSet(CandidateSetInput{
+		MCPSourceAuthorities: []MCPSourceAuthority{
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: route},
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: conflictingRoute},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "conflicting exact revisions") {
+		t.Fatalf("NewCandidateSet error = %v, want conflicting source authority", err)
+	}
+}
+
+func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOnePhysicalFile(t *testing.T) {
+	left := testMCPSourceRoute(t, "project-config", "/mcp/context7")
+	right := testMCPSourceRoute(t, "project-config", "/mcp/other")
+	right.PrimaryRevision = "other-source-revision"
+
+	_, err := NewCandidateSet(CandidateSetInput{
+		MCPSourceAuthorities: []MCPSourceAuthority{
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: left},
+			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: right},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "primary source") {
+		t.Fatalf("NewCandidateSet error = %v, want conflicting physical source authority", err)
+	}
+}
+
 func testMCPSourceRoute(t *testing.T, primaryPath string, contentPath string) MCPSourceRoute {
 	t.Helper()
 	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
-		PrimaryPath: primaryPath,
-		ContentPath: contentPath,
+		PrimaryPath:     primaryPath,
+		PrimaryRevision: "test-source-revision",
+		MaximumBytes:    1024,
+		ContentPath:     contentPath,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,6 +281,8 @@ func testMCPSourceRoute(t *testing.T, primaryPath string, contentPath string) MC
 func TestNewMCPSourceRouteCanonicalizesAndValidatesAbsencePreconditions(t *testing.T) {
 	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
 		PrimaryPath:         "opencode.json",
+		PrimaryRevision:     "test-source-revision",
+		MaximumBytes:        1024,
 		ContentPath:         "/mcp/context7",
 		RequiredAbsentPaths: []string{"z.jsonc", "a.jsonc", "z.jsonc"},
 	})
@@ -253,6 +296,8 @@ func TestNewMCPSourceRouteCanonicalizesAndValidatesAbsencePreconditions(t *testi
 	}
 	if _, err := NewMCPSourceRoute(MCPSourceRouteInput{
 		PrimaryPath:         "opencode.json",
+		PrimaryRevision:     "test-source-revision",
+		MaximumBytes:        1024,
 		ContentPath:         "/mcp/context7",
 		RequiredAbsentPaths: []string{"opencode.json"},
 	}); err == nil {

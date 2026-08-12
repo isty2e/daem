@@ -32,6 +32,11 @@ type importSource struct {
 	requiredAbsentPaths []string
 }
 
+type importDocument struct {
+	content  []byte
+	revision string
+}
+
 func newImportSource(primaryPath string, requiredAbsentPaths ...string) importSource {
 	return importSource{
 		primaryPath:         primaryPath,
@@ -39,9 +44,15 @@ func newImportSource(primaryPath string, requiredAbsentPaths ...string) importSo
 	}
 }
 
-func (source importSource) route(contentPath string) (adopt.MCPSourceRoute, error) {
+func (source importSource) route(
+	contentPath string,
+	document importDocument,
+	maximumBytes int64,
+) (adopt.MCPSourceRoute, error) {
 	return adopt.NewMCPSourceRoute(adopt.MCPSourceRouteInput{
 		PrimaryPath:         source.primaryPath,
+		PrimaryRevision:     document.revision,
+		MaximumBytes:        maximumBytes,
 		ContentPath:         contentPath,
 		RequiredAbsentPaths: source.requiredAbsentPaths,
 	})
@@ -102,17 +113,17 @@ func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Sc
 }
 
 func claudeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractClaudeProjectMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.ClaudeProjectMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -130,17 +141,17 @@ func claudeProjectCandidates(ctx context.Context, source importSource, maximumBy
 }
 
 func claudeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractClaudeGlobalMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.ClaudeGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -158,17 +169,17 @@ func claudeGlobalCandidates(ctx context.Context, source importSource, maximumByt
 }
 
 func openCodeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractOpenCodeProjectMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.OpenCodeProjectMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -186,17 +197,17 @@ func openCodeProjectCandidates(ctx context.Context, source importSource, maximum
 }
 
 func openCodeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractOpenCodeGlobalMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.OpenCodeGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -214,17 +225,17 @@ func openCodeGlobalCandidates(ctx context.Context, source importSource, maximumB
 }
 
 func codexProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractCodexProjectMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.CodexProjectMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.CodexProjectMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -242,17 +253,17 @@ func codexProjectCandidates(ctx context.Context, source importSource, maximumByt
 }
 
 func codexGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractCodexGlobalMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.CodexGlobalMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.CodexGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -270,17 +281,17 @@ func codexGlobalCandidates(ctx context.Context, source importSource, maximumByte
 }
 
 func antigravityGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readImportSource(ctx, source, maximumBytes)
+	document, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
-	projections, rejections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(content)
+	projections, rejections, err := mcpcodec.ExtractAntigravityGlobalMCPServerProjections(document.content)
 	if err != nil {
 		return nil, []adopt.Skipped{{LivePath: source.primaryPath, Reason: skipReason(err)}}, nil
 	}
 	servers := make([]adopt.MCPServer, 0, len(projections))
 	for _, projection := range projections {
-		route, err := source.route(mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID))
+		route, err := source.route(mcpcodec.AntigravityGlobalMCPContentPath(projection.ServerID), document, maximumBytes)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -315,25 +326,25 @@ func readImportSource(
 	ctx context.Context,
 	source importSource,
 	maximumBytes int64,
-) ([]byte, adopt.Skipped, error) {
+) (importDocument, adopt.Skipped, error) {
 	for _, requiredAbsentPath := range source.requiredAbsentPaths {
 		if err := ctx.Err(); err != nil {
-			return nil, adopt.Skipped{}, err
+			return importDocument{}, adopt.Skipped{}, err
 		}
 		_, statErr := os.Lstat(requiredAbsentPath)
 		if err := ctx.Err(); err != nil {
-			return nil, adopt.Skipped{}, err
+			return importDocument{}, adopt.Skipped{}, err
 		}
 		switch {
 		case statErr == nil:
-			return nil, adopt.Skipped{
+			return importDocument{}, adopt.Skipped{
 				LivePath: requiredAbsentPath,
 				Reason:   skipAlternateConfig,
 			}, nil
 		case errors.Is(statErr, os.ErrNotExist):
 			continue
 		default:
-			return nil, adopt.Skipped{}, fmt.Errorf(
+			return importDocument{}, adopt.Skipped{}, fmt.Errorf(
 				"inspect required-absent MCP config %q: %w",
 				requiredAbsentPath,
 				statErr,
@@ -343,18 +354,21 @@ func readImportSource(
 	return readConfig(ctx, source.primaryPath, maximumBytes)
 }
 
-func readConfig(ctx context.Context, livePath string, maximumBytes int64) ([]byte, adopt.Skipped, error) {
-	content, exists, err := filesnapshot.ReadRegularFileContext(ctx, livePath, maximumBytes)
+func readConfig(ctx context.Context, livePath string, maximumBytes int64) (importDocument, adopt.Skipped, error) {
+	snapshot, exists, err := filesnapshot.ReadRegularFileSnapshotContext(ctx, livePath, maximumBytes)
 	if err == nil && !exists {
-		return nil, adopt.Skipped{LivePath: livePath, Reason: skipMissing}, nil
+		return importDocument{}, adopt.Skipped{LivePath: livePath, Reason: skipMissing}, nil
 	}
 	if err != nil {
 		if skip, ok := mcpSnapshotSkip(livePath, err); ok {
-			return nil, skip, nil
+			return importDocument{}, skip, nil
 		}
-		return nil, adopt.Skipped{}, fmt.Errorf("read MCP config %q: %w", livePath, err)
+		return importDocument{}, adopt.Skipped{}, fmt.Errorf("read MCP config %q: %w", livePath, err)
 	}
-	return content, adopt.Skipped{}, nil
+	return importDocument{
+		content:  snapshot.Content(),
+		revision: snapshot.Revision(),
+	}, adopt.Skipped{}, nil
 }
 
 func mcpSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {

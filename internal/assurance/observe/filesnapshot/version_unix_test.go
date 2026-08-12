@@ -41,6 +41,31 @@ func TestReadRegularFileContextRejectsRewriteWithRestoredMtime(t *testing.T) {
 	}
 }
 
+func TestRegularFileSnapshotRevisionChangesForIdenticalReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "source")
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, exists, err := ReadRegularFileSnapshotContext(t.Context(), path, 64)
+	if err != nil || !exists {
+		t.Fatalf("read before replacement: exists=%t err=%v", exists, err)
+	}
+	displaced := path + "-displaced"
+	if err := os.Rename(path, displaced); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	after, exists, err := ReadRegularFileSnapshotContext(t.Context(), path, 64)
+	if err != nil || !exists {
+		t.Fatalf("read after replacement: exists=%t err=%v", exists, err)
+	}
+	if before.Revision() == after.Revision() {
+		t.Fatal("identical replacement preserved the regular-file snapshot revision")
+	}
+}
+
 func TestReadRegularFileContextDoesNotBlockWhenFileBecomesFIFO(t *testing.T) {
 	t.Parallel()
 

@@ -121,6 +121,12 @@ func (plan Plan) MCPServers() []MCPServer {
 	return plan.candidates.MCPServers()
 }
 
+// MCPSourceAuthorities returns all physical source evidence supporting MCP
+// decisions in this plan, whether or not a declaration will be written.
+func (plan Plan) MCPSourceAuthorities() []MCPSourceAuthority {
+	return plan.candidates.MCPSourceAuthorities()
+}
+
 // Extensions returns source-exact imported extension declarations.
 func (plan Plan) Extensions() []desiredextension.Extension {
 	return plan.candidates.Extensions()
@@ -174,6 +180,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Skills          []Skill
 		Hooks           []Hook
 		MCPServers      []MCPServer
+		MCPAuthorities  []MCPSourceAuthority
 		Extensions      json.RawMessage
 		Scans           []Scan
 		Skipped         []Skipped
@@ -188,6 +195,7 @@ func (plan Plan) IdentityBytes() ([]byte, error) {
 		Skills:          plan.Skills(),
 		Hooks:           plan.Hooks(),
 		MCPServers:      plan.MCPServers(),
+		MCPAuthorities:  plan.MCPSourceAuthorities(),
 		Extensions:      extensionIdentity,
 		Scans:           plan.Scans(),
 		Skipped:         plan.Skipped(),
@@ -255,6 +263,11 @@ func validateCandidatesAgainstRequest(request Request, candidates CandidateSet) 
 	}
 	for _, server := range candidates.mcpServers {
 		if err := validate("mcp server candidate", string(server.Target), string(server.Scope)); err != nil {
+			return err
+		}
+	}
+	for _, authority := range candidates.mcpAuthorities {
+		if err := validate("mcp source authority", string(authority.Target), string(authority.Scope)); err != nil {
 			return err
 		}
 	}
