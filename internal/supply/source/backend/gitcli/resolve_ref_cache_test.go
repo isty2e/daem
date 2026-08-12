@@ -93,6 +93,36 @@ func TestResolveSameCommitHasStableContentHash(t *testing.T) {
 	}
 }
 
+func TestResolveDirectoryWithPrefixSibling(t *testing.T) {
+	t.Parallel()
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/a/child", "nested\n")
+	writeGitTestFile(t, repoPath, "skills/demo/a-file", "sibling\n")
+	commitAll(t, repoPath, "add prefix sibling tree")
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolution, err := resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	const wantHash = artifactpkg.ContentHash("sha256:d9ad1458e5212cc4afc07473e769702a0b4748502200cddbea1bac5e05d45e80")
+	if got := resolution.Identity().ContentHash(); got != wantHash {
+		t.Fatalf("ContentHash = %s, want %s", got, wantHash)
+	}
+	if err := resolution.View().Verify(context.Background(), resolution.Identity()); err != nil {
+		t.Fatalf("View.Verify returned error: %v", err)
+	}
+}
+
 func TestResolvePinnedCommitDoesNotMoveWithBranch(t *testing.T) {
 	t.Parallel()
 	requireGit(t)

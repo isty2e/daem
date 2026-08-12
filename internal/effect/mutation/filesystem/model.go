@@ -555,7 +555,8 @@ func (path TreeRelativePath) Depth() int {
 }
 
 // RootedTreeSnapshotSink receives one stable rooted directory snapshot in
-// depth-first lexical order. File content is valid only during VisitRegularFile.
+// depth-first component-lexical order. File content is valid only during
+// VisitRegularFile.
 type RootedTreeSnapshotSink interface {
 	VisitRoot(mode fs.FileMode) error
 	VisitDirectory(path TreeRelativePath, mode fs.FileMode) error

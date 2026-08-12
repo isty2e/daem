@@ -13,7 +13,9 @@ import (
 )
 
 // DirectoryHashBuilder computes the canonical directory hash from a stable,
-// depth-first lexical entry stream. It owns hash semantics, not filesystem traversal.
+// depth-first component-lexical entry stream. It owns hash semantics, not
+// filesystem traversal. Sibling components use exact Go string order, and a
+// directory precedes every descendant.
 type DirectoryHashBuilder struct {
 	hasher       hash.Hash
 	previousPath string
@@ -32,7 +34,7 @@ func NewDirectoryHashBuilder() *DirectoryHashBuilder {
 	}
 }
 
-// AddDirectory appends one directory entry in depth-first lexical order.
+// AddDirectory appends one directory entry in depth-first component-lexical order.
 func (builder *DirectoryHashBuilder) AddDirectory(relativePath string) error {
 	if err := builder.admit(relativePath); err != nil {
 		return err
@@ -116,14 +118,39 @@ func (builder *DirectoryHashBuilder) admit(relativePath string) error {
 			return fmt.Errorf("directory hash path %q is not canonical", relativePath)
 		}
 	}
-	if builder.previousPath != "" && relativePath <= builder.previousPath {
-		return fmt.Errorf("directory hash path %q is not after %q", relativePath, builder.previousPath)
+	if builder.previousPath != "" && compareDirectoryHashPaths(relativePath, builder.previousPath) <= 0 {
+		return fmt.Errorf(
+			"directory hash path %q is not after %q in component-lexical preorder",
+			relativePath,
+			builder.previousPath,
+		)
 	}
 	if _, ok := builder.directories[path.Dir(relativePath)]; !ok {
 		return fmt.Errorf("directory hash path %q has no admitted parent directory", relativePath)
 	}
 	builder.previousPath = relativePath
 	return nil
+}
+
+func compareDirectoryHashPaths(left string, right string) int {
+	for {
+		leftComponent, leftRemainder, leftHasRemainder := strings.Cut(left, "/")
+		rightComponent, rightRemainder, rightHasRemainder := strings.Cut(right, "/")
+		if order := strings.Compare(leftComponent, rightComponent); order != 0 {
+			return order
+		}
+		switch {
+		case !leftHasRemainder && !rightHasRemainder:
+			return 0
+		case !leftHasRemainder:
+			return -1
+		case !rightHasRemainder:
+			return 1
+		default:
+			left = leftRemainder
+			right = rightRemainder
+		}
+	}
 }
 
 func (builder *DirectoryHashBuilder) fail(err error) error {

@@ -47,6 +47,10 @@ func TestDirectoryHashBuilderMatchesHashPath(t *testing.T) {
 	if streamed != fromPath {
 		t.Fatalf("streamed hash = %s, path hash = %s", streamed, fromPath)
 	}
+	const wantCompatibilityHash = artifact.ContentHash("sha256:98540bf7efe9e111b6ec5f557f8c31947bc0c4a1f6af14396bb175e812e2611d")
+	if streamed != wantCompatibilityHash {
+		t.Fatalf("streamed hash = %s, want compatibility hash %s", streamed, wantCompatibilityHash)
+	}
 	second, err := builder.Sum()
 	if err != nil || second != streamed {
 		t.Fatalf("second Sum = %s, %v; want %s, nil", second, err, streamed)
@@ -68,6 +72,67 @@ func TestDirectoryHashBuilderMatchesEmptyDirectory(t *testing.T) {
 	}
 }
 
+func TestDirectoryHashBuilderAcceptsComponentOrderedPrefixSiblings(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "a"), 0o750); err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a", "child"), []byte("nested\n"), 0o600); err != nil {
+		t.Fatalf("write nested file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a-file"), []byte("sibling\n"), 0o600); err != nil {
+		t.Fatalf("write prefix sibling: %v", err)
+	}
+
+	builder := artifact.NewDirectoryHashBuilder()
+	if err := builder.AddDirectory("a"); err != nil {
+		t.Fatalf("AddDirectory returned error: %v", err)
+	}
+	if err := builder.AddFile(context.Background(), "a/child", false, 7, bytes.NewBufferString("nested\n")); err != nil {
+		t.Fatalf("AddFile nested returned error: %v", err)
+	}
+	if err := builder.AddFile(context.Background(), "a-file", false, 8, bytes.NewBufferString("sibling\n")); err != nil {
+		t.Fatalf("AddFile prefix sibling returned error: %v", err)
+	}
+	streamed, err := builder.Sum()
+	if err != nil {
+		t.Fatalf("Sum returned error: %v", err)
+	}
+	fromPath, _, err := access.HashPath(context.Background(), root)
+	if err != nil {
+		t.Fatalf("HashPath returned error: %v", err)
+	}
+	if streamed != fromPath {
+		t.Fatalf("streamed hash = %s, path hash = %s", streamed, fromPath)
+	}
+	const wantHash = artifact.ContentHash("sha256:d9ad1458e5212cc4afc07473e769702a0b4748502200cddbea1bac5e05d45e80")
+	if streamed != wantHash {
+		t.Fatalf("streamed hash = %s, want %s", streamed, wantHash)
+	}
+}
+
+func TestDirectoryHashBuilderAcceptsNestedPrefixSiblings(t *testing.T) {
+	builder := artifact.NewDirectoryHashBuilder()
+	if err := builder.AddDirectory("a"); err != nil {
+		t.Fatalf("AddDirectory a returned error: %v", err)
+	}
+	if err := builder.AddDirectory("a/b"); err != nil {
+		t.Fatalf("AddDirectory a/b returned error: %v", err)
+	}
+	if err := builder.AddFile(context.Background(), "a/b/child", false, 0, bytes.NewReader(nil)); err != nil {
+		t.Fatalf("AddFile nested child returned error: %v", err)
+	}
+	if err := builder.AddFile(context.Background(), "a/b-file", false, 0, bytes.NewReader(nil)); err != nil {
+		t.Fatalf("AddFile nested prefix sibling returned error: %v", err)
+	}
+	if err := builder.AddFile(context.Background(), "a-file", false, 0, bytes.NewReader(nil)); err != nil {
+		t.Fatalf("AddFile root prefix sibling returned error: %v", err)
+	}
+	if _, err := builder.Sum(); err != nil {
+		t.Fatalf("Sum returned error: %v", err)
+	}
+}
+
 func TestDirectoryHashBuilderRejectsMalformedStreams(t *testing.T) {
 	tests := []struct {
 		name string
@@ -79,6 +144,27 @@ func TestDirectoryHashBuilderRejectsMalformedStreams(t *testing.T) {
 				return err
 			}
 			return builder.AddDirectory("a")
+		}},
+		{name: "subtree reentry after prefix sibling", run: func(builder *artifact.DirectoryHashBuilder) error {
+			if err := builder.AddDirectory("a"); err != nil {
+				return err
+			}
+			if err := builder.AddFile(context.Background(), "a-file", false, 0, bytes.NewReader(nil)); err != nil {
+				return err
+			}
+			return builder.AddFile(context.Background(), "a/child", false, 0, bytes.NewReader(nil))
+		}},
+		{name: "nested subtree reentry after prefix sibling", run: func(builder *artifact.DirectoryHashBuilder) error {
+			if err := builder.AddDirectory("a"); err != nil {
+				return err
+			}
+			if err := builder.AddDirectory("a/b"); err != nil {
+				return err
+			}
+			if err := builder.AddFile(context.Background(), "a/b-file", false, 0, bytes.NewReader(nil)); err != nil {
+				return err
+			}
+			return builder.AddFile(context.Background(), "a/b/child", false, 0, bytes.NewReader(nil))
 		}},
 		{name: "short content", run: func(builder *artifact.DirectoryHashBuilder) error {
 			return builder.AddFile(context.Background(), "a", false, 2, bytes.NewBufferString("x"))
