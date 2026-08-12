@@ -7,7 +7,6 @@ import (
 
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
-	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -289,7 +288,7 @@ func validateMCPServer(server MCPServer) error {
 	if err := validateTargetScope(server.Target, server.Scope); err != nil {
 		return err
 	}
-	if err := validateMCPSourceRoute(server.SourceRoute); err != nil {
+	if err := server.SourceRoute.validate(); err != nil {
 		return fmt.Errorf("source route: %w", err)
 	}
 	if strings.TrimSpace(server.Command) == "" {
@@ -302,19 +301,6 @@ func validateMCPServer(server MCPServer) error {
 	}
 	if _, err := server.projectionSubject(); err != nil {
 		return fmt.Errorf("projection identity: %w", err)
-	}
-	return nil
-}
-
-func validateMCPSourceRoute(route MCPSourceRoute) error {
-	if strings.TrimSpace(route.PrimaryPath) == "" || strings.TrimSpace(route.PrimaryPath) != route.PrimaryPath {
-		return fmt.Errorf("primary config path must be non-empty and trimmed")
-	}
-	if filepath.Clean(route.PrimaryPath) != route.PrimaryPath {
-		return fmt.Errorf("primary config path must be canonical")
-	}
-	if _, err := aggregate.ParseContentPath(route.ContentPath); err != nil {
-		return fmt.Errorf("content path: %w", err)
 	}
 	return nil
 }
@@ -395,6 +381,7 @@ func cloneMCPServers(values []MCPServer) []MCPServer {
 	cloned := make([]MCPServer, len(values))
 	copy(cloned, values)
 	for index := range cloned {
+		cloned[index].SourceRoute.RequiredAbsentPaths = cloneStrings(cloned[index].SourceRoute.RequiredAbsentPaths)
 		cloned[index].Args = cloneStrings(cloned[index].Args)
 		if cloned[index].Env == nil {
 			continue

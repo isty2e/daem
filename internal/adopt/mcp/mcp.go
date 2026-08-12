@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -23,20 +24,26 @@ const (
 	skipFinalSymlink      = "mcp_config_final_symlink"
 	skipTooLarge          = "mcp_config_too_large"
 	skipChangedDuringRead = "mcp_config_changed_during_read"
+	skipAlternateConfig   = "unsupported_mcp_alternate_config"
 )
 
 type importSource struct {
-	primaryPath string
+	primaryPath         string
+	requiredAbsentPaths []string
 }
 
-func newImportSource(primaryPath string) importSource {
-	return importSource{primaryPath: primaryPath}
+func newImportSource(primaryPath string, requiredAbsentPaths ...string) importSource {
+	return importSource{
+		primaryPath:         primaryPath,
+		requiredAbsentPaths: append([]string(nil), requiredAbsentPaths...),
+	}
 }
 
 func (source importSource) route(contentPath string) (adopt.MCPSourceRoute, error) {
 	return adopt.NewMCPSourceRoute(adopt.MCPSourceRouteInput{
-		PrimaryPath: source.primaryPath,
-		ContentPath: contentPath,
+		PrimaryPath:         source.primaryPath,
+		ContentPath:         contentPath,
+		RequiredAbsentPaths: source.requiredAbsentPaths,
 	})
 }
 
@@ -75,15 +82,27 @@ func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Sc
 	if !ok {
 		return nil, nil, fmt.Errorf("MCP import route %s/%s has no aggregate codec", target, scope)
 	}
-	livePath, err := mcpConfigPath(placement.ConfigPath(), scope)
+	primaryPath, err := mcpConfigPath(placement.ConfigPath(), scope)
 	if err != nil {
 		return nil, nil, err
 	}
-	return importConfig(ctx, newImportSource(livePath), codec.MaximumDocumentBytes())
+	requiredAbsentPaths := make([]string, 0, 1)
+	if conflictingConfig, hasConflict := placement.ConflictingConfigPath(); hasConflict {
+		conflictingPath, err := mcpConfigPath(conflictingConfig, scope)
+		if err != nil {
+			return nil, nil, err
+		}
+		requiredAbsentPaths = append(requiredAbsentPaths, conflictingPath)
+	}
+	return importConfig(
+		ctx,
+		newImportSource(primaryPath, requiredAbsentPaths...),
+		codec.MaximumDocumentBytes(),
+	)
 }
 
 func claudeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -111,7 +130,7 @@ func claudeProjectCandidates(ctx context.Context, source importSource, maximumBy
 }
 
 func claudeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -139,7 +158,7 @@ func claudeGlobalCandidates(ctx context.Context, source importSource, maximumByt
 }
 
 func openCodeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -167,7 +186,7 @@ func openCodeProjectCandidates(ctx context.Context, source importSource, maximum
 }
 
 func openCodeGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -195,7 +214,7 @@ func openCodeGlobalCandidates(ctx context.Context, source importSource, maximumB
 }
 
 func codexProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -223,7 +242,7 @@ func codexProjectCandidates(ctx context.Context, source importSource, maximumByt
 }
 
 func codexGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -251,7 +270,7 @@ func codexGlobalCandidates(ctx context.Context, source importSource, maximumByte
 }
 
 func antigravityGlobalCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
-	content, skip, err := readConfig(ctx, source.primaryPath, maximumBytes)
+	content, skip, err := readImportSource(ctx, source, maximumBytes)
 	if err != nil || skip.Reason != "" {
 		return nil, skipSlice(skip), err
 	}
@@ -290,6 +309,38 @@ func mcpConfigPath(destination output.Destination, scope targetpkg.Scope) (strin
 		return "", fmt.Errorf("resolve MCP config destination %q: %w", destination, err)
 	}
 	return livePath, nil
+}
+
+func readImportSource(
+	ctx context.Context,
+	source importSource,
+	maximumBytes int64,
+) ([]byte, adopt.Skipped, error) {
+	for _, requiredAbsentPath := range source.requiredAbsentPaths {
+		if err := ctx.Err(); err != nil {
+			return nil, adopt.Skipped{}, err
+		}
+		_, statErr := os.Lstat(requiredAbsentPath)
+		if err := ctx.Err(); err != nil {
+			return nil, adopt.Skipped{}, err
+		}
+		switch {
+		case statErr == nil:
+			return nil, adopt.Skipped{
+				LivePath: requiredAbsentPath,
+				Reason:   skipAlternateConfig,
+			}, nil
+		case errors.Is(statErr, os.ErrNotExist):
+			continue
+		default:
+			return nil, adopt.Skipped{}, fmt.Errorf(
+				"inspect required-absent MCP config %q: %w",
+				requiredAbsentPath,
+				statErr,
+			)
+		}
+	}
+	return readConfig(ctx, source.primaryPath, maximumBytes)
 }
 
 func readConfig(ctx context.Context, livePath string, maximumBytes int64) ([]byte, adopt.Skipped, error) {

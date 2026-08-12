@@ -12,6 +12,7 @@ import (
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -217,6 +218,66 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 	}
 	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
 		t.Fatalf("stale extension import wrote manifest: %v", statErr)
+	}
+}
+
+func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *testing.T) {
+	root := t.TempDir()
+	previousWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previousWorkingDirectory); err != nil {
+			t.Fatalf("restore working directory: %v", err)
+		}
+	})
+	primary := []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}}}`)
+	alternate := []byte(`{"mcp":{}}`)
+	if err := os.WriteFile(aggregate.OpenCodeProjectMCPConfigPath, primary, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile("opencode.jsonc", alternate, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	sourceDirectory, err := adoptmodel.NewSourceDirectory(output, filepath.Join(root, "daem.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := adoptmodel.NewRequest(
+		[]target.Target{target.TargetOpenCode},
+		[]target.Scope{target.ScopeProject},
+		output,
+		sourceDirectory,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = BuildPlan(context.Background(), request)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) || !strings.Contains(err.Error(), "unsupported_mcp_alternate_config") {
+		t.Fatalf("BuildPlan error = %v, want alternate-config skip", err)
+	}
+	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
+		t.Fatalf("alternate-config import wrote manifest: %v", statErr)
+	}
+	for path, want := range map[string][]byte{
+		aggregate.OpenCodeProjectMCPConfigPath: primary,
+		"opencode.jsonc":                       alternate,
+	} {
+		got, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if !bytes.Equal(got, want) {
+			t.Fatalf("import changed host config %q: %q", path, got)
+		}
 	}
 }
 

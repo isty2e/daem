@@ -203,6 +203,7 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 	homeDir := filepath.Join(tempDir, "home")
 	t.Setenv("HOME", homeDir)
 	livePath := filepath.Join(homeDir, ".config", "opencode", "opencode.json")
+	conflictingPath := filepath.Join(homeDir, ".config", "opencode", "opencode.jsonc")
 	if err := os.MkdirAll(filepath.Dir(livePath), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -229,6 +230,8 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 		servers[0].Command != "npx" ||
 		len(servers[0].Args) != 2 ||
 		len(servers[0].Env) != 0 ||
+		len(servers[0].SourceRoute.RequiredAbsentPaths) != 1 ||
+		servers[0].SourceRoute.RequiredAbsentPaths[0] != conflictingPath ||
 		servers[1].ResourceName != "withAlias" ||
 		servers[1].Env["CHILD_TOKEN"] != "SOURCE_TOKEN" {
 		t.Fatalf("servers = %#v, want context7 OpenCode global live path", servers)
@@ -241,6 +244,61 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 	}
 	if skipped[1].LivePath != livePath+"#/mcp/remote" || skipped[1].Reason != "unsupported_mcp_transport" {
 		t.Fatalf("skipped[1] = %#v, want remote unsupported transport", skipped[1])
+	}
+}
+
+func TestCandidatesSkipsOpenCodeMCPWhenAlternateConfigExists(t *testing.T) {
+	tests := []struct {
+		name      string
+		scope     target.Scope
+		configure func(*testing.T) (string, string)
+	}{
+		{
+			name:  "project",
+			scope: target.ScopeProject,
+			configure: func(t *testing.T) (string, string) {
+				t.Helper()
+				root := t.TempDir()
+				withWorkingDirectory(t, root)
+				return aggregate.OpenCodeProjectMCPConfigPath, "opencode.jsonc"
+			},
+		},
+		{
+			name:  "global",
+			scope: target.ScopeGlobal,
+			configure: func(t *testing.T) (string, string) {
+				t.Helper()
+				home := filepath.Join(t.TempDir(), "home")
+				t.Setenv("HOME", home)
+				configRoot := filepath.Join(home, ".config", "opencode")
+				if err := os.MkdirAll(configRoot, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				return filepath.Join(configRoot, "opencode.json"), filepath.Join(configRoot, "opencode.jsonc")
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			primaryPath, conflictingPath := test.configure(t)
+			if err := os.WriteFile(primaryPath, []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(conflictingPath, []byte(`{"mcp":{}}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			servers, skipped, err := Candidates(t.Context(), target.TargetOpenCode, test.scope)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(servers) != 0 || len(skipped) != 1 ||
+				skipped[0].LivePath != conflictingPath ||
+				skipped[0].Reason != skipAlternateConfig {
+				t.Fatalf("Candidates = (%#v, %#v), want one alternate-config skip", servers, skipped)
+			}
+		})
 	}
 }
 

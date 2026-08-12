@@ -139,6 +139,7 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 	domains := make([]mutation.Domain, 0)
 	observed := make(map[string]importObservedPath)
 	stableObserved := make(map[string]importObservedPath)
+	physicalDomains := make(map[string]struct{})
 	addObserved := func(destination map[string]importObservedPath, path string, effect mutation.PathEffect) {
 		destination[importObservedPathKey(path, effect)] = importObservedPath{path: path, effect: effect}
 	}
@@ -155,12 +156,17 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		return nil
 	}
 	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
+		key := target + "\x00" + scope + "\x00" + importObservedPathKey(path, effect)
+		if _, exists := physicalDomains[key]; exists {
+			return nil
+		}
 		domain, err := mutation.NewPhysicalPathDomain(mutation.PhysicalPathRequest{
 			Path: path, Access: mutation.AccessShared, Effect: effect, Target: target, Scope: scope,
 		})
 		if err != nil {
 			return err
 		}
+		physicalDomains[key] = struct{}{}
 		domains = append(domains, domain)
 		addObserved(observed, path, effect)
 		addObserved(stableObserved, path, effect)
@@ -218,6 +224,11 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 	for _, server := range plan.MCPServers() {
 		if err := addPhysical(server.SourceRoute.PrimaryPath, string(server.Target), string(server.Scope), mutation.PathEffectReferent); err != nil {
 			return nil, nil, nil, err
+		}
+		for _, requiredAbsentPath := range server.SourceRoute.RequiredAbsentPaths {
+			if err := addPhysical(requiredAbsentPath, string(server.Target), string(server.Scope), mutation.PathEffectDirectoryEntry); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	for _, scan := range plan.Scans() {

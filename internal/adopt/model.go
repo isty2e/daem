@@ -4,7 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 
+	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -117,26 +120,64 @@ type Hook struct {
 // MCPSourceRoute separates one projection's logical content identity from the
 // physical config files whose observed state authorized the import.
 type MCPSourceRoute struct {
-	PrimaryPath string
-	ContentPath string
+	PrimaryPath         string
+	ContentPath         string
+	RequiredAbsentPaths []string
 }
 
 // MCPSourceRouteInput carries one imported MCP projection source route.
 type MCPSourceRouteInput struct {
-	PrimaryPath string
-	ContentPath string
+	PrimaryPath         string
+	ContentPath         string
+	RequiredAbsentPaths []string
 }
 
 // NewMCPSourceRoute constructs one canonical MCP import source route.
 func NewMCPSourceRoute(input MCPSourceRouteInput) (MCPSourceRoute, error) {
-	route := MCPSourceRoute{
-		PrimaryPath: input.PrimaryPath,
-		ContentPath: input.ContentPath,
+	requiredAbsentPaths := append([]string(nil), input.RequiredAbsentPaths...)
+	sort.Strings(requiredAbsentPaths)
+	unique := requiredAbsentPaths[:0]
+	for _, candidate := range requiredAbsentPaths {
+		if len(unique) == 0 || unique[len(unique)-1] != candidate {
+			unique = append(unique, candidate)
+		}
 	}
-	if err := validateMCPSourceRoute(route); err != nil {
+	route := MCPSourceRoute{
+		PrimaryPath:         input.PrimaryPath,
+		ContentPath:         input.ContentPath,
+		RequiredAbsentPaths: unique,
+	}
+	if err := route.validate(); err != nil {
 		return MCPSourceRoute{}, err
 	}
 	return route, nil
+}
+
+func (route MCPSourceRoute) validate() error {
+	if strings.TrimSpace(route.PrimaryPath) == "" || strings.TrimSpace(route.PrimaryPath) != route.PrimaryPath {
+		return fmt.Errorf("primary config path must be non-empty and trimmed")
+	}
+	if filepath.Clean(route.PrimaryPath) != route.PrimaryPath {
+		return fmt.Errorf("primary config path must be canonical")
+	}
+	if _, err := aggregate.ParseContentPath(route.ContentPath); err != nil {
+		return fmt.Errorf("content path: %w", err)
+	}
+	for index, absentPath := range route.RequiredAbsentPaths {
+		if strings.TrimSpace(absentPath) == "" || strings.TrimSpace(absentPath) != absentPath {
+			return fmt.Errorf("required-absent path %d must be non-empty and trimmed", index)
+		}
+		if filepath.Clean(absentPath) != absentPath {
+			return fmt.Errorf("required-absent path %q must be canonical", absentPath)
+		}
+		if absentPath == route.PrimaryPath {
+			return fmt.Errorf("primary config path cannot also be required absent")
+		}
+		if index > 0 && route.RequiredAbsentPaths[index-1] >= absentPath {
+			return fmt.Errorf("required-absent paths must be sorted and unique")
+		}
+	}
+	return nil
 }
 
 // LivePath returns the existing boundary spelling used to disclose one MCP

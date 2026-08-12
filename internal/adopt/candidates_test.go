@@ -14,6 +14,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	skillTargets := []targetpkg.Target{targetpkg.TargetCodex}
 	serverArgs := []string{"-y", "server"}
 	serverEnv := map[string]string{"TOKEN": "TOKEN"}
+	serverRequiredAbsentPaths := []string{".codex/config.jsonc"}
 	sources := []Source{{
 		ResourceName: "instructions",
 		Target:       targetpkg.TargetCodex,
@@ -39,8 +40,9 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 		Target:       targetpkg.TargetCodex,
 		Scope:        targetpkg.ScopeProject,
 		SourceRoute: MCPSourceRoute{
-			PrimaryPath: ".codex/config.toml",
-			ContentPath: "/mcp_servers/context7",
+			PrimaryPath:         ".codex/config.toml",
+			ContentPath:         "/mcp_servers/context7",
+			RequiredAbsentPaths: serverRequiredAbsentPaths,
 		},
 		Command: "npx",
 		Args:    serverArgs,
@@ -78,6 +80,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	skillTargets[0] = targetpkg.TargetClaudeCode
 	serverArgs[0] = "--changed"
 	serverEnv["TOKEN"] = "CHANGED"
+	serverRequiredAbsentPaths[0] = "changed"
 	sources[0].ResourceName = "changed"
 	skills[0].InstallName = "changed"
 	skills[0].SourceRoutes[0].ReadPath = "/changed"
@@ -98,6 +101,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedHooks[0].Command = "changed"
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
+	disclosedServers[0].SourceRoute.RequiredAbsentPaths[0] = "changed"
 	disclosedScans[0].Status = "changed"
 	disclosedSkipped[0].Reason = "changed"
 	assertCandidateSetUnchanged(t, candidates)
@@ -115,7 +119,8 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.Hooks(); got[0].Command != "lint" {
 		t.Fatalf("hooks changed through alias: %#v", got)
 	}
-	if got := candidates.MCPServers(); got[0].Command != "npx" || got[0].Args[0] != "-y" || got[0].Env["TOKEN"] != "TOKEN" {
+	if got := candidates.MCPServers(); got[0].Command != "npx" || got[0].Args[0] != "-y" || got[0].Env["TOKEN"] != "TOKEN" ||
+		got[0].SourceRoute.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP servers changed through alias: %#v", got)
 	}
 	if got := candidates.Scans(); got[0].Status != "scanned" {
@@ -230,6 +235,29 @@ func testMCPSourceRoute(t *testing.T, primaryPath string, contentPath string) MC
 		t.Fatal(err)
 	}
 	return route
+}
+
+func TestNewMCPSourceRouteCanonicalizesAndValidatesAbsencePreconditions(t *testing.T) {
+	route, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath:         "opencode.json",
+		ContentPath:         "/mcp/context7",
+		RequiredAbsentPaths: []string{"z.jsonc", "a.jsonc", "z.jsonc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(route.RequiredAbsentPaths) != 2 ||
+		route.RequiredAbsentPaths[0] != "a.jsonc" ||
+		route.RequiredAbsentPaths[1] != "z.jsonc" {
+		t.Fatalf("required-absent paths = %#v, want sorted unique paths", route.RequiredAbsentPaths)
+	}
+	if _, err := NewMCPSourceRoute(MCPSourceRouteInput{
+		PrimaryPath:         "opencode.json",
+		ContentPath:         "/mcp/context7",
+		RequiredAbsentPaths: []string{"opencode.json"},
+	}); err == nil {
+		t.Fatal("source route accepted the primary config as required absent")
+	}
 }
 
 func TestCandidateSetRejectsConflictingSkillIdentitiesAtOneSourcePath(t *testing.T) {
