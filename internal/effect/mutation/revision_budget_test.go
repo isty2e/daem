@@ -3,6 +3,7 @@ package mutation
 import (
 	"context"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -34,8 +35,7 @@ func TestContentRevisionTreeEntryLimitAcceptsExactAndRejectsOverflow(t *testing.
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitTree,
-		revisionLimitEntries,
+		RevisionLimitTreeEntries,
 		1,
 		2,
 	)
@@ -55,8 +55,7 @@ func TestContentRevisionTreeDepthLimit(t *testing.T) {
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitTree,
-		revisionLimitDepth,
+		RevisionLimitTreeDepth,
 		1,
 		2,
 	)
@@ -96,8 +95,7 @@ func TestContentRevisionOperationEntryLimitSpansTrees(t *testing.T) {
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitOperation,
-		revisionLimitEntries,
+		RevisionLimitOperationEntries,
 		1,
 		2,
 	)
@@ -119,8 +117,7 @@ func TestContentRevisionOperationByteLimitSpansFiles(t *testing.T) {
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitOperation,
-		revisionLimitBytes,
+		RevisionLimitOperationBytes,
 		5,
 		6,
 	)
@@ -150,10 +147,31 @@ func TestRevisionObservationPassSharesBudgetAcrossIncrementalCaptures(t *testing
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitOperation,
-		revisionLimitBytes,
+		RevisionLimitOperationBytes,
 		5,
 		6,
+	)
+}
+
+func TestRevisionByteBudgetRejectsOverflow(t *testing.T) {
+	limits := mustRevisionCaptureLimits(t, 0, 0, 0, math.MaxInt64-1)
+	operation, err := newRevisionCaptureBudget(limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation.bytes = math.MaxInt64 - 2
+	tree, err := operation.beginTree()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = tree.admitBytes(math.MaxInt64)
+	assertRevisionLimitError(
+		t,
+		err,
+		RevisionLimitOperationBytes,
+		math.MaxInt64-1,
+		math.MaxInt64,
 	)
 }
 
@@ -177,8 +195,7 @@ func TestContentRevisionRevalidationReportsGrowthAsExhaustion(t *testing.T) {
 	assertRevisionLimitError(
 		t,
 		err,
-		revisionLimitTree,
-		revisionLimitEntries,
+		RevisionLimitTreeEntries,
 		1,
 		2,
 	)
@@ -233,23 +250,24 @@ func mustRevisionCaptureLimits(
 func assertRevisionLimitError(
 	t *testing.T,
 	err error,
-	wantScope revisionLimitScope,
-	wantResource revisionLimitResource,
+	wantKind RevisionLimitKind,
 	wantLimit int64,
 	wantObserved int64,
 ) {
 	t.Helper()
-	var limitErr RevisionLimitError
+	if !errors.Is(err, ErrRevisionLimitExceeded) {
+		t.Fatalf("error = %v, want ErrRevisionLimitExceeded", err)
+	}
+	var limitErr *RevisionLimitError
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("error = %v, want RevisionLimitError", err)
 	}
-	if limitErr.scope != wantScope || limitErr.resource != wantResource ||
+	if limitErr.Kind() != wantKind ||
 		limitErr.Limit() != wantLimit || limitErr.Observed() != wantObserved {
 		t.Fatalf(
-			"limit error = %#v, want scope=%q resource=%q limit=%d observed=%d",
+			"limit error = %#v, want kind=%q limit=%d observed=%d",
 			limitErr,
-			wantScope,
-			wantResource,
+			wantKind,
 			wantLimit,
 			wantObserved,
 		)

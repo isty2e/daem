@@ -1,6 +1,10 @@
 package mutation
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"math"
+)
 
 const (
 	maximumRevisionTreeEntries      = 100_000
@@ -9,44 +13,65 @@ const (
 	maximumRevisionOperationBytes   = int64(16 << 30)
 )
 
-type revisionLimitScope string
+// RevisionLimitKind identifies one exhausted mutation revision dimension.
+type RevisionLimitKind string
 
 const (
-	revisionLimitTree      revisionLimitScope = "tree"
-	revisionLimitOperation revisionLimitScope = "operation"
+	RevisionLimitTreeEntries      RevisionLimitKind = "tree_entries"
+	RevisionLimitTreeDepth        RevisionLimitKind = "tree_depth"
+	RevisionLimitOperationEntries RevisionLimitKind = "operation_entries"
+	RevisionLimitOperationBytes   RevisionLimitKind = "operation_bytes"
 )
 
-type revisionLimitResource string
-
-const (
-	revisionLimitEntries revisionLimitResource = "entries"
-	revisionLimitDepth   revisionLimitResource = "depth"
-	revisionLimitBytes   revisionLimitResource = "bytes"
-)
+// ErrRevisionLimitExceeded classifies deterministic mutation revision budget
+// exhaustion.
+var ErrRevisionLimitExceeded = errors.New("mutation revision limit exceeded")
 
 // RevisionLimitError reports deterministic mutation-evidence exhaustion.
 type RevisionLimitError struct {
-	scope    revisionLimitScope
-	resource revisionLimitResource
+	kind     RevisionLimitKind
 	limit    int64
 	observed int64
 }
 
-func (err RevisionLimitError) Error() string {
+func (err *RevisionLimitError) Error() string {
+	if err == nil {
+		return ErrRevisionLimitExceeded.Error()
+	}
 	return fmt.Sprintf(
-		"mutation revision %s %s exceed limit %d (observed %d)",
-		err.scope,
-		err.resource,
-		err.limit,
+		"%s: %s observed=%d limit=%d",
+		ErrRevisionLimitExceeded,
+		err.kind,
 		err.observed,
+		err.limit,
 	)
 }
 
+func (err *RevisionLimitError) Unwrap() error { return ErrRevisionLimitExceeded }
+
+// Kind returns the exhausted mutation revision dimension.
+func (err *RevisionLimitError) Kind() RevisionLimitKind {
+	if err == nil {
+		return ""
+	}
+	return err.kind
+}
+
 // Limit returns the exhausted ceiling.
-func (err RevisionLimitError) Limit() int64 { return err.limit }
+func (err *RevisionLimitError) Limit() int64 {
+	if err == nil {
+		return 0
+	}
+	return err.limit
+}
 
 // Observed returns the first rejected work total.
-func (err RevisionLimitError) Observed() int64 { return err.observed }
+func (err *RevisionLimitError) Observed() int64 {
+	if err == nil {
+		return 0
+	}
+	return err.observed
+}
 
 type revisionCaptureLimits struct {
 	maximumTreeEntries      int
@@ -142,15 +167,15 @@ func (budget *revisionTreeBudget) admitEntries(count int) error {
 	}
 	treeObserved := budget.entries + count
 	if treeObserved > budget.operation.limits.maximumTreeEntries {
-		return RevisionLimitError{
-			scope: revisionLimitTree, resource: revisionLimitEntries,
+		return &RevisionLimitError{
+			kind:  RevisionLimitTreeEntries,
 			limit: int64(budget.operation.limits.maximumTreeEntries), observed: int64(treeObserved),
 		}
 	}
 	operationObserved := budget.operation.entries + count
 	if operationObserved > budget.operation.limits.maximumOperationEntries {
-		return RevisionLimitError{
-			scope: revisionLimitOperation, resource: revisionLimitEntries,
+		return &RevisionLimitError{
+			kind:  RevisionLimitOperationEntries,
 			limit: int64(budget.operation.limits.maximumOperationEntries), observed: int64(operationObserved),
 		}
 	}
@@ -164,8 +189,8 @@ func (budget *revisionTreeBudget) admitDirectoryDepth(depth int) error {
 		return fmt.Errorf("mutation revision tree depth budget is invalid")
 	}
 	if depth > budget.operation.limits.maximumTreeDepth {
-		return RevisionLimitError{
-			scope: revisionLimitTree, resource: revisionLimitDepth,
+		return &RevisionLimitError{
+			kind:  RevisionLimitTreeDepth,
 			limit: int64(budget.operation.limits.maximumTreeDepth), observed: int64(depth),
 		}
 	}
@@ -180,13 +205,21 @@ func (budget *revisionTreeBudget) admitBytes(count int64) error {
 	if budget == nil || budget.operation == nil || count < 0 {
 		return fmt.Errorf("mutation revision byte budget is invalid")
 	}
-	observed := budget.operation.bytes + count
-	if observed > budget.operation.limits.maximumOperationBytes {
-		return RevisionLimitError{
-			scope: revisionLimitOperation, resource: revisionLimitBytes,
-			limit: budget.operation.limits.maximumOperationBytes, observed: observed,
+	if count > budget.operation.remainingBytes() {
+		return &RevisionLimitError{
+			kind:     RevisionLimitOperationBytes,
+			limit:    budget.operation.limits.maximumOperationBytes,
+			observed: budget.rejectedByteTotal(count),
 		}
 	}
+	observed := budget.operation.bytes + count
 	budget.operation.bytes = observed
 	return nil
+}
+
+func (budget *revisionTreeBudget) rejectedByteTotal(count int64) int64 {
+	if count > math.MaxInt64-budget.operation.bytes {
+		return math.MaxInt64
+	}
+	return budget.operation.bytes + count
 }

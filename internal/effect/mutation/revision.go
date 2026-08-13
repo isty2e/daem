@@ -323,10 +323,10 @@ func captureBoundedRevisionFile(
 		return SnapshotRevision{}, err
 	}
 	if info.Size() > treeBudget.remainingBytes() {
-		return SnapshotRevision{}, RevisionLimitError{
-			scope: revisionLimitOperation, resource: revisionLimitBytes,
+		return SnapshotRevision{}, &RevisionLimitError{
+			kind:     RevisionLimitOperationBytes,
 			limit:    operationBudget.limits.maximumOperationBytes,
-			observed: operationBudget.bytes + info.Size(),
+			observed: treeBudget.rejectedByteTotal(info.Size()),
 		}
 	}
 	if err := treeBudget.admitBytes(info.Size()); err != nil {
