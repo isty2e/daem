@@ -2,6 +2,7 @@ package declaration
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -201,14 +202,50 @@ func SourceFromTOMLValue(value any) (Source, error) {
 }
 
 func sourceFromInlineTable(values map[string]any) (Source, error) {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	seenCanonicalKeys := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		canonical := strings.TrimSpace(key)
+		if !isSourceInlineTableKey(canonical) {
+			continue
+		}
+		if _, duplicate := seenCanonicalKeys[canonical]; duplicate {
+			return Source{}, fmt.Errorf(
+				"duplicate source key %q after normalization",
+				canonical,
+			)
+		}
+		seenCanonicalKeys[canonical] = struct{}{}
+	}
+
+	for _, key := range keys {
+		canonical := strings.TrimSpace(key)
+		if !isSourceInlineTableKey(canonical) {
+			return Source{}, fmt.Errorf("unknown source key %q", key)
+		}
+		if key != canonical {
+			return Source{}, fmt.Errorf(
+				"source key %q must use canonical spelling %q",
+				key,
+				canonical,
+			)
+		}
+	}
+
 	var source Source
-	for key, value := range values {
+	for _, key := range keys {
+		value := values[key]
 		text, ok := value.(string)
 		if !ok {
 			return Source{}, fmt.Errorf("source.%s: must be a string", key)
 		}
 
-		switch strings.TrimSpace(key) {
+		switch key {
 		case "git":
 			source.Git = text
 		case "path":
@@ -225,12 +262,19 @@ func sourceFromInlineTable(values map[string]any) (Source, error) {
 			source.Region = text
 		case "format":
 			source.Format = text
-		default:
-			return Source{}, fmt.Errorf("unknown source key %q", key)
 		}
 	}
 
 	return source, nil
+}
+
+func isSourceInlineTableKey(key string) bool {
+	switch key {
+	case "git", "path", "ref", "mode", "s3", "version_id", "region", "format":
+		return true
+	default:
+		return false
+	}
 }
 
 type InstructionTarget struct {
