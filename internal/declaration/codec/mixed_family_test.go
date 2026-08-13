@@ -5,6 +5,46 @@ import (
 	"testing"
 )
 
+func TestSkillFamilyScannersRejectAmbiguousSourceKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		scan func([]byte) error
+	}{
+		{
+			name: "skill",
+			raw: `[[skill]]
+name = "review"
+source = { git = "https://example.com/expected.git", Git = "https://example.com/alternate.git", path = ".", ref = "main" }
+`,
+			scan: func(content []byte) error {
+				_, err := ScanSkillBlocks(content)
+				return err
+			},
+		},
+		{
+			name: "skill_group",
+			raw: `[[skill_group]]
+include = ["glob:*"]
+source = { path = "skills", " path " = "other-skills", mode = "vendor" }
+`,
+			scan: func(content []byte) error {
+				_, err := ScanSkillGroupBlocks(content)
+				return err
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.scan([]byte(test.raw))
+			if err == nil || !strings.Contains(err.Error(), "duplicate source key") {
+				t.Fatalf("error = %v, want duplicate source key diagnostic", err)
+			}
+		})
+	}
+}
+
 func TestFamilyScannersKeepIndependentRangesInMixedCRLFDocument(t *testing.T) {
 	content := strings.ReplaceAll(`version = 1
 

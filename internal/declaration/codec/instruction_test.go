@@ -138,6 +138,19 @@ source = { path = "AGENTS.md", mode = "vendor"
 	}
 }
 
+func TestInstructionScanBlocksRejectsNormalizedDuplicateSourceKeys(t *testing.T) {
+	_, err := ScanInstructionBlocks([]byte(`[instructions."project"]
+source = { path = "AGENTS.md", " path " = "OTHER.md" }
+targets = ["codex"]
+`))
+	if err == nil {
+		t.Fatal("ScanInstructionBlocks returned nil error")
+	}
+	if !strings.Contains(err.Error(), `duplicate source key "path" after normalization`) {
+		t.Fatalf("error = %q, want deterministic duplicate source key diagnostic", err)
+	}
+}
+
 func TestInstructionSharedPrimitivesKeepStrictnessOperationLocal(t *testing.T) {
 	content := []byte(`version = 1
 targets = ["codex"]
