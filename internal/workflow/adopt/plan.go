@@ -11,8 +11,11 @@ import (
 	adoptmerge "github.com/isty2e/daem/internal/adopt/merge"
 	adoptskill "github.com/isty2e/daem/internal/adopt/skill"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/desired"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
@@ -50,17 +53,18 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	}
 
 	var originalContent []byte
+	var existingEnvironment desired.Environment
 	var existingExtensions []desiredextension.Extension
 	if merge {
 		originalContent, err = os.ReadFile(output)
 		if err != nil {
 			return adoptmodel.Plan{}, fmt.Errorf("read merge output manifest: %w", err)
 		}
-		environment, err := declarationmanifest.Decode(originalContent)
+		existingEnvironment, err = declarationmanifest.Decode(originalContent)
 		if err != nil {
 			return adoptmodel.Plan{}, fmt.Errorf("decode merge output manifest: %w", err)
 		}
-		existingExtensions = environment.Extensions()
+		existingExtensions = existingEnvironment.Extensions()
 	}
 	var sources []adoptmodel.Source
 	var skills []adoptmodel.Skill
@@ -149,7 +153,27 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 
 	var mergedPlan adoptmodel.Plan
 	if merge {
-		mergedPlan, err = adoptmerge.IntoManifest(request, originalContent, candidates)
+		var selectorBackedSkills []desiredskill.Skill
+		if len(skills) != 0 && len(existingEnvironment.SkillSets()) != 0 {
+			paths, resolveErr := daempaths.Resolve(output)
+			if resolveErr != nil {
+				return adoptmodel.Plan{}, resolveErr
+			}
+			selectorBackedSkills, err = lockedSelectorBackedSkills(
+				ctx,
+				paths.LockfilePath,
+				existingEnvironment,
+			)
+			if err != nil {
+				return adoptmodel.Plan{}, err
+			}
+		}
+		mergedPlan, err = adoptmerge.IntoManifest(
+			request,
+			originalContent,
+			candidates,
+			selectorBackedSkills,
+		)
 		if err != nil {
 			return adoptmodel.Plan{}, err
 		}

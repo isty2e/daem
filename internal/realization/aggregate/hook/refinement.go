@@ -2,7 +2,6 @@ package commandhook
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 	"strings"
 
@@ -73,23 +72,17 @@ func Contribution(
 	if projection.EntityID() != value.ID() || projection.Scope() != value.Scope() {
 		return aggregate.SubjectContribution{}, fmt.Errorf("hook %q topology projection does not match desired identity or scope", value.ID().Name())
 	}
-	declared := slices.Contains(value.Targets(), selectedTarget)
-	if !declared {
-		return aggregate.SubjectContribution{}, fmt.Errorf("hook %q does not declare target %q", value.ID().Name(), selectedTarget)
+	effectiveMatch, err := value.EffectiveMatch(selectedTarget)
+	if err != nil {
+		return aggregate.SubjectContribution{}, err
 	}
 	placement, admitted := aggregate.HookPlacementFor(selectedTarget, value.Scope())
 	if !admitted || string(placement.ID()) != projection.SubjectID().Namespace() {
 		return aggregate.SubjectContribution{}, fmt.Errorf("hook %q target %q has no matching native aggregate placement", value.ID().Name(), selectedTarget)
 	}
 
-	matcher := strings.TrimSpace(value.Matcher())
-	condition := ""
-	if override, ok := value.TargetOverrides()[selectedTarget]; ok {
-		if strings.TrimSpace(override.Matcher()) != "" {
-			matcher = strings.TrimSpace(override.Matcher())
-		}
-		condition = strings.TrimSpace(override.Condition())
-	}
+	matcher := effectiveMatch.Matcher()
+	condition := effectiveMatch.Condition()
 	if err := ValidateShape(value.ID().Name(), selectedTarget, value.Event(), matcher, condition); err != nil {
 		return aggregate.SubjectContribution{}, err
 	}

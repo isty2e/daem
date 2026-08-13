@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/target"
+	lockworkflow "github.com/isty2e/daem/internal/workflow/lock"
 )
 
 func TestBuildPlanManifestContentMatchesAdoptionRenderer(t *testing.T) {
@@ -493,6 +495,168 @@ func TestExecuteCommandPlanRejectsMergeTargetSkillRouteDriftAfterRebuild(t *test
 	if !bytes.Equal(current, original) {
 		t.Fatalf("stale merge-target route changed manifest: %q", current)
 	}
+}
+
+func TestBuildCommandPlanNoopsLockedSelectorBackedSkillMember(t *testing.T) {
+	output, _, original := selectorSkillMergeFixture(t, true)
+
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		Merge:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := planned.AdoptionPlan().MergeResults()
+	if len(results) != 2 {
+		t.Fatalf("merge results = %#v, want selector-backed skill noop", results)
+	}
+	for _, result := range results {
+		if result.Status != adoptmodel.MergeStatusNoop {
+			t.Fatalf("merge result = %#v, want selector-backed skill noop", result)
+		}
+	}
+	if len(planned.AdoptionPlan().Skills()) != 0 {
+		t.Fatalf("writable skills = %#v, want no direct skill addition", planned.AdoptionPlan().Skills())
+	}
+	if !bytes.Equal(planned.AdoptionPlan().ManifestContent(), original) {
+		t.Fatal("selector-backed skill noop changed manifest")
+	}
+}
+
+func TestBuildCommandPlanRequiresLockForSelectorBackedSkillMember(t *testing.T) {
+	output, _, original := selectorSkillMergeFixture(t, false)
+
+	_, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		Merge:        true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "run daem lock") {
+		t.Fatalf("BuildCommandPlan error = %v, want missing lock guidance", err)
+	}
+	current, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatal("missing selector membership authority changed manifest")
+	}
+}
+
+func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *testing.T) {
+	output, lockfilePath, original := selectorSkillMergeFixture(t, true)
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		Merge:        true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			current, buildErr := BuildPlan(ctx, request)
+			if buildErr != nil {
+				return adoptmodel.Plan{}, buildErr
+			}
+			if writeErr := os.WriteFile(lockfilePath, []byte("not a lockfile\n"), 0o600); writeErr != nil {
+				return adoptmodel.Plan{}, writeErr
+			}
+			return current, nil
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("executeCommandPlan error = %v, want stale selector membership authority", err)
+	}
+	current, readErr := os.ReadFile(output)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(current, original) {
+		t.Fatal("stale selector membership authority changed manifest")
+	}
+}
+
+func selectorSkillMergeFixture(
+	t *testing.T,
+	writeLock bool,
+) (string, string, []byte) {
+	t.Helper()
+	root := enterAdoptTestDirectory(t)
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg-state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "xdg-cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
+
+	for _, name := range []string{"other", "review"} {
+		skillRoot := filepath.Join(root, ".agents", "skills", name)
+		if err := os.MkdirAll(skillRoot, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		skillContent := []byte(fmt.Sprintf(
+			"---\nname: %s\ndescription: %s skill\n---\n\n%s skill.\n",
+			name,
+			name,
+			name,
+		))
+		if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), skillContent, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	initial, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteCommandPlan(t.Context(), initial); err != nil {
+		t.Fatal(err)
+	}
+	original, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(original), "\n")
+	replacedNames := false
+	for index, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "names = [") {
+			lines[index] = "include = [\"glob:*\"]"
+			replacedNames = true
+		}
+	}
+	if !replacedNames {
+		t.Fatalf("initial import manifest has no explicit skill_group names:\n%s", original)
+	}
+	original = []byte(strings.Join(lines, "\n"))
+	if err := os.WriteFile(output, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := daempaths.Resolve(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if writeLock {
+		if _, err := lockworkflow.RunLock(t.Context(), lockworkflow.LockInput{
+			ManifestPath: output,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return output, paths.LockfilePath, original
 }
 
 func enterAdoptTestDirectory(t *testing.T) string {

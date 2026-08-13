@@ -79,7 +79,7 @@ scope = "project"
 		t.Fatal(err)
 	}
 
-	plan, err := IntoManifest(request, original, candidates)
+	plan, err := IntoManifest(request, original, candidates, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

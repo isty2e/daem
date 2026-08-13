@@ -54,8 +54,13 @@ func TestManifestBuildsHookAndInstructionAggregates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Manifest returned error: %v", err)
 	}
-	if got := environment.Hooks(); len(got) != 1 || got[0].TargetOverrides()[target.TargetClaudeCode].Matcher() != "Bash" {
-		t.Fatalf("hooks = %#v, want canonical hook with target override", got)
+	gotHooks := environment.Hooks()
+	if len(gotHooks) != 1 {
+		t.Fatalf("hooks = %#v, want canonical hook with target override", gotHooks)
+	}
+	effective, err := gotHooks[0].EffectiveMatch(target.TargetClaudeCode)
+	if err != nil || effective.Matcher() != "Bash" || effective.Condition() != "always" {
+		t.Fatalf("effective Hook match = %#v, %v", effective, err)
 	}
 	if got := environment.HookAssets(); len(got) != 1 || got[0].ID().Name() != "runner" || !got[0].Executable() {
 		t.Fatalf("hook assets = %#v, want runner", got)

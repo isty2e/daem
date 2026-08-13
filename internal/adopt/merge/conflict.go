@@ -3,12 +3,16 @@ package merge
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	"github.com/isty2e/daem/internal/desired/entity"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredhook "github.com/isty2e/daem/internal/desired/hook"
+	desiredinstructions "github.com/isty2e/daem/internal/desired/instructions"
+	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	"github.com/isty2e/daem/internal/realization/profile"
 	sourcepkg "github.com/isty2e/daem/internal/supply/source"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -18,70 +22,77 @@ import (
 
 func classifyImportInstructionMerge(existing existingDeclarations, source adoptmodel.Source) (adoptmodel.MergeResult, []targetpkg.Target) {
 	resource := "instructions/" + source.ResourceName
-	importedSource := declarationcodec.InstructionSource{
-		Path: filepath.ToSlash(source.SourcePath),
-		Mode: string(sourcepkg.LocalSourceModeVendor),
-	}
-	for _, block := range existing.Instructions {
-		if block.Name != source.ResourceName {
+	for _, instruction := range existing.Instructions {
+		if instruction.ID().Name() != source.ResourceName {
 			continue
 		}
-		if !sameInstructionSource(block.Instruction.Source, importedSource) ||
-			block.Instruction.Scope != string(source.Scope) ||
-			!sameImportedInstructionRendering(block.Instruction, source) {
+		if !sameImportedInstruction(instruction, source, existing.ManifestRoot) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
 				Detail:   "existing instruction has the same name with a different source, scope, or rendering",
 			}, nil
 		}
-		return classifyImportTargets(resource, block.Instruction.Targets, []targetpkg.Target{source.Target})
+		return classifyImportTargets(resource, instruction.Targets(), []targetpkg.Target{source.Target})
 	}
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported instruction"}, nil
 }
 
-func sameImportedInstructionRendering(existing declarationcodec.Instruction, imported adoptmodel.Source) bool {
-	rendering, ok := existing.Target[string(imported.Target)]
-	if imported.RenderTo == "" {
-		return !ok || (rendering.RenderTo == "" && rendering.Mode == "")
+func sameImportedInstruction(
+	existing desiredinstructions.Instructions,
+	imported adoptmodel.Source,
+	manifestRoot string,
+) bool {
+	if existing.Scope() != imported.Scope ||
+		!sameImportedLocalVendorSource(existing.Source(), imported.SourcePath, manifestRoot) {
+		return false
 	}
-	return ok && rendering.RenderTo == imported.RenderTo && rendering.Mode == ""
+
+	renderTo := ""
+	mode := desiredinstructions.RenderModeCopy
+	if rendering, explicit := existing.Renderings()[imported.Target]; explicit {
+		renderTo = rendering.RenderTo()
+		mode = rendering.Mode()
+	}
+	return renderTo == imported.RenderTo && mode == desiredinstructions.RenderModeCopy
 }
 
 func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Skill) (adoptmodel.MergeResult, []targetpkg.Target) {
 	resource := "skill/" + skill.ResourceName
-	importedSource := declarationcodec.SkillSource{
-		Path: filepath.ToSlash(skill.SourcePath),
-		Mode: string(sourcepkg.LocalSourceModeVendor),
-	}
 	importedTargets := skill.Targets
 	if len(importedTargets) == 0 {
 		importedTargets = []targetpkg.Target{skill.Target}
 	}
-	for _, block := range existing.Skills {
-		if importSkillResourceID(block.Skill) != skill.ResourceName {
+	for _, declaration := range existing.Skills {
+		existingSkill := declaration.Skill
+		if existingSkill.ID().Name() != skill.ResourceName {
 			continue
 		}
-		if block.Skill.Name != skill.InstallName ||
-			block.Skill.Source != importedSource ||
-			block.Skill.Scope != string(skill.Scope) ||
-			effectiveInstallMode(block.Skill.InstallMode) != declarationInstallModeCopy {
+		if !sameImportedSkillBase(existingSkill, skill, existing.ManifestRoot) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
-				Detail:   "existing skill has the same id with a different name, source, scope, or install mode",
+				Detail:   "existing skill has the same id with different canonical declaration semantics",
 			}, nil
 		}
-		if !sameImportedSkillPlacements(block.Skill, skill, importedTargets) {
+		if !sameImportedSkillPlacements(existingSkill, skill, importedTargets) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
 				Detail:   "existing skill target placement differs from the imported skill location",
 			}, nil
 		}
-		return classifyImportTargets(resource, block.Skill.Targets, importedTargets)
+		result, missing := classifyImportTargets(resource, existingSkill.Targets(), importedTargets)
+		if len(missing) != 0 && !declaration.CanMergeTargets {
+			return adoptmodel.MergeResult{
+				Resource: resource,
+				Status:   adoptmodel.MergeStatusConflict,
+				Detail:   "existing skill_group member cannot receive a member-specific target merge",
+			}, nil
+		}
+		return result, missing
 	}
-	if conflict := conflictingSkillDestination(existing, skill); conflict != "" {
+	if conflict := conflictingSkillDestination(existing.Skills, skill); conflict != "" {
 		return adoptmodel.MergeResult{
 			Resource: resource,
 			Status:   adoptmodel.MergeStatusConflict,
@@ -91,13 +102,23 @@ func classifyImportSkillMerge(existing existingDeclarations, skill adoptmodel.Sk
 	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported skill"}, nil
 }
 
+func sameImportedSkillBase(existing desiredskill.Skill, imported adoptmodel.Skill, manifestRoot string) bool {
+	return existing.InstallName() == imported.InstallName &&
+		existing.Scope() == imported.Scope &&
+		existing.InstallMode() == desiredskill.InstallModeCopy &&
+		existing.Portable() &&
+		!existing.CompatRepair() &&
+		sameImportedLocalVendorSource(existing.Source(), imported.SourcePath, manifestRoot)
+}
+
 func sameImportedSkillPlacements(
-	existing declarationcodec.Skill,
+	existing desiredskill.Skill,
 	imported adoptmodel.Skill,
 	importedTargets []targetpkg.Target,
 ) bool {
+	existingPlacements := existing.TargetPlacements()
 	for _, selectedTarget := range importedTargets {
-		if !containsStringTarget(existing.Targets, selectedTarget) {
+		if !containsTarget(existing.Targets(), selectedTarget) {
 			continue
 		}
 		defaultPlacement, err := profile.Profile(selectedTarget).DefaultPlacement(entity.KindSkill, imported.Scope)
@@ -109,8 +130,8 @@ func sameImportedSkillPlacements(
 			expected = installTo
 		}
 		actual := defaultPlacement.Root().String()
-		if placement, explicit := existing.Target[string(selectedTarget)]; explicit {
-			actual = placement.InstallTo
+		if placement, explicit := existingPlacements[selectedTarget]; explicit {
+			actual = placement.InstallTo()
 		}
 		if actual != expected {
 			return false
@@ -119,29 +140,42 @@ func sameImportedSkillPlacements(
 	return true
 }
 
-func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target) {
+func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target, error) {
 	resource := "hook/" + hook.ResourceName
-	for _, block := range existing.Hooks {
-		if block.Hook.Name != hook.ResourceName {
+	for _, existingHook := range existing.Hooks {
+		if existingHook.ID().Name() != hook.ResourceName {
 			continue
 		}
-		if !sameImportedHookBase(block.Hook, hook) {
+		if !sameImportedHookBase(existingHook, hook) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
 				Detail:   "existing hook has the same name with a different command hook shape",
-			}, nil
+			}, nil, nil
 		}
-		if containsStringTarget(block.Hook.Targets, hook.Target) && !sameImportedHookOverride(block.Hook, hook) {
+		if containsTarget(existingHook.Targets(), hook.Target) {
+			same, err := sameImportedHookEffectiveMatch(existingHook, hook)
+			if err != nil {
+				return adoptmodel.MergeResult{}, nil, err
+			}
+			if !same {
+				return adoptmodel.MergeResult{
+					Resource: resource,
+					Status:   adoptmodel.MergeStatusConflict,
+					Detail:   "existing hook target matcher or condition differs from imported effective semantics",
+				}, nil, nil
+			}
+		} else if strings.TrimSpace(existingHook.Matcher()) != strings.TrimSpace(hook.Matcher) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
-				Detail:   "existing hook target override differs from imported hook condition",
-			}, nil
+				Detail:   "existing hook base matcher cannot represent the imported target matcher",
+			}, nil, nil
 		}
-		return classifyImportTargets(resource, block.Hook.Targets, []targetpkg.Target{hook.Target})
+		result, missing := classifyImportTargets(resource, existingHook.Targets(), []targetpkg.Target{hook.Target})
+		return result, missing, nil
 	}
-	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil
+	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil, nil
 }
 
 func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer) (adoptmodel.MergeResult, error) {
@@ -288,8 +322,8 @@ func sameImportedExtension(
 	}
 }
 
-func classifyImportTargets(resource string, existingTargets []string, importedTargets []targetpkg.Target) (adoptmodel.MergeResult, []targetpkg.Target) {
-	missing := missingImportTargets(existingTargets, importedTargets)
+func classifyImportTargets(resource string, existingTargets []targetpkg.Target, importedTargets []targetpkg.Target) (adoptmodel.MergeResult, []targetpkg.Target) {
+	missing := missingCanonicalImportTargets(existingTargets, importedTargets)
 	if len(missing) == 0 {
 		return adoptmodel.MergeResult{
 			Resource: resource,
@@ -304,23 +338,24 @@ func classifyImportTargets(resource string, existingTargets []string, importedTa
 	}, missing
 }
 
-func conflictingSkillDestination(existing existingDeclarations, imported adoptmodel.Skill) string {
+func conflictingSkillDestination(existing []existingSkillDeclaration, imported adoptmodel.Skill) string {
 	importedTargets := imported.Targets
 	if len(importedTargets) == 0 {
 		importedTargets = []targetpkg.Target{imported.Target}
 	}
-	for _, block := range existing.Skills {
-		if block.Skill.Scope != string(imported.Scope) || block.Skill.Name != imported.InstallName {
+	for _, declaration := range existing {
+		existingSkill := declaration.Skill
+		if existingSkill.Scope() != imported.Scope || existingSkill.InstallName() != imported.InstallName {
 			continue
 		}
 		for _, target := range importedTargets {
-			if containsStringTarget(block.Skill.Targets, target) {
+			if containsTarget(existingSkill.Targets(), target) {
 				return fmt.Sprintf(
 					"skill destination target=%s scope=%s name=%q is already used by skill id %q",
 					target,
 					imported.Scope,
 					imported.InstallName,
-					importSkillResourceID(block.Skill),
+					existingSkill.ID().Name(),
 				)
 			}
 		}
@@ -328,41 +363,44 @@ func conflictingSkillDestination(existing existingDeclarations, imported adoptmo
 	return ""
 }
 
-func sameImportedHookBase(existing declaration.Hook, imported adoptmodel.Hook) bool {
-	return existing.Event == imported.Event &&
-		existing.Matcher == imported.Matcher &&
-		existing.Type == declarationHookTypeCommand &&
-		existing.Command == imported.Command &&
-		existing.TimeoutSeconds == imported.Timeout &&
-		existing.StatusMessage == imported.StatusMessage &&
-		existing.Scope == string(imported.Scope)
+func sameImportedHookBase(existing desiredhook.Hook, imported adoptmodel.Hook) bool {
+	return strings.TrimSpace(existing.Event()) == strings.TrimSpace(imported.Event) &&
+		existing.Type() == desiredhook.TypeCommand &&
+		strings.TrimSpace(existing.Command()) == strings.TrimSpace(imported.Command) &&
+		existing.TimeoutSeconds() == imported.Timeout &&
+		strings.TrimSpace(existing.StatusMessage()) == strings.TrimSpace(imported.StatusMessage) &&
+		existing.Scope() == imported.Scope
 }
 
-func sameImportedHookOverride(existing declaration.Hook, imported adoptmodel.Hook) bool {
-	override, ok := hookOverrideFor(existing.TargetOverrides, imported.Target)
-	if imported.Condition == "" {
-		return !ok || (override.Condition == "" && override.Matcher == "")
+func sameImportedHookEffectiveMatch(existing desiredhook.Hook, imported adoptmodel.Hook) (bool, error) {
+	effective, err := existing.EffectiveMatch(imported.Target)
+	if err != nil {
+		return false, err
 	}
-	return ok && override.Condition == imported.Condition && override.Matcher == ""
+	return effective.Matcher() == strings.TrimSpace(imported.Matcher) &&
+		effective.Condition() == strings.TrimSpace(imported.Condition), nil
 }
 
-func sameStringSlice(left []string, right []string) bool {
-	if len(left) != len(right) {
+func sameImportedLocalVendorSource(existing sourcepkg.Source, importedPath string, manifestRoot string) bool {
+	local, ok := existing.Local()
+	if !ok || local.Mode() != sourcepkg.LocalSourceModeVendor {
 		return false
 	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
+	existingPath, ok := manifestLocalSourcePath(manifestRoot, local.Path())
+	if !ok {
+		return false
 	}
-	return true
+	candidatePath, ok := manifestLocalSourcePath(manifestRoot, importedPath)
+	return ok && existingPath == candidatePath
 }
 
-func hookOverrideFor(overrides []declaration.HookTargetOverride, target targetpkg.Target) (declaration.HookTargetOverride, bool) {
-	for _, override := range overrides {
-		if override.Target == string(target) {
-			return override, true
-		}
+func manifestLocalSourcePath(manifestRoot string, value string) (string, bool) {
+	if value == "" {
+		return "", false
 	}
-	return declaration.HookTargetOverride{}, false
+	path := filepath.FromSlash(value)
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(manifestRoot, path)
+	}
+	return filepath.Clean(path), true
 }

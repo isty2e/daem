@@ -80,6 +80,10 @@ func executeCommandPlan(
 	if err != nil {
 		return CommandPlan{}, err
 	}
+	selectorMembership, err := captureSelectorSkillMembershipWitness(ctx, optimistic.plan)
+	if err != nil {
+		return CommandPlan{}, err
+	}
 	currentPlan, err := buildCurrentPlan(ctx, optimistic.request)
 	if err != nil {
 		return CommandPlan{}, err
@@ -89,6 +93,11 @@ func executeCommandPlan(
 		return CommandPlan{}, err
 	}
 	if !optimisticFingerprint.Equal(currentFingerprint) {
+		return CommandPlan{}, mutation.StaleSnapshotError{}
+	}
+	if matches, err := selectorMembership.MatchesCurrent(ctx); err != nil {
+		return CommandPlan{}, err
+	} else if !matches {
 		return CommandPlan{}, mutation.StaleSnapshotError{}
 	}
 	if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
@@ -125,6 +134,13 @@ func executeCommandPlan(
 			return mutation.StaleSnapshotError{}
 		}
 		matches, err = stableRevisions.MatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		matches, err = selectorMembership.MatchesCurrent(ctx)
 		if err != nil {
 			return err
 		}
@@ -181,12 +197,18 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		destination[key] = importObservedPath{request: request, authoritative: authoritative}
 		return nil
 	}
-	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
+	addLogicalDomain := func(path string, access mutation.AccessMode, effect mutation.PathEffect) error {
 		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{Path: path, Access: access, Effect: effect})
 		if err != nil {
 			return err
 		}
 		domains = append(domains, domain)
+		return nil
+	}
+	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
+		if err := addLogicalDomain(path, access, effect); err != nil {
+			return err
+		}
 		request := mutation.RevisionRequest{Path: path, Effect: effect}
 		key := importObservedPathKey(path, effect)
 		if err := addObserved(observed, key, request, false); err != nil {
@@ -261,6 +283,26 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 	paths, err := daempaths.Resolve(plan.Output())
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	_, selectorMembershipRequired, err := selectorSkillMergeEnvironment(plan)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if selectorMembershipRequired {
+		if err := addLogicalDomain(
+			paths.LockfilePath,
+			mutation.AccessShared,
+			mutation.PathEffectDirectoryEntry,
+		); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := addLogicalDomain(
+			paths.LockfilePath,
+			mutation.AccessShared,
+			mutation.PathEffectReferent,
+		); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	metadataTransactionPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {

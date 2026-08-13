@@ -8,8 +8,8 @@ import (
 )
 
 func TestMissingImportTargetsUseStableProductOrder(t *testing.T) {
-	got := missingImportTargets(
-		[]string{"codex"},
+	got := missingCanonicalImportTargets(
+		[]targetpkg.Target{targetpkg.TargetCodex},
 		[]targetpkg.Target{
 			targetpkg.TargetPi,
 			targetpkg.TargetCodex,
@@ -19,6 +19,6 @@ func TestMissingImportTargetsUseStableProductOrder(t *testing.T) {
 	)
 	want := []targetpkg.Target{targetpkg.TargetClaudeCode, targetpkg.TargetPi}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("missingImportTargets = %#v, want %#v", got, want)
+		t.Fatalf("missingCanonicalImportTargets = %#v, want %#v", got, want)
 	}
 }
