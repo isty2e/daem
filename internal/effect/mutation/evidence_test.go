@@ -29,10 +29,10 @@ func TestRevisionSetMatchesCurrentAndDetectsChangedAliasTopology(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	set, err := CaptureRevisionSet(context.Background(), RevisionRequest{
-		Path:   filepath.Join(alias, "value"),
-		Effect: PathEffectReferent,
-	})
+	set, err := CaptureRevisionSet(
+		context.Background(),
+		NewBoundedContentRevisionRequest(filepath.Join(alias, "value"), PathEffectReferent),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +59,46 @@ func TestRevisionSetRejectsInvalidStateAndCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := CaptureRevisionSet(ctx, RevisionRequest{Path: t.TempDir(), Effect: PathEffectReferent}); !errors.Is(err, context.Canceled) {
+	if _, err := CaptureRevisionSet(
+		ctx,
+		NewBoundedContentRevisionRequest(t.TempDir(), PathEffectReferent),
+	); !errors.Is(err, context.Canceled) {
 		t.Fatalf("CaptureRevisionSet error = %v, want context cancellation", err)
+	}
+}
+
+func TestRevisionSetSubsetReusesCapturedEvidence(t *testing.T) {
+	root := t.TempDir()
+	stablePath := filepath.Join(root, "stable")
+	changingPath := filepath.Join(root, "changing")
+	if err := os.WriteFile(stablePath, []byte("stable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(changingPath, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stableRequest := NewBoundedContentRevisionRequest(stablePath, PathEffectReferent)
+	changingRequest := NewBoundedContentRevisionRequest(changingPath, PathEffectReferent)
+	set, err := CaptureRevisionSet(t.Context(), stableRequest, changingRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stable, err := set.Subset(stableRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(changingPath, []byte("after!"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || matches {
+		t.Fatalf("complete set match = %t, %v; want false", matches, err)
+	}
+	if matches, err := stable.MatchesCurrent(t.Context()); err != nil || !matches {
+		t.Fatalf("stable subset match = %t, %v; want true", matches, err)
+	}
+	missing := NewBoundedContentRevisionRequest(filepath.Join(root, "missing"), PathEffectReferent)
+	if _, err := set.Subset(missing); err == nil {
+		t.Fatal("revision subset accepted an uncaptured request")
 	}
 }
 

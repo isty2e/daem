@@ -332,8 +332,13 @@ including an entry, executable-mode, or entry-kind change during copying,
 fails before manifest publication. Import planning and private staging both
 accept at most 100,000 entries and 64 descendant-directory levels, matching the
 cleanup traversal that owns failed stages. A dry run therefore never recommends
-writing a skill tree that staging would reject. The whole skill tree has no
-separate byte ceiling; files are streamed, while the `SKILL.md` compatibility
+writing a skill tree that staging would reject. A skill has no separate
+per-tree byte ceiling, but the complete import freshness observation admits at
+most 400,000 entries and 16 GiB of regular-file content across all observed
+trees. The containing skills root is observed as an immediate inventory and
+does not reduce an individual skill's depth allowance. Extension inventory
+files retain bounded content evidence through publication using each host
+observer's ingress limit. Files are streamed. The `SKILL.md` compatibility
 document retains its 1 MiB limit.
 
 Import refuses preview and write modes while an interrupted apply journal is

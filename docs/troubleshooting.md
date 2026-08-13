@@ -316,7 +316,11 @@ contributing source route must remain stable even though the representative
 target's canonical route supplies the copied bytes. Imported skill planning and
 staging are both limited to 100,000 entries and 64 descendant-directory levels
 so a preview admits only trees that private staging can create and clean up.
-This is a structural limit, not a whole-skill byte limit.
+This is a per-tree structural limit, not a separate whole-skill byte limit.
+The containing skills root contributes only its immediate inventory; it does
+not consume a level from an individual skill's supported depth.
+The complete import freshness pass is additionally limited to 400,000 entries
+and 16 GiB of regular-file content across all observed trees.
 Rerun `daem import --target <target> --dry-run` after the tree is stable and
 within those bounds.
 Daem does not publish the generated manifest or a partial vendored skill when

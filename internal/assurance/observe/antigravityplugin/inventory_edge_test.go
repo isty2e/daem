@@ -75,7 +75,7 @@ func TestInventoryFingerprintDetectsManifestDrift(t *testing.T) {
 func TestInventoryRejectsResourceAndStructureBombs(t *testing.T) {
 	t.Run("oversized manifest", func(t *testing.T) {
 		paths, _, _ := antigravityInventoryFixture(t, "guidance@google")
-		content := make([]byte, maximumInventoryBytes+1)
+		content := make([]byte, MaximumInventoryBytes+1)
 		for index := range content {
 			content[index] = ' '
 		}

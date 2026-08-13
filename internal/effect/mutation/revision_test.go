@@ -101,7 +101,10 @@ func TestDirectoryRevisionIsDeterministicAndIncludesNestedSymlinkTarget(t *testi
 func TestCaptureRevisionRejectsCanceledAndDanglingRequests(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := CaptureRevision(ctx, RevisionRequest{Path: t.TempDir(), Effect: PathEffectDirectoryEntry})
+	_, err := NewRevisionObservationPass().Capture(
+		ctx,
+		NewBoundedContentRevisionRequest(t.TempDir(), PathEffectDirectoryEntry),
+	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled revision error = %v", err)
 	}
@@ -110,7 +113,10 @@ func TestCaptureRevisionRejectsCanceledAndDanglingRequests(t *testing.T) {
 	if err := symlinkForMutationTest("missing-target", dangling); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	_, err = CaptureRevision(context.Background(), RevisionRequest{Path: dangling, Effect: PathEffectReferent})
+	_, err = NewRevisionObservationPass().Capture(
+		context.Background(),
+		NewBoundedContentRevisionRequest(dangling, PathEffectReferent),
+	)
 	if err == nil {
 		t.Fatal("dangling referent revision succeeded")
 	}
@@ -118,9 +124,12 @@ func TestCaptureRevisionRejectsCanceledAndDanglingRequests(t *testing.T) {
 
 func captureMutationTestRevision(t *testing.T, path string, effect PathEffect) SnapshotRevision {
 	t.Helper()
-	revision, err := CaptureRevision(context.Background(), RevisionRequest{Path: path, Effect: effect})
+	revision, err := NewRevisionObservationPass().Capture(
+		context.Background(),
+		NewBoundedContentRevisionRequest(path, effect),
+	)
 	if err != nil {
-		t.Fatalf("CaptureRevision(%q) error: %v", path, err)
+		t.Fatalf("capture revision %q error: %v", path, err)
 	}
 	return revision
 }

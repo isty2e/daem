@@ -71,6 +71,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 			Status:       "scanned",
 			Entries:      1,
 			Imported:     1,
+			Evidence:     DirectoryListingScanEvidence(),
 		}},
 		Skipped: []Skipped{{LivePath: "/host/empty", Reason: "empty"}},
 	})
@@ -135,7 +136,8 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 	if got := candidates.MCPSourceAuthorities(); got[0].Route.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP source authorities changed through alias: %#v", got)
 	}
-	if got := candidates.Scans(); got[0].Status != "scanned" {
+	if got := candidates.Scans(); got[0].Status != "scanned" ||
+		got[0].Evidence.Kind != ScanEvidenceDirectoryListing {
 		t.Fatalf("scans changed through alias: %#v", got)
 	}
 	if got := candidates.Skipped(); got[0].Reason != "empty" {
@@ -162,9 +164,24 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 		t.Fatal("candidate set accepted an empty environment reference")
 	}
 	if _, err := NewCandidateSet(CandidateSetInput{
-		Scans: []Scan{{ResourceKind: "skill", ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1}},
+		Scans: []Scan{{ResourceKind: "skill", ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1, Evidence: DirectoryListingScanEvidence()}},
 	}); err == nil {
 		t.Fatal("candidate set accepted impossible scan counts")
+	}
+	if _, err := NewCandidateSet(CandidateSetInput{
+		Scans: []Scan{{
+			ResourceKind: "extension",
+			ResourceName: "inventory",
+			Target:       targetpkg.TargetPi,
+			Scope:        targetpkg.ScopeProject,
+			LivePath:     "settings.json",
+			Status:       "observed",
+		}},
+	}); err == nil {
+		t.Fatal("candidate set accepted a scan without freshness evidence")
+	}
+	if _, err := NewBoundedFileScanEvidence(0); err == nil {
+		t.Fatal("bounded-file scan evidence accepted a non-positive byte limit")
 	}
 	if _, err := NewCandidateSet(CandidateSetInput{
 		Skills: []Skill{{

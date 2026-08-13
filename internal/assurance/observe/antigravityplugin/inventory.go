@@ -12,7 +12,8 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-const maximumInventoryBytes int64 = 4 << 20
+// MaximumInventoryBytes bounds one Antigravity import-manifest observation.
+const MaximumInventoryBytes int64 = 4 << 20
 
 // Inventory is one immutable observation of the Antigravity import manifest.
 // Installed bundle state is read only when correlating a selected plugin.
@@ -33,7 +34,7 @@ func ReadInventory(paths HostPaths) (Inventory, error) {
 	}
 	content, exists, err := filesnapshot.ReadRegularFile(
 		manifest,
-		maximumInventoryBytes,
+		MaximumInventoryBytes,
 	)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Antigravity CLI import manifest %q: %w", manifest, err)

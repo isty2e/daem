@@ -204,6 +204,7 @@ func TestCommitNewImportFileTracksParentRecreatedAfterPreflight(t *testing.T) {
 		[]byte("content"),
 		0o600,
 		&cleanup,
+		mutation.NewRevisionObservationPass(),
 	)
 	if err != nil {
 		t.Fatalf("commit import file after parent removal: %v", err)
@@ -255,7 +256,7 @@ func TestCopyImportedSkillTracksParentRecreatedAfterPreflight(t *testing.T) {
 			Target: target.TargetCodex, LivePath: source, ReadPath: source,
 		}},
 		SourcePath: destination, ContentHash: contentHash,
-	}, &cleanup)
+	}, &cleanup, mutation.NewRevisionObservationPass())
 	if err != nil {
 		t.Fatalf("copy skill after parent removal: %v", err)
 	}

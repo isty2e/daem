@@ -28,11 +28,54 @@ type revisionObservation struct {
 // RevisionSet is immutable evidence captured for one workflow-owned observation set.
 type RevisionSet struct {
 	observations []revisionObservation
+	limits       revisionCaptureLimits
 	valid        bool
+}
+
+// Subset returns immutable evidence for the requested observations without
+// recapturing filesystem state or resetting the observation-pass budget.
+func (set RevisionSet) Subset(requests ...RevisionRequest) (RevisionSet, error) {
+	if !set.valid || len(set.observations) == 0 {
+		return RevisionSet{}, fmt.Errorf("mutation revision set is not initialized")
+	}
+	if len(requests) == 0 {
+		return RevisionSet{}, fmt.Errorf("mutation revision subset requests are required")
+	}
+
+	byRequest := make(map[RevisionRequest]revisionObservation, len(set.observations))
+	for _, observation := range set.observations {
+		byRequest[observation.request] = observation
+	}
+	observations := make([]revisionObservation, 0, len(requests))
+	seen := make(map[RevisionRequest]struct{}, len(requests))
+	for _, request := range requests {
+		if _, duplicate := seen[request]; duplicate {
+			continue
+		}
+		observation, exists := byRequest[request]
+		if !exists {
+			return RevisionSet{}, fmt.Errorf(
+				"mutation revision subset request %q is not captured",
+				request.Path,
+			)
+		}
+		seen[request] = struct{}{}
+		observations = append(observations, observation)
+	}
+
+	return RevisionSet{observations: observations, limits: set.limits, valid: true}, nil
 }
 
 // CaptureRevisionSet captures every requested revision without granting mutation authority.
 func CaptureRevisionSet(ctx context.Context, requests ...RevisionRequest) (RevisionSet, error) {
+	return captureRevisionSetWithLimits(ctx, defaultRevisionCaptureLimits(), requests...)
+}
+
+func captureRevisionSetWithLimits(
+	ctx context.Context,
+	limits revisionCaptureLimits,
+	requests ...RevisionRequest,
+) (RevisionSet, error) {
 	if ctx == nil {
 		return RevisionSet{}, fmt.Errorf("mutation revision-set context is required")
 	}
@@ -40,7 +83,7 @@ func CaptureRevisionSet(ctx context.Context, requests ...RevisionRequest) (Revis
 		return RevisionSet{}, fmt.Errorf("mutation revision-set requests are required")
 	}
 
-	observations, err := captureRevisionObservations(ctx, requests)
+	observations, err := captureRevisionObservations(ctx, requests, limits)
 	if err != nil {
 		return RevisionSet{}, err
 	}
@@ -50,7 +93,7 @@ func CaptureRevisionSet(ctx context.Context, requests ...RevisionRequest) (Revis
 		}
 	}
 
-	return RevisionSet{observations: observations, valid: true}, nil
+	return RevisionSet{observations: observations, limits: limits, valid: true}, nil
 }
 
 // CaptureBoundedFileRevisionSet captures alias topology and content revisions
@@ -74,11 +117,6 @@ func BoundedFileRevisionRequests(
 	maximumBytes int64,
 	paths ...string,
 ) ([]RevisionRequest, error) {
-	if maximumBytes <= 0 {
-		return nil, fmt.Errorf(
-			"bounded mutation revision maximum bytes must be positive",
-		)
-	}
 	if len(paths) == 0 {
 		return nil, fmt.Errorf(
 			"bounded mutation revision paths are required",
@@ -91,12 +129,11 @@ func BoundedFileRevisionRequests(
 			PathEffectDirectoryEntry,
 			PathEffectReferent,
 		} {
-			requests = append(requests, RevisionRequest{
-				Path:                    path,
-				Effect:                  effect,
-				maximumRegularFileBytes: maximumBytes,
-				requireBoundedFile:      true,
-			})
+			request, err := NewBoundedFileRevisionRequest(maximumBytes, path, effect)
+			if err != nil {
+				return nil, err
+			}
+			requests = append(requests, request)
 		}
 	}
 	return requests, nil
@@ -105,14 +142,18 @@ func BoundedFileRevisionRequests(
 func captureRevisionObservations(
 	ctx context.Context,
 	requests []RevisionRequest,
+	limits revisionCaptureLimits,
 ) ([]revisionObservation, error) {
-	fileCache := make(map[string]revisionFileCacheEntry)
+	pass, err := newRevisionObservationPass(limits)
+	if err != nil {
+		return nil, err
+	}
 	observations := make([]revisionObservation, 0, len(requests))
 	for _, request := range requests {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		revision, err := captureRevision(ctx, request, fileCache)
+		revision, err := pass.capture(ctx, request)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +177,7 @@ func (set RevisionSet) MatchesCurrent(ctx context.Context) (bool, error) {
 	for index, observation := range set.observations {
 		requests[index] = observation.request
 	}
-	current, err := captureRevisionObservations(ctx, requests)
+	current, err := captureRevisionObservations(ctx, requests, set.limits)
 	if err != nil {
 		return false, err
 	}

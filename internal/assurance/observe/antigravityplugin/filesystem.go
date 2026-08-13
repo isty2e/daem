@@ -37,7 +37,7 @@ func observePluginBundle(
 	}
 	content, exists, err := filesnapshot.ReadRegularFile(
 		manifest,
-		maximumInventoryBytes,
+		MaximumInventoryBytes,
 	)
 	if err != nil {
 		return false, fmt.Errorf("read Antigravity CLI plugin manifest %q: %w", manifest, err)

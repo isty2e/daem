@@ -435,11 +435,15 @@ func authoringRevisionRequests(
 	if err != nil {
 		return nil, err
 	}
-	requests = append(requests, mutation.RevisionRequest{
-		Path: markerPath, Effect: mutation.PathEffectDirectoryEntry,
-	})
+	requests = append(
+		requests,
+		mutation.NewBoundedContentRevisionRequest(markerPath, mutation.PathEffectDirectoryEntry),
+	)
 	for _, path := range localPaths {
-		requests = append(requests, mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectReferent})
+		requests = append(
+			requests,
+			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
+		)
 	}
 	return requests, nil
 }

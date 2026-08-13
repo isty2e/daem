@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
@@ -85,6 +86,10 @@ func buildAuthorityEvidence(
 	facts := make([]authorityFact, 0)
 	domains := make([]mutation.Domain, 0)
 	revisions := make(map[string]mutation.RevisionRequest)
+	declarationPaths := map[string]struct{}{
+		planned.paths.ManifestPath: {},
+		planned.paths.LockfilePath: {},
+	}
 	addPath := func(
 		kind string,
 		path string,
@@ -116,9 +121,18 @@ func buildAuthorityEvidence(
 			Target: targetValue, Scope: scopeValue,
 		})
 		domains = append(domains, domain)
-		revisions[revisionKey(path, effect)] = mutation.RevisionRequest{
-			Path: path, Effect: effect,
+		revision := mutation.NewBoundedContentRevisionRequest(path, effect)
+		if _, declaration := declarationPaths[path]; declaration {
+			revision, err = mutation.NewBoundedFileRevisionRequest(
+				declarationartifact.MaximumBytes,
+				path,
+				effect,
+			)
+			if err != nil {
+				return err
+			}
 		}
+		revisions[revisionKey(path, effect)] = revision
 		return nil
 	}
 	addLogicalPair := func(

@@ -119,7 +119,7 @@ func TestExtensionImportPlanAndExecuteWriteOnlyManifest(t *testing.T) {
 
 	executed, err := ExecuteCommandPlan(
 		context.Background(),
-		CommandPlan{request: request, plan: plan},
+		commandPlanWithRevisionEvidence(t, request, plan),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 
 	_, err = ExecuteCommandPlan(
 		context.Background(),
-		CommandPlan{request: request, plan: plan},
+		commandPlanWithRevisionEvidence(t, request, plan),
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -220,6 +220,66 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 	}
 	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
 		t.Fatalf("stale extension import wrote manifest: %v", statErr)
+	}
+}
+
+func TestExtensionImportRefusesInventoryDriftAfterRebuild(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg-state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "xdg-cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "pi-global"))
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		settingsPath,
+		[]byte(`{"packages":["npm:@acme/alpha@1.2.3"]}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"pi"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := planned.AdoptionPlan().SourceDirectory().Root()
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			current, buildErr := BuildPlan(ctx, request)
+			if buildErr != nil {
+				return adoptmodel.Plan{}, buildErr
+			}
+			if writeErr := os.WriteFile(
+				settingsPath,
+				[]byte(`{"packages":["npm:@acme/bravo@1.2.3"]}`),
+				0o600,
+			); writeErr != nil {
+				return adoptmodel.Plan{}, writeErr
+			}
+			return current, nil
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("executeCommandPlan error = %v, want StaleSnapshotError", err)
+	}
+	for _, path := range []string{output, sourceRoot} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("stale extension inventory published %q: %v", path, statErr)
+		}
 	}
 }
 
@@ -342,6 +402,58 @@ func TestExecuteCommandPlanRejectsIdenticalMCPSourceReplacement(t *testing.T) {
 	}
 	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("replacement MCP source published manifest: %v", statErr)
+	}
+}
+
+func TestExecuteCommandPlanRejectsSkillRevisionDepthGrowthBeforePublication(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	skillRoot := filepath.Join(root, ".agents", "skills", "review")
+	if err := os.MkdirAll(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillRoot, "SKILL.md"),
+		[]byte("---\nname: review\ndescription: Review skill\n---\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	nested := skillRoot
+	for depth := 1; depth <= 64; depth++ {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(nested, "overflow"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ExecuteCommandPlan(t.Context(), planned)
+	if !errors.Is(err, mutation.ErrRevisionLimitExceeded) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want revision limit exhaustion", err)
+	}
+	var limitErr *mutation.RevisionLimitError
+	if !errors.As(err, &limitErr) || limitErr.Kind() != mutation.RevisionLimitTreeDepth {
+		t.Fatalf("ExecuteCommandPlan error = %v, want tree-depth exhaustion", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("over-depth source published manifest: %v", statErr)
+	}
+	for _, skill := range planned.AdoptionPlan().Skills() {
+		if _, statErr := os.Lstat(skill.SourcePath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("over-depth source published import path %q: %v", skill.SourcePath, statErr)
+		}
 	}
 }
 
@@ -583,6 +695,24 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 	}
 	if !bytes.Equal(current, original) {
 		t.Fatal("stale selector membership authority changed manifest")
+	}
+}
+
+func commandPlanWithRevisionEvidence(
+	t *testing.T,
+	request adoptmodel.Request,
+	plan adoptmodel.Plan,
+) CommandPlan {
+	t.Helper()
+	revisions, stableRevisions, err := captureImportRevisionEvidence(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return CommandPlan{
+		request:         request,
+		plan:            plan,
+		revisions:       revisions,
+		stableRevisions: stableRevisions,
 	}
 }
 
