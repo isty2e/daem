@@ -81,19 +81,6 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		}
 		return result, err
 	}
-	mcpObservations, err := readiness.ClassifyMCPProjections(
-		loaded.Lockfile,
-		loaded.Selection,
-		assessment.CurrentState,
-		assessment.AggregateEvidence,
-		assessment.AggregateFailures,
-		assessment.AggregatePreconditions,
-		assessment.MCPEffective,
-		assessment.MCPProviders,
-	)
-	if err != nil {
-		return result, fmt.Errorf("inspect MCP projection status: %w", err)
-	}
 	result.Reconciliation = assessment.Reconciliation
 	result.Diagnostics = append(
 		loaded.Diagnostics,
@@ -112,7 +99,7 @@ func Run(ctx context.Context, input CommandInput) (CommandResult, error) {
 		loaded.RuntimeEnvironment,
 		loaded.Selection,
 	)
-	result.MCPProjections = mcpObservations
+	result.MCPProjections = assessment.MCPProjections
 	result.HostRouteAttempts = assessment.CurrentState.HostRouteAttempts()
 
 	return result, nil

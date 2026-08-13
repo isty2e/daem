@@ -299,22 +299,7 @@ func planReadinessAtPaths(
 		planned.assessment = planning
 		return planned, err
 	}
-	mcpProjections, err := readiness.ClassifyMCPProjections(
-		loaded.Lockfile,
-		loaded.Selection,
-		planning.CurrentState,
-		planning.AggregateEvidence,
-		planning.AggregateFailures,
-		planning.AggregatePreconditions,
-		planning.MCPEffective,
-		planning.MCPProviders,
-	)
-	if err != nil {
-		planned.result = result
-		planned.assessment = planning
-		return planned, fmt.Errorf("inspect MCP projection status: %w", err)
-	}
-	result.MCPProjections = mcpProjections
+	result.MCPProjections = planning.MCPProjections
 
 	planned.result = result
 	planned.assessment = planning

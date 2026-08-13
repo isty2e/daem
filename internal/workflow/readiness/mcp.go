@@ -13,11 +13,10 @@ import (
 	"github.com/isty2e/daem/internal/topology"
 )
 
-// ClassifyMCPProjections correlates selected locked MCP projections with one
-// already-collected aggregate evidence set.
-func ClassifyMCPProjections(
-	locked lock.File,
-	selection targetselection.Selection,
+// classifyMCPProjections correlates observation-covered locked MCP projections
+// with one already-collected aggregate evidence set.
+func classifyMCPProjections(
+	contracts []lock.LockedSubjectContract,
 	currentState durable.Snapshot,
 	evidence []observe.AggregateEvidence,
 	failures []observe.AggregateObservationFailure,
@@ -25,10 +24,6 @@ func ClassifyMCPProjections(
 	effective []mcpeffective.Observation,
 	providers []MCPProviderPrerequisite,
 ) ([]mcpobserve.LockedProjectionObservation, error) {
-	contracts, err := selectedMCPProjectionContracts(locked, selection)
-	if err != nil {
-		return nil, err
-	}
 	shadowing, err := effectiveShadowingBySubject(effective)
 	if err != nil {
 		return nil, err
@@ -164,4 +159,54 @@ func selectedMCPProjectionContracts(
 		}
 	}
 	return contracts, nil
+}
+
+func observationCoveredMCPProjectionContracts(
+	contracts []lock.LockedSubjectContract,
+	evidence []observe.AggregateEvidence,
+	failures []observe.AggregateObservationFailure,
+) ([]lock.LockedSubjectContract, error) {
+	covered := make(map[aggregate.ProjectionAddress]aggregate.ProjectionContract)
+	addSelection := func(selection aggregate.Selection) error {
+		for _, contract := range selection.Contracts() {
+			address := contract.Address()
+			if previous, duplicate := covered[address]; duplicate && !previous.Equal(contract) {
+				return fmt.Errorf("aggregate observation coverage changes contract at %q", address.ContentPath())
+			}
+			covered[address] = contract
+		}
+		return nil
+	}
+	for _, item := range evidence {
+		selection, err := item.Snapshot().Selection()
+		if err != nil {
+			return nil, fmt.Errorf("MCP aggregate evidence selection: %w", err)
+		}
+		if err := addSelection(selection); err != nil {
+			return nil, err
+		}
+	}
+	for _, item := range failures {
+		if err := addSelection(item.Selection()); err != nil {
+			return nil, err
+		}
+	}
+
+	result := make([]lock.LockedSubjectContract, 0, len(contracts))
+	for _, contract := range contracts {
+		contribution, present, err := contract.ManagedAggregateContribution()
+		if err != nil {
+			return nil, err
+		}
+		if !present {
+			return nil, fmt.Errorf("MCP projection subject %q has no aggregate contribution", contract.SubjectID())
+		}
+		projection := contribution.Contribution().Contract()
+		observed, present := covered[projection.Address()]
+		if !present || !observed.Equal(projection) {
+			continue
+		}
+		result = append(result, contract)
+	}
+	return result, nil
 }

@@ -672,6 +672,130 @@ func TestAggregatePlannerKeepsSharedSubjectsVisibleWhenOneLockIsMissing(t *testi
 	}
 }
 
+func TestAggregatePlannerKeepsLockOnlyMCPSubjectVisibleWithDesiredSibling(t *testing.T) {
+	desiredContract := aggregateMCPContract(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
+	lockOnlyContract := aggregateMCPContract(t, "filesystem", "npx", []string{"-y", "@modelcontextprotocol/server-filesystem", "."})
+	desired := aggregateItems(t, desiredContract)
+	decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+		Locked:          aggregateLockedSection(t, desiredContract, lockOnlyContract),
+		Expected:        []lock.LockedSubjectContract{desiredContract},
+		Desired:         desired,
+		Evidence:        []observe.AggregateEvidence{aggregateEvidence(t, desired[0].Contribution().Contract(), aggregate.AbsentDocument())},
+		SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := mustReconciliationResult(t, nil, decisions)
+	views := aggregateSubjectDecisionsBySubject(t, plan.Decisions())
+	if len(views) != 2 {
+		t.Fatalf("mixed lock-readiness decisions = %d, want one per MCP subject", len(views))
+	}
+	if got := views[lockOnlyContract.SubjectID()]; !got.IsBlocked() ||
+		got.Reason() != reconcile.ReasonUnexpectedLockSubject ||
+		got.MutatesHost() || got.MutatesState() {
+		t.Fatalf(
+			"lock-only subject = kind %q reason %q host=%t state=%t",
+			got.Kind(), got.Reason(), got.MutatesHost(), got.MutatesState(),
+		)
+	}
+	if got := views[desiredContract.SubjectID()]; !got.IsBlocked() ||
+		got.Reason() != reconcile.ReasonAggregateLockBlocked ||
+		got.MutatesHost() || got.MutatesState() {
+		t.Fatalf(
+			"desired sibling = kind %q reason %q host=%t state=%t",
+			got.Kind(), got.Reason(), got.MutatesHost(), got.MutatesState(),
+		)
+	}
+	if !plan.HasLockReadinessErrors() {
+		t.Fatal("mixed MCP document did not retain lock-readiness semantics")
+	}
+}
+
+func TestAggregatePlannerKeepsLockOnlyHookSubjectVisibleWithDesiredSibling(t *testing.T) {
+	desiredContract := aggregateHookContract(t, "guard", "echo guard")
+	lockOnlyContract := aggregateHookContract(t, "audit", "echo audit")
+	desired := aggregateItems(t, desiredContract)
+
+	for _, locked := range [][]lock.LockedSubjectContract{
+		{desiredContract, lockOnlyContract},
+		{lockOnlyContract, desiredContract},
+	} {
+		decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+			Locked:          aggregateLockedSection(t, locked...),
+			Expected:        []lock.LockedSubjectContract{desiredContract},
+			Desired:         desired,
+			Evidence:        []observe.AggregateEvidence{aggregateEvidence(t, desired[0].Contribution().Contract(), aggregate.AbsentDocument())},
+			SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		views := aggregateSubjectDecisionsBySubject(
+			t,
+			mustReconciliationResult(t, nil, decisions).Decisions(),
+		)
+		if got := views[lockOnlyContract.SubjectID()]; !got.IsBlocked() ||
+			got.Reason() != reconcile.ReasonUnexpectedLockSubject ||
+			got.MutatesHost() || got.MutatesState() {
+			t.Fatalf("lock-only Hook subject = %#v, want read-only unexpected-lock block", got)
+		}
+		if got := views[desiredContract.SubjectID()]; !got.IsBlocked() ||
+			got.Reason() != reconcile.ReasonAggregateLockBlocked ||
+			got.MutatesHost() || got.MutatesState() {
+			t.Fatalf("desired Hook sibling = %#v, want read-only aggregate-lock block", got)
+		}
+	}
+}
+
+func TestAggregatePlannerPreservesLockBlockersAcrossObservationFailure(t *testing.T) {
+	desiredContract := aggregateMCPContract(t, "context7", "npx", []string{"-y", "@upstash/context7-mcp"})
+	lockOnlyContract := aggregateMCPContract(t, "filesystem", "npx", []string{"-y", "@modelcontextprotocol/server-filesystem", "."})
+	desired := aggregateItems(t, desiredContract)
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{
+		desired[0].Contribution().Contract(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codecFailure, err := aggregate.NewCodecFailure(
+		aggregate.CodecFailureSelectedShapeUnsupported,
+		desired[0].Contribution().Contract().Address().ContentPath(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failure, err := observe.NewAggregateObservationFailure(
+		aggregate.ExistingDocument([]byte(`{"mcpServers":null}`)),
+		selection,
+		aggregate.DocumentFileMode,
+		codecFailure,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+		Locked:              aggregateLockedSection(t, desiredContract, lockOnlyContract),
+		Expected:            []lock.LockedSubjectContract{desiredContract},
+		Desired:             desired,
+		ObservationFailures: []observe.AggregateObservationFailure{failure},
+		SelectedTargets:     planSelectedTargets(t, target.TargetCodex),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	views := aggregateSubjectDecisionsBySubject(
+		t,
+		mustReconciliationResult(t, nil, decisions).Decisions(),
+	)
+	if got := views[lockOnlyContract.SubjectID()]; got.Reason() != reconcile.ReasonUnexpectedLockSubject {
+		t.Fatalf("lock-only subject reason = %q, want unexpected lock subject", got.Reason())
+	}
+	if got := views[desiredContract.SubjectID()]; got.Reason() != reconcile.ReasonAggregateLockBlocked {
+		t.Fatalf("desired sibling reason = %q, want aggregate lock blocked", got.Reason())
+	}
+}
+
 func aggregateMCPContract(
 	t *testing.T,
 	serverID string,
@@ -692,6 +816,33 @@ func aggregateMCPContract(
 	}
 	return snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
 		PlacementID:         aggregate.MCPPlacementCodexProject,
+		ServerID:            serverID,
+		LauncherCommand:     command,
+		LauncherArgs:        append([]string(nil), args...),
+		CanonicalProjection: string(canonical),
+	})
+}
+
+func aggregateOpenCodeMCPContract(
+	t *testing.T,
+	serverID string,
+	command string,
+	args []string,
+) lock.LockedSubjectContract {
+	t.Helper()
+	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(
+		mcpcodec.MCPNoEnvServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            append([]string(nil), args...),
+			AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
+		PlacementID:         aggregate.MCPPlacementOpenCodeProject,
 		ServerID:            serverID,
 		LauncherCommand:     command,
 		LauncherArgs:        append([]string(nil), args...),

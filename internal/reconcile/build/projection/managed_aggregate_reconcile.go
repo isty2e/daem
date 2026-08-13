@@ -48,20 +48,20 @@ func reconcileAggregateDocumentSemantics(
 	manageUnmanagedMatches bool,
 	codecs aggregate.CodecCatalog,
 ) (aggregateDecision, error) {
-	if len(groups) == 0 {
-		return aggregateDecision{}, fmt.Errorf("aggregate document group is empty")
-	}
-	contracts := make([]aggregate.ProjectionContract, len(groups))
-	for index, group := range groups {
-		contracts[index] = group.contract
-	}
-	selection, err := aggregate.NewSelection(contracts)
+	coverage, err := newAggregateDocumentCoverage(groups)
 	if err != nil {
 		return aggregateDecision{}, err
 	}
-	documentAddress := selection.DocumentAddress()
+	decisionSelection := coverage.DecisionSelection()
+	observationSelection, observationRequired := coverage.ObservationSelection()
+	documentAddress := decisionSelection.DocumentAddress()
 	if failure, failed := failuresByDocument[documentAddress]; failed {
-		if err := validateAggregateSelection(failure.Selection(), selection); err != nil {
+		if !observationRequired {
+			return aggregateDecision{}, fmt.Errorf(
+				"aggregate failed observation covers an evidence-independent document",
+			)
+		}
+		if err := validateAggregateSelection(failure.Selection(), observationSelection); err != nil {
 			return aggregateDecision{}, fmt.Errorf("aggregate failed observation: %w", err)
 		}
 		reason := reconcile.ReasonInvalidDesiredState
@@ -73,7 +73,7 @@ func reconcileAggregateDocumentSemantics(
 		decision := blockedAggregateDocument(
 			groups,
 			documentAddress,
-			selection.CodecContractID(),
+			decisionSelection.CodecContractID(),
 			reason,
 			failure.Error(),
 		)
@@ -81,26 +81,24 @@ func reconcileAggregateDocumentSemantics(
 	}
 	evidence, observed := evidenceByDocument[documentAddress]
 	if !observed {
-		if aggregateGroupsHaveBlockedSubjects(groups) {
-			return blockedAggregateDocumentWithoutEvidence(
-				groups,
-				documentAddress,
-				selection.CodecContractID(),
-			), nil
-		}
 		return blockedAggregateDocument(
 			groups,
 			documentAddress,
-			selection.CodecContractID(),
+			decisionSelection.CodecContractID(),
 			reconcile.ReasonMissingLiveObservation,
 			"fresh aggregate evidence is required",
 		), nil
 	}
-	if err := validateAggregateEvidenceSelection(evidence, selection); err != nil {
+	if !observationRequired {
+		return aggregateDecision{}, fmt.Errorf(
+			"aggregate evidence covers an evidence-independent document",
+		)
+	}
+	if err := validateAggregateEvidenceSelection(evidence, observationSelection); err != nil {
 		return aggregateDecision{}, err
 	}
 	operationPreconditions, blockReason, blockDetail, err := reconcileAggregatePreconditions(
-		selection,
+		observationSelection,
 		preconditionsByDocument[documentAddress],
 	)
 	if err != nil {
@@ -110,14 +108,17 @@ func reconcileAggregateDocumentSemantics(
 		return blockedAggregateDocument(
 			groups,
 			documentAddress,
-			selection.CodecContractID(),
+			decisionSelection.CodecContractID(),
 			blockReason,
 			blockDetail,
 		), nil
 	}
-	codec, ok := codecs.Lookup(selection.CodecContractID())
+	codec, ok := codecs.Lookup(decisionSelection.CodecContractID())
 	if !ok {
-		return aggregateDecision{}, fmt.Errorf("aggregate codec %q is not admitted", selection.CodecContractID())
+		return aggregateDecision{}, fmt.Errorf(
+			"aggregate codec %q is not admitted",
+			decisionSelection.CodecContractID(),
+		)
 	}
 	currentByAddress := make(map[aggregate.ProjectionAddress]aggregate.ProjectionState, len(groups))
 	for _, state := range evidence.Snapshot().States() {
@@ -143,7 +144,7 @@ func reconcileAggregateDocumentSemantics(
 	if preBlocked {
 		return finalizeBlockedAggregateDocument(
 			documentAddress,
-			selection.CodecContractID(),
+			decisionSelection.CodecContractID(),
 			projections,
 			evidence,
 		), nil
@@ -163,7 +164,7 @@ func reconcileAggregateDocumentSemantics(
 		}
 		return finalizeBlockedAggregateDocument(
 			documentAddress,
-			selection.CodecContractID(),
+			decisionSelection.CodecContractID(),
 			projections,
 			evidence,
 		), nil
@@ -192,7 +193,7 @@ func reconcileAggregateDocumentSemantics(
 	}
 	decision := aggregateDecision{
 		documentAddress: documentAddress,
-		codecContractID: selection.CodecContractID(),
+		codecContractID: decisionSelection.CodecContractID(),
 		projections:     projections,
 		document:        evidence.Document(),
 		snapshot:        evidence.Snapshot(),
@@ -231,10 +232,21 @@ func reconcileAggregateDocumentSemantics(
 	return decision, nil
 }
 
-func aggregateGroupsHaveBlockedSubjects(groups []aggregateGroupInput) bool {
+func aggregateGroupsHaveAnyBlockedSubjects(groups []aggregateGroupInput) bool {
 	for _, group := range groups {
 		if len(group.blocked) != 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func aggregateGroupsHaveLockReadinessBlocker(groups []aggregateGroupInput) bool {
+	for _, group := range groups {
+		for _, fact := range group.blocked {
+			if fact.reason.IsLockReadinessError() {
+				return true
+			}
 		}
 	}
 	return false

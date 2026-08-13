@@ -205,13 +205,13 @@ func blockAggregateProjectionFromFacts(
 	group aggregateGroupInput,
 ) aggregateProjectionDecision {
 	subjects := aggregateGroupSubjects(group)
+	siblingReason, siblingDetail := aggregateGroupSiblingBlock(group, subjects)
 	projection.kind = reconcile.AggregateBlocked
 	projection.deltas = make([]aggregateSubjectDelta, 0, len(subjects))
 	for _, subject := range subjects {
 		fact, exact := group.blocked[subject]
 		previous, hasPrevious := aggregatePreviousContribution(projection, subject)
-		reason := reconcile.ReasonAggregateLockBlocked
-		detail := "aggregate projection is blocked by another contribution's lock readiness"
+		reason, detail := siblingReason, siblingDetail
 		if exact {
 			reason, detail = fact.reason, fact.detail
 		}
@@ -225,6 +225,31 @@ func blockAggregateProjectionFromFacts(
 		})
 	}
 	return projection
+}
+
+func aggregateGroupSiblingBlock(
+	group aggregateGroupInput,
+	subjects []topology.SubjectID,
+) (reconcile.ActionReason, string) {
+	var first aggregateBlockedSubject
+	found := false
+	for _, subject := range subjects {
+		fact, blocked := group.blocked[subject]
+		if !blocked {
+			continue
+		}
+		if !found {
+			first, found = fact, true
+		}
+		if fact.reason.IsLockReadinessError() {
+			return reconcile.ReasonAggregateLockBlocked,
+				"aggregate projection is blocked by another contribution's lock readiness"
+		}
+	}
+	if found {
+		return first.reason, "aggregate projection is blocked by another contribution: " + first.detail
+	}
+	return reconcile.ReasonInvalidDesiredState, "aggregate projection is blocked"
 }
 
 func aggregatePreviousContribution(

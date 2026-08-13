@@ -14,6 +14,7 @@ import (
 	"github.com/isty2e/daem/internal/assurance/observe"
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	lockobserve "github.com/isty2e/daem/internal/assurance/observe/lock"
+	mcpobserve "github.com/isty2e/daem/internal/assurance/observe/mcp"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	relationhost "github.com/isty2e/daem/internal/assurance/observe/relation/host"
@@ -34,6 +35,7 @@ type Assessment struct {
 	AggregateEvidence      []observe.AggregateEvidence
 	AggregateFailures      []observe.AggregateObservationFailure
 	AggregatePreconditions []observe.AggregatePreconditionEvidence
+	MCPProjections         []mcpobserve.LockedProjectionObservation
 	MCPEffective           []mcpeffective.Observation
 	MCPProviders           []MCPProviderPrerequisite
 	Reconciliation         reconcile.Result
@@ -160,6 +162,18 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, err
 	}
+	selectedMCPContracts, err := selectedMCPProjectionContracts(locked, selection)
+	if err != nil {
+		return Assessment{}, err
+	}
+	mcpContracts, err := observationCoveredMCPProjectionContracts(
+		selectedMCPContracts,
+		aggregateInputs.evidence,
+		aggregateInputs.failures,
+	)
+	if err != nil {
+		return Assessment{}, err
+	}
 	managedEvidence, err := liveobserve.ManagedPathEvidence(ctx, resolver, managedInputs.requests)
 	if err != nil {
 		return Assessment{}, fmt.Errorf("observe managed paths: %w", err)
@@ -179,7 +193,7 @@ func buildAssessment(
 	mcpEffective, err := observeProviderEffectiveMCP(
 		paths,
 		resolver,
-		locked,
+		mcpContracts,
 		currentState,
 		selection,
 		codecs,
@@ -216,10 +230,6 @@ func buildAssessment(
 	})
 	if err != nil {
 		return Assessment{}, newRelationReconciliationError(err)
-	}
-	mcpContracts, err := selectedMCPProjectionContracts(locked, selection)
-	if err != nil {
-		return Assessment{}, err
 	}
 	providerObservations, err := observeMCPProviders(ctx, paths, locked, mcpContracts)
 	if err != nil {
@@ -322,6 +332,18 @@ func buildAssessment(
 	if err != nil {
 		return Assessment{}, fmt.Errorf("assemble complete reconciliation result: %w", err)
 	}
+	mcpProjections, err := classifyMCPProjections(
+		mcpContracts,
+		currentState,
+		aggregateInputs.evidence,
+		aggregateInputs.failures,
+		aggregateInputs.preconditions,
+		mcpEffective.Current,
+		providerPrerequisites,
+	)
+	if err != nil {
+		return Assessment{}, fmt.Errorf("inspect MCP projection status: %w", err)
+	}
 
 	return Assessment{
 		StatePath:              paths.StatefilePath,
@@ -331,6 +353,7 @@ func buildAssessment(
 		AggregateEvidence:      aggregateInputs.evidence,
 		AggregateFailures:      aggregateInputs.failures,
 		AggregatePreconditions: aggregateInputs.preconditions,
+		MCPProjections:         mcpProjections,
 		MCPEffective:           mcpEffective.Current,
 		MCPProviders:           providerPrerequisites,
 		Reconciliation:         result,

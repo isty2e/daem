@@ -26,6 +26,31 @@ func TestActionReasonOwnershipBlockClassification(t *testing.T) {
 	}
 }
 
+func TestActionReasonLockReadinessClassification(t *testing.T) {
+	for _, reason := range []ActionReason{
+		ReasonMissingLock,
+		ReasonStaleLock,
+		ReasonUnexpectedLockSubject,
+		ReasonAggregateLockBlocked,
+	} {
+		if !reason.IsLockReadinessError() {
+			t.Fatalf("reason %q is not classified as a lock-readiness error", reason)
+		}
+	}
+	for _, reason := range []ActionReason{
+		ReasonEffectiveStateConflict,
+		ReasonEffectiveStateUnobserved,
+		ReasonProviderVersionUnobserved,
+		ReasonProviderVersionIncompatible,
+		ReasonProviderCodecMismatch,
+		ReasonInvalidDesiredState,
+	} {
+		if reason.IsLockReadinessError() {
+			t.Fatalf("reason %q was classified as a lock-readiness error", reason)
+		}
+	}
+}
+
 func TestManagedPathDecisionKindClassification(t *testing.T) {
 	tests := []struct {
 		kind         ManagedPathDecisionKind

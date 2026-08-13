@@ -205,11 +205,15 @@ func BuildAggregateDecisions(input AggregateInput) ([]reconcile.AggregateDecisio
 			if itemErr != nil {
 				return nil, itemErr
 			}
-			group.blocked[subject] = aggregateBlockedSubject{
-				item: item, reason: reconcile.ReasonAggregateLockBlocked,
-				detail: "aggregate subject is blocked by lock readiness in another projection",
+			reason := fact.reason
+			detail := "aggregate subject is blocked in another projection: " + fact.detail
+			if fact.reason.IsLockReadinessError() {
+				reason = reconcile.ReasonAggregateLockBlocked
+				detail = "aggregate subject is blocked by lock readiness in another projection"
 			}
-			_ = fact
+			group.blocked[subject] = aggregateBlockedSubject{
+				item: item, reason: reason, detail: detail,
+			}
 		}
 	}
 
