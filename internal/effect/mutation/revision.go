@@ -681,6 +681,9 @@ func hashRevisionOpenedFile(
 	if _, err := io.CopyN(hasher, reader, entry.size); err != nil {
 		return fmt.Errorf("read mutation revision file %q: %w", relative, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	current, err := observeRevisionOpened(file)
 	if err != nil {
 		return fmt.Errorf("reinspect mutation revision file %q: %w", relative, err)
@@ -726,6 +729,9 @@ func hashRevisionFile(
 	reader := &revisionContextReader{ctx: ctx, reader: file}
 	if _, err := io.CopyN(hasher, reader, opened.Size()); err != nil {
 		return fmt.Errorf("read mutation revision file %q: %w", path, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	afterOpen, err := file.Stat()
 	if err != nil {

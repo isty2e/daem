@@ -248,15 +248,17 @@ func TestContentRevisionChecksCancellationInsideDirectoryTraversal(t *testing.T)
 }
 
 func TestContentRevisionChecksCancellationWhileStreamingFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "content")
-	writeMutationTestFile(t, path, "content", 0o600)
-	ctx := &cancelAfterErrChecks{cancelAt: 3}
-	_, err := CaptureRevisionSet(
-		ctx,
-		NewBoundedContentRevisionRequest(path, PathEffectReferent),
-	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("file streaming cancellation error = %v", err)
+	for _, content := range []string{"content", ""} {
+		path := filepath.Join(t.TempDir(), "content")
+		writeMutationTestFile(t, path, content, 0o600)
+		ctx := &cancelAfterErrChecks{cancelAt: 3}
+		_, err := CaptureRevisionSet(
+			ctx,
+			NewBoundedContentRevisionRequest(path, PathEffectReferent),
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("file streaming cancellation for %d bytes = %v", len(content), err)
+		}
 	}
 }
 
