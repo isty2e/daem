@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/isty2e/daem/internal/filesnapshot"
 )
@@ -49,12 +50,20 @@ func Read(ctx context.Context, path string) ([]byte, error) {
 	)
 	if err != nil {
 		if errors.Is(err, filesnapshot.ErrLimitExceeded) {
-			return nil, &os.PathError{Op: "read", Path: path, Err: ErrTooLarge}
+			return nil, &os.PathError{
+				Op:   "read",
+				Path: path,
+				Err: fmt.Errorf(
+					"%w (maximum %d bytes)",
+					ErrTooLarge,
+					MaximumBytes,
+				),
+			}
 		}
 		return nil, &os.PathError{Op: "read", Path: path, Err: err}
 	}
 	if !exists {
-		return nil, &os.PathError{Op: "read", Path: path, Err: os.ErrNotExist}
+		return nil, &os.PathError{Op: "open", Path: path, Err: syscall.ENOENT}
 	}
 	return content, nil
 }

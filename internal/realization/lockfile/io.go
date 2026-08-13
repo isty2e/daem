@@ -1,7 +1,6 @@
 package lockfile
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -181,7 +180,7 @@ func Marshal(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 
-	var output bytes.Buffer
+	output := declarationartifact.NewOutputBuffer()
 	dto, err := dtoFromSnapshot(file)
 	if err != nil {
 		return nil, err
@@ -189,11 +188,7 @@ func Marshal(file lock.File) ([]byte, error) {
 	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
 		return nil, err
 	}
-	content := output.Bytes()
-	if err := declarationartifact.Admit(content); err != nil {
-		return nil, err
-	}
-	return content, nil
+	return output.Bytes(), nil
 }
 
 func validateConcreteAggregateContributions(file lock.File) error {

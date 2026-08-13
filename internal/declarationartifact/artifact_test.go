@@ -31,6 +31,24 @@ func TestReadAdmitsStableFinalSymlink(t *testing.T) {
 	}
 }
 
+func TestReadRejectsDirectoryWithoutTraversingIt(t *testing.T) {
+	t.Parallel()
+
+	path := t.TempDir()
+	if _, err := declarationartifact.Read(t.Context(), path); err == nil {
+		t.Fatal("Read admitted a directory")
+	}
+}
+
+func TestReadPreservesNativeMissingFileSemantics(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "missing")
+	if _, err := declarationartifact.Read(t.Context(), path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Read error = %v, want os.ErrNotExist", err)
+	}
+}
+
 func TestAdmitRejectsContentOverMaximum(t *testing.T) {
 	t.Parallel()
 

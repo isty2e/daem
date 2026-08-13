@@ -336,14 +336,14 @@ After provider replan, final journal capture derives and validates it again.
 See [Platform Support](platforms.md).
 Daem refuses every selected manifest or lockfile larger than 64 MiB at the
 physical read boundary, before decoding it, and applies the same limit to
-in-memory decode inputs and generated lockfile output. Final manifest or
-lockfile symlinks are admitted only while the selected link and regular-file
-referent remain stable for the complete read. Metadata file-set transactions
-also refuse any target after-image, captured before-image, or restored backup
-larger than 64 MiB. These transaction limits bound physical evidence; the
-statefile and carrier-registry codecs retain their stricter 16 MiB semantic
-limits. Daem refuses input statefiles larger than 16 MiB before planning and
-refuses recovery journals larger than 64 MiB. Individual
+in-memory decode inputs and generated manifest or lockfile output. Final
+manifest or lockfile symlinks are admitted only while the selected link and
+regular-file referent remain stable for the complete read. Metadata file-set
+transactions also refuse any target after-image, captured before-image, or
+restored backup larger than 64 MiB. These transaction limits bound physical
+evidence; the statefile and carrier-registry codecs retain their stricter 16
+MiB semantic limits. Daem refuses input statefiles larger than 16 MiB before
+planning and refuses recovery journals larger than 64 MiB. Individual
 regular-file recovery backups larger than 128 MiB are refused before the
 covered host mutation; produced state and journal documents are also
 size-checked before publication. Managed hook and MCP host documents are

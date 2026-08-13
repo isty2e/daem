@@ -15,10 +15,18 @@ func readTransactionFile(
 	ctx context.Context,
 	path string,
 ) ([]byte, fs.FileMode, error) {
+	return readTransactionFileUpTo(ctx, path, maximumTargetBytes)
+}
+
+func readTransactionFileUpTo(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) ([]byte, fs.FileMode, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(
 		ctx,
 		path,
-		maximumTargetBytes,
+		maximumBytes,
 	)
 	if err != nil {
 		return nil, 0, err

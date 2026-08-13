@@ -533,6 +533,24 @@ func TestTransactionPhysicalReadsRejectOversizedFiles(t *testing.T) {
 	})
 }
 
+func TestTransactionPhysicalReadAdmitsExactLimit(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "exact")
+	writeFixture(t, path, "1234", 0o640)
+	path, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, mode, err := readTransactionFileUpTo(t.Context(), path, 4)
+	if err != nil || string(content) != "1234" || mode.Perm() != 0o640 {
+		t.Fatalf("exact transaction read = (%q, %04o, %v)", content, mode.Perm(), err)
+	}
+	if _, _, err := readTransactionFileUpTo(t.Context(), path, 3); err == nil {
+		t.Fatal("transaction read admitted content over its limit")
+	}
+}
+
 func TestCancellationRollsBackPartialSet(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")
