@@ -168,18 +168,218 @@ target = "codex"
 matcher = "Edit"
 `)
 
-	existing, err := scanExistingDeclarations(content)
+	manifestRoot := t.TempDir()
+	existing, err := scanExistingDeclarations(content, manifestRoot)
 	if err != nil {
 		t.Fatalf("scanExistingDeclarations returned error: %v", err)
 	}
 	if len(existing.Instructions) != 1 || len(existing.Skills) != 1 || len(existing.Hooks) != 1 {
 		t.Fatalf("existing = %#v, want one instruction, skill, and hook", existing)
 	}
-	if existing.Skills[0].Skill.Source.Path != "daem.d/skills/review" {
-		t.Fatalf("skill source = %#v, want nested source", existing.Skills[0].Skill.Source)
+	skillSource, ok := existing.Skills[0].Skill.Source().Local()
+	if !ok || skillSource.Path() != "daem.d/skills/review" || !existing.Skills[0].CanMergeTargets {
+		t.Fatalf("skill declaration = %#v, want direct nested local source", existing.Skills[0])
 	}
-	if len(existing.Hooks[0].Hook.TargetOverrides) != 1 {
-		t.Fatalf("hook overrides = %#v, want nested override", existing.Hooks[0].Hook.TargetOverrides)
+	if len(existing.Hooks[0].TargetOverrides()) != 1 {
+		t.Fatalf("hook overrides = %#v, want nested override", existing.Hooks[0].TargetOverrides())
+	}
+}
+
+func TestIntoManifestNoopsCanonicalInstructionDefaultsAndRelativeSource(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+
+[instructions.codex_project]
+source = "daem.d/instructions/codex-project.md"
+
+[instructions.codex_project.target.codex]
+mode = "copy"
+`),
+		Sources: []adopt.Source{{
+			ResourceName: "codex_project",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/instructions/codex-project.md",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
+		t.Fatalf("status = %q, want noop; results = %#v", got, merged.MergeResults())
+	}
+	if string(merged.ManifestContent()) != string(plan.OriginalContent) {
+		t.Fatal("manifest content changed for semantically equivalent instructions")
+	}
+}
+
+func TestIntoManifestNoopsCanonicalSkillDefaultsAndRelativeSource(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+install_mode = "copy"
+
+[[skill]]
+name = "review"
+source = { path = "daem.d/skills/review", mode = "vendor" }
+`),
+		Skills: []adopt.Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       target.TargetCodex,
+			Targets:      []target.Target{target.TargetCodex},
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/skills/review",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
+		t.Fatalf("status = %q, want noop; results = %#v", got, merged.MergeResults())
+	}
+}
+
+func TestIntoManifestNoopsCanonicalHookDefaults(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+
+[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = "make lint"
+`),
+		Hooks: []adopt.Hook{{
+			ResourceName: "lint",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			Event:        "PreToolUse",
+			Command:      "make lint",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
+		t.Fatalf("status = %q, want noop; results = %#v", got, merged.MergeResults())
+	}
+}
+
+func TestIntoManifestRejectsUnrelatedInvalidDeclarationBeforeMerge(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[instructions.codex_project]
+source = "daem.d/instructions/codex-project.md"
+
+[[hook]]
+name = "invalid"
+event = "PreToolUse"
+`),
+		Sources: []adopt.Source{{
+			ResourceName: "codex_project",
+			Target:       target.TargetCodex,
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/instructions/codex-project.md",
+		}},
+	}
+
+	if _, err := mergeTestPlan(t, plan); err == nil || !strings.Contains(err.Error(), "decode merge output manifest") {
+		t.Fatalf("merge error = %v, want whole-manifest canonical validation failure", err)
+	}
+}
+
+func TestIntoManifestNoopsEquivalentExplicitSkillGroupMember(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex"]
+
+[defaults]
+scope = "project"
+install_mode = "copy"
+
+[[skill_group]]
+names = ["review"]
+source = { path = "daem.d/skills", mode = "vendor" }
+`),
+		Skills: []adopt.Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       target.TargetCodex,
+			Targets:      []target.Target{target.TargetCodex},
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/skills/review",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := merged.MergeResults()[0].Status; got != adopt.MergeStatusNoop {
+		t.Fatalf("status = %q, want noop; results = %#v", got, merged.MergeResults())
+	}
+	if len(merged.Skills()) != 0 {
+		t.Fatalf("skills = %#v, want grouped member retained as non-writable authority", merged.Skills())
+	}
+}
+
+func TestIntoManifestConflictsOnMemberSpecificSkillGroupTargetMerge(t *testing.T) {
+	plan := mergeTestInput{
+		Merge: true,
+		OriginalContent: []byte(`version = 1
+targets = ["codex", "claude-code"]
+
+[[skill_group]]
+names = ["review"]
+source = { path = "daem.d/skills", mode = "vendor" }
+targets = ["codex"]
+scope = "project"
+install_mode = "copy"
+`),
+		Skills: []adopt.Skill{{
+			ResourceName: "review",
+			InstallName:  "review",
+			Target:       target.TargetClaudeCode,
+			Targets:      []target.Target{target.TargetClaudeCode},
+			Scope:        target.ScopeProject,
+			SourcePath:   "daem.d/skills/review",
+		}},
+	}
+
+	merged, err := mergeTestPlan(t, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := merged.MergeResults()[0]; got.Status != adopt.MergeStatusConflict ||
+		!strings.Contains(got.Detail, "skill_group member") {
+		t.Fatalf("merge result = %#v, want grouped member target conflict", got)
+	}
+	if string(merged.ManifestContent()) != string(plan.OriginalContent) {
+		t.Fatal("manifest content changed on grouped member conflict")
 	}
 }
 
@@ -747,6 +947,9 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 	}
 
 	for index := range input.Sources {
+		if !filepath.IsAbs(input.Sources[index].SourcePath) {
+			input.Sources[index].SourcePath = filepath.Join(root, filepath.FromSlash(input.Sources[index].SourcePath))
+		}
 		if input.Sources[index].LivePath == "" {
 			input.Sources[index].LivePath = filepath.Join(root, "live-instructions")
 		}
@@ -755,6 +958,12 @@ func mergeTestPlan(t *testing.T, input mergeTestInput) (adopt.Plan, error) {
 		}
 	}
 	for index := range input.Skills {
+		if !filepath.IsAbs(input.Skills[index].SourcePath) {
+			input.Skills[index].SourcePath = filepath.Join(root, filepath.FromSlash(input.Skills[index].SourcePath))
+		}
+		if input.Skills[index].GroupRoot != "" && !filepath.IsAbs(input.Skills[index].GroupRoot) {
+			input.Skills[index].GroupRoot = filepath.Join(root, filepath.FromSlash(input.Skills[index].GroupRoot))
+		}
 		if len(input.Skills[index].Targets) == 0 {
 			input.Skills[index].Targets = []target.Target{input.Skills[index].Target}
 		}

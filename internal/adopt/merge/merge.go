@@ -2,6 +2,7 @@ package merge
 
 import (
 	"fmt"
+	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
@@ -41,7 +42,7 @@ func IntoManifest(
 	if err := candidates.Validate(); err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	existing, err := scanExistingDeclarations(originalContent)
+	existing, err := scanExistingDeclarations(originalContent, filepath.Dir(request.Output()))
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}

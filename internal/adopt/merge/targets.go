@@ -7,11 +7,11 @@ import (
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
-func missingImportTargets(existingTargets []string, importedTargets []targetpkg.Target) []targetpkg.Target {
+func missingCanonicalImportTargets(existingTargets []targetpkg.Target, importedTargets []targetpkg.Target) []targetpkg.Target {
 	missing := make(map[targetpkg.Target]struct{}, len(importedTargets))
-	for _, target := range importedTargets {
-		if !containsStringTarget(existingTargets, target) {
-			missing[target] = struct{}{}
+	for _, selectedTarget := range importedTargets {
+		if !containsTarget(existingTargets, selectedTarget) {
+			missing[selectedTarget] = struct{}{}
 		}
 	}
 	ordered := make([]targetpkg.Target, 0, len(missing))
@@ -21,10 +21,6 @@ func missingImportTargets(existingTargets []string, importedTargets []targetpkg.
 		}
 	}
 	return ordered
-}
-
-func containsStringTarget(targets []string, target targetpkg.Target) bool {
-	return slices.Contains(targets, string(target))
 }
 
 func containsTarget(targets []targetpkg.Target, target targetpkg.Target) bool {

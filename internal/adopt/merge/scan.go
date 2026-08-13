@@ -2,42 +2,58 @@ package merge
 
 import (
 	"fmt"
-	"strings"
+	"path/filepath"
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	sourcepkg "github.com/isty2e/daem/internal/supply/source"
+	"github.com/isty2e/daem/internal/desired/hook"
+	"github.com/isty2e/daem/internal/desired/instructions"
+	"github.com/isty2e/daem/internal/desired/skill"
 )
 
+type existingSkillDeclaration struct {
+	Skill           skill.Skill
+	CanMergeTargets bool
+}
+
 type existingDeclarations struct {
+	ManifestRoot string
 	Header       declaration.ManifestHeader
-	Instructions []declarationcodec.InstructionBlock
-	Skills       []declarationcodec.SkillBlock
-	Hooks        []declarationcodec.HookBlock
+	Instructions []instructions.Instructions
+	Skills       []existingSkillDeclaration
+	Hooks        []hook.Hook
 	MCPServers   []declarationcodec.MCPServerBlock
 	Extensions   []declarationcodec.ExtensionBlock
 }
 
-func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
-	if err := validateCanonicalManifest(content); err != nil {
+func scanExistingDeclarations(content []byte, manifestRoot string) (existingDeclarations, error) {
+	if !filepath.IsAbs(manifestRoot) || filepath.Clean(manifestRoot) != manifestRoot {
+		return existingDeclarations{}, fmt.Errorf("merge manifest root must be an absolute clean path")
+	}
+	environment, err := declarationmanifest.Decode(content)
+	if err != nil {
 		return existingDeclarations{}, fmt.Errorf("decode merge output manifest: %w", err)
 	}
 	header, err := declaration.DecodeManifestHeader(content)
 	if err != nil {
 		return existingDeclarations{}, err
 	}
-	instructions, err := declarationcodec.ScanInstructionBlocks(content)
+	skillBlocks, err := declarationcodec.ScanSkillBlocks(content)
 	if err != nil {
 		return existingDeclarations{}, err
 	}
-	skills, err := declarationcodec.ScanSkillBlocks(content)
-	if err != nil {
-		return existingDeclarations{}, err
+	directSkillIDs := make(map[string]struct{}, len(skillBlocks))
+	for _, block := range skillBlocks {
+		directSkillIDs[importSkillResourceID(block.Skill)] = struct{}{}
 	}
-	hooks, err := declarationcodec.ScanHookBlocks(content)
-	if err != nil {
-		return existingDeclarations{}, err
+	skills := make([]existingSkillDeclaration, 0, len(environment.Skills()))
+	for _, existingSkill := range environment.Skills() {
+		_, canMergeTargets := directSkillIDs[existingSkill.ID().Name()]
+		skills = append(skills, existingSkillDeclaration{
+			Skill:           existingSkill,
+			CanMergeTargets: canMergeTargets,
+		})
 	}
 	mcpServers, err := declarationcodec.ScanMCPServerBlocks(content)
 	if err != nil {
@@ -48,10 +64,11 @@ func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 		return existingDeclarations{}, err
 	}
 	return existingDeclarations{
+		ManifestRoot: manifestRoot,
 		Header:       header,
-		Instructions: instructions,
+		Instructions: environment.Instructions(),
 		Skills:       skills,
-		Hooks:        hooks,
+		Hooks:        environment.Hooks(),
 		MCPServers:   mcpServers,
 		Extensions:   extensions,
 	}, nil
@@ -60,29 +77,4 @@ func scanExistingDeclarations(content []byte) (existingDeclarations, error) {
 func validateCanonicalManifest(content []byte) error {
 	_, err := declarationmanifest.Decode(content)
 	return err
-}
-
-func sameInstructionSource(left declarationcodec.InstructionSource, right declarationcodec.InstructionSource) bool {
-	return left.Git == right.Git &&
-		left.Path == right.Path &&
-		left.Ref == right.Ref &&
-		effectiveSourceMode(left.Mode) == effectiveSourceMode(right.Mode) &&
-		left.S3 == right.S3 &&
-		left.VersionID == right.VersionID &&
-		left.Region == right.Region &&
-		left.Format == right.Format
-}
-
-func effectiveSourceMode(mode string) string {
-	if strings.TrimSpace(mode) == "" {
-		return string(sourcepkg.LocalSourceModeVendor)
-	}
-	return mode
-}
-
-func effectiveInstallMode(mode string) string {
-	if strings.TrimSpace(mode) == "" {
-		return declarationInstallModeCopy
-	}
-	return mode
 }
