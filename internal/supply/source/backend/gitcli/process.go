@@ -10,12 +10,13 @@ import (
 )
 
 type gitProcess struct {
-	stdout     *os.File
-	stderr     *os.File
-	group      *subprocess.ProcessGroup
-	waitDone   chan gitProcessWait
-	stderrDone chan error
-	diagnostic gitDiagnosticBuffer
+	stdout           *os.File
+	stderr           *os.File
+	group            *subprocess.ProcessGroup
+	waitDone         chan gitProcessWait
+	stderrDone       chan error
+	diagnostic       gitDiagnosticBuffer
+	diagnosticPolicy subprocess.CapturePolicy
 }
 
 type gitProcessWait struct {
@@ -25,18 +26,21 @@ type gitProcessWait struct {
 }
 
 type gitProcessResult struct {
-	waitErr         error
-	termination     subprocess.ProcessTermination
-	terminationErr  error
-	stderr          string
-	stderrTruncated bool
-	stderrReadErr   error
+	commandErr     error
+	termination    subprocess.ProcessTermination
+	terminationErr error
+	stderrReadErr  error
 }
 
 func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 	if command == nil {
 		return nil, fmt.Errorf("start git process: command is required")
 	}
+	environment := subprocess.ChildEnvironmentFrom(command.Environ())
+	diagnosticPolicy := subprocess.NewCapturePolicy(
+		environment.SecretValues(),
+		maxGitDiagnosticRunes,
+	)
 
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
@@ -70,11 +74,12 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 	_ = stderrWriter.Close()
 
 	process := &gitProcess{
-		stdout:     stdoutReader,
-		stderr:     stderrReader,
-		group:      group,
-		waitDone:   make(chan gitProcessWait, 1),
-		stderrDone: make(chan error, 1),
+		stdout:           stdoutReader,
+		stderr:           stderrReader,
+		group:            group,
+		waitDone:         make(chan gitProcessWait, 1),
+		stderrDone:       make(chan error, 1),
+		diagnosticPolicy: diagnosticPolicy,
 	}
 	go func() {
 		_, readErr := io.Copy(&process.diagnostic, process.stderr)
@@ -105,12 +110,19 @@ func (process *gitProcess) Wait() gitProcessResult {
 	_ = process.stdout.Close()
 	stderrReadErr := <-process.stderrDone
 	_ = process.stderr.Close()
+	commandErr := wait.waitErr
+	if commandErr != nil {
+		commandErr = gitCommandErrorWithCapture(
+			process.diagnosticPolicy,
+			commandErr,
+			process.diagnostic.String(),
+			process.diagnostic.Truncated(),
+		)
+	}
 	return gitProcessResult{
-		waitErr:         wait.waitErr,
-		termination:     wait.termination,
-		terminationErr:  wait.terminationErr,
-		stderr:          process.diagnostic.String(),
-		stderrTruncated: process.diagnostic.Truncated(),
-		stderrReadErr:   stderrReadErr,
+		commandErr:     commandErr,
+		termination:    wait.termination,
+		terminationErr: wait.terminationErr,
+		stderrReadErr:  stderrReadErr,
 	}
 }

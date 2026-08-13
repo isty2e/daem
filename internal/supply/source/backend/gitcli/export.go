@@ -191,11 +191,8 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 	}
 
 	waitErr := result.stderrReadErr
-	if result.waitErr != nil {
-		waitErr = errors.Join(
-			waitErr,
-			gitCommandErrorWithCapture(result.waitErr, result.stderr, result.stderrTruncated),
-		)
+	if result.commandErr != nil {
+		waitErr = errors.Join(waitErr, result.commandErr)
 	}
 	if result.terminationErr != nil {
 		waitErr = errors.Join(waitErr, fmt.Errorf("terminate git archive process tree: %w", result.terminationErr))
