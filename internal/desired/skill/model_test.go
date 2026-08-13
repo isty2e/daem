@@ -42,6 +42,76 @@ func TestSkillConstructorOwnsCanonicalInvariantsAndStorage(t *testing.T) {
 	}
 }
 
+func TestSkillEqualCoversCanonicalDeclarationSemantics(t *testing.T) {
+	placement, err := NewTargetPlacement(target.ScopeProject, ".codex/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := Spec{
+		Name:         "review",
+		InstallName:  "review",
+		Source:       sourcetest.Local(t, "skills/review", source.LocalSourceModeVendor),
+		Targets:      []target.Target{target.TargetCodex, target.TargetClaudeCode},
+		Placements:   map[target.Target]TargetPlacement{target.TargetCodex: placement},
+		Scope:        target.ScopeProject,
+		InstallMode:  InstallModeCopy,
+		Portable:     true,
+		CompatRepair: false,
+	}
+	mustSkill := func(spec Spec) Skill {
+		t.Helper()
+		value, newErr := New(spec)
+		if newErr != nil {
+			t.Fatal(newErr)
+		}
+		return value
+	}
+
+	want := mustSkill(base)
+	reordered := base
+	reordered.Targets = []target.Target{target.TargetClaudeCode, target.TargetCodex}
+	if !want.Equal(mustSkill(reordered)) {
+		t.Fatal("target set order changed canonical Skill equality")
+	}
+
+	variants := []Spec{}
+	name := base
+	name.Name = "other"
+	variants = append(variants, name)
+	installName := base
+	installName.InstallName = "other"
+	variants = append(variants, installName)
+	skillSource := base
+	skillSource.Source = sourcetest.Local(t, "skills/other", source.LocalSourceModeVendor)
+	variants = append(variants, skillSource)
+	targets := base
+	targets.Targets = []target.Target{target.TargetCodex}
+	variants = append(variants, targets)
+	placements := base
+	placements.Placements = nil
+	variants = append(variants, placements)
+	installMode := base
+	installMode.InstallMode = InstallModeSymlink
+	variants = append(variants, installMode)
+	portable := base
+	portable.Portable = false
+	variants = append(variants, portable)
+	compatRepair := base
+	compatRepair.CompatRepair = true
+	variants = append(variants, compatRepair)
+
+	for index, variant := range variants {
+		if want.Equal(mustSkill(variant)) {
+			t.Fatalf("variant %d compared equal to canonical Skill", index)
+		}
+	}
+	differentScope := want
+	differentScope.scope = target.ScopeGlobal
+	if want.Equal(differentScope) {
+		t.Fatal("scope drift compared equal to canonical Skill")
+	}
+}
+
 func TestSkillConstructorRejectsCrossAxisInvalidStates(t *testing.T) {
 	base := Spec{
 		Name:        "review",

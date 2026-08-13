@@ -102,13 +102,12 @@ matcher = "startup"
 		t.Fatalf("hook.Type = %q, want command", hook.Type())
 	}
 
-	override, ok := hook.TargetOverrides()[target.TargetClaudeCode]
-	if !ok {
-		t.Fatal("missing claude-code hook override")
+	effective, err := hook.EffectiveMatch(target.TargetClaudeCode)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	if override.Matcher() != "startup" {
-		t.Fatalf("override.Matcher = %q, want startup", override.Matcher())
+	if effective.Matcher() != "startup" {
+		t.Fatalf("effective matcher = %q, want startup", effective.Matcher())
 	}
 
 	instructionValues := environment.Instructions()

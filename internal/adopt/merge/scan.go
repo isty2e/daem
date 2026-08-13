@@ -27,13 +27,32 @@ type existingDeclarations struct {
 	Extensions   []declarationcodec.ExtensionBlock
 }
 
-func scanExistingDeclarations(content []byte, manifestRoot string) (existingDeclarations, error) {
+func scanExistingDeclarations(
+	content []byte,
+	manifestRoot string,
+	selectorBackedSkills []skill.Skill,
+	requireSelectorMembership bool,
+) (existingDeclarations, error) {
 	if !filepath.IsAbs(manifestRoot) || filepath.Clean(manifestRoot) != manifestRoot {
 		return existingDeclarations{}, fmt.Errorf("merge manifest root must be an absolute clean path")
 	}
 	environment, err := declarationmanifest.Decode(content)
 	if err != nil {
 		return existingDeclarations{}, fmt.Errorf("decode merge output manifest: %w", err)
+	}
+	if requireSelectorMembership && len(environment.SkillSets()) != 0 && len(selectorBackedSkills) == 0 {
+		return existingDeclarations{}, fmt.Errorf(
+			"selector-backed skill_group membership is required for skill merge classification",
+		)
+	}
+	if len(selectorBackedSkills) != 0 {
+		environment, err = environment.WithGeneratedSkills(selectorBackedSkills)
+		if err != nil {
+			return existingDeclarations{}, fmt.Errorf(
+				"correlate locked selector-backed skill_group members: %w",
+				err,
+			)
+		}
 	}
 	header, err := declaration.DecodeManifestHeader(content)
 	if err != nil {

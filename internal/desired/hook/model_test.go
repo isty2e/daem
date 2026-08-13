@@ -31,16 +31,52 @@ func TestHookConstructorOwnsOverridesAndDefensiveStorage(t *testing.T) {
 	if hook.ID().Kind() != entity.KindHook || hook.ID().Name() != "protect" || hook.Event() != "Stop" || hook.Command() != "./protect.sh" {
 		t.Fatalf("hook normalization mismatch")
 	}
-	got := hook.TargetOverrides()
-	if got[target.TargetClaudeCode].Matcher() != "Write" {
-		t.Fatalf("override = %#v", got)
+	effective, err := hook.EffectiveMatch(target.TargetClaudeCode)
+	if err != nil {
+		t.Fatal(err)
 	}
-	got[target.TargetClaudeCode] = NewTargetOverride("mutated", "mutated")
-	if hook.TargetOverrides()[target.TargetClaudeCode].Matcher() != "Write" {
-		t.Fatal("TargetOverrides returned aliased storage")
+	if effective.Matcher() != "Write" || effective.Condition() != "tool" {
+		t.Fatalf("effective override = %q/%q", effective.Matcher(), effective.Condition())
 	}
 	if hook.Targets()[0] != target.TargetCodex || hook.Validate() != nil {
 		t.Fatalf("targets or validation mismatch")
+	}
+}
+
+func TestHookEffectiveMatchOwnsTargetOverrideFallback(t *testing.T) {
+	hook, err := New(Spec{
+		Name:    "protect",
+		Event:   "PreToolUse",
+		Matcher: " Write ",
+		Type:    TypeCommand,
+		Command: "make protect",
+		Targets: []target.Target{target.TargetCodex, target.TargetClaudeCode},
+		Scope:   target.ScopeProject,
+		TargetOverrides: map[target.Target]TargetOverride{
+			target.TargetCodex:      NewTargetOverride("", " Write "),
+			target.TargetClaudeCode: NewTargetOverride(" always ", " Bash "),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	codex, err := hook.EffectiveMatch(target.TargetCodex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codex.Matcher() != "Write" || codex.Condition() != "" {
+		t.Fatalf("Codex effective match = %q/%q", codex.Matcher(), codex.Condition())
+	}
+	claude, err := hook.EffectiveMatch(target.TargetClaudeCode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claude.Matcher() != "Bash" || claude.Condition() != "always" {
+		t.Fatalf("Claude effective match = %q/%q", claude.Matcher(), claude.Condition())
+	}
+	if _, err := hook.EffectiveMatch(target.TargetPi); err == nil {
+		t.Fatal("EffectiveMatch accepted an undeclared target")
 	}
 }
 

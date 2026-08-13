@@ -3,6 +3,7 @@ package merge
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/declaration"
@@ -139,7 +140,7 @@ func sameImportedSkillPlacements(
 	return true
 }
 
-func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target) {
+func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook) (adoptmodel.MergeResult, []targetpkg.Target, error) {
 	resource := "hook/" + hook.ResourceName
 	for _, existingHook := range existing.Hooks {
 		if existingHook.ID().Name() != hook.ResourceName {
@@ -150,18 +151,31 @@ func classifyImportHookMerge(existing existingDeclarations, hook adoptmodel.Hook
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
 				Detail:   "existing hook has the same name with a different command hook shape",
-			}, nil
+			}, nil, nil
 		}
-		if containsTarget(existingHook.Targets(), hook.Target) && !sameImportedHookOverride(existingHook, hook) {
+		if containsTarget(existingHook.Targets(), hook.Target) {
+			same, err := sameImportedHookEffectiveMatch(existingHook, hook)
+			if err != nil {
+				return adoptmodel.MergeResult{}, nil, err
+			}
+			if !same {
+				return adoptmodel.MergeResult{
+					Resource: resource,
+					Status:   adoptmodel.MergeStatusConflict,
+					Detail:   "existing hook target matcher or condition differs from imported effective semantics",
+				}, nil, nil
+			}
+		} else if strings.TrimSpace(existingHook.Matcher()) != strings.TrimSpace(hook.Matcher) {
 			return adoptmodel.MergeResult{
 				Resource: resource,
 				Status:   adoptmodel.MergeStatusConflict,
-				Detail:   "existing hook target override differs from imported hook condition",
-			}, nil
+				Detail:   "existing hook base matcher cannot represent the imported target matcher",
+			}, nil, nil
 		}
-		return classifyImportTargets(resource, existingHook.Targets(), []targetpkg.Target{hook.Target})
+		result, missing := classifyImportTargets(resource, existingHook.Targets(), []targetpkg.Target{hook.Target})
+		return result, missing, nil
 	}
-	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil
+	return adoptmodel.MergeResult{Resource: resource, Status: adoptmodel.MergeStatusAdd, Detail: "append imported hook"}, nil, nil
 }
 
 func classifyImportMCPServerMerge(existing existingDeclarations, server adoptmodel.MCPServer) (adoptmodel.MergeResult, error) {
@@ -350,21 +364,21 @@ func conflictingSkillDestination(existing []existingSkillDeclaration, imported a
 }
 
 func sameImportedHookBase(existing desiredhook.Hook, imported adoptmodel.Hook) bool {
-	return existing.Event() == imported.Event &&
-		existing.Matcher() == imported.Matcher &&
+	return strings.TrimSpace(existing.Event()) == strings.TrimSpace(imported.Event) &&
 		existing.Type() == desiredhook.TypeCommand &&
-		existing.Command() == imported.Command &&
+		strings.TrimSpace(existing.Command()) == strings.TrimSpace(imported.Command) &&
 		existing.TimeoutSeconds() == imported.Timeout &&
-		existing.StatusMessage() == imported.StatusMessage &&
+		strings.TrimSpace(existing.StatusMessage()) == strings.TrimSpace(imported.StatusMessage) &&
 		existing.Scope() == imported.Scope
 }
 
-func sameImportedHookOverride(existing desiredhook.Hook, imported adoptmodel.Hook) bool {
-	override, explicit := existing.TargetOverrides()[imported.Target]
-	if !explicit {
-		return imported.Condition == ""
+func sameImportedHookEffectiveMatch(existing desiredhook.Hook, imported adoptmodel.Hook) (bool, error) {
+	effective, err := existing.EffectiveMatch(imported.Target)
+	if err != nil {
+		return false, err
 	}
-	return override.Condition() == imported.Condition && override.Matcher() == ""
+	return effective.Matcher() == strings.TrimSpace(imported.Matcher) &&
+		effective.Condition() == strings.TrimSpace(imported.Condition), nil
 }
 
 func sameImportedLocalVendorSource(existing sourcepkg.Source, importedPath string, manifestRoot string) bool {

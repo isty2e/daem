@@ -199,13 +199,12 @@ func TestRunImportYesWritesCodexAndClaudeHookManifestWithoutSources(t *testing.T
 		t.Fatalf("claudeHook = %#v", claudeHook)
 	}
 	targets := claudeHook.Targets()
-	overrides := claudeHook.TargetOverrides()
 	if len(targets) != 1 {
 		t.Fatalf("claude targets = %#v, want one target", targets)
 	}
-	override, ok := overrides[targets[0]]
-	if !ok || override.Condition() != "tool_name == 'Edit'" {
-		t.Fatalf("claude override = %#v, ok = %v", overrides, ok)
+	effective, err := claudeHook.EffectiveMatch(targets[0])
+	if err != nil || effective.Condition() != "tool_name == 'Edit'" {
+		t.Fatalf("claude effective match = %#v, err = %v", effective, err)
 	}
 }
 

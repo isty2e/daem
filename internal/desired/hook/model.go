@@ -2,7 +2,6 @@ package hook
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -33,16 +32,22 @@ type TargetOverride struct {
 	matcher   string
 }
 
+// EffectiveMatch is the canonical matcher and condition for one Hook target.
+type EffectiveMatch struct {
+	matcher   string
+	condition string
+}
+
 // NewTargetOverride constructs an immutable target override.
 func NewTargetOverride(condition string, matcher string) TargetOverride {
 	return TargetOverride{condition: condition, matcher: matcher}
 }
 
-// Condition returns the target-specific condition text.
-func (override TargetOverride) Condition() string { return override.condition }
+// Matcher returns the effective target matcher.
+func (match EffectiveMatch) Matcher() string { return match.matcher }
 
-// Matcher returns the target-specific matcher text.
-func (override TargetOverride) Matcher() string { return override.matcher }
+// Condition returns the effective target condition.
+func (match EffectiveMatch) Condition() string { return match.condition }
 
 // Spec is constructor input for one canonical Hook.
 type Spec struct {
@@ -225,6 +230,27 @@ func (hook Hook) StatusMessage() string    { return hook.statusMessage }
 func (hook Hook) Targets() []target.Target { return hook.targets.Values() }
 func (hook Hook) Scope() target.Scope      { return hook.scope }
 
+// EffectiveMatch returns the canonical matcher and condition for one declared target.
+func (hook Hook) EffectiveMatch(selected target.Target) (EffectiveMatch, error) {
+	if !hook.targets.Contains(selected) {
+		return EffectiveMatch{}, fmt.Errorf(
+			"hook %q does not declare target %q",
+			hook.id.Name(),
+			selected,
+		)
+	}
+
+	matcher := strings.TrimSpace(hook.matcher)
+	condition := ""
+	if override, explicit := hook.targetOverrides[selected]; explicit {
+		if candidate := strings.TrimSpace(override.matcher); candidate != "" {
+			matcher = candidate
+		}
+		condition = strings.TrimSpace(override.condition)
+	}
+	return EffectiveMatch{matcher: matcher, condition: condition}, nil
+}
+
 // AssetReferences returns the canonical HookAsset references parsed from Command.
 func (hook Hook) AssetReferences() []AssetReference {
 	return append([]AssetReference(nil), hook.assetReferences...)
@@ -259,11 +285,4 @@ func (hook Hook) RenderCommand(replacements map[AssetReference]string) (string, 
 		pairs = append(pairs, reference.Placeholder(), replacements[reference])
 	}
 	return strings.NewReplacer(pairs...).Replace(hook.command), nil
-}
-
-// TargetOverrides returns a defensive copy.
-func (hook Hook) TargetOverrides() map[target.Target]TargetOverride {
-	result := make(map[target.Target]TargetOverride, len(hook.targetOverrides))
-	maps.Copy(result, hook.targetOverrides)
-	return result
 }

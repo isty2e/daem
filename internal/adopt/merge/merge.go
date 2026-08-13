@@ -7,6 +7,7 @@ import (
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredskill "github.com/isty2e/daem/internal/desired/skill"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -35,6 +36,7 @@ func IntoManifest(
 	request adoptmodel.Request,
 	originalContent []byte,
 	candidates adoptmodel.CandidateSet,
+	selectorBackedSkills []desiredskill.Skill,
 ) (adoptmodel.Plan, error) {
 	if !request.Merge() {
 		return adoptmodel.Plan{}, fmt.Errorf("manifest merge requires a merge adoption request")
@@ -42,7 +44,12 @@ func IntoManifest(
 	if err := candidates.Validate(); err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	existing, err := scanExistingDeclarations(originalContent, filepath.Dir(request.Output()))
+	existing, err := scanExistingDeclarations(
+		originalContent,
+		filepath.Dir(request.Output()),
+		selectorBackedSkills,
+		len(candidates.Skills()) != 0,
+	)
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
@@ -95,7 +102,10 @@ func IntoManifest(
 	}
 
 	for _, hook := range hooks {
-		action, missingTargets := classifyImportHookMerge(existing, hook)
+		action, missingTargets, err := classifyImportHookMerge(existing, hook)
+		if err != nil {
+			return adoptmodel.Plan{}, err
+		}
 		mergeResults = append(mergeResults, action)
 		switch action.Status {
 		case adoptmodel.MergeStatusAdd:

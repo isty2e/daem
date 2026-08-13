@@ -2,7 +2,9 @@ package skill
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/desired/entity"
@@ -187,3 +189,19 @@ func (skill Skill) Portable() bool { return skill.portable }
 
 // CompatRepair reports whether deterministic compatibility repair is desired.
 func (skill Skill) CompatRepair() bool { return skill.compatRepair }
+
+// Equal reports whether two Skills have the same canonical declaration semantics.
+func (skill Skill) Equal(other Skill) bool {
+	leftTargets, leftErr := target.CanonicalSet(skill.targets.Values())
+	rightTargets, rightErr := target.CanonicalSet(other.targets.Values())
+	return leftErr == nil && rightErr == nil &&
+		skill.id == other.id &&
+		skill.installName == other.installName &&
+		skill.source == other.source &&
+		slices.Equal(leftTargets, rightTargets) &&
+		maps.Equal(skill.placements, other.placements) &&
+		skill.scope == other.scope &&
+		skill.installMode == other.installMode &&
+		skill.portable == other.portable &&
+		skill.compatRepair == other.compatRepair
+}
