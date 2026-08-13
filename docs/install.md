@@ -17,8 +17,10 @@ support and evidence contract.
 
 ## Install
 
-Set the exact version instead of relying on a moving latest-release URL. This
-example installs `v0.1.0` under `~/.local/bin`:
+Select the complete release requirement instead of relying on a moving
+latest-release URL. A release requirement includes the tag, commit, commit
+time, Go toolchain, and native target. This example installs `v0.1.0` under
+`~/.local/bin`:
 
 ```bash
 set -eu
@@ -38,6 +40,20 @@ daem_admitted_release_version_token() {
       }
       return 1
     }
+    function go_pseudo_version(value, minor, patch, position, last_hyphen, before_hash, hash, timestamp, lead) {
+      for (position = 1; position <= length(value); position++) {
+        if (substr(value, position, 1) == "-") last_hyphen = position
+      }
+      if (last_hyphen == 0) return 0
+      before_hash = substr(value, 1, last_hyphen - 1)
+      hash = substr(value, last_hyphen + 1)
+      if (hash == "" || hash ~ /[^0-9A-Za-z]/ || length(before_hash) < 14) return 0
+      timestamp = substr(before_hash, length(before_hash) - 13)
+      if (timestamp ~ /[^0-9]/) return 0
+      lead = substr(before_hash, 1, length(before_hash) - 14)
+      if (minor == "0" && patch == "0" && lead == "") return 1
+      return length(lead) >= 2 && substr(lead, length(lead) - 1) == "0."
+    }
     BEGIN { valid = 0 }
     NR == 1 {
       if (length($0) > 255 || substr($0, 1, 1) != "v" || index($0, "+") != 0) next
@@ -53,12 +69,97 @@ daem_admitted_release_version_token() {
       if (!canonical_number(components[1]) || !canonical_number(components[2]) ||
           !canonical_number(components[3])) next
       if (prerelease_offset != 0 && !canonical_prerelease(prerelease)) next
+      if (prerelease_offset != 0 && go_pseudo_version(prerelease, components[2], components[3])) next
       valid = 1
       next
     }
     { valid = 0 }
     END { if (NR != 1 || valid != 1) exit 1 }
   '
+}
+
+daem_admitted_release_revision() {
+  printf '%s\n' "$1" | /usr/bin/awk '
+    NR == 1 {
+      if (length($0) == 40 && $0 !~ /[^0-9a-f]/) valid = 1
+      next
+    }
+    { valid = 0 }
+    END { if (NR != 1 || valid != 1) exit 1 }
+  '
+}
+
+daem_admitted_release_timestamp() {
+  printf '%s\n' "$1" | /usr/bin/awk '
+    function digits(value) { return value != "" && value !~ /[^0-9]/ }
+    function leap_year(year) { return year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) }
+    BEGIN { valid = 0 }
+    NR == 1 {
+      value = $0
+      if (length(value) < 20 || length(value) > 30 ||
+          substr(value, 5, 1) != "-" || substr(value, 8, 1) != "-" ||
+          substr(value, 11, 1) != "T" || substr(value, 14, 1) != ":" ||
+          substr(value, 17, 1) != ":" || substr(value, length(value), 1) != "Z") next
+
+      year_text = substr(value, 1, 4)
+      month_text = substr(value, 6, 2)
+      day_text = substr(value, 9, 2)
+      hour_text = substr(value, 12, 2)
+      minute_text = substr(value, 15, 2)
+      second_text = substr(value, 18, 2)
+      if (!digits(year_text) || !digits(month_text) || !digits(day_text) ||
+          !digits(hour_text) || !digits(minute_text) || !digits(second_text)) next
+
+      if (length(value) == 20) {
+        if (substr(value, 20, 1) != "Z") next
+      } else {
+        if (substr(value, 20, 1) != ".") next
+        fraction = substr(value, 21, length(value) - 21)
+        if (length(fraction) < 1 || length(fraction) > 9 || !digits(fraction) ||
+            substr(fraction, length(fraction), 1) == "0") next
+      }
+
+      year = year_text + 0
+      month = month_text + 0
+      day = day_text + 0
+      hour = hour_text + 0
+      minute = minute_text + 0
+      second = second_text + 0
+      if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) next
+      maximum_day = 31
+      if (month == 4 || month == 6 || month == 9 || month == 11) maximum_day = 30
+      if (month == 2) maximum_day = leap_year(year) ? 29 : 28
+      if (day < 1 || day > maximum_day) next
+      valid = 1
+      next
+    }
+    { valid = 0 }
+    END { if (NR != 1 || valid != 1) exit 1 }
+  '
+}
+
+daem_admitted_release_go_version() {
+  printf '%s\n' "$1" | /usr/bin/awk '
+    function canonical_number(value) { return value ~ /^(0|[1-9][0-9]*)$/ }
+    BEGIN { valid = 0 }
+    NR == 1 {
+      if (substr($0, 1, 2) != "go") next
+      if (split(substr($0, 3), components, ".") != 3) next
+      if (!canonical_number(components[1]) || !canonical_number(components[2]) ||
+          !canonical_number(components[3])) next
+      valid = 1
+      next
+    }
+    { valid = 0 }
+    END { if (NR != 1 || valid != 1) exit 1 }
+  '
+}
+
+daem_admitted_release_requirement() {
+  daem_admitted_release_version_token "$1" &&
+    daem_admitted_release_revision "$2" &&
+    daem_admitted_release_timestamp "$3" &&
+    daem_admitted_release_go_version "$4"
 }
 
 daem_release_target() {
@@ -92,11 +193,25 @@ daem_admitted_macos_product_version() {
 
 daem_verify_archive_checksum() {
   case "$4" in
-    Darwin) shasum -a 256 "$1" > "$2.actual" || return 1 ;;
-    Linux) sha256sum "$1" > "$2.actual" || return 1 ;;
+    Darwin) shasum -a 256 < "$1" > "$2.actual" || return 1 ;;
+    Linux) sha256sum < "$1" > "$2.actual" || return 1 ;;
     *) return 1 ;;
   esac
-  actual="$(/usr/bin/awk 'NR == 1 { print $1; next } { exit 1 } END { if (NR != 1) exit 1 }' "$2.actual")" || return 1
+  actual="$(/usr/bin/awk '
+    BEGIN { valid = 0 }
+    NR == 1 {
+      if (length($1) == 64 && $1 !~ /[^0-9a-f]/) {
+        actual = $1
+        valid = 1
+      }
+      next
+    }
+    { valid = 0 }
+    END {
+      if (NR != 1 || valid != 1) exit 1
+      print actual
+    }
+  ' "$2.actual")" || return 1
   printf '%s  %s\n' "$actual" "$3" > "$2.expected" || return 1
   cmp -s "$2.expected" "$2"
 }
@@ -111,12 +226,15 @@ daem_extract_release_binary() {
 }
 
 daem_release_binary_matches() {
-  case "$3" in
+  daem_admitted_release_requirement "$2" "$3" "$4" "$5" || return 1
+  case "$6" in
     darwin_arm64) expected_goos=darwin; expected_goarch=arm64 ;;
     linux_amd64) expected_goos=linux; expected_goarch=amd64 ;;
     *) return 1 ;;
   esac
-  /usr/bin/awk -v expected_version="$2" -v expected_goos="$expected_goos" -v expected_goarch="$expected_goarch" '
+  /usr/bin/awk -v expected_version="$2" -v expected_revision="$3" \
+    -v expected_revision_time="$4" -v expected_go_version="$5" \
+    -v expected_goos="$expected_goos" -v expected_goarch="$expected_goarch" '
     function compact_json(input, output, position, character, quoted) {
       for (position = 1; position <= length(input); position++) {
         character = substr(input, position, 1)
@@ -150,13 +268,12 @@ daem_release_binary_matches() {
         } else if (key == "\"revision\"") {
           revision_value = substr(value, 2, length(value) - 2)
           if (substr(value, 1, 1) != "\"" || substr(value, length(value), 1) != "\"" ||
-              length(revision_value) != 40 || revision_value ~ /[^0-9a-f]/) exit 1
+              revision_value != expected_revision) exit 1
           revision = 1
         } else if (key == "\"revision_time\"") {
           revision_time_value = substr(value, 2, length(value) - 2)
           if (substr(value, 1, 1) != "\"" || substr(value, length(value), 1) != "\"" ||
-              revision_time_value == "" || revision_time_value == "unknown" ||
-              revision_time_value ~ /[^0-9TZ:+.-]/) exit 1
+              revision_time_value != expected_revision_time) exit 1
           revision_time = 1
         } else if (key == "\"source_state\"") {
           if (value != "\"clean\"") exit 1
@@ -167,7 +284,7 @@ daem_release_binary_matches() {
         } else if (key == "\"go_version\"") {
           go_version_value = substr(value, 2, length(value) - 2)
           if (substr(value, 1, 1) != "\"" || substr(value, length(value), 1) != "\"" ||
-              go_version_value !~ /^go[0-9]/ || go_version_value ~ /[^0-9A-Za-z.+-]/) exit 1
+              go_version_value != expected_go_version) exit 1
           go_version = 1
         } else if (key == "\"goos\"") {
           if (value != "\"" expected_goos "\"") exit 1
@@ -187,8 +304,12 @@ daem_release_binary_matches() {
 }
 
 DAEM_VERSION=v0.1.0
-if ! daem_admitted_release_version_token "$DAEM_VERSION"; then
-  echo "invalid daem release version token: $DAEM_VERSION" >&2
+DAEM_REVISION=2bf957187f9f847aa87b0e807d6ca960589f1083
+DAEM_REVISION_TIME=2026-07-28T02:19:30Z
+DAEM_GO_VERSION=go1.26.5
+if ! daem_admitted_release_requirement \
+  "$DAEM_VERSION" "$DAEM_REVISION" "$DAEM_REVISION_TIME" "$DAEM_GO_VERSION"; then
+  echo "invalid daem release requirement" >&2
   exit 1
 fi
 
@@ -255,7 +376,13 @@ if ! "$DAEM_STAGED_BINARY" version --json > "$DAEM_VERSION_JSON"; then
   echo "downloaded daem binary did not report its release identity" >&2
   exit 1
 fi
-if ! daem_release_binary_matches "$DAEM_VERSION_JSON" "$DAEM_VERSION" "$DAEM_TARGET"; then
+if ! daem_release_binary_matches \
+  "$DAEM_VERSION_JSON" \
+  "$DAEM_VERSION" \
+  "$DAEM_REVISION" \
+  "$DAEM_REVISION_TIME" \
+  "$DAEM_GO_VERSION" \
+  "$DAEM_TARGET"; then
   echo "downloaded daem binary does not match the requested release identity" >&2
   exit 1
 fi
@@ -285,13 +412,13 @@ gate.
 
 The recipe accepts exactly one checksum entry for the requested archive, then
 requires one regular executable named `daem` in that archive. Before replacing
-an installed binary, it verifies that the staged executable reports the exact
-requested version and target, a full Git revision, a known revision time, Git
-VCS metadata, and a clean source state. These checks detect transfer errors and
-release-assembly mismatches. The archive and its checksum sidecar share the same
-mutable GitHub release authority. This does not prove publisher identity,
-provenance, or post-publication immutability. Confirm that both downloads came
-from the expected GitHub repository and HTTPS endpoint.
+an installed binary, it verifies that the staged executable exactly matches the
+selected tag, commit, commit time, Go toolchain, and native target, and that it
+reports Git VCS metadata and a clean source state. These checks detect transfer
+errors and release-assembly mismatches. The archive and its checksum sidecar
+share the same mutable GitHub release authority. This does not prove publisher
+identity, provenance, or post-publication immutability. Confirm that both
+downloads came from the expected GitHub repository and HTTPS endpoint.
 
 ## Release Mutability
 
@@ -305,9 +432,12 @@ artifact identity.
 
 ## Upgrade
 
-Read the target release notes, set `DAEM_VERSION` to the exact newer tag, and
-repeat the install procedure. The staged binary reports its identity before it
-replaces the current executable. A pre-existing executable is retained as
+Use the complete install recipe from the target release's tagged documentation.
+Do not change `DAEM_VERSION` alone: `DAEM_VERSION`, `DAEM_REVISION`,
+`DAEM_REVISION_TIME`, and `DAEM_GO_VERSION` form one release requirement. The
+release build checks these values against the binary before assembling its
+archive. The staged binary reports the same identity before it replaces the
+current executable. A pre-existing executable is retained as
 `~/.local/bin/daem.previous`.
 
 Before running a mutating command with the new binary:

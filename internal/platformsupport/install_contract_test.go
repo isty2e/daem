@@ -5,12 +5,17 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"fmt"
+	goversion "go/version"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
+
+	"golang.org/x/mod/module"
+	"golang.org/x/mod/semver"
 )
 
 func TestInstallRecipeUsesExecutableMacOSRuntimeFloor(t *testing.T) {
@@ -154,6 +159,7 @@ func TestInstallRecipeRejectsUnsafeReleaseVersionTokens(t *testing.T) {
 		{version: "v1.2.3-rc.1", admitted: true},
 		{version: "v1.2.3-0", admitted: true},
 		{version: "v1.2.3-alpha-1", admitted: true},
+		{version: "v1.2.3-rc.0.20260701020304", admitted: true},
 		{version: ""},
 		{version: "1.2.3"},
 		{version: "v1.2"},
@@ -165,11 +171,21 @@ func TestInstallRecipeRejectsUnsafeReleaseVersionTokens(t *testing.T) {
 		{version: "v1.2.3-alpha..1"},
 		{version: "v1.2.3-alpha_1"},
 		{version: "v1.2.3+build"},
+		{version: "v0.0.0-20260701020304-0123456789ab"},
+		{version: "v1.2.4-0.20260701020304-0123456789ab"},
+		{version: "v1.2.3-rc.0.20260701020304-0123456789ab"},
 		{version: "v1.2.3/../../other"},
 		{version: "v1.2.3 other"},
 		{version: "v1.2.3\nv2.0.0"},
 	}
 	for _, test := range tests {
+		producerAdmitted := semver.IsValid(test.version) &&
+			semver.Build(test.version) == "" &&
+			semver.Canonical(test.version) == test.version &&
+			!module.IsPseudoVersion(test.version)
+		if test.admitted != producerAdmitted {
+			t.Fatalf("version test case %q admitted=%t, producer contract=%t", test.version, test.admitted, producerAdmitted)
+		}
 		err := runInstallShell(
 			functions,
 			`daem_admitted_release_version_token "$1"`,
@@ -182,12 +198,70 @@ func TestInstallRecipeRejectsUnsafeReleaseVersionTokens(t *testing.T) {
 	}
 }
 
+func TestInstallRecipeTimestampMatchesCanonicalBuildIdentity(t *testing.T) {
+	functions := installRecipeFunctions(t)
+	timestamps := []string{
+		"2026-07-01T02:03:04Z",
+		"2026-07-01T02:03:04.1Z",
+		"2026-07-01T02:03:04.123456789Z",
+		"2024-02-29T23:59:59Z",
+		"",
+		"T",
+		"----",
+		"2026-99-99T99:99:99Z",
+		"2023-02-29T02:03:04Z",
+		"2026-07-01T02:03:60Z",
+		"2026-07-01T02:03:04+00:00",
+		"2026-07-01T02:03:04.10Z",
+		"2026-07-01T02:03:04.1234567890Z",
+	}
+	for _, timestamp := range timestamps {
+		parsed, parseErr := time.Parse(time.RFC3339, timestamp)
+		_, offset := parsed.Zone()
+		producerCanonical := parseErr == nil && offset == 0 && parsed.UTC().Format(time.RFC3339Nano) == timestamp
+		err := runInstallShell(functions, `daem_admitted_release_timestamp "$1"`, nil, timestamp)
+		if (err == nil) != producerCanonical {
+			t.Fatalf("timestamp %q error=%v, producer canonical=%t", timestamp, err, producerCanonical)
+		}
+	}
+}
+
+func TestInstallRecipeAdmitsStableReleaseToolchainVersions(t *testing.T) {
+	functions := installRecipeFunctions(t)
+	tests := []struct {
+		version  string
+		admitted bool
+	}{
+		{version: "go1.26.5", admitted: true},
+		{version: "go2.0.0", admitted: true},
+		{version: "go1evil"},
+		{version: "go1.999"},
+		{version: "go01.26.5"},
+		{version: "go1.026.5"},
+		{version: "go1.26.05"},
+		{version: "go1.26rc1"},
+		{version: "devel go1.27"},
+	}
+	for _, test := range tests {
+		if test.admitted && !goversion.IsValid(test.version) {
+			t.Fatalf("admitted toolchain %q is invalid under the producer parser", test.version)
+		}
+		err := runInstallShell(functions, `daem_admitted_release_go_version "$1"`, nil, test.version)
+		if (err == nil) != test.admitted {
+			t.Fatalf("toolchain %q error=%v, want admitted=%t", test.version, err, test.admitted)
+		}
+	}
+}
+
 func TestInstallRecipeRequiresExactArchiveChecksumEntry(t *testing.T) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		t.Skip("checksum tools are defined only for supported installer systems")
 	}
 	functions := installRecipeFunctions(t)
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), `stage\with-backslash`)
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	archiveName := "daem_1.2.3_linux_amd64.tar.gz"
 	archivePath := filepath.Join(root, archiveName)
 	payload := []byte("archive payload")
@@ -294,6 +368,11 @@ func TestInstallRecipeRequiresOneRegularExecutableArchiveEntry(t *testing.T) {
 
 func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 	functions := installRecipeFunctions(t)
+	const (
+		expectedRevision     = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		expectedRevisionTime = "2026-07-01T02:03:04Z"
+		expectedGoVersion    = "go1.26.5"
+	)
 	valid := `{
   "schema_version": 1,
   "version": "v1.2.3",
@@ -307,11 +386,14 @@ func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 }
 `
 	tests := []struct {
-		name     string
-		content  string
-		version  string
-		target   string
-		verified bool
+		name         string
+		content      string
+		version      string
+		revision     string
+		revisionTime string
+		goVersion    string
+		target       string
+		verified     bool
 	}{
 		{name: "exact identity", content: valid, version: "v1.2.3", target: "linux_amd64", verified: true},
 		{
@@ -322,6 +404,9 @@ func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 			verified: true,
 		},
 		{name: "wrong version", content: valid, version: "v1.2.4", target: "linux_amd64"},
+		{name: "wrong revision", content: valid, version: "v1.2.3", revision: strings.Repeat("b", 40), target: "linux_amd64"},
+		{name: "wrong revision time", content: valid, version: "v1.2.3", revisionTime: "2026-07-01T02:03:05Z", target: "linux_amd64"},
+		{name: "wrong Go version", content: valid, version: "v1.2.3", goVersion: "go1.25.12", target: "linux_amd64"},
 		{name: "whitespace inside version", content: strings.Replace(valid, `"version": "v1.2.3"`, `"version": "v1. 2.3"`, 1), version: "v1.2.3", target: "linux_amd64"},
 		{name: "escaped version", content: strings.Replace(valid, `"version": "v1.2.3"`, `"version": "v1.2.3\u002drc"`, 1), version: "v1.2.3-rc", target: "linux_amd64"},
 		{name: "wrong target", content: valid, version: "v1.2.3", target: "darwin_arm64"},
@@ -329,23 +414,44 @@ func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 		{name: "unknown vcs", content: strings.Replace(valid, `"vcs": "git"`, `"vcs": "unknown"`, 1), version: "v1.2.3", target: "linux_amd64"},
 		{name: "short revision", content: strings.Replace(valid, strings.Repeat("a", 40), strings.Repeat("a", 39), 1), version: "v1.2.3", target: "linux_amd64"},
 		{name: "unknown revision time", content: strings.Replace(valid, `"revision_time": "2026-07-01T02:03:04Z"`, `"revision_time": "unknown"`, 1), version: "v1.2.3", target: "linux_amd64"},
+		{name: "malformed revision time token", content: strings.Replace(valid, expectedRevisionTime, "T", 1), version: "v1.2.3", revisionTime: "T", target: "linux_amd64"},
+		{name: "malformed revision time punctuation", content: strings.Replace(valid, expectedRevisionTime, "----", 1), version: "v1.2.3", revisionTime: "----", target: "linux_amd64"},
+		{name: "invalid revision time fields", content: strings.Replace(valid, expectedRevisionTime, "2026-99-99T99:99:99Z", 1), version: "v1.2.3", revisionTime: "2026-99-99T99:99:99Z", target: "linux_amd64"},
 		{name: "unknown Go version", content: strings.Replace(valid, `"go_version": "go1.26.5"`, `"go_version": "unknown"`, 1), version: "v1.2.3", target: "linux_amd64"},
+		{name: "malformed Go version", content: strings.Replace(valid, expectedGoVersion, "go1evil", 1), version: "v1.2.3", goVersion: "go1evil", target: "linux_amd64"},
+		{name: "different Go release", content: strings.Replace(valid, expectedGoVersion, "go1.999", 1), version: "v1.2.3", goVersion: "go1.999", target: "linux_amd64"},
+		{name: "pseudo release version", content: strings.Replace(valid, "v1.2.3", "v0.0.0-20260701020304-0123456789ab", 1), version: "v0.0.0-20260701020304-0123456789ab", target: "linux_amd64"},
 		{name: "future schema", content: strings.Replace(valid, `"schema_version": 1`, `"schema_version": 2`, 1), version: "v1.2.3", target: "linux_amd64"},
 		{name: "duplicate version", content: strings.Replace(valid, `  "version": "v1.2.3",`, "  \"version\": \"v1.2.3\",\n  \"version\": \"v1.2.3\",", 1), version: "v1.2.3", target: "linux_amd64"},
 		{name: "additional field", content: strings.Replace(valid, `  "goarch": "amd64"`, "  \"goarch\": \"amd64\",\n  \"unexpected\": true", 1), version: "v1.2.3", target: "linux_amd64"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			revision := test.revision
+			if revision == "" {
+				revision = expectedRevision
+			}
+			revisionTime := test.revisionTime
+			if revisionTime == "" {
+				revisionTime = expectedRevisionTime
+			}
+			goVersion := test.goVersion
+			if goVersion == "" {
+				goVersion = expectedGoVersion
+			}
 			identityPath := filepath.Join(t.TempDir(), "version.json")
 			if err := os.WriteFile(identityPath, []byte(test.content), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			err := runInstallShell(
 				functions,
-				`daem_release_binary_matches "$1" "$2" "$3"`,
+				`daem_release_binary_matches "$1" "$2" "$3" "$4" "$5" "$6"`,
 				nil,
 				identityPath,
 				test.version,
+				revision,
+				revisionTime,
+				goVersion,
 				test.target,
 			)
 			if (err == nil) != test.verified {
@@ -355,8 +461,30 @@ func TestInstallRecipeRequiresExactReleaseBinaryIdentity(t *testing.T) {
 	}
 }
 
+func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
+	recipe := installRecipe(t)
+	for _, fact := range []string{
+		"DAEM_VERSION=v0.1.0",
+		"DAEM_REVISION=2bf957187f9f847aa87b0e807d6ca960589f1083",
+		"DAEM_REVISION_TIME=2026-07-28T02:19:30Z",
+		"DAEM_GO_VERSION=go1.26.5",
+	} {
+		if !strings.Contains(recipe, fact) {
+			t.Fatalf("install recipe is missing exact published release fact %q", fact)
+		}
+	}
+	if !goversion.IsValid("go1.26.5") {
+		t.Fatal("documented release toolchain is not a valid Go version")
+	}
+	revisionTime, err := time.Parse(time.RFC3339, "2026-07-28T02:19:30Z")
+	if err != nil || revisionTime.Format(time.RFC3339Nano) != "2026-07-28T02:19:30Z" {
+		t.Fatalf("documented revision time is not canonical: %v", err)
+	}
+}
+
 func TestInstallRecipeVerifiesBeforeReplacingExecutable(t *testing.T) {
 	recipe := installRecipe(t)
+	assertInstallRecipeOrder(t, recipe, `daem_admitted_release_requirement`, `curl --fail --location`)
 	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `curl --fail --location`)
 	assertInstallRecipeOrder(t, recipe, `daem_verify_archive_checksum`, `daem_extract_release_binary`)
 	assertInstallRecipeOrder(t, recipe, `daem_extract_release_binary`, `daem_release_binary_matches`)

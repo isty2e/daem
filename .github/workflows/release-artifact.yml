@@ -116,6 +116,24 @@ jobs:
           assert_string_field goarch "${RELEASE_GOARCH}" ''
           printf '%s\n' "${version_json}" | grep -E -x \
             '  "revision_time": "[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z",'
+          revision_time="$(printf '%s\n' "${version_json}" | awk -F'"' '
+            $2 == "revision_time" {
+              if (seen++) exit 1
+              value = $4
+            }
+            END {
+              if (seen != 1 || value == "") exit 1
+              print value
+            }
+          ')"
+          assert_installer_requirement() {
+            count="$(grep -F -x -c "$1=$2" docs/install.md)"
+            test "${count}" = 1
+          }
+          assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
+          assert_installer_requirement DAEM_REVISION "${RELEASE_REVISION}"
+          assert_installer_requirement DAEM_REVISION_TIME "${revision_time}"
+          assert_installer_requirement DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
       - name: Smoke-test native CLI artifact
         shell: bash
         run: |
