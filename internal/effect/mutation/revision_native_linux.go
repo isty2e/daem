@@ -24,8 +24,8 @@ func revisionNativeEntryFromStat(stat *unix.Stat_t) revisionNativeEntry {
 	return revisionNativeEntry{
 		identity: revisionNativeIdentity{
 			device: uint64(stat.Dev), inode: stat.Ino, mode: stat.Mode, size: stat.Size,
-			mtimeSec: stat.Mtim.Sec, mtimeNsec: stat.Mtim.Nsec,
-			changeSec: stat.Ctim.Sec, changeNsec: stat.Ctim.Nsec,
+			mtimeSec: int64(stat.Mtim.Sec), mtimeNsec: int64(stat.Mtim.Nsec),
+			changeSec: int64(stat.Ctim.Sec), changeNsec: int64(stat.Ctim.Nsec),
 		},
 		mode: stat.Mode,
 		size: stat.Size,
@@ -43,8 +43,8 @@ func revisionNativeEntryFromFileInfo(info os.FileInfo) (revisionNativeEntry, boo
 	return revisionNativeEntry{
 		identity: revisionNativeIdentity{
 			device: uint64(stat.Dev), inode: stat.Ino, mode: stat.Mode, size: stat.Size,
-			mtimeSec: stat.Mtim.Sec, mtimeNsec: stat.Mtim.Nsec,
-			changeSec: stat.Ctim.Sec, changeNsec: stat.Ctim.Nsec,
+			mtimeSec: int64(stat.Mtim.Sec), mtimeNsec: int64(stat.Mtim.Nsec),
+			changeSec: int64(stat.Ctim.Sec), changeNsec: int64(stat.Ctim.Nsec),
 		},
 		mode: stat.Mode,
 		size: stat.Size,
