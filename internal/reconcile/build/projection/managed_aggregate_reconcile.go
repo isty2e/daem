@@ -232,10 +232,21 @@ func reconcileAggregateDocumentSemantics(
 	return decision, nil
 }
 
-func aggregateGroupsHaveBlockedSubjects(groups []aggregateGroupInput) bool {
+func aggregateGroupsHaveAnyBlockedSubjects(groups []aggregateGroupInput) bool {
 	for _, group := range groups {
 		if len(group.blocked) != 0 {
 			return true
+		}
+	}
+	return false
+}
+
+func aggregateGroupsHaveLockReadinessBlocker(groups []aggregateGroupInput) bool {
+	for _, group := range groups {
+		for _, fact := range group.blocked {
+			if fact.reason.IsLockReadinessError() {
+				return true
+			}
 		}
 	}
 	return false

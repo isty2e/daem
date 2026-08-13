@@ -17,7 +17,7 @@ func blockedAggregateDocument(
 	detail string,
 ) aggregateDecision {
 	projections := make([]aggregateProjectionDecision, 0, len(groups))
-	hasLockBlocker := aggregateGroupsHaveBlockedSubjects(groups)
+	hasLockBlocker := aggregateGroupsHaveLockReadinessBlocker(groups)
 	for _, group := range groups {
 		desired, _ := aggregateContributionSet(group.desired)
 		projection := aggregateProjectionDecision{
@@ -59,7 +59,7 @@ func finalizeBlockedAggregateDocument(
 		}
 		siblingReason := reason
 		siblingDetail := "aggregate document is blocked by another projection: " + detail
-		if aggregateLockReadinessReason(reason) {
+		if reason.IsLockReadinessError() {
 			siblingReason = reconcile.ReasonAggregateLockBlocked
 			siblingDetail = "aggregate projection is blocked by another contribution's lock readiness"
 		}
@@ -77,18 +77,6 @@ func finalizeBlockedAggregateDocument(
 	}
 	decision.disableHostMutation()
 	return decision
-}
-
-func aggregateLockReadinessReason(reason reconcile.ActionReason) bool {
-	switch reason {
-	case reconcile.ReasonMissingLock,
-		reconcile.ReasonStaleLock,
-		reconcile.ReasonUnexpectedLockSubject,
-		reconcile.ReasonAggregateLockBlocked:
-		return true
-	default:
-		return false
-	}
 }
 
 func firstAggregateProjectionFailure(

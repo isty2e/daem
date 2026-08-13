@@ -34,7 +34,7 @@ func newAggregateDocumentCoverage(
 	}
 	coverage := aggregateDocumentCoverage{decision: decision}
 	if len(observationContracts) == 0 {
-		if !aggregateGroupsHaveBlockedSubjects(groups) {
+		if !aggregateGroupsHaveAnyBlockedSubjects(groups) {
 			return aggregateDocumentCoverage{}, fmt.Errorf(
 				"aggregate document has neither observable nor blocked projections",
 			)

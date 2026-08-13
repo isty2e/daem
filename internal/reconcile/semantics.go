@@ -19,7 +19,8 @@ func (reason ActionReason) IsOwnershipBlock() bool {
 	}
 }
 
-func (reason ActionReason) isLockReadinessError() bool {
+// IsLockReadinessError reports whether the reason requires the lockfile to be rebuilt.
+func (reason ActionReason) IsLockReadinessError() bool {
 	return reason == ReasonMissingLock ||
 		reason == ReasonStaleLock ||
 		reason == ReasonUnexpectedLockSubject ||
@@ -166,7 +167,7 @@ func (result Result) hasNonBlockingRelation(identity durablecarrier.ManagedCarri
 // HasLockReadinessErrors reports whether any decision blocks on lock readiness.
 func (result Result) HasLockReadinessErrors() bool {
 	for _, decision := range result.managedPaths {
-		if decision.IsBlocked() && decision.Reason().isLockReadinessError() {
+		if decision.IsBlocked() && decision.Reason().IsLockReadinessError() {
 			return true
 		}
 	}

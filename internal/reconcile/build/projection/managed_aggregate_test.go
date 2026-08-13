@@ -823,6 +823,33 @@ func aggregateMCPContract(
 	})
 }
 
+func aggregateOpenCodeMCPContract(
+	t *testing.T,
+	serverID string,
+	command string,
+	args []string,
+) lock.LockedSubjectContract {
+	t.Helper()
+	canonical, err := mcpcodec.CanonicalOpenCodeProjectMCPServerEntry(
+		mcpcodec.MCPNoEnvServerProjection{
+			ServerID:        serverID,
+			Command:         command,
+			Args:            append([]string(nil), args...),
+			AdapterContract: aggregate.OpenCodeProjectMCPLocalCommandV1,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
+		PlacementID:         aggregate.MCPPlacementOpenCodeProject,
+		ServerID:            serverID,
+		LauncherCommand:     command,
+		LauncherArgs:        append([]string(nil), args...),
+		CanonicalProjection: string(canonical),
+	})
+}
+
 func aggregateHookContract(t *testing.T, name string, command string) lock.LockedSubjectContract {
 	t.Helper()
 	value := desiredtest.Hook(t, hook.Spec{
