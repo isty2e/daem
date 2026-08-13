@@ -85,6 +85,7 @@ func newSkillRootScan(
 		Entries:      entries,
 		Imported:     imported,
 		Skipped:      skipped,
+		Evidence:     adopt.DirectoryListingScanEvidence(),
 	}
 }
 

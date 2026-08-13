@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	installedPluginsVersion      = 2
-	maximumInstalledPluginsBytes = 4 << 20
+	installedPluginsVersion = 2
+
+	// MaximumInstalledInventoryBytes bounds one Claude installed-plugin inventory.
+	MaximumInstalledInventoryBytes = 4 << 20
 )
 
 // InstalledInventoryInput identifies the passive Claude installed-plugin
@@ -46,7 +48,7 @@ func ReadInstalledInventory(input InstalledInventoryInput) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, err
 	}
-	data, exists, err := filesnapshot.ReadRegularFile(path, maximumInstalledPluginsBytes)
+	data, exists, err := filesnapshot.ReadRegularFile(path, MaximumInstalledInventoryBytes)
 	if err != nil {
 		return Inventory{}, fmt.Errorf("read Claude installed plugin inventory %q: %w", path, err)
 	}

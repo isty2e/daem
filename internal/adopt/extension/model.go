@@ -33,12 +33,13 @@ type Skip struct {
 // Its path remains boundary evidence and never participates in desired
 // extension identity.
 type Scan struct {
-	LivePath string
-	Target   target.Target
-	Scope    target.Scope
-	Entries  int
-	Imported int
-	Skipped  int
+	LivePath     string
+	Target       target.Target
+	Scope        target.Scope
+	Entries      int
+	Imported     int
+	Skipped      int
+	MaximumBytes int64
 }
 
 // Result is one immutable exact-extension import proposal. Extensions contains

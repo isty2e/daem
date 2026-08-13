@@ -426,16 +426,22 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		}
 	}
 	for _, scan := range plan.Scans() {
-		if err := addPhysicalRevision(
-			scan.LivePath,
-			string(scan.Target),
-			string(scan.Scope),
-			mutation.PathEffectReferent,
-			importObservedPathKey(scan.LivePath, mutation.PathEffectReferent),
-			mutation.NewBoundedDirectoryListingRevisionRequest(scan.LivePath),
-			true,
-		); err != nil {
+		requests, err := importScanRevisionRequests(scan)
+		if err != nil {
 			return nil, nil, nil, err
+		}
+		for _, request := range requests {
+			if err := addPhysicalRevision(
+				scan.LivePath,
+				string(scan.Target),
+				string(scan.Scope),
+				request.Effect,
+				importObservedPathKey(scan.LivePath, request.Effect),
+				request,
+				true,
+			); err != nil {
+				return nil, nil, nil, err
+			}
 		}
 	}
 	for key := range externallyValidated {
@@ -443,6 +449,26 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		delete(stableObserved, key)
 	}
 	return domains, sortedImportRevisionRequests(observed), sortedImportRevisionRequests(stableObserved), nil
+}
+
+func importScanRevisionRequests(scan adoptmodel.Scan) ([]mutation.RevisionRequest, error) {
+	switch scan.Evidence.Kind {
+	case adoptmodel.ScanEvidenceBoundedFile:
+		return mutation.BoundedFileRevisionRequests(
+			scan.Evidence.MaximumBytes,
+			scan.LivePath,
+		)
+	case adoptmodel.ScanEvidenceDirectoryListing:
+		return []mutation.RevisionRequest{
+			mutation.NewBoundedDirectoryListingRevisionRequest(scan.LivePath),
+		}, nil
+	default:
+		return nil, fmt.Errorf(
+			"import scan %q has unsupported evidence kind %q",
+			scan.LivePath,
+			scan.Evidence.Kind,
+		)
+	}
 }
 
 func sortedImportRevisionRequests(observed map[string]importObservedPath) []mutation.RevisionRequest {

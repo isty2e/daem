@@ -333,6 +333,9 @@ func validateScan(scan Scan) error {
 	if scan.Imported+scan.Skipped > scan.Entries {
 		return fmt.Errorf("imported and skipped counts exceed entries")
 	}
+	if err := scan.Evidence.validate(); err != nil {
+		return fmt.Errorf("scan evidence: %w", err)
+	}
 	return nil
 }
 

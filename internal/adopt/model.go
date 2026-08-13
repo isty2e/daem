@@ -101,6 +101,58 @@ type Scan struct {
 	Entries      int
 	Imported     int
 	Skipped      int
+	Evidence     ScanEvidence
+}
+
+// ScanEvidenceKind identifies the physical fact that must remain current for
+// one scan-derived import decision.
+type ScanEvidenceKind string
+
+const (
+	ScanEvidenceBoundedFile      ScanEvidenceKind = "bounded_file"
+	ScanEvidenceDirectoryListing ScanEvidenceKind = "directory_listing"
+)
+
+// ScanEvidence defines the freshness observation required by one scanned
+// source. MaximumBytes applies only to bounded regular files.
+type ScanEvidence struct {
+	Kind         ScanEvidenceKind
+	MaximumBytes int64
+}
+
+// NewBoundedFileScanEvidence constructs freshness evidence for one absent or
+// bounded regular inventory file.
+func NewBoundedFileScanEvidence(maximumBytes int64) (ScanEvidence, error) {
+	evidence := ScanEvidence{
+		Kind:         ScanEvidenceBoundedFile,
+		MaximumBytes: maximumBytes,
+	}
+	if err := evidence.validate(); err != nil {
+		return ScanEvidence{}, err
+	}
+	return evidence, nil
+}
+
+// DirectoryListingScanEvidence constructs freshness evidence for one
+// directory's immediate child inventory.
+func DirectoryListingScanEvidence() ScanEvidence {
+	return ScanEvidence{Kind: ScanEvidenceDirectoryListing}
+}
+
+func (evidence ScanEvidence) validate() error {
+	switch evidence.Kind {
+	case ScanEvidenceBoundedFile:
+		if evidence.MaximumBytes <= 0 {
+			return fmt.Errorf("bounded-file scan evidence requires a positive byte limit")
+		}
+	case ScanEvidenceDirectoryListing:
+		if evidence.MaximumBytes != 0 {
+			return fmt.Errorf("directory-listing scan evidence must not carry a byte limit")
+		}
+	default:
+		return fmt.Errorf("scan evidence kind %q is invalid", evidence.Kind)
+	}
+	return nil
 }
 
 // Hook is one imported command hook.

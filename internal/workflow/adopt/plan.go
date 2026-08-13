@@ -82,6 +82,10 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 		return adoptmodel.Plan{}, fmt.Errorf("import extensions: %w", err)
 	}
 	for _, scan := range extensionResult.Scans() {
+		evidence, err := adoptmodel.NewBoundedFileScanEvidence(scan.MaximumBytes)
+		if err != nil {
+			return adoptmodel.Plan{}, fmt.Errorf("import extension scan evidence: %w", err)
+		}
 		scans = append(scans, adoptmodel.Scan{
 			ResourceKind: "extension",
 			ResourceName: "inventory",
@@ -92,6 +96,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 			Entries:      scan.Entries,
 			Imported:     scan.Imported,
 			Skipped:      scan.Skipped,
+			Evidence:     evidence,
 		})
 	}
 	for _, skip := range extensionResult.Skipped() {

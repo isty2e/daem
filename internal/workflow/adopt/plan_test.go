@@ -223,6 +223,66 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 	}
 }
 
+func TestExtensionImportRefusesInventoryDriftAfterRebuild(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HOME", root)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "xdg-config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "xdg-state"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "xdg-cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "xdg-data"))
+	t.Setenv("PI_CODING_AGENT_DIR", filepath.Join(root, "pi-global"))
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		settingsPath,
+		[]byte(`{"packages":["npm:@acme/alpha@1.2.3"]}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"pi"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceRoot := planned.AdoptionPlan().SourceDirectory().Root()
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			current, buildErr := BuildPlan(ctx, request)
+			if buildErr != nil {
+				return adoptmodel.Plan{}, buildErr
+			}
+			if writeErr := os.WriteFile(
+				settingsPath,
+				[]byte(`{"packages":["npm:@acme/bravo@1.2.3"]}`),
+				0o600,
+			); writeErr != nil {
+				return adoptmodel.Plan{}, writeErr
+			}
+			return current, nil
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("executeCommandPlan error = %v, want StaleSnapshotError", err)
+	}
+	for _, path := range []string{output, sourceRoot} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("stale extension inventory published %q: %v", path, statErr)
+		}
+	}
+}
+
 func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *testing.T) {
 	root := t.TempDir()
 	previousWorkingDirectory, err := os.Getwd()

@@ -14,7 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-const maximumConfigBytes = 4 << 20
+// MaximumConfigBytes bounds one Codex plugin configuration observation.
+const MaximumConfigBytes = 4 << 20
 
 func ObserveConfigFile(configPath string) (observeconfig.Observation, error) {
 	return observeConfigFile(configPath, readConfigFile)
@@ -111,7 +112,7 @@ func ExactConfiguredSources(observation observeconfig.Observation) ([]string, er
 }
 
 func readConfigFile(path string) ([]byte, error) {
-	content, exists, err := filesnapshot.ReadRegularFile(path, maximumConfigBytes)
+	content, exists, err := filesnapshot.ReadRegularFile(path, MaximumConfigBytes)
 	if err != nil {
 		return nil, err
 	}

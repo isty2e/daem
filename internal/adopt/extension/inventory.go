@@ -51,11 +51,12 @@ func (collector *importCollector) collectClaude() error {
 			}
 		}
 		collector.scans = append(collector.scans, Scan{
-			LivePath: inventoryPath,
-			Target:   target.TargetClaudeCode,
-			Scope:    scope,
-			Entries:  len(sources),
-			Imported: len(sources),
+			LivePath:     inventoryPath,
+			Target:       target.TargetClaudeCode,
+			Scope:        scope,
+			Entries:      len(sources),
+			Imported:     len(sources),
+			MaximumBytes: observeclaude.MaximumInstalledInventoryBytes,
 		})
 	}
 	return nil
@@ -87,11 +88,12 @@ func (collector *importCollector) collectCodex() error {
 		}
 	}
 	collector.scans = append(collector.scans, Scan{
-		LivePath: paths.ConfigPath(),
-		Target:   target.TargetCodex,
-		Scope:    target.ScopeGlobal,
-		Entries:  len(sources),
-		Imported: len(sources),
+		LivePath:     paths.ConfigPath(),
+		Target:       target.TargetCodex,
+		Scope:        target.ScopeGlobal,
+		Entries:      len(sources),
+		Imported:     len(sources),
+		MaximumBytes: observecodex.MaximumConfigBytes,
 	})
 	return nil
 }
@@ -187,12 +189,13 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 			rows:      rows,
 		})
 		collector.scans = append(collector.scans, Scan{
-			LivePath: document.Path(),
-			Target:   target.TargetOpenCode,
-			Scope:    scope,
-			Entries:  len(document.Entries()),
-			Imported: importedCount,
-			Skipped:  skippedCount,
+			LivePath:     document.Path(),
+			Target:       target.TargetOpenCode,
+			Scope:        scope,
+			Entries:      len(document.Entries()),
+			Imported:     importedCount,
+			Skipped:      skippedCount,
+			MaximumBytes: observeopencode.MaximumConfigBytes,
 		})
 	}
 	return nil
@@ -287,11 +290,12 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 		rows:      rows,
 	})
 	collector.scans = append(collector.scans, Scan{
-		LivePath: inventory.SettingsPath(),
-		Target:   target.TargetPi,
-		Scope:    scope,
-		Entries:  len(entries),
-		Imported: len(entries),
+		LivePath:     inventory.SettingsPath(),
+		Target:       target.TargetPi,
+		Scope:        scope,
+		Entries:      len(entries),
+		Imported:     len(entries),
+		MaximumBytes: observepi.MaximumSettingsBytes,
 	})
 	return nil
 }
@@ -316,11 +320,12 @@ func (collector *importCollector) collectAntigravity() error {
 		})
 	}
 	collector.scans = append(collector.scans, Scan{
-		LivePath: paths.ImportManifestPath(),
-		Target:   target.TargetAntigravityCLI,
-		Scope:    target.ScopeGlobal,
-		Entries:  len(names),
-		Skipped:  len(names),
+		LivePath:     paths.ImportManifestPath(),
+		Target:       target.TargetAntigravityCLI,
+		Scope:        target.ScopeGlobal,
+		Entries:      len(names),
+		Skipped:      len(names),
+		MaximumBytes: observeantigravity.MaximumInventoryBytes,
 	})
 	return nil
 }
