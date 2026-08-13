@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 func TestReadAggregateDocumentEnforcesPhysicalReadLimit(t *testing.T) {

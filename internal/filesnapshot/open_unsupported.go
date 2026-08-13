@@ -4,6 +4,6 @@ package filesnapshot
 
 import "os"
 
-func openRegularFile(path string) (*os.File, error) {
+func openRegularFile(path string, _ bool) (*os.File, error) {
 	return os.Open(path)
 }

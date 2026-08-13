@@ -95,7 +95,7 @@ func TestRunAddSkillGroupYesAllowsGitRepositoryRoot(t *testing.T) {
 		t.Fatalf("stdout = %q, want added skill_group", stdout.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestRunAddSkillGroupYesAddsLocalGroupToManifestOnly(t *testing.T) {
 	if config.Skills()[0].ID().Name() != "oracle" || config.Skills()[1].ID().Name() != "review" {
 		t.Fatalf("skills = %#v, want oracle then review", config.Skills())
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

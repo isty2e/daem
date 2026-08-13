@@ -1,11 +1,12 @@
 package diagnoseworkflow
 
 import (
+	"context"
 	"fmt"
-	"io/fs"
 	"os"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
@@ -28,8 +29,7 @@ type manifestLoad struct {
 }
 
 type manifestLoader struct {
-	stat       func(string) (fs.FileInfo, error)
-	readFile   func(string) ([]byte, error)
+	readFile   func(context.Context, string) ([]byte, error)
 	normalize  func([]byte) (desired.Environment, error)
 	buildFacts func(desired.Environment) (diagnose.ManifestFacts, error)
 }
@@ -38,19 +38,14 @@ var doctorManifestLoader = defaultDoctorManifestLoader()
 
 func defaultDoctorManifestLoader() manifestLoader {
 	return manifestLoader{
-		stat:       os.Stat,
-		readFile:   os.ReadFile,
+		readFile:   declarationartifact.Read,
 		normalize:  declarationmanifest.Decode,
 		buildFacts: diagnose.NewManifestFacts,
 	}
 }
 
-func (loader manifestLoader) load(path string) manifestLoad {
-	if _, err := loader.stat(path); err != nil {
-		return manifestLoad{stage: manifestLoadStageReadFailure, err: err}
-	}
-
-	content, err := loader.readFile(path)
+func (loader manifestLoader) load(ctx context.Context, path string) manifestLoad {
+	content, err := loader.readFile(ctx, path)
 	if err != nil {
 		return manifestLoad{stage: manifestLoadStageReadFailure, err: err}
 	}

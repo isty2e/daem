@@ -197,7 +197,7 @@ func TestRunAddSkillYesAddsLocalSkillAndPreventsStaleLock(t *testing.T) {
 	if len(config.Skills()) != 1 || config.Skills()[0].ID().Name() != "local-review" {
 		t.Fatalf("skills = %#v, want local-review", config.Skills())
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

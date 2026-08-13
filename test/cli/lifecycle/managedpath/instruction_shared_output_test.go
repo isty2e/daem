@@ -48,7 +48,7 @@ targets = ["opencode", "pi"]
 		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
 
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

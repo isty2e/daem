@@ -25,7 +25,7 @@ func WriteHookManifestAndLock(t *testing.T, root string, content string) {
 
 func HookAggregateStatesFromLock(t *testing.T, path string) []durable.ManagedAggregateState {
 	t.Helper()
-	locked, err := lockfile.Load(path)
+	locked, err := lockfile.Load(t.Context(), path)
 	if err != nil {
 		t.Fatalf("load Hook lockfile: %v", err)
 	}

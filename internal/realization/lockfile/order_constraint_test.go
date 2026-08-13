@@ -41,7 +41,7 @@ func TestMarshalAndLoadOrderConstraintsPreserveAuthoredMemberOrder(t *testing.T)
 		`host_load_identity = "@acme/first"`,
 	})
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v\n%s", err, rendered)
 	}
@@ -168,7 +168,7 @@ func TestLoadRejectsMalformedOrderConstraintShapesAndFacts(t *testing.T) {
 			if test.content == canonical {
 				t.Fatal("tampered fixture matches canonical lockfile")
 			}
-			_, err := Load(writeLockfileText(t, test.content))
+			_, err := Load(t.Context(), writeLockfileText(t, test.content))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Load error = %v, want %q\n%s", err, test.want, test.content)
 			}

@@ -191,7 +191,7 @@ func TestRunLockWriteReportsDeltaAndWritesExactLockfile(t *testing.T) {
 		}
 	}
 
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}

@@ -44,7 +44,7 @@ func TestMarshalAndLoadExactSupplyLockfile(t *testing.T) {
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestMarshalAndLoadEmptyLockedSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
-	loaded, err := Load(writeLockfileText(t, string(content)))
+	loaded, err := Load(t.Context(), writeLockfileText(t, string(content)))
 	if err != nil {
 		t.Fatalf("Load returned error: %v\ncontent:\n%s", err, content)
 	}
@@ -95,7 +95,7 @@ func TestLoadReencodesCanonicalV5BytesDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Marshal returned error: %v", err)
 	}
-	loaded, err := Load(writeLockfileText(t, string(first)))
+	loaded, err := Load(t.Context(), writeLockfileText(t, string(first)))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestLoadAcceptsCRLFAndReencodesCanonicalLF(t *testing.T) {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
 	crlf := strings.ReplaceAll(string(canonical), "\n", "\r\n")
-	loaded, err := Load(writeLockfileText(t, crlf))
+	loaded, err := Load(t.Context(), writeLockfileText(t, crlf))
 	if err != nil {
 		t.Fatalf("Load returned error for valid CRLF TOML: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestLoadAcceptsUTF8BOMAndReencodesWithoutIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal returned error: %v", err)
 	}
-	loaded, err := Load(writeLockfileText(t, "\uFEFF"+string(canonical)))
+	loaded, err := Load(t.Context(), writeLockfileText(t, "\uFEFF"+string(canonical)))
 	if err != nil {
 		t.Fatalf("Load returned error for UTF-8 BOM input: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestMarshalAndLoadRepairedSkillLockfile(t *testing.T) {
 		`kind = "set_frontmatter_string"`,
 	})
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}

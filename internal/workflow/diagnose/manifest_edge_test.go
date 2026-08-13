@@ -1,6 +1,7 @@
 package diagnoseworkflow
 
 import (
+	"context"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func TestRunDirectoryManifestIsClassifiedAsReadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || manifest.Severity != findings.SeverityError || !strings.HasPrefix(manifest.Detail, "read "+manifestPath+":") {
 		t.Fatalf("manifest check = %#v, want read failure", result.Checks)
@@ -34,12 +35,12 @@ func TestRunDirectoryManifestIsClassifiedAsReadFailure(t *testing.T) {
 	}
 }
 
-func TestRunManifestStatFailureDoesNotRead(t *testing.T) {
+func TestRunManifestReadFailureStopsAtPhysicalIngress(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "blocked.toml")
 	configureDoctorEnvironment(t)
 	counts, _ := installCountingManifestLoader(t)
-	doctorManifestLoader.stat = func(string) (fs.FileInfo, error) {
-		counts.stat++
+	doctorManifestLoader.readFile = func(context.Context, string) ([]byte, error) {
+		counts.read++
 		return nil, fs.ErrPermission
 	}
 
@@ -50,24 +51,24 @@ func TestRunManifestStatFailureDoesNotRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || !strings.HasPrefix(manifest.Detail, "read "+manifestPath+":") {
 		t.Fatalf("manifest check = %#v, want read failure", result.Checks)
 	}
 }
 
-func TestRunManifestRemovalBetweenStatAndReadUsesOneReadFailure(t *testing.T) {
+func TestRunManifestRemovalBeforeSnapshotUsesOneReadFailure(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 	writeDoctorManifest(t, manifestPath, "version = 1\ntargets = [\"codex\"]\n")
 	configureDoctorEnvironment(t)
 	counts, original := installCountingManifestLoader(t)
-	doctorManifestLoader.readFile = func(path string) ([]byte, error) {
+	doctorManifestLoader.readFile = func(ctx context.Context, path string) ([]byte, error) {
 		counts.read++
 		if err := os.Remove(path); err != nil {
 			return nil, err
 		}
-		return original.readFile(path)
+		return original.readFile(ctx, path)
 	}
 
 	result, err := runCurrent(t.Context(), Input{
@@ -77,7 +78,7 @@ func TestRunManifestRemovalBetweenStatAndReadUsesOneReadFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || !strings.HasPrefix(manifest.Detail, "read "+manifestPath+":") {
 		t.Fatalf("manifest check = %#v, want read failure", result.Checks)
@@ -105,7 +106,7 @@ func TestRunUsesSingleByteSnapshotWhenManifestChangesAfterRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1, normalize: 1, buildFacts: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1, buildFacts: 1})
 	if got := result.Selection.Targets(); len(got) != 1 || got[0] != target.TargetCodex {
 		t.Fatalf("Selection = %#v, want original codex snapshot", got)
 	}

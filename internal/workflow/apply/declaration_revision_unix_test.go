@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,7 +43,7 @@ func TestPlanWriteRejectsOversizedManifestBeforeLoading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(maximumApplyDeclarationBytes + 1); err != nil {
+	if err := file.Truncate(declarationartifact.MaximumBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestPlanWriteRejectsOversizedManifestBeforeLoading(t *testing.T) {
 	if err == nil {
 		t.Fatal("PlanWrite accepted an oversized manifest")
 	}
-	if !strings.Contains(err.Error(), "exceeds 67108864 bytes") {
+	if !strings.Contains(err.Error(), "67108864 bytes") {
 		t.Fatalf("PlanWrite error = %v, want declaration byte-limit diagnostic", err)
 	}
 	if errors.Is(err, os.ErrNotExist) {

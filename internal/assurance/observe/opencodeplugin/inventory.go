@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	opencodeconfig "github.com/isty2e/daem/internal/realization/configrelation/opencode"
 	"github.com/isty2e/daem/internal/target"
 )

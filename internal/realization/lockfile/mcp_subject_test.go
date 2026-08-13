@@ -69,7 +69,7 @@ func TestMarshalAndLoadClaudeProjectMCPSubjectLockfile(t *testing.T) {
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestMarshalDelegatePinPolicyReflectsSelectorAssurance(t *testing.T) {
 			if !strings.Contains(string(content), fragment) {
 				t.Fatalf("rendered lockfile is missing %q:\n%s", fragment, content)
 			}
-			loaded, err := Load(writeLockfileText(t, string(content)))
+			loaded, err := Load(t.Context(), writeLockfileText(t, string(content)))
 			if err != nil {
 				t.Fatalf("Load returned error: %v", err)
 			}
@@ -154,7 +154,7 @@ func TestMarshalAndLoadPreservesEveryDelegatedPackageInput(t *testing.T) {
 		t.Fatalf("multi-package lockfile does not record aggregate floating assurance:\n%s", content)
 	}
 
-	loaded, err := Load(writeLockfileText(t, string(content)))
+	loaded, err := Load(t.Context(), writeLockfileText(t, string(content)))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestMarshalAndLoadPiMCPProviderForeignKey(t *testing.T) {
 		t.Fatalf("provider foreign key copied codec identity: %s", providerLine)
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -331,7 +331,7 @@ func TestMarshalAndLoadAntigravityAmbientEnvironmentSourcesWithoutNativeEnv(t *t
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -385,7 +385,7 @@ func TestLoadRejectsNonCanonicalOrInvalidMCPEnvironmentSources(t *testing.T) {
 			if test.content == canonical {
 				t.Fatal("tampered fixture matches canonical lockfile")
 			}
-			_, err := Load(writeLockfileText(t, test.content))
+			_, err := Load(t.Context(), writeLockfileText(t, test.content))
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Load error = %v, want %q", err, test.want)
 			}
@@ -411,7 +411,7 @@ func TestLoadRejectsDelegateEnvironmentBindingTampering(t *testing.T) {
 			if tampered == string(content) {
 				t.Fatalf("fixture does not contain %q", test.old)
 			}
-			_, err := Load(writeLockfileText(t, tampered))
+			_, err := Load(t.Context(), writeLockfileText(t, tampered))
 			if err == nil || !strings.Contains(err.Error(), "identity key does not match") {
 				t.Fatalf("Load error = %v, want delegate identity mismatch", err)
 			}

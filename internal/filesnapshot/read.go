@@ -1,5 +1,5 @@
-// Package filesnapshot reads bounded host-owned regular files without
-// following a final symlink or accepting an identity change during the read.
+// Package filesnapshot reads bounded regular files without accepting an
+// identity change during the read.
 package filesnapshot
 
 import (
@@ -25,6 +25,13 @@ type readHooks struct {
 	afterInspect func()
 	afterOpen    func()
 }
+
+type finalSymlinkPolicy uint8
+
+const (
+	rejectFinalSymlink finalSymlinkPolicy = iota
+	followFinalSymlink
+)
 
 type changeVersion struct {
 	seconds     int64
@@ -85,13 +92,58 @@ func ReadRegularFileSnapshotContext(
 	return readRegularFileSnapshotContext(ctx, path, maximumBytes, readHooks{})
 }
 
+// ReadRegularFileReferentContext reads the regular-file referent selected by
+// path, including through a stable final symlink.
+func ReadRegularFileReferentContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (content []byte, exists bool, err error) {
+	return readRegularFileReferentContext(ctx, path, maximumBytes, readHooks{})
+}
+
+// ReadRegularFileReferentSnapshotContext returns one bounded snapshot of the
+// regular-file referent selected by path, including through a stable final
+// symlink.
+func ReadRegularFileReferentSnapshotContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (snapshot Snapshot, exists bool, err error) {
+	return readRegularFileReferentSnapshotContext(ctx, path, maximumBytes, readHooks{})
+}
+
 func readRegularFileContext(
 	ctx context.Context,
 	path string,
 	maximumBytes int64,
 	hooks readHooks,
 ) (content []byte, exists bool, err error) {
-	snapshot, exists, err := readRegularFileSnapshotContext(ctx, path, maximumBytes, hooks)
+	snapshot, exists, err := readRegularFileSnapshot(
+		ctx,
+		path,
+		maximumBytes,
+		rejectFinalSymlink,
+		hooks,
+	)
+	if err != nil || !exists {
+		return nil, exists, err
+	}
+	return snapshot.content, true, nil
+}
+
+func readRegularFileReferentContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+	hooks readHooks,
+) (content []byte, exists bool, err error) {
+	snapshot, exists, err := readRegularFileReferentSnapshotContext(
+		ctx,
+		path,
+		maximumBytes,
+		hooks,
+	)
 	if err != nil || !exists {
 		return nil, exists, err
 	}
@@ -102,6 +154,37 @@ func readRegularFileSnapshotContext(
 	ctx context.Context,
 	path string,
 	maximumBytes int64,
+	hooks readHooks,
+) (snapshot Snapshot, exists bool, err error) {
+	return readRegularFileSnapshot(
+		ctx,
+		path,
+		maximumBytes,
+		rejectFinalSymlink,
+		hooks,
+	)
+}
+
+func readRegularFileReferentSnapshotContext(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+	hooks readHooks,
+) (snapshot Snapshot, exists bool, err error) {
+	return readRegularFileSnapshot(
+		ctx,
+		path,
+		maximumBytes,
+		followFinalSymlink,
+		hooks,
+	)
+}
+
+func readRegularFileSnapshot(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+	symlinkPolicy finalSymlinkPolicy,
 	hooks readHooks,
 ) (snapshot Snapshot, exists bool, err error) {
 	if ctx == nil {
@@ -121,14 +204,33 @@ func readRegularFileSnapshotContext(
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	if before.Mode()&os.ModeSymlink != 0 {
+	beforeIsSymlink := before.Mode()&os.ModeSymlink != 0
+	if beforeIsSymlink && symlinkPolicy == rejectFinalSymlink {
 		return Snapshot{}, false, ErrSymlink
 	}
-	if !before.Mode().IsRegular() {
+	if !beforeIsSymlink && !before.Mode().IsRegular() {
 		return Snapshot{}, false, ErrNotRegular
 	}
-	if before.Size() > maximumBytes {
+	if !beforeIsSymlink && before.Size() > maximumBytes {
 		return Snapshot{}, false, limitError(maximumBytes)
+	}
+	beforeLinkTarget := ""
+	beforeReferent := before
+	if beforeIsSymlink {
+		beforeLinkTarget, err = os.Readlink(path)
+		if err != nil {
+			return Snapshot{}, false, fmt.Errorf("read file symlink: %w", err)
+		}
+		beforeReferent, err = os.Stat(path)
+		if err != nil {
+			return Snapshot{}, false, fmt.Errorf("inspect file referent: %w", err)
+		}
+		if !beforeReferent.Mode().IsRegular() {
+			return Snapshot{}, false, ErrNotRegular
+		}
+		if beforeReferent.Size() > maximumBytes {
+			return Snapshot{}, false, limitError(maximumBytes)
+		}
 	}
 	if hooks.afterInspect != nil {
 		hooks.afterInspect()
@@ -137,9 +239,16 @@ func readRegularFileSnapshotContext(
 		return Snapshot{}, false, err
 	}
 
-	file, err := openRegularFile(path)
+	file, err := openRegularFile(path, symlinkPolicy == followFinalSymlink)
 	if err != nil {
-		return Snapshot{}, false, classifyOpenFailure(path, before, err)
+		return Snapshot{}, false, classifyOpenFailure(
+			path,
+			before,
+			beforeReferent,
+			beforeLinkTarget,
+			symlinkPolicy,
+			err,
+		)
 	}
 	defer file.Close()
 
@@ -147,9 +256,17 @@ func readRegularFileSnapshotContext(
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	if !os.SameFile(before, opened) ||
-		!opened.Mode().IsRegular() ||
-		!sameFileVersion(before, opened) {
+	if !opened.Mode().IsRegular() {
+		if !beforeIsSymlink {
+			return Snapshot{}, false, ErrChanged
+		}
+		return Snapshot{}, false, ErrNotRegular
+	}
+	if opened.Size() > maximumBytes {
+		return Snapshot{}, false, limitError(maximumBytes)
+	}
+	if !os.SameFile(beforeReferent, opened) ||
+		!sameFileVersion(beforeReferent, opened) {
 		return Snapshot{}, false, ErrChanged
 	}
 	if hooks.afterOpen != nil {
@@ -195,22 +312,31 @@ func readRegularFileSnapshotContext(
 	if err != nil {
 		return Snapshot{}, false, err
 	}
-	afterPath, err := os.Lstat(path)
+	afterEntry, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Snapshot{}, false, ErrChanged
 	}
 	if err != nil {
 		return Snapshot{}, false, fmt.Errorf("reinspect file: %w", err)
 	}
-	if afterPath.Mode()&os.ModeSymlink != 0 ||
-		!afterPath.Mode().IsRegular() ||
+	if !sameSelectedEntry(path, before, afterEntry, beforeLinkTarget, symlinkPolicy) ||
 		!os.SameFile(opened, afterOpen) ||
-		!os.SameFile(opened, afterPath) ||
 		!sameFileVersion(opened, afterOpen) ||
-		!sameFileVersion(opened, afterPath) ||
 		int64(len(content)) != opened.Size() ||
-		int64(len(content)) != afterOpen.Size() ||
-		int64(len(content)) != afterPath.Size() {
+		int64(len(content)) != afterOpen.Size() {
+		return Snapshot{}, false, ErrChanged
+	}
+	if symlinkPolicy == followFinalSymlink {
+		afterReferent, statErr := os.Stat(path)
+		if statErr != nil || !afterReferent.Mode().IsRegular() ||
+			!os.SameFile(opened, afterReferent) ||
+			!sameFileVersion(opened, afterReferent) ||
+			int64(len(content)) != afterReferent.Size() {
+			return Snapshot{}, false, ErrChanged
+		}
+	} else if !os.SameFile(opened, afterEntry) ||
+		!sameFileVersion(opened, afterEntry) ||
+		int64(len(content)) != afterEntry.Size() {
 		return Snapshot{}, false, ErrChanged
 	}
 	if err := ctx.Err(); err != nil {
@@ -223,7 +349,14 @@ func readRegularFileSnapshotContext(
 	}, true, nil
 }
 
-func classifyOpenFailure(path string, before os.FileInfo, openErr error) error {
+func classifyOpenFailure(
+	path string,
+	before os.FileInfo,
+	beforeReferent os.FileInfo,
+	beforeLinkTarget string,
+	symlinkPolicy finalSymlinkPolicy,
+	openErr error,
+) error {
 	if errors.Is(openErr, ErrChanged) || errors.Is(openErr, os.ErrNotExist) {
 		return ErrChanged
 	}
@@ -235,13 +368,45 @@ func classifyOpenFailure(path string, before os.FileInfo, openErr error) error {
 	if err != nil {
 		return openErr
 	}
-	if after.Mode()&os.ModeSymlink != 0 ||
-		!after.Mode().IsRegular() ||
-		!os.SameFile(before, after) ||
-		!sameFileVersion(before, after) {
+	if !sameSelectedEntry(path, before, after, beforeLinkTarget, symlinkPolicy) {
 		return ErrChanged
 	}
+	if symlinkPolicy == followFinalSymlink {
+		afterReferent, statErr := os.Stat(path)
+		if statErr != nil || !os.SameFile(beforeReferent, afterReferent) ||
+			!sameFileVersion(beforeReferent, afterReferent) {
+			return ErrChanged
+		}
+	}
 	return openErr
+}
+
+func sameSelectedEntry(
+	path string,
+	before os.FileInfo,
+	after os.FileInfo,
+	beforeLinkTarget string,
+	symlinkPolicy finalSymlinkPolicy,
+) bool {
+	if !os.SameFile(before, after) || !sameFileVersion(before, after) {
+		return false
+	}
+	beforeIsSymlink := before.Mode()&os.ModeSymlink != 0
+	afterIsSymlink := after.Mode()&os.ModeSymlink != 0
+	if beforeIsSymlink != afterIsSymlink {
+		return false
+	}
+	if beforeIsSymlink {
+		if symlinkPolicy != followFinalSymlink {
+			return false
+		}
+		afterLinkTarget, err := os.Readlink(path)
+		if err != nil {
+			return false
+		}
+		return beforeLinkTarget == afterLinkTarget
+	}
+	return before.Mode().IsRegular() && after.Mode().IsRegular()
 }
 
 func sameFileVersion(left os.FileInfo, right os.FileInfo) bool {

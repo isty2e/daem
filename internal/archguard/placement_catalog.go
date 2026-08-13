@@ -231,13 +231,22 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/encoding/hookdocument"},
 	},
 	{
+		id:        "filesystem.snapshot",
+		placement: plainPlacement(affinityNone, roleObservationAdapter),
+		packages:  []string{"internal/filesnapshot"},
+	},
+	{
+		id:        "declaration.artifact",
+		placement: plainPlacement(affinityNone, roleObservationAdapter),
+		packages:  []string{"internal/declarationartifact"},
+	},
+	{
 		id:        "assurance.observation",
 		placement: plainPlacement(affinityAssurance, roleObservationAdapter),
 		packages: []string{
 			"internal/assurance/observe/live",
 			"internal/assurance/observe/lock",
 			"internal/assurance/observe/ownership",
-			"internal/assurance/observe/filesnapshot",
 			"internal/assurance/observe/relation/host",
 		},
 	},

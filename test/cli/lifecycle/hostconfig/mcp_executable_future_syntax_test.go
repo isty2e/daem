@@ -126,7 +126,7 @@ args = ["serve", "--mcp"]
 `)
 
 	runMCPLock(t, project)
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("Load lockfile returned error: %v", err)
 	}

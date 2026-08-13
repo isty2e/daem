@@ -3,7 +3,6 @@ package adopt
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
@@ -11,6 +10,7 @@ import (
 	adoptmerge "github.com/isty2e/daem/internal/adopt/merge"
 	adoptskill "github.com/isty2e/daem/internal/adopt/skill"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
@@ -56,7 +56,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	var existingEnvironment desired.Environment
 	var existingExtensions []desiredextension.Extension
 	if merge {
-		originalContent, err = os.ReadFile(output)
+		originalContent, err = declarationartifact.Read(ctx, output)
 		if err != nil {
 			return adoptmodel.Plan{}, fmt.Errorf("read merge output manifest: %w", err)
 		}

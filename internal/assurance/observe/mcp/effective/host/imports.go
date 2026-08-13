@@ -5,8 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	mcpeffective "github.com/isty2e/daem/internal/assurance/observe/mcp/effective"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 const maximumConfigBytes int64 = 4 << 20

@@ -39,7 +39,7 @@ compat_repair = true
 		t.Fatalf("stdout = %q, want lockfile write summary", stdout.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestRunAddSkillYesAllowsGitRepositoryRoot(t *testing.T) {
 		t.Fatalf("skills = %#v, want root humanizer skill", config.Skills())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestRunAddSkillUsesUserDefaultManifestWhenManifestFlagOmittedAndScopeIsGlob
 	if string(config.Skills()[0].Scope()) != "global" {
 		t.Fatalf("skill scope = %q, want global", config.Skills()[0].Scope())
 	}
-	if _, err := lockfile.Load(filepath.Join(configHome, "daem", "daem.lock.toml")); err != nil {
+	if _, err := lockfile.Load(t.Context(), filepath.Join(configHome, "daem", "daem.lock.toml")); err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
 }

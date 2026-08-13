@@ -237,11 +237,11 @@ func planAtPaths(
 	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
 		return refusedPlan(result, ReasonMutationAuthority, err, "run daem recover before refreshing a carrier")
 	}
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return refusedPlan(result, ReasonManifestUnavailable, err, "fix the selected manifest and retry")
 	}
-	locked, err := lockfile.Load(paths.LockfilePath)
+	locked, err := lockfile.Load(ctx, paths.LockfilePath)
 	if err != nil {
 		return refusedPlan(result, ReasonLockUnavailable, err, "run daem lock for the selected manifest")
 	}

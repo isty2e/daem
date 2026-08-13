@@ -7,6 +7,7 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
@@ -124,12 +125,15 @@ func commitUnmanageCandidate(
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	targetPaths := []string{
+	declarationPaths := []string{
 		optimistic.document.Path,
 		optimistic.lockfile.Path(),
+	}
+	persistencePaths := []string{
 		paths.StatefilePath,
 		paths.CarrierClaimRegistryPath,
 	}
+	targetPaths := append(append([]string(nil), declarationPaths...), persistencePaths...)
 	domains, err := unmanageMutationDomains(
 		targetPaths,
 		markerPath,
@@ -163,15 +167,17 @@ func commitUnmanageCandidate(
 	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	revisions, err := mutation.CaptureRevisionSet(
-		ctx,
-		unmanageRevisionRequests(
-			targetPaths,
-			markerPath,
-			optimistic.localPaths,
-			paths.RecoveryDir,
-		)...,
+	revisionRequests, err := unmanageRevisionRequests(
+		declarationPaths,
+		persistencePaths,
+		markerPath,
+		optimistic.localPaths,
+		paths.RecoveryDir,
 	)
+	if err != nil {
+		return UnmanageExtensionResult{}, err
+	}
+	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -261,17 +267,20 @@ func fileTargets(current unmanageCandidate) ([]transaction.FileTarget, error) {
 }
 
 func unmanageRevisionRequests(
-	targetPaths []string,
+	declarationPaths []string,
+	persistencePaths []string,
 	markerPath string,
 	localPaths []string,
 	recoveryDir string,
-) []mutation.RevisionRequest {
-	requests := make(
-		[]mutation.RevisionRequest,
-		0,
-		len(targetPaths)*2+3+len(localPaths),
+) ([]mutation.RevisionRequest, error) {
+	requests, err := mutation.BoundedFileRevisionRequests(
+		declarationartifact.MaximumBytes,
+		declarationPaths...,
 	)
-	for _, path := range targetPaths {
+	if err != nil {
+		return nil, err
+	}
+	for _, path := range persistencePaths {
 		requests = append(
 			requests,
 			mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectDirectoryEntry},
@@ -295,7 +304,7 @@ func unmanageRevisionRequests(
 			Path: path, Effect: mutation.PathEffectReferent,
 		})
 	}
-	return requests
+	return requests, nil
 }
 
 func unmanageMutationDomains(

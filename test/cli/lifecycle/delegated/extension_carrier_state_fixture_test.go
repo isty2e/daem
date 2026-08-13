@@ -46,7 +46,7 @@ func writeCLIClaudeGlobalExtensionCarrierLockFixture(t *testing.T) cliClaudeGlob
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("lock write exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}
@@ -72,7 +72,7 @@ func writeCLIClaudeGlobalObservedPresentAttemptStatefile(
 	fixture cliClaudeGlobalExtensionCarrierFixture,
 ) {
 	t.Helper()
-	locked, err := lockfile.Load(fixture.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), fixture.lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}
@@ -104,7 +104,7 @@ func writeCLIClaudeGlobalManagedCarrierState(
 	fixture cliClaudeGlobalExtensionCarrierFixture,
 ) {
 	t.Helper()
-	locked, err := lockfile.Load(fixture.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), fixture.lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}

@@ -8,9 +8,9 @@ import (
 	"strconv"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 

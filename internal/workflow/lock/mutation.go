@@ -7,6 +7,7 @@ import (
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
@@ -35,7 +36,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	optimisticLocalPaths, err := commandLocalPaths(paths)
+	optimisticLocalPaths, err := commandLocalPaths(ctx, paths)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
@@ -77,20 +78,22 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		return Result{}, errorContext
 	}
 
-	revisions, err := mutation.CaptureRevisionSet(
-		ctx,
-		lockRevisionRequests(
-			paths.ManifestPath,
-			outputPath,
-			metadataTransactionPath,
-			optimisticLocalPaths,
-		)...,
+	revisionRequests, err := lockRevisionRequests(
+		paths.ManifestPath,
+		outputPath,
+		metadataTransactionPath,
+		optimisticLocalPaths,
 	)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	currentLocalPaths, err := commandLocalPaths(paths)
+	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
+	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	currentLocalPaths, err := commandLocalPaths(ctx, paths)
 	if err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
@@ -139,8 +142,8 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	return built.Result, nil
 }
 
-func commandLocalPaths(paths daempaths.Paths) ([]string, error) {
-	environment, err := declarationmanifest.LoadSelected(paths)
+func commandLocalPaths(ctx context.Context, paths daempaths.Paths) ([]string, error) {
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return nil, fmt.Errorf("invalid manifest: %w", err)
 	}
@@ -182,18 +185,22 @@ func lockRevisionRequests(
 	lockfilePath string,
 	metadataTransactionPath string,
 	localPaths []string,
-) []mutation.RevisionRequest {
-	requests := []mutation.RevisionRequest{
-		{Path: manifestPath, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: manifestPath, Effect: mutation.PathEffectReferent},
-		{Path: lockfilePath, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: lockfilePath, Effect: mutation.PathEffectReferent},
-		{Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry},
+) ([]mutation.RevisionRequest, error) {
+	requests, err := mutation.BoundedFileRevisionRequests(
+		declarationartifact.MaximumBytes,
+		manifestPath,
+		lockfilePath,
+	)
+	if err != nil {
+		return nil, err
 	}
+	requests = append(requests, mutation.RevisionRequest{
+		Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry,
+	})
 	for _, path := range localPaths {
 		requests = append(requests, mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectReferent})
 	}
-	return requests
+	return requests, nil
 }
 
 func equalPathLists(left []string, right []string) bool {

@@ -61,13 +61,26 @@ func CaptureBoundedFileRevisionSet(
 	maximumBytes int64,
 	paths ...string,
 ) (RevisionSet, error) {
+	requests, err := BoundedFileRevisionRequests(maximumBytes, paths...)
+	if err != nil {
+		return RevisionSet{}, err
+	}
+	return CaptureRevisionSet(ctx, requests...)
+}
+
+// BoundedFileRevisionRequests returns alias-topology and referent requests for
+// paths that must remain absent or bounded regular files.
+func BoundedFileRevisionRequests(
+	maximumBytes int64,
+	paths ...string,
+) ([]RevisionRequest, error) {
 	if maximumBytes <= 0 {
-		return RevisionSet{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"bounded mutation revision maximum bytes must be positive",
 		)
 	}
 	if len(paths) == 0 {
-		return RevisionSet{}, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"bounded mutation revision paths are required",
 		)
 	}
@@ -86,7 +99,7 @@ func CaptureBoundedFileRevisionSet(
 			})
 		}
 	}
-	return CaptureRevisionSet(ctx, requests...)
+	return requests, nil
 }
 
 func captureRevisionObservations(

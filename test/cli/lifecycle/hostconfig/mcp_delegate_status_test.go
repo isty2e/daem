@@ -153,7 +153,7 @@ func TestMCPPublicCLIStatusReportsStaleLastDelegateAttemptAfterLockDrift(t *test
 
 func loadMCPDelegateStatusRecord(t *testing.T, lockfilePath string, serverID string) lock.LockedSubjectContract {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load lockfile returned error: %v", err)
 	}

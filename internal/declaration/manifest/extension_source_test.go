@@ -218,7 +218,7 @@ source = { host_source = "../packages/tools" }
 		t.Fatal(err)
 	}
 
-	environment, err := LoadSelected(paths)
+	environment, err := LoadSelected(t.Context(), paths)
 	if err != nil {
 		t.Fatal(err)
 	}

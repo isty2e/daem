@@ -127,7 +127,7 @@ func TestRunRemoveMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(normalized.MCPServers()) != 0 {
 		t.Fatalf("MCPServers = %#v, want none", normalized.MCPServers())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestRunRemoveCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(normalized.MCPServers()) != 0 {
 		t.Fatalf("MCPServers = %#v, want none", normalized.MCPServers())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -219,7 +219,7 @@ func TestRunRemoveCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 	if len(normalized.MCPServers()) != 0 {
 		t.Fatalf("MCPServers = %#v, want none", normalized.MCPServers())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestRunRemoveClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T
 	if len(normalized.MCPServers()) != 0 {
 		t.Fatalf("MCPServers = %#v, want none", normalized.MCPServers())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -312,7 +312,7 @@ func TestRunRemoveAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T)
 	if len(normalized.MCPServers()) != 0 {
 		t.Fatalf("MCPServers = %#v, want none", normalized.MCPServers())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -396,14 +396,14 @@ env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 	if exitCode != 0 {
 		t.Fatalf("write exitCode = %d, want 0, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	environment, err := declarationmanifest.Load(project.manifestPath)
+	environment, err := declarationmanifest.Load(t.Context(), project.manifestPath)
 	if err != nil {
 		t.Fatalf("load repaired manifest: %v", err)
 	}
 	if got := environment.MCPServers(); len(got) != 0 {
 		t.Fatalf("repaired manifest MCP servers = %#v, want none", got)
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("load repaired lockfile: %v", err)
 	}

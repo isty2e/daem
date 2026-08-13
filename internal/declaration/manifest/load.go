@@ -1,18 +1,19 @@
 package manifest
 
 import (
-	"os"
+	"context"
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationnormalize "github.com/isty2e/daem/internal/declaration/normalize"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
 // LoadSelected decodes, normalizes, and validates the manifest selected by the
 // command boundary.
-func LoadSelected(paths daempaths.Paths) (desired.Environment, error) {
-	environment, err := Load(paths.ManifestPath)
+func LoadSelected(ctx context.Context, paths daempaths.Paths) (desired.Environment, error) {
+	environment, err := Load(ctx, paths.ManifestPath)
 	if err != nil {
 		return desired.Environment{}, err
 	}
@@ -27,8 +28,8 @@ func LoadSelected(paths daempaths.Paths) (desired.Environment, error) {
 }
 
 // Load decodes and normalizes a manifest file.
-func Load(path string) (desired.Environment, error) {
-	content, err := os.ReadFile(path)
+func Load(ctx context.Context, path string) (desired.Environment, error) {
+	content, err := declarationartifact.Read(ctx, path)
 	if err != nil {
 		return desired.Environment{}, err
 	}
@@ -38,6 +39,9 @@ func Load(path string) (desired.Environment, error) {
 
 // Decode decodes and normalizes manifest bytes without expanding resources.
 func Decode(content []byte) (desired.Environment, error) {
+	if err := declarationartifact.Admit(content); err != nil {
+		return desired.Environment{}, err
+	}
 	raw, err := declaration.DecodeManifest(content)
 	if err != nil {
 		return desired.Environment{}, err

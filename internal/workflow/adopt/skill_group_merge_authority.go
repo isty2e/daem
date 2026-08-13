@@ -29,7 +29,7 @@ func lockedSelectorBackedSkills(
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(ctx, lockfilePath)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf(

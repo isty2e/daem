@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	pihostpath "github.com/isty2e/daem/internal/output/hostpath/pi"
 	piconfig "github.com/isty2e/daem/internal/realization/configrelation/pi"
 	"github.com/isty2e/daem/internal/target"

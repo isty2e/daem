@@ -8,6 +8,7 @@ import (
 
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
@@ -417,8 +418,6 @@ type applyExecutionGuard struct {
 	valid                bool
 }
 
-const maximumApplyDeclarationBytes int64 = 64 << 20
-
 func newApplyExecutionGuard(
 	revisions mutation.RevisionSet,
 	planWasDisclosed bool,
@@ -437,7 +436,7 @@ func captureDeclarationRevisions(
 ) (mutation.RevisionSet, error) {
 	return mutation.CaptureBoundedFileRevisionSet(
 		ctx,
-		maximumApplyDeclarationBytes,
+		declarationartifact.MaximumBytes,
 		manifestPath,
 		lockfilePath,
 	)

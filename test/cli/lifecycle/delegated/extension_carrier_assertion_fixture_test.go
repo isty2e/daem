@@ -49,7 +49,7 @@ func assertCLIClaudeExtensionLockedSubject(t *testing.T, lockfilePath string) {
 
 func assertCLIClaudeExtensionLockedSubjectWithScope(t *testing.T, lockfilePath string, declarationID string, scope string) {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -326,7 +326,7 @@ func mustCLIClaudeCarrierSubjectFromLockfile(
 	lockfilePath string,
 ) (topology.SubjectID, realization.DelegatedRelation) {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}

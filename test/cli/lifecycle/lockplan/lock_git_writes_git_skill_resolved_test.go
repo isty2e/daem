@@ -39,7 +39,7 @@ source = { git = "`+repoPath+`", path = "skills/oracle", ref = "main" }
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -116,7 +116,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -160,7 +160,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -273,7 +273,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

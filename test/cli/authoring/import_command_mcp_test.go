@@ -132,7 +132,7 @@ func TestRunImportPreservesAbsoluteMCPCommandPathAndRelocksIt(t *testing.T) {
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("lock exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("Load imported lockfile returned error: %v", err)
 	}

@@ -130,7 +130,7 @@ func TestRunAddPiMCPServerWritesPairedManifestAndLockOnly(t *testing.T) {
 			[]string{"server.js"},
 		)
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -166,7 +166,7 @@ func TestRunAddPiGlobalMCPServerWritesBoundedPairedManifestAndLock(t *testing.T)
 			t.Fatalf("output/manifest = %q, want %q", stdout.String()+"\n"+manifest, want)
 		}
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -257,7 +257,7 @@ args = ["server.js"]
 		!strings.Contains(manifest, `id = "pi-mcp-adapter-project"`) {
 		t.Fatalf("manifest = %q, want provider retained and MCP binding removed", manifest)
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

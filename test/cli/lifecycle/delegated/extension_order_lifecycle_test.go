@@ -682,7 +682,7 @@ func assertLockedOrderMemberNames(
 	want []string,
 ) {
 	t.Helper()
-	file, err := lockfile.Load(lockfilePath)
+	file, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}

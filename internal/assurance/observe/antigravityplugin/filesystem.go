@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 func observePluginBundle(

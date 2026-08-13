@@ -139,13 +139,14 @@ func buildCommandResult(
 		return commandResult{}, errorContext
 	}
 
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		errorContext.Err = fmt.Errorf("invalid manifest: %w", err)
 		return commandResult{}, errorContext
 	}
 
 	previousLockfile, previousMissing, err := loadOptionalLockfile(
+		ctx,
 		outputPath,
 		allowPriorSchemaReplacement,
 	)
@@ -200,10 +201,11 @@ func outputLockfilePath(inputPath string, paths daempaths.Paths) string {
 }
 
 func loadOptionalLockfile(
+	ctx context.Context,
 	path string,
 	allowPriorSchemaReplacement bool,
 ) (lock.File, bool, error) {
-	file, err := lockfile.Load(path)
+	file, err := lockfile.Load(ctx, path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return lock.File{Version: lock.CurrentVersion}, true, nil

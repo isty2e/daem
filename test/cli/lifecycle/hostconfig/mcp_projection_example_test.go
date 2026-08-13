@@ -147,7 +147,7 @@ func assertMCPPublicExampleWrittenLock(
 	test mcpPublicExampleCase,
 ) aggregate.ManagedContribution {
 	t.Helper()
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("load written lockfile: %v", err)
 	}

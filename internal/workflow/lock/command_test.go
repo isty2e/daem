@@ -51,7 +51,7 @@ targets = ["codex"]
 	if !result.Delta.HasChanges() {
 		t.Fatal("Delta.HasChanges() = false, want true")
 	}
-	if _, err := lockfile.Load(lockfilePath); err != nil {
+	if _, err := lockfile.Load(t.Context(), lockfilePath); err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}
 }
@@ -131,7 +131,7 @@ targets = ["codex"]
 	if !result.PreviousFound {
 		t.Fatal("PreviousFound = false for replaced v5 lockfile")
 	}
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load replaced lockfile returned error: %v", err)
 	}
@@ -163,7 +163,7 @@ targets = ["codex"]
 	if !result.PreviousFound {
 		t.Fatal("PreviousFound = false for replaced released schema-v3 lockfile")
 	}
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load replaced lockfile returned error: %v", err)
 	}
@@ -283,7 +283,10 @@ func TestLockRevisionRequestsGuardReadReferentAndReplacedEntry(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 	lockfilePath := filepath.Join(t.TempDir(), "daem.lock.toml")
 	metadataTransactionPath := filepath.Join(t.TempDir(), "metadata-transaction")
-	requests := lockRevisionRequests(manifestPath, lockfilePath, metadataTransactionPath, nil)
+	requests, err := lockRevisionRequests(manifestPath, lockfilePath, metadataTransactionPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, path := range []string{manifestPath, lockfilePath} {
 		wantEffects := map[mutation.PathEffect]bool{
 			mutation.PathEffectDirectoryEntry: false,
