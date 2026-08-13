@@ -39,7 +39,10 @@ func blockedAggregateDocument(
 		}
 		projections = append(projections, blockAggregateProjection(projection, reason, detail))
 	}
-	decisionReason, decisionDetail := firstAggregateProjectionLockFailure(projections)
+	decisionReason, decisionDetail := firstAggregateProjectionFailure(projections)
+	if lockReason, lockDetail, found := firstAggregateProjectionLockFailure(projections); found {
+		decisionReason, decisionDetail = lockReason, lockDetail
+	}
 	return aggregateDecision{
 		kind: reconcile.AggregateBlocked, reason: decisionReason, detail: decisionDetail,
 		documentAddress: address, codecContractID: codecContractID, projections: projections,
@@ -53,13 +56,14 @@ func finalizeBlockedAggregateDocument(
 	evidence observe.AggregateEvidence,
 ) aggregateDecision {
 	reason, detail := firstAggregateProjectionFailure(projections)
+	_, _, hasLockBlocker := firstAggregateProjectionLockFailure(projections)
 	for index := range projections {
 		if projections[index].kind != "" {
 			continue
 		}
 		siblingReason := reason
 		siblingDetail := "aggregate document is blocked by another projection: " + detail
-		if reason.IsLockReadinessError() {
+		if hasLockBlocker {
 			siblingReason = reconcile.ReasonAggregateLockBlocked
 			siblingDetail = "aggregate projection is blocked by another contribution's lock readiness"
 		}
@@ -92,16 +96,27 @@ func firstAggregateProjectionFailure(
 
 func firstAggregateProjectionLockFailure(
 	projections []aggregateProjectionDecision,
-) (reconcile.ActionReason, string) {
+) (reconcile.ActionReason, string, bool) {
 	for _, projection := range projections {
 		for _, delta := range projection.deltas {
-			switch delta.reason {
-			case reconcile.ReasonMissingLock, reconcile.ReasonStaleLock, reconcile.ReasonUnexpectedLockSubject:
-				return delta.reason, delta.detail
+			if delta.kind == reconcile.AggregateBlocked &&
+				delta.reason != reconcile.ReasonAggregateLockBlocked &&
+				delta.reason.IsLockReadinessError() {
+				return delta.reason, delta.detail, true
 			}
 		}
 	}
-	return firstAggregateProjectionFailure(projections)
+	for _, projection := range projections {
+		if projection.kind == reconcile.AggregateBlocked && projection.reason.IsLockReadinessError() {
+			return projection.reason, projection.detail, true
+		}
+		for _, delta := range projection.deltas {
+			if delta.kind == reconcile.AggregateBlocked && delta.reason.IsLockReadinessError() {
+				return delta.reason, delta.detail, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func classifyAggregateDocument(

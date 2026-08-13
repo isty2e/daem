@@ -186,6 +186,66 @@ func TestAggregateSubjectConstraintDoesNotBecomeLockBlockerOnPreconditionFailure
 	}
 }
 
+func TestAggregateMixedBlockersUseLockCauseForUnaffectedSibling(t *testing.T) {
+	provider := aggregateMCPContract(t, "a-provider", "npx", []string{"-y", "provider"})
+	lockOnly := aggregateMCPContract(t, "b-lock-only", "npx", []string{"-y", "lock-only"})
+	unaffected := aggregateMCPContract(t, "c-unaffected", "npx", []string{"-y", "unaffected"})
+	lockedOrders := [][]lock.LockedSubjectContract{
+		{provider, lockOnly, unaffected},
+		{provider, unaffected, lockOnly},
+		{lockOnly, provider, unaffected},
+		{lockOnly, unaffected, provider},
+		{unaffected, provider, lockOnly},
+		{unaffected, lockOnly, provider},
+	}
+
+	for index, lockedOrder := range lockedOrders {
+		expected := []lock.LockedSubjectContract{provider, unaffected}
+		if index%2 != 0 {
+			expected = []lock.LockedSubjectContract{unaffected, provider}
+		}
+		desired := aggregateItems(t, expected...)
+		constraint, err := NewAggregateSubjectConstraint(
+			provider.SubjectID(),
+			reconcile.ReasonProviderVersionIncompatible,
+			"provider version is incompatible",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		decisions, err := buildAggregateDecisionsForTest(AggregateInput{
+			Locked:          aggregateLockedSection(t, lockedOrder...),
+			Expected:        expected,
+			Desired:         desired,
+			Evidence:        []observe.AggregateEvidence{aggregateEvidenceForContracts(t, aggregateContractsFromItems(desired), aggregate.AbsentDocument())},
+			Constraints:     []AggregateSubjectConstraint{constraint},
+			SelectedTargets: planSelectedTargets(t, target.TargetCodex),
+		})
+		if err != nil {
+			t.Fatalf("permutation %d: %v", index, err)
+		}
+		result := mustReconciliationResult(t, nil, decisions)
+		views := aggregateSubjectDecisionsBySubject(t, result.Decisions())
+		if got := views[provider.SubjectID()]; got.Reason() != reconcile.ReasonProviderVersionIncompatible {
+			t.Fatalf("permutation %d provider reason = %q", index, got.Reason())
+		}
+		if got := views[lockOnly.SubjectID()]; got.Reason() != reconcile.ReasonUnexpectedLockSubject {
+			t.Fatalf("permutation %d lock-only reason = %q", index, got.Reason())
+		}
+		if got := views[unaffected.SubjectID()]; got.Reason() != reconcile.ReasonAggregateLockBlocked {
+			t.Fatalf("permutation %d unaffected reason = %q, want aggregate lock blocked", index, got.Reason())
+		}
+		if !result.HasLockReadinessErrors() {
+			t.Fatalf("permutation %d lost lock-readiness semantics", index)
+		}
+		decision := onlyAggregateDecision(t, decisions)
+		if decision.MutatesHost() || decision.MutatesState() {
+			t.Fatalf("permutation %d blocked aggregate mutates host or state", index)
+		}
+	}
+}
+
 func TestAggregateSubjectConstraintRejectsUnknownOrDuplicateSubjects(t *testing.T) {
 	input := aggregateConstraintTestInput(t)
 	subject := input.Expected[0].SubjectID()
