@@ -101,6 +101,39 @@ func TestContentRevisionOperationEntryLimitSpansTrees(t *testing.T) {
 	)
 }
 
+func TestDirectoryListingRevisionBoundsImmediateEntriesWithoutTraversingChildren(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "skill")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nested := child
+	for depth := 1; depth <= 65; depth++ {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limits := mustRevisionCaptureLimits(t, 1, 1, 1, 0)
+	request := NewBoundedDirectoryListingRevisionRequest(root)
+	set, err := captureRevisionSetWithLimits(t.Context(), limits, request)
+	if err != nil {
+		t.Fatalf("immediate directory listing traversed child content: %v", err)
+	}
+	writeMutationTestFile(t, filepath.Join(nested, "content"), "changed", 0o600)
+	if matches, err := set.MatchesCurrent(t.Context()); err != nil || !matches {
+		t.Fatalf("descendant-only listing change = (matches=%t, error=%v), want match", matches, err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "added"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if matches, err := set.MatchesCurrent(t.Context()); err == nil || matches {
+		t.Fatalf("changed directory listing = (matches=%t, error=%v), want entry exhaustion", matches, err)
+	} else {
+		assertRevisionLimitError(t, err, RevisionLimitTreeEntries, 1, 2)
+	}
+}
+
 func TestContentRevisionOperationByteLimitSpansFiles(t *testing.T) {
 	root := t.TempDir()
 	first := filepath.Join(root, "first")

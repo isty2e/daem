@@ -179,10 +179,12 @@ commit. Interrupted acquisition or release remains reserved or owned until
 
 Lock, authoring, refresh, apply, import, init, and unmanage retain filesystem
 revisions for inputs that must remain current until their owned effect. Each
-request explicitly selects one of three evidence forms: a bounded regular
-file, a shallow required-absence entry, or bounded complete content. Required
-absence never traverses an entry that appears. Declaration files use their
-64 MiB regular-file boundary rather than recursive content evidence.
+request explicitly selects bounded regular-file content, a shallow required-
+absence entry, a bounded directory inventory, or bounded complete content.
+Required absence never traverses an entry that appears. Directory inventory
+observes immediate child names and kinds without opening descendants; selected
+child content has its own complete-content evidence. Declaration files use
+their 64 MiB regular-file boundary rather than recursive content evidence.
 
 One complete-content observation pass admits at most 100,000 descendants and
 64 descendant-directory levels in any one tree, and at most 400,000 descendant

@@ -426,7 +426,15 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		}
 	}
 	for _, scan := range plan.Scans() {
-		if err := addPhysical(scan.LivePath, string(scan.Target), string(scan.Scope), mutation.PathEffectReferent); err != nil {
+		if err := addPhysicalRevision(
+			scan.LivePath,
+			string(scan.Target),
+			string(scan.Scope),
+			mutation.PathEffectReferent,
+			importObservedPathKey(scan.LivePath, mutation.PathEffectReferent),
+			mutation.NewBoundedDirectoryListingRevisionRequest(scan.LivePath),
+			true,
+		); err != nil {
 			return nil, nil, nil, err
 		}
 	}

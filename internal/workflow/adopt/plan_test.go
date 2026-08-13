@@ -345,6 +345,58 @@ func TestExecuteCommandPlanRejectsIdenticalMCPSourceReplacement(t *testing.T) {
 	}
 }
 
+func TestExecuteCommandPlanRejectsSkillRevisionDepthGrowthBeforePublication(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	skillRoot := filepath.Join(root, ".agents", "skills", "review")
+	if err := os.MkdirAll(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(skillRoot, "SKILL.md"),
+		[]byte("---\nname: review\ndescription: Review skill\n---\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	nested := skillRoot
+	for depth := 1; depth <= 64; depth++ {
+		nested = filepath.Join(nested, "nested")
+		if err := os.Mkdir(nested, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(nested, "overflow"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ExecuteCommandPlan(t.Context(), planned)
+	if !errors.Is(err, mutation.ErrRevisionLimitExceeded) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want revision limit exhaustion", err)
+	}
+	var limitErr *mutation.RevisionLimitError
+	if !errors.As(err, &limitErr) || limitErr.Kind() != mutation.RevisionLimitTreeDepth {
+		t.Fatalf("ExecuteCommandPlan error = %v, want tree-depth exhaustion", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("over-depth source published manifest: %v", statErr)
+	}
+	for _, skill := range planned.AdoptionPlan().Skills() {
+		if _, statErr := os.Lstat(skill.SourcePath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("over-depth source published import path %q: %v", skill.SourcePath, statErr)
+		}
+	}
+}
+
 func TestExecuteCommandPlanRetainsNoopMCPSourceAuthority(t *testing.T) {
 	root := enterAdoptTestDirectory(t)
 	if err := os.Mkdir(".codex", 0o700); err != nil {

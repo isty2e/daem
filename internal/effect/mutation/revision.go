@@ -25,6 +25,7 @@ const (
 	revisionDirectory
 	revisionSymlink
 	revisionShallowEntry
+	revisionDirectoryListing
 )
 
 type revisionCaptureMode uint8
@@ -33,6 +34,7 @@ const (
 	revisionCaptureContent revisionCaptureMode = iota + 1
 	revisionCaptureBoundedFile
 	revisionCaptureRequiredAbsentEntry
+	revisionCaptureDirectoryListing
 )
 
 // RevisionRequest identifies the boundary observation used to capture a revision.
@@ -82,6 +84,17 @@ func NewRequiredAbsentRevisionRequest(path string) RevisionRequest {
 		Path:        path,
 		Effect:      PathEffectDirectoryEntry,
 		captureMode: revisionCaptureRequiredAbsentEntry,
+	}
+}
+
+// NewBoundedDirectoryListingRevisionRequest observes an absent path, a
+// non-directory entry kind, or one directory's immediate inventory. Directory
+// descendants are not opened or traversed.
+func NewBoundedDirectoryListingRevisionRequest(path string) RevisionRequest {
+	return RevisionRequest{
+		Path:        path,
+		Effect:      PathEffectReferent,
+		captureMode: revisionCaptureDirectoryListing,
 	}
 }
 
@@ -244,6 +257,9 @@ func captureRevision(
 		writeRevisionRecord(hasher, "symlink", target)
 		return newSnapshotRevision(revisionSymlink, identity.keyPath, hasher), nil
 	case info.Mode().IsRegular():
+		if request.captureMode == revisionCaptureDirectoryListing {
+			return shallowEntryRevision(identity, info), nil
+		}
 		if request.captureMode == revisionCaptureBoundedFile &&
 			info.Size() > request.maximumRegularFileBytes {
 			return SnapshotRevision{}, fmt.Errorf(
@@ -290,6 +306,23 @@ func captureRevision(
 				request.Path,
 			)
 		}
+		if request.captureMode == revisionCaptureDirectoryListing {
+			treeBudget, err := operationBudget.beginTree()
+			if err != nil {
+				return SnapshotRevision{}, err
+			}
+			hasher := newRevisionHasher(identity.keyPath, revisionDirectoryListing)
+			if err := hashRevisionDirectoryListing(
+				ctx,
+				hasher,
+				identity.accessPath,
+				info,
+				treeBudget,
+			); err != nil {
+				return SnapshotRevision{}, err
+			}
+			return newSnapshotRevision(revisionDirectoryListing, identity.keyPath, hasher), nil
+		}
 		treeBudget, err := operationBudget.beginTree()
 		if err != nil {
 			return SnapshotRevision{}, err
@@ -306,6 +339,9 @@ func captureRevision(
 		}
 		return newSnapshotRevision(revisionDirectory, identity.keyPath, hasher), nil
 	default:
+		if request.captureMode == revisionCaptureDirectoryListing {
+			return shallowEntryRevision(identity, info), nil
+		}
 		return SnapshotRevision{}, fmt.Errorf("mutation revision path %q has unsupported file mode %s", request.Path, info.Mode())
 	}
 }
@@ -409,7 +445,62 @@ func hashRevisionDirectory(
 	root string,
 	rootInfo os.FileInfo,
 	budget *revisionTreeBudget,
+) error {
+	return observeStableRevisionDirectory(root, rootInfo, func(directory *os.File) error {
+		return hashRevisionDirectoryEntries(ctx, hasher, directory, ".", 0, budget)
+	})
+}
+
+func hashRevisionDirectoryListing(
+	ctx context.Context,
+	hasher hash.Hash,
+	root string,
+	rootInfo os.FileInfo,
+	budget *revisionTreeBudget,
+) error {
+	return observeStableRevisionDirectory(root, rootInfo, func(directory *os.File) error {
+		names, err := readRevisionDirectoryNames(ctx, directory, budget.remainingEntries())
+		if err != nil {
+			return err
+		}
+		if err := budget.admitEntries(len(names)); err != nil {
+			return err
+		}
+		for _, name := range names {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			entry, err := observeRevisionChild(directory, name)
+			if err != nil {
+				return fmt.Errorf("inspect mutation revision listing entry %q: %w", name, err)
+			}
+			switch {
+			case entry.isSymlink():
+				target, err := readRevisionSymlink(directory, name, entry)
+				if err != nil {
+					return fmt.Errorf("read mutation revision listing symlink %q: %w", name, err)
+				}
+				writeRevisionRecord(hasher, "symlink", name, target)
+			case entry.isDirectory():
+				writeRevisionRecord(hasher, "directory", name)
+			case entry.isRegular():
+				writeRevisionRecord(hasher, "file", name)
+			default:
+				writeRevisionRecord(hasher, "special", name)
+			}
+		}
+		return nil
+	})
+}
+
+func observeStableRevisionDirectory(
+	root string,
+	rootInfo os.FileInfo,
+	observe func(*os.File) error,
 ) (resultErr error) {
+	if observe == nil {
+		return fmt.Errorf("mutation revision directory observer is required")
+	}
 	directory, err := openRevisionDirectory(root)
 	if err != nil {
 		return fmt.Errorf("open mutation revision directory %q: %w", root, err)
@@ -422,7 +513,7 @@ func hashRevisionDirectory(
 	if !sameRevisionEntryVersion(rootInfo, openedInfo) {
 		return fmt.Errorf("mutation revision directory %q changed while opening", root)
 	}
-	if err := hashRevisionDirectoryEntries(ctx, hasher, directory, ".", 0, budget); err != nil {
+	if err := observe(directory); err != nil {
 		return err
 	}
 	afterOpen, err := directory.Stat()

@@ -335,8 +335,9 @@ cleanup traversal that owns failed stages. A dry run therefore never recommends
 writing a skill tree that staging would reject. A skill has no separate
 per-tree byte ceiling, but the complete import freshness observation admits at
 most 400,000 entries and 16 GiB of regular-file content across all observed
-trees. Files are streamed, while the `SKILL.md` compatibility document retains
-its 1 MiB limit.
+trees. The containing skills root is observed as an immediate inventory and
+does not reduce an individual skill's depth allowance. Files are streamed. The
+`SKILL.md` compatibility document retains its 1 MiB limit.
 
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.
