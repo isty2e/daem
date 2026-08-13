@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
@@ -72,7 +73,7 @@ func writeApplyMetadataTransactionMarker(t *testing.T, stateDir string) {
 		t.Fatal(err)
 	}
 	targetPath := filepath.Join(stateDir, "absent-target")
-	content := `{"version":1,"targets":[{"path":` + strconv.Quote(targetPath) +
+	content := `{"version":` + strconv.Itoa(contractversion.MetadataTransaction) + `,"targets":[{"path":` + strconv.Quote(targetPath) +
 		`,"before":{"exists":false},"write":false}]}`
 	if err := os.WriteFile(filepath.Join(authorityPath, "transaction.json"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)

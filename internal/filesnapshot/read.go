@@ -43,6 +43,7 @@ type Snapshot struct {
 	content  []byte
 	mode     os.FileMode
 	revision string
+	version  RegularFileVersion
 }
 
 // Content returns a defensive copy of the observed bytes.
@@ -54,6 +55,12 @@ func (snapshot Snapshot) Mode() os.FileMode { return snapshot.mode }
 // Revision returns the exact content, metadata, and object identity observed
 // from the same stable file descriptor as Content.
 func (snapshot Snapshot) Revision() string { return snapshot.revision }
+
+// FileVersion returns strong metadata evidence for cache reuse. ok is false
+// when the platform cannot supply object identity and change-version facts.
+func (snapshot Snapshot) FileVersion() (version RegularFileVersion, ok bool) {
+	return snapshot.version, snapshot.version.valid
+}
 
 type limitExceededError struct {
 	maximumBytes int64
@@ -342,10 +349,12 @@ func readRegularFileSnapshot(
 	if err := ctx.Err(); err != nil {
 		return Snapshot{}, false, err
 	}
+	version, _ := RegularFileVersionOf(opened)
 	return Snapshot{
 		content:  content,
 		mode:     opened.Mode(),
 		revision: regularFileSnapshotRevision(opened, content),
+		version:  version,
 	}, true, nil
 }
 

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 const revisionFormatVersion = "daem-mutation-revision-v1"
@@ -100,7 +102,7 @@ func validateRevisionBaseline(request RevisionRequest, revision SnapshotRevision
 }
 
 type revisionFileCacheEntry struct {
-	info     os.FileInfo
+	version  filesnapshot.RegularFileVersion
 	revision SnapshotRevision
 }
 
@@ -153,34 +155,29 @@ func captureRevision(
 			)
 		}
 		if request.requireBoundedFile {
+			version, reusable := filesnapshot.RegularFileVersionOf(info)
 			if cached, ok := fileCache[identity.keyPath]; ok &&
-				sameRevisionFileInfo(cached.info, info) {
+				reusable && cached.version.Equal(version) {
 				return cached.revision, nil
 			}
+			return captureBoundedRevisionFile(
+				ctx,
+				request,
+				identity,
+				fileCache,
+			)
 		}
 		hasher := newRevisionHasher(identity.keyPath, revisionFile)
-		maximumBytes := int64(0)
-		if request.requireBoundedFile {
-			maximumBytes = request.maximumRegularFileBytes
-		}
 		if err := hashRevisionFile(
 			ctx,
 			hasher,
 			identity.accessPath,
 			".",
 			info,
-			maximumBytes,
 		); err != nil {
 			return SnapshotRevision{}, err
 		}
-		revision := newSnapshotRevision(revisionFile, identity.keyPath, hasher)
-		if request.requireBoundedFile && fileCache != nil {
-			fileCache[identity.keyPath] = revisionFileCacheEntry{
-				info:     info,
-				revision: revision,
-			}
-		}
-		return revision, nil
+		return newSnapshotRevision(revisionFile, identity.keyPath, hasher), nil
 	case info.IsDir():
 		if request.requireBoundedFile {
 			return SnapshotRevision{}, fmt.Errorf(
@@ -198,17 +195,53 @@ func captureRevision(
 	}
 }
 
+func captureBoundedRevisionFile(
+	ctx context.Context,
+	request RevisionRequest,
+	identity canonicalPath,
+	fileCache map[string]revisionFileCacheEntry,
+) (SnapshotRevision, error) {
+	snapshot, exists, err := filesnapshot.ReadRegularFileSnapshotContext(
+		ctx,
+		identity.accessPath,
+		request.maximumRegularFileBytes,
+	)
+	if err != nil {
+		return SnapshotRevision{}, fmt.Errorf(
+			"read bounded mutation revision file %q: %w",
+			request.Path,
+			err,
+		)
+	}
+	if !exists {
+		return SnapshotRevision{}, fmt.Errorf(
+			"read bounded mutation revision file %q: %w",
+			request.Path,
+			filesnapshot.ErrChanged,
+		)
+	}
+	hasher := newRevisionHasher(identity.keyPath, revisionFile)
+	writeRevisionRecord(
+		hasher,
+		"stable-regular-file-snapshot",
+		snapshot.Revision(),
+	)
+	revision := newSnapshotRevision(revisionFile, identity.keyPath, hasher)
+	if fileCache != nil {
+		if version, reusable := snapshot.FileVersion(); reusable {
+			fileCache[identity.keyPath] = revisionFileCacheEntry{
+				version:  version,
+				revision: revision,
+			}
+		}
+	}
+	return revision, nil
+}
+
 func shallowEntryRevision(identity canonicalPath, info os.FileInfo) SnapshotRevision {
 	hasher := newRevisionHasher(identity.keyPath, revisionShallowEntry)
 	writeRevisionRecord(hasher, "mode", info.Mode().String())
 	return newSnapshotRevision(revisionShallowEntry, identity.keyPath, hasher)
-}
-
-func sameRevisionFileInfo(left os.FileInfo, right os.FileInfo) bool {
-	return os.SameFile(left, right) &&
-		left.Mode() == right.Mode() &&
-		left.Size() == right.Size() &&
-		left.ModTime().Equal(right.ModTime())
 }
 
 func newRevisionHasher(canonicalPath string, kind revisionKind) hash.Hash {
@@ -255,7 +288,7 @@ func hashRevisionDirectory(ctx context.Context, hasher hash.Hash, root string) e
 			writeRevisionRecord(hasher, "directory", relative)
 			return nil
 		case info.Mode().IsRegular():
-			return hashRevisionFile(ctx, hasher, path, relative, info, 0)
+			return hashRevisionFile(ctx, hasher, path, relative, info)
 		default:
 			return fmt.Errorf("mutation revision entry %q has unsupported file mode %s", path, info.Mode())
 		}
@@ -268,7 +301,6 @@ func hashRevisionFile(
 	path string,
 	relative string,
 	info os.FileInfo,
-	maximumBytes int64,
 ) error {
 	executable := "not-executable"
 	if info.Mode().Perm()&0o111 != 0 {
@@ -282,21 +314,12 @@ func hashRevisionFile(
 	defer file.Close()
 
 	buffer := make([]byte, 32*1024)
-	total := int64(0)
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		count, readErr := file.Read(buffer)
 		if count > 0 {
-			total += int64(count)
-			if maximumBytes > 0 && total > maximumBytes {
-				return fmt.Errorf(
-					"mutation revision file %q exceeds %d bytes",
-					path,
-					maximumBytes,
-				)
-			}
 			_, _ = hasher.Write(buffer[:count])
 		}
 		if readErr == io.EOF {

@@ -45,11 +45,8 @@ func BuildPlan(ctx context.Context, input Input) (Plan, error) {
 	}
 
 	action := ActionCreate
-	info, err := os.Stat(paths.ManifestPath)
+	_, err = declarationartifact.Read(ctx, paths.ManifestPath)
 	if err == nil {
-		if info.IsDir() {
-			return Plan{}, fmt.Errorf("manifest path exists and is a directory: %s", paths.ManifestPath)
-		}
 		if !input.Force {
 			return Plan{}, fmt.Errorf("manifest already exists: %s; use --force to overwrite", paths.ManifestPath)
 		}

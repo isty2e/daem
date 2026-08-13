@@ -13,13 +13,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
 
 const (
-	transactionVersion      = 2
 	transactionDirName      = "metadata-transaction"
 	transactionMarkerFile   = "transaction.json"
 	maximumMarkerBytes      = 1 << 20
@@ -77,7 +77,7 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	}()
 
 	marker := transactionMarker{
-		Version: transactionVersion,
+		Version: contractversion.MetadataTransaction,
 		Targets: make([]targetMarker, 0, len(targets)),
 	}
 	for index, target := range targets {
@@ -167,14 +167,20 @@ func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
 		content,
 		"file-set transaction marker",
 		maximumMarkerJSONDepth,
-		transactionVersion,
+		contractversion.MetadataTransaction,
 	)
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("parse file-set transaction marker %q: %w", canonicalPath, err)
 	}
-	if envelope.Disposition == jsonstrict.VersionFuture {
+	switch envelope.Disposition {
+	case jsonstrict.VersionLegacy:
 		return transactionMarker{}, fmt.Errorf(
-			"file-set transaction marker version %d was written by a newer daem",
+			"unsupported legacy file-set transaction marker version %d; use the daem version that wrote it to recover before upgrading and do not delete the transaction evidence",
+			envelope.Version,
+		)
+	case jsonstrict.VersionFuture:
+		return transactionMarker{}, fmt.Errorf(
+			"unsupported file-set transaction marker version %d; it was written by a newer daem, so upgrade daem before recovery and do not delete the transaction evidence",
 			envelope.Version,
 		)
 	}
@@ -302,7 +308,7 @@ func rejectMarkerNull(fields map[string]json.RawMessage, field string, object st
 }
 
 func validateMarker(path string, marker transactionMarker) error {
-	if marker.Version != 1 && marker.Version != transactionVersion {
+	if marker.Version != contractversion.MetadataTransaction {
 		return fmt.Errorf("unsupported file-set transaction marker version %d", marker.Version)
 	}
 	if len(marker.Targets) == 0 {
@@ -320,9 +326,6 @@ func validateMarker(path string, marker transactionMarker) error {
 			return fmt.Errorf("file-set transaction marker targets must be unique and canonically ordered")
 		}
 		seenPaths[target.Path] = struct{}{}
-		if marker.Version == 1 && target.CommitPoint {
-			return fmt.Errorf("file-set transaction marker version 1 does not support a commit point")
-		}
 		if target.CommitPoint {
 			if commitPointSeen {
 				return fmt.Errorf("file-set transaction marker permits at most one commit point")
