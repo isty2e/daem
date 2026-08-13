@@ -99,6 +99,7 @@ func TestExtractGitArchiveCommandStopsTreeWhenExtractionFailsFirst(t *testing.T)
 func TestRunGitOutputBoundsAndRedactsActualStderr(t *testing.T) {
 	t.Parallel()
 	command := gitProcessHelperCommand(t, context.Background(), "stderr-parent", filepath.Join(t.TempDir(), "pids"))
+	command.Env = append(command.Env, "DAEM_GIT_PROCESS_TOKEN=synthetic-secret")
 
 	_, err := runGitOutput(context.Background(), command)
 	if err == nil {
@@ -198,9 +199,10 @@ func runGitProcessHelper(stage string, pidFile string) error {
 			time.Sleep(time.Hour)
 		}
 	case "stderr-parent":
+		secret := os.Getenv("DAEM_GIT_PROCESS_TOKEN")
 		_, _ = io.WriteString(
 			os.Stderr,
-			"Authorization: Bearer synthetic-secret token=synthetic-secret "+
+			"Authorization: Bearer "+secret+" inherited="+secret+" "+
 				strings.Repeat("x", maxGitDiagnosticBytes+1024),
 		)
 		return fmt.Errorf("forced helper failure")

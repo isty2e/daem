@@ -110,6 +110,7 @@ func isSensitiveName(name string) bool {
 		"COOKIE",
 		"COOKIES",
 		"CONNECTION_STRING",
+		"AUTHORIZATION",
 		"AUTH",
 		"JWT",
 		"DSN",

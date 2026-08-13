@@ -27,14 +27,19 @@ var (
 	gitBearerPattern = regexp.MustCompile(`(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+`)
 )
 
-func gitCommandErrorWithCapture(err error, stderr string, truncated bool) error {
-	if stderrText := sanitizeGitDiagnosticCapture(stderr, truncated); stderrText != "" {
+func gitCommandErrorWithCapture(
+	policy subprocess.CapturePolicy,
+	err error,
+	stderr string,
+	truncated bool,
+) error {
+	if stderrText := sanitizeGitDiagnosticCaptureWithPolicy(policy, stderr, truncated); stderrText != "" {
 		return fmt.Errorf("%s", stderrText)
 	}
 
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
-		if stderrText := sanitizeGitDiagnostic(string(exitError.Stderr)); stderrText != "" {
+		if stderrText := sanitizeGitDiagnosticCaptureWithPolicy(policy, string(exitError.Stderr), false); stderrText != "" {
 			return fmt.Errorf("%s", stderrText)
 		}
 	}
@@ -47,6 +52,15 @@ func sanitizeGitDiagnostic(value string) string {
 }
 
 func sanitizeGitDiagnosticCapture(value string, truncated bool) string {
+	policy := subprocess.NewCapturePolicy(nil, maxGitDiagnosticRunes)
+	return sanitizeGitDiagnosticCaptureWithPolicy(policy, value, truncated)
+}
+
+func sanitizeGitDiagnosticCaptureWithPolicy(
+	policy subprocess.CapturePolicy,
+	value string,
+	truncated bool,
+) string {
 	withoutFormatCharacters := strings.Map(func(character rune) rune {
 		if unicode.In(character, unicode.Cf) {
 			return ' '
@@ -57,7 +71,7 @@ func sanitizeGitDiagnosticCapture(value string, truncated bool) string {
 	redacted = gitQuerySecretPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
 	redacted = gitAuthorizationPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
 	redacted = gitBearerPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
-	result := subprocess.NewCapturePolicy(nil, maxGitDiagnosticRunes).Sanitize(redacted, truncated)
+	result := policy.Sanitize(redacted, truncated)
 	text := result.Text()
 	if result.Truncated() && !strings.HasSuffix(text, "[truncated]") {
 		text += "\n[truncated]"

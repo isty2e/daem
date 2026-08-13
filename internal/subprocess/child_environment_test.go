@@ -77,12 +77,14 @@ func TestSnapshotSensitiveNameBoundaries(t *testing.T) {
 	snapshot := ChildEnvironmentFrom([]string{
 		"TOKENIZERS_PARALLELISM=false",
 		"NPM_CONFIG__AUTH=encoded-auth",
+		"HTTP_AUTHORIZATION=basic-credential",
 		"SENTRY_DSN=https://public:secret@example.test/1",
 		"lowercase_token=lowercase-secret",
 		"TERM_SESSION_ID=ordinary-session-id",
 	})
 
 	if got := snapshot.SecretValues(); !slices.Equal(got, []string{
+		"basic-credential",
 		"encoded-auth",
 		"https://public:secret@example.test/1",
 		"lowercase-secret",

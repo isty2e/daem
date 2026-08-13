@@ -160,7 +160,7 @@ source = { git = "https://user:` + secret + `@example.com/repo.git", path = ".",
 	}
 }
 
-func TestRunLockSanitizesBackendGitStderrAcrossOutputModes(t *testing.T) {
+func TestRunLockRedactsInheritedSecretsFromGitHelperAcrossOutputModes(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string
 		json     bool
@@ -176,12 +176,23 @@ func TestRunLockSanitizesBackendGitStderrAcrossOutputModes(t *testing.T) {
 			markerPath := filepath.Join(tempDir, "git-invoked")
 			manifestPath := filepath.Join(tempDir, "daem.toml")
 			lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-			secret := "synthetic-backend-secret"
+			secrets := []struct {
+				name  string
+				value string
+			}{
+				{name: "DAEM_TEST_TOKEN", value: "synthetic-token-value"},
+				{name: "DAEM_TEST_SECRET", value: "synthetic-secret-value"},
+				{name: "DAEM_TEST_CREDENTIALS", value: "synthetic-credentials-value"},
+				{name: "DAEM_TEST_AUTHORIZATION", value: "synthetic-authorization-value"},
+			}
 
-			writeDiagnosticGit(t, binDir)
+			helperPath := writeCredentialDiagnosticGit(t, binDir)
 			t.Setenv("PATH", binDir)
 			t.Setenv("DAEM_GIT_MARKER", markerPath)
-			t.Setenv("DAEM_FAKE_SECRET", secret)
+			t.Setenv("DAEM_GIT_HELPER", helperPath)
+			for _, secret := range secrets {
+				t.Setenv(secret.name, secret.value)
+			}
 			testkit.WriteFile(t, tempDir, "daem.toml", `
 version = 1
 targets = ["codex"]
@@ -212,8 +223,14 @@ source = { git = "https://example.com/repo.git", path = ".", ref = "main" }
 				t.Fatalf("lockfile was written or stat failed: %v", err)
 			}
 			combined := stdout.String() + stderr.String()
-			if strings.Contains(combined, secret) || strings.Contains(combined, "user:") {
-				t.Fatalf("output disclosed backend credential: %q", combined)
+			for _, secret := range secrets {
+				if strings.Contains(combined, secret.value) {
+					t.Fatalf("output disclosed inherited Git helper credential: %q", combined)
+				}
+			}
+			if !strings.Contains(combined, "credential helper values") ||
+				strings.Count(combined, "[REDACTED]") < len(secrets) {
+				t.Fatalf("output = %q, want bounded redacted helper diagnostic", combined)
 			}
 			if !strings.Contains(combined, "https://<redacted>@example.com/repo.git") {
 				t.Fatalf("output = %q, want redacted backend URL", combined)
@@ -271,12 +288,36 @@ func writeMarkerGit(t *testing.T, binDir string) {
 	}
 }
 
-func writeDiagnosticGit(t *testing.T, binDir string) {
+func writeCredentialDiagnosticGit(t *testing.T, binDir string) string {
 	t.Helper()
-	testkit.WriteFile(t, binDir, "git", "#!/bin/sh\nprintf invoked > \"$DAEM_GIT_MARKER\"\nprintf 'fatal: https://user:%s@example.com/repo.git\\n' \"$DAEM_FAKE_SECRET\" >&2\nexit 97\n")
+	helperPath := filepath.Join(binDir, "git-credential-helper")
+	testkit.WriteFile(t, binDir, "git-credential-helper", `#!/bin/sh
+if test -z "$DAEM_TEST_TOKEN" ||
+   test -z "$DAEM_TEST_SECRET" ||
+   test -z "$DAEM_TEST_CREDENTIALS" ||
+   test -z "$DAEM_TEST_AUTHORIZATION"; then
+	printf 'fatal: credential helper did not inherit authentication environment\n' >&2
+	exit 96
+fi
+printf 'fatal: credential helper values %s %s %s %s https://user:%s@example.com/repo.git\n' \
+	"$DAEM_TEST_TOKEN" \
+	"$DAEM_TEST_SECRET" \
+	"$DAEM_TEST_CREDENTIALS" \
+	"$DAEM_TEST_AUTHORIZATION" \
+	"$DAEM_TEST_SECRET" >&2
+exit 97
+`)
+	if err := os.Chmod(helperPath, 0o700); err != nil {
+		t.Fatalf("Chmod fake Git credential helper returned error: %v", err)
+	}
+	testkit.WriteFile(t, binDir, "git", `#!/bin/sh
+printf invoked > "$DAEM_GIT_MARKER"
+"$DAEM_GIT_HELPER"
+`)
 	if err := os.Chmod(filepath.Join(binDir, "git"), 0o700); err != nil {
 		t.Fatalf("Chmod fake git returned error: %v", err)
 	}
+	return helperPath
 }
 
 func assertTrustBoundaryFileContent(t *testing.T, path string, want string) {

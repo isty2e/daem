@@ -341,11 +341,8 @@ func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader
 	}
 
 	runErr := readErr
-	if result.waitErr != nil {
-		runErr = errors.Join(
-			runErr,
-			gitCommandErrorWithCapture(result.waitErr, result.stderr, result.stderrTruncated),
-		)
+	if result.commandErr != nil {
+		runErr = errors.Join(runErr, result.commandErr)
 	}
 	if result.stderrReadErr != nil {
 		runErr = errors.Join(runErr, fmt.Errorf("read git stderr: %w", result.stderrReadErr))
