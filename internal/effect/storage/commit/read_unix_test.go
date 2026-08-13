@@ -17,27 +17,27 @@ func readRegularFileWithFaults(ctx context.Context, path string, faults faultPla
 	return content, mode, err
 }
 
-func TestReadRegularFileReturnsStableContentAndMode(t *testing.T) {
+func TestReadRegularFileSnapshotUpToReturnsStableContentAndMode(t *testing.T) {
 	root := canonicalTempDir(t)
 	path := filepath.Join(root, "state.json")
 	writeTestFile(t, path, "content", 0o640)
-	content, mode, err := ReadRegularFile(context.Background(), path)
+	snapshot, err := ReadRegularFileSnapshotUpTo(context.Background(), path, 64)
 	if err != nil {
-		t.Fatalf("ReadRegularFile returned error: %v", err)
+		t.Fatalf("ReadRegularFileSnapshotUpTo returned error: %v", err)
 	}
-	if string(content) != "content" || mode.Perm() != 0o640 {
-		t.Fatalf("snapshot = (%q, %04o), want (content, 0640)", content, mode.Perm())
+	if string(snapshot.Content()) != "content" || snapshot.Mode().Perm() != 0o640 {
+		t.Fatalf("snapshot = (%q, %04o), want (content, 0640)", snapshot.Content(), snapshot.Mode().Perm())
 	}
 }
 
-func TestReadRegularFileSnapshotOwnsContentAndMode(t *testing.T) {
+func TestReadRegularFileSnapshotUpToOwnsContentAndMode(t *testing.T) {
 	root := canonicalTempDir(t)
 	path := filepath.Join(root, "state.json")
 	writeTestFile(t, path, "content", 0o640)
 
-	snapshot, err := ReadRegularFileSnapshot(t.Context(), path)
+	snapshot, err := ReadRegularFileSnapshotUpTo(t.Context(), path, 64)
 	if err != nil {
-		t.Fatalf("ReadRegularFileSnapshot returned error: %v", err)
+		t.Fatalf("ReadRegularFileSnapshotUpTo returned error: %v", err)
 	}
 	first := snapshot.Content()
 	first[0] = 'X'
@@ -96,7 +96,7 @@ func TestReadRegularFileSnapshotUpToRejectsFileGrowthAfterInitialObservation(t *
 	assertFailure(t, err, failureUncommitted, phaseReadPayload)
 }
 
-func TestReadRegularFileRejectsFinalSymlink(t *testing.T) {
+func TestReadRegularFileSnapshotUpToRejectsFinalSymlink(t *testing.T) {
 	root := canonicalTempDir(t)
 	target := filepath.Join(root, "target")
 	writeTestFile(t, target, "secret", 0o600)
@@ -104,7 +104,7 @@ func TestReadRegularFileRejectsFinalSymlink(t *testing.T) {
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := ReadRegularFile(context.Background(), link)
+	_, err := ReadRegularFileSnapshotUpTo(context.Background(), link, 64)
 	assertFailure(t, err, failureUncommitted, phaseValidate)
 }
 

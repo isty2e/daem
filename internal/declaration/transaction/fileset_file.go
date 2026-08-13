@@ -3,12 +3,28 @@ package transaction
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
+
+func readTransactionFile(
+	ctx context.Context,
+	path string,
+) ([]byte, fs.FileMode, error) {
+	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(
+		ctx,
+		path,
+		maximumTargetBytes,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+	return snapshot.Content(), snapshot.Mode(), nil
+}
 
 func commitFile(ctx context.Context, path string, content []byte, fileMode os.FileMode) error {
 	commitPath, err := mutation.CanonicalDirectoryEntryPath(path)

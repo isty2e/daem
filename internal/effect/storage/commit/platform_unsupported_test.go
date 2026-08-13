@@ -29,14 +29,6 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			err := PrepareCommitParent(context.Background(), path)
 			return err
 		}},
-		{name: "read regular file", run: func() error {
-			_, _, readErr := ReadRegularFile(context.Background(), path)
-			return readErr
-		}},
-		{name: "read regular file snapshot", run: func() error {
-			_, readErr := ReadRegularFileSnapshot(context.Background(), path)
-			return readErr
-		}},
 		{name: "read bounded regular file snapshot", run: func() error {
 			_, readErr := ReadRegularFileSnapshotUpTo(context.Background(), path, 64)
 			return readErr

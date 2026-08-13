@@ -103,11 +103,10 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 		marker.Targets = append(marker.Targets, row)
 	}
 
-	content, err := json.MarshalIndent(marker, "", "  ")
+	content, err := marshalMarker(marker)
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("marshal file-set transaction marker: %w", err)
 	}
-	content = append(content, '\n')
 	if err := os.WriteFile(filepath.Join(stagedDir, transactionMarkerFile), content, transactionEvidenceMode); err != nil {
 		return transactionMarker{}, fmt.Errorf("stage file-set transaction marker: %w", err)
 	}
@@ -128,6 +127,22 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 
 	prepared = true
 	return marker, nil
+}
+
+func marshalMarker(marker transactionMarker) ([]byte, error) {
+	content, err := json.MarshalIndent(marker, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	content = append(content, '\n')
+	if int64(len(content)) > maximumMarkerBytes {
+		return nil, fmt.Errorf(
+			"file-set transaction marker contains %d bytes, maximum %d",
+			len(content),
+			maximumMarkerBytes,
+		)
+	}
+	return content, nil
 }
 
 func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
@@ -358,7 +373,7 @@ func validateBeforeState(name string, state fileState, expectedBackupPath string
 }
 
 func captureFileState(ctx context.Context, path string, stagedBackupPath string, activeBackupPath string) (fileState, error) {
-	content, mode, err := storagecommit.ReadRegularFile(ctx, path)
+	content, mode, err := readTransactionFile(ctx, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fileState{}, nil

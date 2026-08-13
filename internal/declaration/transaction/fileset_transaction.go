@@ -229,7 +229,7 @@ func restoreFile(ctx context.Context, path string, state fileState, ops operatio
 		}
 		return nil
 	}
-	content, _, err := storagecommit.ReadRegularFile(ctx, state.BackupPath)
+	content, _, err := readTransactionFile(ctx, state.BackupPath)
 	if err != nil {
 		return fmt.Errorf("read backup %q: %w", state.BackupPath, err)
 	}
@@ -261,7 +261,7 @@ func fileMatchesState(ctx context.Context, path string, state fileState) (bool, 
 }
 
 func fileMatchesExpected(ctx context.Context, path string, hash string, mode os.FileMode) (bool, error) {
-	content, observedMode, err := storagecommit.ReadRegularFile(ctx, path)
+	content, observedMode, err := readTransactionFile(ctx, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil

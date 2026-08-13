@@ -454,6 +454,85 @@ func TestLoadMarkerAcceptsLegacyVersion(t *testing.T) {
 	}
 }
 
+func TestTransactionTargetByteLimit(t *testing.T) {
+	t.Parallel()
+
+	if err := validateTargetContentLength(maximumTargetBytes); err != nil {
+		t.Fatalf("exact target limit returned error: %v", err)
+	}
+	if err := validateTargetContentLength(maximumTargetBytes + 1); err == nil {
+		t.Fatal("oversized target length was admitted")
+	}
+}
+
+func TestMarshalMarkerRejectsOutputOverReadLimit(t *testing.T) {
+	t.Parallel()
+
+	marker := transactionMarker{Version: transactionVersion}
+	for index := 0; index < 4_096; index++ {
+		marker.Targets = append(marker.Targets, targetMarker{
+			Path:      filepath.Join(string(filepath.Separator), strings.Repeat("p", 300), fmt.Sprintf("%04d", index)),
+			Before:    fileState{},
+			AfterHash: hashBytes(nil),
+			Write:     true,
+		})
+	}
+	if _, err := marshalMarker(marker); err == nil {
+		t.Fatal("marshalMarker admitted output above its read limit")
+	}
+}
+
+func TestTransactionPhysicalReadsRejectOversizedFiles(t *testing.T) {
+	root := t.TempDir()
+	oversized := filepath.Join(root, "oversized")
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maximumTargetBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("capture before-image", func(t *testing.T) {
+		staged := filepath.Join(root, "staged.before")
+		_, err := captureFileState(t.Context(), oversized, staged, filepath.Join(root, "active.before"))
+		if err == nil {
+			t.Fatal("captureFileState admitted an oversized target")
+		}
+		assertMissing(t, staged)
+	})
+
+	t.Run("classify target", func(t *testing.T) {
+		matches, err := fileMatchesExpected(t.Context(), oversized, hashBytes(nil), 0o600)
+		if err == nil || matches {
+			t.Fatalf("fileMatchesExpected = (%t, %v), want bounded read failure", matches, err)
+		}
+	})
+
+	t.Run("restore backup", func(t *testing.T) {
+		writeCalled := false
+		err := restoreFile(t.Context(), filepath.Join(root, "target"), fileState{
+			Exists:     true,
+			Hash:       hashBytes(nil),
+			BackupPath: oversized,
+			Mode:       0o600,
+		}, operations{writeFile: func(context.Context, string, []byte, os.FileMode) error {
+			writeCalled = true
+			return nil
+		}})
+		if err == nil {
+			t.Fatal("restoreFile admitted an oversized backup")
+		}
+		if writeCalled {
+			t.Fatal("restoreFile wrote a target after oversized backup rejection")
+		}
+	})
+}
+
 func TestCancellationRollsBackPartialSet(t *testing.T) {
 	root := t.TempDir()
 	stateDir := filepath.Join(root, ".daem")

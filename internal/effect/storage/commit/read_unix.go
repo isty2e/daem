@@ -16,25 +16,6 @@ import (
 
 const maximumSymlinkTargetBytes = 1 << 20
 
-// ReadRegularFile returns one identity-stable, no-follow regular-file snapshot.
-func ReadRegularFile(ctx context.Context, path string) ([]byte, fs.FileMode, error) {
-	snapshot, err := ReadRegularFileSnapshot(ctx, path)
-	if err != nil {
-		return nil, 0, err
-	}
-	return snapshot.Content(), snapshot.Mode(), nil
-}
-
-// ReadRegularFileSnapshot returns content and mode from the same
-// identity-stable, no-follow read.
-func ReadRegularFileSnapshot(ctx context.Context, path string) (mutationfs.RegularFileSnapshot, error) {
-	content, mode, identity, err := readRegularFileSnapshotWithFaults(ctx, path, nil, 0, faultPlan{})
-	if err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	return newRegularFileSnapshot(content, mode, identity)
-}
-
 // ReadRegularFileSnapshotUpTo returns an identity-stable, no-follow snapshot
 // while refusing to retain more than maximumBytes of payload content.
 func ReadRegularFileSnapshotUpTo(
