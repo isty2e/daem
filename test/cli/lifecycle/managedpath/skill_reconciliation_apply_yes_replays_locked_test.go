@@ -45,7 +45,7 @@ compat_repair = true
 	if exitCode != 0 {
 		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -112,7 +112,7 @@ compat_repair = true
 	if exitCode != 0 {
 		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -170,7 +170,7 @@ compat_repair = true
 	if exitCode != 0 {
 		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -246,7 +246,7 @@ compat_repair = true
 	if exitCode != 0 {
 		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -340,7 +340,7 @@ compat_repair = true
 	if exitCode != 0 {
 		t.Fatalf("lock exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

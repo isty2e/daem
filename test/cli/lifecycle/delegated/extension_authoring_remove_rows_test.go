@@ -67,7 +67,7 @@ func TestRunRemoveExtensionWritesEveryAdmittedCarrierRowByID(t *testing.T) {
 			if len(normalized.Extensions()) != 0 {
 				t.Fatalf("extensions = %#v, want removed", normalized.Extensions())
 			}
-			locked, err := lockfile.Load(lockfilePath)
+			locked, err := lockfile.Load(t.Context(), lockfilePath)
 			if err != nil {
 				t.Fatalf("lockfile.Load returned error: %v", err)
 			}

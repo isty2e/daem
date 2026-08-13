@@ -41,11 +41,11 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 		return result, err
 	}
 
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return result, fmt.Errorf("invalid manifest: %w", err)
 	}
-	locked, missing, err := loadOutputLockfile(paths.LockfilePath)
+	locked, missing, err := loadOutputLockfile(ctx, paths.LockfilePath)
 	if err != nil {
 		return result, fmt.Errorf("read lockfile: %w", err)
 	}
@@ -89,8 +89,8 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 	return result, nil
 }
 
-func loadOutputLockfile(path string) (lock.File, bool, error) {
-	file, err := lockfile.Load(path)
+func loadOutputLockfile(ctx context.Context, path string) (lock.File, bool, error) {
+	file, err := lockfile.Load(ctx, path)
 	if err == nil {
 		return file, false, nil
 	}

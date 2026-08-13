@@ -73,7 +73,7 @@ command = "python3 hooks/protect_env.py"
 		t.Fatalf("lockfile changed across identical runs:\nfirst:\n%s\nsecond:\n%s", firstContent, secondContent)
 	}
 
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -226,7 +226,7 @@ compat_repair = true
 	}
 
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -281,7 +281,7 @@ source = { path = "skills", mode = "vendor" }
 	}
 
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -332,7 +332,7 @@ targets = ["codex"]
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

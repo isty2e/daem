@@ -73,7 +73,7 @@ func TestMCPPublicCLILockReportsSubjectProjection(t *testing.T) {
 	assertNoPublicMCPOutputLeaks(t, stdout)
 
 	runMCPLock(t, project)
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}

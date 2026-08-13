@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"golang.org/x/sys/unix"
 )
 
@@ -42,7 +43,7 @@ func TestPlanWriteRejectsOversizedManifestBeforeLoading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := file.Truncate(maximumApplyDeclarationBytes + 1); err != nil {
+	if err := file.Truncate(declarationartifact.MaximumBytes + 1); err != nil {
 		_ = file.Close()
 		t.Fatal(err)
 	}
@@ -54,11 +55,90 @@ func TestPlanWriteRejectsOversizedManifestBeforeLoading(t *testing.T) {
 	if err == nil {
 		t.Fatal("PlanWrite accepted an oversized manifest")
 	}
-	if !strings.Contains(err.Error(), "exceeds 67108864 bytes") {
+	if !strings.Contains(err.Error(), "67108864 bytes") {
 		t.Fatalf("PlanWrite error = %v, want declaration byte-limit diagnostic", err)
 	}
 	if errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("PlanWrite error = %v, want size rejection", err)
+	}
+}
+
+func TestDryRunAndWriteRejectSameDeclarationResourceViolations(t *testing.T) {
+	root := t.TempDir()
+
+	t.Run("directory manifest", func(t *testing.T) {
+		manifestPath := filepath.Join(root, "directory-manifest")
+		if err := os.Mkdir(manifestPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		fifoPath := filepath.Join(manifestPath, "must-not-be-visited")
+		if err := unix.Mkfifo(fifoPath, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		assertApplyPlanningModesReject(t, CommandInput{ManifestPath: manifestPath}, "regular file")
+	})
+
+	t.Run("oversized manifest", func(t *testing.T) {
+		manifestPath := filepath.Join(root, "oversized-manifest.toml")
+		createSparseDeclaration(t, manifestPath)
+		assertApplyPlanningModesReject(t, CommandInput{ManifestPath: manifestPath}, "67108864")
+	})
+
+	t.Run("oversized selected lockfile", func(t *testing.T) {
+		manifestPath := filepath.Join(root, "daem.toml")
+		if err := os.WriteFile(manifestPath, []byte("version = 1\ntargets = [\"codex\"]\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		lockfilePath := filepath.Join(root, "oversized.lock.toml")
+		createSparseDeclaration(t, lockfilePath)
+		assertApplyPlanningModesReject(t, CommandInput{
+			ManifestPath: manifestPath,
+			LockfilePath: lockfilePath,
+		}, "67108864")
+	})
+}
+
+func assertApplyPlanningModesReject(t *testing.T, input CommandInput, want string) {
+	t.Helper()
+
+	for _, test := range []struct {
+		name string
+		run  func() error
+	}{
+		{name: "dry-run", run: func() error {
+			_, err := PlanDryRun(t.Context(), input)
+			return err
+		}},
+		{name: "write", run: func() error {
+			prepared, err := PlanWrite(t.Context(), input)
+			if prepared != nil {
+				_ = prepared.Close()
+			}
+			return err
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.run()
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("planning error = %v, want rejection containing %q", err, want)
+			}
+		})
+	}
+}
+
+func createSparseDeclaration(t *testing.T, path string) {
+	t.Helper()
+
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(declarationartifact.MaximumBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

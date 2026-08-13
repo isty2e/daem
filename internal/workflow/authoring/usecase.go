@@ -18,11 +18,11 @@ package authoring
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -52,16 +52,16 @@ type ManifestDocument struct {
 }
 
 // LoadManifestDocument resolves and reads a manifest document for authoring changes.
-func LoadManifestDocument(manifestPath string) (ManifestDocument, error) {
+func LoadManifestDocument(ctx context.Context, manifestPath string) (ManifestDocument, error) {
 	paths, err := daempaths.Resolve(manifestPath)
 	if err != nil {
 		return ManifestDocument{}, err
 	}
-	return loadManifestDocument(paths)
+	return loadManifestDocument(ctx, paths)
 }
 
-func loadManifestDocument(paths daempaths.Paths) (ManifestDocument, error) {
-	content, err := os.ReadFile(paths.ManifestPath)
+func loadManifestDocument(ctx context.Context, paths daempaths.Paths) (ManifestDocument, error) {
+	content, err := declarationartifact.Read(ctx, paths.ManifestPath)
 	if err != nil {
 		return ManifestDocument{}, fmt.Errorf("read manifest: %w", err)
 	}
@@ -268,7 +268,7 @@ func executeAuthoringOperation(ctx context.Context, options ExecutionOptions, bu
 		}
 	}
 
-	optimistic, err := buildAuthoringCandidate(build, options.ManifestPath)
+	optimistic, err := buildAuthoringCandidate(ctx, build, options.ManifestPath)
 	if err != nil {
 		return OperationResult{}, err
 	}

@@ -8,6 +8,7 @@ import (
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -44,11 +45,8 @@ func BuildPlan(ctx context.Context, input Input) (Plan, error) {
 	}
 
 	action := ActionCreate
-	info, err := os.Stat(paths.ManifestPath)
+	_, err = declarationartifact.Read(ctx, paths.ManifestPath)
 	if err == nil {
-		if info.IsDir() {
-			return Plan{}, fmt.Errorf("manifest path exists and is a directory: %s", paths.ManifestPath)
-		}
 		if !input.Force {
 			return Plan{}, fmt.Errorf("manifest already exists: %s; use --force to overwrite", paths.ManifestPath)
 		}
@@ -125,12 +123,17 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		return Plan{}, mutation.StaleSnapshotError{}
 	}
 
-	revisions, err := mutation.CaptureRevisionSet(
-		ctx,
-		mutation.RevisionRequest{Path: paths.ManifestPath, Effect: mutation.PathEffectDirectoryEntry},
-		mutation.RevisionRequest{Path: paths.ManifestPath, Effect: mutation.PathEffectReferent},
-		mutation.RevisionRequest{Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry},
+	manifestRevisionRequests, err := mutation.BoundedFileRevisionRequests(
+		declarationartifact.MaximumBytes,
+		paths.ManifestPath,
 	)
+	if err != nil {
+		return Plan{}, err
+	}
+	revisions, err := mutation.CaptureRevisionSet(ctx, append(
+		manifestRevisionRequests,
+		mutation.RevisionRequest{Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry},
+	)...)
 	if err != nil {
 		return Plan{}, err
 	}

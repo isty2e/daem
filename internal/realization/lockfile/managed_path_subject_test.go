@@ -41,7 +41,7 @@ func TestMarshalAndLoadManagedPathProjection(t *testing.T) {
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestMarshalAndLoadAlternateManagedPathProjectionWithoutDefaultSubstitution(
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestLoadRejectsNonCanonicalManagedPathConsumers(t *testing.T) {
 		{name: "duplicate consumer", content: duplicateFirstStringArrayFieldValue(t, canonical, "consumer_targets")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Load(writeLockfileText(t, test.content))
+			_, err := Load(t.Context(), writeLockfileText(t, test.content))
 			if err == nil || !strings.Contains(err.Error(), "non-canonical values") {
 				t.Fatalf("Load error = %v, want non-canonical value rejection", err)
 			}

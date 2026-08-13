@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
@@ -50,7 +50,7 @@ func Run(ctx context.Context, input Input) (Result, error) {
 		return result, err
 	}
 
-	content, err := os.ReadFile(paths.ManifestPath)
+	content, err := declarationartifact.Read(ctx, paths.ManifestPath)
 	if err != nil {
 		return result, fmt.Errorf("read manifest: %w", err)
 	}

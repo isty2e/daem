@@ -1,6 +1,7 @@
 package diagnoseworkflow
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -30,7 +31,7 @@ func TestRunLoadsValidManifestPipelineExactlyOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1, normalize: 1, buildFacts: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1, buildFacts: 1})
 	if got := result.Selection.Targets(); len(got) != 1 || got[0] != target.TargetCodex {
 		t.Fatalf("Selection = %#v, want codex", got)
 	}
@@ -43,7 +44,7 @@ func TestRunLoadsValidManifestPipelineExactlyOnce(t *testing.T) {
 	}
 }
 
-func TestRunMissingImplicitManifestStopsAfterOneStat(t *testing.T) {
+func TestRunMissingImplicitManifestStopsAfterOneRead(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "missing.toml")
 	configureDoctorEnvironment(t)
 	counts, _ := installCountingManifestLoader(t)
@@ -52,7 +53,7 @@ func TestRunMissingImplicitManifestStopsAfterOneStat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || manifest.Severity != findings.SeverityWarn {
 		t.Fatalf("manifest check = %#v, want missing-manifest warning", result.Checks)
@@ -81,7 +82,7 @@ func TestRunMalformedManifestStopsBeforeFactConstruction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1, normalize: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || manifest.Severity != findings.SeverityError {
 		t.Fatalf("manifest check = %#v, want manifest error", result.Checks)
@@ -135,7 +136,7 @@ targets = ["codex"]
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	assertManifestStageCounts(t, counts, manifestStageCounts{stat: 1, read: 1, normalize: 1, buildFacts: 1})
+	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1, buildFacts: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
 	if !ok || !strings.Contains(manifest.Detail, "injected fact construction failure") {
 		t.Fatalf("manifest check = %#v, want injected failure", result.Checks)
@@ -152,10 +153,7 @@ targets = ["codex"]
 
 func TestManifestLoaderClassifiesPostStatReadFailureAsReadEvidence(t *testing.T) {
 	postStatReadFailure := manifestLoader{
-		stat: func(string) (fs.FileInfo, error) {
-			return nil, nil
-		},
-		readFile: func(string) ([]byte, error) {
+		readFile: func(context.Context, string) ([]byte, error) {
 			return nil, fs.ErrNotExist
 		},
 		normalize: func([]byte) (desired.Environment, error) {
@@ -164,7 +162,7 @@ func TestManifestLoaderClassifiesPostStatReadFailureAsReadEvidence(t *testing.T)
 		buildFacts: func(desired.Environment) (diagnose.ManifestFacts, error) {
 			panic("buildFacts called after read failure")
 		},
-	}.load("replaced.toml")
+	}.load(t.Context(), "replaced.toml")
 	if postStatReadFailure.stage != manifestLoadStageReadFailure {
 		t.Fatalf("stage = %d, want read failure", postStatReadFailure.stage)
 	}
@@ -172,18 +170,15 @@ func TestManifestLoaderClassifiesPostStatReadFailureAsReadEvidence(t *testing.T)
 		t.Fatalf("check = %#v, want read failure", check)
 	}
 
-	statFailure := manifestLoader{
-		stat: func(string) (fs.FileInfo, error) {
+	readFailure := manifestLoader{
+		readFile: func(context.Context, string) ([]byte, error) {
 			return nil, fs.ErrPermission
 		},
-		readFile: func(string) ([]byte, error) {
-			panic("readFile called after stat failure")
-		},
-	}.load("blocked.toml")
-	if statFailure.stage != manifestLoadStageReadFailure {
-		t.Fatalf("stage = %d, want read failure", statFailure.stage)
+	}.load(t.Context(), "blocked.toml")
+	if readFailure.stage != manifestLoadStageReadFailure {
+		t.Fatalf("stage = %d, want read failure", readFailure.stage)
 	}
-	if check := manifestCheck("blocked.toml", true, statFailure); check.Severity != findings.SeverityError || !strings.HasPrefix(check.Detail, "read blocked.toml:") {
+	if check := manifestCheck("blocked.toml", true, readFailure); check.Severity != findings.SeverityError || !strings.HasPrefix(check.Detail, "read blocked.toml:") {
 		t.Fatalf("check = %#v, want read failure", check)
 	}
 }
@@ -219,7 +214,7 @@ func BenchmarkDoctorManifestLoadLarge(b *testing.B) {
 			b.ReportAllocs()
 			for iteration := 0; iteration < b.N; iteration++ {
 				for pass := 0; pass < benchmark.passes; pass++ {
-					loaded := loader.load(manifestPath)
+					loaded := loader.load(b.Context(), manifestPath)
 					if !loaded.ready() {
 						b.Fatalf("load failed at stage %d: %v", loaded.stage, loaded.err)
 					}
@@ -230,7 +225,6 @@ func BenchmarkDoctorManifestLoadLarge(b *testing.B) {
 }
 
 type manifestStageCounts struct {
-	stat       int
 	read       int
 	normalize  int
 	buildFacts int
@@ -242,13 +236,9 @@ func installCountingManifestLoader(t *testing.T) (*manifestStageCounts, manifest
 	original := doctorManifestLoader
 	counts := &manifestStageCounts{}
 	doctorManifestLoader = manifestLoader{
-		stat: func(path string) (fs.FileInfo, error) {
-			counts.stat++
-			return original.stat(path)
-		},
-		readFile: func(path string) ([]byte, error) {
+		readFile: func(ctx context.Context, path string) ([]byte, error) {
 			counts.read++
-			return original.readFile(path)
+			return original.readFile(ctx, path)
 		},
 		normalize: func(content []byte) (desired.Environment, error) {
 			counts.normalize++

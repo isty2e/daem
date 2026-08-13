@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
 	"github.com/isty2e/daem/internal/target"
 )

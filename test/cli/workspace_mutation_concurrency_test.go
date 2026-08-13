@@ -83,7 +83,7 @@ func TestConcurrentAddSkillsSerializeManifestAndLockfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := lockfile.Load(paths.LockfilePath)
+	loaded, err := lockfile.Load(t.Context(), paths.LockfilePath)
 	if err != nil {
 		t.Fatalf("load final lockfile: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestConcurrentAddAndLockNeverPublishMismatchedLockfile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := lockfile.Load(paths.LockfilePath)
+	loaded, err := lockfile.Load(t.Context(), paths.LockfilePath)
 	if err != nil {
 		t.Fatalf("load final lockfile: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestConcurrentInitForceAndAuthoringSerializeManifestEntry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		loaded, err := lockfile.Load(paths.LockfilePath)
+		loaded, err := lockfile.Load(t.Context(), paths.LockfilePath)
 		if err != nil {
 			t.Fatalf("load authoring-winner lockfile: %v", err)
 		}

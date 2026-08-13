@@ -591,7 +591,7 @@ func assertApplyConfirmationStateResource(t *testing.T, snapshot durable.Snapsho
 
 func applyConfirmationInstructionState(t *testing.T, lockfilePath string, contentHash string) durable.ManagedPathState {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("load confirmation lockfile: %v", err)
 	}

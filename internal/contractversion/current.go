@@ -8,6 +8,9 @@ const (
 	LockfileSchema = 6
 )
 
+// MetadataTransaction identifies bounded file-set recovery evidence.
+const MetadataTransaction = 3
+
 // CLI JSON envelope schemas evolve independently. Equal values do not imply a
 // shared compatibility sequence.
 const (

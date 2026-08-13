@@ -126,3 +126,82 @@ func TestReadRegularFileContextStopsAfterCancellation(t *testing.T) {
 		t.Fatalf("cancellation error = %v, want context.Canceled", err)
 	}
 }
+
+func TestReadRegularFileReferentContextFollowsStableFinalSymlink(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	referent := filepath.Join(root, "referent")
+	if err := os.WriteFile(referent, []byte("content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "selected")
+	if err := os.Symlink(referent, path); err != nil {
+		t.Fatal(err)
+	}
+
+	content, exists, err := ReadRegularFileReferentContext(t.Context(), path, 64)
+	if err != nil || !exists || string(content) != "content" {
+		t.Fatalf("referent read = (%q, %t, %v)", content, exists, err)
+	}
+}
+
+func TestReadRegularFileReferentContextRejectsFinalSymlinkRetarget(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	for _, path := range []string{first, second} {
+		if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	selected := filepath.Join(root, "selected")
+	if err := os.Symlink(first, selected); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := readRegularFileReferentContext(t.Context(), selected, 64, readHooks{
+		afterInspect: func() {
+			if removeErr := os.Remove(selected); removeErr != nil {
+				t.Fatalf("remove selected symlink: %v", removeErr)
+			}
+			if linkErr := os.Symlink(second, selected); linkErr != nil {
+				t.Fatalf("retarget selected symlink: %v", linkErr)
+			}
+		},
+	})
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("retarget error = %v, want ErrChanged", err)
+	}
+}
+
+func TestReadRegularFileReferentContextRejectsReferentReplacementBeforeOpen(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	referent := filepath.Join(root, "referent")
+	displaced := filepath.Join(root, "displaced")
+	if err := os.WriteFile(referent, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selected := filepath.Join(root, "selected")
+	if err := os.Symlink(referent, selected); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := readRegularFileReferentContext(t.Context(), selected, 64, readHooks{
+		afterInspect: func() {
+			if renameErr := os.Rename(referent, displaced); renameErr != nil {
+				t.Fatalf("displace referent: %v", renameErr)
+			}
+			if writeErr := os.WriteFile(referent, []byte("after"), 0o600); writeErr != nil {
+				t.Fatalf("replace referent: %v", writeErr)
+			}
+		},
+	})
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("referent replacement error = %v, want ErrChanged", err)
+	}
+}

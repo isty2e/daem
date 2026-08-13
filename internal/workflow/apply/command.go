@@ -398,12 +398,12 @@ func loadCommandInputsAtPaths(
 		return commandContext{}, result, err
 	}
 
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return commandContext{}, result, fmt.Errorf("invalid manifest: %w", err)
 	}
 
-	locked, lockfileErr := lockfile.Load(result.LockfilePath)
+	locked, lockfileErr := lockfile.Load(ctx, result.LockfilePath)
 	lockfileMissing := false
 	if lockfileErr != nil {
 		if !os.IsNotExist(lockfileErr) {

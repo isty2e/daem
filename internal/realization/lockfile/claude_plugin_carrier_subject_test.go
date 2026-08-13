@@ -58,7 +58,7 @@ func TestClaudePluginCarrierSubjectRoundTripsLockfile(t *testing.T) {
 		}
 	}
 
-	loaded, err := Load(writeLockfileText(t, rendered))
+	loaded, err := Load(t.Context(), writeLockfileText(t, rendered))
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestClaudePluginCarrierSubjectRejectsLockfileDrift(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := writeLockfileText(t, string(replaceLockfileOnce(t, content, test.old, test.replacement)))
-			if _, loadErr := Load(path); loadErr == nil {
+			if _, loadErr := Load(t.Context(), path); loadErr == nil {
 				t.Fatal("Load returned nil error, want canonical delegated-relation drift rejection")
 			}
 		})

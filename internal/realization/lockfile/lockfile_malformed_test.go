@@ -22,7 +22,7 @@ type malformedLockfileCase struct {
 func TestLoadRejectsMalformedCurrentLockfiles(t *testing.T) {
 	for _, test := range malformedCurrentLockfileCases(t) {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Load(writeLockfileText(t, test.content))
+			_, err := Load(t.Context(), writeLockfileText(t, test.content))
 			if err == nil {
 				t.Fatal("Load returned nil error")
 			}
@@ -441,7 +441,7 @@ declaration_identity = "skill-set-declaration:v1:sha256:not-a-digest"
 
 func TestLoadRejectsTruncatedV2Lockfile(t *testing.T) {
 	content := marshalLockfileForTest(t, lockfileWithSubjects(t, directSkillSubjectContract(t, "oracle")))
-	_, err := Load(writeLockfileText(t, content+"\n[locked.subject"))
+	_, err := Load(t.Context(), writeLockfileText(t, content+"\n[locked.subject"))
 	if err == nil {
 		t.Fatal("Load returned nil error for truncated lockfile")
 	}
@@ -459,7 +459,7 @@ func TestLoadRejectsInvalidTextEncoding(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := Load(writeLockfileText(t, test.content))
+			_, err := Load(t.Context(), writeLockfileText(t, test.content))
 			if err == nil {
 				t.Fatal("Load accepted invalid lockfile text")
 			}

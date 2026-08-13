@@ -22,6 +22,15 @@ func TestPublicReferencesUseCurrentContractVersions(t *testing.T) {
 		}
 	}
 
+	troubleshooting := readReference(t, "troubleshooting.md")
+	transactionVersion := fmt.Sprintf(
+		"Metadata transaction marker version %d enforces bounded declaration recovery.",
+		MetadataTransaction,
+	)
+	if !strings.Contains(troubleshooting, transactionVersion) {
+		t.Errorf("troubleshooting reference is missing current contract text %q", transactionVersion)
+	}
+
 	cliReference := readReference(t, "cli.md")
 	rows := []struct {
 		surface string

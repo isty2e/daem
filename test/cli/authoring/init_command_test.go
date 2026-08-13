@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/isty2e/daem/test/testkit"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/declarationartifact"
 )
 
 func TestRunInitDryRunPreviewsDefaultManifestWithoutWrites(t *testing.T) {
@@ -105,5 +107,51 @@ func TestRunInitForceOverwritesExistingManifest(t *testing.T) {
 	}
 	if !strings.Contains(string(content), `targets = ["codex"]`) {
 		t.Fatalf("manifest = %s, want minimal init template", content)
+	}
+}
+
+func TestRunInitForceRejectsOversizedManifestInPreviewAndWrite(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "dry-run", args: []string{"--dry-run"}},
+		{name: "write"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			manifestPath := filepath.Join(root, "daem.toml")
+			file, err := os.Create(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Truncate(declarationartifact.MaximumBytes + 1); err != nil {
+				_ = file.Close()
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			args := []string{"init", "--manifest", manifestPath, "--force"}
+			args = append(args, test.args...)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			exitCode := testkit.RunVerboseCLI(args, &stdout, &stderr)
+			if exitCode == 0 {
+				t.Fatalf("exitCode = 0, stdout = %q", stdout.String())
+			}
+			if !strings.Contains(stderr.String(), "exceeds") ||
+				!strings.Contains(stderr.String(), fmt.Sprint(declarationartifact.MaximumBytes)) {
+				t.Fatalf("stderr = %q, want bounded declaration diagnostic", stderr.String())
+			}
+			info, err := os.Stat(manifestPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Size() != declarationartifact.MaximumBytes+1 {
+				t.Fatalf("manifest size = %d, want original oversized file", info.Size())
+			}
+		})
 	}
 }

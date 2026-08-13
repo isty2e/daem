@@ -175,22 +175,6 @@ func (*PreparedRootedTree) Abort(_ context.Context) error {
 	return nil
 }
 
-// ReadRegularFile returns unsupported_guarantee without reading content.
-func ReadRegularFile(_ context.Context, path string) ([]byte, fs.FileMode, error) {
-	if err := validateCommitPath(path); err != nil {
-		return nil, 0, err
-	}
-	return nil, 0, newUnsupportedPlatformFailure(path)
-}
-
-// ReadRegularFileSnapshot returns unsupported_guarantee without reading.
-func ReadRegularFileSnapshot(_ context.Context, path string) (mutationfs.RegularFileSnapshot, error) {
-	if err := validateCommitPath(path); err != nil {
-		return mutationfs.RegularFileSnapshot{}, err
-	}
-	return mutationfs.RegularFileSnapshot{}, newUnsupportedPlatformFailure(path)
-}
-
 // ReadRegularFileSnapshotUpTo returns unsupported_guarantee without reading.
 func ReadRegularFileSnapshotUpTo(
 	_ context.Context,

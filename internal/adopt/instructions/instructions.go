@@ -11,8 +11,8 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/desired/entity"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/source/directfile"
 	targetpkg "github.com/isty2e/daem/internal/target"

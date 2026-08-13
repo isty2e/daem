@@ -59,7 +59,7 @@ targets = ["codex"]
 	if len(config.Skills()) != 0 {
 		t.Fatalf("skills = %#v, want none", config.Skills())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

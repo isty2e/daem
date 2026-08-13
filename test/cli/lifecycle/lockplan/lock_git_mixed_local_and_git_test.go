@@ -42,7 +42,7 @@ source = { path = "skills/alpha", mode = "vendor" }
 		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

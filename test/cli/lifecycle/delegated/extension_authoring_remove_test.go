@@ -54,7 +54,7 @@ func TestRunRemoveExtensionYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(normalized.Extensions()) != 0 {
 		t.Fatalf("Extensions = %#v, want removed", normalized.Extensions())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -154,7 +154,7 @@ func TestRunRemoveExtensionGlobalOmissionNeverUninstallsOrPrunes(t *testing.T) {
 	}
 	assertRetainedClaudePluginFiles(t, hostRoot, retainedFiles)
 
-	locked, err := lockfile.Load(fixture.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), fixture.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

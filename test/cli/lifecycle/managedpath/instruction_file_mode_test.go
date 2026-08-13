@@ -39,7 +39,7 @@ source = "instructions/AGENTS.md"
 `)
 
 	runInstructionModeCLI(t, []string{"lock", "--manifest", manifestPath}, 0)
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

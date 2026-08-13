@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/target"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )

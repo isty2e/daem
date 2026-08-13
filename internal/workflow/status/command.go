@@ -134,12 +134,12 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, result, err
 	}
 
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return commandInputs{}, result, fmt.Errorf("invalid manifest: %w", err)
 	}
 
-	locked, lockfileMissing, err := loadStatusLockfile(result.LockfilePath)
+	locked, lockfileMissing, err := loadStatusLockfile(ctx, result.LockfilePath)
 	if err != nil {
 		return commandInputs{}, result, fmt.Errorf("read lockfile: %w", err)
 	}
@@ -241,8 +241,8 @@ func selectedLockfilePath(paths daempaths.Paths, lockfilePath string) string {
 	return paths.LockfilePath
 }
 
-func loadStatusLockfile(path string) (lock.File, bool, error) {
-	file, err := lockfile.Load(path)
+func loadStatusLockfile(ctx context.Context, path string) (lock.File, bool, error) {
+	file, err := lockfile.Load(ctx, path)
 	if err == nil {
 		return file, false, nil
 	}

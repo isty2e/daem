@@ -212,7 +212,7 @@ func TestRunAddInstructionYesAddsGlobalSourceAsAbsolute(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile returned error: %v", err)
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -266,7 +266,7 @@ func TestRunAddInstructionYesWritesAntigravityProjectManifestAndLockWithoutHostO
 	if len(config.Instructions()) != 1 || len(config.Instructions()[0].Targets()) != 1 || config.Instructions()[0].Targets()[0] != "antigravity-cli" {
 		t.Fatalf("instructions = %#v, want antigravity-cli project instruction", config.Instructions())
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestRunAddInstructionYesWritesAntigravityGlobalManifestAndLockWithoutHostOu
 		config.Instructions()[0].Targets()[0] != "antigravity-cli" {
 		t.Fatalf("instructions = %#v, want antigravity-cli global instruction", config.Instructions())
 	}
-	locked, err := lockfile.Load(filepath.Join(tempDir, "daem.lock.toml"))
+	locked, err := lockfile.Load(t.Context(), filepath.Join(tempDir, "daem.lock.toml"))
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -448,7 +448,7 @@ targets = ["codex"]
 	if len(config.Instructions()) != 0 {
 		t.Fatalf("instructions = %#v, want none", config.Instructions())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -497,7 +497,7 @@ targets = ["opencode"]
 	if len(config.Instructions()) != 0 {
 		t.Fatalf("instructions = %#v, want none", config.Instructions())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

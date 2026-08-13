@@ -95,7 +95,7 @@ func TestRunAddMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 		t.Fatalf("MCPServers = %#v, want context7", normalized.MCPServers())
 	}
 	testkit.AssertSingleMCPStdioBinding(t, normalized.MCPServers()[0], "context7", target.TargetClaudeCode, target.ScopeProject, "npx", []string{"-y", "@upstash/context7-mcp@1.2.3"})
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestRunAddCodexMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(stdio.Env()) != 0 {
 		t.Fatalf("MCP server env = %#v, want empty", stdio.Env())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestRunAddCodexGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(stdio.Env()) != 0 {
 		t.Fatalf("MCP server env = %#v, want empty", stdio.Env())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestRunAddClaudeGlobalMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(stdio.Env()) != 0 {
 		t.Fatalf("MCP server env = %#v, want empty", stdio.Env())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestRunAddAntigravityMCPServerYesWritesManifestAndLockOnly(t *testing.T) {
 	if len(stdio.Env()) != 0 {
 		t.Fatalf("MCP server env = %#v, want empty", stdio.Env())
 	}
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

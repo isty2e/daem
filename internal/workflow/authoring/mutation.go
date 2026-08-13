@@ -9,6 +9,7 @@ import (
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -76,12 +77,8 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 	if outputPath == "" {
 		outputPath = paths.LockfilePath
 	}
-	current, currentErr := os.ReadFile(outputPath)
-	if currentErr == nil {
-		if err := lockfile.ValidateReplacementContent(current); err != nil {
-			return LockfileChange{}, fmt.Errorf("read lockfile: %w", err)
-		}
-	} else if !os.IsNotExist(currentErr) {
+	current, currentErr := lockfile.ReadReplacementContent(ctx, outputPath)
+	if currentErr != nil && !os.IsNotExist(currentErr) {
 		return LockfileChange{}, fmt.Errorf("read lockfile: %w", currentErr)
 	}
 
@@ -176,16 +173,24 @@ type authoringCandidate struct {
 	localPaths []string
 }
 
-func buildAuthoringCandidate(build authoringChangeBuilder, manifestPath string) (authoringCandidate, error) {
-	document, err := LoadManifestDocument(manifestPath)
+func buildAuthoringCandidate(
+	ctx context.Context,
+	build authoringChangeBuilder,
+	manifestPath string,
+) (authoringCandidate, error) {
+	document, err := LoadManifestDocument(ctx, manifestPath)
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
 	}
 	return buildAuthoringCandidateFromDocument(build, document)
 }
 
-func reloadAuthoringCandidate(build authoringChangeBuilder, paths daempaths.Paths) (authoringCandidate, error) {
-	document, err := loadManifestDocument(paths)
+func reloadAuthoringCandidate(
+	ctx context.Context,
+	build authoringChangeBuilder,
+	paths daempaths.Paths,
+) (authoringCandidate, error) {
+	document, err := loadManifestDocument(ctx, paths)
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
 	}
@@ -259,16 +264,20 @@ func executeAuthoringMutation(
 	); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	revisions, err := mutation.CaptureRevisionSet(ctx, authoringRevisionRequests(
+	revisionRequests, err := authoringRevisionRequests(
 		optimistic.change.ManifestPath,
 		lockfilePath,
 		markerPath,
 		optimistic.localPaths,
-	)...)
+	)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	current, err := reloadAuthoringCandidate(build, optimistic.document.Paths)
+	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
+	if err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
+	}
+	current, err := reloadAuthoringCandidate(ctx, build, optimistic.document.Paths)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -412,18 +421,27 @@ func recoverMetadataFileSetBeforeRead(
 	return transaction.RequireClearFileSet(ctx, paths.StateDir)
 }
 
-func authoringRevisionRequests(manifestPath string, lockfilePath string, markerPath string, localPaths []string) []mutation.RevisionRequest {
-	requests := []mutation.RevisionRequest{
-		{Path: manifestPath, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: manifestPath, Effect: mutation.PathEffectReferent},
-		{Path: lockfilePath, Effect: mutation.PathEffectDirectoryEntry},
-		{Path: lockfilePath, Effect: mutation.PathEffectReferent},
-		{Path: markerPath, Effect: mutation.PathEffectDirectoryEntry},
+func authoringRevisionRequests(
+	manifestPath string,
+	lockfilePath string,
+	markerPath string,
+	localPaths []string,
+) ([]mutation.RevisionRequest, error) {
+	requests, err := mutation.BoundedFileRevisionRequests(
+		declarationartifact.MaximumBytes,
+		manifestPath,
+		lockfilePath,
+	)
+	if err != nil {
+		return nil, err
 	}
+	requests = append(requests, mutation.RevisionRequest{
+		Path: markerPath, Effect: mutation.PathEffectDirectoryEntry,
+	})
 	for _, path := range localPaths {
 		requests = append(requests, mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectReferent})
 	}
-	return requests
+	return requests, nil
 }
 
 func equalAuthoringPathLists(left []string, right []string) bool {

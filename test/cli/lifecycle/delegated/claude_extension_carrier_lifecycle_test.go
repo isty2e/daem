@@ -160,7 +160,7 @@ func TestClaudeExtensionCarrierPublicCLILockSeparatesSamePluginProjectAndGlobal(
 	if exitCode != 0 || stderr.Len() != 0 {
 		t.Fatalf("lock exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestClaudeExtensionCarrierPublicCLIApplyYesDelegatesAdmittedHostRoute(t *te
 			if exitCode != 0 || stderr.Len() != 0 {
 				t.Fatalf("lock write exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 			}
-			locked, err := lockfile.Load(lockfilePath)
+			locked, err := lockfile.Load(t.Context(), lockfilePath)
 			if err != nil {
 				t.Fatalf("load lockfile: %v", err)
 			}

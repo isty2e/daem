@@ -1,13 +1,13 @@
 package lockfile
 
 import (
-	"bytes"
+	"context"
 	"fmt"
-	"os"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -48,12 +48,25 @@ func (err UnsupportedVersionError) RelockSupported() bool {
 }
 
 // Load reads an daem.lock.toml file.
-func Load(path string) (lock.File, error) {
-	content, err := os.ReadFile(path)
+func Load(ctx context.Context, path string) (lock.File, error) {
+	content, err := declarationartifact.Read(ctx, path)
 	if err != nil {
 		return lock.File{}, err
 	}
 	return loadContent(content)
+}
+
+// ReadReplacementContent reads exact lockfile bytes and verifies that the
+// authoring workflow may replace them without interpreting unsupported state.
+func ReadReplacementContent(ctx context.Context, path string) ([]byte, error) {
+	content, err := declarationartifact.Read(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateReplacementContent(content); err != nil {
+		return nil, err
+	}
+	return content, nil
 }
 
 // ValidateReplacementContent verifies that existing lockfile bytes may be
@@ -90,6 +103,9 @@ func loadContent(content []byte) (lock.File, error) {
 }
 
 func lockfileVersion(content []byte) (int, error) {
+	if err := declarationartifact.Admit(content); err != nil {
+		return 0, err
+	}
 	if !utf8.Valid(content) {
 		return 0, fmt.Errorf("lockfile is not valid UTF-8")
 	}
@@ -164,7 +180,7 @@ func Marshal(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 
-	var output bytes.Buffer
+	output := declarationartifact.NewOutputBuffer()
 	dto, err := dtoFromSnapshot(file)
 	if err != nil {
 		return nil, err
@@ -172,7 +188,6 @@ func Marshal(file lock.File) ([]byte, error) {
 	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
 		return nil, err
 	}
-
 	return output.Bytes(), nil
 }
 

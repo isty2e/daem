@@ -8,9 +8,10 @@ import (
 	"strconv"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -205,11 +206,16 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		domains = append(domains, domain)
 		return nil
 	}
-	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
+	addLogicalRevision := func(
+		path string,
+		access mutation.AccessMode,
+		effect mutation.PathEffect,
+		stable bool,
+		request mutation.RevisionRequest,
+	) error {
 		if err := addLogicalDomain(path, access, effect); err != nil {
 			return err
 		}
-		request := mutation.RevisionRequest{Path: path, Effect: effect}
 		key := importObservedPathKey(path, effect)
 		if err := addObserved(observed, key, request, false); err != nil {
 			return err
@@ -220,6 +226,15 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			}
 		}
 		return nil
+	}
+	addLogical := func(path string, access mutation.AccessMode, effect mutation.PathEffect, stable bool) error {
+		return addLogicalRevision(
+			path,
+			access,
+			effect,
+			stable,
+			mutation.RevisionRequest{Path: path, Effect: effect},
+		)
 	}
 	ensurePhysicalDomain := func(
 		path string,
@@ -274,11 +289,27 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		)
 	}
 
-	if err := addLogical(plan.Output(), mutation.AccessExclusive, mutation.PathEffectDirectoryEntry, true); err != nil {
+	outputRequests, err := mutation.BoundedFileRevisionRequests(
+		declarationartifact.MaximumBytes,
+		plan.Output(),
+	)
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	if err := addLogical(plan.Output(), mutation.AccessShared, mutation.PathEffectReferent, true); err != nil {
-		return nil, nil, nil, err
+	for _, request := range outputRequests {
+		access := mutation.AccessShared
+		if request.Effect == mutation.PathEffectDirectoryEntry {
+			access = mutation.AccessExclusive
+		}
+		if err := addLogicalRevision(
+			plan.Output(),
+			access,
+			request.Effect,
+			true,
+			request,
+		); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	paths, err := daempaths.Resolve(plan.Output())
 	if err != nil {

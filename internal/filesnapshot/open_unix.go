@@ -9,8 +9,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openRegularFile(path string) (*os.File, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+func openRegularFile(path string, followFinalSymlink bool) (*os.File, error) {
+	flags := unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NONBLOCK
+	if !followFinalSymlink {
+		flags |= unix.O_NOFOLLOW
+	}
+	fd, err := unix.Open(path, flags, 0)
 	if err != nil {
 		if errors.Is(err, unix.ELOOP) {
 			return nil, ErrChanged

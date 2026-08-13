@@ -95,7 +95,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, result, err
 	}
 
-	environment, err := declarationmanifest.LoadSelected(paths)
+	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
 		return commandInputs{}, result, fmt.Errorf("invalid manifest: %w", err)
 	}
@@ -110,7 +110,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 	if selectedScope == target.ScopeProject && !paths.ProjectPlacementAllowed() {
 		return commandInputs{}, result, fmt.Errorf("project MCP probe requires an explicit or cwd manifest; pass --manifest for the project to probe")
 	}
-	locked, err := lockfile.Load(result.LockfilePath)
+	locked, err := lockfile.Load(ctx, result.LockfilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return commandInputs{}, result, fmt.Errorf("read lockfile: %w; run lock before probing runtime readiness", err)

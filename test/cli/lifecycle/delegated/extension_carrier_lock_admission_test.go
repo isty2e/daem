@@ -101,7 +101,7 @@ source = { host_source = "modern-web-guidance@google" }
 				t.Fatalf("exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 			}
 
-			locked, err := lockfile.Load(lockfilePath)
+			locked, err := lockfile.Load(t.Context(), lockfilePath)
 			if err != nil {
 				t.Fatalf("Load returned error: %v", err)
 			}

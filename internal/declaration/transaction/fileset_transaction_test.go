@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/contractversion"
 )
 
 func TestCommitWritesEveryTargetAndRemovesEvidence(t *testing.T) {
@@ -391,8 +393,10 @@ func TestLoadMarkerRejectsCorruptAndExposedEvidence(t *testing.T) {
 func TestLoadMarkerRejectsNonCanonicalAndAbsentAuthorityFields(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "value")
+	versionField := fmt.Sprintf(`"version":%d`, contractversion.MetadataTransaction)
 	valid := fmt.Sprintf(
-		`{"version":2,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
+		`{"version":%d,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
+		contractversion.MetadataTransaction,
 		path,
 		strings.Repeat("a", 64),
 	)
@@ -403,8 +407,8 @@ func TestLoadMarkerRejectsNonCanonicalAndAbsentAuthorityFields(t *testing.T) {
 	}{
 		{name: "root alias", content: strings.Replace(valid, `"version"`, `"Version"`, 1), want: "ASCII lower_snake_case"},
 		{name: "nested alias", content: strings.Replace(valid, `"before"`, `"Before"`, 1), want: "ASCII lower_snake_case"},
-		{name: "case-folded duplicate", content: strings.Replace(valid, `"version":2`, `"version":2,"Version":2`, 1), want: "ASCII lower_snake_case"},
-		{name: "unknown field", content: strings.Replace(valid, `"version":2`, `"version":2,"unknown":true`, 1), want: "unknown field"},
+		{name: "case-folded duplicate", content: strings.Replace(valid, versionField, versionField+fmt.Sprintf(`,"Version":%d`, contractversion.MetadataTransaction), 1), want: "ASCII lower_snake_case"},
+		{name: "unknown field", content: strings.Replace(valid, versionField, versionField+`,"unknown":true`, 1), want: "unknown field"},
 		{name: "nested unknown field", content: strings.Replace(valid, `"exists":false`, `"exists":false,"unknown":true`, 1), want: "unknown field"},
 		{name: "missing path", content: strings.Replace(valid, `"path":`+fmt.Sprintf("%q", path)+`,`, "", 1), want: `targets[0] field "path" is required`},
 		{name: "missing targets", content: strings.Replace(valid, `,"targets":[{"path":`+fmt.Sprintf("%q", path)+`,"before":{"exists":false},"write":true,"after_hash":"sha256:`+strings.Repeat("a", 64)+`"}]`, "", 1), want: `field "targets" is required`},
@@ -418,7 +422,7 @@ func TestLoadMarkerRejectsNonCanonicalAndAbsentAuthorityFields(t *testing.T) {
 		{name: "missing after hash", content: strings.Replace(valid, `,"after_hash":"sha256:`+strings.Repeat("a", 64)+`"`, "", 1), want: `targets[0] field "after_hash" is required`},
 		{name: "null after hash", content: strings.Replace(valid, `"after_hash":"sha256:`+strings.Repeat("a", 64)+`"`, `"after_hash":null`, 1), want: `targets[0] field "after_hash" must not be null`},
 		{name: "missing existing hash", content: strings.Replace(valid, `"exists":false`, `"exists":true`, 1), want: `targets[0].before field "hash" is required`},
-		{name: "future version", content: strings.Replace(valid, `"version":2`, `"version":3`, 1), want: "written by a newer daem"},
+		{name: "future version", content: strings.Replace(valid, versionField, fmt.Sprintf(`"version":%d`, contractversion.MetadataTransaction+1), 1), want: "written by a newer daem"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -433,24 +437,170 @@ func TestLoadMarkerRejectsNonCanonicalAndAbsentAuthorityFields(t *testing.T) {
 	}
 }
 
-func TestLoadMarkerAcceptsLegacyVersion(t *testing.T) {
+func TestLoadMarkerRejectsLegacyVersionsWithoutReinterpretingEvidence(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "value")
-	content := fmt.Sprintf(
-		`{"version":1,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
-		path,
-		strings.Repeat("a", 64),
-	)
-	markerPath := filepath.Join(t.TempDir(), transactionMarkerFile)
-	if err := os.WriteFile(markerPath, []byte(content), transactionEvidenceMode); err != nil {
+	for _, version := range []int{1, 2} {
+		t.Run(fmt.Sprintf("version %d", version), func(t *testing.T) {
+			content := fmt.Sprintf(
+				`{"version":%d,"targets":[{"path":%q,"before":{"exists":false},"write":true,"after_hash":"sha256:%s"}]}`,
+				version,
+				path,
+				strings.Repeat("a", 64),
+			)
+			markerPath := filepath.Join(t.TempDir(), transactionMarkerFile)
+			if err := os.WriteFile(markerPath, []byte(content), transactionEvidenceMode); err != nil {
+				t.Fatal(err)
+			}
+			_, err := loadMarker(context.Background(), markerPath)
+			if err == nil ||
+				!strings.Contains(err.Error(), "use the daem version that wrote it") ||
+				!strings.Contains(err.Error(), "do not delete the transaction evidence") {
+				t.Fatalf("loadMarker legacy version error = %v, want preservation guidance", err)
+			}
+		})
+	}
+}
+
+func TestRecoverPreservesOversizedLegacyBeforeImageForOldWriter(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	evidenceDir := transactionDir(stateDir)
+	if err := os.MkdirAll(evidenceDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	marker, err := loadMarker(context.Background(), markerPath)
+	targetPath := filepath.Join(root, "target")
+	writeFixture(t, targetPath, "after", 0o600)
+	backupPath := filepath.Join(evidenceDir, "target-000.before")
+	backup, err := os.Create(backupPath)
 	if err != nil {
-		t.Fatalf("loadMarker legacy version returned error: %v", err)
+		t.Fatal(err)
 	}
-	if marker.Version != 1 {
-		t.Fatalf("marker version = %d, want legacy version 1", marker.Version)
+	if err := backup.Truncate(maximumTargetBytes + 1); err != nil {
+		_ = backup.Close()
+		t.Fatal(err)
+	}
+	if err := backup.Close(); err != nil {
+		t.Fatal(err)
+	}
+	content := fmt.Sprintf(
+		`{"version":2,"targets":[{"path":%q,"before":{"exists":true,"hash":"sha256:%s","backup_path":%q,"mode":384},"write":true,"after_hash":"sha256:%s"}]}`,
+		targetPath,
+		strings.Repeat("a", 64),
+		backupPath,
+		strings.Repeat("b", 64),
+	)
+	if err := os.WriteFile(markerPath(stateDir), []byte(content), transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+
+	err = RecoverFileSet(t.Context(), stateDir, []string{targetPath})
+	if err == nil || !strings.Contains(err.Error(), "use the daem version that wrote it") {
+		t.Fatalf("RecoverFileSet error = %v, want old-writer recovery guidance", err)
+	}
+	assertContent(t, targetPath, "after")
+	if info, err := os.Stat(backupPath); err != nil || info.Size() != maximumTargetBytes+1 {
+		t.Fatalf("legacy backup was not preserved: info=%v err=%v", info, err)
+	}
+	if _, err := os.Stat(markerPath(stateDir)); err != nil {
+		t.Fatalf("legacy marker was not preserved: %v", err)
+	}
+}
+
+func TestTransactionTargetByteLimit(t *testing.T) {
+	t.Parallel()
+
+	if err := validateTargetContentLength(maximumTargetBytes); err != nil {
+		t.Fatalf("exact target limit returned error: %v", err)
+	}
+	if err := validateTargetContentLength(maximumTargetBytes + 1); err == nil {
+		t.Fatal("oversized target length was admitted")
+	}
+}
+
+func TestMarshalMarkerRejectsOutputOverReadLimit(t *testing.T) {
+	t.Parallel()
+
+	marker := transactionMarker{Version: contractversion.MetadataTransaction}
+	for index := 0; index < 4_096; index++ {
+		marker.Targets = append(marker.Targets, targetMarker{
+			Path:      filepath.Join(string(filepath.Separator), strings.Repeat("p", 300), fmt.Sprintf("%04d", index)),
+			Before:    fileState{},
+			AfterHash: hashBytes(nil),
+			Write:     true,
+		})
+	}
+	if _, err := marshalMarker(marker); err == nil {
+		t.Fatal("marshalMarker admitted output above its read limit")
+	}
+}
+
+func TestTransactionPhysicalReadsRejectOversizedFiles(t *testing.T) {
+	root := t.TempDir()
+	oversized := filepath.Join(root, "oversized")
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maximumTargetBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("capture before-image", func(t *testing.T) {
+		staged := filepath.Join(root, "staged.before")
+		_, err := captureFileState(t.Context(), oversized, staged, filepath.Join(root, "active.before"))
+		if err == nil {
+			t.Fatal("captureFileState admitted an oversized target")
+		}
+		assertMissing(t, staged)
+	})
+
+	t.Run("classify target", func(t *testing.T) {
+		matches, err := fileMatchesExpected(t.Context(), oversized, hashBytes(nil), 0o600)
+		if err == nil || matches {
+			t.Fatalf("fileMatchesExpected = (%t, %v), want bounded read failure", matches, err)
+		}
+	})
+
+	t.Run("restore backup", func(t *testing.T) {
+		writeCalled := false
+		err := restoreFile(t.Context(), filepath.Join(root, "target"), fileState{
+			Exists:     true,
+			Hash:       hashBytes(nil),
+			BackupPath: oversized,
+			Mode:       0o600,
+		}, operations{writeFile: func(context.Context, string, []byte, os.FileMode) error {
+			writeCalled = true
+			return nil
+		}})
+		if err == nil {
+			t.Fatal("restoreFile admitted an oversized backup")
+		}
+		if writeCalled {
+			t.Fatal("restoreFile wrote a target after oversized backup rejection")
+		}
+	})
+}
+
+func TestTransactionPhysicalReadAdmitsExactLimit(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "exact")
+	writeFixture(t, path, "1234", 0o640)
+	path, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, mode, err := readTransactionFileUpTo(t.Context(), path, 4)
+	if err != nil || string(content) != "1234" || mode.Perm() != 0o640 {
+		t.Fatalf("exact transaction read = (%q, %04o, %v)", content, mode.Perm(), err)
+	}
+	if _, _, err := readTransactionFileUpTo(t.Context(), path, 3); err == nil {
+		t.Fatal("transaction read admitted content over its limit")
 	}
 }
 

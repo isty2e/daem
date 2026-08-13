@@ -438,6 +438,13 @@ If apply-journal recovery or incomplete journal cleanup is also present, run
 `daem recover` first. An `unmanage` retry will not inspect or repair the
 metadata transaction until that journal authority is clear.
 
+Metadata transaction marker version 3 enforces bounded declaration recovery.
+Versions 1 and 2 predate that contract, so current daem versions preserve but
+do not reinterpret them. Use the daem version that wrote the marker to retry
+the exact interrupted write before upgrading. Do not delete the
+`metadata-transaction` directory to bypass this refusal; it can contain the
+only before-images for an interrupted metadata update.
+
 ## Lockfile Is Missing Or Stale
 
 Direct manifest edits and imports require an explicit lock refresh:

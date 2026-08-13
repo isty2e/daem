@@ -81,7 +81,7 @@ func TestRunUnmanageExtensionReleasesExactGlobalClaimAndRetainsHostState(t *test
 	if len(normalized.Extensions()) != 0 {
 		t.Fatalf("extensions after unmanage = %#v, want none", normalized.Extensions())
 	}
-	locked, err := lockfile.Load(fixture.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), fixture.lockfilePath)
 	if err != nil {
 		t.Fatalf("load lockfile after unmanage: %v", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 func TestReadRegularFileDistinguishesMissingAndStableContent(t *testing.T) {

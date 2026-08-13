@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/mutation"
 )
@@ -39,7 +40,7 @@ func WriteInterruptedForAbsentTarget(
 	if err != nil {
 		t.Fatal(err)
 	}
-	content := `{"version":1,"targets":[{"path":` + strconv.Quote(targetPath) +
+	content := `{"version":` + strconv.Itoa(contractversion.MetadataTransaction) + `,"targets":[{"path":` + strconv.Quote(targetPath) +
 		`,"before":{"exists":false},"write":false}]}`
 	if err := os.WriteFile(
 		filepath.Join(authorityPath, "transaction.json"),

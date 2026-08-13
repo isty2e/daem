@@ -70,7 +70,7 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 		return result, err
 	}
 
-	loadedManifest := doctorManifestLoader.load(paths.ManifestPath)
+	loadedManifest := doctorManifestLoader.load(ctx, paths.ManifestPath)
 	if !input.TargetExplicit && !input.AllTargets && loadedManifest.ready() {
 		selection = loadedManifest.facts.ContextSelection()
 		result.Selection = selection

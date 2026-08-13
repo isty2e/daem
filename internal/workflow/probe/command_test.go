@@ -347,7 +347,7 @@ func TestProbeRequestRejectsClaudeProjectionWithoutLockedLaunchIdentity(t *testi
 	project := newProbeWorkflowProject(t)
 	writeProbeWorkflowManifest(t, project.root, "node", []string{"server.js"}, nil)
 	writeProbeWorkflowLock(t, project)
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("Load lockfile: %v", err)
 	}
@@ -575,7 +575,7 @@ func tamperedClaudeLockedProjection(
 	tamper func(string) string,
 ) lock.LockedSubjectContract {
 	t.Helper()
-	locked, err := lockfile.Load(project.lockfilePath)
+	locked, err := lockfile.Load(t.Context(), project.lockfilePath)
 	if err != nil {
 		t.Fatalf("Load lockfile: %v", err)
 	}

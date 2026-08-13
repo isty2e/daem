@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declaration"
+	"github.com/isty2e/daem/internal/declarationartifact"
 )
 
 // ImportManifestSource is the local source form emitted by adoption.
@@ -116,7 +117,7 @@ type importManifest struct {
 
 // RenderImportManifest renders one complete manifest from the import operation view.
 func RenderImportManifest(targets []string, body ImportManifestBody) ([]byte, error) {
-	var output bytes.Buffer
+	output := declarationartifact.NewOutputBuffer()
 	if err := toml.NewEncoder(&output).Encode(importManifest{
 		Version:            declaration.CurrentManifestVersion,
 		Targets:            targets,
@@ -130,7 +131,7 @@ func RenderImportManifest(targets []string, body ImportManifestBody) ([]byte, er
 
 // RenderImportManifestBody renders only resource declarations for an existing manifest.
 func RenderImportManifestBody(body ImportManifestBody) ([]byte, error) {
-	var output bytes.Buffer
+	output := declarationartifact.NewOutputBuffer()
 	if err := toml.NewEncoder(&output).Encode(body); err != nil {
 		return nil, fmt.Errorf("render import manifest body: %w", err)
 	}

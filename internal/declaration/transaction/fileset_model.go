@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 )
 
+const maximumTargetBytes int64 = 64 << 20
+
 // FileTarget is one exact file transition in a recoverable transaction.
 type FileTarget struct {
 	path        string
@@ -19,6 +21,9 @@ type FileTarget struct {
 
 // NewFileWrite constructs a target whose after-state is the supplied content.
 func NewFileWrite(path string, content []byte) (FileTarget, error) {
+	if err := validateTargetContentLength(int64(len(content))); err != nil {
+		return FileTarget{}, err
+	}
 	canonical, err := mutation.CanonicalDirectoryEntryPath(path)
 	if err != nil {
 		return FileTarget{}, fmt.Errorf("canonicalize transaction target: %w", err)
@@ -28,6 +33,20 @@ func NewFileWrite(path string, content []byte) (FileTarget, error) {
 		content: append([]byte(nil), content...),
 		write:   true,
 	}, nil
+}
+
+func validateTargetContentLength(length int64) error {
+	if length < 0 {
+		return fmt.Errorf("file-set transaction target byte length must not be negative")
+	}
+	if length > maximumTargetBytes {
+		return fmt.Errorf(
+			"file-set transaction target contains %d bytes, maximum %d",
+			length,
+			maximumTargetBytes,
+		)
+	}
+	return nil
 }
 
 // NewFileCommitPointWrite constructs the one after-image that may publish the

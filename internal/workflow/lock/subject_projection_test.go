@@ -44,7 +44,7 @@ env = { API_TOKEN = { from_env = "CONTEXT7_API_TOKEN" } }
 		t.Fatalf("write RunLock returned error: %v", err)
 	}
 	assertWorkflowMCPSubject(t, written.Lockfile, "context7")
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}
@@ -74,7 +74,7 @@ args = ["-y", "@example/server@1.2.3", "--label", ""]
 		t.Fatalf("written projection args = %#v, want empty argument preserved", entry.Args)
 	}
 
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}
@@ -114,7 +114,7 @@ source = { marketplace = "context7@market" }
 		t.Fatalf("write RunLock returned error: %v", err)
 	}
 	assertWorkflowClaudePluginCarrierSubject(t, written.Lockfile, "context7-managed", "context7@market")
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}
@@ -152,7 +152,7 @@ source = { marketplace = "context7@market" }
 		t.Fatalf("write RunLock returned error: %v", err)
 	}
 	assertWorkflowClaudePluginCarrierSubjectWithScope(t, written.Lockfile, "context7-global", "context7@market", target.ScopeGlobal)
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}
@@ -229,7 +229,7 @@ source = { marketplace = "documents@openai-primary-runtime" }
 		t.Fatalf("write RunLock returned error: %v", err)
 	}
 	assertWorkflowCodexPluginCarrierSubject(t, written.Lockfile, "documents-managed", "documents@openai-primary-runtime")
-	loaded, err := lockfile.Load(lockfilePath)
+	loaded, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("Load written lockfile returned error: %v", err)
 	}

@@ -240,7 +240,7 @@ source = { path = "skills/alpha", mode = "vendor" }
 	}
 
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -264,7 +264,7 @@ source = { path = "skills/alpha", mode = "vendor" }
 
 func assertLockedSkillNames(t *testing.T, lockfilePath string, want []string) {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -280,7 +280,7 @@ func assertLockedSkillNames(t *testing.T, lockfilePath string, want []string) {
 
 func lockedSkillHash(t *testing.T, lockfilePath string, name string) string {
 	t.Helper()
-	locked, err := lockfile.Load(lockfilePath)
+	locked, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -334,7 +334,7 @@ targets = ["claude-code"]
 	}
 
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	firstLock, err := lockfile.Load(lockfilePath)
+	firstLock, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -360,7 +360,7 @@ targets = ["codex"]
 		t.Fatalf("second exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	secondLock, err := lockfile.Load(lockfilePath)
+	secondLock, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -410,7 +410,7 @@ source = { git = "`+repoPath+`", path = "skills/oracle", ref = "main" }
 	}
 
 	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
-	firstLock, err := lockfile.Load(lockfilePath)
+	firstLock, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}
@@ -436,7 +436,7 @@ source = { path = "skills/alpha", mode = "vendor" }
 		t.Fatalf("second exitCode = %d, stderr = %q", exitCode, stderr.String())
 	}
 
-	secondLock, err := lockfile.Load(lockfilePath)
+	secondLock, err := lockfile.Load(t.Context(), lockfilePath)
 	if err != nil {
 		t.Fatalf("lockfile.Load returned error: %v", err)
 	}

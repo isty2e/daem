@@ -45,7 +45,7 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
-	document, err := loadManifestDocument(paths)
+	document, err := loadManifestDocument(ctx, paths)
 	if err != nil {
 		return unmanageCandidate{}, err
 	}

@@ -9,8 +9,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
-	"github.com/isty2e/daem/internal/assurance/observe/filesnapshot"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/target"
 )
 
