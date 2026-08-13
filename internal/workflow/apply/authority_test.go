@@ -63,13 +63,25 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	declarationAuthority := map[mutation.RevisionRequest]bool{
-		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectDirectoryEntry}: false,
-		{Path: planned.result.ManifestPath, Effect: mutation.PathEffectReferent}:       false,
-		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectDirectoryEntry}: false,
-		{Path: planned.result.LockfilePath, Effect: mutation.PathEffectReferent}:       false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.result.ManifestPath,
+			mutation.PathEffectDirectoryEntry,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.result.ManifestPath,
+			mutation.PathEffectReferent,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.result.LockfilePath,
+			mutation.PathEffectDirectoryEntry,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.result.LockfilePath,
+			mutation.PathEffectReferent,
+		): false,
 	}
 	for _, fact := range evidence.facts {
-		request := mutation.RevisionRequest{Path: fact.Path, Effect: fact.Effect}
+		request := mutation.NewBoundedContentRevisionRequest(fact.Path, fact.Effect)
 		if _, expected := declarationAuthority[request]; expected &&
 			fact.Kind == "logical" &&
 			fact.Access == mutation.AccessShared {
@@ -83,15 +95,33 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	}
 
 	want := map[mutation.RevisionRequest]bool{
-		{Path: planned.result.StatefilePath, Effect: mutation.PathEffectDirectoryEntry}:                                               false,
-		{Path: planned.result.StatefilePath, Effect: mutation.PathEffectReferent}:                                                     false,
-		{Path: planned.context.Paths.RecoveryDir, Effect: mutation.PathEffectDirectoryEntry}:                                          false,
-		{Path: planned.context.Paths.RecoveryDir, Effect: mutation.PathEffectReferent}:                                                false,
-		{Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry}:                                                    false,
-		{Path: filepath.Join(planned.context.Paths.ManifestRoot, "skills", "review"), Effect: mutation.PathEffectDirectoryEntry}:      false,
-		{Path: filepath.Join(planned.context.Paths.ManifestRoot, "skills", "review"), Effect: mutation.PathEffectReferent}:            false,
-		{Path: filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"), Effect: mutation.PathEffectDirectoryEntry}: false,
-		{Path: filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"), Effect: mutation.PathEffectReferent}:       false,
+		mutation.NewBoundedContentRevisionRequest(planned.result.StatefilePath, mutation.PathEffectDirectoryEntry): false,
+		mutation.NewBoundedContentRevisionRequest(planned.result.StatefilePath, mutation.PathEffectReferent):       false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.context.Paths.RecoveryDir,
+			mutation.PathEffectDirectoryEntry,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			planned.context.Paths.RecoveryDir,
+			mutation.PathEffectReferent,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(metadataTransactionPath, mutation.PathEffectDirectoryEntry): false,
+		mutation.NewBoundedContentRevisionRequest(
+			filepath.Join(planned.context.Paths.ManifestRoot, "skills", "review"),
+			mutation.PathEffectDirectoryEntry,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			filepath.Join(planned.context.Paths.ManifestRoot, "skills", "review"),
+			mutation.PathEffectReferent,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
+			mutation.PathEffectDirectoryEntry,
+		): false,
+		mutation.NewBoundedContentRevisionRequest(
+			filepath.Join(rootAuthority.PhysicalRoot(), ".claude", "skills", "review"),
+			mutation.PathEffectReferent,
+		): false,
 	}
 	for _, request := range evidence.firstEffectRevisions {
 		if request.Path == planned.result.ManifestPath ||

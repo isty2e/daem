@@ -38,6 +38,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 	output := plan.Output()
 	manifestContent := plan.ManifestContent()
 	created := make([]createdImportPath, 0, len(sources)+len(skills))
+	createdRevisionPass := mutation.NewRevisionObservationPass()
 	var ancestorCleanup storagecommit.AncestorCleanup
 	defer ancestorCleanup.Close()
 	preparationErr := prepareImportParentDirectories(
@@ -52,6 +53,7 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 		}
 		cleanupErrors := make([]error, 0)
 		cleanupContext := context.WithoutCancel(ctx)
+		cleanupRevisionPass := mutation.NewRevisionObservationPass()
 		for index := len(created) - 1; index >= 0; index-- {
 			_, err := os.Lstat(created[index].path)
 			if err != nil {
@@ -61,9 +63,13 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("inspect imported path %q identity before cleanup: %w", created[index].path, err))
 				continue
 			}
-			current, err := mutation.CaptureRevision(cleanupContext, mutation.RevisionRequest{
-				Path: created[index].path, Effect: mutation.PathEffectDirectoryEntry,
-			})
+			current, err := cleanupRevisionPass.Capture(
+				cleanupContext,
+				mutation.NewBoundedContentRevisionRequest(
+					created[index].path,
+					mutation.PathEffectDirectoryEntry,
+				),
+			)
 			if err != nil {
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("inspect imported path %q before cleanup: %w", created[index].path, err))
 				continue
@@ -93,7 +99,14 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		createdPath, err := commitNewImportFile(ctx, source.SourcePath, source.Content, 0o600, &ancestorCleanup)
+		createdPath, err := commitNewImportFile(
+			ctx,
+			source.SourcePath,
+			source.Content,
+			0o600,
+			&ancestorCleanup,
+			createdRevisionPass,
+		)
 		if err != nil {
 			return fmt.Errorf("write imported source %q: %w", source.SourcePath, err)
 		}
@@ -108,7 +121,12 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 			continue
 		}
 		writtenSkillSources[skill.SourcePath] = struct{}{}
-		createdPath, err := copyImportedSkillDirectory(ctx, skill, &ancestorCleanup)
+		createdPath, err := copyImportedSkillDirectory(
+			ctx,
+			skill,
+			&ancestorCleanup,
+			createdRevisionPass,
+		)
 		if err != nil {
 			return fmt.Errorf("write imported skill source %q: %w", skill.SourcePath, err)
 		}
@@ -139,14 +157,22 @@ func writePlan(ctx context.Context, plan adoptmodel.Plan, validateBeforeManifest
 	return nil
 }
 
-func captureCreatedImportPath(ctx context.Context, path string) (createdImportPath, error) {
+func captureCreatedImportPath(
+	ctx context.Context,
+	path string,
+	revisionPass *mutation.RevisionObservationPass,
+) (createdImportPath, error) {
+	if revisionPass == nil {
+		return createdImportPath{path: path}, fmt.Errorf("import revision observation pass is required")
+	}
 	identity, err := storagecommit.CaptureEntryIdentity(context.WithoutCancel(ctx), path)
 	if err != nil {
 		return createdImportPath{path: path}, err
 	}
-	revision, err := mutation.CaptureRevision(context.WithoutCancel(ctx), mutation.RevisionRequest{
-		Path: path, Effect: mutation.PathEffectDirectoryEntry,
-	})
+	revision, err := revisionPass.Capture(
+		context.WithoutCancel(ctx),
+		mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectDirectoryEntry),
+	)
 	return createdImportPath{path: path, identity: identity, revision: revision}, err
 }
 
@@ -199,12 +225,13 @@ func commitNewImportFile(
 	content []byte,
 	mode os.FileMode,
 	ancestorCleanup *storagecommit.AncestorCleanup,
+	revisionPass *mutation.RevisionObservationPass,
 ) (createdImportPath, error) {
 	commitPath, err := commitNewFile(ctx, path, content, mode, ancestorCleanup)
 	if err != nil {
 		return createdImportPath{path: commitPath}, err
 	}
-	created, err := captureCreatedImportPath(ctx, commitPath)
+	created, err := captureCreatedImportPath(ctx, commitPath, revisionPass)
 	if err != nil {
 		return created, importResidueError{path: commitPath, err: fmt.Errorf("capture committed import identity: %w", err)}
 	}
@@ -261,6 +288,7 @@ func copyImportedSkillDirectory(
 	ctx context.Context,
 	skill adoptmodel.Skill,
 	ancestorCleanup *storagecommit.AncestorCleanup,
+	revisionPass *mutation.RevisionObservationPass,
 ) (createdImportPath, error) {
 	identity, err := skill.ExpectedSourceIdentity()
 	if err != nil {
@@ -324,7 +352,7 @@ func copyImportedSkillDirectory(
 		}
 		return createdImportPath{}, err
 	}
-	created, err := captureCreatedImportPath(ctx, commitPath)
+	created, err := captureCreatedImportPath(ctx, commitPath, revisionPass)
 	if err != nil {
 		return created, importResidueError{path: commitPath, err: fmt.Errorf("capture committed import tree identity: %w", err)}
 	}

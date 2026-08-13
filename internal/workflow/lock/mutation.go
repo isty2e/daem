@@ -194,11 +194,18 @@ func lockRevisionRequests(
 	if err != nil {
 		return nil, err
 	}
-	requests = append(requests, mutation.RevisionRequest{
-		Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry,
-	})
+	requests = append(
+		requests,
+		mutation.NewBoundedContentRevisionRequest(
+			metadataTransactionPath,
+			mutation.PathEffectDirectoryEntry,
+		),
+	)
 	for _, path := range localPaths {
-		requests = append(requests, mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectReferent})
+		requests = append(
+			requests,
+			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
+		)
 	}
 	return requests, nil
 }

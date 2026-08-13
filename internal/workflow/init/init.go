@@ -132,7 +132,10 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	}
 	revisions, err := mutation.CaptureRevisionSet(ctx, append(
 		manifestRevisionRequests,
-		mutation.RevisionRequest{Path: metadataTransactionPath, Effect: mutation.PathEffectDirectoryEntry},
+		mutation.NewBoundedContentRevisionRequest(
+			metadataTransactionPath,
+			mutation.PathEffectDirectoryEntry,
+		),
 	)...)
 	if err != nil {
 		return Plan{}, err

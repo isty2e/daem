@@ -71,10 +71,7 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		facts = append(facts, fact)
 		domains = append(domains, domain)
 		if _, declaration := declarationPaths[path]; !declaration {
-			firstEffectRevisions[revisionRequestKey(path, effect)] = mutation.RevisionRequest{
-				Path:   path,
-				Effect: effect,
-			}
+			firstEffectRevisions[revisionRequestKey(path, effect)] = mutation.NewBoundedContentRevisionRequest(path, effect)
 		}
 		return nil
 	}

@@ -69,12 +69,14 @@ func TestApplyAuthorityCoversEveryOpenCodeOrderSelectorCandidate(t *testing.T) {
 		"tui.jsonc",
 	} {
 		path := filepath.Join(root, ".opencode", name)
-		want[mutation.RevisionRequest{
-			Path: path, Effect: mutation.PathEffectDirectoryEntry,
-		}] = false
-		want[mutation.RevisionRequest{
-			Path: path, Effect: mutation.PathEffectReferent,
-		}] = false
+		want[mutation.NewBoundedContentRevisionRequest(
+			path,
+			mutation.PathEffectDirectoryEntry,
+		)] = false
+		want[mutation.NewBoundedContentRevisionRequest(
+			path,
+			mutation.PathEffectReferent,
+		)] = false
 	}
 	for _, request := range evidence.firstEffectRevisions {
 		if _, expected := want[request]; expected {

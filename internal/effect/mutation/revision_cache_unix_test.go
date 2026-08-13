@@ -46,7 +46,11 @@ func TestBoundedRevisionCacheRejectsAliasedRewriteWithRestoredMtime(t *testing.T
 	}
 
 	cache := make(map[string]revisionFileCacheEntry)
-	first, err := captureRevision(context.Background(), referents[0], cache)
+	budget, err := newRevisionCaptureBudget(defaultRevisionCaptureLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := captureRevision(context.Background(), referents[0], cache, budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +60,7 @@ func TestBoundedRevisionCacheRejectsAliasedRewriteWithRestoredMtime(t *testing.T
 	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	second, err := captureRevision(context.Background(), referents[1], cache)
+	second, err := captureRevision(context.Background(), referents[1], cache, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

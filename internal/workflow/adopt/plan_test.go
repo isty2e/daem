@@ -119,7 +119,7 @@ func TestExtensionImportPlanAndExecuteWriteOnlyManifest(t *testing.T) {
 
 	executed, err := ExecuteCommandPlan(
 		context.Background(),
-		CommandPlan{request: request, plan: plan},
+		commandPlanWithRevisionEvidence(t, request, plan),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 
 	_, err = ExecuteCommandPlan(
 		context.Background(),
-		CommandPlan{request: request, plan: plan},
+		commandPlanWithRevisionEvidence(t, request, plan),
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -583,6 +583,24 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 	}
 	if !bytes.Equal(current, original) {
 		t.Fatal("stale selector membership authority changed manifest")
+	}
+}
+
+func commandPlanWithRevisionEvidence(
+	t *testing.T,
+	request adoptmodel.Request,
+	plan adoptmodel.Plan,
+) CommandPlan {
+	t.Helper()
+	revisions, stableRevisions, err := captureImportRevisionEvidence(t.Context(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return CommandPlan{
+		request:         request,
+		plan:            plan,
+		revisions:       revisions,
+		stableRevisions: stableRevisions,
 	}
 }
 

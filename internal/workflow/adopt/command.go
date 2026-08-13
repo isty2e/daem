@@ -9,6 +9,7 @@ import (
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/profile"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -23,8 +24,10 @@ type CommandInput struct {
 }
 
 type CommandPlan struct {
-	request adoptmodel.Request
-	plan    adoptmodel.Plan
+	request         adoptmodel.Request
+	plan            adoptmodel.Plan
+	revisions       mutation.RevisionSet
+	stableRevisions mutation.RevisionSet
 }
 
 func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, error) {
@@ -72,6 +75,12 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 	if err := validateMCPSourceAuthoritiesCurrent(ctx, plan); err != nil {
 		return result, err
 	}
+	revisions, stableRevisions, err := captureImportRevisionEvidence(ctx, plan)
+	if err != nil {
+		return result, err
+	}
+	result.revisions = revisions
+	result.stableRevisions = stableRevisions
 	return result, nil
 }
 

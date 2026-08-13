@@ -73,13 +73,12 @@ func executeCommandPlan(
 		return CommandPlan{}, err
 	}
 
-	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
-	if err != nil {
+	revisions := optimistic.revisions
+	stableRevisions := optimistic.stableRevisions
+	if matches, err := revisions.MatchesCurrent(ctx); err != nil {
 		return CommandPlan{}, err
-	}
-	stableRevisions, err := mutation.CaptureRevisionSet(ctx, stableRevisionRequests...)
-	if err != nil {
-		return CommandPlan{}, err
+	} else if !matches {
+		return CommandPlan{}, mutation.StaleSnapshotError{}
 	}
 	selectorMembership, err := captureSelectorSkillMembershipWitness(ctx, optimistic.plan)
 	if err != nil {
@@ -156,7 +155,31 @@ func executeCommandPlan(
 	if err := writePlan(ctx, currentPlan, validateStable); err != nil {
 		return CommandPlan{}, err
 	}
-	return CommandPlan{request: optimistic.request, plan: currentPlan}, nil
+	return CommandPlan{
+		request:         optimistic.request,
+		plan:            currentPlan,
+		revisions:       revisions,
+		stableRevisions: stableRevisions,
+	}, nil
+}
+
+func captureImportRevisionEvidence(
+	ctx context.Context,
+	plan adoptmodel.Plan,
+) (mutation.RevisionSet, mutation.RevisionSet, error) {
+	_, requests, stableRequests, err := importMutationEvidence(plan)
+	if err != nil {
+		return mutation.RevisionSet{}, mutation.RevisionSet{}, err
+	}
+	revisions, err := mutation.CaptureRevisionSet(ctx, requests...)
+	if err != nil {
+		return mutation.RevisionSet{}, mutation.RevisionSet{}, err
+	}
+	stableRevisions, err := revisions.Subset(stableRequests...)
+	if err != nil {
+		return mutation.RevisionSet{}, mutation.RevisionSet{}, err
+	}
+	return revisions, stableRevisions, nil
 }
 
 func importPlanFingerprint(plan adoptmodel.Plan) (mutation.OperationFingerprint, error) {
@@ -233,7 +256,7 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			access,
 			effect,
 			stable,
-			mutation.RevisionRequest{Path: path, Effect: effect},
+			mutation.NewBoundedContentRevisionRequest(path, effect),
 		)
 	}
 	ensurePhysicalDomain := func(
@@ -277,7 +300,7 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 		return nil
 	}
 	addPhysical := func(path string, target string, scope string, effect mutation.PathEffect) error {
-		request := mutation.RevisionRequest{Path: path, Effect: effect}
+		request := mutation.NewBoundedContentRevisionRequest(path, effect)
 		return addPhysicalRevision(
 			path,
 			target,

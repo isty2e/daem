@@ -283,26 +283,24 @@ func unmanageRevisionRequests(
 	for _, path := range persistencePaths {
 		requests = append(
 			requests,
-			mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectDirectoryEntry},
-			mutation.RevisionRequest{Path: path, Effect: mutation.PathEffectReferent},
+			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectDirectoryEntry),
+			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
 		)
 	}
-	requests = append(requests, mutation.RevisionRequest{
-		Path: markerPath, Effect: mutation.PathEffectDirectoryEntry,
-	})
 	requests = append(
 		requests,
-		mutation.RevisionRequest{
-			Path: recoveryDir, Effect: mutation.PathEffectDirectoryEntry,
-		},
-		mutation.RevisionRequest{
-			Path: recoveryDir, Effect: mutation.PathEffectReferent,
-		},
+		mutation.NewBoundedContentRevisionRequest(markerPath, mutation.PathEffectDirectoryEntry),
+	)
+	requests = append(
+		requests,
+		mutation.NewBoundedContentRevisionRequest(recoveryDir, mutation.PathEffectDirectoryEntry),
+		mutation.NewBoundedContentRevisionRequest(recoveryDir, mutation.PathEffectReferent),
 	)
 	for _, path := range localPaths {
-		requests = append(requests, mutation.RevisionRequest{
-			Path: path, Effect: mutation.PathEffectReferent,
-		})
+		requests = append(
+			requests,
+			mutation.NewBoundedContentRevisionRequest(path, mutation.PathEffectReferent),
+		)
 	}
 	return requests, nil
 }
