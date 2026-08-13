@@ -2,6 +2,7 @@ package declaration
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -17,20 +18,30 @@ func TestSourceFromTOMLValueRejectsNormalizedDuplicateKeysDeterministically(t *t
 		"version_id",
 	}
 
+	aliases := []struct {
+		name  string
+		value func(string) string
+	}{
+		{name: "whitespace", value: func(key string) string { return " " + key + " " }},
+		{name: "case", value: strings.ToUpper},
+	}
+
 	for _, key := range keys {
-		t.Run(key, func(t *testing.T) {
-			values := map[string]any{
-				key:             "canonical",
-				" " + key + " ": "alias",
-			}
-			want := fmt.Sprintf("duplicate source key %q after normalization", key)
-			for attempt := 0; attempt < 100; attempt++ {
-				_, err := SourceFromTOMLValue(values)
-				if err == nil || err.Error() != want {
-					t.Fatalf("attempt %d error = %v, want %q", attempt, err, want)
+		for _, alias := range aliases {
+			t.Run(key+"/"+alias.name, func(t *testing.T) {
+				values := map[string]any{
+					key:              "canonical",
+					alias.value(key): "alias",
 				}
-			}
-		})
+				want := fmt.Sprintf("duplicate source key %q after normalization", key)
+				for attempt := 0; attempt < 100; attempt++ {
+					_, err := SourceFromTOMLValue(values)
+					if err == nil || err.Error() != want {
+						t.Fatalf("attempt %d error = %v, want %q", attempt, err, want)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -44,6 +55,11 @@ func TestSourceFromTOMLValueRejectsNoncanonicalAndUnknownKeys(t *testing.T) {
 			name:   "noncanonical",
 			values: map[string]any{" path ": "skill"},
 			want:   `source key " path " must use canonical spelling "path"`,
+		},
+		{
+			name:   "case alias",
+			values: map[string]any{"Git": "https://example.com/review.git"},
+			want:   `source key "Git" must use canonical spelling "git"`,
 		},
 		{
 			name:   "unknown",

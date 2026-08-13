@@ -35,6 +35,20 @@ type Source struct {
 	Format    string `toml:"format"`
 }
 
+// UnmarshalTOML decodes the strict inline-table grammar used by skill sources.
+func (source *Source) UnmarshalTOML(value any) error {
+	values, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("source must be an inline table")
+	}
+	decoded, err := sourceFromInlineTable(values)
+	if err != nil {
+		return err
+	}
+	*source = decoded
+	return nil
+}
+
 type Skill struct {
 	ID           string `toml:"id"`
 	Name         string `toml:"name"`
@@ -210,7 +224,7 @@ func sourceFromInlineTable(values map[string]any) (Source, error) {
 
 	seenCanonicalKeys := make(map[string]struct{}, len(keys))
 	for _, key := range keys {
-		canonical := strings.TrimSpace(key)
+		canonical := canonicalSourceInlineTableKey(key)
 		if !isSourceInlineTableKey(canonical) {
 			continue
 		}
@@ -224,7 +238,7 @@ func sourceFromInlineTable(values map[string]any) (Source, error) {
 	}
 
 	for _, key := range keys {
-		canonical := strings.TrimSpace(key)
+		canonical := canonicalSourceInlineTableKey(key)
 		if !isSourceInlineTableKey(canonical) {
 			return Source{}, fmt.Errorf("unknown source key %q", key)
 		}
@@ -266,6 +280,10 @@ func sourceFromInlineTable(values map[string]any) (Source, error) {
 	}
 
 	return source, nil
+}
+
+func canonicalSourceInlineTableKey(key string) string {
+	return strings.ToLower(strings.TrimSpace(key))
 }
 
 func isSourceInlineTableKey(key string) bool {

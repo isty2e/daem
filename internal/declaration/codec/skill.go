@@ -16,6 +16,24 @@ type SkillSource struct {
 	Mode string `toml:"mode"`
 }
 
+// UnmarshalTOML enforces source-key grammar before projecting authoring-owned fields.
+func (source *SkillSource) UnmarshalTOML(value any) error {
+	if _, ok := value.(map[string]any); !ok {
+		return fmt.Errorf("skill source must be an inline table")
+	}
+	decoded, err := declaration.SourceFromTOMLValue(value)
+	if err != nil {
+		return err
+	}
+	*source = SkillSource{
+		Git:  decoded.Git,
+		Path: decoded.Path,
+		Ref:  decoded.Ref,
+		Mode: decoded.Mode,
+	}
+	return nil
+}
+
 func startsNewSkillTopLevelTable(trimmedLine string) bool {
 	return declaration.StartsTableOutsideRoot(trimmedLine, "skill")
 }

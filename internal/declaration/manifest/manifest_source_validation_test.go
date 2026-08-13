@@ -1,12 +1,88 @@
 package manifest
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/supply/source"
 )
+
+func TestParseRejectsNoncanonicalSkillFamilySourceKeys(t *testing.T) {
+	families := []struct {
+		name        string
+		declaration string
+	}{
+		{
+			name:        "skill",
+			declaration: "[[skill]]\nname = \"review\"",
+		},
+		{
+			name:        "skill_group",
+			declaration: "[[skill_group]]\ninclude = [\"glob:*\"]",
+		},
+	}
+	sources := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "case alias",
+			raw:  `Git = "https://example.com/review.git", path = ".", ref = "main"`,
+			want: `source key "Git" must use canonical spelling "git"`,
+		},
+		{
+			name: "canonical then case alias",
+			raw:  `git = "https://example.com/expected.git", Git = "https://example.com/alternate.git", path = ".", ref = "main"`,
+			want: `duplicate source key "git" after normalization`,
+		},
+		{
+			name: "case alias then canonical",
+			raw:  `Git = "https://example.com/alternate.git", git = "https://example.com/expected.git", path = ".", ref = "main"`,
+			want: `duplicate source key "git" after normalization`,
+		},
+		{
+			name: "whitespace alias collision",
+			raw:  `path = "skills/review", " path " = "skills/alternate", mode = "vendor"`,
+			want: `duplicate source key "path" after normalization`,
+		},
+	}
+
+	for _, family := range families {
+		for _, source := range sources {
+			t.Run(family.name+"/"+source.name, func(t *testing.T) {
+				manifest := fmt.Sprintf(
+					"version = 1\ntargets = [\"codex\"]\n\n%s\nsource = { %s }\n",
+					family.declaration,
+					source.raw,
+				)
+				_, err := Decode([]byte(manifest))
+				if err == nil || !strings.Contains(err.Error(), source.want) {
+					t.Fatalf("error = %v, want %q", err, source.want)
+				}
+			})
+		}
+	}
+}
+
+func TestParseKeepsSkillFamilySourceInlineTableOnly(t *testing.T) {
+	families := []string{
+		"[[skill]]\nname = \"review\"",
+		"[[skill_group]]\ninclude = [\"glob:*\"]",
+	}
+	for _, family := range families {
+		manifest := fmt.Sprintf(
+			"version = 1\ntargets = [\"codex\"]\n\n%s\nsource = \"skills/review\"\n",
+			family,
+		)
+		_, err := Decode([]byte(manifest))
+		if err == nil || !strings.Contains(err.Error(), "source must be an inline table") {
+			t.Fatalf("error = %v, want inline-table source diagnostic", err)
+		}
+	}
+}
 
 func TestParseAcceptsS3ObjectSources(t *testing.T) {
 	environment, err := Decode([]byte(`
