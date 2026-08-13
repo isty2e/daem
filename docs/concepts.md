@@ -175,6 +175,25 @@ commit. Interrupted acquisition or release remains reserved or owned until
 `daem recover` finishes the journaled transition; neither ordinary apply nor
 `--manage-existing` steals it.
 
+### Mutation Revision Evidence
+
+Lock, authoring, refresh, apply, import, init, and unmanage retain filesystem
+revisions for inputs that must remain current until their owned effect. Each
+request explicitly selects one of three evidence forms: a bounded regular
+file, a shallow required-absence entry, or bounded complete content. Required
+absence never traverses an entry that appears. Declaration files use their
+64 MiB regular-file boundary rather than recursive content evidence.
+
+One complete-content observation pass admits at most 100,000 descendants and
+64 descendant-directory levels in any one tree, and at most 400,000 descendant
+entries and 16 GiB of regular-file content across the pass. Incremental
+observations that belong to one pass share the same aggregate budget. Initial
+capture and every freshness check use the same policy. The first over-limit
+probe returns a resource error; it does not produce a partial, identity-only,
+or mtime-only revision. Cancellation is checked while enumerating entries and
+streaming file bytes. These generic revisions do not replace recovery's
+separate rooted physical-work authority.
+
 ## Recovery Journal
 
 Mutating `apply` commits a complete recovery journal before it reserves a new
