@@ -2,7 +2,7 @@ module github.com/isty2e/daem
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/BurntSushi/toml v1.5.0
@@ -13,7 +13,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/gofrs/flock v0.13.0
 	github.com/tailscale/hujson v0.0.0-20241010212012-29efb4a0184b
-	golang.org/x/mod v0.21.0
+	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.44.0
 	gopkg.in/yaml.v3 v3.0.1
 )

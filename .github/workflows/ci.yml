@@ -18,7 +18,7 @@ env:
 
 jobs:
   integrity:
-    name: Integrity (Go 1.26.5, Linux amd64)
+    name: Integrity (Go 1.26.6, Linux amd64)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -29,7 +29,7 @@ jobs:
       - name: Set up default Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: go.sum
       - name: Set up Python for pre-commit
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -39,7 +39,7 @@ jobs:
         run: python -m pip install --disable-pip-version-check pre-commit==4.6.0
       - name: Record environment
         run: |
-          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOVERSION)" = "go1.26.6"
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "amd64"
           go version
@@ -104,11 +104,11 @@ jobs:
       - name: Set up default Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: go.sum
       - name: Record native environment
         run: |
-          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOVERSION)" = "go1.26.6"
           test "$(go env GOOS)" = "${{ matrix.goos }}"
           test "$(go env GOARCH)" = "${{ matrix.goarch }}"
           go version
@@ -126,7 +126,7 @@ jobs:
           "${RUNNER_TEMP}/daem" version --json
 
   race:
-    name: Race (Go 1.26.5, Linux amd64)
+    name: Race (Go 1.26.6, Linux amd64)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -137,11 +137,11 @@ jobs:
       - name: Set up default Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: go.sum
       - name: Run full race suite
         run: |
-          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOVERSION)" = "go1.26.6"
           test "$(go env GOOS)" = "linux"
           test "$(go env GOARCH)" = "amd64"
           tools/test.sh race
@@ -170,11 +170,11 @@ jobs:
       - name: Set up default Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: go.sum
       - name: Record scanner environment
         run: |
-          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOVERSION)" = "go1.26.6"
           test "$(go env GOOS)" = "${{ matrix.goos }}"
           test "$(go env GOARCH)" = "${{ matrix.goarch }}"
           go version
@@ -219,7 +219,7 @@ jobs:
       - name: Set up default Go toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.5"
+          go-version: "1.26.6"
           cache-dependency-path: go.sum
       - name: Cross-build without runtime claims
         env:
@@ -227,7 +227,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
-          test "$(go env GOVERSION)" = "go1.26.5"
+          test "$(go env GOVERSION)" = "go1.26.6"
           go build -mod=readonly -trimpath \
             -o "${RUNNER_TEMP}/daem-${GOOS}-${GOARCH}${{ matrix.suffix }}" \
             ./cmd/daem
