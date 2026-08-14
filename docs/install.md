@@ -52,7 +52,8 @@ daem_admitted_release_version_token() {
       if (timestamp ~ /[^0-9]/) return 0
       lead = substr(before_hash, 1, length(before_hash) - 14)
       if (minor == "0" && patch == "0" && lead == "") return 1
-      return length(lead) >= 2 && substr(lead, length(lead) - 1) == "0."
+      if (lead == "0.") return 1
+      return length(lead) >= 3 && substr(lead, length(lead) - 2) == ".0."
     }
     BEGIN { valid = 0 }
     NR == 1 {
