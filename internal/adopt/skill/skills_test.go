@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/supply/artifact"
+	"github.com/isty2e/daem/internal/supply/artifact/access"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -306,6 +308,179 @@ func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing
 				t.Fatalf("candidate = %#v, skip = %#v, want missing SKILL.md skip", candidate, skipped)
 			}
 		})
+	}
+}
+
+func TestImportSkillSkipsMissingSkillMDBeforeTreeTraversal(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "review")
+	if err := os.MkdirAll(filepath.Join(skillRoot, "one", "two"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "one", "two", "payload"), []byte("nested"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, err := access.NewTreeStructureLimit(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, skipped, err := importSkillFromEntry(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetCodex,
+		targetpkg.ScopeProject,
+		"",
+		skillRoot,
+		"review",
+		NewDestinationClaims(),
+		NewSourceIdentityCache(limit),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.ResourceName != "" || skipped.Reason != importSkillSkipMissingSkillMD {
+		t.Fatalf("candidate = %#v, skip = %#v, want missing SKILL.md skip before tree budget", candidate, skipped)
+	}
+}
+
+func TestImportSkillFailsClosedOnRootBreadthOverflow(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "review")
+	if err := os.Mkdir(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 3 {
+		if err := os.WriteFile(filepath.Join(skillRoot, fmt.Sprintf("entry-%d", index)), []byte("nested"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, err := access.NewTreeStructureLimit(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, skipped, err := importSkillFromEntry(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetCodex,
+		targetpkg.ScopeProject,
+		"",
+		skillRoot,
+		"review",
+		NewDestinationClaims(),
+		NewSourceIdentityCache(limit),
+	)
+	if err == nil || candidate.ResourceName != "" || skipped.Reason != "" {
+		t.Fatalf("candidate = %#v, skip = %#v, err = %v, want breadth overflow failure", candidate, skipped, err)
+	}
+	if !strings.Contains(err.Error(), "artifact tree exceeds 2 entries") {
+		t.Fatalf("import error = %v, want structure-limit overflow", err)
+	}
+}
+
+func TestImportSkillSkipsNestedSymlinkFromIdentityTraversal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "unsafe")
+	if err := os.Mkdir(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte("---\nname: unsafe\n---\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, "payload.txt"), []byte("payload\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(skillRoot, "payload.txt"), filepath.Join(skillRoot, "z-link")); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, skipped, err := importSkillFromEntry(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetCodex,
+		targetpkg.ScopeProject,
+		"",
+		skillRoot,
+		"unsafe",
+		NewDestinationClaims(),
+		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.ResourceName != "" || skipped.Reason != importSkillSkipNestedSymlink {
+		t.Fatalf("candidate = %#v, skip = %#v, want nested symlink skip", candidate, skipped)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(skillRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped.LivePath != filepath.Join(resolvedRoot, "z-link") {
+		t.Fatalf("nested symlink path = %q, want %q", skipped.LivePath, filepath.Join(resolvedRoot, "z-link"))
+	}
+}
+
+func TestImportSkillTreatsSymlinkSkillDocumentAsMissing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires additional privileges on Windows")
+	}
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "review")
+	if err := os.Mkdir(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("missing", filepath.Join(skillRoot, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, skipped, err := importSkillFromEntry(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetCodex,
+		targetpkg.ScopeProject,
+		"",
+		skillRoot,
+		"review",
+		NewDestinationClaims(),
+		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.ResourceName != "" || skipped.Reason != importSkillSkipMissingSkillMD {
+		t.Fatalf("candidate = %#v, skip = %#v, want missing SKILL.md skip for nonregular document", candidate, skipped)
 	}
 }
 

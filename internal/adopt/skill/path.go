@@ -2,7 +2,6 @@ package skill
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -90,22 +89,4 @@ func pathComponents(path string) []string {
 		return nil
 	}
 	return strings.Split(cleaned, string(os.PathSeparator))
-}
-
-func firstNestedSymlink(root string) (string, bool, error) {
-	var symlinkPath string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			symlinkPath = path
-			return fs.SkipAll
-		}
-		return nil
-	})
-	if err != nil {
-		return "", false, err
-	}
-	return symlinkPath, symlinkPath != "", nil
 }

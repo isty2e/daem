@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -12,9 +13,11 @@ import (
 type sourceIdentityObserver func(context.Context, string) (artifact.ContentHash, error)
 
 // SourceIdentityCache owns successful skill-directory identity observations
-// for one candidate-collection pass. It must not outlive one BuildPlan call.
+// and classified eligibility skips for one candidate-collection pass. It must
+// not outlive one BuildPlan call.
 type SourceIdentityCache struct {
 	contentHashes map[string]artifact.ContentHash
+	classified    map[string]error
 	observe       sourceIdentityObserver
 }
 
@@ -29,17 +32,19 @@ func NewSourceIdentityCache(structureLimit access.TreeStructureLimit) *SourceIde
 func newSourceIdentityCache(observer sourceIdentityObserver) *SourceIdentityCache {
 	return &SourceIdentityCache{
 		contentHashes: make(map[string]artifact.ContentHash),
+		classified:    make(map[string]error),
 		observe:       observer,
 	}
 }
 
 // ContentHash returns the exact content hash of one fully resolved skill route.
+// Classified eligibility skips are memoized; operational failures are not.
 // The cache is operation-local and intentionally not safe for concurrent use.
 func (cache *SourceIdentityCache) ContentHash(
 	ctx context.Context,
 	readPath string,
 ) (artifact.ContentHash, error) {
-	if cache == nil || cache.observe == nil || cache.contentHashes == nil {
+	if cache == nil || cache.observe == nil || cache.contentHashes == nil || cache.classified == nil {
 		return "", fmt.Errorf("skill source identity cache is required")
 	}
 	if ctx == nil {
@@ -54,8 +59,18 @@ func (cache *SourceIdentityCache) ContentHash(
 	if contentHash, exists := cache.contentHashes[readPath]; exists {
 		return contentHash, nil
 	}
+	if classified, exists := cache.classified[readPath]; exists {
+		return "", classified
+	}
 	contentHash, err := cache.observe(ctx, readPath)
 	if err != nil {
+		if !classifiedSkillSkip(err) {
+			return "", err
+		}
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		cache.classified[readPath] = err
 		return "", err
 	}
 	if err := ctx.Err(); err != nil {
@@ -66,6 +81,10 @@ func (cache *SourceIdentityCache) ContentHash(
 	}
 	cache.contentHashes[readPath] = contentHash
 	return contentHash, nil
+}
+
+func classifiedSkillSkip(err error) bool {
+	return errors.Is(err, access.ErrRequiredRootRegularFile) || errors.Is(err, access.ErrUnsupportedSymlink)
 }
 
 func observeSkillDirectoryIdentity(

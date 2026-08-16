@@ -200,7 +200,7 @@ func openNativePathComponent(parentFD int, name string, requireStableMetadata bo
 		return nativeEntry{}, err
 	}
 	if observed.kind == nativeKindSymlink {
-		return nativeEntry{}, fmt.Errorf("artifact access entry %q is a symbolic link; symlinks are not supported", name)
+		return nativeEntry{}, &unsupportedSymlinkError{path: name}
 	}
 	if observed.kind == nativeKindUnsupported {
 		return nativeEntry{}, fmt.Errorf("artifact access entry %q has unsupported kind", name)
