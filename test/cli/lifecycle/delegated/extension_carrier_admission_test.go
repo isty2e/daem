@@ -555,6 +555,14 @@ enabled = true
 					t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 				}
 				combined := stdout.String() + stderr.String()
+				if command.name == "apply-dry-run" {
+					if got, want := combined, "apply failed: apply was refused before effects\n"; got != want {
+						t.Fatalf("combined output = %q, want closed apply failure %q", got, want)
+					}
+					assertNoPluginDiagnosticAuthority(t, combined)
+					testkit.AssertFileContent(t, lockfilePath, originalLockfile)
+					return
+				}
 				for _, want := range invalidManifest.wants {
 					if !strings.Contains(combined, want) {
 						t.Fatalf("combined output = %q, want %q", combined, want)

@@ -213,6 +213,8 @@ func TestExtensionSourceRejectsOptionControlAndMalformedMarketplace(t *testing.T
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?access_token=secret", want: "query fields"},
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?private_token=secret", want: "query fields"},
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?download=1", want: "query fields"},
+		{kind: SourceKindHostSource, ref: "npm:tool@token:actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: `plugins\client-secret=actual-secret`, want: "credential assignments"},
 		{kind: SourceKindHostSource, ref: "github:acme/plugin#api-key=secret", want: "must not contain assignments"},
 		{kind: SourceKindHostSource, ref: "github:acme/plugin#private_token%3Dsecret", want: "must not contain assignments"},
 		{kind: SourceKindHostSource, ref: "https://example.com/%zz", want: "URL is malformed"},

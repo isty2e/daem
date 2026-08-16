@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,15 +69,19 @@ func TestRunRecoverInteractiveAcceptanceExecutesDisclosedPlan(t *testing.T) {
 func TestRunRecoverDisclosureWriteFailureDoesNotPromptOrExecute(t *testing.T) {
 	fixture := writeRecoverConfirmationFixture(t)
 	input := &countingReader{reader: strings.NewReader("yes\n")}
-	stdoutErr := errors.New("stdout closed")
+	formatted := 0
+	stdoutErr := privateOutputFailure{calls: &formatted}
 	var stderr bytes.Buffer
 
 	exitCode := RunWithOptions(
 		[]string{"recover", "--manifest", fixture.manifestPath},
 		interactiveRunOptions(input, errorWriter{err: stdoutErr}, &stderr),
 	)
-	if exitCode != 1 || !strings.Contains(stderr.String(), "recover failed: disclose plan: stdout closed") {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "recover failed: command output could not be written") {
 		t.Fatalf("exitCode = %d stderr = %q", exitCode, stderr.String())
+	}
+	if formatted != 0 {
+		t.Fatalf("private output error formatted %d times", formatted)
 	}
 	if input.reads != 0 || strings.Contains(stderr.String(), "Proceed with recover?") {
 		t.Fatalf("input reads = %d stderr = %q", input.reads, stderr.String())

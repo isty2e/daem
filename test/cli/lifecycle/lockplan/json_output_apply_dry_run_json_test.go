@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -113,8 +114,15 @@ source = "instructions/AGENTS.md"
 	if !payload.HasErrors || len(payload.Errors) != 1 {
 		t.Fatalf("payload = %#v, want one error", payload)
 	}
-	if !strings.Contains(payload.Errors[0].Message, "unmanaged_output_exists") {
-		t.Fatalf("payload = %#v, want unmanaged output error", payload)
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonApplyRefused,
+		applyworkflow.FailurePhasePreflight,
+		applyworkflow.FailureOutcomeRefused,
+	)
+	if len(payload.Actions) != 1 || payload.Actions[0].Reason != "unmanaged_output_exists" {
+		t.Fatalf("payload actions = %#v, want unmanaged output decision", payload.Actions)
 	}
 	if payload.ActionCount != 0 || payload.StatefilePath != filepath.Join(tempDir, ".daem", "state.json") {
 		t.Fatalf("payload = %#v, want zero actions and statefile path", payload)

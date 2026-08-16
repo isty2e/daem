@@ -356,6 +356,28 @@ func (decision RelationOrderDecision) Reason() RelationOrderReason { return deci
 
 func (decision RelationOrderDecision) Detail() string { return decision.detail }
 
+// PublicDetail derives path-neutral prose from the closed decision reason.
+func (decision RelationOrderDecision) PublicDetail() string {
+	switch decision.reason {
+	case OrderReasonPendingCarrierInstall:
+		return "extension order depends on pending carrier installation"
+	case OrderReasonPendingCarrierRemoval:
+		return "extension order depends on pending carrier removal"
+	case OrderReasonMembershipMismatch:
+		return "extension order membership does not match the locked constraint"
+	case OrderReasonLoadIdentityMismatch:
+		return "extension load identity does not match the locked constraint"
+	case OrderReasonConflictingCarrierPlan:
+		return "carrier changes conflict with the locked extension order"
+	case OrderReasonObservationUnavailable:
+		return "extension order could not be observed"
+	case OrderReasonResourceLimitExceeded:
+		return "extension order observation exceeded its resource limit"
+	default:
+		return ""
+	}
+}
+
 func (decision RelationOrderDecision) HasCurrentSequence() bool { return decision.hasSequence }
 
 func (decision RelationOrderDecision) DesiredMembers() []hostrelation.RelationOrderMember {

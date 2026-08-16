@@ -44,6 +44,32 @@ func TestPrintDeltaSummaryReportsResolvedRefChanges(t *testing.T) {
 	}
 }
 
+func TestPrintDeltaSummaryEscapesCompleteLockSubjectIdentity(t *testing.T) {
+	const name = "review\u2028forged"
+	after := snapshottest.File(
+		t,
+		testExactSupplyContract(
+			t,
+			entity.KindSkill,
+			name,
+			"local:skills/review?mode=vendor",
+			"",
+			"content",
+		),
+	)
+
+	var output bytes.Buffer
+	clipresent.PrintDeltaSummaryWithOptions(
+		&output,
+		lock.BuildDelta(lock.File{Version: lock.CurrentVersion}, after),
+		clipresent.HumanOptions{},
+	)
+	if strings.Contains(output.String(), "\u2028") ||
+		!strings.Contains(output.String(), "%E2%80%A8") {
+		t.Fatalf("lock delta output = %q", output.String())
+	}
+}
+
 func TestPrintJSONWritesStableLockProjection(t *testing.T) {
 	before := snapshottest.File(
 		t,

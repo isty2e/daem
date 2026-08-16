@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/credentialtext"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -134,6 +135,9 @@ func validateCredentialFreeSourceRef(ref string) error {
 			strings.HasSuffix(scheme, "+https") {
 			return fmt.Errorf("extension source must not contain inline credentials")
 		}
+	}
+	if credentialtext.ContainsCredential(ref) {
+		return fmt.Errorf("extension source must not contain credential assignments")
 	}
 	return nil
 }

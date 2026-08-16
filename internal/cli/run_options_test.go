@@ -137,6 +137,53 @@ func TestRunWithOptionsApplyRendererWriteFailureDoesNotFailApply(t *testing.T) {
 	assertApplyConfirmationFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "shared instructions\n")
 }
 
+type privateOutputFailure struct {
+	calls *int
+}
+
+func (failure privateOutputFailure) Error() string {
+	*failure.calls = *failure.calls + 1
+	return "write /Users/alice/private/result.json: access_token=secret"
+}
+
+func TestRunWithOptionsNonApplyOutputFailuresUseOneClosedDiagnostic(t *testing.T) {
+	root := isolatedApplyAuthorityRoot(t)
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, root)
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "version", args: []string{"version", "--json"}},
+		{name: "status", args: []string{"status", "--json", "--manifest", manifestPath}},
+		{name: "lock", args: []string{"lock", "--dry-run", "--json", "--manifest", manifestPath}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			var stderr bytes.Buffer
+			exitCode := RunWithOptions(test.args, RunOptions{
+				Stdout: errorWriter{err: privateOutputFailure{calls: &calls}},
+				Stderr: &stderr,
+			})
+			if exitCode != 1 {
+				t.Fatalf("exitCode = %d, want 1; stderr=%q", exitCode, stderr.String())
+			}
+			if calls != 0 {
+				t.Fatalf("private output error materialized %d times", calls)
+			}
+			if strings.Count(stderr.String(), "command output could not be written") != 1 {
+				t.Fatalf("stderr = %q, want one closed output diagnostic", stderr.String())
+			}
+			for _, private := range []string{"/Users/alice/private", "access_token=secret"} {
+				if strings.Contains(stderr.String(), private) {
+					t.Fatalf("stderr disclosed output failure %q: %q", private, stderr.String())
+				}
+			}
+		})
+	}
+}
+
 type cliFailAfterFirstWrite struct {
 	buffer        bytes.Buffer
 	writeAttempts int

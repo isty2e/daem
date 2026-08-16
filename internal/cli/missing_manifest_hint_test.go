@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -55,23 +54,5 @@ func TestMissingManifestInitHintRequiresCurrentMissingManifestEvidence(t *testin
 				t.Fatalf("output = %q, want %q", output.String(), want)
 			}
 		})
-	}
-}
-
-func TestUnsupportedCapabilityHintEscapesTargetAsOneShellArgument(t *testing.T) {
-	target := "codex\n\x1b[2J\u202e"
-	var output strings.Builder
-	printUnsupportedCapabilityHint(&output, errors.New(`target "`+target+`" is not implemented`))
-
-	if strings.Contains(output.String(), target) {
-		t.Fatalf("output contains raw control-bearing target: %q", output.String())
-	}
-	command, err := clipresent.ShellCommand("daem", "doctor", "--target", target)
-	if err != nil {
-		t.Fatalf("ShellCommand returned error: %v", err)
-	}
-	want := "next: run " + command + "\nnote: inspect target capabilities\n"
-	if output.String() != want {
-		t.Fatalf("output = %q, want %q", output.String(), want)
 	}
 }

@@ -32,6 +32,8 @@ func TestAttemptHistoryRejectsTimestampsOutsideDurableRange(t *testing.T) {
 		ObservedAt:      invalid,
 		Status:          DelegateStatusSucceeded,
 		Reason:          DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   DelegateProcessReasonNone,
 	})
 	if delegateErr == nil || !strings.Contains(delegateErr.Error(), "outside the durable RFC3339Nano range") {
 		t.Fatalf("NewDelegateAttempt error = %v, want durable timestamp rejection", delegateErr)
@@ -187,6 +189,8 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 		ObservedAt:      time.Now(),
 		Status:          DelegateStatusFailed,
 		Reason:          DelegateReasonTimeout,
+		AttemptObserved: true,
+		ProcessReason:   DelegateProcessReasonTimeout,
 	}
 	tests := []struct {
 		name   string
@@ -195,15 +199,16 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 	}{
 		{
 			name: "timeout reason without timeout fact",
-			want: "timeout reason requires timed_out",
+			want: "timeout process reason requires timed_out",
 		},
 		{
 			name: "non-timeout reason with timeout fact",
 			mutate: func(input *DelegateAttemptInput) {
 				input.Reason = DelegateReasonRunnerError
+				input.ProcessReason = DelegateProcessReasonRunnerError
 				input.TimedOut = true
 			},
-			want: "timed_out requires timeout reason",
+			want: "timed_out requires timeout process reason",
 		},
 		{
 			name: "succeeded with nonzero exit",
@@ -211,6 +216,7 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 				exitCode := 17
 				input.Status = DelegateStatusSucceeded
 				input.Reason = DelegateReasonNone
+				input.ProcessReason = DelegateProcessReasonNone
 				input.ExitCode = &exitCode
 			},
 			want: "succeeded delegate attempt cannot record nonzero exit code",
@@ -219,8 +225,9 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 			name: "nonzero reason without exit code",
 			mutate: func(input *DelegateAttemptInput) {
 				input.Reason = DelegateReasonNonZeroExit
+				input.ProcessReason = DelegateProcessReasonNonZeroExit
 			},
-			want: "nonzero_exit reason requires a nonzero exit code",
+			want: "nonzero_exit process reason requires a nonzero exit code",
 		},
 		{
 			name: "policy block with process exit",
@@ -228,14 +235,17 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 				exitCode := 0
 				input.Status = DelegateStatusBlocked
 				input.Reason = DelegateReasonPolicyBlocked
+				input.AttemptObserved = false
+				input.ProcessReason = DelegateProcessReasonNone
 				input.ExitCode = &exitCode
 			},
-			want: "policy_blocked cannot record process facts",
+			want: "unobserved delegate attempt cannot record process facts",
 		},
 		{
 			name: "missing environment with truncated process output",
 			mutate: func(input *DelegateAttemptInput) {
 				input.Reason = DelegateReasonMissingEnvRef
+				input.ProcessReason = DelegateProcessReasonMissingEnvRef
 				input.StdoutTruncated = true
 			},
 			want: "missing_env_ref cannot record process facts",
@@ -245,6 +255,7 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 			mutate: func(input *DelegateAttemptInput) {
 				exitCode := 127
 				input.Reason = DelegateReasonMissingRunner
+				input.ProcessReason = DelegateProcessReasonMissingRunner
 				input.ExitCode = &exitCode
 			},
 			want: "missing_runner cannot record process facts",
@@ -254,6 +265,7 @@ func TestDelegateAttemptRejectsContradictoryProcessFacts(t *testing.T) {
 			mutate: func(input *DelegateAttemptInput) {
 				exitCode := 23
 				input.Reason = DelegateReasonRunnerError
+				input.ProcessReason = DelegateProcessReasonRunnerError
 				input.ExitCode = &exitCode
 			},
 			want: "runner_error cannot record a nonzero exit code",
@@ -278,6 +290,7 @@ func TestDelegateAttemptWorkDirAuthorityRetainsObservedProcessFacts(t *testing.T
 	input := testDelegateAttemptInput(t, time.Now())
 	input.Status = DelegateStatusFailed
 	input.Reason = DelegateReasonWorkDirAuthority
+	input.ProcessReason = DelegateProcessReasonNone
 	input.ExitCode = &exitCode
 
 	attempt, err := NewDelegateAttempt(input)
@@ -286,6 +299,22 @@ func TestDelegateAttemptWorkDirAuthorityRetainsObservedProcessFacts(t *testing.T
 	}
 	if observedExit, ok := attempt.ExitCode(); !ok || observedExit != 0 {
 		t.Fatalf("attempt = %#v, want retained post-start process facts", attempt)
+	}
+}
+
+func TestDelegateAttemptWorkDirAuthorityRetainsTimeoutOutcome(t *testing.T) {
+	input := testDelegateAttemptInput(t, time.Now())
+	input.Status = DelegateStatusFailed
+	input.Reason = DelegateReasonWorkDirAuthority
+	input.ProcessReason = DelegateProcessReasonTimeout
+	input.TimedOut = true
+
+	attempt, err := NewDelegateAttempt(input)
+	if err != nil {
+		t.Fatalf("NewDelegateAttempt returned error: %v", err)
+	}
+	if !attempt.TimedOut() || attempt.ProcessReason() != DelegateProcessReasonTimeout {
+		t.Fatalf("attempt = %#v, want independent timeout and workdir authority facts", attempt)
 	}
 }
 

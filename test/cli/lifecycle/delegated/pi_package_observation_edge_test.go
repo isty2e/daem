@@ -81,11 +81,16 @@ func TestPiPackageCarrierBlocksPreexistingUnmanagedRelation(t *testing.T) {
 				t.Fatalf("blocked apply invoked host route: %#v", requests)
 			}
 			payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-			if !payload.HasErrors || len(payload.Errors) != 1 {
-				t.Fatalf("apply payload = %#v, want one blocking error", payload)
-			}
-			if !strings.Contains(payload.Errors[0].Message, test.expectedReason) {
-				t.Fatalf("apply error = %q, want %s", payload.Errors[0].Message, test.expectedReason)
+			clijson.RequireApplyFailure(
+				t,
+				payload,
+				applyworkflow.FailureReasonRelationActionBlocked,
+				applyworkflow.FailurePhasePreflight,
+				applyworkflow.FailureOutcomeRefused,
+			)
+			if len(payload.RelationActions) != 1 ||
+				payload.RelationActions[0].Reason != test.expectedReason {
+				t.Fatalf("relation actions = %#v, want reason %s", payload.RelationActions, test.expectedReason)
 			}
 			assertNoCarrierInstallConvergenceClaims(t, stdout.String())
 			assertNoPiManagedClaims(t, fixture.root)
@@ -130,14 +135,13 @@ func TestPiPackageCarrierDoesNotClaimEquivalentPostAttemptRelation(t *testing.T)
 		t.Fatalf("host route requests = %#v, want one attempted install", requests)
 	}
 	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
-	if !payload.HasErrors || len(payload.Errors) != 1 {
-		t.Fatalf("apply payload = %#v, want one postcondition error", payload)
-	}
-	for _, want := range []string{"blocked", "unkeyed_same_subject"} {
-		if !strings.Contains(payload.Errors[0].Message, want) {
-			t.Fatalf("apply error = %q, want %q", payload.Errors[0].Message, want)
-		}
-	}
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonHostRouteAttemptFailed,
+		applyworkflow.FailurePhaseExecution,
+		applyworkflow.FailureOutcomeIncomplete,
+	)
 	if len(payload.HostRouteAttempts) != 1 {
 		t.Fatalf("host route attempts = %#v, want one failed post-observation diagnostic", payload.HostRouteAttempts)
 	}

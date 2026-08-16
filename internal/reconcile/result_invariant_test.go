@@ -75,6 +75,38 @@ func TestResultOwnsAllDecisionFamiliesAndDefensiveCopies(t *testing.T) {
 	}
 }
 
+func TestResultManagedPathsUpToBoundsCopyAndReportsRemaining(t *testing.T) {
+	managed := []reconcile.ManagedPathDecision{
+		resultManagedPath(t, "charlie", outputtest.Parse(t, "skills/charlie")),
+		resultManagedPath(t, "alpha", outputtest.Parse(t, "skills/alpha")),
+		resultManagedPath(t, "bravo", outputtest.Parse(t, "skills/bravo")),
+	}
+	result, err := reconcile.NewResult(reconcile.ResultInput{
+		Context:      reconcile.ContextDryRun,
+		ManagedPaths: managed,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	prefix, remaining, err := result.ManagedPathsUpTo(2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prefix) != 2 || remaining != 1 ||
+		prefix[0].Subject().Key() != "alpha" ||
+		prefix[1].Subject().Key() != "bravo" {
+		t.Fatalf("prefix/remaining = %#v/%d", prefix, remaining)
+	}
+	prefix[0] = reconcile.ManagedPathDecision{}
+	if result.ManagedPaths()[0].Subject().Key() != "alpha" {
+		t.Fatal("ManagedPathsUpTo leaked result storage")
+	}
+	if _, _, err := result.ManagedPathsUpTo(-1); err == nil {
+		t.Fatal("ManagedPathsUpTo accepted a negative maximum")
+	}
+}
+
 func TestResultRejectsDuplicateAndCrossFamilyIdentities(t *testing.T) {
 	managed := resultManagedPath(t, "context7", outputtest.Parse(t, "skills/context7"))
 	aggregateDecision, aggregateSubject := resultAggregate(t, "context7")

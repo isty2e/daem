@@ -165,8 +165,10 @@ interrupts a blocked terminal read and cannot authorize effects.
 - Human-readable dynamic paths and errors escape backslashes, controls, format
   characters, and invalid UTF-8 bytes. Structural line breaks remain owned by
   the presenter, so dynamic values cannot forge another diagnostic or hint.
-- `--verbose` adds bounded causal, provenance, path, and identity evidence. It
-  never changes selection, planning, authority, or mutation.
+- `--verbose` adds bounded typed causal, provenance, path, and identity
+  evidence. Error types without a bounded evidence projection are reported as
+  omitted instead of invoking an arbitrary error formatter. Verbosity never
+  changes selection, planning, authority, or mutation.
 - `--json` emits exactly one schema-versioned JSON document to stdout.
 - `--json` and `--verbose` are mutually exclusive.
 - `--diff` is accepted by `import`, every add/remove leaf, and `apply`. It
@@ -219,17 +221,17 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `3` |
-| `lock`, `outdated` | Lock comparison | `3` |
-| `list resources` | Resource inventory | `1` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `4` |
+| `lock`, `outdated` | Lock comparison | `4` |
+| `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
-| `status`, `apply --dry-run` | Reconciliation plan | `11` |
-| confirmed `apply` | Apply result | `16` |
+| `status`, `apply --dry-run` | Reconciliation plan | `12` |
+| confirmed `apply` | Apply result | `18` |
 | `recover` | Recovery plan/result | `7` |
 | `doctor` | Passive diagnostics | `1` |
 | `probe mcp-server` | Runtime probe | `1` |
-| `refresh extension` | Extension refresh | `2` |
+| `refresh extension` | Extension refresh | `3` |
 
 Consumers must select the expected command envelope, inspect
 `schema_version`, and reject unsupported versions before interpreting any
@@ -490,7 +492,7 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `3` without changing existing
+Structured output uses authoring schema `4` without changing existing
 add/remove rows:
 
 - `command` and `operation` are `unmanage`;
@@ -522,7 +524,7 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, and import use schema `3` with these common
+Init uses schema `1`. Add, remove, and import use schema `4` with these common
 fields:
 
 | Field | Meaning |
@@ -535,7 +537,11 @@ fields:
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
 
 Imported extension changes use `resource.kind = "extension"` and include the
-exact `carrier`, `target`, `scope`, and `source`. Import summary rows include an
+exact `carrier`, `target`, and `scope`. A source identity proven public by the
+carrier grammar is emitted unchanged. A local or opaque source is replaced by
+a deterministic `redacted:sha256:...` value and sets `source_redacted = true`.
+Credential-bearing extension sources are rejected at manifest and import
+ingress, so no output mode prints their values. Import summary rows include an
 `extensions` count; scan rows identify their resource kind so extension
 inventory evidence is not reported as a skill scan.
 
@@ -544,7 +550,7 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `3`. CLI misuse or
+Human next-command prose is deliberately absent from schema `4`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.
@@ -588,11 +594,14 @@ every added, changed, or removed identity and the lock next step. `--verbose`
 adds checked current identities and bounded refs. `--check` exits `1` when any
 lock identity would change.
 
-Lock and outdated JSON schema version is `3`, a deliberate replacement of
-schema version `2` for extension-order output. It includes command/mode,
+Lock and outdated JSON schema version is `4`. It includes command/mode,
 manifest and derived lockfile paths, prior-lock presence, subject and order
 constraint entry/change counts, `has_changes`, typed subject changes, and
 ordered before/after extension members for each changed order class.
+Carrier-derived subject names, source namespaces, relation keys, managed
+instance keys, and host-load identities are emitted unchanged only when the
+carrier grammar proves them public. Otherwise they use deterministic
+`redacted:sha256:...` values and their adjacent `*_redacted` marker is true.
 Managed-path realizations include `exact_permission_mode` when and only when
 their permission policy is `exact`; the optional field representation preserves
 an explicit mode `0`. Full safe source ids and hashes are automation evidence
@@ -673,7 +682,9 @@ the current command does not plan to migrate or remove it. The warning does not
 claim which copy the host will load, does not grant ownership, and never
 deletes or adopts the other copy.
 
-`list resources` JSON uses schema version `1`. `list outputs` JSON uses schema
+`list resources` JSON uses schema version `2`. Extension source identities use
+the same carrier disclosure rule as lock output and set `source_redacted` when
+the value is replaced. `list outputs` JSON uses schema
 version `4`, with separate `managed`, `unmanaged`, and `blocked` arrays and
 counts. Rows retain their canonical `subject` and complete `targets` consumer
 set while reporting the correlated resource identity when one exists.
@@ -777,7 +788,18 @@ state does not retain their declared marketplace source.
 
 `apply --dry-run --diff` emits one diff per physical managed file. A file with
 one consumer reports singular `target`; a shared file reports the complete
-canonical `targets` set and never invents a primary consumer.
+canonical `targets` set and never invents a primary consumer. Diff collection
+retains at most 4 MiB across the current and desired payload for one file and
+16 MiB across the operation. It inspects at most 4,096 managed-path decisions
+and reports the remaining decision count as one operation-level omission. A
+file or operation that exceeds a content limit is reported with an explicit
+omission instead of materializing an unbounded diff. Cancellation is checked
+before each admitted decision and content read. Line cardinality is checked
+before line arrays are allocated, and line content is canonicalized once before
+the bounded LCS pass. Rendering admits at most 250,000 LCS cells per file and
+16,000,000 cells across the report, checks cancellation between files, and
+reports one aggregate count for textual diffs omitted after that work budget is
+exhausted.
 
 Apply also rejects any host mutation path that equals, contains, or is contained
 by a local source consumed by the same manifest. Such an operation would mutate
@@ -789,7 +811,7 @@ residue class, failures, and a next action only when more work is needed.
 `--verbose` adds state/content paths, reason codes, selected source/ref, and
 bounded evidence. Raw subprocess output and secret values are never printed.
 
-Status and apply-dry-run JSON use plan schema version `11`. The document contains
+Status and apply-dry-run JSON use plan schema version `12`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated
 actions, relation actions, physical extension-order actions, carrier-adoption
 actions, carrier-absence actions, host-route attempt history, diagnostics, MCP
@@ -800,6 +822,20 @@ and any typed `foreign_precedence_change` risks. OpenCode rows describe config
 order only; Pi rows describe runtime precedence. A carrier install or removal
 that must settle first is reported as `conditional_after_carrier_change`
 instead of an executable order mutation.
+
+Relation-order `detail` fields contain path-neutral prose derived from their
+typed reason or outcome; raw observation and execution evidence is available
+only in verbose human output. Relation source namespaces, source references,
+subject keys, order-member load identities, carrier source namespaces, and
+carrier relation-subject keys that carry local or opaque host provenance are
+replaced by deterministic
+`redacted:sha256:<digest>` labels. Their corresponding `*_redacted` field is
+set to `true` in JSON. Credential-free non-local source identities remain
+exact only when the selected carrier grammar proves their package, marketplace,
+or remote identity. A source-derived `carrier_subject.name` uses the same
+projection and sets `name_redacted = true`; normalized project-relative sources
+do not become public merely because their leading `./` was removed at
+declaration ingress.
 
 Each delegated action exposes `packages` as the canonical package inputs daem
 can derive from the preserved runner argv. The set can be partial when argv
@@ -834,7 +870,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `16`. It adds executed action
+`apply --yes --json` uses result schema version `18`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
 carrier-absence outcomes, physical `relation_order_results`, and final
@@ -845,7 +881,20 @@ document may remain converged when a later document fails; apply makes no
 cross-document rollback claim. Retry reobserves every selected sequence and
 continues idempotently from current files. Known mutation codes include
 `stale_snapshot`, `stale_plan`, `mutation_contended`, and
-`mutation_cancelled`.
+`mutation_cancelled`. Each error also reports a closed `phase` and `outcome`;
+its bounded message is derived only from those typed facts and never from an
+internal error string. Outcomes distinguish work refused before effects,
+incomplete effects, and effects that were fully rolled back before returning.
+`rolled_back` applies only when every attempted apply effect is covered by the
+completed compensation. A retained provider prerequisite or other effect
+outside the managed journal keeps the operation `incomplete`, even when the
+managed path portion was restored.
+Default human output uses the same typed detail.
+`--verbose` may add separately bounded and credential-sanitized causal
+evidence. Planning, projection, diff, confirmation, diagnostics, and output
+failures use the same closed apply boundary before an execution envelope exists.
+Default remediation commands use a `<manifest>` placeholder; `--verbose` may
+show the selected manifest path and exact bounded command evidence.
 
 Host-route attempt rows include the exact operation and bounded
 `effect_postconditions` requirement/state summaries when the locked route
@@ -860,7 +909,13 @@ longer named the retained physical project root around the attempt. The route
 is never redirected to the replacement cwd, but it may already have started
 from the captured root; apply therefore reports failure, makes no convergence
 claim, and refuses to write the final attempt record through the replacement
-root. This cwd binding is not a sandbox for other host-command effects.
+root. Mechanical process facts remain independent: a timed-out command followed
+by authority loss retains `timed_out = true` and `attempt_reason = "timeout"`
+while the overall result reason is `workdir_authority`. This cwd binding is not
+a sandbox for other host-command effects.
+Delegate attempt rows use the same partition through `process_reason` and
+`workdir_authority_failed`; timeout, cancellation, signal, and exit facts are
+not overwritten by a later cwd-authority failure.
 
 ## `recover`
 
@@ -1161,7 +1216,7 @@ operation. A sanitized,
 operation-indexed attempt row is persisted only for a started process and is
 history, not future skip or removal authority.
 
-Refresh JSON schema version is `2` and has exactly these top-level fields:
+Refresh JSON schema version is `3` and has exactly these top-level fields:
 
 ```text
 schema_version command mode selection route disclosure result has_errors
@@ -1177,6 +1232,9 @@ string; those errors remain internal causes. Process and observation summaries
 contain no subprocess output, raw errors, secret values, protocol payloads, or
 machine-local paths. Human refresh failures use the same typed detail instead
 of printing the underlying error.
+`process_outcome.reason` describes only the mechanical command result.
+`authority_outcome.workdir_failed` independently reports a failed post-attempt
+cwd-authority check.
 
 After a refresh result JSON document has been written to stdout, daem does not
 append failure prose to stderr. Dry-run and pre-execution planning failures
@@ -1226,7 +1284,7 @@ fails the command.
 | Failure before result envelope | empty | concise error and remediation | `1` |
 | Failure after JSON envelope exists | one typed JSON result | empty unless write fails | `1` |
 | Confirmation declined/canceled | disclosed plan remains | cancellation line | `1` |
-| Stable output write failure | possibly partial | bounded write diagnostic | `1`, unless preserving an existing nonzero command identity |
+| Stable output write failure | possibly partial | one bounded write diagnostic without the writer's error text | `1`, unless preserving an existing nonzero command identity |
 | Interrupted by `SIGINT` | completed or partial stable output | bounded interruption diagnostic | `130` |
 | Interrupted by `SIGTERM` | completed or partial stable output | bounded interruption diagnostic | `143` |
 

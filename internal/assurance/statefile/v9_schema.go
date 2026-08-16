@@ -1,6 +1,9 @@
 package statefile
 
-const snapshotVersion = 8
+const (
+	snapshotVersion       = 9
+	legacySnapshotVersion = 8
+)
 
 type snapshotDTO struct {
 	Version                   int                        `json:"version"`
@@ -109,6 +112,8 @@ type delegateAttemptDTO struct {
 	ObservedAt      string     `json:"observed_at"`
 	Status          string     `json:"status"`
 	Reason          string     `json:"reason"`
+	AttemptObserved *bool      `json:"attempt_observed"`
+	ProcessReason   string     `json:"process_reason,omitempty"`
 	Observation     string     `json:"observation"`
 	Postcondition   string     `json:"postcondition"`
 	ExitCode        *int       `json:"exit_code,omitempty"`

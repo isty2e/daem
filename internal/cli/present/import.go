@@ -56,18 +56,20 @@ type ImportScan struct {
 }
 
 type ImportResource struct {
-	ResourceID string
-	Target     string
-	Scope      string
-	Source     string
-	LivePath   string
-	RenderTo   string
-	Event      string
-	Command    string
-	Carrier    string
-	Hook       bool
-	MCPServer  bool
-	Extension  bool
+	ResourceID     string
+	Target         string
+	Scope          string
+	Source         string
+	SourceRedacted bool
+	LivePath       string
+	RenderTo       string
+	Event          string
+	Command        string
+	Carrier        string
+	Hook           bool
+	MCPServer      bool
+	Extension      bool
+	verboseSource  string
 }
 
 type ImportMergeResult struct {
@@ -119,6 +121,10 @@ func printImportEvidence(output io.Writer, plan ImportPlan) {
 	}
 	for _, resource := range plan.Resources {
 		if resource.Extension {
+			source := resource.Source
+			if resource.verboseSource != "" {
+				source = resource.verboseSource
+			}
 			fmt.Fprintf(
 				output,
 				"import resource=%q target=%s scope=%s carrier=%q source=%q\n",
@@ -126,7 +132,7 @@ func printImportEvidence(output io.Writer, plan ImportPlan) {
 				resource.Target,
 				resource.Scope,
 				resource.Carrier,
-				resource.Source,
+				source,
 			)
 			continue
 		}
@@ -325,13 +331,16 @@ func importResourcesFromAdoption(plan adoptmodel.Plan) []ImportResource {
 		})
 	}
 	for _, extension := range plan.Extensions() {
+		disclosure := desiredExtensionIdentityDisclosureFor(extension)
 		resources = append(resources, ImportResource{
-			ResourceID: "extension/" + extension.ID().Name(),
-			Target:     string(extension.Target()),
-			Scope:      string(extension.Scope()),
-			Source:     extension.Source().Ref(),
-			Carrier:    string(extension.Carrier()),
-			Extension:  true,
+			ResourceID:     "extension/" + extension.ID().Name(),
+			Target:         string(extension.Target()),
+			Scope:          string(extension.Scope()),
+			Source:         disclosure.sourceRef.Value(),
+			SourceRedacted: disclosure.sourceRef.Redacted(),
+			Carrier:        string(extension.Carrier()),
+			Extension:      true,
+			verboseSource:  disclosure.verboseSourceRef.Value(),
 		})
 	}
 	return resources

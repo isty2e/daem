@@ -20,6 +20,7 @@ import (
 	"github.com/isty2e/daem/internal/subprocess"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/execcheck"
 )
 
@@ -152,11 +153,16 @@ func TestCodexPluginRemovalRetriesIncompleteEffects(t *testing.T) {
 						return subprocess.CommandResult{}
 					},
 				)
-				if exitCode != 1 ||
-					stderr != "" ||
-					!strings.Contains(stdout, "effect_postcondition_unsatisfied") {
+				if exitCode != 1 || stderr != "" {
 					t.Fatalf("pending settlement exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 				}
+				clijson.RequireApplyFailure(
+					t,
+					clijson.DecodeApplyResult(t, []byte(stdout)),
+					applyworkflow.FailureReasonCarrierPostconditionFailed,
+					applyworkflow.FailurePhasePreflight,
+					applyworkflow.FailureOutcomeRefused,
+				)
 				if len(fixture.requests) != 2 {
 					t.Fatalf("pending settlement requests = %#v, want no reinvocation", fixture.requests)
 				}

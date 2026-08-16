@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/skill"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	sourceresolution "github.com/isty2e/daem/internal/supply/source/resolution"
@@ -185,6 +186,34 @@ func (epoch SourceEpoch) sourceResolution(
 		return acquisition.Resolution{}, fact.err
 	}
 	return fact.resolution, nil
+}
+
+// FileResolution returns the exact-file resolution retained for one entity in
+// this immutable source epoch.
+func (epoch SourceEpoch) FileResolution(id entity.ID) (acquisition.Resolution, error) {
+	if !epoch.initialized {
+		return acquisition.Resolution{}, fmt.Errorf("lock observation source epoch is not initialized")
+	}
+	fact, ok := epoch.byEntity[id]
+	if !ok {
+		return acquisition.Resolution{}, fmt.Errorf(
+			"lock observation source epoch has no result for %s %q",
+			id.Kind(),
+			id.Name(),
+		)
+	}
+	if fact.err != nil {
+		return acquisition.Resolution{}, fact.err
+	}
+	resolution := fact.resolution
+	if resolution.Identity().Kind() != artifact.ArtifactKindFile {
+		return acquisition.Resolution{}, fmt.Errorf(
+			"lock observation source epoch result for %s %q is not a file",
+			id.Kind(),
+			id.Name(),
+		)
+	}
+	return resolution, nil
 }
 
 // SkillResolution returns one raw local skill resolution only when the caller

@@ -3,11 +3,13 @@ package apply
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
+	assurancehostroute "github.com/isty2e/daem/internal/assurance/hostroute"
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
@@ -45,6 +47,61 @@ func TestRunRetiresProjectClaimOnlyAfterVerifiedAbsence(t *testing.T) {
 	assertConvergedProjectRemoval(t, fixture.persistedState(t), fixture.claim)
 }
 
+func TestRunClassifiesPostAttemptProjectRootReplacementFromDurableRecord(
+	t *testing.T,
+) {
+	fixture := newWorkflowFixture(t, target.ScopeProject)
+	fixture.runnerResult = subprocess.CommandResult{Started: true, TimedOut: true}
+	input := fixture.input(t)
+	originalObserver := input.Observer
+	movedRoot := fixture.root + "-moved"
+	t.Cleanup(func() {
+		if err := os.RemoveAll(movedRoot); err != nil {
+			t.Errorf("remove moved project root: %v", err)
+		}
+	})
+	input.Observer = func(
+		ctx context.Context,
+		pending durablecarrier.PendingCarrierRemoval,
+		claims []durablecarrier.ManagedCarrierClaim,
+	) assurancehostroute.ObservationFact {
+		observation := originalObserver(ctx, pending, claims)
+		if err := os.Rename(fixture.root, movedRoot); err != nil {
+			t.Fatalf("move retained project root: %v", err)
+		}
+		if err := os.MkdirAll(fixture.root, 0o700); err != nil {
+			t.Fatalf("create replacement project root: %v", err)
+		}
+		return observation
+	}
+
+	result, err := runCarrierRemovals(context.Background(), input)
+	if err == nil {
+		t.Fatal("Run returned nil error after project-root replacement")
+	}
+	assertCarrierRemovalHostRouteFailure(t, err)
+	assertRetainedRemoval(t, result.State, fixture.claim)
+	if len(result.Attempts) != 0 {
+		t.Fatalf("attempts = %d, want no falsely persisted attempt", len(result.Attempts))
+	}
+	var routeFailure hostRouteExecutionError
+	if !errors.As(err, &routeFailure) || len(routeFailure.records) != 1 {
+		t.Fatalf("host route failure = %#v, want one final attempt record", routeFailure)
+	}
+	attempt := routeFailure.records[0]
+	if attempt.ResultClass() != durableattempt.HostRouteResultFailed ||
+		attempt.Reason() != durableattempt.HostRouteReasonWorkDirAuthority ||
+		attempt.AttemptReason() != durableattempt.HostRouteAttemptReasonTimeout ||
+		!attempt.TimedOut() {
+		t.Fatalf(
+			"attempt class/reason/attempt_reason = %q/%q/%q",
+			attempt.ResultClass(),
+			attempt.Reason(),
+			attempt.AttemptReason(),
+		)
+	}
+}
+
 func TestRunRetainsClaimAndPendingWhenRelationRemainsPresent(t *testing.T) {
 	fixture := newWorkflowFixture(t, target.ScopeProject)
 	fixture.postObservation = exactCorrelation(t, fixture.expected)
@@ -52,6 +109,7 @@ func TestRunRetainsClaimAndPendingWhenRelationRemainsPresent(t *testing.T) {
 	if err == nil {
 		t.Fatal("Run returned nil error")
 	}
+	assertCarrierRemovalHostRouteFailure(t, err)
 	if fixture.executorCalls != 1 {
 		t.Fatalf("executor calls = %d, want 1", fixture.executorCalls)
 	}
@@ -365,5 +423,27 @@ func assertRetainedRemoval(
 	pending := snapshot.PendingCarrierRemovals()
 	if len(pending) != 1 || !pending[0].Claim().ExactEqual(claim) {
 		t.Fatalf("pending removals = %#v, want exact retained boundary", pending)
+	}
+}
+
+func assertCarrierRemovalHostRouteFailure(t *testing.T, err error) {
+	t.Helper()
+	var routeFailure hostRouteExecutionError
+	if !errors.As(err, &routeFailure) {
+		t.Fatalf("error = %v, want hostRouteExecutionError", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{ExecutionAttempted: true})
+	if failure.Reason() != FailureReasonHostRouteAttemptFailed ||
+		failure.Phase() != FailurePhaseExecution ||
+		failure.Outcome() != FailureOutcomeIncomplete {
+		t.Fatalf(
+			"failure = (%q, %q, %q), want (%q, %q, %q)",
+			failure.Reason(),
+			failure.Phase(),
+			failure.Outcome(),
+			FailureReasonHostRouteAttemptFailed,
+			FailurePhaseExecution,
+			FailureOutcomeIncomplete,
+		)
 	}
 }

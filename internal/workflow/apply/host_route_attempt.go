@@ -490,6 +490,45 @@ func (err hostRouteExecutionError) Error() string {
 	return "host route attempt failed: " + strings.Join(parts, "; ")
 }
 
+func (err hostRouteExecutionError) BoundedErrorEvidence(maximumRunes int) (string, bool) {
+	if maximumRunes <= 0 {
+		return "", len(err.records) != 0
+	}
+	var builder strings.Builder
+	remaining := maximumRunes
+	write := func(value string) bool {
+		for _, character := range value {
+			if remaining == 0 {
+				return false
+			}
+			builder.WriteRune(character)
+			remaining--
+		}
+		return true
+	}
+	if !write("host route attempt failed") {
+		return builder.String(), true
+	}
+	for index, record := range err.records {
+		separator := ": "
+		if index != 0 {
+			separator = "; "
+		}
+		for _, part := range []string{
+			separator,
+			string(record.ResultClass()),
+			"/",
+			string(record.Reason()),
+		} {
+			if write(part) {
+				continue
+			}
+			return builder.String(), true
+		}
+	}
+	return builder.String(), false
+}
+
 func durableAttemptFromHostRouteResult(
 	action reconciliation.RelationAction,
 	result assurancehostroute.Result,

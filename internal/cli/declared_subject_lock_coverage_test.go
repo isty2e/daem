@@ -152,7 +152,7 @@ func TestApplyWriteRefusesDeclaredMCPSubjectMissingFromExistingLockBeforeMutatio
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d stdout = %q stderr = %q, want 1", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "missing_lock") ||
+	if !strings.Contains(stderr.String(), "blocked: missing lock") ||
 		!strings.Contains(stderr.String(), "next: run daem lock --manifest") {
 		t.Fatalf("stderr = %q, want missing-lock refusal and lock remediation", stderr.String())
 	}

@@ -38,20 +38,21 @@ type ManifestAuthoringJSONOutput struct {
 }
 
 type ManifestAuthoringJSONChange struct {
-	Operation     string                      `json:"operation"`
-	ChangeKind    string                      `json:"change_kind,omitempty"`
-	Status        string                      `json:"status,omitempty"`
-	ResourceID    string                      `json:"resource_id"`
-	Resource      AuthoringJSONResourceObject `json:"resource"`
-	Target        string                      `json:"target,omitempty"`
-	Targets       []string                    `json:"targets,omitempty"`
-	Scope         string                      `json:"scope,omitempty"`
-	Source        string                      `json:"source,omitempty"`
-	Carrier       string                      `json:"carrier,omitempty"`
-	LivePath      string                      `json:"live_path,omitempty"`
-	RenderTo      string                      `json:"render_to,omitempty"`
-	Detail        string                      `json:"detail,omitempty"`
-	ManifestBlock string                      `json:"manifest_block,omitempty"`
+	Operation      string                      `json:"operation"`
+	ChangeKind     string                      `json:"change_kind,omitempty"`
+	Status         string                      `json:"status,omitempty"`
+	ResourceID     string                      `json:"resource_id"`
+	Resource       AuthoringJSONResourceObject `json:"resource"`
+	Target         string                      `json:"target,omitempty"`
+	Targets        []string                    `json:"targets,omitempty"`
+	Scope          string                      `json:"scope,omitempty"`
+	Source         string                      `json:"source,omitempty"`
+	SourceRedacted bool                        `json:"source_redacted,omitempty"`
+	Carrier        string                      `json:"carrier,omitempty"`
+	LivePath       string                      `json:"live_path,omitempty"`
+	RenderTo       string                      `json:"render_to,omitempty"`
+	Detail         string                      `json:"detail,omitempty"`
+	ManifestBlock  string                      `json:"manifest_block,omitempty"`
 }
 
 type ManifestAuthoringJSONLockfile struct {
@@ -322,14 +323,16 @@ func importPlanJSONChanges(plan adoptmodel.Plan) []ManifestAuthoringJSONChange {
 		})
 	}
 	for _, extension := range plan.Extensions() {
+		disclosure := desiredExtensionIdentityDisclosureFor(extension)
 		changes = append(changes, ManifestAuthoringJSONChange{
-			Operation:  "import",
-			ResourceID: authoringResourceID("extension", extension.ID().Name()),
-			Resource:   authoringJSONResource("extension", extension.ID().Name()),
-			Target:     string(extension.Target()),
-			Scope:      string(extension.Scope()),
-			Source:     extension.Source().Ref(),
-			Carrier:    string(extension.Carrier()),
+			Operation:      "import",
+			ResourceID:     authoringResourceID("extension", extension.ID().Name()),
+			Resource:       authoringJSONResource("extension", extension.ID().Name()),
+			Target:         string(extension.Target()),
+			Scope:          string(extension.Scope()),
+			Source:         disclosure.sourceRef.Value(),
+			SourceRedacted: disclosure.sourceRef.Redacted(),
+			Carrier:        string(extension.Carrier()),
 		})
 	}
 	return changes

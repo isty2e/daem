@@ -284,6 +284,14 @@ func TestRelationOrderConvergenceReportsPartialOpenCodeFailure(t *testing.T) {
 	}) {
 		t.Fatalf("partial outcomes = %v", outcomes)
 	}
+	if !strings.Contains(result.results[1].Detail(), "context canceled") ||
+		result.results[1].PublicDetail() != "extension order update failed" {
+		t.Fatalf(
+			"failed result details = raw %q public %q",
+			result.results[1].Detail(),
+			result.results[1].PublicDetail(),
+		)
+	}
 	if got := string(readRelationOrderTestFile(t, serverPath)); strings.Index(got, "alpha@1") > strings.Index(got, "beta@1") {
 		t.Fatalf("server did not converge before cancellation: %s", got)
 	}

@@ -24,6 +24,14 @@ type relationAuthorityPathFact struct {
 	access mutation.AccessMode
 }
 
+type carrierRemovalPostconditionError struct {
+	reason assurancehostroute.ResultReasonCode
+}
+
+func (err carrierRemovalPostconditionError) Error() string {
+	return fmt.Sprintf("pending carrier removal did not converge: %s", err.reason)
+}
+
 func relationAuthorityPathFacts(
 	actions []carrierabsence.Action,
 	paths []observerelation.AuthorityPath,
@@ -163,10 +171,7 @@ func verifyCurrentRemovalPostconditions(
 		return err
 	}
 	if !verification.Satisfied() {
-		return fmt.Errorf(
-			"pending carrier removal did not converge: %s",
-			verification.Reason(),
-		)
+		return carrierRemovalPostconditionError{reason: verification.Reason()}
 	}
 	return nil
 }

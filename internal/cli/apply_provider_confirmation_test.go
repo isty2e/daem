@@ -353,7 +353,10 @@ func TestRunApplyRejectsDeclarationChangeDuringRenewedConsent(t *testing.T) {
 			stderr.String(),
 		)
 	}
-	if !strings.Contains(stderr.String(), "stale_plan") ||
+	if !strings.Contains(
+		stderr.String(),
+		"the authorized apply plan changed before apply completed",
+	) || strings.Contains(stderr.String(), "stale_plan") ||
 		strings.Contains(stdout.String(), "applied:") {
 		t.Fatalf(
 			"stale renewed consent output mismatch: stdout=%q stderr=%q",

@@ -52,14 +52,15 @@ type RefreshDisclosure struct {
 }
 
 type RefreshResult struct {
-	Class          string                 `json:"class"`
-	ReasonCode     string                 `json:"reason_code,omitempty"`
-	Detail         string                 `json:"detail"`
-	Attempted      bool                   `json:"attempted"`
-	ProcessOutcome *RefreshProcessOutcome `json:"process_outcome,omitempty"`
-	Observation    *RefreshObservation    `json:"observation,omitempty"`
-	AttemptHistory RefreshAttemptHistory  `json:"attempt_history"`
-	Remediation    []string               `json:"remediation"`
+	Class            string                   `json:"class"`
+	ReasonCode       string                   `json:"reason_code,omitempty"`
+	Detail           string                   `json:"detail"`
+	Attempted        bool                     `json:"attempted"`
+	ProcessOutcome   *RefreshProcessOutcome   `json:"process_outcome,omitempty"`
+	AuthorityOutcome *RefreshAuthorityOutcome `json:"authority_outcome,omitempty"`
+	Observation      *RefreshObservation      `json:"observation,omitempty"`
+	AttemptHistory   RefreshAttemptHistory    `json:"attempt_history"`
+	Remediation      []string                 `json:"remediation"`
 }
 
 type RefreshProcessOutcome struct {
@@ -70,6 +71,10 @@ type RefreshProcessOutcome struct {
 	Cancelled bool   `json:"cancelled"`
 	Signaled  bool   `json:"signaled"`
 	Redacted  bool   `json:"redacted"`
+}
+
+type RefreshAuthorityOutcome struct {
+	WorkDirFailed bool `json:"workdir_failed"`
 }
 
 type RefreshAttemptHistory struct {
@@ -125,12 +130,13 @@ func RefreshReportFrom(result refreshworkflow.CommandResult) RefreshReport {
 			NonClaims:             append([]string{}, result.Disclosure.NonClaims...),
 		},
 		Result: RefreshResult{
-			Class:          string(result.ResultClass),
-			ReasonCode:     string(result.ReasonCode),
-			Detail:         result.FailureDetail(),
-			Attempted:      result.Attempted,
-			ProcessOutcome: refreshProcessOutcome(result.ProcessOutcome),
-			Observation:    observation,
+			Class:            string(result.ResultClass),
+			ReasonCode:       string(result.ReasonCode),
+			Detail:           result.FailureDetail(),
+			Attempted:        result.Attempted,
+			ProcessOutcome:   refreshProcessOutcome(result.ProcessOutcome),
+			AuthorityOutcome: refreshAuthorityOutcome(result.AuthorityOutcome),
+			Observation:      observation,
 			AttemptHistory: RefreshAttemptHistory{
 				Persisted: result.AttemptHistory.Persisted,
 			},
@@ -225,6 +231,13 @@ func PrintRefreshOutcome(
 		}
 		fmt.Fprintln(output)
 	}
+	if report.Result.AuthorityOutcome != nil {
+		fmt.Fprintf(
+			output,
+			"  authority: workdir_failed=%t\n",
+			report.Result.AuthorityOutcome.WorkDirFailed,
+		)
+	}
 	if report.Result.Observation != nil {
 		observation := report.Result.Observation
 		fmt.Fprintf(
@@ -282,4 +295,13 @@ func refreshProcessOutcome(
 		cloned.ExitCode = &exitCode
 	}
 	return cloned
+}
+
+func refreshAuthorityOutcome(
+	outcome *refreshworkflow.AuthorityOutcome,
+) *RefreshAuthorityOutcome {
+	if outcome == nil {
+		return nil
+	}
+	return &RefreshAuthorityOutcome{WorkDirFailed: outcome.WorkDirFailed}
 }

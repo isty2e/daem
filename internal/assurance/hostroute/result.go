@@ -263,6 +263,15 @@ func ClassifyResult(input ResultInput) (Result, error) {
 		),
 		postcondition: observerelation.PostconditionNotObserved,
 	}
+	if input.Attempt.workDirAuthorityLost {
+		result.class = ResultFailed
+		result.reason = ResultReasonWorkDirAuthority
+		result.postcondition = postconditionSummary(
+			input.Observation,
+			relationPostcondition,
+		)
+		return result, nil
+	}
 	if input.Attempt.reason != AttemptReasonNone {
 		result.class = ResultFailed
 		result.reason = attemptFailureReason(input.Attempt.reason)
@@ -434,8 +443,6 @@ func attemptFailureReason(reason AttemptReason) ResultReasonCode {
 		AttemptReasonSignaled,
 		AttemptReasonRunnerError:
 		return ResultReasonRunnerError
-	case AttemptReasonWorkDirAuthority:
-		return ResultReasonWorkDirAuthority
 	default:
 		return ResultReasonCommandFailed
 	}

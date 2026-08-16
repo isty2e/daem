@@ -19,13 +19,15 @@ import (
 )
 
 type ListRow struct {
-	Kind        string `json:"kind"`
-	Key         string `json:"key"`
-	InstallName string `json:"install_name"`
-	Source      string `json:"source"`
-	Targets     string `json:"targets"`
-	Scope       string `json:"scope"`
-	Group       string `json:"group,omitempty"`
+	Kind           string `json:"kind"`
+	Key            string `json:"key"`
+	InstallName    string `json:"install_name"`
+	Source         string `json:"source"`
+	SourceRedacted bool   `json:"source_redacted,omitempty"`
+	Targets        string `json:"targets"`
+	Scope          string `json:"scope"`
+	Group          string `json:"group,omitempty"`
+	verboseSource  string
 }
 
 // ListRows maps selected canonical desired resources to the stable public list
@@ -107,14 +109,17 @@ func ListRows(
 		if !selection.Includes(extension.Target()) {
 			continue
 		}
+		disclosure := desiredExtensionIdentityDisclosureFor(extension)
 		rows = append(rows, ListRow{
-			Kind:        string(entity.KindExtension),
-			Key:         extension.ID().Name(),
-			InstallName: extension.ID().Name(),
-			Source:      string(extension.Source().Kind()) + ":" + extension.Source().Ref(),
-			Targets:     string(extension.Target()),
-			Scope:       string(extension.Scope()),
-			Group:       "-",
+			Kind:           string(entity.KindExtension),
+			Key:            extension.ID().Name(),
+			InstallName:    extension.ID().Name(),
+			Source:         disclosure.sourceNamespace.Value(),
+			SourceRedacted: disclosure.sourceNamespace.Redacted(),
+			Targets:        string(extension.Target()),
+			Scope:          string(extension.Scope()),
+			Group:          "-",
+			verboseSource:  disclosure.verboseSourceNamespace.Value(),
 		})
 	}
 	sort.Slice(rows, func(leftIndex int, rightIndex int) bool {
@@ -142,13 +147,17 @@ func PrintListRowsWithOptions(output io.Writer, manifestPath string, rows []List
 	fmt.Fprintf(output, "resources: %d\n", len(rows))
 	for _, row := range rows {
 		if options.Verbose {
+			source := row.Source
+			if row.verboseSource != "" {
+				source = row.verboseSource
+			}
 			fmt.Fprintf(
 				output,
 				"resource kind=%s key=%s install=%s source=%s targets=%s scope=%s group=%s\n",
 				row.Kind,
 				strconv.Quote(row.Key),
 				strconv.Quote(row.InstallName),
-				strconv.Quote(row.Source),
+				strconv.Quote(source),
 				strconv.Quote(row.Targets),
 				strconv.Quote(row.Scope),
 				strconv.Quote(row.Group),

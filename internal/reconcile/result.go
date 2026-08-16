@@ -220,6 +220,22 @@ func (result Result) ManagedPaths() []ManagedPathDecision {
 	return append([]ManagedPathDecision(nil), result.managedPaths...)
 }
 
+// ManagedPathsUpTo returns at most maximum canonical managed-path decisions
+// and the number not copied after that prefix. It prevents optional consumers
+// from materializing an unbounded second copy of the complete result.
+func (result Result) ManagedPathsUpTo(
+	maximum int,
+) ([]ManagedPathDecision, int, error) {
+	if maximum < 0 {
+		return nil, 0, fmt.Errorf("managed path maximum must not be negative")
+	}
+	retained := min(len(result.managedPaths), maximum)
+	return append(
+		[]ManagedPathDecision(nil),
+		result.managedPaths[:retained]...,
+	), len(result.managedPaths) - retained, nil
+}
+
 // Aggregates returns a defensive copy of canonical aggregate decisions.
 func (result Result) Aggregates() []AggregateDecision {
 	return append([]AggregateDecision(nil), result.aggregates...)

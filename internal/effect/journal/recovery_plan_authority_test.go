@@ -96,6 +96,8 @@ func TestRecoveryPlanJournalAuthorityFingerprintIncludesCompleteDurableEvidence(
 					ObservedAt:      time.Date(2026, time.July, 17, 0, 0, 0, 0, time.UTC),
 					Status:          durableattempt.DelegateStatusSucceeded,
 					Reason:          durableattempt.DelegateReasonNone,
+					AttemptObserved: true,
+					ProcessReason:   durableattempt.DelegateProcessReasonNone,
 				})
 				if err != nil {
 					panic(err)

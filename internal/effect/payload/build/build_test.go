@@ -25,7 +25,7 @@ import (
 	"github.com/isty2e/daem/test/outputtest"
 )
 
-func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
+func TestBuildPayloadSetMaterializesLockedInstruction(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "instructions/AGENTS.md", "agent rules\n")
@@ -36,7 +36,7 @@ func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
 			instructionResource(t, "project", sourceSpec, target.TargetCodex),
 		},
 	})
-	payloads, err := ManagedPathPayloadSet(ctx, Input{
+	payloads, err := PayloadSet(ctx, Input{
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
@@ -44,7 +44,7 @@ func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
-		t.Fatalf("ManagedPathPayloadSet returned error: %v", err)
+		t.Fatalf("PayloadSet returned error: %v", err)
 	}
 
 	payload, ok := payloads.LookupSubject(locked[1].SubjectID())
@@ -67,16 +67,16 @@ func TestBuildManagedPathPayloadSetMaterializesLockedInstruction(t *testing.T) {
 	}
 }
 
-func TestBuildManagedPathPayloadSetDoesNotInitializeSupplyWithoutRequiredSubjects(t *testing.T) {
-	if _, err := ManagedPathPayloadSet(t.Context(), Input{}); err != nil {
-		t.Fatalf("ManagedPathPayloadSet with no required subjects returned error: %v", err)
+func TestBuildPayloadSetDoesNotInitializeSupplyWithoutRequiredSubjects(t *testing.T) {
+	if _, err := PayloadSet(t.Context(), Input{}); err != nil {
+		t.Fatalf("PayloadSet with no required subjects returned error: %v", err)
 	}
 
-	_, err := ManagedPathPayloadSet(t.Context(), Input{
+	_, err := PayloadSet(t.Context(), Input{
 		ManagedPathPayloadSubjects: []topology.SubjectID{{}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "not an entity-backed Skill projection") {
-		t.Fatalf("ManagedPathPayloadSet malformed subject error = %v, want classification before resolver initialization", err)
+		t.Fatalf("PayloadSet malformed subject error = %v, want classification before resolver initialization", err)
 	}
 }
 
@@ -109,7 +109,7 @@ func TestMaterializeLockedFileRejectsDirectorySourceBeforeReadingContent(t *test
 	}
 }
 
-func TestBuildManagedPathPayloadSetRejectsInstructionLockProblems(t *testing.T) {
+func TestBuildPayloadSetRejectsInstructionLockProblems(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "instructions/AGENTS.md", "agent rules\n")
@@ -160,9 +160,9 @@ func TestBuildManagedPathPayloadSetRejectsInstructionLockProblems(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input.Lockfile = snapshottest.File(t, test.subjects...)
-			_, err := ManagedPathPayloadSet(ctx, input)
+			_, err := PayloadSet(ctx, input)
 			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
-				t.Fatalf("ManagedPathPayloadSet error = %v, want containing %q", err, test.wantErr)
+				t.Fatalf("PayloadSet error = %v, want containing %q", err, test.wantErr)
 			}
 		})
 	}
@@ -380,7 +380,7 @@ func TestRunCleanupsJoinsFailuresInReverseOrder(t *testing.T) {
 	}
 }
 
-func TestBuildManagedPathPayloadSetSkipsUnselectedInstructionTargets(t *testing.T) {
+func TestBuildPayloadSetSkipsUnselectedInstructionTargets(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
 	writeHostOutputTestFile(t, root, "instructions/codex.md", "codex rules\n")
@@ -397,7 +397,7 @@ func TestBuildManagedPathPayloadSetSkipsUnselectedInstructionTargets(t *testing.
 		},
 	})
 
-	payloads, err := ManagedPathPayloadSet(ctx, Input{
+	payloads, err := PayloadSet(ctx, Input{
 		Paths:                      hostOutputTestPaths(t, root),
 		Environment:                environment,
 		Lockfile:                   snapshottest.File(t, locked...),
@@ -405,7 +405,7 @@ func TestBuildManagedPathPayloadSetSkipsUnselectedInstructionTargets(t *testing.
 		ManagedPathPayloadSubjects: []topology.SubjectID{locked[1].SubjectID()},
 	})
 	if err != nil {
-		t.Fatalf("ManagedPathPayloadSet returned error: %v", err)
+		t.Fatalf("PayloadSet returned error: %v", err)
 	}
 	if _, ok := payloads.LookupSubject(locked[1].SubjectID()); !ok {
 		t.Fatal("selected codex instruction payload was not materialized")

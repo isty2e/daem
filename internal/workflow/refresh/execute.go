@@ -194,6 +194,7 @@ func Execute(
 	attemptStarted = attempt.Started()
 	result.Attempted = attemptStarted
 	result.ProcessOutcome = processOutcome(attempt)
+	result.AuthorityOutcome = authorityOutcome(attempt)
 
 	observationFact := assurancehostroute.ObservationUnavailable(
 		assurancehostroute.ResultReasonObservationUnsupported,
@@ -332,7 +333,7 @@ func Execute(
 		)
 		return result, failure
 	}
-	if postObservationErr != nil && attempt.Succeeded() {
+	if postObservationErr != nil && attempt.Succeeded() && !attempt.WorkDirAuthorityFailed() {
 		result.ResultClass = ResultPartial
 		result.ReasonCode = ReasonPostObservationFailed
 		result.Remediation = []string{

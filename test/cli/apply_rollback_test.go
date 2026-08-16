@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
+	"github.com/isty2e/daem/test/testkit/clijson"
 
 	"github.com/isty2e/daem/internal/target"
 )
@@ -64,20 +66,29 @@ render_to = "CLAUDE.md"
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	exitCode := testkit.RunVerboseCLI([]string{"apply", "--manifest", manifestPath, "--yes"}, &stdout, &stderr)
+	exitCode := testkit.RunCLI([]string{"apply", "--manifest", manifestPath, "--yes", "--json"}, &stdout, &stderr)
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if stdout.Len() != 0 {
-		t.Fatalf("stdout = %q, want empty", stdout.String())
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
 	}
-	if !strings.Contains(stderr.String(), `write destination "~/.claude/CLAUDE.md"`) {
-		t.Fatalf("stderr = %q, want blocked write diagnostic", stderr.String())
+	payload := clijson.DecodeApplyResult(t, stdout.Bytes())
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonApplyIncomplete,
+		applyworkflow.FailurePhaseExecution,
+		applyworkflow.FailureOutcomeRolledBack,
+	)
+	if got, want := payload.Errors[0].Message, "apply did not complete after an effect boundary was crossed; host changes were rolled back"; got != want {
+		t.Fatalf("failure message = %q, want %q", got, want)
 	}
-	if !strings.Contains(stderr.String(), "host changes rolled back") {
-		t.Fatalf("stderr = %q, want rollback confirmation", stderr.String())
+	for _, private := range []string{blockedDir, betaSourcePath, "permission denied"} {
+		if strings.Contains(stdout.String(), private) {
+			t.Fatalf("apply result leaked private evidence %q: %s", private, stdout.String())
+		}
 	}
-
 	if _, err := os.Stat(filepath.Join(tempDir, "AGENTS.md")); !os.IsNotExist(err) {
 		t.Fatalf("first host write was not rolled back or stat failed: %v", err)
 	}
@@ -159,7 +170,7 @@ render_to = "CLAUDE.md"
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "host changes rolled back") {
+	if !strings.Contains(stderr.String(), "host changes were rolled back") {
 		t.Fatalf("stderr = %q, want rollback confirmation", stderr.String())
 	}
 
@@ -226,7 +237,7 @@ render_to = "CLAUDE.md"
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "host changes rolled back") {
+	if !strings.Contains(stderr.String(), "host changes were rolled back") {
 		t.Fatalf("stderr = %q, want rollback confirmation", stderr.String())
 	}
 

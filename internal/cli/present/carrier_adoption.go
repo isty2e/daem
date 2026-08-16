@@ -21,45 +21,47 @@ const (
 )
 
 type carrierAdoptionActionJSON struct {
-	Kind                     string           `json:"kind"`
-	Subject                  *planJSONSubject `json:"subject"`
-	CarrierSubject           *planJSONSubject `json:"carrier_subject"`
-	Target                   string           `json:"target"`
-	Scope                    string           `json:"scope"`
-	SourceNamespace          string           `json:"source_namespace"`
-	RelationSubjectKey       string           `json:"relation_subject_key"`
-	Result                   string           `json:"result"`
-	CorrelationState         string           `json:"correlation_state"`
-	CorrelationReason        string           `json:"correlation_reason,omitempty"`
-	EvidenceAvailability     string           `json:"evidence_availability"`
-	EvidenceFreshness        string           `json:"evidence_freshness"`
-	ClaimOwner               string           `json:"claim_owner,omitempty"`
-	ClaimStore               string           `json:"claim_store"`
-	CurrentClaimProvenance   string           `json:"current_claim_provenance,omitempty"`
-	ProposedClaimProvenance  string           `json:"proposed_claim_provenance,omitempty"`
-	FinalClaimProvenance     string           `json:"final_claim_provenance,omitempty"`
-	ClaimTransition          string           `json:"claim_transition"`
-	LifecycleEligible        bool             `json:"lifecycle_eligible"`
-	LifecycleBlocker         string           `json:"lifecycle_blocker,omitempty"`
-	DaemKnownConsumerCount   int              `json:"daem_known_consumer_count"`
-	ConflictingClaimCount    int              `json:"conflicting_claim_count"`
-	InstallRouteStatus       string           `json:"install_route_status"`
-	InstallRouteID           string           `json:"install_route_id"`
-	InstallRouteRequestHash  string           `json:"install_route_request_hash"`
-	RemovalRouteStatus       string           `json:"removal_route_status"`
-	RemovalRouteID           string           `json:"removal_route_id,omitempty"`
-	RemovalRouteRequestHash  string           `json:"removal_route_request_hash,omitempty"`
-	RemovalActuation         string           `json:"removal_actuation,omitempty"`
-	LaterOmission            string           `json:"later_omission,omitempty"`
-	PreservesSharedCarrier   bool             `json:"preserves_shared_carrier"`
-	RemovedEffects           []string         `json:"removed_effects,omitempty"`
-	RetainedEffects          []string         `json:"retained_effects,omitempty"`
-	NonClaims                []string         `json:"non_claims"`
-	AmbientConsumerAssurance string           `json:"ambient_consumer_assurance"`
-	ManageExisting           bool             `json:"manage_existing"`
-	InvokesHostRoute         bool             `json:"invokes_host_route"`
-	StateOnly                bool             `json:"state_only"`
-	BlocksOrdinaryApply      bool             `json:"blocks_ordinary_apply"`
+	Kind                       string           `json:"kind"`
+	Subject                    *planJSONSubject `json:"subject"`
+	CarrierSubject             *planJSONSubject `json:"carrier_subject"`
+	Target                     string           `json:"target"`
+	Scope                      string           `json:"scope"`
+	SourceNamespace            string           `json:"source_namespace"`
+	SourceNamespaceRedacted    bool             `json:"source_namespace_redacted,omitempty"`
+	RelationSubjectKey         string           `json:"relation_subject_key"`
+	RelationSubjectKeyRedacted bool             `json:"relation_subject_key_redacted,omitempty"`
+	Result                     string           `json:"result"`
+	CorrelationState           string           `json:"correlation_state"`
+	CorrelationReason          string           `json:"correlation_reason,omitempty"`
+	EvidenceAvailability       string           `json:"evidence_availability"`
+	EvidenceFreshness          string           `json:"evidence_freshness"`
+	ClaimOwner                 string           `json:"claim_owner,omitempty"`
+	ClaimStore                 string           `json:"claim_store"`
+	CurrentClaimProvenance     string           `json:"current_claim_provenance,omitempty"`
+	ProposedClaimProvenance    string           `json:"proposed_claim_provenance,omitempty"`
+	FinalClaimProvenance       string           `json:"final_claim_provenance,omitempty"`
+	ClaimTransition            string           `json:"claim_transition"`
+	LifecycleEligible          bool             `json:"lifecycle_eligible"`
+	LifecycleBlocker           string           `json:"lifecycle_blocker,omitempty"`
+	DaemKnownConsumerCount     int              `json:"daem_known_consumer_count"`
+	ConflictingClaimCount      int              `json:"conflicting_claim_count"`
+	InstallRouteStatus         string           `json:"install_route_status"`
+	InstallRouteID             string           `json:"install_route_id"`
+	InstallRouteRequestHash    string           `json:"install_route_request_hash"`
+	RemovalRouteStatus         string           `json:"removal_route_status"`
+	RemovalRouteID             string           `json:"removal_route_id,omitempty"`
+	RemovalRouteRequestHash    string           `json:"removal_route_request_hash,omitempty"`
+	RemovalActuation           string           `json:"removal_actuation,omitempty"`
+	LaterOmission              string           `json:"later_omission,omitempty"`
+	PreservesSharedCarrier     bool             `json:"preserves_shared_carrier"`
+	RemovedEffects             []string         `json:"removed_effects,omitempty"`
+	RetainedEffects            []string         `json:"retained_effects,omitempty"`
+	NonClaims                  []string         `json:"non_claims"`
+	AmbientConsumerAssurance   string           `json:"ambient_consumer_assurance"`
+	ManageExisting             bool             `json:"manage_existing"`
+	InvokesHostRoute           bool             `json:"invokes_host_route"`
+	StateOnly                  bool             `json:"state_only"`
+	BlocksOrdinaryApply        bool             `json:"blocks_ordinary_apply"`
 }
 
 func carrierAdoptionJSONActions(
@@ -78,6 +80,7 @@ func carrierAdoptionJSONActionsWithResults(
 	for _, action := range actions {
 		actionPhase, finalClaim, hasFinalClaim := carrierAdoptionResult(action, phase, results)
 		identity := action.CarrierIdentity()
+		disclosure := carrierIdentityDisclosureFor(identity)
 		observation := action.Observation()
 		lifecycle := action.Lifecycle()
 		installRequest := action.AcquisitionRequest()
@@ -104,45 +107,47 @@ func carrierAdoptionJSONActionsWithResults(
 			laterOmission = "requests_managed_relation_absence"
 		}
 		result = append(result, carrierAdoptionActionJSON{
-			Kind:                     "carrier_adoption",
-			Subject:                  planJSONSubjectFor(action.Subject()),
-			CarrierSubject:           planJSONSubjectFor(identity.CarrierSubject()),
-			Target:                   string(action.Target()),
-			Scope:                    string(action.Scope()),
-			SourceNamespace:          identity.SourceNamespace(),
-			RelationSubjectKey:       string(identity.ExpectedRelation().SubjectKey()),
-			Result:                   string(action.Result()),
-			CorrelationState:         string(observation.State()),
-			CorrelationReason:        string(observation.Reason()),
-			EvidenceAvailability:     string(observation.EvidenceAvailability()),
-			EvidenceFreshness:        string(observation.EvidenceFreshness()),
-			ClaimOwner:               claimOwner,
-			ClaimStore:               string(lifecycle.ClaimStore()),
-			CurrentClaimProvenance:   currentProvenance,
-			ProposedClaimProvenance:  proposedProvenance,
-			FinalClaimProvenance:     finalProvenance,
-			ClaimTransition:          carrierAdoptionClaimTransition(action, actionPhase),
-			LifecycleEligible:        lifecycle.Eligible(),
-			LifecycleBlocker:         string(lifecycle.Blocker()),
-			DaemKnownConsumerCount:   action.Occupancy().DaemKnownConsumerCount(),
-			ConflictingClaimCount:    len(action.ConflictingClaims()),
-			InstallRouteStatus:       string(lifecycle.InstallRouteStatus()),
-			InstallRouteID:           installRequest.RouteID(),
-			InstallRouteRequestHash:  installRequest.CanonicalRequestHash(),
-			RemovalRouteStatus:       string(removal.Status()),
-			RemovalRouteID:           removalRequest.RouteID(),
-			RemovalRouteRequestHash:  removalRequest.CanonicalRequestHash(),
-			RemovalActuation:         string(removalOperation.Actuation()),
-			LaterOmission:            laterOmission,
-			PreservesSharedCarrier:   removal.PreservesSharedCarrier(),
-			RemovedEffects:           removal.RemovedEffects(),
-			RetainedEffects:          removal.RetainedEffects(),
-			NonClaims:                removal.NonClaims(),
-			AmbientConsumerAssurance: "not_proven",
-			ManageExisting:           action.ManageExisting(),
-			InvokesHostRoute:         action.InvokesHostRoute(),
-			StateOnly:                action.StateOnly(),
-			BlocksOrdinaryApply:      action.BlocksOrdinaryApply(),
+			Kind:                       "carrier_adoption",
+			Subject:                    planJSONSubjectFor(action.Subject()),
+			CarrierSubject:             disclosure.carrierSubject,
+			Target:                     string(action.Target()),
+			Scope:                      string(action.Scope()),
+			SourceNamespace:            disclosure.sourceNamespace.Value(),
+			SourceNamespaceRedacted:    disclosure.sourceNamespace.Redacted(),
+			RelationSubjectKey:         disclosure.relationSubjectKey.Value(),
+			RelationSubjectKeyRedacted: disclosure.relationSubjectKey.Redacted(),
+			Result:                     string(action.Result()),
+			CorrelationState:           string(observation.State()),
+			CorrelationReason:          string(observation.Reason()),
+			EvidenceAvailability:       string(observation.EvidenceAvailability()),
+			EvidenceFreshness:          string(observation.EvidenceFreshness()),
+			ClaimOwner:                 claimOwner,
+			ClaimStore:                 string(lifecycle.ClaimStore()),
+			CurrentClaimProvenance:     currentProvenance,
+			ProposedClaimProvenance:    proposedProvenance,
+			FinalClaimProvenance:       finalProvenance,
+			ClaimTransition:            carrierAdoptionClaimTransition(action, actionPhase),
+			LifecycleEligible:          lifecycle.Eligible(),
+			LifecycleBlocker:           string(lifecycle.Blocker()),
+			DaemKnownConsumerCount:     action.Occupancy().DaemKnownConsumerCount(),
+			ConflictingClaimCount:      len(action.ConflictingClaims()),
+			InstallRouteStatus:         string(lifecycle.InstallRouteStatus()),
+			InstallRouteID:             installRequest.RouteID(),
+			InstallRouteRequestHash:    installRequest.CanonicalRequestHash(),
+			RemovalRouteStatus:         string(removal.Status()),
+			RemovalRouteID:             removalRequest.RouteID(),
+			RemovalRouteRequestHash:    removalRequest.CanonicalRequestHash(),
+			RemovalActuation:           string(removalOperation.Actuation()),
+			LaterOmission:              laterOmission,
+			PreservesSharedCarrier:     removal.PreservesSharedCarrier(),
+			RemovedEffects:             removal.RemovedEffects(),
+			RetainedEffects:            removal.RetainedEffects(),
+			NonClaims:                  removal.NonClaims(),
+			AmbientConsumerAssurance:   "not_proven",
+			ManageExisting:             action.ManageExisting(),
+			InvokesHostRoute:           action.InvokesHostRoute(),
+			StateOnly:                  action.StateOnly(),
+			BlocksOrdinaryApply:        action.BlocksOrdinaryApply(),
 		})
 	}
 	return result
@@ -188,7 +193,7 @@ func PrintCarrierAdoptionResultsWithOptions(
 		return
 	}
 	fmt.Fprintf(output, "carrier adoption results: %d subjects\n", len(stateOnly))
-	phase := applyResultCarrierAdoptionPhase(executionErr, executionAttempted)
+	phase := applyResultCarrierAdoptionPhase(executionErr != nil, executionAttempted)
 	for _, action := range stateOnly {
 		actionPhase, _, _ := carrierAdoptionResult(action, phase, results)
 		if options.Verbose {
@@ -352,6 +357,7 @@ func printCarrierAdoptionVerbose(
 		phase,
 		results,
 	)[0]
+	disclosure := carrierIdentityDisclosureFor(action.CarrierIdentity())
 	fmt.Fprintf(
 		output,
 		"  - kind=%s subject=%q carrier=%q target=%s scope=%s source_namespace=%q relation_subject_key=%q result=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s claim_owner=%q claim_store=%s current_claim_provenance=%q proposed_claim_provenance=%q final_claim_provenance=%q claim_transition=%s lifecycle_eligible=%t lifecycle_blocker=%q daem_known_consumers=%d conflicting_claims=%d install_route_status=%s install_route_id=%q install_route_request_hash=%q removal_route_status=%s removal_route_id=%q removal_route_request_hash=%q removal_actuation=%q later_omission=%q preserves_shared_carrier=%t removed_effects=%q retained_effects=%q non_claims=%q ambient_consumer_assurance=%s manage_existing=%t invokes_host_route=%t state_only=%t blocks_ordinary_apply=%t\n",
@@ -360,8 +366,8 @@ func printCarrierAdoptionVerbose(
 		subjectString(*row.CarrierSubject),
 		row.Target,
 		row.Scope,
-		row.SourceNamespace,
-		row.RelationSubjectKey,
+		disclosure.verboseSourceNamespace.Value(),
+		disclosure.verboseRelationSubjectKey.Value(),
 		row.Result,
 		row.CorrelationState,
 		row.CorrelationReason,

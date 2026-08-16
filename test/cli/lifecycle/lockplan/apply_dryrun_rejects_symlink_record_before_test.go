@@ -52,7 +52,7 @@ mode = "symlink"
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `apply symlink mode for "AGENTS.md" is not implemented`) {
+	if !strings.Contains(stderr.String(), "symlink mode") || !strings.Contains(stderr.String(), "AGENTS.md") {
 		t.Fatalf("stderr = %q, want symlink diagnostic", stderr.String())
 	}
 	stateAfter, err := os.ReadFile(statefilePath)
@@ -102,7 +102,7 @@ mode = "symlink"
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `apply symlink mode for "AGENTS.md" is not implemented`) {
+	if !strings.Contains(stderr.String(), "symlink mode") || !strings.Contains(stderr.String(), "AGENTS.md") {
 		t.Fatalf("stderr = %q, want symlink diagnostic", stderr.String())
 	}
 	testkit.AssertFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "old instructions\n")

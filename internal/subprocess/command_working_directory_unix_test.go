@@ -254,7 +254,8 @@ func TestExecuteInWorkingDirectoryRejectsNilDescriptorWithoutPanic(t *testing.T)
 		},
 	)
 
-	if result.Reason() != CommandReasonWorkDirAuthority ||
+	if result.Succeeded() || result.Reason() != CommandReasonNone ||
+		!result.WorkDirAuthorityFailed() ||
 		!strings.Contains(result.ErrorDetail(), "descriptor is required") {
 		t.Fatalf("result = %#v, want nil descriptor authority failure", result)
 	}
@@ -332,7 +333,8 @@ func TestExecuteInWorkingDirectoryRejectsPrelaunchAndPostlaunchAuthorityFailure(
 		result := executor.ExecuteInWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "bound-test"}, func() (WorkingDirectoryBinding, error) {
 			return binding, nil
 		})
-		if called || result.Started() || result.Reason() != CommandReasonWorkDirAuthority {
+		if called || result.Started() || result.Reason() != CommandReasonNone ||
+			!result.WorkDirAuthorityFailed() {
 			t.Fatalf("prelaunch result = %#v called=%t, want unstarted workdir authority failure", result, called)
 		}
 		if binding.closeCount != 1 {
@@ -353,13 +355,49 @@ func TestExecuteInWorkingDirectoryRejectsPrelaunchAndPostlaunchAuthorityFailure(
 			},
 		}
 		executor := NewCommandExecutor(CommandOptions{Runner: func(ctx context.Context, request CommandRequest) CommandResult {
-			return CommandResult{Started: true, HasExitCode: true}
+			return CommandResult{
+				Started:     true,
+				HasExitCode: true,
+				TimedOut:    true,
+			}
 		}})
 		result := executor.ExecuteInWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "bound-test"}, func() (WorkingDirectoryBinding, error) {
 			return binding, nil
 		})
-		if !result.Started() || result.Reason() != CommandReasonWorkDirAuthority {
-			t.Fatalf("postlaunch result = %#v, want started workdir authority failure", result)
+		if !result.Started() || result.Reason() != CommandReasonTimeout ||
+			!result.WorkDirAuthorityFailed() {
+			t.Fatalf("postlaunch result = %#v, want independent timeout and workdir authority failure", result)
+		}
+		if binding.closeCount != 1 {
+			t.Fatalf("postlaunch binding close count = %d, want 1", binding.closeCount)
+		}
+	})
+
+	t.Run("postlaunch success", func(t *testing.T) {
+		validations := 0
+		binding := &testWorkingDirectoryBinding{
+			directory: openDirectory(t),
+			validate: func() error {
+				validations++
+				if validations >= 2 {
+					return errors.New("root replaced after launch")
+				}
+				return nil
+			},
+		}
+		executor := NewCommandExecutor(CommandOptions{Runner: func(ctx context.Context, request CommandRequest) CommandResult {
+			return CommandResult{
+				Started:     true,
+				HasExitCode: true,
+			}
+		}})
+		result := executor.ExecuteInWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "bound-test"}, func() (WorkingDirectoryBinding, error) {
+			return binding, nil
+		})
+		if !result.Started() || !result.Succeeded() || result.Failed() ||
+			result.Reason() != CommandReasonNone ||
+			!result.WorkDirAuthorityFailed() {
+			t.Fatalf("postlaunch result = %#v, want independent success and workdir authority failure", result)
 		}
 		if binding.closeCount != 1 {
 			t.Fatalf("postlaunch binding close count = %d, want 1", binding.closeCount)

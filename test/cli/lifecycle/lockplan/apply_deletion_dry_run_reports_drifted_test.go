@@ -178,7 +178,8 @@ render_to = "AGENTS.md"
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
 	for _, want := range []string{
-		`apply failed: plan contains error action for "CLAUDE.md": drifted_output`,
+		`apply failed: apply was refused before effects`,
+		"drifted_output",
 		"managed output content differs from statefile baseline",
 	} {
 		if !strings.Contains(stderr.String(), want) {

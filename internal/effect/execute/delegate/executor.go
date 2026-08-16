@@ -94,6 +94,9 @@ func (executor Executor) withDefaults() Executor {
 }
 
 func classifyResult(result subprocess.CommandAttemptResult) (AttemptStatus, Reason) {
+	if result.WorkDirAuthorityFailed() {
+		return AttemptFailed, ReasonWorkDirAuthority
+	}
 	switch result.Reason() {
 	case subprocess.CommandReasonTimeout:
 		return AttemptFailed, ReasonTimeout
@@ -107,8 +110,6 @@ func classifyResult(result subprocess.CommandAttemptResult) (AttemptStatus, Reas
 		subprocess.CommandReasonSignaled,
 		subprocess.CommandReasonRunnerError:
 		return AttemptFailed, ReasonRunnerError
-	case subprocess.CommandReasonWorkDirAuthority:
-		return AttemptFailed, ReasonWorkDirAuthority
 	default:
 		return AttemptSucceeded, ReasonNone
 	}

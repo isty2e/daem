@@ -3,6 +3,7 @@ package clipresent
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"reflect"
 	"strings"
 
@@ -11,9 +12,11 @@ import (
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	skillrepair "github.com/isty2e/daem/internal/supply/compat/skill/repair"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 func PrintDeltaSummaryWithOptions(output io.Writer, delta lock.Delta, options HumanOptions) {
+	projection := newLockIdentityProjection(lock.File{}, delta)
 	counts := delta.Counts()
 	fmt.Fprintf(
 		output,
@@ -23,16 +26,21 @@ func PrintDeltaSummaryWithOptions(output io.Writer, delta lock.Delta, options Hu
 		counts.Removed,
 		counts.Unchanged,
 	)
-	printDeltaEntries(output, "added", delta.EntriesWithStatus(lock.DeltaStatusAdded), options)
-	printDeltaEntries(output, "changed", delta.EntriesWithStatus(lock.DeltaStatusChanged), options)
-	printDeltaEntries(output, "removed", delta.EntriesWithStatus(lock.DeltaStatusRemoved), options)
+	printDeltaEntries(output, "added", delta.EntriesWithStatus(lock.DeltaStatusAdded), projection, options)
+	printDeltaEntries(output, "changed", delta.EntriesWithStatus(lock.DeltaStatusChanged), projection, options)
+	printDeltaEntries(output, "removed", delta.EntriesWithStatus(lock.DeltaStatusRemoved), projection, options)
 	if options.Verbose {
-		printDeltaEntries(output, "unchanged", delta.EntriesWithStatus(lock.DeltaStatusUnchanged), options)
+		printDeltaEntries(output, "unchanged", delta.EntriesWithStatus(lock.DeltaStatusUnchanged), projection, options)
 	}
-	printOrderDeltaSummary(output, delta, options)
+	printOrderDeltaSummary(output, delta, projection, options)
 }
 
-func printOrderDeltaSummary(output io.Writer, delta lock.Delta, options HumanOptions) {
+func printOrderDeltaSummary(
+	output io.Writer,
+	delta lock.Delta,
+	projection lockIdentityProjection,
+	options HumanOptions,
+) {
 	counts := delta.OrderCounts()
 	if counts.Added+counts.Changed+counts.Removed+counts.Unchanged == 0 {
 		return
@@ -49,18 +57,21 @@ func printOrderDeltaSummary(output io.Writer, delta lock.Delta, options HumanOpt
 		output,
 		"added",
 		delta.OrderEntriesWithStatus(lock.DeltaStatusAdded),
+		projection,
 		options,
 	)
 	printOrderDeltaEntries(
 		output,
 		"changed",
 		delta.OrderEntriesWithStatus(lock.DeltaStatusChanged),
+		projection,
 		options,
 	)
 	printOrderDeltaEntries(
 		output,
 		"removed",
 		delta.OrderEntriesWithStatus(lock.DeltaStatusRemoved),
+		projection,
 		options,
 	)
 	if options.Verbose {
@@ -68,6 +79,7 @@ func printOrderDeltaSummary(output io.Writer, delta lock.Delta, options HumanOpt
 			output,
 			"unchanged",
 			delta.OrderEntriesWithStatus(lock.DeltaStatusUnchanged),
+			projection,
 			options,
 		)
 	}
@@ -77,6 +89,7 @@ func printOrderDeltaEntries(
 	output io.Writer,
 	label string,
 	entries []lock.OrderDeltaEntry,
+	projection lockIdentityProjection,
 	options HumanOptions,
 ) {
 	if len(entries) == 0 {
@@ -84,22 +97,22 @@ func printOrderDeltaEntries(
 	}
 	fmt.Fprintf(output, "lockfile.order_constraint.%s:\n", label)
 	for _, entry := range entries {
-		fmt.Fprintf(output, "  - %s", entry.Key)
+		fmt.Fprintf(output, "  - %s", Escape(string(entry.Key)))
 		if !options.Verbose {
 			fmt.Fprintln(output)
 			continue
 		}
 		switch entry.Status {
 		case lock.DeltaStatusAdded:
-			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.After))
+			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.After, projection, lockIdentityAfter, options.Verbose))
 		case lock.DeltaStatusRemoved:
-			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.Before))
+			fmt.Fprintf(output, " members=%s\n", orderMemberSummary(entry.Before, projection, lockIdentityBefore, options.Verbose))
 		case lock.DeltaStatusChanged:
 			fmt.Fprintf(
 				output,
 				" before=%s after=%s\n",
-				orderMemberSummary(entry.Before),
-				orderMemberSummary(entry.After),
+				orderMemberSummary(entry.Before, projection, lockIdentityBefore, options.Verbose),
+				orderMemberSummary(entry.After, projection, lockIdentityAfter, options.Verbose),
 			)
 		default:
 			fmt.Fprintln(output)
@@ -107,38 +120,62 @@ func printOrderDeltaEntries(
 	}
 }
 
-func orderMemberSummary(constraint hostrelation.RelationOrderConstraint) string {
+func orderMemberSummary(
+	constraint hostrelation.RelationOrderConstraint,
+	projection lockIdentityProjection,
+	side lockIdentitySide,
+	verbose bool,
+) string {
 	members := constraint.Members()
 	summary := make([]string, 0, len(members))
 	for _, member := range members {
+		identity := lockHostLoadIdentityDisclosureFor(
+			constraint.ClassID(),
+			string(member.HostLoadIdentity()),
+		)
+		if verbose {
+			identity = verboseIdentityDisclosureFor(string(member.HostLoadIdentity()))
+		}
+		subject := projection.subject(member.Subject(), side, verbose)
 		summary = append(
 			summary,
 			fmt.Sprintf(
 				"%s=%s",
-				member.Subject().String(),
-				member.HostLoadIdentity(),
+				Escape(lockSubjectString(subject)),
+				Escape(identity.Value()),
 			),
 		)
 	}
 	return strings.Join(summary, ",")
 }
 
-func printDeltaEntries(output io.Writer, label string, entries []lock.DeltaEntry, options HumanOptions) {
+func printDeltaEntries(
+	output io.Writer,
+	label string,
+	entries []lock.DeltaEntry,
+	projection lockIdentityProjection,
+	options HumanOptions,
+) {
 	if len(entries) == 0 {
 		return
 	}
 	fmt.Fprintf(output, "lockfile.subject.%s:\n", label)
 	for _, entry := range entries {
-		fmt.Fprintf(output, "  - %s/%s/%s", entry.Key.Kind(), entry.Key.Namespace(), entry.Key.Key())
+		side := lockIdentityAfter
+		if entry.Status == lock.DeltaStatusRemoved {
+			side = lockIdentityBefore
+		}
+		subject := projection.subject(entry.Key, side, options.Verbose)
+		fmt.Fprintf(output, "  - %s", Escape(lockSubjectString(subject)))
 		if !options.Verbose {
 			fmt.Fprintln(output)
 			continue
 		}
 		switch entry.Status {
 		case lock.DeltaStatusAdded:
-			printSubjectFields(output, entry.After)
+			printSubjectFields(output, entry.After, projection, lockIdentityAfter)
 		case lock.DeltaStatusRemoved:
-			printSubjectFields(output, entry.Before)
+			printSubjectFields(output, entry.Before, projection, lockIdentityBefore)
 		case lock.DeltaStatusChanged:
 			fmt.Fprintf(output, " changed=%s\n", strings.Join(changedFacetNames(entry.Before, entry.After), ","))
 		default:
@@ -147,7 +184,12 @@ func printDeltaEntries(output io.Writer, label string, entries []lock.DeltaEntry
 	}
 }
 
-func printSubjectFields(output io.Writer, contract lock.LockedSubjectContract) {
+func printSubjectFields(
+	output io.Writer,
+	contract lock.LockedSubjectContract,
+	projection lockIdentityProjection,
+	side lockIdentitySide,
+) {
 	fmt.Fprintf(
 		output,
 		" entity=%q ownership=%q on_absent=%q",
@@ -169,7 +211,7 @@ func printSubjectFields(output io.Writer, contract lock.LockedSubjectContract) {
 		fmt.Fprintf(output, " file_scope=%q executable=%t", use.Scope(), use.Executable())
 	}
 	if spec, ok := contract.Realization(); ok {
-		printRealizationFields(output, spec)
+		printRealizationFields(output, spec, contract.SubjectID(), projection, side)
 	}
 	if recipe, ok := contract.RepairRecipe(); ok {
 		fmt.Fprintf(output, " repair_recipe_hash=%q", recipe.Hash())
@@ -183,7 +225,13 @@ func printSubjectFields(output io.Writer, contract lock.LockedSubjectContract) {
 	fmt.Fprintln(output)
 }
 
-func printRealizationFields(output io.Writer, spec realization.RealizationSpec) {
+func printRealizationFields(
+	output io.Writer,
+	spec realization.RealizationSpec,
+	subject topology.SubjectID,
+	projection lockIdentityProjection,
+	side lockIdentitySide,
+) {
 	fmt.Fprintf(output, " realization=%q", spec.Kind())
 	switch spec.Kind() {
 	case realization.RealizationManagedPathProjection:
@@ -215,17 +263,25 @@ func printRealizationFields(output io.Writer, spec realization.RealizationSpec) 
 		)
 	case realization.RealizationDelegatedRelation:
 		relation, _ := spec.DelegatedRelation()
+		relationSubjectKey := verboseIdentityDisclosureFor(string(relation.ExpectedRelation().SubjectKey()))
+		if disclosure, ok := projection.carrierFor(subject, side); ok {
+			relationSubjectKey = disclosure.verboseRelationSubjectKey
+		}
 		fmt.Fprintf(
 			output,
 			" target=%q scope=%q relation_subject_key=%q route_id=%q route_contract=%q request_hash=%q",
 			relation.Target(),
 			relation.Scope(),
-			relation.ExpectedRelation().SubjectKey(),
+			relationSubjectKey.Value(),
 			relation.RouteID(),
 			relation.RouteContractVersion(),
 			relation.CanonicalRequestHash(),
 		)
 	}
+}
+
+func lockSubjectString(subject jsonSubjectID) string {
+	return subject.Kind + "/" + url.PathEscape(subject.Namespace) + "/" + url.PathEscape(subject.Name)
 }
 
 func changedFacetNames(before lock.LockedSubjectContract, after lock.LockedSubjectContract) []string {

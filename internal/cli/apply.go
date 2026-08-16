@@ -5,11 +5,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
+)
+
+const maximumVerboseApplyFailureEvidenceRunes = 4_096
+
+type applyFailureStage string
+
+const (
+	applyFailurePlanning     applyFailureStage = "planning"
+	applyFailureProjection   applyFailureStage = "projection"
+	applyFailureDiff         applyFailureStage = "diff"
+	applyFailureConfirmation applyFailureStage = "confirmation"
+	applyFailureExecution    applyFailureStage = "execution"
+	applyFailureDiagnostics  applyFailureStage = "diagnostics"
+	applyFailureOutput       applyFailureStage = "output"
 )
 
 func runApply(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) int {
@@ -72,14 +85,13 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			ManageUnmanagedMatches: *manageExisting,
 		})
 		if err != nil {
-			fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
-			printApplyWorkflowHints(stderr, *manifestPath, planning.CommandResult, err)
-			printUnsupportedCapabilityHint(stderr, err)
+			printApplyFailure(stderr, err, applyFailurePlanning, planning.CommandResult, *verbose)
+			printApplyWorkflowHints(stderr, *manifestPath, planning.CommandResult, err, *verbose)
 			return 1
 		}
 		mcpStatuses, err := clipresent.MCPStatusesFrom(planning.MCPProjections)
 		if err != nil {
-			fmt.Fprintf(stderr, "apply failed: inspect MCP projection status: %s\n", humanDiagnosticError(err))
+			printApplyFailure(stderr, err, applyFailureProjection, applyworkflow.CommandResult{}, *verbose)
 			return 1
 		}
 
@@ -94,7 +106,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 				MCPStatuses:    mcpStatuses,
 			}
 			if err := clipresent.PrintPlanJSON(stdout, jsonInput); err != nil {
-				fmt.Fprintf(stderr, "apply failed: write json: %s\n", humanDiagnosticError(err))
+				markOutputFailureReported(stdout)
+				printApplyFailure(stderr, err, applyFailureOutput, applyworkflow.CommandResult{}, false)
 				return 1
 			}
 			if planning.Reconciliation.HasErrors() {
@@ -113,7 +126,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, planning.Reconciliation.CarrierAbsences(), humanOptions)
 		clipresent.PrintDelegateActionsWithOptions(stdout, planning.Reconciliation.Delegates(), humanOptions)
 		if planning.Reconciliation.HasLockReadinessErrors() {
-			printLockCommandHint(stdout, planning.ManifestPath)
+			printApplyLockCommandHint(stdout, planning.ManifestPath, *verbose)
 		}
 		clipresent.PrintDiagnosticsWithOptions(stdout, planning.Diagnostics, humanOptions)
 		if planning.Reconciliation.HasErrors() {
@@ -122,10 +135,17 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		if *showDiff {
 			diffs, err := applyworkflow.BuildDiffs(options.context, planning)
 			if err != nil {
-				fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
+				printApplyFailure(stderr, err, applyFailureDiff, applyworkflow.CommandResult{}, *verbose)
 				return 1
 			}
-			clipresent.PrintDryRunDiffs(stdout, clipresent.DryRunDiffsFrom(diffs))
+			if err := clipresent.PrintDryRunDiffs(
+				options.context,
+				stdout,
+				clipresent.DryRunDiffReportFrom(diffs),
+			); err != nil {
+				printApplyFailure(stderr, err, applyFailureDiff, applyworkflow.CommandResult{}, *verbose)
+				return 1
+			}
 		}
 
 		return 0
@@ -142,9 +162,10 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		if *jsonOutput && readinessPlanning.ReconciliationReady {
 			mcpStatuses, statusErr := clipresent.MCPStatusesFrom(readinessPlanning.MCPProjections)
 			if statusErr != nil {
-				fmt.Fprintf(stderr, "apply failed: inspect MCP projection status: %s\n", humanDiagnosticError(statusErr))
+				printApplyFailure(stderr, statusErr, applyFailureProjection, applyworkflow.CommandResult{}, false)
 				return 1
 			}
+			failure := applyworkflow.ClassifyFailure(err, readinessPlanning.CommandResult)
 			jsonInput := clipresent.ApplyResultJSONInput{
 				ActionCount:    0,
 				StatefilePath:  readinessPlanning.StatefilePath,
@@ -152,30 +173,36 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 				Reconciliation: readinessPlanning.Reconciliation,
 				MCPStatuses:    mcpStatuses,
 				Diagnostics:    readinessPlanning.Diagnostics,
-				Err:            err,
+				Failure:        &failure,
 			}
 			if jsonErr := clipresent.PrintApplyResultJSON(stdout, jsonInput); jsonErr != nil {
-				fmt.Fprintf(stderr, "apply failed: write json: %s\n", humanDiagnosticError(jsonErr))
+				markOutputFailureReported(stdout)
+				printApplyFailure(stderr, jsonErr, applyFailureOutput, applyworkflow.CommandResult{}, false)
 				return 1
 			}
 			return 1
 		}
-		fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
+		printApplyFailure(stderr, err, applyFailurePlanning, readinessPlanning.CommandResult, *verbose)
+		clipresent.PrintActionPlanWithOptions(
+			stderr,
+			"apply",
+			readinessPlanning.Reconciliation,
+			clipresent.HumanOptions{Verbose: *verbose},
+		)
 		clipresent.PrintRelationActionsWithOptions(stderr, readinessPlanning.Reconciliation.Relations(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintRelationOrderActionsWithOptions(stderr, readinessPlanning.Reconciliation.RelationOrders(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAdoptionActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAdoptions(), clipresent.HumanOptions{Verbose: *verbose})
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stderr, readinessPlanning.Reconciliation.CarrierAbsences(), clipresent.HumanOptions{Verbose: *verbose})
-		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err)
+		printApplyWorkflowHints(stderr, *manifestPath, readinessPlanning.CommandResult, err, *verbose)
 		if readinessPlanning.Reconciliation.HasLockReadinessErrors() {
-			printLockCommandHint(stderr, readinessPlanning.ManifestPath)
+			printApplyLockCommandHint(stderr, readinessPlanning.ManifestPath, *verbose)
 		}
-		printUnsupportedCapabilityHint(stderr, err)
 		return 1
 	}
 	defer readinessPlanning.Close()
 	mcpStatuses, err := clipresent.MCPStatusesFrom(readinessPlanning.MCPProjections)
 	if err != nil {
-		fmt.Fprintf(stderr, "apply failed: inspect MCP projection status: %s\n", humanDiagnosticError(err))
+		printApplyFailure(stderr, err, applyFailureProjection, applyworkflow.CommandResult{}, *verbose)
 		return 1
 	}
 	relationActionsDisclosed := false
@@ -197,7 +224,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		if applyConfirmationRequired(readinessPlanning.CommandResult) {
 			confirmed, err := options.confirmation.prompt("apply")
 			if err != nil {
-				printConfirmationFailure(stderr, "apply", err)
+				markOutputFailureReported(stdout)
+				printApplyFailure(stderr, err, applyFailureConfirmation, applyworkflow.CommandResult{}, *verbose)
 				return 1
 			}
 			if !confirmed {
@@ -236,6 +264,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 	delegateAttemptInputs := clipresent.DelegateAttemptInputsFrom(result.DelegateAttempts)
 	if err != nil {
 		if *jsonOutput {
+			failure := applyworkflow.ClassifyFailure(err, result)
 			jsonInput := clipresent.ApplyResultJSONInput{
 				ActionCount:            result.ActionCount,
 				StatefilePath:          result.StatefilePath,
@@ -247,11 +276,12 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 				HostRouteAttempts:      result.HostRouteAttempts,
 				MCPStatuses:            mcpStatuses,
 				Diagnostics:            result.Diagnostics,
-				Err:                    err,
+				Failure:                &failure,
 			}
 			jsonInput.DelegateAttempts = delegateAttemptInputs
 			if jsonErr := clipresent.PrintApplyResultJSON(stdout, jsonInput); jsonErr != nil {
-				fmt.Fprintf(stderr, "apply failed: write json: %s\n", humanDiagnosticError(jsonErr))
+				markOutputFailureReported(stdout)
+				printApplyFailure(stderr, jsonErr, applyFailureOutput, result, false)
 				return 1
 			}
 			return 1
@@ -265,12 +295,17 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 			result.ExecutionAttempted,
 			humanOptions,
 		)
-		clipresent.PrintRelationOrderResults(stderr, result.RelationOrderResults)
+		clipresent.PrintRelationOrderResultsWithOptions(stderr, result.RelationOrderResults, humanOptions)
 		if presentErr := clipresent.PrintHostRouteAttemptsWithOptions(stderr, result.HostRouteAttempts, humanOptions); presentErr != nil {
-			fmt.Fprintf(stderr, "apply diagnostics failed: %s\n", humanDiagnosticError(presentErr))
+			printApplyFailure(stderr, presentErr, applyFailureDiagnostics, result, *verbose)
 		}
-		fmt.Fprintf(stderr, "apply failed: %s\n", humanDiagnosticError(err))
-		printUnsupportedCapabilityHint(stderr, err)
+		printApplyFailure(
+			stderr,
+			err,
+			applyFailureExecution,
+			result,
+			*verbose,
+		)
 		return 1
 	}
 
@@ -288,7 +323,8 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		}
 		jsonInput.DelegateAttempts = delegateAttemptInputs
 		if err := clipresent.PrintApplyResultJSON(stdout, jsonInput); err != nil {
-			fmt.Fprintf(stderr, "apply failed: write json: %s\n", humanDiagnosticError(err))
+			markOutputFailureReported(stdout)
+			printApplyFailure(stderr, err, applyFailureOutput, result, false)
 			return 1
 		}
 		return 0
@@ -303,7 +339,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		result.ExecutionAttempted,
 		humanOptions,
 	)
-	clipresent.PrintRelationOrderResults(stdout, result.RelationOrderResults)
+	clipresent.PrintRelationOrderResultsWithOptions(stdout, result.RelationOrderResults, humanOptions)
 	clipresent.PrintPlanResultWithOptions(stdout, result.Reconciliation, humanOptions)
 	if !relationActionsDisclosed {
 		clipresent.PrintRelationActionsWithOptions(stdout, result.Reconciliation.Relations(), humanOptions)
@@ -315,7 +351,7 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 		clipresent.PrintCarrierAbsenceActionsWithOptions(stdout, result.Reconciliation.CarrierAbsences(), humanOptions)
 	}
 	if err := clipresent.PrintHostRouteAttemptsWithOptions(stdout, result.HostRouteAttempts, humanOptions); err != nil {
-		fmt.Fprintf(stderr, "apply failed: render result: %s\n", humanDiagnosticError(err))
+		printApplyFailure(stderr, err, applyFailureDiagnostics, result, *verbose)
 		return 1
 	}
 	clipresent.PrintDelegateAttemptsWithOptions(stdout, delegateAttemptInputs, humanOptions)
@@ -325,6 +361,62 @@ func runApply(args []string, stdout io.Writer, stderr io.Writer, options command
 	}
 
 	return 0
+}
+
+func printApplyFailure(
+	output io.Writer,
+	err error,
+	stage applyFailureStage,
+	result applyworkflow.CommandResult,
+	verbose bool,
+) {
+	detail, reason := applyFailureDetail(stage, err, result)
+	fmt.Fprintf(output, "apply failed: %s\n", detail)
+	if reason == applyworkflow.FailureReasonRelationOrderRiskExpanded {
+		fmt.Fprintln(
+			output,
+			"next: inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order",
+		)
+	}
+	if !verbose || err == nil {
+		return
+	}
+	evidence := clipresent.BoundedErrorEvidence(
+		err,
+		maximumVerboseApplyFailureEvidenceRunes,
+	)
+	if evidence != "" {
+		fmt.Fprintf(output, "apply failure evidence: %s\n", clipresent.Quote(evidence))
+	}
+}
+
+func applyFailureDetail(
+	stage applyFailureStage,
+	err error,
+	result applyworkflow.CommandResult,
+) (string, applyworkflow.FailureReason) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		failure := applyworkflow.ClassifyFailure(err, result)
+		return failure.Detail(), failure.Reason()
+	}
+	if stage == applyFailurePlanning || stage == applyFailureExecution {
+		failure := applyworkflow.ClassifyFailure(err, result)
+		return failure.Detail(), failure.Reason()
+	}
+	switch stage {
+	case applyFailureProjection:
+		return "apply result projection failed", applyworkflow.FailureReasonApplyRefused
+	case applyFailureDiff:
+		return "apply diff could not be generated", applyworkflow.FailureReasonApplyRefused
+	case applyFailureConfirmation:
+		return "apply confirmation failed", applyworkflow.FailureReasonApplyRefused
+	case applyFailureDiagnostics:
+		return "apply diagnostics could not be rendered", applyworkflow.FailureReasonApplyIncomplete
+	case applyFailureOutput:
+		return "apply output could not be written", applyworkflow.FailureReasonApplyIncomplete
+	default:
+		return "apply was refused before effects", applyworkflow.FailureReasonApplyRefused
+	}
 }
 
 func newRelationOrderRiskAuthorizer(
@@ -386,15 +478,50 @@ func applyConfirmationRequired(planning applyworkflow.CommandResult) bool {
 	return false
 }
 
-func printApplyWorkflowHints(output io.Writer, manifestPath string, result applyworkflow.CommandResult, err error) {
-	printMissingManifestInitHint(output, manifestPath, err)
+func printApplyWorkflowHints(
+	output io.Writer,
+	manifestPath string,
+	result applyworkflow.CommandResult,
+	err error,
+	verbose bool,
+) {
+	printApplyMissingManifestInitHint(output, manifestPath, err, verbose)
 	if errors.Is(err, targetselection.ErrInvalid) {
-		printTargetSelectionHint(output, result.ManifestPath)
+		if verbose {
+			printTargetSelectionHint(output, result.ManifestPath)
+		} else {
+			fmt.Fprintln(output, "next: run daem lock --manifest <manifest> --dry-run")
+		}
 	}
-	if errors.Is(err, applyworkflow.ErrReadLockfile) && errors.Is(err, os.ErrNotExist) {
-		printLockCommandHint(output, result.ManifestPath)
+	if errors.Is(err, applyworkflow.ErrReadLockfile) {
+		printApplyLockCommandHint(output, result.ManifestPath, verbose)
 	}
 	if errors.Is(err, applyworkflow.ErrRelationOrderRiskExpansion) {
-		fmt.Fprintln(output, "next: inspect daem apply --dry-run, then rerun interactively to authorize the updated extension order")
+		fmt.Fprintln(output, "next: inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order")
 	}
+}
+
+func printApplyMissingManifestInitHint(
+	output io.Writer,
+	manifestPath string,
+	err error,
+	verbose bool,
+) {
+	resolvedPath, ok := missingManifestInitHintPath(manifestPath, err)
+	if !ok {
+		return
+	}
+	if verbose {
+		clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", resolvedPath, "--dry-run")
+		return
+	}
+	fmt.Fprintln(output, "next: run daem init --manifest <manifest> --dry-run")
+}
+
+func printApplyLockCommandHint(output io.Writer, manifestPath string, verbose bool) {
+	if verbose {
+		printLockCommandHint(output, manifestPath)
+		return
+	}
+	fmt.Fprintln(output, "next: run daem lock --manifest <manifest>")
 }

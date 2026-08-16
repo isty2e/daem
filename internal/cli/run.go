@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -99,13 +100,29 @@ var commandAdmissionCatalog = map[string]commandPlatformAdmission{
 }
 
 type stableOutputWriter struct {
-	output io.Writer
-	err    error
+	output          io.Writer
+	err             error
+	failureReported bool
+}
+
+type stableOutputWriteError struct {
+	writer *stableOutputWriter
+}
+
+func (*stableOutputWriteError) Error() string {
+	return "command output could not be written"
+}
+
+func (writer *stableOutputWriter) failure() error {
+	if writer == nil || writer.err == nil {
+		return nil
+	}
+	return &stableOutputWriteError{writer: writer}
 }
 
 func (writer *stableOutputWriter) Write(content []byte) (int, error) {
 	if writer.err != nil {
-		return 0, writer.err
+		return 0, writer.failure()
 	}
 	count, err := writer.output.Write(content)
 	if err == nil && count != len(content) {
@@ -113,8 +130,9 @@ func (writer *stableOutputWriter) Write(content []byte) (int, error) {
 	}
 	if err != nil {
 		writer.err = err
+		return count, writer.failure()
 	}
-	return count, err
+	return count, nil
 }
 
 // RunWithOptions executes the CLI with explicit process streams, terminal facts, and confirmation-read capability.
@@ -149,10 +167,7 @@ func RunWithOptions(args []string, options RunOptions) int {
 			disclosureIsTerminal: providedStdout != nil && options.StdoutIsTerminal,
 			promptIsTerminal:     providedStderr != nil && options.StderrIsTerminal,
 			disclosureError: func() error {
-				if stableOutput == nil {
-					return nil
-				}
-				return stableOutput.err
+				return stableOutput.failure()
 			},
 		},
 		applyExecuteOptions:   options.ApplyExecuteOptions,
@@ -171,13 +186,19 @@ func RunWithOptions(args []string, options RunOptions) int {
 	}
 
 	exitCode := runCommand(args, stdout, stderr, options, commandInvocation)
-	if stableOutput != nil && stableOutput.err != nil {
-		fmt.Fprintf(stderr, "output failed: %s\n", humanDiagnosticError(stableOutput.err))
-		if exitCode == 0 {
-			return 1
-		}
+	if stableOutput != nil && stableOutput.err != nil && !stableOutput.failureReported {
+		fmt.Fprintln(stderr, "output failed: command output could not be written")
+	}
+	if stableOutput != nil && stableOutput.err != nil && exitCode == 0 {
+		return 1
 	}
 	return exitCode
+}
+
+func markOutputFailureReported(output io.Writer) {
+	if stable, ok := output.(*stableOutputWriter); ok && stable.err != nil {
+		stable.failureReported = true
+	}
 }
 
 func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOptions, commandInvocation commandOptions) int {
@@ -314,6 +335,13 @@ func humanDiagnosticText(value string) string {
 }
 
 func humanDiagnosticError(err error) string {
+	var outputFailure *stableOutputWriteError
+	if errors.As(err, &outputFailure) {
+		if outputFailure.writer != nil && outputFailure.writer.err != nil {
+			outputFailure.writer.failureReported = true
+		}
+		return outputFailure.Error()
+	}
 	return clipresent.Error(err)
 }
 

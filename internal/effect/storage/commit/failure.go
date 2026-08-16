@@ -16,6 +16,51 @@ const (
 	failureRetainedResidue      = mutationfs.FailureRetainedResidue
 )
 
+// ErrRegularFileReadLimitExceeded classifies a bounded regular-file read that
+// observed more payload than its caller admitted.
+var ErrRegularFileReadLimitExceeded = errors.New("regular file read limit exceeded")
+
+// RegularFileReadLimitError reports the first size known to exceed a bounded
+// regular-file read.
+type RegularFileReadLimitError struct {
+	maximumBytes  int64
+	observedBytes int64
+}
+
+func (err *RegularFileReadLimitError) Error() string {
+	if err == nil {
+		return ErrRegularFileReadLimitExceeded.Error()
+	}
+	return fmt.Sprintf("regular file exceeds %d bytes", err.maximumBytes)
+}
+
+func (err *RegularFileReadLimitError) Unwrap() error {
+	return ErrRegularFileReadLimitExceeded
+}
+
+// Limit returns the admitted payload size in bytes.
+func (err *RegularFileReadLimitError) Limit() int64 {
+	if err == nil {
+		return 0
+	}
+	return err.maximumBytes
+}
+
+// Observed returns the first size known to exceed the admitted limit.
+func (err *RegularFileReadLimitError) Observed() int64 {
+	if err == nil {
+		return 0
+	}
+	return err.observedBytes
+}
+
+func newRegularFileReadLimitError(maximumBytes int64, observedBytes int64) error {
+	return &RegularFileReadLimitError{
+		maximumBytes:  maximumBytes,
+		observedBytes: observedBytes,
+	}
+}
+
 // failure reports one storage commit boundary failure.
 type failure struct {
 	kind    mutationfs.FailureKind

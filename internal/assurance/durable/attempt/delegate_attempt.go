@@ -20,7 +20,7 @@ const (
 	DelegateStatusBlocked   DelegateAttemptStatus = "blocked"
 )
 
-// DelegateAttemptReason is the stable terminal reason for a delegated attempt.
+// DelegateAttemptReason is the stable terminal result reason for a delegated attempt.
 type DelegateAttemptReason string
 
 const (
@@ -34,6 +34,21 @@ const (
 	DelegateReasonWorkDirAuthority DelegateAttemptReason = "workdir_authority"
 )
 
+// DelegateProcessReason is the bounded mechanical command-attempt reason. It
+// excludes post-attempt authority and observation results.
+type DelegateProcessReason string
+
+const (
+	DelegateProcessReasonNone          DelegateProcessReason = ""
+	DelegateProcessReasonMissingEnvRef DelegateProcessReason = "missing_env_ref"
+	DelegateProcessReasonMissingRunner DelegateProcessReason = "missing_runner"
+	DelegateProcessReasonNonZeroExit   DelegateProcessReason = "nonzero_exit"
+	DelegateProcessReasonTimeout       DelegateProcessReason = "timeout"
+	DelegateProcessReasonCanceled      DelegateProcessReason = "canceled"
+	DelegateProcessReasonSignaled      DelegateProcessReason = "signaled"
+	DelegateProcessReasonRunnerError   DelegateProcessReason = "runner_error"
+)
+
 // DelegateAttemptInput contains the bounded facts needed to build history.
 type DelegateAttemptInput struct {
 	Subject         topology.SubjectID
@@ -43,6 +58,8 @@ type DelegateAttemptInput struct {
 	ObservedAt      time.Time
 	Status          DelegateAttemptStatus
 	Reason          DelegateAttemptReason
+	AttemptObserved bool
+	ProcessReason   DelegateProcessReason
 	Observation     observerelation.ObservationSummary
 	Postcondition   observerelation.PostconditionSummary
 	ExitCode        *int
@@ -61,6 +78,8 @@ type DelegateAttempt struct {
 	observedAt      time.Time
 	status          DelegateAttemptStatus
 	reason          DelegateAttemptReason
+	attemptObserved bool
+	processReason   DelegateProcessReason
 	observation     observerelation.ObservationSummary
 	postcondition   observerelation.PostconditionSummary
 	exitCode        int
@@ -89,6 +108,8 @@ func NewDelegateAttempt(input DelegateAttemptInput) (DelegateAttempt, error) {
 		observedAt:      input.ObservedAt.UTC(),
 		status:          input.Status,
 		reason:          input.Reason,
+		attemptObserved: input.AttemptObserved,
+		processReason:   input.ProcessReason,
 		observation:     observation,
 		postcondition:   postcondition,
 		timedOut:        input.TimedOut,
@@ -132,29 +153,43 @@ func (attempt DelegateAttempt) Validate() error {
 	if err := validateDelegateStatusReason(attempt.status, attempt.reason); err != nil {
 		return err
 	}
-	if attempt.timedOut && attempt.reason != DelegateReasonTimeout {
-		return fmt.Errorf("delegate attempt timed_out requires timeout reason")
+	if !attempt.processReason.valid() {
+		return fmt.Errorf("unsupported delegate process reason %q", attempt.processReason)
 	}
-	if attempt.reason == DelegateReasonTimeout && !attempt.timedOut {
-		return fmt.Errorf("delegate attempt timeout reason requires timed_out")
+	if !attempt.attemptObserved &&
+		(attempt.processReason != DelegateProcessReasonNone || attempt.hasProcessFacts()) {
+		return fmt.Errorf("unobserved delegate attempt cannot record process facts")
+	}
+	if attempt.timedOut && attempt.processReason != DelegateProcessReasonTimeout {
+		return fmt.Errorf("delegate attempt timed_out requires timeout process reason")
+	}
+	if attempt.processReason == DelegateProcessReasonTimeout && !attempt.timedOut {
+		return fmt.Errorf("delegate timeout process reason requires timed_out")
 	}
 	if attempt.status == DelegateStatusSucceeded && attempt.hasExitCode && attempt.exitCode != 0 {
 		return fmt.Errorf("succeeded delegate attempt cannot record nonzero exit code")
 	}
-	if attempt.reason == DelegateReasonNonZeroExit &&
+	if attempt.processReason == DelegateProcessReasonNonZeroExit &&
 		(!attempt.hasExitCode || attempt.exitCode == 0) {
-		return fmt.Errorf("delegate attempt nonzero_exit reason requires a nonzero exit code")
+		return fmt.Errorf("delegate attempt nonzero_exit process reason requires a nonzero exit code")
 	}
-	if attempt.reason == DelegateReasonPolicyBlocked ||
-		attempt.reason == DelegateReasonMissingEnvRef ||
-		attempt.reason == DelegateReasonMissingRunner {
+	if attempt.processReason == DelegateProcessReasonMissingEnvRef ||
+		attempt.processReason == DelegateProcessReasonMissingRunner {
 		if attempt.hasProcessFacts() {
-			return fmt.Errorf("delegate attempt %s cannot record process facts", attempt.reason)
+			return fmt.Errorf("delegate attempt %s cannot record process facts", attempt.processReason)
 		}
 	}
-	if attempt.reason == DelegateReasonRunnerError &&
+	if attempt.processReason == DelegateProcessReasonRunnerError &&
 		attempt.hasExitCode && attempt.exitCode != 0 {
 		return fmt.Errorf("delegate attempt runner_error cannot record a nonzero exit code")
+	}
+	if err := validateDelegateAttemptCorrelation(
+		attempt.status,
+		attempt.reason,
+		attempt.attemptObserved,
+		attempt.processReason,
+	); err != nil {
+		return err
 	}
 	return nil
 }
@@ -186,6 +221,12 @@ func (attempt DelegateAttempt) Status() DelegateAttemptStatus { return attempt.s
 
 // Reason returns the attempt terminal reason.
 func (attempt DelegateAttempt) Reason() DelegateAttemptReason { return attempt.reason }
+
+// AttemptObserved reports whether an authorized command-attempt result exists.
+func (attempt DelegateAttempt) AttemptObserved() bool { return attempt.attemptObserved }
+
+// ProcessReason returns the independent mechanical command-attempt reason.
+func (attempt DelegateAttempt) ProcessReason() DelegateProcessReason { return attempt.processReason }
 
 // ObservationSummary returns the persisted passive observation summary.
 func (attempt DelegateAttempt) ObservationSummary() observerelation.ObservationSummary {
@@ -241,6 +282,8 @@ func (attempt DelegateAttempt) Equal(other DelegateAttempt) bool {
 		attempt.observedAt.Equal(other.observedAt) &&
 		attempt.status == other.status &&
 		attempt.reason == other.reason &&
+		attempt.attemptObserved == other.attemptObserved &&
+		attempt.processReason == other.processReason &&
 		attempt.observation == other.observation &&
 		attempt.postcondition == other.postcondition &&
 		attempt.exitCode == other.exitCode &&
@@ -249,6 +292,63 @@ func (attempt DelegateAttempt) Equal(other DelegateAttempt) bool {
 		attempt.stdoutTruncated == other.stdoutTruncated &&
 		attempt.stderrTruncated == other.stderrTruncated &&
 		attempt.redacted == other.redacted
+}
+
+func (reason DelegateProcessReason) valid() bool {
+	switch reason {
+	case DelegateProcessReasonNone,
+		DelegateProcessReasonMissingEnvRef,
+		DelegateProcessReasonMissingRunner,
+		DelegateProcessReasonNonZeroExit,
+		DelegateProcessReasonTimeout,
+		DelegateProcessReasonCanceled,
+		DelegateProcessReasonSignaled,
+		DelegateProcessReasonRunnerError:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateDelegateAttemptCorrelation(
+	status DelegateAttemptStatus,
+	reason DelegateAttemptReason,
+	attemptObserved bool,
+	processReason DelegateProcessReason,
+) error {
+	if status == DelegateStatusBlocked {
+		if attemptObserved || processReason != DelegateProcessReasonNone {
+			return fmt.Errorf("blocked delegate attempt cannot record a command attempt")
+		}
+		return nil
+	}
+	if !attemptObserved {
+		return fmt.Errorf("%s delegate attempt requires an observed command attempt", status)
+	}
+	if reason == DelegateReasonWorkDirAuthority {
+		return nil
+	}
+	if reason == DelegateReasonRunnerError {
+		switch processReason {
+		case DelegateProcessReasonRunnerError,
+			DelegateProcessReasonCanceled,
+			DelegateProcessReasonSignaled:
+			return nil
+		}
+	}
+	expected := DelegateProcessReason(reason)
+	if reason == DelegateReasonNone {
+		expected = DelegateProcessReasonNone
+	}
+	if processReason != expected {
+		return fmt.Errorf(
+			"delegate attempt result reason %q requires process reason %q, got %q",
+			reason,
+			expected,
+			processReason,
+		)
+	}
+	return nil
 }
 
 func validateDelegateStatusReason(status DelegateAttemptStatus, reason DelegateAttemptReason) error {

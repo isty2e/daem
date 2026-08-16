@@ -377,7 +377,7 @@ render_to = "CLAUDE.md"
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want 1; stdout = %q stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "host changes rolled back") {
+	if !strings.Contains(stderr.String(), "host changes were rolled back") {
 		t.Fatalf("stderr = %q, want rollback confirmation", stderr.String())
 	}
 	if err := os.Chmod(blockedDir, 0o700); err != nil {

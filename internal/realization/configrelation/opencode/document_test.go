@@ -96,6 +96,35 @@ func TestParseAtDerivesOpenCodeLoadIdentityWithoutLosingExactSource(t *testing.T
 	}
 }
 
+func TestParseAtKeepsOpaquePackageSelectorsOutOfPackageIdentity(t *testing.T) {
+	t.Parallel()
+
+	document, err := Parse([]byte(`{
+  "plugin": [
+    "npm:foo@../../private/plugin",
+    "foo@file:../private/plugin.ts",
+    "foo@/Users/alice/private/plugin.ts"
+  ]
+}`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	entries := document.Entries()
+	if len(entries) != 3 {
+		t.Fatalf("Entries = %#v", entries)
+	}
+	for index, entry := range entries {
+		if entry.HostLoadIdentity() != entry.Source() {
+			t.Fatalf(
+				"entry[%d] load identity = %q, want opaque source %q",
+				index,
+				entry.HostLoadIdentity(),
+				entry.Source(),
+			)
+		}
+	}
+}
+
 func TestParseAtRejectsUnsafePluginFileURL(t *testing.T) {
 	t.Parallel()
 

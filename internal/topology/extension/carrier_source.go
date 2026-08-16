@@ -3,7 +3,6 @@ package extension
 import (
 	"fmt"
 	"net/url"
-	"regexp"
 	"strings"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -21,6 +20,15 @@ const (
 	CarrierSourceHost        CarrierSourceClass = "host"
 )
 
+// CarrierSourceIdentityPrivacy classifies whether one carrier-native source
+// identity is safe to disclose without machine-local provenance.
+type CarrierSourceIdentityPrivacy string
+
+const (
+	CarrierSourceIdentityPublic  CarrierSourceIdentityPrivacy = "public"
+	CarrierSourceIdentityPrivate CarrierSourceIdentityPrivacy = "private"
+)
+
 // RelationEvidenceClass describes the strongest passive relation identity
 // that the selected carrier source can produce. It grants no management or
 // mutation authority.
@@ -32,8 +40,6 @@ const (
 	RelationEvidenceUnavailable        RelationEvidenceClass = "unavailable"
 )
 
-var npmSourcePattern = regexp.MustCompile(`^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$`)
-
 // CarrierSource is one immutable carrier-native source interpretation.
 // Identity owns normalized source identity. RelationIdentity defaults to that
 // identity but may be narrower when the host addresses an installed relation
@@ -43,6 +49,7 @@ type CarrierSource struct {
 	identity         string
 	relationIdentity string
 	relationEvidence RelationEvidenceClass
+	identityPrivacy  CarrierSourceIdentityPrivacy
 }
 
 // InterpretCarrierSource interprets only source grammars admitted by the
@@ -54,20 +61,34 @@ func InterpretCarrierSource(key desiredextension.CarrierKey) (CarrierSource, err
 	switch key.Carrier() {
 	case desiredextension.CarrierClaudeCodePlugin,
 		desiredextension.CarrierCodexPlugin:
+		privacy := CarrierSourceIdentityPublic
+		if key.Carrier() == desiredextension.CarrierClaudeCodePlugin {
+			selector, _ := key.Source().MarketplaceSelector()
+			if !stableMarketplaceIdentityToken(selector.Plugin()) ||
+				!stableMarketplaceIdentityToken(selector.Marketplace()) {
+				privacy = CarrierSourceIdentityPrivate
+			}
+		}
 		return CarrierSource{
 			class:            CarrierSourceMarketplace,
 			identity:         key.Source().Ref(),
 			relationIdentity: key.Source().Ref(),
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	case desiredextension.CarrierPiPackage:
 		return interpretPiPackageSource(key.Source().Ref())
 	case desiredextension.CarrierOpenCodePlugin:
+		privacy := CarrierSourceIdentityPrivate
+		if _, ok := OpenCodePluginPackageName(key.Source().Ref()); ok {
+			privacy = CarrierSourceIdentityPublic
+		}
 		return CarrierSource{
 			class:            CarrierSourceHost,
 			identity:         key.Source().Ref(),
 			relationIdentity: key.Source().Ref(),
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	case desiredextension.CarrierAntigravityCLIPlugin:
 		return interpretAntigravityCLIPluginSource(key.Source().Ref()), nil
@@ -114,6 +135,33 @@ func (source CarrierSource) RelationEvidence() RelationEvidenceClass {
 	return source.relationEvidence
 }
 
+// IdentityPrivacy returns whether the exact source identity contains
+// carrier-local or otherwise opaque host provenance.
+func (source CarrierSource) IdentityPrivacy() CarrierSourceIdentityPrivacy {
+	return source.identityPrivacy
+}
+
+// HostLoadIdentityPrivacy classifies one observed order identity using the
+// grammar owned by the target's admitted extension-order carrier. Unknown,
+// opaque, and local identities remain private.
+func HostLoadIdentityPrivacy(
+	carrier desiredextension.Carrier,
+	identity string,
+) CarrierSourceIdentityPrivacy {
+	switch carrier {
+	case desiredextension.CarrierOpenCodePlugin:
+		name, ok := OpenCodePluginPackageName(identity)
+		if ok && name == identity {
+			return CarrierSourceIdentityPublic
+		}
+	case desiredextension.CarrierPiPackage:
+		if piHostLoadIdentityIsPublic(identity) {
+			return CarrierSourceIdentityPublic
+		}
+	}
+	return CarrierSourceIdentityPrivate
+}
+
 // HostVisibleRelationKey returns the host-visible identity used to correlate one
 // carrier relation. Most carriers preserve the authored source reference;
 // carriers whose host inventory drops source provenance use the narrower
@@ -134,7 +182,9 @@ func HostVisibleRelationKey(key desiredextension.CarrierKey) (string, error) {
 
 func interpretPiPackageSource(source string) (CarrierSource, error) {
 	if strings.HasPrefix(source, "npm:") {
-		name, err := npmSourceName(strings.TrimSpace(strings.TrimPrefix(source, "npm:")))
+		name, privacy, err := npmSourceIdentity(
+			strings.TrimSpace(strings.TrimPrefix(source, "npm:")),
+		)
 		if err != nil {
 			return CarrierSource{}, err
 		}
@@ -143,6 +193,7 @@ func interpretPiPackageSource(source string) (CarrierSource, error) {
 			identity:         name,
 			relationIdentity: name,
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	}
 	if piSourceIsLocal(source) {
@@ -151,6 +202,7 @@ func interpretPiPackageSource(source string) (CarrierSource, error) {
 			identity:         source,
 			relationIdentity: source,
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  CarrierSourceIdentityPrivate,
 		}, nil
 	}
 	if identity, ok := gitSourceIdentity(source); ok {
@@ -161,6 +213,7 @@ func interpretPiPackageSource(source string) (CarrierSource, error) {
 		identity:         source,
 		relationIdentity: source,
 		relationEvidence: RelationEvidenceSourceExact,
+		identityPrivacy:  CarrierSourceIdentityPrivate,
 	}, nil
 }
 
@@ -168,13 +221,14 @@ func interpretAntigravityCLIPluginSource(source string) CarrierSource {
 	plugin, marketplace, found := strings.Cut(source, "@")
 	if found &&
 		!strings.Contains(marketplace, "@") &&
-		stableAntigravityPluginToken(plugin) &&
-		stableAntigravityPluginToken(marketplace) {
+		stableMarketplaceIdentityToken(plugin) &&
+		stableMarketplaceIdentityToken(marketplace) {
 		return CarrierSource{
 			class:            CarrierSourceMarketplace,
 			identity:         source,
 			relationIdentity: plugin,
 			relationEvidence: RelationEvidenceBoundedSameSubject,
+			identityPrivacy:  CarrierSourceIdentityPublic,
 		}
 	}
 	return CarrierSource{
@@ -182,10 +236,112 @@ func interpretAntigravityCLIPluginSource(source string) CarrierSource {
 		identity:         source,
 		relationIdentity: source,
 		relationEvidence: RelationEvidenceUnavailable,
+		identityPrivacy:  CarrierSourceIdentityPrivate,
 	}
 }
 
-func stableAntigravityPluginToken(value string) bool {
+// OpenCodePluginPackageName returns the canonical npm package identity for an
+// admitted OpenCode package source. Opaque host-source values are not packages.
+func OpenCodePluginPackageName(source string) (string, bool) {
+	spec := strings.TrimPrefix(source, "npm:")
+	parsed, ok := parseNPMPackageSpec(spec)
+	if !ok || (parsed.hasSelector && !registryNPMSelector(parsed.selector)) {
+		return "", false
+	}
+	return parsed.name, true
+}
+
+type npmPackageSpec struct {
+	name        string
+	selector    string
+	hasSelector bool
+}
+
+func parseNPMPackageSpec(spec string) (npmPackageSpec, bool) {
+	if spec == "" || strings.HasSuffix(spec, "@") {
+		return npmPackageSpec{}, false
+	}
+	name := npmRelationIdentity(spec)
+	if !validOpenCodeNPMPackageName(name) {
+		return npmPackageSpec{}, false
+	}
+	hasSelector := name != spec
+	selector := ""
+	if hasSelector {
+		selector = spec[len(name)+1:]
+	}
+	return npmPackageSpec{name: name, selector: selector, hasSelector: hasSelector}, true
+}
+
+func registryNPMSelector(selector string) bool {
+	if selector == "" || strings.TrimSpace(selector) != selector {
+		return false
+	}
+	tokenStart := 0
+	for index, character := range selector {
+		switch {
+		case character >= 'a' && character <= 'z':
+		case character >= 'A' && character <= 'Z':
+		case character >= '0' && character <= '9':
+		case character == '.', character == '-', character == '_':
+		case character == '+', character == '*', character == '<':
+		case character == '>', character == '~', character == '^':
+		case character == '|':
+			if (index == 0 || selector[index-1] != '|') &&
+				(index+1 == len(selector) || selector[index+1] != '|') {
+				return false
+			}
+			if index != 0 && selector[index-1] == '|' {
+				tokenStart = index + 1
+			}
+		case character == '=':
+			if index != tokenStart &&
+				!(index == tokenStart+1 &&
+					(selector[tokenStart] == '<' || selector[tokenStart] == '>')) {
+				return false
+			}
+		case character == ' ':
+			tokenStart = index + 1
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validOpenCodeNPMPackageName(name string) bool {
+	if name == "" ||
+		strings.ContainsRune(name, '\\') ||
+		strings.HasPrefix(name, ".") ||
+		strings.HasSuffix(name, ".") {
+		return false
+	}
+	if strings.HasPrefix(name, "@") {
+		scope, packageName, ok := strings.Cut(strings.TrimPrefix(name, "@"), "/")
+		return ok && validOpenCodeNPMPackageSegment(scope) &&
+			validOpenCodeNPMPackageSegment(packageName)
+	}
+	return validOpenCodeNPMPackageSegment(name)
+}
+
+func validOpenCodeNPMPackageSegment(segment string) bool {
+	if segment == "" || segment == "." || segment == ".." {
+		return false
+	}
+	for _, character := range segment {
+		switch {
+		case character >= 'a' && character <= 'z':
+		case character >= 'A' && character <= 'Z':
+		case character >= '0' && character <= '9':
+		case character == '-', character == '_', character == '.':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func stableMarketplaceIdentityToken(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -204,15 +360,55 @@ func stableAntigravityPluginToken(value string) bool {
 	return true
 }
 
-func npmSourceName(spec string) (string, error) {
+func piHostLoadIdentityIsPublic(identity string) bool {
+	if spec, found := strings.CutPrefix(identity, "npm:"); found {
+		parsed, ok := parseNPMPackageSpec(spec)
+		return ok && !parsed.hasSelector && parsed.name == spec
+	}
+	value, found := strings.CutPrefix(identity, "git:")
+	if !found {
+		return false
+	}
+	host, path, found := strings.Cut(value, "/")
+	if !found {
+		return false
+	}
+	source, ok := buildGitSource(host, path)
+	return ok && source.Identity() == value
+}
+
+func npmSourceIdentity(
+	spec string,
+) (string, CarrierSourceIdentityPrivacy, error) {
 	if spec == "" {
-		return "", fmt.Errorf("npm package source name is required")
+		return "", "", fmt.Errorf("npm package source name is required")
 	}
-	match := npmSourcePattern.FindStringSubmatch(spec)
-	if len(match) == 0 {
-		return spec, nil
+	identity := npmRelationIdentity(spec)
+	parsed, ok := parseNPMPackageSpec(spec)
+	if !ok {
+		return identity, CarrierSourceIdentityPrivate, nil
 	}
-	return match[1], nil
+	privacy := CarrierSourceIdentityPublic
+	if parsed.hasSelector && !registryNPMSelector(parsed.selector) {
+		privacy = CarrierSourceIdentityPrivate
+	}
+	return identity, privacy, nil
+}
+
+func npmRelationIdentity(spec string) string {
+	searchFrom := 0
+	if strings.HasPrefix(spec, "@") {
+		searchFrom = 1
+	}
+	separator := strings.IndexByte(spec[searchFrom:], '@')
+	if separator < 0 {
+		return spec
+	}
+	separator += searchFrom
+	if separator == searchFrom || separator == len(spec)-1 {
+		return spec
+	}
+	return spec[:separator]
 }
 
 func piSourceIsLocal(source string) bool {
@@ -332,6 +528,7 @@ func buildGitSource(host string, path string) (CarrierSource, bool) {
 		identity:         host + "/" + normalizedPath,
 		relationIdentity: host + "/" + normalizedPath,
 		relationEvidence: RelationEvidenceSourceExact,
+		identityPrivacy:  CarrierSourceIdentityPublic,
 	}, true
 }
 

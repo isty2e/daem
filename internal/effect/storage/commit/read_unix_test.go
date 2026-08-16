@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -63,6 +64,14 @@ func TestReadRegularFileSnapshotUpToEnforcesPayloadBound(t *testing.T) {
 	}
 	if _, err := ReadRegularFileSnapshotUpTo(t.Context(), path, 4); err == nil {
 		t.Fatal("ReadRegularFileSnapshotUpTo oversized file returned nil error")
+	} else {
+		var limitErr *RegularFileReadLimitError
+		if !errors.Is(err, ErrRegularFileReadLimitExceeded) ||
+			!errors.As(err, &limitErr) ||
+			limitErr.Limit() != 4 ||
+			limitErr.Observed() != 5 {
+			t.Fatalf("oversized read error = %v, want typed limit 4 observed 5", err)
+		}
 	}
 	if _, err := ReadRegularFileSnapshotUpTo(t.Context(), path, 0); err == nil {
 		t.Fatal("ReadRegularFileSnapshotUpTo zero bound returned nil error")

@@ -238,12 +238,13 @@ func TestRelationOrderRiskAuthorizerRequiresFreshInteractiveDecision(t *testing.
 }
 
 func TestRelationOrderRiskAuthorizerDoesNotPromptAfterDisclosureFailure(t *testing.T) {
-	disclosureErr := errors.New("updated plan output closed")
+	formatted := 0
+	disclosureErr := &privateOutputFailure{calls: &formatted}
 	stableOutput := &stableOutputWriter{output: errorWriter{err: disclosureErr}}
 	input := &countingReader{reader: strings.NewReader("yes\n")}
 	var prompt bytes.Buffer
 	confirmation := readyConfirmationBoundary(input, &prompt)
-	confirmation.disclosureError = func() error { return stableOutput.err }
+	confirmation.disclosureError = stableOutput.failure
 	authorizer := newRelationOrderRiskAuthorizer(
 		stableOutput,
 		confirmation,
@@ -255,8 +256,12 @@ func TestRelationOrderRiskAuthorizerDoesNotPromptAfterDisclosureFailure(t *testi
 		t.Context(),
 		applyworkflow.RelationOrderRiskExpansion{},
 	)
-	if authorized || !errors.Is(err, disclosureErr) {
+	var outputFailure *stableOutputWriteError
+	if authorized || !errors.As(err, &outputFailure) || errors.Is(err, disclosureErr) {
 		t.Fatalf("authorized = %t error = %v", authorized, err)
+	}
+	if formatted != 0 {
+		t.Fatalf("private output error formatted %d times", formatted)
 	}
 	if input.reads != 0 || prompt.Len() != 0 {
 		t.Fatalf(
@@ -281,8 +286,8 @@ func TestRunApplyInteractivePlanErrorDoesNotPrompt(t *testing.T) {
 	if strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, did not want prompt", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "plan contains error action") {
-		t.Fatalf("stderr = %q, want plan error diagnostic", stderr.String())
+	if !strings.Contains(stderr.String(), "blocked: unmanaged output exists") {
+		t.Fatalf("stderr = %q, want closed plan blocker", stderr.String())
 	}
 	assertApplyConfirmationFileContent(t, filepath.Join(tempDir, "AGENTS.md"), "manual content\n")
 }
@@ -391,7 +396,7 @@ args = ["--serve", "context7", "--changed"]
 	if strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, did not want prompt for blocked stale projection", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "stale_lock") {
+	if !strings.Contains(stderr.String(), "blocked: stale lock") {
 		t.Fatalf("stderr = %q, want stale lock diagnostic", stderr.String())
 	}
 }

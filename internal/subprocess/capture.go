@@ -1,11 +1,12 @@
 package subprocess
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/isty2e/daem/internal/credentialtext"
 )
 
 // BoundedBuffer accumulates at most limit raw bytes while reporting whether
@@ -43,6 +44,26 @@ func (buffer *BoundedBuffer) Write(payload []byte) (int, error) {
 	return written, nil
 }
 
+// WriteString implements io.StringWriter without first copying the complete
+// input into a byte slice.
+func (buffer *BoundedBuffer) WriteString(payload string) (int, error) {
+	written := len(payload)
+	remaining := buffer.limit - len(buffer.data)
+	if remaining <= 0 {
+		if len(payload) != 0 {
+			buffer.truncated = true
+		}
+		return written, nil
+	}
+	if len(payload) > remaining {
+		buffer.data = append(buffer.data, payload[:remaining]...)
+		buffer.truncated = true
+		return written, nil
+	}
+	buffer.data = append(buffer.data, payload...)
+	return written, nil
+}
+
 // String returns the captured raw bytes as text for subsequent sanitation.
 func (buffer *BoundedBuffer) String() string {
 	return string(buffer.data)
@@ -56,18 +77,6 @@ func (buffer *BoundedBuffer) Truncated() bool {
 const (
 	redactionMarker  = "[REDACTED]"
 	truncationMarker = "\n[truncated]"
-)
-
-var assignmentKeyPattern = regexp.MustCompile(
-	`(?i)\b([a-z][a-z0-9_-]{0,127})(["']?)(\s*[:=]\s*)`,
-)
-
-type credentialValueSpan uint8
-
-const (
-	credentialValueNone credentialValueSpan = iota
-	credentialValueToken
-	credentialValueLine
 )
 
 // CapturePolicy is one immutable bounded-redaction policy. A non-positive limit keeps
@@ -252,139 +261,8 @@ func redactTruncatedSecretSuffix(value string, secrets []string) (string, bool) 
 }
 
 func redactSecretFragments(value string) (string, bool) {
-	var result strings.Builder
-	result.Grow(len(value))
-	cursor := 0
-	searchStart := 0
-	redacted := false
-	for searchStart < len(value) {
-		match := assignmentKeyPattern.FindStringSubmatchIndex(value[searchStart:])
-		if len(match) != 8 {
-			break
-		}
-		for index := range match {
-			match[index] += searchStart
-		}
-		searchStart = match[1]
-		span := classifyCredentialKey(value[match[2]:match[3]])
-		if span == credentialValueNone {
-			continue
-		}
-		valueStart := match[1]
-		if valueStart >= len(value) {
-			continue
-		}
-		result.WriteString(value[cursor:valueStart])
-		result.WriteString(redactionMarker)
-		cursor = credentialValueEnd(value, valueStart, span)
-		searchStart = cursor
-		redacted = true
-	}
-	if !redacted {
-		return value, false
-	}
-	result.WriteString(value[cursor:])
-	return result.String(), true
+	return credentialtext.Redact(value, redactionMarker)
 }
-
-func classifyCredentialKey(value string) credentialValueSpan {
-	words := credentialKeyWords(value)
-	if len(words) == 0 {
-		return credentialValueNone
-	}
-	last := words[len(words)-1]
-	if last == "authorization" {
-		return credentialValueLine
-	}
-	switch last {
-	case "token", "secret", "password", "passwd", "passphrase", "auth",
-		"credential", "credentials", "apikey", "accesskey", "accesskeyid",
-		"privatekey", "secretkey":
-		return credentialValueToken
-	case "key":
-		if len(words) < 2 {
-			return credentialValueNone
-		}
-		switch words[len(words)-2] {
-		case "api", "access", "private", "secret":
-			return credentialValueToken
-		}
-	case "id":
-		if len(words) >= 3 &&
-			words[len(words)-2] == "key" &&
-			words[len(words)-3] == "access" {
-			return credentialValueToken
-		}
-	}
-	return credentialValueNone
-}
-
-func credentialKeyWords(value string) []string {
-	words := make([]string, 0, 4)
-	start := 0
-	appendWord := func(end int) {
-		if end > start {
-			words = append(words, strings.ToLower(value[start:end]))
-		}
-	}
-	for index := 0; index < len(value); index++ {
-		current := value[index]
-		if current == '_' || current == '-' {
-			appendWord(index)
-			start = index + 1
-			continue
-		}
-		if index == start || !isASCIIUpper(current) {
-			continue
-		}
-		previous := value[index-1]
-		nextIsLower := index+1 < len(value) && isASCIILower(value[index+1])
-		if isASCIILower(previous) || isASCIIDigit(previous) ||
-			isASCIIUpper(previous) && nextIsLower {
-			appendWord(index)
-			start = index
-		}
-	}
-	appendWord(len(value))
-	return words
-}
-
-func credentialValueEnd(value string, start int, span credentialValueSpan) int {
-	if value[start] == '"' || value[start] == '\'' {
-		quote := value[start]
-		for index := start + 1; index < len(value); index++ {
-			if value[index] == quote && !isEscapedQuote(value, index) {
-				return index + 1
-			}
-		}
-		return len(value)
-	}
-	if span == credentialValueLine {
-		if end := strings.IndexAny(value[start:], "\r\n"); end >= 0 {
-			return start + end
-		}
-		return len(value)
-	}
-	for index := start; index < len(value); index++ {
-		switch value[index] {
-		case ' ', '\t', '\r', '\n', ',', ';':
-			return index
-		}
-	}
-	return len(value)
-}
-
-func isEscapedQuote(value string, index int) bool {
-	backslashes := 0
-	for index--; index >= 0 && value[index] == '\\'; index-- {
-		backslashes++
-	}
-	return backslashes%2 != 0
-}
-
-func isASCIIUpper(value byte) bool { return value >= 'A' && value <= 'Z' }
-func isASCIILower(value byte) bool { return value >= 'a' && value <= 'z' }
-func isASCIIDigit(value byte) bool { return value >= '0' && value <= '9' }
 
 func boundRunes(value string, limit int) (string, bool) {
 	runes := []rune(value)

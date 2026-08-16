@@ -106,8 +106,8 @@ targets = ["antigravity-cli"]
 		t.Fatalf("exitCode = %d, want 1", exitCode)
 	}
 	for _, want := range []string{
-		`instructions "global" target "antigravity-cli": render_to "AGENTS.md"`,
-		`not an admitted instruction placement destination`,
+		`apply failed: apply was refused before effects`,
+		`instructions target \"antigravity-cli\" scope \"global\" destination \"~/.gemini/AGENTS.md\" is not an admitted file placement`,
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)

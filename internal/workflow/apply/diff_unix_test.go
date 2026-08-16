@@ -4,6 +4,7 @@ package apply
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,25 @@ import (
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output/hostpath"
+	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/outputtest"
 )
+
+func TestDiffableManagedFileDecisionsHonorsCancellationBeforeWork(
+	t *testing.T,
+) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := diffableManagedFileDecisions(
+		ctx,
+		[]reconcile.ManagedPathDecision{{}},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+}
 
 func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
 	t.Parallel()
@@ -63,16 +79,20 @@ func TestReadManagedFileForDiffRejectsPostPlanReplacement(t *testing.T) {
 			defer captured.Close()
 
 			test.replace(t, destination, secret)
-			content, err := readManagedFileForDiff(
+			content, omitted, err := readManagedFileForDiff(
 				context.Background(),
 				captured,
 				target.ScopeProject,
 				outputtest.Parse(t, "AGENTS.md"),
 				artifact.HashFileContent(before),
 				hostpath.NewResolver(root).Resolve,
+				MaximumDryRunDiffInputBytes,
 			)
 			if err == nil {
 				t.Fatal("readManagedFileForDiff returned nil error after replacement")
+			}
+			if omitted {
+				t.Fatal("readManagedFileForDiff classified replacement as oversized")
 			}
 			if len(content) != 0 {
 				t.Fatalf("readManagedFileForDiff returned replaced content %q", content)
@@ -102,18 +122,57 @@ func TestReadManagedFileForDiffPreservesExecutableIdentityClass(t *testing.T) {
 	}
 	defer captured.Close()
 
-	content, err := readManagedFileForDiff(
+	content, omitted, err := readManagedFileForDiff(
 		context.Background(),
 		captured,
 		target.ScopeProject,
 		outputtest.Parse(t, "AGENTS.md"),
 		artifact.HashFileContentWithExecutable(before, true),
 		hostpath.NewResolver(root).Resolve,
+		MaximumDryRunDiffInputBytes,
 	)
 	if err != nil {
 		t.Fatalf("readManagedFileForDiff rejected unchanged executable identity: %v", err)
 	}
+	if omitted {
+		t.Fatal("readManagedFileForDiff omitted unchanged bounded content")
+	}
 	if string(content) != string(before) {
 		t.Fatalf("readManagedFileForDiff content = %q, want %q", content, before)
+	}
+}
+
+func TestReadManagedFileForDiffOmitsBeforeRetainingOversizedContent(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	content := []byte(strings.Repeat("x", 65))
+	destination := filepath.Join(root, "AGENTS.md")
+	if err := os.WriteFile(destination, content, 0o600); err != nil {
+		t.Fatalf("write destination: %v", err)
+	}
+	captured, err := rootedpath.CaptureRoot(root)
+	if err != nil {
+		t.Fatalf("capture root: %v", err)
+	}
+	defer captured.Close()
+
+	got, omitted, err := readManagedFileForDiff(
+		context.Background(),
+		captured,
+		target.ScopeProject,
+		outputtest.Parse(t, "AGENTS.md"),
+		artifact.HashFileContent(content),
+		hostpath.NewResolver(root).Resolve,
+		64,
+	)
+	if err != nil {
+		t.Fatalf("readManagedFileForDiff returned error: %v", err)
+	}
+	if !omitted {
+		t.Fatal("readManagedFileForDiff retained oversized content")
+	}
+	if len(got) != 0 {
+		t.Fatalf("readManagedFileForDiff content length = %d, want 0", len(got))
 	}
 }

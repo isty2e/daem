@@ -15,15 +15,14 @@ const (
 type CommandReason string
 
 const (
-	CommandReasonNone             CommandReason = ""
-	CommandReasonMissingEnvRef    CommandReason = "missing_env_ref"
-	CommandReasonMissingRunner    CommandReason = "missing_runner"
-	CommandReasonNonZeroExit      CommandReason = "nonzero_exit"
-	CommandReasonTimeout          CommandReason = "timeout"
-	CommandReasonCanceled         CommandReason = "canceled"
-	CommandReasonSignaled         CommandReason = "signaled"
-	CommandReasonRunnerError      CommandReason = "runner_error"
-	CommandReasonWorkDirAuthority CommandReason = "workdir_authority"
+	CommandReasonNone          CommandReason = ""
+	CommandReasonMissingEnvRef CommandReason = "missing_env_ref"
+	CommandReasonMissingRunner CommandReason = "missing_runner"
+	CommandReasonNonZeroExit   CommandReason = "nonzero_exit"
+	CommandReasonTimeout       CommandReason = "timeout"
+	CommandReasonCanceled      CommandReason = "canceled"
+	CommandReasonSignaled      CommandReason = "signaled"
+	CommandReasonRunnerError   CommandReason = "runner_error"
 )
 
 // CommandEnvLookup resolves one host env reference at the execution boundary.
@@ -102,21 +101,22 @@ type CommandExecutor struct {
 
 // CommandAttemptResult is the sanitized mechanical result of one command attempt.
 type CommandAttemptResult struct {
-	runnerInvoked   bool
-	started         bool
-	attemptedAt     time.Time
-	reason          CommandReason
-	exitCode        int
-	hasExitCode     bool
-	timedOut        bool
-	canceled        bool
-	signaled        bool
-	stdout          string
-	stderr          string
-	stdoutTruncated bool
-	stderrTruncated bool
-	redacted        bool
-	errorDetail     string
+	runnerInvoked          bool
+	started                bool
+	attemptedAt            time.Time
+	reason                 CommandReason
+	exitCode               int
+	hasExitCode            bool
+	timedOut               bool
+	canceled               bool
+	signaled               bool
+	stdout                 string
+	stderr                 string
+	stdoutTruncated        bool
+	stderrTruncated        bool
+	redacted               bool
+	errorDetail            string
+	workDirAuthorityFailed bool
 }
 
 // RunnerInvoked reports whether environment and working-directory preflight
@@ -137,7 +137,7 @@ func (result CommandAttemptResult) Started() bool {
 
 // Succeeded reports whether the mechanical command attempt succeeded.
 func (result CommandAttemptResult) Succeeded() bool {
-	return result.reason == CommandReasonNone
+	return result.runnerInvoked && result.reason == CommandReasonNone
 }
 
 // Failed reports whether the mechanical command attempt failed.
@@ -148,6 +148,12 @@ func (result CommandAttemptResult) Failed() bool {
 // Reason returns the stable mechanical outcome reason.
 func (result CommandAttemptResult) Reason() CommandReason {
 	return result.reason
+}
+
+// WorkDirAuthorityFailed reports a working-directory authority failure that is
+// independent from the child process's mechanical outcome.
+func (result CommandAttemptResult) WorkDirAuthorityFailed() bool {
+	return result.workDirAuthorityFailed
 }
 
 // ExitCode returns the observed process exit code when one was available.

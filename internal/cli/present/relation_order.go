@@ -1,34 +1,19 @@
 package clipresent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
-	"net/url"
-	"path/filepath"
-	"regexp"
 	"strings"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
-const (
-	foreignPrecedenceChangeRisk             = "foreign_precedence_change"
-	maxRelationOrderIdentityDisclosureBytes = 256
-)
-
-var relationOrderAssignmentPattern = regexp.MustCompile(
-	`(?i)(^|[:/?#&;,\s])[a-z][a-z0-9_-]{0,63}\s*=`,
-)
-
-var relationOrderSecretColonPattern = regexp.MustCompile(
-	`(?i)(^|[:/?#&;,\s])(token|secret|password|auth|authorization|credential|api[-_]?key|access[-_]?key|client[-_]?secret|private[-_]?key)\s*:`,
-)
+const foreignPrecedenceChangeRisk = "foreign_precedence_change"
 
 type relationOrderJSON struct {
 	Target                string                    `json:"target"`
@@ -52,8 +37,9 @@ type relationOrderJSON struct {
 }
 
 type relationOrderMemberJSON struct {
-	Subject          *planJSONSubject `json:"subject,omitempty"`
-	HostLoadIdentity string           `json:"host_load_identity"`
+	Subject                  *planJSONSubject `json:"subject,omitempty"`
+	HostLoadIdentity         string           `json:"host_load_identity"`
+	HostLoadIdentityRedacted bool             `json:"host_load_identity_redacted,omitempty"`
 }
 
 type relationOrderRiskJSON struct {
@@ -87,7 +73,7 @@ func relationOrderResultJSONRows(
 			SequenceID: string(result.SequenceID()),
 			Outcome:    string(result.Outcome()),
 			Changed:    result.Changed(),
-			Detail:     result.Detail(),
+			Detail:     result.PublicDetail(),
 		})
 	}
 	return rows
@@ -95,13 +81,17 @@ func relationOrderResultJSONRows(
 
 func relationOrderJSONActions(
 	decisions []reconcile.RelationOrderDecision,
+	relations []reconcile.RelationAction,
 ) []relationOrderJSON {
+	publicIdentities := publicRelationIdentitySubjects(relations)
 	result := make([]relationOrderJSON, 0, len(decisions))
 	for _, decision := range decisions {
 		precedenceChanges := decision.PrecedenceChanges()
 		risks := make([]relationOrderRiskJSON, 0, len(precedenceChanges))
 		for _, change := range precedenceChanges {
-			foreignIdentity := relationOrderIdentityDisclosureFor(
+			foreignIdentity := hostLoadIdentityDisclosureFor(
+				decision.Target(),
+				decision.ClassID(),
 				string(change.ForeignIdentity()),
 			)
 			risks = append(risks, relationOrderRiskJSON{
@@ -124,10 +114,10 @@ func relationOrderJSONActions(
 			Revision:              string(decision.Revision()),
 			Kind:                  string(decision.Kind()),
 			Reason:                string(decision.Reason()),
-			Detail:                decision.Detail(),
-			DesiredMembers:        relationOrderJSONMembers(decision.DesiredMembers()),
-			ObservedMembers:       relationOrderJSONMembers(decision.ObservedMembers()),
-			MissingMembers:        relationOrderJSONMembers(decision.MissingMembers()),
+			Detail:                decision.PublicDetail(),
+			DesiredMembers:        relationOrderJSONMembers(decision.Target(), decision.ClassID(), decision.DesiredMembers(), publicIdentities),
+			ObservedMembers:       relationOrderJSONMembers(decision.Target(), decision.ClassID(), decision.ObservedMembers(), publicIdentities),
+			MissingMembers:        relationOrderJSONMembers(decision.Target(), decision.ClassID(), decision.MissingMembers(), publicIdentities),
 			ForeignRowCount:       decision.ForeignRowCount(),
 			Risks:                 risks,
 			BlocksOrdinaryApply:   decision.BlocksOrdinaryApply(),
@@ -138,14 +128,35 @@ func relationOrderJSONActions(
 }
 
 func relationOrderJSONMembers(
+	selectedTarget target.Target,
+	classID hostrelation.OrderClassID,
 	members []hostrelation.RelationOrderMember,
+	publicIdentities map[topology.SubjectID]bool,
 ) []relationOrderMemberJSON {
 	result := make([]relationOrderMemberJSON, 0, len(members))
 	for _, member := range members {
+		value := string(member.HostLoadIdentity())
+		loadIdentity := hostLoadIdentityDisclosureFor(selectedTarget, classID, value)
+		if !publicIdentities[member.Subject()] && !loadIdentity.Redacted() {
+			loadIdentity = redactedIdentityDisclosure(value)
+		}
 		result = append(result, relationOrderMemberJSON{
-			Subject:          planJSONSubjectFor(member.Subject()),
-			HostLoadIdentity: string(member.HostLoadIdentity()),
+			Subject:                  planJSONSubjectFor(member.Subject()),
+			HostLoadIdentity:         loadIdentity.Value(),
+			HostLoadIdentityRedacted: loadIdentity.Redacted(),
 		})
+	}
+	return result
+}
+
+func publicRelationIdentitySubjects(
+	relations []reconcile.RelationAction,
+) map[topology.SubjectID]bool {
+	result := make(map[topology.SubjectID]bool, len(relations))
+	for _, relation := range relations {
+		result[relation.Subject()] = carrierSourceAllowsPublicDisclosure(
+			relation.CarrierIdentity().Carrier(),
+		)
 	}
 	return result
 }
@@ -185,36 +196,39 @@ func PrintRelationOrderRiskDeltasWithOptions(
 		if options.Verbose {
 			fmt.Fprintf(
 				output,
-				"  - target=%s scope=%s class=%q sequence=%q runtime_meaning=%s\n",
+				"  - target=%s scope=%s class=%s sequence=%s runtime_meaning=%s\n",
 				delta.Target(),
 				delta.Scope(),
-				delta.ClassID(),
-				delta.SequenceID(),
+				Quote(string(delta.ClassID())),
+				Quote(string(delta.SequenceID())),
 				delta.RuntimeMeaning(),
 			)
 		} else {
 			fmt.Fprintf(
 				output,
-				"  - new %s risks target=%s scope=%s sequence=%q\n",
+				"  - new %s risks target=%s scope=%s sequence=%s\n",
 				relationOrderMeaning(delta.RuntimeMeaning()),
 				delta.Target(),
 				delta.Scope(),
-				delta.SequenceID(),
+				Quote(string(delta.SequenceID())),
 			)
 		}
 		printRelationOrderRiskChanges(
 			output,
+			delta.Target(),
+			delta.ClassID(),
 			delta.PrecedenceChanges(),
 			"adds",
 		)
 	}
 }
 
-// PrintRelationOrderResults writes final post-carrier outcomes per physical
-// sequence, including honest partial failure and not-attempted states.
-func PrintRelationOrderResults(
+// PrintRelationOrderResultsWithOptions writes final post-carrier outcomes per
+// physical sequence without exposing internal evidence outside verbose mode.
+func PrintRelationOrderResultsWithOptions(
 	output io.Writer,
 	results []applyworkflow.RelationOrderExecutionResult,
+	options HumanOptions,
 ) {
 	if len(results) == 0 {
 		return
@@ -223,17 +237,21 @@ func PrintRelationOrderResults(
 	for _, result := range results {
 		fmt.Fprintf(
 			output,
-			"  - %s target=%s scope=%s sequence=%q",
+			"  - %s target=%s scope=%s sequence=%s",
 			strings.ReplaceAll(string(result.Outcome()), "_", " "),
 			result.Target(),
 			result.Scope(),
-			result.SequenceID(),
+			Quote(string(result.SequenceID())),
 		)
 		if result.Changed() {
 			fmt.Fprint(output, " changed=true")
 		}
-		if result.Detail() != "" {
-			fmt.Fprintf(output, ": %s", Escape(result.Detail()))
+		detail := result.PublicDetail()
+		if options.Verbose {
+			detail = result.Detail()
+		}
+		if detail != "" {
+			fmt.Fprintf(output, ": %s", Escape(detail))
 		}
 		fmt.Fprintln(output)
 	}
@@ -248,44 +266,44 @@ func printRelationOrderSummary(
 	case reconcile.OrderExact:
 		fmt.Fprintf(
 			output,
-			"  - %s is exact target=%s scope=%s sequence=%q\n",
+			"  - %s is exact target=%s scope=%s sequence=%s\n",
 			meaning,
 			decision.Target(),
 			decision.Scope(),
-			decision.SequenceID(),
+			Quote(string(decision.SequenceID())),
 		)
 	case reconcile.OrderNormalize:
 		fmt.Fprintf(
 			output,
-			"  - normalize %s target=%s scope=%s sequence=%q\n",
+			"  - normalize %s target=%s scope=%s sequence=%s\n",
 			meaning,
 			decision.Target(),
 			decision.Scope(),
-			decision.SequenceID(),
+			Quote(string(decision.SequenceID())),
 		)
 	case reconcile.OrderConditionalAfterCarrierChange:
 		fmt.Fprintf(
 			output,
-			"  - recheck %s after %s target=%s scope=%s sequence=%q\n",
+			"  - recheck %s after %s target=%s scope=%s sequence=%s\n",
 			meaning,
 			strings.ReplaceAll(string(decision.Reason()), "_", " "),
 			decision.Target(),
 			decision.Scope(),
-			decision.SequenceID(),
+			Quote(string(decision.SequenceID())),
 		)
 	case reconcile.OrderBlocked:
-		detail := decision.Detail()
+		detail := decision.PublicDetail()
 		if detail == "" {
 			detail = strings.ReplaceAll(string(decision.Reason()), "_", " ")
 		}
 		fmt.Fprintf(
 			output,
-			"  - blocked %s target=%s scope=%s sequence=%q: %s\n",
+			"  - blocked %s target=%s scope=%s sequence=%s: %s\n",
 			meaning,
 			decision.Target(),
 			decision.Scope(),
-			decision.SequenceID(),
-			detail,
+			Quote(string(decision.SequenceID())),
+			Escape(detail),
 		)
 	}
 	printRelationOrderRiskDetails(output, decision)
@@ -309,9 +327,9 @@ func printVerboseRelationOrder(
 		decision.ConstraintFingerprint(),
 		decision.Reason(),
 		decision.Detail(),
-		relationOrderMemberIdentities(decision.DesiredMembers()),
-		relationOrderMemberIdentities(decision.ObservedMembers()),
-		relationOrderMemberIdentities(decision.MissingMembers()),
+		relationOrderMemberIdentities(decision.Target(), decision.ClassID(), decision.DesiredMembers()),
+		relationOrderMemberIdentities(decision.Target(), decision.ClassID(), decision.ObservedMembers()),
+		relationOrderMemberIdentities(decision.Target(), decision.ClassID(), decision.MissingMembers()),
 		decision.ForeignRowCount(),
 		decision.BlocksOrdinaryApply(),
 		decision.RequiresMutation(),
@@ -331,13 +349,20 @@ func relationOrderMeaning(meaning hostrelation.RuntimeMeaning) string {
 }
 
 func relationOrderMemberIdentities(
+	selectedTarget target.Target,
+	classID hostrelation.OrderClassID,
 	members []hostrelation.RelationOrderMember,
 ) []string {
 	result := make([]string, 0, len(members))
 	for _, member := range members {
 		result = append(
 			result,
-			topologySubjectString(member.Subject())+"="+string(member.HostLoadIdentity()),
+			Escape(topologySubjectString(member.Subject()))+"="+
+				Escape(hostLoadIdentityDisclosureFor(
+					selectedTarget,
+					classID,
+					string(member.HostLoadIdentity()),
+				).Value()),
 		)
 	}
 	return result
@@ -349,6 +374,8 @@ func printRelationOrderRiskDetails(
 ) {
 	printRelationOrderRiskChanges(
 		output,
+		decision.Target(),
+		decision.ClassID(),
 		decision.PrecedenceChanges(),
 		"includes",
 	)
@@ -356,6 +383,8 @@ func printRelationOrderRiskDetails(
 
 func printRelationOrderRiskChanges(
 	output io.Writer,
+	selectedTarget target.Target,
+	classID hostrelation.OrderClassID,
 	changes []observerelation.PrecedenceChange,
 	verb string,
 ) {
@@ -369,7 +398,9 @@ func printRelationOrderRiskChanges(
 		len(changes),
 	)
 	for _, change := range changes {
-		foreignIdentity := relationOrderIdentityDisclosureFor(
+		foreignIdentity := hostLoadIdentityDisclosureFor(
+			selectedTarget,
+			classID,
 			string(change.ForeignIdentity()),
 		)
 		fmt.Fprintf(
@@ -381,97 +412,6 @@ func printRelationOrderRiskChanges(
 			relationOrderPosition(change.ManagedWillBeBefore()),
 		)
 	}
-}
-
-type relationOrderIdentityDisclosure struct {
-	value    string
-	redacted bool
-}
-
-func relationOrderIdentityDisclosureFor(
-	value string,
-) relationOrderIdentityDisclosure {
-	if !relationOrderIdentityRequiresRedaction(value) {
-		return relationOrderIdentityDisclosure{value: value}
-	}
-	digest := sha256.Sum256([]byte(value))
-	return relationOrderIdentityDisclosure{
-		value:    "redacted:sha256:" + hex.EncodeToString(digest[:]),
-		redacted: true,
-	}
-}
-
-func (disclosure relationOrderIdentityDisclosure) Value() string {
-	return disclosure.value
-}
-
-func (disclosure relationOrderIdentityDisclosure) Redacted() bool {
-	return disclosure.redacted
-}
-
-func relationOrderIdentityRequiresRedaction(value string) bool {
-	if len(value) > maxRelationOrderIdentityDisclosureBytes {
-		return true
-	}
-	lowerValue := strings.ToLower(value)
-	if filepath.IsAbs(value) ||
-		strings.HasPrefix(lowerValue, "file:") ||
-		strings.Contains(lowerValue, ":file:") ||
-		strings.HasPrefix(lowerValue, "local:") ||
-		hasLocalPathPrefix(value) ||
-		isWindowsAbsolutePath(value) ||
-		strings.Contains(value, "?") ||
-		hasURLUserInfo(value) ||
-		relationOrderAssignmentPattern.MatchString(value) ||
-		relationOrderSecretColonPattern.MatchString(value) {
-		return true
-	}
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return strings.Contains(value, "://")
-	}
-	return parsed.User != nil ||
-		parsed.RawQuery != "" ||
-		strings.Contains(parsed.Fragment, "=") ||
-		strings.Contains(strings.ToLower(value), "%3d")
-}
-
-func hasLocalPathPrefix(value string) bool {
-	for _, prefix := range []string{
-		"./", "../", "~/", `.\`, `..\`, `~\`, `\\`,
-	} {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func hasURLUserInfo(value string) bool {
-	remaining := value
-	for {
-		marker := strings.Index(remaining, "://")
-		if marker < 0 {
-			return false
-		}
-		authority := remaining[marker+3:]
-		if end := strings.IndexAny(authority, "/?#"); end >= 0 {
-			authority = authority[:end]
-		}
-		if strings.Contains(authority, "@") {
-			return true
-		}
-		remaining = remaining[marker+3:]
-	}
-}
-
-func isWindowsAbsolutePath(value string) bool {
-	if len(value) < 3 || value[1] != ':' ||
-		(value[2] != '/' && value[2] != '\\') {
-		return false
-	}
-	drive := value[0]
-	return (drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')
 }
 
 func relationOrderPosition(managedBeforeForeign bool) string {

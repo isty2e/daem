@@ -1,7 +1,9 @@
 package clipresent
 
 import (
+	"bytes"
 	"slices"
+	"strings"
 	"testing"
 
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
@@ -108,6 +110,57 @@ targets = ["codex"]
 	filtered := ListRows(environment, groups, claudeOnly)
 	if len(filtered) != 2 || filtered[0].Key != "alpha" || filtered[1].Key != "beta" {
 		t.Fatalf("filtered rows = %#v, want alpha and beta", filtered)
+	}
+}
+
+func TestListRowsProjectPrivateExtensionSourcesAtPublicBoundary(t *testing.T) {
+	const source = "plugins/local.ts"
+	content := []byte(`
+version = 1
+targets = ["opencode"]
+
+[[extension]]
+id = "local-plugin"
+carrier = "opencode-plugin"
+targets = ["opencode"]
+scope = "project"
+source = { host_source = "plugins/local.ts" }
+`)
+	environment, err := declarationmanifest.Decode(content)
+	if err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	selection, err := targetselection.ForAvailableTargets(environment.Targets(), nil)
+	if err != nil {
+		t.Fatalf("ForAvailableTargets returned error: %v", err)
+	}
+
+	rows := ListRows(environment, nil, selection)
+	if len(rows) != 1 ||
+		!rows[0].SourceRedacted ||
+		strings.Contains(rows[0].Source, source) ||
+		!strings.HasPrefix(rows[0].Source, "redacted:sha256:") {
+		t.Fatalf("rows = %#v", rows)
+	}
+
+	var structured bytes.Buffer
+	if err := PrintListResourcesJSON(&structured, "/repo/daem.toml", rows); err != nil {
+		t.Fatalf("PrintListResourcesJSON returned error: %v", err)
+	}
+	if strings.Contains(structured.String(), source) ||
+		!strings.Contains(structured.String(), `"source_redacted": true`) {
+		t.Fatalf("JSON output = %s", structured.String())
+	}
+
+	var verbose bytes.Buffer
+	PrintListRowsWithOptions(
+		&verbose,
+		"/repo/daem.toml",
+		rows,
+		HumanOptions{Verbose: true},
+	)
+	if !strings.Contains(verbose.String(), source) {
+		t.Fatalf("verbose output = %q, want local source", verbose.String())
 	}
 }
 

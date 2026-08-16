@@ -212,10 +212,9 @@ source = { host_source = "@acme/second@1.0.0" }
 			if stdout.Len() != 0 {
 				t.Fatalf("stdout = %q, want empty", stdout.String())
 			}
-			if !strings.Contains(
-				stderr.String(),
-				`host-load identity "@acme/forged" does not match derived identity "@acme/first"`,
-			) {
+			if !strings.Contains(stderr.String(), "host-load identity") ||
+				!strings.Contains(stderr.String(), "@acme/forged") ||
+				!strings.Contains(stderr.String(), "@acme/first") {
 				t.Fatalf(
 					"stderr = %q, want contextual host identity diagnostic",
 					stderr.String(),

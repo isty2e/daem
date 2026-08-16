@@ -80,22 +80,24 @@ type delegateDependencyJSON struct {
 }
 
 type delegateAttemptJSON struct {
-	EvidenceKind        string          `json:"evidence_kind"`
-	Authority           string          `json:"authority"`
-	Subject             planJSONSubject `json:"subject"`
-	Target              string          `json:"target"`
-	Scope               string          `json:"scope"`
-	PlanIdentityKey     string          `json:"plan_identity_key"`
-	Status              string          `json:"status"`
-	Reason              string          `json:"reason"`
-	Observation         string          `json:"observation"`
-	Postcondition       string          `json:"postcondition"`
-	ExitCode            *int            `json:"exit_code,omitempty"`
-	TimedOut            bool            `json:"timed_out,omitempty"`
-	OutputObserved      bool            `json:"output_observed,omitempty"`
-	OutputTruncated     bool            `json:"output_truncated,omitempty"`
-	RunnerErrorObserved bool            `json:"runner_error_observed,omitempty"`
-	Redacted            bool            `json:"redacted,omitempty"`
+	EvidenceKind           string          `json:"evidence_kind"`
+	Authority              string          `json:"authority"`
+	Subject                planJSONSubject `json:"subject"`
+	Target                 string          `json:"target"`
+	Scope                  string          `json:"scope"`
+	PlanIdentityKey        string          `json:"plan_identity_key"`
+	Status                 string          `json:"status"`
+	Reason                 string          `json:"reason"`
+	ProcessReason          string          `json:"process_reason,omitempty"`
+	WorkDirAuthorityFailed bool            `json:"workdir_authority_failed,omitempty"`
+	Observation            string          `json:"observation"`
+	Postcondition          string          `json:"postcondition"`
+	ExitCode               *int            `json:"exit_code,omitempty"`
+	TimedOut               bool            `json:"timed_out,omitempty"`
+	OutputObserved         bool            `json:"output_observed,omitempty"`
+	OutputTruncated        bool            `json:"output_truncated,omitempty"`
+	RunnerErrorObserved    bool            `json:"runner_error_observed,omitempty"`
+	Redacted               bool            `json:"redacted,omitempty"`
 }
 
 const (
@@ -162,7 +164,7 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 		}
 		fmt.Fprintf(
 			output,
-			"  - evidence=%s authority=%s subject=%q target=%s scope=%s status=%s reason=%s observation=%s postcondition=%s",
+			"  - evidence=%s authority=%s subject=%q target=%s scope=%s status=%s reason=%s process_reason=%s workdir_authority_failed=%t observation=%s postcondition=%s",
 			delegateAttemptEvidenceKind,
 			delegateAttemptAuthority,
 			subjectString(subjectIDJSON(attempt.Subject())),
@@ -170,6 +172,8 @@ func PrintDelegateAttemptsWithOptions(output io.Writer, results []DelegateAttemp
 			attempt.Scope(),
 			attempt.Status(),
 			delegateAttemptReason(attempt.Reason()),
+			attempt.ProcessReason(),
+			attempt.WorkDirAuthorityFailed(),
 			result.Observation,
 			result.Postcondition,
 		)
@@ -239,21 +243,23 @@ func delegateJSONAttempts(results []DelegateAttemptInput) []delegateAttemptJSON 
 	for _, result := range results {
 		attempt := result.Attempt
 		row := delegateAttemptJSON{
-			EvidenceKind:        delegateAttemptEvidenceKind,
-			Authority:           delegateAttemptAuthority,
-			Subject:             subjectIDJSON(attempt.Subject()),
-			Target:              attempt.Target(),
-			Scope:               attempt.Scope(),
-			PlanIdentityKey:     attempt.IdentityKey(),
-			Status:              string(attempt.Status()),
-			Reason:              delegateAttemptReason(attempt.Reason()),
-			Observation:         string(result.Observation),
-			Postcondition:       string(result.Postcondition),
-			TimedOut:            attempt.TimedOut(),
-			OutputObserved:      attempt.Stdout() != "" || attempt.Stderr() != "",
-			OutputTruncated:     attempt.StdoutTruncated() || attempt.StderrTruncated(),
-			RunnerErrorObserved: attempt.ErrorDetail() != "",
-			Redacted:            attempt.Redacted(),
+			EvidenceKind:           delegateAttemptEvidenceKind,
+			Authority:              delegateAttemptAuthority,
+			Subject:                subjectIDJSON(attempt.Subject()),
+			Target:                 attempt.Target(),
+			Scope:                  attempt.Scope(),
+			PlanIdentityKey:        attempt.IdentityKey(),
+			Status:                 string(attempt.Status()),
+			Reason:                 delegateAttemptReason(attempt.Reason()),
+			ProcessReason:          string(attempt.ProcessReason()),
+			WorkDirAuthorityFailed: attempt.WorkDirAuthorityFailed(),
+			Observation:            string(result.Observation),
+			Postcondition:          string(result.Postcondition),
+			TimedOut:               attempt.TimedOut(),
+			OutputObserved:         attempt.Stdout() != "" || attempt.Stderr() != "",
+			OutputTruncated:        attempt.StdoutTruncated() || attempt.StderrTruncated(),
+			RunnerErrorObserved:    attempt.ErrorDetail() != "",
+			Redacted:               attempt.Redacted(),
 		}
 		if exitCode, ok := attempt.ExitCode(); ok {
 			row.ExitCode = &exitCode

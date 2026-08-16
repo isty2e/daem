@@ -98,6 +98,7 @@ func TestPrintApplyResultJSONDelegateAttemptsAreHistoryOnlyDiagnostics(t *testin
 			Authority           string `json:"authority"`
 			Status              string `json:"status"`
 			Reason              string `json:"reason"`
+			ProcessReason       string `json:"process_reason"`
 			Observation         string `json:"observation"`
 			Postcondition       string `json:"postcondition"`
 			ExitCode            *int   `json:"exit_code"`
@@ -165,6 +166,7 @@ func TestPrintApplyResultJSONDelegateTimeoutDoesNotClaimReadiness(t *testing.T) 
 			Authority           string `json:"authority"`
 			Status              string `json:"status"`
 			Reason              string `json:"reason"`
+			ProcessReason       string `json:"process_reason"`
 			Observation         string `json:"observation"`
 			Postcondition       string `json:"postcondition"`
 			TimedOut            bool   `json:"timed_out"`
@@ -182,11 +184,49 @@ func TestPrintApplyResultJSONDelegateTimeoutDoesNotClaimReadiness(t *testing.T) 
 		got.Authority != "history_only" ||
 		got.Status != "failed" ||
 		got.Reason != "timeout" ||
+		got.ProcessReason != "timeout" ||
 		got.Observation != "not_observed" ||
 		got.Postcondition != "not_observed" ||
 		!got.TimedOut ||
 		!got.RunnerErrorObserved {
 		t.Fatalf("delegate attempt json = %#v, want history-only timeout diagnostics", got)
+	}
+}
+
+func TestPrintApplyResultJSONDelegateKeepsProcessAndAuthorityOutcomesSeparate(t *testing.T) {
+	attempt := delegatePresentationAttempt(t, subprocess.CommandResult{
+		Started:                true,
+		TimedOut:               true,
+		WorkDirAuthorityFailed: true,
+		Err:                    context.DeadlineExceeded,
+	})
+
+	var stdout bytes.Buffer
+	if err := PrintApplyResultJSON(&stdout, ApplyResultJSONInput{
+		DelegateAttempts: []DelegateAttemptInput{attempt},
+	}); err != nil {
+		t.Fatalf("PrintApplyResultJSON returned error: %v", err)
+	}
+	var payload struct {
+		DelegateAttempts []struct {
+			Reason                 string `json:"reason"`
+			ProcessReason          string `json:"process_reason"`
+			WorkDirAuthorityFailed bool   `json:"workdir_authority_failed"`
+			TimedOut               bool   `json:"timed_out"`
+		} `json:"delegate_attempts"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("decode apply result json: %v", err)
+	}
+	if len(payload.DelegateAttempts) != 1 {
+		t.Fatalf("delegate_attempts = %#v, want one row", payload.DelegateAttempts)
+	}
+	got := payload.DelegateAttempts[0]
+	if got.Reason != "workdir_authority" ||
+		got.ProcessReason != "timeout" ||
+		!got.WorkDirAuthorityFailed ||
+		!got.TimedOut {
+		t.Fatalf("delegate attempt json = %#v, want independent process and authority facts", got)
 	}
 }
 

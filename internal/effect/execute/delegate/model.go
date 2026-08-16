@@ -68,6 +68,8 @@ type AttemptRecord struct {
 	identityKey     string
 	status          AttemptStatus
 	reason          Reason
+	processReason   subprocess.CommandReason
+	workDirFailed   bool
 	runnerInvoked   bool
 	exitCode        int
 	hasExitCode     bool
@@ -95,6 +97,52 @@ func (err ExecutionError) Error() string {
 		parts = append(parts, fmt.Sprintf("%s/%s %q: %s", record.subject.Kind(), record.subject.Namespace(), record.subject.Key(), record.reason))
 	}
 	return "delegate attempt failed: " + strings.Join(parts, "; ")
+}
+
+// BoundedErrorEvidence returns a size-limited projection of failed attempt
+// identities without materializing the aggregate Error string.
+func (err ExecutionError) BoundedErrorEvidence(maximumRunes int) (string, bool) {
+	if maximumRunes <= 0 {
+		return "", len(err.records) != 0
+	}
+	var builder strings.Builder
+	remaining := maximumRunes
+	write := func(value string) bool {
+		for _, character := range value {
+			if remaining == 0 {
+				return false
+			}
+			builder.WriteRune(character)
+			remaining--
+		}
+		return true
+	}
+	if !write("delegate attempt failed") {
+		return builder.String(), true
+	}
+	for index, record := range err.records {
+		separator := ": "
+		if index != 0 {
+			separator = "; "
+		}
+		parts := []string{
+			separator,
+			string(record.subject.Kind()),
+			"/",
+			record.subject.Namespace(),
+			` "`,
+			record.subject.Key(),
+			`": `,
+			string(record.reason),
+		}
+		for _, part := range parts {
+			if write(part) {
+				continue
+			}
+			return builder.String(), true
+		}
+	}
+	return builder.String(), false
 }
 
 // AttemptRecords returns the failed attempt records that caused the error.
@@ -130,6 +178,18 @@ func (record AttemptRecord) Status() AttemptStatus {
 // Reason returns the stable execution reason.
 func (record AttemptRecord) Reason() Reason {
 	return record.reason
+}
+
+// ProcessReason returns the mechanical command-attempt reason independently
+// from post-attempt working-directory authority.
+func (record AttemptRecord) ProcessReason() subprocess.CommandReason {
+	return record.processReason
+}
+
+// WorkDirAuthorityFailed reports that the retained working-directory authority
+// failed before or after the mechanical command attempt.
+func (record AttemptRecord) WorkDirAuthorityFailed() bool {
+	return record.workDirFailed
 }
 
 // RunnerInvoked reports whether environment and working-directory preflight
@@ -198,6 +258,8 @@ func newAttemptRecord(
 		identityKey:     action.Plan().IdentityKey(),
 		status:          status,
 		reason:          reason,
+		processReason:   result.Reason(),
+		workDirFailed:   result.WorkDirAuthorityFailed(),
 		runnerInvoked:   result.RunnerInvoked(),
 		exitCode:        exitCode,
 		hasExitCode:     hasExitCode,

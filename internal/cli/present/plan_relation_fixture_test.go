@@ -154,9 +154,90 @@ func claudePluginCarrierFixture(
 	return file.Locked.Subjects()[0], relation
 }
 
+func hostSourceCarrierFixture(
+	t *testing.T,
+	name string,
+	carrier desiredextension.Carrier,
+	selectedTarget target.Target,
+	scope target.Scope,
+	source string,
+) (lock.LockedSubjectContract, realization.DelegatedRelation) {
+	t.Helper()
+	value := desiredtest.Extension(t, desiredextension.Spec{
+		Name:    name,
+		Carrier: carrier,
+		Target:  selectedTarget,
+		Scope:   scope,
+		Source: desiredtest.ExtensionSource(
+			t,
+			desiredextension.SourceKindHostSource,
+			source,
+		),
+	})
+	file, relation := snapshottest.ExtensionCarrierFile(t, value)
+	return file.Locked.Subjects()[0], relation
+}
+
+func localHostSourceRelationAction(
+	t *testing.T,
+	name string,
+	carrier desiredextension.Carrier,
+	selectedTarget target.Target,
+	scope target.Scope,
+	localSource string,
+) reconcile.RelationAction {
+	t.Helper()
+	value := desiredtest.Extension(t, desiredextension.Spec{
+		Name:    name,
+		Carrier: carrier,
+		Target:  selectedTarget,
+		Scope:   scope,
+		Source: desiredtest.ExtensionSource(
+			t,
+			desiredextension.SourceKindHostSource,
+			localSource,
+		),
+	})
+	file, relation := snapshottest.ExtensionCarrierFile(t, value)
+	record := file.Locked.Subjects()[0]
+	admission, err := reconcile.NewRelationRouteAdmissionDecision(
+		reconcile.RelationRouteAdmissionSpec{
+			Row:               reconcile.RouteAdmissionRowInstallCarrier,
+			RequestedOutcome:  reconcile.AdmissionOutcomeOrdinaryMutation,
+			SelectedOutcome:   reconcile.AdmissionOutcomeBlocked,
+			ObservationPolicy: reconcile.ObservationRequireCurrent,
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewRelationRouteAdmissionDecision returned error: %v", err)
+	}
+	action, err := reconcile.NewRelationAction(reconcile.RelationActionInput{
+		CarrierIdentity: presentManagedCarrierIdentity(t, record),
+		RouteRequest:    relation.RouteRequest(),
+		Correlation: observerelation.Correlate(
+			relation.ExpectedRelation(),
+			observerelation.UnsupportedInventory(),
+		),
+		RouteAdmission: admission,
+	})
+	if err != nil {
+		t.Fatalf("NewRelationAction returned error: %v", err)
+	}
+	return action
+}
+
 func presentCarrierAbsenceAction(t *testing.T) carrierabsence.Action {
 	t.Helper()
 	record, relation := claudePluginCarrierFixture(t)
+	return presentCarrierAbsenceActionFromContract(t, record, relation)
+}
+
+func presentCarrierAbsenceActionFromContract(
+	t *testing.T,
+	record lock.LockedSubjectContract,
+	relation realization.DelegatedRelation,
+) carrierabsence.Action {
+	t.Helper()
 	identity := presentManagedCarrierIdentity(t, record)
 	root := t.TempDir()
 	owner, err := stateauthority.New(pathtest.Exact(
@@ -185,12 +266,18 @@ func presentCarrierAbsenceAction(t *testing.T) carrierabsence.Action {
 		t.Fatalf("NewCarrierOccupancy: %v", err)
 	}
 	expected := relation.ExpectedRelation()
-	inventory, err := observeclaudeplugin.NewInventory(observeclaudeplugin.InventorySpec{
+	row, err := observerelation.NewRow(observerelation.RowSpec{
+		SubjectKey:            string(expected.SubjectKey()),
+		HasManagedInstanceKey: true,
+		ManagedInstanceKey:    string(expected.ManagedInstanceKey()),
+	})
+	if err != nil {
+		t.Fatalf("NewRow: %v", err)
+	}
+	inventory, err := observerelation.NewInventory(observerelation.InventorySpec{
 		Availability: observerelation.InventorySupported,
 		Freshness:    observerelation.EvidenceFresh,
-		Rows: []observeclaudeplugin.Row{
-			claudePluginManagedRow(t, string(expected.SubjectKey()), string(expected.ManagedInstanceKey())),
-		},
+		Rows:         []observerelation.Row{row},
 	})
 	if err != nil {
 		t.Fatalf("NewInventory: %v", err)
@@ -204,7 +291,7 @@ func presentCarrierAbsenceAction(t *testing.T) carrierabsence.Action {
 		Desired: carrierabsence.DesiredAbsent,
 		Observation: observerelation.Correlation{
 			Key:    key,
-			Result: observeclaudeplugin.Correlate(relation, inventory),
+			Result: observerelation.Correlate(expected, inventory),
 		},
 		Occupancy: occupancy,
 		Route:     carrierabsence.UnavailableRoute(),

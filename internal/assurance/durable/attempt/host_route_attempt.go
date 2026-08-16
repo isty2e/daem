@@ -75,15 +75,14 @@ const (
 type HostRouteAttemptReason string
 
 const (
-	HostRouteAttemptReasonNone             HostRouteAttemptReason = ""
-	HostRouteAttemptReasonMissingEnvRef    HostRouteAttemptReason = "missing_env_ref"
-	HostRouteAttemptReasonMissingRunner    HostRouteAttemptReason = "missing_runner"
-	HostRouteAttemptReasonNonZeroExit      HostRouteAttemptReason = "nonzero_exit"
-	HostRouteAttemptReasonTimeout          HostRouteAttemptReason = "timeout"
-	HostRouteAttemptReasonCanceled         HostRouteAttemptReason = "canceled"
-	HostRouteAttemptReasonSignaled         HostRouteAttemptReason = "signaled"
-	HostRouteAttemptReasonRunnerError      HostRouteAttemptReason = "runner_error"
-	HostRouteAttemptReasonWorkDirAuthority HostRouteAttemptReason = "workdir_authority"
+	HostRouteAttemptReasonNone          HostRouteAttemptReason = ""
+	HostRouteAttemptReasonMissingEnvRef HostRouteAttemptReason = "missing_env_ref"
+	HostRouteAttemptReasonMissingRunner HostRouteAttemptReason = "missing_runner"
+	HostRouteAttemptReasonNonZeroExit   HostRouteAttemptReason = "nonzero_exit"
+	HostRouteAttemptReasonTimeout       HostRouteAttemptReason = "timeout"
+	HostRouteAttemptReasonCanceled      HostRouteAttemptReason = "canceled"
+	HostRouteAttemptReasonSignaled      HostRouteAttemptReason = "signaled"
+	HostRouteAttemptReasonRunnerError   HostRouteAttemptReason = "runner_error"
 )
 
 // HostRouteAttemptInput contains the bounded facts needed to build route history.
@@ -229,16 +228,6 @@ func (attempt HostRouteAttempt) Validate() error {
 	if attempt.attemptReason == HostRouteAttemptReasonNonZeroExit &&
 		(!attempt.hasExitCode || attempt.exitCode == 0) {
 		return fmt.Errorf("host route nonzero_exit attempt reason requires a nonzero exit code")
-	}
-	if attempt.attemptReason == HostRouteAttemptReasonWorkDirAuthority {
-		if attempt.resultClass != HostRouteResultFailed {
-			return fmt.Errorf("workdir_authority host route attempt must be failed")
-		}
-		if attempt.reason != HostRouteReasonWorkDirAuthority {
-			return fmt.Errorf("workdir_authority host route attempt must retain the result reason")
-		}
-	} else if attempt.reason == HostRouteReasonWorkDirAuthority {
-		return fmt.Errorf("workdir_authority result requires matching attempt reason")
 	}
 	if err := validateHostRouteClassification(
 		attempt.resultClass,

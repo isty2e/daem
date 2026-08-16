@@ -108,6 +108,8 @@ func persistedSnapshot(snapshot durable.Snapshot) snapshotDTO {
 			ObservedAt:      attempt.ObservedAt().Format(time.RFC3339Nano),
 			Status:          string(attempt.Status()),
 			Reason:          string(attempt.Reason()),
+			AttemptObserved: boolPointer(attempt.AttemptObserved()),
+			ProcessReason:   string(attempt.ProcessReason()),
 			Observation:     string(attempt.ObservationSummary()),
 			Postcondition:   string(attempt.PostconditionSummary()),
 			ExitCode:        optionalInt(exitCode, hasExitCode),
@@ -241,5 +243,9 @@ func optionalInt(value int, present bool) *int {
 	if !present {
 		return nil
 	}
+	return &value
+}
+
+func boolPointer(value bool) *bool {
 	return &value
 }

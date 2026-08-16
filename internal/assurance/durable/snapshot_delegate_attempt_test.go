@@ -119,6 +119,13 @@ func testDelegateAttempt(
 		value := 17
 		exitCode = &value
 	}
+	attemptObserved := status != durableattempt.DelegateStatusBlocked
+	processReason := durableattempt.DelegateProcessReasonNone
+	if reason != durableattempt.DelegateReasonNone &&
+		reason != durableattempt.DelegateReasonPolicyBlocked &&
+		reason != durableattempt.DelegateReasonWorkDirAuthority {
+		processReason = durableattempt.DelegateProcessReason(reason)
+	}
 	attempt, err := durableattempt.NewDelegateAttempt(durableattempt.DelegateAttemptInput{
 		Subject:         subject,
 		Target:          target.TargetClaudeCode,
@@ -127,7 +134,10 @@ func testDelegateAttempt(
 		ObservedAt:      time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC),
 		Status:          status,
 		Reason:          reason,
+		AttemptObserved: attemptObserved,
+		ProcessReason:   processReason,
 		ExitCode:        exitCode,
+		TimedOut:        reason == durableattempt.DelegateReasonTimeout,
 		Observation:     observerelation.ObservationNotObserved,
 		Postcondition:   observerelation.PostconditionNotObserved,
 	})

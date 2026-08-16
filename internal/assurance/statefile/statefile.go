@@ -54,16 +54,16 @@ func LoadOptional(ctx context.Context, path string) (durable.Snapshot, error) {
 	return durable.Snapshot{}, fmt.Errorf("read statefile: %w", err)
 }
 
-// Decode decodes one strict current state JSON value.
+// Decode decodes one strict current or explicitly supported legacy state JSON value.
 func Decode(content []byte) (durable.Snapshot, error) {
 	version, err := statefileDocumentVersion(content)
 	if err != nil {
 		return durable.Snapshot{}, err
 	}
-	if version != snapshotVersion {
+	if version != snapshotVersion && version != legacySnapshotVersion {
 		return durable.Snapshot{}, unsupportedStatefileVersion(version)
 	}
-	return decodeCurrent(content)
+	return decodeSupported(content, version)
 }
 
 func decodePersisted(content []byte) (durable.Snapshot, error) {
@@ -73,7 +73,9 @@ func decodePersisted(content []byte) (durable.Snapshot, error) {
 	}
 	switch version {
 	case snapshotVersion:
-		return decodeCurrent(content)
+		return decodeSupported(content, snapshotVersion)
+	case legacySnapshotVersion:
+		return decodeSupported(content, legacySnapshotVersion)
 	case retiredStatefileVersion:
 		return decodeRetiredStatefile(content)
 	default:
@@ -88,7 +90,7 @@ func statefileDocumentVersion(content []byte) (int, error) {
 	return jsonstrict.ValidateVersionedObject(content, "statefile", maximumStatefileJSONDepth)
 }
 
-func decodeCurrent(content []byte) (durable.Snapshot, error) {
+func decodeSupported(content []byte, version int) (durable.Snapshot, error) {
 	var persisted snapshotDTO
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.DisallowUnknownFields()
@@ -101,10 +103,10 @@ func decodeCurrent(content []byte) (durable.Snapshot, error) {
 	} else if err != io.EOF {
 		return durable.Snapshot{}, err
 	}
-	if persisted.Version != snapshotVersion {
+	if persisted.Version != version {
 		return durable.Snapshot{}, unsupportedStatefileVersion(persisted.Version)
 	}
-	return persisted.canonical()
+	return persisted.canonical(version)
 }
 
 func unsupportedStatefileVersion(version int) error {

@@ -2,6 +2,7 @@ package clipresent
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,66 @@ import (
 )
 
 func TestImportPresentationDisclosesExactExtensions(t *testing.T) {
+	plan := presentPiImportPlan(t, "npm:@acme/tools@1.2.3")
+
+	presented := ImportPlanFromAdoption("import plan", plan, true)
+	if presented.Summary.Extensions != 1 ||
+		len(presented.Resources) != 1 ||
+		!presented.Resources[0].Extension ||
+		presented.Resources[0].Carrier != "pi-package" {
+		t.Fatalf("presented extension = %#v", presented)
+	}
+	var human bytes.Buffer
+	PrintImportPlanWithOptions(&human, presented, HumanOptions{Verbose: true})
+	for _, expected := range []string{
+		"extensions=1",
+		`carrier="pi-package"`,
+		`source="npm:@acme/tools@1.2.3"`,
+	} {
+		if !strings.Contains(human.String(), expected) {
+			t.Fatalf("human output lacks %q:\n%s", expected, human.String())
+		}
+	}
+
+	jsonOutput := ImportPlanJSONOutput("dry-run", plan)
+	if len(jsonOutput.Changes) != 1 ||
+		jsonOutput.Changes[0].Resource.Kind != "extension" ||
+		jsonOutput.Changes[0].Carrier != "pi-package" ||
+		jsonOutput.Changes[0].SourceRedacted ||
+		len(jsonOutput.Summary) != 1 ||
+		jsonOutput.Summary[0].Extensions != 1 {
+		t.Fatalf("JSON output = %#v", jsonOutput)
+	}
+}
+
+func TestImportPresentationProjectsPrivateExtensionSources(t *testing.T) {
+	const source = "plugins/local.ts"
+	plan := presentPiImportPlan(t, source)
+
+	presented := ImportPlanFromAdoption("import plan", plan, true)
+	if len(presented.Resources) != 1 ||
+		!presented.Resources[0].SourceRedacted ||
+		strings.Contains(presented.Resources[0].Source, source) ||
+		!strings.HasPrefix(presented.Resources[0].Source, "redacted:sha256:") {
+		t.Fatalf("presented extension = %#v", presented.Resources)
+	}
+	var verbose bytes.Buffer
+	PrintImportPlanWithOptions(&verbose, presented, HumanOptions{Verbose: true})
+	if !strings.Contains(verbose.String(), source) {
+		t.Fatalf("verbose output = %q, want local source", verbose.String())
+	}
+
+	jsonOutput := ImportPlanJSONOutput("dry-run", plan)
+	if len(jsonOutput.Changes) != 1 ||
+		!jsonOutput.Changes[0].SourceRedacted ||
+		strings.Contains(jsonOutput.Changes[0].Source, source) ||
+		!strings.HasPrefix(jsonOutput.Changes[0].Source, "redacted:sha256:") {
+		t.Fatalf("JSON output = %#v", jsonOutput)
+	}
+}
+
+func presentPiImportPlan(t *testing.T, source string) adoptmodel.Plan {
+	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HOME", root)
 	settingsPath := filepath.Join(root, ".pi", "settings.json")
@@ -21,7 +82,7 @@ func TestImportPresentationDisclosesExactExtensions(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		settingsPath,
-		[]byte(`{"packages":["npm:@acme/tools@1.2.3"]}`),
+		[]byte(`{"packages":[`+fmt.Sprintf("%q", source)+`]}`),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -72,32 +133,5 @@ func TestImportPresentationDisclosesExactExtensions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	presented := ImportPlanFromAdoption("import plan", plan, true)
-	if presented.Summary.Extensions != 1 ||
-		len(presented.Resources) != 1 ||
-		!presented.Resources[0].Extension ||
-		presented.Resources[0].Carrier != "pi-package" {
-		t.Fatalf("presented extension = %#v", presented)
-	}
-	var human bytes.Buffer
-	PrintImportPlanWithOptions(&human, presented, HumanOptions{Verbose: true})
-	for _, expected := range []string{
-		"extensions=1",
-		`carrier="pi-package"`,
-		`source="npm:@acme/tools@1.2.3"`,
-	} {
-		if !strings.Contains(human.String(), expected) {
-			t.Fatalf("human output lacks %q:\n%s", expected, human.String())
-		}
-	}
-
-	jsonOutput := ImportPlanJSONOutput("dry-run", plan)
-	if len(jsonOutput.Changes) != 1 ||
-		jsonOutput.Changes[0].Resource.Kind != "extension" ||
-		jsonOutput.Changes[0].Carrier != "pi-package" ||
-		len(jsonOutput.Summary) != 1 ||
-		jsonOutput.Summary[0].Extensions != 1 {
-		t.Fatalf("JSON output = %#v", jsonOutput)
-	}
+	return plan
 }

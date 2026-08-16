@@ -5,10 +5,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/delegatepolicy"
 	"github.com/isty2e/daem/internal/subprocess"
+	"github.com/isty2e/daem/internal/topology"
 )
 
 func TestExecuteRedactsEnvSecretsAndSecretLookingFragments(t *testing.T) {
@@ -124,5 +126,48 @@ func TestExecutionErrorSummaryDoesNotIncludeSecretOutput(t *testing.T) {
 	}
 	if len(record) != 1 || strings.Contains(record[0].Stderr()+record[0].ErrorDetail(), secret) {
 		t.Fatalf("record leaked secret: %#v", record)
+	}
+}
+
+func TestExecutionErrorBoundedEvidenceStopsBeforeFormattingEveryRecord(t *testing.T) {
+	subject, err := topology.NewSubjectID(
+		topology.SubjectResource,
+		"delegate.test",
+		strings.Repeat("x", 256),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := AttemptRecord{
+		subject: subject,
+		reason:  ReasonNonZeroExit,
+	}
+	records := make([]AttemptRecord, 10000)
+	for index := range records {
+		records[index] = record
+	}
+
+	evidence, truncated := (ExecutionError{records: records}).BoundedErrorEvidence(128)
+	if !truncated {
+		t.Fatal("bounded evidence was not truncated")
+	}
+	if utf8.RuneCountInString(evidence) > 128 {
+		t.Fatalf("evidence contains %d runes, want at most 128", utf8.RuneCountInString(evidence))
+	}
+
+	largeSubject, err := topology.NewSubjectID(
+		topology.SubjectResource,
+		"delegate.test",
+		strings.Repeat("x", 1<<20),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, truncated = (ExecutionError{records: []AttemptRecord{{
+		subject: largeSubject,
+		reason:  ReasonNonZeroExit,
+	}}}).BoundedErrorEvidence(128)
+	if !truncated || utf8.RuneCountInString(evidence) > 128 {
+		t.Fatalf("large-subject evidence = %q truncated=%t", evidence, truncated)
 	}
 }

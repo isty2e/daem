@@ -133,6 +133,11 @@ type ProcessOutcome struct {
 	Redacted  bool
 }
 
+// AuthorityOutcome is the independent post-attempt mutation-authority result.
+type AuthorityOutcome struct {
+	WorkDirFailed bool
+}
+
 // AttemptHistory reports whether operation-indexed history was durably stored.
 type AttemptHistory struct {
 	Persisted bool
@@ -140,20 +145,21 @@ type AttemptHistory struct {
 
 // CommandResult is the presentation-safe result of planning or execution.
 type CommandResult struct {
-	Mode           Mode
-	ManifestPath   string
-	LockfilePath   string
-	StatefilePath  string
-	Selection      Selection
-	Route          Route
-	Disclosure     Disclosure
-	ResultClass    ResultClass
-	ReasonCode     ReasonCode
-	Attempted      bool
-	ProcessOutcome *ProcessOutcome
-	Observation    *Observation
-	AttemptHistory AttemptHistory
-	Remediation    []string
+	Mode             Mode
+	ManifestPath     string
+	LockfilePath     string
+	StatefilePath    string
+	Selection        Selection
+	Route            Route
+	Disclosure       Disclosure
+	ResultClass      ResultClass
+	ReasonCode       ReasonCode
+	Attempted        bool
+	ProcessOutcome   *ProcessOutcome
+	AuthorityOutcome *AuthorityOutcome
+	Observation      *Observation
+	AttemptHistory   AttemptHistory
+	Remediation      []string
 }
 
 func (result CommandResult) HasErrors() bool {
