@@ -1,6 +1,7 @@
 package mcpcodec
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 
@@ -152,7 +153,10 @@ func (codec mcpProjectionCodec) ClassifyContributionOccupancy(
 		return aggregate.ContributionOccupancySet{}, err
 	}
 	occupancy := aggregate.ContributionAbsent
-	if state.Present() {
+	if state.Present() && bytes.Equal(
+		[]byte(state.CanonicalProjection()),
+		[]byte(items[0].Contribution().CanonicalContribution()),
+	) {
 		occupancy = aggregate.ContributionPresent
 	}
 	return aggregate.NewUniformContributionOccupancySet(contributions, occupancy)

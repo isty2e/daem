@@ -72,6 +72,40 @@ targets = ["codex"]
 	}
 }
 
+func TestRunSelectsResourceTargetAbsentFromHeader(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
+	writeFile(t, manifestPath, `
+version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "repo-tools"
+targets = ["pi"]
+scope = "project"
+transport = "stdio"
+command = "repo-tools"
+`)
+
+	unfiltered, err := Run(context.Background(), Input{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if !unfiltered.Selection.Includes("codex") || !unfiltered.Selection.Includes("pi") {
+		t.Fatalf("unfiltered selection = %#v, want header codex and resource pi", unfiltered.Selection.Targets())
+	}
+
+	filtered, err := Run(context.Background(), Input{
+		ManifestPath: manifestPath,
+		TargetValues: []string{"pi"},
+	})
+	if err != nil {
+		t.Fatalf("Run(--target pi) returned error: %v", err)
+	}
+	if !filtered.Selection.Includes("pi") || filtered.Selection.Includes("codex") {
+		t.Fatalf("filtered selection = %#v, want only pi", filtered.Selection.Targets())
+	}
+}
+
 func TestRunRejectsSupportedTargetAbsentFromManifest(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
 	writeFile(t, manifestPath, `

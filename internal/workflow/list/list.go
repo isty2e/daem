@@ -64,7 +64,7 @@ func Run(ctx context.Context, input Input) (Result, error) {
 		return Result{}, err
 	}
 
-	selection, err := targetselection.ForAvailableTargets(environment.Targets(), input.TargetValues)
+	selection, err := targetselection.ForAvailableTargets(availableTargets(environment), input.TargetValues)
 	if err != nil {
 		return result, fmt.Errorf("%w: %w", targetselection.ErrInvalid, err)
 	}

@@ -22,7 +22,7 @@ func BuildLocationInventory(
 	environment desired.Environment,
 	selection targetselection.Selection,
 ) (LocationInventory, error) {
-	if err := validateLocationInventoryTargets(environment.Targets(), selection.Targets()); err != nil {
+	if err := validateLocationInventoryTargets(availableTargets(environment), selection.Targets()); err != nil {
 		return LocationInventory{}, err
 	}
 	manifestSelections, err := collectManifestLocationSelections(environment)
