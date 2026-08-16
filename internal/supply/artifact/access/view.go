@@ -18,6 +18,31 @@ import (
 // one required regular file at its root during the identity traversal.
 var ErrRequiredRootRegularFile = errors.New("required root regular file is unavailable")
 
+// ErrUnsupportedSymlink reports a no-follow traversal encountering a symbolic link.
+var ErrUnsupportedSymlink = errors.New("symbolic link is unsupported")
+
+type unsupportedSymlinkError struct {
+	path string
+}
+
+func (err *unsupportedSymlinkError) Error() string {
+	return fmt.Sprintf("artifact access entry %q is a symbolic link; symlinks are not supported", err.path)
+}
+
+func (err *unsupportedSymlinkError) Unwrap() error {
+	return ErrUnsupportedSymlink
+}
+
+// UnsupportedSymlinkPath reports the relative artifact path of an unsupported
+// symbolic link encountered during no-follow traversal.
+func UnsupportedSymlinkPath(err error) (string, bool) {
+	var symlink *unsupportedSymlinkError
+	if !errors.As(err, &symlink) {
+		return "", false
+	}
+	return symlink.path, true
+}
+
 // EntryKind classifies one no-follow directory entry.
 type EntryKind string
 
@@ -240,7 +265,8 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 }
 
 // HashDirectoryRequiringRootFile hashes one directory while proving that name
-// was a regular root entry in the same descriptor-bound traversal.
+// was a regular root entry in the same descriptor-bound traversal. Missing or
+// non-regular required files fail before descendant hashing.
 func (view View) HashDirectoryRequiringRootFile(
 	ctx context.Context,
 	name string,
@@ -260,7 +286,10 @@ func (view View) HashDirectoryRequiringRootFile(
 		return "", fmt.Errorf("required root file tree structure limit: %w", err)
 	}
 	observer := &requiredRootRegularFileSink{name: name}
-	budget := traversalBudget{structureLimit: &structureLimit}
+	budget := traversalBudget{
+		structureLimit:          &structureLimit,
+		requiredRootRegularFile: name,
+	}
 	contentHash, err := walkNative(ctx, view.root, view.kind, observer, &budget)
 	if err != nil {
 		return "", err
@@ -493,11 +522,12 @@ func (limit TraversalLimit) validate() error {
 }
 
 type traversalBudget struct {
-	limit            TraversalLimit
-	entries          uint64
-	bytes            int64
-	structureLimit   *TreeStructureLimit
-	structureEntries int
+	limit                   TraversalLimit
+	entries                 uint64
+	bytes                   int64
+	structureLimit          *TreeStructureLimit
+	structureEntries        int
+	requiredRootRegularFile string
 }
 
 type requiredRootRegularFileSink struct {

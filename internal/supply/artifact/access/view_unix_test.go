@@ -360,6 +360,15 @@ func TestHashDirectoryRequiringRootFileRejectsMissingOrNonregularEntry(t *testin
 				}
 			},
 		},
+		{
+			name: "symlink",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.Symlink("other", filepath.Join(root, "SKILL.md")); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := resolvedAccessTestRoot(t)
@@ -441,6 +450,23 @@ func TestHashDirectoryRequiringRootFileEnforcesTreeStructureLimit(t *testing.T) 
 				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestHashDirectoryRequiringRootFileRejectsMissingFileBeforeTreeBudget(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "one", "two", "payload"), []byte("nested"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTreeStructureLimitForTest(t, 2, 1),
+	); !errors.Is(err, ErrRequiredRootRegularFile) {
+		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection before tree budget", err)
 	}
 }
 

@@ -108,6 +108,24 @@ func TestSourceIdentityCacheDoesNotMemoizeMalformedIdentity(t *testing.T) {
 	}
 }
 
+func TestSourceIdentityCacheMemoizesClassifiedEligibilitySkips(t *testing.T) {
+	readPath := filepath.Join(t.TempDir(), "skill")
+	attempts := 0
+	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+		attempts++
+		return "", access.ErrRequiredRootRegularFile
+	})
+
+	for range 2 {
+		if _, err := cache.ContentHash(context.Background(), readPath); !errors.Is(err, access.ErrRequiredRootRegularFile) {
+			t.Fatalf("ContentHash error = %v, want required-file skip", err)
+		}
+	}
+	if attempts != 1 {
+		t.Fatalf("classified skip observations = %d, want 1", attempts)
+	}
+}
+
 func TestSourceIdentityCacheHonorsCancellationBeforeCachedResult(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
 	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {

@@ -95,6 +95,9 @@ func hashNativeDirectory(
 			return "", err
 		}
 	}
+	if err := requireRootRegularFile(ctx, root, budget); err != nil {
+		return "", err
+	}
 	builder := artifact.NewDirectoryHashBuilder()
 	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", 0, builder, sink, budget); err != nil {
 		return "", err
@@ -130,6 +133,10 @@ func hashNativeDirectoryEntries(
 		}
 		entry, err := openNativeChild(directoryFD, name)
 		if err != nil {
+			var symlink *unsupportedSymlinkError
+			if errors.As(err, &symlink) {
+				return &unsupportedSymlinkError{path: relativePath}
+			}
 			return err
 		}
 
@@ -207,6 +214,31 @@ func hashNativeDirectoryEntries(
 		}
 	}
 	return verifyNativeDirectoryNames(directoryFD, names)
+}
+
+func requireRootRegularFile(ctx context.Context, root nativeEntry, budget *traversalBudget) error {
+	if budget == nil || budget.requiredRootRegularFile == "" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	name := budget.requiredRootRegularFile
+	exact, err := nativeDirectoryContainsExactName(root.fd, name)
+	if err != nil {
+		return err
+	}
+	if !exact {
+		return fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
+	}
+	observed, _, err := observeNativeEntry(root.fd, name)
+	if err != nil {
+		return err
+	}
+	if observed.kind != nativeKindFile {
+		return fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
+	}
+	return nil
 }
 
 func openSinkFile(

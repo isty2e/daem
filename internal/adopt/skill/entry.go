@@ -133,16 +133,18 @@ func importSkillFromEntry(
 			Reason:   importSkillSkipDuplicateName,
 		}, nil
 	}
-	if nestedSymlink, ok, err := firstNestedSymlink(readPath); err != nil {
-		return adopt.Skill{}, adopt.Skipped{}, fmt.Errorf("inspect skill tree %q: %w", livePath, err)
-	} else if ok {
-		return adopt.Skill{}, adopt.Skipped{LivePath: nestedSymlink, Reason: importSkillSkipNestedSymlink}, nil
-	}
 
 	contentHash, err := sourceIdentities.ContentHash(ctx, readPath)
 	if err != nil {
 		if errors.Is(err, access.ErrRequiredRootRegularFile) {
 			return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipMissingSkillMD}, nil
+		}
+		if relativePath, ok := access.UnsupportedSymlinkPath(err); ok {
+			skipPath := readPath
+			if relativePath != "" && relativePath != "." {
+				skipPath = filepath.Join(readPath, filepath.FromSlash(relativePath))
+			}
+			return adopt.Skill{}, adopt.Skipped{LivePath: skipPath, Reason: importSkillSkipNestedSymlink}, nil
 		}
 		return adopt.Skill{}, adopt.Skipped{}, err
 	}
