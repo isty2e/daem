@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"slices"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"golang.org/x/sys/unix"
@@ -95,9 +96,6 @@ func hashNativeDirectory(
 			return "", err
 		}
 	}
-	if err := requireRootRegularFile(ctx, root, budget); err != nil {
-		return "", err
-	}
 	builder := artifact.NewDirectoryHashBuilder()
 	if err := hashNativeDirectoryEntries(ctx, root.fd, ".", 0, builder, sink, budget); err != nil {
 		return "", err
@@ -119,8 +117,11 @@ func hashNativeDirectoryEntries(
 	sink TreeSink,
 	budget *traversalBudget,
 ) error {
-	names, err := readNativeDirectoryNamesWithinBudget(directoryFD, relativeRoot, budget)
+	names, err := readNativeDirectoryNamesWithinBudget(ctx, directoryFD, relativeRoot, budget)
 	if err != nil {
+		return err
+	}
+	if err := requireRootRegularFile(ctx, directoryFD, relativeRoot, names, budget); err != nil {
 		return err
 	}
 	for _, name := range names {
@@ -213,25 +214,27 @@ func hashNativeDirectoryEntries(
 			return closeErr
 		}
 	}
-	return verifyNativeDirectoryNames(directoryFD, names)
+	return verifyNativeDirectoryNames(ctx, directoryFD, names)
 }
 
-func requireRootRegularFile(ctx context.Context, root nativeEntry, budget *traversalBudget) error {
-	if budget == nil || budget.requiredRootRegularFile == "" {
+func requireRootRegularFile(
+	ctx context.Context,
+	directoryFD int,
+	relativeRoot string,
+	names []string,
+	budget *traversalBudget,
+) error {
+	if budget == nil || budget.requiredRootRegularFile == "" || relativeRoot != "." {
 		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	name := budget.requiredRootRegularFile
-	exact, err := nativeDirectoryContainsExactName(root.fd, name)
-	if err != nil {
-		return err
-	}
-	if !exact {
+	if !slices.Contains(names, name) {
 		return fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
 	}
-	observed, _, err := observeNativeEntry(root.fd, name)
+	observed, _, err := observeNativeEntry(directoryFD, name)
 	if err != nil {
 		return err
 	}

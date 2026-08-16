@@ -266,7 +266,9 @@ func (view View) Hash(ctx context.Context) (artifact.ContentHash, error) {
 
 // HashDirectoryRequiringRootFile hashes one directory while proving that name
 // was a regular root entry in the same descriptor-bound traversal. Missing or
-// non-regular required files fail before descendant hashing.
+// non-regular required files fail after one bounded root listing and before
+// descendant hashing. Root listing charges at most the structure-entry limit
+// plus one overflow probe and honors cancellation.
 func (view View) HashDirectoryRequiringRootFile(
 	ctx context.Context,
 	name string,

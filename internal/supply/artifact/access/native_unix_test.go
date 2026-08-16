@@ -3,6 +3,9 @@
 package access
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -67,8 +70,61 @@ func TestVerifyNativeDirectoryNamesDetectsExactNameChange(t *testing.T) {
 		t.Fatalf("change exact entry name: %v", err)
 	}
 
-	err = verifyNativeDirectoryNames(directoryFD, names)
+	err = verifyNativeDirectoryNames(context.Background(), directoryFD, names)
 	if err == nil || !strings.Contains(err.Error(), "directory entries changed") {
 		t.Fatalf("verify names error = %v, want exact-name change", err)
+	}
+}
+
+func TestReadNativeDirectoryNamesUpToChargesOneOverflowProbe(t *testing.T) {
+	root := t.TempDir()
+	for index := range 4 {
+		path := filepath.Join(root, fmt.Sprintf("entry-%d", index))
+		if err := os.WriteFile(path, []byte("content\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	directoryFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(directoryFD); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	}()
+
+	names, err := readNativeDirectoryNamesUpTo(context.Background(), directoryFD, 2)
+	if err != nil {
+		t.Fatalf("readNativeDirectoryNamesUpTo returned error: %v", err)
+	}
+	if len(names) != 3 {
+		t.Fatalf("overflow probe names = %d, want 3", len(names))
+	}
+}
+
+func TestReadNativeDirectoryNamesUpToHonorsCancellation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "entry"), []byte("content\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	directoryFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(directoryFD); err != nil {
+			t.Errorf("close directory: %v", err)
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	names, err := readNativeDirectoryNamesUpTo(ctx, directoryFD, 100)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("readNativeDirectoryNamesUpTo error = %v, want context.Canceled", err)
+	}
+	if names != nil {
+		t.Fatalf("cancelled lookup names = %#v, want nil", names)
 	}
 }

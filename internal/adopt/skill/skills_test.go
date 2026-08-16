@@ -2,6 +2,7 @@ package skill
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -347,6 +348,48 @@ func TestImportSkillSkipsMissingSkillMDBeforeTreeTraversal(t *testing.T) {
 	}
 	if candidate.ResourceName != "" || skipped.Reason != importSkillSkipMissingSkillMD {
 		t.Fatalf("candidate = %#v, skip = %#v, want missing SKILL.md skip before tree budget", candidate, skipped)
+	}
+}
+
+func TestImportSkillFailsClosedOnRootBreadthOverflow(t *testing.T) {
+	root := t.TempDir()
+	skillRoot := filepath.Join(root, "review")
+	if err := os.Mkdir(skillRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for index := range 3 {
+		if err := os.WriteFile(filepath.Join(skillRoot, fmt.Sprintf("entry-%d", index)), []byte("nested"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sourceDirectory, err := adopt.NewSourceDirectory(
+		filepath.Join(root, "daem.toml"),
+		filepath.Join(root, "daem.d"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limit, err := access.NewTreeStructureLimit(2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, skipped, err := importSkillFromEntry(
+		context.Background(),
+		sourceDirectory,
+		targetpkg.TargetCodex,
+		targetpkg.ScopeProject,
+		"",
+		skillRoot,
+		"review",
+		NewDestinationClaims(),
+		NewSourceIdentityCache(limit),
+	)
+	if err == nil || candidate.ResourceName != "" || skipped.Reason != "" {
+		t.Fatalf("candidate = %#v, skip = %#v, err = %v, want breadth overflow failure", candidate, skipped, err)
+	}
+	if !strings.Contains(err.Error(), "artifact tree exceeds 2 entries") {
+		t.Fatalf("import error = %v, want structure-limit overflow", err)
 	}
 }
 

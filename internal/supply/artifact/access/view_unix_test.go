@@ -470,6 +470,46 @@ func TestHashDirectoryRequiringRootFileRejectsMissingFileBeforeTreeBudget(t *tes
 	}
 }
 
+func TestHashDirectoryRequiringRootFileRejectsRootBreadthOverflowBeforeMissingFile(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	for index := range 3 {
+		writeAccessTestFile(t, filepath.Join(root, fmt.Sprintf("entry-%d", index)), []byte("content"))
+	}
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTreeStructureLimitForTest(t, 2, 1),
+	)
+	if err == nil || errors.Is(err, ErrRequiredRootRegularFile) {
+		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want root breadth overflow", err)
+	}
+	if !strings.Contains(err.Error(), "artifact tree exceeds 2 entries") {
+		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want structure-limit overflow", err)
+	}
+}
+
+func TestHashDirectoryRequiringRootFileHonorsCancellationDuringRootLookup(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "payload"), []byte("content"))
+	limit := accessTreeStructureLimitForTest(t, 8, 4)
+	budget := traversalBudget{
+		structureLimit:          &limit,
+		requiredRootRegularFile: "SKILL.md",
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := walkNative(ctx, root, artifact.ArtifactKindDirectory, nil, &budget)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("walkNative error = %v, want context.Canceled during root lookup", err)
+	}
+}
+
 func accessTreeStructureLimitForTest(
 	t *testing.T,
 	maximumEntries int,

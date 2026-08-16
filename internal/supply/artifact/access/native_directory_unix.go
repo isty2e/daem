@@ -3,6 +3,7 @@
 package access
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -15,7 +16,7 @@ import (
 )
 
 func readNativeDirectoryNames(directoryFD int) ([]string, error) {
-	return readNativeDirectoryNamesUpTo(directoryFD, -1)
+	return readNativeDirectoryNamesUpTo(context.Background(), directoryFD, -1)
 }
 
 func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error {
@@ -46,15 +47,16 @@ func visitNativeDirectoryNames(directoryFD int, visit func(string) error) error 
 }
 
 func readNativeDirectoryNamesWithinBudget(
+	ctx context.Context,
 	directoryFD int,
 	relativeRoot string,
 	budget *traversalBudget,
 ) ([]string, error) {
 	remaining, bounded := budget.structureEntriesRemaining()
 	if !bounded {
-		return readNativeDirectoryNames(directoryFD)
+		return readNativeDirectoryNamesUpTo(ctx, directoryFD, -1)
 	}
-	names, err := readNativeDirectoryNamesUpTo(directoryFD, remaining)
+	names, err := readNativeDirectoryNamesUpTo(ctx, directoryFD, remaining)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +70,14 @@ func readNativeDirectoryNamesWithinBudget(
 	return names, nil
 }
 
-func readNativeDirectoryNamesUpTo(directoryFD int, maximumEntries int) ([]string, error) {
+func readNativeDirectoryNamesUpTo(
+	ctx context.Context,
+	directoryFD int,
+	maximumEntries int,
+) ([]string, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("artifact access context is required")
+	}
 	readFD, err := unix.Openat(directoryFD, ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return nil, err
@@ -78,13 +87,51 @@ func readNativeDirectoryNamesUpTo(directoryFD int, maximumEntries int) ([]string
 		_ = unix.Close(readFD)
 		return nil, fmt.Errorf("wrap artifact directory descriptor")
 	}
-	readCount := -1
-	if maximumEntries >= 0 && maximumEntries < math.MaxInt {
-		readCount = maximumEntries + 1
+
+	const batchMaximum = 256
+	bounded := maximumEntries >= 0 && maximumEntries < math.MaxInt
+	capacity := batchMaximum
+	if bounded {
+		capacity = min(maximumEntries+1, batchMaximum)
 	}
-	names, readErr := file.Readdirnames(readCount)
+	names := make([]string, 0, capacity)
+	var readErr error
+	for {
+		if err := ctx.Err(); err != nil {
+			readErr = err
+			break
+		}
+		batchSize := batchMaximum
+		if bounded {
+			remaining := maximumEntries + 1 - len(names)
+			if remaining <= 0 {
+				break
+			}
+			batchSize = min(batchMaximum, remaining)
+		}
+		batch, err := file.Readdirnames(batchSize)
+		names = append(names, batch...)
+		if err := ctx.Err(); err != nil {
+			readErr = err
+			break
+		}
+		if bounded && len(names) > maximumEntries {
+			break
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			readErr = err
+			break
+		}
+		if len(batch) == 0 {
+			readErr = fmt.Errorf("artifact directory enumeration made no progress")
+			break
+		}
+	}
 	closeErr := file.Close()
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
+	if readErr != nil {
 		return nil, errors.Join(readErr, closeErr)
 	}
 	if closeErr != nil {
@@ -103,8 +150,8 @@ func nativeDirectoryContainsExactName(directoryFD int, name string) (bool, error
 	return index < len(names) && names[index] == name, nil
 }
 
-func verifyNativeDirectoryNames(directoryFD int, expected []string) error {
-	actual, err := readNativeDirectoryNamesUpTo(directoryFD, len(expected))
+func verifyNativeDirectoryNames(ctx context.Context, directoryFD int, expected []string) error {
+	actual, err := readNativeDirectoryNamesUpTo(ctx, directoryFD, len(expected))
 	if err != nil {
 		return err
 	}
