@@ -205,7 +205,11 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 		if ok {
 			rewritten = replaced
 		} else {
-			rewritten = insertHookTargetsAssignment(rewritten, renderStringArray(updated.Targets))
+			inserted, insertErr := declaration.InsertRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
+			if insertErr != nil {
+				return "", fmt.Errorf("update hook targets: %w", insertErr)
+			}
+			rewritten = inserted
 		}
 	}
 
@@ -217,28 +221,6 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 		}
 	}
 	return appendHookTargetOverrides(rewritten, added, strings.HasSuffix(block, "\n")), nil
-}
-
-func insertHookTargetsAssignment(block string, renderedValue string) string {
-	lines := strings.SplitAfter(block, "\n")
-	insertAt := len(lines)
-	for index, line := range lines {
-		header, ok := declaration.ParseTableHeader(strings.TrimSpace(line))
-		if !ok {
-			continue
-		}
-		if header.Array && len(header.Segments) == 2 && header.Segments[0] == "hook" && header.Segments[1] == "target_override" {
-			insertAt = index
-			break
-		}
-	}
-	if insertAt == len(lines) && len(lines) > 0 && lines[len(lines)-1] == "" {
-		insertAt = len(lines) - 1
-	}
-	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderedValue+"\n")
-	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, "")
 }
 
 func hookTargetOverrideRanges(block string) []declaration.DocumentRange {

@@ -2,9 +2,6 @@ package declaration
 
 import (
 	"fmt"
-	"strings"
-
-	burnttoml "github.com/BurntSushi/toml"
 )
 
 type assignmentLookup int
@@ -51,25 +48,61 @@ func RemoveRootAssignment(block string, key string) (string, bool, error) {
 		for start > 0 && block[start-1] != '\n' {
 			start--
 		}
-		end := skipTrailingComment(block, assignment.valueEnd)
-		if end < len(block) && block[end] == '\r' {
-			end++
-		}
-		if end < len(block) && block[end] == '\n' {
-			end++
-		}
+		end := skipTrailingCommentAndNewline(block, assignment.valueEnd)
 		return block[:start] + block[end:], true, nil
 	}
 }
 
+// InsertRootAssignment writes a root-table assignment before the first nested
+// table header, or at the end of the block. It uses the block's existing line
+// ending and inserts a separator when the preceding content has none.
+func InsertRootAssignment(block string, key string, renderedValue string) (string, error) {
+	_, status := findRootAssignment(block, key)
+	switch status {
+	case assignmentFound:
+		return "", fmt.Errorf("root assignment %q already exists", key)
+	case assignmentMalformed:
+		return "", fmt.Errorf("root assignment %q is not a complete TOML value", key)
+	}
+	insertAt, ok := rootInsertOffset(block)
+	if !ok {
+		return "", fmt.Errorf("root assignment %q is not a complete TOML value", key)
+	}
+	return spliceRootAssignmentLine(block, insertAt, key+" = "+renderedValue), nil
+}
+
 func findRootAssignment(block string, key string) (documentAssignment, assignmentLookup) {
-	rootEnd := rootTableEnd(block)
+	var found documentAssignment
+	status := assignmentMissing
+	_, malformed := walkRootTable(block, func(keyStart int, valueEnd int, path []string) bool {
+		if !sameRootKey(path, key) {
+			return false
+		}
+		found = documentAssignment{keyStart: keyStart, valueEnd: valueEnd}
+		status = assignmentFound
+		return true
+	})
+	if malformed {
+		return documentAssignment{}, assignmentMalformed
+	}
+	return found, status
+}
+
+func rootInsertOffset(block string) (int, bool) {
+	offset, malformed := walkRootTable(block, func(int, int, []string) bool { return false })
+	if malformed {
+		return 0, false
+	}
+	return offset, true
+}
+
+func walkRootTable(block string, visit func(keyStart int, valueEnd int, path []string) bool) (int, bool) {
 	offset := 0
 	seenRootHeader := false
-	for offset < rootEnd {
-		offset = skipSpaceAndComments(block, offset, rootEnd)
-		if offset >= rootEnd {
-			break
+	for offset < len(block) {
+		offset = skipSpaceAndComments(block, offset, len(block))
+		if offset >= len(block) {
+			return len(block), false
 		}
 		if looksLikeTableHeader(block, offset) {
 			if !seenRootHeader {
@@ -77,179 +110,21 @@ func findRootAssignment(block string, key string) (documentAssignment, assignmen
 				offset = skipLine(block, offset)
 				continue
 			}
-			break
+			return offset, false
 		}
 		keyStart := offset
-		canonical, _, ok := readAssignmentKey(block, offset, rootEnd)
+		path, equals, ok := readAssignmentKey(block, offset, len(block))
 		if !ok {
-			return documentAssignment{}, assignmentMalformed
+			return offset, true
 		}
-		if canonical != key {
-			next := shortestAssignmentEnd(block, keyStart, rootEnd, canonical)
-			if next < 0 {
-				return documentAssignment{}, assignmentMalformed
-			}
-			offset = skipTrailingComment(block, next)
-			if offset < len(block) && block[offset] == '\r' {
-				offset++
-			}
-			if offset < len(block) && block[offset] == '\n' {
-				offset++
-			}
-			continue
+		valueEnd, valueOK := skipTOMLValue(block, equals+1, len(block), 0)
+		if !valueOK {
+			return offset, true
 		}
-		valueEnd := shortestAssignmentEnd(block, keyStart, rootEnd, key)
-		if valueEnd < 0 {
-			return documentAssignment{}, assignmentMalformed
+		if visit(keyStart, valueEnd, path) {
+			return valueEnd, false
 		}
-		return documentAssignment{keyStart: keyStart, valueEnd: valueEnd}, assignmentFound
+		offset = skipTrailingCommentAndNewline(block, valueEnd)
 	}
-	return documentAssignment{}, assignmentMissing
-}
-
-func rootTableEnd(block string) int {
-	offset := 0
-	seenRoot := false
-	for offset < len(block) {
-		offset = skipSpaceAndComments(block, offset, len(block))
-		if offset >= len(block) {
-			break
-		}
-		if !looksLikeTableHeader(block, offset) {
-			offset = skipLine(block, offset)
-			continue
-		}
-		if !seenRoot {
-			seenRoot = true
-			offset = skipLine(block, offset)
-			continue
-		}
-		return offset
-	}
-	return len(block)
-}
-
-func readAssignmentKey(block string, start int, limit int) (string, int, bool) {
-	equals := -1
-	inString := byte(0)
-	escaped := false
-	for index := start; index < limit; index++ {
-		char := block[index]
-		if inString != 0 {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if inString == '"' && char == '\\' {
-				escaped = true
-				continue
-			}
-			if char == inString {
-				inString = 0
-			}
-			continue
-		}
-		switch char {
-		case '"', '\'':
-			inString = char
-		case '#', '\n':
-			return "", -1, false
-		case '=':
-			equals = index
-		}
-		if equals >= 0 {
-			break
-		}
-	}
-	if equals < 0 {
-		return "", -1, false
-	}
-	keyText := strings.TrimSpace(block[start:equals])
-	if keyText == "" {
-		return "", -1, false
-	}
-	var decoded map[string]any
-	if _, err := burnttoml.Decode(keyText+" = 1\n", &decoded); err != nil {
-		return "", -1, false
-	}
-	if len(decoded) != 1 {
-		return "", -1, false
-	}
-	for canonical, value := range decoded {
-		if _, nested := value.(map[string]any); nested {
-			return "", -1, false
-		}
-		return canonical, equals, true
-	}
-	return "", -1, false
-}
-
-func shortestAssignmentEnd(block string, keyStart int, limit int, key string) int {
-	for end := keyStart + 1; end <= limit; end++ {
-		snippet := block[keyStart:end]
-		var decoded map[string]any
-		_, err := burnttoml.Decode(snippet, &decoded)
-		if err != nil {
-			continue
-		}
-		if len(decoded) != 1 {
-			continue
-		}
-		if _, ok := decoded[key]; !ok {
-			continue
-		}
-		return end
-	}
-	return -1
-}
-
-func looksLikeTableHeader(block string, offset int) bool {
-	lineEnd := skipLine(block, offset)
-	trimmed := strings.TrimSpace(block[offset:lineEnd])
-	_, ok := ParseTableHeader(trimmed)
-	return ok
-}
-
-func skipSpaceAndComments(block string, offset int, limit int) int {
-	index := offset
-	for index < limit {
-		switch block[index] {
-		case ' ', '\t', '\n', '\r':
-			index++
-		case '#':
-			index = skipLine(block, index)
-		default:
-			return index
-		}
-	}
-	return index
-}
-
-func skipLine(block string, offset int) int {
-	index := offset
-	for index < len(block) && block[index] != '\n' {
-		index++
-	}
-	if index < len(block) {
-		index++
-	}
-	return index
-}
-
-func skipTrailingComment(block string, offset int) int {
-	index := offset
-	for index < len(block) && (block[index] == ' ' || block[index] == '\t') {
-		index++
-	}
-	if index < len(block) && block[index] == '#' {
-		end := skipLine(block, index)
-		if end > 0 && block[end-1] == '\n' {
-			end--
-			if end > 0 && block[end-1] == '\r' {
-				end--
-			}
-		}
-		return end
-	}
-	return offset
+	return len(block), false
 }

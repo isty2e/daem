@@ -311,9 +311,9 @@ func applyRemoveSkillCandidate(original []byte, candidate removeSkillCandidate, 
 		},
 		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
 			if candidate.kind == "skill_group" {
-				return declarationcodec.ReplaceSkillGroupTargets(originalBlock, remainingTargets.Values()), nil
+				return declarationcodec.ReplaceSkillGroupTargets(originalBlock, remainingTargets.Values())
 			}
-			return declarationcodec.ReplaceSkillTargets(originalBlock, remainingTargets.Values()), nil
+			return declarationcodec.ReplaceSkillTargets(originalBlock, remainingTargets.Values())
 		},
 	})
 	if err != nil {
@@ -343,7 +343,10 @@ func removeSkillCandidateCompletely(original []byte, candidate removeSkillCandid
 		if len(names) == 0 {
 			return declaration.RemoveDocumentRange(original, declaration.DocumentRange{Start: candidate.start, End: candidate.end}), "remove empty skill_group", nil
 		}
-		updatedBlock := declarationcodec.ReplaceSkillGroupNames(string(original[candidate.start:candidate.end]), names)
+		updatedBlock, err := declarationcodec.ReplaceSkillGroupNames(string(original[candidate.start:candidate.end]), names)
+		if err != nil {
+			return nil, "", err
+		}
 		content := declaration.ReplaceDocumentRange(
 			original,
 			declaration.DocumentRange{Start: candidate.start, End: candidate.end},

@@ -23,7 +23,10 @@ func applyImportInstructionTargetMerge(content []byte, name string, instruction 
 		if sameImportStringTargets(block.Instruction.Targets, mergedTargets) {
 			return nil, "", fmt.Errorf("instruction %q already has the selected targets", name)
 		}
-		updatedBlock := declarationcodec.ReplaceInstructionTargets(string(content[block.Start:block.End]), name, mergedTargets)
+		updatedBlock, err := declarationcodec.ReplaceInstructionTargets(string(content[block.Start:block.End]), name, mergedTargets)
+		if err != nil {
+			return nil, "", err
+		}
 		return declaration.ReplaceDocumentRange(content, declaration.DocumentRange{Start: block.Start, End: block.End}, []byte(updatedBlock)), "update instruction targets", nil
 	}
 	return declaration.AppendDocumentBlock(content, declarationcodec.RenderInstructionBlock(name, instruction)), "append instruction resource", nil

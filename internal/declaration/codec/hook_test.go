@@ -137,6 +137,35 @@ func TestHookTargetUpdateInsertsWhenInheritedAndRemovesWhenRestored(t *testing.T
 	}
 }
 
+func TestHookTargetUpdateInsertsNoFinalNewlineAndCRLF(t *testing.T) {
+	existing := declaration.Hook{Name: "lint", Event: "PreToolUse", Command: "make lint", Scope: "project"}
+	inserted := existing
+	inserted.Targets = []string{"codex"}
+
+	got, err := UpdateHookTargets("[[hook]]\nname = \"lint\"\nscope = \"project\"", existing, inserted)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets no-final-newline: %v", err)
+	}
+	if strings.Contains(got, `scope = "project"targets`) {
+		t.Fatalf("assignment concatenated without separator: %q", got)
+	}
+	if !strings.Contains(got, "scope = \"project\"\ntargets = [\"codex\"]") {
+		t.Fatalf("no-final-newline insert = %q", got)
+	}
+
+	crlf := "[[hook]]\r\nname = \"lint\"\r\nscope = \"project\"\r\n"
+	got, err = UpdateHookTargets(crlf, existing, inserted)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets CRLF: %v", err)
+	}
+	if !strings.Contains(got, "\r\ntargets = [\"codex\"]\r\n") {
+		t.Fatalf("CRLF insert = %q", got)
+	}
+	if strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
+		t.Fatalf("CRLF insert mixed line endings: %q", got)
+	}
+}
+
 func TestHookTargetUpdateRemovesOnlyDeselectedOverrideTable(t *testing.T) {
 	existing := declaration.Hook{
 		Name: "lint", Event: "PreToolUse", Command: "make lint", Targets: []string{"codex", "claude-code"},

@@ -137,7 +137,10 @@ names = ["alpha", "beta"]
 source = { path = "skills", mode = "vendor" }
 `
 
-	updated := ReplaceSkillGroupNames(block, []string{"beta"})
+	updated, err := ReplaceSkillGroupNames(block, []string{"beta"})
+	if err != nil {
+		t.Fatalf("ReplaceSkillGroupNames() error = %v", err)
+	}
 
 	requireSkillGroupContains(t, updated, `names = ["beta"]`)
 	requireSkillGroupContains(t, updated, `source = { path = "skills", mode = "vendor" }`)
@@ -152,7 +155,10 @@ source = { path = "skills", mode = "vendor" }
 install_to = ".agents/skills"
 `
 
-	updated := ReplaceSkillGroupTargets(block, []string{"codex"})
+	updated, err := ReplaceSkillGroupTargets(block, []string{"codex"})
+	if err != nil {
+		t.Fatalf("ReplaceSkillGroupTargets() error = %v", err)
+	}
 
 	targetsIndex := strings.Index(updated, `targets = ["codex"]`)
 	targetTableIndex := strings.Index(updated, `[skill_group.target.codex]`)

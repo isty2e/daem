@@ -177,12 +177,8 @@ func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error)
 	return declarations, nil
 }
 
-func ReplaceSkillTargets(block string, targets []string) string {
-	updated, err := replaceSkillTargets(block, "skill", targets)
-	if err != nil {
-		return block
-	}
-	return updated
+func ReplaceSkillTargets(block string, targets []string) (string, error) {
+	return replaceSkillTargets(block, "skill", targets)
 }
 
 func replaceSkillTargets(block string, root string, targets []string) (string, error) {
@@ -193,24 +189,11 @@ func replaceSkillTargets(block string, root string, targets []string) (string, e
 	if ok {
 		return updated, nil
 	}
-	lines := strings.SplitAfter(block, "\n")
-	if len(lines) == 0 {
-		return "targets = " + renderStringArray(targets) + "\n", nil
+	inserted, err := declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return "", fmt.Errorf("replace %s targets: %w", root, err)
 	}
-	insertAt := len(lines)
-	for index, line := range lines {
-		if _, ok := parseSkillTargetHeader(strings.TrimSpace(line), root); ok {
-			insertAt = index
-			break
-		}
-	}
-	if insertAt == len(lines) && lines[len(lines)-1] == "" {
-		insertAt = len(lines) - 1
-	}
-	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
-	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, ""), nil
+	return inserted, nil
 }
 
 func RenderSkillBlock(skill Skill) string {

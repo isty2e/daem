@@ -169,7 +169,7 @@ func ApplyInstructionAdd(original []byte, header declaration.ManifestHeader, nam
 				return RenderInstructionBlock(value.Name, value.Instruction)
 			},
 			RenderBlockWithTargets: func(originalBlock string, existing instructionEditDeclaration, _ instructionEditDeclaration, mergedTargets declaration.Targets, _ declaration.ManifestHeader) (string, error) {
-				return ReplaceInstructionTargets(originalBlock, existing.Name, mergedTargets.Values()), nil
+				return ReplaceInstructionTargets(originalBlock, existing.Name, mergedTargets.Values())
 			},
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate instruction name %q", key.Name)
@@ -206,27 +206,16 @@ func effectiveInstructionScope(rawScope string, header declaration.ManifestHeade
 	return header.EffectiveScope(rawScope)
 }
 
-func ReplaceInstructionTargets(block string, instructionName string, targets []string) string {
+func ReplaceInstructionTargets(block string, instructionName string, targets []string) (string, error) {
+	_ = instructionName
 	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
 	if err != nil {
-		return block
+		return "", err
 	}
 	if ok {
-		return updated
+		return updated, nil
 	}
-	lines := strings.SplitAfter(block, "\n")
-	insertAt := len(lines)
-	for index, line := range lines {
-		nestedName, _, headerOK := parseInstructionTargetHeader(strings.TrimSpace(line))
-		if headerOK && nestedName == instructionName {
-			insertAt = index
-			break
-		}
-	}
-	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
-	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, "")
+	return declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
 }
 
 func RemoveInstructionTargetTables(block string, instructionName string, selectedTargets []string) string {

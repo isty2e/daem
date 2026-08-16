@@ -2,7 +2,6 @@ package authoring
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/isty2e/daem/internal/declaration"
@@ -198,7 +197,7 @@ func applyRemoveHookCandidate(original []byte, header declaration.ManifestHeader
 		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
 			remainingHook := candidate.hook
 			remainingHook.TargetOverrides = declarationcodec.FilterHookOverrides(candidate.hook.TargetOverrides, remainingTargets.Values())
-			if slices.Equal(remainingTargets.Values(), header.EffectiveTargets(nil)) {
+			if remainingTargets.EqualMembership(declaration.Targets(header.EffectiveTargets(nil))) {
 				remainingHook.Targets = nil
 			} else {
 				remainingHook.Targets = remainingTargets.Values()

@@ -324,6 +324,93 @@ scope = "project"
 	requireNotContains(t, string(updated), `targets = ["codex", "claude-code"]`)
 }
 
+func TestHookAuthoringRestoresInheritanceWhenRemainingMembershipMatchesHeaderOrderIndependently(t *testing.T) {
+	original := []byte(`version = 1
+targets = ["codex", "claude-code"]
+
+[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = "make lint"
+targets = ["claude-code", "codex", "pi"]
+scope = "project"
+`)
+
+	updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"pi"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+	}
+	if changeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", changeKind)
+	}
+	requireContains(t, string(updated), `name = "lint"`)
+	if strings.Count(string(updated), "targets =") != 1 {
+		t.Fatalf("expected only manifest header targets to remain:\n%s", updated)
+	}
+	requireContains(t, string(updated), `targets = ["codex", "claude-code"]`)
+	requireNotContains(t, string(updated), `targets = ["claude-code", "codex"]`)
+}
+
+func TestSkillAuthoringTargetRemovalRewritesDottedPlacementKeys(t *testing.T) {
+	original := []byte(`targets = ["codex", "claude-code"]
+
+[[skill]]
+name = "oracle"
+source = { path = "skills/oracle", mode = "vendor" }
+target.codex.install_to = "skills/oracle"
+targets = ["codex", "claude-code"]
+`)
+
+	updated, changeKind, err := ApplyRemoveSkillToManifest(original, RemoveSkillRequest{
+		ResourceKey: "oracle",
+		Targets:     []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveSkillToManifest() error = %v", err)
+	}
+	if changeKind != "update skill targets" {
+		t.Fatalf("change kind = %q, want update skill targets", changeKind)
+	}
+	if string(updated) == string(original) {
+		t.Fatal("claimed target update left the manifest byte-identical")
+	}
+	skillBlock := string(updated)[strings.Index(string(updated), "[[skill]]"):]
+	requireContains(t, skillBlock, `targets = ["codex"]`)
+	requireContains(t, skillBlock, `target.codex.install_to = "skills/oracle"`)
+	requireNotContains(t, skillBlock, `targets = ["codex", "claude-code"]`)
+
+	blocks, err := declarationcodec.ScanSkillBlocks(updated)
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("ScanSkillBlocks = %#v, %v", blocks, err)
+	}
+	if got := blocks[0].Skill.Targets; len(got) != 1 || got[0] != "codex" {
+		t.Fatalf("decoded skill targets = %#v, want [codex]", got)
+	}
+}
+
+func TestHookAuthoringMaterializesInheritedTargetsWithoutFinalNewline(t *testing.T) {
+	original := []byte("version = 1\ntargets = [\"codex\", \"claude-code\"]\n\n[[hook]]\nname = \"lint\"\nevent = \"PreToolUse\"\ncommand = \"make lint\"\nscope = \"project\"")
+	change, err := BuildRemoveHookChange(ManifestDocument{Content: original}, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("BuildRemoveHookChange() error = %v", err)
+	}
+	if change.ChangeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", change.ChangeKind)
+	}
+	got := string(change.Content)
+	if strings.Contains(got, `scope = "project"targets`) {
+		t.Fatalf("assignment concatenated without separator:\n%s", got)
+	}
+	hookBlock := got[strings.Index(got, "[[hook]]"):]
+	requireContains(t, hookBlock, `targets = ["codex"]`)
+}
+
 func TestSkillGroupAuthoringMemberRemovalPreservesNestedSourceAndFollowingResources(t *testing.T) {
 	original := []byte(`[[skill_group]] # user-authored comment
 names = ["alpha", "beta"]
