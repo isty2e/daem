@@ -207,22 +207,20 @@ func effectiveInstructionScope(rawScope string, header declaration.ManifestHeade
 }
 
 func ReplaceInstructionTargets(block string, instructionName string, targets []string) string {
+	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return block
+	}
+	if ok {
+		return updated
+	}
 	lines := strings.SplitAfter(block, "\n")
 	insertAt := len(lines)
 	for index, line := range lines {
-		nestedName, _, ok := parseInstructionTargetHeader(strings.TrimSpace(line))
-		if ok && nestedName == instructionName {
+		nestedName, _, headerOK := parseInstructionTargetHeader(strings.TrimSpace(line))
+		if headerOK && nestedName == instructionName {
 			insertAt = index
 			break
-		}
-		if strings.HasPrefix(strings.TrimSpace(line), "targets =") {
-			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-			lineEnd := ""
-			if strings.HasSuffix(line, "\n") {
-				lineEnd = "\n"
-			}
-			lines[index] = indent + "targets = " + renderStringArray(targets) + lineEnd
-			return strings.Join(lines, "")
 		}
 	}
 	newLines := append([]string{}, lines[:insertAt]...)

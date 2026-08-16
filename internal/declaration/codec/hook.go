@@ -166,8 +166,9 @@ func effectiveHookType(value string) string {
 	return hookType
 }
 
-// UpdateHookTargets changes only the explicit targets assignment and target
-// override tables whose target membership changed.
+// UpdateHookTargets changes the root targets assignment and target override
+// tables whose target membership changed. An empty updated target set removes
+// the local assignment so the hook can inherit manifest targets.
 func UpdateHookTargets(block string, existing declaration.Hook, updated declaration.Hook) (string, error) {
 	ranges := hookTargetOverrideRanges(block)
 	if len(ranges) != len(existing.TargetOverrides) {
@@ -187,13 +188,25 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 		content = declaration.RemoveDocumentRange(content, ranges[index])
 	}
 
-	targetsLine, replaced := declaration.ReplaceDocumentAssignmentLine(
-		string(content),
-		"targets",
-		renderStringArray(updated.Targets),
-	)
-	if !replaced {
-		return "", fmt.Errorf("update hook targets: explicit targets assignment is missing")
+	rewritten := string(content)
+	if len(updated.Targets) == 0 {
+		removed, ok, err := declaration.RemoveRootAssignment(rewritten, "targets")
+		if err != nil {
+			return "", fmt.Errorf("update hook targets: %w", err)
+		}
+		if ok {
+			rewritten = removed
+		}
+	} else {
+		replaced, ok, err := declaration.ReplaceRootAssignment(rewritten, "targets", renderStringArray(updated.Targets))
+		if err != nil {
+			return "", fmt.Errorf("update hook targets: %w", err)
+		}
+		if ok {
+			rewritten = replaced
+		} else {
+			rewritten = insertHookTargetsAssignment(rewritten, renderStringArray(updated.Targets))
+		}
 	}
 
 	existingByTarget := HookOverridesByTarget(existing.TargetOverrides)
@@ -203,7 +216,29 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 			added = append(added, override)
 		}
 	}
-	return appendHookTargetOverrides(targetsLine, added, strings.HasSuffix(block, "\n")), nil
+	return appendHookTargetOverrides(rewritten, added, strings.HasSuffix(block, "\n")), nil
+}
+
+func insertHookTargetsAssignment(block string, renderedValue string) string {
+	lines := strings.SplitAfter(block, "\n")
+	insertAt := len(lines)
+	for index, line := range lines {
+		header, ok := declaration.ParseTableHeader(strings.TrimSpace(line))
+		if !ok {
+			continue
+		}
+		if header.Array && len(header.Segments) == 2 && header.Segments[0] == "hook" && header.Segments[1] == "target_override" {
+			insertAt = index
+			break
+		}
+	}
+	if insertAt == len(lines) && len(lines) > 0 && lines[len(lines)-1] == "" {
+		insertAt = len(lines) - 1
+	}
+	newLines := append([]string{}, lines[:insertAt]...)
+	newLines = append(newLines, "targets = "+renderedValue+"\n")
+	newLines = append(newLines, lines[insertAt:]...)
+	return strings.Join(newLines, "")
 }
 
 func hookTargetOverrideRanges(block string) []declaration.DocumentRange {

@@ -89,6 +89,54 @@ func TestHookTargetUpdatePreservesUntouchedBytesAndLineEndings(t *testing.T) {
 	}
 }
 
+func TestHookTargetUpdateRewritesCompactAndMultilineAssignments(t *testing.T) {
+	existing := declaration.Hook{Name: "lint", Event: "PreToolUse", Command: "make lint", Targets: []string{"codex"}, Scope: "project"}
+	updated := existing
+	updated.Targets = []string{"claude-code"}
+
+	compact := "[[hook]]\nname = \"lint\"\nevent = \"PreToolUse\"\ncommand = \"make lint\"\ntargets=[\"codex\"]\nscope = \"project\"\n"
+	got, err := UpdateHookTargets(compact, existing, updated)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets compact: %v", err)
+	}
+	if !strings.Contains(got, `targets = ["claude-code"]`) || strings.Contains(got, `targets=["codex"]`) {
+		t.Fatalf("compact assignment not rewritten: %q", got)
+	}
+
+	multiline := "[[hook]]\nname = \"lint\"\nevent = \"PreToolUse\"\ncommand = \"make lint\"\ntargets = [\n  \"codex\",\n]\nscope = \"project\"\n"
+	got, err = UpdateHookTargets(multiline, existing, updated)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets multiline: %v", err)
+	}
+	if !strings.Contains(got, `targets = ["claude-code"]`) || strings.Contains(got, "  \"codex\"") {
+		t.Fatalf("multiline assignment not rewritten: %q", got)
+	}
+}
+
+func TestHookTargetUpdateInsertsWhenInheritedAndRemovesWhenRestored(t *testing.T) {
+	existing := declaration.Hook{Name: "lint", Event: "PreToolUse", Command: "make lint", Scope: "project"}
+	inserted := existing
+	inserted.Targets = []string{"codex"}
+	block := "[[hook]]\nname = \"lint\"\nevent = \"PreToolUse\"\ncommand = \"make lint\"\nscope = \"project\"\n"
+	got, err := UpdateHookTargets(block, existing, inserted)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets insert: %v", err)
+	}
+	if !strings.Contains(got, `targets = ["codex"]`) {
+		t.Fatalf("inherited targets were not materialized: %q", got)
+	}
+
+	explicit := existing
+	explicit.Targets = []string{"codex"}
+	removed, err := UpdateHookTargets(got, explicit, existing)
+	if err != nil {
+		t.Fatalf("UpdateHookTargets remove: %v", err)
+	}
+	if strings.Contains(removed, "targets =") {
+		t.Fatalf("restored inheritance left local targets: %q", removed)
+	}
+}
+
 func TestHookTargetUpdateRemovesOnlyDeselectedOverrideTable(t *testing.T) {
 	existing := declaration.Hook{
 		Name: "lint", Event: "PreToolUse", Command: "make lint", Targets: []string{"codex", "claude-code"},

@@ -120,25 +120,6 @@ func RemoveDocumentRange(content []byte, target DocumentRange) []byte {
 	return output
 }
 
-func ReplaceDocumentAssignmentLine(block string, key string, renderedValue string) (string, bool) {
-	lines := strings.SplitAfter(block, "\n")
-	for index, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), key+" =") {
-			continue
-		}
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		lineEnd := ""
-		if strings.HasSuffix(line, "\r\n") {
-			lineEnd = "\r\n"
-		} else if strings.HasSuffix(line, "\n") {
-			lineEnd = "\n"
-		}
-		lines[index] = indent + key + " = " + renderedValue + lineEnd
-		return strings.Join(lines, ""), true
-	}
-	return block, false
-}
-
 func replaceRange(original []byte, target DocumentRange, replacement []byte) []byte {
 	content := append([]byte{}, original[:target.Start]...)
 	content = append(content, replacement...)

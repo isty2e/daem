@@ -83,16 +83,21 @@ func startsNewSkillGroupTopLevelTable(trimmedLine string) bool {
 }
 
 func ReplaceSkillGroupNames(block string, names []string) string {
-	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "names", renderStringArray(names)); ok {
-		return updated
+	updated, ok, err := declaration.ReplaceRootAssignment(block, "names", renderStringArray(names))
+	if err != nil || !ok {
+		return block
 	}
-	return block
+	return updated
 }
 
 // ReplaceSkillGroupTargets rewrites or inserts the root target assignment
 // before any target-local placement tables.
 func ReplaceSkillGroupTargets(block string, targets []string) string {
-	return replaceSkillTargets(block, "skill_group", targets)
+	updated, err := replaceSkillTargets(block, "skill_group", targets)
+	if err != nil {
+		return block
+	}
+	return updated
 }
 
 func RenderSkillGroupBlock(group SkillGroup) string {

@@ -265,6 +265,65 @@ targets = ["codex"]`)
 	requireNotContains(t, string(updated), `[[hook.target_override]]`)
 }
 
+func TestHookAuthoringPartialRemovalMaterializesInheritedTargets(t *testing.T) {
+	original := []byte(`version = 1
+targets = ["codex", "claude-code"]
+
+[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = "make lint"
+scope = "project"
+`)
+
+	updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+	}
+	if changeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", changeKind)
+	}
+	requireContains(t, string(updated), `targets = ["codex"]`)
+	requireContains(t, string(updated), `name = "lint"`)
+	hookBlock := string(updated)[strings.Index(string(updated), "[[hook]]"):]
+	if !strings.Contains(hookBlock, `targets = ["codex"]`) || strings.Contains(hookBlock, `targets = ["codex", "claude-code"]`) {
+		t.Fatalf("inherited hook targets were not materialized:\n%s", hookBlock)
+	}
+}
+
+func TestHookAuthoringPartialRemovalRestoresInheritanceWhenRemainingMatchesHeader(t *testing.T) {
+	original := []byte(`version = 1
+targets = ["codex"]
+
+[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = "make lint"
+targets = ["codex", "claude-code"]
+scope = "project"
+`)
+
+	updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+	}
+	if changeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", changeKind)
+	}
+	requireContains(t, string(updated), `name = "lint"`)
+	if strings.Count(string(updated), "targets =") != 1 {
+		t.Fatalf("expected only manifest header targets to remain:\n%s", updated)
+	}
+	requireContains(t, string(updated), `targets = ["codex"]`)
+	requireNotContains(t, string(updated), `targets = ["codex", "claude-code"]`)
+}
+
 func TestSkillGroupAuthoringMemberRemovalPreservesNestedSourceAndFollowingResources(t *testing.T) {
 	original := []byte(`[[skill_group]] # user-authored comment
 names = ["alpha", "beta"]

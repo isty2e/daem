@@ -225,6 +225,20 @@ targets = ["codex", "claude-code"]
 	requireSkillContains(t, updated, `name = "alpha"`)
 }
 
+func TestSkillReplaceTargetsRewritesCompactAssignment(t *testing.T) {
+	block := `[[skill]]
+name = "alpha"
+source = { path = "skills/alpha", mode = "vendor" }
+targets=["codex", "claude-code"]
+`
+
+	updated := ReplaceSkillTargets(block, []string{"claude-code"})
+	requireSkillContains(t, updated, `targets = ["claude-code"]`)
+	if strings.Contains(updated, `targets=["codex"`) {
+		t.Fatalf("compact assignment left in place:\n%s", updated)
+	}
+}
+
 func TestSkillReplaceTargetsInsertsBeforeTargetLocalTable(t *testing.T) {
 	block := `[[skill]]
 name = "alpha"

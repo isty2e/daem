@@ -228,6 +228,17 @@ render_to = "CLAUDE.md"
 	requireInstructionNotContains(t, updated, `[instructions."project".target."codex"]`)
 }
 
+func TestReplaceInstructionTargetsRewritesCompactAssignment(t *testing.T) {
+	block := `[instructions."project"]
+source = "AGENTS.md"
+targets=["codex"]
+`
+
+	updated := ReplaceInstructionTargets(block, "project", []string{"claude-code"})
+	requireInstructionContains(t, updated, `targets = ["claude-code"]`)
+	requireInstructionNotContains(t, updated, `targets=["codex"]`)
+}
+
 func TestInstructionTargetTableRemovalIgnoresHeaderLikeStringValues(t *testing.T) {
 	block := `[instructions."project"]
 source = "AGENTS.md"

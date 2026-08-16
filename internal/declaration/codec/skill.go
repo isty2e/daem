@@ -155,7 +155,10 @@ func UpdateSkillTargets(
 	if !skillTargetMapsCompatible(existing.Target, incoming.Target) {
 		return "", fmt.Errorf("skill %q has conflicting target placement metadata", existing.ResourceID())
 	}
-	updated := ReplaceSkillTargets(block, targets)
+	updated, err := replaceSkillTargets(block, "skill", targets)
+	if err != nil {
+		return "", err
+	}
 	return mergeSkillTargetTables(updated, "skill", existing.Target, incoming.Target), nil
 }
 
@@ -175,16 +178,24 @@ func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error)
 }
 
 func ReplaceSkillTargets(block string, targets []string) string {
-	return replaceSkillTargets(block, "skill", targets)
+	updated, err := replaceSkillTargets(block, "skill", targets)
+	if err != nil {
+		return block
+	}
+	return updated
 }
 
-func replaceSkillTargets(block string, root string, targets []string) string {
-	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "targets", renderStringArray(targets)); ok {
-		return updated
+func replaceSkillTargets(block string, root string, targets []string) (string, error) {
+	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return "", fmt.Errorf("replace %s targets: %w", root, err)
+	}
+	if ok {
+		return updated, nil
 	}
 	lines := strings.SplitAfter(block, "\n")
 	if len(lines) == 0 {
-		return "targets = " + renderStringArray(targets) + "\n"
+		return "targets = " + renderStringArray(targets) + "\n", nil
 	}
 	insertAt := len(lines)
 	for index, line := range lines {
@@ -199,7 +210,7 @@ func replaceSkillTargets(block string, root string, targets []string) string {
 	newLines := append([]string{}, lines[:insertAt]...)
 	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
 	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, "")
+	return strings.Join(newLines, ""), nil
 }
 
 func RenderSkillBlock(skill Skill) string {
