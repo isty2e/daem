@@ -241,8 +241,8 @@ func TestResolveBadRepositoryReportsCloneContext(t *testing.T) {
 		t.Fatal("Resolve returned nil error")
 	}
 
-	if !strings.Contains(err.Error(), "fetch git source") {
-		t.Fatalf("error = %q, want fetch context", err)
+	if !strings.Contains(err.Error(), "unobservable") || !strings.Contains(err.Error(), missingRepo) {
+		t.Fatalf("error = %q, want unobservable object-format context for %s", err, missingRepo)
 	}
 }
 

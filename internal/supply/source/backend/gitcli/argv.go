@@ -1,7 +1,19 @@
 package gitcli
 
-func initializeBareRepositoryArgs() []string {
-	return []string{"init", "--bare", "--quiet"}
+func initializeBareRepositoryArgs(format gitObjectFormat) []string {
+	return []string{"init", "--bare", "--quiet", "--object-format=" + string(format)}
+}
+
+func inspectObjectFormatArgs() []string {
+	return []string{"rev-parse", "--show-object-format"}
+}
+
+func localObjectFormatArgs(path string) []string {
+	return []string{"-C", path, "rev-parse", "--show-object-format"}
+}
+
+func lsRemoteRefsArgs(locator string) []string {
+	return []string{"ls-remote", "--refs", "--", locator}
 }
 
 func addOriginArgs(locator string) []string {

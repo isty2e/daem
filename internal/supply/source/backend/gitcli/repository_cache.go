@@ -29,6 +29,7 @@ type cachedRepository struct {
 	path    string
 	key     string
 	locator source.GitLocator
+	format  gitObjectFormat
 }
 
 type repositoryCacheRecord struct {
@@ -311,11 +312,16 @@ func verifyRepositoryRecordAtDestination(
 }
 
 func repositoryForLocator(resolver Resolver, locator source.GitLocator) cachedRepository {
-	key := cacheKey(locator.String())
+	return newCachedRepository(resolver, locator, gitObjectFormatSHA1)
+}
+
+func newCachedRepository(resolver Resolver, locator source.GitLocator, format gitObjectFormat) cachedRepository {
+	locatorValue := locator.String()
 	return cachedRepository{
-		path:    resolver.repositoryPath(locator.String()),
-		key:     key,
+		path:    resolver.repositoryCachePath(locatorValue, format),
+		key:     repositoryCacheDirectoryName(locatorValue, format),
 		locator: locator,
+		format:  format,
 	}
 }
 

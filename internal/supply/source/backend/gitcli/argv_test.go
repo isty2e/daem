@@ -24,13 +24,33 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 	}{
 		{
 			name: "bare repository initialization",
-			got:  initializeBareRepositoryArgs(),
-			want: []string{"init", "--bare", "--quiet"},
+			got:  initializeBareRepositoryArgs(gitObjectFormatSHA1),
+			want: []string{"init", "--bare", "--quiet", "--object-format=sha1"},
+		},
+		{
+			name: "sha256 bare repository initialization",
+			got:  initializeBareRepositoryArgs(gitObjectFormatSHA256),
+			want: []string{"init", "--bare", "--quiet", "--object-format=sha256"},
 		},
 		{
 			name: "origin declaration",
 			got:  addOriginArgs(localPath),
 			want: []string{"remote", "add", "origin", localPath},
+		},
+		{
+			name: "object format inspection",
+			got:  inspectObjectFormatArgs(),
+			want: []string{"rev-parse", "--show-object-format"},
+		},
+		{
+			name: "local object format inspection",
+			got:  localObjectFormatArgs(localPath),
+			want: []string{"-C", localPath, "rev-parse", "--show-object-format"},
+		},
+		{
+			name: "remote object format inspection",
+			got:  lsRemoteRefsArgs("https://example.com/acme/skills.git"),
+			want: []string{"ls-remote", "--refs", "--", "https://example.com/acme/skills.git"},
 		},
 		{
 			name: "bare repository inspection",
@@ -115,6 +135,24 @@ func TestRepositoryGitCommandArgsFixRepositoryAndDisableCachePolicy(t *testing.T
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repositoryGitCommandArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDetachedGitCommandArgsOmitGitDir(t *testing.T) {
+	t.Parallel()
+
+	got := detachedGitCommandArgs([]string{"ls-remote", "--refs", "--", "https://example.com/acme/skills.git"})
+	want := []string{
+		"--no-replace-objects",
+		"-c",
+		"core.hooksPath=" + os.DevNull,
+		"ls-remote",
+		"--refs",
+		"--",
+		"https://example.com/acme/skills.git",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("detachedGitCommandArgs() = %#v, want %#v", got, want)
 	}
 }
 
