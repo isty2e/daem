@@ -173,7 +173,7 @@ func applyRemoveInstructionCandidate(original []byte, candidate removeInstructio
 			return declarationcodec.RemoveInstructionTargetTables(originalBlock, candidate.resourceName, selectedTargets)
 		},
 		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
-			return declarationcodec.ReplaceInstructionTargets(originalBlock, candidate.resourceName, remainingTargets.Values()), nil
+			return declarationcodec.ReplaceInstructionTargets(originalBlock, candidate.resourceName, remainingTargets.Values())
 		},
 	})
 	if err != nil {

@@ -221,11 +221,28 @@ render_to = "CLAUDE.md"
 `
 
 	updated := RemoveInstructionTargetTables(block, "project", []string{"codex"})
-	updated = ReplaceInstructionTargets(updated, "project", []string{"claude-code"})
+	replaced, err := ReplaceInstructionTargets(updated, "project", []string{"claude-code"})
+	if err != nil {
+		t.Fatalf("ReplaceInstructionTargets() error = %v", err)
+	}
 
+	requireInstructionContains(t, replaced, `targets = ["claude-code"]`)
+	requireInstructionContains(t, replaced, `[instructions."project".target."claude-code"]`)
+	requireInstructionNotContains(t, replaced, `[instructions."project".target."codex"]`)
+}
+
+func TestReplaceInstructionTargetsRewritesCompactAssignment(t *testing.T) {
+	block := `[instructions."project"]
+source = "AGENTS.md"
+targets=["codex"]
+`
+
+	updated, err := ReplaceInstructionTargets(block, "project", []string{"claude-code"})
+	if err != nil {
+		t.Fatalf("ReplaceInstructionTargets() error = %v", err)
+	}
 	requireInstructionContains(t, updated, `targets = ["claude-code"]`)
-	requireInstructionContains(t, updated, `[instructions."project".target."claude-code"]`)
-	requireInstructionNotContains(t, updated, `[instructions."project".target."codex"]`)
+	requireInstructionNotContains(t, updated, `targets=["codex"]`)
 }
 
 func TestInstructionTargetTableRemovalIgnoresHeaderLikeStringValues(t *testing.T) {

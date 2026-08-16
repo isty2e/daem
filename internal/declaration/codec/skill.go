@@ -155,7 +155,10 @@ func UpdateSkillTargets(
 	if !skillTargetMapsCompatible(existing.Target, incoming.Target) {
 		return "", fmt.Errorf("skill %q has conflicting target placement metadata", existing.ResourceID())
 	}
-	updated := ReplaceSkillTargets(block, targets)
+	updated, err := replaceSkillTargets(block, "skill", targets)
+	if err != nil {
+		return "", err
+	}
 	return mergeSkillTargetTables(updated, "skill", existing.Target, incoming.Target), nil
 }
 
@@ -174,32 +177,23 @@ func scanSkillEditBlocks(content []byte) ([]declaration.EditBlock[Skill], error)
 	return declarations, nil
 }
 
-func ReplaceSkillTargets(block string, targets []string) string {
+func ReplaceSkillTargets(block string, targets []string) (string, error) {
 	return replaceSkillTargets(block, "skill", targets)
 }
 
-func replaceSkillTargets(block string, root string, targets []string) string {
-	if updated, ok := declaration.ReplaceDocumentAssignmentLine(block, "targets", renderStringArray(targets)); ok {
-		return updated
+func replaceSkillTargets(block string, root string, targets []string) (string, error) {
+	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return "", fmt.Errorf("replace %s targets: %w", root, err)
 	}
-	lines := strings.SplitAfter(block, "\n")
-	if len(lines) == 0 {
-		return "targets = " + renderStringArray(targets) + "\n"
+	if ok {
+		return updated, nil
 	}
-	insertAt := len(lines)
-	for index, line := range lines {
-		if _, ok := parseSkillTargetHeader(strings.TrimSpace(line), root); ok {
-			insertAt = index
-			break
-		}
+	inserted, err := declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return "", fmt.Errorf("replace %s targets: %w", root, err)
 	}
-	if insertAt == len(lines) && lines[len(lines)-1] == "" {
-		insertAt = len(lines) - 1
-	}
-	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
-	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, "")
+	return inserted, nil
 }
 
 func RenderSkillBlock(skill Skill) string {

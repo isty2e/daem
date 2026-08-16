@@ -2,7 +2,9 @@ package declaration
 
 import (
 	"bytes"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestScanDocumentRangesKeepsByteStableBlockRanges(t *testing.T) {
@@ -138,12 +140,15 @@ func TestDocumentChangeSetKeepsAdjacentChangesAndNoOpDeterministic(t *testing.T)
 	}
 }
 
-func TestReplaceDocumentAssignmentLinePreservesIndentAndLineEnding(t *testing.T) {
+func TestReplaceRootAssignmentPreservesIndentAndLineEnding(t *testing.T) {
 	block := "[[skill]]\r\n\t targets = [\"codex\", \"claude-code\"]\r\nname = \"alpha\"\r\n"
 
-	updated, ok := ReplaceDocumentAssignmentLine(block, "targets", "[\"codex\"]")
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
 	if !ok {
-		t.Fatalf("ReplaceDocumentAssignmentLine() ok = false, want true")
+		t.Fatalf("ReplaceRootAssignment() ok = false, want true")
 	}
 	want := "[[skill]]\r\n\t targets = [\"codex\"]\r\nname = \"alpha\"\r\n"
 	if updated != want {
@@ -151,14 +156,231 @@ func TestReplaceDocumentAssignmentLinePreservesIndentAndLineEnding(t *testing.T)
 	}
 }
 
-func TestReplaceDocumentAssignmentLineReportsMissingKey(t *testing.T) {
+func TestReplaceRootAssignmentReportsMissingKey(t *testing.T) {
 	block := "[[skill]]\nname = \"alpha\"\n"
 
-	updated, ok := ReplaceDocumentAssignmentLine(block, "targets", "[\"codex\"]")
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
 	if ok {
-		t.Fatalf("ReplaceDocumentAssignmentLine() ok = true, want false")
+		t.Fatalf("ReplaceRootAssignment() ok = true, want false")
 	}
 	if updated != block {
 		t.Fatalf("updated block = %q, want original %q", updated, block)
+	}
+}
+
+func TestReplaceRootAssignmentCoversCompactMultilineAndComments(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+		want  string
+	}{
+		{
+			name:  "compact no-space equals",
+			block: "[[skill]]\nname = \"alpha\"\ntargets=[\"codex\"]\n",
+			want:  "[[skill]]\nname = \"alpha\"\ntargets = [\"claude-code\"]\n",
+		},
+		{
+			name:  "multiline array",
+			block: "[[skill]]\nname = \"alpha\"\ntargets = [\n  \"codex\",\n  \"pi\",\n]\nscope = \"project\"\n",
+			want:  "[[skill]]\nname = \"alpha\"\ntargets = [\"claude-code\"]\nscope = \"project\"\n",
+		},
+		{
+			name:  "inline comment",
+			block: "[[skill]]\nname = \"alpha\"\ntargets = [\"codex\"] # keep\nscope = \"project\"\n",
+			want:  "[[skill]]\nname = \"alpha\"\ntargets = [\"claude-code\"] # keep\nscope = \"project\"\n",
+		},
+		{
+			name:  "quoted key",
+			block: "[[skill]]\nname = \"alpha\"\n\"targets\" = [\"codex\"]\n",
+			want:  "[[skill]]\nname = \"alpha\"\ntargets = [\"claude-code\"]\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updated, ok, err := ReplaceRootAssignment(test.block, "targets", "[\"claude-code\"]")
+			if err != nil {
+				t.Fatalf("ReplaceRootAssignment() error = %v", err)
+			}
+			if !ok {
+				t.Fatal("ReplaceRootAssignment() ok = false, want true")
+			}
+			if updated != test.want {
+				t.Fatalf("updated block = %q, want %q", updated, test.want)
+			}
+		})
+	}
+}
+
+func TestReplaceRootAssignmentIgnoresNestedTableKeys(t *testing.T) {
+	block := "[[hook]]\nname = \"lint\"\ncommand = \"run\"\n\n[[hook.target_override]]\ntarget = \"codex\"\n"
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("replaced nested table key: %q", updated)
+	}
+}
+
+func TestReplaceRootAssignmentRejectsIncompleteValue(t *testing.T) {
+	block := "[[skill]]\nname = \"alpha\"\ntargets = [\n"
+	_, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err == nil || ok {
+		t.Fatalf("ReplaceRootAssignment() = (%v, %v), want malformed error", ok, err)
+	}
+}
+
+func TestRemoveRootAssignmentRemovesInheritedOverrideLine(t *testing.T) {
+	block := "[[hook]]\nname = \"lint\"\ntargets = [\"codex\"] # keep\ncommand = \"run\"\n"
+	updated, ok, err := RemoveRootAssignment(block, "targets")
+	if err != nil {
+		t.Fatalf("RemoveRootAssignment() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("RemoveRootAssignment() ok = false, want true")
+	}
+	want := "[[hook]]\nname = \"lint\"\ncommand = \"run\"\n"
+	if updated != want {
+		t.Fatalf("updated block = %q, want %q", updated, want)
+	}
+}
+
+func TestReplaceRootAssignmentSkipsDottedKeysAndRewritesTargets(t *testing.T) {
+	block := "[[skill]]\nname = \"oracle\"\ntarget.codex.install_to = \"skills/oracle\"\ntargets = [\"codex\", \"claude-code\"]\n"
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+	}
+	want := "[[skill]]\nname = \"oracle\"\ntarget.codex.install_to = \"skills/oracle\"\ntargets = [\"codex\"]\n"
+	if updated != want {
+		t.Fatalf("updated block = %q, want %q", updated, want)
+	}
+}
+
+func TestReplaceRootAssignmentIgnoresTableLikeMultilineString(t *testing.T) {
+	block := "[[skill]]\nname = \"oracle\"\nnote = \"\"\"\n[skill.codex]\n\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n"
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+	}
+	if !strings.Contains(updated, `targets = ["codex"]`) || strings.Contains(updated, `targets = ["codex", "claude-code"]`) {
+		t.Fatalf("updated block = %q", updated)
+	}
+	if !strings.Contains(updated, "[skill.codex]") {
+		t.Fatalf("multiline string content was rewritten: %q", updated)
+	}
+}
+
+func TestReplaceRootAssignmentLinearOnLongStringValue(t *testing.T) {
+	long := strings.Repeat("a", 32*1024)
+	block := "[[skill]]\nname = \"" + long + "\"\ntargets = [\"codex\"]\n"
+	start := time.Now()
+	updated, ok, err := ReplaceRootAssignment(block, "targets", "[\"claude-code\"]")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("ReplaceRootAssignment() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ReplaceRootAssignment() ok = false, want true")
+	}
+	if !strings.Contains(updated, `targets = ["claude-code"]`) {
+		t.Fatalf("updated block missing rewritten targets")
+	}
+	if elapsed > 250*time.Millisecond {
+		t.Fatalf("ReplaceRootAssignment took %s on 32KiB string, want linear scan", elapsed)
+	}
+}
+
+func TestScanDocumentRangesIgnoresTableHeadersInsideMultilineStrings(t *testing.T) {
+	content := []byte("[[item]]\nnote = \"\"\"\n[[other]]\n\"\"\"\nname = \"one\"\n[[other]]\nname = \"two\"\n")
+	ranges := ScanDocumentRanges(
+		content,
+		func(trimmed string) bool { return trimmed == "[[item]]" || trimmed == "[[other]]" },
+		func(trimmed string) bool {
+			header, ok := ParseTableHeader(trimmed)
+			return ok && header.Array
+		},
+	)
+	if len(ranges) != 2 {
+		t.Fatalf("ScanDocumentRanges() returned %d ranges, want 2", len(ranges))
+	}
+	first := string(content[ranges[0].Start:ranges[0].End])
+	if !strings.Contains(first, "[[other]]") || !strings.Contains(first, `name = "one"`) {
+		t.Fatalf("multiline lookalike truncated the first block: %q", first)
+	}
+	second := string(content[ranges[1].Start:ranges[1].End])
+	if !strings.Contains(second, `name = "two"`) {
+		t.Fatalf("second block = %q", second)
+	}
+}
+
+func TestReplaceRootAssignmentAcceptsFourAndFiveQuoteMultilineEndings(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+	}{
+		{
+			name:  "basic four",
+			block: "[[hook]]\ncommand = \"\"\"echo hi\"\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "basic five",
+			block: "[[hook]]\ncommand = \"\"\"echo hi\"\"\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "literal four",
+			block: "[[hook]]\ncommand = '''echo hi''''\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "literal five",
+			block: "[[hook]]\ncommand = '''echo hi'''''\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updated, ok, err := ReplaceRootAssignment(test.block, "targets", "[\"codex\"]")
+			if err != nil {
+				t.Fatalf("ReplaceRootAssignment() error = %v", err)
+			}
+			if !ok {
+				t.Fatal("ReplaceRootAssignment() ok = false, want true")
+			}
+			if !strings.Contains(updated, `targets = ["codex"]`) || strings.Contains(updated, `targets = ["codex", "claude-code"]`) {
+				t.Fatalf("updated block = %q", updated)
+			}
+		})
+	}
+}
+
+func TestInsertRootAssignmentSeparatesNoFinalNewlineAndPreservesCRLF(t *testing.T) {
+	block := "[[hook]]\nname = \"lint\"\nscope = \"project\""
+	updated, err := InsertRootAssignment(block, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("InsertRootAssignment() error = %v", err)
+	}
+	want := "[[hook]]\nname = \"lint\"\nscope = \"project\"\ntargets = [\"codex\"]\n"
+	if updated != want {
+		t.Fatalf("updated block = %q, want %q", updated, want)
+	}
+
+	crlf := "[[hook]]\r\nname = \"lint\"\r\n\r\n[[hook.target_override]]\r\ntarget = \"codex\"\r\n"
+	inserted, err := InsertRootAssignment(crlf, "targets", "[\"codex\"]")
+	if err != nil {
+		t.Fatalf("InsertRootAssignment(crlf) error = %v", err)
+	}
+	if !strings.Contains(inserted, "\r\ntargets = [\"codex\"]\r\n[[hook.target_override]]") {
+		t.Fatalf("CRLF insert = %q", inserted)
+	}
+	if strings.Contains(strings.ReplaceAll(inserted, "\r\n", ""), "\n") {
+		t.Fatalf("CRLF insert mixed line endings: %q", inserted)
 	}
 }

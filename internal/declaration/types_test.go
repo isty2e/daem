@@ -13,3 +13,15 @@ func TestTargetsIntersectsUsesSetMembershipWithoutEmptyWildcard(t *testing.T) {
 		t.Fatal("disjoint targets intersected")
 	}
 }
+
+func TestTargetsEqualMembershipIgnoresOrderAndKeepsDuplicates(t *testing.T) {
+	if !(Targets{"claude-code", "codex"}).EqualMembership(Targets{"codex", "claude-code"}) {
+		t.Fatal("permuted targets were not equal by membership")
+	}
+	if (Targets{"codex", "codex"}).EqualMembership(Targets{"codex"}) {
+		t.Fatal("duplicate multiplicity was ignored")
+	}
+	if (Targets{"codex"}).EqualMembership(Targets{"claude-code"}) {
+		t.Fatal("disjoint targets compared equal")
+	}
+}

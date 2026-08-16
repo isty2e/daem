@@ -137,7 +137,7 @@ func ApplyRemoveHookToManifest(original []byte, request RemoveHookRequest) ([]by
 	if len(matches) > 1 {
 		return nil, "", fmt.Errorf("hook resource key %q is ambiguous; narrow with --target/--scope", request.ResourceName)
 	}
-	return applyRemoveHookCandidate(original, matches[0], request.Targets)
+	return applyRemoveHookCandidate(original, header, matches[0], request.Targets)
 }
 
 type removeHookCandidate struct {
@@ -185,7 +185,7 @@ func filterRemoveHookCandidates(candidates []removeHookCandidate, request Remove
 	return matches
 }
 
-func applyRemoveHookCandidate(original []byte, candidate removeHookCandidate, selectedTargets []string) ([]byte, string, error) {
+func applyRemoveHookCandidate(original []byte, header declaration.ManifestHeader, candidate removeHookCandidate, selectedTargets []string) ([]byte, string, error) {
 	change, err := declaration.ApplyTargetRemoval(declaration.TargetRemovalInput{
 		Original:        original,
 		Range:           declaration.DocumentRange{Start: candidate.start, End: candidate.end},
@@ -196,8 +196,12 @@ func applyRemoveHookCandidate(original []byte, candidate removeHookCandidate, se
 		},
 		RenderBlockWithTargets: func(originalBlock string, remainingTargets declaration.Targets) (string, error) {
 			remainingHook := candidate.hook
-			remainingHook.Targets = remainingTargets.Values()
 			remainingHook.TargetOverrides = declarationcodec.FilterHookOverrides(candidate.hook.TargetOverrides, remainingTargets.Values())
+			if remainingTargets.EqualMembership(declaration.Targets(header.EffectiveTargets(nil))) {
+				remainingHook.Targets = nil
+			} else {
+				remainingHook.Targets = remainingTargets.Values()
+			}
 			return declarationcodec.UpdateHookTargets(originalBlock, candidate.hook, remainingHook)
 		},
 	})

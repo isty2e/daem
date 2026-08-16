@@ -219,10 +219,30 @@ source = { path = "skills/alpha", mode = "vendor" }
 targets = ["codex", "claude-code"]
 `
 
-	updated := ReplaceSkillTargets(block, []string{"claude-code"})
+	updated, err := ReplaceSkillTargets(block, []string{"claude-code"})
+	if err != nil {
+		t.Fatalf("ReplaceSkillTargets() error = %v", err)
+	}
 
 	requireSkillContains(t, updated, `targets = ["claude-code"]`)
 	requireSkillContains(t, updated, `name = "alpha"`)
+}
+
+func TestSkillReplaceTargetsRewritesCompactAssignment(t *testing.T) {
+	block := `[[skill]]
+name = "alpha"
+source = { path = "skills/alpha", mode = "vendor" }
+targets=["codex", "claude-code"]
+`
+
+	updated, err := ReplaceSkillTargets(block, []string{"claude-code"})
+	if err != nil {
+		t.Fatalf("ReplaceSkillTargets() error = %v", err)
+	}
+	requireSkillContains(t, updated, `targets = ["claude-code"]`)
+	if strings.Contains(updated, `targets=["codex"`) {
+		t.Fatalf("compact assignment left in place:\n%s", updated)
+	}
 }
 
 func TestSkillReplaceTargetsInsertsBeforeTargetLocalTable(t *testing.T) {
@@ -234,7 +254,10 @@ source = { path = "skills/alpha", mode = "vendor" }
 install_to = ".agents/skills"
 `
 
-	updated := ReplaceSkillTargets(block, []string{"codex"})
+	updated, err := ReplaceSkillTargets(block, []string{"codex"})
+	if err != nil {
+		t.Fatalf("ReplaceSkillTargets() error = %v", err)
+	}
 
 	targetsIndex := strings.Index(updated, `targets = ["codex"]`)
 	targetTableIndex := strings.Index(updated, `[skill.target.codex]`)

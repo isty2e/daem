@@ -1,7 +1,6 @@
 package codec
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"strconv"
@@ -29,28 +28,30 @@ type InstructionBlock struct {
 }
 
 func ScanInstructionBlocks(content []byte) ([]InstructionBlock, error) {
-	lines := bytes.SplitAfter(content, []byte("\n"))
 	blocks := make([]InstructionBlock, 0)
-	offset := 0
 	activeStart := -1
 	activeName := ""
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(string(line))
+	var scanErr error
+	declaration.WalkStructuralLines(content, func(lineStart int, trimmed string) bool {
 		name, topLevel, underInstruction := parseInstructionHeader(trimmed)
 		if activeStart >= 0 && startsUnrelatedInstructionTable(trimmed, activeName, name, underInstruction) {
-			block, err := parseInstructionBlock(content, activeStart, offset)
+			block, err := parseInstructionBlock(content, activeStart, lineStart)
 			if err != nil {
-				return nil, err
+				scanErr = err
+				return true
 			}
 			blocks = append(blocks, block)
 			activeStart = -1
 			activeName = ""
 		}
 		if topLevel {
-			activeStart = offset
+			activeStart = lineStart
 			activeName = name
 		}
-		offset += len(line)
+		return false
+	})
+	if scanErr != nil {
+		return nil, scanErr
 	}
 	if activeStart >= 0 {
 		block, err := parseInstructionBlock(content, activeStart, len(content))
@@ -169,7 +170,7 @@ func ApplyInstructionAdd(original []byte, header declaration.ManifestHeader, nam
 				return RenderInstructionBlock(value.Name, value.Instruction)
 			},
 			RenderBlockWithTargets: func(originalBlock string, existing instructionEditDeclaration, _ instructionEditDeclaration, mergedTargets declaration.Targets, _ declaration.ManifestHeader) (string, error) {
-				return ReplaceInstructionTargets(originalBlock, existing.Name, mergedTargets.Values()), nil
+				return ReplaceInstructionTargets(originalBlock, existing.Name, mergedTargets.Values())
 			},
 			DuplicateError: func(key declaration.Key) error {
 				return fmt.Errorf("duplicate instruction name %q", key.Name)
@@ -206,29 +207,16 @@ func effectiveInstructionScope(rawScope string, header declaration.ManifestHeade
 	return header.EffectiveScope(rawScope)
 }
 
-func ReplaceInstructionTargets(block string, instructionName string, targets []string) string {
-	lines := strings.SplitAfter(block, "\n")
-	insertAt := len(lines)
-	for index, line := range lines {
-		nestedName, _, ok := parseInstructionTargetHeader(strings.TrimSpace(line))
-		if ok && nestedName == instructionName {
-			insertAt = index
-			break
-		}
-		if strings.HasPrefix(strings.TrimSpace(line), "targets =") {
-			indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-			lineEnd := ""
-			if strings.HasSuffix(line, "\n") {
-				lineEnd = "\n"
-			}
-			lines[index] = indent + "targets = " + renderStringArray(targets) + lineEnd
-			return strings.Join(lines, "")
-		}
+func ReplaceInstructionTargets(block string, instructionName string, targets []string) (string, error) {
+	_ = instructionName
+	updated, ok, err := declaration.ReplaceRootAssignment(block, "targets", renderStringArray(targets))
+	if err != nil {
+		return "", err
 	}
-	newLines := append([]string{}, lines[:insertAt]...)
-	newLines = append(newLines, "targets = "+renderStringArray(targets)+"\n")
-	newLines = append(newLines, lines[insertAt:]...)
-	return strings.Join(newLines, "")
+	if ok {
+		return updated, nil
+	}
+	return declaration.InsertRootAssignment(block, "targets", renderStringArray(targets))
 }
 
 func RemoveInstructionTargetTables(block string, instructionName string, selectedTargets []string) string {
@@ -237,26 +225,23 @@ func RemoveInstructionTargetTables(block string, instructionName string, selecte
 		selected[target] = struct{}{}
 	}
 
-	lines := bytes.SplitAfter([]byte(block), []byte("\n"))
 	ranges := make([]declaration.DocumentRange, 0)
-	offset := 0
 	activeStart := -1
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(string(line))
+	declaration.WalkStructuralLines([]byte(block), func(lineStart int, trimmed string) bool {
 		if isSingleTOMLTableHeader(trimmed) {
 			if activeStart >= 0 {
-				ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: offset})
+				ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: lineStart})
 				activeStart = -1
 			}
 			name, target, ok := parseInstructionTargetHeader(trimmed)
 			if ok && name == instructionName {
 				if _, selectedTarget := selected[target]; selectedTarget {
-					activeStart = offset
+					activeStart = lineStart
 				}
 			}
 		}
-		offset += len(line)
-	}
+		return false
+	})
 	if activeStart >= 0 {
 		ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: len(block)})
 	}

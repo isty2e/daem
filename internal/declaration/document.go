@@ -70,25 +70,64 @@ func (set DocumentChangeSet) Apply(original []byte) ([]byte, error) {
 }
 
 func ScanDocumentRanges(content []byte, startsBlock func(string) bool, endsBlock func(string) bool) []DocumentRange {
-	lines := bytes.SplitAfter(content, []byte("\n"))
 	ranges := make([]DocumentRange, 0)
-	offset := 0
 	activeStart := -1
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(string(line))
+	WalkStructuralLines(content, func(lineStart int, trimmed string) bool {
 		if activeStart >= 0 && endsBlock(trimmed) {
-			ranges = append(ranges, DocumentRange{Start: activeStart, End: offset})
+			ranges = append(ranges, DocumentRange{Start: activeStart, End: lineStart})
 			activeStart = -1
 		}
 		if startsBlock(trimmed) {
-			activeStart = offset
+			activeStart = lineStart
 		}
-		offset += len(line)
-	}
+		return false
+	})
 	if activeStart >= 0 {
 		ranges = append(ranges, DocumentRange{Start: activeStart, End: len(content)})
 	}
 	return ranges
+}
+
+// WalkStructuralLines visits each physical line whose first token is TOML
+// structure rather than string or comment content. visit receives the line's
+// byte offset and trimmed text; a true return stops the walk. Unclosed values
+// stop the walk without visiting later lines.
+func WalkStructuralLines(content []byte, visit func(lineStart int, trimmed string) bool) {
+	block := string(content)
+	offset := 0
+	for offset < len(block) {
+		lineStart := offset
+		offset = skipHorizontalSpace(block, offset, len(block))
+		if offset >= len(block) {
+			return
+		}
+		switch block[offset] {
+		case '\n', '\r':
+			offset = skipLine(block, offset)
+			continue
+		case '#':
+			offset = skipLine(block, offset)
+			continue
+		}
+		lineEnd := skipLine(block, lineStart)
+		if visit(lineStart, strings.TrimSpace(block[lineStart:lineEnd])) {
+			return
+		}
+		if looksLikeTableHeader(block, offset) {
+			offset = skipLine(block, offset)
+			continue
+		}
+		_, equals, ok := readAssignmentKey(block, offset, len(block))
+		if !ok {
+			offset = skipLine(block, offset)
+			continue
+		}
+		valueEnd, valueOK := skipTOMLValue(block, equals+1, len(block), 0)
+		if !valueOK {
+			return
+		}
+		offset = skipTrailingCommentAndNewline(block, valueEnd)
+	}
 }
 
 func AppendDocumentBlock(original []byte, block string) []byte {
@@ -118,25 +157,6 @@ func RemoveDocumentRange(content []byte, target DocumentRange) []byte {
 		panic(err)
 	}
 	return output
-}
-
-func ReplaceDocumentAssignmentLine(block string, key string, renderedValue string) (string, bool) {
-	lines := strings.SplitAfter(block, "\n")
-	for index, line := range lines {
-		if !strings.HasPrefix(strings.TrimSpace(line), key+" =") {
-			continue
-		}
-		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-		lineEnd := ""
-		if strings.HasSuffix(line, "\r\n") {
-			lineEnd = "\r\n"
-		} else if strings.HasSuffix(line, "\n") {
-			lineEnd = "\n"
-		}
-		lines[index] = indent + key + " = " + renderedValue + lineEnd
-		return strings.Join(lines, ""), true
-	}
-	return block, false
 }
 
 func replaceRange(original []byte, target DocumentRange, replacement []byte) []byte {
