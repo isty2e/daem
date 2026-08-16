@@ -2,12 +2,14 @@ package listworkflow
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/target"
+	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
 func TestRunPathsCoversEveryLocationFamilyAndManifestSelection(t *testing.T) {
@@ -422,4 +424,72 @@ mode = "copy"
 		selected: true, requested: true, defaultChoice: true,
 		selectionSource: LocationSelectionManifestExplicit,
 	})
+}
+
+func TestRunPathsSelectsResourceTargetAbsentFromHeader(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["codex"]
+
+[[mcp_server]]
+name = "repo-tools"
+targets = ["pi"]
+scope = "project"
+transport = "stdio"
+command = "repo-tools"
+`)
+
+	result, err := RunPaths(context.Background(), Input{
+		ManifestPath: manifestPath,
+		TargetValues: []string{"pi"},
+	})
+	if err != nil {
+		t.Fatalf("RunPaths(--target pi) returned error: %v", err)
+	}
+	assertLocationEntry(t, result.Inventory.Entries(), locationExpectation{
+		target: target.TargetPi, scope: target.ScopeProject, resource: entity.KindMCPServer,
+		role: LocationRoleConfig, path: ".pi/mcp.json",
+		selected: true, requested: true,
+	})
+	for _, entry := range result.Inventory.Entries() {
+		if entry.Target() == target.TargetCodex {
+			t.Fatalf("filtered inventory included header-only target: %#v", entry)
+		}
+	}
+}
+
+func TestRunPathsListsHeaderCatalogWhenResourcesAreEmpty(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["codex"]
+`)
+
+	result, err := RunPaths(context.Background(), Input{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("RunPaths returned error: %v", err)
+	}
+	assertLocationEntry(t, result.Inventory.Entries(), locationExpectation{
+		target: target.TargetCodex, scope: target.ScopeProject, resource: entity.KindSkill,
+		role: LocationRoleWrite, path: ".agents/skills",
+		selected: false, requested: false, defaultChoice: true,
+		selectionSource: LocationSelectionProfileDefault,
+	})
+}
+
+func TestRunPathsRejectsSupportedTargetAbsentFromHeaderAndResources(t *testing.T) {
+	manifestPath := writePathInventoryManifest(t, `
+version = 1
+targets = ["codex"]
+`)
+
+	_, err := RunPaths(context.Background(), Input{
+		ManifestPath: manifestPath,
+		TargetValues: []string{"claude-code"},
+	})
+	if err == nil {
+		t.Fatal("RunPaths accepted target absent from header and resources")
+	}
+	if !errors.Is(err, targetselection.ErrInvalid) {
+		t.Fatalf("error = %v, want target selection classification", err)
+	}
 }
