@@ -84,7 +84,7 @@ func inferExtensionAuthoringCarrier(request AddExtensionRequest, header declarat
 		return candidates[0], nil
 	}
 	if len(candidates) == 0 {
-		return "", fmt.Errorf("extension source %q does not identify an admitted row from manifest targets; pass --target and, for global authority, --scope global", request.Source)
+		return "", fmt.Errorf("extension source does not identify an admitted row from manifest targets; pass --target and, for global authority, --scope global")
 	}
 	names := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -92,7 +92,7 @@ func inferExtensionAuthoringCarrier(request AddExtensionRequest, header declarat
 		names = append(names, string(admittedTarget))
 	}
 	sort.Strings(names)
-	return "", fmt.Errorf("extension source %q is ambiguous across manifest targets %s; pass one --target", request.Source, strings.Join(names, ", "))
+	return "", fmt.Errorf("extension source is ambiguous across manifest targets %s; pass one --target", strings.Join(names, ", "))
 }
 
 func extensionAuthoringScopeInput(requestScope string, origin daempaths.ManifestOrigin) string {
@@ -186,7 +186,7 @@ func extensionAuthoringSource(carrier desiredextension.Carrier, value string) (d
 		if value != strings.TrimSpace(value) {
 			return declaration.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
 		}
-		source, err := desiredextension.NewSourceRef(sourceKind, value)
+		source, err := desiredextension.NewAuthoredSourceRef(sourceKind, value)
 		if err != nil {
 			if strings.Contains(err.Error(), "marketplace source must be PLUGIN@MARKETPLACE") {
 				return declaration.ExtensionSource{}, fmt.Errorf("extension source must be PLUGIN@MARKETPLACE for %s", extensionAuthoringSourceTargetOptions(sourceKind))
@@ -201,7 +201,7 @@ func extensionAuthoringSource(carrier desiredextension.Carrier, value string) (d
 		if value != strings.TrimSpace(value) {
 			return declaration.ExtensionSource{}, fmt.Errorf("extension source must not contain leading or trailing whitespace")
 		}
-		source, err := desiredextension.NewSourceRef(sourceKind, value)
+		source, err := desiredextension.NewAuthoredSourceRef(sourceKind, value)
 		if err != nil {
 			return declaration.ExtensionSource{}, err
 		}
@@ -270,7 +270,7 @@ func extensionCanonicalSourceRef(extension declaration.Extension, carrier desire
 	default:
 		return desiredextension.SourceRef{}, fmt.Errorf("%s.source: unsupported extension source kind %q", context, sourceKind)
 	}
-	source, err := desiredextension.NewSourceRef(sourceKind, value)
+	source, err := desiredextension.NewAuthoredSourceRef(sourceKind, value)
 	if err != nil {
 		return desiredextension.SourceRef{}, fmt.Errorf("%s.source: %w", context, err)
 	}

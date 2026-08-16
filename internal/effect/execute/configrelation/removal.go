@@ -62,6 +62,16 @@ func NewRemovalPlan(input RemovalInput) (RemovalPlan, error) {
 	if err != nil {
 		return RemovalPlan{}, fmt.Errorf("direct config relation source: %w", err)
 	}
+	if !source.CredentialFree() {
+		return RemovalPlan{}, errors.New(
+			"direct config relation source must be inspectable and contain no inline credentials",
+		)
+	}
+	if !source.ControlFree() {
+		return RemovalPlan{}, errors.New(
+			"direct config relation source must not contain control characters",
+		)
+	}
 
 	switch {
 	case input.Target == target.TargetOpenCode &&

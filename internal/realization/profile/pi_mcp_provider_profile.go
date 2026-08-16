@@ -58,6 +58,11 @@ func PiMCPProviderContribution(
 	if carrier.Family() != desiredextension.CarrierPiPackage {
 		return extensiontopology.Contribution{}, false, nil
 	}
+	if !carrier.Source().CredentialFree() || !carrier.Source().ControlFree() {
+		return extensiontopology.Contribution{}, false, fmt.Errorf(
+			"Pi MCP provider source is not authorized for provider execution",
+		)
+	}
 	source, err := extensiontopology.InterpretCarrierSource(carrier.Key())
 	if err != nil {
 		return extensiontopology.Contribution{}, false, err

@@ -232,7 +232,7 @@ source = { git = "https://example.com/repo.git", path = ".", ref = "main" }
 				strings.Count(combined, "[REDACTED]") < len(secrets) {
 				t.Fatalf("output = %q, want bounded redacted helper diagnostic", combined)
 			}
-			if !strings.Contains(combined, "https://<redacted>@example.com/repo.git") {
+			if !strings.Contains(combined, "https://[REDACTED]@example.com/repo.git") {
 				t.Fatalf("output = %q, want redacted backend URL", combined)
 			}
 		})

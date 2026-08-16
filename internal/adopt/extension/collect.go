@@ -237,6 +237,28 @@ func newCarrierKey(
 	kind desiredextension.SourceKind,
 	source string,
 ) (desiredextension.CarrierKey, error) {
+	ref, err := desiredextension.NewAuthoredSourceRef(kind, source)
+	if err != nil {
+		return desiredextension.CarrierKey{}, err
+	}
+	return desiredextension.NewCarrierKey(
+		carrier,
+		selectedTarget,
+		scope,
+		ref,
+	)
+}
+
+// newCanonicalCarrierKey reconstructs a carrier key from a derived or
+// canonicalized source that already passed authored admission in its raw
+// spelling, so authored policy is not applied twice to transformed text.
+func newCanonicalCarrierKey(
+	carrier desiredextension.Carrier,
+	selectedTarget target.Target,
+	scope target.Scope,
+	kind desiredextension.SourceKind,
+	source string,
+) (desiredextension.CarrierKey, error) {
 	ref, err := desiredextension.NewSourceRef(kind, source)
 	if err != nil {
 		return desiredextension.CarrierKey{}, err

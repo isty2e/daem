@@ -74,7 +74,48 @@ type MarketplaceSelector struct {
 	marketplace string
 }
 
-// NewSourceRef constructs a validated source reference without resolving it.
+// maxAuthoredSourceRefBytes bounds one newly authored extension source
+// before any structural or credential validation, so a single authored or
+// imported source cannot amplify validation, lock, or host-argument work.
+// The bound applies at authoring ingress, not in the canonical constructor,
+// so sources persisted under earlier schemas keep decoding.
+const maxAuthoredSourceRefBytes = 2048
+
+// NewAuthoredSourceRef validates a source supplied by authoring ingress:
+// manifests, normalization, authoring commands, and adoption, where
+// untrusted text first enters the system. It validates the raw spelling and
+// bounded canonical form once at ingress. Durable or derived reconstruction
+// uses NewSourceRef, which carries no authored policy.
+func NewAuthoredSourceRef(kind SourceKind, ref string) (SourceRef, error) {
+	if len(ref) > maxAuthoredSourceRefBytes {
+		return SourceRef{}, fmt.Errorf("extension source exceeds the admission length limit")
+	}
+	if strings.Contains(ref, "%") {
+		// A source whose escapes do not fully resolve within the bounded
+		// fixed point is uninspectable; authoring rejects it instead of
+		// admitting text later inspection cannot classify.
+		if _, _, stable := credentialtext.CanonicalDecode(ref); !stable {
+			return SourceRef{}, fmt.Errorf("extension source contains malformed percent-encoding")
+		}
+	}
+	source, err := NewSourceRef(kind, ref)
+	if err != nil {
+		return SourceRef{}, err
+	}
+	if err := validateCredentialFreeSourceRef(kind, ref); err != nil {
+		return SourceRef{}, err
+	}
+	if !source.CredentialFree() {
+		return SourceRef{}, fmt.Errorf("extension source must not contain inline credentials")
+	}
+	if !source.ControlFree() {
+		return SourceRef{}, fmt.Errorf("extension source must not contain control characters")
+	}
+	return source, nil
+}
+
+// NewSourceRef reconstructs one structurally valid source reference without
+// granting execution or disclosure authority. Authoring uses NewAuthoredSourceRef.
 func NewSourceRef(kind SourceKind, ref string) (SourceRef, error) {
 	if !utf8.ValidString(ref) {
 		return SourceRef{}, fmt.Errorf("extension source must be valid UTF-8")
@@ -87,9 +128,6 @@ func NewSourceRef(kind SourceKind, ref string) (SourceRef, error) {
 	}
 	if strings.HasPrefix(ref, "-") {
 		return SourceRef{}, fmt.Errorf("extension source must not begin with '-' because host CLIs may parse it as an option")
-	}
-	if err := validateCredentialFreeSourceRef(ref); err != nil {
-		return SourceRef{}, err
 	}
 	switch kind {
 	case SourceKindMarketplace:
@@ -109,7 +147,24 @@ func isUnsafeControl(value rune) bool {
 	return unicode.IsControl(value) || unicode.Is(unicode.Bidi_Control, value)
 }
 
-func validateCredentialFreeSourceRef(ref string) error {
+func validateCredentialFreeSourceRef(kind SourceKind, ref string) error {
+	// Percent-encoded variants can conceal credential delimiters from the
+	// raw-text checks, so the bounded fixed-point decoded form is validated
+	// too. NewAuthoredSourceRef already rejected an unstable decoded form.
+	decoded := ref
+	if strings.Contains(ref, "%") {
+		decoded, _, _ = credentialtext.CanonicalDecode(ref)
+	}
+	if err := validateCredentialFreeSourceRefText(kind, ref); err != nil {
+		return err
+	}
+	if decoded != ref {
+		return validateCredentialFreeSourceRefText(kind, decoded)
+	}
+	return nil
+}
+
+func validateCredentialFreeSourceRefText(kind SourceKind, ref string) error {
 	if strings.Contains(ref, "?") {
 		return fmt.Errorf("extension source must not contain URL query fields")
 	}
@@ -117,29 +172,154 @@ func validateCredentialFreeSourceRef(ref string) error {
 		strings.Contains(fragment, "=") {
 		return fmt.Errorf("extension source fragment must not contain assignments")
 	}
+	if kind == SourceKindMarketplace {
+		if credentialtext.ContainsCredentialAssignment(ref) {
+			return fmt.Errorf("extension source must not contain credential assignments")
+		}
+		return nil
+	}
 
-	parsed, err := url.Parse(ref)
-	if err != nil {
-		return fmt.Errorf("extension source URL is malformed")
-	}
-	if strings.Contains(parsed.Fragment, "=") {
-		return fmt.Errorf("extension source fragment must not contain assignments")
-	}
-	if parsed.User != nil {
-		_, hasPassword := parsed.User.Password()
-		scheme := strings.ToLower(parsed.Scheme)
-		if hasPassword ||
-			scheme == "http" ||
-			scheme == "https" ||
-			strings.HasSuffix(scheme, "+http") ||
-			strings.HasSuffix(scheme, "+https") {
-			return fmt.Errorf("extension source must not contain inline credentials")
+	// scp-style sources carry no URL query or fragment structure, so URL
+	// userinfo parsing applies to every other spelling. A parse failure only
+	// means there is no URL structure to inspect here: malformed authority
+	// shapes fail closed in the nested URL validator, and raw escape forms
+	// fail closed in the stability gate.
+	if !scpLikeGitSource(ref) {
+		if parsed, err := url.Parse(ref); err == nil {
+			if strings.Contains(parsed.Fragment, "=") {
+				return fmt.Errorf("extension source fragment must not contain assignments")
+			}
+			if urlUserInfoCarriesCredential(parsed) {
+				return fmt.Errorf("extension source must not contain inline credentials")
+			}
 		}
 	}
-	if credentialtext.ContainsCredential(ref) {
+	if err := validateNestedURLCredentials(ref); err != nil {
+		return err
+	}
+	if sourceRefContainsCredentialField(kind, ref) {
 		return fmt.Errorf("extension source must not contain credential assignments")
 	}
 	return nil
+}
+
+func sourceRefContainsCredentialField(kind SourceKind, ref string) bool {
+	if kind == SourceKindMarketplace {
+		return credentialtext.ContainsCredentialAssignment(ref)
+	}
+	return hostSourceContainsCredentialField(ref)
+}
+
+// hostSourceContainsCredentialField gives source punctuation to its owning
+// grammar before generic key/value inspection. Authority users, hosts, ports,
+// and source-kind prefixes are structural; only locator payloads and refs can
+// carry credential fields. Userinfo authority is a separate tri-state query.
+func hostSourceContainsCredentialField(ref string) bool {
+	if strings.HasPrefix(ref, "npm:") {
+		spec := strings.TrimPrefix(ref, "npm:")
+		if parsed, ok := ParseNPMPackageSpec(spec); ok {
+			return parsed.containsCredentialField()
+		}
+		return credentialtext.ContainsCredential(spec)
+	}
+	payload := ref
+	if strings.HasPrefix(payload, "git:") {
+		payload = strings.TrimPrefix(payload, "git:")
+	} else if strings.HasPrefix(payload, "github:") {
+		payload = strings.TrimPrefix(payload, "github:")
+	}
+	if _, _, path, ok := splitScpLikeGitSource(payload); ok {
+		return credentialtext.ContainsCredential(path)
+	}
+	if parsed, ok := parseHostSourceURL(payload); ok {
+		return credentialtext.ContainsCredential(strings.TrimPrefix(parsed.EscapedPath(), "/")) ||
+			credentialtext.ContainsCredential(parsed.Fragment)
+	}
+	return credentialtext.ContainsCredential(payload)
+}
+
+func parseHostSourceURL(ref string) (*url.URL, bool) {
+	if !strings.Contains(ref, "://") {
+		return nil, false
+	}
+	parsed, err := url.Parse(ref)
+	return parsed, err == nil && parsed.Hostname() != ""
+}
+
+// urlUserInfoCarriesCredential reports whether one parsed URL's userinfo is
+// credential-bearing: any password, or any userinfo on an http(s) transport.
+func urlUserInfoCarriesCredential(parsed *url.URL) bool {
+	if parsed.User == nil {
+		return false
+	}
+	_, hasPassword := parsed.User.Password()
+	scheme := strings.ToLower(parsed.Scheme)
+	return hasPassword ||
+		scheme == "http" ||
+		scheme == "https" ||
+		strings.HasSuffix(scheme, "+http") ||
+		strings.HasSuffix(scheme, "+https")
+}
+
+// validateNestedURLCredentials interprets each URL embedded in value in one
+// linear pass. Scheme-prefixed sources such as "git:https://user:secret@
+// host/..." are opaque to one top-level URL parse, so each protocol
+// occurrence is classified on its own bounded segment: credential-bearing
+// userinfo is rejected, and an authority-shaped segment that cannot be
+// parsed is rejected because malformed authorities only obscure userinfo
+// inspection.
+func validateNestedURLCredentials(value string) error {
+	marker := strings.Index(value, "://")
+	for marker >= 0 {
+		schemeStart := marker
+		for schemeStart > 0 && isURLSchemeByte(value[schemeStart-1]) {
+			schemeStart--
+		}
+		segmentEnd := len(value)
+		if next := strings.Index(value[marker+3:], "://"); next >= 0 {
+			segmentEnd = marker + 3 + next
+		}
+		segment := value[schemeStart:segmentEnd]
+		parsed, err := url.Parse(segment)
+		switch {
+		case err != nil && authorityHasUserInfoShape(segment):
+			return fmt.Errorf("extension source contains a malformed URL authority")
+		case err == nil && urlUserInfoCarriesCredential(parsed):
+			return fmt.Errorf("extension source must not contain inline credentials")
+		}
+		if segmentEnd == len(value) {
+			return nil
+		}
+		marker = segmentEnd
+	}
+	return nil
+}
+
+// authorityHasUserInfoShape reports whether segment's URL authority is
+// shaped to carry userinfo or a bracketed host, so a parse failure can hide
+// credential-relevant structure.
+func authorityHasUserInfoShape(segment string) bool {
+	authority := segment
+	if marker := strings.Index(authority, "://"); marker >= 0 {
+		authority = authority[marker+3:]
+	}
+	if end := strings.IndexAny(authority, "/?#"); end >= 0 {
+		authority = authority[:end]
+	}
+	return strings.Contains(authority, "@") || strings.Contains(authority, "[")
+}
+
+func isURLSchemeByte(value byte) bool {
+	switch {
+	case value >= 'A' && value <= 'Z':
+		return true
+	case value >= 'a' && value <= 'z':
+		return true
+	case value >= '0' && value <= '9':
+		return true
+	default:
+		return value == '+' || value == '-' || value == '.'
+	}
 }
 
 // Kind returns the source namespace.
@@ -148,9 +328,65 @@ func (source SourceRef) Kind() SourceKind { return source.kind }
 // Ref returns the exact host-native source reference.
 func (source SourceRef) Ref() string { return source.ref }
 
-// MarketplaceSelector returns the structured selector for a valid marketplace source.
+// CredentialFree reports whether the selected grammar proves that the raw and
+// canonical source carry no query fields, assignment fragments, credential
+// fields, or password userinfo. Older durable values may remain structurally
+// valid without this execution and disclosure authority. Marketplace ':' and
+// '@' bytes are selector data rather than Git or URL userinfo.
+func (source SourceRef) CredentialFree() bool {
+	decoded, _, stable := credentialtext.CanonicalDecode(source.ref)
+	if !stable ||
+		validateCredentialFreeSourceRef(source.kind, source.ref) != nil ||
+		!credentialFreeSourceRefText(source.kind, source.ref) {
+		return false
+	}
+	if source.kind == SourceKindMarketplace && decoded != source.ref {
+		_, ok := marketplaceSelector(decoded)
+		return ok && !credentialtext.ContainsCredentialAssignment(decoded)
+	}
+	return true
+}
+
+// ControlFree reports whether raw and canonical source text contain no Unicode
+// control or Bidi_Control characters. Authoring rejects such sources; durable
+// reconstruction may still carry encoded controls without this effect or
+// disclosure authority.
+func (source SourceRef) ControlFree() bool {
+	decoded, _, stable := credentialtext.CanonicalDecode(source.ref)
+	if !stable {
+		return false
+	}
+	return strings.IndexFunc(source.ref, isUnsafeControl) < 0 &&
+		strings.IndexFunc(decoded, isUnsafeControl) < 0
+}
+
+func credentialFreeSourceRefText(kind SourceKind, ref string) bool {
+	switch kind {
+	case SourceKindMarketplace:
+		_, ok := marketplaceSelector(ref)
+		return ok && !credentialtext.ContainsCredentialAssignment(ref)
+	case SourceKindHostSource:
+		if spec, found := strings.CutPrefix(ref, "npm:"); found {
+			if parsed, ok := ParseNPMPackageSpec(spec); ok {
+				return parsed.CredentialFree()
+			}
+		}
+		if gitSource, ok := ParseGitSource(ref); ok {
+			return gitSource.CredentialFree() &&
+				!hostSourceContainsCredentialField(ref)
+		}
+		return !hostSourceContainsCredentialField(ref) &&
+			credentialtext.InspectPasswordUserInfo(ref) ==
+				credentialtext.UserInfoAbsent
+	default:
+		return false
+	}
+}
+
+// MarketplaceSelector returns the structured selector only when raw and
+// canonical source forms carry credential-free marketplace authority.
 func (source SourceRef) MarketplaceSelector() (MarketplaceSelector, bool) {
-	if source.kind != SourceKindMarketplace {
+	if source.kind != SourceKindMarketplace || !source.CredentialFree() {
 		return MarketplaceSelector{}, false
 	}
 	return marketplaceSelector(source.ref)
@@ -202,7 +438,7 @@ func ParseSourceRef(value string) (SourceRef, error) {
 		return SourceRef{}, err
 	}
 	if source.String() != value {
-		return SourceRef{}, fmt.Errorf("extension source %q is not canonical", value)
+		return SourceRef{}, fmt.Errorf("extension source namespace is not canonical")
 	}
 	return source, nil
 }

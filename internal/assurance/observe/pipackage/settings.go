@@ -92,6 +92,19 @@ func (inventory Inventory) Entries() ([]Entry, error) {
 	return entries, nil
 }
 
+// EntriesAdmitted applies admit to every raw source before any identity or
+// normalization work runs, then returns Entries. Import flows own admission
+// policy; observation keeps Entries permissive so stored rows remain
+// observable evidence.
+func (inventory Inventory) EntriesAdmitted(admit func(source string) error) ([]Entry, error) {
+	for index, documentEntry := range inventory.document.Entries() {
+		if err := admit(documentEntry.Source()); err != nil {
+			return nil, fmt.Errorf("admit Pi settings package source[%d]: %w", index, err)
+		}
+	}
+	return inventory.Entries()
+}
+
 // ReadSettings reads only the selected settings file. A missing file is fresh
 // empty evidence; malformed, unstable, symlinked, or unreadable files are
 // errors and must never become evidence of absence.

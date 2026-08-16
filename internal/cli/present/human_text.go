@@ -186,12 +186,13 @@ func BoundedErrorEvidence(err error, maximumRunes int) string {
 	}
 	upstreamTruncated := buffer.Truncated() || omitted
 	result := subprocess.NewCapturePolicy(nil, maximumRunes).
-		Sanitize(buffer.String(), upstreamTruncated)
-	evidence := result.Text()
-	if upstreamTruncated && !strings.HasSuffix(evidence, errorEvidenceTruncationMarker) {
-		evidence += errorEvidenceTruncationMarker
-	}
-	return evidence
+		SanitizeUsing(buffer.String(), upstreamTruncated, nil, func(text string) string {
+			if upstreamTruncated && !strings.HasSuffix(text, errorEvidenceTruncationMarker) {
+				return text + errorEvidenceTruncationMarker
+			}
+			return text
+		})
+	return result.Text()
 }
 
 func writeErrorEvidenceLeaf(

@@ -110,26 +110,72 @@ func NewCapturePolicy(secrets []string, limit int) CapturePolicy {
 // a secret prefix at an upstream truncation boundary, normalizes invalid UTF-8,
 // and then applies the policy's rune limit.
 func (policy CapturePolicy) Sanitize(value string, upstreamTruncated bool) CaptureResult {
+	return policy.SanitizeUsing(value, upstreamTruncated, nil, nil)
+}
+
+// SanitizeUsing is Sanitize with optional extra redaction spans and a
+// presentation transform. Extra spans are collected from the
+// control-sanitized text, the same observation surface as shared credential
+// detection. The transformed surface is sanitized and inspected again before
+// the rune bound: a display rewrite may expose credential grammar that was not
+// present in the raw spelling, but it cannot make that grammar public.
+func (policy CapturePolicy) SanitizeUsing(
+	value string,
+	upstreamTruncated bool,
+	spans func(string) []credentialtext.Span,
+	beforeBound func(string) string,
+) CaptureResult {
 	text := value
 	boundaryRedacted := false
 	if upstreamTruncated {
 		text, boundaryRedacted = redactTruncatedSecretSuffix(text, policy.secrets)
 	}
 	text, controlRedacted := sanitizeTerminalControls(strings.ToValidUTF8(text, "\uFFFD"))
-	// Structural redaction comes first so an explicit value equal to a key such
-	// as "token" cannot erase the key before its associated value is removed.
-	text, fragmentRedacted := redactSecretFragments(text)
-	text, explicitRedacted := redactExplicitSecrets(text, policy.secrets)
+	var extra []credentialtext.Span
+	if spans != nil {
+		extra = spans(text)
+	}
+	// Structural, userinfo, explicit-secret, and caller spans are redacted in
+	// one pass over the raw and decoded forms, so a later rewrite cannot
+	// destroy the grammar a detector still needs.
+	text, fragmentRedacted := redactSecretFragments(text, policy.secrets, extra)
 	if upstreamTruncated {
 		var normalizedBoundaryRedacted bool
 		text, normalizedBoundaryRedacted = redactTruncatedSecretSuffix(text, policy.secrets)
 		boundaryRedacted = boundaryRedacted || normalizedBoundaryRedacted
 	}
+	if beforeBound != nil {
+		text = beforeBound(text)
+		var transformedControlRedacted bool
+		text, transformedControlRedacted = sanitizeTerminalControls(
+			strings.ToValidUTF8(text, "\uFFFD"),
+		)
+		controlRedacted = controlRedacted || transformedControlRedacted
+		var transformedExtra []credentialtext.Span
+		if spans != nil {
+			transformedExtra = spans(text)
+		}
+		var transformedFragmentRedacted bool
+		text, transformedFragmentRedacted = redactSecretFragments(
+			text,
+			policy.secrets,
+			transformedExtra,
+		)
+		fragmentRedacted = fragmentRedacted || transformedFragmentRedacted
+		if upstreamTruncated {
+			var transformedBoundaryRedacted bool
+			text, transformedBoundaryRedacted = redactTruncatedSecretSuffix(
+				text,
+				policy.secrets,
+			)
+			boundaryRedacted = boundaryRedacted || transformedBoundaryRedacted
+		}
+	}
 	text, bounded := boundRunes(text, policy.limit)
 	return CaptureResult{
 		text:      text,
 		truncated: upstreamTruncated || bounded,
-		redacted:  controlRedacted || fragmentRedacted || explicitRedacted || boundaryRedacted,
+		redacted:  controlRedacted || fragmentRedacted || boundaryRedacted,
 	}
 }
 
@@ -234,19 +280,6 @@ func consumeSGR(value string, escapeIndex int) (int, bool) {
 	return index + 1, true
 }
 
-func redactExplicitSecrets(value string, secrets []string) (string, bool) {
-	result := value
-	redacted := false
-	for _, secret := range secrets {
-		if !strings.Contains(result, secret) {
-			continue
-		}
-		result = strings.ReplaceAll(result, secret, redactionMarker)
-		redacted = true
-	}
-	return result, redacted
-}
-
 func redactTruncatedSecretSuffix(value string, secrets []string) (string, bool) {
 	for _, secret := range secrets {
 		maximum := min(len(value), len(secret)-1)
@@ -257,11 +290,34 @@ func redactTruncatedSecretSuffix(value string, secrets []string) (string, bool) 
 			}
 		}
 	}
+	// An upstream truncation can cut a percent-encoded secret mid-escape, so
+	// the decoded inspection form is checked for a secret prefix too and the
+	// match is mapped back to its raw span. A form that does not stabilize is
+	// uninspectable and fails closed, matching the structural redaction
+	// contract.
+	decoded, offsets, stable := credentialtext.CanonicalDecode(value)
+	if !stable {
+		return redactionMarker, true
+	}
+	if offsets != nil && decoded != value {
+		for _, secret := range secrets {
+			maximum := min(len(decoded), len(secret)-1)
+			for size := maximum; size > 0; size-- {
+				prefix := secret[:size]
+				if before, ok := strings.CutSuffix(decoded, prefix); ok {
+					return value[:int(offsets[len(before)])] + redactionMarker, true
+				}
+			}
+		}
+	}
 	return value, false
 }
 
-func redactSecretFragments(value string) (string, bool) {
-	return credentialtext.Redact(value, redactionMarker)
+func redactSecretFragments(value string, secrets []string, extra []credentialtext.Span) (string, bool) {
+	if len(extra) == 0 {
+		return credentialtext.Redact(value, redactionMarker, secrets)
+	}
+	return credentialtext.RedactWithSpans(value, redactionMarker, secrets, extra)
 }
 
 func boundRunes(value string, limit int) (string, bool) {

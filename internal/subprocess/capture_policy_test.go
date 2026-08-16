@@ -23,6 +23,8 @@ func TestPolicySanitizeHostileCorpus(t *testing.T) {
 		{name: "quoted YAML value", value: `secret: 'quoted value'`, want: "secret: [REDACTED]", redacted: true},
 		{name: "escaped quote", value: `password="a\"b"`, want: "password=[REDACTED]", redacted: true},
 		{name: "unterminated quote", value: `password="unterminated`, want: "password=[REDACTED]", redacted: true},
+		{name: "unterminated quoted multi-token", value: `password="first actual-secret`, want: "password=[REDACTED]", redacted: true},
+		{name: "unterminated quoted multiline", value: "password=\"first\nactual-secret", want: "password=[REDACTED]", redacted: true},
 		{name: "case and key spelling", value: "API-KEY = value", want: "API-KEY = [REDACTED]", redacted: true},
 		{name: "private token", value: "private_token=boundary-secret", want: "private_token=[REDACTED]", redacted: true},
 		{name: "access token", value: `"access-token":"boundary-secret"`, want: `"access-token":[REDACTED]`, redacted: true},
@@ -38,12 +40,45 @@ func TestPolicySanitizeHostileCorpus(t *testing.T) {
 		{name: "passphrase", value: "sshPassphrase=boundary-secret", want: "sshPassphrase=[REDACTED]", redacted: true},
 		{name: "authorization scheme", value: "Authorization: Bearer boundary-secret", want: "Authorization: [REDACTED]", redacted: true},
 		{name: "authorization preserves later line", value: "Authorization: Bearer boundary-secret\nstatus=failed", want: "Authorization: [REDACTED]\nstatus=failed", redacted: true},
+		{name: "authorization quoted suffix", value: `Authorization: "Bearer first" inherited-secret`, want: "Authorization: [REDACTED]", redacted: true},
+		{name: "authorization prefixed quoted continuation", value: "Authorization: Bearer \"first\r\nactual-secret\"", want: "Authorization: [REDACTED]", redacted: true},
+		{name: "opaque key prefixed quoted continuation", value: "ключ: prefix \"first\r\nactual-secret\"", want: "ключ: [REDACTED]", redacted: true},
+		{name: "authorization digest quoted continuation", value: "Authorization: Digest realm=\"public\", response=\"first\r\nactual-secret\"", want: "Authorization: [REDACTED]", redacted: true},
+		{name: "token bearer scheme", value: "token: Bearer boundary-secret", want: "token: [REDACTED]", redacted: true},
+		{name: "token format-split bearer scheme", value: "token: Bea\u200brer boundary-secret suffix", want: "token: [REDACTED]", redacted: true},
+		{name: "token encoded format-split bearer scheme", value: "token: Bea%E2%80%8Brer boundary-secret suffix", want: "token: [REDACTED]", redacted: true},
+		{name: "bare format-split bearer value", value: "Bearer boundary\u2060secret suffix", want: "Bearer [REDACTED]", redacted: true},
+		{name: "bare invalid UTF-8 bearer marker", value: "Bea" + string([]byte{0xff}) + "rer boundary-secret", want: "[REDACTED]", redacted: true},
+		{name: "bare encoded invalid UTF-8 bearer value", value: "Bearer boundary%FFsecret", want: "[REDACTED]", redacted: true},
+		{name: "uppercase interleaved format bearer", value: "B\u200bE\u2060A\u200bR\u2060E\u200bR boundary-secret", want: "B\u200bE\u2060A\u200bR\u2060E\u200bR [REDACTED]", redacted: true},
+		{name: "format bearer quoted value", value: "Bearer\u2060\"boundary secret\" suffix", want: "Bearer\u2060[REDACTED]", redacted: true},
+		{name: "double encoded format bearer marker", value: "Bea%25E2%2580%258Brer boundary-secret", want: "Bea%25E2%2580%258Brer [REDACTED]", redacted: true},
+		{name: "encoded invalid bearer preserves no next-line suffix", value: "Bearer boundary%FFsecret\nstatus=failed", want: "[REDACTED]", redacted: true},
+		{name: "repeated bearer line", value: "Bearer first Bearer second", want: "Bearer [REDACTED]", redacted: true},
+		{name: "bearer word stays", value: "the bearerless result", want: "the bearerless result"},
+		{name: "password bearer scheme", value: "password=Bearer boundary-secret", want: "password=[REDACTED]", redacted: true},
 		{name: "credential after benign field", value: "status=failed Authorization: Bearer boundary-secret", want: "status=failed Authorization: [REDACTED]", redacted: true},
 		{name: "credentials on separate lines", value: "token=first\nstatus=failed Authorization: Basic second", want: "token=[REDACTED]\nstatus=failed Authorization: [REDACTED]", redacted: true},
 		{name: "credential preserves later evidence", value: "access_token=boundary-secret cache=/machine/path", want: "access_token=[REDACTED] cache=/machine/path", redacted: true},
 		{name: "multiline separator", value: "token: \n value", want: "token: \n [REDACTED]", redacted: true},
 		{name: "CRLF separator", value: "token:\r\n value", want: "token:\r\n [REDACTED]", redacted: true},
 		{name: "unicode value", value: "token=秘密", want: "token=[REDACTED]", redacted: true},
+		{name: "option style token", value: "npm install --token=boundary-secret ok", want: "npm install --token=[REDACTED] ok", redacted: true},
+		{name: "option style api key", value: "--api-key=boundary-secret", want: "--api-key=[REDACTED]", redacted: true},
+		{name: "option style after selector", value: "npm:tool@--client-secret=boundary-secret", want: "npm:tool@--client-secret=[REDACTED]", redacted: true},
+		{name: "option style quoted value", value: `install --password="boundary secret"`, want: "install --password=[REDACTED]", redacted: true},
+		{name: "encoded option delimiter", value: "npm install --token%3Dboundary-secret ok", want: "npm install --token%3D[REDACTED] ok", redacted: true},
+		{name: "encoded credential key", value: "npm:tool@%74oken=boundary-secret", want: "npm:tool@%74oken=[REDACTED]", redacted: true},
+		{name: "url userinfo password", value: "git clone https://user:boundary-secret@example.com/repo", want: "git clone https://[REDACTED]@example.com/repo", redacted: true},
+		{name: "encoded url userinfo", value: "git clone https://user:boundary-secret%40example.com/repo", want: "git clone https://[REDACTED]%40example.com/repo", redacted: true},
+		{name: "ssh transport user stays", value: "clone ssh://git@example.com/repo", want: "clone ssh://git@example.com/repo"},
+		{name: "benign encoded text stays", value: "progress%20report ok", want: "progress%20report ok"},
+		{name: "overlapping userinfo and credential field", value: "https://token=boundary-secret@password=boundary-secret", want: "https://[REDACTED]", redacted: true},
+		{name: "encoded explicit secret", value: "loading actual%20secret%2Fvalue done", secrets: []string{"actual secret/value"}, want: "loading [REDACTED] done", redacted: true},
+		{name: "malformed escape withholds value", value: "install --token%3Dboundary-secret trailing%zz", want: "[REDACTED]", redacted: true},
+		{name: "beyond budget escape withholds value", value: "install --token%25252525253Dboundary-secret", want: "[REDACTED]", redacted: true},
+		{name: "unstable explicit secret withholds value", value: "actual%252525252520secret", secrets: []string{"actual secret"}, want: "[REDACTED]", redacted: true},
+		{name: "benign options stay", value: "install --verbose --count 3", want: "install --verbose --count 3"},
 		{name: "explicit value matches key", value: "token=unlisted-value", secrets: []string{"token"}, want: "[REDACTED]=[REDACTED]", redacted: true},
 		{name: "embedded key text", value: "mytoken=value", want: "mytoken=value"},
 		{name: "non-secret compound key", value: "token_count=2", want: "token_count=2"},
@@ -56,6 +91,17 @@ func TestPolicySanitizeHostileCorpus(t *testing.T) {
 		{name: "standalone carriage return rejected", value: "secret\rcover", want: "[REDACTED]", redacted: true},
 		{name: "bidi override rejected", value: "visible\u202ereordered", want: "[REDACTED]", redacted: true},
 		{name: "bidi isolate rejected", value: "visible\u2066isolated", want: "[REDACTED]", redacted: true},
+		{name: "encoded NUL splits token key", value: "install --to%00ken=actual-secret ok", want: "install --to%00ken=[REDACTED]", redacted: true},
+		{name: "encoded TAB splits token key", value: "install --to%09ken=actual-secret", want: "install --to%09ken=[REDACTED]", redacted: true},
+		{name: "encoded LF splits token key", value: "install --to%0Aken=actual-secret", want: "install --to%0Aken=[REDACTED]", redacted: true},
+		{name: "encoded NUL splits access key", value: "access%00key=actual-secret", want: "access%00key=[REDACTED]", redacted: true},
+		{name: "encoded NUL splits Bearer scheme", value: "Bearer%00actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "encoded TAB splits Bearer scheme", value: "Bea%09rer actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "encoded LF splits Bearer scheme", value: "Bea%0Arer actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "encoded CR splits Bearer scheme", value: "Bea%0Drer actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "raw TAB splits Bearer scheme", value: "Bea\trer actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "raw LF splits Bearer scheme", value: "Bea\nrer actual-secret leftover", want: "[REDACTED]", redacted: true},
+		{name: "tab between non-credential keys stays", value: "name%09path=/tmp/foo", want: "name%09path=/tmp/foo"},
 	}
 
 	for _, test := range tests {
@@ -83,6 +129,20 @@ func TestPolicySanitizeRedactsBeforeRuneBounding(t *testing.T) {
 	}
 }
 
+func TestPolicySanitizeReinspectsThePresentationTransform(t *testing.T) {
+	result := NewCapturePolicy([]string{"actual-secret"}, 1024).SanitizeUsing(
+		"actual\u200b-secret",
+		false,
+		nil,
+		func(value string) string {
+			return strings.ReplaceAll(value, "\u200b", "")
+		},
+	)
+	if result.Text() != "[REDACTED]" || !result.Redacted() {
+		t.Fatalf("result = %q redacted=%t, want transformed secret redacted", result.Text(), result.Redacted())
+	}
+}
+
 func TestPolicySanitizeRedactsTruncatedSecretPrefix(t *testing.T) {
 	result := NewCapturePolicy([]string{"super-secret"}, 1024).Sanitize("runner saw super-", true)
 	if result.Text() != "runner saw [REDACTED]" || !result.Redacted() || !result.Truncated() {
@@ -92,6 +152,16 @@ func TestPolicySanitizeRedactsTruncatedSecretPrefix(t *testing.T) {
 	unchanged := NewCapturePolicy([]string{"super-secret"}, 1024).Sanitize("runner stopped elsewhere", true)
 	if unchanged.Text() != "runner stopped elsewhere" || unchanged.Redacted() || !unchanged.Truncated() {
 		t.Fatalf("unrelated result = %q redacted=%t truncated=%t", unchanged.Text(), unchanged.Redacted(), unchanged.Truncated())
+	}
+}
+
+func TestPolicySanitizeRedactsEncodedTruncatedSecretPrefix(t *testing.T) {
+	// An upstream truncation can cut a percent-encoded secret mid-escape, so
+	// the decoded inspection form is checked for a secret prefix too and the
+	// match is mapped back to its raw span.
+	result := NewCapturePolicy([]string{"super-secret"}, 1024).Sanitize("runner saw super%2Dsec", true)
+	if result.Text() != "runner saw [REDACTED]" || !result.Redacted() || !result.Truncated() {
+		t.Fatalf("result = %q redacted=%t truncated=%t", result.Text(), result.Redacted(), result.Truncated())
 	}
 }
 

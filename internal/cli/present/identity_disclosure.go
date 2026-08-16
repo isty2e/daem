@@ -3,9 +3,11 @@ package clipresent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/url"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/credentialtext"
@@ -43,12 +45,45 @@ func verboseIdentityDisclosureFor(value string) identityDisclosure {
 	return redactedIdentityDisclosure(value)
 }
 
-func carrierDerivedIdentityDisclosureFor(value string) identityDisclosure {
-	if len(value) <= maximumCarrierDerivedDisclosureBytes &&
-		!identityRequiresCredentialRedaction(value) {
-		return identityDisclosure{value: value}
+func carrierSourceRefDisclosureFor(source desiredextension.SourceRef) identityDisclosure {
+	value := source.Ref()
+	if len(value) > maximumIdentityDisclosureBytes ||
+		!source.CredentialFree() ||
+		!source.ControlFree() {
+		return redactedIdentityDisclosure(value)
 	}
-	return redactedIdentityDisclosure(value)
+	_, _, stable := credentialtext.CanonicalDecode(value)
+	if !stable {
+		return redactedIdentityDisclosure(value)
+	}
+	return identityDisclosure{value: value}
+}
+
+// grammarProvenCarrierDerivedIdentityDisclosureFor projects identities whose
+// dynamic source component has already passed SourceRef's contextual grammar.
+// Re-parsing the derived string as a generic URL would give marketplace ':'
+// and '@' characters a meaning they do not have in that namespace.
+func grammarProvenCarrierDerivedIdentityDisclosureFor(
+	value string,
+	sourceRef string,
+) identityDisclosure {
+	if len(value) > maximumCarrierDerivedDisclosureBytes {
+		return redactedIdentityDisclosure(value)
+	}
+	_, _, stable := credentialtext.CanonicalDecode(value)
+	if !stable || sourceRef == "" {
+		return redactedIdentityDisclosure(value)
+	}
+	inspection := strings.ReplaceAll(value, sourceRef, "carrier-source")
+	quotedSource, _ := json.Marshal(sourceRef)
+	escapedSource := string(quotedSource[1 : len(quotedSource)-1])
+	if escapedSource != sourceRef {
+		inspection = strings.ReplaceAll(inspection, escapedSource, "carrier-source")
+	}
+	if identityRequiresCredentialRedaction(inspection) {
+		return redactedIdentityDisclosure(value)
+	}
+	return identityDisclosure{value: value}
 }
 
 func hostLoadIdentityDisclosureFor(
@@ -90,27 +125,96 @@ func identityRequiresRedaction(value string) bool {
 	if identityRequiresSensitiveRedaction(value) {
 		return true
 	}
-	lowerValue := strings.ToLower(value)
-	if filepath.IsAbs(value) ||
-		strings.HasPrefix(lowerValue, "file:") ||
-		strings.Contains(lowerValue, ":file:") ||
-		strings.HasPrefix(lowerValue, "local:") ||
-		credentialtext.ContainsAssignment(value) ||
-		hasLocalPathPrefix(value) ||
-		isWindowsAbsolutePath(value) {
+	decoded, _, stable := credentialtext.CanonicalDecode(value)
+	if !stable {
 		return true
+	}
+	return localPathIdentityShape(value) ||
+		decoded != value && localPathIdentityShape(decoded)
+}
+
+// localPathIdentityShape reports whether value, or any ref-delimited part of
+// it, is shaped like a machine-local path. '@' and '#' delimit refs in git
+// spellings, and each part is classified on its own so a local path carried
+// by a ref cannot hide inside an otherwise public locator.
+func localPathIdentityShape(value string) bool {
+	if credentialtext.ContainsAssignment(value) || localPathShape(value) {
+		return true
+	}
+	for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == '@' || r == '#' }) {
+		if localPathShape(part) {
+			return true
+		}
 	}
 	return false
 }
 
+func localPathShape(value string) bool {
+	lowerValue := strings.ToLower(value)
+	return filepath.IsAbs(value) ||
+		strings.HasPrefix(lowerValue, "file:") ||
+		strings.Contains(lowerValue, ":file:") ||
+		strings.HasPrefix(lowerValue, "local:") ||
+		hasLocalPathPrefix(value) ||
+		isWindowsAbsolutePath(value) ||
+		containsFileScheme(lowerValue)
+}
+
+// containsFileScheme reports whether lowerValue contains a file-scheme
+// occurrence at a scheme boundary followed by '/'. File URLs locate
+// machine-local state wherever they appear in an identity.
+func containsFileScheme(lowerValue string) bool {
+	searchFrom := 0
+	for {
+		index := strings.Index(lowerValue[searchFrom:], "file:")
+		if index < 0 {
+			return false
+		}
+		index += searchFrom
+		searchFrom = index + 1
+		end := index + len("file:")
+		if end >= len(lowerValue) || lowerValue[end] != '/' {
+			continue
+		}
+		if index == 0 || !isSchemeByte(lowerValue[index-1]) {
+			return true
+		}
+	}
+}
+
+func isSchemeByte(value byte) bool {
+	return value >= 'a' && value <= 'z' ||
+		value >= '0' && value <= '9' ||
+		value == '+' || value == '-' || value == '.'
+}
+
 func identityRequiresSensitiveRedaction(value string) bool {
-	return len(value) > maximumIdentityDisclosureBytes ||
-		identityRequiresCredentialRedaction(value)
+	if len(value) > maximumIdentityDisclosureBytes {
+		return true
+	}
+	// Unresolved escapes leave credential inspection blind, so every
+	// disclosure path, default and verbose alike, fails closed here instead
+	// of trusting a best-effort scan.
+	decoded, _, stable := credentialtext.CanonicalDecode(value)
+	if !stable {
+		return true
+	}
+	if strings.IndexFunc(value, identityHasUnsafeControl) >= 0 ||
+		strings.IndexFunc(decoded, identityHasUnsafeControl) >= 0 {
+		return true
+	}
+	return identityRequiresCredentialRedaction(value)
+}
+
+func identityHasUnsafeControl(value rune) bool {
+	return unicode.IsControl(value) || unicode.Is(unicode.Bidi_Control, value)
 }
 
 func identityRequiresCredentialRedaction(value string) bool {
+	passwordUserInfo := credentialtext.InspectPasswordUserInfo(value)
 	if strings.Contains(value, "?") ||
-		hasURLUserInfo(value) ||
+		credentialtext.ContainsURLUserInfo(value) ||
+		passwordUserInfo == credentialtext.UserInfoUninspectable ||
 		credentialtext.ContainsCredential(value) {
 		return true
 	}
@@ -120,8 +224,7 @@ func identityRequiresCredentialRedaction(value string) bool {
 	}
 	return parsed.User != nil ||
 		parsed.RawQuery != "" ||
-		strings.Contains(parsed.Fragment, "=") ||
-		strings.Contains(strings.ToLower(value), "%3d")
+		strings.Contains(parsed.Fragment, "=")
 }
 
 type carrierIdentityDisclosure struct {
@@ -153,29 +256,31 @@ type carrierSourceIdentityDisclosure struct {
 func carrierSourceIdentityDisclosureFor(
 	carrier extensiontopology.Carrier,
 ) carrierSourceIdentityDisclosure {
-	sourceRef := identityDisclosureFor(carrier.Source().Ref())
+	grammarSourceRef := carrierSourceRefDisclosureFor(carrier.Source())
 	publicSource := carrierSourceAllowsPublicDisclosure(carrier)
 	disclose := func(value string) identityDisclosure {
-		if publicSource {
-			return carrierDerivedIdentityDisclosureFor(value)
+		if publicSource && !grammarSourceRef.Redacted() {
+			return grammarProvenCarrierDerivedIdentityDisclosureFor(
+				value,
+				carrier.Source().Ref(),
+			)
 		}
-		disclosure := identityDisclosureFor(value)
-		if !disclosure.Redacted() {
-			return redactedIdentityDisclosure(value)
-		}
-		return disclosure
+		return redactedIdentityDisclosure(value)
 	}
+	sourceRef := grammarSourceRef
 	if !publicSource && !sourceRef.Redacted() {
-		sourceRef = redactedIdentityDisclosure(carrier.Source().Ref())
+		sourceRef = redactedIdentityDisclosure(sourceRef.Value())
 	}
-	verboseSourceRef := verboseIdentityDisclosureFor(carrier.Source().Ref())
+	verboseSourceRef := grammarSourceRef
 	verboseRedactDerivedIdentity := verboseSourceRef.Redacted()
 	verboseDisclose := func(value string) identityDisclosure {
-		disclosure := verboseIdentityDisclosureFor(value)
-		if verboseRedactDerivedIdentity && !disclosure.Redacted() {
+		if verboseRedactDerivedIdentity {
 			return redactedIdentityDisclosure(value)
 		}
-		return disclosure
+		return grammarProvenCarrierDerivedIdentityDisclosureFor(
+			value,
+			carrier.Source().Ref(),
+		)
 	}
 
 	carrierSubject := planJSONSubjectFor(carrier.SubjectID())
@@ -257,7 +362,7 @@ func carrierIdentityDisclosureFor(
 }
 
 func carrierSourceAllowsPublicDisclosure(carrier extensiontopology.Carrier) bool {
-	if identityDisclosureFor(carrier.Source().Ref()).Redacted() {
+	if carrierSourceRefDisclosureFor(carrier.Source()).Redacted() {
 		return false
 	}
 	interpreted, err := extensiontopology.InterpretCarrierSource(carrier.Key())
@@ -414,24 +519,6 @@ func hasLocalPathPrefix(value string) bool {
 		}
 	}
 	return false
-}
-
-func hasURLUserInfo(value string) bool {
-	remaining := value
-	for {
-		marker := strings.Index(remaining, "://")
-		if marker < 0 {
-			return false
-		}
-		authority := remaining[marker+3:]
-		if end := strings.IndexAny(authority, "/?#"); end >= 0 {
-			authority = authority[:end]
-		}
-		if strings.Contains(authority, "@") {
-			return true
-		}
-		remaining = remaining[marker+3:]
-	}
 }
 
 func isWindowsAbsolutePath(value string) bool {

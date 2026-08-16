@@ -39,6 +39,31 @@ func TestReadSettingsCorrelatesOnlyExactManagedPiSource(t *testing.T) {
 	}
 }
 
+func TestReadSettingsCorrelatesExactGitPlusSourceWithoutLocalFallback(t *testing.T) {
+	for _, source := range []string{
+		"git+https://github.com/acme/tools.git#v1",
+		"git+https://git.example/repo.git#v1",
+		"git+https://example.com/acme/100%25-tool.git#v1",
+		"git+https://github.com/acme/tools%40scope.git",
+	} {
+		t.Run(source, func(t *testing.T) {
+			root := t.TempDir()
+			agentRoot := filepath.Join(root, "agent")
+			projectRoot := filepath.Join(root, "project")
+			writeSettings(t, filepath.Join(agentRoot, "settings.json"), `{"packages":[`+quoted(source)+`]}`)
+
+			inventory := mustReadSettings(t, observepipackage.SettingsInput{
+				ConfigRoot:  agentRoot,
+				WorkDir:     projectRoot,
+				ProjectRoot: projectRoot,
+				Scope:       target.ScopeGlobal,
+			})
+			result := mustCorrelate(t, source, projectRoot, target.ScopeGlobal, inventory)
+			assertCorrelationState(t, result, observerelation.StateExactCorrelation)
+		})
+	}
+}
+
 func TestCorrelateBlocksPiEquivalentButTextuallyDifferentSources(t *testing.T) {
 	tests := []struct {
 		name     string

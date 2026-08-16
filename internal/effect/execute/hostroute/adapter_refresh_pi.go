@@ -37,7 +37,7 @@ func buildPiPackageCarrierRefreshCommand(
 			"Pi package carrier refresh supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validatePiHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 

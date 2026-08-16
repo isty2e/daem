@@ -63,6 +63,21 @@ func TestPiMCPProviderContributionRejectsUnboundedOrOutOfProfileSelectors(t *tes
 	}
 }
 
+func TestPiMCPProviderContributionRejectsCredentialBearingDurableSource(t *testing.T) {
+	carrier := piProviderProfileCarrier(
+		t,
+		target.ScopeProject,
+		"npm:pi-mcp-adapter@token = actual-secret",
+	)
+	_, admitted, err := profile.PiMCPProviderContribution(carrier)
+	if err == nil || admitted {
+		t.Fatalf("PiMCPProviderContribution = admitted:%t error:%v, want authority rejection", admitted, err)
+	}
+	if strings.Contains(err.Error(), "actual-secret") {
+		t.Fatalf("PiMCPProviderContribution exposed source credential: %q", err)
+	}
+}
+
 func TestMCPProviderCodecForCurrentVersionMapsStableCompatibleFamily(t *testing.T) {
 	carrier := piProviderProfileCarrier(
 		t,

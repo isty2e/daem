@@ -2,7 +2,6 @@ package extension
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -196,17 +195,22 @@ func interpretPiPackageSource(source string) (CarrierSource, error) {
 			identityPrivacy:  privacy,
 		}, nil
 	}
-	if piSourceIsLocal(source) {
+	// Git grammar is the authority on git-shaped sources and runs before any
+	// local interpretation, so direct scp spellings and other prefix-less git
+	// forms are not claimed by the local fallback. Local semantics apply only
+	// to what the grammar fails to parse.
+	if gitSource, ok := desiredextension.ParseGitSource(source); ok {
+		privacy := CarrierSourceIdentityPublic
+		if !gitSource.Public() {
+			privacy = CarrierSourceIdentityPrivate
+		}
 		return CarrierSource{
-			class:            CarrierSourceLocal,
-			identity:         source,
-			relationIdentity: source,
+			class:            CarrierSourceGit,
+			identity:         gitSource.Identity(),
+			relationIdentity: gitSource.Identity(),
 			relationEvidence: RelationEvidenceSourceExact,
-			identityPrivacy:  CarrierSourceIdentityPrivate,
+			identityPrivacy:  privacy,
 		}, nil
-	}
-	if identity, ok := gitSourceIdentity(source); ok {
-		return identity, nil
 	}
 	return CarrierSource{
 		class:            CarrierSourceLocal,
@@ -244,101 +248,11 @@ func interpretAntigravityCLIPluginSource(source string) CarrierSource {
 // admitted OpenCode package source. Opaque host-source values are not packages.
 func OpenCodePluginPackageName(source string) (string, bool) {
 	spec := strings.TrimPrefix(source, "npm:")
-	parsed, ok := parseNPMPackageSpec(spec)
-	if !ok || (parsed.hasSelector && !registryNPMSelector(parsed.selector)) {
+	parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
+	if !ok || !parsed.DirectRegistry() {
 		return "", false
 	}
-	return parsed.name, true
-}
-
-type npmPackageSpec struct {
-	name        string
-	selector    string
-	hasSelector bool
-}
-
-func parseNPMPackageSpec(spec string) (npmPackageSpec, bool) {
-	if spec == "" || strings.HasSuffix(spec, "@") {
-		return npmPackageSpec{}, false
-	}
-	name := npmRelationIdentity(spec)
-	if !validOpenCodeNPMPackageName(name) {
-		return npmPackageSpec{}, false
-	}
-	hasSelector := name != spec
-	selector := ""
-	if hasSelector {
-		selector = spec[len(name)+1:]
-	}
-	return npmPackageSpec{name: name, selector: selector, hasSelector: hasSelector}, true
-}
-
-func registryNPMSelector(selector string) bool {
-	if selector == "" || strings.TrimSpace(selector) != selector {
-		return false
-	}
-	tokenStart := 0
-	for index, character := range selector {
-		switch {
-		case character >= 'a' && character <= 'z':
-		case character >= 'A' && character <= 'Z':
-		case character >= '0' && character <= '9':
-		case character == '.', character == '-', character == '_':
-		case character == '+', character == '*', character == '<':
-		case character == '>', character == '~', character == '^':
-		case character == '|':
-			if (index == 0 || selector[index-1] != '|') &&
-				(index+1 == len(selector) || selector[index+1] != '|') {
-				return false
-			}
-			if index != 0 && selector[index-1] == '|' {
-				tokenStart = index + 1
-			}
-		case character == '=':
-			if index != tokenStart &&
-				!(index == tokenStart+1 &&
-					(selector[tokenStart] == '<' || selector[tokenStart] == '>')) {
-				return false
-			}
-		case character == ' ':
-			tokenStart = index + 1
-		default:
-			return false
-		}
-	}
-	return true
-}
-
-func validOpenCodeNPMPackageName(name string) bool {
-	if name == "" ||
-		strings.ContainsRune(name, '\\') ||
-		strings.HasPrefix(name, ".") ||
-		strings.HasSuffix(name, ".") {
-		return false
-	}
-	if strings.HasPrefix(name, "@") {
-		scope, packageName, ok := strings.Cut(strings.TrimPrefix(name, "@"), "/")
-		return ok && validOpenCodeNPMPackageSegment(scope) &&
-			validOpenCodeNPMPackageSegment(packageName)
-	}
-	return validOpenCodeNPMPackageSegment(name)
-}
-
-func validOpenCodeNPMPackageSegment(segment string) bool {
-	if segment == "" || segment == "." || segment == ".." {
-		return false
-	}
-	for _, character := range segment {
-		switch {
-		case character >= 'a' && character <= 'z':
-		case character >= 'A' && character <= 'Z':
-		case character >= '0' && character <= '9':
-		case character == '-', character == '_', character == '.':
-		default:
-			return false
-		}
-	}
-	return true
+	return parsed.Name(), true
 }
 
 func stableMarketplaceIdentityToken(value string) bool {
@@ -362,19 +276,15 @@ func stableMarketplaceIdentityToken(value string) bool {
 
 func piHostLoadIdentityIsPublic(identity string) bool {
 	if spec, found := strings.CutPrefix(identity, "npm:"); found {
-		parsed, ok := parseNPMPackageSpec(spec)
-		return ok && !parsed.hasSelector && parsed.name == spec
+		parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
+		return ok && !parsed.HasSelector() && parsed.Name() == spec
 	}
 	value, found := strings.CutPrefix(identity, "git:")
 	if !found {
 		return false
 	}
-	host, path, found := strings.Cut(value, "/")
-	if !found {
-		return false
-	}
-	source, ok := buildGitSource(host, path)
-	return ok && source.Identity() == value
+	source, ok := desiredextension.ParseGitSource(identity)
+	return ok && source.Public() && source.Identity() == value
 }
 
 func npmSourceIdentity(
@@ -383,19 +293,22 @@ func npmSourceIdentity(
 	if spec == "" {
 		return "", "", fmt.Errorf("npm package source name is required")
 	}
-	identity := npmRelationIdentity(spec)
-	parsed, ok := parseNPMPackageSpec(spec)
+	identity := legacyNPMRelationIdentity(spec)
+	parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
 	if !ok {
 		return identity, CarrierSourceIdentityPrivate, nil
 	}
 	privacy := CarrierSourceIdentityPublic
-	if parsed.hasSelector && !registryNPMSelector(parsed.selector) {
+	if !parsed.Public() {
 		privacy = CarrierSourceIdentityPrivate
 	}
-	return identity, privacy, nil
+	return parsed.Name(), privacy, nil
 }
 
-func npmRelationIdentity(spec string) string {
+// legacyNPMRelationIdentity preserves the bounded same-subject diagnostic key
+// for malformed npm-prefixed rows without treating that fallback as admitted
+// package grammar.
+func legacyNPMRelationIdentity(spec string) string {
 	searchFrom := 0
 	if strings.HasPrefix(spec, "@") {
 		searchFrom = 1
@@ -409,146 +322,4 @@ func npmRelationIdentity(spec string) string {
 		return spec
 	}
 	return spec[:separator]
-}
-
-func piSourceIsLocal(source string) bool {
-	for _, prefix := range []string{"npm:", "git:", "github:", "http:", "https:", "ssh:"} {
-		if strings.HasPrefix(source, prefix) {
-			return false
-		}
-	}
-	return true
-}
-
-func gitSourceIdentity(source string) (CarrierSource, bool) {
-	value := strings.TrimSpace(source)
-	if strings.HasPrefix(value, "github:") {
-		repository, _ := splitGitRef(strings.TrimPrefix(value, "github:"))
-		return buildGitSource("github.com", repository)
-	}
-	hasGitPrefix := strings.HasPrefix(value, "git:")
-	if hasGitPrefix {
-		value = strings.TrimSpace(strings.TrimPrefix(value, "git:"))
-	} else if !hasExplicitGitProtocol(value) {
-		return CarrierSource{}, false
-	}
-
-	repository, _ := splitGitRef(value)
-	if strings.HasPrefix(repository, "git@") {
-		parts := strings.SplitN(strings.TrimPrefix(repository, "git@"), ":", 2)
-		if len(parts) != 2 {
-			return CarrierSource{}, false
-		}
-		return buildGitSource(parts[0], parts[1])
-	}
-	if hasExplicitGitProtocol(repository) {
-		parsed, err := url.Parse(repository)
-		if err != nil || parsed.Hostname() == "" {
-			return CarrierSource{}, false
-		}
-		return buildGitSource(parsed.Hostname(), strings.TrimPrefix(parsed.EscapedPath(), "/"))
-	}
-	if !hasGitPrefix {
-		return CarrierSource{}, false
-	}
-	parts := strings.SplitN(repository, "/", 2)
-	if len(parts) != 2 || (!strings.Contains(parts[0], ".") && parts[0] != "localhost") {
-		return CarrierSource{}, false
-	}
-	return buildGitSource(parts[0], parts[1])
-}
-
-func hasExplicitGitProtocol(value string) bool {
-	return strings.HasPrefix(value, "http://") ||
-		strings.HasPrefix(value, "https://") ||
-		strings.HasPrefix(value, "ssh://") ||
-		strings.HasPrefix(value, "git://")
-}
-
-func splitGitRef(value string) (string, string) {
-	if strings.HasPrefix(value, "git@") {
-		colon := strings.IndexByte(value, ':')
-		if colon < 0 {
-			return value, ""
-		}
-		if separator := strings.IndexByte(value[colon+1:], '@'); separator >= 0 {
-			index := colon + 1 + separator
-			if index > colon+1 && index+1 < len(value) {
-				return value[:index], value[index+1:]
-			}
-		}
-		return value, ""
-	}
-	if strings.Contains(value, "://") {
-		parsed, err := url.Parse(value)
-		if err != nil {
-			return value, ""
-		}
-		path := parsed.Path
-		if separator := strings.IndexByte(strings.TrimPrefix(path, "/"), '@'); separator >= 0 {
-			offset := 0
-			if strings.HasPrefix(path, "/") {
-				offset = 1
-			}
-			index := offset + separator
-			if index > offset && index+1 < len(path) {
-				ref := path[index+1:]
-				parsed.Path = path[:index]
-				return strings.TrimSuffix(parsed.String(), "/"), ref
-			}
-		}
-		return value, ""
-	}
-	slash := strings.IndexByte(value, '/')
-	if slash >= 0 {
-		if separator := strings.IndexByte(value[slash+1:], '@'); separator >= 0 {
-			index := slash + 1 + separator
-			if index > slash+1 && index+1 < len(value) {
-				return value[:index], value[index+1:]
-			}
-		}
-	}
-	return value, ""
-}
-
-func buildGitSource(host string, path string) (CarrierSource, bool) {
-	if strings.HasPrefix(path, "/") {
-		return CarrierSource{}, false
-	}
-	normalizedPath := strings.TrimPrefix(path, "/")
-	normalizedPath = strings.TrimSuffix(normalizedPath, ".git")
-	if host == "" || normalizedPath == "" || len(strings.Split(normalizedPath, "/")) < 2 {
-		return CarrierSource{}, false
-	}
-	if unsafeGitSourcePart(host, false) || unsafeGitSourcePart(normalizedPath, true) {
-		return CarrierSource{}, false
-	}
-	return CarrierSource{
-		class:            CarrierSourceGit,
-		identity:         host + "/" + normalizedPath,
-		relationIdentity: host + "/" + normalizedPath,
-		relationEvidence: RelationEvidenceSourceExact,
-		identityPrivacy:  CarrierSourceIdentityPublic,
-	}, true
-}
-
-func unsafeGitSourcePart(value string, allowSlash bool) bool {
-	decoded, err := url.PathUnescape(value)
-	if err != nil {
-		return true
-	}
-	for _, candidate := range []string{value, decoded} {
-		if strings.ContainsRune(candidate, '\x00') ||
-			strings.Contains(candidate, `\`) ||
-			strings.HasPrefix(candidate, "/") ||
-			(!allowSlash && strings.Contains(candidate, "/")) {
-			return true
-		}
-		for _, part := range strings.Split(candidate, "/") {
-			if part == ".." {
-				return true
-			}
-		}
-	}
-	return false
 }

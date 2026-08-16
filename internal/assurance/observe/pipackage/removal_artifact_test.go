@@ -45,6 +45,30 @@ func TestObserveRemovalClassifiesManagedArtifactsByFreshFilesystemState(t *testi
 			source:   "https://github.com/acme/tools.git@v1",
 			relative: filepath.Join("git", "github.com", "acme", "tools"),
 		},
+		{
+			name:     "single segment git repository",
+			scope:    target.ScopeGlobal,
+			source:   "git+https://git.example/repo.git#v1",
+			relative: filepath.Join("git", "git.example", "repo"),
+		},
+		{
+			name:     "encoded at sign in git path",
+			scope:    target.ScopeGlobal,
+			source:   "git+https://github.com/acme/tools%40scope.git",
+			relative: filepath.Join("git", "github.com", "acme", "tools@scope"),
+		},
+		{
+			name:     "literal percent in git path",
+			scope:    target.ScopeGlobal,
+			source:   "git+https://example.com/acme/100%25-tool.git#v1",
+			relative: filepath.Join("git", "example.com", "acme", "100%-tool"),
+		},
+		{
+			name:     "plus-host git",
+			scope:    target.ScopeGlobal,
+			source:   "git:git@short+host:acme/tools.git@v1",
+			relative: filepath.Join("git", "short+host", "acme", "tools"),
+		},
 	}
 
 	for _, test := range tests {
@@ -218,6 +242,22 @@ func TestObserveRemovalNeverTurnsUnsafeOrMalformedEvidenceIntoAbsence(t *testing
 		),
 	}); err == nil || !strings.Contains(err.Error(), "packages must be an array") {
 		t.Fatalf("malformed settings error = %v", err)
+	}
+}
+
+func TestGitInstallRelativeRejectsUnobservableHostsAndControl(t *testing.T) {
+	if relative, err := gitInstallRelative("short+host/acme/tools"); err != nil {
+		t.Fatalf("plus-host gitInstallRelative: %v", err)
+	} else if relative != filepath.FromSlash("short+host/acme/tools") {
+		t.Fatalf("plus-host relative = %q", relative)
+	}
+	for _, identity := range []string{
+		"2001:db8::1/acme/tool",
+		"example.com/acme/tool\nforged",
+	} {
+		if _, err := gitInstallRelative(identity); err == nil {
+			t.Fatalf("gitInstallRelative(%q) admitted unobservable identity", identity)
+		}
 	}
 }
 

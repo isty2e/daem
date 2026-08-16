@@ -810,6 +810,9 @@ examples per successful action kind, every attempted-but-unverified or retained
 residue class, failures, and a next action only when more work is needed.
 `--verbose` adds state/content paths, reason codes, selected source/ref, and
 bounded evidence. Raw subprocess output and secret values are never printed.
+Diagnostic redaction observes both the captured spelling and the final
+display-normalized spelling, so format or whitespace normalization cannot
+create a newly visible credential form after inspection.
 
 Status and apply-dry-run JSON use plan schema version `12`. The document contains
 the derived lockfile status, lock-only resources, typed actions, delegated

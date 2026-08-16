@@ -6,8 +6,10 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	artifactaccess "github.com/isty2e/daem/internal/supply/artifact/access"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
@@ -80,26 +82,19 @@ func gitInstallRelative(identity string) (string, error) {
 	host, repositoryPath, present := strings.Cut(identity, "/")
 	if !present ||
 		!validGitHost(host) ||
-		repositoryPath == "" {
+		repositoryPath == "" ||
+		strings.IndexFunc(identity, gitIdentityHasUnsafeControl) >= 0 {
 		return "", fmt.Errorf("Pi git package identity %q is not path-safe", identity)
 	}
 	return filepath.FromSlash(identity), nil
 }
 
 func validGitHost(host string) bool {
-	if host == "" || host != strings.ToLower(host) {
-		return false
-	}
-	for _, character := range host {
-		if (character >= 'a' && character <= 'z') ||
-			(character >= '0' && character <= '9') ||
-			character == '.' ||
-			character == '-' {
-			continue
-		}
-		return false
-	}
-	return true
+	return desiredextension.PathSafeGitHost(host)
+}
+
+func gitIdentityHasUnsafeControl(value rune) bool {
+	return unicode.IsControl(value) || unicode.Is(unicode.Bidi_Control, value)
 }
 
 func npmInstallParts(identity string) ([]string, error) {

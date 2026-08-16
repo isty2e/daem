@@ -44,7 +44,7 @@ func buildCodexPluginCarrierRefreshCommand(
 			"Codex plugin marketplace refresh requires source selector PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(selector.Marketplace(), subject); err != nil {
+	if err := validateHostRouteArg(selector.Marketplace(), subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 
