@@ -411,6 +411,132 @@ func TestHookAuthoringMaterializesInheritedTargetsWithoutFinalNewline(t *testing
 	requireContains(t, hookBlock, `targets = ["codex"]`)
 }
 
+func TestHookAuthoringTargetRemovalKeepsMultilineCommandTableLookalikes(t *testing.T) {
+	original := []byte(`version = 1
+targets = ["codex", "claude-code"]
+
+[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = """
+echo before
+[[skill]]
+echo after
+"""
+targets = ["codex", "claude-code"]
+scope = "project"
+`)
+
+	updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+	}
+	if changeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", changeKind)
+	}
+	if string(updated) == string(original) {
+		t.Fatal("claimed target update left the manifest byte-identical")
+	}
+	hookBlock := string(updated)[strings.Index(string(updated), "[[hook]]"):]
+	requireContains(t, hookBlock, "[[skill]]")
+	requireContains(t, hookBlock, `targets = ["codex"]`)
+	requireNotContains(t, hookBlock, `targets = ["codex", "claude-code"]`)
+
+	blocks, err := declarationcodec.ScanHookBlocks(updated)
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("ScanHookBlocks = %#v, %v", blocks, err)
+	}
+	if got := blocks[0].Hook.Targets; len(got) != 1 || got[0] != "codex" {
+		t.Fatalf("decoded hook targets = %#v, want [codex]", got)
+	}
+	if !strings.Contains(blocks[0].Hook.Command, "[[skill]]") {
+		t.Fatalf("decoded command lost table lookalike: %q", blocks[0].Hook.Command)
+	}
+}
+
+func TestHookAuthoringTargetRemovalIgnoresOverrideLookalikeInMultilineCommand(t *testing.T) {
+	original := []byte(`[[hook]]
+name = "lint"
+event = "PreToolUse"
+command = """
+echo before
+[[hook.target_override]]
+echo after
+"""
+targets = ["codex", "claude-code"]
+
+[[hook.target_override]]
+target = "codex"
+`)
+
+	updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+		ResourceName: "lint",
+		Targets:      []string{"claude-code"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+	}
+	if changeKind != "update hook targets" {
+		t.Fatalf("change kind = %q, want update hook targets", changeKind)
+	}
+	hookBlock := string(updated)[strings.Index(string(updated), "[[hook]]"):]
+	requireContains(t, hookBlock, "[[hook.target_override]]")
+	requireContains(t, hookBlock, `target = "codex"`)
+	requireContains(t, hookBlock, `targets = ["codex"]`)
+
+	blocks, err := declarationcodec.ScanHookBlocks(updated)
+	if err != nil || len(blocks) != 1 {
+		t.Fatalf("ScanHookBlocks = %#v, %v", blocks, err)
+	}
+	if got := blocks[0].Hook.TargetOverrides; len(got) != 1 || got[0].Target != "codex" {
+		t.Fatalf("decoded overrides = %#v, want [{codex}]", got)
+	}
+}
+
+func TestHookAuthoringTargetRemovalAcceptsFourAndFiveQuoteMultilineEndings(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{name: "basic four", command: `command = """echo hi""""`},
+		{name: "basic five", command: `command = """echo hi"""""`},
+		{name: "literal four", command: `command = '''echo hi''''`},
+		{name: "literal five", command: `command = '''echo hi'''''`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			original := []byte("[[hook]]\nname = \"lint\"\nevent = \"PreToolUse\"\n" + test.command + "\ntargets = [\"codex\", \"claude-code\"]\nscope = \"project\"\n")
+			updated, changeKind, err := ApplyRemoveHookToManifest(original, RemoveHookRequest{
+				ResourceName: "lint",
+				Targets:      []string{"claude-code"},
+			})
+			if err != nil {
+				t.Fatalf("ApplyRemoveHookToManifest() error = %v", err)
+			}
+			if changeKind != "update hook targets" {
+				t.Fatalf("change kind = %q, want update hook targets", changeKind)
+			}
+			if string(updated) == string(original) {
+				t.Fatal("claimed target update left the manifest byte-identical")
+			}
+			hookBlock := string(updated)[strings.Index(string(updated), "[[hook]]"):]
+			requireContains(t, hookBlock, `targets = ["codex"]`)
+			requireNotContains(t, hookBlock, `targets = ["codex", "claude-code"]`)
+
+			blocks, err := declarationcodec.ScanHookBlocks(updated)
+			if err != nil || len(blocks) != 1 {
+				t.Fatalf("ScanHookBlocks = %#v, %v", blocks, err)
+			}
+			if got := blocks[0].Hook.Targets; len(got) != 1 || got[0] != "codex" {
+				t.Fatalf("decoded hook targets = %#v, want [codex]", got)
+			}
+		})
+	}
+}
+
 func TestSkillGroupAuthoringMemberRemovalPreservesNestedSourceAndFollowingResources(t *testing.T) {
 	original := []byte(`[[skill_group]] # user-authored comment
 names = ["alpha", "beta"]

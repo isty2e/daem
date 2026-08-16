@@ -158,10 +158,19 @@ func skipTOMLString(block string, start int, limit int, allowMultiline bool) (in
 		if !multiline {
 			return index + 1, true
 		}
-		if index+2 < limit && block[index+1] == quote && block[index+2] == quote {
-			return index + 3, true
+		run := 1
+		for index+run < limit && block[index+run] == quote {
+			run++
 		}
-		index++
+		if run < 3 {
+			index += run
+			continue
+		}
+		// TOML allows 3-5 consecutive quotes at close (0-2 content quotes plus delimiter).
+		if run > 5 {
+			return -1, false
+		}
+		return index + run, true
 	}
 	return -1, false
 }
@@ -273,6 +282,14 @@ func skipKeyWhitespace(block string, offset int, limit int) int {
 		default:
 			return index
 		}
+	}
+	return index
+}
+
+func skipHorizontalSpace(block string, offset int, limit int) int {
+	index := offset
+	for index < limit && (block[index] == ' ' || block[index] == '\t') {
+		index++
 	}
 	return index
 }

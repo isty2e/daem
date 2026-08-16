@@ -300,6 +300,67 @@ func TestReplaceRootAssignmentLinearOnLongStringValue(t *testing.T) {
 	}
 }
 
+func TestScanDocumentRangesIgnoresTableHeadersInsideMultilineStrings(t *testing.T) {
+	content := []byte("[[item]]\nnote = \"\"\"\n[[other]]\n\"\"\"\nname = \"one\"\n[[other]]\nname = \"two\"\n")
+	ranges := ScanDocumentRanges(
+		content,
+		func(trimmed string) bool { return trimmed == "[[item]]" || trimmed == "[[other]]" },
+		func(trimmed string) bool {
+			header, ok := ParseTableHeader(trimmed)
+			return ok && header.Array
+		},
+	)
+	if len(ranges) != 2 {
+		t.Fatalf("ScanDocumentRanges() returned %d ranges, want 2", len(ranges))
+	}
+	first := string(content[ranges[0].Start:ranges[0].End])
+	if !strings.Contains(first, "[[other]]") || !strings.Contains(first, `name = "one"`) {
+		t.Fatalf("multiline lookalike truncated the first block: %q", first)
+	}
+	second := string(content[ranges[1].Start:ranges[1].End])
+	if !strings.Contains(second, `name = "two"`) {
+		t.Fatalf("second block = %q", second)
+	}
+}
+
+func TestReplaceRootAssignmentAcceptsFourAndFiveQuoteMultilineEndings(t *testing.T) {
+	tests := []struct {
+		name  string
+		block string
+	}{
+		{
+			name:  "basic four",
+			block: "[[hook]]\ncommand = \"\"\"echo hi\"\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "basic five",
+			block: "[[hook]]\ncommand = \"\"\"echo hi\"\"\"\"\"\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "literal four",
+			block: "[[hook]]\ncommand = '''echo hi''''\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+		{
+			name:  "literal five",
+			block: "[[hook]]\ncommand = '''echo hi'''''\ntargets = [\"codex\", \"claude-code\"]\n",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			updated, ok, err := ReplaceRootAssignment(test.block, "targets", "[\"codex\"]")
+			if err != nil {
+				t.Fatalf("ReplaceRootAssignment() error = %v", err)
+			}
+			if !ok {
+				t.Fatal("ReplaceRootAssignment() ok = false, want true")
+			}
+			if !strings.Contains(updated, `targets = ["codex"]`) || strings.Contains(updated, `targets = ["codex", "claude-code"]`) {
+				t.Fatalf("updated block = %q", updated)
+			}
+		})
+	}
+}
+
 func TestInsertRootAssignmentSeparatesNoFinalNewlineAndPreservesCRLF(t *testing.T) {
 	block := "[[hook]]\nname = \"lint\"\nscope = \"project\""
 	updated, err := InsertRootAssignment(block, "targets", "[\"codex\"]")

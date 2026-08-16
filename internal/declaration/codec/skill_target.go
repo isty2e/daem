@@ -1,7 +1,6 @@
 package codec
 
 import (
-	"bytes"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,25 +75,22 @@ func RemoveSkillTargetTables(block string, root string, selectedTargets []string
 		selected[selectedTarget] = struct{}{}
 	}
 
-	lines := bytes.SplitAfter([]byte(block), []byte("\n"))
 	ranges := make([]declaration.DocumentRange, 0)
-	offset := 0
 	activeStart := -1
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(string(line))
+	declaration.WalkStructuralLines([]byte(block), func(lineStart int, trimmed string) bool {
 		if isSingleTOMLTableHeader(trimmed) {
 			if activeStart >= 0 {
-				ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: offset})
+				ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: lineStart})
 				activeStart = -1
 			}
 			if targetName, ok := parseSkillTargetHeader(trimmed, root); ok {
 				if _, remove := selected[targetName]; remove {
-					activeStart = offset
+					activeStart = lineStart
 				}
 			}
 		}
-		offset += len(line)
-	}
+		return false
+	})
 	if activeStart >= 0 {
 		ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: len(block)})
 	}

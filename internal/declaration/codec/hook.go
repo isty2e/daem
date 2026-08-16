@@ -1,7 +1,6 @@
 package codec
 
 import (
-	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -224,28 +223,20 @@ func UpdateHookTargets(block string, existing declaration.Hook, updated declarat
 }
 
 func hookTargetOverrideRanges(block string) []declaration.DocumentRange {
-	lines := bytes.SplitAfter([]byte(block), []byte("\n"))
-	ranges := make([]declaration.DocumentRange, 0)
-	offset := 0
-	activeStart := -1
-	for _, line := range lines {
-		header, isHeader := declaration.ParseTableHeader(strings.TrimSpace(string(line)))
-		if isHeader && activeStart >= 0 {
-			ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: offset})
-			activeStart = -1
-		}
-		if isHeader && header.Array &&
-			len(header.Segments) == 2 &&
-			header.Segments[0] == "hook" &&
-			header.Segments[1] == "target_override" {
-			activeStart = offset
-		}
-		offset += len(line)
-	}
-	if activeStart >= 0 {
-		ranges = append(ranges, declaration.DocumentRange{Start: activeStart, End: len(block)})
-	}
-	return ranges
+	return declaration.ScanDocumentRanges(
+		[]byte(block),
+		func(trimmed string) bool {
+			header, ok := declaration.ParseTableHeader(trimmed)
+			return ok && header.Array &&
+				len(header.Segments) == 2 &&
+				header.Segments[0] == "hook" &&
+				header.Segments[1] == "target_override"
+		},
+		func(trimmed string) bool {
+			_, ok := declaration.ParseTableHeader(trimmed)
+			return ok
+		},
+	)
 }
 
 func appendHookTargetOverrides(block string, overrides []declaration.HookTargetOverride, hadTerminalNewline bool) string {
