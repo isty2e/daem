@@ -300,9 +300,8 @@ func TestRunApplyDryRunJSONFailsBeforePlanningInvalidLockedSkillSource(t *testin
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want no JSON after lock freshness preflight failure", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "inspect lockfile freshness") ||
-		!strings.Contains(stderr.String(), "description is required") {
-		t.Fatalf("stderr = %q, want invalid source preflight failure", stderr.String())
+	if got, want := stderr.String(), "apply failed: apply was refused before effects\n"; got != want {
+		t.Fatalf("stderr = %q, want closed invalid-source failure %q", got, want)
 	}
 }
 
@@ -321,7 +320,7 @@ func TestRunApplyYesBlocksErrorDiagnosticBeforeWritingSkill(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "inspect lockfile freshness") ||
+	if !strings.Contains(stderr.String(), "apply failed: apply was refused before effects") ||
 		!strings.Contains(stderr.String(), "description is required") {
 		t.Fatalf("stderr = %q, want invalid source preflight failure", stderr.String())
 	}

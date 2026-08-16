@@ -60,14 +60,16 @@ type jsonOrderConstraint struct {
 }
 
 type jsonOrderMember struct {
-	Subject          jsonSubjectID `json:"subject"`
-	HostLoadIdentity string        `json:"host_load_identity"`
+	Subject                  jsonSubjectID `json:"subject"`
+	HostLoadIdentity         string        `json:"host_load_identity"`
+	HostLoadIdentityRedacted bool          `json:"host_load_identity_redacted,omitempty"`
 }
 
 type jsonSubjectID struct {
-	Kind      string `json:"kind"`
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
+	Kind         string `json:"kind"`
+	Namespace    string `json:"namespace"`
+	Name         string `json:"name"`
+	NameRedacted bool   `json:"name_redacted,omitempty"`
 }
 
 type jsonLockedSubject struct {
@@ -97,30 +99,33 @@ type jsonExactFileUse struct {
 }
 
 type jsonRealization struct {
-	Kind                   string   `json:"kind"`
-	PlacementID            string   `json:"placement_id"`
-	Target                 string   `json:"target,omitempty"`
-	ConsumerTargets        []string `json:"consumer_targets,omitempty"`
-	Scope                  string   `json:"scope"`
-	Destination            string   `json:"destination,omitempty"`
-	ContentKind            string   `json:"content_kind,omitempty"`
-	PlacementMode          string   `json:"placement_mode,omitempty"`
-	PermissionPolicy       string   `json:"permission_policy,omitempty"`
-	ExactPermissionMode    *uint32  `json:"exact_permission_mode,omitempty"`
-	AggregateRoot          string   `json:"aggregate_root,omitempty"`
-	ContentPath            string   `json:"content_path,omitempty"`
-	MergeUnit              string   `json:"merge_unit,omitempty"`
-	SiblingRetention       string   `json:"sibling_retention,omitempty"`
-	Equivalence            string   `json:"equivalence,omitempty"`
-	SourceNamespace        string   `json:"source_namespace,omitempty"`
-	RelationSubjectKey     string   `json:"relation_subject_key,omitempty"`
-	ManagedInstanceKey     string   `json:"managed_instance_key,omitempty"`
-	RouteID                string   `json:"route_id,omitempty"`
-	CanonicalRequestHash   string   `json:"canonical_request_hash,omitempty"`
-	RouteContractVersion   string   `json:"route_contract_version,omitempty"`
-	AdapterContractVersion string   `json:"adapter_contract_version,omitempty"`
-	ComparedFields         []string `json:"compared_fields,omitempty"`
-	VerifiedRelationFields []string `json:"verified_relation_fields,omitempty"`
+	Kind                       string   `json:"kind"`
+	PlacementID                string   `json:"placement_id"`
+	Target                     string   `json:"target,omitempty"`
+	ConsumerTargets            []string `json:"consumer_targets,omitempty"`
+	Scope                      string   `json:"scope"`
+	Destination                string   `json:"destination,omitempty"`
+	ContentKind                string   `json:"content_kind,omitempty"`
+	PlacementMode              string   `json:"placement_mode,omitempty"`
+	PermissionPolicy           string   `json:"permission_policy,omitempty"`
+	ExactPermissionMode        *uint32  `json:"exact_permission_mode,omitempty"`
+	AggregateRoot              string   `json:"aggregate_root,omitempty"`
+	ContentPath                string   `json:"content_path,omitempty"`
+	MergeUnit                  string   `json:"merge_unit,omitempty"`
+	SiblingRetention           string   `json:"sibling_retention,omitempty"`
+	Equivalence                string   `json:"equivalence,omitempty"`
+	SourceNamespace            string   `json:"source_namespace,omitempty"`
+	SourceNamespaceRedacted    bool     `json:"source_namespace_redacted,omitempty"`
+	RelationSubjectKey         string   `json:"relation_subject_key,omitempty"`
+	RelationSubjectKeyRedacted bool     `json:"relation_subject_key_redacted,omitempty"`
+	ManagedInstanceKey         string   `json:"managed_instance_key,omitempty"`
+	ManagedInstanceKeyRedacted bool     `json:"managed_instance_key_redacted,omitempty"`
+	RouteID                    string   `json:"route_id,omitempty"`
+	CanonicalRequestHash       string   `json:"canonical_request_hash,omitempty"`
+	RouteContractVersion       string   `json:"route_contract_version,omitempty"`
+	AdapterContractVersion     string   `json:"adapter_contract_version,omitempty"`
+	ComparedFields             []string `json:"compared_fields,omitempty"`
+	VerifiedRelationFields     []string `json:"verified_relation_fields,omitempty"`
 }
 
 type jsonDelegatePlan struct {
@@ -145,6 +150,7 @@ type JSONInput struct {
 
 // PrintJSON writes the stable structured lock output payload.
 func PrintJSON(output io.Writer, input JSONInput) error {
+	projection := newLockIdentityProjection(input.Lockfile, input.Delta)
 	payload := jsonOutput{
 		SchemaVersion:          contractversion.LockComparisonJSON,
 		Command:                input.Command,
@@ -156,8 +162,8 @@ func PrintJSON(output io.Writer, input JSONInput) error {
 		ChangeCounts:           jsonChangeCountsForDelta(input.Delta),
 		OrderChangeCounts:      jsonChangeCountsForOrderDelta(input.Delta),
 		HasChanges:             input.Delta.HasChanges(),
-		SubjectChanges:         jsonSubjectChanges(input.Delta),
-		OrderConstraintChanges: jsonOrderConstraintChanges(input.Delta),
+		SubjectChanges:         jsonSubjectChanges(input.Delta, projection),
+		OrderConstraintChanges: jsonOrderConstraintChanges(input.Delta, projection),
 	}
 	encoder := json.NewEncoder(output)
 	encoder.SetIndent("", "  ")
@@ -191,20 +197,24 @@ func jsonChangeCountsForOrderDelta(delta lock.Delta) jsonChangeCounts {
 	}
 }
 
-func jsonSubjectChanges(delta lock.Delta) []jsonSubjectChange {
+func jsonSubjectChanges(delta lock.Delta, projection lockIdentityProjection) []jsonSubjectChange {
 	entries := delta.Entries()
 	changes := make([]jsonSubjectChange, 0, len(entries))
 	for _, entry := range entries {
+		side := lockIdentityAfter
+		if entry.Status == lock.DeltaStatusRemoved {
+			side = lockIdentityBefore
+		}
 		change := jsonSubjectChange{
 			Status:  entry.Status,
-			Subject: jsonSubjectIDFor(entry.Key),
+			Subject: projection.subject(entry.Key, side, false),
 		}
 		if entry.Status != lock.DeltaStatusAdded {
-			before := jsonLockedSubjectFor(entry.Before)
+			before := jsonLockedSubjectFor(entry.Before, projection, lockIdentityBefore)
 			change.Before = &before
 		}
 		if entry.Status != lock.DeltaStatusRemoved {
-			after := jsonLockedSubjectFor(entry.After)
+			after := jsonLockedSubjectFor(entry.After, projection, lockIdentityAfter)
 			change.After = &after
 		}
 		changes = append(changes, change)
@@ -212,7 +222,7 @@ func jsonSubjectChanges(delta lock.Delta) []jsonSubjectChange {
 	return changes
 }
 
-func jsonOrderConstraintChanges(delta lock.Delta) []jsonOrderConstraintChange {
+func jsonOrderConstraintChanges(delta lock.Delta, projection lockIdentityProjection) []jsonOrderConstraintChange {
 	entries := delta.OrderEntries()
 	changes := make([]jsonOrderConstraintChange, 0, len(entries))
 	for _, entry := range entries {
@@ -221,11 +231,11 @@ func jsonOrderConstraintChanges(delta lock.Delta) []jsonOrderConstraintChange {
 			ClassID: string(entry.Key),
 		}
 		if entry.Status != lock.DeltaStatusAdded {
-			before := jsonOrderConstraintFor(entry.Before)
+			before := jsonOrderConstraintFor(entry.Before, projection, lockIdentityBefore)
 			change.Before = &before
 		}
 		if entry.Status != lock.DeltaStatusRemoved {
-			after := jsonOrderConstraintFor(entry.After)
+			after := jsonOrderConstraintFor(entry.After, projection, lockIdentityAfter)
 			change.After = &after
 		}
 		changes = append(changes, change)
@@ -235,13 +245,20 @@ func jsonOrderConstraintChanges(delta lock.Delta) []jsonOrderConstraintChange {
 
 func jsonOrderConstraintFor(
 	constraint hostrelation.RelationOrderConstraint,
+	projection lockIdentityProjection,
+	side lockIdentitySide,
 ) jsonOrderConstraint {
 	members := constraint.Members()
 	projectedMembers := make([]jsonOrderMember, 0, len(members))
 	for _, member := range members {
+		loadIdentity := lockHostLoadIdentityDisclosureFor(
+			constraint.ClassID(),
+			string(member.HostLoadIdentity()),
+		)
 		projectedMembers = append(projectedMembers, jsonOrderMember{
-			Subject:          jsonSubjectIDFor(member.Subject()),
-			HostLoadIdentity: string(member.HostLoadIdentity()),
+			Subject:                  projection.subject(member.Subject(), side, false),
+			HostLoadIdentity:         loadIdentity.Value(),
+			HostLoadIdentityRedacted: loadIdentity.Redacted(),
 		})
 	}
 	return jsonOrderConstraint{
@@ -253,13 +270,17 @@ func jsonOrderConstraintFor(
 }
 
 func jsonSubjectIDFor(id topology.SubjectID) jsonSubjectID {
-	return jsonSubjectID{Kind: string(id.Kind()), Namespace: id.Namespace(), Name: id.Key()}
+	return lockIdentityProjection{}.subject(id, lockIdentityAfter, false)
 }
 
-func jsonLockedSubjectFor(contract lock.LockedSubjectContract) jsonLockedSubject {
+func jsonLockedSubjectFor(
+	contract lock.LockedSubjectContract,
+	projection lockIdentityProjection,
+	side lockIdentitySide,
+) jsonLockedSubject {
 	result := jsonLockedSubject{
 		EntityID:   contract.EntityID().String(),
-		Subject:    jsonSubjectIDFor(contract.SubjectID()),
+		Subject:    projection.subject(contract.SubjectID(), side, false),
 		Ownership:  string(contract.Ownership()),
 		OnAbsent:   string(contract.OnAbsent()),
 		Operations: operationKindStrings(contract.OperationKinds()),
@@ -276,7 +297,7 @@ func jsonLockedSubjectFor(contract lock.LockedSubjectContract) jsonLockedSubject
 		result.ExactFileUse = &jsonExactFileUse{Scope: string(use.Scope()), Executable: use.Executable()}
 	}
 	if spec, ok := contract.Realization(); ok {
-		value := jsonRealizationFor(spec)
+		value := jsonRealizationForWithDisclosure(spec, projection, contract.SubjectID(), side)
 		result.Realization = &value
 	}
 	if recipe, ok := contract.RepairRecipe(); ok {
@@ -294,6 +315,20 @@ func jsonLockedSubjectFor(contract lock.LockedSubjectContract) jsonLockedSubject
 }
 
 func jsonRealizationFor(spec realization.RealizationSpec) jsonRealization {
+	return jsonRealizationForWithDisclosure(
+		spec,
+		lockIdentityProjection{},
+		topology.SubjectID{},
+		lockIdentityAfter,
+	)
+}
+
+func jsonRealizationForWithDisclosure(
+	spec realization.RealizationSpec,
+	projection lockIdentityProjection,
+	subject topology.SubjectID,
+	side lockIdentitySide,
+) jsonRealization {
 	result := jsonRealization{Kind: string(spec.Kind())}
 	switch spec.Kind() {
 	case realization.RealizationManagedPathProjection:
@@ -328,9 +363,24 @@ func jsonRealizationFor(spec realization.RealizationSpec) jsonRealization {
 		result.PlacementID = relation.PlacementID()
 		result.Target = string(relation.Target())
 		result.Scope = string(relation.Scope())
-		result.SourceNamespace = relation.SourceNamespace()
-		result.RelationSubjectKey = string(expected.SubjectKey())
-		result.ManagedInstanceKey = string(expected.ManagedInstanceKey())
+		if disclosure, ok := projection.carrierFor(subject, side); ok {
+			result.SourceNamespace = disclosure.sourceNamespace.Value()
+			result.SourceNamespaceRedacted = disclosure.sourceNamespace.Redacted()
+			result.RelationSubjectKey = disclosure.relationSubjectKey.Value()
+			result.RelationSubjectKeyRedacted = disclosure.relationSubjectKey.Redacted()
+			result.ManagedInstanceKey = disclosure.managedInstanceKey.Value()
+			result.ManagedInstanceKeyRedacted = disclosure.managedInstanceKey.Redacted()
+		} else {
+			sourceNamespace := redactedIdentityDisclosure(relation.SourceNamespace())
+			relationSubjectKey := redactedIdentityDisclosure(string(expected.SubjectKey()))
+			managedInstanceKey := redactedIdentityDisclosure(string(expected.ManagedInstanceKey()))
+			result.SourceNamespace = sourceNamespace.Value()
+			result.SourceNamespaceRedacted = sourceNamespace.Redacted()
+			result.RelationSubjectKey = relationSubjectKey.Value()
+			result.RelationSubjectKeyRedacted = relationSubjectKey.Redacted()
+			result.ManagedInstanceKey = managedInstanceKey.Value()
+			result.ManagedInstanceKeyRedacted = managedInstanceKey.Redacted()
+		}
 		result.RouteID = relation.RouteID()
 		result.CanonicalRequestHash = relation.CanonicalRequestHash()
 		result.RouteContractVersion = relation.RouteContractVersion()

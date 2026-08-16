@@ -306,7 +306,7 @@ func TestJournalRecoveryBoundaryOwnsWireNeutralModels(t *testing.T) {
 
 	for _, name := range []string{"recoveryJournal", "recoveryBeforePathDTO", "recoveryExpectedPathDTO"} {
 		if ast.IsExported(name) {
-			t.Fatalf("reviewed private v8 DTO name %q unexpectedly exported", name)
+			t.Fatalf("reviewed private journal DTO name %q unexpectedly exported", name)
 		}
 		_ = namedStructInPackage(t, journalFiles, name)
 	}

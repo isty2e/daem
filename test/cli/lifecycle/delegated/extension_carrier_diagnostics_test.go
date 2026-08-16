@@ -244,16 +244,13 @@ func TestClaudeGlobalExtensionCarrierPublicCLIApplyYesReportsCommandFailure(t *t
 				if !payload.HasErrors || len(payload.Errors) != 1 {
 					t.Fatalf("apply --yes --json payload = %#v, want one error", payload)
 				}
-				for _, want := range []string{
-					"host route attempt failed",
-					"host_relation/claude-code.plugin-carrier",
-					"context7-global",
-					"failed/nonzero_exit",
-				} {
-					if !strings.Contains(payload.Errors[0].Message, want) {
-						t.Fatalf("json error message = %q, want %q", payload.Errors[0].Message, want)
-					}
-				}
+				clijson.RequireApplyFailure(
+					t,
+					payload,
+					applyworkflow.FailureReasonHostRouteAttemptFailed,
+					applyworkflow.FailurePhaseExecution,
+					applyworkflow.FailureOutcomeIncomplete,
+				)
 				assertCLIClaudeHostRouteAttemptJSON(t, payload.HostRouteAttempts, "context7-global", "global", "failed", "nonzero_exit")
 				attempt := payload.HostRouteAttempts[0]
 				if attempt.AttemptReason != "nonzero_exit" ||

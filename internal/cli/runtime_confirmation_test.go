@@ -129,14 +129,18 @@ func TestProbeDisclosureWriteFailureDoesNotPromptOrExecute(t *testing.T) {
 	manifestPath := writeProbeConfirmationFixture(t)
 	executor := &confirmationProbeExecutor{facts: successfulProbeFacts()}
 	input := &countingReader{reader: strings.NewReader("yes\n")}
-	stdoutErr := errors.New("stdout closed")
+	formatted := 0
+	stdoutErr := privateOutputFailure{calls: &formatted}
 	var stderr bytes.Buffer
 	options := interactiveRunOptions(input, errorWriter{err: stdoutErr}, &stderr)
 	options.ProbeExecutor = executor
 
 	exitCode := RunWithOptions([]string{"probe", "mcp-server", "context7", "--manifest", manifestPath}, options)
-	if exitCode != 1 || !strings.Contains(stderr.String(), "probe failed: disclose plan: stdout closed") {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "probe failed: command output could not be written") {
 		t.Fatalf("exitCode = %d stderr = %q", exitCode, stderr.String())
+	}
+	if formatted != 0 {
+		t.Fatalf("private output error formatted %d times", formatted)
 	}
 	if executor.calls != 0 || input.reads != 0 || strings.Contains(stderr.String(), "Proceed with probe?") {
 		t.Fatalf("executor calls = %d input reads = %d stderr = %q", executor.calls, input.reads, stderr.String())

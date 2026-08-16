@@ -1574,7 +1574,12 @@ source = { host_source = "modern-web-guidance@google" }
 | `carrier` | string | yes | none | Must be `claude-code-plugin`, `codex-plugin`, `opencode-plugin`, `pi-package`, or `antigravity-cli-plugin` in the current implementation. |
 | `targets` | array of strings | no | top-level `targets` | Effective target set must be exactly `["claude-code"]` for `claude-code-plugin`, `["codex"]` for `codex-plugin`, `["opencode"]` for `opencode-plugin`, `["pi"]` for `pi-package`, or `["antigravity-cli"]` for `antigravity-cli-plugin`; broad inherited targets are rejected. |
 | `scope` | string | no | carrier-specific | Must be `project` or explicit `global` for `claude-code-plugin` in the current implementation. Public `scope = "global"` projects to host `--scope user` only inside the supported delegated host route; public `scope = "user"` is rejected, and Claude Code `local` is product `deferred` with reason `not-modeled`. Defaults do not authorize Claude Code global host mutation. Must be explicit `global` for `codex-plugin` and `antigravity-cli-plugin`; Codex project plugin scope is product `unsupported` with reason `host-unavailable` for the current native host route. Must be `project` or explicit `global` for `opencode-plugin` and `pi-package`; defaults do not authorize global host mutation. Other carrier scopes are unsupported. |
-| `source` | table | yes | none | Must be `{ marketplace = "<plugin>@<marketplace>" }` for Claude Code and Codex, or `{ host_source = "<host-native-source>" }` for OpenCode/Pi/Antigravity CLI. Claude uses this canonical selector as both host argv and the installed-inventory key; bare plugin names are rejected. The selected value is passed as one structured argv element and must not begin with `-`; marketplace and host_source are mutually exclusive. URL passwords, HTTP userinfo, all query fields, assignment-style fragments, other inline secrets, and raw host config are rejected before lock creation. Inert source fragments such as `#v1` remain valid. |
+| `source` | table | yes | none | Must be `{ marketplace = "<plugin>@<marketplace>" }` for Claude Code and Codex, or `{ host_source = "<host-native-source>" }` for OpenCode/Pi/Antigravity CLI. Claude uses this canonical selector as both host argv and the installed-inventory key; bare plugin names are rejected. The selected value is passed as one structured argv element and must not begin with `-`; marketplace and host_source are mutually exclusive. The selected source grammar determines punctuation semantics: marketplace `:` and `@` bytes remain selector data, while a scheme-less password-bearing Git or host locator, including an optional host port, is credential userinfo only in a host-source. URL passwords, HTTP userinfo, all query fields, assignment-style fragments, credential-shaped key/value fields, other inline secrets, and raw host config are rejected before lock creation. Inert source fragments such as `#v1` remain valid. |
+
+Credential inspection uses the raw source and its bounded canonical decoded form.
+A marketplace source gains selector authority only when both forms retain the
+same single `plugin@marketplace` partition; encoding cannot introduce another
+delimiter or URL userinfo.
 
 Pi local package sources are context-resolved before lock creation without
 requiring the path to exist and without following symlinks. Native paths,
@@ -1585,6 +1590,15 @@ the same global local package through different aliases. Two same-scope
 declarations that collapse to one identity are rejected. This lock
 normalization does not make a differently stored external Pi settings row
 source-exact or adoptable.
+
+Pi npm package sources preserve credential-free local, remote, and opaque
+package arguments for the host. Only direct registry specs and npm registry
+aliases establish public package identity; the outer package or alias name is
+the relation identity. Git source classification includes `git+http://`,
+`git+https://`, and `git+ssh://` transports and any non-empty repository path
+under a valid host. Percent-encoded `@` bytes in that path remain repository
+data rather than ref delimiters. These sources use the Git checkout identity
+and Git removal postcondition, not local-source semantics.
 
 During lock, the admitted row lowers to a `host_relation` lock subject with a
 delegated host plugin carrier route request identity and operation contracts.

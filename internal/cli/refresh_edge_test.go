@@ -88,7 +88,7 @@ func TestRefreshEdgeRound3CLIIngressAndStreams(t *testing.T) {
 		}, options)
 		if exitCode != 1 ||
 			calls != 0 ||
-			!strings.Contains(stderr.String(), "output failed: stdout closed") ||
+			!strings.Contains(stderr.String(), "output failed: command output could not be written") ||
 			strings.Count(stderr.String(), "\n") != 1 {
 			t.Fatalf(
 				"exitCode=%d calls=%d stderr=%q",

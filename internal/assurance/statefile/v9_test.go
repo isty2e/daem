@@ -1,6 +1,7 @@
 package statefile
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -37,14 +38,14 @@ import (
 	"github.com/isty2e/daem/test/outputtest"
 )
 
-func TestSnapshotV8GoldenShapeAndSemanticRoundTrip(t *testing.T) {
-	snapshot := testV8Snapshot(t)
+func TestSnapshotV9GoldenShapeAndSemanticRoundTrip(t *testing.T) {
+	snapshot := testV9Snapshot(t)
 	content, err := Marshal(snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, fragment := range []string{
-		`"version": 8`,
+		`"version": 9`,
 		`"statefile_authority": {`,
 		`"semantics_witness": "exact-v1:"`,
 		`"managed_paths": [`,
@@ -55,13 +56,15 @@ func TestSnapshotV8GoldenShapeAndSemanticRoundTrip(t *testing.T) {
 		`"carrier_subject": {`,
 		`"install_request": {`,
 		`"delegate_attempts": [`,
+		`"attempt_observed": true`,
+		`"process_reason": "nonzero_exit"`,
 		`"host_route_attempts": [`,
 		`"operation": "remove"`,
 		`"effect_postconditions": [`,
 		`"effect_baselines": [`,
 	} {
 		if !strings.Contains(string(content), fragment) {
-			t.Fatalf("v8 content missing %q:\n%s", fragment, content)
+			t.Fatalf("v9 content missing %q:\n%s", fragment, content)
 		}
 	}
 	for _, forbidden := range []string{
@@ -73,7 +76,7 @@ func TestSnapshotV8GoldenShapeAndSemanticRoundTrip(t *testing.T) {
 		`"readiness"`,
 	} {
 		if strings.Contains(string(content), forbidden) {
-			t.Fatalf("v8 content contains forbidden field %q:\n%s", forbidden, content)
+			t.Fatalf("v9 content contains forbidden field %q:\n%s", forbidden, content)
 		}
 	}
 	decoded, err := Decode(content)
@@ -92,8 +95,109 @@ func TestSnapshotV8GoldenShapeAndSemanticRoundTrip(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8RejectsMissingOrUnknownPathAuthorityWitness(t *testing.T) {
-	content, err := Marshal(testV8Snapshot(t))
+func TestSnapshotV8NormalizesRetiredWorkDirAttemptReasons(t *testing.T) {
+	content, err := Marshal(testV9Snapshot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted snapshotDTO
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	persisted.Version = legacySnapshotVersion
+	delegateAttempt := &persisted.DelegateAttempts[0]
+	delegateAttempt.Status = string(durableattempt.DelegateStatusFailed)
+	delegateAttempt.Reason = string(durableattempt.DelegateReasonWorkDirAuthority)
+	delegateAttempt.AttemptObserved = nil
+	delegateAttempt.ProcessReason = ""
+	delegateAttempt.ExitCode = nil
+	delegateAttempt.TimedOut = true
+	attempt := &persisted.HostRouteAttempts[0]
+	attempt.ResultClass = string(durableattempt.HostRouteResultFailed)
+	attempt.Reason = string(durableattempt.HostRouteReasonWorkDirAuthority)
+	attempt.AttemptReason = "workdir_authority"
+	attempt.TimedOut = true
+	content, err = json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	decoded, err := Decode(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decoded.HostRouteAttempts()[0]
+	if got.Reason() != durableattempt.HostRouteReasonWorkDirAuthority ||
+		got.AttemptReason() != durableattempt.HostRouteAttemptReasonTimeout ||
+		!got.TimedOut() {
+		t.Fatalf(
+			"decoded reason/attempt_reason/timed_out = %q/%q/%t",
+			got.Reason(),
+			got.AttemptReason(),
+			got.TimedOut(),
+		)
+	}
+	gotDelegate := decoded.DelegateAttempts()[0]
+	if gotDelegate.Reason() != durableattempt.DelegateReasonWorkDirAuthority ||
+		gotDelegate.ProcessReason() != durableattempt.DelegateProcessReasonTimeout ||
+		!gotDelegate.TimedOut() {
+		t.Fatalf(
+			"decoded delegate reason/process_reason/timed_out = %q/%q/%t",
+			gotDelegate.Reason(),
+			gotDelegate.ProcessReason(),
+			gotDelegate.TimedOut(),
+		)
+	}
+	reencoded, err := Marshal(decoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(reencoded, []byte(`"attempt_reason": "workdir_authority"`)) {
+		t.Fatalf("reencoded state retained retired attempt reason: %s", reencoded)
+	}
+	if !bytes.Contains(reencoded, []byte(`"version": 9`)) {
+		t.Fatalf("legacy state was not reencoded as v9: %s", reencoded)
+	}
+}
+
+func TestSnapshotDelegateProcessFieldsAreVersionBound(t *testing.T) {
+	content, err := Marshal(testV9Snapshot(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted snapshotDTO
+	if err := json.Unmarshal(content, &persisted); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("v9 requires attempt observation", func(t *testing.T) {
+		candidate := persisted
+		candidate.DelegateAttempts = append([]delegateAttemptDTO(nil), persisted.DelegateAttempts...)
+		candidate.DelegateAttempts[0].AttemptObserved = nil
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Decode(encoded); err == nil || !strings.Contains(err.Error(), "attempt_observed is required") {
+			t.Fatalf("Decode error = %v, want required v9 attempt_observed rejection", err)
+		}
+	})
+
+	t.Run("v8 rejects v9 process fields", func(t *testing.T) {
+		candidate := persisted
+		candidate.Version = legacySnapshotVersion
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Decode(encoded); err == nil || !strings.Contains(err.Error(), "v8 delegate attempt contains v9 process fields") {
+			t.Fatalf("Decode error = %v, want v9 field rejection under v8", err)
+		}
+	})
+}
+
+func TestSnapshotV9RejectsMissingOrUnknownPathAuthorityWitness(t *testing.T) {
+	content, err := Marshal(testV9Snapshot(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,8 +226,8 @@ func TestSnapshotV8RejectsMissingOrUnknownPathAuthorityWitness(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8RoundTripsExplicitAdoptionProvenanceWithoutVersionChange(t *testing.T) {
-	snapshot := testV8Snapshot(t)
+func TestSnapshotV9RoundTripsExplicitAdoptionProvenanceWithoutVersionChange(t *testing.T) {
+	snapshot := testV9Snapshot(t)
 	content, err := Marshal(snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -136,7 +240,7 @@ func TestSnapshotV8RoundTripsExplicitAdoptionProvenanceWithoutVersionChange(t *t
 	if adoptedContent == string(content) {
 		t.Fatal("fixture contains no carrier claim provenance")
 	}
-	if !strings.Contains(adoptedContent, `"version": 8`) {
+	if !strings.Contains(adoptedContent, `"version": 9`) {
 		t.Fatal("adopted claim changed statefile schema version")
 	}
 
@@ -163,8 +267,8 @@ func TestSnapshotV8RoundTripsExplicitAdoptionProvenanceWithoutVersionChange(t *t
 	}
 }
 
-func TestSnapshotV8RoundTripsPreEffectContentBaseline(t *testing.T) {
-	snapshot := testV8Snapshot(t)
+func TestSnapshotV9RoundTripsPreEffectContentBaseline(t *testing.T) {
+	snapshot := testV9Snapshot(t)
 	claim := snapshot.ManagedCarrierClaims()[0]
 	originalPending := snapshot.PendingCarrierRemovals()[0]
 	requirements, err := effectpostcondition.NewSet(
@@ -213,13 +317,13 @@ func TestSnapshotV8RoundTripsPreEffectContentBaseline(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8EmptyEncodingIsCanonical(t *testing.T) {
+func TestSnapshotV9EmptyEncodingIsCanonical(t *testing.T) {
 	content, err := Marshal(durable.EmptySnapshot())
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `{
-  "version": 8,
+  "version": 9,
   "managed_paths": [],
   "managed_aggregate_contributions": [],
   "pending_carrier_installs": [],
@@ -233,7 +337,7 @@ func TestSnapshotV8EmptyEncodingIsCanonical(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8MarshalRejectsMalformedManagedAggregateContribution(t *testing.T) {
+func TestSnapshotV9MarshalRejectsMalformedManagedAggregateContribution(t *testing.T) {
 	const secretCanary = "STATEFILE_SECRET_CANARY"
 
 	placement, ok := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
@@ -247,7 +351,7 @@ func TestSnapshotV8MarshalRejectsMalformedManagedAggregateContribution(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject := testV8ProjectionSubject(t, entity.KindHook, "guard", string(placement.ID()))
+	subject := testV9ProjectionSubject(t, entity.KindHook, "guard", string(placement.ID()))
 	state, err := durable.NewManagedAggregateState(subject, contribution)
 	if err != nil {
 		t.Fatal(err)
@@ -270,7 +374,7 @@ func TestSnapshotV8MarshalRejectsMalformedManagedAggregateContribution(t *testin
 	}
 }
 
-func TestSnapshotV8MarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T) {
+func TestSnapshotV9MarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T) {
 	placement, ok := aggregate.HookPlacementFor(target.TargetClaudeCode, target.ScopeProject)
 	if !ok {
 		t.Fatal("Claude Code project Hook placement is missing")
@@ -287,7 +391,7 @@ func TestSnapshotV8MarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		subject := testV8ProjectionSubject(
+		subject := testV9ProjectionSubject(
 			t,
 			entity.KindHook,
 			fmt.Sprintf("event-%03d", index),
@@ -310,8 +414,8 @@ func TestSnapshotV8MarshalRejectsHookSetBeyondProjectionCardinality(t *testing.T
 	}
 }
 
-func TestSnapshotV8RejectsOldUnknownDuplicateAndTrailingJSON(t *testing.T) {
-	base := `{"version":8,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`
+func TestSnapshotV9RejectsOldUnknownDuplicateAndTrailingJSON(t *testing.T) {
+	base := `{"version":9,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`
 	tests := []struct {
 		name    string
 		content string
@@ -324,57 +428,57 @@ func TestSnapshotV8RejectsOldUnknownDuplicateAndTrailingJSON(t *testing.T) {
 		},
 		{
 			name:    "v2",
-			content: strings.Replace(base, `"version":8`, `"version":2`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":2`, 1),
 			want:    "unsupported statefile version 2",
 		},
 		{
 			name:    "v3",
-			content: strings.Replace(base, `"version":8`, `"version":3`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":3`, 1),
 			want:    "unsupported statefile version 3",
 		},
 		{
 			name:    "v4",
-			content: strings.Replace(base, `"version":8`, `"version":4`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":4`, 1),
 			want:    "unsupported statefile version 4",
 		},
 		{
 			name:    "v5",
-			content: strings.Replace(base, `"version":8`, `"version":5`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":5`, 1),
 			want:    "unsupported statefile version 5",
 		},
 		{
 			name:    "v6",
-			content: strings.Replace(base, `"version":8`, `"version":6`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":6`, 1),
 			want:    "unsupported statefile version 6",
 		},
 		{
 			name:    "legacy v7",
-			content: strings.Replace(base, `"version":8`, `"version":7`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":7`, 1),
 			want:    "use the daem version that wrote it",
 		},
 		{
 			name:    "unknown version",
-			content: strings.Replace(base, `"version":8`, `"version":9`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":10`, 1),
 			want:    "written by a newer daem",
 		},
 		{
 			name:    "future version before strict schema",
-			content: `{"version":9,"future":true}`,
+			content: `{"version":10,"future":true}`,
 			want:    "written by a newer daem",
 		},
 		{
 			name:    "unknown field",
-			content: strings.Replace(base, `"version":8`, `"version":8,"ready":true`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":9,"ready":true`, 1),
 			want:    "unknown field",
 		},
 		{
 			name:    "duplicate key",
-			content: strings.Replace(base, `"version":8`, `"version":8,"version":8`, 1),
+			content: strings.Replace(base, `"version":9`, `"version":9,"version":9`, 1),
 			want:    "duplicate object key",
 		},
 		{
 			name:    "nested duplicate key",
-			content: `{"version":8,"managed_paths":[{"subject":{"kind":"projection","kind":"projection","namespace":"x","name":"y"}}],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`,
+			content: `{"version":9,"managed_paths":[{"subject":{"kind":"projection","kind":"projection","namespace":"x","name":"y"}}],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`,
 			want:    "duplicate object key",
 		},
 		{
@@ -473,8 +577,8 @@ func TestLoadAdmitsOnlyExactEmptyRetiredV7Statefile(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8RejectsInvalidUTF8(t *testing.T) {
-	content := []byte(`{"version":8,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`)
+func TestSnapshotV9RejectsInvalidUTF8(t *testing.T) {
+	content := []byte(`{"version":9,"managed_paths":[],"managed_aggregate_contributions":[],"pending_carrier_installs":[],"pending_carrier_removals":[],"managed_carrier_claims":[],"delegate_attempts":[],"host_route_attempts":[]}`)
 	content = append(content[:len(content)-1], 0xff, '}')
 	if _, err := Decode(content); err == nil || !strings.Contains(err.Error(), "valid UTF-8") {
 		t.Fatalf("Decode error = %v, want invalid UTF-8 rejection", err)
@@ -510,8 +614,8 @@ func TestDecodeRejectsOversizedStatefile(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8RejectsForgedManagedPathOccupancy(t *testing.T) {
-	snapshot := testV8Snapshot(t)
+func TestSnapshotV9RejectsForgedManagedPathOccupancy(t *testing.T) {
+	snapshot := testV9Snapshot(t)
 	content, err := Marshal(snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -530,7 +634,7 @@ func TestSnapshotV8RejectsForgedManagedPathOccupancy(t *testing.T) {
 		t.Fatalf("Decode error = %v, want forged placement rejection", err)
 	}
 
-	subject := testV8ProjectionSubject(t, entity.KindSkill, "oracle", "skill.project.forged")
+	subject := testV9ProjectionSubject(t, entity.KindSkill, "oracle", "skill.project.forged")
 	state, err := durable.NewManagedPathState(
 		subject,
 		[]target.Target{target.TargetCodex},
@@ -556,8 +660,8 @@ func TestSnapshotV8RejectsForgedManagedPathOccupancy(t *testing.T) {
 	}
 }
 
-func TestSnapshotV8RejectsNonCanonicalAndContradictoryRows(t *testing.T) {
-	snapshot := testV8Snapshot(t)
+func TestSnapshotV9RejectsNonCanonicalAndContradictoryRows(t *testing.T) {
+	snapshot := testV9Snapshot(t)
 	content, err := Marshal(snapshot)
 	if err != nil {
 		t.Fatal(err)
@@ -801,7 +905,7 @@ func TestLoadOptionalDistinguishesMissingFromMalformed(t *testing.T) {
 	if !snapshot.Equal(durable.EmptySnapshot()) {
 		t.Fatal("missing optional state did not return empty snapshot")
 	}
-	if err := os.WriteFile(path, []byte(`{"version":8}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":9}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadOptional(t.Context(), path); err == nil {
@@ -819,7 +923,7 @@ func TestLoadValidatesCarrierAuthorityAgainstSelectedPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	identity, request := testV8CarrierIdentity(t, "context7", "context7@official")
+	identity, request := testV9CarrierIdentity(t, "context7", "context7@official")
 	owner, err := stateauthority.New(statefileAuthority.Exact(), filepath.Join(root, "daem.toml"))
 	if err != nil {
 		t.Fatal(err)
@@ -862,7 +966,7 @@ func TestValidateLoadedStateAuthorityRejectsForeignPersistedKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	persistedKey := filepath.Join(string(filepath.Separator), "foreign", ".daem", "state.json")
-	identity, request := testV8CarrierIdentity(t, "context7", "context7@official")
+	identity, request := testV9CarrierIdentity(t, "context7", "context7@official")
 	owner, err := stateauthority.New(pathtest.Exact(
 		persistedKey,
 	),
@@ -895,9 +999,9 @@ func TestLoadRequiresContextBeforePathInspection(t *testing.T) {
 	}
 }
 
-func testV8Snapshot(t *testing.T) durable.Snapshot {
+func testV9Snapshot(t *testing.T) durable.Snapshot {
 	t.Helper()
-	pathSubject := testV8ProjectionSubject(t, entity.KindSkill, "oracle", "skill.project.agents")
+	pathSubject := testV9ProjectionSubject(t, entity.KindSkill, "oracle", "skill.project.agents")
 	pathState, err := durable.NewManagedPathState(
 		pathSubject,
 		[]target.Target{target.TargetCodex, target.TargetAntigravityCLI},
@@ -911,7 +1015,7 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	aggregateState := testV8AggregateState(t)
+	aggregateState := testV9AggregateState(t)
 	authorityRoot := t.TempDir()
 	owner, err := stateauthority.New(pathtest.Exact(
 		filepath.Join(authorityRoot, ".daem", "state.json"),
@@ -921,7 +1025,7 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pendingIdentity, pendingRequest := testV8CarrierIdentity(
+	pendingIdentity, pendingRequest := testV9CarrierIdentity(
 		t,
 		"context7-pending",
 		"context7-pending@official",
@@ -930,7 +1034,7 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 	if err != nil {
 		t.Fatal(err)
 	}
-	claimIdentity, claimRequest := testV8CarrierIdentity(
+	claimIdentity, claimRequest := testV9CarrierIdentity(
 		t,
 		"context7-claimed",
 		"context7-claimed@official",
@@ -970,7 +1074,7 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 		t.Fatal(err)
 	}
 	hostSubject := pendingIdentity.RelationSubject()
-	delegateSubject := testV8ProjectionSubject(
+	delegateSubject := testV9ProjectionSubject(
 		t,
 		entity.KindMCPServer,
 		"context7",
@@ -985,6 +1089,8 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 		ObservedAt:      time.Date(2026, 7, 18, 1, 2, 3, 4, time.UTC),
 		Status:          durableattempt.DelegateStatusFailed,
 		Reason:          durableattempt.DelegateReasonNonZeroExit,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNonZeroExit,
 		Observation:     observerelation.ObservationPresent,
 		Postcondition:   observerelation.PostconditionNotObserved,
 		ExitCode:        &exitCode,
@@ -1039,7 +1145,7 @@ func testV8Snapshot(t *testing.T) durable.Snapshot {
 	return snapshot
 }
 
-func testV8CarrierIdentity(
+func testV9CarrierIdentity(
 	t *testing.T,
 	name string,
 	sourceRef string,
@@ -1090,7 +1196,7 @@ func testV8CarrierIdentity(
 	return identity, request
 }
 
-func testV8AggregateState(t *testing.T) durable.ManagedAggregateState {
+func testV9AggregateState(t *testing.T) durable.ManagedAggregateState {
 	t.Helper()
 	placement, ok := aggregate.HookPlacementFor(target.TargetCodex, target.ScopeProject)
 	if !ok {
@@ -1106,7 +1212,7 @@ func testV8AggregateState(t *testing.T) durable.ManagedAggregateState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	subject := testV8ProjectionSubject(t, entity.KindHook, "guard", string(placement.ID()))
+	subject := testV9ProjectionSubject(t, entity.KindHook, "guard", string(placement.ID()))
 	state, err := durable.NewManagedAggregateState(subject, contribution)
 	if err != nil {
 		t.Fatal(err)
@@ -1114,7 +1220,7 @@ func testV8AggregateState(t *testing.T) durable.ManagedAggregateState {
 	return state
 }
 
-func testV8ProjectionSubject(
+func testV9ProjectionSubject(
 	t *testing.T,
 	kind entity.Kind,
 	name string,

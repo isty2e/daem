@@ -2,8 +2,6 @@ package extension
 
 import (
 	"fmt"
-	"net/url"
-	"regexp"
 	"strings"
 
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -21,6 +19,15 @@ const (
 	CarrierSourceHost        CarrierSourceClass = "host"
 )
 
+// CarrierSourceIdentityPrivacy classifies whether one carrier-native source
+// identity is safe to disclose without machine-local provenance.
+type CarrierSourceIdentityPrivacy string
+
+const (
+	CarrierSourceIdentityPublic  CarrierSourceIdentityPrivacy = "public"
+	CarrierSourceIdentityPrivate CarrierSourceIdentityPrivacy = "private"
+)
+
 // RelationEvidenceClass describes the strongest passive relation identity
 // that the selected carrier source can produce. It grants no management or
 // mutation authority.
@@ -32,8 +39,6 @@ const (
 	RelationEvidenceUnavailable        RelationEvidenceClass = "unavailable"
 )
 
-var npmSourcePattern = regexp.MustCompile(`^(@?[^@]+(?:/[^@]+)?)(?:@(.+))?$`)
-
 // CarrierSource is one immutable carrier-native source interpretation.
 // Identity owns normalized source identity. RelationIdentity defaults to that
 // identity but may be narrower when the host addresses an installed relation
@@ -43,6 +48,7 @@ type CarrierSource struct {
 	identity         string
 	relationIdentity string
 	relationEvidence RelationEvidenceClass
+	identityPrivacy  CarrierSourceIdentityPrivacy
 }
 
 // InterpretCarrierSource interprets only source grammars admitted by the
@@ -54,20 +60,34 @@ func InterpretCarrierSource(key desiredextension.CarrierKey) (CarrierSource, err
 	switch key.Carrier() {
 	case desiredextension.CarrierClaudeCodePlugin,
 		desiredextension.CarrierCodexPlugin:
+		privacy := CarrierSourceIdentityPublic
+		if key.Carrier() == desiredextension.CarrierClaudeCodePlugin {
+			selector, _ := key.Source().MarketplaceSelector()
+			if !stableMarketplaceIdentityToken(selector.Plugin()) ||
+				!stableMarketplaceIdentityToken(selector.Marketplace()) {
+				privacy = CarrierSourceIdentityPrivate
+			}
+		}
 		return CarrierSource{
 			class:            CarrierSourceMarketplace,
 			identity:         key.Source().Ref(),
 			relationIdentity: key.Source().Ref(),
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	case desiredextension.CarrierPiPackage:
 		return interpretPiPackageSource(key.Source().Ref())
 	case desiredextension.CarrierOpenCodePlugin:
+		privacy := CarrierSourceIdentityPrivate
+		if _, ok := OpenCodePluginPackageName(key.Source().Ref()); ok {
+			privacy = CarrierSourceIdentityPublic
+		}
 		return CarrierSource{
 			class:            CarrierSourceHost,
 			identity:         key.Source().Ref(),
 			relationIdentity: key.Source().Ref(),
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	case desiredextension.CarrierAntigravityCLIPlugin:
 		return interpretAntigravityCLIPluginSource(key.Source().Ref()), nil
@@ -114,6 +134,33 @@ func (source CarrierSource) RelationEvidence() RelationEvidenceClass {
 	return source.relationEvidence
 }
 
+// IdentityPrivacy returns whether the exact source identity contains
+// carrier-local or otherwise opaque host provenance.
+func (source CarrierSource) IdentityPrivacy() CarrierSourceIdentityPrivacy {
+	return source.identityPrivacy
+}
+
+// HostLoadIdentityPrivacy classifies one observed order identity using the
+// grammar owned by the target's admitted extension-order carrier. Unknown,
+// opaque, and local identities remain private.
+func HostLoadIdentityPrivacy(
+	carrier desiredextension.Carrier,
+	identity string,
+) CarrierSourceIdentityPrivacy {
+	switch carrier {
+	case desiredextension.CarrierOpenCodePlugin:
+		name, ok := OpenCodePluginPackageName(identity)
+		if ok && name == identity {
+			return CarrierSourceIdentityPublic
+		}
+	case desiredextension.CarrierPiPackage:
+		if piHostLoadIdentityIsPublic(identity) {
+			return CarrierSourceIdentityPublic
+		}
+	}
+	return CarrierSourceIdentityPrivate
+}
+
 // HostVisibleRelationKey returns the host-visible identity used to correlate one
 // carrier relation. Most carriers preserve the authored source reference;
 // carriers whose host inventory drops source provenance use the narrower
@@ -134,7 +181,9 @@ func HostVisibleRelationKey(key desiredextension.CarrierKey) (string, error) {
 
 func interpretPiPackageSource(source string) (CarrierSource, error) {
 	if strings.HasPrefix(source, "npm:") {
-		name, err := npmSourceName(strings.TrimSpace(strings.TrimPrefix(source, "npm:")))
+		name, privacy, err := npmSourceIdentity(
+			strings.TrimSpace(strings.TrimPrefix(source, "npm:")),
+		)
 		if err != nil {
 			return CarrierSource{}, err
 		}
@@ -143,24 +192,32 @@ func interpretPiPackageSource(source string) (CarrierSource, error) {
 			identity:         name,
 			relationIdentity: name,
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
 	}
-	if piSourceIsLocal(source) {
+	// Git grammar is the authority on git-shaped sources and runs before any
+	// local interpretation, so direct scp spellings and other prefix-less git
+	// forms are not claimed by the local fallback. Local semantics apply only
+	// to what the grammar fails to parse.
+	if gitSource, ok := desiredextension.ParseGitSource(source); ok {
+		privacy := CarrierSourceIdentityPublic
+		if !gitSource.Public() {
+			privacy = CarrierSourceIdentityPrivate
+		}
 		return CarrierSource{
-			class:            CarrierSourceLocal,
-			identity:         source,
-			relationIdentity: source,
+			class:            CarrierSourceGit,
+			identity:         gitSource.Identity(),
+			relationIdentity: gitSource.Identity(),
 			relationEvidence: RelationEvidenceSourceExact,
+			identityPrivacy:  privacy,
 		}, nil
-	}
-	if identity, ok := gitSourceIdentity(source); ok {
-		return identity, nil
 	}
 	return CarrierSource{
 		class:            CarrierSourceLocal,
 		identity:         source,
 		relationIdentity: source,
 		relationEvidence: RelationEvidenceSourceExact,
+		identityPrivacy:  CarrierSourceIdentityPrivate,
 	}, nil
 }
 
@@ -168,13 +225,14 @@ func interpretAntigravityCLIPluginSource(source string) CarrierSource {
 	plugin, marketplace, found := strings.Cut(source, "@")
 	if found &&
 		!strings.Contains(marketplace, "@") &&
-		stableAntigravityPluginToken(plugin) &&
-		stableAntigravityPluginToken(marketplace) {
+		stableMarketplaceIdentityToken(plugin) &&
+		stableMarketplaceIdentityToken(marketplace) {
 		return CarrierSource{
 			class:            CarrierSourceMarketplace,
 			identity:         source,
 			relationIdentity: plugin,
 			relationEvidence: RelationEvidenceBoundedSameSubject,
+			identityPrivacy:  CarrierSourceIdentityPublic,
 		}
 	}
 	return CarrierSource{
@@ -182,10 +240,22 @@ func interpretAntigravityCLIPluginSource(source string) CarrierSource {
 		identity:         source,
 		relationIdentity: source,
 		relationEvidence: RelationEvidenceUnavailable,
+		identityPrivacy:  CarrierSourceIdentityPrivate,
 	}
 }
 
-func stableAntigravityPluginToken(value string) bool {
+// OpenCodePluginPackageName returns the canonical npm package identity for an
+// admitted OpenCode package source. Opaque host-source values are not packages.
+func OpenCodePluginPackageName(source string) (string, bool) {
+	spec := strings.TrimPrefix(source, "npm:")
+	parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
+	if !ok || !parsed.DirectRegistry() {
+		return "", false
+	}
+	return parsed.Name(), true
+}
+
+func stableMarketplaceIdentityToken(value string) bool {
 	if value == "" {
 		return false
 	}
@@ -204,154 +274,52 @@ func stableAntigravityPluginToken(value string) bool {
 	return true
 }
 
-func npmSourceName(spec string) (string, error) {
+func piHostLoadIdentityIsPublic(identity string) bool {
+	if spec, found := strings.CutPrefix(identity, "npm:"); found {
+		parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
+		return ok && !parsed.HasSelector() && parsed.Name() == spec
+	}
+	value, found := strings.CutPrefix(identity, "git:")
+	if !found {
+		return false
+	}
+	source, ok := desiredextension.ParseGitSource(identity)
+	return ok && source.Public() && source.Identity() == value
+}
+
+func npmSourceIdentity(
+	spec string,
+) (string, CarrierSourceIdentityPrivacy, error) {
 	if spec == "" {
-		return "", fmt.Errorf("npm package source name is required")
+		return "", "", fmt.Errorf("npm package source name is required")
 	}
-	match := npmSourcePattern.FindStringSubmatch(spec)
-	if len(match) == 0 {
-		return spec, nil
+	identity := legacyNPMRelationIdentity(spec)
+	parsed, ok := desiredextension.ParseNPMPackageSpec(spec)
+	if !ok {
+		return identity, CarrierSourceIdentityPrivate, nil
 	}
-	return match[1], nil
+	privacy := CarrierSourceIdentityPublic
+	if !parsed.Public() {
+		privacy = CarrierSourceIdentityPrivate
+	}
+	return parsed.Name(), privacy, nil
 }
 
-func piSourceIsLocal(source string) bool {
-	for _, prefix := range []string{"npm:", "git:", "github:", "http:", "https:", "ssh:"} {
-		if strings.HasPrefix(source, prefix) {
-			return false
-		}
+// legacyNPMRelationIdentity preserves the bounded same-subject diagnostic key
+// for malformed npm-prefixed rows without treating that fallback as admitted
+// package grammar.
+func legacyNPMRelationIdentity(spec string) string {
+	searchFrom := 0
+	if strings.HasPrefix(spec, "@") {
+		searchFrom = 1
 	}
-	return true
-}
-
-func gitSourceIdentity(source string) (CarrierSource, bool) {
-	value := strings.TrimSpace(source)
-	if strings.HasPrefix(value, "github:") {
-		repository, _ := splitGitRef(strings.TrimPrefix(value, "github:"))
-		return buildGitSource("github.com", repository)
+	separator := strings.IndexByte(spec[searchFrom:], '@')
+	if separator < 0 {
+		return spec
 	}
-	hasGitPrefix := strings.HasPrefix(value, "git:")
-	if hasGitPrefix {
-		value = strings.TrimSpace(strings.TrimPrefix(value, "git:"))
-	} else if !hasExplicitGitProtocol(value) {
-		return CarrierSource{}, false
+	separator += searchFrom
+	if separator == searchFrom || separator == len(spec)-1 {
+		return spec
 	}
-
-	repository, _ := splitGitRef(value)
-	if strings.HasPrefix(repository, "git@") {
-		parts := strings.SplitN(strings.TrimPrefix(repository, "git@"), ":", 2)
-		if len(parts) != 2 {
-			return CarrierSource{}, false
-		}
-		return buildGitSource(parts[0], parts[1])
-	}
-	if hasExplicitGitProtocol(repository) {
-		parsed, err := url.Parse(repository)
-		if err != nil || parsed.Hostname() == "" {
-			return CarrierSource{}, false
-		}
-		return buildGitSource(parsed.Hostname(), strings.TrimPrefix(parsed.EscapedPath(), "/"))
-	}
-	if !hasGitPrefix {
-		return CarrierSource{}, false
-	}
-	parts := strings.SplitN(repository, "/", 2)
-	if len(parts) != 2 || (!strings.Contains(parts[0], ".") && parts[0] != "localhost") {
-		return CarrierSource{}, false
-	}
-	return buildGitSource(parts[0], parts[1])
-}
-
-func hasExplicitGitProtocol(value string) bool {
-	return strings.HasPrefix(value, "http://") ||
-		strings.HasPrefix(value, "https://") ||
-		strings.HasPrefix(value, "ssh://") ||
-		strings.HasPrefix(value, "git://")
-}
-
-func splitGitRef(value string) (string, string) {
-	if strings.HasPrefix(value, "git@") {
-		colon := strings.IndexByte(value, ':')
-		if colon < 0 {
-			return value, ""
-		}
-		if separator := strings.IndexByte(value[colon+1:], '@'); separator >= 0 {
-			index := colon + 1 + separator
-			if index > colon+1 && index+1 < len(value) {
-				return value[:index], value[index+1:]
-			}
-		}
-		return value, ""
-	}
-	if strings.Contains(value, "://") {
-		parsed, err := url.Parse(value)
-		if err != nil {
-			return value, ""
-		}
-		path := parsed.Path
-		if separator := strings.IndexByte(strings.TrimPrefix(path, "/"), '@'); separator >= 0 {
-			offset := 0
-			if strings.HasPrefix(path, "/") {
-				offset = 1
-			}
-			index := offset + separator
-			if index > offset && index+1 < len(path) {
-				ref := path[index+1:]
-				parsed.Path = path[:index]
-				return strings.TrimSuffix(parsed.String(), "/"), ref
-			}
-		}
-		return value, ""
-	}
-	slash := strings.IndexByte(value, '/')
-	if slash >= 0 {
-		if separator := strings.IndexByte(value[slash+1:], '@'); separator >= 0 {
-			index := slash + 1 + separator
-			if index > slash+1 && index+1 < len(value) {
-				return value[:index], value[index+1:]
-			}
-		}
-	}
-	return value, ""
-}
-
-func buildGitSource(host string, path string) (CarrierSource, bool) {
-	if strings.HasPrefix(path, "/") {
-		return CarrierSource{}, false
-	}
-	normalizedPath := strings.TrimPrefix(path, "/")
-	normalizedPath = strings.TrimSuffix(normalizedPath, ".git")
-	if host == "" || normalizedPath == "" || len(strings.Split(normalizedPath, "/")) < 2 {
-		return CarrierSource{}, false
-	}
-	if unsafeGitSourcePart(host, false) || unsafeGitSourcePart(normalizedPath, true) {
-		return CarrierSource{}, false
-	}
-	return CarrierSource{
-		class:            CarrierSourceGit,
-		identity:         host + "/" + normalizedPath,
-		relationIdentity: host + "/" + normalizedPath,
-		relationEvidence: RelationEvidenceSourceExact,
-	}, true
-}
-
-func unsafeGitSourcePart(value string, allowSlash bool) bool {
-	decoded, err := url.PathUnescape(value)
-	if err != nil {
-		return true
-	}
-	for _, candidate := range []string{value, decoded} {
-		if strings.ContainsRune(candidate, '\x00') ||
-			strings.Contains(candidate, `\`) ||
-			strings.HasPrefix(candidate, "/") ||
-			(!allowSlash && strings.Contains(candidate, "/")) {
-			return true
-		}
-		for _, part := range strings.Split(candidate, "/") {
-			if part == ".." {
-				return true
-			}
-		}
-	}
-	return false
+	return spec[:separator]
 }

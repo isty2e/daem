@@ -87,9 +87,10 @@ type planJSONResource struct {
 }
 
 type planJSONSubject struct {
-	Kind      string `json:"kind"`
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
+	Kind         string `json:"kind"`
+	Namespace    string `json:"namespace"`
+	Name         string `json:"name"`
+	NameRedacted bool   `json:"name_redacted,omitempty"`
 }
 
 type planJSONProjection struct {
@@ -149,7 +150,7 @@ func PrintPlanJSON(output io.Writer, input PlanJSONInput) error {
 		Actions:           planJSONActionsForPlan(reconciliation),
 		DelegateActions:   delegateJSONActions(reconciliation.Delegates()),
 		RelationActions:   relationJSONActions(reconciliation.Relations()),
-		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders()),
+		RelationOrders:    relationOrderJSONActions(reconciliation.RelationOrders(), reconciliation.Relations()),
 		CarrierAdoptions:  carrierAdoptionJSONActions(reconciliation.CarrierAdoptions(), carrierAdoptionPlanned),
 		CarrierAbsences:   carrierAbsenceJSONActions(reconciliation.CarrierAbsences()),
 		HostRouteAttempts: hostRouteAttempts,

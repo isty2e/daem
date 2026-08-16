@@ -15,17 +15,59 @@ func TestInterpretCarrierSourceMatchesPiSourceClasses(t *testing.T) {
 		wantClass    extensiontopology.CarrierSourceClass
 		wantIdentity string
 		wantEvidence extensiontopology.RelationEvidenceClass
+		wantPrivacy  extensiontopology.CarrierSourceIdentityPrivacy
 	}{
-		{name: "npm version", source: "npm:@acme/tools@1.2.3", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "@acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "git prefixed shorthand", source: "git:github.com/acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "git prefixed scp", source: "git:git@github.com:acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "explicit git URL", source: "https://github.com/acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "relative local", source: "./packages/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "./packages/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "bare host path", source: "github.com/acme/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "github shorthand", source: "github:acme/tools", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "uppercase protocol stays local", source: "HTTPS://github.com/acme/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "HTTPS://github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "invalid remote stays local", source: "https://missing-path", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "https://missing-path", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
-		{name: "unsafe git stays local", source: "git:git@evil.example:../../victim/repo", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "git:git@evil.example:../../victim/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact},
+		{name: "npm version", source: "npm:@acme/tools@1.2.3", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "@acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "npm range", source: "npm:@acme/tools@>=1.2.3 <2", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "@acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "npm alias", source: "npm:tools-alias@npm:@acme/tools@1.2.3", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "tools-alias", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "npm relative selector", source: "npm:tools@../../private/plugin", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "npm file selector", source: "npm:tools@file:../private/plugin.ts", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "npm malformed slash name", source: "npm:tools/plugin@1.2.3", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "tools/plugin", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "npm trailing separator", source: "npm:tools@", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "tools@", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "npm path-shaped name", source: "npm:../../escape", wantClass: extensiontopology.CarrierSourceNPM, wantIdentity: "../../escape", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "git prefixed shorthand", source: "git:github.com/acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "git prefixed scp", source: "git:git@github.com:acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "explicit git URL", source: "https://github.com/acme/tools.git@v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "git plus https URL", source: "git+https://github.com/acme/tools.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "git plus ssh URL", source: "git+ssh://git@github.com/acme/tools.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "single segment git URL", source: "git+https://git.example/repo.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "git.example/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "literal percent remains git path data", source: "git+https://example.com/acme/100%25-tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "example.com/acme/100%-tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "encoded at sign remains git path data", source: "git+https://github.com/acme/tools%40scope.git", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools@scope", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "file URL locator retains private git lifecycle", source: "github:file:///Users/alice/private", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/file:///Users/alice/private", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "home locator retains private git lifecycle", source: "git:github.com/~/private", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/~/private", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "git branch ref with slash", source: "git:github.com/acme/tools@feature/x", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "git machine-local ref keeps locator private", source: "git:github.com/acme/tools@/Users/alice/private", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "direct scp is git before local fallback", source: "git@github.com:acme/pi-tools", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/pi-tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "direct scp machine-local ref stays private", source: "git@github.com:acme/pi-tools@/Users/alice/private", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/pi-tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "single segment direct scp", source: "git@myserver.example:repo", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "myserver.example/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "relative local", source: "./packages/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "./packages/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "bare host path", source: "github.com/acme/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "github shorthand", source: "github:acme/tools", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "uppercase protocol stays local", source: "HTTPS://github.com/acme/tools", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "HTTPS://github.com/acme/tools", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "invalid remote stays local", source: "https://missing-path", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "https://missing-path", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "unsafe git stays local", source: "git:git@evil.example:../../victim/repo", wantClass: extensiontopology.CarrierSourceLocal, wantIdentity: "git:git@evil.example:../../victim/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "password-shaped git retains private git lifecycle", source: "git:user:actual-secret@github.com/acme/tool", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "encoded LF git path stays private git", source: "git+https://example.com/acme/tool%0Aforged.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "example.com/acme/tool\nforged", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "home.arpa git locator stays private", source: "git+https://router.home.arpa/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "router.home.arpa/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "CGNAT git locator stays private", source: "git+https://100.64.0.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "100.64.0.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "trailing-dot loopback git locator stays private", source: "git+https://127.0.0.1./acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "127.0.0.1./acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "IPv4 multicast git locator stays private", source: "git+https://224.0.0.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "224.0.0.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "IPv6 multicast git locator stays private", source: "git+https://[ff02::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "ff02::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "port-bearing loopback shorthand stays private git", source: "git:127.0.0.1:8080/repo", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "127.0.0.1:8080/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "port-bearing home.arpa shorthand stays private git", source: "git:router.home.arpa:2222/repo", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "router.home.arpa:2222/repo", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "port-bearing public URL stays public git", source: "git+https://github.com:443/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "github.com/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "legacy IPv4 loopback alias stays private git", source: "git+https://127.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "127.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "legacy IPv4 private alias stays private git", source: "git+https://10.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "10.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "hex IPv4 loopback alias stays private git", source: "git+https://0x7f.0.0.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "0x7f.0.0.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "this-net IPv4 locator stays private git", source: "git+https://0.1.2.3/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "0.1.2.3/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "benchmarking IPv4 locator stays private git", source: "git+https://198.18.0.1/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "198.18.0.1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "documentation IPv6 locator stays private git", source: "git+https://[2001:db8::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "2001:db8::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "IPv4-IPv6 local translation locator stays private git", source: "git+https://[64:ff9b:1::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "64:ff9b:1::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "dummy IPv6 prefix locator stays private git", source: "git+https://[100:0:0:1::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "100:0:0:1::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "documentation 3fff locator stays private git", source: "git+https://[3fff::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "3fff::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "SRv6 SID locator stays private git", source: "git+https://[5f00::1]/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "5f00::1/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "PCP anycast IPv4 exception stays public git", source: "git+https://192.0.0.9/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "192.0.0.9/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "public IPv4 locator stays public git", source: "git+https://8.8.8.8/acme/tool.git#v1", wantClass: extensiontopology.CarrierSourceGit, wantIdentity: "8.8.8.8/acme/tool", wantEvidence: extensiontopology.RelationEvidenceSourceExact, wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
 	}
 
 	for _, test := range tests {
@@ -49,16 +91,166 @@ func TestInterpretCarrierSourceMatchesPiSourceClasses(t *testing.T) {
 			}
 			if interpreted.Class() != test.wantClass ||
 				interpreted.Identity() != test.wantIdentity ||
-				interpreted.RelationEvidence() != test.wantEvidence {
+				interpreted.RelationEvidence() != test.wantEvidence ||
+				interpreted.IdentityPrivacy() != test.wantPrivacy {
 				t.Fatalf(
-					"source = class:%q identity:%q evidence:%q, want class:%q identity:%q evidence:%q",
+					"source = class:%q identity:%q evidence:%q privacy:%q, want class:%q identity:%q evidence:%q privacy:%q",
 					interpreted.Class(),
 					interpreted.Identity(),
 					interpreted.RelationEvidence(),
+					interpreted.IdentityPrivacy(),
 					test.wantClass,
 					test.wantIdentity,
 					test.wantEvidence,
+					test.wantPrivacy,
 				)
+			}
+		})
+	}
+}
+
+func TestInterpretCarrierSourceClassifiesOpenCodeIdentityPrivacy(t *testing.T) {
+	tests := []struct {
+		source      string
+		wantPrivacy extensiontopology.CarrierSourceIdentityPrivacy
+	}{
+		{source: "opencode-wakatime", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "npm:@acme/plugin@1.2.3", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "opencode-wakatime@latest", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "opencode-wakatime@^1.2.3", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "opencode-wakatime@>=1.2.3 <2", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "npm:foo@../../private/plugin", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "npm:foo@file:../private/plugin.ts", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "foo@/Users/alice/private/plugin.ts", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "plugins/local.ts", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: `plugins\local.ts`, wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "https://example.com/plugin.ts", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+	}
+
+	for _, test := range tests {
+		t.Run(test.source, func(t *testing.T) {
+			source, err := desiredextension.NewSourceRef(
+				desiredextension.SourceKindHostSource,
+				test.source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, err := desiredextension.NewCarrierKey(
+				desiredextension.CarrierOpenCodePlugin,
+				target.TargetOpenCode,
+				target.ScopeProject,
+				source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			interpreted, err := extensiontopology.InterpretCarrierSource(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if interpreted.Class() != extensiontopology.CarrierSourceHost ||
+				interpreted.IdentityPrivacy() != test.wantPrivacy {
+				t.Fatalf(
+					"source class/privacy = %q/%q, want host/%q",
+					interpreted.Class(),
+					interpreted.IdentityPrivacy(),
+					test.wantPrivacy,
+				)
+			}
+		})
+	}
+}
+
+func TestInterpretCarrierSourceRequiresStableClaudeMarketplaceIdentityForDisclosure(t *testing.T) {
+	tests := []struct {
+		source      string
+		wantPrivacy extensiontopology.CarrierSourceIdentityPrivacy
+	}{
+		{source: "context7@official", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "context7@official.market", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{source: "../context7@official", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "context7@../official", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{source: "context7/team@official", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+	}
+
+	for _, test := range tests {
+		t.Run(test.source, func(t *testing.T) {
+			source, err := desiredextension.NewSourceRef(
+				desiredextension.SourceKindMarketplace,
+				test.source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			key, err := desiredextension.NewCarrierKey(
+				desiredextension.CarrierClaudeCodePlugin,
+				target.TargetClaudeCode,
+				target.ScopeGlobal,
+				source,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			interpreted, err := extensiontopology.InterpretCarrierSource(key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if interpreted.IdentityPrivacy() != test.wantPrivacy {
+				t.Fatalf(
+					"marketplace identity privacy = %q, want %q",
+					interpreted.IdentityPrivacy(),
+					test.wantPrivacy,
+				)
+			}
+		})
+	}
+}
+
+func TestHostLoadIdentityPrivacyRequiresTargetGrammar(t *testing.T) {
+	tests := []struct {
+		name        string
+		carrier     desiredextension.Carrier
+		identity    string
+		wantPrivacy extensiontopology.CarrierSourceIdentityPrivacy
+	}{
+		{name: "OpenCode package", carrier: desiredextension.CarrierOpenCodePlugin, identity: "@acme/plugin", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "OpenCode relative path", carrier: desiredextension.CarrierOpenCodePlugin, identity: "plugins/local.ts", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "OpenCode source selector", carrier: desiredextension.CarrierOpenCodePlugin, identity: "npm:plugin", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi npm package", carrier: desiredextension.CarrierPiPackage, identity: "npm:@acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "Pi git remote", carrier: desiredextension.CarrierPiPackage, identity: "git:github.com/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPublic},
+		{name: "Pi git encoded LF identity", carrier: desiredextension.CarrierPiPackage, identity: "git:example.com/acme/tool\nforged", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git home.arpa identity", carrier: desiredextension.CarrierPiPackage, identity: "git:router.home.arpa/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git IPv4 multicast identity", carrier: desiredextension.CarrierPiPackage, identity: "git:224.0.0.1/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git port-bearing loopback identity", carrier: desiredextension.CarrierPiPackage, identity: "git:127.0.0.1:8080/repo", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git legacy IPv4 loopback alias identity", carrier: desiredextension.CarrierPiPackage, identity: "git:127.1/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git documentation IPv6 identity", carrier: desiredextension.CarrierPiPackage, identity: "git:2001:db8::1/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi git benchmarking IPv4 identity", carrier: desiredextension.CarrierPiPackage, identity: "git:198.18.0.1/acme/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi local path", carrier: desiredextension.CarrierPiPackage, identity: "local:project:/tmp/tool", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "Pi opaque identity", carrier: desiredextension.CarrierPiPackage, identity: "foreign", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+		{name: "unsupported order carrier", carrier: desiredextension.CarrierClaudeCodePlugin, identity: "plugin", wantPrivacy: extensiontopology.CarrierSourceIdentityPrivate},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := extensiontopology.HostLoadIdentityPrivacy(test.carrier, test.identity); got != test.wantPrivacy {
+				t.Fatalf("HostLoadIdentityPrivacy() = %q, want %q", got, test.wantPrivacy)
+			}
+		})
+	}
+}
+
+func TestOpenCodePluginPackageNameRequiresRegistrySelector(t *testing.T) {
+	for _, source := range []string{
+		"npm:foo@../../private/plugin",
+		"foo@file:../private/plugin.ts",
+		"foo@/Users/alice/private/plugin.ts",
+		"npm:tool@token = actual-secret",
+		"npm:alias@npm:tool@token = actual-secret",
+	} {
+		t.Run(source, func(t *testing.T) {
+			if name, ok := extensiontopology.OpenCodePluginPackageName(source); ok {
+				t.Fatalf("OpenCodePluginPackageName(%q) = %q, want opaque/private", source, name)
 			}
 		})
 	}

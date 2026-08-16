@@ -40,7 +40,7 @@ func buildClaudePluginCarrierRefreshCommand(
 			"Claude plugin carrier marketplace source must be PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{

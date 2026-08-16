@@ -99,7 +99,6 @@ func runLock(args []string, stdout io.Writer, stderr io.Writer, options commandO
 
 func printLockWorkflowHints(output io.Writer, manifestPath string, err error) {
 	printMissingManifestInitHint(output, manifestPath, err)
-	printUnsupportedCapabilityHint(output, err)
 
 	var commandError workflowlock.CommandError
 	if errors.As(err, &commandError) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -101,7 +102,7 @@ func TestRunApplyDisclosureWriteFailureDoesNotPromptOrMutate(t *testing.T) {
 	options := interactiveRunOptions(input, errorWriter{err: stdoutErr}, &stderr)
 
 	exitCode := RunWithOptions([]string{"apply", "--manifest", manifestPath}, options)
-	if exitCode != 1 || !strings.Contains(stderr.String(), "apply failed: disclose plan: stdout closed") {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "apply failed: apply confirmation failed") {
 		t.Fatalf("exitCode = %d stderr = %q", exitCode, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "Proceed with apply?") || input.reads != 0 {
@@ -119,11 +120,39 @@ func TestRunApplyDisclosureShortWriteDoesNotPromptOrMutate(t *testing.T) {
 	options := interactiveRunOptions(input, shortWriter{}, &stderr)
 
 	exitCode := RunWithOptions([]string{"apply", "--manifest", manifestPath}, options)
-	if exitCode != 1 || !strings.Contains(stderr.String(), io.ErrShortWrite.Error()) {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "apply failed: apply confirmation failed") {
 		t.Fatalf("exitCode = %d stderr = %q", exitCode, stderr.String())
 	}
 	if strings.Contains(stderr.String(), "Proceed with apply?") || input.reads != 0 {
 		t.Fatalf("stderr = %q input reads = %d, want no prompt or input", stderr.String(), input.reads)
+	}
+	assertCLIPathMissing(t, filepath.Join(tempDir, "AGENTS.md"))
+	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
+}
+
+func TestRunApplyConfirmationReadFailureUsesClosedDetail(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, tempDir)
+	privateCause := errors.New("read /Users/alice/private/answer: access_token=secret")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	options := interactiveRunOptions(strings.NewReader(""), &stdout, &stderr)
+	options.ReadConfirmationLine = func(
+		_ context.Context,
+		_ io.Reader,
+		_ int,
+	) (string, error) {
+		return "", privateCause
+	}
+
+	exitCode := RunWithOptions([]string{"apply", "--manifest", manifestPath}, options)
+	if exitCode != 1 || !strings.Contains(stderr.String(), "apply failed: apply confirmation failed") {
+		t.Fatalf("exitCode = %d stderr = %q", exitCode, stderr.String())
+	}
+	for _, private := range []string{"/Users/alice/private", "access_token=secret"} {
+		if strings.Contains(stderr.String(), private) {
+			t.Fatalf("stderr disclosed confirmation evidence %q: %q", private, stderr.String())
+		}
 	}
 	assertCLIPathMissing(t, filepath.Join(tempDir, "AGENTS.md"))
 	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
@@ -139,7 +168,7 @@ func TestRunApplyPartialDisclosureFailureDoesNotPromptOrMutate(t *testing.T) {
 	options := interactiveRunOptions(input, stdout, &stderr)
 
 	exitCode := RunWithOptions([]string{"apply", "--manifest", manifestPath}, options)
-	if exitCode != 1 || !strings.Contains(stderr.String(), stdoutErr.Error()) {
+	if exitCode != 1 || !strings.Contains(stderr.String(), "apply failed: apply confirmation failed") {
 		t.Fatalf("exitCode = %d stdout = %q stderr = %q", exitCode, stdout.buffer.String(), stderr.String())
 	}
 	if stdout.buffer.Len() == 0 || strings.Contains(stderr.String(), "Proceed with apply?") || input.reads != 0 {

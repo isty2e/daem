@@ -14,6 +14,50 @@ import (
 )
 
 func TestRefreshEdgeRound2AuthorizationAndAuthorityDrift(t *testing.T) {
+	t.Run("timeout and workdir authority remain independent", func(t *testing.T) {
+		manifestPath := writeNoObserverRefreshFixture(t)
+		root := filepath.Dir(manifestPath)
+		moved := root + "-moved"
+		t.Cleanup(func() {
+			_ = os.RemoveAll(root)
+			_ = os.RemoveAll(moved)
+		})
+		prepared, err := PlanWrite(context.Background(), CommandInput{
+			ManifestPath: manifestPath,
+			ExtensionID:  "formatter",
+		}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+		if err != nil {
+			t.Fatalf("PlanWrite returned error: %v", err)
+		}
+
+		result, err := Execute(context.Background(), prepared, ExecuteOptions{
+			CommandOptions: subprocess.CommandOptions{
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					if renameErr := os.Rename(root, moved); renameErr != nil {
+						t.Fatalf("move selected root: %v", renameErr)
+					}
+					if mkdirErr := os.Mkdir(root, 0o700); mkdirErr != nil {
+						t.Fatalf("create replacement root: %v", mkdirErr)
+					}
+					return subprocess.CommandResult{
+						Started:  true,
+						TimedOut: true,
+						Err:      context.DeadlineExceeded,
+					}
+				},
+			},
+		})
+		if err == nil ||
+			result.ResultClass != ResultPartial ||
+			result.ProcessOutcome == nil ||
+			result.ProcessOutcome.Reason != subprocess.CommandReasonTimeout ||
+			!result.ProcessOutcome.TimedOut ||
+			result.AuthorityOutcome == nil ||
+			!result.AuthorityOutcome.WorkDirFailed {
+			t.Fatalf("result = %#v, error = %v", result, err)
+		}
+	})
+
 	t.Run("presentation snapshot cannot mutate the executable plan", func(t *testing.T) {
 		manifestPath := writeNoObserverRefreshFixture(t)
 		prepared, err := PlanWrite(context.Background(), CommandInput{

@@ -222,7 +222,7 @@ func TestRemovedMCPDeclarationBlocksDesiredSiblingWithoutState(t *testing.T) {
 		"apply", "--manifest", manifestPath, "--target", string(target.TargetClaudeCode), "--yes",
 	}, RunOptions{})
 	if exitCode != 1 || stdout != "" ||
-		!strings.Contains(stderr, string(reconcile.ReasonUnexpectedLockSubject)) ||
+		!strings.Contains(stderr, "blocked: unexpected lock subject") ||
 		!strings.Contains(stderr, "next: run daem lock --manifest") {
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q, want typed lock refusal", exitCode, stdout, stderr)
 	}

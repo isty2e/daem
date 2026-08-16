@@ -63,6 +63,21 @@ func (result RelationOrderExecutionResult) Outcome() RelationOrderOutcome { retu
 func (result RelationOrderExecutionResult) Changed() bool                 { return result.changed }
 func (result RelationOrderExecutionResult) Detail() string                { return result.detail }
 
+// PublicDetail derives path-neutral prose from a closed execution outcome.
+func (result RelationOrderExecutionResult) PublicDetail() string {
+	if result.detail == "" {
+		return ""
+	}
+	switch result.outcome {
+	case RelationOrderFailed:
+		return "extension order update failed"
+	case RelationOrderNotAttempted:
+		return "extension order update was not attempted"
+	default:
+		return ""
+	}
+}
+
 // RelationOrderRiskDelta is one immutable physical-sequence fragment containing
 // only precedence changes absent from the authorized baseline.
 type RelationOrderRiskDelta struct {
@@ -335,6 +350,9 @@ func runRelationOrderConvergence(
 				)
 			},
 		)
+		if executeErr != nil {
+			executeErr = relationOrderExecutionError{cause: executeErr}
+		}
 		closeErr := bound.Close()
 		declarationErr := options.executionGuard.requireDeclarationsCurrent(
 			ctx,
@@ -355,6 +373,18 @@ func runRelationOrderConvergence(
 		}
 	}
 	return result, nil
+}
+
+type relationOrderExecutionError struct {
+	cause error
+}
+
+func (err relationOrderExecutionError) Error() string {
+	return "extension order execution failed"
+}
+
+func (err relationOrderExecutionError) Unwrap() error {
+	return err.cause
 }
 
 func initialOrderExecutionResults(

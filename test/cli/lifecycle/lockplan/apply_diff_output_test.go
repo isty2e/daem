@@ -50,6 +50,50 @@ source = "instructions/AGENTS.md"
 	}
 }
 
+func TestRunApplyDryRunDiffOmitsOversizedDesiredContentAtCollection(t *testing.T) {
+	tempDir := t.TempDir()
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	lockfilePath := filepath.Join(tempDir, "daem.lock.toml")
+	sourcePath := filepath.Join(tempDir, "instructions", "AGENTS.md")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	content := []byte(strings.Repeat("x", (4<<20)+1))
+	if err := os.WriteFile(sourcePath, content, 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	instructionHash := testkit.HashPath(t, sourcePath)
+
+	if err := os.WriteFile(manifestPath, []byte(`
+version = 1
+targets = ["codex"]
+
+[instructions.project]
+source = "instructions/AGENTS.md"
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	testkit.WriteLockfile(t, lockfilePath, testkit.ExactSupplyLockfile(t, testkit.ExactSupplyFixture{Kind: testkit.ExactSupplyInstructions, Name: "project", SourceID: "local:instructions/AGENTS.md?mode=vendor", ContentHash: instructionHash}))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"apply", "--manifest", manifestPath, "--dry-run", "--diff"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 {
+		t.Fatalf("exitCode = %d, stderr = %q", exitCode, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "inline diff omitted because the files are too large") {
+		t.Fatalf("stdout = %q, want bounded collection omission", output)
+	}
+	if strings.Contains(output, strings.Repeat("x", 1024)) {
+		t.Fatal("stdout contains oversized desired content")
+	}
+}
+
 func TestRunApplyDryRunDiffSuppressesDiffForReadinessErrors(t *testing.T) {
 	tempDir := t.TempDir()
 	manifestPath := filepath.Join(tempDir, "daem.toml")
@@ -224,7 +268,7 @@ mode = "symlink"
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `apply symlink mode for "AGENTS.md" is not implemented`) {
+	if !strings.Contains(stderr.String(), "symlink mode") || !strings.Contains(stderr.String(), "AGENTS.md") {
 		t.Fatalf("stderr = %q, want symlink diagnostic", stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, "AGENTS.md")); !os.IsNotExist(err) {

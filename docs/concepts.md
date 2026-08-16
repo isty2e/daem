@@ -122,6 +122,9 @@ different questions:
 Host-route diagnostics likewise retain only the latest request for each
 subject, target, scope, and route id. A changed request hash replaces the prior
 diagnostic for that route; the statefile is not an append-only operation log.
+Statefile v9 stores a delegate command's mechanical process reason separately
+from post-attempt working-directory authority. Current daem reads v8 records
+using their legacy combined reason and writes the separated facts only as v9.
 
 The statefile is private authority data. Daem writes and accepts it only as an
 invoking-user-owned regular file with exact mode `0600`; final symlinks,

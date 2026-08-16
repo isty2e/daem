@@ -113,6 +113,8 @@ type ApplyResult struct {
 	HasErrors bool `json:"has_errors"`
 	Errors    []struct {
 		Code    string `json:"code"`
+		Phase   string `json:"phase"`
+		Outcome string `json:"outcome"`
 		Message string `json:"message"`
 	} `json:"errors"`
 }
@@ -133,4 +135,32 @@ func DecodeApplyResult(t *testing.T, content []byte) ApplyResult {
 	requireSchemaVersion(t, "apply result", payload.SchemaVersion, contractversion.ApplyResultJSON)
 
 	return payload
+}
+
+// RequireApplyFailure checks the closed public failure projection.
+func RequireApplyFailure[Reason ~string, Phase ~string, Outcome ~string](
+	t *testing.T,
+	result ApplyResult,
+	reason Reason,
+	phase Phase,
+	outcome Outcome,
+) {
+	t.Helper()
+	if !result.HasErrors || len(result.Errors) != 1 {
+		t.Fatalf("apply result errors = %#v, want one typed failure", result.Errors)
+	}
+	failure := result.Errors[0]
+	if failure.Code != string(reason) ||
+		failure.Phase != string(phase) ||
+		failure.Outcome != string(outcome) {
+		t.Fatalf(
+			"apply failure = (%q, %q, %q), want (%q, %q, %q)",
+			failure.Code,
+			failure.Phase,
+			failure.Outcome,
+			reason,
+			phase,
+			outcome,
+		)
+	}
 }

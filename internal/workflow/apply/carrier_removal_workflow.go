@@ -170,7 +170,10 @@ func runOne(
 		if persistErr := persistAttempt(ctx, input, stateAuthority, result, record); persistErr != nil {
 			return errors.Join(err, persistErr)
 		}
-		return err
+		return errors.Join(
+			hostRouteFailuresError([]durableattempt.HostRouteAttempt{record}),
+			err,
+		)
 	}
 
 	binding, err := input.ProjectRoot.AcquireSelectedWorkingDirectory(input.SelectedRoot)
@@ -205,7 +208,10 @@ func runOne(
 		if persistErr := persistAttempt(ctx, input, stateAuthority, result, record); persistErr != nil {
 			return errors.Join(err, persistErr)
 		}
-		return err
+		return errors.Join(
+			hostRouteFailuresError([]durableattempt.HostRouteAttempt{record}),
+			err,
+		)
 	}
 
 	baselines := durablecarrier.EffectBaselineSet{}
@@ -282,14 +288,18 @@ func runOne(
 	if recordErr != nil {
 		return errors.Join(classifyErr, recordErr, boundaryErr, releaseErr)
 	}
+	var attemptFailure error
+	if removalAttemptFailed(classified, record) {
+		attemptFailure = hostRouteFailuresError([]durableattempt.HostRouteAttempt{record})
+	}
 	if err := persistAttempt(ctx, input, stateAuthority, result, record); err != nil {
-		return errors.Join(classifyErr, err, boundaryErr, releaseErr)
+		return errors.Join(attemptFailure, classifyErr, err, boundaryErr, releaseErr)
 	}
 	if classifyErr != nil || boundaryErr != nil || releaseErr != nil {
-		return errors.Join(classifyErr, boundaryErr, releaseErr)
+		return errors.Join(attemptFailure, classifyErr, boundaryErr, releaseErr)
 	}
-	if !removalVerified(classified) {
-		return attemptError(record)
+	if attemptFailure != nil {
+		return attemptFailure
 	}
 	return retireClaim(ctx, input, action, pending, stateAuthority, result)
 }
@@ -481,12 +491,12 @@ func removalVerified(result assurancehostroute.Result) bool {
 	return result.PostconditionsSatisfied()
 }
 
-func attemptError(record durableattempt.HostRouteAttempt) error {
-	return fmt.Errorf(
-		"host removal did not converge: %s/%s",
-		record.ResultClass(),
-		record.Reason(),
-	)
+func removalAttemptFailed(
+	result assurancehostroute.Result,
+	record durableattempt.HostRouteAttempt,
+) bool {
+	return !removalVerified(result) ||
+		record.Reason() == durableattempt.HostRouteReasonWorkDirAuthority
 }
 
 func now(input carrierRemovalInput) time.Time {

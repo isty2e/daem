@@ -167,7 +167,7 @@ render_to = "CLAUDE.md"
 		"Applying 0/2",
 		": failed",
 		"apply failed:",
-		"host changes rolled back",
+		"host changes were rolled back",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)

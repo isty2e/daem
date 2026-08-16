@@ -136,7 +136,7 @@ mode = "symlink"
 		{"apply", "--manifest", manifestPath, "--yes"},
 	} {
 		output := runInstructionModeCLI(t, args, 1)
-		if !strings.Contains(output, `apply symlink mode for "AGENTS.md" is not implemented`) {
+		if !strings.Contains(output, "symlink mode") || !strings.Contains(output, "AGENTS.md") {
 			t.Fatalf("apply output = %q, want explicit symlink refusal", output)
 		}
 	}

@@ -171,7 +171,9 @@ func TestRunRemoveExtensionGlobalOmissionNeverUninstallsOrPrunes(t *testing.T) {
 		"--dry-run",
 		"--json",
 	}, &stdout, &stderr)
-	if exitCode != 1 || !strings.Contains(stderr.String(), `target "claude-code" does not match any manifest resource`) {
+	if exitCode != 1 ||
+		!strings.Contains(stderr.String(), "apply failed: apply was refused before effects") ||
+		!strings.Contains(stderr.String(), "next: run daem lock --manifest <manifest> --dry-run") {
 		t.Fatalf("targeted apply after remove exitCode = %d, stdout = %q, stderr = %q", exitCode, stdout.String(), stderr.String())
 	}
 	execcheck.AssertClean(t, canary, "targeted apply after global extension omission")

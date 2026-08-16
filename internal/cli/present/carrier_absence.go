@@ -16,6 +16,7 @@ type carrierAbsenceActionJSON struct {
 	Target                      string           `json:"target"`
 	Scope                       string           `json:"scope"`
 	SourceNamespace             string           `json:"source_namespace"`
+	SourceNamespaceRedacted     bool             `json:"source_namespace_redacted,omitempty"`
 	RequestedOutcome            string           `json:"requested_outcome"`
 	SelectedAction              string           `json:"selected_action"`
 	Execution                   string           `json:"execution"`
@@ -43,6 +44,7 @@ func carrierAbsenceJSONActions(
 ) []carrierAbsenceActionJSON {
 	result := make([]carrierAbsenceActionJSON, 0, len(actions))
 	for _, action := range actions {
+		disclosure := carrierIdentityDisclosureFor(action.Claim().Identity())
 		observation, observed := action.Observation()
 		route := action.RouteAdmission()
 		operation := route.Operation()
@@ -54,10 +56,11 @@ func carrierAbsenceJSONActions(
 		row := carrierAbsenceActionJSON{
 			Kind:                        "carrier_absence",
 			Subject:                     planJSONSubjectFor(action.Subject()),
-			CarrierSubject:              planJSONSubjectFor(action.Claim().Identity().CarrierSubject()),
+			CarrierSubject:              disclosure.carrierSubject,
 			Target:                      string(action.Target()),
 			Scope:                       string(action.Scope()),
-			SourceNamespace:             action.Claim().Identity().SourceNamespace(),
+			SourceNamespace:             disclosure.sourceNamespace.Value(),
+			SourceNamespaceRedacted:     disclosure.sourceNamespace.Redacted(),
 			RequestedOutcome:            string(action.Desired()),
 			SelectedAction:              string(action.Decision()),
 			Execution:                   carrierAbsenceExecution(action),
@@ -103,6 +106,7 @@ func PrintCarrierAbsenceActionsWithOptions(
 			continue
 		}
 		row := carrierAbsenceJSONActions([]carrierabsence.Action{action})[0]
+		disclosure := carrierIdentityDisclosureFor(action.Claim().Identity())
 		fmt.Fprintf(
 			output,
 			"  - kind=%s subject=%q carrier=%q target=%s scope=%s source_namespace=%q requested_outcome=%s selected_action=%s execution=%s correlation_state=%s correlation_reason=%s evidence_availability=%s evidence_freshness=%s daem_known_consumers=%d remaining_daem_known_consumers=%d route_id=%q route_request_hash=%q postcondition_verification=%q recovery_contract=%q removed_effects=%q retained_effects=%q non_claims=%q invokes_host_route=%t retires_claim=%t state_only=%t blocks_ordinary_apply=%t\n",
@@ -111,7 +115,7 @@ func PrintCarrierAbsenceActionsWithOptions(
 			subjectString(*row.CarrierSubject),
 			row.Target,
 			row.Scope,
-			row.SourceNamespace,
+			disclosure.verboseSourceNamespace.Value(),
 			row.RequestedOutcome,
 			row.SelectedAction,
 			row.Execution,

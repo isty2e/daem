@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -62,6 +63,54 @@ func TestExecuteInstallsPiMCPProviderBeforeConfigProjection(t *testing.T) {
 	}
 	if _, err := os.Stat(configPath); err != nil {
 		t.Fatalf("Pi MCP config was not projected after provider verification: %v", err)
+	}
+}
+
+func TestProviderEffectPreventsWholeApplyRolledBackOutcome(t *testing.T) {
+	root, manifestPath := writePiProviderMCPFixture(t)
+	configPath := filepath.Join(root, aggregate.PiProjectMCPConfigPath)
+	ctx, cancel := context.WithCancel(t.Context())
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+			writePiProviderInstallation(t, root, "2.15.0")
+			return subprocess.CommandResult{Started: true, HasExitCode: true}
+		},
+	})
+
+	planned, err := PlanWrite(ctx, CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	result, err := ExecuteWithOptions(ctx, planned, ExecuteOptions{
+		HostRouteExecutor: executor,
+		ExecuteEvents: func(event execute.Event) {
+			if event.Kind == execute.EventActionDone {
+				cancel()
+			}
+		},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteWithOptions error = %v, want cancellation after managed effect", err)
+	}
+	if !result.ExecutionAttempted || !result.UncompensatedEffectsAttempted {
+		t.Fatalf(
+			"execution facts = attempted:%t uncompensated:%t, want both true",
+			result.ExecutionAttempted,
+			result.UncompensatedEffectsAttempted,
+		)
+	}
+	failure := ClassifyFailure(err, result)
+	if failure.Outcome() != FailureOutcomeIncomplete {
+		t.Fatalf("failure outcome = %q, want incomplete", failure.Outcome())
+	}
+	if strings.Contains(failure.Detail(), "host changes were rolled back") {
+		t.Fatalf("failure detail = %q, want no whole-apply rollback claim", failure.Detail())
+	}
+	if _, statErr := os.Lstat(configPath); !os.IsNotExist(statErr) {
+		t.Fatalf("managed MCP config remained after rollback: %v", statErr)
+	}
+	if _, statErr := os.Stat(piProviderPackagePath(root)); statErr != nil {
+		t.Fatalf("provider effect did not remain after managed rollback: %v", statErr)
 	}
 }
 

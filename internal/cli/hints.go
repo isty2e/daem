@@ -24,43 +24,6 @@ func printLockCommandHint(output io.Writer, manifestPath string) {
 	clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", manifestPath)
 }
 
-func printUnsupportedCapabilityHint(output io.Writer, err error) {
-	target, ok := unsupportedCapabilityTarget(err)
-	if !ok {
-		return
-	}
-
-	command, commandErr := clipresent.ShellCommand("daem", "doctor", "--target", target)
-	if commandErr != nil {
-		return
-	}
-	fmt.Fprintf(output, "next: run %s\n", command)
-	fmt.Fprintln(output, "note: inspect target capabilities")
-}
-
-func unsupportedCapabilityTarget(err error) (string, bool) {
-	if err == nil {
-		return "", false
-	}
-	message := err.Error()
-	if !strings.Contains(message, "is not implemented") {
-		return "", false
-	}
-
-	const marker = `target "`
-	start := strings.Index(message, marker)
-	if start < 0 {
-		return "", false
-	}
-	start += len(marker)
-	end := strings.Index(message[start:], `"`)
-	if end < 0 {
-		return "", false
-	}
-
-	return message[start : start+end], true
-}
-
 func printTargetSelectionHint(output io.Writer, manifestPath string) {
 	clipresent.PrintShellCommand(output, "next: run ", "daem", "lock", "--manifest", manifestPath, "--dry-run")
 	fmt.Fprintf(output, "note: omit --target to inspect all effective targets; accepted targets: %s\n", supportedTargetValuesForHelp())
@@ -168,15 +131,23 @@ func printSkillGroupPartialTargetRemovalHint(output io.Writer, resourceKey strin
 }
 
 func printMissingManifestInitHint(output io.Writer, manifestPath string, err error) {
-	if !errors.Is(err, os.ErrNotExist) {
-		return
-	}
-	resolvedManifestPath, pathErr := workflowhelp.InitHintManifestPath(manifestPath)
-	if pathErr != nil {
-		return
-	}
-	if _, statErr := os.Stat(resolvedManifestPath); !errors.Is(statErr, os.ErrNotExist) {
+	resolvedManifestPath, ok := missingManifestInitHintPath(manifestPath, err)
+	if !ok {
 		return
 	}
 	clipresent.PrintShellCommand(output, "next: run ", "daem", "init", "--manifest", resolvedManifestPath, "--dry-run")
+}
+
+func missingManifestInitHintPath(manifestPath string, err error) (string, bool) {
+	if !errors.Is(err, os.ErrNotExist) {
+		return "", false
+	}
+	resolvedManifestPath, pathErr := workflowhelp.InitHintManifestPath(manifestPath)
+	if pathErr != nil {
+		return "", false
+	}
+	if _, statErr := os.Stat(resolvedManifestPath); !errors.Is(statErr, os.ErrNotExist) {
+		return "", false
+	}
+	return resolvedManifestPath, true
 }

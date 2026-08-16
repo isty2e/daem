@@ -264,6 +264,8 @@ func durableAttemptsFromDelegateResults(
 			ObservedAt:      observedAt,
 			Status:          status,
 			Reason:          durableDelegateReason(item.Reason()),
+			AttemptObserved: item.Status() != delegate.AttemptBlocked,
+			ProcessReason:   durableDelegateProcessReason(item.ProcessReason()),
 			Observation:     delegateResult.ObservationSummary(),
 			Postcondition:   delegateResult.PostconditionSummary(),
 			ExitCode:        optionalExitCode(exitCode, hasExitCode),
@@ -278,6 +280,12 @@ func durableAttemptsFromDelegateResults(
 		result = append(result, attempt)
 	}
 	return result, nil
+}
+
+func durableDelegateProcessReason(
+	reason subprocess.CommandReason,
+) durableattempt.DelegateProcessReason {
+	return durableattempt.DelegateProcessReason(reason)
 }
 
 func durableDelegateStatus(status delegate.AttemptStatus) (durableattempt.DelegateAttemptStatus, bool) {

@@ -123,8 +123,8 @@ func TestMainConfirmationPTYCtrlCInterruptsBlockedRead(t *testing.T) {
 	if exitCode := process.Wait(t); exitCode != 130 {
 		t.Fatalf("exit code = %d, want 130; terminal = %q", exitCode, process.terminal.String())
 	}
-	if !strings.Contains(process.terminal.String(), "apply canceled: context canceled") {
-		t.Fatalf("terminal = %q, want context cancellation", process.terminal.String())
+	if !strings.Contains(process.terminal.String(), "apply failed: apply was cancelled before effects") {
+		t.Fatalf("terminal = %q, want closed cancellation detail", process.terminal.String())
 	}
 	assertPTYApplyNotMutated(t, manifestPath)
 }

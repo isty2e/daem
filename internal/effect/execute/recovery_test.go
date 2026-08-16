@@ -363,6 +363,8 @@ func recoveryTestDelegateAttempt(subject topology.SubjectID) durableattempt.Dele
 		ObservedAt:      time.Date(2026, time.June, 21, 12, 0, 0, 0, time.UTC),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 	})
 	if err != nil {
 		panic(err)

@@ -319,13 +319,46 @@ func applyRecoveryErrorWithEvents(
 		stateCodec,
 		gate,
 	); err != nil {
-		return fmt.Errorf(
-			"%w; host changes rolled back; retire recovery journal failed: %v",
-			primary,
-			retirementFailureWithRemediation(err),
+		return newApplyRollbackError(primary, retirementFailureWithRemediation(err))
+	}
+	return newApplyRollbackError(primary, nil)
+}
+
+type applyRollbackError struct {
+	primary           error
+	retirementFailure error
+}
+
+func newApplyRollbackError(primary error, retirementFailure error) error {
+	return &applyRollbackError{
+		primary:           primary,
+		retirementFailure: retirementFailure,
+	}
+}
+
+func (failure *applyRollbackError) Error() string {
+	if failure.retirementFailure != nil {
+		return fmt.Sprintf(
+			"%v; host changes rolled back; retire recovery journal failed: %v",
+			failure.primary,
+			failure.retirementFailure,
 		)
 	}
-	return fmt.Errorf("%w; host changes rolled back", primary)
+	return fmt.Sprintf("%v; host changes rolled back", failure.primary)
+}
+
+func (failure *applyRollbackError) Unwrap() []error {
+	if failure.retirementFailure != nil {
+		return []error{failure.primary, failure.retirementFailure}
+	}
+	return []error{failure.primary}
+}
+
+// ApplyHostChangesRolledBack reports whether an unsuccessful apply restored
+// every host change before returning.
+func ApplyHostChangesRolledBack(err error) bool {
+	var failure *applyRollbackError
+	return errors.As(err, &failure)
 }
 
 // hostEffectProgress classifies what apply can truthfully conclude about one

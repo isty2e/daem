@@ -2,11 +2,11 @@ package cli_test
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	"github.com/isty2e/daem/internal/realization/aggregate"
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 	"github.com/isty2e/daem/test/testkit/execcheck"
@@ -178,9 +178,13 @@ func TestMCPPublicCLIApplyDelegatedRouteInvokesLockedCommandOnlyAfterConfirmatio
 		t.Fatalf("ordinary apply attempt exitCode=%d stdout=%q stderr=%q, want failed attempt JSON only", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
-	if !payload.HasErrors || len(payload.Errors) != 1 || !strings.Contains(payload.Errors[0].Message, "delegate attempt failed") {
-		t.Fatalf("payload errors = %#v, want delegate attempt failure", payload.Errors)
-	}
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonDelegateAttemptFailed,
+		applyworkflow.FailurePhaseExecution,
+		applyworkflow.FailureOutcomeIncomplete,
+	)
 	if payload.ActionCount != 1 {
 		t.Fatalf("payload action_count = %d, want committed projection action before failed attempt", payload.ActionCount)
 	}
@@ -216,8 +220,15 @@ func TestMCPPublicCLIApplyDelegatedRouteDoesNotRunWhenLockIsStale(t *testing.T) 
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
 	assertApplyResultSubjectAction(t, payload, "error", "context7")
-	if !payload.HasErrors || len(payload.Errors) == 0 || !strings.Contains(payload.Errors[0].Message, "stale_lock") {
-		t.Fatalf("payload errors = %#v, want stale lock error", payload.Errors)
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonApplyRefused,
+		applyworkflow.FailurePhasePreflight,
+		applyworkflow.FailureOutcomeRefused,
+	)
+	if len(payload.Actions) != 1 || payload.Actions[0].Reason != "stale_lock" {
+		t.Fatalf("payload actions = %#v, want stale lock decision", payload.Actions)
 	}
 	if len(payload.DelegateActions) != 1 {
 		t.Fatalf("delegate_actions = %#v, want one blocked stale-lock delegate action", payload.DelegateActions)

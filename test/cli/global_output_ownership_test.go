@@ -29,8 +29,8 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 		t.Fatalf("owner apply exit=%d stderr=%q", exitCode, stderr)
 	}
 	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--manage-existing", "--yes"); exitCode == 0 ||
-		!strings.Contains(stderr, "ownership_conflict") || !strings.Contains(stderr, leftManifest) {
-		t.Fatalf("foreign manage-existing exit=%d stderr=%q, want owner-attributed conflict", exitCode, stderr)
+		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, leftManifest) {
+		t.Fatalf("foreign manage-existing exit=%d stderr=%q, want path-neutral ownership conflict", exitCode, stderr)
 	}
 	testkit.AssertFileContent(t, destination, "same\n")
 	if _, err := os.Stat(filepath.Join(rightRoot, ".daem", "state.json")); !os.IsNotExist(err) {
@@ -41,8 +41,12 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 		t.Fatalf("foreign relock exit=%d stderr=%q", exitCode, stderr)
 	}
 	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
-		!strings.Contains(stdout, "ownership conflict") || !strings.Contains(stdout, leftManifest) {
-		t.Fatalf("foreign status exit=%d stdout=%q stderr=%q, want ownership_conflict", exitCode, stdout, stderr)
+		!strings.Contains(stdout, "ownership conflict") || strings.Contains(stdout, leftManifest) {
+		t.Fatalf("foreign status exit=%d stdout=%q stderr=%q, want path-neutral ownership conflict", exitCode, stdout, stderr)
+	}
+	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", rightManifest, "--verbose"); exitCode != 0 || stderr != "" ||
+		!strings.Contains(stdout, "ownership_conflict") || !strings.Contains(stdout, leftManifest) {
+		t.Fatalf("verbose foreign status exit=%d stdout=%q stderr=%q, want owner-attributed conflict", exitCode, stdout, stderr)
 	}
 	if exitCode, stdout, stderr := runOwnershipCLI("list", "outputs", "--manifest", rightManifest); exitCode != 0 || stderr != "" ||
 		!strings.Contains(stdout, "blocked: 1") || !strings.Contains(stdout, `reason="ownership_conflict"`) || !strings.Contains(stdout, leftManifest) {
@@ -67,8 +71,9 @@ func TestGlobalOutputOwnershipBlocksForeignManifestUntilOwnerReleases(t *testing
 			t.Fatalf("blocked inventory = %#v, want versioned owner-attributed conflict", inventory)
 		}
 	}
-	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--yes"); exitCode == 0 || !strings.Contains(stderr, "ownership_conflict") {
-		t.Fatalf("foreign differing apply exit=%d stderr=%q, want ownership_conflict", exitCode, stderr)
+	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", rightManifest, "--yes"); exitCode == 0 ||
+		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, leftManifest) {
+		t.Fatalf("foreign differing apply exit=%d stderr=%q, want path-neutral ownership conflict", exitCode, stderr)
 	}
 
 	testkit.WriteFile(t, leftRoot, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
@@ -140,8 +145,11 @@ func TestConcurrentDisjointGlobalProjectionsConvergeAfterStaleRetry(t *testing.T
 		retryManifest = rightManifest
 		staleOutput = right.stderr.String()
 	}
-	if !strings.Contains(staleOutput, "stale_snapshot") {
-		t.Fatalf("losing disjoint apply stderr=%q, want stale_snapshot", staleOutput)
+	if !strings.Contains(
+		staleOutput,
+		"apply failed: authoritative inputs changed before apply completed",
+	) || strings.Contains(staleOutput, "stale_snapshot") {
+		t.Fatalf("losing disjoint apply stderr=%q, want typed stale detail", staleOutput)
 	}
 	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", retryManifest, "--yes"); exitCode != 0 {
 		t.Fatalf("disjoint retry exit=%d stderr=%q", exitCode, stderr)
@@ -165,8 +173,12 @@ func TestMovedManifestCannotSilentlyInheritGlobalOwnership(t *testing.T) {
 	}
 	movedManifest := filepath.Join(movedRoot, "daem.toml")
 	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", movedManifest); exitCode != 0 || stderr != "" ||
-		!strings.Contains(stdout, "ownership conflict") || !strings.Contains(stdout, originalManifest) {
-		t.Fatalf("moved status exit=%d stdout=%q stderr=%q, want original-owner conflict", exitCode, stdout, stderr)
+		!strings.Contains(stdout, "ownership conflict") || strings.Contains(stdout, originalManifest) {
+		t.Fatalf("moved status exit=%d stdout=%q stderr=%q, want path-neutral ownership conflict", exitCode, stdout, stderr)
+	}
+	if exitCode, stdout, stderr := runOwnershipCLI("status", "--manifest", movedManifest, "--verbose"); exitCode != 0 || stderr != "" ||
+		!strings.Contains(stdout, "ownership_conflict") || !strings.Contains(stdout, originalManifest) {
+		t.Fatalf("verbose moved status exit=%d stdout=%q stderr=%q, want original-owner conflict", exitCode, stdout, stderr)
 	}
 }
 
@@ -183,8 +195,8 @@ func TestStaleWholePathClaimBlocksForeignProjectionWithoutAutoTransfer(t *testin
 	}
 	foreignManifest := writeGlobalMCPWorkspace(t, filepath.Join(root, "foreign"), "alpha")
 	if exitCode, _, stderr := runOwnershipCLI("apply", "--manifest", foreignManifest, "--yes"); exitCode == 0 ||
-		!strings.Contains(stderr, "ownership_conflict") || !strings.Contains(stderr, ownerManifest) {
-		t.Fatalf("foreign projection exit=%d stderr=%q, want stale whole-owner conflict", exitCode, stderr)
+		!strings.Contains(stderr, "ownership conflict") || strings.Contains(stderr, ownerManifest) {
+		t.Fatalf("foreign projection exit=%d stderr=%q, want path-neutral stale-owner conflict", exitCode, stderr)
 	}
 }
 

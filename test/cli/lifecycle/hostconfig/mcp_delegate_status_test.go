@@ -180,6 +180,13 @@ func snapshotWithMCPDelegateStatusAttempt(
 		value := 17
 		exitCode = &value
 	}
+	attemptObserved := status != durableattempt.DelegateStatusBlocked
+	processReason := durableattempt.DelegateProcessReasonNone
+	if reason != durableattempt.DelegateReasonNone &&
+		reason != durableattempt.DelegateReasonPolicyBlocked &&
+		reason != durableattempt.DelegateReasonWorkDirAuthority {
+		processReason = durableattempt.DelegateProcessReason(reason)
+	}
 	attempt, err := durableattempt.NewDelegateAttempt(durableattempt.DelegateAttemptInput{
 		Subject:         subject,
 		Target:          target.TargetClaudeCode,
@@ -188,7 +195,10 @@ func snapshotWithMCPDelegateStatusAttempt(
 		ObservedAt:      time.Date(2026, time.June, 30, 10, 0, 0, 0, time.UTC),
 		Status:          status,
 		Reason:          reason,
+		AttemptObserved: attemptObserved,
+		ProcessReason:   processReason,
 		ExitCode:        exitCode,
+		TimedOut:        reason == durableattempt.DelegateReasonTimeout,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -44,7 +44,7 @@ func newMCPProviderAuthoringProfile(
 			carrier,
 		)
 	}
-	if _, err := desiredextension.NewSourceRef(sourceKind, defaultSource); err != nil {
+	if _, err := desiredextension.NewAuthoredSourceRef(sourceKind, defaultSource); err != nil {
 		return MCPProviderAuthoringProfile{}, fmt.Errorf(
 			"MCP provider authoring default source: %w",
 			err,

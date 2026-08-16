@@ -184,7 +184,7 @@ func readRegularFileSnapshotWithFaults(
 		return nil, 0, EntryIdentity{}, failureBeforeVisibility(
 			phaseReadPayload,
 			path,
-			fmt.Errorf("regular file exceeds %d bytes", maximumBytes),
+			newRegularFileReadLimitError(maximumBytes, stat.Size),
 		)
 	}
 	fd, _, err := anchor.openExpected(anchor.base, path, expected)
@@ -210,7 +210,10 @@ func readRegularFileSnapshotWithFaults(
 				return nil, 0, EntryIdentity{}, failureBeforeVisibility(
 					phaseReadPayload,
 					path,
-					fmt.Errorf("regular file exceeds %d bytes", maximumBytes),
+					newRegularFileReadLimitError(
+						maximumBytes,
+						int64(content.Len())+int64(count),
+					),
 				)
 			}
 			_, _ = content.Write(buffer[:count])

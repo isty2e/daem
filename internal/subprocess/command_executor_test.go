@@ -355,7 +355,8 @@ func TestExecuteInWorkingDirectoryRejectsMissingBinderWithoutLaunching(t *testin
 
 			if result.RunnerInvoked() ||
 				result.Started() ||
-				result.Reason() != CommandReasonWorkDirAuthority {
+				result.Reason() != CommandReasonNone ||
+				!result.WorkDirAuthorityFailed() {
 				t.Fatalf("result = %#v, want unstarted working-directory authority failure", result)
 			}
 			if !strings.Contains(result.ErrorDetail(), "binder is required") {

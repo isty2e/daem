@@ -24,12 +24,25 @@ func processOutcome(attempt subprocess.CommandAttemptResult) *ProcessOutcome {
 	return outcome
 }
 
+func authorityOutcome(attempt subprocess.CommandAttemptResult) *AuthorityOutcome {
+	return &AuthorityOutcome{WorkDirFailed: attempt.WorkDirAuthorityFailed()}
+}
+
 func applyClassification(
 	result CommandResult,
 	classified assurancehostroute.Result,
 	attempt subprocess.CommandAttemptResult,
 ) CommandResult {
 	switch {
+	case attempt.WorkDirAuthorityFailed():
+		result.ResultClass = ResultFailed
+		if attempt.Started() {
+			result.ResultClass = ResultPartial
+		}
+		result.ReasonCode = ReasonMutationAuthority
+		result.Remediation = []string{
+			"inspect workspace authority and current host state before retrying",
+		}
 	case attempt.Started() &&
 		(attempt.TimedOut() || attempt.Canceled() || attempt.Signaled()):
 		result.ResultClass = ResultPartial
@@ -68,6 +81,9 @@ func applyClassification(
 func resultClassAfterClassificationFailure(
 	attempt subprocess.CommandAttemptResult,
 ) ResultClass {
+	if attempt.WorkDirAuthorityFailed() && attempt.Started() {
+		return ResultPartial
+	}
 	if attempt.Started() &&
 		(attempt.Succeeded() ||
 			attempt.TimedOut() ||
@@ -84,6 +100,11 @@ func resultAfterClassificationFailure(
 ) CommandResult {
 	result.ResultClass = resultClassAfterClassificationFailure(attempt)
 	switch {
+	case attempt.WorkDirAuthorityFailed():
+		result.ReasonCode = ReasonMutationAuthority
+		result.Remediation = []string{
+			"inspect workspace authority and current host state before retrying",
+		}
 	case attempt.Started() && attempt.Succeeded():
 		result.ReasonCode = ReasonPostObservationFailed
 		result.Remediation = []string{

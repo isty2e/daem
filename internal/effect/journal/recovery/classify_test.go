@@ -376,6 +376,8 @@ func testAfterSnapshot(t *testing.T) (durable.Snapshot, error) {
 		ObservedAt:      time.Date(2026, time.July, 21, 0, 0, 0, 0, time.UTC),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 	})
 	if err != nil {
 		return durable.Snapshot{}, err

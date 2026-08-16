@@ -132,7 +132,9 @@ func TestMalformedClaudeInstalledInventoryBlocksApplyBeforeHostRoute(t *testing.
 	stdout.Reset()
 	stderr.Reset()
 	exitCode := testkit.RunVerboseCLI([]string{"apply", "--manifest", manifestPath, "--yes"}, &stdout, &stderr)
-	if exitCode != 1 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "inspect carrier relation inventory") {
+	if exitCode != 1 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "apply failed: apply was refused before effects") ||
+		!strings.Contains(stderr.String(), "rows must be an array") {
 		t.Fatalf("apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	execcheck.AssertClean(t, canary, "malformed Claude installed inventory")

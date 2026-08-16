@@ -79,6 +79,18 @@ func (failure *Failure) Error() string {
 	return message
 }
 
+// BoundedErrorEvidence returns the path-neutral authority classification.
+func (failure *Failure) BoundedErrorEvidence(maximumRunes int) (string, bool) {
+	if failure == nil || maximumRunes <= 0 {
+		return "", failure != nil
+	}
+	evidence := string(failure.kind)
+	if len(evidence) <= maximumRunes {
+		return evidence, false
+	}
+	return evidence[:maximumRunes], true
+}
+
 // Unwrap returns the boundary error that caused the authority failure.
 func (failure *Failure) Unwrap() error {
 	if failure == nil {

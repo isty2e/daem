@@ -214,8 +214,8 @@ func TestCUXStableOutputFailureFailsCommand(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want stable output failure", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "output failed: stable output closed") {
-		t.Fatalf("stderr = %q, want bounded output failure", stderr.String())
+	if got, want := stderr.String(), "output failed: command output could not be written\n"; got != want {
+		t.Fatalf("stderr = %q, want closed output failure %q", got, want)
 	}
 }
 
@@ -232,8 +232,8 @@ func TestCUXStableOutputFailureDoesNotHideNonCleanCheckIdentity(t *testing.T) {
 	if exitCode != 1 {
 		t.Fatalf("exitCode = %d, want non-clean status identity", exitCode)
 	}
-	if !strings.Contains(stderr.String(), "output failed: stable output closed") {
-		t.Fatalf("stderr = %q, want bounded output failure", stderr.String())
+	if got, want := stderr.String(), "output failed: command output could not be written\n"; got != want {
+		t.Fatalf("stderr = %q, want closed output failure %q", got, want)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/subprocess"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 )
 
@@ -99,6 +100,45 @@ func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 	}
 	if result.Detail != "" {
 		t.Fatalf("successful detail = %q, want empty", result.Detail)
+	}
+}
+
+func TestRefreshJSONKeepsProcessAndAuthorityOutcomesSeparate(t *testing.T) {
+	report := RefreshReportFrom(refreshworkflow.CommandResult{
+		Mode:        refreshworkflow.ModeExecute,
+		ResultClass: refreshworkflow.ResultPartial,
+		ReasonCode:  refreshworkflow.ReasonMutationAuthority,
+		Attempted:   true,
+		ProcessOutcome: &refreshworkflow.ProcessOutcome{
+			Started:  true,
+			Reason:   subprocess.CommandReasonTimeout,
+			TimedOut: true,
+		},
+		AuthorityOutcome: &refreshworkflow.AuthorityOutcome{WorkDirFailed: true},
+	})
+	var output bytes.Buffer
+	if err := PrintRefreshJSON(&output, report); err != nil {
+		t.Fatalf("PrintRefreshJSON returned error: %v", err)
+	}
+	var payload struct {
+		SchemaVersion int `json:"schema_version"`
+		Result        struct {
+			ProcessOutcome struct {
+				Reason   string `json:"reason"`
+				TimedOut bool   `json:"timed_out"`
+			} `json:"process_outcome"`
+			AuthorityOutcome struct {
+				WorkDirFailed bool `json:"workdir_failed"`
+			} `json:"authority_outcome"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal refresh result: %v", err)
+	}
+	if payload.Result.ProcessOutcome.Reason != "timeout" ||
+		!payload.Result.ProcessOutcome.TimedOut ||
+		!payload.Result.AuthorityOutcome.WorkDirFailed {
+		t.Fatalf("refresh outcomes = process %#v, authority %#v", payload.Result.ProcessOutcome, payload.Result.AuthorityOutcome)
 	}
 }
 

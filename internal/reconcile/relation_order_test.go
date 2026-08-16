@@ -309,7 +309,8 @@ func TestBlockedRelationOrderDecisionCarriesNoFabricatedRevision(t *testing.T) {
 		decision.HasCurrentSequence() ||
 		decision.Authority() != "" ||
 		decision.Revision() != "" ||
-		decision.Detail() != "settings file is malformed" {
+		decision.Detail() != "settings file is malformed" ||
+		decision.PublicDetail() != "extension order could not be observed" {
 		t.Fatalf("blocked decision=%#v", decision)
 	}
 	if err := decision.Validate(); err != nil {

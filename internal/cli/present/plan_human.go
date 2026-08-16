@@ -97,18 +97,21 @@ func printAggregateRows(output io.Writer, decisions []reconcile.AggregateSubject
 		identityLabel, identityValue := aggregateIdentityLabel(decision)
 		fmt.Fprintf(
 			output,
-			"  %s %s=%q target=%s scope=%s\n",
-			aggregateLabel(decision), identityLabel, identityValue, decision.Target(), decision.Scope(),
+			"  %s %s=%s target=%s scope=%s\n",
+			aggregateLabel(decision),
+			identityLabel,
+			Quote(identityValue),
+			Escape(string(decision.Target())),
+			Escape(string(decision.Scope())),
 		)
-		fmt.Fprintf(output, "    path: %q%s\n", decision.Destination(), decision.ContentPath())
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
-			if decision.Detail() != "" {
-				fmt.Fprintf(output, "    detail: %s\n", decision.Detail())
-			}
 		} else if decision.Kind() == reconcile.AggregateRemove &&
 			decision.Detail() != "" {
-			fmt.Fprintf(output, "    detail: %s\n", decision.Detail())
+			fmt.Fprintln(
+				output,
+				"    detail: removal may change the effective host definition; runtime absence is not claimed",
+			)
 		}
 	}
 }
@@ -118,12 +121,18 @@ func printVerboseAggregateRows(output io.Writer, decisions []reconcile.Aggregate
 		identityLabel, identityValue := aggregateIdentityLabel(decision)
 		fmt.Fprintf(
 			output,
-			"%s %s=%q target=%s scope=%s destination=%q content_path=%q reason=%s",
-			aggregatePublicKind(decision), identityLabel, identityValue,
-			decision.Target(), decision.Scope(), decision.Destination(), decision.ContentPath(), decision.Reason(),
+			"%s %s=%s target=%s scope=%s destination=%s content_path=%s reason=%s",
+			aggregatePublicKind(decision),
+			identityLabel,
+			Quote(identityValue),
+			Escape(string(decision.Target())),
+			Escape(string(decision.Scope())),
+			Quote(decision.Destination().String()),
+			Quote(string(decision.ContentPath())),
+			Escape(string(decision.Reason())),
 		)
 		if decision.Detail() != "" {
-			fmt.Fprintf(output, " detail=%q", decision.Detail())
+			fmt.Fprintf(output, " detail=%s", Quote(decision.Detail()))
 		}
 		fmt.Fprintln(output)
 	}
@@ -186,20 +195,16 @@ func printManagedPathRows(output io.Writer, decisions []reconcile.ManagedPathDec
 		targetLabel, targetValue := managedPathTargetLabel(decision)
 		fmt.Fprintf(
 			output,
-			"  %s %s=%q %s=%s scope=%s\n",
+			"  %s %s=%s %s=%s scope=%s\n",
 			managedPathLabel(decision),
 			identityLabel,
-			identityValue,
+			Quote(identityValue),
 			targetLabel,
-			targetValue,
-			decision.Scope(),
+			Escape(targetValue),
+			Escape(string(decision.Scope())),
 		)
-		fmt.Fprintf(output, "    path: %q\n", decision.Destination())
 		if decision.IsBlocked() {
 			fmt.Fprintf(output, "    blocked: %s\n", actionReasonLabel(decision.Reason()))
-			if decision.Detail() != "" {
-				fmt.Fprintf(output, "    detail: %s\n", decision.Detail())
-			}
 		}
 	}
 }
@@ -210,19 +215,19 @@ func printVerboseManagedPathRows(output io.Writer, decisions []reconcile.Managed
 		targetLabel, targetValue := managedPathTargetLabel(decision)
 		fmt.Fprintf(
 			output,
-			"%s %s=%q %s=%s scope=%s destination=%q mode=%s reason=%s",
+			"%s %s=%s %s=%s scope=%s destination=%s mode=%s reason=%s",
 			managedPathPublicKind(decision),
 			identityLabel,
-			identityValue,
+			Quote(identityValue),
 			targetLabel,
-			targetValue,
-			decision.Scope(),
-			decision.Destination(),
-			decision.PlacementMode(),
-			decision.Reason(),
+			Escape(targetValue),
+			Escape(string(decision.Scope())),
+			Quote(decision.Destination().String()),
+			Escape(string(decision.PlacementMode())),
+			Escape(string(decision.Reason())),
 		)
 		if decision.Detail() != "" {
-			fmt.Fprintf(output, " detail=%q", decision.Detail())
+			fmt.Fprintf(output, " detail=%s", Quote(decision.Detail()))
 		}
 		if safety, ok := managedPathSafetyState(decision); ok {
 			fmt.Fprintf(output, " safety=%s", safety)

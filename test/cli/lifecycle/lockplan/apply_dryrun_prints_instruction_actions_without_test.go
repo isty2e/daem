@@ -99,7 +99,7 @@ mode = "symlink"
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), `apply symlink mode for "CLAUDE.md" is not implemented`) {
+	if !strings.Contains(stderr.String(), "symlink mode") || !strings.Contains(stderr.String(), "CLAUDE.md") {
 		t.Fatalf("stderr = %q, want symlink diagnostic", stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(tempDir, "CLAUDE.md")); !os.IsNotExist(err) {

@@ -37,7 +37,7 @@ func buildOpenCodePluginCarrierRefreshCommand(
 			"OpenCode plugin carrier refresh supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 

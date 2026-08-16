@@ -4,14 +4,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
 func TestRunApplyDisclosedSourceDriftReturnsStalePlanWithoutEffects(t *testing.T) {
@@ -34,8 +37,11 @@ func TestRunApplyDisclosedSourceDriftReturnsStalePlanWithoutEffects(t *testing.T
 	if !strings.Contains(stdout.String(), "apply: 1 resources") || strings.Contains(stdout.String(), "Proceed with apply?") {
 		t.Fatalf("stdout = %q, want disclosed stable plan", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") || !strings.Contains(stderr.String(), "stale_plan") || strings.Contains(stderr.String(), "stale_snapshot") {
-		t.Fatalf("stderr = %q, want stale_plan only", stderr.String())
+	if !strings.Contains(stderr.String(), "Proceed with apply? [y/N]:") ||
+		!strings.Contains(stderr.String(), "the authorized apply plan changed before apply completed") ||
+		strings.Contains(stderr.String(), "stale_plan") ||
+		strings.Contains(stderr.String(), sourcePath) {
+		t.Fatalf("stderr = %q, want path-neutral stale-plan detail", stderr.String())
 	}
 	if strings.Contains(stdout.String(), "applied:") || strings.Contains(stderr.String(), "progress:") {
 		t.Fatalf("stdout=%q stderr=%q, want no applied result or leaked progress", stdout.String(), stderr.String())
@@ -43,6 +49,161 @@ func TestRunApplyDisclosedSourceDriftReturnsStalePlanWithoutEffects(t *testing.T
 	assertCLIPathMissing(t, filepath.Join(tempDir, "AGENTS.md"))
 	assertCLIPathMissing(t, filepath.Join(tempDir, ".daem"))
 	assertApplyConfirmationFileContent(t, sourcePath, "changed after disclosure\n")
+}
+
+func TestRunApplyDefaultFailureHidesRootedAuthorityPath(t *testing.T) {
+	root := isolatedApplyAuthorityRoot(t)
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, root)
+	movedRoot := root + "-moved"
+	t.Cleanup(func() {
+		if err := os.RemoveAll(movedRoot); err != nil {
+			t.Errorf("remove moved apply root: %v", err)
+		}
+	})
+	input := &beforeReadApplyConfirmation{
+		reader: strings.NewReader("yes\n"),
+		beforeRead: func() error {
+			if err := os.Rename(root, movedRoot); err != nil {
+				return err
+			}
+			return os.MkdirAll(root, 0o700)
+		},
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{"apply", "--manifest", manifestPath},
+		interactiveRunOptions(input, &stdout, &stderr),
+	)
+	if exitCode != 1 {
+		t.Fatalf(
+			"exitCode = %d, want 1; stdout=%q stderr=%q",
+			exitCode,
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+	if !strings.Contains(
+		stderr.String(),
+		"apply failed: the authorized apply plan changed before apply completed",
+	) {
+		t.Fatalf("stderr = %q, want typed stale-plan detail", stderr.String())
+	}
+	for _, private := range []string{
+		root,
+		movedRoot,
+		manifestPath,
+		"rooted_path_",
+	} {
+		if strings.Contains(stderr.String(), private) {
+			t.Fatalf("stderr discloses rooted authority evidence %q: %q", private, stderr.String())
+		}
+	}
+	if strings.Contains(stdout.String(), "applied:") {
+		t.Fatalf("stdout = %q, want no applied result", stdout.String())
+	}
+}
+
+type boundedApplyFailureCause struct {
+	evidence   string
+	errorCalls *int
+}
+
+func (cause boundedApplyFailureCause) Error() string {
+	*cause.errorCalls = *cause.errorCalls + 1
+	return "unbounded apply failure must not be formatted"
+}
+
+func (cause boundedApplyFailureCause) BoundedErrorEvidence(maximumRunes int) (string, bool) {
+	if len(cause.evidence) <= maximumRunes {
+		return cause.evidence, false
+	}
+	return cause.evidence[:maximumRunes], true
+}
+
+func TestPrintApplyExecutionFailureBoundsAndSanitizesVerboseEvidence(
+	t *testing.T,
+) {
+	errorCalls := 0
+	cause := boundedApplyFailureCause{
+		evidence: "private_token=boundary-secret /Users/alice/private.json " +
+			strings.Repeat("x", maximumVerboseApplyFailureEvidenceRunes+1_024),
+		errorCalls: &errorCalls,
+	}
+	var output bytes.Buffer
+	printApplyFailure(
+		&output,
+		cause,
+		applyFailureExecution,
+		applyworkflow.CommandResult{ExecutionAttempted: true},
+		true,
+	)
+
+	got := output.String()
+	if errorCalls != 0 {
+		t.Fatalf("unbounded apply error formatted %d times", errorCalls)
+	}
+	for _, want := range []string{
+		"apply failed: apply did not complete after an effect boundary was crossed",
+		"apply failure evidence:",
+		"[REDACTED]",
+		`\n[truncated]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("output = %q, want %q", got, want)
+		}
+	}
+	for _, private := range []string{"boundary-secret"} {
+		if strings.Contains(got, private) {
+			t.Fatalf("verbose evidence discloses credential fragment %q: %q", private, got)
+		}
+	}
+	if utf8.RuneCountInString(got) > maximumVerboseApplyFailureEvidenceRunes+256 {
+		t.Fatalf("verbose failure output is not bounded: %d runes", utf8.RuneCountInString(got))
+	}
+}
+
+func TestRunApplyPlanningFailureUsesClosedDefaultDetail(t *testing.T) {
+	root := isolatedApplyAuthorityRoot(t)
+	manifestPath := filepath.Join(root, "private", "daem.toml")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{"apply", "--dry-run", "--manifest", manifestPath},
+		RunOptions{Stdout: &stdout, Stderr: &stderr},
+	)
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "apply failed: apply was refused before effects") {
+		t.Fatalf("stderr = %q, want closed planning detail", stderr.String())
+	}
+	if strings.Contains(stderr.String(), root) || strings.Contains(stderr.String(), manifestPath) {
+		t.Fatalf("stderr disclosed planning path: %q", stderr.String())
+	}
+}
+
+func TestRunApplyOutputFailureDoesNotExposeWriterError(t *testing.T) {
+	root := isolatedApplyAuthorityRoot(t)
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, root)
+	privateCause := errors.New("write /Users/alice/private/result.json: credential=secret")
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{"apply", "--dry-run", "--manifest", manifestPath},
+		RunOptions{Stdout: errorWriter{err: privateCause}, Stderr: &stderr},
+	)
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1; stderr=%q", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "output failed: command output could not be written") {
+		t.Fatalf("stderr = %q, want closed output detail", stderr.String())
+	}
+	for _, private := range []string{"/Users/alice/private", "credential=secret"} {
+		if strings.Contains(stderr.String(), private) {
+			t.Fatalf("stderr disclosed writer evidence %q: %q", private, stderr.String())
+		}
+	}
 }
 
 func TestRunApplyJSONContentionIsActionableAndHidesLeaseRecords(t *testing.T) {
@@ -86,15 +247,20 @@ func TestRunApplyJSONContentionIsActionableAndHidesLeaseRecords(t *testing.T) {
 	var payload struct {
 		HasErrors bool `json:"has_errors"`
 		Errors    []struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
+			Code    string                       `json:"code"`
+			Phase   applyworkflow.FailurePhase   `json:"phase"`
+			Outcome applyworkflow.FailureOutcome `json:"outcome"`
+			Message string                       `json:"message"`
 		} `json:"errors"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 		t.Fatalf("decode JSON: %v; output=%q", err, stdout.String())
 	}
-	if !payload.HasErrors || len(payload.Errors) != 1 || payload.Errors[0].Code != string(mutation.ReasonContention) ||
-		!strings.Contains(payload.Errors[0].Message, "is busy; retry after the other daem operation finishes") {
+	if !payload.HasErrors || len(payload.Errors) != 1 ||
+		payload.Errors[0].Code != string(mutation.ReasonContention) ||
+		payload.Errors[0].Phase != applyworkflow.FailurePhasePreflight ||
+		payload.Errors[0].Outcome != applyworkflow.FailureOutcomeRefused ||
+		payload.Errors[0].Message != "required mutation authority is busy" {
 		t.Fatalf("contention payload = %#v", payload)
 	}
 	for _, private := range []string{"locks/mutation", ".lock"} {

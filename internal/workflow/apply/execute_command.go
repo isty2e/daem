@@ -60,9 +60,11 @@ func executeWithDependencies(
 
 	planned := execution.planned
 	executionAttempted := false
+	uncompensatedEffectsAttempted := false
 	disclose := func(planned commandPlan) CommandResult {
 		result := cloneCommandResult(planned.result)
 		result.ExecutionAttempted = executionAttempted
+		result.UncompensatedEffectsAttempted = uncompensatedEffectsAttempted
 		return result
 	}
 	markExecutionAttempted := func() { executionAttempted = true }
@@ -343,6 +345,7 @@ func executeWithDependencies(
 		executionOptions,
 		options.PlanWasDisclosed,
 	)
+	uncompensatedEffectsAttempted = providerPhase.uncompensatedEffectsAttempted
 	if err != nil {
 		current.result.HostRouteAttempts = providerPhase.attempts
 		return disclose(current), err
@@ -405,6 +408,9 @@ func executeWithDependencies(
 }
 
 func staleApplyError(disclosed bool, cause error) error {
+	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
 	var stale error = mutation.StaleSnapshotError{}
 	if disclosed {
 		stale = mutation.StalePlanError{}

@@ -30,7 +30,7 @@ import (
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 )
 
-func (persisted snapshotDTO) canonical() (durable.Snapshot, error) {
+func (persisted snapshotDTO) canonical(version int) (durable.Snapshot, error) {
 	if persisted.ManagedPaths == nil ||
 		persisted.ManagedAggregateBaselines == nil ||
 		persisted.PendingCarrierInstalls == nil ||
@@ -38,7 +38,10 @@ func (persisted snapshotDTO) canonical() (durable.Snapshot, error) {
 		persisted.ManagedCarrierClaims == nil ||
 		persisted.DelegateAttempts == nil ||
 		persisted.HostRouteAttempts == nil {
-		return durable.Snapshot{}, fmt.Errorf("statefile v8 requires every durable fact-family array")
+		return durable.Snapshot{}, fmt.Errorf(
+			"statefile v%d requires every durable fact-family array",
+			version,
+		)
 	}
 	input := durable.SnapshotInput{
 		ManagedPaths:           make([]durable.ManagedPathState, 0, len(persisted.ManagedPaths)),
@@ -85,14 +88,14 @@ func (persisted snapshotDTO) canonical() (durable.Snapshot, error) {
 		input.ManagedCarrierClaims = append(input.ManagedCarrierClaims, claim)
 	}
 	for index, row := range persisted.DelegateAttempts {
-		attempt, err := row.canonical()
+		attempt, err := row.canonical(version)
 		if err != nil {
 			return durable.Snapshot{}, fmt.Errorf("delegate_attempts[%d]: %w", index, err)
 		}
 		input.DelegateAttempts = append(input.DelegateAttempts, attempt)
 	}
 	for index, row := range persisted.HostRouteAttempts {
-		attempt, err := row.canonical()
+		attempt, err := row.canonical(version)
 		if err != nil {
 			return durable.Snapshot{}, fmt.Errorf("host_route_attempts[%d]: %w", index, err)
 		}
@@ -331,7 +334,9 @@ func (persisted managedCarrierClaimDTO) canonical() (durablecarrier.ManagedCarri
 	)
 }
 
-func (persisted delegateAttemptDTO) canonical() (durableattempt.DelegateAttempt, error) {
+func (persisted delegateAttemptDTO) canonical(
+	version int,
+) (durableattempt.DelegateAttempt, error) {
 	subject, err := persisted.Subject.canonical()
 	if err != nil {
 		return durableattempt.DelegateAttempt{}, err
@@ -348,6 +353,10 @@ func (persisted delegateAttemptDTO) canonical() (durableattempt.DelegateAttempt,
 	if err != nil {
 		return durableattempt.DelegateAttempt{}, fmt.Errorf("observed_at: %w", err)
 	}
+	attemptObserved, processReason, err := persisted.attemptFacts(version)
+	if err != nil {
+		return durableattempt.DelegateAttempt{}, err
+	}
 	return durableattempt.NewDelegateAttempt(durableattempt.DelegateAttemptInput{
 		Subject:         subject,
 		Target:          selectedTarget,
@@ -356,6 +365,8 @@ func (persisted delegateAttemptDTO) canonical() (durableattempt.DelegateAttempt,
 		ObservedAt:      observedAt,
 		Status:          durableattempt.DelegateAttemptStatus(persisted.Status),
 		Reason:          durableattempt.DelegateAttemptReason(persisted.Reason),
+		AttemptObserved: attemptObserved,
+		ProcessReason:   processReason,
 		Observation:     observerelation.ObservationSummary(persisted.Observation),
 		Postcondition:   observerelation.PostconditionSummary(persisted.Postcondition),
 		ExitCode:        cloneOptionalInt(persisted.ExitCode),
@@ -366,7 +377,44 @@ func (persisted delegateAttemptDTO) canonical() (durableattempt.DelegateAttempt,
 	})
 }
 
-func (persisted hostRouteAttemptDTO) canonical() (durableattempt.HostRouteAttempt, error) {
+func (persisted delegateAttemptDTO) attemptFacts(
+	version int,
+) (bool, durableattempt.DelegateProcessReason, error) {
+	if version == snapshotVersion {
+		if persisted.AttemptObserved == nil {
+			return false, "", fmt.Errorf("attempt_observed is required")
+		}
+		return *persisted.AttemptObserved,
+			durableattempt.DelegateProcessReason(persisted.ProcessReason),
+			nil
+	}
+	if version != legacySnapshotVersion {
+		return false, "", unsupportedStatefileVersion(version)
+	}
+	if persisted.AttemptObserved != nil || persisted.ProcessReason != "" {
+		return false, "", fmt.Errorf("v8 delegate attempt contains v9 process fields")
+	}
+	attemptObserved := persisted.Status != string(durableattempt.DelegateStatusBlocked)
+	if persisted.Reason == string(durableattempt.DelegateReasonWorkDirAuthority) {
+		switch {
+		case persisted.TimedOut:
+			return attemptObserved, durableattempt.DelegateProcessReasonTimeout, nil
+		case persisted.ExitCode != nil && *persisted.ExitCode != 0:
+			return attemptObserved, durableattempt.DelegateProcessReasonNonZeroExit, nil
+		default:
+			return attemptObserved, durableattempt.DelegateProcessReasonNone, nil
+		}
+	}
+	if persisted.Reason == string(durableattempt.DelegateReasonPolicyBlocked) ||
+		persisted.Reason == string(durableattempt.DelegateReasonNone) {
+		return attemptObserved, durableattempt.DelegateProcessReasonNone, nil
+	}
+	return attemptObserved, durableattempt.DelegateProcessReason(persisted.Reason), nil
+}
+
+func (persisted hostRouteAttemptDTO) canonical(
+	version int,
+) (durableattempt.HostRouteAttempt, error) {
 	if persisted.EffectPostconditions == nil {
 		return durableattempt.HostRouteAttempt{}, fmt.Errorf("effect_postconditions is required")
 	}
@@ -407,7 +455,7 @@ func (persisted hostRouteAttemptDTO) canonical() (durableattempt.HostRouteAttemp
 		ResultClass:          durableattempt.HostRouteResultClass(persisted.ResultClass),
 		Reason:               durableattempt.HostRouteResultReason(persisted.Reason),
 		AttemptObserved:      persisted.AttemptObserved,
-		AttemptReason:        durableattempt.HostRouteAttemptReason(persisted.AttemptReason),
+		AttemptReason:        persisted.canonicalAttemptReason(version),
 		Observation:          observerelation.ObservationSummary(persisted.Observation),
 		Postcondition:        observerelation.PostconditionSummary(persisted.Postcondition),
 		EffectPostconditions: effectPostconditions,
@@ -415,6 +463,25 @@ func (persisted hostRouteAttemptDTO) canonical() (durableattempt.HostRouteAttemp
 		TimedOut:             persisted.TimedOut,
 		Redacted:             persisted.Redacted,
 	})
+}
+
+func (persisted hostRouteAttemptDTO) canonicalAttemptReason(
+	version int,
+) durableattempt.HostRouteAttemptReason {
+	if version == snapshotVersion {
+		return durableattempt.HostRouteAttemptReason(persisted.AttemptReason)
+	}
+	const retiredWorkDirAuthorityReason = "workdir_authority"
+	if persisted.AttemptReason != retiredWorkDirAuthorityReason {
+		return durableattempt.HostRouteAttemptReason(persisted.AttemptReason)
+	}
+	if persisted.TimedOut {
+		return durableattempt.HostRouteAttemptReasonTimeout
+	}
+	if persisted.ExitCode != nil && *persisted.ExitCode != 0 {
+		return durableattempt.HostRouteAttemptReasonNonZeroExit
+	}
+	return durableattempt.HostRouteAttemptReasonNone
 }
 
 func canonicalEffectPostconditionRequirements(

@@ -43,7 +43,51 @@ func TestPrintPlanIncludesSharedConsumerTargets(t *testing.T) {
 	}
 }
 
-func TestPrintPlanIncludesOwnershipConflictProvenance(t *testing.T) {
+func TestPrintPlanPathsAreVerboseOnly(t *testing.T) {
+	managed := newManagedPathPlanFixture(
+		t,
+		"oracle",
+		"oracle",
+		target.ScopeProject,
+		[]target.Target{target.TargetCodex},
+		"desired",
+	)
+	managedPlan := managed.buildPlan(t, managedPathPlanInput{
+		includeDesired:  true,
+		selectedTargets: []target.Target{target.TargetCodex},
+		evidence:        []observe.ManagedPathEvidence{managed.evidence(t, false, "")},
+	})
+	aggregatePlan := mcpProjectionPlan(t)
+
+	for _, test := range []struct {
+		name  string
+		plan  reconcile.Result
+		paths []string
+	}{
+		{name: "managed path", plan: managedPlan, paths: []string{managed.destination.String()}},
+		{name: "aggregate", plan: aggregatePlan, paths: []string{".mcp.json", "/mcpServers/context7"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var ordinary bytes.Buffer
+			PrintActionPlanWithOptions(&ordinary, "status", test.plan, HumanOptions{})
+			for _, path := range test.paths {
+				if strings.Contains(ordinary.String(), path) {
+					t.Fatalf("ordinary output disclosed path %q: %q", path, ordinary.String())
+				}
+			}
+
+			var verbose bytes.Buffer
+			PrintActionPlanWithOptions(&verbose, "status", test.plan, HumanOptions{Verbose: true})
+			for _, path := range test.paths {
+				if !strings.Contains(verbose.String(), path) {
+					t.Fatalf("verbose output omitted path %q: %q", path, verbose.String())
+				}
+			}
+		})
+	}
+}
+
+func TestPrintPlanKeepsOwnershipConflictProvenanceVerboseOnly(t *testing.T) {
 	fixture := newManagedPathPlanFixture(
 		t,
 		"oracle",
@@ -89,10 +133,17 @@ func TestPrintPlanIncludesOwnershipConflictProvenance(t *testing.T) {
 		ownership:       []observe.OwnershipObservation{ownershipObservation},
 	})
 
-	var stdout bytes.Buffer
-	PrintStatusPlanWithOptions(&stdout, planResult, HumanOptions{})
-	if !strings.Contains(stdout.String(), `detail: managed address is claimed by manifest "/work/left/daem.toml"`) {
-		t.Fatalf("stdout = %q, want ownership provenance", stdout.String())
+	var ordinary bytes.Buffer
+	PrintStatusPlanWithOptions(&ordinary, planResult, HumanOptions{})
+	if !strings.Contains(ordinary.String(), "blocked: ownership conflict") ||
+		strings.Contains(ordinary.String(), "/work/left/daem.toml") {
+		t.Fatalf("ordinary output = %q, want path-neutral ownership conflict", ordinary.String())
+	}
+
+	var verbose bytes.Buffer
+	PrintStatusPlanWithOptions(&verbose, planResult, HumanOptions{Verbose: true})
+	if !strings.Contains(verbose.String(), "/work/left/daem.toml") {
+		t.Fatalf("verbose output = %q, want ownership provenance", verbose.String())
 	}
 }
 
@@ -228,7 +279,7 @@ func TestPrintPlanUsesSubjectForAggregateProjectionDecisions(t *testing.T) {
 }
 
 func TestPrintPlanShowsNonAuthoritativeMCPRemovalDetailWithoutVerbose(t *testing.T) {
-	detail := "managed MCP config entry will be removed; an unowned lower fallback may become effective; runtime absence is not claimed"
+	detail := "managed MCP config entry will be removed; an unowned lower fallback at /Users/alice/.config may become effective\n\x1b[2J\u202e"
 	planResult := mcpProjectionRemovalPlan(t, detail)
 
 	var stdout bytes.Buffer
@@ -239,8 +290,17 @@ func TestPrintPlanShowsNonAuthoritativeMCPRemovalDetailWithoutVerbose(t *testing
 		HumanOptions{},
 	)
 	if !strings.Contains(stdout.String(), "remove managed output") ||
-		!strings.Contains(stdout.String(), "detail: "+detail) {
-		t.Fatalf("stdout = %q, want visible removal detail", stdout.String())
+		!strings.Contains(stdout.String(), "detail: removal may change the effective host definition; runtime absence is not claimed") ||
+		strings.Contains(stdout.String(), "/Users/alice") ||
+		strings.Contains(stdout.String(), "\x1b") || strings.Contains(stdout.String(), "\u202e") {
+		t.Fatalf("stdout = %q, want path-neutral removal detail", stdout.String())
+	}
+
+	var verbose bytes.Buffer
+	PrintActionPlanWithOptions(&verbose, "status", planResult, HumanOptions{Verbose: true})
+	if !strings.Contains(verbose.String(), "detail="+Quote(detail)) ||
+		strings.Contains(verbose.String(), "\x1b") || strings.Contains(verbose.String(), "\u202e") {
+		t.Fatalf("verbose output = %q, want escaped exact removal detail", verbose.String())
 	}
 }
 

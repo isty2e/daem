@@ -246,6 +246,8 @@ func TestMCPPublicCLIApplyDelegatedRouteRetriesDespitePreviousSuccess(t *testing
 		ObservedAt:      time.Date(2026, time.June, 30, 10, 0, 0, 0, time.UTC),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -464,9 +466,13 @@ func runMCPApplyDelegatedRouteExpectFailedWithStdout(
 		t.Fatalf("ordinary apply attempt exitCode=%d stdout=%q stderr=%q, want failed attempt JSON only", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
-	if !payload.HasErrors || len(payload.Errors) != 1 || !strings.Contains(payload.Errors[0].Message, "delegate attempt failed") {
-		t.Fatalf("payload errors = %#v, want delegate attempt failure", payload.Errors)
-	}
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonDelegateAttemptFailed,
+		applyworkflow.FailurePhaseExecution,
+		applyworkflow.FailureOutcomeIncomplete,
+	)
 	return payload, loadMCPStatefile(t, project.root), stdout
 }
 

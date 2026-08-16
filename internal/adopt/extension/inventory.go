@@ -210,7 +210,16 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 	if err != nil {
 		return err
 	}
-	entries, err := inventory.Entries()
+	entries, err := inventory.EntriesAdmitted(func(source string) error {
+		// Authored policy applies once, to the raw imported spelling, before
+		// any identity or normalization work, so an overlong or unresolved
+		// source cannot spend inspection budget before admission rejects it.
+		_, err := desiredextension.NewAuthoredSourceRef(
+			desiredextension.SourceKindHostSource,
+			source,
+		)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -239,7 +248,10 @@ func (collector *importCollector) collectPi(scope target.Scope) error {
 				return err
 			}
 		}
-		key, err := newCarrierKey(
+		// Every raw spelling was admitted before identity work, so the key
+		// reconstructs canonically from admitted or derived text instead of
+		// re-applying the authored bound to an expanded path.
+		key, err := newCanonicalCarrierKey(
 			desiredextension.CarrierPiPackage,
 			target.TargetPi,
 			scope,

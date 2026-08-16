@@ -188,6 +188,27 @@ func TestCollectPreservesPiSourceClassesAndOrder(t *testing.T) {
 	}
 }
 
+func TestCollectRejectsOverlongPiSourceAtRawAdmission(t *testing.T) {
+	root := isolatedExtensionImportRoot(t)
+	overlong := "npm:@acme/tool@" + strings.Repeat("a", 3000)
+	writeExtensionFixture(
+		t,
+		filepath.Join(root, ".pi", "settings.json"),
+		`{"packages":["`+overlong+`"]}`,
+	)
+
+	_, err := Collect(Input{
+		ManifestRoot: root,
+		Targets:      []target.Target{target.TargetPi},
+		Scopes:       []target.Scope{target.ScopeProject},
+	})
+	if err == nil ||
+		!strings.Contains(err.Error(), "admit Pi settings package source") ||
+		!strings.Contains(err.Error(), "admission length limit") {
+		t.Fatalf("Collect error = %v, want raw admission length rejection", err)
+	}
+}
+
 func TestCollectRejectsPiAliasesThatCollapseToOneLoadIdentity(t *testing.T) {
 	tests := []struct {
 		name     string

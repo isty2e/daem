@@ -35,7 +35,8 @@ func TestRunApplyOwnershipEdgeCases(t *testing.T) {
 			},
 			wantExit: 1,
 			wantStderr: []string{
-				`observe destination "CLAUDE.md": expected regular file`,
+				"CLAUDE.md",
+				"expected regular file",
 			},
 			reject: []string{
 				"delete ",
@@ -57,7 +58,8 @@ func TestRunApplyOwnershipEdgeCases(t *testing.T) {
 			},
 			wantExit: 1,
 			wantStderr: []string{
-				`observe destination "CLAUDE.md": symlinks are not supported yet`,
+				"CLAUDE.md",
+				"symlinks are not supported yet",
 			},
 			reject: []string{
 				"delete ",

@@ -14,8 +14,14 @@ import (
 	"github.com/isty2e/daem/internal/assurance/pathauthority/pathtest"
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/contractversion"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
+	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrieradoption"
+	"github.com/isty2e/daem/internal/target"
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
 
 func TestPlanJSONDisclosesExactStateOnlyCarrierAdoptionWithoutAuthorityOverclaim(t *testing.T) {
@@ -70,6 +76,160 @@ func TestPlanJSONDisclosesExactStateOnlyCarrierAdoptionWithoutAuthorityOverclaim
 		row.LaterOmission != "requests_managed_relation_absence" ||
 		len(row.NonClaims) == 0 {
 		t.Fatalf("carrier adoption lifecycle disclosure = %#v", row)
+	}
+}
+
+func TestCarrierAdoptionRedactsLocalSourceOutsideVerboseHumanOutput(t *testing.T) {
+	const localSource = "packages/tools"
+	value := desiredtest.Extension(t, desiredextension.Spec{
+		Name:    "local-pi-extension",
+		Carrier: desiredextension.CarrierPiPackage,
+		Target:  target.TargetPi,
+		Scope:   target.ScopeGlobal,
+		Source: desiredtest.ExtensionSource(
+			t,
+			desiredextension.SourceKindHostSource,
+			localSource,
+		),
+	})
+	file, relation := snapshottest.ExtensionCarrierFile(t, value)
+	fixture := newPresentCarrierAdoptionFixtureFromContract(
+		t,
+		file.Locked.Subjects()[0],
+		relation,
+	)
+	action := fixture.action(t, true, fixture.lifecycle, nil)
+	reconciliation, err := reconcile.NewResult(reconcile.ResultInput{
+		Context:          reconcile.ContextApply,
+		CarrierAdoptions: []carrieradoption.Action{action},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planJSON bytes.Buffer
+	if err := PrintPlanJSON(&planJSON, PlanJSONInput{
+		Command:        "apply",
+		Mode:           "dry-run",
+		Reconciliation: reconciliation,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var applyJSON bytes.Buffer
+	if err := PrintApplyResultJSON(&applyJSON, ApplyResultJSONInput{
+		Reconciliation: reconciliation,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for label, encoded := range map[string][]byte{
+		"plan":  planJSON.Bytes(),
+		"apply": applyJSON.Bytes(),
+	} {
+		if bytes.Contains(encoded, []byte(localSource)) ||
+			!bytes.Contains(encoded, []byte(`"name_redacted": true`)) {
+			t.Fatalf("%s JSON did not fully redact local carrier identity: %s", label, encoded)
+		}
+	}
+
+	rows := carrierAdoptionJSONActions(
+		[]carrieradoption.Action{action},
+		carrierAdoptionPlanned,
+	)
+	if len(rows) != 1 || !rows[0].SourceNamespaceRedacted ||
+		!rows[0].RelationSubjectKeyRedacted ||
+		rows[0].CarrierSubject == nil ||
+		!rows[0].CarrierSubject.NameRedacted ||
+		!strings.HasPrefix(rows[0].SourceNamespace, "redacted:sha256:") ||
+		!strings.HasPrefix(rows[0].RelationSubjectKey, "redacted:sha256:") ||
+		!strings.HasPrefix(rows[0].CarrierSubject.Name, "redacted:sha256:") ||
+		strings.Contains(rows[0].SourceNamespace, localSource) ||
+		strings.Contains(rows[0].CarrierSubject.Name, localSource) {
+		t.Fatalf("carrier adoption row = %#v", rows)
+	}
+
+	var summary bytes.Buffer
+	PrintCarrierAdoptionActionsWithOptions(
+		&summary,
+		[]carrieradoption.Action{action},
+		HumanOptions{},
+	)
+	if strings.Contains(summary.String(), localSource) ||
+		!strings.Contains(summary.String(), "redacted:sha256:") {
+		t.Fatalf("summary = %q", summary.String())
+	}
+
+	var verbose bytes.Buffer
+	PrintCarrierAdoptionActionsWithOptions(
+		&verbose,
+		[]carrieradoption.Action{action},
+		HumanOptions{Verbose: true},
+	)
+	if !strings.Contains(verbose.String(), localSource) {
+		t.Fatalf("verbose output = %q, want exact local source", verbose.String())
+	}
+}
+
+func TestCarrierAdoptionRedactsOpaqueOpenCodeHostSources(t *testing.T) {
+	for _, source := range []string{"plugins/local.ts", `plugins\local.ts`} {
+		t.Run(source, func(t *testing.T) {
+			contract, relation := hostSourceCarrierFixture(
+				t,
+				"local-opencode",
+				desiredextension.CarrierOpenCodePlugin,
+				target.TargetOpenCode,
+				target.ScopeProject,
+				source,
+			)
+			fixture := newPresentCarrierAdoptionFixtureFromContract(t, contract, relation)
+			action := fixture.action(t, true, fixture.lifecycle, nil)
+			row := carrierAdoptionJSONActions(
+				[]carrieradoption.Action{action},
+				carrierAdoptionPlanned,
+			)[0]
+			if !row.SourceNamespaceRedacted ||
+				!row.RelationSubjectKeyRedacted ||
+				row.CarrierSubject == nil ||
+				!row.CarrierSubject.NameRedacted ||
+				strings.Contains(row.SourceNamespace, source) ||
+				strings.Contains(row.RelationSubjectKey, source) ||
+				strings.Contains(row.CarrierSubject.Name, source) {
+				t.Fatalf("carrier adoption row = %#v", row)
+			}
+
+			var summary bytes.Buffer
+			PrintCarrierAdoptionActionsWithOptions(
+				&summary,
+				[]carrieradoption.Action{action},
+				HumanOptions{},
+			)
+			if strings.Contains(summary.String(), source) ||
+				!strings.Contains(summary.String(), "redacted:sha256:") {
+				t.Fatalf("summary = %q", summary.String())
+			}
+		})
+	}
+}
+
+func TestVerboseIdentityDisclosureRedactsSensitiveSourceDerivatives(t *testing.T) {
+	for _, value := range []string{
+		"npm:tool@token:actual-secret",
+		`plugins\client-secret=actual-secret`,
+	} {
+		disclosure := verboseIdentityDisclosureFor(value)
+		if !disclosure.Redacted() ||
+			strings.Contains(disclosure.Value(), "actual-secret") ||
+			!strings.HasPrefix(disclosure.Value(), "redacted:sha256:") {
+			t.Fatalf("verbose disclosure for %q = %#v", value, disclosure)
+		}
+	}
+}
+
+func TestUnknownLockOrderGrammarFailsClosed(t *testing.T) {
+	disclosure := lockHostLoadIdentityDisclosureFor(
+		hostrelation.OrderClassID("extension:unknown:project:plugins"),
+		"plugins/local.ts",
+	)
+	if !disclosure.Redacted() || !strings.HasPrefix(disclosure.Value(), "redacted:sha256:") {
+		t.Fatalf("unknown order disclosure = %#v", disclosure)
 	}
 }
 
@@ -292,12 +452,20 @@ func TestApplyResultJSONDistinguishesCommittedAndFailedCarrierAdoption(t *testin
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
+			var failure *applyworkflow.Failure
+			if tt.err != nil {
+				classified := applyworkflow.ClassifyFailure(
+					tt.err,
+					applyworkflow.CommandResult{ExecutionAttempted: tt.executionAttempted},
+				)
+				failure = &classified
+			}
 			var output bytes.Buffer
 			if err := PrintApplyResultJSON(&output, ApplyResultJSONInput{
 				Reconciliation:         plan,
 				ExecutionAttempted:     tt.executionAttempted,
 				CarrierAdoptionResults: tt.results,
-				Err:                    tt.err,
+				Failure:                failure,
 			}); err != nil {
 				t.Fatalf("PrintApplyResultJSON: %v", err)
 			}
@@ -334,13 +502,17 @@ func TestApplyResultDistinguishesPendingInstallRecoveryFromExplicitAdoption(t *t
 		fixture.owner,
 		durablecarrier.ClaimProvenanceInstalledObserved,
 	)
+	failure := applyworkflow.ClassifyFailure(
+		errors.New("later phase failed"),
+		applyworkflow.CommandResult{ExecutionAttempted: true},
+	)
 
 	var jsonOutput bytes.Buffer
 	if err := PrintApplyResultJSON(&jsonOutput, ApplyResultJSONInput{
 		Reconciliation:         plan,
 		ExecutionAttempted:     true,
 		CarrierAdoptionResults: []durablecarrier.ManagedCarrierClaim{recovered},
-		Err:                    errors.New("later phase failed"),
+		Failure:                &failure,
 	}); err != nil {
 		t.Fatalf("PrintApplyResultJSON: %v", err)
 	}

@@ -16,15 +16,15 @@ const MetadataTransaction = 3
 const (
 	VersionJSON            = 1
 	InitJSON               = 1
-	ManifestAuthoringJSON  = 3
-	LockComparisonJSON     = 3
-	ResourceInventoryJSON  = 1
+	ManifestAuthoringJSON  = 4
+	LockComparisonJSON     = 4
+	ResourceInventoryJSON  = 2
 	OutputInventoryJSON    = 4
 	PathInventoryJSON      = 1
-	ReconciliationPlanJSON = 11
-	ApplyResultJSON        = 16
+	ReconciliationPlanJSON = 12
+	ApplyResultJSON        = 18
 	RecoveryJSON           = 7
 	DoctorJSON             = 1
 	MCPProbeJSON           = 1
-	ExtensionRefreshJSON   = 2
+	ExtensionRefreshJSON   = 3
 )

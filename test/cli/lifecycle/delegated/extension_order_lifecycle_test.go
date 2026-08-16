@@ -483,10 +483,7 @@ func TestApplyRejectsOversizedExtensionOrderWithoutMutation(t *testing.T) {
 	if len(status.RelationOrders) != 1 ||
 		status.RelationOrders[0].Kind != "blocked" ||
 		status.RelationOrders[0].Reason != "resource_limit_exceeded" ||
-		!strings.Contains(
-			status.RelationOrders[0].Detail,
-			"observed_rows observed=4097 limit=4096",
-		) {
+		status.RelationOrders[0].Detail != "extension order observation exceeded its resource limit" {
 		t.Fatalf("oversized status relation order = %#v", status.RelationOrders)
 	}
 

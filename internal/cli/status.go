@@ -49,7 +49,6 @@ func runStatus(args []string, stdout io.Writer, stderr io.Writer, options comman
 		if errors.Is(err, targetselection.ErrInvalid) {
 			printTargetSelectionHint(stderr, result.ManifestPath)
 		}
-		printUnsupportedCapabilityHint(stderr, err)
 		return 1
 	}
 	mcpStatuses, err := clipresent.MCPStatusesFrom(result.MCPProjections)

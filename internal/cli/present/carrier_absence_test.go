@@ -12,10 +12,12 @@ import (
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/contractversion"
+	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
+	"github.com/isty2e/daem/internal/target"
 )
 
 func TestPlanJSONDisclosesBlockedCarrierAbsenceWithoutExecutionClaim(t *testing.T) {
@@ -152,6 +154,30 @@ func TestCarrierAbsencePresentationDisclosesAdmittedRemovalEnvelope(t *testing.T
 		if !strings.Contains(verbose.String(), want) {
 			t.Fatalf("verbose = %q, want %q", verbose.String(), want)
 		}
+	}
+}
+
+func TestCarrierAbsenceJSONRedactsOpaqueOpenCodeHostSources(t *testing.T) {
+	for _, source := range []string{"plugins/local.ts", `plugins\local.ts`} {
+		t.Run(source, func(t *testing.T) {
+			contract, relation := hostSourceCarrierFixture(
+				t,
+				"local-opencode",
+				desiredextension.CarrierOpenCodePlugin,
+				target.TargetOpenCode,
+				target.ScopeProject,
+				source,
+			)
+			action := presentCarrierAbsenceActionFromContract(t, contract, relation)
+			row := carrierAbsenceJSONActions([]carrierabsence.Action{action})[0]
+			if !row.SourceNamespaceRedacted ||
+				row.CarrierSubject == nil ||
+				!row.CarrierSubject.NameRedacted ||
+				strings.Contains(row.SourceNamespace, source) ||
+				strings.Contains(row.CarrierSubject.Name, source) {
+				t.Fatalf("carrier absence row = %#v", row)
+			}
+		})
 	}
 }
 

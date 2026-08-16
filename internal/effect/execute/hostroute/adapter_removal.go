@@ -27,7 +27,7 @@ func buildClaudePluginCarrierRemoveCommand(input commandAdapterInput) (subproces
 			"Claude plugin carrier remove requires source selector PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{
@@ -67,7 +67,7 @@ func buildCodexPluginCarrierRemoveCommand(input commandAdapterInput) (subprocess
 			"Codex plugin carrier remove requires source selector PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{
@@ -98,7 +98,7 @@ func buildPiPackageCarrierRemoveCommand(input commandAdapterInput) (subprocess.C
 			"Pi package carrier remove supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validatePiHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 
@@ -162,7 +162,7 @@ func buildAntigravityCLIPluginCarrierRemoveCommand(
 		)
 	}
 	pluginName := source.RelationIdentity()
-	if err := validateHostRouteSourceArg(pluginName, subject); err != nil {
+	if err := validateHostRouteArg(pluginName, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{

@@ -45,6 +45,12 @@ func TestBuildDelegatedRemovalAttemptBuildsExactPiCommands(t *testing.T) {
 			wantArgs: []string{"remove", "git+https://github.com/acme/pi-tools.git#v2"},
 		},
 		{
+			name:     "literal percent global git",
+			scope:    target.ScopeGlobal,
+			source:   "git+https://example.com/acme/100%25-tool.git#v1",
+			wantArgs: []string{"remove", "git+https://example.com/acme/100%25-tool.git#v1"},
+		},
+		{
 			name:     "project local",
 			scope:    target.ScopeProject,
 			source:   "./tools/pi-local",

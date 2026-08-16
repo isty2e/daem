@@ -248,6 +248,7 @@ func TestRunRecordsAdapterPreflightFailureWithoutHostEffect(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsupported fake route") {
 		t.Fatalf("error = %v, want adapter preflight failure", err)
 	}
+	assertCarrierRemovalHostRouteFailure(t, err)
 	if fixture.executorCalls != 0 {
 		t.Fatalf("executor calls = %d, want 0", fixture.executorCalls)
 	}

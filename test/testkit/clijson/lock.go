@@ -52,8 +52,9 @@ type LockOrderConstraint struct {
 }
 
 type LockOrderMember struct {
-	Subject          LockSubjectID `json:"subject"`
-	HostLoadIdentity string        `json:"host_load_identity"`
+	Subject                  LockSubjectID `json:"subject"`
+	HostLoadIdentity         string        `json:"host_load_identity"`
+	HostLoadIdentityRedacted bool          `json:"host_load_identity_redacted,omitempty"`
 }
 
 type LockSubjectChange struct {
@@ -64,9 +65,10 @@ type LockSubjectChange struct {
 }
 
 type LockSubjectID struct {
-	Kind      string `json:"kind"`
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
+	Kind         string `json:"kind"`
+	Namespace    string `json:"namespace"`
+	Name         string `json:"name"`
+	NameRedacted bool   `json:"name_redacted,omitempty"`
 }
 
 type LockSubject struct {
@@ -96,30 +98,33 @@ type LockExactFileUse struct {
 }
 
 type LockRealization struct {
-	Kind                   string   `json:"kind"`
-	PlacementID            string   `json:"placement_id"`
-	Target                 string   `json:"target"`
-	ConsumerTargets        []string `json:"consumer_targets"`
-	Scope                  string   `json:"scope"`
-	Destination            string   `json:"destination"`
-	ContentKind            string   `json:"content_kind"`
-	PlacementMode          string   `json:"placement_mode"`
-	PermissionPolicy       string   `json:"permission_policy"`
-	ExactPermissionMode    *uint32  `json:"exact_permission_mode"`
-	AggregateRoot          string   `json:"aggregate_root"`
-	ContentPath            string   `json:"content_path"`
-	MergeUnit              string   `json:"merge_unit"`
-	SiblingRetention       string   `json:"sibling_retention"`
-	Equivalence            string   `json:"equivalence"`
-	SourceNamespace        string   `json:"source_namespace"`
-	RelationSubjectKey     string   `json:"relation_subject_key"`
-	ManagedInstanceKey     string   `json:"managed_instance_key"`
-	RouteID                string   `json:"route_id"`
-	CanonicalRequestHash   string   `json:"canonical_request_hash"`
-	RouteContractVersion   string   `json:"route_contract_version"`
-	AdapterContractVersion string   `json:"adapter_contract_version"`
-	ComparedFields         []string `json:"compared_fields"`
-	VerifiedRelationFields []string `json:"verified_relation_fields"`
+	Kind                       string   `json:"kind"`
+	PlacementID                string   `json:"placement_id"`
+	Target                     string   `json:"target"`
+	ConsumerTargets            []string `json:"consumer_targets"`
+	Scope                      string   `json:"scope"`
+	Destination                string   `json:"destination"`
+	ContentKind                string   `json:"content_kind"`
+	PlacementMode              string   `json:"placement_mode"`
+	PermissionPolicy           string   `json:"permission_policy"`
+	ExactPermissionMode        *uint32  `json:"exact_permission_mode"`
+	AggregateRoot              string   `json:"aggregate_root"`
+	ContentPath                string   `json:"content_path"`
+	MergeUnit                  string   `json:"merge_unit"`
+	SiblingRetention           string   `json:"sibling_retention"`
+	Equivalence                string   `json:"equivalence"`
+	SourceNamespace            string   `json:"source_namespace"`
+	SourceNamespaceRedacted    bool     `json:"source_namespace_redacted,omitempty"`
+	RelationSubjectKey         string   `json:"relation_subject_key"`
+	RelationSubjectKeyRedacted bool     `json:"relation_subject_key_redacted,omitempty"`
+	ManagedInstanceKey         string   `json:"managed_instance_key"`
+	ManagedInstanceKeyRedacted bool     `json:"managed_instance_key_redacted,omitempty"`
+	RouteID                    string   `json:"route_id"`
+	CanonicalRequestHash       string   `json:"canonical_request_hash"`
+	RouteContractVersion       string   `json:"route_contract_version"`
+	AdapterContractVersion     string   `json:"adapter_contract_version"`
+	ComparedFields             []string `json:"compared_fields"`
+	VerifiedRelationFields     []string `json:"verified_relation_fields"`
 }
 
 type LockDelegatePlan struct {

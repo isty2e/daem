@@ -212,6 +212,7 @@ func analyzeTopologyImports(packagePath string, imports []string) []GuardrailFin
 
 func isAllowedDesiredImport(importPath string) bool {
 	return isPackageOrChild(importPath, "internal/desired") ||
+		importPath == "internal/credentialtext" ||
 		importPath == "internal/target" ||
 		importPath == "internal/supply/source"
 }
@@ -342,6 +343,8 @@ func allowsExactCrossAffinityValue(
 	imported packagePlacement,
 ) bool {
 	switch importedPackage {
+	case "internal/credentialtext":
+		return imported.role == roleStableValue
 	case "internal/contractversion":
 		return imported.role == roleStableValue
 	case "internal/target":

@@ -105,12 +105,13 @@ func (executor CommandExecutor) execute(
 		runCtx, cancel := context.WithTimeout(ctx, executor.timeout)
 		raw := executor.run(runCtx, request, env, outputLimit, nativeWorkDir)
 		cancel()
+		processReason := classifyCommandResult(raw)
 		if err := binding.Validate(); err != nil {
 			raw.WorkDirAuthorityFailed = true
 			raw.Err = errors.Join(raw.Err, fmt.Errorf("working-directory authority changed: %w", err))
 		}
 		capture := sanitizeCapture(raw, secrets, outputLimit)
-		return newCommandAttemptResult(attemptedAt, true, classifyCommandResult(raw), raw, capture)
+		return newCommandAttemptResult(attemptedAt, true, processReason, raw, capture)
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, executor.timeout)
@@ -162,7 +163,7 @@ func (executor CommandExecutor) workDirAuthorityFailure(
 		Err:                    fmt.Errorf("working-directory authority: %w", err),
 	}
 	capture := sanitizeCapture(raw, secrets, outputLimit)
-	return newCommandAttemptResult(attemptedAt, false, CommandReasonWorkDirAuthority, raw, capture)
+	return newCommandAttemptResult(attemptedAt, false, CommandReasonNone, raw, capture)
 }
 
 func (executor CommandExecutor) withDefaults() CommandExecutor {
@@ -210,8 +211,6 @@ func (executor CommandExecutor) resolveEnv(envRefs []CommandEnvRef) ([]string, [
 
 func classifyCommandResult(result CommandResult) CommandReason {
 	switch {
-	case result.WorkDirAuthorityFailed:
-		return CommandReasonWorkDirAuthority
 	case result.TimedOut:
 		return CommandReasonTimeout
 	case result.Canceled:
@@ -239,20 +238,21 @@ func newCommandAttemptResult(
 	capture sanitizedCapture,
 ) CommandAttemptResult {
 	return CommandAttemptResult{
-		runnerInvoked:   runnerInvoked,
-		started:         result.Started,
-		attemptedAt:     attemptedAt,
-		reason:          reason,
-		exitCode:        result.ExitCode,
-		hasExitCode:     result.HasExitCode,
-		timedOut:        result.TimedOut,
-		canceled:        result.Canceled,
-		signaled:        result.Signaled,
-		stdout:          capture.stdout,
-		stderr:          capture.stderr,
-		stdoutTruncated: capture.stdoutTruncated,
-		stderrTruncated: capture.stderrTruncated,
-		redacted:        capture.redacted,
-		errorDetail:     capture.errorDetail,
+		runnerInvoked:          runnerInvoked,
+		started:                result.Started,
+		attemptedAt:            attemptedAt,
+		reason:                 reason,
+		exitCode:               result.ExitCode,
+		hasExitCode:            result.HasExitCode,
+		timedOut:               result.TimedOut,
+		canceled:               result.Canceled,
+		signaled:               result.Signaled,
+		stdout:                 capture.stdout,
+		stderr:                 capture.stderr,
+		stdoutTruncated:        capture.stdoutTruncated,
+		stderrTruncated:        capture.stderrTruncated,
+		redacted:               capture.redacted,
+		errorDetail:            capture.errorDetail,
+		workDirAuthorityFailed: result.WorkDirAuthorityFailed,
 	}
 }

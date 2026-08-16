@@ -51,20 +51,6 @@ func PayloadSet(ctx context.Context, input Input) (result payload.PayloadSet, re
 	return set, nil
 }
 
-// ManagedPathPayloadSet materializes only subject-selected managed-path
-// payloads. Family adapters remain private to this composition root.
-func ManagedPathPayloadSet(ctx context.Context, input Input) (payload.PayloadSet, error) {
-	managedPaths, err := buildManagedPathPayloads(ctx, input)
-	if err != nil {
-		return payload.PayloadSet{}, errors.Join(err, runCleanups(managedPaths.cleanups))
-	}
-	set, err := payload.NewPayloadSet(managedPaths.payloads, managedPaths.cleanups)
-	if err != nil {
-		return payload.PayloadSet{}, errors.Join(err, runCleanups(managedPaths.cleanups))
-	}
-	return set, nil
-}
-
 type managedPathPayloads struct {
 	payloads []payload.Payload
 	cleanups []func() error

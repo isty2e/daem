@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 	"github.com/isty2e/daem/test/testkit"
 	"github.com/isty2e/daem/test/testkit/clijson"
 )
@@ -88,8 +89,15 @@ func TestRunApplyYesJSONRejectsStaleManagedInstructionLockBeforeNoop(t *testing.
 	if !payload.HasErrors || len(payload.Errors) != 1 {
 		t.Fatalf("payload = %#v, want one error", payload)
 	}
-	if !strings.Contains(payload.Errors[0].Message, "stale_lock") {
-		t.Fatalf("payload = %#v, want stale lock error", payload)
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonApplyRefused,
+		applyworkflow.FailurePhasePreflight,
+		applyworkflow.FailureOutcomeRefused,
+	)
+	if len(payload.Actions) != 1 || payload.Actions[0].Reason != "stale_lock" {
+		t.Fatalf("payload actions = %#v, want stale lock decision", payload.Actions)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())

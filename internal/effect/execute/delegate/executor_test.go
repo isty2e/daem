@@ -3,6 +3,7 @@ package delegate
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -229,9 +230,66 @@ func TestExecuteFailsClosedWithoutWorkingDirectoryAuthority(t *testing.T) {
 	}
 	if record.Status() != AttemptFailed ||
 		record.Reason() != ReasonWorkDirAuthority ||
+		record.ProcessReason() != subprocess.CommandReasonNone ||
+		!record.WorkDirAuthorityFailed() ||
 		!strings.Contains(record.ErrorDetail(), "working-directory binding is required") {
 		t.Fatalf("record = %#v detail=%q, want workdir authority failure", record, record.ErrorDetail())
 	}
+}
+
+func TestExecutePreservesTimeoutAcrossPostAttemptAuthorityLoss(t *testing.T) {
+	action := testAction(t, testActionInput{
+		disposition: reconcile.DelegateScheduled,
+		mode:        delegatepolicy.ModeApply,
+		command:     "timeout-authority-test",
+	})
+	root := t.TempDir()
+	directory, err := os.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := &driftingDelegateWorkingDirectory{directory: directory}
+	executor := NewExecutor(Options{
+		Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+			return subprocess.CommandResult{
+				Started:  true,
+				TimedOut: true,
+				Err:      context.DeadlineExceeded,
+			}
+		},
+	})
+
+	record := executor.Execute(context.Background(), action, func() (subprocess.WorkingDirectoryBinding, error) {
+		return binding, nil
+	})
+	if record.Status() != AttemptFailed ||
+		record.Reason() != ReasonWorkDirAuthority ||
+		record.ProcessReason() != subprocess.CommandReasonTimeout ||
+		!record.WorkDirAuthorityFailed() ||
+		!record.TimedOut() {
+		t.Fatalf("record = %#v, want independent timeout and workdir authority facts", record)
+	}
+}
+
+type driftingDelegateWorkingDirectory struct {
+	directory   *os.File
+	validations int
+}
+
+func (binding *driftingDelegateWorkingDirectory) Validate() error {
+	binding.validations++
+	if binding.validations > 1 {
+		return errors.New("injected post-attempt authority loss")
+	}
+	return nil
+}
+
+func (binding *driftingDelegateWorkingDirectory) OpenDirectory() (*os.File, error) {
+	return os.Open(binding.directory.Name())
+}
+
+func (binding *driftingDelegateWorkingDirectory) Close() error {
+	return binding.directory.Close()
 }
 
 func TestExecuteBoundsRunnerOutput(t *testing.T) {

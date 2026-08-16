@@ -35,10 +35,11 @@ type providerStableFingerprintFacts struct {
 }
 
 type providerPhaseExecution struct {
-	attempts             []durableattempt.HostRouteAttempt
-	leases               *mutation.LeaseSet
-	firstEffectRevisions mutation.RevisionSet
-	rebound              bool
+	attempts                      []durableattempt.HostRouteAttempt
+	leases                        *mutation.LeaseSet
+	firstEffectRevisions          mutation.RevisionSet
+	rebound                       bool
+	uncompensatedEffectsAttempted bool
 }
 
 func providerInstallActions(
@@ -272,6 +273,11 @@ func runMCPProviderPrerequisitePhase(
 	}
 	providerState := current.assessment.CurrentState
 	providerClaims := current.assessment.GlobalCarrierClaims
+	providerOptions := options
+	providerOptions.markExecutionAttempted = func() {
+		result.uncompensatedEffectsAttempted = true
+		options.markAttempted()
+	}
 	for _, action := range actions {
 		nextState, nextClaims, attempts, routeErr := runHostRoutesAndPersistAttemptRecords(
 			ctx,
@@ -282,7 +288,7 @@ func runMCPProviderPrerequisitePhase(
 			current.assessment.Owner,
 			providerClaims,
 			[]reconcile.RelationAction{action},
-			options,
+			providerOptions,
 		)
 		providerState = nextState
 		providerClaims = nextClaims

@@ -19,7 +19,9 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/execute"
+	executedelegate "github.com/isty2e/daem/internal/effect/execute/delegate"
 	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
@@ -43,6 +45,182 @@ var (
 	ErrCarrierAdoptionBlock = errors.New("carrier adoption blocked")
 	ErrCarrierAbsenceBlock  = errors.New("carrier absence blocked")
 )
+
+// FailureReason is the closed public reason for an unsuccessful apply.
+type FailureReason string
+
+const (
+	FailureReasonStaleSnapshot              FailureReason = "stale_snapshot"
+	FailureReasonStalePlan                  FailureReason = "stale_plan"
+	FailureReasonMutationContended          FailureReason = "mutation_contended"
+	FailureReasonCancelled                  FailureReason = "mutation_cancelled"
+	FailureReasonLockfileUnavailable        FailureReason = "lockfile_unavailable"
+	FailureReasonRelationActionBlocked      FailureReason = "relation_action_blocked"
+	FailureReasonRelationOrderBlocked       FailureReason = "relation_order_blocked"
+	FailureReasonCarrierAdoptionBlocked     FailureReason = "carrier_adoption_blocked"
+	FailureReasonCarrierAbsenceBlocked      FailureReason = "carrier_absence_blocked"
+	FailureReasonRelationOrderRiskExpanded  FailureReason = "relation_order_risk_expanded"
+	FailureReasonRelationOrderUnauthorized  FailureReason = "relation_order_not_authorized"
+	FailureReasonMCPEnvironmentUnavailable  FailureReason = "mcp_environment_unavailable"
+	FailureReasonDelegateAttemptFailed      FailureReason = "delegate_attempt_failed"
+	FailureReasonHostRouteAttemptFailed     FailureReason = "host_route_attempt_failed"
+	FailureReasonCarrierPostconditionFailed FailureReason = "carrier_removal_postcondition_failed"
+	FailureReasonApplyRefused               FailureReason = "apply_refused"
+	FailureReasonApplyIncomplete            FailureReason = "apply_incomplete"
+)
+
+// FailurePhase identifies where apply stopped relative to its effect boundary.
+type FailurePhase string
+
+const (
+	FailurePhasePreflight FailurePhase = "preflight"
+	FailurePhaseExecution FailurePhase = "execution"
+)
+
+// FailureOutcome states whether apply crossed an effect boundary.
+type FailureOutcome string
+
+const (
+	FailureOutcomeRefused    FailureOutcome = "refused"
+	FailureOutcomeIncomplete FailureOutcome = "incomplete"
+	FailureOutcomeRolledBack FailureOutcome = "rolled_back"
+)
+
+// Failure is a path-neutral public projection of an internal apply error.
+type Failure struct {
+	reason  FailureReason
+	phase   FailurePhase
+	outcome FailureOutcome
+}
+
+// ClassifyFailure derives public failure facts without copying internal error text.
+func ClassifyFailure(err error, result CommandResult) Failure {
+	phase := FailurePhasePreflight
+	outcome := FailureOutcomeRefused
+	if result.ExecutionAttempted {
+		phase = FailurePhaseExecution
+		outcome = FailureOutcomeIncomplete
+		if execute.ApplyHostChangesRolledBack(err) && !result.UncompensatedEffectsAttempted {
+			outcome = FailureOutcomeRolledBack
+		}
+	}
+
+	return Failure{
+		reason:  classifyFailureReason(err, result.ExecutionAttempted),
+		phase:   phase,
+		outcome: outcome,
+	}
+}
+
+func classifyFailureReason(err error, executionAttempted bool) FailureReason {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return FailureReasonCancelled
+	}
+	if reason, ok := mutation.ReasonCodeOf(err); ok {
+		switch reason {
+		case mutation.ReasonStaleSnapshot:
+			return FailureReasonStaleSnapshot
+		case mutation.ReasonStalePlan:
+			return FailureReasonStalePlan
+		case mutation.ReasonContention:
+			return FailureReasonMutationContended
+		case mutation.ReasonCanceled:
+			return FailureReasonCancelled
+		}
+	}
+	switch {
+	case errors.Is(err, ErrReadLockfile):
+		return FailureReasonLockfileUnavailable
+	case errors.Is(err, ErrRelationActionBlock):
+		return FailureReasonRelationActionBlocked
+	case errors.Is(err, ErrRelationOrderBlock):
+		return FailureReasonRelationOrderBlocked
+	case errors.Is(err, ErrCarrierAdoptionBlock):
+		return FailureReasonCarrierAdoptionBlocked
+	case errors.Is(err, ErrCarrierAbsenceBlock):
+		return FailureReasonCarrierAbsenceBlocked
+	case errors.Is(err, ErrRelationOrderRiskExpansion):
+		return FailureReasonRelationOrderRiskExpanded
+	case errors.Is(err, ErrRelationOrderNotAuthorized):
+		return FailureReasonRelationOrderUnauthorized
+	}
+
+	var missingEnvironment missingMCPEnvironmentSourcesError
+	if errors.As(err, &missingEnvironment) {
+		return FailureReasonMCPEnvironmentUnavailable
+	}
+	var delegateFailure executedelegate.ExecutionError
+	if errors.As(err, &delegateFailure) {
+		return FailureReasonDelegateAttemptFailed
+	}
+	var hostRouteFailure hostRouteExecutionError
+	if errors.As(err, &hostRouteFailure) {
+		return FailureReasonHostRouteAttemptFailed
+	}
+	var carrierPostconditionFailure carrierRemovalPostconditionError
+	if errors.As(err, &carrierPostconditionFailure) {
+		return FailureReasonCarrierPostconditionFailed
+	}
+	if executionAttempted {
+		return FailureReasonApplyIncomplete
+	}
+	return FailureReasonApplyRefused
+}
+
+func (failure Failure) Reason() FailureReason   { return failure.reason }
+func (failure Failure) Phase() FailurePhase     { return failure.phase }
+func (failure Failure) Outcome() FailureOutcome { return failure.outcome }
+
+// Detail derives bounded public prose only from closed failure facts.
+func (failure Failure) Detail() string {
+	detail := failure.reasonDetail()
+	if failure.outcome == FailureOutcomeRolledBack {
+		return detail + "; host changes were rolled back"
+	}
+	return detail
+}
+
+func (failure Failure) reasonDetail() string {
+	switch failure.reason {
+	case FailureReasonStaleSnapshot:
+		return "authoritative inputs changed before apply completed"
+	case FailureReasonStalePlan:
+		return "the authorized apply plan changed before apply completed"
+	case FailureReasonMutationContended:
+		return "required mutation authority is busy"
+	case FailureReasonCancelled:
+		if failure.outcome != FailureOutcomeRefused {
+			return "apply was cancelled after an effect boundary was crossed"
+		}
+		return "apply was cancelled before effects"
+	case FailureReasonLockfileUnavailable:
+		return "the selected lockfile is unavailable"
+	case FailureReasonRelationActionBlocked:
+		return "a selected extension relation is blocked"
+	case FailureReasonRelationOrderBlocked:
+		return "a selected extension order is blocked"
+	case FailureReasonCarrierAdoptionBlocked:
+		return "a selected carrier adoption is blocked"
+	case FailureReasonCarrierAbsenceBlocked:
+		return "a selected carrier removal is blocked"
+	case FailureReasonRelationOrderRiskExpanded:
+		return "extension order risk expanded after carrier changes"
+	case FailureReasonRelationOrderUnauthorized:
+		return "the updated extension order was not authorized"
+	case FailureReasonMCPEnvironmentUnavailable:
+		return "required MCP environment sources are unavailable"
+	case FailureReasonDelegateAttemptFailed:
+		return "a delegated host command attempt failed"
+	case FailureReasonHostRouteAttemptFailed:
+		return "host route attempt failed"
+	case FailureReasonCarrierPostconditionFailed:
+		return "pending carrier removal postconditions are not satisfied"
+	case FailureReasonApplyIncomplete:
+		return "apply did not complete after an effect boundary was crossed"
+	default:
+		return "apply was refused before effects"
+	}
+}
 
 type CommandInput struct {
 	ManifestPath           string
@@ -71,6 +249,9 @@ type CommandResult struct {
 	// ExecutionAttempted reports whether apply crossed a durable mutation or
 	// delegated command-runner boundary.
 	ExecutionAttempted bool
+	// UncompensatedEffectsAttempted reports that an effect outside the managed
+	// journal rollback domain was attempted during this apply.
+	UncompensatedEffectsAttempted bool
 }
 
 // HasBlockedRelationActions reports whether relation planning blocks ordinary apply.
@@ -231,13 +412,12 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	), nil
 }
 
-func BuildDiffs(ctx context.Context, result DryRunPlan) ([]DryRunDiff, error) {
+func BuildDiffs(ctx context.Context, result DryRunPlan) (DryRunDiffCollection, error) {
 	return BuildDryRunDiffs(
 		ctx,
 		result.planned.context.Paths,
-		result.planned.context.RuntimeEnvironment,
 		result.planned.context.Lockfile,
-		result.planned.context.Selection,
+		result.planned.context.SourceEpoch,
 		result.planned.result.Reconciliation,
 		nil,
 	)
@@ -335,7 +515,7 @@ func rejectBlockedRelationOrders(result reconcile.Result) error {
 		decision.ClassID(),
 		decision.SequenceID(),
 		decision.Reason(),
-		decision.Detail(),
+		decision.PublicDetail(),
 	)
 }
 

@@ -9,33 +9,36 @@ import (
 )
 
 type relationActionJSON struct {
-	Kind                 string           `json:"kind"`
-	Subject              *planJSONSubject `json:"subject,omitempty"`
-	Target               string           `json:"target"`
-	Scope                string           `json:"scope"`
-	SourceNamespace      string           `json:"source_namespace"`
-	SourceKind           string           `json:"source_kind"`
-	SourceRef            string           `json:"source_ref"`
-	RelationSubjectKey   string           `json:"relation_subject_key"`
-	EvidenceSource       string           `json:"evidence_source"`
-	EvidenceAvailability string           `json:"evidence_availability"`
-	EvidenceFreshness    string           `json:"evidence_freshness"`
-	RouteID              string           `json:"route_id"`
-	RouteRequestHash     string           `json:"route_request_hash"`
-	RouteAdmissionRow    string           `json:"route_admission_row"`
-	RequestedOutcome     string           `json:"requested_outcome"`
-	SelectedOutcome      string           `json:"selected_outcome"`
-	CorrelationState     string           `json:"correlation_state"`
-	CorrelationReason    string           `json:"correlation_reason,omitempty"`
-	Reason               string           `json:"reason,omitempty"`
-	Execution            string           `json:"execution"`
-	Watchpoints          []string         `json:"watchpoints,omitempty"`
-	ReplayBoundary       string           `json:"replay_boundary"`
-	RetainedEffects      []string         `json:"retained_effects"`
-	NonClaims            []string         `json:"non_claims"`
-	InvokesHostRoute     bool             `json:"invokes_host_route"`
-	AllowsHostRoute      bool             `json:"allows_host_route_invocation"`
-	BlocksOrdinaryApply  bool             `json:"blocks_ordinary_apply"`
+	Kind                       string           `json:"kind"`
+	Subject                    *planJSONSubject `json:"subject,omitempty"`
+	Target                     string           `json:"target"`
+	Scope                      string           `json:"scope"`
+	SourceNamespace            string           `json:"source_namespace"`
+	SourceNamespaceRedacted    bool             `json:"source_namespace_redacted,omitempty"`
+	SourceKind                 string           `json:"source_kind"`
+	SourceRef                  string           `json:"source_ref"`
+	SourceRefRedacted          bool             `json:"source_ref_redacted,omitempty"`
+	RelationSubjectKey         string           `json:"relation_subject_key"`
+	RelationSubjectKeyRedacted bool             `json:"relation_subject_key_redacted,omitempty"`
+	EvidenceSource             string           `json:"evidence_source"`
+	EvidenceAvailability       string           `json:"evidence_availability"`
+	EvidenceFreshness          string           `json:"evidence_freshness"`
+	RouteID                    string           `json:"route_id"`
+	RouteRequestHash           string           `json:"route_request_hash"`
+	RouteAdmissionRow          string           `json:"route_admission_row"`
+	RequestedOutcome           string           `json:"requested_outcome"`
+	SelectedOutcome            string           `json:"selected_outcome"`
+	CorrelationState           string           `json:"correlation_state"`
+	CorrelationReason          string           `json:"correlation_reason,omitempty"`
+	Reason                     string           `json:"reason,omitempty"`
+	Execution                  string           `json:"execution"`
+	Watchpoints                []string         `json:"watchpoints,omitempty"`
+	ReplayBoundary             string           `json:"replay_boundary"`
+	RetainedEffects            []string         `json:"retained_effects"`
+	NonClaims                  []string         `json:"non_claims"`
+	InvokesHostRoute           bool             `json:"invokes_host_route"`
+	AllowsHostRoute            bool             `json:"allows_host_route_invocation"`
+	BlocksOrdinaryApply        bool             `json:"blocks_ordinary_apply"`
 }
 
 var relationActionRetainedEffects = []string{
@@ -66,35 +69,39 @@ func relationJSONActions(actions []reconciliation.RelationAction) []relationActi
 	for _, action := range actions {
 		route := action.RouteRequest()
 		admission := action.RouteAdmission()
-		sourceKind, sourceRef := splitRelationSourceNamespace(action.SourceNamespace())
+		identity := action.CarrierIdentity()
+		disclosure := carrierIdentityDisclosureFor(identity)
 		result = append(result, relationActionJSON{
-			Kind:                 string(action.Kind()),
-			Subject:              planJSONSubjectFor(action.Subject()),
-			Target:               string(action.Target()),
-			Scope:                string(action.Scope()),
-			SourceNamespace:      action.SourceNamespace(),
-			SourceKind:           sourceKind,
-			SourceRef:            sourceRef,
-			RelationSubjectKey:   action.RelationSubjectKey(),
-			EvidenceSource:       action.EvidenceSource(),
-			EvidenceAvailability: string(action.EvidenceAvailability()),
-			EvidenceFreshness:    string(action.EvidenceFreshness()),
-			RouteID:              route.RouteID(),
-			RouteRequestHash:     route.CanonicalRequestHash(),
-			RouteAdmissionRow:    string(admission.Row()),
-			RequestedOutcome:     string(admission.RequestedOutcome()),
-			SelectedOutcome:      string(admission.SelectedOutcome()),
-			CorrelationState:     string(action.CorrelationState()),
-			CorrelationReason:    string(action.CorrelationReason()),
-			Reason:               string(action.Reason()),
-			Execution:            string(action.Execution()),
-			Watchpoints:          relationWatchpoints(action),
-			ReplayBoundary:       action.ReplayBoundary(),
-			RetainedEffects:      relationRetainedEffects(),
-			NonClaims:            relationNonClaimsForAction(action),
-			InvokesHostRoute:     action.InvokesHostRoute(),
-			AllowsHostRoute:      admission.AllowsHostRouteInvocation(),
-			BlocksOrdinaryApply:  action.BlocksOrdinaryApply(),
+			Kind:                       string(action.Kind()),
+			Subject:                    planJSONSubjectFor(action.Subject()),
+			Target:                     string(action.Target()),
+			Scope:                      string(action.Scope()),
+			SourceNamespace:            disclosure.sourceNamespace.Value(),
+			SourceNamespaceRedacted:    disclosure.sourceNamespace.Redacted(),
+			SourceKind:                 string(identity.Carrier().Source().Kind()),
+			SourceRef:                  disclosure.sourceRef.Value(),
+			SourceRefRedacted:          disclosure.sourceRef.Redacted(),
+			RelationSubjectKey:         disclosure.relationSubjectKey.Value(),
+			RelationSubjectKeyRedacted: disclosure.relationSubjectKey.Redacted(),
+			EvidenceSource:             action.EvidenceSource(),
+			EvidenceAvailability:       string(action.EvidenceAvailability()),
+			EvidenceFreshness:          string(action.EvidenceFreshness()),
+			RouteID:                    route.RouteID(),
+			RouteRequestHash:           route.CanonicalRequestHash(),
+			RouteAdmissionRow:          string(admission.Row()),
+			RequestedOutcome:           string(admission.RequestedOutcome()),
+			SelectedOutcome:            string(admission.SelectedOutcome()),
+			CorrelationState:           string(action.CorrelationState()),
+			CorrelationReason:          string(action.CorrelationReason()),
+			Reason:                     string(action.Reason()),
+			Execution:                  string(action.Execution()),
+			Watchpoints:                relationWatchpoints(action),
+			ReplayBoundary:             action.ReplayBoundary(),
+			RetainedEffects:            relationRetainedEffects(),
+			NonClaims:                  relationNonClaimsForAction(action),
+			InvokesHostRoute:           action.InvokesHostRoute(),
+			AllowsHostRoute:            admission.AllowsHostRouteInvocation(),
+			BlocksOrdinaryApply:        action.BlocksOrdinaryApply(),
 		})
 	}
 	return result
@@ -131,14 +138,6 @@ func relationWatchpoints(action reconciliation.RelationAction) []string {
 	return result
 }
 
-func splitRelationSourceNamespace(namespace string) (string, string) {
-	kind, ref, ok := strings.Cut(namespace, ":")
-	if !ok {
-		return namespace, ""
-	}
-	return kind, ref
-}
-
 // PrintRelationActions writes relation action rows without implying host route
 // execution unless the underlying action explicitly says so.
 func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.RelationAction, options HumanOptions) {
@@ -157,7 +156,9 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 		if renderedSubject := planJSONSubjectFor(action.Subject()); renderedSubject != nil {
 			subject = subjectString(*renderedSubject)
 		}
-		sourceKind, sourceRef := splitRelationSourceNamespace(action.SourceNamespace())
+		identity := action.CarrierIdentity()
+		carrier := identity.Carrier()
+		disclosure := carrierIdentityDisclosureFor(identity)
 		fmt.Fprintf(
 			output,
 			"  - kind=%s subject=%q target=%s scope=%s source_kind=%q source_ref=%q source_namespace=%q relation_subject_key=%q evidence_source=%s evidence_availability=%s evidence_freshness=%s execution=%s reason=%s correlation_state=%s correlation_reason=%s route_id=%q route_request_hash=%q route_admission_row=%q requested_outcome=%s selected_outcome=%s replay_boundary=%s retained_effects=%q non_claims=%q invokes_host_route=%t allows_host_route_invocation=%t blocks_ordinary_apply=%t\n",
@@ -165,10 +166,10 @@ func PrintRelationActionsWithOptions(output io.Writer, actions []reconciliation.
 			subject,
 			action.Target(),
 			action.Scope(),
-			sourceKind,
-			sourceRef,
-			action.SourceNamespace(),
-			action.RelationSubjectKey(),
+			carrier.Source().Kind(),
+			disclosure.verboseSourceRef.Value(),
+			disclosure.verboseSourceNamespace.Value(),
+			disclosure.verboseRelationSubjectKey.Value(),
 			action.EvidenceSource(),
 			action.EvidenceAvailability(),
 			action.EvidenceFreshness(),

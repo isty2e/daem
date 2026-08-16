@@ -213,19 +213,166 @@ func TestExtensionSourceRejectsOptionControlAndMalformedMarketplace(t *testing.T
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?access_token=secret", want: "query fields"},
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?private_token=secret", want: "query fields"},
 		{kind: SourceKindHostSource, ref: "npm:@acme/plugin?download=1", want: "query fields"},
+		{kind: SourceKindHostSource, ref: "npm:tool@token:actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "npm:tool@token = actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "npm:alias@npm:tool@token = actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "npm:tool@foo://user:actual-secret@example.com/path", want: "inline credentials"},
+		{kind: SourceKindHostSource, ref: "npm:tool@--client-secret=actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "npm:tool@token%3Aactual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "npm:tool@token%3Dactual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "github:acme/_token=actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "github:acme/" + strings.Repeat("a", 129) + "-token=actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "github:acme/ключ=actual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "github:acme/_token%3Dactual-secret", want: "credential assignments"},
+		{kind: SourceKindHostSource, ref: "git:https://user:actual-secret@example.com/acme/tool.git", want: "inline credentials"},
+		{kind: SourceKindHostSource, ref: "git:https://user@example.com/acme/tool.git", want: "inline credentials"},
+		{kind: SourceKindHostSource, ref: "git:https://user:actual-secret@[example.com/acme/tool.git", want: "malformed URL authority"},
+		{kind: SourceKindHostSource, ref: "git:https://user%40actual-secret@[example.com/acme/tool.git", want: "malformed URL authority"},
+		{kind: SourceKindHostSource, ref: "git:https://user%40example.com/acme/tool.git", want: "inline credentials"},
+		{kind: SourceKindHostSource, ref: `plugins\client-secret=actual-secret`, want: "credential assignments"},
 		{kind: SourceKindHostSource, ref: "github:acme/plugin#api-key=secret", want: "must not contain assignments"},
 		{kind: SourceKindHostSource, ref: "github:acme/plugin#private_token%3Dsecret", want: "must not contain assignments"},
-		{kind: SourceKindHostSource, ref: "https://example.com/%zz", want: "URL is malformed"},
-		{kind: SourceKindHostSource, ref: "./plugins/%zz#private_token%3Dsecret", want: "URL is malformed"},
+		{kind: SourceKindHostSource, ref: "git+https://example.com/acme/tool%0Aforged.git#v1", want: "control characters"},
+		{kind: SourceKindHostSource, ref: "git+https://example.com/acme/tool%E2%80%AEforged.git#v1", want: "control characters"},
 		{kind: SourceKindMarketplace, ref: "plugin", want: "PLUGIN@MARKETPLACE"},
 		{kind: SourceKindMarketplace, ref: "plugin@market@extra", want: "PLUGIN@MARKETPLACE"},
 		{kind: SourceKindMarketplace, ref: "plugin@--help", want: "neither component"},
 		{kind: "registry", ref: "plugin", want: "unsupported extension source kind"},
 	}
 	for _, test := range tests {
-		if _, err := NewSourceRef(test.kind, test.ref); err == nil || !strings.Contains(err.Error(), test.want) {
-			t.Fatalf("NewSourceRef(%q, %q) error = %v, want containing %q", test.kind, test.ref, err, test.want)
+		if _, err := NewAuthoredSourceRef(test.kind, test.ref); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("NewAuthoredSourceRef(%q, %q) error = %v, want containing %q", test.kind, test.ref, err, test.want)
 		}
+	}
+}
+
+func TestExtensionSourceStructuralReconstructionRejectsOnlyMalformedShape(t *testing.T) {
+	for _, test := range []struct {
+		kind SourceKind
+		ref  string
+	}{
+		{kind: SourceKindHostSource, ref: "-malicious"},
+		{kind: SourceKindHostSource, ref: "bad\nsource"},
+		{kind: SourceKindHostSource, ref: string([]byte{'b', 'a', 'd', 0xff})},
+		{kind: SourceKindMarketplace, ref: "plugin"},
+		{kind: SourceKindMarketplace, ref: "plugin@market@extra"},
+		{kind: SourceKindMarketplace, ref: "plugin@--help"},
+		{kind: "registry", ref: "plugin"},
+	} {
+		if _, err := NewSourceRef(test.kind, test.ref); err == nil {
+			t.Fatalf("NewSourceRef(%q, %q) admitted malformed structural source", test.kind, test.ref)
+		}
+	}
+}
+
+func TestExtensionSourceAdmitsStablePercentLiterals(t *testing.T) {
+	for _, ref := range []string{
+		"github:acme/tool#100%25ready",
+		"https://example.com/acme/100%25-tool.git",
+		"github:acme/tool#100%25ready%253Aok",
+	} {
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err != nil {
+			t.Errorf("NewAuthoredSourceRef(%q) = %v, want admitted", ref, err)
+		}
+	}
+}
+
+func TestExtensionSourceUnresolvedEscapesRejectOnlyAtAuthoringIngress(t *testing.T) {
+	// Authored policy rejects text whose escapes do not fully resolve, but
+	// canonical reconstruction keeps decoding values persisted under earlier
+	// schemas, so durable state never reinterprets the same schema more
+	// strictly.
+	for _, ref := range []string{
+		"npm:tool@100%zz",
+		"https://example.com/%zz",
+		"./plugins/%zz#private_token%3Dsecret",
+		"github:acme/tool#release%252525252525value",
+	} {
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err == nil ||
+			!strings.Contains(err.Error(), "malformed percent-encoding") {
+			t.Fatalf("NewAuthoredSourceRef(%q) error = %v, want malformed percent-encoding", ref, err)
+		}
+	}
+	persisted, err := NewSourceRef(SourceKindHostSource, "github:acme/tool#release%252525252525value")
+	if err != nil {
+		t.Fatalf("canonical decode of persisted unresolved ref = %v, want admitted", err)
+	}
+	if persisted.CredentialFree() {
+		t.Fatal("persisted unresolved host source was treated as inspectably credential-free")
+	}
+}
+
+func TestExtensionSourcePasswordUserInfoRejectsOnlyAtAuthoringIngress(t *testing.T) {
+	for _, ref := range []string{
+		"git:user:actual-secret@github.com/acme/tool",
+		"git:user:actual-secret@github.com/acme/tool#https://example.test/ref",
+		"git:user:actual-secret%40github.com/acme/tool",
+		"user:actual-secret@short-host/acme/tool",
+		"user:actual-secret@[2001:db8::1]/acme/tool",
+		"git:user:actual-secret@github.com",
+		"user:actual-secret@short-host:443/acme/tool",
+		"user:actual-secret@[2001:db8::1]:443/acme/tool",
+		"https://example.test/#git:user:actual-secret@github.com/acme/tool",
+		"user:actual-secret@short-host",
+		"https://example.test/#user:actual-secret@short-host",
+		"[git:user:actual-secret@short-host]",
+		"git:user:actual-secret@short-host:repo/path",
+		"github:user:actual-secret@short-host:repo/path",
+		"user:actual-secret@short+host",
+		"[git:user:actual-secret@short-host]:",
+		"[git:user:actual-secret@short-host].",
+		"git:user:actual-secret@[2001:db8::1",
+		"[tag]git:user:actual-secret@short-host",
+		"user:actual-secret@short-host:not-a-port/repo",
+		"GIT:user:actual-secret@short-host:repo/path",
+		"g%69t:user:actual-secret@short-host:repo/path",
+		"user:actual-secret@short!host",
+		"NPM:user:actual-secret@short-host",
+	} {
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err == nil ||
+			!strings.Contains(err.Error(), "inline credentials") {
+			t.Fatalf("NewAuthoredSourceRef(%q) error = %v, want inline credentials", ref, err)
+		}
+	}
+	ref := "git:user:actual-secret@github.com/acme/tool"
+	if _, err := NewSourceRef(SourceKindHostSource, ref); err != nil {
+		t.Fatalf("canonical decode of persisted password-shaped git source = %v, want admitted", err)
+	}
+	gitSource, ok := ParseGitSource(ref)
+	if !ok || gitSource.CredentialFree() {
+		t.Fatal("ParseGitSource did not preserve credential-free authority separately from Git structure")
+	}
+}
+
+func TestExtensionSourceAppliesPasswordGrammarInSourceContext(t *testing.T) {
+	selector := "team/plugin:beta@market.name/path"
+	source, err := NewAuthoredSourceRef(SourceKindMarketplace, selector)
+	if err != nil {
+		t.Fatalf("NewAuthoredSourceRef marketplace selector: %v", err)
+	}
+	if !source.CredentialFree() {
+		t.Fatalf("marketplace selector %q was reinterpreted as credential userinfo", selector)
+	}
+	uninspectableMarketplace, err := NewSourceRef(
+		SourceKindMarketplace,
+		"plugin@market%zz",
+	)
+	if err != nil {
+		t.Fatalf("NewSourceRef legacy marketplace source: %v", err)
+	}
+	if uninspectableMarketplace.CredentialFree() {
+		t.Fatal("uninspectable legacy marketplace source gained effect authority")
+	}
+
+	legacy, err := NewSourceRef(
+		SourceKindHostSource,
+		"git:user:actual-secret@github.com/acme/tool#https://example.test/ref",
+	)
+	if err != nil {
+		t.Fatalf("NewSourceRef legacy host source: %v", err)
+	}
+	if legacy.CredentialFree() {
+		t.Fatal("legacy host source lost its inline-credential fact")
 	}
 }
 
@@ -234,9 +381,102 @@ func TestExtensionSourceAllowsCredentialFreeHostNativeReferences(t *testing.T) {
 		"git+ssh://git@github.com/acme/tools.git#v1",
 		"github:acme/tools#v1",
 		"npm:@acme/plugin",
+		"ssh://git@github.com/acme/tool.git",
+		"git:git@github.com:acme/tools.git@v1",
+		"git:git@short+host:acme/tools.git@v1",
+		"git:https://example.com/acme/my%20tool.git",
+		"git@github.com:acme/pi-tools",
+		"git@token:repo/path",
+		"https://token:443/repo",
+		"git+https://github.com:443/acme/tool.git#v1",
+		"git+https://224.0.0.1/acme/tool.git#v1",
+		"git+https://[ff02::1]/acme/tool.git#v1",
+		"git:127.0.0.1:8080/repo",
+		"git:router.home.arpa:2222/repo",
+		"git+https://127.1/acme/tool.git#v1",
+		"git+https://10.1/acme/tool.git#v1",
+		"git+https://0x7f.0.0.1/acme/tool.git#v1",
+		"git+https://0.1.2.3/acme/tool.git#v1",
+		"git+https://198.18.0.1/acme/tool.git#v1",
+		"git+https://[2001:db8::1]/acme/tool.git#v1",
+		"git+https://8.8.8.8/acme/tool.git#v1",
+		"npm:tool@1.2.3",
+		"npm:@acme/tool@>=1.2.3 <2",
+		"npm:tool-alias@npm:@acme/tool@1.2.3",
 	} {
-		if _, err := NewSourceRef(SourceKindHostSource, ref); err != nil {
-			t.Errorf("NewSourceRef(%q) returned error: %v", ref, err)
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err != nil {
+			t.Errorf("NewAuthoredSourceRef(%q) returned error: %v", ref, err)
+		}
+	}
+	if _, err := NewAuthoredSourceRef(SourceKindMarketplace, "token:foo@market"); err != nil {
+		t.Errorf("NewAuthoredSourceRef marketplace punctuation returned error: %v", err)
+	}
+	if _, err := NewAuthoredSourceRef(
+		SourceKindMarketplace,
+		"https://token:443/repo@market/path",
+	); err != nil {
+		t.Errorf("NewAuthoredSourceRef URL-shaped marketplace punctuation returned error: %v", err)
+	}
+}
+
+func TestExtensionSourceAdmissionAppliesLengthCeilingAtAuthoringIngress(t *testing.T) {
+	admitted := "./plugins/" + strings.Repeat("a", maxAuthoredSourceRefBytes-len("./plugins/"))
+	if _, err := NewAuthoredSourceRef(SourceKindHostSource, admitted); err != nil {
+		t.Fatalf("NewAuthoredSourceRef at ceiling returned error: %v", err)
+	}
+	rejected := admitted + "a"
+	if _, err := NewAuthoredSourceRef(SourceKindHostSource, rejected); err == nil ||
+		!strings.Contains(err.Error(), "length limit") {
+		t.Fatalf("NewAuthoredSourceRef above ceiling error = %v, want length limit rejection", err)
+	}
+}
+
+func TestExtensionSourceDurableDecodingStaysSchemaCompatible(t *testing.T) {
+	// Sources persisted before the authoring length admission existed must
+	// keep decoding: the canonical constructor carries structural and
+	// credential validation only, never the authoring ceiling.
+	legacy := "./plugins/" + strings.Repeat("a", maxAuthoredSourceRefBytes+1024)
+	if _, err := NewSourceRef(SourceKindHostSource, legacy); err != nil {
+		t.Fatalf("NewSourceRef for legacy durable source returned error: %v", err)
+	}
+	for _, ref := range []string{
+		"npm:tool@user:actual-secret@short-host",
+		"npm:tool@token = actual-secret",
+		"npm:alias@npm:tool@token = actual-secret",
+		"npm:tool@https://example.com/archive.tgz?download=1",
+		"github:acme/tool#download=1",
+	} {
+		persisted, err := NewSourceRef(SourceKindHostSource, ref)
+		if err != nil {
+			t.Fatalf("NewSourceRef for legacy npm source %q returned error: %v", ref, err)
+		}
+		if persisted.CredentialFree() {
+			t.Fatalf("legacy npm source %q gained effect authority", ref)
+		}
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err == nil {
+			t.Fatalf("authoring admitted legacy npm source %q", ref)
+		}
+	}
+}
+
+func TestExtensionSourceDecodedControlRejectsOnlyAtAuthoringIngress(t *testing.T) {
+	for _, ref := range []string{
+		"git+https://example.com/acme/tool%0Aforged.git#v1",
+		"git+https://example.com/acme/tool%E2%80%AEforged.git#v1",
+	} {
+		persisted, err := NewSourceRef(SourceKindHostSource, ref)
+		if err != nil {
+			t.Fatalf("NewSourceRef durable encoded-control source %q: %v", ref, err)
+		}
+		if !persisted.CredentialFree() {
+			t.Fatalf("durable encoded-control source %q lost credential-free structure", ref)
+		}
+		if persisted.ControlFree() {
+			t.Fatalf("durable encoded-control source %q gained control-free authority", ref)
+		}
+		if _, err := NewAuthoredSourceRef(SourceKindHostSource, ref); err == nil ||
+			!strings.Contains(err.Error(), "control characters") {
+			t.Fatalf("NewAuthoredSourceRef(%q) error = %v, want control rejection", ref, err)
 		}
 	}
 }
@@ -265,6 +505,73 @@ func TestMarketplaceSelectorOwnsValidatedComponents(t *testing.T) {
 	}
 	if _, ok := hostSource.MarketplaceSelector(); ok {
 		t.Fatal("MarketplaceSelector accepted a host source")
+	}
+}
+
+func TestMarketplaceGrammarOwnsPunctuationAndCredentialAssignments(t *testing.T) {
+	for _, ref := range []string{
+		"team/plugin:beta@market.name/path",
+		"https://token:443/repo@market/path",
+		"plugin@https://market.example/path",
+	} {
+		source, err := NewAuthoredSourceRef(SourceKindMarketplace, ref)
+		if err != nil {
+			t.Errorf("NewAuthoredSourceRef(%q) returned error: %v", ref, err)
+			continue
+		}
+		if !source.CredentialFree() {
+			t.Errorf("marketplace source %q lost grammar-owned credential authority", ref)
+		}
+	}
+	for _, ref := range []string{
+		"plugin-token=actual-secret@market",
+		"plugin-token%3Dactual-secret@market",
+		"plugin@market?token=actual-secret",
+	} {
+		if _, err := NewAuthoredSourceRef(SourceKindMarketplace, ref); err == nil {
+			t.Errorf("NewAuthoredSourceRef(%q) admitted credential-bearing selector", ref)
+		}
+	}
+
+	legacy, err := NewSourceRef(SourceKindMarketplace, "plugin@market%zz")
+	if err != nil {
+		t.Fatalf("NewSourceRef legacy marketplace source: %v", err)
+	}
+	if legacy.CredentialFree() {
+		t.Fatal("malformed legacy marketplace source gained authority")
+	}
+}
+
+func TestMarketplaceAuthorityRequiresStableCanonicalPartition(t *testing.T) {
+	for _, ref := range []string{
+		"plugin@https://user:actual-secret%40example.com",
+		"plugin@https://user:actual-secret%2540example.com",
+	} {
+		t.Run(ref, func(t *testing.T) {
+			if _, err := NewAuthoredSourceRef(SourceKindMarketplace, ref); err == nil ||
+				!strings.Contains(err.Error(), "inline credentials") {
+				t.Fatalf("NewAuthoredSourceRef(%q) error = %v, want authority rejection", ref, err)
+			}
+
+			legacy, err := NewSourceRef(SourceKindMarketplace, ref)
+			if err != nil {
+				t.Fatalf("NewSourceRef legacy marketplace source: %v", err)
+			}
+			if legacy.CredentialFree() {
+				t.Fatal("canonical delimiter drift gained credential authority")
+			}
+			if _, ok := legacy.MarketplaceSelector(); ok {
+				t.Fatal("canonical delimiter drift gained marketplace selector authority")
+			}
+		})
+	}
+
+	benign, err := NewAuthoredSourceRef(SourceKindMarketplace, "plugin@market/path%2Fstable")
+	if err != nil {
+		t.Fatalf("encoded marketplace path data was rejected: %v", err)
+	}
+	if selector, ok := benign.MarketplaceSelector(); !ok || selector.String() != benign.Ref() {
+		t.Fatalf("benign encoded selector authority = %#v/%t", selector, ok)
 	}
 }
 

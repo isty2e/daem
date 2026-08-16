@@ -26,6 +26,15 @@ import (
 func newPresentCarrierAdoptionFixture(t *testing.T) presentCarrierAdoptionFixture {
 	t.Helper()
 	contract, relation := claudePluginCarrierFixture(t)
+	return newPresentCarrierAdoptionFixtureFromContract(t, contract, relation)
+}
+
+func newPresentCarrierAdoptionFixtureFromContract(
+	t *testing.T,
+	contract lock.LockedSubjectContract,
+	relation realization.DelegatedRelation,
+) presentCarrierAdoptionFixture {
+	t.Helper()
 	identity := presentManagedCarrierIdentity(t, contract)
 	root := t.TempDir()
 	owner, err := stateauthority.New(pathtest.Exact(

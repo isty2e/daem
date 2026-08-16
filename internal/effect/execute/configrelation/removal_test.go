@@ -96,6 +96,20 @@ func TestNewRemovalPlanRejectsIncompleteAmbiguousOrForeignAuthority(t *testing.T
 	}
 }
 
+func TestNewRemovalPlanRejectsDurableSourceWithoutEffectAuthority(t *testing.T) {
+	root := t.TempDir()
+	_, err := NewRemovalPlan(RemovalInput{
+		Target:         target.TargetOpenCode,
+		Scope:          target.ScopeGlobal,
+		Carrier:        desiredextension.CarrierOpenCodePlugin,
+		Source:         "npm:tool@token = actual-secret",
+		AuthorityPaths: openCodeCandidateAuthorities(t, root, target.ScopeGlobal),
+	})
+	if err == nil {
+		t.Fatal("NewRemovalPlan admitted a source without credential authority")
+	}
+}
+
 func openCodeCandidateAuthorities(
 	t *testing.T,
 	root string,

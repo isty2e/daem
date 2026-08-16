@@ -7,7 +7,6 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/contractversion"
-	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
@@ -25,7 +24,7 @@ type ApplyResultJSONInput struct {
 	RelationOrderResults   []applyworkflow.RelationOrderExecutionResult
 	MCPStatuses            []MCPStatus
 	Diagnostics            []findings.Diagnostic
-	Err                    error
+	Failure                *applyworkflow.Failure
 }
 
 type applyResultJSONOutput struct {
@@ -51,8 +50,10 @@ type applyResultJSONOutput struct {
 }
 
 type applyResultJSONError struct {
-	Code    mutation.ReasonCode `json:"code,omitempty"`
-	Message string              `json:"message"`
+	Code    applyworkflow.FailureReason  `json:"code"`
+	Phase   applyworkflow.FailurePhase   `json:"phase"`
+	Outcome applyworkflow.FailureOutcome `json:"outcome"`
+	Message string                       `json:"message"`
 }
 
 func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
@@ -68,11 +69,11 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 		Actions:              planJSONActionsForPlan(input.Reconciliation),
 		DelegateActions:      delegateJSONActions(input.Reconciliation.Delegates()),
 		RelationActions:      relationJSONActions(relations),
-		RelationOrders:       relationOrderJSONActions(input.Reconciliation.RelationOrders()),
+		RelationOrders:       relationOrderJSONActions(input.Reconciliation.RelationOrders(), relations),
 		RelationOrderResults: relationOrderResultJSONRows(input.RelationOrderResults),
 		CarrierAdoptions: carrierAdoptionJSONActionsWithResults(
 			input.Reconciliation.CarrierAdoptions(),
-			applyResultCarrierAdoptionPhase(input.Err, input.ExecutionAttempted),
+			applyResultCarrierAdoptionPhase(input.Failure != nil, input.ExecutionAttempted),
 			input.CarrierAdoptionResults,
 		),
 		CarrierAbsences:   carrierAbsenceJSONActions(input.Reconciliation.CarrierAbsences()),
@@ -87,10 +88,14 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 			input.Reconciliation.HasBlockedCarrierAbsences(),
 		Errors: []applyResultJSONError{},
 	}
-	if input.Err != nil {
+	if input.Failure != nil {
 		payload.HasErrors = true
-		reason, _ := mutation.ReasonCodeOf(input.Err)
-		payload.Errors = append(payload.Errors, applyResultJSONError{Code: reason, Message: input.Err.Error()})
+		payload.Errors = append(payload.Errors, applyResultJSONError{
+			Code:    input.Failure.Reason(),
+			Phase:   input.Failure.Phase(),
+			Outcome: input.Failure.Outcome(),
+			Message: input.Failure.Detail(),
+		})
 	}
 
 	encoder := json.NewEncoder(output)
@@ -98,8 +103,8 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	return encoder.Encode(payload)
 }
 
-func applyResultCarrierAdoptionPhase(err error, executionAttempted bool) carrierAdoptionPhase {
-	if err != nil {
+func applyResultCarrierAdoptionPhase(failed bool, executionAttempted bool) carrierAdoptionPhase {
+	if failed {
 		if executionAttempted {
 			return carrierAdoptionUnconfirmed
 		}

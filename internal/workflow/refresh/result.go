@@ -161,8 +161,6 @@ func publicCommandReason(reason subprocess.CommandReason) (string, bool) {
 		return "signaled", true
 	case subprocess.CommandReasonRunnerError:
 		return "runner_error", true
-	case subprocess.CommandReasonWorkDirAuthority:
-		return "workdir_authority", true
 	default:
 		return "", false
 	}

@@ -1,11 +1,12 @@
 package subprocess
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/isty2e/daem/internal/credentialtext"
 )
 
 // BoundedBuffer accumulates at most limit raw bytes while reporting whether
@@ -43,6 +44,26 @@ func (buffer *BoundedBuffer) Write(payload []byte) (int, error) {
 	return written, nil
 }
 
+// WriteString implements io.StringWriter without first copying the complete
+// input into a byte slice.
+func (buffer *BoundedBuffer) WriteString(payload string) (int, error) {
+	written := len(payload)
+	remaining := buffer.limit - len(buffer.data)
+	if remaining <= 0 {
+		if len(payload) != 0 {
+			buffer.truncated = true
+		}
+		return written, nil
+	}
+	if len(payload) > remaining {
+		buffer.data = append(buffer.data, payload[:remaining]...)
+		buffer.truncated = true
+		return written, nil
+	}
+	buffer.data = append(buffer.data, payload...)
+	return written, nil
+}
+
 // String returns the captured raw bytes as text for subsequent sanitation.
 func (buffer *BoundedBuffer) String() string {
 	return string(buffer.data)
@@ -56,18 +77,6 @@ func (buffer *BoundedBuffer) Truncated() bool {
 const (
 	redactionMarker  = "[REDACTED]"
 	truncationMarker = "\n[truncated]"
-)
-
-var assignmentKeyPattern = regexp.MustCompile(
-	`(?i)\b([a-z][a-z0-9_-]{0,127})(["']?)(\s*[:=]\s*)`,
-)
-
-type credentialValueSpan uint8
-
-const (
-	credentialValueNone credentialValueSpan = iota
-	credentialValueToken
-	credentialValueLine
 )
 
 // CapturePolicy is one immutable bounded-redaction policy. A non-positive limit keeps
@@ -101,26 +110,72 @@ func NewCapturePolicy(secrets []string, limit int) CapturePolicy {
 // a secret prefix at an upstream truncation boundary, normalizes invalid UTF-8,
 // and then applies the policy's rune limit.
 func (policy CapturePolicy) Sanitize(value string, upstreamTruncated bool) CaptureResult {
+	return policy.SanitizeUsing(value, upstreamTruncated, nil, nil)
+}
+
+// SanitizeUsing is Sanitize with optional extra redaction spans and a
+// presentation transform. Extra spans are collected from the
+// control-sanitized text, the same observation surface as shared credential
+// detection. The transformed surface is sanitized and inspected again before
+// the rune bound: a display rewrite may expose credential grammar that was not
+// present in the raw spelling, but it cannot make that grammar public.
+func (policy CapturePolicy) SanitizeUsing(
+	value string,
+	upstreamTruncated bool,
+	spans func(string) []credentialtext.Span,
+	beforeBound func(string) string,
+) CaptureResult {
 	text := value
 	boundaryRedacted := false
 	if upstreamTruncated {
 		text, boundaryRedacted = redactTruncatedSecretSuffix(text, policy.secrets)
 	}
 	text, controlRedacted := sanitizeTerminalControls(strings.ToValidUTF8(text, "\uFFFD"))
-	// Structural redaction comes first so an explicit value equal to a key such
-	// as "token" cannot erase the key before its associated value is removed.
-	text, fragmentRedacted := redactSecretFragments(text)
-	text, explicitRedacted := redactExplicitSecrets(text, policy.secrets)
+	var extra []credentialtext.Span
+	if spans != nil {
+		extra = spans(text)
+	}
+	// Structural, userinfo, explicit-secret, and caller spans are redacted in
+	// one pass over the raw and decoded forms, so a later rewrite cannot
+	// destroy the grammar a detector still needs.
+	text, fragmentRedacted := redactSecretFragments(text, policy.secrets, extra)
 	if upstreamTruncated {
 		var normalizedBoundaryRedacted bool
 		text, normalizedBoundaryRedacted = redactTruncatedSecretSuffix(text, policy.secrets)
 		boundaryRedacted = boundaryRedacted || normalizedBoundaryRedacted
 	}
+	if beforeBound != nil {
+		text = beforeBound(text)
+		var transformedControlRedacted bool
+		text, transformedControlRedacted = sanitizeTerminalControls(
+			strings.ToValidUTF8(text, "\uFFFD"),
+		)
+		controlRedacted = controlRedacted || transformedControlRedacted
+		var transformedExtra []credentialtext.Span
+		if spans != nil {
+			transformedExtra = spans(text)
+		}
+		var transformedFragmentRedacted bool
+		text, transformedFragmentRedacted = redactSecretFragments(
+			text,
+			policy.secrets,
+			transformedExtra,
+		)
+		fragmentRedacted = fragmentRedacted || transformedFragmentRedacted
+		if upstreamTruncated {
+			var transformedBoundaryRedacted bool
+			text, transformedBoundaryRedacted = redactTruncatedSecretSuffix(
+				text,
+				policy.secrets,
+			)
+			boundaryRedacted = boundaryRedacted || transformedBoundaryRedacted
+		}
+	}
 	text, bounded := boundRunes(text, policy.limit)
 	return CaptureResult{
 		text:      text,
 		truncated: upstreamTruncated || bounded,
-		redacted:  controlRedacted || fragmentRedacted || explicitRedacted || boundaryRedacted,
+		redacted:  controlRedacted || fragmentRedacted || boundaryRedacted,
 	}
 }
 
@@ -225,19 +280,6 @@ func consumeSGR(value string, escapeIndex int) (int, bool) {
 	return index + 1, true
 }
 
-func redactExplicitSecrets(value string, secrets []string) (string, bool) {
-	result := value
-	redacted := false
-	for _, secret := range secrets {
-		if !strings.Contains(result, secret) {
-			continue
-		}
-		result = strings.ReplaceAll(result, secret, redactionMarker)
-		redacted = true
-	}
-	return result, redacted
-}
-
 func redactTruncatedSecretSuffix(value string, secrets []string) (string, bool) {
 	for _, secret := range secrets {
 		maximum := min(len(value), len(secret)-1)
@@ -248,143 +290,35 @@ func redactTruncatedSecretSuffix(value string, secrets []string) (string, bool) 
 			}
 		}
 	}
+	// An upstream truncation can cut a percent-encoded secret mid-escape, so
+	// the decoded inspection form is checked for a secret prefix too and the
+	// match is mapped back to its raw span. A form that does not stabilize is
+	// uninspectable and fails closed, matching the structural redaction
+	// contract.
+	decoded, offsets, stable := credentialtext.CanonicalDecode(value)
+	if !stable {
+		return redactionMarker, true
+	}
+	if offsets != nil && decoded != value {
+		for _, secret := range secrets {
+			maximum := min(len(decoded), len(secret)-1)
+			for size := maximum; size > 0; size-- {
+				prefix := secret[:size]
+				if before, ok := strings.CutSuffix(decoded, prefix); ok {
+					return value[:int(offsets[len(before)])] + redactionMarker, true
+				}
+			}
+		}
+	}
 	return value, false
 }
 
-func redactSecretFragments(value string) (string, bool) {
-	var result strings.Builder
-	result.Grow(len(value))
-	cursor := 0
-	searchStart := 0
-	redacted := false
-	for searchStart < len(value) {
-		match := assignmentKeyPattern.FindStringSubmatchIndex(value[searchStart:])
-		if len(match) != 8 {
-			break
-		}
-		for index := range match {
-			match[index] += searchStart
-		}
-		searchStart = match[1]
-		span := classifyCredentialKey(value[match[2]:match[3]])
-		if span == credentialValueNone {
-			continue
-		}
-		valueStart := match[1]
-		if valueStart >= len(value) {
-			continue
-		}
-		result.WriteString(value[cursor:valueStart])
-		result.WriteString(redactionMarker)
-		cursor = credentialValueEnd(value, valueStart, span)
-		searchStart = cursor
-		redacted = true
+func redactSecretFragments(value string, secrets []string, extra []credentialtext.Span) (string, bool) {
+	if len(extra) == 0 {
+		return credentialtext.Redact(value, redactionMarker, secrets)
 	}
-	if !redacted {
-		return value, false
-	}
-	result.WriteString(value[cursor:])
-	return result.String(), true
+	return credentialtext.RedactWithSpans(value, redactionMarker, secrets, extra)
 }
-
-func classifyCredentialKey(value string) credentialValueSpan {
-	words := credentialKeyWords(value)
-	if len(words) == 0 {
-		return credentialValueNone
-	}
-	last := words[len(words)-1]
-	if last == "authorization" {
-		return credentialValueLine
-	}
-	switch last {
-	case "token", "secret", "password", "passwd", "passphrase", "auth",
-		"credential", "credentials", "apikey", "accesskey", "accesskeyid",
-		"privatekey", "secretkey":
-		return credentialValueToken
-	case "key":
-		if len(words) < 2 {
-			return credentialValueNone
-		}
-		switch words[len(words)-2] {
-		case "api", "access", "private", "secret":
-			return credentialValueToken
-		}
-	case "id":
-		if len(words) >= 3 &&
-			words[len(words)-2] == "key" &&
-			words[len(words)-3] == "access" {
-			return credentialValueToken
-		}
-	}
-	return credentialValueNone
-}
-
-func credentialKeyWords(value string) []string {
-	words := make([]string, 0, 4)
-	start := 0
-	appendWord := func(end int) {
-		if end > start {
-			words = append(words, strings.ToLower(value[start:end]))
-		}
-	}
-	for index := 0; index < len(value); index++ {
-		current := value[index]
-		if current == '_' || current == '-' {
-			appendWord(index)
-			start = index + 1
-			continue
-		}
-		if index == start || !isASCIIUpper(current) {
-			continue
-		}
-		previous := value[index-1]
-		nextIsLower := index+1 < len(value) && isASCIILower(value[index+1])
-		if isASCIILower(previous) || isASCIIDigit(previous) ||
-			isASCIIUpper(previous) && nextIsLower {
-			appendWord(index)
-			start = index
-		}
-	}
-	appendWord(len(value))
-	return words
-}
-
-func credentialValueEnd(value string, start int, span credentialValueSpan) int {
-	if value[start] == '"' || value[start] == '\'' {
-		quote := value[start]
-		for index := start + 1; index < len(value); index++ {
-			if value[index] == quote && !isEscapedQuote(value, index) {
-				return index + 1
-			}
-		}
-		return len(value)
-	}
-	if span == credentialValueLine {
-		if end := strings.IndexAny(value[start:], "\r\n"); end >= 0 {
-			return start + end
-		}
-		return len(value)
-	}
-	for index := start; index < len(value); index++ {
-		switch value[index] {
-		case ' ', '\t', '\r', '\n', ',', ';':
-			return index
-		}
-	}
-	return len(value)
-}
-
-func isEscapedQuote(value string, index int) bool {
-	backslashes := 0
-	for index--; index >= 0 && value[index] == '\\'; index-- {
-		backslashes++
-	}
-	return backslashes%2 != 0
-}
-
-func isASCIIUpper(value byte) bool { return value >= 'A' && value <= 'Z' }
-func isASCIILower(value byte) bool { return value >= 'a' && value <= 'z' }
-func isASCIIDigit(value byte) bool { return value >= '0' && value <= '9' }
 
 func boundRunes(value string, limit int) (string, bool) {
 	runes := []rune(value)

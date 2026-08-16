@@ -19,6 +19,20 @@ import (
 	"github.com/isty2e/daem/test/testkit/execcheck"
 )
 
+func requireMCPEnvironmentFailure(t *testing.T, payload clijson.ApplyResult) {
+	t.Helper()
+	clijson.RequireApplyFailure(
+		t,
+		payload,
+		applyworkflow.FailureReasonMCPEnvironmentUnavailable,
+		applyworkflow.FailurePhasePreflight,
+		applyworkflow.FailureOutcomeRefused,
+	)
+	if payload.Errors[0].Message != "required MCP environment sources are unavailable" {
+		t.Fatalf("failure message = %q", payload.Errors[0].Message)
+	}
+}
+
 func TestMCPPublicCLIApplyNeverPrintsOrPersistsResolvedEnvironmentValue(t *testing.T) {
 	for _, test := range []struct {
 		name       string
@@ -145,10 +159,8 @@ func TestMCPPublicCLICrossTargetGlobalEnvironmentReferencesRemainIsolated(t *tes
 		t.Fatalf("missing-source apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
-	if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
-		!strings.Contains(payload.Errors[0].Message, sharedSource) ||
-		strings.Count(payload.Errors[0].Message, sharedSource) != 1 ||
-		strings.Contains(payload.Errors[0].Message, ambientSource) {
+	requireMCPEnvironmentFailure(t, payload)
+	if payload.ActionCount != 0 {
 		t.Fatalf("missing-source payload = %#v", payload)
 	}
 	for _, path := range append(globalConfigPaths, filepath.Join(project.root, ".daem", "state.json")) {
@@ -228,8 +240,8 @@ func TestMCPPublicCLICrossTargetGlobalEnvironmentReferencesRemainIsolated(t *tes
 		t.Fatalf("stale-source apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 	}
 	payload = clijson.DecodeApplyResult(t, []byte(stdout))
-	if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
-		!strings.Contains(payload.Errors[0].Message, sharedSource) {
+	requireMCPEnvironmentFailure(t, payload)
+	if payload.ActionCount != 0 {
 		t.Fatalf("stale-source payload = %#v", payload)
 	}
 	for path, before := range configs {
@@ -270,10 +282,7 @@ func TestMCPPublicCLIApplyDelegatedRouteMissingEnvDoesNotLaunchRunner(t *testing
 		t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q, want preflight failure JSON only", exitCode, stdout, stderr)
 	}
 	payload := clijson.DecodeApplyResult(t, []byte(stdout))
-	if !payload.HasErrors || len(payload.Errors) != 1 ||
-		!strings.Contains(payload.Errors[0].Message, missingEnvName) {
-		t.Fatalf("payload errors = %#v, want missing environment source", payload.Errors)
-	}
+	requireMCPEnvironmentFailure(t, payload)
 	if payload.ActionCount != 0 || len(payload.Actions) != 1 ||
 		len(payload.DelegateActions) != 1 || len(payload.DelegateAttempts) != 0 {
 		t.Fatalf(
@@ -410,10 +419,7 @@ func TestMCPPublicCLICodexGlobalApplyPreflightsSameNameEnvironment(t *testing.T)
 			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 		}
 		payload := clijson.DecodeApplyResult(t, []byte(stdout))
-		if !payload.HasErrors || len(payload.Errors) != 1 ||
-			!strings.Contains(payload.Errors[0].Message, sourceName) {
-			t.Fatalf("payload errors = %#v, want missing Codex environment source", payload.Errors)
-		}
+		requireMCPEnvironmentFailure(t, payload)
 		if payload.ActionCount != 0 {
 			t.Fatalf("action_count = %d, want no committed action", payload.ActionCount)
 		}
@@ -526,8 +532,8 @@ func TestMCPPublicCLIAntigravityGlobalApplyPreflightsSameNameAmbientEnvironment(
 			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 		}
 		payload := clijson.DecodeApplyResult(t, []byte(stdout))
-		if !payload.HasErrors || payload.ActionCount != 0 || len(payload.Errors) != 1 ||
-			!strings.Contains(payload.Errors[0].Message, sourceName) {
+		requireMCPEnvironmentFailure(t, payload)
+		if payload.ActionCount != 0 {
 			t.Fatalf("payload = %#v, want missing Antigravity environment source", payload)
 		}
 		for _, path := range []string{
@@ -623,9 +629,8 @@ func TestMCPPublicCLIAntigravityGlobalApplyPreflightsSameNameAmbientEnvironment(
 				t.Fatalf("fresh preflight exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 			}
 			payload := clijson.DecodeApplyResult(t, []byte(stdout))
-			if !payload.HasErrors || payload.ActionCount != 0 ||
-				len(payload.Errors) != 1 ||
-				!strings.Contains(payload.Errors[0].Message, sourceName) {
+			requireMCPEnvironmentFailure(t, payload)
+			if payload.ActionCount != 0 {
 				t.Fatalf("fresh preflight payload = %#v", payload)
 			}
 			if got := testkit.ReadFile(t, configPath); !slices.Equal(got, beforeConfig) {
@@ -672,10 +677,7 @@ func TestMCPPublicCLIClaudeGlobalApplyPreflightsAliasedEnvironment(t *testing.T)
 			t.Fatalf("missing-env apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 		}
 		payload := clijson.DecodeApplyResult(t, []byte(stdout))
-		if !payload.HasErrors || len(payload.Errors) != 1 ||
-			!strings.Contains(payload.Errors[0].Message, sourceName) {
-			t.Fatalf("payload errors = %#v, want missing Claude environment source", payload.Errors)
-		}
+		requireMCPEnvironmentFailure(t, payload)
 		if payload.ActionCount != 0 {
 			t.Fatalf("action_count = %d, want no committed action", payload.ActionCount)
 		}
@@ -736,9 +738,8 @@ func TestMCPPublicCLIClaudeGlobalApplyPreflightsAliasedEnvironment(t *testing.T)
 			t.Fatalf("current-row apply exitCode=%d stdout=%q stderr=%q", exitCode, stdout, stderr)
 		}
 		payload := clijson.DecodeApplyResult(t, []byte(stdout))
-		if !payload.HasErrors || payload.ActionCount != 0 ||
-			len(payload.Errors) != 1 ||
-			!strings.Contains(payload.Errors[0].Message, sourceName) {
+		requireMCPEnvironmentFailure(t, payload)
+		if payload.ActionCount != 0 {
 			t.Fatalf("current-row payload = %#v, want missing-source preflight failure", payload)
 		}
 		if config := string(testkit.ReadFile(t, configPath)); config != beforeConfig {

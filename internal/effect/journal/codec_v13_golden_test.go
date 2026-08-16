@@ -87,7 +87,7 @@ func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
     }
   ],
   "statefile_before": {
-    "version": 8,
+    "version": 9,
     "managed_paths": [
       {
         "subject": {
@@ -113,7 +113,7 @@ func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
     "host_route_attempts": []
   },
   "statefile_after": {
-    "version": 8,
+    "version": 9,
     "managed_paths": [
       {
         "subject": {
@@ -151,7 +151,7 @@ func TestRecoveryJournalV13GoldenBytesAndFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("recoveryJournalAuthorityFingerprint() error = %v", err)
 	}
-	const wantFingerprint = "sha256:a2a2fbd0b33e8e90562c3e20275b055303cf34dfa7870910328e5cc59d6e07bd"
+	const wantFingerprint = "sha256:6d388500fa06916924e5830141f41754658d69c8a466662c2eaa2e555bc4b98c"
 	if fingerprint != wantFingerprint {
 		t.Fatalf("journal fingerprint = %q, want %q", fingerprint, wantFingerprint)
 	}

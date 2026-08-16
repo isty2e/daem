@@ -32,8 +32,7 @@ func (reason HostRouteAttemptReason) valid() bool {
 		HostRouteAttemptReasonTimeout,
 		HostRouteAttemptReasonCanceled,
 		HostRouteAttemptReasonSignaled,
-		HostRouteAttemptReasonRunnerError,
-		HostRouteAttemptReasonWorkDirAuthority:
+		HostRouteAttemptReasonRunnerError:
 		return true
 	default:
 		return false
@@ -267,7 +266,7 @@ func validateHostRouteAttemptCorrelation(
 			matches = true
 		}
 	case HostRouteReasonWorkDirAuthority:
-		matches = attemptReason == HostRouteAttemptReasonWorkDirAuthority
+		matches = true
 	}
 	if !matches {
 		return fmt.Errorf(

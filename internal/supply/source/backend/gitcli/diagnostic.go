@@ -7,7 +7,9 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/credentialtext"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -24,7 +26,6 @@ var (
 	gitAuthorizationPattern = regexp.MustCompile(
 		`(?i)(\b(?:authorization|proxy-authorization)\s*[:=]\s*)(?:(?:basic|bearer)\s+)?[^\s,;]+`,
 	)
-	gitBearerPattern = regexp.MustCompile(`(?i)(\bbearer\s+)[A-Za-z0-9._~+/=-]+`)
 )
 
 func gitCommandErrorWithCapture(
@@ -61,22 +62,142 @@ func sanitizeGitDiagnosticCaptureWithPolicy(
 	value string,
 	truncated bool,
 ) string {
-	withoutFormatCharacters := strings.Map(func(character rune) rune {
-		if unicode.In(character, unicode.Cf) {
-			return ' '
-		}
-		return character
-	}, value)
-	redacted := gitURLUserinfoPattern.ReplaceAllString(withoutFormatCharacters, `${1}<redacted>@`)
-	redacted = gitQuerySecretPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
-	redacted = gitAuthorizationPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
-	redacted = gitBearerPattern.ReplaceAllString(redacted, `${1}[REDACTED]`)
-	result := policy.Sanitize(redacted, truncated)
+	// Observation must keep the original key grammar. Format-control
+	// rewriting before redaction can split credential keys and also erase
+	// bidi/control signals the shared sanitizer fail-closes on. Display
+	// normalization of remaining Cf runs after span collection.
+	result := policy.SanitizeUsing(
+		value,
+		truncated,
+		gitDiagnosticSpans,
+		func(text string) string {
+			text = normalizeGitCredentialSeparators(text)
+			return strings.Join(strings.Fields(text), " ")
+		},
+	)
 	text := result.Text()
-	if result.Truncated() && !strings.HasSuffix(text, "[truncated]") {
-		text += "\n[truncated]"
+	if truncated && !strings.HasSuffix(text, "[truncated]") {
+		text += " [truncated]"
 	}
-	return strings.Join(strings.Fields(text), " ")
+	return text
+}
+
+func gitDiagnosticSpans(value string) []credentialtext.Span {
+	forms := []gitDiagnosticObservation{{text: value}}
+	decoded, offsets, stable := credentialtext.CanonicalDecode(value)
+	if stable && offsets != nil && decoded != value {
+		forms = append(forms, gitDiagnosticObservation{text: decoded, rawOffsets: offsets})
+	}
+	var spans []credentialtext.Span
+	for _, form := range forms {
+		for _, span := range gitDiagnosticSpansOnce(form.text) {
+			if span.Start < 0 || span.End > len(form.text) || span.Start >= span.End {
+				continue
+			}
+			if form.rawOffsets != nil {
+				span.Start = int(form.rawOffsets[span.Start])
+				span.End = int(form.rawOffsets[span.End])
+			}
+			spans = append(spans, span)
+		}
+	}
+	return spans
+}
+
+// gitDiagnosticObservation is one bounded inspection form whose byte
+// boundaries map directly to the original diagnostic. Public rendering always
+// applies the resulting spans to the original text.
+type gitDiagnosticObservation struct {
+	text       string
+	rawOffsets []int32
+}
+
+// normalizeGitCredentialSeparators makes remaining format controls inert for
+// display. Credential spans are collected first from the logical field, so a
+// rewrite can neither split a secret nor create a newly visible suffix.
+func normalizeGitCredentialSeparators(value string) string {
+	firstFormatControl := -1
+	for index := 0; index < len(value); {
+		character, width := utf8.DecodeRuneInString(value[index:])
+		if unicode.In(character, unicode.Cf) {
+			firstFormatControl = index
+			break
+		}
+		index += width
+	}
+	if firstFormatControl < 0 {
+		return value
+	}
+
+	var normalized strings.Builder
+	normalized.Grow(len(value))
+	normalized.WriteString(value[:firstFormatControl])
+	for index := firstFormatControl; index < len(value); {
+		character, width := utf8.DecodeRuneInString(value[index:])
+		if unicode.In(character, unicode.Cf) {
+			normalized.WriteByte(' ')
+			index += width
+			continue
+		}
+		normalized.WriteString(value[index : index+width])
+		index += width
+	}
+	return normalized.String()
+}
+
+func gitDiagnosticSpansOnce(value string) []credentialtext.Span {
+	var spans []credentialtext.Span
+	spans = append(spans, gitRegexSecretSpans(gitQuerySecretPattern, value)...)
+	spans = append(spans, gitRegexSecretSpans(gitAuthorizationPattern, value)...)
+	spans = append(spans, gitTransportUserSpans(value)...)
+	return spans
+}
+
+func gitRegexSecretSpans(pattern *regexp.Regexp, value string) []credentialtext.Span {
+	matches := pattern.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	spans := make([]credentialtext.Span, 0, len(matches))
+	for _, match := range matches {
+		if len(match) < 4 {
+			continue
+		}
+		spans = append(spans, credentialtext.Span{Start: match[3], End: match[1]})
+	}
+	return spans
+}
+
+func gitTransportUserSpans(value string) []credentialtext.Span {
+	matches := gitURLUserinfoPattern.FindAllStringSubmatchIndex(value, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	var spans []credentialtext.Span
+	for _, match := range matches {
+		if len(match) < 4 {
+			continue
+		}
+		scheme := strings.ToLower(strings.TrimSuffix(value[match[2]:match[3]], "://"))
+		userinfoStart, userinfoEnd := match[3], match[1]-1
+		if userinfoStart >= userinfoEnd {
+			continue
+		}
+		userinfo := value[userinfoStart:userinfoEnd]
+		if userinfo == "[REDACTED]" || strings.Contains(userinfo, ":") {
+			continue
+		}
+		if scheme == "http" || scheme == "https" ||
+			strings.HasSuffix(scheme, "+http") || strings.HasSuffix(scheme, "+https") {
+			continue
+		}
+		spans = append(spans, credentialtext.Span{
+			Start:  userinfoStart,
+			End:    userinfoEnd,
+			Marker: "<redacted>",
+		})
+	}
+	return spans
 }
 
 type gitDiagnosticBuffer struct {

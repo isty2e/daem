@@ -238,8 +238,7 @@ func TestHostRouteAttemptRejectsSkipLikeAndContradictoryShapesByConstruction(t *
 	input := testHostRouteAttemptInput(t, time.Now())
 	input.ResultClass = durableattempt.HostRouteResultAttemptedObservedPresent
 	input.Reason = durableattempt.HostRouteReasonWorkDirAuthority
-	input.AttemptReason = durableattempt.HostRouteAttemptReasonWorkDirAuthority
-	if _, err := durableattempt.NewHostRouteAttempt(input); err == nil || !strings.Contains(err.Error(), "must be failed") {
+	if _, err := durableattempt.NewHostRouteAttempt(input); err == nil || !strings.Contains(err.Error(), "does not admit reason") {
 		t.Fatalf("workdir result error = %v", err)
 	}
 
@@ -348,6 +347,8 @@ func testDelegateAttemptInput(t *testing.T, observedAt time.Time) durableattempt
 		ObservedAt:      observedAt,
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 		Observation:     observerelation.ObservationPresent,
 		Postcondition:   observerelation.PostconditionNotObserved,
 		Redacted:        true,

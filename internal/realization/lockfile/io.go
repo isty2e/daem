@@ -39,6 +39,19 @@ func (err UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported lockfile version %d", err.Found)
 }
 
+// BoundedErrorEvidence returns the version-policy diagnostic without reading
+// lockfile content.
+func (err UnsupportedVersionError) BoundedErrorEvidence(maximumRunes int) (string, bool) {
+	if maximumRunes <= 0 {
+		return "", true
+	}
+	evidence := err.Error()
+	if len(evidence) <= maximumRunes {
+		return evidence, false
+	}
+	return evidence[:maximumRunes], true
+}
+
 // RelockSupported reports whether the lock workflow may replace this exact
 // prior schema without interpreting its contents.
 func (err UnsupportedVersionError) RelockSupported() bool {

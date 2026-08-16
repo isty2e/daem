@@ -91,7 +91,7 @@ func normalizeExtensionSource(raw declaration.ExtensionSource, context string) (
 		value = raw.HostSource
 		field = "host_source"
 	}
-	sourceRef, err := desiredextension.NewSourceRef(kind, value)
+	sourceRef, err := desiredextension.NewAuthoredSourceRef(kind, value)
 	if err != nil {
 		return desiredextension.SourceRef{}, fmt.Errorf("%s.%s: %w", context, field, err)
 	}

@@ -47,8 +47,11 @@ func TestConcurrentApplyAcrossManifestsSerializesSharedGlobalDestination(t *test
 	if rightErr != nil {
 		stale = right
 	}
-	if !strings.Contains(stale.stderr.String(), "stale_snapshot") {
-		t.Fatalf("losing apply stderr = %q, want stale_snapshot", stale.stderr.String())
+	if !strings.Contains(
+		stale.stderr.String(),
+		"apply failed: authoritative inputs changed before apply completed",
+	) || strings.Contains(stale.stderr.String(), "stale_snapshot") {
+		t.Fatalf("losing apply stderr = %q, want typed stale detail", stale.stderr.String())
 	}
 	content, err := os.ReadFile(destination)
 	if err != nil {
@@ -153,8 +156,9 @@ func TestForeignApplyCannotTakeOwnershipFromRecoverableManifest(t *testing.T) {
 	var applyStderr bytes.Buffer
 	if exitCode := clipkg.RunWithOptions([]string{"apply", "--manifest", applyManifest, "--yes"}, clipkg.RunOptions{
 		Context: context.Background(), Stdout: &applyStdout, Stderr: &applyStderr,
-	}); exitCode == 0 || !strings.Contains(applyStderr.String(), "ownership_conflict") {
-		t.Fatalf("foreign apply exit=%d stderr=%q, want ownership_conflict", exitCode, applyStderr.String())
+	}); exitCode == 0 || !strings.Contains(applyStderr.String(), "ownership conflict") ||
+		strings.Contains(applyStderr.String(), fixture.manifestPath) {
+		t.Fatalf("foreign apply exit=%d stderr=%q, want path-neutral ownership conflict", exitCode, applyStderr.String())
 	}
 	var recoverStdout bytes.Buffer
 	var recoverStderr bytes.Buffer

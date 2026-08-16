@@ -112,6 +112,8 @@ func TestFindDelegateAttemptRecordUsesCanonicalSubjectIngress(t *testing.T) {
 		ObservedAt:      time.Unix(1, 0),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 	})
 	if err != nil {
 		t.Fatalf("NewDelegateAttempt returned error: %v", err)
@@ -215,6 +217,8 @@ func successfulAttemptForContract(
 		ObservedAt:      time.Unix(1, 0),
 		Status:          durableattempt.DelegateStatusSucceeded,
 		Reason:          durableattempt.DelegateReasonNone,
+		AttemptObserved: true,
+		ProcessReason:   durableattempt.DelegateProcessReasonNone,
 	})
 	if err != nil {
 		t.Fatalf("attempt.NewDelegateAttempt returned error: %v", err)

@@ -43,6 +43,11 @@ func TestJSONRealizationKeepsDelegatedAndAggregateFieldAxesSeparate(t *testing.T
 		!reflect.DeepEqual(projected.VerifiedRelationFields, []string{"marketplace", "name"}) {
 		t.Fatalf("delegated JSON realization = %#v", projected)
 	}
+	if !projected.SourceNamespaceRedacted ||
+		!projected.RelationSubjectKeyRedacted ||
+		!projected.ManagedInstanceKeyRedacted {
+		t.Fatalf("unclassified delegated identity was not redacted: %#v", projected)
+	}
 	if projected.AdapterContractVersion != "" || len(projected.ComparedFields) != 0 {
 		t.Fatalf("delegated JSON realization leaked aggregate fields: %#v", projected)
 	}

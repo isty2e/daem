@@ -317,7 +317,7 @@ func buildClaudePluginCarrierCommand(input commandAdapterInput) (subprocess.Comm
 			"Claude plugin carrier marketplace source must be PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{
@@ -371,7 +371,7 @@ func buildCodexPluginCarrierCommand(input commandAdapterInput) (subprocess.Comma
 			"Codex plugin carrier install requires source selector PLUGIN@MARKETPLACE",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 	return subprocess.CommandAttemptRequest{
@@ -402,7 +402,7 @@ func buildOpenCodePluginCarrierCommand(input commandAdapterInput) (subprocess.Co
 			"OpenCode plugin carrier install currently supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 
@@ -433,7 +433,7 @@ func buildPiPackageCarrierCommand(input commandAdapterInput) (subprocess.Command
 			"Pi package carrier install currently supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validatePiHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 
@@ -464,7 +464,7 @@ func buildAntigravityCLIPluginCarrierCommand(input commandAdapterInput) (subproc
 			"Antigravity CLI plugin carrier install currently supports host-source only",
 		)
 	}
-	if err := validateHostRouteSourceArg(input.source.Ref(), subject); err != nil {
+	if err := validateHostRouteSourceArg(input.source, subject); err != nil {
 		return subprocess.CommandAttemptRequest{}, err
 	}
 
@@ -479,7 +479,43 @@ func buildAntigravityCLIPluginCarrierCommand(input commandAdapterInput) (subproc
 	}, nil
 }
 
-func validateHostRouteSourceArg(source string, subject topology.SubjectID) error {
+func validateHostRouteSourceArg(
+	source desiredextension.SourceRef,
+	subject topology.SubjectID,
+) error {
+	if !source.CredentialFree() || !source.ControlFree() {
+		return newValidationError(
+			ReasonUnsupportedSource,
+			subject,
+			"host route source must be inspectable and contain no inline credentials",
+		)
+	}
+	return validateHostRouteArg(source.Ref(), subject)
+}
+
+func validatePiHostRouteSourceArg(
+	source desiredextension.SourceRef,
+	subject topology.SubjectID,
+) error {
+	if err := validateHostRouteSourceArg(source, subject); err != nil {
+		return err
+	}
+	gitSource, ok := desiredextension.ParseGitSource(source.Ref())
+	if !ok {
+		return nil
+	}
+	host, _, _ := strings.Cut(gitSource.Identity(), "/")
+	if desiredextension.PathSafeGitHost(host) {
+		return nil
+	}
+	return newValidationError(
+		ReasonUnsupportedSource,
+		subject,
+		"Pi git package host is not path-safe",
+	)
+}
+
+func validateHostRouteArg(source string, subject topology.SubjectID) error {
 	if strings.HasPrefix(source, "-") {
 		return newValidationError(
 			ReasonUnsupportedSource,

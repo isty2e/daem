@@ -132,8 +132,8 @@ targets = ["antigravity-cli"]
 			},
 			wantExit: 1,
 			wantStderr: []string{
-				`instructions "global" target "antigravity-cli": render_to "AGENTS.md"`,
-				`not an admitted instruction placement destination`,
+				`apply failed: apply was refused before effects`,
+				`not an admitted file placement`,
 			},
 			reject: []string{
 				"lock-only:",

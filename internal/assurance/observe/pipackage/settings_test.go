@@ -177,6 +177,45 @@ func TestInventoryEntriesPreserveStoredSourceAndClassifyLoadIdentity(t *testing.
 	}
 }
 
+func TestInventoryEntriesUseCanonicalPackageGrammarForAliasesAndGitPlusSources(t *testing.T) {
+	root := t.TempDir()
+	settingsPath := filepath.Join(root, ".pi", "settings.json")
+	writeSettings(t, settingsPath, `{
+  "packages": [
+    "npm:tools-alias@npm:@acme/tools@1.2.3",
+    "git+https://github.com/acme/tools.git#v1",
+    "git+ssh://git@github.com/acme/other.git#v2"
+  ]
+}`)
+
+	inventory := mustReadSettings(t, observepipackage.SettingsInput{
+		ProjectRoot: root,
+		Scope:       target.ScopeProject,
+	})
+	entries, err := inventory.Entries()
+	if err != nil {
+		t.Fatalf("Entries: %v", err)
+	}
+	want := []string{
+		"npm:tools-alias",
+		"git:github.com/acme/tools",
+		"git:github.com/acme/other",
+	}
+	if len(entries) != len(want) {
+		t.Fatalf("Entries = %#v", entries)
+	}
+	for index := range entries {
+		if entries[index].HostLoadIdentity() != want[index] {
+			t.Errorf(
+				"entry %d load identity = %q, want %q",
+				index,
+				entries[index].HostLoadIdentity(),
+				want[index],
+			)
+		}
+	}
+}
+
 func mustReadSettings(t *testing.T, input observepipackage.SettingsInput) observepipackage.Inventory {
 	t.Helper()
 	inventory, err := observepipackage.ReadSettings(input)

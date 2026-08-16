@@ -54,17 +54,19 @@ type DelegateAttempt struct {
 		Namespace string `json:"namespace"`
 		Name      string `json:"name"`
 	} `json:"subject"`
-	Target              string `json:"target"`
-	Scope               string `json:"scope"`
-	PlanIdentityKey     string `json:"plan_identity_key"`
-	Status              string `json:"status"`
-	Reason              string `json:"reason"`
-	Observation         string `json:"observation"`
-	Postcondition       string `json:"postcondition"`
-	ExitCode            *int   `json:"exit_code"`
-	TimedOut            bool   `json:"timed_out"`
-	OutputObserved      bool   `json:"output_observed"`
-	OutputTruncated     bool   `json:"output_truncated"`
-	RunnerErrorObserved bool   `json:"runner_error_observed"`
-	Redacted            bool   `json:"redacted"`
+	Target                 string `json:"target"`
+	Scope                  string `json:"scope"`
+	PlanIdentityKey        string `json:"plan_identity_key"`
+	Status                 string `json:"status"`
+	Reason                 string `json:"reason"`
+	ProcessReason          string `json:"process_reason"`
+	WorkDirAuthorityFailed bool   `json:"workdir_authority_failed"`
+	Observation            string `json:"observation"`
+	Postcondition          string `json:"postcondition"`
+	ExitCode               *int   `json:"exit_code"`
+	TimedOut               bool   `json:"timed_out"`
+	OutputObserved         bool   `json:"output_observed"`
+	OutputTruncated        bool   `json:"output_truncated"`
+	RunnerErrorObserved    bool   `json:"runner_error_observed"`
+	Redacted               bool   `json:"redacted"`
 }

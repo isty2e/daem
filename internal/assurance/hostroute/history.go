@@ -37,11 +37,9 @@ func NewDurableAttempt(input DurableAttemptInput) (durableattempt.HostRouteAttem
 	}
 	reason := durableattempt.HostRouteResultReason(summary.Reason())
 	attemptReason := durableAttemptReason(summary.AttemptReason())
-	if input.WorkDirAuthorityLost &&
-		attemptReason != durableattempt.HostRouteAttemptReasonWorkDirAuthority {
+	if input.WorkDirAuthorityLost {
 		resultClass = durableattempt.HostRouteResultFailed
 		reason = durableattempt.HostRouteReasonWorkDirAuthority
-		attemptReason = durableattempt.HostRouteAttemptReasonWorkDirAuthority
 	}
 	exitCode, hasExitCode := summary.ExitCode()
 	var optionalExitCode *int
@@ -104,8 +102,6 @@ func durableAttemptReason(reason AttemptReason) durableattempt.HostRouteAttemptR
 		return durableattempt.HostRouteAttemptReasonSignaled
 	case AttemptReasonRunnerError:
 		return durableattempt.HostRouteAttemptReasonRunnerError
-	case AttemptReasonWorkDirAuthority:
-		return durableattempt.HostRouteAttemptReasonWorkDirAuthority
 	default:
 		return durableattempt.HostRouteAttemptReasonNone
 	}
