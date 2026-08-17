@@ -68,6 +68,11 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 			_, commitErr := prepared.CommitWithOutcome(context.Background())
 			return commitErr
 		}},
+		{name: "prepared rooted tree published identity", run: func() error {
+			prepared := &PreparedRootedTree{destination: treePath}
+			_, _, commitErr := prepared.CommitWithPublishedIdentity(context.Background())
+			return commitErr
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io/fs"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -49,7 +48,12 @@ func (resolver Resolver) openOriginObservationRepository(
 	if err != nil {
 		return nil, err
 	}
-	identity, err := createObservationProbe(ctx, cacheRoot, destination)
+	identity, err := createObservationProbe(
+		ctx,
+		cacheRoot,
+		destination,
+		observationProbeAfterPublish(resolver),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -58,13 +62,6 @@ func (resolver Resolver) openOriginObservationRepository(
 		cacheRoot:   cacheRoot,
 		destination: destination,
 		identity:    identity,
-	}
-	if resolver.state != nil && resolver.state.testAfterObservationProbePublish != nil {
-		path, pathErr := destination.LexicalPath()
-		if pathErr != nil {
-			return nil, errors.Join(pathErr, probe.Close(ctx))
-		}
-		resolver.state.testAfterObservationProbePublish(path)
 	}
 	if err := probe.capture(ctx, destination); err != nil {
 		return nil, errors.Join(err, probe.Close(ctx))
@@ -79,15 +76,16 @@ func (probe *originObservationRepository) Close(ctx context.Context) error {
 	if probe == nil {
 		return nil
 	}
-	cleanupCtx := ctx
+	cleanupCtx := context.Background()
 	if ctx != nil {
 		cleanupCtx = context.WithoutCancel(ctx)
-	} else {
-		cleanupCtx = context.Background()
 	}
 	identity := probe.identity
 	var closeErr error
 	if probe.root != nil {
+		// Git mutates the probe tree, so cleanup needs the descriptor-backed
+		// post-mutation identity. This is not a path recapture: the held root
+		// already owns the published object.
 		if current, err := probe.heldWorkingDirectoryIdentity(cleanupCtx); err == nil {
 			identity = current
 		}
@@ -232,10 +230,18 @@ func newObservationProbeID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+func observationProbeAfterPublish(resolver Resolver) func(string) {
+	if resolver.state == nil {
+		return nil
+	}
+	return resolver.state.testAfterObservationProbePublish
+}
+
 func createObservationProbe(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
+	afterPublish func(string),
 ) (storagecommit.EntryIdentity, error) {
 	capability, err := cacheRoot.Acquire(destination)
 	if err != nil {
@@ -251,16 +257,28 @@ func createObservationProbe(
 	if err != nil {
 		return storagecommit.EntryIdentity{}, fmt.Errorf("prepare git locator observation repository: %w", err)
 	}
-	outcome, err := prepared.CommitWithOutcome(ctx)
+	outcome, identity, err := prepared.CommitWithPublishedIdentity(ctx)
 	if err != nil {
 		return storagecommit.EntryIdentity{}, errors.Join(
 			fmt.Errorf("publish git locator observation repository: %w", err),
-			cleanupPublishedObservationProbe(ctx, cacheRoot, destination, outcome),
+			cleanupPublishedObservationProbe(ctx, cacheRoot, destination, outcome, identity),
 		)
 	}
-	identity, err := capturePublishedObservationIdentity(ctx, cacheRoot, destination)
-	if err != nil {
-		return storagecommit.EntryIdentity{}, err
+	if identity.Kind() != mutationfs.EntryKindDirectory {
+		return storagecommit.EntryIdentity{}, errors.Join(
+			fmt.Errorf("git locator observation repository is not a directory"),
+			cleanupPublishedObservationProbe(ctx, cacheRoot, destination, outcome, identity),
+		)
+	}
+	if afterPublish != nil {
+		path, pathErr := destination.LexicalPath()
+		if pathErr != nil {
+			return storagecommit.EntryIdentity{}, errors.Join(
+				pathErr,
+				cleanupPublishedObservationProbe(ctx, cacheRoot, destination, outcome, identity),
+			)
+		}
+		afterPublish(path)
 	}
 	return identity, nil
 }
@@ -270,46 +288,25 @@ func cleanupPublishedObservationProbe(
 	cacheRoot *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
 	outcome mutationfs.CommitOutcome,
+	identity storagecommit.EntryIdentity,
 ) error {
+	cleanupCtx := context.Background()
+	if ctx != nil {
+		cleanupCtx = context.WithoutCancel(ctx)
+	}
+	if identity.Kind() == mutationfs.EntryKindDirectory {
+		return removeObservationProbe(cleanupCtx, cacheRoot, destination, identity)
+	}
 	switch outcome.State() {
 	case mutationfs.CommitOutcomeComplete, mutationfs.CommitOutcomeIndeterminate:
+		path, pathErr := destination.LexicalPath()
+		if pathErr != nil {
+			return fmt.Errorf("git locator observation repository publication retained residue")
+		}
+		return fmt.Errorf("git locator observation repository publication retained residue at %s", path)
 	default:
 		return nil
 	}
-	identity, err := capturePublishedObservationIdentity(ctx, cacheRoot, destination)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	return removeObservationProbe(ctx, cacheRoot, destination, identity)
-}
-
-func capturePublishedObservationIdentity(
-	ctx context.Context,
-	cacheRoot *rootedpath.CapturedRoot,
-	destination rootedpath.Destination,
-) (storagecommit.EntryIdentity, error) {
-	capability, err := cacheRoot.Acquire(destination)
-	if err != nil {
-		return storagecommit.EntryIdentity{}, fmt.Errorf("acquire git locator observation identity: %w", err)
-	}
-	identity, err := storagecommit.CaptureRootedEntryIdentity(ctx, capability)
-	closeErr := capability.Close()
-	if err != nil {
-		return storagecommit.EntryIdentity{}, errors.Join(
-			fmt.Errorf("capture git locator observation identity: %w", err),
-			closeErr,
-		)
-	}
-	if closeErr != nil {
-		return storagecommit.EntryIdentity{}, closeErr
-	}
-	if identity.Kind() != mutationfs.EntryKindDirectory {
-		return storagecommit.EntryIdentity{}, fmt.Errorf("git locator observation repository is not a directory")
-	}
-	return identity, nil
 }
 
 func removeObservationProbe(

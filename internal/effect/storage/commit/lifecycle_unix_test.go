@@ -2206,6 +2206,70 @@ func TestPreparedRootedTreeCommitWithOutcomePublishesPrivateTree(t *testing.T) {
 	}
 }
 
+func TestPreparedRootedTreeCommitWithPublishedIdentitySurvivesReplacement(t *testing.T) {
+	root := canonicalTempDir(t)
+	captured := captureRootForCommitTest(t, root)
+	capability := rootedCapabilityForCommitTest(t, captured, "control")
+	prepared, err := PrepareRootedTree(
+		t.Context(),
+		capability,
+		func(writer mutationfs.RootedTreeWriter) error {
+			if err := writer.SetRootMode(0o700); err != nil {
+				return err
+			}
+			return writer.WriteFile(
+				treePathForTest(t, "record"),
+				0o600,
+				bytes.NewReader([]byte("prepared")),
+			)
+		},
+	)
+	if err != nil {
+		t.Fatalf("PrepareRootedTree: %v", err)
+	}
+	outcome, identity, err := prepared.CommitWithPublishedIdentity(t.Context())
+	if err != nil {
+		t.Fatalf("CommitWithPublishedIdentity: %v", err)
+	}
+	assertCommitOutcome(t, outcome, mutationfs.CommitOutcomeComplete)
+	if identity.Kind() != mutationfs.EntryKindDirectory {
+		t.Fatalf("published identity kind = %s, want directory", identity.Kind())
+	}
+
+	observeCapability := rootedCapabilityForCommitTest(t, captured, "control")
+	observed, err := CaptureRootedEntryIdentity(t.Context(), observeCapability)
+	closeErr := observeCapability.Close()
+	if err != nil {
+		t.Fatalf("CaptureRootedEntryIdentity: %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close observe capability: %v", closeErr)
+	}
+	if !identity.Equal(observed) {
+		t.Fatal("published identity does not match the destination established during commit")
+	}
+
+	published := filepath.Join(root, "control")
+	if err := os.Rename(published, published+".published"); err != nil {
+		t.Fatalf("rename published tree: %v", err)
+	}
+	if err := os.Mkdir(published, 0o700); err != nil {
+		t.Fatalf("create replacement: %v", err)
+	}
+	replaceCapability := rootedCapabilityForCommitTest(t, captured, "control")
+	replaced, err := CaptureRootedEntryIdentity(t.Context(), replaceCapability)
+	closeErr = replaceCapability.Close()
+	if err != nil {
+		t.Fatalf("CaptureRootedEntryIdentity(replacement): %v", err)
+	}
+	if closeErr != nil {
+		t.Fatalf("close replacement capability: %v", closeErr)
+	}
+	if identity.Equal(replaced) {
+		t.Fatal("published identity matched the post-commit replacement")
+	}
+}
+
 func TestPreparedRootedTreeOutcomeReportsRetainedStage(t *testing.T) {
 	root := canonicalTempDir(t)
 	captured := captureRootForCommitTest(t, root)

@@ -69,10 +69,7 @@ func (resolver Resolver) explicitObjectFormatSupported(ctx context.Context) (boo
 		if err := ctx.Err(); err != nil {
 			return false, err
 		}
-		if inflight.err != nil {
-			return resolver.explicitObjectFormatSupported(ctx)
-		}
-		return inflight.supported, nil
+		return inflight.supported, inflight.err
 	}
 }
 
