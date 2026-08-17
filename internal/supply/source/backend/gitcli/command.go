@@ -133,6 +133,42 @@ func (handle *repositoryHandle) verifyLocalConfiguration(ctx context.Context) er
 	if err != nil || !handle.repository.locator.Equivalent(effective) {
 		return fmt.Errorf("effective git repository cache origin does not match the declared locator")
 	}
+
+	explicit, err := handle.resolver.explicitObjectFormatSupported(ctx)
+	if err != nil {
+		return err
+	}
+	if !explicit {
+		if handle.repository.format != gitObjectFormatSHA1 {
+			return fmt.Errorf("git source object format sha256 requires a git binary that supports --object-format")
+		}
+		if counts["extensions.objectformat"] != 1 {
+			return nil
+		}
+		formatOutput, err := handle.gitOutput(ctx, inspectObjectFormatConfigArgs()...)
+		if err != nil {
+			return fmt.Errorf("inspect git repository cache object format: %w", err)
+		}
+		format, err := parseGitObjectFormat(formatOutput)
+		if err != nil {
+			return err
+		}
+		if format != gitObjectFormatSHA1 {
+			return fmt.Errorf("git repository cache object format does not match the observed source")
+		}
+		return nil
+	}
+	formatOutput, err := handle.gitOutput(ctx, inspectObjectFormatArgs()...)
+	if err != nil {
+		return fmt.Errorf("inspect git repository cache object format: %w", err)
+	}
+	format, err := parseGitObjectFormat(formatOutput)
+	if err != nil {
+		return err
+	}
+	if format != handle.repository.format {
+		return fmt.Errorf("git repository cache object format does not match the observed source")
+	}
 	return nil
 }
 
@@ -143,6 +179,7 @@ func isAdmittedRepositoryConfigName(name string) bool {
 		"core.bare",
 		"core.ignorecase",
 		"core.precomposeunicode",
+		"extensions.objectformat",
 		"remote.origin.url",
 		"remote.origin.fetch":
 		return true
@@ -152,7 +189,17 @@ func isAdmittedRepositoryConfigName(name string) bool {
 }
 
 func (handle *repositoryHandle) initialize(ctx context.Context) error {
-	if err := handle.runGit(ctx, initializeBareRepositoryArgs()...); err != nil {
+	if err := handle.repository.format.validate(); err != nil {
+		return err
+	}
+	explicit, err := handle.resolver.explicitObjectFormatSupported(ctx)
+	if err != nil {
+		return err
+	}
+	if handle.repository.format == gitObjectFormatSHA256 && !explicit {
+		return fmt.Errorf("git source object format sha256 requires a git binary that supports --object-format")
+	}
+	if err := handle.runGit(ctx, initializeBareRepositoryArgs(handle.repository.format, explicit)...); err != nil {
 		return fmt.Errorf("initialize bare git repository cache: %w", err)
 	}
 	if err := handle.runGit(ctx, addOriginArgs(handle.repository.locator.String())...); err != nil {
@@ -208,7 +255,22 @@ func (handle *repositoryHandle) prepareCommand(
 	if handle == nil || handle.root == nil {
 		return nil, nil, fmt.Errorf("git repository cache handle is required")
 	}
-	capability, err := handle.root.AcquireSelectedWorkingDirectory(handle.repository.path)
+	if handle.resolver.state != nil && handle.resolver.state.testBeforeRepositoryCommand != nil {
+		handle.resolver.state.testBeforeRepositoryCommand()
+	}
+	return prepareCapturedRepositoryCommand(ctx, handle.root, handle.repository.path, args)
+}
+
+func prepareCapturedRepositoryCommand(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args []string,
+) (*exec.Cmd, func() error, error) {
+	if root == nil {
+		return nil, nil, fmt.Errorf("git repository cache handle is required")
+	}
+	capability, err := root.AcquireSelectedWorkingDirectory(selected)
 	if err != nil {
 		return nil, nil, fmt.Errorf("acquire git repository cache working directory: %w", err)
 	}
@@ -221,10 +283,22 @@ func (handle *repositoryHandle) prepareCommand(
 		validationErr := capability.Validate()
 		return errors.Join(validationErr, directory.Close(), capability.Close())
 	}
+	return finishPreparedWorkingDirectoryCommand(
+		ctx,
+		capability,
+		directory,
+		cleanup,
+		repositoryGitCommandArgs(args),
+	)
+}
 
-	if handle.resolver.state != nil && handle.resolver.state.testBeforeRepositoryCommand != nil {
-		handle.resolver.state.testBeforeRepositoryCommand()
-	}
+func finishPreparedWorkingDirectoryCommand(
+	ctx context.Context,
+	capability rootedpath.WorkingDirectoryCapability,
+	directory *os.File,
+	cleanup func() error,
+	commandArgs []string,
+) (*exec.Cmd, func() error, error) {
 	if err := capability.Validate(); err != nil {
 		return nil, nil, errors.Join(
 			fmt.Errorf("git repository cache changed before command launch: %w", err),
@@ -236,19 +310,55 @@ func (handle *repositoryHandle) prepareCommand(
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
-	commandArgs := repositoryGitCommandArgs(args)
-	commandEnv := repositoryGitCommandEnvironment(os.Environ())
 	command, err := subprocess.PrepareCommandInWorkingDirectory(
 		ctx,
 		executable,
 		commandArgs,
-		commandEnv,
+		repositoryGitCommandEnvironment(os.Environ()),
 		directory,
 	)
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
 	return command, cleanup, nil
+}
+
+func gitOutputAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args ...string,
+) (string, error) {
+	command, finish, err := prepareCapturedRepositoryCommand(ctx, root, selected, args)
+	if err != nil {
+		return "", err
+	}
+	output, runErr := runGitOutput(ctx, command)
+	return string(output), errors.Join(runErr, finish())
+}
+
+func runGitAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args ...string,
+) error {
+	_, err := gitOutputAtCapturedRepository(ctx, root, selected, args...)
+	return err
+}
+
+func consumeGitOutputAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	consume func(io.Reader) error,
+	args ...string,
+) error {
+	command, finish, err := prepareCapturedRepositoryCommand(ctx, root, selected, args)
+	if err != nil {
+		return err
+	}
+	return errors.Join(runGitReader(ctx, command, consume), finish())
 }
 
 func repositoryGitCommandArgs(args []string) []string {
@@ -263,16 +373,111 @@ func repositoryGitCommandArgs(args []string) []string {
 	return append(commandArgs, args...)
 }
 
+func detachedGitCommandArgs(args []string) []string {
+	commandArgs := make([]string, 0, len(args)+3)
+	commandArgs = append(
+		commandArgs,
+		"--no-replace-objects",
+		"-c",
+		"core.hooksPath="+os.DevNull,
+	)
+	return append(commandArgs, args...)
+}
+
+func (resolver Resolver) gitOutputInCacheRoot(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	args ...string,
+) (string, error) {
+	command, finish, err := resolver.prepareCacheRootCommand(ctx, cacheRoot, args)
+	if err != nil {
+		return "", err
+	}
+	output, runErr := runGitOutput(ctx, command)
+	return string(output), errors.Join(runErr, finish())
+}
+
+func (resolver Resolver) runGitInCacheRoot(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	args ...string,
+) error {
+	_, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, args...)
+	return err
+}
+
+func (resolver Resolver) consumeGitOutputInCacheRoot(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	consume func(io.Reader) error,
+	args ...string,
+) error {
+	command, finish, err := resolver.prepareCacheRootCommand(ctx, cacheRoot, args)
+	if err != nil {
+		return err
+	}
+	return errors.Join(runGitReader(ctx, command, consume), finish())
+}
+
+func (resolver Resolver) prepareCacheRootCommand(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	args []string,
+) (*exec.Cmd, func() error, error) {
+	if cacheRoot == nil {
+		return nil, nil, fmt.Errorf("git source cache root authority is required")
+	}
+	capability, err := cacheRoot.AcquireWorkingDirectory()
+	if err != nil {
+		return nil, nil, fmt.Errorf("acquire git source cache working directory: %w", err)
+	}
+	directory, err := capability.OpenDirectory()
+	if err != nil {
+		_ = capability.Close()
+		return nil, nil, fmt.Errorf("open git source cache working directory: %w", err)
+	}
+	cleanup := func() error {
+		validationErr := capability.Validate()
+		return errors.Join(validationErr, directory.Close(), capability.Close())
+	}
+	if err := capability.Validate(); err != nil {
+		return nil, nil, errors.Join(
+			fmt.Errorf("git source cache changed before command launch: %w", err),
+			directory.Close(),
+			capability.Close(),
+		)
+	}
+	executable, err := exec.LookPath(gitExecutable)
+	if err != nil {
+		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
+	}
+	command, err := subprocess.PrepareCommandInWorkingDirectory(
+		ctx,
+		executable,
+		detachedGitCommandArgs(args),
+		repositoryGitCommandEnvironment(os.Environ()),
+		directory,
+	)
+	if err != nil {
+		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
+	}
+	return command, cleanup, nil
+}
+
 func repositoryGitCommandEnvironment(entries []string) []string {
 	filtered := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && isRepositorySelectingGitEnvironment(name) {
+		if ok && isFilteredGitCommandEnvironment(name) {
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+func isFilteredGitCommandEnvironment(name string) bool {
+	return isRepositorySelectingGitEnvironment(name) || name == "GIT_DEFAULT_HASH"
 }
 
 func isRepositorySelectingGitEnvironment(name string) bool {

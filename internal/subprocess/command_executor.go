@@ -42,6 +42,16 @@ func NewCommandExecutor(options CommandOptions) CommandExecutor {
 	}
 }
 
+// Execute runs one already-authorized command attempt without a
+// descriptor-backed working directory. Lexical WorkDir remains diagnostic
+// input and never authorizes a child process directory.
+func (executor CommandExecutor) Execute(
+	ctx context.Context,
+	request CommandAttemptRequest,
+) CommandAttemptResult {
+	return executor.execute(ctx, request, nil)
+}
+
 // ExecuteInWorkingDirectory executes one request from a freshly acquired,
 // descriptor-backed working directory. Lexical WorkDir remains diagnostic
 // input and never authorizes the child process directory.

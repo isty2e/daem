@@ -312,6 +312,10 @@ exit 97
 	}
 	testkit.WriteFile(t, binDir, "git", `#!/bin/sh
 printf invoked > "$DAEM_GIT_MARKER"
+if [ "$1" = "init" ] && [ "$2" = "-h" ]; then
+  printf '%s\n' "usage: git init"
+  exit 129
+fi
 "$DAEM_GIT_HELPER"
 `)
 	if err := os.Chmod(filepath.Join(binDir, "git"), 0o700); err != nil {

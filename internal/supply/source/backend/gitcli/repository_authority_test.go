@@ -23,6 +23,9 @@ for git_argument in "$@"; do
     -c)
       git_skip_config_value=1
       ;;
+    -C)
+      git_skip_config_value=1
+      ;;
     --no-replace-objects|--git-dir=*)
       ;;
     *)

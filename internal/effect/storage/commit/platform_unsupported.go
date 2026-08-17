@@ -160,14 +160,23 @@ func (prepared *PreparedRootedTree) Commit(_ context.Context) error {
 
 // CommitWithOutcome returns unsupported_guarantee without effects.
 func (prepared *PreparedRootedTree) CommitWithOutcome(
-	_ context.Context,
+	ctx context.Context,
 ) (mutationfs.CommitOutcome, error) {
+	outcome, _, err := prepared.CommitWithPublishedIdentity(ctx)
+	return outcome, err
+}
+
+// CommitWithPublishedIdentity returns unsupported_guarantee without establishing
+// a destination identity.
+func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
+	_ context.Context,
+) (mutationfs.CommitOutcome, EntryIdentity, error) {
 	path := ""
 	if prepared != nil {
 		path = prepared.destination
 	}
 	err := newUnsupportedPlatformFailure(path)
-	return outcomeFromError(err), err
+	return outcomeFromError(err), EntryIdentity{}, err
 }
 
 // Abort has no resources to release on an unsupported platform.

@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -47,7 +48,90 @@ func EnvironmentChecks(
 }
 
 func gitCheck(ctx context.Context) findings.Check {
-	return gitCheckWithTimeout(ctx, 5*time.Second, defaultGitVersion)
+	return gitEnvironmentCheck(ctx, 5*time.Second)
+}
+
+func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Check {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checkContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Timeout:     timeout,
+		OutputLimit: subprocess.DefaultCommandOutputLimit,
+	})
+
+	version := executor.Execute(checkContext, subprocess.CommandAttemptRequest{
+		Command: "git",
+		Args:    []string{"--version"},
+	})
+	check := classifyGitVersionAttempt(ctx, checkContext, timeout, version)
+	if check.Severity != findings.SeverityOK {
+		return check
+	}
+
+	help := executor.Execute(checkContext, subprocess.CommandAttemptRequest{
+		Command: "git",
+		Args:    []string{"init", "-h"},
+	})
+	switch {
+	case help.TimedOut(), errors.Is(checkContext.Err(), context.DeadlineExceeded) && help.Failed():
+		return errorCheck("git", fmt.Sprintf("git check timed out after %s", timeout))
+	case help.Canceled() && ctx.Err() != nil:
+		return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", ctx.Err()))
+	}
+	if !gitInitHelpAdmitted(help) {
+		detail := strings.TrimSpace(help.ErrorDetail())
+		if detail == "" {
+			detail = "git init -h failed"
+		}
+		return errorCheck("git", fmt.Sprintf("git init -h failed: %s", detail))
+	}
+	output := strings.TrimSpace(strings.TrimSpace(help.Stdout()) + "\n" + strings.TrimSpace(help.Stderr()))
+	if output == "" {
+		return errorCheck("git", "git init -h returned empty output")
+	}
+	check.Detail = check.Detail + "; " + gitObjectFormatCapabilityLabel(output)
+	return check
+}
+
+const gitHelpUsageExitCode = 129
+
+func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
+	if result.Succeeded() {
+		return true
+	}
+	exitCode, ok := result.ExitCode()
+	return ok && exitCode == gitHelpUsageExitCode
+}
+
+func classifyGitVersionAttempt(
+	caller context.Context,
+	checkContext context.Context,
+	timeout time.Duration,
+	result subprocess.CommandAttemptResult,
+) findings.Check {
+	switch {
+	case result.Canceled() && caller.Err() != nil:
+		return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", caller.Err()))
+	case result.TimedOut(), errors.Is(checkContext.Err(), context.DeadlineExceeded) && result.Failed():
+		return errorCheck("git", fmt.Sprintf("git check timed out after %s", timeout))
+	case result.Reason() == subprocess.CommandReasonMissingRunner:
+		return errorCheck("git", "git executable was not found in PATH")
+	case result.Failed():
+		detail := strings.TrimSpace(result.ErrorDetail())
+		if detail == "" {
+			detail = "command failed"
+		}
+		return errorCheck("git", fmt.Sprintf("git --version failed: %s", detail))
+	}
+
+	value := strings.TrimSpace(result.Stdout())
+	if value == "" {
+		return errorCheck("git", "git --version returned empty output")
+	}
+	return okCheck("git", value)
 }
 
 func gitCheckWithTimeout(
@@ -78,19 +162,11 @@ func gitCheckWithTimeout(
 	return okCheck("git", value)
 }
 
-func defaultGitVersion(ctx context.Context) (string, error) {
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return "", fmt.Errorf("locate git executable: %w", err)
+func gitObjectFormatCapabilityLabel(help string) string {
+	if strings.Contains(help, "--object-format") {
+		return "object-format sha1,sha256"
 	}
-
-	command := exec.CommandContext(ctx, gitPath, "--version")
-	output, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("run git --version: %w", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
+	return "object-format sha1"
 }
 
 func cacheCheck(cachePath string) findings.Check {

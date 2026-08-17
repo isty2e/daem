@@ -17,7 +17,7 @@ func (executor CommandExecutor) executeWithoutWorkingDirectory(
 	ctx context.Context,
 	request CommandAttemptRequest,
 ) CommandAttemptResult {
-	return executor.execute(ctx, request, nil)
+	return executor.Execute(ctx, request)
 }
 
 func sameNameEnvRef(name string) CommandEnvRef {

@@ -34,6 +34,7 @@ type PreparedRootedTree struct {
 	stageFD                 int
 	stageObject             EntryIdentity
 	expected                EntryIdentity
+	publishedIdentity       EntryIdentity
 	limits                  mutationfs.TreeTraversalLimits
 	rootMode                fs.FileMode
 	rootModeSet             bool
@@ -167,8 +168,24 @@ func (prepared *PreparedRootedTree) Commit(ctx context.Context) error {
 func (prepared *PreparedRootedTree) CommitWithOutcome(
 	ctx context.Context,
 ) (mutationfs.CommitOutcome, error) {
+	outcome, _, err := prepared.CommitWithPublishedIdentity(ctx)
+	return outcome, err
+}
+
+// CommitWithPublishedIdentity publishes the prepared tree and returns the
+// destination identity verified before descriptors are released. The identity
+// is zero when publication did not establish a destination object.
+func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
+	ctx context.Context,
+) (mutationfs.CommitOutcome, EntryIdentity, error) {
 	err := commitPreparedRootedTreeWithFaults(ctx, prepared, faultPlan{})
-	return outcomeFromError(err), err
+	if prepared == nil {
+		return outcomeFromError(err), EntryIdentity{}, err
+	}
+	prepared.mu.Lock()
+	identity := prepared.publishedIdentity
+	prepared.mu.Unlock()
+	return outcomeFromError(err), identity, err
 }
 
 func commitPreparedRootedTreeWithFaults(
@@ -265,6 +282,7 @@ func commitPreparedRootedTreeWithFaults(
 		if !prepared.expected.sameObject(observed) {
 			return fmt.Errorf("published rooted tree identity does not match prepared stage")
 		}
+		prepared.publishedIdentity = observed
 		return nil
 	})
 	if err != nil {

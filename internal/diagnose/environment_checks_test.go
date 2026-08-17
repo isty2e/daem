@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -93,4 +95,91 @@ func TestGitCheckSeparatesOwnTimeoutFromCallerCancellation(t *testing.T) {
 			t.Fatalf("caller cancellation was mislabeled as timeout: %#v", check)
 		}
 	})
+}
+
+func TestGitObjectFormatCapabilityLabel(t *testing.T) {
+	t.Parallel()
+
+	if got := gitObjectFormatCapabilityLabel("usage: git init [--object-format=<format>]"); got != "object-format sha1,sha256" {
+		t.Fatalf("capable git label = %q", got)
+	}
+	if got := gitObjectFormatCapabilityLabel("usage: git init"); got != "object-format sha1" {
+		t.Fatalf("legacy git label = %q", got)
+	}
+}
+
+func TestGitEnvironmentCheckTimesOutStallingObjectFormatHelp(t *testing.T) {
+	sleepPath, err := exec.LookPath("sleep")
+	if err != nil {
+		t.Skipf("sleep helper is unavailable: %v", err)
+	}
+	if strings.ContainsAny(sleepPath, " \t\n'\"$") {
+		t.Fatalf("sleep helper path is not shell-safe: %q", sleepPath)
+	}
+
+	binDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then\n" +
+		"  printf '%s\\n' \"git version stall-test\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		sleepPath + " 30\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	check := gitEnvironmentCheck(context.Background(), 80*time.Millisecond)
+	if check.Name != "git" || check.Severity != findings.SeverityError {
+		t.Fatalf("check = %#v, want git error", check)
+	}
+	if !strings.Contains(check.Detail, "timed out") {
+		t.Fatalf("check = %#v, want complete git assessment timeout", check)
+	}
+}
+
+func TestGitEnvironmentCheckRejectsUnrelatedHelpExit(t *testing.T) {
+	binDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then\n" +
+		"  printf '%s\\n' \"git version stall-test\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' \"sleep: not found\" >&2\n" +
+		"exit 127\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
+	if check.Name != "git" || check.Severity != findings.SeverityError {
+		t.Fatalf("check = %#v, want git error", check)
+	}
+	if strings.Contains(check.Detail, "object-format sha1") {
+		t.Fatalf("check = %#v, want unrelated help exit rejected", check)
+	}
+}
+
+func TestGitEnvironmentCheckAcceptsGitHelpUsageExit(t *testing.T) {
+	binDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then\n" +
+		"  printf '%s\\n' \"git version stall-test\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' \"usage: git init\" >&2\n" +
+		"exit 129\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
+	if check.Name != "git" || check.Severity != findings.SeverityOK {
+		t.Fatalf("check = %#v, want git ok", check)
+	}
+	if !strings.Contains(check.Detail, "object-format sha1") {
+		t.Fatalf("check = %#v, want sha1 capability label", check)
+	}
 }

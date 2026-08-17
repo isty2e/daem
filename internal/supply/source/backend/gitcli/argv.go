@@ -1,7 +1,42 @@
 package gitcli
 
-func initializeBareRepositoryArgs() []string {
-	return []string{"init", "--bare", "--quiet"}
+func initializeBareRepositoryArgs(format gitObjectFormat, explicit bool) []string {
+	if explicit {
+		return []string{"init", "--bare", "--quiet", "--object-format=" + string(format)}
+	}
+	return []string{"-c", "init.defaultObjectFormat=sha1", "init", "--bare", "--quiet"}
+}
+
+func inspectGitInitHelpArgs() []string {
+	return []string{"init", "-h"}
+}
+
+func inspectObjectFormatArgs() []string {
+	return []string{"rev-parse", "--show-object-format"}
+}
+
+func localObjectFormatArgs(path string) []string {
+	return []string{"-C", path, "rev-parse", "--show-object-format"}
+}
+
+func localObjectFormatConfigArgs(path string) []string {
+	return []string{"-C", path, "config", "--local", "--no-includes", "--get", "extensions.objectformat"}
+}
+
+func inspectObjectFormatConfigArgs() []string {
+	return []string{"config", "--local", "--no-includes", "--get", "extensions.objectformat"}
+}
+
+func localGitDirectoryArgs(path string) []string {
+	return []string{"-C", path, "rev-parse", "--absolute-git-dir"}
+}
+
+func localObjectIDArgs(path string, objectName string) []string {
+	return []string{"-C", path, "rev-parse", "--verify", "--end-of-options", objectName}
+}
+
+func lsRemoteRefsArgs(locator string) []string {
+	return []string{"ls-remote", "--refs", "--", locator}
 }
 
 func addOriginArgs(locator string) []string {

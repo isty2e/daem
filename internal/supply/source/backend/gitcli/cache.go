@@ -120,7 +120,11 @@ func (resolver Resolver) ensureRepository(
 			return cachedRepository{}, fmt.Errorf("inspect local git locator: %w", err)
 		}
 	}
-	repository = repositoryForLocator(resolver, gitSource.Locator())
+	format, err := resolver.observeObjectFormat(ctx, cacheRoot, gitSource)
+	if err != nil {
+		return cachedRepository{}, err
+	}
+	repository = newCachedRepository(resolver, gitSource.Locator(), format)
 	created, err := resolver.ensureRepositoryCacheEntry(ctx, cacheRoot, repository)
 	if err != nil {
 		return cachedRepository{}, err
@@ -158,7 +162,11 @@ func (resolver Resolver) ensureRepository(
 }
 
 func (resolver Resolver) repositoryPath(url string) string {
-	return filepath.Join(resolver.cacheRoot(), "repos", cacheKey(url))
+	return resolver.repositoryCachePath(url, gitObjectFormatSHA1)
+}
+
+func (resolver Resolver) repositoryCachePath(locator string, format gitObjectFormat) string {
+	return filepath.Join(resolver.cacheRoot(), "repos", repositoryCacheDirectoryName(locator, format))
 }
 
 func (resolver Resolver) artifactRoot(url string, commit string, gitPath string) string {
@@ -192,4 +200,11 @@ func cacheKeyForGitArtifact(url string, commit string, gitPath string) (sourceca
 func cacheKey(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func repositoryCacheDirectoryName(locator string, format gitObjectFormat) string {
+	if format == gitObjectFormatSHA1 {
+		return cacheKey(locator)
+	}
+	return cacheKey(locator + "\n" + string(format))
 }

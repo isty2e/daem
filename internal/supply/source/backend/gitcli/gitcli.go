@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
@@ -34,9 +35,15 @@ type resolverState struct {
 	repoLocker     sourcecache.Locker
 	artifactLocker sourcecache.Locker
 
-	testAfterArchiveExtract     func()
-	testAfterArtifactEnsure     func()
-	testBeforeRepositoryCommand func()
+	objectFormatMu                   sync.Mutex
+	objectFormatProbed               bool
+	explicitObjectFormat             bool
+	objectFormatInflight             *objectFormatCapabilityProbe
+	testAfterArchiveExtract          func()
+	testAfterArtifactEnsure          func()
+	testBeforeRepositoryCommand      func()
+	testAfterObservationProbePublish func(string)
+	testRemoteRefAdvertisementBudget *remoteRefAdvertisementBudget
 }
 
 // NewResolver constructs a Git CLI resolver rooted at cacheRoot.

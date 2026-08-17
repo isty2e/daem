@@ -24,13 +24,63 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 	}{
 		{
 			name: "bare repository initialization",
-			got:  initializeBareRepositoryArgs(),
-			want: []string{"init", "--bare", "--quiet"},
+			got:  initializeBareRepositoryArgs(gitObjectFormatSHA1, true),
+			want: []string{"init", "--bare", "--quiet", "--object-format=sha1"},
+		},
+		{
+			name: "legacy sha1 bare repository initialization",
+			got:  initializeBareRepositoryArgs(gitObjectFormatSHA1, false),
+			want: []string{"-c", "init.defaultObjectFormat=sha1", "init", "--bare", "--quiet"},
+		},
+		{
+			name: "sha256 bare repository initialization",
+			got:  initializeBareRepositoryArgs(gitObjectFormatSHA256, true),
+			want: []string{"init", "--bare", "--quiet", "--object-format=sha256"},
+		},
+		{
+			name: "git init help inspection",
+			got:  inspectGitInitHelpArgs(),
+			want: []string{"init", "-h"},
 		},
 		{
 			name: "origin declaration",
 			got:  addOriginArgs(localPath),
 			want: []string{"remote", "add", "origin", localPath},
+		},
+		{
+			name: "object format inspection",
+			got:  inspectObjectFormatArgs(),
+			want: []string{"rev-parse", "--show-object-format"},
+		},
+		{
+			name: "local object format inspection",
+			got:  localObjectFormatArgs(localPath),
+			want: []string{"-C", localPath, "rev-parse", "--show-object-format"},
+		},
+		{
+			name: "local object-format configuration inspection",
+			got:  localObjectFormatConfigArgs(localPath),
+			want: []string{"-C", localPath, "config", "--local", "--no-includes", "--get", "extensions.objectformat"},
+		},
+		{
+			name: "repository object-format configuration inspection",
+			got:  inspectObjectFormatConfigArgs(),
+			want: []string{"config", "--local", "--no-includes", "--get", "extensions.objectformat"},
+		},
+		{
+			name: "local git directory inspection",
+			got:  localGitDirectoryArgs(localPath),
+			want: []string{"-C", localPath, "rev-parse", "--absolute-git-dir"},
+		},
+		{
+			name: "local object id inspection",
+			got:  localObjectIDArgs(localPath, "HEAD"),
+			want: []string{"-C", localPath, "rev-parse", "--verify", "--end-of-options", "HEAD"},
+		},
+		{
+			name: "remote object format inspection",
+			got:  lsRemoteRefsArgs("https://example.com/acme/skills.git"),
+			want: []string{"ls-remote", "--refs", "--", "https://example.com/acme/skills.git"},
 		},
 		{
 			name: "bare repository inspection",
@@ -115,6 +165,24 @@ func TestRepositoryGitCommandArgsFixRepositoryAndDisableCachePolicy(t *testing.T
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("repositoryGitCommandArgs() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDetachedGitCommandArgsOmitGitDir(t *testing.T) {
+	t.Parallel()
+
+	got := detachedGitCommandArgs([]string{"ls-remote", "--refs", "--", "https://example.com/acme/skills.git"})
+	want := []string{
+		"--no-replace-objects",
+		"-c",
+		"core.hooksPath=" + os.DevNull,
+		"ls-remote",
+		"--refs",
+		"--",
+		"https://example.com/acme/skills.git",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("detachedGitCommandArgs() = %#v, want %#v", got, want)
 	}
 }
 

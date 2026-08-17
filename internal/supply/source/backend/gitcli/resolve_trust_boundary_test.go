@@ -234,7 +234,7 @@ fetch)
   ;;
 rev-parse)
   case " $* " in
-  *" --is-bare-repository "*)
+  *" --is-bare-repository "*|*" --show-object-format "*)
     exec ` + shellQuoteForTest(realGit) + ` "$@"
     ;;
   *)
