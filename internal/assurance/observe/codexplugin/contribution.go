@@ -60,49 +60,26 @@ func observeConfiguredPluginContributions(
 		}
 		provider := observecontribution.SourceProviderLabel(entry.Key())
 		moreProviders := index < len(entries)-1
-		if budget.exceeded {
-			observation, err := observeConfiguredPluginContributionResult(
+		if contributionInspectionBlockedByBudget(budget, moreProviders) {
+			return finishWithContributionBudgetBlocker(
 				ctx,
 				cacheRoot,
 				layoutReason,
 				provider,
 				budget,
+				observations,
 			)
-			if observationCanceled(err) {
-				return observations
-			}
-			return append(observations, observation)
-		}
-		if budget.remainingEntries() == 0 {
-			return observations
-		}
-		if moreProviders && budget.remainingEntries() == 1 {
-			budget.exhaust()
-			observation, err := observeConfiguredPluginContributionResult(
-				ctx,
-				cacheRoot,
-				layoutReason,
-				provider,
-				budget,
-			)
-			if observationCanceled(err) {
-				return observations
-			}
-			return append(observations, observation)
 		}
 		if chargeProviderKeys {
 			if budget.consumeNames([]string{string(entry.Key())}) {
-				observation, err := observeConfiguredPluginContributionResult(
+				return finishWithContributionBudgetBlocker(
 					ctx,
 					cacheRoot,
 					layoutReason,
 					provider,
 					budget,
+					observations,
 				)
-				if observationCanceled(err) {
-					return observations
-				}
-				return append(observations, observation)
 			}
 		}
 		observation, err := observeConfiguredPluginContributionResult(
@@ -119,7 +96,14 @@ func observeConfiguredPluginContributions(
 			!sourceObservationBudgetExceeded(observation) &&
 			!sourceObservationHasContributionKeep(observation) {
 			if budget.consumeKeep() {
-				return observations
+				return finishWithContributionBudgetBlocker(
+					ctx,
+					cacheRoot,
+					layoutReason,
+					provider,
+					budget,
+					observations,
+				)
 			}
 		}
 		observations = append(observations, observation)
@@ -128,6 +112,40 @@ func observeConfiguredPluginContributions(
 		}
 	}
 	return observations
+}
+
+func contributionInspectionBlockedByBudget(budget *observationBudget, moreProviders bool) bool {
+	if budget == nil {
+		return false
+	}
+	if budget.exceeded || budget.remainingEntries() == 0 {
+		return true
+	}
+	return moreProviders && budget.remainingEntries() == 1
+}
+
+func finishWithContributionBudgetBlocker(
+	ctx context.Context,
+	cacheRoot *pluginObservation,
+	layoutReason observecontribution.SourceContributionReason,
+	provider observecontribution.SourceProviderLabel,
+	budget *observationBudget,
+	observations []observecontribution.SourceContributionObservation,
+) []observecontribution.SourceContributionObservation {
+	if budget != nil {
+		budget.exhaust()
+	}
+	observation, err := observeConfiguredPluginContributionResult(
+		ctx,
+		cacheRoot,
+		layoutReason,
+		provider,
+		budget,
+	)
+	if observationCanceled(err) {
+		return observations
+	}
+	return append(observations, observation)
 }
 
 func observedConfigEntries(config observeconfig.Observation) []observeconfig.Entry {

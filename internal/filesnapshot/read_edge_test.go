@@ -95,6 +95,31 @@ func TestReadRegularFileContextRejectsReplacementBeforeOpen(t *testing.T) {
 	}
 }
 
+func TestReadRegularFileContextRejectsOversizedReplacementBeforeOpenAsChanged(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	path := filepath.Join(root, "source")
+	displaced := filepath.Join(root, "displaced")
+	if err := os.WriteFile(path, []byte("ok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := readRegularFileContext(context.Background(), path, 4, readHooks{
+		afterInspect: func() {
+			if renameErr := os.Rename(path, displaced); renameErr != nil {
+				t.Fatalf("rename inspected file: %v", renameErr)
+			}
+			if writeErr := os.WriteFile(path, []byte("too large"), 0o600); writeErr != nil {
+				t.Fatalf("write oversized replacement: %v", writeErr)
+			}
+		},
+	})
+	if !errors.Is(err, ErrChanged) {
+		t.Fatalf("oversized replacement error = %v, want ErrChanged", err)
+	}
+}
+
 func TestReadRegularFileContextRejectsTruncationAfterOpen(t *testing.T) {
 	t.Parallel()
 

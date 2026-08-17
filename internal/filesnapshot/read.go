@@ -312,12 +312,12 @@ func readRegularFileSnapshot(
 		}
 		return Snapshot{}, false, 0, ErrNotRegular
 	}
-	if opened.Size() > maximumBytes {
-		return Snapshot{}, false, 0, limitError(maximumBytes)
-	}
 	if !os.SameFile(beforeReferent, opened) ||
 		!sameFileVersion(beforeReferent, opened) {
 		return Snapshot{}, false, 0, ErrChanged
+	}
+	if opened.Size() > maximumBytes {
+		return Snapshot{}, false, 0, limitError(maximumBytes)
 	}
 	if hooks.afterOpen != nil {
 		hooks.afterOpen()

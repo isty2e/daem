@@ -434,6 +434,68 @@ func TestObserveConfiguredPluginDiagnosticsOmitsContributionsWhenConfigFillsBudg
 	}
 }
 
+func TestObserveConfiguredPluginContributionsEmitsBlockerWhenCacheNamesFillKeep(t *testing.T) {
+	homeDirectory := t.TempDir()
+	cacheBase := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "alpha")
+	if err := os.MkdirAll(cacheBase, 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	for _, version := range []string{"1.0.0", "2.0.0"} {
+		if err := os.Mkdir(filepath.Join(cacheBase, version), 0o700); err != nil {
+			t.Fatalf("Mkdir returned error: %v", err)
+		}
+	}
+
+	budget := &observationBudget{entries: MaximumObservationEntries - 2}
+	observations := observeConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+		budget,
+		false,
+	)
+	if len(observations) != 1 {
+		t.Fatalf("observations = %#v, want one budget blocker", observations)
+	}
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want budget-exceeded blocker instead of a dropped ambiguous row", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsEmitsBlockerWhenNextProviderHasNoSlot(t *testing.T) {
+	homeDirectory := t.TempDir()
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "mcpServers": {"local": {}}
+}`)
+
+	budget := &observationBudget{entries: MaximumObservationEntries - 2}
+	observations := observeConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market", "beta@market"),
+		budget,
+		false,
+	)
+	if len(observations) != 2 {
+		t.Fatalf("observations = %#v, want declared alpha plus a budget blocker for beta", observations)
+	}
+	alpha := firstDiagnosticRow(t, observations[0])
+	if alpha.State() != observecontribution.SourceContributionDeclared ||
+		!alpha.HasContribution() ||
+		alpha.Kind() != observecontribution.SourceContributionMCPServer {
+		t.Fatalf("first observation = %#v, want declared MCP keep", observations[0])
+	}
+	beta := firstDiagnosticRow(t, observations[1])
+	if beta.State() != observecontribution.SourceContributionBlocked ||
+		beta.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		string(beta.ProvidedBy()) != "beta@market" {
+		t.Fatalf("second observation = %#v, want beta budget-exceeded blocker", observations[1])
+	}
+}
+
 func TestObserveConfiguredPluginContributionsUnavailableUnreadableSkills(t *testing.T) {
 	homeDirectory := t.TempDir()
 	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")

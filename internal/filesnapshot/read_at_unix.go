@@ -18,6 +18,16 @@ func readRegularFileAtCounted(
 	name string,
 	maximumBytes int64,
 ) (CountedContent, error) {
+	return readRegularFileAtCountedWithHooks(ctx, dir, name, maximumBytes, readHooks{})
+}
+
+func readRegularFileAtCountedWithHooks(
+	ctx context.Context,
+	dir *os.File,
+	name string,
+	maximumBytes int64,
+	hooks readHooks,
+) (CountedContent, error) {
 	if ctx == nil {
 		return CountedContent{}, fmt.Errorf("file snapshot context is required")
 	}
@@ -51,6 +61,9 @@ func readRegularFileAtCounted(
 	if before.Size > maximumBytes {
 		return CountedContent{}, limitError(maximumBytes)
 	}
+	if hooks.afterInspect != nil {
+		hooks.afterInspect()
+	}
 
 	if err := ctx.Err(); err != nil {
 		return CountedContent{}, err
@@ -78,11 +91,11 @@ func readRegularFileAtCounted(
 	if !opened.Mode().IsRegular() {
 		return CountedContent{}, ErrChanged
 	}
-	if opened.Size() > maximumBytes {
-		return CountedContent{}, limitError(maximumBytes)
-	}
 	if !unixStatMatchesInfo(before, opened) {
 		return CountedContent{}, ErrChanged
+	}
+	if opened.Size() > maximumBytes {
+		return CountedContent{}, limitError(maximumBytes)
 	}
 	if err := ctx.Err(); err != nil {
 		return CountedContent{}, err
