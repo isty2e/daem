@@ -27,6 +27,8 @@ const (
 	SourceContributionReasonArtifactAmbiguous          SourceContributionReason = "SOURCE_ARTIFACT_AMBIGUOUS"
 	SourceContributionReasonArtifactMalformed          SourceContributionReason = "SOURCE_ARTIFACT_MALFORMED"
 	SourceContributionReasonArtifactPathBlocked        SourceContributionReason = "SOURCE_ARTIFACT_PATH_BLOCKED"
+	SourceContributionReasonArtifactUnstable           SourceContributionReason = "SOURCE_ARTIFACT_UNSTABLE"
+	SourceContributionReasonArtifactBudgetExceeded     SourceContributionReason = "SOURCE_ARTIFACT_BUDGET_EXCEEDED"
 	SourceContributionReasonUnsupportedShape           SourceContributionReason = "UNSUPPORTED_CONTRIBUTION_SHAPE"
 )
 
@@ -178,6 +180,8 @@ func sourceContributionStateAdmitsReason(
 		switch reason {
 		case SourceContributionReasonArtifactMalformed,
 			SourceContributionReasonArtifactPathBlocked,
+			SourceContributionReasonArtifactUnstable,
+			SourceContributionReasonArtifactBudgetExceeded,
 			SourceContributionReasonUnsupportedShape:
 			return hasProvider
 		default:
@@ -208,6 +212,8 @@ func validSourceContributionReason(reason SourceContributionReason) bool {
 		SourceContributionReasonArtifactAmbiguous,
 		SourceContributionReasonArtifactMalformed,
 		SourceContributionReasonArtifactPathBlocked,
+		SourceContributionReasonArtifactUnstable,
+		SourceContributionReasonArtifactBudgetExceeded,
 		SourceContributionReasonUnsupportedShape:
 		return true
 	default:

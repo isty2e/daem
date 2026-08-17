@@ -26,7 +26,7 @@ func TestCodexPluginChecksRequireSelectedCodexTarget(t *testing.T) {
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	if len(checks) != 0 {
 		t.Fatalf("full checks = %#v, want none for non-Codex target", checks)
 	}
@@ -48,7 +48,7 @@ enabled = false
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="alpha@market"`, "activation configured true")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="beta@market"`, "activation configured false")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="gamma@market"`, "activation not declared")
@@ -72,7 +72,7 @@ enabled = "yes"
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_config_entry key="alpha@market"`, "unsupported schema reason=activation_not_boolean")
 }
 
@@ -81,12 +81,12 @@ func TestCodexPluginChecksReportMissingAndMalformedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
-	missingChecks := CodexPluginChecks(t.TempDir(), selection)
+	missingChecks := CodexPluginChecks(t.Context(), t.TempDir(), selection)
 	assertCodexPluginConfigCheck(t, missingChecks, findings.SeverityWarn, "target=codex plugin_config", "unavailable")
 
 	homeDirectory := t.TempDir()
 	writeDiagnoseCodexConfig(t, homeDirectory, "[plugins.\"alpha@market\"\n")
-	malformedChecks := CodexPluginChecks(homeDirectory, selection)
+	malformedChecks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, malformedChecks, findings.SeverityWarn, "target=codex plugin_config", "blocked: read or parse")
 }
 
@@ -129,7 +129,7 @@ enabled = true
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(
 		t,
 		checks,
@@ -184,7 +184,7 @@ enabled = true
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "state=source-artifact-unavailable")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "reason=SOURCE_ARTIFACT_UNAVAILABLE")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="bad@market"`, "state=source-artifact-blocked")
@@ -363,7 +363,7 @@ source = "https://token@example.invalid/repo.git"
 }`)
 			writeDiagnoseFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
 
-			checks := CodexPluginChecks(homeDirectory, selection)
+			checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 			assertNoCodexPluginContributionChecks(t, checks)
 		})
 	}

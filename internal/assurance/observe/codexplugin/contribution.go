@@ -1,8 +1,8 @@
 package codexplugin
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
 	"path/filepath"
 	"strings"
 
@@ -13,9 +13,13 @@ import (
 
 // ObserveConfiguredPluginContributions reports source-declared Codex plugin contributions from bounded cache artifacts.
 func ObserveConfiguredPluginContributions(
+	ctx context.Context,
 	homeDirectory string,
 	config observeconfig.Observation,
 ) []observecontribution.SourceContributionObservation {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	homeDirectory = strings.TrimSpace(homeDirectory)
 	if homeDirectory == "" {
 		return nil
@@ -23,22 +27,56 @@ func ObserveConfiguredPluginContributions(
 
 	entries := config.Entries()
 	observations := make([]observecontribution.SourceContributionObservation, 0, len(entries))
+	budget := &observationBudget{}
 	for _, entry := range entries {
 		if !entry.Observed() {
 			continue
 		}
-		observations = append(observations, observeConfiguredPluginContribution(
+		if err := ctx.Err(); err != nil {
+			return observations
+		}
+		if budget.exceeded {
+			observations = append(observations, observeConfiguredPluginContribution(
+				ctx,
+				homeDirectory,
+				observecontribution.SourceProviderLabel(entry.Key()),
+				budget,
+			))
+			continue
+		}
+		observation, err := observeConfiguredPluginContributionResult(
+			ctx,
 			homeDirectory,
 			observecontribution.SourceProviderLabel(entry.Key()),
-		))
+			budget,
+		)
+		if observationCanceled(err) {
+			return observations
+		}
+		observations = append(observations, observation)
 	}
 	return observations
 }
 
 func observeConfiguredPluginContribution(
+	ctx context.Context,
 	homeDirectory string,
 	rawProvider observecontribution.SourceProviderLabel,
+	budget *observationBudget,
 ) observecontribution.SourceContributionObservation {
+	observation, err := observeConfiguredPluginContributionResult(ctx, homeDirectory, rawProvider, budget)
+	if observationCanceled(err) {
+		return observecontribution.SourceContributionObservation{}
+	}
+	return observation
+}
+
+func observeConfiguredPluginContributionResult(
+	ctx context.Context,
+	homeDirectory string,
+	rawProvider observecontribution.SourceProviderLabel,
+	budget *observationBudget,
+) (observecontribution.SourceContributionObservation, error) {
 	id, ok := parsePluginID(rawProvider)
 	if !ok {
 		return sourceContributionBlocker(
@@ -47,7 +85,7 @@ func observeConfiguredPluginContribution(
 			observecontribution.SourceContributionBlocked,
 			observecontribution.SourceContributionReasonProviderProvenanceRequired,
 			"",
-		)
+		), nil
 	}
 	providerLabel := id.providerLabel()
 	provider, err := id.carrier()
@@ -58,11 +96,23 @@ func observeConfiguredPluginContribution(
 			observecontribution.SourceContributionBlocked,
 			observecontribution.SourceContributionReasonProviderProvenanceRequired,
 			"",
-		)
+		), nil
+	}
+	if budget != nil && budget.exceeded {
+		return sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionBlocked,
+			observecontribution.SourceContributionReasonArtifactBudgetExceeded,
+			cacheArtifactIdentity(id, "<blocked>"),
+		), nil
 	}
 
 	cacheBase := filepath.Join(homeDirectory, ".codex", "plugins", "cache", id.marketplace, id.plugin)
-	version, ok, ambiguous, reason := activePluginCacheVersion(homeDirectory, cacheBase)
+	version, ok, ambiguous, reason, err := activePluginCacheVersion(ctx, homeDirectory, cacheBase, budget)
+	if observationCanceled(err) {
+		return observecontribution.SourceContributionObservation{}, err
+	}
 	if reason != observecontribution.SourceContributionReasonNone {
 		return sourceContributionBlocker(
 			provider,
@@ -70,7 +120,7 @@ func observeConfiguredPluginContribution(
 			observecontribution.SourceContributionBlocked,
 			reason,
 			cacheArtifactIdentity(id, "<blocked>"),
-		)
+		), nil
 	}
 	if ambiguous {
 		return sourceContributionBlocker(
@@ -79,7 +129,7 @@ func observeConfiguredPluginContribution(
 			observecontribution.SourceContributionAmbiguous,
 			observecontribution.SourceContributionReasonArtifactAmbiguous,
 			cacheArtifactIdentity(id, "<ambiguous>"),
-		)
+		), nil
 	}
 	if !ok {
 		return sourceContributionBlocker(
@@ -88,27 +138,33 @@ func observeConfiguredPluginContribution(
 			observecontribution.SourceContributionUnavailable,
 			observecontribution.SourceContributionReasonArtifactUnavailable,
 			cacheArtifactIdentity(id, "<missing>"),
-		)
+		), nil
 	}
 
 	pluginRoot := filepath.Join(cacheBase, version)
 	artifactIdentity := cacheArtifactIdentity(id, version)
-	content, err := readBoundedFile(pluginRoot, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"))
-	if err != nil {
-		if errors.Is(err, errPathBlocked) {
-			return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonArtifactPathBlocked, artifactIdentity)
-		}
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionUnavailable, observecontribution.SourceContributionReasonArtifactUnavailable, artifactIdentity)
+	content, exists, reason, err := snapshotContainedFile(ctx, pluginRoot, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"))
+	if observationCanceled(err) {
+		return observecontribution.SourceContributionObservation{}, err
+	}
+	if reason != observecontribution.SourceContributionReasonNone {
+		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, reason, artifactIdentity), nil
+	}
+	if !exists {
+		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionUnavailable, observecontribution.SourceContributionReasonArtifactUnavailable, artifactIdentity), nil
 	}
 
 	var manifest rawPluginContributionManifest
 	if err := json.Unmarshal(content, &manifest); err != nil {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonArtifactMalformed, artifactIdentity)
+		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonArtifactMalformed, artifactIdentity), nil
 	}
 
-	contributions, reason := sourceContributionsFromManifest(pluginRoot, artifactIdentity, id.plugin, manifest)
+	contributions, reason, err := sourceContributionsFromManifest(ctx, pluginRoot, artifactIdentity, id.plugin, manifest, budget)
+	if observationCanceled(err) {
+		return observecontribution.SourceContributionObservation{}, err
+	}
 	if reason != observecontribution.SourceContributionReasonNone {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, reason, artifactIdentity)
+		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, reason, artifactIdentity), nil
 	}
 	sortSourceContributions(contributions)
 	observation, err := observecontribution.NewSourceContributionObservation(observecontribution.SourceContributionObservationSpec{
@@ -120,9 +176,9 @@ func observeConfiguredPluginContribution(
 		Contributions:    contributions,
 	})
 	if err != nil {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonUnsupportedShape, artifactIdentity)
+		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonUnsupportedShape, artifactIdentity), nil
 	}
-	return observation
+	return observation, nil
 }
 
 func sourceContributionBlocker(

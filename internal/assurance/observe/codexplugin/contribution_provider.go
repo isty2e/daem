@@ -1,6 +1,7 @@
 package codexplugin
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -66,34 +67,49 @@ func validPluginSegment(value string) bool {
 	return true
 }
 
-func activePluginCacheVersion(root string, cacheBase string) (string, bool, bool, observecontribution.SourceContributionReason) {
-	if !pathWithin(root, cacheBase) || pathHasSymlinkComponent(root, cacheBase) {
-		return "", false, false, observecontribution.SourceContributionReasonArtifactPathBlocked
-	}
-	entries, err := os.ReadDir(cacheBase)
+func activePluginCacheVersion(
+	ctx context.Context,
+	root string,
+	cacheBase string,
+	budget *observationBudget,
+) (string, bool, bool, observecontribution.SourceContributionReason, error) {
+	names, reason, err := listContainedDirectoryNames(ctx, root, cacheBase, budget)
 	if err != nil {
-		return "", false, false, observecontribution.SourceContributionReasonNone
+		if directoryMissing(err) {
+			return "", false, false, observecontribution.SourceContributionReasonNone, nil
+		}
+		if observationCanceled(err) {
+			return "", false, false, observecontribution.SourceContributionReasonNone, err
+		}
+		return "", false, false, observecontribution.SourceContributionReasonNone, nil
 	}
-	versions := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || !validPluginSegment(entry.Name()) {
+	if reason != observecontribution.SourceContributionReasonNone {
+		return "", false, false, reason, nil
+	}
+	versions := make([]string, 0, len(names))
+	for _, name := range names {
+		if !validPluginSegment(name) {
 			continue
 		}
-		versions = append(versions, entry.Name())
+		info, statErr := os.Lstat(filepath.Join(cacheBase, name))
+		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		versions = append(versions, name)
 	}
 	sort.Strings(versions)
 	for _, version := range versions {
 		if version == "local" {
-			return version, true, false, observecontribution.SourceContributionReasonNone
+			return version, true, false, observecontribution.SourceContributionReasonNone, nil
 		}
 	}
 	switch len(versions) {
 	case 0:
-		return "", false, false, observecontribution.SourceContributionReasonNone
+		return "", false, false, observecontribution.SourceContributionReasonNone, nil
 	case 1:
-		return versions[0], true, false, observecontribution.SourceContributionReasonNone
+		return versions[0], true, false, observecontribution.SourceContributionReasonNone, nil
 	default:
-		return "", false, true, observecontribution.SourceContributionReasonNone
+		return "", false, true, observecontribution.SourceContributionReasonNone, nil
 	}
 }
 

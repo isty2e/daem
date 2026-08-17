@@ -1,15 +1,15 @@
 package codexplugin
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
-
-var errPathBlocked = errors.New("path blocked")
 
 func resolveManifestPath(pluginRoot string, manifestPath string) (string, string, observecontribution.SourceContributionReason) {
 	if observecontribution.ContainsUnsafeDiagnosticRune(manifestPath) {
@@ -33,39 +33,112 @@ func resolveManifestPath(pluginRoot string, manifestPath string) (string, string
 	return resolved, cleanSlash, observecontribution.SourceContributionReasonNone
 }
 
-func readBoundedFile(root string, path string) ([]byte, error) {
-	switch regularBoundedFileReason(root, path) {
-	case observecontribution.SourceContributionReasonNone:
-		return os.ReadFile(path)
-	case observecontribution.SourceContributionReasonArtifactPathBlocked, observecontribution.SourceContributionReasonUnsupportedShape:
-		return nil, errPathBlocked
-	default:
-		return nil, os.ErrNotExist
+func snapshotContainedFile(
+	ctx context.Context,
+	root string,
+	path string,
+) (content []byte, exists bool, reason observecontribution.SourceContributionReason, err error) {
+	if ctx == nil {
+		return nil, false, observecontribution.SourceContributionReasonNone, errors.New("Codex plugin observation context is required")
 	}
-}
-
-func isRegularBoundedFile(root string, path string) bool {
-	return regularBoundedFileReason(root, path) == observecontribution.SourceContributionReasonNone
-}
-
-func regularBoundedFileReason(root string, path string) observecontribution.SourceContributionReason {
-	if !pathWithin(root, path) {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
+	if err := ctx.Err(); err != nil {
+		return nil, false, observecontribution.SourceContributionReasonNone, err
 	}
-	if pathHasSymlinkComponent(root, path) {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
+	if !pathWithin(root, path) || pathHasSymlinkComponent(root, path) {
+		return nil, false, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
 	}
-	info, err := os.Lstat(path)
+	content, exists, err = filesnapshot.ReadRegularFileContext(ctx, path, MaximumContributionFileBytes)
 	if err != nil {
+		return nil, false, classifySnapshotError(err), snapshotObservationError(err)
+	}
+	return content, exists, observecontribution.SourceContributionReasonNone, nil
+}
+
+func requiredContainedFile(
+	ctx context.Context,
+	root string,
+	path string,
+) (content []byte, reason observecontribution.SourceContributionReason, err error) {
+	content, exists, reason, err := snapshotContainedFile(ctx, root, path)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, err
+	}
+	if !exists {
+		return nil, observecontribution.SourceContributionReasonArtifactUnavailable, nil
+	}
+	return content, observecontribution.SourceContributionReasonNone, nil
+}
+
+func classifySnapshotError(err error) observecontribution.SourceContributionReason {
+	switch {
+	case err == nil, observationCanceled(err):
+		return observecontribution.SourceContributionReasonNone
+	case errors.Is(err, filesnapshot.ErrChanged):
+		return observecontribution.SourceContributionReasonArtifactUnstable
+	case errors.Is(err, filesnapshot.ErrLimitExceeded):
+		return observecontribution.SourceContributionReasonArtifactBudgetExceeded
+	case errors.Is(err, filesnapshot.ErrSymlink):
+		return observecontribution.SourceContributionReasonArtifactPathBlocked
+	case errors.Is(err, filesnapshot.ErrNotRegular):
+		return observecontribution.SourceContributionReasonUnsupportedShape
+	default:
 		return observecontribution.SourceContributionReasonArtifactUnavailable
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
+}
+
+func snapshotObservationError(err error) error {
+	if observationCanceled(err) {
+		return err
 	}
-	if !info.Mode().IsRegular() {
-		return observecontribution.SourceContributionReasonUnsupportedShape
+	return nil
+}
+
+func listContainedDirectoryNames(
+	ctx context.Context,
+	root string,
+	path string,
+	budget *observationBudget,
+) (names []string, reason observecontribution.SourceContributionReason, err error) {
+	if ctx == nil {
+		return nil, observecontribution.SourceContributionReasonNone, errors.New("Codex plugin observation context is required")
 	}
-	return observecontribution.SourceContributionReasonNone
+	if err := ctx.Err(); err != nil {
+		return nil, observecontribution.SourceContributionReasonNone, err
+	}
+	if budget == nil || budget.exceeded {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	if !pathWithin(root, path) || pathHasSymlinkComponent(root, path) {
+		return nil, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
+	}
+	remaining := budget.remainingEntries()
+	if remaining == 0 {
+		budget.exhaust()
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	names, err = readDirectoryNamesUpTo(ctx, path, remaining)
+	if err != nil {
+		if observationCanceled(err) {
+			return nil, observecontribution.SourceContributionReasonNone, err
+		}
+		if directoryPathBlocked(err) {
+			return nil, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
+		}
+		return nil, observecontribution.SourceContributionReasonNone, err
+	}
+	if len(names) > remaining || budget.consumeNames(names) {
+		budget.exhaust()
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	return names, observecontribution.SourceContributionReasonNone, nil
+}
+
+func observationCanceled(err error) bool {
+	return err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+}
+
+func directoryMissing(err error) bool {
+	return err != nil && !observationCanceled(err) && errors.Is(err, os.ErrNotExist)
 }
 
 func pathWithin(root string, path string) bool {

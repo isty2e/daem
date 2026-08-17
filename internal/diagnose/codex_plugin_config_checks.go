@@ -1,6 +1,7 @@
 package diagnose
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -13,7 +14,7 @@ import (
 )
 
 // CodexPluginChecks reports doctor-only static Codex plugin config and contribution source observations.
-func CodexPluginChecks(homeDirectory string, selection targetselection.Selection) []findings.Check {
+func CodexPluginChecks(ctx context.Context, homeDirectory string, selection targetselection.Selection) []findings.Check {
 	if !selection.Includes(targetpkg.TargetCodex) {
 		return nil
 	}
@@ -24,7 +25,7 @@ func CodexPluginChecks(homeDirectory string, selection targetselection.Selection
 	if err != nil || !observation.ConfigExists() || !observation.EntrySetObserved() {
 		return checks
 	}
-	contributions := observecodexplugin.ObserveConfiguredPluginContributions(homeDirectory, observation)
+	contributions := observecodexplugin.ObserveConfiguredPluginContributions(ctx, homeDirectory, observation)
 	checks = append(checks, codexPluginContributionChecks(contributions)...)
 	return checks
 }
