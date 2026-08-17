@@ -94,3 +94,14 @@ func TestGitCheckSeparatesOwnTimeoutFromCallerCancellation(t *testing.T) {
 		}
 	})
 }
+
+func TestGitObjectFormatCapabilityLabel(t *testing.T) {
+	t.Parallel()
+
+	if got := gitObjectFormatCapabilityLabel("usage: git init [--object-format=<format>]"); got != "object-format sha1,sha256" {
+		t.Fatalf("capable git label = %q", got)
+	}
+	if got := gitObjectFormatCapabilityLabel("usage: git init"); got != "object-format sha1" {
+		t.Fatalf("legacy git label = %q", got)
+	}
+}

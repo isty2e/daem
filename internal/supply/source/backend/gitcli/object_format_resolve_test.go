@@ -240,3 +240,174 @@ func TestFileURLLocalSHA256UsesLocalFormatAuthority(t *testing.T) {
 		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
 	}
 }
+
+func TestResolveRejectsAmbientURLRewriteBeforeNetworkFormatProbe(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+
+	declared := "https://example.invalid/acme/skills.git"
+	attacker := "https://attacker.invalid/acme/skills.git"
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+attacker+".insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", declared)
+
+	logPath := installLoggingGitWrapperBlockingTransport(t)
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, declared, ".", "main"),
+		noOperationOptions,
+	)
+	if err == nil || !strings.Contains(err.Error(), "effective") {
+		t.Fatalf("Resolve error = %v, want effective-origin rejection", err)
+	}
+	assertGitSubcommandsAbsent(t, logPath, "ls-remote", "fetch", "archive")
+	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+}
+
+func TestResolveRejectsUnboundedRemoteRefAdvertisementWithoutCreatingCache(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolver.state.testRemoteRefAdvertisementBudget = &remoteRefAdvertisementBudget{
+		maxBytes:     defaultRemoteRefAdvertisementBytes,
+		maxRecords:   2,
+		maxLineBytes: defaultRemoteRefAdvertisementLine,
+	}
+
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	realGit, err := exec.LookPath(gitExecutable)
+	if err != nil {
+		t.Fatalf("LookPath returned error: %v", err)
+	}
+	sha1 := strings.Repeat("a", 40)
+	fakeGit := "#!/bin/sh\n" + detectGitSubcommandShell + `
+if [ "$git_subcommand" = "ls-remote" ]; then
+  printf '%s\trefs/heads/one\n' ` + shellQuoteForTest(sha1) + `
+  printf '%s\trefs/heads/two\n' ` + shellQuoteForTest(sha1) + `
+  printf '%s\trefs/heads/three\n' ` + shellQuoteForTest(sha1) + `
+  exit 0
+fi
+exec ` + shellQuoteForTest(realGit) + ` "$@"
+`
+	if err := os.WriteFile(filepath.Join(binDir, gitExecutable), []byte(fakeGit), 0o700); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, "https://example.invalid/acme/skills.git", ".", "main"),
+		noOperationOptions,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds 2 records") {
+		t.Fatalf("Resolve error = %v, want advertisement record ceiling", err)
+	}
+	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+}
+
+func TestResolveSHA1WhenGitLacksObjectFormatOption(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+	commit := commitAll(t, repoPath, "initial skill")
+	installGitWrapperRejectingObjectFormat(t)
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	sourceSpec := mustGitSource(t, repoPath, "skills/demo", "main")
+	resolution, err := resolver.Resolve(context.Background(), sourceSpec, noOperationOptions)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if resolution.Identity().ResolvedRef() != artifact.ResolvedRef(commit) {
+		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
+	}
+}
+
+func TestResolveRejectsSHA256WhenGitLacksObjectFormatOption(t *testing.T) {
+	requireSHA256Git(t)
+	tempDir := t.TempDir()
+	repoPath := initSHA256GitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+	commitAll(t, repoPath, "initial skill")
+	installGitWrapperRejectingObjectFormat(t)
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err == nil || !strings.Contains(err.Error(), "supports --object-format") {
+		t.Fatalf("Resolve error = %v, want SHA-256 capability rejection", err)
+	}
+	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+}
+
+func installLoggingGitWrapperBlockingTransport(t *testing.T) string {
+	t.Helper()
+	realGit, err := exec.LookPath(gitExecutable)
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
+	binRoot := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binRoot, 0o700); err != nil {
+		t.Fatalf("create logging wrapper directory: %v", err)
+	}
+	logPath := filepath.Join(t.TempDir(), "git-subcommands")
+	wrapper := "#!/bin/sh\n" + detectGitSubcommandShell + `
+printf '%s\n' "$git_subcommand" >> "$DAEM_GIT_SUBCOMMAND_LOG"
+case "$git_subcommand" in
+ls-remote|fetch|archive)
+  exit 1
+  ;;
+esac
+exec ` + shellQuoteForTest(realGit) + ` "$@"
+`
+	if err := os.WriteFile(filepath.Join(binRoot, gitExecutable), []byte(wrapper), 0o700); err != nil {
+		t.Fatalf("write logging git wrapper: %v", err)
+	}
+	t.Setenv("PATH", binRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("DAEM_GIT_SUBCOMMAND_LOG", logPath)
+	return logPath
+}
+
+func installGitWrapperRejectingObjectFormat(t *testing.T) {
+	t.Helper()
+	realGit, err := exec.LookPath(gitExecutable)
+	if err != nil {
+		t.Fatalf("resolve real git: %v", err)
+	}
+	binRoot := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binRoot, 0o700); err != nil {
+		t.Fatalf("create object-format wrapper directory: %v", err)
+	}
+	wrapper := "#!/bin/sh\nfor git_argument in \"$@\"; do\n" +
+		"  case \"$git_argument\" in\n" +
+		"    --object-format=*|--show-object-format)\n" +
+		"      printf '%s\\n' \"error: unknown option\" >&2\n" +
+		"      exit 129\n" +
+		"      ;;\n" +
+		"  esac\n" +
+		"done\nexec " + shellQuoteForTest(realGit) + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(binRoot, gitExecutable), []byte(wrapper), 0o700); err != nil {
+		t.Fatalf("write object-format git wrapper: %v", err)
+	}
+	t.Setenv("PATH", binRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
+}

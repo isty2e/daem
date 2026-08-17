@@ -14,6 +14,7 @@ func TestGitObjectFormatFromAdvertisedIDs(t *testing.T) {
 	testCases := []struct {
 		name      string
 		output    string
+		budget    *remoteRefAdvertisementBudget
 		want      gitObjectFormat
 		wantFound bool
 		wantErr   string
@@ -50,13 +51,49 @@ func TestGitObjectFormatFromAdvertisedIDs(t *testing.T) {
 			output:  strings.Repeat("a", 32) + "\trefs/heads/main\n",
 			wantErr: "unsupported object id",
 		},
+		{
+			name: "record ceiling",
+			output: sha1 + "\trefs/heads/one\n" +
+				sha1 + "\trefs/heads/two\n" +
+				sha1 + "\trefs/heads/three\n",
+			budget: &remoteRefAdvertisementBudget{
+				maxBytes:     defaultRemoteRefAdvertisementBytes,
+				maxRecords:   2,
+				maxLineBytes: defaultRemoteRefAdvertisementLine,
+			},
+			wantErr: "exceeds 2 records",
+		},
+		{
+			name:   "byte ceiling",
+			output: sha1 + "\trefs/heads/main\n",
+			budget: &remoteRefAdvertisementBudget{
+				maxBytes:     8,
+				maxRecords:   defaultRemoteRefAdvertisementRecords,
+				maxLineBytes: defaultRemoteRefAdvertisementLine,
+			},
+			wantErr: "exceeds 8 bytes",
+		},
+		{
+			name:   "overlong record",
+			output: sha1 + "\t" + strings.Repeat("x", 64) + "\n",
+			budget: &remoteRefAdvertisementBudget{
+				maxBytes:     defaultRemoteRefAdvertisementBytes,
+				maxRecords:   defaultRemoteRefAdvertisementRecords,
+				maxLineBytes: 16,
+			},
+			wantErr: "exceeds 16 bytes",
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, found, err := gitObjectFormatFromAdvertisedIDs(testCase.output)
+			budget := defaultRemoteRefAdvertisementBudget()
+			if testCase.budget != nil {
+				budget = *testCase.budget
+			}
+			got, found, err := observeAdvertisedObjectFormat(strings.NewReader(testCase.output), budget)
 			if testCase.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), testCase.wantErr) {
 					t.Fatalf("error = %v, want %q", err, testCase.wantErr)
@@ -64,7 +101,7 @@ func TestGitObjectFormatFromAdvertisedIDs(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("gitObjectFormatFromAdvertisedIDs returned error: %v", err)
+				t.Fatalf("observeAdvertisedObjectFormat returned error: %v", err)
 			}
 			if found != testCase.wantFound || got != testCase.want {
 				t.Fatalf("format = %q/%t, want %q/%t", got, found, testCase.want, testCase.wantFound)

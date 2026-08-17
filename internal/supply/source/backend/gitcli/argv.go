@@ -1,7 +1,15 @@
 package gitcli
 
-func initializeBareRepositoryArgs(format gitObjectFormat) []string {
-	return []string{"init", "--bare", "--quiet", "--object-format=" + string(format)}
+func initializeBareRepositoryArgs(format gitObjectFormat, explicit bool) []string {
+	args := []string{"init", "--bare", "--quiet"}
+	if explicit {
+		args = append(args, "--object-format="+string(format))
+	}
+	return args
+}
+
+func initializeBareDirectoryArgs(path string) []string {
+	return []string{"init", "--bare", "--quiet", "--", path}
 }
 
 func inspectObjectFormatArgs() []string {
@@ -10,6 +18,16 @@ func inspectObjectFormatArgs() []string {
 
 func localObjectFormatArgs(path string) []string {
 	return []string{"-C", path, "rev-parse", "--show-object-format"}
+}
+
+func localHEADObjectIDArgs(path string) []string {
+	return []string{"-C", path, "rev-parse", "--verify", "--end-of-options", "HEAD"}
+}
+
+func gitCommandInDirectoryArgs(directory string, args []string) []string {
+	commandArgs := make([]string, 0, len(args)+2)
+	commandArgs = append(commandArgs, "-C", directory)
+	return append(commandArgs, args...)
 }
 
 func lsRemoteRefsArgs(locator string) []string {

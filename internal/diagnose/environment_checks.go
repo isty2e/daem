@@ -47,7 +47,17 @@ func EnvironmentChecks(
 }
 
 func gitCheck(ctx context.Context) findings.Check {
-	return gitCheckWithTimeout(ctx, 5*time.Second, defaultGitVersion)
+	check := gitCheckWithTimeout(ctx, 5*time.Second, defaultGitVersion)
+	if check.Severity != findings.SeverityOK {
+		return check
+	}
+	label, err := inspectGitObjectFormatCapability(ctx)
+	if err != nil {
+		check.Detail = check.Detail + "; object-format capability could not be inspected"
+		return check
+	}
+	check.Detail = check.Detail + "; " + label
+	return check
 }
 
 func gitCheckWithTimeout(
@@ -91,6 +101,26 @@ func defaultGitVersion(ctx context.Context) (string, error) {
 	}
 
 	return strings.TrimSpace(string(output)), nil
+}
+
+func inspectGitObjectFormatCapability(ctx context.Context) (string, error) {
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		return "", err
+	}
+	command := exec.CommandContext(ctx, gitPath, "init", "-h")
+	output, err := command.CombinedOutput()
+	if len(output) == 0 && err != nil {
+		return "", err
+	}
+	return gitObjectFormatCapabilityLabel(string(output)), nil
+}
+
+func gitObjectFormatCapabilityLabel(help string) string {
+	if strings.Contains(help, "--object-format") {
+		return "object-format sha1,sha256"
+	}
+	return "object-format sha1"
 }
 
 func cacheCheck(cachePath string) findings.Check {

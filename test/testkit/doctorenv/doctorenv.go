@@ -12,19 +12,32 @@ import (
 const (
 	fakeGitModeEnv    = "DAEM_TEST_DOCTOR_GIT_MODE"
 	fakeGitVersionEnv = "DAEM_TEST_DOCTOR_GIT_VERSION"
-	fakeGitScript     = "#!/bin/sh\nif [ \"$#\" -ne 1 ] || [ \"$1\" != \"--version\" ]; then exit 2; fi\nprintf '%s\\n' \"$DAEM_TEST_DOCTOR_GIT_VERSION\"\n"
+	fakeGitScript     = "#!/bin/sh\n" +
+		"if [ \"$#\" -eq 1 ] && [ \"$1\" = \"--version\" ]; then\n" +
+		"  printf '%s\\n' \"$DAEM_TEST_DOCTOR_GIT_VERSION\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"if [ \"$#\" -eq 2 ] && [ \"$1\" = \"init\" ] && [ \"$2\" = \"-h\" ]; then\n" +
+		"  printf '%s\\n' \"usage: git init\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exit 2\n"
 )
 
 func init() {
 	if os.Getenv(fakeGitModeEnv) != "success" {
 		return
 	}
-	if len(os.Args) != 2 || os.Args[1] != "--version" {
-		fmt.Fprintln(os.Stderr, "fake doctor git accepts only --version")
-		os.Exit(2)
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		fmt.Fprintln(os.Stdout, os.Getenv(fakeGitVersionEnv))
+		os.Exit(0)
 	}
-	fmt.Fprintln(os.Stdout, os.Getenv(fakeGitVersionEnv))
-	os.Exit(0)
+	if len(os.Args) == 3 && os.Args[1] == "init" && os.Args[2] == "-h" {
+		fmt.Fprintln(os.Stdout, "usage: git init")
+		os.Exit(0)
+	}
+	fmt.Fprintln(os.Stderr, "fake doctor git accepts only --version and init -h")
+	os.Exit(2)
 }
 
 // WithFakeGit exposes a deterministic git --version command through PATH.

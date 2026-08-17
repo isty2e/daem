@@ -134,6 +134,16 @@ func (handle *repositoryHandle) verifyLocalConfiguration(ctx context.Context) er
 		return fmt.Errorf("effective git repository cache origin does not match the declared locator")
 	}
 
+	explicit, err := handle.resolver.explicitObjectFormatSupported(ctx)
+	if err != nil {
+		return err
+	}
+	if !explicit {
+		if handle.repository.format != gitObjectFormatSHA1 {
+			return fmt.Errorf("git source object format sha256 requires a git binary that supports --object-format")
+		}
+		return nil
+	}
 	formatOutput, err := handle.gitOutput(ctx, inspectObjectFormatArgs()...)
 	if err != nil {
 		return fmt.Errorf("inspect git repository cache object format: %w", err)
@@ -168,7 +178,14 @@ func (handle *repositoryHandle) initialize(ctx context.Context) error {
 	if err := handle.repository.format.validate(); err != nil {
 		return err
 	}
-	if err := handle.runGit(ctx, initializeBareRepositoryArgs(handle.repository.format)...); err != nil {
+	explicit, err := handle.resolver.explicitObjectFormatSupported(ctx)
+	if err != nil {
+		return err
+	}
+	if handle.repository.format == gitObjectFormatSHA256 && !explicit {
+		return fmt.Errorf("git source object format sha256 requires a git binary that supports --object-format")
+	}
+	if err := handle.runGit(ctx, initializeBareRepositoryArgs(handle.repository.format, explicit)...); err != nil {
 		return fmt.Errorf("initialize bare git repository cache: %w", err)
 	}
 	if err := handle.runGit(ctx, addOriginArgs(handle.repository.locator.String())...); err != nil {
@@ -301,6 +318,28 @@ func (resolver Resolver) gitOutputInCacheRoot(
 	}
 	output, runErr := runGitOutput(ctx, command)
 	return string(output), errors.Join(runErr, finish())
+}
+
+func (resolver Resolver) runGitInCacheRoot(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	args ...string,
+) error {
+	_, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, args...)
+	return err
+}
+
+func (resolver Resolver) consumeGitOutputInCacheRoot(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	consume func(io.Reader) error,
+	args ...string,
+) error {
+	command, finish, err := resolver.prepareCacheRootCommand(ctx, cacheRoot, args)
+	if err != nil {
+		return err
+	}
+	return errors.Join(runGitReader(ctx, command, consume), finish())
 }
 
 func (resolver Resolver) prepareCacheRootCommand(
