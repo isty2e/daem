@@ -132,16 +132,14 @@ func TestObserveConfiguredPluginContributionsBlocksCacheCardinalityOverflow(t *t
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market", "beta@market"),
 	)
-	if len(observations) != 2 {
-		t.Fatalf("observations = %#v, want two", observations)
+	if len(observations) != 1 {
+		t.Fatalf("observations = %#v, want one aggregate budget blocker", observations)
 	}
-	for index, observation := range observations {
-		row := firstDiagnosticRow(t, observation)
-		if row.State() != observecontribution.SourceContributionBlocked ||
-			row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
-			row.HasContribution() {
-			t.Fatalf("observation[%d] = %#v, want budget-exceeded blocker", index, observation)
-		}
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want budget-exceeded blocker", observations[0])
 	}
 }
 
@@ -155,6 +153,51 @@ func itoaAtLeast(index int) string {
 		return digits[index : index+1]
 	}
 	return itoaAtLeast(index/10) + digits[index%10:index%10+1]
+}
+
+func TestObserveConfiguredPluginContributionsCapsProviderOutput(t *testing.T) {
+	homeDirectory := t.TempDir()
+	keys := make([]string, MaximumObservationEntries+8)
+	for index := range keys {
+		keys[index] = versionName(index) + "@market"
+	}
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, keys...),
+	)
+	if len(observations) == 0 || len(observations) > MaximumObservationEntries {
+		t.Fatalf("observations = %d, want 1..%d", len(observations), MaximumObservationEntries)
+	}
+	row := firstDiagnosticRow(t, observations[len(observations)-1])
+	if row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("last observation = %#v, want budget-exceeded blocker", observations[len(observations)-1])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsBlocksOverdeepManifestPath(t *testing.T) {
+	homeDirectory := t.TempDir()
+	parts := make([]string, MaximumObservationPathComponents+1)
+	for index := range parts {
+		parts[index] = "a"
+	}
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "skills": ["./`+strings.Join(parts, `/`)+`"]
+}`)
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want overdeep path budget blocker", observations[0])
+	}
 }
 
 func TestObserveConfiguredPluginContributionsBlocksManifestKeyOverflow(t *testing.T) {

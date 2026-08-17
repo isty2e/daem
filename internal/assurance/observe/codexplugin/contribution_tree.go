@@ -46,17 +46,24 @@ type pluginObservation struct {
 	snapshots map[string]snapshotRecord
 }
 
-func openPluginObservation(path string, budget *observationBudget) (*pluginObservation, observecontribution.SourceContributionReason, error) {
-	file, err := openDirectoryNoFollow(path)
+func openPluginCacheLayout(path string, budget *observationBudget) (*pluginObservation, observecontribution.SourceContributionReason, error) {
+	file, err := openDirectory(path)
 	if err != nil {
+		if directoryMissing(err) {
+			return nil, observecontribution.SourceContributionReasonNone, nil
+		}
 		reason, err := classifyDirectoryError(err)
 		return nil, reason, err
 	}
+	return newPluginObservation(file, budget), observecontribution.SourceContributionReasonNone, nil
+}
+
+func newPluginObservation(file *os.File, budget *observationBudget) *pluginObservation {
 	return &pluginObservation{
 		dir:       &observationDir{file: file},
 		budget:    budget,
 		snapshots: map[string]snapshotRecord{},
-	}, observecontribution.SourceContributionReasonNone, nil
+	}
 }
 
 func (observation *pluginObservation) close() {
@@ -78,11 +85,7 @@ func (observation *pluginObservation) openChildDirectory(name string) (*pluginOb
 		reason, err := classifyDirectoryError(err)
 		return nil, reason, err
 	}
-	return &pluginObservation{
-		dir:       &observationDir{file: file},
-		budget:    observation.budget,
-		snapshots: observation.snapshots,
-	}, observecontribution.SourceContributionReasonNone, nil
+	return newPluginObservation(file, observation.budget), observecontribution.SourceContributionReasonNone, nil
 }
 
 func (observation *pluginObservation) listNames(
@@ -203,6 +206,9 @@ func (observation *pluginObservation) openParent(
 	relative string,
 ) (parent *os.File, name string, closer func(), reason observecontribution.SourceContributionReason, err error) {
 	parts := strings.Split(relative, "/")
+	if len(parts) > MaximumObservationPathComponents {
+		return nil, "", func() {}, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
 	for _, part := range parts {
 		if !validDirentComponent(part) {
 			return nil, "", func() {}, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
@@ -210,20 +216,21 @@ func (observation *pluginObservation) openParent(
 	}
 	name = parts[len(parts)-1]
 	parent = observation.dir.file
-	opened := []*os.File{}
+	var owned *os.File
 	closer = func() {
-		for index := len(opened) - 1; index >= 0; index-- {
-			_ = opened[index].Close()
+		if owned != nil {
+			_ = owned.Close()
+			owned = nil
 		}
 	}
 	for _, part := range parts[:len(parts)-1] {
 		child, openErr := openChildDirectoryNoFollow(parent, part)
+		closer()
 		if openErr != nil {
-			closer()
 			reason, err := classifyDirectoryError(openErr)
 			return nil, "", func() {}, reason, err
 		}
-		opened = append(opened, child)
+		owned = child
 		parent = child
 	}
 	return parent, name, closer, observecontribution.SourceContributionReasonNone, nil

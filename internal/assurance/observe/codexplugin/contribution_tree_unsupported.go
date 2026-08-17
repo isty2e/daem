@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 )
 
+func openDirectory(path string) (*os.File, error) {
+	return openDirectoryNoFollow(path)
+}
+
 func openDirectoryNoFollow(path string) (*os.File, error) {
 	file, err := os.Open(path)
 	if err != nil {

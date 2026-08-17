@@ -26,8 +26,18 @@ func ObserveConfiguredPluginContributions(
 	}
 
 	entries := config.Entries()
-	observations := make([]observecontribution.SourceContributionObservation, 0, len(entries))
+	observations := make([]observecontribution.SourceContributionObservation, 0, min(len(entries), MaximumObservationEntries))
 	budget := &observationBudget{}
+	cacheRoot, layoutReason, layoutErr := openPluginCacheLayout(
+		filepath.Join(homeDirectory, ".codex", "plugins", "cache"),
+		budget,
+	)
+	if cacheRoot != nil {
+		defer cacheRoot.close()
+	}
+	if observationCanceled(layoutErr) {
+		return observations
+	}
 	for _, entry := range entries {
 		if !entry.Observed() {
 			continue
@@ -36,18 +46,37 @@ func ObserveConfiguredPluginContributions(
 			return observations
 		}
 		provider := observecontribution.SourceProviderLabel(entry.Key())
-		if budget.exceeded || budget.consumeNames([]string{string(entry.Key())}) {
-			observations = append(observations, observeConfiguredPluginContribution(
+		if budget.exceeded || budget.remainingEntries() <= 1 {
+			budget.exhaust()
+			observation, err := observeConfiguredPluginContributionResult(
 				ctx,
-				homeDirectory,
+				cacheRoot,
+				layoutReason,
 				provider,
 				budget,
-			))
-			continue
+			)
+			if observationCanceled(err) {
+				return observations
+			}
+			return append(observations, observation)
+		}
+		if budget.consumeNames([]string{string(entry.Key())}) {
+			observation, err := observeConfiguredPluginContributionResult(
+				ctx,
+				cacheRoot,
+				layoutReason,
+				provider,
+				budget,
+			)
+			if observationCanceled(err) {
+				return observations
+			}
+			return append(observations, observation)
 		}
 		observation, err := observeConfiguredPluginContributionResult(
 			ctx,
-			homeDirectory,
+			cacheRoot,
+			layoutReason,
 			provider,
 			budget,
 		)
@@ -55,26 +84,17 @@ func ObserveConfiguredPluginContributions(
 			return observations
 		}
 		observations = append(observations, observation)
+		if sourceObservationBudgetExceeded(observation) {
+			return observations
+		}
 	}
 	return observations
 }
 
-func observeConfiguredPluginContribution(
-	ctx context.Context,
-	homeDirectory string,
-	rawProvider observecontribution.SourceProviderLabel,
-	budget *observationBudget,
-) observecontribution.SourceContributionObservation {
-	observation, err := observeConfiguredPluginContributionResult(ctx, homeDirectory, rawProvider, budget)
-	if observationCanceled(err) {
-		return observecontribution.SourceContributionObservation{}
-	}
-	return observation
-}
-
 func observeConfiguredPluginContributionResult(
 	ctx context.Context,
-	homeDirectory string,
+	cacheRoot *pluginObservation,
+	layoutReason observecontribution.SourceContributionReason,
 	rawProvider observecontribution.SourceProviderLabel,
 	budget *observationBudget,
 ) (observecontribution.SourceContributionObservation, error) {
@@ -108,9 +128,23 @@ func observeConfiguredPluginContributionResult(
 			cacheArtifactIdentity(id, "<blocked>"),
 		), nil
 	}
+	if layoutReason != observecontribution.SourceContributionReasonNone {
+		if blocked, observation := contributionInspectionOutcome(
+			provider,
+			providerLabel,
+			layoutReason,
+			cacheArtifactIdentity(id, "<blocked>"),
+		); blocked {
+			return observation, nil
+		}
+	}
 
-	cacheBase := filepath.Join(homeDirectory, ".codex", "plugins", "cache", id.marketplace, id.plugin)
-	plugin, version, ok, ambiguous, reason, err := activePluginCacheVersion(ctx, cacheBase, budget)
+	plugin, version, ok, ambiguous, reason, err := activePluginCacheVersion(
+		ctx,
+		cacheRoot,
+		id.marketplace,
+		id.plugin,
+	)
 	if observationCanceled(err) {
 		return observecontribution.SourceContributionObservation{}, err
 	}
@@ -198,6 +232,15 @@ func observeConfiguredPluginContributionResult(
 		), nil
 	}
 	return observation, nil
+}
+
+func sourceObservationBudgetExceeded(observation observecontribution.SourceContributionObservation) bool {
+	for _, row := range observation.DiagnosticRows() {
+		if row.Reason() == observecontribution.SourceContributionReasonArtifactBudgetExceeded {
+			return true
+		}
+	}
+	return false
 }
 
 func contributionInspectionOutcome(

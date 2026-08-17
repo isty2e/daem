@@ -9,10 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func openDirectoryNoFollow(path string) (*os.File, error) {
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+func openDirectory(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
-		return nil, classifyNofollowDirectoryError(path, err)
+		return nil, err
 	}
 	file := os.NewFile(uintptr(fd), path)
 	if file == nil {
@@ -47,17 +47,6 @@ func openChildDirectoryNoFollow(parent *os.File, name string) (*os.File, error) 
 		return nil, errors.New("wrap Codex plugin directory descriptor")
 	}
 	return file, nil
-}
-
-func classifyNofollowDirectoryError(path string, err error) error {
-	if err == nil {
-		return nil
-	}
-	var stat unix.Stat_t
-	if lstatErr := unix.Lstat(path, &stat); lstatErr == nil && stat.Mode&unix.S_IFMT == unix.S_IFLNK {
-		return unix.ELOOP
-	}
-	return err
 }
 
 func classifyChild(parent *os.File, name string) (childKind, error) {

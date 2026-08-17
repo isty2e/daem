@@ -15,6 +15,9 @@ const (
 	// MaximumObservationSnapshotBytes bounds aggregate snapshot bytes in one
 	// ObserveConfiguredPluginContributions call.
 	MaximumObservationSnapshotBytes int64 = 64 << 20
+	// MaximumObservationPathComponents bounds relative descent from a retained
+	// plugin directory descriptor.
+	MaximumObservationPathComponents = 64
 )
 
 type observationBudget struct {

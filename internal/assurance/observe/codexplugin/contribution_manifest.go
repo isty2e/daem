@@ -123,19 +123,25 @@ func skillContributionsFromPath(
 
 	skillPath := filepath.ToSlash(filepath.Join(relative, "SKILL.md"))
 	_, exists, reason, err := plugin.snapshot(ctx, skillPath)
-	if err != nil {
+	if observationCanceled(err) {
 		return nil, observecontribution.SourceContributionReasonNone, err
 	}
-	if reason != observecontribution.SourceContributionReasonNone {
-		return nil, reason, nil
+	if err != nil {
+		reason, err = classifyDirectoryError(err)
+		if observationCanceled(err) {
+			return nil, observecontribution.SourceContributionReasonNone, err
+		}
 	}
-	if exists {
+	switch {
+	case reason == observecontribution.SourceContributionReasonNone && exists:
 		return emitContribution(
 			plugin.budget,
 			observecontribution.SourceContributionSkill,
 			filepath.Base(relative),
 			skillPath,
 		)
+	case failClosedSkillInspection(reason):
+		return nil, reason, err
 	}
 
 	childRoot, reason, err := walkRelativeDirectory(plugin, relative)
@@ -150,25 +156,27 @@ func skillContributionsFromPath(
 	contributions := []observecontribution.SourceContribution{}
 	for _, name := range names {
 		kind, reason, err := childRoot.classify(name)
-		if err != nil || (reason != observecontribution.SourceContributionReasonNone &&
-			reason != observecontribution.SourceContributionReasonArtifactPathBlocked) {
+		if err != nil || failClosedSkillInspection(reason) {
 			return nil, reason, err
 		}
-		if kind == childSymlink || reason == observecontribution.SourceContributionReasonArtifactPathBlocked {
-			continue
-		}
-		if kind != childDirectory {
+		if kind == childSymlink || skipNestedSkillReason(reason) || kind != childDirectory {
 			continue
 		}
 		childSkill := filepath.ToSlash(filepath.Join(relative, name, "SKILL.md"))
 		_, exists, reason, err := plugin.snapshot(ctx, childSkill)
-		if err != nil {
+		if observationCanceled(err) {
 			return nil, observecontribution.SourceContributionReasonNone, err
 		}
-		if reason != observecontribution.SourceContributionReasonNone {
-			return nil, reason, nil
+		if err != nil {
+			reason, err = classifyDirectoryError(err)
+			if observationCanceled(err) {
+				return nil, observecontribution.SourceContributionReasonNone, err
+			}
 		}
-		if !exists {
+		if failClosedSkillInspection(reason) {
+			return nil, reason, err
+		}
+		if skipNestedSkillReason(reason) || !exists {
 			continue
 		}
 		emitted, reason, err := emitContribution(
@@ -183,6 +191,15 @@ func skillContributionsFromPath(
 		contributions = append(contributions, emitted...)
 	}
 	return contributions, observecontribution.SourceContributionReasonNone, nil
+}
+
+func skipNestedSkillReason(reason observecontribution.SourceContributionReason) bool {
+	return reason == observecontribution.SourceContributionReasonArtifactPathBlocked ||
+		reason == observecontribution.SourceContributionReasonUnsupportedShape
+}
+
+func failClosedSkillInspection(reason observecontribution.SourceContributionReason) bool {
+	return reason != observecontribution.SourceContributionReasonNone && !skipNestedSkillReason(reason)
 }
 
 func walkRelativeDirectory(

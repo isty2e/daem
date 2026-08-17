@@ -68,10 +68,22 @@ func validPluginSegment(value string) bool {
 
 func activePluginCacheVersion(
 	ctx context.Context,
-	cacheBase string,
-	budget *observationBudget,
+	cacheRoot *pluginObservation,
+	marketplace string,
+	pluginName string,
 ) (*pluginObservation, string, bool, bool, observecontribution.SourceContributionReason, error) {
-	cache, reason, err := openPluginObservation(cacheBase, budget)
+	if cacheRoot == nil {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
+	}
+	marketplaceDir, reason, err := cacheRoot.openChildDirectory(marketplace)
+	if directoryMissing(err) {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
+	}
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+	pluginDir, reason, err := marketplaceDir.openChildDirectory(pluginName)
+	marketplaceDir.close()
 	if directoryMissing(err) {
 		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
 	}
@@ -79,9 +91,9 @@ func activePluginCacheVersion(
 		return nil, "", false, false, reason, err
 	}
 
-	names, reason, err := cache.listNames(ctx)
+	names, reason, err := pluginDir.listNames(ctx)
 	if err != nil || reason != observecontribution.SourceContributionReasonNone {
-		cache.close()
+		pluginDir.close()
 		return nil, "", false, false, reason, err
 	}
 	versions := make([]string, 0, len(names))
@@ -89,16 +101,16 @@ func activePluginCacheVersion(
 		if !validPluginSegment(name) {
 			continue
 		}
-		kind, reason, err := cache.classify(name)
+		kind, reason, err := pluginDir.classify(name)
 		if err != nil {
-			cache.close()
+			pluginDir.close()
 			return nil, "", false, false, reason, err
 		}
 		if reason == observecontribution.SourceContributionReasonArtifactPathBlocked || kind == childSymlink {
 			continue
 		}
 		if reason != observecontribution.SourceContributionReasonNone {
-			cache.close()
+			pluginDir.close()
 			return nil, "", false, false, reason, err
 		}
 		if kind != childDirectory {
@@ -118,18 +130,18 @@ func activePluginCacheVersion(
 	if selected == "" {
 		switch len(versions) {
 		case 0:
-			cache.close()
+			pluginDir.close()
 			return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
 		case 1:
 			selected = versions[0]
 		default:
-			cache.close()
+			pluginDir.close()
 			return nil, "", false, true, observecontribution.SourceContributionReasonNone, nil
 		}
 	}
 
-	plugin, reason, err := cache.openChildDirectory(selected)
-	cache.close()
+	plugin, reason, err := pluginDir.openChildDirectory(selected)
+	pluginDir.close()
 	if err != nil || reason != observecontribution.SourceContributionReasonNone {
 		return nil, "", false, false, reason, err
 	}
