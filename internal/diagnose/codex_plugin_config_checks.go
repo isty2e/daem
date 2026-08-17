@@ -20,12 +20,11 @@ func CodexPluginChecks(ctx context.Context, homeDirectory string, selection targ
 	}
 
 	configPath := filepath.Join(homeDirectory, ".codex", "config.toml")
-	observation, err := observecodexplugin.ObserveConfigFile(configPath)
+	observation, contributions, err := observecodexplugin.ObserveConfiguredPluginDiagnostics(ctx, homeDirectory, configPath)
 	checks := codexPluginConfigChecks(configPath, observation, err)
 	if err != nil || !observation.ConfigExists() || !observation.EntrySetObserved() {
 		return checks
 	}
-	contributions := observecodexplugin.ObserveConfiguredPluginContributions(ctx, homeDirectory, observation)
 	checks = append(checks, codexPluginContributionChecks(contributions)...)
 	return checks
 }

@@ -11,11 +11,22 @@ import (
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
-// ObserveConfiguredPluginContributions reports source-declared Codex plugin contributions from bounded cache artifacts.
-func ObserveConfiguredPluginContributions(
+// observeIndependentPluginContributions reports source-declared Codex plugin
+// contributions from bounded cache artifacts using a fresh observation budget.
+func observeIndependentPluginContributions(
 	ctx context.Context,
 	homeDirectory string,
 	config observeconfig.Observation,
+) []observecontribution.SourceContributionObservation {
+	return observeConfiguredPluginContributions(ctx, homeDirectory, config, &observationBudget{}, true)
+}
+
+func observeConfiguredPluginContributions(
+	ctx context.Context,
+	homeDirectory string,
+	config observeconfig.Observation,
+	budget *observationBudget,
+	chargeProviderKeys bool,
 ) []observecontribution.SourceContributionObservation {
 	if ctx == nil {
 		ctx = context.Background()
@@ -24,10 +35,15 @@ func ObserveConfiguredPluginContributions(
 	if homeDirectory == "" {
 		return nil
 	}
+	if budget == nil {
+		budget = &observationBudget{}
+	}
+	if budget.remainingEntries() == 0 {
+		return nil
+	}
 
-	entries := config.Entries()
+	entries := observedConfigEntries(config)
 	observations := make([]observecontribution.SourceContributionObservation, 0, min(len(entries), MaximumObservationEntries))
-	budget := &observationBudget{}
 	cacheRoot, layoutReason, layoutErr := openPluginCacheLayout(
 		filepath.Join(homeDirectory, ".codex", "plugins", "cache"),
 		budget,
@@ -38,15 +54,29 @@ func ObserveConfiguredPluginContributions(
 	if observationCanceled(layoutErr) {
 		return observations
 	}
-	for _, entry := range entries {
-		if !entry.Observed() {
-			continue
-		}
+	for index, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return observations
 		}
 		provider := observecontribution.SourceProviderLabel(entry.Key())
-		if budget.exceeded || budget.remainingEntries() <= 1 {
+		moreProviders := index < len(entries)-1
+		if budget.exceeded {
+			observation, err := observeConfiguredPluginContributionResult(
+				ctx,
+				cacheRoot,
+				layoutReason,
+				provider,
+				budget,
+			)
+			if observationCanceled(err) {
+				return observations
+			}
+			return append(observations, observation)
+		}
+		if budget.remainingEntries() == 0 {
+			return observations
+		}
+		if moreProviders && budget.remainingEntries() == 1 {
 			budget.exhaust()
 			observation, err := observeConfiguredPluginContributionResult(
 				ctx,
@@ -60,18 +90,20 @@ func ObserveConfiguredPluginContributions(
 			}
 			return append(observations, observation)
 		}
-		if budget.consumeNames([]string{string(entry.Key())}) {
-			observation, err := observeConfiguredPluginContributionResult(
-				ctx,
-				cacheRoot,
-				layoutReason,
-				provider,
-				budget,
-			)
-			if observationCanceled(err) {
-				return observations
+		if chargeProviderKeys {
+			if budget.consumeNames([]string{string(entry.Key())}) {
+				observation, err := observeConfiguredPluginContributionResult(
+					ctx,
+					cacheRoot,
+					layoutReason,
+					provider,
+					budget,
+				)
+				if observationCanceled(err) {
+					return observations
+				}
+				return append(observations, observation)
 			}
-			return append(observations, observation)
 		}
 		observation, err := observeConfiguredPluginContributionResult(
 			ctx,
@@ -83,12 +115,30 @@ func ObserveConfiguredPluginContributions(
 		if observationCanceled(err) {
 			return observations
 		}
+		if !chargeProviderKeys &&
+			!sourceObservationBudgetExceeded(observation) &&
+			!sourceObservationHasContributionKeep(observation) {
+			if budget.consumeKeep() {
+				return observations
+			}
+		}
 		observations = append(observations, observation)
 		if sourceObservationBudgetExceeded(observation) {
 			return observations
 		}
 	}
 	return observations
+}
+
+func observedConfigEntries(config observeconfig.Observation) []observeconfig.Entry {
+	entries := config.Entries()
+	observed := make([]observeconfig.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Observed() {
+			observed = append(observed, entry)
+		}
+	}
+	return observed
 }
 
 func observeConfiguredPluginContributionResult(
@@ -237,6 +287,15 @@ func observeConfiguredPluginContributionResult(
 func sourceObservationBudgetExceeded(observation observecontribution.SourceContributionObservation) bool {
 	for _, row := range observation.DiagnosticRows() {
 		if row.Reason() == observecontribution.SourceContributionReasonArtifactBudgetExceeded {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceObservationHasContributionKeep(observation observecontribution.SourceContributionObservation) bool {
+	for _, row := range observation.DiagnosticRows() {
+		if row.HasContribution() {
 			return true
 		}
 	}

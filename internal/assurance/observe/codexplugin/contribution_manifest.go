@@ -122,6 +122,7 @@ func skillContributionsFromPath(
 			observecontribution.SourceContributionSkill,
 			filepath.Base(filepath.Dir(relative)),
 			relative,
+			true,
 		)
 	case childDirectory:
 	default:
@@ -146,6 +147,7 @@ func skillContributionsFromPath(
 			observecontribution.SourceContributionSkill,
 			filepath.Base(relative),
 			skillPath,
+			true,
 		)
 	case failClosedSkillInspection(reason):
 		return nil, reason, err
@@ -191,6 +193,7 @@ func skillContributionsFromPath(
 			observecontribution.SourceContributionSkill,
 			name,
 			childSkill,
+			true,
 		)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
@@ -282,7 +285,7 @@ func appContributions(
 	if _, reason, err := plugin.requiredFile(ctx, relative); err != nil || reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, err
 	}
-	return emitContribution(plugin.budget, observecontribution.SourceContributionApp, key, relative)
+	return emitContribution(plugin.budget, observecontribution.SourceContributionApp, key, relative, true)
 }
 
 func hookContributions(
@@ -292,7 +295,7 @@ func hookContributions(
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	if jsonObjectShape(raw) {
-		return emitContribution(plugin.budget, observecontribution.SourceContributionHook, "inline", artifactIdentity)
+		return emitContribution(plugin.budget, observecontribution.SourceContributionHook, "inline", artifactIdentity, true)
 	}
 	paths, reason := decodePathList(raw, plugin.budget)
 	if reason != observecontribution.SourceContributionReasonNone {
@@ -312,6 +315,7 @@ func hookContributions(
 			observecontribution.SourceContributionHook,
 			filepath.Base(relative),
 			relative,
+			true,
 		)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
@@ -336,7 +340,7 @@ func decodePathList(
 	raw json.RawMessage,
 	budget *observationBudget,
 ) ([]string, observecontribution.SourceContributionReason) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder := observationJSONDecoder(raw)
 	token, err := decoder.Token()
 	if err != nil {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape
@@ -378,7 +382,7 @@ func decodeObjectKeys(
 	raw json.RawMessage,
 	budget *observationBudget,
 ) ([]string, observecontribution.SourceContributionReason) {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder := observationJSONDecoder(raw)
 	if err := consumeJSONDelim(decoder, '{'); err != nil {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape
 	}
@@ -415,7 +419,7 @@ func decodeReferencedMCPServerKeys(
 	content []byte,
 	budget *observationBudget,
 ) ([]string, observecontribution.SourceContributionReason) {
-	decoder := json.NewDecoder(bytes.NewReader(content))
+	decoder := observationJSONDecoder(content)
 	if err := consumeJSONDelim(decoder, '{'); err != nil {
 		return nil, observecontribution.SourceContributionReasonArtifactMalformed
 	}
@@ -451,7 +455,7 @@ func decodeReferencedMCPServerKeys(
 }
 
 func jsonObjectShape(raw json.RawMessage) bool {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder := observationJSONDecoder(raw)
 	if err := consumeJSONDelim(decoder, '{'); err != nil {
 		return false
 	}
@@ -460,7 +464,11 @@ func jsonObjectShape(raw json.RawMessage) bool {
 		if err != nil {
 			return false
 		}
-		if _, ok := keyToken.(string); !ok {
+		key, ok := keyToken.(string)
+		if !ok {
+			return false
+		}
+		if !observecontribution.ValidSourceToken(strings.TrimSpace(key)) {
 			return false
 		}
 		if err := skipJSONValue(decoder, 1); err != nil {
@@ -468,6 +476,12 @@ func jsonObjectShape(raw json.RawMessage) bool {
 		}
 	}
 	return consumeJSONDelim(decoder, '}') == nil && jsonEOF(decoder)
+}
+
+func observationJSONDecoder(data []byte) *json.Decoder {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	return decoder
 }
 
 func skipJSONValue(decoder *json.Decoder, depth int) error {
@@ -536,7 +550,7 @@ func contributionKeys(
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	contributions := make([]observecontribution.SourceContribution, 0, len(keys))
 	for _, key := range keys {
-		emitted, reason, err := emitContribution(budget, kind, key, marker)
+		emitted, reason, err := emitContribution(budget, kind, key, marker, false)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
@@ -550,8 +564,9 @@ func emitContribution(
 	kind observecontribution.SourceContributionKind,
 	key string,
 	marker string,
+	chargeKey bool,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	if budget.consumeNames([]string{key}) {
+	if chargeKey && budget.consumeNames([]string{key}) {
 		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
 	}
 	contribution, reason := sourceContribution(kind, key, marker)

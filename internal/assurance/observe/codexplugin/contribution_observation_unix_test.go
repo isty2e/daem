@@ -23,7 +23,7 @@ func TestObserveConfiguredPluginContributionsBlocksSpecialFileManifest(t *testin
 		t.Fatalf("Mkfifo returned error: %v", err)
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -50,7 +50,7 @@ func TestObserveConfiguredPluginContributionsBlocksMarketplaceSymlink(t *testing
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -80,7 +80,7 @@ func TestObserveConfiguredPluginContributionsKeepsSiblingWhenNestedSkillIsBlocke
   "skills": ["./skills"]
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),

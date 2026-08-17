@@ -192,14 +192,19 @@ func (observation *pluginObservation) snapshotUncached(
 		return nil, false, reason, err
 	}
 	defer closer()
-	content, exists, err := filesnapshot.ReadRegularFileAt(ctx, parent, name, limit)
+	result, err := filesnapshot.ReadRegularFileAtCounted(ctx, parent, name, limit)
+	exhausted := chargeSnapshotAttempt(observation.budget, result.Attempted, result.Exists, err)
 	if err != nil {
-		return nil, false, classifySnapshotError(err), snapshotObservationError(err)
+		reason := classifySnapshotError(err)
+		if exhausted && reason == observecontribution.SourceContributionReasonNone {
+			reason = observecontribution.SourceContributionReasonArtifactBudgetExceeded
+		}
+		return nil, false, reason, snapshotObservationError(err)
 	}
-	if exists && observation.budget.consumeSnapshotBytes(int64(len(content))) {
+	if exhausted {
 		return nil, false, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
 	}
-	return content, exists, observecontribution.SourceContributionReasonNone, nil
+	return result.Content, result.Exists, observecontribution.SourceContributionReasonNone, nil
 }
 
 func (observation *pluginObservation) openParent(

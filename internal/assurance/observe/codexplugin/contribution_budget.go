@@ -13,7 +13,8 @@ const (
 	// MaximumObservationEntryNameBytes bounds one charged name.
 	MaximumObservationEntryNameBytes = 4096
 	// MaximumObservationSnapshotBytes bounds aggregate snapshot bytes in one
-	// ObserveConfiguredPluginContributions call.
+	// Codex plugin observation operation, including the config file on the
+	// shared diagnostic path.
 	MaximumObservationSnapshotBytes int64 = 64 << 20
 	// MaximumObservationPathComponents bounds relative descent from a retained
 	// plugin directory descriptor.
@@ -69,6 +70,18 @@ func (budget *observationBudget) consumeNames(names []string) bool {
 		budget.entries++
 		budget.nameBytes += nameBytes
 	}
+	return false
+}
+
+func (budget *observationBudget) consumeKeep() bool {
+	if budget == nil {
+		return true
+	}
+	if budget.exceeded || budget.entries+1 > MaximumObservationEntries {
+		budget.exhaust()
+		return true
+	}
+	budget.entries++
 	return false
 }
 

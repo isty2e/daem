@@ -42,9 +42,9 @@ func TestReadRegularFileAtStaysOnRetainedDirectoryDescriptor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	content, exists, err := filesnapshot.ReadRegularFileAt(t.Context(), dir, "plugin.json", 64)
-	if err != nil || !exists || string(content) != "inside" {
-		t.Fatalf("ReadRegularFileAt after path replacement = (%q, %t, %v), want inside", content, exists, err)
+	counted, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), dir, "plugin.json", 64)
+	if err != nil || !counted.Exists || string(counted.Content) != "inside" || counted.Attempted != 6 {
+		t.Fatalf("ReadRegularFileAtCounted after path replacement = %+v, %v, want inside", counted, err)
 	}
 }
 
@@ -64,9 +64,9 @@ func TestReadRegularFileAtRejectsFinalSymlink(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = dir.Close() })
 
-	_, exists, err := filesnapshot.ReadRegularFileAt(t.Context(), dir, "link", 64)
-	if exists || !errors.Is(err, filesnapshot.ErrSymlink) {
-		t.Fatalf("ReadRegularFileAt(symlink) = (%t, %v), want ErrSymlink", exists, err)
+	counted, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), dir, "link", 64)
+	if counted.Exists || counted.Attempted != 0 || !errors.Is(err, filesnapshot.ErrSymlink) {
+		t.Fatalf("ReadRegularFileAtCounted(symlink) = %+v, %v, want ErrSymlink", counted, err)
 	}
 }
 
@@ -79,7 +79,7 @@ func TestReadRegularFileAtRejectsNestedName(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = dir.Close() })
 
-	if _, _, err := filesnapshot.ReadRegularFileAt(t.Context(), dir, "nested/name", 64); err == nil {
-		t.Fatal("ReadRegularFileAt nested name succeeded")
+	if _, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), dir, "nested/name", 64); err == nil {
+		t.Fatal("ReadRegularFileAtCounted nested name succeeded")
 	}
 }

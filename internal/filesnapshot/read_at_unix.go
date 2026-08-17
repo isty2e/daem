@@ -6,55 +6,54 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
-func readRegularFileAt(
+func readRegularFileAtCounted(
 	ctx context.Context,
 	dir *os.File,
 	name string,
 	maximumBytes int64,
-) (content []byte, exists bool, err error) {
+) (CountedContent, error) {
 	if ctx == nil {
-		return nil, false, fmt.Errorf("file snapshot context is required")
+		return CountedContent{}, fmt.Errorf("file snapshot context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return CountedContent{}, err
 	}
 	if dir == nil {
-		return nil, false, fmt.Errorf("file snapshot directory descriptor is required")
+		return CountedContent{}, fmt.Errorf("file snapshot directory descriptor is required")
 	}
 	if maximumBytes <= 0 {
-		return nil, false, fmt.Errorf("maximum file size must be positive")
+		return CountedContent{}, fmt.Errorf("maximum file size must be positive")
 	}
 	if err := validDirentName(name); err != nil {
-		return nil, false, err
+		return CountedContent{}, err
 	}
 
 	dirFD := int(dir.Fd())
 	var before unix.Stat_t
 	if err := unix.Fstatat(dirFD, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		if errors.Is(err, unix.ENOENT) {
-			return nil, false, nil
+			return CountedContent{}, nil
 		}
-		return nil, false, err
+		return CountedContent{}, err
 	}
 	if before.Mode&unix.S_IFMT == unix.S_IFLNK {
-		return nil, false, ErrSymlink
+		return CountedContent{}, ErrSymlink
 	}
 	if before.Mode&unix.S_IFMT != unix.S_IFREG {
-		return nil, false, ErrNotRegular
+		return CountedContent{}, ErrNotRegular
 	}
 	if before.Size > maximumBytes {
-		return nil, false, limitError(maximumBytes)
+		return CountedContent{}, limitError(maximumBytes)
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return CountedContent{}, err
 	}
 	openedFD, err := unix.Openat(
 		dirFD,
@@ -63,74 +62,50 @@ func readRegularFileAt(
 		0,
 	)
 	if err != nil {
-		return nil, false, classifyDirentOpenFailure(dirFD, name, before, err)
+		return CountedContent{}, classifyDirentOpenFailure(dirFD, name, before, err)
 	}
 	file := os.NewFile(uintptr(openedFD), name)
 	if file == nil {
 		_ = unix.Close(openedFD)
-		return nil, false, errors.New("open regular file returned an invalid descriptor")
+		return CountedContent{}, errors.New("open regular file returned an invalid descriptor")
 	}
 	defer file.Close()
 
 	opened, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return CountedContent{}, err
 	}
 	if !opened.Mode().IsRegular() {
-		return nil, false, ErrChanged
+		return CountedContent{}, ErrChanged
 	}
 	if opened.Size() > maximumBytes {
-		return nil, false, limitError(maximumBytes)
+		return CountedContent{}, limitError(maximumBytes)
 	}
 	if !unixStatMatchesInfo(before, opened) {
-		return nil, false, ErrChanged
+		return CountedContent{}, ErrChanged
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return CountedContent{}, err
 	}
 
-	buffer := make([]byte, 32*1024)
-	content = make([]byte, 0, min(opened.Size(), int64(len(buffer))))
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, false, err
-		}
-		remaining := maximumBytes - int64(len(content))
-		readSize := len(buffer)
-		if remaining < int64(readSize) {
-			readSize = int(remaining) + 1
-		}
-		count, readErr := file.Read(buffer[:readSize])
-		if count > 0 {
-			content = append(content, buffer[:count]...)
-			if int64(len(content)) > maximumBytes {
-				return nil, false, limitError(maximumBytes)
-			}
-		}
-		if readErr != nil {
-			if !errors.Is(readErr, io.EOF) {
-				return nil, false, readErr
-			}
-			break
-		}
-		if count == 0 {
-			return nil, false, fmt.Errorf("read regular file: no progress")
-		}
+	content, attempted, err := readBoundedRegularFile(ctx, file, maximumBytes, opened.Size())
+	if err != nil {
+		return CountedContent{Attempted: attempted}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return CountedContent{Attempted: attempted}, err
 	}
 
 	afterOpen, err := file.Stat()
 	if err != nil {
-		return nil, false, err
+		return CountedContent{Attempted: attempted}, err
 	}
 	var after unix.Stat_t
 	if err := unix.Fstatat(dirFD, name, &after, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		if errors.Is(err, unix.ENOENT) {
-			return nil, false, ErrChanged
+			return CountedContent{Attempted: attempted}, ErrChanged
 		}
-		return nil, false, fmt.Errorf("reinspect file: %w", err)
+		return CountedContent{Attempted: attempted}, fmt.Errorf("reinspect file: %w", err)
 	}
 	if after.Mode&unix.S_IFMT != unix.S_IFREG ||
 		!unixStatsMatch(before, after) ||
@@ -139,9 +114,9 @@ func readRegularFileAt(
 		!unixStatMatchesInfo(after, afterOpen) ||
 		int64(len(content)) != opened.Size() ||
 		int64(len(content)) != afterOpen.Size() {
-		return nil, false, ErrChanged
+		return CountedContent{Attempted: attempted}, ErrChanged
 	}
-	return content, true, nil
+	return CountedContent{Content: content, Exists: true, Attempted: attempted}, nil
 }
 
 func unixStatMtime(stat unix.Stat_t) changeVersion {

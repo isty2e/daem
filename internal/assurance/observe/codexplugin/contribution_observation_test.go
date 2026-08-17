@@ -59,6 +59,16 @@ func TestObservationBudgetConsumeNamesOverflows(t *testing.T) {
 	if !byteBudget.consumeSnapshotBytes(1) || !byteBudget.exceeded {
 		t.Fatal("want aggregate snapshot overflow to exhaust the observation budget")
 	}
+
+	keepBudget := &observationBudget{}
+	for range MaximumObservationEntries {
+		if keepBudget.consumeKeep() {
+			t.Fatal("exact entry budget must admit consumeKeep")
+		}
+	}
+	if !keepBudget.consumeKeep() || !keepBudget.exceeded {
+		t.Fatal("want consumeKeep overflow to exhaust the observation budget")
+	}
 }
 
 func TestObserveConfiguredPluginContributionsOmitsCanceledRows(t *testing.T) {
@@ -68,7 +78,7 @@ func TestObserveConfiguredPluginContributionsOmitsCanceledRows(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		ctx,
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market", "beta@market"),
@@ -96,7 +106,7 @@ func TestObserveConfiguredPluginContributionsBlocksOversizedManifest(t *testing.
 		t.Fatalf("Close returned error: %v", err)
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -127,7 +137,7 @@ func TestObserveConfiguredPluginContributionsBlocksCacheCardinalityOverflow(t *t
   "mcpServers": {"local": {}}
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market", "beta@market"),
@@ -162,18 +172,40 @@ func TestObserveConfiguredPluginContributionsCapsProviderOutput(t *testing.T) {
 		keys[index] = versionName(index) + "@market"
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, keys...),
 	)
-	if len(observations) == 0 || len(observations) > MaximumObservationEntries {
-		t.Fatalf("observations = %d, want 1..%d", len(observations), MaximumObservationEntries)
+	if len(observations) != MaximumObservationEntries {
+		t.Fatalf("observations = %d, want %d", len(observations), MaximumObservationEntries)
 	}
 	row := firstDiagnosticRow(t, observations[len(observations)-1])
 	if row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
 		row.HasContribution() {
 		t.Fatalf("last observation = %#v, want budget-exceeded blocker", observations[len(observations)-1])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsReportsAllMaximumMissingProviders(t *testing.T) {
+	homeDirectory := t.TempDir()
+	keys := make([]string, MaximumObservationEntries)
+	for index := range keys {
+		keys[index] = versionName(index) + "@market"
+	}
+
+	observations := observeIndependentPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, keys...),
+	)
+	if len(observations) != MaximumObservationEntries {
+		t.Fatalf("observations = %d, want %d", len(observations), MaximumObservationEntries)
+	}
+	row := firstDiagnosticRow(t, observations[len(observations)-1])
+	if row.State() != observecontribution.SourceContributionUnavailable ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactUnavailable {
+		t.Fatalf("last observation = %#v, want unavailable rather than budget blocker", observations[len(observations)-1])
 	}
 }
 
@@ -187,7 +219,7 @@ func TestObserveConfiguredPluginContributionsBlocksOverdeepManifestPath(t *testi
   "skills": ["./`+strings.Join(parts, `/`)+`"]
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -210,7 +242,7 @@ func TestObserveConfiguredPluginContributionsBlocksManifestKeyOverflow(t *testin
   "mcpServers": {`+strings.Join(keys, ",")+`}
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -220,6 +252,35 @@ func TestObserveConfiguredPluginContributionsBlocksManifestKeyOverflow(t *testin
 		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
 		row.HasContribution() {
 		t.Fatalf("observation = %#v, want budget-exceeded blocker", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsKeepsMaximumMCPKeysWithoutDoubleCharge(t *testing.T) {
+	homeDirectory := t.TempDir()
+	const mcpKeys = MaximumObservationEntries / 2
+	keys := make([]string, mcpKeys)
+	for index := range keys {
+		keys[index] = `"` + versionName(index) + `": {}`
+	}
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "mcpServers": {`+strings.Join(keys, ",")+`}
+}`)
+
+	observations := observeIndependentPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	if len(observations) != 1 {
+		t.Fatalf("observations = %#v, want one", observations)
+	}
+	rows := observations[0].DiagnosticRows()
+	if len(rows) != mcpKeys {
+		t.Fatalf("rows = %d, want %d without double-charging MCP keys", len(rows), mcpKeys)
+	}
+	if rows[0].State() != observecontribution.SourceContributionDeclared ||
+		rows[0].Kind() != observecontribution.SourceContributionMCPServer {
+		t.Fatalf("observation = %#v, want declared MCP servers", observations[0])
 	}
 }
 
@@ -233,7 +294,7 @@ func TestObserveConfiguredPluginContributionsBlocksSkillPathOverflow(t *testing.
   "skills": [`+strings.Join(paths, ",")+`]
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -256,7 +317,7 @@ func TestObserveConfiguredPluginContributionsKeepsLargeInlineHookObjectDeclared(
   "hooks": {`+strings.Join(keys, ",")+`}
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
@@ -267,6 +328,109 @@ func TestObserveConfiguredPluginContributionsKeepsLargeInlineHookObjectDeclared(
 		row.Kind() != observecontribution.SourceContributionHook ||
 		row.Key() != "inline" {
 		t.Fatalf("observation = %#v, want declared inline hook without materializing keys", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsKeepsInlineHookWithLargeNumberDeclared(t *testing.T) {
+	homeDirectory := t.TempDir()
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "hooks": {"x": 1e400}
+}`)
+
+	observations := observeIndependentPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionDeclared ||
+		row.Kind() != observecontribution.SourceContributionHook ||
+		row.Key() != "inline" {
+		t.Fatalf("observation = %#v, want declared inline hook for 1e400", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsBlocksUnsafeInlineHookKey(t *testing.T) {
+	homeDirectory := t.TempDir()
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "hooks": {"bad\u0000key": {}}
+}`)
+
+	observations := observeIndependentPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonUnsupportedShape ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want unsupported inline hook key", observations[0])
+	}
+}
+
+func TestPluginObservationSnapshotChargesAttemptedBytes(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "plugin.json"), "content")
+	writeFile(t, filepath.Join(root, "other.json"), "payload")
+	file, err := os.Open(root)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+
+	budget := &observationBudget{snapshotBytes: MaximumObservationSnapshotBytes - 7}
+	observation := newPluginObservation(file, budget)
+	content, exists, reason, err := observation.snapshot(t.Context(), "plugin.json")
+	if err != nil || !exists || string(content) != "content" ||
+		reason != observecontribution.SourceContributionReasonNone ||
+		budget.snapshotBytes != MaximumObservationSnapshotBytes ||
+		budget.exceeded {
+		t.Fatalf(
+			"snapshot = (%q, %t, %q, %v) bytes=%d exceeded=%t, want charged success at bound",
+			content,
+			exists,
+			reason,
+			err,
+			budget.snapshotBytes,
+			budget.exceeded,
+		)
+	}
+
+	_, exists, reason, err = observation.snapshot(t.Context(), "other.json")
+	if err != nil || exists ||
+		reason != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		!budget.exceeded {
+		t.Fatalf("second snapshot = (%t, %q, %v) exceeded=%t, want aggregate stop", exists, reason, err, budget.exceeded)
+	}
+
+	missingRoot := t.TempDir()
+	missingFile, err := os.Open(missingRoot)
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = missingFile.Close() })
+	missingBudget := &observationBudget{}
+	missing := newPluginObservation(missingFile, missingBudget)
+	_, exists, reason, err = missing.snapshot(t.Context(), "missing.json")
+	if err != nil || exists || reason != observecontribution.SourceContributionReasonNone ||
+		missingBudget.snapshotBytes != 0 {
+		t.Fatalf("missing snapshot charged %d, reason=%q err=%v", missingBudget.snapshotBytes, reason, err)
+	}
+}
+
+func TestObserveConfiguredPluginDiagnosticsOmitsContributionsWhenConfigFillsBudget(t *testing.T) {
+	configPath := writeCodexConfig(t, exactMaximumCodexPluginConfig())
+	homeDirectory := t.TempDir()
+	observation, contributions, err := ObserveConfiguredPluginDiagnostics(t.Context(), homeDirectory, configPath)
+	if err != nil {
+		t.Fatalf("ObserveConfiguredPluginDiagnostics returned error: %v", err)
+	}
+	if !observation.EntrySetObserved() || len(observation.Entries()) != MaximumObservationEntries {
+		t.Fatalf("observation = %#v, want %d observed config keys", observation, MaximumObservationEntries)
+	}
+	if len(contributions) != 0 {
+		t.Fatalf("contributions = %#v, want none after config fill", contributions)
 	}
 }
 
@@ -286,7 +450,7 @@ func TestObserveConfiguredPluginContributionsUnavailableUnreadableSkills(t *test
 	}
 	t.Cleanup(func() { _ = os.Chmod(skills, 0o700) })
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
 		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),

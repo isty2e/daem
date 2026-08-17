@@ -53,6 +53,20 @@ func snapshotObservationError(err error) error {
 	return nil
 }
 
+func chargeSnapshotAttempt(budget *observationBudget, attempted int64, exists bool, err error) bool {
+	if !snapshotAttemptCharges(exists, err) {
+		return budget != nil && budget.exceeded
+	}
+	return budget.consumeSnapshotBytes(attempted)
+}
+
+func snapshotAttemptCharges(exists bool, err error) bool {
+	if err == nil {
+		return exists
+	}
+	return !errors.Is(err, filesnapshot.ErrSymlink) && !errors.Is(err, filesnapshot.ErrNotRegular)
+}
+
 func observationCanceled(err error) bool {
 	return err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
 }

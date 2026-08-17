@@ -403,6 +403,38 @@ func TestCodexPluginChecksBlockConfigKeyOverflowWithoutContributionInspection(t 
 	}
 }
 
+func TestCodexPluginChecksReportExactMaximumConfigEntriesWithoutContributionFamily(t *testing.T) {
+	homeDirectory := t.TempDir()
+	var body strings.Builder
+	for index := 0; index < observecodexplugin.MaximumObservationEntries; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
+	}
+	writeDiagnoseCodexConfig(t, homeDirectory, body.String())
+	pluginRoot := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "p0", "local")
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "skills": "./skills/"
+}`)
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatalf("ForDiagnostics returned error: %v", err)
+	}
+
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
+	if len(checks) != observecodexplugin.MaximumObservationEntries {
+		t.Fatalf("checks = %d, want %d", len(checks), observecodexplugin.MaximumObservationEntries)
+	}
+	assertNoCodexPluginContributionChecks(t, checks)
+	entryCount := 0
+	for _, check := range checks {
+		if strings.Contains(check.Name, "plugin_config_entry") {
+			entryCount++
+		}
+	}
+	if entryCount != observecodexplugin.MaximumObservationEntries {
+		t.Fatalf("config entry checks = %d, want %d", entryCount, observecodexplugin.MaximumObservationEntries)
+	}
+}
+
 func assertCodexPluginConfigCheck(t *testing.T, checks []findings.Check, severity findings.Severity, name string, detailSubstring string) {
 	t.Helper()
 
