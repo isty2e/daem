@@ -1349,7 +1349,7 @@ edits and imports still use `daem lock` as the explicit lock refresh step.
 Current lock behavior:
 
 - Project-scoped local skill and instruction sources are resolved relative to the manifest directory unless their paths are absolute. Global local skill and instruction sources must already be absolute.
-- Git sources are resolved through the user's system `git`. SHA-1 repositories stay compatible with Git that lacks `--object-format`; SHA-256 requires that capability. Capable Git always receives an explicit `--object-format` so `GIT_DEFAULT_HASH` is never the product default.
+- Git sources are resolved through the user's system `git`. SHA-1 repositories stay compatible with Git that lacks `--object-format`; SHA-256 requires that capability. Capable Git always receives an explicit `--object-format`, and `GIT_DEFAULT_HASH` is never inherited, so it is never the product default. Network format observation contacts only the declared locator from a rooted observation repository, so enclosing-repository `url.*.insteadOf` cannot redirect `ls-remote`.
 - Git refs are resolved to immutable commits and stored as `resolved_ref`.
 - Individual Git skill source `path` values may name a skill directory or `path = "."` when the repository root itself is the skill artifact and contains exact `SKILL.md`. Git `[[skill_group]]` source roots may also use `path = "."`, but there it means the root whose selected direct children are locked as separate skill artifacts.
 - Git repository paths are exported from the resolved commit. Archive entries that escape the artifact directory or resolve to links are rejected.

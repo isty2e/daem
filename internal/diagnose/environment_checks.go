@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/subprocess"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -47,17 +48,74 @@ func EnvironmentChecks(
 }
 
 func gitCheck(ctx context.Context) findings.Check {
-	check := gitCheckWithTimeout(ctx, 5*time.Second, defaultGitVersion)
+	return gitEnvironmentCheck(ctx, 5*time.Second)
+}
+
+func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Check {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checkContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Timeout:     timeout,
+		OutputLimit: subprocess.DefaultCommandOutputLimit,
+	})
+
+	version := executor.Execute(checkContext, subprocess.CommandAttemptRequest{
+		Command: "git",
+		Args:    []string{"--version"},
+	})
+	check := classifyGitVersionAttempt(ctx, checkContext, timeout, version)
 	if check.Severity != findings.SeverityOK {
 		return check
 	}
-	label, err := inspectGitObjectFormatCapability(ctx)
-	if err != nil {
+
+	help := executor.Execute(checkContext, subprocess.CommandAttemptRequest{
+		Command: "git",
+		Args:    []string{"init", "-h"},
+	})
+	switch {
+	case help.TimedOut(), errors.Is(checkContext.Err(), context.DeadlineExceeded) && help.Failed():
+		return errorCheck("git", fmt.Sprintf("git check timed out after %s", timeout))
+	case help.Canceled() && ctx.Err() != nil:
+		return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", ctx.Err()))
+	}
+	output := strings.TrimSpace(strings.TrimSpace(help.Stdout()) + "\n" + strings.TrimSpace(help.Stderr()))
+	if output == "" && help.Failed() {
 		check.Detail = check.Detail + "; object-format capability could not be inspected"
 		return check
 	}
-	check.Detail = check.Detail + "; " + label
+	check.Detail = check.Detail + "; " + gitObjectFormatCapabilityLabel(output)
 	return check
+}
+
+func classifyGitVersionAttempt(
+	caller context.Context,
+	checkContext context.Context,
+	timeout time.Duration,
+	result subprocess.CommandAttemptResult,
+) findings.Check {
+	switch {
+	case result.Canceled() && caller.Err() != nil:
+		return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", caller.Err()))
+	case result.TimedOut(), errors.Is(checkContext.Err(), context.DeadlineExceeded) && result.Failed():
+		return errorCheck("git", fmt.Sprintf("git check timed out after %s", timeout))
+	case result.Reason() == subprocess.CommandReasonMissingRunner:
+		return errorCheck("git", "git executable was not found in PATH")
+	case result.Failed():
+		detail := strings.TrimSpace(result.ErrorDetail())
+		if detail == "" {
+			detail = "command failed"
+		}
+		return errorCheck("git", fmt.Sprintf("git --version failed: %s", detail))
+	}
+
+	value := strings.TrimSpace(result.Stdout())
+	if value == "" {
+		return errorCheck("git", "git --version returned empty output")
+	}
+	return okCheck("git", value)
 }
 
 func gitCheckWithTimeout(
@@ -86,34 +144,6 @@ func gitCheckWithTimeout(
 		return errorCheck("git", "git --version returned empty output")
 	}
 	return okCheck("git", value)
-}
-
-func defaultGitVersion(ctx context.Context) (string, error) {
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return "", fmt.Errorf("locate git executable: %w", err)
-	}
-
-	command := exec.CommandContext(ctx, gitPath, "--version")
-	output, err := command.Output()
-	if err != nil {
-		return "", fmt.Errorf("run git --version: %w", err)
-	}
-
-	return strings.TrimSpace(string(output)), nil
-}
-
-func inspectGitObjectFormatCapability(ctx context.Context) (string, error) {
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return "", err
-	}
-	command := exec.CommandContext(ctx, gitPath, "init", "-h")
-	output, err := command.CombinedOutput()
-	if len(output) == 0 && err != nil {
-		return "", err
-	}
-	return gitObjectFormatCapabilityLabel(string(output)), nil
 }
 
 func gitObjectFormatCapabilityLabel(help string) string {

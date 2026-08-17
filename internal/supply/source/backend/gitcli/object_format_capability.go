@@ -3,11 +3,13 @@ package gitcli
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/isty2e/daem/internal/subprocess"
 )
+
+const objectFormatHelpOutputLimit = 64 << 10
 
 func (resolver Resolver) explicitObjectFormatSupported(ctx context.Context) (bool, error) {
 	state, err := resolver.requireState()
@@ -32,48 +34,49 @@ func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	executable, err := exec.LookPath(gitExecutable)
-	if err != nil {
-		return false, err
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Timeout:     subprocess.DefaultCommandTimeout,
+		OutputLimit: objectFormatHelpOutputLimit,
+	})
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false, context.DeadlineExceeded
+		}
+		executor = subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Timeout:     remaining,
+			OutputLimit: objectFormatHelpOutputLimit,
+		})
 	}
-	probeRoot, err := os.MkdirTemp("", "daem-git-object-format-")
-	if err != nil {
-		return false, fmt.Errorf("create git object-format capability probe: %w", err)
+	result := executor.Execute(ctx, subprocess.CommandAttemptRequest{
+		Command:     gitExecutable,
+		Args:        inspectGitInitHelpArgs(),
+		OutputLimit: objectFormatHelpOutputLimit,
+	})
+	output := strings.TrimSpace(result.Stdout() + "\n" + result.Stderr())
+	switch {
+	case result.TimedOut():
+		return false, fmt.Errorf("inspect git object-format capability: timed out")
+	case result.Canceled():
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		return false, fmt.Errorf("inspect git object-format capability: canceled")
+	case result.Reason() == subprocess.CommandReasonMissingRunner:
+		return false, fmt.Errorf("inspect git object-format capability: git executable was not found in PATH")
+	case output == "" && result.Failed():
+		detail := strings.TrimSpace(result.ErrorDetail())
+		if detail == "" {
+			detail = "git init -h failed"
+		}
+		return false, fmt.Errorf("inspect git object-format capability: %s", detail)
+	case (result.StdoutTruncated() || result.StderrTruncated()) && !gitHelpSupportsExplicitObjectFormat(output):
+		return false, fmt.Errorf("inspect git object-format capability: help output was truncated")
+	default:
+		return gitHelpSupportsExplicitObjectFormat(output), nil
 	}
-	defer os.RemoveAll(probeRoot)
-	repoPath := filepath.Join(probeRoot, "repo")
-	command := exec.CommandContext(
-		ctx,
-		executable,
-		detachedGitCommandArgs([]string{"init", "--bare", "--quiet", "--object-format=sha1", "--", repoPath})...,
-	)
-	command.Env = repositoryGitCommandEnvironment(os.Environ())
-	command.Dir = probeRoot
-	output, err := command.CombinedOutput()
-	if err == nil {
-		return true, nil
-	}
-	if ctx.Err() != nil {
-		return false, ctx.Err()
-	}
-	if gitOutputIndicatesUnknownOption(string(output)) {
-		return false, nil
-	}
-	diagnostic := strings.TrimSpace(string(output))
-	if diagnostic == "" {
-		return false, fmt.Errorf("inspect git object-format capability: %w", err)
-	}
-	return false, fmt.Errorf("inspect git object-format capability: %s", diagnostic)
 }
 
-func gitErrorIndicatesUnknownOption(err error) bool {
-	return err != nil && gitOutputIndicatesUnknownOption(err.Error())
-}
-
-func gitOutputIndicatesUnknownOption(output string) bool {
-	lower := strings.ToLower(output)
-	return strings.Contains(lower, "unknown option") ||
-		strings.Contains(lower, "unrecognized option") ||
-		strings.Contains(lower, "invalid option") ||
-		strings.Contains(lower, "unknown switch")
+func gitHelpSupportsExplicitObjectFormat(help string) bool {
+	return strings.Contains(help, "--object-format")
 }

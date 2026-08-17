@@ -266,6 +266,7 @@ func TestResolveRejectsAmbientURLRewriteBeforeNetworkFormatProbe(t *testing.T) {
 	}
 	assertGitSubcommandsAbsent(t, logPath, "ls-remote", "fetch", "archive")
 	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+	assertNoObservationProbes(t, filepath.Join(tempDir, "cache", "probes"))
 }
 
 func TestResolveRejectsUnboundedRemoteRefAdvertisementWithoutCreatingCache(t *testing.T) {
@@ -360,6 +361,114 @@ func TestResolveRejectsSHA256WhenGitLacksObjectFormatOption(t *testing.T) {
 	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
 }
 
+func TestResolveDoesNotFollowEnclosingRepositoryURLRewrite(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	project := filepath.Join(tempDir, "project")
+	if err := os.MkdirAll(project, 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	runGitTestCommand(t, project, "init")
+
+	attacker := gitRepositoryWithSkill(t, filepath.Join(tempDir, "attacker"), "attacker")
+	declared := "https://127.0.0.1:1/acme/skills.git"
+	runGitTestCommand(t, project, "config", "url."+fileURLForTest(attacker)+".insteadOf", declared)
+
+	cacheRoot := filepath.Join(project, ".daem", "cache", "sources")
+	resolver, err := NewResolver(cacheRoot)
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, declared, ".", "main"),
+		noOperationOptions,
+	)
+	if err == nil {
+		t.Fatal("Resolve succeeded, want failure without rewritten origin contact")
+	}
+	assertNoRepositoryCaches(t, filepath.Join(cacheRoot, "repos"))
+	assertNoObservationProbes(t, filepath.Join(cacheRoot, "probes"))
+}
+
+func TestResolveSHA1WhenGitLacksObjectFormatOptionAndHEADIsMissing(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+	commit := commitAll(t, repoPath, "initial skill")
+	runGitTestCommand(t, repoPath, "symbolic-ref", "HEAD", "refs/heads/missing")
+	installGitWrapperRejectingObjectFormat(t)
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolution, err := resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if resolution.Identity().ResolvedRef() != artifact.ResolvedRef(commit) {
+		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
+	}
+}
+
+func TestResolveSHA1WhenGitLacksObjectFormatOptionAndGITDefaultHashIsSHA256(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+	commit := commitAll(t, repoPath, "initial skill")
+	installGitWrapperRejectingObjectFormat(t)
+	t.Setenv("GIT_DEFAULT_HASH", "sha256")
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolution, err := resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if resolution.Identity().ResolvedRef() != artifact.ResolvedRef(commit) {
+		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
+	}
+	config, err := os.ReadFile(filepath.Join(resolver.repositoryPath(repoPath), "config"))
+	if err != nil {
+		t.Fatalf("read cache config: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(config)), "sha256") {
+		t.Fatalf("legacy SHA-1 cache used sha256 despite GIT_DEFAULT_HASH: %s", config)
+	}
+}
+
+func assertNoObservationProbes(t *testing.T, probesRoot string) {
+	t.Helper()
+
+	entries, err := os.ReadDir(probesRoot)
+	if os.IsNotExist(err) {
+		return
+	}
+	if err != nil {
+		t.Fatalf("ReadDir returned error: %v", err)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		t.Fatalf("observation probes = %v, want none", names)
+	}
+}
+
 func installLoggingGitWrapperBlockingTransport(t *testing.T) string {
 	t.Helper()
 	realGit, err := exec.LookPath(gitExecutable)
@@ -398,7 +507,12 @@ func installGitWrapperRejectingObjectFormat(t *testing.T) {
 	if err := os.MkdirAll(binRoot, 0o700); err != nil {
 		t.Fatalf("create object-format wrapper directory: %v", err)
 	}
-	wrapper := "#!/bin/sh\nfor git_argument in \"$@\"; do\n" +
+	wrapper := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"init\" ] && [ \"$2\" = \"-h\" ]; then\n" +
+		"  printf '%s\\n' \"usage: git init\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"for git_argument in \"$@\"; do\n" +
 		"  case \"$git_argument\" in\n" +
 		"    --object-format=*|--show-object-format)\n" +
 		"      printf '%s\\n' \"error: unknown option\" >&2\n" +

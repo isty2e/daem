@@ -38,9 +38,9 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 			want: []string{"init", "--bare", "--quiet", "--object-format=sha256"},
 		},
 		{
-			name: "rewrite probe initialization",
-			got:  initializeBareDirectoryArgs(localPath),
-			want: []string{"init", "--bare", "--quiet", "--", localPath},
+			name: "git init help inspection",
+			got:  inspectGitInitHelpArgs(),
+			want: []string{"init", "-h"},
 		},
 		{
 			name: "origin declaration",
@@ -58,14 +58,14 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 			want: []string{"-C", localPath, "rev-parse", "--show-object-format"},
 		},
 		{
-			name: "local HEAD object id inspection",
-			got:  localHEADObjectIDArgs(localPath),
-			want: []string{"-C", localPath, "rev-parse", "--verify", "--end-of-options", "HEAD"},
+			name: "local object-format configuration inspection",
+			got:  localObjectFormatConfigArgs(localPath),
+			want: []string{"-C", localPath, "config", "--local", "--no-includes", "--get", "extensions.objectformat"},
 		},
 		{
-			name: "directory-scoped origin inspection",
-			got:  gitCommandInDirectoryArgs(localPath, inspectEffectiveOriginArgs()),
-			want: []string{"-C", localPath, "remote", "get-url", "origin"},
+			name: "local object id inspection",
+			got:  localObjectIDArgs(localPath, "HEAD"),
+			want: []string{"-C", localPath, "rev-parse", "--verify", "--end-of-options", "HEAD"},
 		},
 		{
 			name: "remote object format inspection",

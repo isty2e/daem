@@ -112,7 +112,7 @@ func (resolver Resolver) captureCacheRoot(ctx context.Context) (*rootedpath.Capt
 }
 
 func validateGitCacheNamespaces(ctx context.Context, root *rootedpath.CapturedRoot) error {
-	for _, name := range []string{"repos", "artifacts", "locks"} {
+	for _, name := range []string{"repos", "artifacts", "locks", "probes"} {
 		authority, err := root.Authority()
 		if err != nil {
 			return err

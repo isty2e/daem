@@ -121,3 +121,14 @@ func TestRepositoryCacheDirectoryNameKeepsSHA1LocatorIdentity(t *testing.T) {
 		t.Fatalf("sha256 cache name = %q, want distinct from locator-only identity", got)
 	}
 }
+
+func TestGitHelpSupportsExplicitObjectFormat(t *testing.T) {
+	t.Parallel()
+
+	if !gitHelpSupportsExplicitObjectFormat("usage: git init [--object-format=<format>]") {
+		t.Fatal("capable git help was not recognized")
+	}
+	if gitHelpSupportsExplicitObjectFormat("usage: git init") {
+		t.Fatal("legacy git help was treated as capable")
+	}
+}

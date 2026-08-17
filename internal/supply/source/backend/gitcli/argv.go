@@ -8,8 +8,8 @@ func initializeBareRepositoryArgs(format gitObjectFormat, explicit bool) []strin
 	return args
 }
 
-func initializeBareDirectoryArgs(path string) []string {
-	return []string{"init", "--bare", "--quiet", "--", path}
+func inspectGitInitHelpArgs() []string {
+	return []string{"init", "-h"}
 }
 
 func inspectObjectFormatArgs() []string {
@@ -20,14 +20,12 @@ func localObjectFormatArgs(path string) []string {
 	return []string{"-C", path, "rev-parse", "--show-object-format"}
 }
 
-func localHEADObjectIDArgs(path string) []string {
-	return []string{"-C", path, "rev-parse", "--verify", "--end-of-options", "HEAD"}
+func localObjectFormatConfigArgs(path string) []string {
+	return []string{"-C", path, "config", "--local", "--no-includes", "--get", "extensions.objectformat"}
 }
 
-func gitCommandInDirectoryArgs(directory string, args []string) []string {
-	commandArgs := make([]string, 0, len(args)+2)
-	commandArgs = append(commandArgs, "-C", directory)
-	return append(commandArgs, args...)
+func localObjectIDArgs(path string, objectName string) []string {
+	return []string{"-C", path, "rev-parse", "--verify", "--end-of-options", objectName}
 }
 
 func lsRemoteRefsArgs(locator string) []string {

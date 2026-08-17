@@ -241,7 +241,22 @@ func (handle *repositoryHandle) prepareCommand(
 	if handle == nil || handle.root == nil {
 		return nil, nil, fmt.Errorf("git repository cache handle is required")
 	}
-	capability, err := handle.root.AcquireSelectedWorkingDirectory(handle.repository.path)
+	if handle.resolver.state != nil && handle.resolver.state.testBeforeRepositoryCommand != nil {
+		handle.resolver.state.testBeforeRepositoryCommand()
+	}
+	return prepareCapturedRepositoryCommand(ctx, handle.root, handle.repository.path, args)
+}
+
+func prepareCapturedRepositoryCommand(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args []string,
+) (*exec.Cmd, func() error, error) {
+	if root == nil {
+		return nil, nil, fmt.Errorf("git repository cache handle is required")
+	}
+	capability, err := root.AcquireSelectedWorkingDirectory(selected)
 	if err != nil {
 		return nil, nil, fmt.Errorf("acquire git repository cache working directory: %w", err)
 	}
@@ -254,10 +269,22 @@ func (handle *repositoryHandle) prepareCommand(
 		validationErr := capability.Validate()
 		return errors.Join(validationErr, directory.Close(), capability.Close())
 	}
+	return finishPreparedWorkingDirectoryCommand(
+		ctx,
+		capability,
+		directory,
+		cleanup,
+		repositoryGitCommandArgs(args),
+	)
+}
 
-	if handle.resolver.state != nil && handle.resolver.state.testBeforeRepositoryCommand != nil {
-		handle.resolver.state.testBeforeRepositoryCommand()
-	}
+func finishPreparedWorkingDirectoryCommand(
+	ctx context.Context,
+	capability rootedpath.WorkingDirectoryCapability,
+	directory *os.File,
+	cleanup func() error,
+	commandArgs []string,
+) (*exec.Cmd, func() error, error) {
 	if err := capability.Validate(); err != nil {
 		return nil, nil, errors.Join(
 			fmt.Errorf("git repository cache changed before command launch: %w", err),
@@ -269,19 +296,55 @@ func (handle *repositoryHandle) prepareCommand(
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
-	commandArgs := repositoryGitCommandArgs(args)
-	commandEnv := repositoryGitCommandEnvironment(os.Environ())
 	command, err := subprocess.PrepareCommandInWorkingDirectory(
 		ctx,
 		executable,
 		commandArgs,
-		commandEnv,
+		repositoryGitCommandEnvironment(os.Environ()),
 		directory,
 	)
 	if err != nil {
 		return nil, nil, errors.Join(err, directory.Close(), capability.Close())
 	}
 	return command, cleanup, nil
+}
+
+func gitOutputAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args ...string,
+) (string, error) {
+	command, finish, err := prepareCapturedRepositoryCommand(ctx, root, selected, args)
+	if err != nil {
+		return "", err
+	}
+	output, runErr := runGitOutput(ctx, command)
+	return string(output), errors.Join(runErr, finish())
+}
+
+func runGitAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	args ...string,
+) error {
+	_, err := gitOutputAtCapturedRepository(ctx, root, selected, args...)
+	return err
+}
+
+func consumeGitOutputAtCapturedRepository(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+	selected string,
+	consume func(io.Reader) error,
+	args ...string,
+) error {
+	command, finish, err := prepareCapturedRepositoryCommand(ctx, root, selected, args)
+	if err != nil {
+		return err
+	}
+	return errors.Join(runGitReader(ctx, command, consume), finish())
 }
 
 func repositoryGitCommandArgs(args []string) []string {
@@ -391,12 +454,16 @@ func repositoryGitCommandEnvironment(entries []string) []string {
 	filtered := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name, _, ok := strings.Cut(entry, "=")
-		if ok && isRepositorySelectingGitEnvironment(name) {
+		if ok && isFilteredGitCommandEnvironment(name) {
 			continue
 		}
 		filtered = append(filtered, entry)
 	}
 	return filtered
+}
+
+func isFilteredGitCommandEnvironment(name string) bool {
+	return isRepositorySelectingGitEnvironment(name) || name == "GIT_DEFAULT_HASH"
 }
 
 func isRepositorySelectingGitEnvironment(name string) bool {

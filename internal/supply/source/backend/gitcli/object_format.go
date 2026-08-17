@@ -189,7 +189,7 @@ func (resolver Resolver) observeObjectFormat(
 		hasDeclared = true
 	}
 
-	origin, hasOrigin, err := resolver.observeOriginObjectFormat(ctx, cacheRoot, gitSource.Locator())
+	origin, hasOrigin, err := resolver.observeOriginObjectFormat(ctx, cacheRoot, gitSource)
 	if err != nil {
 		return "", err
 	}
@@ -233,21 +233,25 @@ func (resolver Resolver) admitObservedObjectFormat(ctx context.Context, format g
 func (resolver Resolver) observeOriginObjectFormat(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
-	locator source.GitLocator,
-) (gitObjectFormat, bool, error) {
+	gitSource source.GitSource,
+) (format gitObjectFormat, found bool, err error) {
+	locator := gitSource.Locator()
 	if localPath, ok := locator.LocalPath(); ok {
-		return resolver.observeLocalObjectFormat(ctx, cacheRoot, localPath)
+		return resolver.observeLocalObjectFormat(ctx, cacheRoot, gitSource, localPath)
 	}
 
-	if err := resolver.requireDeclaredTransportEndpoint(ctx, cacheRoot, locator); err != nil {
+	probe, err := resolver.openOriginObservationRepository(ctx, cacheRoot, locator)
+	if err != nil {
 		return "", false, err
 	}
+	defer func() {
+		err = errors.Join(err, probe.Close(ctx))
+	}()
 
-	var format gitObjectFormat
-	found := false
-	err := resolver.consumeGitOutputInCacheRoot(
+	err = consumeGitOutputAtCapturedRepository(
 		ctx,
-		cacheRoot,
+		probe.root,
+		probe.path,
 		func(output io.Reader) error {
 			var consumeErr error
 			format, found, consumeErr = observeAdvertisedObjectFormat(
@@ -259,7 +263,8 @@ func (resolver Resolver) observeOriginObjectFormat(
 		lsRemoteRefsArgs(locator.String())...,
 	)
 	if err != nil {
-		return "", false, fmt.Errorf("inspect remote git object format: %w", err)
+		err = fmt.Errorf("inspect remote git object format: %w", err)
+		return "", false, err
 	}
 	return format, found, nil
 }
@@ -267,6 +272,7 @@ func (resolver Resolver) observeOriginObjectFormat(
 func (resolver Resolver) observeLocalObjectFormat(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
+	gitSource source.GitSource,
 	localPath string,
 ) (gitObjectFormat, bool, error) {
 	info, err := os.Stat(localPath)
@@ -291,65 +297,44 @@ func (resolver Resolver) observeLocalObjectFormat(
 	if capabilityErr != nil {
 		return "", false, capabilityErr
 	}
-	if supported || !gitErrorIndicatesUnknownOption(err) {
+	if supported {
 		return "", false, fmt.Errorf("inspect local git object format: %w", err)
 	}
-	head, headErr := resolver.gitOutputInCacheRoot(ctx, cacheRoot, localHEADObjectIDArgs(localPath)...)
-	if headErr != nil {
-		return "", false, fmt.Errorf("inspect local git object format: %w", err)
-	}
-	format, parseErr := gitObjectFormatFromCommitID(strings.TrimSpace(head))
-	if parseErr != nil {
-		return "", false, parseErr
-	}
-	return format, true, nil
+	return resolver.observeLegacyLocalObjectFormat(ctx, cacheRoot, gitSource, localPath)
 }
 
-func (resolver Resolver) requireDeclaredTransportEndpoint(
+func (resolver Resolver) observeLegacyLocalObjectFormat(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
-	locator source.GitLocator,
-) error {
-	if cacheRoot == nil {
-		return fmt.Errorf("git source cache root authority is required")
+	gitSource source.GitSource,
+	localPath string,
+) (gitObjectFormat, bool, error) {
+	if output, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, localObjectFormatConfigArgs(localPath)...); err == nil {
+		format, parseErr := parseGitObjectFormat(output)
+		if parseErr != nil {
+			return "", false, parseErr
+		}
+		return format, true, nil
 	}
-	authority, err := cacheRoot.Authority()
-	if err != nil {
-		return fmt.Errorf("inspect git source cache root: %w", err)
-	}
-	probeDir, err := os.MkdirTemp(authority.PhysicalRoot(), "url-probe-")
-	if err != nil {
-		return fmt.Errorf("create git locator rewrite probe: %w", err)
-	}
-	defer os.RemoveAll(probeDir)
-
-	if err := resolver.runGitInCacheRoot(ctx, cacheRoot, initializeBareDirectoryArgs(probeDir)...); err != nil {
-		return fmt.Errorf("initialize git locator rewrite probe: %w", err)
-	}
-	if err := resolver.runGitInCacheRoot(
+	if output, err := resolver.gitOutputInCacheRoot(
 		ctx,
 		cacheRoot,
-		gitCommandInDirectoryArgs(probeDir, addOriginArgs(locator.String()))...,
-	); err != nil {
-		return fmt.Errorf("declare git locator rewrite probe origin: %w", err)
+		localObjectIDArgs(localPath, gitSource.Ref().String())...,
+	); err == nil {
+		format, parseErr := gitObjectFormatFromCommitID(strings.TrimSpace(output))
+		if parseErr != nil {
+			return "", false, parseErr
+		}
+		return format, true, nil
 	}
-	output, err := resolver.gitOutputInCacheRoot(
-		ctx,
-		cacheRoot,
-		gitCommandInDirectoryArgs(probeDir, inspectEffectiveOriginArgs())...,
-	)
-	if err != nil {
-		return fmt.Errorf("inspect effective git source origin: %w", err)
+	if output, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, localObjectIDArgs(localPath, "HEAD")...); err == nil {
+		format, parseErr := gitObjectFormatFromCommitID(strings.TrimSpace(output))
+		if parseErr != nil {
+			return "", false, parseErr
+		}
+		return format, true, nil
 	}
-	effectiveValue, ok := trimSingleGitConfigValue(output)
-	if !ok {
-		return fmt.Errorf("effective git source origin must contain exactly one canonical locator")
-	}
-	effective, err := source.ParseGitLocator(effectiveValue)
-	if err != nil || !locator.Equivalent(effective) {
-		return fmt.Errorf("effective git source origin does not match the declared locator")
-	}
-	return nil
+	return gitObjectFormatSHA1, true, nil
 }
 
 func (resolver Resolver) remoteRefAdvertisementBudget() remoteRefAdvertisementBudget {

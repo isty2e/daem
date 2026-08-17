@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,5 +105,27 @@ func TestGitObjectFormatCapabilityLabel(t *testing.T) {
 	}
 	if got := gitObjectFormatCapabilityLabel("usage: git init"); got != "object-format sha1" {
 		t.Fatalf("legacy git label = %q", got)
+	}
+}
+
+func TestGitEnvironmentCheckTimesOutStallingObjectFormatHelp(t *testing.T) {
+	binDir := t.TempDir()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then\n" +
+		"  printf '%s\\n' \"git version stall-test\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"sleep 30\n"
+	if err := os.WriteFile(filepath.Join(binDir, "git"), []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	check := gitEnvironmentCheck(context.Background(), 80*time.Millisecond)
+	if check.Name != "git" || check.Severity != findings.SeverityError {
+		t.Fatalf("check = %#v, want git error", check)
+	}
+	if !strings.Contains(check.Detail, "timed out") {
+		t.Fatalf("check = %#v, want complete git assessment timeout", check)
 	}
 }
