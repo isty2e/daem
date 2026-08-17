@@ -89,6 +89,18 @@ func ReadRegularFileContext(
 	return readRegularFileContext(ctx, path, maximumBytes, readHooks{})
 }
 
+// ReadRegularFileAt reads at most maximumBytes from one directory entry of dir
+// without following that entry. Identity checks stay on dir's descriptor and
+// name; they do not re-inspect a pathname. A missing entry returns exists=false.
+func ReadRegularFileAt(
+	ctx context.Context,
+	dir *os.File,
+	name string,
+	maximumBytes int64,
+) (content []byte, exists bool, err error) {
+	return readRegularFileAt(ctx, dir, name, maximumBytes)
+}
+
 // ReadRegularFileSnapshotContext reads one bounded regular-file snapshot and
 // returns content and mode from the same stable descriptor.
 func ReadRegularFileSnapshotContext(

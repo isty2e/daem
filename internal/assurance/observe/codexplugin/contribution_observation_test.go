@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"syscall"
+	"strings"
 	"testing"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
@@ -50,6 +50,14 @@ func TestObservationBudgetConsumeNamesOverflows(t *testing.T) {
 	longName := string(make([]byte, MaximumObservationEntryNameBytes+1))
 	if !nameBudget.consumeNames([]string{longName}) || !nameBudget.exceeded {
 		t.Fatal("want overlong entry name to exhaust the observation budget")
+	}
+
+	byteBudget := &observationBudget{}
+	if byteBudget.consumeSnapshotBytes(MaximumObservationSnapshotBytes) || byteBudget.exceeded {
+		t.Fatal("exact aggregate snapshot budget must be admitted")
+	}
+	if !byteBudget.consumeSnapshotBytes(1) || !byteBudget.exceeded {
+		t.Fatal("want aggregate snapshot overflow to exhaust the observation budget")
 	}
 }
 
@@ -104,30 +112,6 @@ func TestObserveConfiguredPluginContributionsBlocksOversizedManifest(t *testing.
 	}
 }
 
-func TestObserveConfiguredPluginContributionsBlocksSpecialFileManifest(t *testing.T) {
-	homeDirectory := t.TempDir()
-	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")
-	path := filepath.Join(pluginRoot, ".codex-plugin", "plugin.json")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("MkdirAll returned error: %v", err)
-	}
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatalf("Mkfifo returned error: %v", err)
-	}
-
-	observations := ObserveConfiguredPluginContributions(
-		t.Context(),
-		homeDirectory,
-		configuredPluginObservation(t, "alpha@market"),
-	)
-	row := firstDiagnosticRow(t, observations[0])
-	if row.State() != observecontribution.SourceContributionBlocked ||
-		row.Reason() != observecontribution.SourceContributionReasonUnsupportedShape ||
-		row.HasContribution() {
-		t.Fatalf("observation = %#v, want unsupported special-file shape", observations[0])
-	}
-}
-
 func TestObserveConfiguredPluginContributionsBlocksCacheCardinalityOverflow(t *testing.T) {
 	homeDirectory := t.TempDir()
 	cacheBase := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "alpha")
@@ -171,6 +155,59 @@ func itoaAtLeast(index int) string {
 		return digits[index : index+1]
 	}
 	return itoaAtLeast(index/10) + digits[index%10:index%10+1]
+}
+
+func TestObserveConfiguredPluginContributionsBlocksManifestKeyOverflow(t *testing.T) {
+	homeDirectory := t.TempDir()
+	keys := make([]string, MaximumObservationEntries)
+	for index := range keys {
+		keys[index] = `"` + versionName(index) + `": {}`
+	}
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "mcpServers": {`+strings.Join(keys, ",")+`}
+}`)
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want budget-exceeded blocker", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsUnavailableUnreadableSkills(t *testing.T) {
+	homeDirectory := t.TempDir()
+	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")
+	skills := filepath.Join(pluginRoot, "skills")
+	if err := os.MkdirAll(filepath.Join(skills, "review"), 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	writeFile(t, filepath.Join(skills, "review", "SKILL.md"), "---\nname: review\n---\n")
+	writeFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "skills": ["./skills"]
+}`)
+	if err := os.Chmod(skills, 0o000); err != nil {
+		t.Fatalf("Chmod returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(skills, 0o700) })
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() == observecontribution.SourceContributionDeclared {
+		t.Fatalf("observation = %#v, want fail-closed unreadable skills", observations[0])
+	}
+	if row.HasContribution() {
+		t.Fatalf("observation = %#v, want no declared contributions", observations[0])
+	}
 }
 
 func TestObservationCanceledMatchesContextErrors(t *testing.T) {

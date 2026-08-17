@@ -35,11 +35,12 @@ func ObserveConfiguredPluginContributions(
 		if err := ctx.Err(); err != nil {
 			return observations
 		}
-		if budget.exceeded {
+		provider := observecontribution.SourceProviderLabel(entry.Key())
+		if budget.exceeded || budget.consumeNames([]string{string(entry.Key())}) {
 			observations = append(observations, observeConfiguredPluginContribution(
 				ctx,
 				homeDirectory,
-				observecontribution.SourceProviderLabel(entry.Key()),
+				provider,
 				budget,
 			))
 			continue
@@ -47,7 +48,7 @@ func ObserveConfiguredPluginContributions(
 		observation, err := observeConfiguredPluginContributionResult(
 			ctx,
 			homeDirectory,
-			observecontribution.SourceProviderLabel(entry.Key()),
+			provider,
 			budget,
 		)
 		if observationCanceled(err) {
@@ -109,18 +110,12 @@ func observeConfiguredPluginContributionResult(
 	}
 
 	cacheBase := filepath.Join(homeDirectory, ".codex", "plugins", "cache", id.marketplace, id.plugin)
-	version, ok, ambiguous, reason, err := activePluginCacheVersion(ctx, homeDirectory, cacheBase, budget)
+	plugin, version, ok, ambiguous, reason, err := activePluginCacheVersion(ctx, cacheBase, budget)
 	if observationCanceled(err) {
 		return observecontribution.SourceContributionObservation{}, err
 	}
-	if reason != observecontribution.SourceContributionReasonNone {
-		return sourceContributionBlocker(
-			provider,
-			providerLabel,
-			observecontribution.SourceContributionBlocked,
-			reason,
-			cacheArtifactIdentity(id, "<blocked>"),
-		), nil
+	if blocked, observation := contributionInspectionOutcome(provider, providerLabel, reason, cacheArtifactIdentity(id, "<blocked>")); blocked {
+		return observation, nil
 	}
 	if ambiguous {
 		return sourceContributionBlocker(
@@ -140,31 +135,49 @@ func observeConfiguredPluginContributionResult(
 			cacheArtifactIdentity(id, "<missing>"),
 		), nil
 	}
+	defer plugin.close()
 
-	pluginRoot := filepath.Join(cacheBase, version)
 	artifactIdentity := cacheArtifactIdentity(id, version)
-	content, exists, reason, err := snapshotContainedFile(ctx, pluginRoot, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"))
+	content, exists, reason, err := plugin.snapshot(ctx, ".codex-plugin/plugin.json")
 	if observationCanceled(err) {
 		return observecontribution.SourceContributionObservation{}, err
 	}
-	if reason != observecontribution.SourceContributionReasonNone {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, reason, artifactIdentity), nil
+	if blocked, observation := contributionInspectionOutcome(provider, providerLabel, reason, artifactIdentity); blocked {
+		return observation, nil
 	}
 	if !exists {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionUnavailable, observecontribution.SourceContributionReasonArtifactUnavailable, artifactIdentity), nil
+		return sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionUnavailable,
+			observecontribution.SourceContributionReasonArtifactUnavailable,
+			artifactIdentity,
+		), nil
 	}
 
 	var manifest rawPluginContributionManifest
 	if err := json.Unmarshal(content, &manifest); err != nil {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonArtifactMalformed, artifactIdentity), nil
+		return sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionBlocked,
+			observecontribution.SourceContributionReasonArtifactMalformed,
+			artifactIdentity,
+		), nil
 	}
 
-	contributions, reason, err := sourceContributionsFromManifest(ctx, pluginRoot, artifactIdentity, id.plugin, manifest, budget)
+	contributions, reason, err := sourceContributionsFromManifest(ctx, plugin, artifactIdentity, id.plugin, manifest)
 	if observationCanceled(err) {
 		return observecontribution.SourceContributionObservation{}, err
 	}
-	if reason != observecontribution.SourceContributionReasonNone {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, reason, artifactIdentity), nil
+	if err != nil {
+		reason, err = classifyDirectoryError(err)
+		if observationCanceled(err) {
+			return observecontribution.SourceContributionObservation{}, err
+		}
+	}
+	if blocked, observation := contributionInspectionOutcome(provider, providerLabel, reason, artifactIdentity); blocked {
+		return observation, nil
 	}
 	sortSourceContributions(contributions)
 	observation, err := observecontribution.NewSourceContributionObservation(observecontribution.SourceContributionObservationSpec{
@@ -176,9 +189,43 @@ func observeConfiguredPluginContributionResult(
 		Contributions:    contributions,
 	})
 	if err != nil {
-		return sourceContributionBlocker(provider, providerLabel, observecontribution.SourceContributionBlocked, observecontribution.SourceContributionReasonUnsupportedShape, artifactIdentity), nil
+		return sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionBlocked,
+			observecontribution.SourceContributionReasonUnsupportedShape,
+			artifactIdentity,
+		), nil
 	}
 	return observation, nil
+}
+
+func contributionInspectionOutcome(
+	provider extensiontopology.Carrier,
+	providerLabel observecontribution.SourceProviderLabel,
+	reason observecontribution.SourceContributionReason,
+	artifactIdentity string,
+) (bool, observecontribution.SourceContributionObservation) {
+	switch reason {
+	case observecontribution.SourceContributionReasonNone:
+		return false, observecontribution.SourceContributionObservation{}
+	case observecontribution.SourceContributionReasonArtifactUnavailable:
+		return true, sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionUnavailable,
+			reason,
+			artifactIdentity,
+		)
+	default:
+		return true, sourceContributionBlocker(
+			provider,
+			providerLabel,
+			observecontribution.SourceContributionBlocked,
+			reason,
+			artifactIdentity,
+		)
+	}
 }
 
 func sourceContributionBlocker(

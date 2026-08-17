@@ -3,7 +3,6 @@ package codexplugin
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -22,36 +21,35 @@ type rawPluginContributionManifest struct {
 
 func sourceContributionsFromManifest(
 	ctx context.Context,
-	pluginRoot string,
+	plugin *pluginObservation,
 	artifactIdentity string,
 	defaultKey string,
 	manifest rawPluginContributionManifest,
-	budget *observationBudget,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	contributions := []observecontribution.SourceContribution{}
 	if len(manifest.Skills) > 0 {
-		skills, reason, err := skillContributions(ctx, pluginRoot, manifest.Skills, budget)
+		skills, reason, err := skillContributions(ctx, plugin, manifest.Skills)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
 		contributions = append(contributions, skills...)
 	}
 	if len(manifest.MCPServers) > 0 {
-		servers, reason, err := mcpServerContributions(ctx, pluginRoot, manifest.MCPServers)
+		servers, reason, err := mcpServerContributions(ctx, plugin, manifest.MCPServers)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
 		contributions = append(contributions, servers...)
 	}
 	if len(manifest.Apps) > 0 {
-		apps, reason, err := appContributions(ctx, pluginRoot, defaultContributionKey(manifest.Name, defaultKey), manifest.Apps)
+		apps, reason, err := appContributions(ctx, plugin, defaultContributionKey(manifest.Name, defaultKey), manifest.Apps)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
 		contributions = append(contributions, apps...)
 	}
 	if len(manifest.Hooks) > 0 {
-		hooks, reason, err := hookContributions(ctx, pluginRoot, artifactIdentity, manifest.Hooks)
+		hooks, reason, err := hookContributions(ctx, plugin, artifactIdentity, manifest.Hooks)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
@@ -62,21 +60,23 @@ func sourceContributionsFromManifest(
 
 func skillContributions(
 	ctx context.Context,
-	pluginRoot string,
+	plugin *pluginObservation,
 	raw json.RawMessage,
-	budget *observationBudget,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	paths, ok := decodePathList(raw)
 	if !ok {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
+	if plugin.budget.consumeNames(paths) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
 	contributions := []observecontribution.SourceContribution{}
 	for _, path := range paths {
-		resolved, marker, reason := resolveManifestPath(pluginRoot, path)
+		relative, reason := resolveManifestPath(path)
 		if reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, nil
 		}
-		skills, reason, err := skillContributionsFromPath(ctx, pluginRoot, resolved, marker, budget)
+		skills, reason, err := skillContributionsFromPath(ctx, plugin, relative)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
@@ -87,128 +87,146 @@ func skillContributions(
 
 func skillContributionsFromPath(
 	ctx context.Context,
-	pluginRoot string,
-	resolved string,
-	marker string,
-	budget *observationBudget,
+	plugin *pluginObservation,
+	relative string,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	if pathHasSymlinkComponent(pluginRoot, resolved) {
-		return nil, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
+	kind, reason, err := plugin.classify(relative)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, err
 	}
-	info, err := os.Lstat(resolved)
-	if err != nil {
+	switch kind {
+	case childMissing:
 		return nil, observecontribution.SourceContributionReasonArtifactUnavailable, nil
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	case childSymlink:
 		return nil, observecontribution.SourceContributionReasonArtifactPathBlocked, nil
-	}
-	if !info.IsDir() {
-		if filepath.Base(resolved) != "SKILL.md" {
+	case childFile:
+		if filepath.Base(relative) != "SKILL.md" {
 			return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 		}
-		_, exists, reason, err := snapshotContainedFile(ctx, pluginRoot, resolved)
+		_, exists, reason, err := plugin.snapshot(ctx, relative)
 		if err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
 		if !exists {
 			return nil, observecontribution.SourceContributionReasonArtifactUnavailable, nil
 		}
-		key := filepath.Base(filepath.Dir(resolved))
-		contribution, reason := sourceContribution(observecontribution.SourceContributionSkill, key, marker)
-		if reason != observecontribution.SourceContributionReasonNone {
-			return nil, reason, nil
-		}
-		return []observecontribution.SourceContribution{contribution}, observecontribution.SourceContributionReasonNone, nil
+		return emitContribution(
+			plugin.budget,
+			observecontribution.SourceContributionSkill,
+			filepath.Base(filepath.Dir(relative)),
+			relative,
+		)
+	case childDirectory:
+	default:
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
 
-	_, exists, reason, err := snapshotContainedFile(ctx, pluginRoot, filepath.Join(resolved, "SKILL.md"))
+	skillPath := filepath.ToSlash(filepath.Join(relative, "SKILL.md"))
+	_, exists, reason, err := plugin.snapshot(ctx, skillPath)
 	if err != nil {
-		return nil, observecontribution.SourceContributionReasonNone, err
-	}
-	switch reason {
-	case observecontribution.SourceContributionReasonNone:
-		if exists {
-			key := filepath.Base(resolved)
-			contribution, reason := sourceContribution(
-				observecontribution.SourceContributionSkill,
-				key,
-				filepath.ToSlash(filepath.Join(marker, "SKILL.md")),
-			)
-			if reason != observecontribution.SourceContributionReasonNone {
-				return nil, reason, nil
-			}
-			return []observecontribution.SourceContribution{contribution}, observecontribution.SourceContributionReasonNone, nil
-		}
-	case observecontribution.SourceContributionReasonArtifactUnstable,
-		observecontribution.SourceContributionReasonArtifactBudgetExceeded:
-		return nil, reason, nil
-	}
-
-	names, reason, err := listContainedDirectoryNames(ctx, pluginRoot, resolved, budget)
-	if err != nil {
-		if directoryMissing(err) {
-			return nil, observecontribution.SourceContributionReasonArtifactUnavailable, nil
-		}
 		return nil, observecontribution.SourceContributionReasonNone, err
 	}
 	if reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, nil
 	}
+	if exists {
+		return emitContribution(
+			plugin.budget,
+			observecontribution.SourceContributionSkill,
+			filepath.Base(relative),
+			skillPath,
+		)
+	}
+
+	childRoot, reason, err := walkRelativeDirectory(plugin, relative)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, err
+	}
+	defer childRoot.close()
+	names, reason, err := childRoot.listNames(ctx)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, err
+	}
 	contributions := []observecontribution.SourceContribution{}
 	for _, name := range names {
-		child := filepath.Join(resolved, name)
-		info, statErr := os.Lstat(child)
-		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		kind, reason, err := childRoot.classify(name)
+		if err != nil || (reason != observecontribution.SourceContributionReasonNone &&
+			reason != observecontribution.SourceContributionReasonArtifactPathBlocked) {
+			return nil, reason, err
+		}
+		if kind == childSymlink || reason == observecontribution.SourceContributionReasonArtifactPathBlocked {
 			continue
 		}
-		skillPath := filepath.Join(child, "SKILL.md")
-		_, exists, reason, err := snapshotContainedFile(ctx, pluginRoot, skillPath)
+		if kind != childDirectory {
+			continue
+		}
+		childSkill := filepath.ToSlash(filepath.Join(relative, name, "SKILL.md"))
+		_, exists, reason, err := plugin.snapshot(ctx, childSkill)
 		if err != nil {
 			return nil, observecontribution.SourceContributionReasonNone, err
 		}
-		switch reason {
-		case observecontribution.SourceContributionReasonArtifactUnstable,
-			observecontribution.SourceContributionReasonArtifactBudgetExceeded:
-			return nil, reason, nil
-		case observecontribution.SourceContributionReasonNone:
-			if !exists {
-				continue
-			}
-		default:
-			continue
-		}
-		contribution, reason := sourceContribution(
-			observecontribution.SourceContributionSkill,
-			name,
-			filepath.ToSlash(filepath.Join(marker, name, "SKILL.md")),
-		)
 		if reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, nil
 		}
-		contributions = append(contributions, contribution)
+		if !exists {
+			continue
+		}
+		emitted, reason, err := emitContribution(
+			plugin.budget,
+			observecontribution.SourceContributionSkill,
+			name,
+			childSkill,
+		)
+		if err != nil || reason != observecontribution.SourceContributionReasonNone {
+			return nil, reason, err
+		}
+		contributions = append(contributions, emitted...)
 	}
 	return contributions, observecontribution.SourceContributionReasonNone, nil
 }
 
+func walkRelativeDirectory(
+	plugin *pluginObservation,
+	relative string,
+) (*pluginObservation, observecontribution.SourceContributionReason, error) {
+	current := plugin
+	for _, part := range strings.Split(relative, "/") {
+		child, reason, err := current.openChildDirectory(part)
+		if current != plugin {
+			current.close()
+		}
+		if err != nil || reason != observecontribution.SourceContributionReasonNone {
+			return nil, reason, err
+		}
+		current = child
+	}
+	return current, observecontribution.SourceContributionReasonNone, nil
+}
+
 func mcpServerContributions(
 	ctx context.Context,
-	pluginRoot string,
+	plugin *pluginObservation,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	if keys, ok := decodeObjectKeys(raw); ok {
-		contributions, reason := contributionKeys(observecontribution.SourceContributionMCPServer, keys, "mcpServers")
-		return contributions, reason, nil
+		if plugin.budget.consumeNames(keys) {
+			return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+		}
+		return contributionKeys(plugin.budget, observecontribution.SourceContributionMCPServer, keys, "mcpServers")
 	}
 
 	path, ok := decodeString(raw)
 	if !ok {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
-	resolved, marker, reason := resolveManifestPath(pluginRoot, path)
+	if plugin.budget.consumeNames([]string{path}) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	relative, reason := resolveManifestPath(path)
 	if reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, nil
 	}
-	content, reason, err := requiredContainedFile(ctx, pluginRoot, resolved)
+	content, reason, err := plugin.requiredFile(ctx, relative)
 	if err != nil || reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, err
 	}
@@ -224,13 +242,15 @@ func mcpServerContributions(
 	if !ok {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
-	contributions, reason := contributionKeys(observecontribution.SourceContributionMCPServer, keys, marker)
-	return contributions, reason, nil
+	if plugin.budget.consumeNames(keys) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	return contributionKeys(plugin.budget, observecontribution.SourceContributionMCPServer, keys, relative)
 }
 
 func appContributions(
 	ctx context.Context,
-	pluginRoot string,
+	plugin *pluginObservation,
 	key string,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
@@ -238,52 +258,54 @@ func appContributions(
 	if !ok {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
-	resolved, marker, reason := resolveManifestPath(pluginRoot, path)
+	if plugin.budget.consumeNames([]string{path}) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	relative, reason := resolveManifestPath(path)
 	if reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, nil
 	}
-	if _, reason, err := requiredContainedFile(ctx, pluginRoot, resolved); err != nil || reason != observecontribution.SourceContributionReasonNone {
+	if _, reason, err := plugin.requiredFile(ctx, relative); err != nil || reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, err
 	}
-	contribution, reason := sourceContribution(observecontribution.SourceContributionApp, key, marker)
-	if reason != observecontribution.SourceContributionReasonNone {
-		return nil, reason, nil
-	}
-	return []observecontribution.SourceContribution{contribution}, observecontribution.SourceContributionReasonNone, nil
+	return emitContribution(plugin.budget, observecontribution.SourceContributionApp, key, relative)
 }
 
 func hookContributions(
 	ctx context.Context,
-	pluginRoot string,
+	plugin *pluginObservation,
 	artifactIdentity string,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	if _, ok := decodeObjectKeys(raw); ok {
-		contribution, reason := sourceContribution(observecontribution.SourceContributionHook, "inline", artifactIdentity)
-		if reason != observecontribution.SourceContributionReasonNone {
-			return nil, reason, nil
-		}
-		return []observecontribution.SourceContribution{contribution}, observecontribution.SourceContributionReasonNone, nil
+		return emitContribution(plugin.budget, observecontribution.SourceContributionHook, "inline", artifactIdentity)
 	}
 	paths, ok := decodePathList(raw)
 	if !ok {
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
 	}
+	if plugin.budget.consumeNames(paths) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
 	contributions := make([]observecontribution.SourceContribution, 0, len(paths))
 	for _, path := range paths {
-		resolved, marker, reason := resolveManifestPath(pluginRoot, path)
+		relative, reason := resolveManifestPath(path)
 		if reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, nil
 		}
-		if _, reason, err := requiredContainedFile(ctx, pluginRoot, resolved); err != nil || reason != observecontribution.SourceContributionReasonNone {
+		if _, reason, err := plugin.requiredFile(ctx, relative); err != nil || reason != observecontribution.SourceContributionReasonNone {
 			return nil, reason, err
 		}
-		key := filepath.Base(marker)
-		contribution, reason := sourceContribution(observecontribution.SourceContributionHook, key, marker)
-		if reason != observecontribution.SourceContributionReasonNone {
-			return nil, reason, nil
+		emitted, reason, err := emitContribution(
+			plugin.budget,
+			observecontribution.SourceContributionHook,
+			filepath.Base(relative),
+			relative,
+		)
+		if err != nil || reason != observecontribution.SourceContributionReasonNone {
+			return nil, reason, err
 		}
-		contributions = append(contributions, contribution)
+		contributions = append(contributions, emitted...)
 	}
 	return contributions, observecontribution.SourceContributionReasonNone, nil
 }
@@ -335,19 +357,36 @@ func decodeObjectKeys(raw json.RawMessage) ([]string, bool) {
 }
 
 func contributionKeys(
+	budget *observationBudget,
 	kind observecontribution.SourceContributionKind,
 	keys []string,
 	marker string,
-) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason) {
+) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
 	contributions := make([]observecontribution.SourceContribution, 0, len(keys))
 	for _, key := range keys {
-		contribution, reason := sourceContribution(kind, key, marker)
-		if reason != observecontribution.SourceContributionReasonNone {
-			return nil, reason
+		emitted, reason, err := emitContribution(budget, kind, key, marker)
+		if err != nil || reason != observecontribution.SourceContributionReasonNone {
+			return nil, reason, err
 		}
-		contributions = append(contributions, contribution)
+		contributions = append(contributions, emitted...)
 	}
-	return contributions, observecontribution.SourceContributionReasonNone
+	return contributions, observecontribution.SourceContributionReasonNone, nil
+}
+
+func emitContribution(
+	budget *observationBudget,
+	kind observecontribution.SourceContributionKind,
+	key string,
+	marker string,
+) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
+	if budget.consumeNames([]string{key}) {
+		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	}
+	contribution, reason := sourceContribution(kind, key, marker)
+	if reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, nil
+	}
+	return []observecontribution.SourceContribution{contribution}, observecontribution.SourceContributionReasonNone, nil
 }
 
 func defaultContributionKey(manifestName string, fallback string) string {

@@ -3,7 +3,6 @@ package codexplugin
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -69,48 +68,72 @@ func validPluginSegment(value string) bool {
 
 func activePluginCacheVersion(
 	ctx context.Context,
-	root string,
 	cacheBase string,
 	budget *observationBudget,
-) (string, bool, bool, observecontribution.SourceContributionReason, error) {
-	names, reason, err := listContainedDirectoryNames(ctx, root, cacheBase, budget)
-	if err != nil {
-		if directoryMissing(err) {
-			return "", false, false, observecontribution.SourceContributionReasonNone, nil
-		}
-		if observationCanceled(err) {
-			return "", false, false, observecontribution.SourceContributionReasonNone, err
-		}
-		return "", false, false, observecontribution.SourceContributionReasonNone, nil
+) (*pluginObservation, string, bool, bool, observecontribution.SourceContributionReason, error) {
+	cache, reason, err := openPluginObservation(cacheBase, budget)
+	if directoryMissing(err) {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
 	}
-	if reason != observecontribution.SourceContributionReasonNone {
-		return "", false, false, reason, nil
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+
+	names, reason, err := cache.listNames(ctx)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		cache.close()
+		return nil, "", false, false, reason, err
 	}
 	versions := make([]string, 0, len(names))
 	for _, name := range names {
 		if !validPluginSegment(name) {
 			continue
 		}
-		info, statErr := os.Lstat(filepath.Join(cacheBase, name))
-		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		kind, reason, err := cache.classify(name)
+		if err != nil {
+			cache.close()
+			return nil, "", false, false, reason, err
+		}
+		if reason == observecontribution.SourceContributionReasonArtifactPathBlocked || kind == childSymlink {
+			continue
+		}
+		if reason != observecontribution.SourceContributionReasonNone {
+			cache.close()
+			return nil, "", false, false, reason, err
+		}
+		if kind != childDirectory {
 			continue
 		}
 		versions = append(versions, name)
 	}
 	sort.Strings(versions)
+	selected := ""
+	ambiguous := false
 	for _, version := range versions {
 		if version == "local" {
-			return version, true, false, observecontribution.SourceContributionReasonNone, nil
+			selected = version
+			break
 		}
 	}
-	switch len(versions) {
-	case 0:
-		return "", false, false, observecontribution.SourceContributionReasonNone, nil
-	case 1:
-		return versions[0], true, false, observecontribution.SourceContributionReasonNone, nil
-	default:
-		return "", false, true, observecontribution.SourceContributionReasonNone, nil
+	if selected == "" {
+		switch len(versions) {
+		case 0:
+			cache.close()
+			return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
+		case 1:
+			selected = versions[0]
+		default:
+			cache.close()
+			return nil, "", false, true, observecontribution.SourceContributionReasonNone, nil
+		}
 	}
+
+	plugin, reason, err := cache.openChildDirectory(selected)
+	cache.close()
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+	return plugin, selected, true, ambiguous, observecontribution.SourceContributionReasonNone, nil
 }
 
 func cacheArtifactIdentity(id pluginID, version string) string {
