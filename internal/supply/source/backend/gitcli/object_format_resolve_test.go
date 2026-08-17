@@ -450,6 +450,109 @@ func TestResolveSHA1WhenGitLacksObjectFormatOptionAndGITDefaultHashIsSHA256(t *t
 	}
 }
 
+func TestResolveSHA1WhenGitLacksObjectFormatOptionAndDefaultObjectFormatIsSHA256(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	repoPath := initGitRepository(t, tempDir)
+	writeGitTestFile(t, repoPath, "skills/demo/SKILL.md", "---\nname: demo\ndescription: demo\n---\n")
+	commit := commitAll(t, repoPath, "initial skill")
+	installGitWrapperRejectingObjectFormat(t)
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "init.defaultObjectFormat")
+	t.Setenv("GIT_CONFIG_VALUE_0", "sha256")
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	resolution, err := resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, repoPath, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err != nil {
+		t.Fatalf("Resolve returned error: %v", err)
+	}
+	if resolution.Identity().ResolvedRef() != artifact.ResolvedRef(commit) {
+		t.Fatalf("ResolvedRef = %q, want %q", resolution.Identity().ResolvedRef(), commit)
+	}
+	config, err := os.ReadFile(filepath.Join(resolver.repositoryPath(repoPath), "config"))
+	if err != nil {
+		t.Fatalf("read cache config: %v", err)
+	}
+	if strings.Contains(strings.ToLower(string(config)), "sha256") {
+		t.Fatalf("legacy SHA-1 cache used sha256 despite init.defaultObjectFormat: %s", config)
+	}
+}
+
+func TestResolveRejectsLegacyLocalDirectoryWithoutRepositoryEvidence(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	notRepo := filepath.Join(tempDir, "not-repo")
+	if err := os.MkdirAll(notRepo, 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	installGitWrapperRejectingObjectFormat(t)
+
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, notRepo, "skills/demo", "main"),
+		noOperationOptions,
+	)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("Resolve error = %v, want local repository evidence rejection", err)
+	}
+	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+}
+
+func TestObservationProbeReplacementIsNotAdoptedOrRemoved(t *testing.T) {
+	requireGit(t)
+	tempDir := t.TempDir()
+	resolver, err := NewResolver(filepath.Join(tempDir, "cache"))
+	if err != nil {
+		t.Fatalf("NewResolver returned error: %v", err)
+	}
+
+	var replacement string
+	resolver.state.testAfterObservationProbePublish = func(path string) {
+		published := path + ".published"
+		if err := os.Rename(path, published); err != nil {
+			t.Fatalf("rename published probe: %v", err)
+		}
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatalf("create replacement probe: %v", err)
+		}
+		replacement = path
+		if err := os.WriteFile(filepath.Join(path, "canary"), []byte("keep\n"), 0o600); err != nil {
+			t.Fatalf("write replacement canary: %v", err)
+		}
+	}
+
+	_, err = resolver.Resolve(
+		context.Background(),
+		mustGitSource(t, "https://example.invalid/acme/skills.git", ".", "main"),
+		noOperationOptions,
+	)
+	if err == nil || !strings.Contains(err.Error(), "replaced") {
+		t.Fatalf("Resolve error = %v, want observation replacement rejection", err)
+	}
+	if replacement == "" {
+		t.Fatal("replacement probe was not published")
+	}
+	content, readErr := os.ReadFile(filepath.Join(replacement, "canary"))
+	if readErr != nil {
+		t.Fatalf("replacement canary was removed: %v", readErr)
+	}
+	if string(content) != "keep\n" {
+		t.Fatalf("replacement canary = %q, want preserved", content)
+	}
+	assertNoRepositoryCaches(t, filepath.Join(tempDir, "cache", "repos"))
+}
+
 func assertNoObservationProbes(t *testing.T, probesRoot string) {
 	t.Helper()
 

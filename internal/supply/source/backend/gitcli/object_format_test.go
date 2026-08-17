@@ -1,6 +1,8 @@
 package gitcli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -130,5 +132,25 @@ func TestGitHelpSupportsExplicitObjectFormat(t *testing.T) {
 	}
 	if gitHelpSupportsExplicitObjectFormat("usage: git init") {
 		t.Fatal("legacy git help was treated as capable")
+	}
+}
+
+func TestGitDirectoryOwnsLocalPath(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	nested := filepath.Join(repo, "nested")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if !gitDirectoryOwnsLocalPath(repo, repo) {
+		t.Fatal("bare git directory was not recognized")
+	}
+	if !gitDirectoryOwnsLocalPath(filepath.Join(repo, ".git"), repo) {
+		t.Fatal("worktree git directory was not recognized")
+	}
+	if gitDirectoryOwnsLocalPath(filepath.Join(repo, ".git"), nested) {
+		t.Fatal("enclosing git directory was treated as the nested locator")
 	}
 }

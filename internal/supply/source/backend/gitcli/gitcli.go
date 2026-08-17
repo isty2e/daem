@@ -38,9 +38,11 @@ type resolverState struct {
 	objectFormatMu                   sync.Mutex
 	objectFormatProbed               bool
 	explicitObjectFormat             bool
+	objectFormatInflight             *objectFormatCapabilityProbe
 	testAfterArchiveExtract          func()
 	testAfterArtifactEnsure          func()
 	testBeforeRepositoryCommand      func()
+	testAfterObservationProbePublish func(string)
 	testRemoteRefAdvertisementBudget *remoteRefAdvertisementBudget
 }
 

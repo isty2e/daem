@@ -26,8 +26,15 @@ type originObservationRepository struct {
 	resolver    Resolver
 	cacheRoot   *rootedpath.CapturedRoot
 	destination rootedpath.Destination
+	identity    storagecommit.EntryIdentity
 	root        *rootedpath.CapturedRoot
 	path        string
+}
+
+type observationProbePathBudget struct{}
+
+func (observationProbePathBudget) AdmitPathComponents(int) error {
+	return nil
 }
 
 func (resolver Resolver) openOriginObservationRepository(
@@ -42,13 +49,22 @@ func (resolver Resolver) openOriginObservationRepository(
 	if err != nil {
 		return nil, err
 	}
-	if err := createObservationProbe(ctx, cacheRoot, destination); err != nil {
+	identity, err := createObservationProbe(ctx, cacheRoot, destination)
+	if err != nil {
 		return nil, err
 	}
 	probe := &originObservationRepository{
 		resolver:    resolver,
 		cacheRoot:   cacheRoot,
 		destination: destination,
+		identity:    identity,
+	}
+	if resolver.state != nil && resolver.state.testAfterObservationProbePublish != nil {
+		path, pathErr := destination.LexicalPath()
+		if pathErr != nil {
+			return nil, errors.Join(pathErr, probe.Close(ctx))
+		}
+		resolver.state.testAfterObservationProbePublish(path)
 	}
 	if err := probe.capture(ctx, destination); err != nil {
 		return nil, errors.Join(err, probe.Close(ctx))
@@ -69,15 +85,19 @@ func (probe *originObservationRepository) Close(ctx context.Context) error {
 	} else {
 		cleanupCtx = context.Background()
 	}
+	identity := probe.identity
 	var closeErr error
 	if probe.root != nil {
+		if current, err := probe.heldWorkingDirectoryIdentity(cleanupCtx); err == nil {
+			identity = current
+		}
 		closeErr = probe.root.Close()
 		probe.root = nil
 	}
 	if probe.cacheRoot == nil {
 		return closeErr
 	}
-	return errors.Join(closeErr, removeObservationProbe(cleanupCtx, probe.cacheRoot, probe.destination))
+	return errors.Join(closeErr, removeObservationProbe(cleanupCtx, probe.cacheRoot, probe.destination, identity))
 }
 
 func (probe *originObservationRepository) capture(
@@ -92,9 +112,56 @@ func (probe *originObservationRepository) capture(
 	if err != nil {
 		return fmt.Errorf("capture git locator observation authority: %w", err)
 	}
+	observed, err := workingDirectoryIdentity(ctx, root)
+	if err != nil {
+		_ = root.Close()
+		return err
+	}
+	if !probe.identity.Equal(observed) {
+		_ = root.Close()
+		return fmt.Errorf("git locator observation repository was replaced")
+	}
 	probe.root = root
 	probe.path = path
 	return ctx.Err()
+}
+
+func (probe *originObservationRepository) heldWorkingDirectoryIdentity(
+	ctx context.Context,
+) (storagecommit.EntryIdentity, error) {
+	if probe == nil || probe.root == nil {
+		return storagecommit.EntryIdentity{}, fmt.Errorf("git locator observation authority is required")
+	}
+	return workingDirectoryIdentity(ctx, probe.root)
+}
+
+func workingDirectoryIdentity(
+	ctx context.Context,
+	root *rootedpath.CapturedRoot,
+) (storagecommit.EntryIdentity, error) {
+	capability, err := root.AcquireWorkingDirectory()
+	if err != nil {
+		return storagecommit.EntryIdentity{}, fmt.Errorf(
+			"acquire git locator observation working directory: %w",
+			err,
+		)
+	}
+	observed, err := storagecommit.CaptureWorkingDirectoryIdentity(
+		ctx,
+		capability,
+		observationProbePathBudget{},
+	)
+	closeErr := capability.Close()
+	if err != nil {
+		return storagecommit.EntryIdentity{}, errors.Join(
+			fmt.Errorf("inspect git locator observation working directory: %w", err),
+			closeErr,
+		)
+	}
+	if closeErr != nil {
+		return storagecommit.EntryIdentity{}, closeErr
+	}
+	return observed, nil
 }
 
 func (probe *originObservationRepository) declareOrigin(
@@ -169,10 +236,10 @@ func createObservationProbe(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
-) error {
+) (storagecommit.EntryIdentity, error) {
 	capability, err := cacheRoot.Acquire(destination)
 	if err != nil {
-		return fmt.Errorf("acquire git locator observation destination: %w", err)
+		return storagecommit.EntryIdentity{}, fmt.Errorf("acquire git locator observation destination: %w", err)
 	}
 	prepared, err := storagecommit.PrepareRootedTree(
 		ctx,
@@ -182,33 +249,81 @@ func createObservationProbe(
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("prepare git locator observation repository: %w", err)
+		return storagecommit.EntryIdentity{}, fmt.Errorf("prepare git locator observation repository: %w", err)
 	}
-	if err := prepared.Commit(ctx); err != nil {
-		return fmt.Errorf("publish git locator observation repository: %w", err)
+	outcome, err := prepared.CommitWithOutcome(ctx)
+	if err != nil {
+		return storagecommit.EntryIdentity{}, errors.Join(
+			fmt.Errorf("publish git locator observation repository: %w", err),
+			cleanupPublishedObservationProbe(ctx, cacheRoot, destination, outcome),
+		)
 	}
-	return nil
+	identity, err := capturePublishedObservationIdentity(ctx, cacheRoot, destination)
+	if err != nil {
+		return storagecommit.EntryIdentity{}, err
+	}
+	return identity, nil
+}
+
+func cleanupPublishedObservationProbe(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	destination rootedpath.Destination,
+	outcome mutationfs.CommitOutcome,
+) error {
+	switch outcome.State() {
+	case mutationfs.CommitOutcomeComplete, mutationfs.CommitOutcomeIndeterminate:
+	default:
+		return nil
+	}
+	identity, err := capturePublishedObservationIdentity(ctx, cacheRoot, destination)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	return removeObservationProbe(ctx, cacheRoot, destination, identity)
+}
+
+func capturePublishedObservationIdentity(
+	ctx context.Context,
+	cacheRoot *rootedpath.CapturedRoot,
+	destination rootedpath.Destination,
+) (storagecommit.EntryIdentity, error) {
+	capability, err := cacheRoot.Acquire(destination)
+	if err != nil {
+		return storagecommit.EntryIdentity{}, fmt.Errorf("acquire git locator observation identity: %w", err)
+	}
+	identity, err := storagecommit.CaptureRootedEntryIdentity(ctx, capability)
+	closeErr := capability.Close()
+	if err != nil {
+		return storagecommit.EntryIdentity{}, errors.Join(
+			fmt.Errorf("capture git locator observation identity: %w", err),
+			closeErr,
+		)
+	}
+	if closeErr != nil {
+		return storagecommit.EntryIdentity{}, closeErr
+	}
+	if identity.Kind() != mutationfs.EntryKindDirectory {
+		return storagecommit.EntryIdentity{}, fmt.Errorf("git locator observation repository is not a directory")
+	}
+	return identity, nil
 }
 
 func removeObservationProbe(
 	ctx context.Context,
 	cacheRoot *rootedpath.CapturedRoot,
 	destination rootedpath.Destination,
+	identity storagecommit.EntryIdentity,
 ) error {
-	if cacheRoot == nil {
+	if cacheRoot == nil || identity.Kind() != mutationfs.EntryKindDirectory {
 		return nil
 	}
 	capability, err := cacheRoot.Acquire(destination)
 	if err != nil {
 		return fmt.Errorf("acquire git locator observation cleanup: %w", err)
-	}
-	identity, err := storagecommit.CaptureRootedEntryIdentity(ctx, capability)
-	if err != nil {
-		_ = capability.Close()
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("inspect git locator observation repository: %w", err)
 	}
 	request, err := storagecommit.NewRootedEntryCleanup(
 		capability,

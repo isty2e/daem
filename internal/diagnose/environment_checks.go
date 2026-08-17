@@ -81,13 +81,29 @@ func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Ch
 	case help.Canceled() && ctx.Err() != nil:
 		return errorCheck("git", fmt.Sprintf("git check stopped by caller context: %v", ctx.Err()))
 	}
+	if !gitInitHelpAdmitted(help) {
+		detail := strings.TrimSpace(help.ErrorDetail())
+		if detail == "" {
+			detail = "git init -h failed"
+		}
+		return errorCheck("git", fmt.Sprintf("git init -h failed: %s", detail))
+	}
 	output := strings.TrimSpace(strings.TrimSpace(help.Stdout()) + "\n" + strings.TrimSpace(help.Stderr()))
-	if output == "" && help.Failed() {
-		check.Detail = check.Detail + "; object-format capability could not be inspected"
-		return check
+	if output == "" {
+		return errorCheck("git", "git init -h returned empty output")
 	}
 	check.Detail = check.Detail + "; " + gitObjectFormatCapabilityLabel(output)
 	return check
+}
+
+const gitHelpUsageExitCode = 129
+
+func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
+	if result.Succeeded() {
+		return true
+	}
+	exitCode, ok := result.ExitCode()
+	return ok && exitCode == gitHelpUsageExitCode
 }
 
 func classifyGitVersionAttempt(

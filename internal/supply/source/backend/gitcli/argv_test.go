@@ -30,7 +30,7 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 		{
 			name: "legacy sha1 bare repository initialization",
 			got:  initializeBareRepositoryArgs(gitObjectFormatSHA1, false),
-			want: []string{"init", "--bare", "--quiet"},
+			want: []string{"-c", "init.defaultObjectFormat=sha1", "init", "--bare", "--quiet"},
 		},
 		{
 			name: "sha256 bare repository initialization",
@@ -61,6 +61,16 @@ func TestGitArgvShapesKeepDataAfterOptionTerminators(t *testing.T) {
 			name: "local object-format configuration inspection",
 			got:  localObjectFormatConfigArgs(localPath),
 			want: []string{"-C", localPath, "config", "--local", "--no-includes", "--get", "extensions.objectformat"},
+		},
+		{
+			name: "repository object-format configuration inspection",
+			got:  inspectObjectFormatConfigArgs(),
+			want: []string{"config", "--local", "--no-includes", "--get", "extensions.objectformat"},
+		},
+		{
+			name: "local git directory inspection",
+			got:  localGitDirectoryArgs(localPath),
+			want: []string{"-C", localPath, "rev-parse", "--absolute-git-dir"},
 		},
 		{
 			name: "local object id inspection",

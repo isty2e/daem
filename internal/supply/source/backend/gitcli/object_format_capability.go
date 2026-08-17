@@ -9,25 +9,71 @@ import (
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
-const objectFormatHelpOutputLimit = 64 << 10
+const (
+	objectFormatHelpOutputLimit = 64 << 10
+	gitHelpUsageExitCode        = 129
+)
+
+type objectFormatCapabilityProbe struct {
+	done      chan struct{}
+	supported bool
+	err       error
+}
 
 func (resolver Resolver) explicitObjectFormatSupported(ctx context.Context) (bool, error) {
 	state, err := resolver.requireState()
 	if err != nil {
 		return false, err
 	}
-	state.objectFormatMu.Lock()
-	defer state.objectFormatMu.Unlock()
-	if state.objectFormatProbed {
-		return state.explicitObjectFormat, nil
-	}
-	supported, err := probeExplicitObjectFormatSupport(ctx)
-	if err != nil {
+	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	state.explicitObjectFormat = supported
-	state.objectFormatProbed = true
-	return supported, nil
+
+	state.objectFormatMu.Lock()
+	if state.objectFormatProbed {
+		supported := state.explicitObjectFormat
+		state.objectFormatMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		return supported, nil
+	}
+	inflight := state.objectFormatInflight
+	if inflight == nil {
+		inflight = &objectFormatCapabilityProbe{done: make(chan struct{})}
+		state.objectFormatInflight = inflight
+		state.objectFormatMu.Unlock()
+
+		supported, err := probeExplicitObjectFormatSupport(ctx)
+		state.objectFormatMu.Lock()
+		inflight.supported = supported
+		inflight.err = err
+		if err == nil {
+			state.explicitObjectFormat = supported
+			state.objectFormatProbed = true
+		}
+		state.objectFormatInflight = nil
+		close(inflight.done)
+		state.objectFormatMu.Unlock()
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		return supported, err
+	}
+	state.objectFormatMu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-inflight.done:
+		if err := ctx.Err(); err != nil {
+			return false, err
+		}
+		if inflight.err != nil {
+			return resolver.explicitObjectFormatSupported(ctx)
+		}
+		return inflight.supported, nil
+	}
 }
 
 func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
@@ -53,28 +99,38 @@ func probeExplicitObjectFormatSupport(ctx context.Context) (bool, error) {
 		Args:        inspectGitInitHelpArgs(),
 		OutputLimit: objectFormatHelpOutputLimit,
 	})
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	output := strings.TrimSpace(result.Stdout() + "\n" + result.Stderr())
 	switch {
 	case result.TimedOut():
 		return false, fmt.Errorf("inspect git object-format capability: timed out")
 	case result.Canceled():
-		if err := ctx.Err(); err != nil {
-			return false, err
-		}
 		return false, fmt.Errorf("inspect git object-format capability: canceled")
 	case result.Reason() == subprocess.CommandReasonMissingRunner:
 		return false, fmt.Errorf("inspect git object-format capability: git executable was not found in PATH")
-	case output == "" && result.Failed():
+	case !gitInitHelpAdmitted(result):
 		detail := strings.TrimSpace(result.ErrorDetail())
 		if detail == "" {
 			detail = "git init -h failed"
 		}
 		return false, fmt.Errorf("inspect git object-format capability: %s", detail)
+	case output == "":
+		return false, fmt.Errorf("inspect git object-format capability: git init -h returned empty output")
 	case (result.StdoutTruncated() || result.StderrTruncated()) && !gitHelpSupportsExplicitObjectFormat(output):
 		return false, fmt.Errorf("inspect git object-format capability: help output was truncated")
 	default:
 		return gitHelpSupportsExplicitObjectFormat(output), nil
 	}
+}
+
+func gitInitHelpAdmitted(result subprocess.CommandAttemptResult) bool {
+	if result.Succeeded() {
+		return true
+	}
+	exitCode, ok := result.ExitCode()
+	return ok && exitCode == gitHelpUsageExitCode
 }
 
 func gitHelpSupportsExplicitObjectFormat(help string) bool {

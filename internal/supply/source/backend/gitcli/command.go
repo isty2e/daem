@@ -142,6 +142,20 @@ func (handle *repositoryHandle) verifyLocalConfiguration(ctx context.Context) er
 		if handle.repository.format != gitObjectFormatSHA1 {
 			return fmt.Errorf("git source object format sha256 requires a git binary that supports --object-format")
 		}
+		if counts["extensions.objectformat"] != 1 {
+			return nil
+		}
+		formatOutput, err := handle.gitOutput(ctx, inspectObjectFormatConfigArgs()...)
+		if err != nil {
+			return fmt.Errorf("inspect git repository cache object format: %w", err)
+		}
+		format, err := parseGitObjectFormat(formatOutput)
+		if err != nil {
+			return err
+		}
+		if format != gitObjectFormatSHA1 {
+			return fmt.Errorf("git repository cache object format does not match the observed source")
+		}
 		return nil
 	}
 	formatOutput, err := handle.gitOutput(ctx, inspectObjectFormatArgs()...)

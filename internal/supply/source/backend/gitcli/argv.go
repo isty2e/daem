@@ -1,11 +1,10 @@
 package gitcli
 
 func initializeBareRepositoryArgs(format gitObjectFormat, explicit bool) []string {
-	args := []string{"init", "--bare", "--quiet"}
 	if explicit {
-		args = append(args, "--object-format="+string(format))
+		return []string{"init", "--bare", "--quiet", "--object-format=" + string(format)}
 	}
-	return args
+	return []string{"-c", "init.defaultObjectFormat=sha1", "init", "--bare", "--quiet"}
 }
 
 func inspectGitInitHelpArgs() []string {
@@ -22,6 +21,14 @@ func localObjectFormatArgs(path string) []string {
 
 func localObjectFormatConfigArgs(path string) []string {
 	return []string{"-C", path, "config", "--local", "--no-includes", "--get", "extensions.objectformat"}
+}
+
+func inspectObjectFormatConfigArgs() []string {
+	return []string{"config", "--local", "--no-includes", "--get", "extensions.objectformat"}
+}
+
+func localGitDirectoryArgs(path string) []string {
+	return []string{"-C", path, "rev-parse", "--absolute-git-dir"}
 }
 
 func localObjectIDArgs(path string, objectName string) []string {

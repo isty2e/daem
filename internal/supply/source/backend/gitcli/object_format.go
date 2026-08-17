@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -334,7 +335,50 @@ func (resolver Resolver) observeLegacyLocalObjectFormat(
 		}
 		return format, true, nil
 	}
-	return gitObjectFormatSHA1, true, nil
+	if output, err := resolver.gitOutputInCacheRoot(ctx, cacheRoot, localGitDirectoryArgs(localPath)...); err == nil {
+		if gitDirectoryOwnsLocalPath(output, localPath) {
+			return gitObjectFormatSHA1, true, nil
+		}
+	}
+	return "", false, fmt.Errorf("inspect local git object format: local locator is not a git repository")
+}
+
+func gitDirectoryOwnsLocalPath(gitDir string, localPath string) bool {
+	gitCandidates := uniqueCleanPaths(gitDir)
+	localCandidates := uniqueCleanPaths(localPath)
+	for _, gitCandidate := range gitCandidates {
+		for _, localCandidate := range localCandidates {
+			if gitCandidate == localCandidate || gitCandidate == filepath.Join(localCandidate, ".git") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func uniqueCleanPaths(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var paths []string
+	add := func(path string) {
+		cleaned := filepath.Clean(path)
+		if cleaned == "" || cleaned == "." {
+			return
+		}
+		if _, ok := seen[cleaned]; ok {
+			return
+		}
+		seen[cleaned] = struct{}{}
+		paths = append(paths, cleaned)
+	}
+	add(trimmed)
+	if resolved, err := filepath.EvalSymlinks(trimmed); err == nil {
+		add(resolved)
+	}
+	return paths
 }
 
 func (resolver Resolver) remoteRefAdvertisementBudget() remoteRefAdvertisementBudget {
