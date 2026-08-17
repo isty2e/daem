@@ -27,9 +27,10 @@ const (
 type EntrySetState string
 
 const (
-	EntrySetNotDeclared EntrySetState = "not_declared"
-	EntrySetObserved    EntrySetState = "observed"
-	EntrySetUnsupported EntrySetState = "unsupported"
+	EntrySetNotDeclared    EntrySetState = "not_declared"
+	EntrySetObserved       EntrySetState = "observed"
+	EntrySetUnsupported    EntrySetState = "unsupported"
+	EntrySetBudgetExceeded EntrySetState = "budget_exceeded"
 )
 
 // ReasonCode is a stable passive config-entry unsupported reason.
@@ -163,6 +164,11 @@ func (observation Observation) EntrySetUnsupported() bool {
 	return observation.entrySetState == EntrySetUnsupported
 }
 
+// EntrySetBudgetExceeded reports whether the entry set exceeded the observation envelope.
+func (observation Observation) EntrySetBudgetExceeded() bool {
+	return observation.entrySetState == EntrySetBudgetExceeded
+}
+
 // Entries returns a defensive copy of passive config entries.
 func (observation Observation) Entries() []Entry {
 	return append([]Entry(nil), observation.entries...)
@@ -182,7 +188,7 @@ func validActivationDisclosure(disclosure ActivationDisclosure) bool {
 
 func validEntrySetState(state EntrySetState) bool {
 	switch state {
-	case EntrySetNotDeclared, EntrySetObserved, EntrySetUnsupported:
+	case EntrySetNotDeclared, EntrySetObserved, EntrySetUnsupported, EntrySetBudgetExceeded:
 		return true
 	default:
 		return false

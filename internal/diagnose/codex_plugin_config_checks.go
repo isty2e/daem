@@ -53,6 +53,12 @@ func codexPluginConfigChecks(
 			"observe-only Codex plugin config entries blocked: plugins table has unsupported shape; no daem ownership, lock, install, readiness, or mutation authority",
 		)}
 	}
+	if observation.EntrySetBudgetExceeded() {
+		return []findings.Check{warnCheck(
+			"target=codex plugin_config",
+			"observe-only Codex plugin config entries blocked: SOURCE_ARTIFACT_BUDGET_EXCEEDED; no daem ownership, lock, install, readiness, or mutation authority",
+		)}
+	}
 	entries := observation.Entries()
 	if len(entries) == 0 {
 		return []findings.Check{okCheck(

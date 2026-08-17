@@ -1,6 +1,7 @@
 package codexplugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -301,6 +302,31 @@ func TestObserveConfigFileRejectsSymlinkedAuthorityFile(t *testing.T) {
 		!strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ObserveConfigFile error = %v", err)
 	}
+}
+
+func TestObserveConfigFileBlocksPluginKeyOverflow(t *testing.T) {
+	observation, err := ObserveConfigFile(writeCodexConfig(t, overflowingCodexPluginConfig()))
+	if err != nil {
+		t.Fatalf("ObserveConfigFile returned error: %v", err)
+	}
+	if !observation.ConfigExists() ||
+		!observation.EntrySetBudgetExceeded() ||
+		observation.EntrySetObserved() ||
+		len(observation.Entries()) != 0 {
+		t.Fatalf("observation = %#v, want budget-exceeded entry set without stored entries", observation)
+	}
+	if _, err := ExactConfiguredSources(observation); err == nil ||
+		!strings.Contains(err.Error(), "budget") {
+		t.Fatalf("ExactConfiguredSources error = %v, want budget rejection", err)
+	}
+}
+
+func overflowingCodexPluginConfig() string {
+	var body strings.Builder
+	for index := 0; index < MaximumObservationEntries+1; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", versionName(index)+"@market")
+	}
+	return body.String()
 }
 
 func writeCodexConfig(t *testing.T, content string) string {

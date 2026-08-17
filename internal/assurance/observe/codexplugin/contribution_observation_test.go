@@ -223,6 +223,53 @@ func TestObserveConfiguredPluginContributionsBlocksManifestKeyOverflow(t *testin
 	}
 }
 
+func TestObserveConfiguredPluginContributionsBlocksSkillPathOverflow(t *testing.T) {
+	homeDirectory := t.TempDir()
+	paths := make([]string, MaximumObservationEntries+1)
+	for index := range paths {
+		paths[index] = `"./s` + versionName(index) + `"`
+	}
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "skills": [`+strings.Join(paths, ",")+`]
+}`)
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want skill-path budget blocker", observations[0])
+	}
+}
+
+func TestObserveConfiguredPluginContributionsKeepsLargeInlineHookObjectDeclared(t *testing.T) {
+	homeDirectory := t.TempDir()
+	keys := make([]string, MaximumObservationEntries+1)
+	for index := range keys {
+		keys[index] = `"` + versionName(index) + `": {}`
+	}
+	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "alpha", "local"), ".codex-plugin", "plugin.json"), `{
+  "hooks": {`+strings.Join(keys, ",")+`}
+}`)
+
+	observations := ObserveConfiguredPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionDeclared ||
+		!row.HasContribution() ||
+		row.Kind() != observecontribution.SourceContributionHook ||
+		row.Key() != "inline" {
+		t.Fatalf("observation = %#v, want declared inline hook without materializing keys", observations[0])
+	}
+}
+
 func TestObserveConfiguredPluginContributionsUnavailableUnreadableSkills(t *testing.T) {
 	homeDirectory := t.TempDir()
 	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")

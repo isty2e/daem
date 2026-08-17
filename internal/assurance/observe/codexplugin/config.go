@@ -57,6 +57,12 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 		return configObservation(configPath, true, observeconfig.EntrySetUnsupported, nil)
 	}
 
+	budget := &observationBudget{}
+	for key := range plugins {
+		if budget.consumeNames([]string{key}) {
+			return configObservation(configPath, true, observeconfig.EntrySetBudgetExceeded, nil)
+		}
+	}
 	keys := sortedMapKeys(plugins)
 	entries := make([]observeconfig.Entry, 0, len(keys))
 	for _, key := range keys {
@@ -75,6 +81,9 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 func ExactConfiguredSources(observation observeconfig.Observation) ([]string, error) {
 	if observation.EntrySetUnsupported() {
 		return nil, fmt.Errorf("Codex plugins config container is unsupported")
+	}
+	if observation.EntrySetBudgetExceeded() {
+		return nil, fmt.Errorf("Codex plugins config exceeds observation budget")
 	}
 	if !observation.EntrySetObserved() {
 		return nil, nil

@@ -3,9 +3,9 @@ package codexplugin
 const (
 	// MaximumContributionFileBytes bounds one Codex plugin contribution file snapshot.
 	MaximumContributionFileBytes int64 = 4 << 20
-	// MaximumObservationEntries bounds plugin keys, directory names, manifest
-	// paths/keys, and emitted contribution rows in one
-	// ObserveConfiguredPluginContributions call.
+	// MaximumObservationEntries bounds plugin config keys, directory names,
+	// manifest paths/keys, and emitted contribution rows in one Codex plugin
+	// observation operation.
 	MaximumObservationEntries = 4096
 	// MaximumObservationNameBytes bounds the aggregate name bytes counted toward
 	// MaximumObservationEntries.

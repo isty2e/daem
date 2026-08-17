@@ -53,6 +53,11 @@ func TestCorrelateConfigUsesOnlyExactSelectedCodexRelation(t *testing.T) {
 			wantFailure: true,
 		},
 		{
+			name:        "plugin key overflow fails closed",
+			content:     overflowingCodexPluginConfig(),
+			wantFailure: true,
+		},
+		{
 			name:      "missing plugins table is exact absence",
 			content:   "model = \"gpt-test\"\n",
 			wantState: observerelation.StateMissing,

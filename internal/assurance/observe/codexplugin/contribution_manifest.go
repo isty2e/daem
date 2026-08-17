@@ -1,14 +1,24 @@
 package codexplugin
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
 )
+
+var (
+	errJSONShape = errors.New("unsupported JSON shape")
+	errJSONDepth = errors.New("JSON nesting exceeds observation depth")
+)
+
+const maximumObservationJSONDepth = 128
 
 type rawPluginContributionManifest struct {
 	Name       string          `json:"name"`
@@ -63,12 +73,9 @@ func skillContributions(
 	plugin *pluginObservation,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	paths, ok := decodePathList(raw)
-	if !ok {
-		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
-	}
-	if plugin.budget.consumeNames(paths) {
-		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	paths, reason := decodePathList(raw, plugin.budget)
+	if reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, nil
 	}
 	contributions := []observecontribution.SourceContribution{}
 	for _, path := range paths {
@@ -225,11 +232,12 @@ func mcpServerContributions(
 	plugin *pluginObservation,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	if keys, ok := decodeObjectKeys(raw); ok {
-		if plugin.budget.consumeNames(keys) {
-			return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
-		}
+	keys, reason := decodeObjectKeys(raw, plugin.budget)
+	if reason == observecontribution.SourceContributionReasonNone {
 		return contributionKeys(plugin.budget, observecontribution.SourceContributionMCPServer, keys, "mcpServers")
+	}
+	if reason != observecontribution.SourceContributionReasonUnsupportedShape {
+		return nil, reason, nil
 	}
 
 	path, ok := decodeString(raw)
@@ -247,20 +255,9 @@ func mcpServerContributions(
 	if err != nil || reason != observecontribution.SourceContributionReasonNone {
 		return nil, reason, err
 	}
-	var parsed map[string]json.RawMessage
-	if err := json.Unmarshal(content, &parsed); err != nil {
-		return nil, observecontribution.SourceContributionReasonArtifactMalformed, nil
-	}
-	rawServers, ok := parsed["mcpServers"]
-	if !ok {
-		rawServers = content
-	}
-	keys, ok := decodeObjectKeys(rawServers)
-	if !ok {
-		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
-	}
-	if plugin.budget.consumeNames(keys) {
-		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	keys, reason = decodeReferencedMCPServerKeys(content, plugin.budget)
+	if reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, nil
 	}
 	return contributionKeys(plugin.budget, observecontribution.SourceContributionMCPServer, keys, relative)
 }
@@ -294,15 +291,12 @@ func hookContributions(
 	artifactIdentity string,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	if _, ok := decodeObjectKeys(raw); ok {
+	if jsonObjectShape(raw) {
 		return emitContribution(plugin.budget, observecontribution.SourceContributionHook, "inline", artifactIdentity)
 	}
-	paths, ok := decodePathList(raw)
-	if !ok {
-		return nil, observecontribution.SourceContributionReasonUnsupportedShape, nil
-	}
-	if plugin.budget.consumeNames(paths) {
-		return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded, nil
+	paths, reason := decodePathList(raw, plugin.budget)
+	if reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, nil
 	}
 	contributions := make([]observecontribution.SourceContribution, 0, len(paths))
 	for _, path := range paths {
@@ -338,39 +332,200 @@ func decodeString(raw json.RawMessage) (string, bool) {
 	return value, true
 }
 
-func decodePathList(raw json.RawMessage) ([]string, bool) {
-	if value, ok := decodeString(raw); ok {
-		return []string{value}, true
+func decodePathList(
+	raw json.RawMessage,
+	budget *observationBudget,
+) ([]string, observecontribution.SourceContributionReason) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape
 	}
-	var values []string
-	if err := json.Unmarshal(raw, &values); err != nil {
-		return nil, false
-	}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) == "" {
-			return nil, false
+	if value, ok := token.(string); ok {
+		if strings.TrimSpace(value) == "" || !jsonEOF(decoder) {
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
 		}
-		result = append(result, value)
+		if budget.consumeNames([]string{value}) {
+			return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded
+		}
+		return []string{value}, observecontribution.SourceContributionReasonNone
 	}
-	return result, true
+	if token != json.Delim('[') {
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape
+	}
+	paths := []string{}
+	for decoder.More() {
+		item, err := decoder.Token()
+		if err != nil {
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+		}
+		value, ok := item.(string)
+		if !ok || strings.TrimSpace(value) == "" {
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+		}
+		if budget.consumeNames([]string{value}) {
+			return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded
+		}
+		paths = append(paths, value)
+	}
+	if err := consumeJSONDelim(decoder, ']'); err != nil || !jsonEOF(decoder) {
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape
+	}
+	return paths, observecontribution.SourceContributionReasonNone
 }
 
-func decodeObjectKeys(raw json.RawMessage) ([]string, bool) {
-	var values map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &values); err != nil {
-		return nil, false
+func decodeObjectKeys(
+	raw json.RawMessage,
+	budget *observationBudget,
+) ([]string, observecontribution.SourceContributionReason) {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := consumeJSONDelim(decoder, '{'); err != nil {
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape
 	}
-	keys := make([]string, 0, len(values))
-	for key := range values {
+	keys := []string{}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+		}
 		key = strings.TrimSpace(key)
 		if !observecontribution.ValidSourceToken(key) {
-			return nil, false
+			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+		}
+		if budget.consumeNames([]string{key}) {
+			return nil, observecontribution.SourceContributionReasonArtifactBudgetExceeded
+		}
+		if err := skipJSONValue(decoder, 1); err != nil {
+			return nil, jsonSkipReason(err)
 		}
 		keys = append(keys, key)
 	}
+	if err := consumeJSONDelim(decoder, '}'); err != nil || !jsonEOF(decoder) {
+		return nil, observecontribution.SourceContributionReasonUnsupportedShape
+	}
 	sort.Strings(keys)
-	return keys, true
+	return keys, observecontribution.SourceContributionReasonNone
+}
+
+func decodeReferencedMCPServerKeys(
+	content []byte,
+	budget *observationBudget,
+) ([]string, observecontribution.SourceContributionReason) {
+	decoder := json.NewDecoder(bytes.NewReader(content))
+	if err := consumeJSONDelim(decoder, '{'); err != nil {
+		return nil, observecontribution.SourceContributionReasonArtifactMalformed
+	}
+	var mcpServers json.RawMessage
+	found := false
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, observecontribution.SourceContributionReasonArtifactMalformed
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, observecontribution.SourceContributionReasonArtifactMalformed
+		}
+		if key == "mcpServers" {
+			if err := decoder.Decode(&mcpServers); err != nil {
+				return nil, observecontribution.SourceContributionReasonArtifactMalformed
+			}
+			found = true
+			continue
+		}
+		if err := skipJSONValue(decoder, 1); err != nil {
+			return nil, jsonSkipReason(err)
+		}
+	}
+	if err := consumeJSONDelim(decoder, '}'); err != nil || !jsonEOF(decoder) {
+		return nil, observecontribution.SourceContributionReasonArtifactMalformed
+	}
+	if found {
+		return decodeObjectKeys(mcpServers, budget)
+	}
+	return decodeObjectKeys(content, budget)
+}
+
+func jsonObjectShape(raw json.RawMessage) bool {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	if err := consumeJSONDelim(decoder, '{'); err != nil {
+		return false
+	}
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return false
+		}
+		if _, ok := keyToken.(string); !ok {
+			return false
+		}
+		if err := skipJSONValue(decoder, 1); err != nil {
+			return false
+		}
+	}
+	return consumeJSONDelim(decoder, '}') == nil && jsonEOF(decoder)
+}
+
+func skipJSONValue(decoder *json.Decoder, depth int) error {
+	if depth > maximumObservationJSONDepth {
+		return errJSONDepth
+	}
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		for decoder.More() {
+			if _, err := decoder.Token(); err != nil {
+				return err
+			}
+			if err := skipJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		return consumeJSONDelim(decoder, '}')
+	case '[':
+		for decoder.More() {
+			if err := skipJSONValue(decoder, depth+1); err != nil {
+				return err
+			}
+		}
+		return consumeJSONDelim(decoder, ']')
+	default:
+		return errJSONShape
+	}
+}
+
+func consumeJSONDelim(decoder *json.Decoder, want json.Delim) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	if token != want {
+		return errJSONShape
+	}
+	return nil
+}
+
+func jsonEOF(decoder *json.Decoder) bool {
+	_, err := decoder.Token()
+	return errors.Is(err, io.EOF)
+}
+
+func jsonSkipReason(err error) observecontribution.SourceContributionReason {
+	if errors.Is(err, errJSONDepth) || errors.Is(err, errJSONShape) {
+		return observecontribution.SourceContributionReasonUnsupportedShape
+	}
+	return observecontribution.SourceContributionReasonArtifactMalformed
 }
 
 func contributionKeys(

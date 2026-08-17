@@ -1,11 +1,13 @@
 package diagnose
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	observecodexplugin "github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -369,6 +371,38 @@ source = "https://token@example.invalid/repo.git"
 	}
 }
 
+func TestCodexPluginChecksBlockConfigKeyOverflowWithoutContributionInspection(t *testing.T) {
+	homeDirectory := t.TempDir()
+	writeDiagnoseCodexConfig(t, homeDirectory, overflowingDiagnoseCodexPluginConfig())
+	pluginRoot := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "alpha", "local")
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "skills": "./skills/"
+}`)
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatalf("ForDiagnostics returned error: %v", err)
+	}
+
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
+	if len(checks) != 1 {
+		t.Fatalf("checks = %#v, want one budget-exceeded config check", checks)
+	}
+	assertCodexPluginConfigCheck(
+		t,
+		checks,
+		findings.SeverityWarn,
+		"target=codex plugin_config",
+		"SOURCE_ARTIFACT_BUDGET_EXCEEDED",
+	)
+	assertNoCodexPluginContributionChecks(t, checks)
+	for _, check := range checks {
+		if strings.Contains(check.Name, "plugin_config_entry") {
+			t.Fatalf("checks = %#v, want no per-entry config checks after budget overflow", checks)
+		}
+	}
+}
+
 func assertCodexPluginConfigCheck(t *testing.T, checks []findings.Check, severity findings.Severity, name string, detailSubstring string) {
 	t.Helper()
 
@@ -397,6 +431,14 @@ func findCodexPluginCheck(t *testing.T, checks []findings.Check, severity findin
 	}
 	t.Fatalf("checks = %#v, want %s %s", checks, severity, name)
 	return findings.Check{}
+}
+
+func overflowingDiagnoseCodexPluginConfig() string {
+	var body strings.Builder
+	for index := 0; index < observecodexplugin.MaximumObservationEntries+1; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
+	}
+	return body.String()
 }
 
 func writeDiagnoseCodexConfig(t *testing.T, homeDirectory string, content string) {
