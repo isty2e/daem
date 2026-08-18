@@ -23,3 +23,18 @@ func TestGitAttemptContextErrUsesObservedWaitNotCallerReread(t *testing.T) {
 		t.Fatalf("await deadline = %v, want exact context.DeadlineExceeded", got)
 	}
 }
+
+func TestGitObservedLifecycleErrorPrefersCapturedDiagnostic(t *testing.T) {
+	cause := context.Canceled
+	captured := &capturedGitCommandError{diagnostic: "fatal: redacted", cause: cause}
+	got := gitObservedLifecycleError(nil, gitProcessResult{commandErr: captured})
+	if got != captured {
+		t.Fatalf("lifecycle error = %#v, want captured diagnostic wrapper", got)
+	}
+	if !errors.Is(got, context.Canceled) {
+		t.Fatalf("lifecycle error = %v, want unwrap to context.Canceled", got)
+	}
+	if got.Error() != "fatal: redacted" {
+		t.Fatalf("public error = %q, want diagnostic without cause text", got.Error())
+	}
+}

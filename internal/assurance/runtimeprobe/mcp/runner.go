@@ -104,8 +104,11 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	}()
 	var protocolContextErr error
 	defer func() {
-		_ = stdin.Close()
-		var waitErr error
+		invokeAfterMCPProtocolOutcome()
+		closeProtocolStdio()
+		// Wait must start before Terminate so an unreaped leader cannot look
+		// like surviving process-group occupancy during cleanup polling.
+		group.StartWait()
 		processExited := false
 		if ctx.Err() == nil {
 			timer := time.NewTimer(stdinCloseGrace)
@@ -129,8 +132,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		}
 		// Cleanup wait is outside the attempt timeout. Do not let a later
 		// deadline rewrite an already-observed protocol outcome.
-		waitErr = group.Await(context.WithoutCancel(ctx), subprocess.InheritedOutputCloseWait)
-		closeProtocolStdio()
+		waitErr := group.Await(context.WithoutCancel(ctx), subprocess.InheritedOutputCloseWait)
 		close(interruptDone)
 		stderr := stderrCapture.Finish(subprocess.InheritedOutputCloseWait)
 		result.Stderr = stderr.Text
@@ -218,18 +220,31 @@ func finalizeCommandResult(
 	terminationErr error,
 	contextErr error,
 ) commandResult {
+	if result.InitializeSucceeded {
+		// Protocol success is frozen before cleanup. Occupancy or abandoned
+		// wait must not revoke initialize or invent a timeout.
+		return result.withContextOutcome(contextErr)
+	}
 	if terminationErr != nil {
-		result.InitializeSucceeded = false
 		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process group: %w", terminationErr))
 	}
 	if errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned) {
-		result.InitializeSucceeded = false
 		result.Err = errors.Join(result.Err, waitErr)
 	}
-	if result.Err == nil && !result.InitializeSucceeded && waitErr != nil {
+	if result.Err == nil && waitErr != nil {
 		result.Err = waitErr
 	}
 	return result.withContextOutcome(contextErr)
+}
+
+// afterMCPProtocolOutcome is a test hook invoked after the initialize scan has
+// stored its protocol result and before cleanup starts waiting or terminating.
+var afterMCPProtocolOutcome func()
+
+func invokeAfterMCPProtocolOutcome() {
+	if hook := afterMCPProtocolOutcome; hook != nil {
+		hook()
+	}
 }
 
 func writeInitializeRequest(writer io.Writer, protocolVersion string) error {

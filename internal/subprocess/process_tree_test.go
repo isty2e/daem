@@ -1,6 +1,7 @@
 package subprocess
 
 import (
+	"context"
 	"errors"
 	"os/exec"
 	"strings"
@@ -29,5 +30,34 @@ func TestJoinCommandProcessGroupCleanupReportsUnsignalableWithoutDescendantLangu
 	}
 	if !strings.Contains(message, "unsignalable") {
 		t.Fatalf("cleanup error = %q, want unsignalable occupancy language", message)
+	}
+}
+
+func TestProcessOwnedWaitResult(t *testing.T) {
+	t.Parallel()
+	if !processOwnedWaitResult(nil) {
+		t.Fatal("nil wait is process-owned")
+	}
+	if !processOwnedWaitResult(exec.ErrWaitDelay) {
+		t.Fatal("ErrWaitDelay is process-owned")
+	}
+	if processOwnedWaitResult(context.Canceled) {
+		t.Fatal("context.Canceled is not process-owned")
+	}
+	if processOwnedWaitResult(errors.Join(context.DeadlineExceeded, errors.New("signal: killed"))) {
+		t.Fatal("joined deadline is not process-owned")
+	}
+}
+
+func TestCompletedWaitErrDoesNotJoinContextOverProcessOwnedExit(t *testing.T) {
+	t.Parallel()
+	if got := completedWaitErr(nil, context.DeadlineExceeded); got != nil {
+		t.Fatalf("successful wait = %v, want frozen nil", got)
+	}
+	if got := completedWaitErr(exec.ErrWaitDelay, context.Canceled); !errors.Is(got, exec.ErrWaitDelay) || errors.Is(got, context.Canceled) {
+		t.Fatalf("wait delay = %v, want process-owned wait delay", got)
+	}
+	if got := completedWaitErr(context.Canceled, context.DeadlineExceeded); !errors.Is(got, context.DeadlineExceeded) || !errors.Is(got, context.Canceled) {
+		t.Fatalf("non-owned wait = %v, want joined context", got)
 	}
 }

@@ -345,6 +345,7 @@ func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
 	}
 	readyPath := t.TempDir() + "/ready"
 	registerCommandExecEscapedChildCleanup(t, readyPath)
+	entered, release := holdProcessGroupWaitDone(t)
 	ctx := newTriggeredDeadlineContext()
 	executor := NewCommandExecutor(CommandOptions{
 		Timeout:     DefaultCommandTimeout,
@@ -365,11 +366,13 @@ func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
 
 	pids := readCommandExecPIDs(t, readyPath)
 	assertCommandExecProcessesGone(t, pids[:1])
-	// WaitDelay/Await can still be draining inherited pipes after the leader
-	// PID disappears. Expire only after that wait so cleanup, not the leader
-	// wait, observes the deadline.
-	time.Sleep(InheritedOutputCloseWait + 50*time.Millisecond)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for leader wait before cleanup deadline")
+	}
 	ctx.expire()
+	release()
 
 	var result CommandAttemptResult
 	select {
@@ -508,6 +511,25 @@ func registerCommandExecEscapedChildCleanup(t *testing.T, readyPath string) {
 		}
 		_ = unix.Kill(pid, unix.SIGKILL)
 	})
+}
+
+func holdProcessGroupWaitDone(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterProcessGroupWaitDone = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-releaseCh
+	}
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCh) })
+	}
+	t.Cleanup(func() {
+		afterProcessGroupWaitDone = nil
+		release()
+	})
+	return entered, release
 }
 
 type triggeredDeadlineContext struct {

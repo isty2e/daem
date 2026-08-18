@@ -175,8 +175,8 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 	extractErr, result := completeGitProcess(ctx, process, func(reader io.Reader) error {
 		return sourcearchive.ExtractTar(ctx, reader, outputRoot)
 	})
-	if ctxErr := gitAttemptContextErr(extractErr, result); ctxErr != nil {
-		return joinGitProcessGroupTerminateErr(ctxErr, "git archive", result)
+	if lifecycleErr := gitObservedLifecycleError(extractErr, result); lifecycleErr != nil {
+		return joinGitProcessGroupTerminateErr(lifecycleErr, "git archive", result)
 	}
 	if extractErr != nil {
 		if result.termination.UnsignalableOccupancy() || result.terminationErr != nil {

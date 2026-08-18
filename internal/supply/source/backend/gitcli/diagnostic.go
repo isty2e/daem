@@ -2,7 +2,6 @@ package gitcli
 
 import (
 	"errors"
-	"fmt"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -35,17 +34,36 @@ func gitCommandErrorWithCapture(
 	truncated bool,
 ) error {
 	if stderrText := sanitizeGitDiagnosticCaptureWithPolicy(policy, stderr, truncated); stderrText != "" {
-		return fmt.Errorf("%s", stderrText)
+		return &capturedGitCommandError{diagnostic: stderrText, cause: err}
 	}
 
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		if stderrText := sanitizeGitDiagnosticCaptureWithPolicy(policy, string(exitError.Stderr), false); stderrText != "" {
-			return fmt.Errorf("%s", stderrText)
+			return &capturedGitCommandError{diagnostic: stderrText, cause: err}
 		}
 	}
 
 	return err
+}
+
+type capturedGitCommandError struct {
+	diagnostic string
+	cause      error
+}
+
+func (err *capturedGitCommandError) Error() string {
+	if err == nil {
+		return ""
+	}
+	return err.diagnostic
+}
+
+func (err *capturedGitCommandError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.cause
 }
 
 func sanitizeGitDiagnostic(value string) string {

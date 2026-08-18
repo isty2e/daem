@@ -534,8 +534,8 @@ func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader
 	}
 
 	readErr, result := completeGitProcess(ctx, process, consume)
-	if ctxErr := gitAttemptContextErr(readErr, result); ctxErr != nil {
-		return joinGitProcessGroupTerminateErr(ctxErr, "git", result)
+	if lifecycleErr := gitObservedLifecycleError(readErr, result); lifecycleErr != nil {
+		return joinGitProcessGroupTerminateErr(lifecycleErr, "git", result)
 	}
 
 	runErr := readErr

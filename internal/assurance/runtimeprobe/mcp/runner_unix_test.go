@@ -174,6 +174,8 @@ func TestDefaultCommandRunnerNonzeroExitMarksSetsidStderrIncomplete(t *testing.T
 
 func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
 	markerPath := t.TempDir() + "/initialized"
+	registerMCPMarkerPIDCleanup(t, markerPath)
+	entered, release := holdMCPProtocolCleanup(t)
 	ctx := newTriggeredDeadlineContext()
 	resultDone := make(chan commandResult, 1)
 	go func() {
@@ -191,10 +193,13 @@ func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCl
 			ProtocolVersion: defaultProtocolVersion,
 		}))
 	}()
-	if err := waitForMCPProbeFile(markerPath, 5*time.Second); err != nil {
-		t.Fatal(err)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP protocol outcome before cleanup")
 	}
 	ctx.expire()
+	release()
 
 	var result commandResult
 	select {
@@ -209,6 +214,8 @@ func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCl
 
 func TestDefaultCommandRunnerKeepsFailedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
 	markerPath := t.TempDir() + "/initialize-error"
+	registerMCPMarkerPIDCleanup(t, markerPath)
+	entered, release := holdMCPProtocolCleanup(t)
 	ctx := newTriggeredDeadlineContext()
 	resultDone := make(chan commandResult, 1)
 	go func() {
@@ -226,10 +233,13 @@ func TestDefaultCommandRunnerKeepsFailedInitializeWhenDeadlineExpiresDuringClean
 			ProtocolVersion: defaultProtocolVersion,
 		}))
 	}()
-	if err := waitForMCPProbeFile(markerPath, 5*time.Second); err != nil {
-		t.Fatal(err)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP protocol outcome before cleanup")
 	}
 	ctx.expire()
+	release()
 
 	var result commandResult
 	select {
@@ -421,6 +431,40 @@ func writeMCPProbeHelperFile(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func holdMCPProtocolCleanup(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterMCPProtocolOutcome = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-releaseCh
+	}
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCh) })
+	}
+	t.Cleanup(func() {
+		afterMCPProtocolOutcome = nil
+		release()
+	})
+	return entered, release
+}
+
+func registerMCPMarkerPIDCleanup(t *testing.T, markerPath string) {
+	t.Helper()
+	t.Cleanup(func() {
+		content, err := os.ReadFile(markerPath + ".pid")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
 }
 
 func assertMCPProbeProcessAlive(t *testing.T, pid int) {

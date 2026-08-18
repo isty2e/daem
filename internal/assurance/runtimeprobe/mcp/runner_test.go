@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -194,7 +195,7 @@ func TestDefaultCommandRunnerFailsClosedWithoutNativeWorkingDirectory(t *testing
 	}
 }
 
-func TestFinalizeCommandResultRevokesInitializeSuccessOnCleanupFailure(t *testing.T) {
+func TestFinalizeCommandResultKeepsInitializeWhenCleanupFails(t *testing.T) {
 	cleanupErr := errors.New("descendant survived")
 	result := finalizeCommandResult(
 		commandResult{Started: true, InitializeSucceeded: true},
@@ -203,10 +204,8 @@ func TestFinalizeCommandResultRevokesInitializeSuccessOnCleanupFailure(t *testin
 		nil,
 	)
 
-	if result.InitializeSucceeded || result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "terminate MCP process group") ||
-		!errors.Is(result.Err, cleanupErr) {
-		t.Fatalf("result = %#v, want cleanup failure to revoke initialize success", result)
+	if !result.InitializeSucceeded || result.TimedOut || result.Canceled || result.Err != nil {
+		t.Fatalf("result = %#v, want initialize preserved through cleanup failure", result)
 	}
 }
 
@@ -318,7 +317,7 @@ func runSuccessfulMCPProbeHelper(keepRunning bool) {
 		os.Exit(6)
 	}
 	if marker := os.Getenv("DAEM_MCPPROBE_MARKER"); marker != "" {
-		if err := os.WriteFile(marker, []byte("initialized\n"), 0o600); err != nil {
+		if err := writeMCPProbeMarker(marker, []byte("initialized\n")); err != nil {
 			os.Exit(7)
 		}
 	}
@@ -353,7 +352,7 @@ func runInitializeErrorThenHangMCPProbeHelper() {
 	readInitializeRequestOrExit()
 	fmt.Println(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad initialize"}}`)
 	if marker := os.Getenv("DAEM_MCPPROBE_MARKER"); marker != "" {
-		if err := os.WriteFile(marker, []byte("initialize-error\n"), 0o600); err != nil {
+		if err := writeMCPProbeMarker(marker, []byte("initialize-error\n")); err != nil {
 			os.Exit(7)
 		}
 	}
@@ -389,4 +388,11 @@ func readInitializeRequestFromReaderOrExit(reader *bufio.Reader) {
 		request.Method != "initialize" {
 		os.Exit(9)
 	}
+}
+
+func writeMCPProbeMarker(marker string, content []byte) error {
+	if err := os.WriteFile(marker+".pid", []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, content, 0o600)
 }

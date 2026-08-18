@@ -70,6 +70,10 @@ type ProcessGroup struct {
 	waitErr  error
 }
 
+// afterProcessGroupWaitDone is a test hook invoked after command.Wait returns
+// and before Await classifies a still-live attempt context against that wait.
+var afterProcessGroupWaitDone func()
+
 // BindProcessGroup configures command to create a fresh process group and replaces the
 // CommandContext direct-child cancellation hook with dedicated-group cleanup.
 // BindProcessGroup must be called before command.Start. Session-escaped
@@ -180,6 +184,12 @@ func (group *ProcessGroup) WaitDone() <-chan struct{} {
 // has already been terminated, it returns if the leader has not exited within
 // abandonBound. command.Wait continues in the background so the child can
 // still be reaped.
+//
+// Once command.Wait has returned, that wait result is frozen. A later expired
+// attempt context does not rewrite a process-owned exit. CommandContext kill
+// during this Await still classifies timeout or cancel from a wait that has
+// not completed yet, or from a non-owned wait (typically a signal) that races
+// with ctx.Done.
 func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration) error {
 	if group == nil {
 		return fmt.Errorf("await process group: group is required")
@@ -193,13 +203,14 @@ func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration
 	group.StartWait()
 	select {
 	case <-group.waitDone:
-		if err := ctx.Err(); err != nil {
-			// Wait completed, but the attempt context had already expired.
-			// That includes CommandContext killing the leader; classify from
-			// this Await return, not from ctx.Err() after later cleanup.
-			return errors.Join(err, group.waitErr)
-		}
-		return group.waitErr
+		invokeAfterProcessGroupWaitDone()
+		return completedWaitErr(group.waitErr, ctx.Err())
+	default:
+	}
+	select {
+	case <-group.waitDone:
+		invokeAfterProcessGroupWaitDone()
+		return completedWaitErr(group.waitErr, ctx.Err())
 	case <-ctx.Done():
 		_, terminateErr := group.Terminate()
 		return group.finishAwait(abandonBound, ctx.Err(), terminateErr)
@@ -213,10 +224,35 @@ func (group *ProcessGroup) finishAwait(abandonBound time.Duration, ctxErr error,
 	defer timer.Stop()
 	select {
 	case <-group.waitDone:
-		return errors.Join(ctxErr, group.waitErr)
+		invokeAfterProcessGroupWaitDone()
+		return completedWaitErr(group.waitErr, ctxErr)
 	case <-timer.C:
 		return errors.Join(ctxErr, terminateErr, ErrProcessWaitAbandoned)
 	}
+}
+
+func invokeAfterProcessGroupWaitDone() {
+	if hook := afterProcessGroupWaitDone; hook != nil {
+		hook()
+	}
+}
+
+func completedWaitErr(waitErr error, ctxErr error) error {
+	if processOwnedWaitResult(waitErr) {
+		return waitErr
+	}
+	if ctxErr != nil {
+		return errors.Join(ctxErr, waitErr)
+	}
+	return waitErr
+}
+
+func processOwnedWaitResult(err error) bool {
+	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
+		return true
+	}
+	var exitErr *exec.ExitError
+	return errors.As(err, &exitErr) && exitErr.ExitCode() >= 0
 }
 
 func (options processTerminationOptions) withDefaults() processTerminationOptions {

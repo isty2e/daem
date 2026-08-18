@@ -143,11 +143,16 @@ func completeGitProcess(
 	waitDone := process.group.WaitDone()
 	var consumeErr error
 	incomplete := false
+	leaderExited := false
 	for {
 		select {
 		case consumeErr = <-consumeDone:
 			if consumeErr != nil {
 				_, _ = process.Terminate()
+			}
+			if ctx.Err() == nil && waitAlreadyDone(waitDone) {
+				leaderExited = true
+				invokeAfterGitLeaderWait()
 			}
 			goto waited
 		case <-ctxDone:
@@ -155,8 +160,12 @@ func completeGitProcess(
 			startDrain()
 			ctxDone = nil
 		case <-waitDone:
+			if ctx.Err() == nil {
+				leaderExited = true
+			}
 			startDrain()
 			waitDone = nil
+			invokeAfterGitLeaderWait()
 		case <-drain:
 			process.closeOutputReaders()
 			consumeErr = <-consumeDone
@@ -166,7 +175,11 @@ func completeGitProcess(
 	}
 
 waited:
-	waitErr := process.group.Await(ctx, subprocess.InheritedOutputCloseWait)
+	awaitCtx := ctx
+	if leaderExited {
+		awaitCtx = context.WithoutCancel(ctx)
+	}
+	waitErr := process.group.Await(awaitCtx, subprocess.InheritedOutputCloseWait)
 	termination, terminationErr := process.group.ReapAfterLeaderExit()
 	stderrReadErr, stderrIncomplete := process.finishStderr()
 	_ = process.stdout.Close()
@@ -197,6 +210,40 @@ func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
 		return context.Canceled
 	}
 	return nil
+}
+
+func gitObservedLifecycleError(consumeErr error, result gitProcessResult) error {
+	ctxErr := gitAttemptContextErr(consumeErr, result)
+	if ctxErr == nil {
+		return nil
+	}
+	var captured *capturedGitCommandError
+	if errors.As(result.commandErr, &captured) {
+		return captured
+	}
+	return ctxErr
+}
+
+// afterGitLeaderWait is a test hook invoked after WaitDone is observed and
+// before completeGitProcess drains inherited output and Awaits cleanup.
+var afterGitLeaderWait func()
+
+func invokeAfterGitLeaderWait() {
+	if hook := afterGitLeaderWait; hook != nil {
+		hook()
+	}
+}
+
+func waitAlreadyDone(waitDone <-chan struct{}) bool {
+	if waitDone == nil {
+		return true
+	}
+	select {
+	case <-waitDone:
+		return true
+	default:
+		return false
+	}
 }
 
 func joinGitProcessGroupTerminateErr(base error, role string, result gitProcessResult) error {

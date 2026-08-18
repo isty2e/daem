@@ -117,8 +117,8 @@ func TestGroupTerminatesResidualGrandchildAfterLeaderExit(t *testing.T) {
 	assertProcessTreeProcessesGone(t, pids[1:])
 }
 
-func TestAwaitJoinsAlreadyExpiredContextWhenLeaderAlreadyExited(t *testing.T) {
-	cmd := exec.CommandContext(context.Background(), "/bin/echo", "await-join")
+func TestAwaitKeepsCompletedWaitWhenContextLaterExpires(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "/bin/echo", "await-frozen")
 	group, err := BindProcessGroup(cmd)
 	if err != nil {
 		t.Fatalf("BindProcessGroup: %v", err)
@@ -133,8 +133,8 @@ func TestAwaitJoinsAlreadyExpiredContextWhenLeaderAlreadyExited(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err = group.Await(ctx, InheritedOutputCloseWait)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("second Await error = %v, want canceled joined after leader wait already completed", err)
+	if err != nil {
+		t.Fatalf("second Await error = %v, want frozen successful wait", err)
 	}
 }
 
