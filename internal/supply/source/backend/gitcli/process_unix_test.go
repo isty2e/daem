@@ -95,12 +95,13 @@ func TestRunGitOutputReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
 	cancel()
 	select {
 	case err := <-result:
-		if err != context.Canceled {
-			t.Fatalf("runGitOutput error = %#v, want exact context.Canceled", err)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("runGitOutput error = %#v, want context.Canceled", err)
 		}
 	case <-time.After(6 * time.Second):
 		t.Fatal("runGitOutput did not return after cancellation while a setsid child held pipes")
 	}
+	assertGitHelperProcessesGone(t, pids[:1])
 	assertGitHelperProcessAlive(t, pids[1])
 }
 
