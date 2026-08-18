@@ -90,6 +90,9 @@ func TestDefaultCommandRunnerSuccessCleansServerGrandchild(t *testing.T) {
 	if !result.Started || !result.InitializeSucceeded || result.Err != nil {
 		t.Fatalf("result = %#v, want successful initialize and cleanup", result)
 	}
+	if result.StderrTruncated {
+		t.Fatalf("stderr truncated after killing an initialized server, want complete kill+EOF capture")
+	}
 	assertMCPProbeProcessesGone(t, readMCPProbePIDs(t, readyPath))
 }
 
@@ -116,6 +119,16 @@ func TestDefaultCommandRunnerReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
 	}
 	if !result.Started || !result.Canceled || result.InitializeSucceeded {
 		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	if !result.StderrTruncated {
+		t.Fatalf("stderr truncated=%t stderr=%q, want forced incomplete capture", result.StderrTruncated, result.Stderr)
+	}
+	capture := sanitizeCapture(result, []string{"super-secret"}, defaultOutputLimit)
+	if strings.Contains(capture.stderr, "super-") || strings.Contains(capture.stderr, "super-secret") {
+		t.Fatalf("capture leaked secret prefix: %#v", capture)
+	}
+	if !capture.stderrTruncated || !capture.redacted {
+		t.Fatalf("capture = %#v, want redacted truncated stderr", capture)
 	}
 	assertMCPProbeProcessAlive(t, pids[1])
 }
@@ -181,6 +194,9 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 		"DAEM_MCPPROBE_TREE_READY="+readyPath,
 	)
 	if mode == "setsid-inherit-parent" {
+		if _, err := os.Stderr.WriteString("super-"); err != nil {
+			os.Exit(78)
+		}
 		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		child.Stdout = os.Stdout
 		child.Stderr = os.Stderr

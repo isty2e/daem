@@ -8,9 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/isty2e/daem/internal/subprocess"
 )
 
 func TestDefaultCommandRunnerInitializesStdioServerAndCleansUp(t *testing.T) {
@@ -34,6 +37,9 @@ func TestDefaultCommandRunnerInitializesStdioServerAndCleansUp(t *testing.T) {
 
 	if !result.Started || !result.InitializeSucceeded || result.Err != nil {
 		t.Fatalf("result = %#v, want started successful initialize", result)
+	}
+	if result.StderrTruncated || !strings.Contains(result.Stderr, "mcp-stderr-complete") {
+		t.Fatalf("stderr = %q truncated=%t, want complete captured stderr", result.Stderr, result.StderrTruncated)
 	}
 	content, err := os.ReadFile(markerPath)
 	if err != nil {
@@ -136,6 +142,70 @@ func TestDefaultCommandRunnerTimesOutAndCleansUp(t *testing.T) {
 	}
 	if elapsed > 3*time.Second {
 		t.Fatalf("cleanup took %s, want bounded timeout cleanup", elapsed)
+	}
+}
+
+func TestReleaseUnstartedStdioClosesParentAndChildPipeEnds(t *testing.T) {
+	cmd := exec.Command("true")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	childIn, ok := cmd.Stdin.(*os.File)
+	if !ok {
+		t.Fatalf("cmd.Stdin type %T, want *os.File", cmd.Stdin)
+	}
+	childOut, ok := cmd.Stdout.(*os.File)
+	if !ok {
+		t.Fatalf("cmd.Stdout type %T, want *os.File", cmd.Stdout)
+	}
+
+	releaseUnstartedStdio(cmd, stdin, stdout)
+
+	if _, err := stdin.Write([]byte("x")); err == nil {
+		t.Fatal("parent stdin still writable after release")
+	}
+	if _, err := stdout.Read(make([]byte, 1)); err == nil {
+		t.Fatal("parent stdout still readable after release")
+	}
+	if _, err := childIn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("child stdin still readable after release")
+	}
+	if _, err := childOut.Write([]byte("x")); err == nil {
+		t.Fatal("child stdout still writable after release")
+	}
+	if _, err := stderr.WriteString("kept"); err != nil {
+		t.Fatalf("diagnostic stderr writer: %v", err)
+	}
+}
+
+func TestStderrCaptureIncompleteTreatsForcedOrUncertainClosureAsTruncated(t *testing.T) {
+	complete := subprocess.NewBoundedBuffer(32)
+	if stderrCaptureIncomplete(complete, nil, subprocess.ProcessTermination{}, nil) {
+		t.Fatal("complete capture marked truncated")
+	}
+
+	overflow := subprocess.NewBoundedBuffer(4)
+	if _, err := overflow.Write([]byte("12345")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if !stderrCaptureIncomplete(overflow, nil, subprocess.ProcessTermination{}, nil) {
+		t.Fatal("bounded overflow not truncated")
+	}
+	if !stderrCaptureIncomplete(complete, exec.ErrWaitDelay, subprocess.ProcessTermination{}, nil) {
+		t.Fatal("WaitDelay not truncated")
+	}
+	if !stderrCaptureIncomplete(complete, subprocess.ErrProcessWaitAbandoned, subprocess.ProcessTermination{}, nil) {
+		t.Fatal("abandoned wait not truncated")
+	}
+	if !stderrCaptureIncomplete(complete, nil, subprocess.ProcessTermination{}, errors.New("terminate failed")) {
+		t.Fatal("termination error not truncated")
 	}
 }
 
@@ -281,6 +351,7 @@ func runSuccessfulMCPProbeHelper(keepRunning bool) {
 			time.Sleep(time.Hour)
 		}
 	}
+	fmt.Fprintln(os.Stderr, "mcp-stderr-complete")
 	os.Exit(0)
 }
 

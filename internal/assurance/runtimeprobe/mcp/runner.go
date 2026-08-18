@@ -54,16 +54,19 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	if err != nil {
 		return commandResult{WorkDirAuthorityFailed: true, Err: err}
 	}
+	// Bind before allocating protocol pipes so a supervision failure cannot
+	// retain unstarted stdin/stdout descriptors.
+	group, err := subprocess.BindProcessGroup(cmd)
+	if err != nil {
+		return commandResult{Err: err}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return commandResult{Err: err}
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return commandResult{Err: err}
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
+		releaseUnstartedStdio(cmd, stdin)
 		return commandResult{Err: err}
 	}
 	outputLimit := request.OutputLimit
@@ -71,32 +74,25 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		outputLimit = defaultOutputLimit
 	}
 	stderrBuffer := subprocess.NewBoundedBuffer(outputLimit)
+	// Diagnostic stderr is exec-owned so Wait/WaitDelay observe copy EOF versus
+	// forced pipe close. Parent-owned StderrPipe copies cannot tell those apart.
+	cmd.Stderr = stderrBuffer
 	cmd.WaitDelay = subprocess.InheritedOutputCloseWait
-	group, err := subprocess.BindProcessGroup(cmd)
-	if err != nil {
-		return commandResult{Err: err}
-	}
 
 	if err := cmd.Start(); err != nil {
 		return commandResult{Err: err}
 	}
 	result.Started = true
 
-	closeStdio := sync.OnceFunc(func() {
+	closeProtocolStdio := sync.OnceFunc(func() {
 		_ = stdin.Close()
 		_ = stdout.Close()
-		_ = stderr.Close()
 	})
-	stderrDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stderrBuffer, stderr)
-		close(stderrDone)
-	}()
 	interruptDone := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			closeStdio()
+			closeProtocolStdio()
 		case <-interruptDone:
 		}
 	}()
@@ -118,33 +114,25 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 				}
 			}
 		}
+		var termination subprocess.ProcessTermination
 		var terminationErr error
 		if processExited {
-			_, terminationErr = group.ReapAfterLeaderExit()
+			termination, terminationErr = group.ReapAfterLeaderExit()
 		} else {
-			_, terminationErr = group.Terminate()
+			termination, terminationErr = group.Terminate()
 		}
 		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
-		closeStdio()
-		timer := time.NewTimer(subprocess.InheritedOutputCloseWait)
-		select {
-		case <-stderrDone:
-			timer.Stop()
-		case <-timer.C:
-			closeStdio()
-			<-stderrDone
-			result.StderrTruncated = true
-		}
+		closeProtocolStdio()
 		close(interruptDone)
 		result.Stderr = stderrBuffer.String()
-		if stderrBuffer.Truncated() {
+		if stderrCaptureIncomplete(stderrBuffer, waitErr, termination, terminationErr) {
 			result.StderrTruncated = true
 		}
 		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
 	}()
 
-	// exec-managed pipes: Wait starts only after initialize scanning returns.
-	// Cancellation unblocks the scanner by closing the parent ends.
+	// Protocol pipes: Wait starts only after initialize scanning returns.
+	// Cancellation unblocks the scanner by closing the parent stdin/stdout ends.
 	if err := writeInitializeRequest(stdin, request.ProtocolVersion); err != nil {
 		result.Err = err
 		return result
@@ -196,6 +184,37 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 
 	result.Err = fmt.Errorf("initialize response not received after %d messages", maxInitializeMessages)
 	return result
+}
+
+func stderrCaptureIncomplete(
+	buffer *subprocess.BoundedBuffer,
+	waitErr error,
+	termination subprocess.ProcessTermination,
+	terminationErr error,
+) bool {
+	if buffer != nil && buffer.Truncated() {
+		return true
+	}
+	return errors.Is(waitErr, exec.ErrWaitDelay) ||
+		errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned) ||
+		termination.UnsignalableOccupancy() ||
+		terminationErr != nil
+}
+
+func releaseUnstartedStdio(command *exec.Cmd, parents ...io.Closer) {
+	for _, parent := range parents {
+		if parent != nil {
+			_ = parent.Close()
+		}
+	}
+	if command == nil {
+		return
+	}
+	for _, endpoint := range []any{command.Stdin, command.Stdout, command.Stderr} {
+		if closer, ok := endpoint.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 func finalizeCommandResult(
