@@ -1,6 +1,7 @@
 package codexplugin
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,14 +24,17 @@ func TestObserveConfigFileReportsMissingConfigWithoutError(t *testing.T) {
 }
 
 func TestObserveConfigFileReportsPermissionDeniedAsReadError(t *testing.T) {
-	observation, err := observeConfigFile(
-		filepath.Join(t.TempDir(), "config.toml"),
-		func(string) ([]byte, error) {
-			return nil, os.ErrPermission
-		},
-	)
+	configPath := writeCodexConfig(t, `[plugins."alpha@market"]
+enabled = true
+`)
+	if err := os.Chmod(configPath, 0o000); err != nil {
+		t.Fatalf("Chmod returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(configPath, 0o600) })
+
+	observation, err := ObserveConfigFile(configPath)
 	if err == nil {
-		t.Fatalf("observeConfigFile returned nil error, want permission error")
+		t.Fatalf("ObserveConfigFile returned nil error, want permission error")
 	}
 	if observation.ConfigExists() {
 		t.Fatalf("ConfigExists = true, want false when read permission blocks observation")
@@ -301,6 +305,53 @@ func TestObserveConfigFileRejectsSymlinkedAuthorityFile(t *testing.T) {
 		!strings.Contains(err.Error(), "symlink") {
 		t.Fatalf("ObserveConfigFile error = %v", err)
 	}
+}
+
+func TestObserveConfigFileBlocksPluginKeyOverflow(t *testing.T) {
+	observation, err := ObserveConfigFile(writeCodexConfig(t, overflowingCodexPluginConfig()))
+	if err != nil {
+		t.Fatalf("ObserveConfigFile returned error: %v", err)
+	}
+	if !observation.ConfigExists() ||
+		!observation.EntrySetBudgetExceeded() ||
+		observation.EntrySetObserved() ||
+		len(observation.Entries()) != 0 {
+		t.Fatalf("observation = %#v, want budget-exceeded entry set without stored entries", observation)
+	}
+	if _, err := ExactConfiguredSources(observation); err == nil ||
+		!strings.Contains(err.Error(), "budget") {
+		t.Fatalf("ExactConfiguredSources error = %v, want budget rejection", err)
+	}
+}
+
+func TestExactConfiguredSourcesAdmitsMaximumObservationEntries(t *testing.T) {
+	observation, err := ObserveConfigFile(writeCodexConfig(t, exactMaximumCodexPluginConfig()))
+	if err != nil {
+		t.Fatalf("ObserveConfigFile returned error: %v", err)
+	}
+	sources, err := ExactConfiguredSources(observation)
+	if err != nil {
+		t.Fatalf("ExactConfiguredSources returned error: %v", err)
+	}
+	if len(sources) != MaximumObservationEntries {
+		t.Fatalf("sources = %d, want %d", len(sources), MaximumObservationEntries)
+	}
+}
+
+func overflowingCodexPluginConfig() string {
+	return overflowingCodexPluginConfigCount(MaximumObservationEntries + 1)
+}
+
+func exactMaximumCodexPluginConfig() string {
+	return overflowingCodexPluginConfigCount(MaximumObservationEntries)
+}
+
+func overflowingCodexPluginConfigCount(count int) string {
+	var body strings.Builder
+	for index := 0; index < count; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", versionName(index)+"@market")
+	}
+	return body.String()
 }
 
 func writeCodexConfig(t *testing.T, content string) string {

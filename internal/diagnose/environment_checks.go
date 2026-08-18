@@ -41,7 +41,7 @@ func EnvironmentChecks(
 		checks = append(checks, targetChecks(homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
 	}
 	if includePassivePluginDiagnostics {
-		checks = append(checks, CodexPluginChecks(homeDirectory, selection)...)
+		checks = append(checks, CodexPluginChecks(ctx, homeDirectory, selection)...)
 	}
 
 	return checks

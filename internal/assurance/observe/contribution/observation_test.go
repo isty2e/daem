@@ -161,6 +161,18 @@ func TestSourceContributionObservationEnforcesCompleteStateReasonMatrix(t *testi
 			Reason: SourceContributionReasonArtifactMalformed,
 		},
 		{
+			Provider: provider, ProviderLabel: "alpha@market", State: SourceContributionBlocked,
+			Reason: SourceContributionReasonArtifactPathBlocked,
+		},
+		{
+			Provider: provider, ProviderLabel: "alpha@market", State: SourceContributionBlocked,
+			Reason: SourceContributionReasonArtifactUnstable,
+		},
+		{
+			Provider: provider, ProviderLabel: "alpha@market", State: SourceContributionBlocked,
+			Reason: SourceContributionReasonArtifactBudgetExceeded,
+		},
+		{
 			ProviderLabel: "<invalid-provider>", State: SourceContributionBlocked,
 			Reason: SourceContributionReasonProviderProvenanceRequired,
 		},

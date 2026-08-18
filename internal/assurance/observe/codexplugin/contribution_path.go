@@ -1,105 +1,76 @@
 package codexplugin
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
+	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
-var errPathBlocked = errors.New("path blocked")
-
-func resolveManifestPath(pluginRoot string, manifestPath string) (string, string, observecontribution.SourceContributionReason) {
+func resolveManifestPath(manifestPath string) (string, observecontribution.SourceContributionReason) {
 	if observecontribution.ContainsUnsafeDiagnosticRune(manifestPath) {
-		return "", "", observecontribution.SourceContributionReasonArtifactPathBlocked
+		return "", observecontribution.SourceContributionReasonArtifactPathBlocked
 	}
 	if !strings.HasPrefix(manifestPath, "./") {
-		return "", "", observecontribution.SourceContributionReasonArtifactPathBlocked
+		return "", observecontribution.SourceContributionReasonArtifactPathBlocked
 	}
 	relative := strings.TrimPrefix(manifestPath, "./")
 	if relative == "" {
-		return "", "", observecontribution.SourceContributionReasonArtifactPathBlocked
+		return "", observecontribution.SourceContributionReasonArtifactPathBlocked
 	}
 	cleanSlash := filepath.ToSlash(filepath.Clean(filepath.FromSlash(relative)))
 	if cleanSlash == "." || strings.HasPrefix(cleanSlash, "../") || cleanSlash == ".." || filepath.IsAbs(cleanSlash) {
-		return "", "", observecontribution.SourceContributionReasonArtifactPathBlocked
+		return "", observecontribution.SourceContributionReasonArtifactPathBlocked
 	}
-	resolved := filepath.Join(pluginRoot, filepath.FromSlash(cleanSlash))
-	if !pathWithin(pluginRoot, resolved) {
-		return "", "", observecontribution.SourceContributionReasonArtifactPathBlocked
-	}
-	return resolved, cleanSlash, observecontribution.SourceContributionReasonNone
+	return cleanSlash, observecontribution.SourceContributionReasonNone
 }
 
-func readBoundedFile(root string, path string) ([]byte, error) {
-	switch regularBoundedFileReason(root, path) {
-	case observecontribution.SourceContributionReasonNone:
-		return os.ReadFile(path)
-	case observecontribution.SourceContributionReasonArtifactPathBlocked, observecontribution.SourceContributionReasonUnsupportedShape:
-		return nil, errPathBlocked
+func classifySnapshotError(err error) observecontribution.SourceContributionReason {
+	switch {
+	case err == nil, observationCanceled(err):
+		return observecontribution.SourceContributionReasonNone
+	case errors.Is(err, filesnapshot.ErrChanged):
+		return observecontribution.SourceContributionReasonArtifactUnstable
+	case errors.Is(err, filesnapshot.ErrLimitExceeded):
+		return observecontribution.SourceContributionReasonArtifactBudgetExceeded
+	case errors.Is(err, filesnapshot.ErrSymlink):
+		return observecontribution.SourceContributionReasonArtifactPathBlocked
+	case errors.Is(err, filesnapshot.ErrNotRegular):
+		return observecontribution.SourceContributionReasonUnsupportedShape
 	default:
-		return nil, os.ErrNotExist
-	}
-}
-
-func isRegularBoundedFile(root string, path string) bool {
-	return regularBoundedFileReason(root, path) == observecontribution.SourceContributionReasonNone
-}
-
-func regularBoundedFileReason(root string, path string) observecontribution.SourceContributionReason {
-	if !pathWithin(root, path) {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
-	}
-	if pathHasSymlinkComponent(root, path) {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
 		return observecontribution.SourceContributionReasonArtifactUnavailable
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return observecontribution.SourceContributionReasonArtifactPathBlocked
-	}
-	if !info.Mode().IsRegular() {
-		return observecontribution.SourceContributionReasonUnsupportedShape
-	}
-	return observecontribution.SourceContributionReasonNone
 }
 
-func pathWithin(root string, path string) bool {
-	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
-	if err != nil {
-		return false
+func snapshotObservationError(err error) error {
+	if observationCanceled(err) {
+		return err
 	}
-	return relative == "." || (!strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." && !filepath.IsAbs(relative))
+	return nil
 }
 
-func pathHasSymlinkComponent(root string, path string) bool {
-	root = filepath.Clean(root)
-	path = filepath.Clean(path)
-	relative, err := filepath.Rel(root, path)
-	if err != nil || relative == "." {
-		return false
+func chargeSnapshotAttempt(budget *observationBudget, attempted int64, exists bool, err error) bool {
+	if !snapshotAttemptCharges(exists, err) {
+		return budget != nil && budget.exceeded
 	}
-	if strings.HasPrefix(relative, ".."+string(filepath.Separator)) || relative == ".." || filepath.IsAbs(relative) {
-		return true
-	}
+	return budget.consumeSnapshotBytes(attempted)
+}
 
-	current := root
-	for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		current = filepath.Join(current, part)
-		info, err := os.Lstat(current)
-		if err != nil {
-			return false
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return true
-		}
+func snapshotAttemptCharges(exists bool, err error) bool {
+	if err == nil {
+		return exists
 	}
-	return false
+	return !errors.Is(err, filesnapshot.ErrSymlink) && !errors.Is(err, filesnapshot.ErrNotRegular)
+}
+
+func observationCanceled(err error) bool {
+	return err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded))
+}
+
+func directoryMissing(err error) bool {
+	return err != nil && !observationCanceled(err) && errors.Is(err, os.ErrNotExist)
 }

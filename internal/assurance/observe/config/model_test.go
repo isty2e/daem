@@ -102,6 +102,22 @@ func TestObservationRejectsInvalidEntrySetCombinations(t *testing.T) {
 				Entries:       []Entry{entry},
 			},
 		},
+		{
+			name: "budget-exceeded entry set cannot carry entries",
+			spec: ObservationSpec{
+				SourcePath:    "/tmp/config.toml",
+				ConfigExists:  true,
+				EntrySetState: EntrySetBudgetExceeded,
+				Entries:       []Entry{entry},
+			},
+		},
+		{
+			name: "missing config cannot have budget-exceeded entry set",
+			spec: ObservationSpec{
+				SourcePath:    "/tmp/config.toml",
+				EntrySetState: EntrySetBudgetExceeded,
+			},
+		},
 	}
 
 	for _, tc := range cases {

@@ -1,6 +1,7 @@
 package diagnose
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
@@ -13,18 +14,17 @@ import (
 )
 
 // CodexPluginChecks reports doctor-only static Codex plugin config and contribution source observations.
-func CodexPluginChecks(homeDirectory string, selection targetselection.Selection) []findings.Check {
+func CodexPluginChecks(ctx context.Context, homeDirectory string, selection targetselection.Selection) []findings.Check {
 	if !selection.Includes(targetpkg.TargetCodex) {
 		return nil
 	}
 
 	configPath := filepath.Join(homeDirectory, ".codex", "config.toml")
-	observation, err := observecodexplugin.ObserveConfigFile(configPath)
+	observation, contributions, err := observecodexplugin.ObserveConfiguredPluginDiagnostics(ctx, homeDirectory, configPath)
 	checks := codexPluginConfigChecks(configPath, observation, err)
 	if err != nil || !observation.ConfigExists() || !observation.EntrySetObserved() {
 		return checks
 	}
-	contributions := observecodexplugin.ObserveConfiguredPluginContributions(homeDirectory, observation)
 	checks = append(checks, codexPluginContributionChecks(contributions)...)
 	return checks
 }
@@ -50,6 +50,12 @@ func codexPluginConfigChecks(
 		return []findings.Check{warnCheck(
 			"target=codex plugin_config",
 			"observe-only Codex plugin config entries blocked: plugins table has unsupported shape; no daem ownership, lock, install, readiness, or mutation authority",
+		)}
+	}
+	if observation.EntrySetBudgetExceeded() {
+		return []findings.Check{warnCheck(
+			"target=codex plugin_config",
+			"observe-only Codex plugin config entries blocked: SOURCE_ARTIFACT_BUDGET_EXCEEDED; no daem ownership, lock, install, readiness, or mutation authority",
 		)}
 	}
 	entries := observation.Entries()

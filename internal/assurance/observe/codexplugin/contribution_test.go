@@ -29,7 +29,8 @@ func TestObserveConfiguredPluginContributionsReportsSourceDeclaredRows(t *testin
 	writeFile(t, filepath.Join(pluginRoot, ".app.json"), `{"secret": "must-not-leak"}`)
 	writeFile(t, filepath.Join(pluginRoot, "hooks", "hooks.json"), `{"secret": "must-not-leak"}`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
 	)
@@ -59,7 +60,8 @@ func TestObserveConfiguredPluginContributionsClassifiesMissingAndAmbiguousArtifa
 	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "multi", "1.0.0"), ".keep"), "")
 	writeFile(t, filepath.Join(codexPluginRoot(homeDirectory, "market", "multi", "2.0.0"), ".keep"), "")
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "missing@market", "multi@market"),
 	)
@@ -87,7 +89,8 @@ func TestObserveConfiguredPluginContributionsPrefersLocalCacheVersion(t *testing
   "mcpServers": {"local": {}}
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market"),
 	)
@@ -113,7 +116,8 @@ func TestObserveConfiguredPluginContributionsKeepsProviderScopedDuplicateNames(t
 		writeFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "alpha@market", "beta@market"),
 	)
@@ -152,7 +156,8 @@ func TestObserveConfiguredPluginContributionsSkipsUnsupportedConfigEntries(t *te
 }`)
 	writeFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configObservationFromEntries(
 			t,
@@ -173,7 +178,8 @@ func TestObserveConfiguredPluginContributionsSkipsUnsupportedConfigEntries(t *te
 func TestObserveConfiguredPluginContributionsRedactsUnsafeProviderKeys(t *testing.T) {
 	homeDirectory := t.TempDir()
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "bad\nprovider@market"),
 	)
@@ -200,7 +206,8 @@ func TestObserveConfiguredPluginContributionsBlocksMalformedAndUnsupportedShapes
   "skills": {"review": true}
 }`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "malformed@market", "unsupported@market"),
 	)
@@ -234,7 +241,8 @@ func TestObserveConfiguredPluginContributionsBlocksUnsafeDiagnosticTokens(t *tes
 }`)
 	writeFile(t, filepath.Join(appRoot, "apps", "app.json"), `{}`)
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "bad-mcp@market", "bad-hook@market", "safe-app@market"),
 	)
@@ -277,7 +285,8 @@ func TestObserveConfiguredPluginContributionsBlocksInvalidProviderAndEscapingPat
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(t, "invalid", "traversal@market", "symlink@market"),
 	)
@@ -361,7 +370,8 @@ func TestObserveConfiguredPluginContributionsBlocksSymlinkParentComponents(t *te
 		t.Fatalf("Symlink returned error: %v", err)
 	}
 
-	observations := ObserveConfiguredPluginContributions(
+	observations := observeIndependentPluginContributions(
+		t.Context(),
 		homeDirectory,
 		configuredPluginObservation(
 			t,

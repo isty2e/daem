@@ -72,6 +72,14 @@ func (err limitExceededError) Error() string {
 
 func (err limitExceededError) Unwrap() error { return ErrLimitExceeded }
 
+// CountedContent is one bounded regular-file observation plus the bytes the
+// read loop actually transferred before success, cancellation, or failure.
+type CountedContent struct {
+	Content   []byte
+	Exists    bool
+	Attempted int64
+}
+
 // ReadRegularFile reads at most maximumBytes from path. A missing path returns
 // exists=false; every other non-regular or unstable state is an error.
 func ReadRegularFile(path string, maximumBytes int64) (content []byte, exists bool, err error) {
@@ -86,7 +94,30 @@ func ReadRegularFileContext(
 	path string,
 	maximumBytes int64,
 ) (content []byte, exists bool, err error) {
-	return readRegularFileContext(ctx, path, maximumBytes, readHooks{})
+	result, err := ReadRegularFileContextCounted(ctx, path, maximumBytes)
+	return result.Content, result.Exists, err
+}
+
+// ReadRegularFileContextCounted is ReadRegularFileContext plus attempted read bytes.
+func ReadRegularFileContextCounted(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (CountedContent, error) {
+	return readRegularFileContextCounted(ctx, path, maximumBytes, readHooks{})
+}
+
+// ReadRegularFileAtCounted reads at most maximumBytes from one directory entry
+// of dir without following that entry, and reports attempted read bytes.
+// Identity checks stay on dir's descriptor and name; they do not re-inspect a
+// pathname. A missing entry returns exists=false.
+func ReadRegularFileAtCounted(
+	ctx context.Context,
+	dir *os.File,
+	name string,
+	maximumBytes int64,
+) (CountedContent, error) {
+	return readRegularFileAtCounted(ctx, dir, name, maximumBytes)
 }
 
 // ReadRegularFileSnapshotContext reads one bounded regular-file snapshot and
@@ -126,7 +157,17 @@ func readRegularFileContext(
 	maximumBytes int64,
 	hooks readHooks,
 ) (content []byte, exists bool, err error) {
-	snapshot, exists, err := readRegularFileSnapshot(
+	result, err := readRegularFileContextCounted(ctx, path, maximumBytes, hooks)
+	return result.Content, result.Exists, err
+}
+
+func readRegularFileContextCounted(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+	hooks readHooks,
+) (CountedContent, error) {
+	snapshot, exists, attempted, err := readRegularFileSnapshot(
 		ctx,
 		path,
 		maximumBytes,
@@ -134,9 +175,9 @@ func readRegularFileContext(
 		hooks,
 	)
 	if err != nil || !exists {
-		return nil, exists, err
+		return CountedContent{Exists: exists, Attempted: attempted}, err
 	}
-	return snapshot.content, true, nil
+	return CountedContent{Content: snapshot.content, Exists: true, Attempted: attempted}, nil
 }
 
 func readRegularFileReferentContext(
@@ -163,13 +204,14 @@ func readRegularFileSnapshotContext(
 	maximumBytes int64,
 	hooks readHooks,
 ) (snapshot Snapshot, exists bool, err error) {
-	return readRegularFileSnapshot(
+	snapshot, exists, _, err = readRegularFileSnapshot(
 		ctx,
 		path,
 		maximumBytes,
 		rejectFinalSymlink,
 		hooks,
 	)
+	return snapshot, exists, err
 }
 
 func readRegularFileReferentSnapshotContext(
@@ -178,13 +220,14 @@ func readRegularFileReferentSnapshotContext(
 	maximumBytes int64,
 	hooks readHooks,
 ) (snapshot Snapshot, exists bool, err error) {
-	return readRegularFileSnapshot(
+	snapshot, exists, _, err = readRegularFileSnapshot(
 		ctx,
 		path,
 		maximumBytes,
 		followFinalSymlink,
 		hooks,
 	)
+	return snapshot, exists, err
 }
 
 func readRegularFileSnapshot(
@@ -193,62 +236,62 @@ func readRegularFileSnapshot(
 	maximumBytes int64,
 	symlinkPolicy finalSymlinkPolicy,
 	hooks readHooks,
-) (snapshot Snapshot, exists bool, err error) {
+) (snapshot Snapshot, exists bool, attempted int64, err error) {
 	if ctx == nil {
-		return Snapshot{}, false, fmt.Errorf("file snapshot context is required")
+		return Snapshot{}, false, 0, fmt.Errorf("file snapshot context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, 0, err
 	}
 	if maximumBytes <= 0 {
-		return Snapshot{}, false, fmt.Errorf("maximum file size must be positive")
+		return Snapshot{}, false, 0, fmt.Errorf("maximum file size must be positive")
 	}
 
 	before, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Snapshot{}, false, nil
+		return Snapshot{}, false, 0, nil
 	}
 	if err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, 0, err
 	}
 	beforeIsSymlink := before.Mode()&os.ModeSymlink != 0
 	if beforeIsSymlink && symlinkPolicy == rejectFinalSymlink {
-		return Snapshot{}, false, ErrSymlink
+		return Snapshot{}, false, 0, ErrSymlink
 	}
 	if !beforeIsSymlink && !before.Mode().IsRegular() {
-		return Snapshot{}, false, ErrNotRegular
+		return Snapshot{}, false, 0, ErrNotRegular
 	}
 	if !beforeIsSymlink && before.Size() > maximumBytes {
-		return Snapshot{}, false, limitError(maximumBytes)
+		return Snapshot{}, false, 0, limitError(maximumBytes)
 	}
 	beforeLinkTarget := ""
 	beforeReferent := before
 	if beforeIsSymlink {
 		beforeLinkTarget, err = os.Readlink(path)
 		if err != nil {
-			return Snapshot{}, false, fmt.Errorf("read file symlink: %w", err)
+			return Snapshot{}, false, 0, fmt.Errorf("read file symlink: %w", err)
 		}
 		beforeReferent, err = os.Stat(path)
 		if err != nil {
-			return Snapshot{}, false, fmt.Errorf("inspect file referent: %w", err)
+			return Snapshot{}, false, 0, fmt.Errorf("inspect file referent: %w", err)
 		}
 		if !beforeReferent.Mode().IsRegular() {
-			return Snapshot{}, false, ErrNotRegular
+			return Snapshot{}, false, 0, ErrNotRegular
 		}
 		if beforeReferent.Size() > maximumBytes {
-			return Snapshot{}, false, limitError(maximumBytes)
+			return Snapshot{}, false, 0, limitError(maximumBytes)
 		}
 	}
 	if hooks.afterInspect != nil {
 		hooks.afterInspect()
 	}
 	if err := ctx.Err(); err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, 0, err
 	}
 
 	file, err := openRegularFile(path, symlinkPolicy == followFinalSymlink)
 	if err != nil {
-		return Snapshot{}, false, classifyOpenFailure(
+		return Snapshot{}, false, 0, classifyOpenFailure(
 			path,
 			before,
 			beforeReferent,
@@ -261,77 +304,53 @@ func readRegularFileSnapshot(
 
 	opened, err := file.Stat()
 	if err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, 0, err
 	}
 	if !opened.Mode().IsRegular() {
 		if !beforeIsSymlink {
-			return Snapshot{}, false, ErrChanged
+			return Snapshot{}, false, 0, ErrChanged
 		}
-		return Snapshot{}, false, ErrNotRegular
-	}
-	if opened.Size() > maximumBytes {
-		return Snapshot{}, false, limitError(maximumBytes)
+		return Snapshot{}, false, 0, ErrNotRegular
 	}
 	if !os.SameFile(beforeReferent, opened) ||
 		!sameFileVersion(beforeReferent, opened) {
-		return Snapshot{}, false, ErrChanged
+		return Snapshot{}, false, 0, ErrChanged
+	}
+	if opened.Size() > maximumBytes {
+		return Snapshot{}, false, 0, limitError(maximumBytes)
 	}
 	if hooks.afterOpen != nil {
 		hooks.afterOpen()
 	}
 	if err := ctx.Err(); err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, 0, err
 	}
 
-	buffer := make([]byte, 32*1024)
-	content := make([]byte, 0, min(opened.Size(), int64(len(buffer))))
-	for {
-		if err := ctx.Err(); err != nil {
-			return Snapshot{}, false, err
-		}
-		remaining := maximumBytes - int64(len(content))
-		readSize := len(buffer)
-		if remaining < int64(readSize) {
-			readSize = int(remaining) + 1
-		}
-		count, readErr := file.Read(buffer[:readSize])
-		if count > 0 {
-			content = append(content, buffer[:count]...)
-			if int64(len(content)) > maximumBytes {
-				return Snapshot{}, false, limitError(maximumBytes)
-			}
-		}
-		if readErr != nil {
-			if !errors.Is(readErr, io.EOF) {
-				return Snapshot{}, false, readErr
-			}
-			break
-		}
-		if count == 0 {
-			return Snapshot{}, false, fmt.Errorf("read regular file: no progress")
-		}
+	content, attempted, err := readBoundedRegularFile(ctx, file, maximumBytes, opened.Size())
+	if err != nil {
+		return Snapshot{}, false, attempted, err
 	}
 	if err := ctx.Err(); err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, attempted, err
 	}
 
 	afterOpen, err := file.Stat()
 	if err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, attempted, err
 	}
 	afterEntry, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Snapshot{}, false, ErrChanged
+		return Snapshot{}, false, attempted, ErrChanged
 	}
 	if err != nil {
-		return Snapshot{}, false, fmt.Errorf("reinspect file: %w", err)
+		return Snapshot{}, false, attempted, fmt.Errorf("reinspect file: %w", err)
 	}
 	if !sameSelectedEntry(path, before, afterEntry, beforeLinkTarget, symlinkPolicy) ||
 		!os.SameFile(opened, afterOpen) ||
 		!sameFileVersion(opened, afterOpen) ||
 		int64(len(content)) != opened.Size() ||
 		int64(len(content)) != afterOpen.Size() {
-		return Snapshot{}, false, ErrChanged
+		return Snapshot{}, false, attempted, ErrChanged
 	}
 	if symlinkPolicy == followFinalSymlink {
 		afterReferent, statErr := os.Stat(path)
@@ -339,15 +358,15 @@ func readRegularFileSnapshot(
 			!os.SameFile(opened, afterReferent) ||
 			!sameFileVersion(opened, afterReferent) ||
 			int64(len(content)) != afterReferent.Size() {
-			return Snapshot{}, false, ErrChanged
+			return Snapshot{}, false, attempted, ErrChanged
 		}
 	} else if !os.SameFile(opened, afterEntry) ||
 		!sameFileVersion(opened, afterEntry) ||
 		int64(len(content)) != afterEntry.Size() {
-		return Snapshot{}, false, ErrChanged
+		return Snapshot{}, false, attempted, ErrChanged
 	}
 	if err := ctx.Err(); err != nil {
-		return Snapshot{}, false, err
+		return Snapshot{}, false, attempted, err
 	}
 	version, _ := RegularFileVersionOf(opened)
 	return Snapshot{
@@ -355,7 +374,51 @@ func readRegularFileSnapshot(
 		mode:     opened.Mode(),
 		revision: regularFileSnapshotRevision(opened, content),
 		version:  version,
-	}, true, nil
+	}, true, attempted, nil
+}
+
+func readBoundedRegularFile(
+	ctx context.Context,
+	file *os.File,
+	maximumBytes int64,
+	sizeHint int64,
+) (content []byte, attempted int64, err error) {
+	if sizeHint < 0 {
+		sizeHint = 0
+	}
+	buffer := make([]byte, 32*1024)
+	content = make([]byte, 0, min(sizeHint, int64(len(buffer))))
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, attempted, err
+		}
+		remaining := maximumBytes - attempted
+		readSize := len(buffer)
+		if remaining < int64(readSize) {
+			readSize = int(remaining) + 1
+		}
+		if readSize <= 0 {
+			return nil, attempted, limitError(maximumBytes)
+		}
+		count, readErr := file.Read(buffer[:readSize])
+		if count > 0 {
+			attempted += int64(count)
+			content = append(content, buffer[:count]...)
+			if attempted > maximumBytes {
+				return nil, attempted, limitError(maximumBytes)
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return nil, attempted, readErr
+			}
+			break
+		}
+		if count == 0 {
+			return nil, attempted, fmt.Errorf("read regular file: no progress")
+		}
+	}
+	return content, attempted, nil
 }
 
 func classifyOpenFailure(

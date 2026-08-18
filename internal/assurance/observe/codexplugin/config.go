@@ -1,6 +1,7 @@
 package codexplugin
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -18,10 +19,20 @@ import (
 const MaximumConfigBytes = 4 << 20
 
 func ObserveConfigFile(configPath string) (observeconfig.Observation, error) {
-	return observeConfigFile(configPath, readConfigFile)
+	return observeConfigFile(context.Background(), configPath, &observationBudget{})
 }
 
-func observeConfigFile(configPath string, readFile func(string) ([]byte, error)) (observeconfig.Observation, error) {
+func observeConfigFile(
+	ctx context.Context,
+	configPath string,
+	budget *observationBudget,
+) (observeconfig.Observation, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if budget == nil {
+		budget = &observationBudget{}
+	}
 	configPath = strings.TrimSpace(configPath)
 	if configPath == "" {
 		return observeconfig.Observation{}, fmt.Errorf("Codex config path is required")
@@ -31,12 +42,16 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 	if err != nil {
 		return observeconfig.Observation{}, err
 	}
-	content, err := readFile(configPath)
+	result, err := filesnapshot.ReadRegularFileContextCounted(ctx, configPath, MaximumConfigBytes)
+	_ = chargeSnapshotAttempt(budget, result.Attempted, result.Exists, err)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return observation, nil
 		}
 		return observation, err
+	}
+	if !result.Exists {
+		return observation, nil
 	}
 	existingObservation, err := configObservation(configPath, true, observeconfig.EntrySetNotDeclared, nil)
 	if err != nil {
@@ -44,7 +59,7 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 	}
 
 	var decoded map[string]any
-	if _, err := toml.Decode(string(content), &decoded); err != nil {
+	if _, err := toml.Decode(string(result.Content), &decoded); err != nil {
 		return existingObservation, err
 	}
 
@@ -57,6 +72,11 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 		return configObservation(configPath, true, observeconfig.EntrySetUnsupported, nil)
 	}
 
+	for key := range plugins {
+		if budget.consumeNames([]string{key}) {
+			return configObservation(configPath, true, observeconfig.EntrySetBudgetExceeded, nil)
+		}
+	}
 	keys := sortedMapKeys(plugins)
 	entries := make([]observeconfig.Entry, 0, len(keys))
 	for _, key := range keys {
@@ -75,6 +95,9 @@ func observeConfigFile(configPath string, readFile func(string) ([]byte, error))
 func ExactConfiguredSources(observation observeconfig.Observation) ([]string, error) {
 	if observation.EntrySetUnsupported() {
 		return nil, fmt.Errorf("Codex plugins config container is unsupported")
+	}
+	if observation.EntrySetBudgetExceeded() {
+		return nil, fmt.Errorf("Codex plugins config exceeds observation budget")
 	}
 	if !observation.EntrySetObserved() {
 		return nil, nil
@@ -109,17 +132,6 @@ func ExactConfiguredSources(observation observeconfig.Observation) ([]string, er
 	}
 	sort.Strings(sources)
 	return sources, nil
-}
-
-func readConfigFile(path string) ([]byte, error) {
-	content, exists, err := filesnapshot.ReadRegularFile(path, MaximumConfigBytes)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, os.ErrNotExist
-	}
-	return content, nil
 }
 
 func pluginEntryObservation(configKey string, rawValue any) (observeconfig.Entry, error) {

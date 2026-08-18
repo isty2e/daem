@@ -1,11 +1,13 @@
 package diagnose
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	observecodexplugin "github.com/isty2e/daem/internal/assurance/observe/codexplugin"
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
@@ -26,7 +28,7 @@ func TestCodexPluginChecksRequireSelectedCodexTarget(t *testing.T) {
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	if len(checks) != 0 {
 		t.Fatalf("full checks = %#v, want none for non-Codex target", checks)
 	}
@@ -48,7 +50,7 @@ enabled = false
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="alpha@market"`, "activation configured true")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="beta@market"`, "activation configured false")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="gamma@market"`, "activation not declared")
@@ -72,7 +74,7 @@ enabled = "yes"
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_config_entry key="alpha@market"`, "unsupported schema reason=activation_not_boolean")
 }
 
@@ -81,12 +83,12 @@ func TestCodexPluginChecksReportMissingAndMalformedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
-	missingChecks := CodexPluginChecks(t.TempDir(), selection)
+	missingChecks := CodexPluginChecks(t.Context(), t.TempDir(), selection)
 	assertCodexPluginConfigCheck(t, missingChecks, findings.SeverityWarn, "target=codex plugin_config", "unavailable")
 
 	homeDirectory := t.TempDir()
 	writeDiagnoseCodexConfig(t, homeDirectory, "[plugins.\"alpha@market\"\n")
-	malformedChecks := CodexPluginChecks(homeDirectory, selection)
+	malformedChecks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, malformedChecks, findings.SeverityWarn, "target=codex plugin_config", "blocked: read or parse")
 }
 
@@ -129,7 +131,7 @@ enabled = true
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(
 		t,
 		checks,
@@ -184,7 +186,7 @@ enabled = true
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 
-	checks := CodexPluginChecks(homeDirectory, selection)
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "state=source-artifact-unavailable")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "reason=SOURCE_ARTIFACT_UNAVAILABLE")
 	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="bad@market"`, "state=source-artifact-blocked")
@@ -363,9 +365,73 @@ source = "https://token@example.invalid/repo.git"
 }`)
 			writeDiagnoseFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
 
-			checks := CodexPluginChecks(homeDirectory, selection)
+			checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
 			assertNoCodexPluginContributionChecks(t, checks)
 		})
+	}
+}
+
+func TestCodexPluginChecksBlockConfigKeyOverflowWithoutContributionInspection(t *testing.T) {
+	homeDirectory := t.TempDir()
+	writeDiagnoseCodexConfig(t, homeDirectory, overflowingDiagnoseCodexPluginConfig())
+	pluginRoot := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "alpha", "local")
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "skills": "./skills/"
+}`)
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, "skills", "review", "SKILL.md"), "---\nname: review\n---\n")
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatalf("ForDiagnostics returned error: %v", err)
+	}
+
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
+	if len(checks) != 1 {
+		t.Fatalf("checks = %#v, want one budget-exceeded config check", checks)
+	}
+	assertCodexPluginConfigCheck(
+		t,
+		checks,
+		findings.SeverityWarn,
+		"target=codex plugin_config",
+		"SOURCE_ARTIFACT_BUDGET_EXCEEDED",
+	)
+	assertNoCodexPluginContributionChecks(t, checks)
+	for _, check := range checks {
+		if strings.Contains(check.Name, "plugin_config_entry") {
+			t.Fatalf("checks = %#v, want no per-entry config checks after budget overflow", checks)
+		}
+	}
+}
+
+func TestCodexPluginChecksReportExactMaximumConfigEntriesWithoutContributionFamily(t *testing.T) {
+	homeDirectory := t.TempDir()
+	var body strings.Builder
+	for index := 0; index < observecodexplugin.MaximumObservationEntries; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
+	}
+	writeDiagnoseCodexConfig(t, homeDirectory, body.String())
+	pluginRoot := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "p0", "local")
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "skills": "./skills/"
+}`)
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatalf("ForDiagnostics returned error: %v", err)
+	}
+
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
+	if len(checks) != observecodexplugin.MaximumObservationEntries {
+		t.Fatalf("checks = %d, want %d", len(checks), observecodexplugin.MaximumObservationEntries)
+	}
+	assertNoCodexPluginContributionChecks(t, checks)
+	entryCount := 0
+	for _, check := range checks {
+		if strings.Contains(check.Name, "plugin_config_entry") {
+			entryCount++
+		}
+	}
+	if entryCount != observecodexplugin.MaximumObservationEntries {
+		t.Fatalf("config entry checks = %d, want %d", entryCount, observecodexplugin.MaximumObservationEntries)
 	}
 }
 
@@ -397,6 +463,14 @@ func findCodexPluginCheck(t *testing.T, checks []findings.Check, severity findin
 	}
 	t.Fatalf("checks = %#v, want %s %s", checks, severity, name)
 	return findings.Check{}
+}
+
+func overflowingDiagnoseCodexPluginConfig() string {
+	var body strings.Builder
+	for index := 0; index < observecodexplugin.MaximumObservationEntries+1; index++ {
+		fmt.Fprintf(&body, "[plugins.%q]\nenabled = true\n", fmt.Sprintf("p%d@market", index))
+	}
+	return body.String()
 }
 
 func writeDiagnoseCodexConfig(t *testing.T, homeDirectory string, content string) {

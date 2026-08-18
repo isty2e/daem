@@ -37,6 +37,9 @@ func CorrelateConfig(
 	if observation.EntrySetUnsupported() {
 		return observerelation.CorrelationResult{}, fmt.Errorf("Codex plugins config container is unsupported")
 	}
+	if observation.EntrySetBudgetExceeded() {
+		return observerelation.CorrelationResult{}, fmt.Errorf("Codex plugins config exceeds observation budget")
+	}
 
 	rows := make([]observerelation.Row, 0, 1)
 	if observation.EntrySetObserved() {

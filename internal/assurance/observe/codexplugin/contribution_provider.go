@@ -1,8 +1,8 @@
 package codexplugin
 
 import (
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -66,35 +66,86 @@ func validPluginSegment(value string) bool {
 	return true
 }
 
-func activePluginCacheVersion(root string, cacheBase string) (string, bool, bool, observecontribution.SourceContributionReason) {
-	if !pathWithin(root, cacheBase) || pathHasSymlinkComponent(root, cacheBase) {
-		return "", false, false, observecontribution.SourceContributionReasonArtifactPathBlocked
+func activePluginCacheVersion(
+	ctx context.Context,
+	cacheRoot *pluginObservation,
+	marketplace string,
+	pluginName string,
+) (*pluginObservation, string, bool, bool, observecontribution.SourceContributionReason, error) {
+	if cacheRoot == nil {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
 	}
-	entries, err := os.ReadDir(cacheBase)
-	if err != nil {
-		return "", false, false, observecontribution.SourceContributionReasonNone
+	marketplaceDir, reason, err := cacheRoot.openChildDirectory(marketplace)
+	if directoryMissing(err) {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
 	}
-	versions := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if !entry.IsDir() || !validPluginSegment(entry.Name()) {
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+	pluginDir, reason, err := marketplaceDir.openChildDirectory(pluginName)
+	marketplaceDir.close()
+	if directoryMissing(err) {
+		return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
+	}
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+
+	names, reason, err := pluginDir.listNames(ctx)
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		pluginDir.close()
+		return nil, "", false, false, reason, err
+	}
+	versions := make([]string, 0, len(names))
+	for _, name := range names {
+		if !validPluginSegment(name) {
 			continue
 		}
-		versions = append(versions, entry.Name())
+		kind, reason, err := pluginDir.classify(name)
+		if err != nil {
+			pluginDir.close()
+			return nil, "", false, false, reason, err
+		}
+		if reason == observecontribution.SourceContributionReasonArtifactPathBlocked || kind == childSymlink {
+			continue
+		}
+		if reason != observecontribution.SourceContributionReasonNone {
+			pluginDir.close()
+			return nil, "", false, false, reason, err
+		}
+		if kind != childDirectory {
+			continue
+		}
+		versions = append(versions, name)
 	}
 	sort.Strings(versions)
+	selected := ""
+	ambiguous := false
 	for _, version := range versions {
 		if version == "local" {
-			return version, true, false, observecontribution.SourceContributionReasonNone
+			selected = version
+			break
 		}
 	}
-	switch len(versions) {
-	case 0:
-		return "", false, false, observecontribution.SourceContributionReasonNone
-	case 1:
-		return versions[0], true, false, observecontribution.SourceContributionReasonNone
-	default:
-		return "", false, true, observecontribution.SourceContributionReasonNone
+	if selected == "" {
+		switch len(versions) {
+		case 0:
+			pluginDir.close()
+			return nil, "", false, false, observecontribution.SourceContributionReasonNone, nil
+		case 1:
+			selected = versions[0]
+		default:
+			pluginDir.close()
+			return nil, "", false, true, observecontribution.SourceContributionReasonNone, nil
+		}
 	}
+
+	plugin, reason, err := pluginDir.openChildDirectory(selected)
+	pluginDir.close()
+	if err != nil || reason != observecontribution.SourceContributionReasonNone {
+		return nil, "", false, false, reason, err
+	}
+	return plugin, selected, true, ambiguous, observecontribution.SourceContributionReasonNone, nil
 }
 
 func cacheArtifactIdentity(id pluginID, version string) string {
