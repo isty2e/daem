@@ -266,6 +266,25 @@ func TestRunGitReaderTerminatesProcessTreeWhenListingBudgetFails(t *testing.T) {
 	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
 }
 
+func TestRunGitReaderKeepsConsumerFailureWhenCallerCancelsDuringCleanup(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := gitProcessHelperCommand(t, ctx, "listing-overflow-parent", pidFile)
+	consumerErr := errors.New("consumer failure")
+
+	err := runGitReader(ctx, command, func(output io.Reader) error {
+		_, _ = io.Copy(io.Discard, io.LimitReader(output, 32))
+		cancel()
+		return consumerErr
+	})
+	if !errors.Is(err, consumerErr) {
+		t.Fatalf("runGitReader error = %v, want consumer failure", err)
+	}
+	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
+}
+
 func TestGitProcessHelper(t *testing.T) {
 	stage := os.Getenv(gitProcessHelperStageEnv)
 	if stage == "" {

@@ -65,9 +65,9 @@ func TestGroupTerminatesCompleteProcessTree(t *testing.T) {
 			pids := readProcessTreePIDs(t, readyPath)
 
 			cancel()
-			waitErr := cmd.Wait()
+			waitErr := awaitBoundProcessGroup(group, ctx)
 			if waitErr == nil || (!errors.Is(waitErr, context.Canceled) && !isProcessTreeSignalExit(waitErr)) {
-				t.Fatalf("Wait error = %v, want cancellation or signal exit", waitErr)
+				t.Fatalf("Await error = %v, want cancellation or signal exit", waitErr)
 			}
 			termination, err := group.Terminate()
 			if err != nil {
@@ -103,8 +103,8 @@ func TestGroupTerminatesResidualGrandchildAfterLeaderExit(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("Wait: %v", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
 	}
 
 	termination, err := group.Terminate()
@@ -164,8 +164,8 @@ func TestGroupAllowsNaturalGrandchildQuiescenceAfterLeaderExit(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("Wait: %v", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
 	}
 
 	termination, err := group.ReapAfterLeaderExit()
@@ -200,8 +200,6 @@ func TestGroupConcurrentTerminationIsIdempotent(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
 
 	const callers = 8
 	results := make(chan ProcessTermination, callers)
@@ -227,8 +225,8 @@ func TestGroupConcurrentTerminationIsIdempotent(t *testing.T) {
 			t.Fatalf("termination = found:%t escalated:%t", result.ProcessesFound(), result.escalated)
 		}
 	}
-	if err := <-waitDone; !isProcessTreeSignalExit(err) {
-		t.Fatalf("Wait error = %v, want signal exit", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); !isProcessTreeSignalExit(err) {
+		t.Fatalf("Await error = %v, want signal exit", err)
 	}
 	assertProcessTreeProcessesGone(t, pids)
 }
@@ -298,9 +296,9 @@ func TestGroupCancelLeavesSetsidChildAlive(t *testing.T) {
 	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
 
 	cancel()
-	waitErr := cmd.Wait()
+	waitErr := awaitBoundProcessGroup(group, ctx)
 	if waitErr == nil || (!errors.Is(waitErr, context.Canceled) && !isProcessTreeSignalExit(waitErr)) {
-		t.Fatalf("Wait error = %v, want cancellation or signal exit", waitErr)
+		t.Fatalf("Await error = %v, want cancellation or signal exit", waitErr)
 	}
 	termination, err := group.Terminate()
 	if err != nil {
@@ -344,8 +342,8 @@ func TestGroupReapAfterLeaderExitLeavesSetsidChildAlive(t *testing.T) {
 	}
 	escaped := pids[2]
 	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("Wait: %v", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
 	}
 
 	termination, err := group.ReapAfterLeaderExit()
@@ -521,6 +519,42 @@ func assertProcessTreeProcessesGone(t *testing.T, pids []int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func TestGroupCancelImmediatelyAfterStartDoesNotReportUnsignalableOccupancy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "/bin/sleep", "30")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = group.Terminate()
+	})
+	cancel()
+	waitErr := awaitBoundProcessGroup(group, ctx)
+	termination, terminateErr := group.Terminate()
+	if termination.UnsignalableOccupancy() {
+		t.Fatalf(
+			"unsignalable occupancy after cancel immediately after start: wait=%v terminate=%v %#v",
+			waitErr,
+			terminateErr,
+			termination,
+		)
+	}
+	if waitErr == nil {
+		t.Fatal("Await error = nil, want cancellation or signal after cancel immediately after start")
+	}
+}
+
+func awaitBoundProcessGroup(group *ProcessGroup, ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return group.Await(ctx, InheritedOutputCloseWait)
 }
 
 func isProcessTreeSignalExit(err error) bool {

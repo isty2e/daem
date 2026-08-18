@@ -81,6 +81,55 @@ func TestObserveDarwinProductVersionKeepsCompletedOutputAfterCallerCancel(t *tes
 	}
 }
 
+func TestObserveDarwinProductVersionKeepsCommandFailureAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{err: errors.New("failed")}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	if observation.Reason() != platformsupport.RuntimeObservationCommandFailed {
+		t.Fatalf("reason = %s, want command_failed after caller cancel", observation.Reason())
+	}
+}
+
+func TestObserveDarwinProductVersionUsesFrozenCanceledCommandResult(t *testing.T) {
+	_, err := observeDarwinProductVersion(context.Background(), func(context.Context) commandResult {
+		return commandResult{canceled: true, err: context.Canceled}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want frozen canceled command result", err)
+	}
+}
+
+func TestFreezeDarwinCommandResultSnapshotsWaitWithoutParentReread(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	result := freezeDarwinCommandResult(ctx, errors.New("command failed"), "26.0\n", false)
+	cancel()
+	if result.canceled || result.timedOut || result.err == nil || result.err.Error() != "command failed" {
+		t.Fatalf("frozen failure = %#v, want command error without later cancel", result)
+	}
+
+	timedOut := freezeDarwinCommandResult(context.Background(), context.DeadlineExceeded, "", false)
+	if !timedOut.timedOut || timedOut.canceled {
+		t.Fatalf("command timeout = %#v, want timedOut", timedOut)
+	}
+
+	canceled := freezeDarwinCommandResult(context.Background(), context.Canceled, "", false)
+	if !canceled.canceled || canceled.timedOut {
+		t.Fatalf("command cancel = %#v, want canceled", canceled)
+	}
+
+	parentDeadline, cancelDeadline := context.WithCancel(context.Background())
+	cancelDeadline()
+	parentTimedOut := freezeDarwinCommandResult(parentDeadline, context.DeadlineExceeded, "", false)
+	if parentTimedOut.timedOut {
+		t.Fatalf("parent deadline = %#v, want wait deadline kept distinct from command timeout", parentTimedOut)
+	}
+}
+
 func TestCanonicalProductVersionOutputAcceptsOnlyOneOptionalNewline(t *testing.T) {
 	tests := []struct {
 		input string

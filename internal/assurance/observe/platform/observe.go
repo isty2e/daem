@@ -3,6 +3,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,6 +14,7 @@ type commandResult struct {
 	stdout          string
 	stdoutTruncated bool
 	timedOut        bool
+	canceled        bool
 	err             error
 }
 
@@ -59,10 +61,31 @@ func observeDarwinProductVersion(
 		}
 		return platformsupport.NewRuntimeObservation(version)
 	}
-	if err := ctx.Err(); err != nil {
-		return platformsupport.RuntimeObservation{}, err
+	if result.canceled {
+		if result.err != nil {
+			return platformsupport.RuntimeObservation{}, result.err
+		}
+		return platformsupport.RuntimeObservation{}, context.Canceled
+	}
+	if errors.Is(result.err, context.Canceled) || errors.Is(result.err, context.DeadlineExceeded) {
+		return platformsupport.RuntimeObservation{}, result.err
 	}
 	return observationFailure(platformsupport.RuntimeObservationCommandFailed)
+}
+
+func freezeDarwinCommandResult(parent context.Context, runErr error, stdout string, stdoutTruncated bool) commandResult {
+	result := commandResult{
+		stdout:          stdout,
+		stdoutTruncated: stdoutTruncated,
+		err:             runErr,
+	}
+	if errors.Is(runErr, context.DeadlineExceeded) && parent.Err() == nil {
+		result.timedOut = true
+	}
+	if errors.Is(runErr, context.Canceled) {
+		result.canceled = true
+	}
+	return result
 }
 
 func observationFailure(

@@ -124,6 +124,11 @@ func (group *ProcessGroup) terminate(quiesce bool) (ProcessTermination, error) {
 		return ProcessTermination{}, fmt.Errorf("terminate process group: command has not started")
 	}
 
+	// Occupancy polling must not start until command.Wait is running. An
+	// exited-but-unreaped leader can otherwise look like unsignalable
+	// occupancy, including when CommandContext invokes Cancel.
+	group.StartWait()
+
 	group.terminateOnce.Do(func() {
 		group.termination, group.terminateErr = terminateDedicatedProcessGroup(
 			group.command.Process.Pid,
@@ -149,6 +154,8 @@ func (group *ProcessGroup) cancel() error {
 
 // StartWait begins command.Wait in the background so callers can return after
 // termination without abandoning eventual child reaping. It must run after Start.
+// StartWait returns only after the Wait goroutine is running. After
+// BindProcessGroup, command.Wait is exclusive to ProcessGroup.
 //
 // Wait closes exec-managed StdinPipe, StdoutPipe, and StderrPipe after the
 // leader exits. Callers that use those pipes must finish or abandon the parent
@@ -161,10 +168,13 @@ func (group *ProcessGroup) StartWait() {
 	}
 	group.waitOnce.Do(func() {
 		group.waitDone = make(chan struct{})
+		started := make(chan struct{})
 		go func() {
+			close(started)
 			group.waitErr = group.command.Wait()
 			close(group.waitDone)
 		}()
+		<-started
 	})
 }
 

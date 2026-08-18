@@ -36,13 +36,9 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 		return commandResult{err: err}
 	}
 	if err := command.Start(); err != nil {
-		return commandResult{
-			timedOut: commandContext.Err() == context.DeadlineExceeded && ctx.Err() == nil,
-			err:      err,
-		}
+		return freezeDarwinCommandResult(ctx, err, stdout.String(), stdout.Truncated())
 	}
 	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
-	timedOut := errors.Is(waitErr, context.DeadlineExceeded) && ctx.Err() == nil
 	termination, terminationErr := group.ReapAfterLeaderExit()
 	if waitErr == nil {
 		waitErr = terminationErr
@@ -52,12 +48,7 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 	if occupancyErr := processGroupOccupancyErr(termination); occupancyErr != nil {
 		waitErr = errors.Join(waitErr, occupancyErr)
 	}
-	return commandResult{
-		stdout:          stdout.String(),
-		stdoutTruncated: stdout.Truncated(),
-		timedOut:        timedOut,
-		err:             waitErr,
-	}
+	return freezeDarwinCommandResult(ctx, waitErr, stdout.String(), stdout.Truncated())
 }
 
 func processGroupOccupancyErr(termination subprocess.ProcessTermination) error {

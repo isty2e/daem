@@ -24,6 +24,17 @@ func TestGitAttemptContextErrUsesObservedWaitNotCallerReread(t *testing.T) {
 	}
 }
 
+func TestGitAttemptContextErrDoesNotPromoteCommandCancelOverConsumerFailure(t *testing.T) {
+	consumer := errors.New("listing budget exceeded")
+	got := gitAttemptContextErr(consumer, gitProcessResult{commandErr: context.Canceled})
+	if got != nil {
+		t.Fatalf("non-context consumer with later command cancel = %v, want frozen consumer", got)
+	}
+	if got := gitAttemptContextErr(consumer, gitProcessResult{commandErr: context.DeadlineExceeded}); got != nil {
+		t.Fatalf("non-context consumer with later command deadline = %v, want frozen consumer", got)
+	}
+}
+
 func TestGitObservedLifecycleErrorPrefersCapturedDiagnostic(t *testing.T) {
 	cause := context.Canceled
 	captured := &capturedGitCommandError{diagnostic: "fatal: redacted", cause: cause}
@@ -36,5 +47,19 @@ func TestGitObservedLifecycleErrorPrefersCapturedDiagnostic(t *testing.T) {
 	}
 	if got.Error() != "fatal: redacted" {
 		t.Fatalf("public error = %q, want diagnostic without cause text", got.Error())
+	}
+}
+
+func TestGitObservedLifecycleErrorJoinsMissingConsumerCancelIntoDiagnostic(t *testing.T) {
+	captured := &capturedGitCommandError{diagnostic: "fatal: redacted", cause: errors.New("exit status 128")}
+	got := gitObservedLifecycleError(context.Canceled, gitProcessResult{commandErr: captured})
+	if !errors.Is(got, context.Canceled) {
+		t.Fatalf("lifecycle error = %v, want consumer context.Canceled preserved", got)
+	}
+	if got.Error() != "fatal: redacted" {
+		t.Fatalf("public error = %q, want diagnostic without cause text", got.Error())
+	}
+	if errors.Is(captured, context.Canceled) {
+		t.Fatal("original wrapper must not be mutated to carry the consumer cause")
 	}
 }

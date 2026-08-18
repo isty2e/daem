@@ -176,7 +176,7 @@ func completeGitProcess(
 
 waited:
 	awaitCtx := ctx
-	if leaderExited {
+	if leaderExited || gitFrozenNonContextConsumer(consumeErr) {
 		awaitCtx = context.WithoutCancel(ctx)
 	}
 	waitErr := process.group.Await(awaitCtx, subprocess.InheritedOutputCloseWait)
@@ -202,11 +202,24 @@ waited:
 	}
 }
 
+func gitFrozenNonContextConsumer(err error) bool {
+	return err != nil && gitAttemptContextErr(err, gitProcessResult{}) == nil
+}
+
 func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
-	if errors.Is(consumeErr, context.DeadlineExceeded) || errors.Is(result.commandErr, context.DeadlineExceeded) {
+	if errors.Is(consumeErr, context.DeadlineExceeded) {
 		return context.DeadlineExceeded
 	}
-	if errors.Is(consumeErr, context.Canceled) || errors.Is(result.commandErr, context.Canceled) {
+	if errors.Is(consumeErr, context.Canceled) {
+		return context.Canceled
+	}
+	if consumeErr != nil {
+		return nil
+	}
+	if errors.Is(result.commandErr, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(result.commandErr, context.Canceled) {
 		return context.Canceled
 	}
 	return nil
@@ -218,10 +231,16 @@ func gitObservedLifecycleError(consumeErr error, result gitProcessResult) error 
 		return nil
 	}
 	var captured *capturedGitCommandError
-	if errors.As(result.commandErr, &captured) {
+	if !errors.As(result.commandErr, &captured) || captured == nil {
+		return ctxErr
+	}
+	if errors.Is(captured, ctxErr) {
 		return captured
 	}
-	return ctxErr
+	return &capturedGitCommandError{
+		diagnostic: captured.diagnostic,
+		cause:      errors.Join(ctxErr, captured.cause),
+	}
 }
 
 // afterGitLeaderWait is a test hook invoked after WaitDone is observed and

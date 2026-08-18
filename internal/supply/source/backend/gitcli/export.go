@@ -179,10 +179,7 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 		return joinGitProcessGroupTerminateErr(lifecycleErr, "git archive", result)
 	}
 	if extractErr != nil {
-		if result.termination.UnsignalableOccupancy() || result.terminationErr != nil {
-			return joinGitProcessGroupTerminateErr(extractErr, "git archive", result)
-		}
-		return extractErr
+		return joinGitProcessGroupTerminateErr(extractErr, "git archive", result)
 	}
 
 	waitErr := result.stderrReadErr
