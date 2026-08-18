@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
-
-const inheritedOutputCloseWait = 250 * time.Millisecond
 
 func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandResult {
 	path, err := exec.LookPath(request.Command)
@@ -43,7 +40,7 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	cmd.Stderr = stderr
 	// A successful leader may leave descendants holding inherited output
 	// descriptors. Bound exec's pipe wait so process-group reaping can run.
-	cmd.WaitDelay = inheritedOutputCloseWait
+	cmd.WaitDelay = InheritedOutputCloseWait
 	group, err := BindProcessGroup(cmd)
 	if err != nil {
 		return CommandResult{Err: err}
@@ -53,26 +50,26 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 		return CommandResult{Err: err}
 	}
 	result := CommandResult{Started: true}
-	err = cmd.Wait()
+	err = group.Await(ctx, InheritedOutputCloseWait)
 	result.Stdout = stdout.String()
 	result.Stderr = stderr.String()
 	result.StdoutTruncated = stdout.Truncated()
 	result.StderrTruncated = stderr.Truncated()
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil {
-		// Forced or indeterminate group cleanup means the command did not
+	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil || errors.Is(err, ErrProcessWaitAbandoned) {
+		// Forced, unsignalable, or abandoned wait means the command did not
 		// reach natural output closure.
 		result.StdoutTruncated = true
 		result.StderrTruncated = true
 	}
 	if ctx.Err() == context.DeadlineExceeded {
 		result.TimedOut = true
-		result.Err = errors.Join(ctx.Err(), terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(errors.Join(ctx.Err(), err), termination, terminationErr)
 		return result
 	}
 	if errors.Is(ctx.Err(), context.Canceled) {
 		result.Canceled = true
-		result.Err = errors.Join(ctx.Err(), terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(errors.Join(ctx.Err(), err), termination, terminationErr)
 		return result
 	}
 	outputDescriptorsHeldOpen := errors.Is(err, exec.ErrWaitDelay)
@@ -108,6 +105,9 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 		}
 	}
 	result.Err = joinCommandProcessGroupCleanup(result.Err, termination, terminationErr)
+	if errors.Is(err, ErrProcessWaitAbandoned) {
+		result.Err = errors.Join(result.Err, err)
+	}
 	return result
 }
 

@@ -70,6 +70,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		outputLimit = defaultOutputLimit
 	}
 	stderrBuffer := subprocess.NewBoundedBuffer(outputLimit)
+	cmd.WaitDelay = subprocess.InheritedOutputCloseWait
 	group, err := subprocess.BindProcessGroup(cmd)
 	if err != nil {
 		return commandResult{Err: err}
@@ -79,24 +80,32 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		return commandResult{Err: err}
 	}
 	result.Started = true
+	group.StartWait()
 
 	stderrDone := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(stderrBuffer, stderr)
 		close(stderrDone)
 	}()
+	interruptDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = stdin.Close()
+			_ = stdout.Close()
+			_ = stderr.Close()
+		case <-interruptDone:
+		}
+	}()
 	defer func() {
+		close(interruptDone)
 		_ = stdin.Close()
-		waitDone := make(chan error, 1)
-		go func() {
-			waitDone <- cmd.Wait()
-		}()
 		var waitErr error
 		processExited := false
 		if ctx.Err() == nil {
 			timer := time.NewTimer(stdinCloseGrace)
 			select {
-			case waitErr = <-waitDone:
+			case <-group.WaitDone():
 				processExited = true
 			case <-timer.C:
 			}
@@ -113,12 +122,20 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		} else {
 			_, terminationErr = group.Terminate()
 		}
-		if !processExited {
-			waitErr = <-waitDone
+		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
+		timer := time.NewTimer(subprocess.InheritedOutputCloseWait)
+		select {
+		case <-stderrDone:
+			timer.Stop()
+		case <-timer.C:
+			_ = stderr.Close()
+			<-stderrDone
+			result.StderrTruncated = true
 		}
-		<-stderrDone
 		result.Stderr = stderrBuffer.String()
-		result.StderrTruncated = stderrBuffer.Truncated()
+		if stderrBuffer.Truncated() {
+			result.StderrTruncated = true
+		}
 		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
 	}()
 
@@ -184,6 +201,10 @@ func finalizeCommandResult(
 	if terminationErr != nil {
 		result.InitializeSucceeded = false
 		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process group: %w", terminationErr))
+	}
+	if errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned) {
+		result.InitializeSucceeded = false
+		result.Err = errors.Join(result.Err, waitErr)
 	}
 	if result.Err == nil && !result.InitializeSucceeded && waitErr != nil {
 		result.Err = waitErr

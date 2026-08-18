@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -171,12 +172,9 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 		return err
 	}
 
-	extractErr := sourcearchive.ExtractTar(ctx, process.Stdout(), outputRoot)
-	if extractErr != nil {
-		_, _ = process.Terminate()
-	}
-
-	result := process.Wait()
+	extractErr, result := completeGitProcess(ctx, process, func(reader io.Reader) error {
+		return sourcearchive.ExtractTar(ctx, reader, outputRoot)
+	})
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return joinGitProcessGroupTerminateErr(ctxErr, "git archive", result)
 	}

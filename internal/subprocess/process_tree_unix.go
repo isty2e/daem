@@ -115,18 +115,7 @@ func signalDedicatedProcessGroup(pid int, signal syscall.Signal) error {
 	if pid <= 0 {
 		return fmt.Errorf("invalid process group id %d", pid)
 	}
-	err := unix.Kill(-pid, signal)
-	if err == nil || errors.Is(err, unix.ESRCH) {
-		return err
-	}
-	if !errors.Is(err, unix.EPERM) {
-		return err
-	}
-	leaderErr := unix.Kill(pid, signal)
-	if leaderErr == nil || errors.Is(leaderErr, unix.ESRCH) {
-		return leaderErr
-	}
-	return err
+	return unix.Kill(-pid, signal)
 }
 
 func observeDedicatedProcessGroup(pid int) (processGroupOccupancy, error) {
@@ -138,15 +127,7 @@ func observeDedicatedProcessGroup(pid int) (processGroupOccupancy, error) {
 	if !recognized {
 		return processGroupAbsent, fmt.Errorf("probe process group %d: %w", pid, groupErr)
 	}
-	if occupancy != processGroupUnsignalable {
-		return occupancy, nil
-	}
-	leaderErr := unix.Kill(pid, 0)
-	resolved, leaderRecognized := resolveUnsignalableGroupProbe(leaderErr)
-	if !leaderRecognized {
-		return processGroupUnsignalable, nil
-	}
-	return resolved, nil
+	return occupancy, nil
 }
 
 func classifyProcessGroupProbe(err error) (processGroupOccupancy, bool) {
@@ -162,22 +143,10 @@ func classifyProcessGroupProbe(err error) (processGroupOccupancy, bool) {
 	}
 }
 
-func resolveUnsignalableGroupProbe(leaderErr error) (processGroupOccupancy, bool) {
-	occupancy, recognized := classifyProcessGroupProbe(leaderErr)
-	if !recognized {
-		return processGroupUnsignalable, false
-	}
-	switch occupancy {
-	case processGroupAbsent:
-		return processGroupAbsent, true
-	case processGroupSignalable:
-		return processGroupSignalable, true
-	default:
-		return processGroupUnsignalable, true
-	}
-}
-
 func waitForDedicatedProcessGroup(pid int, timeout time.Duration) (processGroupOccupancy, error) {
+	// Darwin can return EPERM for kill(-pgid, 0) while group members are
+	// dying after SIGKILL. Keep polling until ESRCH or the bound; persistent
+	// EPERM is unsignalable occupancy, not a leader-PID override.
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	ticker := time.NewTicker(processGroupPollInterval)
@@ -185,8 +154,11 @@ func waitForDedicatedProcessGroup(pid int, timeout time.Duration) (processGroupO
 
 	for {
 		occupancy, err := observeDedicatedProcessGroup(pid)
-		if err != nil || occupancy != processGroupSignalable {
+		if err != nil {
 			return occupancy, err
+		}
+		if occupancy == processGroupAbsent {
+			return occupancy, nil
 		}
 		select {
 		case <-ticker.C:

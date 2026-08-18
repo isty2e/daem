@@ -533,11 +533,7 @@ func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader
 		return err
 	}
 
-	readErr := consume(process.Stdout())
-	if readErr != nil {
-		_, _ = process.Terminate()
-	}
-	result := process.Wait()
+	readErr, result := completeGitProcess(ctx, process, consume)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return joinGitProcessGroupTerminateErr(ctxErr, "git", result)
 	}

@@ -1,6 +1,7 @@
 package subprocess
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -13,11 +14,19 @@ const (
 	defaultQuiescencePeriod = 50 * time.Millisecond
 	defaultGracePeriod      = 500 * time.Millisecond
 	defaultKillWait         = 2 * time.Second
+
+	// InheritedOutputCloseWait bounds parent-side pipe draining after leader
+	// exit or cancellation. Session-escaped descendants are outside dedicated
+	// process-group cleanup and may keep inherited writers open.
+	InheritedOutputCloseWait = 250 * time.Millisecond
 )
 
 var (
 	errProcessTreeUnsupported   = errors.New("process-group supervision is unsupported")
 	errProcessGroupUnsignalable = errors.New("process group occupancy is unsignalable")
+	// ErrProcessWaitAbandoned reports that command.Wait was left running in the
+	// background after termination because the leader did not exit in bound.
+	ErrProcessWaitAbandoned = errors.New("process wait abandoned while occupancy remained")
 )
 
 type processTerminationOptions struct {
@@ -45,7 +54,8 @@ func (termination ProcessTermination) UnsignalableOccupancy() bool {
 	return termination.unsignalableOccupancy
 }
 
-// ProcessGroup owns termination for one command's fresh dedicated process group.
+// ProcessGroup owns termination and bounded leader waiting for one command's
+// fresh dedicated process group.
 type ProcessGroup struct {
 	command *exec.Cmd
 	options processTerminationOptions
@@ -54,6 +64,10 @@ type ProcessGroup struct {
 	terminateDone chan struct{}
 	termination   ProcessTermination
 	terminateErr  error
+
+	waitOnce sync.Once
+	waitDone chan struct{}
+	waitErr  error
 }
 
 // BindProcessGroup configures command to create a fresh process group and replaces the
@@ -127,6 +141,70 @@ func (group *ProcessGroup) cancel() error {
 		return os.ErrProcessDone
 	}
 	return nil
+}
+
+// StartWait begins command.Wait in the background so callers can return after
+// termination without abandoning eventual child reaping. It must run after Start.
+func (group *ProcessGroup) StartWait() {
+	if group == nil || group.command == nil {
+		return
+	}
+	group.waitOnce.Do(func() {
+		group.waitDone = make(chan struct{})
+		go func() {
+			group.waitErr = group.command.Wait()
+			close(group.waitDone)
+		}()
+	})
+}
+
+// WaitDone is closed after command.Wait returns. It starts the background wait
+// if needed.
+func (group *ProcessGroup) WaitDone() <-chan struct{} {
+	if group == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	group.StartWait()
+	return group.waitDone
+}
+
+// Await waits for the leader to exit. After ctx is done or the dedicated group
+// has already been terminated, it returns if the leader has not exited within
+// abandonBound. command.Wait continues in the background so the child can
+// still be reaped.
+func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration) error {
+	if group == nil {
+		return fmt.Errorf("await process group: group is required")
+	}
+	if abandonBound <= 0 {
+		abandonBound = InheritedOutputCloseWait
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	group.StartWait()
+	select {
+	case <-group.waitDone:
+		return group.waitErr
+	case <-ctx.Done():
+		_, terminateErr := group.Terminate()
+		return group.finishAwait(abandonBound, ctx.Err(), terminateErr)
+	case <-group.terminateDone:
+		return group.finishAwait(abandonBound, ctx.Err(), group.terminateErr)
+	}
+}
+
+func (group *ProcessGroup) finishAwait(abandonBound time.Duration, ctxErr error, terminateErr error) error {
+	timer := time.NewTimer(abandonBound)
+	defer timer.Stop()
+	select {
+	case <-group.waitDone:
+		return errors.Join(ctxErr, group.waitErr)
+	case <-timer.C:
+		return errors.Join(ctxErr, terminateErr, ErrProcessWaitAbandoned)
+	}
 }
 
 func (options processTerminationOptions) withDefaults() processTerminationOptions {

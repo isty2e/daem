@@ -247,32 +247,6 @@ func TestClassifyProcessGroupProbeIsThreeValued(t *testing.T) {
 	}
 }
 
-func TestResolveUnsignalableGroupProbeUsesLeaderPID(t *testing.T) {
-	tests := []struct {
-		leaderErr  error
-		occupancy  processGroupOccupancy
-		recognized bool
-	}{
-		{leaderErr: nil, occupancy: processGroupSignalable, recognized: true},
-		{leaderErr: unix.ESRCH, occupancy: processGroupAbsent, recognized: true},
-		{leaderErr: unix.EPERM, occupancy: processGroupUnsignalable, recognized: true},
-		{leaderErr: unix.EINVAL, occupancy: processGroupUnsignalable, recognized: false},
-	}
-	for _, test := range tests {
-		occupancy, recognized := resolveUnsignalableGroupProbe(test.leaderErr)
-		if occupancy != test.occupancy || recognized != test.recognized {
-			t.Fatalf(
-				"resolveUnsignalableGroupProbe(%v) = %d,%t, want %d,%t",
-				test.leaderErr,
-				occupancy,
-				recognized,
-				test.occupancy,
-				test.recognized,
-			)
-		}
-	}
-}
-
 func TestGroupCancelLeavesSetsidChildAlive(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {

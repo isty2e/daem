@@ -77,6 +77,33 @@ func TestRunGitOutputAllowsSetsidChildToOutliveLeader(t *testing.T) {
 	assertGitHelperProcessAlive(t, pids[1])
 }
 
+func TestRunGitOutputReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := gitProcessHelperCommand(t, ctx, "setsid-inherit-parent", pidFile)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := runGitOutput(ctx, command)
+		result <- err
+	}()
+
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	cancel()
+	select {
+	case err := <-result:
+		if err != context.Canceled {
+			t.Fatalf("runGitOutput error = %#v, want exact context.Canceled", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("runGitOutput did not return after cancellation while a setsid child held pipes")
+	}
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
 func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
@@ -170,7 +197,7 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -181,6 +208,11 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
 	case "setsid-parent":
 		if err := startGitProcessHelperChild("setsid-child", pidFile); err != nil {
+			return err
+		}
+		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-inherit-parent":
+		if err := startGitProcessHelperChild("setsid-inherit-child", pidFile); err != nil {
 			return err
 		}
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
@@ -271,6 +303,10 @@ func newGitProcessHelperChild(stage string, pidFile string) (*exec.Cmd, error) {
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		command.Stdout = io.Discard
 		command.Stderr = io.Discard
+	} else if stage == "setsid-inherit-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
 	} else if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr

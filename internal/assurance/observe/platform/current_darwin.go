@@ -5,6 +5,7 @@ package platform
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
@@ -20,27 +21,44 @@ func currentCommandRunner() (commandRunner, bool) {
 }
 
 func runProductVersionCommand(ctx context.Context) commandResult {
-	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
-		Timeout:     productVersionCommandTimeout,
-		OutputLimit: productVersionOutputLimit,
-	})
-	result := executor.Execute(ctx, subprocess.CommandAttemptRequest{
-		Command:     "/usr/bin/sw_vers",
-		Args:        []string{"--productVersion"},
-		OutputLimit: productVersionOutputLimit,
-	})
-	var err error
-	if !result.Succeeded() {
-		if detail := result.ErrorDetail(); detail != "" {
-			err = errors.New(detail)
-		} else {
-			err = errors.New("sw_vers failed")
+	commandContext, cancel := context.WithTimeout(ctx, productVersionCommandTimeout)
+	defer cancel()
+
+	stdout := subprocess.NewBoundedBuffer(productVersionOutputLimit)
+	stderr := subprocess.NewBoundedBuffer(productVersionOutputLimit)
+	command := exec.CommandContext(commandContext, "/usr/bin/sw_vers", "--productVersion")
+	command.Env = []string{"LANG=C", "LC_ALL=C"}
+	command.Stdout = stdout
+	command.Stderr = stderr
+	command.WaitDelay = subprocess.InheritedOutputCloseWait
+	group, err := subprocess.BindProcessGroup(command)
+	if err != nil {
+		return commandResult{err: err}
+	}
+	if err := command.Start(); err != nil {
+		return commandResult{
+			timedOut: commandContext.Err() == context.DeadlineExceeded && ctx.Err() == nil,
+			err:      err,
 		}
 	}
+	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
+	termination, terminationErr := group.ReapAfterLeaderExit()
+	if err := ctx.Err(); err != nil {
+		waitErr = err
+	}
+	if waitErr == nil {
+		waitErr = terminationErr
+	} else if terminationErr != nil {
+		waitErr = errors.Join(waitErr, terminationErr)
+	}
+	truncated := stdout.Truncated() ||
+		termination.ProcessesFound() ||
+		termination.UnsignalableOccupancy() ||
+		errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
 	return commandResult{
-		stdout:          result.Stdout(),
-		stdoutTruncated: result.StdoutTruncated(),
-		timedOut:        result.TimedOut(),
-		err:             err,
+		stdout:          stdout.String(),
+		stdoutTruncated: truncated,
+		timedOut:        commandContext.Err() == context.DeadlineExceeded && ctx.Err() == nil,
+		err:             waitErr,
 	}
 }
