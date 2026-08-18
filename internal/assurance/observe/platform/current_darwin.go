@@ -42,9 +42,12 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 		}
 	}
 	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
+	timedOut := errors.Is(waitErr, context.DeadlineExceeded) && ctx.Err() == nil
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if err := ctx.Err(); err != nil {
-		waitErr = err
+	if waitErr != nil {
+		if err := ctx.Err(); err != nil && !errors.Is(waitErr, context.DeadlineExceeded) {
+			waitErr = err
+		}
 	}
 	if waitErr == nil {
 		waitErr = terminationErr
@@ -58,7 +61,7 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 	return commandResult{
 		stdout:          stdout.String(),
 		stdoutTruncated: truncated,
-		timedOut:        commandContext.Err() == context.DeadlineExceeded && ctx.Err() == nil,
+		timedOut:        timedOut,
 		err:             waitErr,
 	}
 }

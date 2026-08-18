@@ -128,7 +128,9 @@ func (executor Executor) Probe(
 		ProtocolVersion: executor.protocolVersion,
 		nativeWorkDir:   directory,
 	})
-	result = result.withContextOutcome(runCtx.Err())
+	if !result.Started {
+		result = result.withContextOutcome(runCtx.Err())
+	}
 	if err := binding.Validate(); err != nil {
 		result.WorkDirAuthorityFailed = true
 		result.Err = errors.Join(result.Err, fmt.Errorf("working-directory authority changed: %w", err))

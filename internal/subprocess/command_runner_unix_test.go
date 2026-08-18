@@ -335,6 +335,118 @@ func TestDefaultRunnerPreservesNonZeroExitWhenSetsidChildHoldsOutputDescriptors(
 	assertCommandExecProcessAlive(t, pids[1])
 }
 
+func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{
+		Timeout:     400 * time.Millisecond,
+		OutputLimit: 1024,
+	})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-fail-setsid-inherited-output",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want nonzero exit preserved when output cleanup crossed the attempt deadline", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 17 {
+		t.Fatalf("exit code = %d/%t, want 17", exitCode, ok)
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids[1:] {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
+func TestDefaultRunnerResidualProcessWithoutInheritedOutputDoesNotTruncateCompleteStreams(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{Timeout: DefaultCommandTimeout, OutputLimit: 1024})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-exit-discard-output",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonRunnerError || result.TimedOut() {
+		t.Fatalf("result = %#v, want residual-process runner failure", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 0 {
+		t.Fatalf("exit code = %d/%t, want observed direct-child exit 0", exitCode, ok)
+	}
+	if result.StdoutTruncated() || result.StderrTruncated() {
+		t.Fatalf(
+			"truncation flags = %t/%t, want complete streams when residual members held no output",
+			result.StdoutTruncated(),
+			result.StderrTruncated(),
+		)
+	}
+	if !strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want residual process-group error", result.ErrorDetail())
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	assertCommandExecProcessesGone(t, pids[1:])
+}
+
+func TestDefaultRunnerMarksOnlyTheStreamHeldOpenByASetsidChild(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-fail-setsid-inherited-stderr",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want nonzero exit with one held stderr stream", result)
+	}
+	if result.Stdout() != "leader stdout\n" || result.StdoutTruncated() {
+		t.Fatalf("stdout = %q truncated=%t, want complete leader stdout", result.Stdout(), result.StdoutTruncated())
+	}
+	if !result.StderrTruncated() || result.Stderr() != "leader stderr\n" {
+		t.Fatalf("stderr = %q truncated=%t, want incomplete held stderr", result.Stderr(), result.StderrTruncated())
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids[1:] {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
 func TestDefaultRunnerAllowsInheritedOutputGrandchildToClosePromptly(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -389,10 +501,12 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		}
 	case "parent",
 		"parent-exit",
+		"parent-exit-discard-output",
 		"parent-exit-inherited-output",
 		"parent-exit-secret-prefix-inherited-output",
 		"parent-fail-inherited-output",
 		"parent-fail-setsid-inherited-output",
+		"parent-fail-setsid-inherited-stderr",
 		"parent-exit-short-inherited-output",
 		"parent-exit-setsid":
 		executable, err := os.Executable()
@@ -407,8 +521,22 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		if strings.Contains(mode, "inherited-output") {
 			child.Stdout = os.Stdout
 			child.Stderr = os.Stderr
+		} else if strings.Contains(mode, "inherited-stderr") {
+			child.Stderr = os.Stderr
+			devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				os.Exit(88)
+			}
+			child.Stdout = devNull
+		} else if mode == "parent-exit-discard-output" {
+			devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				os.Exit(88)
+			}
+			child.Stdout = devNull
+			child.Stderr = devNull
 		}
-		if mode == "parent-exit-setsid" || mode == "parent-fail-setsid-inherited-output" {
+		if strings.Contains(mode, "setsid") {
 			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		}
 		if err := child.Start(); err != nil {
@@ -423,7 +551,7 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			_ = child.Process.Kill()
 			os.Exit(85)
 		}
-		if strings.Contains(mode, "inherited-output") &&
+		if (strings.Contains(mode, "inherited-output") || strings.Contains(mode, "inherited-stderr")) &&
 			mode != "parent-exit-secret-prefix-inherited-output" {
 			fmt.Fprintln(os.Stdout, "leader stdout")
 			fmt.Fprintln(os.Stderr, "leader stderr")
@@ -435,7 +563,9 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			}
 			fmt.Fprint(os.Stdout, secret[:len(secret)-6])
 		}
-		if mode == "parent-fail-inherited-output" || mode == "parent-fail-setsid-inherited-output" {
+		if mode == "parent-fail-inherited-output" ||
+			mode == "parent-fail-setsid-inherited-output" ||
+			mode == "parent-fail-setsid-inherited-stderr" {
 			os.Exit(17)
 		}
 		if mode != "parent" {

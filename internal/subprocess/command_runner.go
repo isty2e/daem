@@ -65,42 +65,44 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	stdoutCapture.StartCopy()
 	stderrCapture.StartCopy()
 	result := CommandResult{Started: true}
-	err = group.Await(ctx, InheritedOutputCloseWait)
+	waitErr := group.Await(ctx, InheritedOutputCloseWait)
 	stdout := stdoutCapture.Finish(InheritedOutputCloseWait)
 	stderr := stderrCapture.Finish(InheritedOutputCloseWait)
+	termination, terminationErr := group.ReapAfterLeaderExit()
+	return finalizeDefaultCommandResult(result, request, waitErr, stdout, stderr, termination, terminationErr)
+}
+
+func finalizeDefaultCommandResult(
+	result CommandResult,
+	request CommandRequest,
+	waitErr error,
+	stdout OutputSnapshot,
+	stderr OutputSnapshot,
+	termination ProcessTermination,
+	terminationErr error,
+) CommandResult {
 	result.Stdout = stdout.Text
 	result.Stderr = stderr.Text
 	result.StdoutTruncated = stdout.Truncated()
 	result.StderrTruncated = stderr.Truncated()
-	outputIncomplete := stdout.Incomplete || stderr.Incomplete
-	termination, terminationErr := group.ReapAfterLeaderExit()
-	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil || errors.Is(err, ErrProcessWaitAbandoned) || outputIncomplete {
-		// Forced, unsignalable, abandoned, or still-open inherited writers
-		// mean the command did not reach natural output closure.
-		result.StdoutTruncated = true
-		result.StderrTruncated = true
-	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(waitErr, context.DeadlineExceeded) {
 		result.TimedOut = true
-		result.Err = joinCommandProcessGroupCleanup(errors.Join(ctx.Err(), err), termination, terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(waitErr, termination, terminationErr)
 		return result
 	}
-	if errors.Is(ctx.Err(), context.Canceled) {
+	if errors.Is(waitErr, context.Canceled) {
 		result.Canceled = true
-		result.Err = joinCommandProcessGroupCleanup(errors.Join(ctx.Err(), err), termination, terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(waitErr, termination, terminationErr)
 		return result
 	}
-	outputDescriptorsHeldOpen := errors.Is(err, exec.ErrWaitDelay) || (err == nil && outputIncomplete)
-	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
+	if waitErr == nil || errors.Is(waitErr, exec.ErrWaitDelay) {
 		result.HasExitCode = true
-		if outputDescriptorsHeldOpen {
-			result.StdoutTruncated = true
-			result.StderrTruncated = true
+		if errors.Is(waitErr, exec.ErrWaitDelay) || stdout.Incomplete || stderr.Incomplete {
 			result.Err = errors.New("command exited while descendant processes kept inherited output descriptors open")
 		}
 	} else {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			if exitErr.ExitCode() < 0 {
 				result.Signaled = true
 			} else {
@@ -108,7 +110,7 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 				result.ExitCode = exitErr.ExitCode()
 			}
 		}
-		result.Err = err
+		result.Err = waitErr
 	}
 	if request.nativeWorkDir != nil && result.HasExitCode && result.ExitCode == 126 {
 		result.WorkDirAuthorityFailed = reportsWorkingDirectorySetupFailure(result.Stderr)
@@ -120,8 +122,8 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 		}
 	}
 	result.Err = joinCommandProcessGroupCleanup(result.Err, termination, terminationErr)
-	if errors.Is(err, ErrProcessWaitAbandoned) {
-		result.Err = errors.Join(result.Err, err)
+	if errors.Is(waitErr, ErrProcessWaitAbandoned) {
+		result.Err = errors.Join(result.Err, waitErr)
 	}
 	return result
 }

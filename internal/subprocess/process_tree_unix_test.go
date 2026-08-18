@@ -117,6 +117,27 @@ func TestGroupTerminatesResidualGrandchildAfterLeaderExit(t *testing.T) {
 	assertProcessTreeProcessesGone(t, pids[1:])
 }
 
+func TestAwaitJoinsAlreadyExpiredContextWhenLeaderAlreadyExited(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "/bin/echo", "await-join")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := group.Await(context.Background(), InheritedOutputCloseWait); err != nil {
+		t.Fatalf("first Await: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = group.Await(ctx, InheritedOutputCloseWait)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("second Await error = %v, want canceled joined after leader wait already completed", err)
+	}
+}
+
 func TestGroupAllowsNaturalGrandchildQuiescenceAfterLeaderExit(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {

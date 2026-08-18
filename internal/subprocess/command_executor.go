@@ -147,6 +147,11 @@ func (executor CommandExecutor) run(
 		OutputLimit:   outputLimit,
 		nativeWorkDir: nativeWorkDir,
 	})
+	if raw.Started {
+		// The runner classifies timeout/cancel from Await, before cleanup.
+		// Do not re-read the attempt context after the runner returns.
+		return raw
+	}
 	if runCtx.Err() == context.DeadlineExceeded {
 		raw.TimedOut = true
 		if raw.Err == nil {

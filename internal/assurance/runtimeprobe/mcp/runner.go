@@ -127,12 +127,18 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 			_, terminationErr = group.Terminate()
 		}
 		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
+		var contextErr error
+		if errors.Is(waitErr, context.DeadlineExceeded) {
+			contextErr = context.DeadlineExceeded
+		} else if errors.Is(waitErr, context.Canceled) {
+			contextErr = context.Canceled
+		}
 		closeProtocolStdio()
 		close(interruptDone)
 		stderr := stderrCapture.Finish(subprocess.InheritedOutputCloseWait)
 		result.Stderr = stderr.Text
 		result.StderrTruncated = stderr.Truncated()
-		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
+		result = finalizeCommandResult(result, waitErr, terminationErr, contextErr)
 	}()
 
 	// Protocol pipes: Wait starts only after initialize scanning returns.

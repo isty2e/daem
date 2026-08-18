@@ -193,6 +193,12 @@ func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration
 	group.StartWait()
 	select {
 	case <-group.waitDone:
+		if err := ctx.Err(); err != nil {
+			// Wait completed, but the attempt context had already expired.
+			// That includes CommandContext killing the leader; classify from
+			// this Await return, not from ctx.Err() after later cleanup.
+			return errors.Join(err, group.waitErr)
+		}
 		return group.waitErr
 	case <-ctx.Done():
 		_, terminateErr := group.Terminate()
