@@ -170,13 +170,14 @@ waited:
 	termination, terminationErr := process.group.ReapAfterLeaderExit()
 	stderrReadErr, stderrIncomplete := process.finishStderr()
 	_ = process.stdout.Close()
-	incomplete = incomplete || stderrIncomplete || errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
+	outputIncomplete := incomplete || stderrIncomplete || errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
+	stderrTruncated := process.diagnostic.Truncated() || stderrIncomplete
 	if waitErr != nil {
 		waitErr = gitCommandErrorWithCapture(
 			process.diagnosticPolicy,
 			waitErr,
 			process.diagnostic.String(),
-			process.diagnostic.Truncated() || incomplete,
+			stderrTruncated,
 		)
 	}
 	return consumeErr, gitProcessResult{
@@ -184,8 +185,18 @@ waited:
 		termination:      termination,
 		terminationErr:   terminationErr,
 		stderrReadErr:    stderrReadErr,
-		outputIncomplete: incomplete,
+		outputIncomplete: outputIncomplete,
 	}
+}
+
+func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
+	if errors.Is(consumeErr, context.DeadlineExceeded) || errors.Is(result.commandErr, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(consumeErr, context.Canceled) || errors.Is(result.commandErr, context.Canceled) {
+		return context.Canceled
+	}
+	return nil
 }
 
 func joinGitProcessGroupTerminateErr(base error, role string, result gitProcessResult) error {

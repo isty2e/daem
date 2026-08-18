@@ -279,6 +279,8 @@ func TestMCPProbeHelperProcess(t *testing.T) {
 		runNotificationFirstMCPProbeHelper()
 	case "initialize-error":
 		runInitializeErrorMCPProbeHelper()
+	case "initialize-error-hang":
+		runInitializeErrorThenHangMCPProbeHelper()
 	case "missing-protocol-version":
 		runMissingProtocolVersionMCPProbeHelper()
 	case "hang":
@@ -345,6 +347,19 @@ func runInitializeErrorMCPProbeHelper() {
 	readInitializeRequestOrExit()
 	fmt.Println(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad initialize"}}`)
 	os.Exit(0)
+}
+
+func runInitializeErrorThenHangMCPProbeHelper() {
+	readInitializeRequestOrExit()
+	fmt.Println(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad initialize"}}`)
+	if marker := os.Getenv("DAEM_MCPPROBE_MARKER"); marker != "" {
+		if err := os.WriteFile(marker, []byte("initialize-error\n"), 0o600); err != nil {
+			os.Exit(7)
+		}
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func runMissingProtocolVersionMCPProbeHelper() {

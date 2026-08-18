@@ -102,6 +102,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		case <-interruptDone:
 		}
 	}()
+	var protocolContextErr error
 	defer func() {
 		_ = stdin.Close()
 		var waitErr error
@@ -126,25 +127,22 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		} else {
 			_, terminationErr = group.Terminate()
 		}
-		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
-		var contextErr error
-		if errors.Is(waitErr, context.DeadlineExceeded) {
-			contextErr = context.DeadlineExceeded
-		} else if errors.Is(waitErr, context.Canceled) {
-			contextErr = context.Canceled
-		}
+		// Cleanup wait is outside the attempt timeout. Do not let a later
+		// deadline rewrite an already-observed protocol outcome.
+		waitErr = group.Await(context.WithoutCancel(ctx), subprocess.InheritedOutputCloseWait)
 		closeProtocolStdio()
 		close(interruptDone)
 		stderr := stderrCapture.Finish(subprocess.InheritedOutputCloseWait)
 		result.Stderr = stderr.Text
 		result.StderrTruncated = stderr.Truncated()
-		result = finalizeCommandResult(result, waitErr, terminationErr, contextErr)
+		result = finalizeCommandResult(result, waitErr, terminationErr, protocolContextErr)
 	}()
 
 	// Protocol pipes: Wait starts only after initialize scanning returns.
 	// Cancellation unblocks the scanner by closing the parent stdin/stdout ends.
 	if err := writeInitializeRequest(stdin, request.ProtocolVersion); err != nil {
 		result.Err = err
+		protocolContextErr = ctx.Err()
 		return result
 	}
 
@@ -152,6 +150,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	scanner.Buffer(make([]byte, 0, 64*1024), maxScannerTokenBytes)
 	for range maxInitializeMessages {
 		if !scanner.Scan() {
+			protocolContextErr = ctx.Err()
 			if err := scanner.Err(); err != nil {
 				result.Err = fmt.Errorf("read initialize response: %w", err)
 				return result
@@ -186,6 +185,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		}
 		if err := writeInitializedNotificationUnlessCanceled(ctx, stdin); err != nil {
 			result.Err = err
+			protocolContextErr = ctx.Err()
 			return result
 		}
 		result.InitializeSucceeded = true

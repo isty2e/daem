@@ -105,6 +105,28 @@ func TestRunGitOutputReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
 	assertGitHelperProcessAlive(t, pids[1])
 }
 
+func TestRunGitOutputDoesNotTruncateCompleteStderrWhenSetsidChildHoldsStdout(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	command := gitProcessHelperCommand(t, context.Background(), "setsid-stdout-fail-parent", pidFile)
+
+	_, err := runGitOutput(context.Background(), command)
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	if err == nil {
+		t.Fatal("runGitOutput accepted failing helper")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "complete-stderr-marker-xyz") {
+		t.Fatalf("runGitOutput error = %q, want complete stderr marker", message)
+	}
+	if strings.Contains(message, "[truncated]") {
+		t.Fatalf("runGitOutput error = %q, want complete stderr not marked truncated", message)
+	}
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
 func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "pids")
@@ -198,7 +220,7 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child", "setsid-stdout-child":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -217,6 +239,15 @@ func runGitProcessHelper(stage string, pidFile string) error {
 			return err
 		}
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-stdout-fail-parent":
+		if err := startGitProcessHelperChild("setsid-stdout-child", pidFile); err != nil {
+			return err
+		}
+		if err := waitForGitHelperPIDCount(pidFile, 2, 3*time.Second); err != nil {
+			return err
+		}
+		_, _ = io.WriteString(os.Stderr, "fatal: complete-stderr-marker-xyz\n")
+		return fmt.Errorf("forced helper failure")
 	case "archive-parent":
 		if err := startGitProcessHelperChild("archive-child", pidFile); err != nil {
 			return err
@@ -308,6 +339,10 @@ func newGitProcessHelperChild(stage string, pidFile string) (*exec.Cmd, error) {
 		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
+	} else if stage == "setsid-stdout-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = os.Stdout
+		command.Stderr = io.Discard
 	} else if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr

@@ -44,24 +44,28 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
 	timedOut := errors.Is(waitErr, context.DeadlineExceeded) && ctx.Err() == nil
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if waitErr != nil {
-		if err := ctx.Err(); err != nil && !errors.Is(waitErr, context.DeadlineExceeded) {
-			waitErr = err
-		}
-	}
 	if waitErr == nil {
 		waitErr = terminationErr
 	} else if terminationErr != nil {
 		waitErr = errors.Join(waitErr, terminationErr)
 	}
-	truncated := stdout.Truncated() ||
-		termination.ProcessesFound() ||
-		termination.UnsignalableOccupancy() ||
-		errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
+	if occupancyErr := processGroupOccupancyErr(termination); occupancyErr != nil {
+		waitErr = errors.Join(waitErr, occupancyErr)
+	}
 	return commandResult{
 		stdout:          stdout.String(),
-		stdoutTruncated: truncated,
+		stdoutTruncated: stdout.Truncated(),
 		timedOut:        timedOut,
 		err:             waitErr,
 	}
+}
+
+func processGroupOccupancyErr(termination subprocess.ProcessTermination) error {
+	if termination.UnsignalableOccupancy() {
+		return errors.New("sw_vers process group occupancy is unsignalable")
+	}
+	if termination.ProcessesFound() {
+		return errors.New("sw_vers exited while process-group members remained")
+	}
+	return nil
 }

@@ -135,6 +135,17 @@ func TestDefaultCommandRunnerReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
 
 func TestDefaultCommandRunnerNonzeroExitMarksSetsidStderrIncomplete(t *testing.T) {
 	readyPath := t.TempDir() + "/ready"
+	t.Cleanup(func() {
+		content, err := os.ReadFile(readyPath + ".child")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	result := defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "setsid-inherit-stderr-exit", readyPath))
@@ -193,6 +204,44 @@ func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCl
 	}
 	if !result.Started || !result.InitializeSucceeded || result.TimedOut || result.Canceled || result.Err != nil {
 		t.Fatalf("result = %#v, want completed initialize preserved through cleanup deadline", result)
+	}
+}
+
+func TestDefaultCommandRunnerKeepsFailedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
+	markerPath := t.TempDir() + "/initialize-error"
+	ctx := newTriggeredDeadlineContext()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, commandRequestWithNativeWorkDir(t, commandRequest{
+			Command: os.Args[0],
+			Args: []string{
+				"-test.run=^TestMCPProbeHelperProcess$",
+			},
+			Env: append(
+				os.Environ(),
+				"DAEM_MCPPROBE_HELPER=initialize-error-hang",
+				"DAEM_MCPPROBE_MARKER="+markerPath,
+			),
+			OutputLimit:     defaultOutputLimit,
+			ProtocolVersion: defaultProtocolVersion,
+		}))
+	}()
+	if err := waitForMCPProbeFile(markerPath, 5*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	ctx.expire()
+
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for failed MCP initialize cleanup")
+	}
+	if !result.Started || result.InitializeSucceeded || result.TimedOut || result.Canceled {
+		t.Fatalf("result = %#v, want initialize failure preserved through cleanup deadline", result)
+	}
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "initialize error") {
+		t.Fatalf("error = %v, want initialize error without timeout", result.Err)
 	}
 }
 

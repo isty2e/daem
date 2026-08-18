@@ -42,28 +42,27 @@ func observeDarwinProductVersion(
 	}
 
 	result := run(ctx)
-	if err := ctx.Err(); err != nil {
-		return platformsupport.RuntimeObservation{}, err
-	}
 	if result.timedOut {
 		return observationFailure(platformsupport.RuntimeObservationTimedOut)
 	}
-	if result.err != nil {
-		return observationFailure(platformsupport.RuntimeObservationCommandFailed)
+	if result.err == nil {
+		if result.stdoutTruncated {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		value, err := canonicalProductVersionOutput(result.stdout)
+		if err != nil {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		version, err := platformsupport.ParseMacOSProductVersion(value)
+		if err != nil {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		return platformsupport.NewRuntimeObservation(version)
 	}
-	if result.stdoutTruncated {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+	if err := ctx.Err(); err != nil {
+		return platformsupport.RuntimeObservation{}, err
 	}
-
-	value, err := canonicalProductVersionOutput(result.stdout)
-	if err != nil {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
-	}
-	version, err := platformsupport.ParseMacOSProductVersion(value)
-	if err != nil {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
-	}
-	return platformsupport.NewRuntimeObservation(version)
+	return observationFailure(platformsupport.RuntimeObservationCommandFailed)
 }
 
 func observationFailure(

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -121,6 +122,7 @@ func TestDefaultRunnerAllowsSetsidChildToOutliveLeader(t *testing.T) {
 		t.Fatal(err)
 	}
 	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
 	executor := NewCommandExecutor(CommandOptions{Timeout: DefaultCommandTimeout, OutputLimit: 1024})
 
 	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
@@ -296,6 +298,7 @@ func TestDefaultRunnerPreservesNonZeroExitWhenSetsidChildHoldsOutputDescriptors(
 		t.Fatal(err)
 	}
 	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
 	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
 
 	startedAt := time.Now()
@@ -341,20 +344,39 @@ func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
+	ctx := newTriggeredDeadlineContext()
 	executor := NewCommandExecutor(CommandOptions{
-		Timeout:     400 * time.Millisecond,
+		Timeout:     DefaultCommandTimeout,
 		OutputLimit: 1024,
 	})
+	resultDone := make(chan CommandAttemptResult, 1)
+	go func() {
+		resultDone <- executor.executeWithoutWorkingDirectory(ctx, CommandAttemptRequest{
+			Command: executable,
+			Args: []string{
+				"-test.run=TestCommandExecProcessTreeHelper",
+				"--",
+				"parent-fail-setsid-inherited-output",
+				readyPath,
+			},
+		})
+	}()
 
-	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
-		Command: executable,
-		Args: []string{
-			"-test.run=TestCommandExecProcessTreeHelper",
-			"--",
-			"parent-fail-setsid-inherited-output",
-			readyPath,
-		},
-	})
+	pids := readCommandExecPIDs(t, readyPath)
+	assertCommandExecProcessesGone(t, pids[:1])
+	// WaitDelay/Await can still be draining inherited pipes after the leader
+	// PID disappears. Expire only after that wait so cleanup, not the leader
+	// wait, observes the deadline.
+	time.Sleep(InheritedOutputCloseWait + 50*time.Millisecond)
+	ctx.expire()
+
+	var result CommandAttemptResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for runner after leader exit and cleanup deadline")
+	}
 
 	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
 		t.Fatalf("result = %#v, want nonzero exit preserved when output cleanup crossed the attempt deadline", result)
@@ -362,13 +384,6 @@ func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
 	if exitCode, ok := result.ExitCode(); !ok || exitCode != 17 {
 		t.Fatalf("exit code = %d/%t, want 17", exitCode, ok)
 	}
-	pids := readCommandExecPIDs(t, readyPath)
-	t.Cleanup(func() {
-		for _, pid := range pids[1:] {
-			_ = unix.Kill(pid, unix.SIGKILL)
-		}
-	})
-	assertCommandExecProcessesGone(t, pids[:1])
 	assertCommandExecProcessAlive(t, pids[1])
 }
 
@@ -416,6 +431,7 @@ func TestDefaultRunnerMarksOnlyTheStreamHeldOpenByASetsidChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
 	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
 
 	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
@@ -477,6 +493,57 @@ func TestDefaultRunnerAllowsInheritedOutputGrandchildToClosePromptly(t *testing.
 	}
 	pids := readCommandExecPIDs(t, readyPath)
 	assertCommandExecProcessesGone(t, pids[1:])
+}
+
+func registerCommandExecEscapedChildCleanup(t *testing.T, readyPath string) {
+	t.Helper()
+	t.Cleanup(func() {
+		content, err := os.ReadFile(readyPath + ".child")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
+}
+
+type triggeredDeadlineContext struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func newTriggeredDeadlineContext() *triggeredDeadlineContext {
+	return &triggeredDeadlineContext{done: make(chan struct{})}
+}
+
+func (ctx *triggeredDeadlineContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *triggeredDeadlineContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *triggeredDeadlineContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (ctx *triggeredDeadlineContext) Value(any) any {
+	return nil
+}
+
+func (ctx *triggeredDeadlineContext) expire() {
+	ctx.once.Do(func() {
+		close(ctx.done)
+	})
 }
 
 func TestCommandExecProcessTreeHelper(t *testing.T) {

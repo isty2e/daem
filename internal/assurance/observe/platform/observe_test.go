@@ -66,6 +66,21 @@ func TestObserveDarwinProductVersionHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestObserveDarwinProductVersionKeepsCompletedOutputAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{stdout: "26.0\n"}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	version, observed := observation.Version()
+	if !observed || version.String() != "26.0" {
+		t.Fatalf("version = %s,%t, want 26.0 after caller cancel during cleanup", version, observed)
+	}
+}
+
 func TestCanonicalProductVersionOutputAcceptsOnlyOneOptionalNewline(t *testing.T) {
 	tests := []struct {
 		input string
