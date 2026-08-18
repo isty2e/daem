@@ -139,6 +139,8 @@ func completeGitProcess(
 		}
 	}()
 
+	ctxDone := ctx.Done()
+	waitDone := process.group.WaitDone()
 	var consumeErr error
 	incomplete := false
 	for {
@@ -148,11 +150,13 @@ func completeGitProcess(
 				_, _ = process.Terminate()
 			}
 			goto waited
-		case <-ctx.Done():
+		case <-ctxDone:
 			_, _ = process.Terminate()
 			startDrain()
-		case <-process.group.WaitDone():
+			ctxDone = nil
+		case <-waitDone:
 			startDrain()
+			waitDone = nil
 		case <-drain:
 			process.closeOutputReaders()
 			consumeErr = <-consumeDone

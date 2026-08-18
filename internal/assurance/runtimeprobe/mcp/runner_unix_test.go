@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -92,6 +93,33 @@ func TestDefaultCommandRunnerSuccessCleansServerGrandchild(t *testing.T) {
 	assertMCPProbeProcessesGone(t, readMCPProbePIDs(t, readyPath))
 }
 
+func TestDefaultCommandRunnerReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "setsid-inherit-parent", readyPath))
+	}()
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	cancel()
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(6 * time.Second):
+		t.Fatal("timed out waiting for canceled MCP process group while a setsid child held pipes")
+	}
+	if !result.Started || !result.Canceled || result.InitializeSucceeded {
+		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	assertMCPProbeProcessAlive(t, pids[1])
+}
+
 func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
 	markerPath := t.TempDir() + "/initialized"
 	ctx := newTriggeredDeadlineContext()
@@ -152,6 +180,11 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 		"DAEM_MCPPROBE_TREE_MODE=child",
 		"DAEM_MCPPROBE_TREE_READY="+readyPath,
 	)
+	if mode == "setsid-inherit-parent" {
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+	}
 	if err := child.Start(); err != nil {
 		os.Exit(73)
 	}
@@ -166,7 +199,7 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 	}
 
 	switch mode {
-	case "parent-hang":
+	case "parent-hang", "setsid-inherit-parent":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -286,6 +319,14 @@ func writeMCPProbeHelperFile(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func assertMCPProbeProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	err := unix.Kill(pid, 0)
+	if err != nil && err != unix.EPERM {
+		t.Fatalf("pid %d: %v, want alive", pid, err)
+	}
 }
 
 func assertMCPProbeProcessesGone(t *testing.T, pids []int) {

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
@@ -80,8 +81,12 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		return commandResult{Err: err}
 	}
 	result.Started = true
-	group.StartWait()
 
+	closeStdio := sync.OnceFunc(func() {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+	})
 	stderrDone := make(chan struct{})
 	go func() {
 		_, _ = io.Copy(stderrBuffer, stderr)
@@ -91,14 +96,11 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	go func() {
 		select {
 		case <-ctx.Done():
-			_ = stdin.Close()
-			_ = stdout.Close()
-			_ = stderr.Close()
+			closeStdio()
 		case <-interruptDone:
 		}
 	}()
 	defer func() {
-		close(interruptDone)
 		_ = stdin.Close()
 		var waitErr error
 		processExited := false
@@ -123,15 +125,17 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 			_, terminationErr = group.Terminate()
 		}
 		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
+		closeStdio()
 		timer := time.NewTimer(subprocess.InheritedOutputCloseWait)
 		select {
 		case <-stderrDone:
 			timer.Stop()
 		case <-timer.C:
-			_ = stderr.Close()
+			closeStdio()
 			<-stderrDone
 			result.StderrTruncated = true
 		}
+		close(interruptDone)
 		result.Stderr = stderrBuffer.String()
 		if stderrBuffer.Truncated() {
 			result.StderrTruncated = true
@@ -139,6 +143,8 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
 	}()
 
+	// exec-managed pipes: Wait starts only after initialize scanning returns.
+	// Cancellation unblocks the scanner by closing the parent ends.
 	if err := writeInitializeRequest(stdin, request.ProtocolVersion); err != nil {
 		result.Err = err
 		return result

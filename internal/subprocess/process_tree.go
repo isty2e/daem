@@ -145,6 +145,12 @@ func (group *ProcessGroup) cancel() error {
 
 // StartWait begins command.Wait in the background so callers can return after
 // termination without abandoning eventual child reaping. It must run after Start.
+//
+// Wait closes exec-managed StdinPipe, StdoutPipe, and StderrPipe after the
+// leader exits. Callers that use those pipes must finish or abandon the parent
+// reads, typically by closing the parent ends, before StartWait, WaitDone, or
+// Await. Caller-owned os.Pipe readers and cmd.Stdout/Stderr writers are
+// different closer models; Wait does not close those parent readers.
 func (group *ProcessGroup) StartWait() {
 	if group == nil || group.command == nil {
 		return
