@@ -178,14 +178,11 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 
 	result := process.Wait()
 	if ctxErr := ctx.Err(); ctxErr != nil {
-		if result.terminationErr != nil {
-			return errors.Join(ctxErr, result.terminationErr)
-		}
-		return ctxErr
+		return joinGitProcessGroupTerminateErr(ctxErr, "git archive", result)
 	}
 	if extractErr != nil {
-		if result.terminationErr != nil {
-			return errors.Join(extractErr, fmt.Errorf("terminate git archive process tree: %w", result.terminationErr))
+		if result.termination.UnsignalableOccupancy() || result.terminationErr != nil {
+			return joinGitProcessGroupTerminateErr(extractErr, "git archive", result)
 		}
 		return extractErr
 	}
@@ -194,12 +191,7 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 	if result.commandErr != nil {
 		waitErr = errors.Join(waitErr, result.commandErr)
 	}
-	if result.terminationErr != nil {
-		waitErr = errors.Join(waitErr, fmt.Errorf("terminate git archive process tree: %w", result.terminationErr))
-	}
-	if result.termination.ProcessesFound() {
-		waitErr = errors.Join(waitErr, errors.New("git archive exited while descendant processes remained; terminated residual process tree"))
-	}
+	waitErr = joinGitProcessGroupResidual(waitErr, "git archive", result)
 	if waitErr != nil {
 		return waitErr
 	}

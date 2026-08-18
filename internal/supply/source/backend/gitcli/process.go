@@ -1,6 +1,7 @@
 package gitcli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -64,7 +65,7 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 	group, err := subprocess.BindProcessGroup(command)
 	if err != nil {
 		closePipes()
-		return nil, fmt.Errorf("supervise git process tree: %w", err)
+		return nil, fmt.Errorf("supervise git process group: %w", err)
 	}
 	if err := command.Start(); err != nil {
 		closePipes()
@@ -125,4 +126,29 @@ func (process *gitProcess) Wait() gitProcessResult {
 		terminationErr: wait.terminationErr,
 		stderrReadErr:  stderrReadErr,
 	}
+}
+
+func joinGitProcessGroupTerminateErr(base error, role string, result gitProcessResult) error {
+	if result.termination.UnsignalableOccupancy() {
+		cause := result.terminationErr
+		if cause == nil {
+			cause = errors.New("process group occupancy is unsignalable")
+		}
+		return errors.Join(base, fmt.Errorf("%s process group occupancy is unsignalable: %w", role, cause))
+	}
+	if result.terminationErr != nil {
+		return errors.Join(base, fmt.Errorf("terminate %s process group: %w", role, result.terminationErr))
+	}
+	return base
+}
+
+func joinGitProcessGroupResidual(base error, role string, result gitProcessResult) error {
+	base = joinGitProcessGroupTerminateErr(base, role, result)
+	if result.termination.UnsignalableOccupancy() {
+		return base
+	}
+	if result.termination.ProcessesFound() {
+		return errors.Join(base, fmt.Errorf("%s exited while process-group members remained; terminated residual process group", role))
+	}
+	return base
 }

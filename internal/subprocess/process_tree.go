@@ -15,7 +15,10 @@ const (
 	defaultKillWait         = 2 * time.Second
 )
 
-var errProcessTreeUnsupported = errors.New("process-tree supervision is unsupported")
+var (
+	errProcessTreeUnsupported   = errors.New("process-group supervision is unsupported")
+	errProcessGroupUnsignalable = errors.New("process group occupancy is unsignalable")
+)
 
 type processTerminationOptions struct {
 	QuiescencePeriod time.Duration
@@ -25,14 +28,21 @@ type processTerminationOptions struct {
 
 // ProcessTermination describes one idempotent process-group termination attempt.
 type ProcessTermination struct {
-	processesFound bool
-	escalated      bool
+	processesFound        bool
+	escalated             bool
+	unsignalableOccupancy bool
 }
 
-// ProcessesFound reports whether the dedicated group still had members when
-// termination began.
+// ProcessesFound reports whether the dedicated group still had signalable
+// members when termination began.
 func (termination ProcessTermination) ProcessesFound() bool {
 	return termination.processesFound
+}
+
+// UnsignalableOccupancy reports that the dedicated pgid was occupied but not
+// signalable. That is not proof of in-group descendants.
+func (termination ProcessTermination) UnsignalableOccupancy() bool {
+	return termination.unsignalableOccupancy
 }
 
 // ProcessGroup owns termination for one command's fresh dedicated process group.
@@ -47,24 +57,25 @@ type ProcessGroup struct {
 }
 
 // BindProcessGroup configures command to create a fresh process group and replaces the
-// CommandContext direct-child cancellation hook with complete-group cleanup.
-// BindProcessGroup must be called before command.Start.
+// CommandContext direct-child cancellation hook with dedicated-group cleanup.
+// BindProcessGroup must be called before command.Start. Session-escaped
+// descendants are outside this primitive.
 func BindProcessGroup(command *exec.Cmd) (*ProcessGroup, error) {
 	return bindProcessGroupWithOptions(command, processTerminationOptions{})
 }
 
 func bindProcessGroupWithOptions(command *exec.Cmd, options processTerminationOptions) (*ProcessGroup, error) {
 	if command == nil {
-		return nil, fmt.Errorf("bind process tree: command is required")
+		return nil, fmt.Errorf("bind process group: command is required")
 	}
 	if command.Process != nil {
-		return nil, fmt.Errorf("bind process tree: command already started")
+		return nil, fmt.Errorf("bind process group: command already started")
 	}
 	if command.Cancel == nil {
-		return nil, fmt.Errorf("bind process tree: command must be created with exec.CommandContext")
+		return nil, fmt.Errorf("bind process group: command must be created with exec.CommandContext")
 	}
 	if err := configureDedicatedProcessGroup(command); err != nil {
-		return nil, fmt.Errorf("bind process tree: %w", err)
+		return nil, fmt.Errorf("bind process group: %w", err)
 	}
 	group := &ProcessGroup{
 		command:       command,
@@ -81,18 +92,18 @@ func (group *ProcessGroup) Terminate() (ProcessTermination, error) {
 	return group.terminate(false)
 }
 
-// ReapAfterLeaderExit allows short-lived descendants to finish naturally
-// before terminating and reporting a residual process tree.
+// ReapAfterLeaderExit allows short-lived in-group descendants to finish
+// naturally before terminating and reporting residual group members.
 func (group *ProcessGroup) ReapAfterLeaderExit() (ProcessTermination, error) {
 	return group.terminate(true)
 }
 
 func (group *ProcessGroup) terminate(quiesce bool) (ProcessTermination, error) {
 	if group == nil || group.command == nil {
-		return ProcessTermination{}, fmt.Errorf("terminate process tree: group is required")
+		return ProcessTermination{}, fmt.Errorf("terminate process group: group is required")
 	}
 	if group.command.Process == nil {
-		return ProcessTermination{}, fmt.Errorf("terminate process tree: command has not started")
+		return ProcessTermination{}, fmt.Errorf("terminate process group: command has not started")
 	}
 
 	group.terminateOnce.Do(func() {

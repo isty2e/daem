@@ -183,7 +183,7 @@ func finalizeCommandResult(
 ) commandResult {
 	if terminationErr != nil {
 		result.InitializeSucceeded = false
-		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process tree: %w", terminationErr))
+		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process group: %w", terminationErr))
 	}
 	if result.Err == nil && !result.InitializeSucceeded && waitErr != nil {
 		result.Err = waitErr

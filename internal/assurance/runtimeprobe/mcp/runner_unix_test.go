@@ -39,7 +39,7 @@ func TestDefaultCommandRunnerTimeoutTerminatesGrandchild(t *testing.T) {
 	select {
 	case result = <-resultDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for expired MCP process tree")
+		t.Fatal("timed out waiting for expired MCP process group")
 	}
 
 	if !result.Started || !result.TimedOut || result.InitializeSucceeded {
@@ -71,7 +71,7 @@ func TestDefaultCommandRunnerCancellationTerminatesGrandchild(t *testing.T) {
 	select {
 	case result = <-resultDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for canceled MCP process tree")
+		t.Fatal("timed out waiting for canceled MCP process group")
 	}
 
 	if !result.Started || !result.Canceled || result.InitializeSucceeded {

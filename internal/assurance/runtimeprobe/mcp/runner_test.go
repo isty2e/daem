@@ -160,7 +160,7 @@ func TestFinalizeCommandResultRevokesInitializeSuccessOnCleanupFailure(t *testin
 	)
 
 	if result.InitializeSucceeded || result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "terminate MCP process tree") ||
+		!strings.Contains(result.Err.Error(), "terminate MCP process group") ||
 		!errors.Is(result.Err, cleanupErr) {
 		t.Fatalf("result = %#v, want cleanup failure to revoke initialize success", result)
 	}

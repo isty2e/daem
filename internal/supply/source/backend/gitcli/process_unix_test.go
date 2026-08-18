@@ -56,10 +56,25 @@ func TestRunGitOutputRejectsAndCleansResidualDescendant(t *testing.T) {
 	command := gitProcessHelperCommand(t, context.Background(), "residual-parent", pidFile)
 
 	_, err := runGitOutput(context.Background(), command)
-	if err == nil || !strings.Contains(err.Error(), "descendant processes remained") {
-		t.Fatalf("runGitOutput error = %v, want residual descendant classification", err)
+	if err == nil || !strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("runGitOutput error = %v, want residual process-group classification", err)
 	}
 	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
+}
+
+func TestRunGitOutputAllowsSetsidChildToOutliveLeader(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	command := gitProcessHelperCommand(t, context.Background(), "setsid-parent", pidFile)
+
+	_, err := runGitOutput(context.Background(), command)
+	if err != nil {
+		t.Fatalf("runGitOutput error = %v, want success with out-of-group setsid child", err)
+	}
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
 }
 
 func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T) {
@@ -69,8 +84,8 @@ func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T
 	command := gitProcessHelperCommand(t, context.Background(), "archive-parent", pidFile)
 
 	err := extractGitArchiveCommand(context.Background(), command, outputRoot)
-	if err == nil || !strings.Contains(err.Error(), "descendant processes remained") {
-		t.Fatalf("extractGitArchiveCommand error = %v, want residual descendant classification", err)
+	if err == nil || !strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("extractGitArchiveCommand error = %v, want residual process-group classification", err)
 	}
 	content, readErr := os.ReadFile(filepath.Join(outputRoot, "payload.txt"))
 	if readErr != nil || string(content) != "payload" {
@@ -155,12 +170,17 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child":
 		for {
 			time.Sleep(time.Hour)
 		}
 	case "residual-parent":
 		if err := startGitProcessHelperChild("residual-child", pidFile); err != nil {
+			return err
+		}
+		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-parent":
+		if err := startGitProcessHelperChild("setsid-child", pidFile); err != nil {
 			return err
 		}
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
@@ -247,7 +267,11 @@ func newGitProcessHelperChild(stage string, pidFile string) (*exec.Cmd, error) {
 	}
 	command := exec.Command(executable, "-test.run=^TestGitProcessHelper$")
 	command.Env = gitProcessHelperEnv(stage, pidFile)
-	if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
+	if stage == "setsid-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = io.Discard
+		command.Stderr = io.Discard
+	} else if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 	} else {
@@ -314,6 +338,14 @@ func waitForGitHelperPIDCount(path string, count int, timeout time.Duration) err
 		time.Sleep(10 * time.Millisecond)
 	}
 	return fmt.Errorf("timed out waiting for %d helper PIDs", count)
+}
+
+func assertGitHelperProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	err := syscall.Kill(pid, 0)
+	if err != nil && !errors.Is(err, syscall.EPERM) {
+		t.Fatalf("helper process %d not alive: %v", pid, err)
+	}
 }
 
 func assertGitHelperProcessesGone(t *testing.T, pids []int) {

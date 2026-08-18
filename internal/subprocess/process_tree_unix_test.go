@@ -221,6 +221,149 @@ func TestBindRejectsConflictingProcessGroupPolicy(t *testing.T) {
 	}
 }
 
+func TestClassifyProcessGroupProbeIsThreeValued(t *testing.T) {
+	tests := []struct {
+		err        error
+		occupancy  processGroupOccupancy
+		recognized bool
+	}{
+		{err: nil, occupancy: processGroupSignalable, recognized: true},
+		{err: unix.ESRCH, occupancy: processGroupAbsent, recognized: true},
+		{err: unix.EPERM, occupancy: processGroupUnsignalable, recognized: true},
+		{err: unix.EINVAL, occupancy: processGroupAbsent, recognized: false},
+	}
+	for _, test := range tests {
+		occupancy, recognized := classifyProcessGroupProbe(test.err)
+		if occupancy != test.occupancy || recognized != test.recognized {
+			t.Fatalf(
+				"classifyProcessGroupProbe(%v) = %d,%t, want %d,%t",
+				test.err,
+				occupancy,
+				recognized,
+				test.occupancy,
+				test.recognized,
+			)
+		}
+	}
+}
+
+func TestResolveUnsignalableGroupProbeUsesLeaderPID(t *testing.T) {
+	tests := []struct {
+		leaderErr  error
+		occupancy  processGroupOccupancy
+		recognized bool
+	}{
+		{leaderErr: nil, occupancy: processGroupSignalable, recognized: true},
+		{leaderErr: unix.ESRCH, occupancy: processGroupAbsent, recognized: true},
+		{leaderErr: unix.EPERM, occupancy: processGroupUnsignalable, recognized: true},
+		{leaderErr: unix.EINVAL, occupancy: processGroupUnsignalable, recognized: false},
+	}
+	for _, test := range tests {
+		occupancy, recognized := resolveUnsignalableGroupProbe(test.leaderErr)
+		if occupancy != test.occupancy || recognized != test.recognized {
+			t.Fatalf(
+				"resolveUnsignalableGroupProbe(%v) = %d,%t, want %d,%t",
+				test.leaderErr,
+				occupancy,
+				recognized,
+				test.occupancy,
+				test.recognized,
+			)
+		}
+	}
+}
+
+func TestGroupCancelLeavesSetsidChildAlive(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	childReadyPath := readyPath + ".child"
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, executable, "-test.run=TestProcessTreeHelperProcess")
+	cmd.Env = append(
+		os.Environ(),
+		processTreeHelperMode+"=parent-mixed-setsid",
+		processTreeReadyPath+"="+readyPath,
+		processTreeChildReadyPath+"="+childReadyPath,
+	)
+	group, err := bindProcessGroupWithOptions(cmd, processTerminationOptions{GracePeriod: 100 * time.Millisecond, KillWait: time.Second})
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	pids := readProcessTreePIDs(t, readyPath)
+	if len(pids) != 3 {
+		t.Fatalf("pids = %v, want parent, in-group child, setsid child", pids)
+	}
+	escaped := pids[2]
+	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
+
+	cancel()
+	waitErr := cmd.Wait()
+	if waitErr == nil || (!errors.Is(waitErr, context.Canceled) && !isProcessTreeSignalExit(waitErr)) {
+		t.Fatalf("Wait error = %v, want cancellation or signal exit", waitErr)
+	}
+	termination, err := group.Terminate()
+	if err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+	if termination.UnsignalableOccupancy() {
+		t.Fatalf("termination = %#v, want signalable in-group cleanup", termination)
+	}
+	assertProcessTreeProcessesGone(t, pids[:2])
+	assertProcessTreeProcessAlive(t, escaped)
+}
+
+func TestGroupReapAfterLeaderExitLeavesSetsidChildAlive(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	childReadyPath := readyPath + ".child"
+	cmd := exec.CommandContext(context.Background(), executable, "-test.run=TestProcessTreeHelperProcess")
+	cmd.Env = append(
+		os.Environ(),
+		processTreeHelperMode+"=parent-exit-mixed-setsid",
+		processTreeReadyPath+"="+readyPath,
+		processTreeChildReadyPath+"="+childReadyPath,
+	)
+	group, err := bindProcessGroupWithOptions(cmd, processTerminationOptions{
+		QuiescencePeriod: 500 * time.Millisecond,
+		GracePeriod:      100 * time.Millisecond,
+		KillWait:         time.Second,
+	})
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	pids := readProcessTreePIDs(t, readyPath)
+	if len(pids) != 3 {
+		t.Fatalf("pids = %v, want parent, in-group child, setsid child", pids)
+	}
+	escaped := pids[2]
+	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	termination, err := group.ReapAfterLeaderExit()
+	if err != nil {
+		t.Fatalf("ReapAfterLeaderExit: %v", err)
+	}
+	if termination.ProcessesFound() || termination.UnsignalableOccupancy() {
+		t.Fatalf("termination = found:%t unsignalable:%t, want empty dedicated group", termination.ProcessesFound(), termination.UnsignalableOccupancy())
+	}
+	assertProcessTreeProcessesGone(t, pids[:2])
+	assertProcessTreeProcessAlive(t, escaped)
+}
+
 func TestProcessTreeHelperProcess(t *testing.T) {
 	mode := os.Getenv(processTreeHelperMode)
 	if mode == "" {
@@ -230,7 +373,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 	childReadyPath := os.Getenv(processTreeChildReadyPath)
 
 	switch mode {
-	case "grandchild", "grandchild-ignore-term", "grandchild-natural":
+	case "grandchild", "grandchild-ignore-term", "grandchild-natural", "grandchild-setsid":
 		if mode == "grandchild-ignore-term" {
 			signal.Ignore(syscall.SIGTERM)
 		}
@@ -244,7 +387,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
-	case "parent", "parent-ignore-term", "parent-exit", "parent-exit-natural":
+	case "parent", "parent-ignore-term", "parent-exit", "parent-exit-natural", "parent-mixed-setsid", "parent-exit-mixed-setsid":
 		ignoreTERM := mode == "parent-ignore-term"
 		if ignoreTERM {
 			signal.Ignore(syscall.SIGTERM)
@@ -256,7 +399,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 		childMode := "grandchild"
 		if ignoreTERM {
 			childMode = "grandchild-ignore-term"
-		} else if mode == "parent-exit-natural" {
+		} else if mode == "parent-exit-natural" || mode == "parent-exit-mixed-setsid" {
 			childMode = "grandchild-natural"
 		}
 		child := exec.Command(executable, "-test.run=TestProcessTreeHelperProcess")
@@ -273,11 +416,31 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 			os.Exit(94)
 		}
 		content := fmt.Sprintf("%d,%d", os.Getpid(), child.Process.Pid)
+		if strings.HasSuffix(mode, "mixed-setsid") {
+			setsidReadyPath := childReadyPath + ".setsid"
+			setsidChild := exec.Command(executable, "-test.run=TestProcessTreeHelperProcess")
+			setsidChild.Env = append(
+				os.Environ(),
+				processTreeHelperMode+"=grandchild-setsid",
+				processTreeChildReadyPath+"="+setsidReadyPath,
+			)
+			setsidChild.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			if err := setsidChild.Start(); err != nil {
+				_ = child.Process.Kill()
+				os.Exit(97)
+			}
+			if err := waitForProcessTreeHelperFile(setsidReadyPath, 5*time.Second); err != nil {
+				_ = child.Process.Kill()
+				_ = setsidChild.Process.Kill()
+				os.Exit(98)
+			}
+			content = fmt.Sprintf("%s,%d", content, setsidChild.Process.Pid)
+		}
 		if err := writeProcessTreeHelperFixture(readyPath, []byte(content)); err != nil {
 			_ = child.Process.Kill()
 			os.Exit(95)
 		}
-		if mode == "parent-exit" || mode == "parent-exit-natural" {
+		if mode == "parent-exit" || mode == "parent-exit-natural" || mode == "parent-exit-mixed-setsid" {
 			os.Exit(0)
 		}
 		for {
@@ -298,7 +461,7 @@ func readProcessTreePIDs(t *testing.T, path string) []int {
 		t.Fatal(err)
 	}
 	parts := strings.Split(strings.TrimSpace(string(content)), ",")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		t.Fatalf("pid evidence = %q", content)
 	}
 	pids := make([]int, 0, len(parts))
@@ -333,6 +496,13 @@ func writeProcessTreeHelperFixture(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func assertProcessTreeProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	if err := unix.Kill(pid, 0); err != nil && err != unix.EPERM {
+		t.Fatalf("pid %d not alive: %v", pid, err)
+	}
 }
 
 func assertProcessTreeProcessesGone(t *testing.T, pids []int) {

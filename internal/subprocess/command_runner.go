@@ -59,9 +59,9 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	result.StdoutTruncated = stdout.Truncated()
 	result.StderrTruncated = stderr.Truncated()
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if termination.ProcessesFound() || terminationErr != nil {
-		// Forced or indeterminate descendant cleanup means the complete command
-		// tree did not reach natural output closure.
+	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil {
+		// Forced or indeterminate group cleanup means the command did not
+		// reach natural output closure.
 		result.StdoutTruncated = true
 		result.StderrTruncated = true
 	}
@@ -107,13 +107,23 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 			result.HasExitCode = false
 		}
 	}
+	result.Err = joinCommandProcessGroupCleanup(result.Err, termination, terminationErr)
+	return result
+}
+
+func joinCommandProcessGroupCleanup(resultErr error, termination ProcessTermination, terminationErr error) error {
+	if termination.UnsignalableOccupancy() {
+		cause := terminationErr
+		if cause == nil {
+			cause = errProcessGroupUnsignalable
+		}
+		return errors.Join(resultErr, fmt.Errorf("command process group occupancy is unsignalable: %w", cause))
+	}
 	if terminationErr != nil {
-		result.Err = errors.Join(result.Err, fmt.Errorf("terminate command process tree: %w", terminationErr))
-		return result
+		return errors.Join(resultErr, fmt.Errorf("terminate command process group: %w", terminationErr))
 	}
 	if termination.ProcessesFound() {
-		result.Err = errors.Join(result.Err, errors.New("command exited while descendant processes remained; terminated residual process tree"))
-		return result
+		return errors.Join(resultErr, errors.New("command exited while process-group members remained; terminated residual process group"))
 	}
-	return result
+	return resultErr
 }

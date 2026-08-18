@@ -4,7 +4,7 @@ package platform
 
 import (
 	"context"
-	"os/exec"
+	"errors"
 	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
@@ -20,23 +20,27 @@ func currentCommandRunner() (commandRunner, bool) {
 }
 
 func runProductVersionCommand(ctx context.Context) commandResult {
-	commandContext, cancel := context.WithTimeout(ctx, productVersionCommandTimeout)
-	defer cancel()
-
-	stdout := subprocess.NewBoundedBuffer(productVersionOutputLimit)
-	stderr := subprocess.NewBoundedBuffer(productVersionOutputLimit)
-	command := exec.CommandContext(commandContext, "/usr/bin/sw_vers", "--productVersion")
-	command.Env = []string{"LANG=C", "LC_ALL=C"}
-	command.Stdout = stdout
-	command.Stderr = stderr
-	err := command.Run()
-	if contextErr := ctx.Err(); contextErr != nil {
-		err = contextErr
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Timeout:     productVersionCommandTimeout,
+		OutputLimit: productVersionOutputLimit,
+	})
+	result := executor.Execute(ctx, subprocess.CommandAttemptRequest{
+		Command:     "/usr/bin/sw_vers",
+		Args:        []string{"--productVersion"},
+		OutputLimit: productVersionOutputLimit,
+	})
+	var err error
+	if !result.Succeeded() {
+		if detail := result.ErrorDetail(); detail != "" {
+			err = errors.New(detail)
+		} else {
+			err = errors.New("sw_vers failed")
+		}
 	}
 	return commandResult{
-		stdout:          stdout.String(),
-		stdoutTruncated: stdout.Truncated(),
-		timedOut:        commandContext.Err() == context.DeadlineExceeded && ctx.Err() == nil,
+		stdout:          result.Stdout(),
+		stdoutTruncated: result.StdoutTruncated(),
+		timedOut:        result.TimedOut(),
 		err:             err,
 	}
 }
