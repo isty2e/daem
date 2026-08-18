@@ -290,6 +290,51 @@ func TestDefaultRunnerPreservesNonZeroExitWhenGrandchildHoldsOutputDescriptors(t
 	assertCommandExecProcessesGone(t, pids[1:])
 }
 
+func TestDefaultRunnerPreservesNonZeroExitWhenSetsidChildHoldsOutputDescriptors(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
+
+	startedAt := time.Now()
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-fail-setsid-inherited-output",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want prompt nonzero result with escaped inherited writers", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 17 {
+		t.Fatalf("exit code = %d/%t, want 17", exitCode, ok)
+	}
+	if !result.StdoutTruncated() || !result.StderrTruncated() {
+		t.Fatalf(
+			"truncation flags = %t/%t, want incomplete capture while a setsid child held pipes",
+			result.StdoutTruncated(),
+			result.StderrTruncated(),
+		)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 2*time.Second {
+		t.Fatalf("escaped output descriptor cleanup took %s, want less than 2s", elapsed)
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids[1:] {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
 func TestDefaultRunnerAllowsInheritedOutputGrandchildToClosePromptly(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -347,6 +392,7 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		"parent-exit-inherited-output",
 		"parent-exit-secret-prefix-inherited-output",
 		"parent-fail-inherited-output",
+		"parent-fail-setsid-inherited-output",
 		"parent-exit-short-inherited-output",
 		"parent-exit-setsid":
 		executable, err := os.Executable()
@@ -362,7 +408,7 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			child.Stdout = os.Stdout
 			child.Stderr = os.Stderr
 		}
-		if mode == "parent-exit-setsid" {
+		if mode == "parent-exit-setsid" || mode == "parent-fail-setsid-inherited-output" {
 			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		}
 		if err := child.Start(); err != nil {
@@ -389,7 +435,7 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			}
 			fmt.Fprint(os.Stdout, secret[:len(secret)-6])
 		}
-		if mode == "parent-fail-inherited-output" {
+		if mode == "parent-fail-inherited-output" || mode == "parent-fail-setsid-inherited-output" {
 			os.Exit(17)
 		}
 		if mode != "parent" {

@@ -73,16 +73,22 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	if outputLimit <= 0 {
 		outputLimit = defaultOutputLimit
 	}
-	stderrBuffer := subprocess.NewBoundedBuffer(outputLimit)
-	// Diagnostic stderr is exec-owned so Wait/WaitDelay observe copy EOF versus
-	// forced pipe close. Parent-owned StderrPipe copies cannot tell those apart.
-	cmd.Stderr = stderrBuffer
+	stderrCapture, err := subprocess.NewOutputCapture(outputLimit)
+	if err != nil {
+		releaseUnstartedStdio(cmd, stdin, stdout)
+		return commandResult{Err: err}
+	}
+	cmd.Stderr = stderrCapture.Writer()
 	cmd.WaitDelay = subprocess.InheritedOutputCloseWait
 
 	if err := cmd.Start(); err != nil {
+		stderrCapture.Close()
+		releaseUnstartedStdio(cmd, stdin, stdout)
 		return commandResult{Err: err}
 	}
 	result.Started = true
+	stderrCapture.CloseWriter()
+	stderrCapture.StartCopy()
 
 	closeProtocolStdio := sync.OnceFunc(func() {
 		_ = stdin.Close()
@@ -114,20 +120,18 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 				}
 			}
 		}
-		var termination subprocess.ProcessTermination
 		var terminationErr error
 		if processExited {
-			termination, terminationErr = group.ReapAfterLeaderExit()
+			_, terminationErr = group.ReapAfterLeaderExit()
 		} else {
-			termination, terminationErr = group.Terminate()
+			_, terminationErr = group.Terminate()
 		}
 		waitErr = group.Await(ctx, subprocess.InheritedOutputCloseWait)
 		closeProtocolStdio()
 		close(interruptDone)
-		result.Stderr = stderrBuffer.String()
-		if stderrCaptureIncomplete(stderrBuffer, waitErr, termination, terminationErr) {
-			result.StderrTruncated = true
-		}
+		stderr := stderrCapture.Finish(subprocess.InheritedOutputCloseWait)
+		result.Stderr = stderr.Text
+		result.StderrTruncated = stderr.Truncated()
 		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
 	}()
 
@@ -184,21 +188,6 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 
 	result.Err = fmt.Errorf("initialize response not received after %d messages", maxInitializeMessages)
 	return result
-}
-
-func stderrCaptureIncomplete(
-	buffer *subprocess.BoundedBuffer,
-	waitErr error,
-	termination subprocess.ProcessTermination,
-	terminationErr error,
-) bool {
-	if buffer != nil && buffer.Truncated() {
-		return true
-	}
-	return errors.Is(waitErr, exec.ErrWaitDelay) ||
-		errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned) ||
-		termination.UnsignalableOccupancy() ||
-		terminationErr != nil
 }
 
 func releaseUnstartedStdio(command *exec.Cmd, parents ...io.Closer) {

@@ -133,6 +133,34 @@ func TestDefaultCommandRunnerReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
 	assertMCPProbeProcessAlive(t, pids[1])
 }
 
+func TestDefaultCommandRunnerNonzeroExitMarksSetsidStderrIncomplete(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result := defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "setsid-inherit-stderr-exit", readyPath))
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	if !result.Started || result.InitializeSucceeded || result.Canceled || result.TimedOut {
+		t.Fatalf("result = %#v, want started nonzero exit before initialize", result)
+	}
+	if !result.StderrTruncated {
+		t.Fatalf("stderr truncated=%t stderr=%q, want forced incomplete capture", result.StderrTruncated, result.Stderr)
+	}
+	capture := sanitizeCapture(result, []string{"super-secret"}, defaultOutputLimit)
+	if strings.Contains(capture.stderr, "super-") || strings.Contains(capture.stderr, "super-secret") {
+		t.Fatalf("capture leaked secret prefix: %#v", capture)
+	}
+	if !capture.stderrTruncated || !capture.redacted {
+		t.Fatalf("capture = %#v, want redacted truncated stderr", capture)
+	}
+	assertMCPProbeProcessesGone(t, pids[:1])
+	assertMCPProbeProcessAlive(t, pids[1])
+}
+
 func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
 	markerPath := t.TempDir() + "/initialized"
 	ctx := newTriggeredDeadlineContext()
@@ -201,6 +229,13 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 		child.Stdout = os.Stdout
 		child.Stderr = os.Stderr
 	}
+	if mode == "setsid-inherit-stderr-exit" {
+		if _, err := os.Stderr.WriteString("super-"); err != nil {
+			os.Exit(78)
+		}
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		child.Stderr = os.Stderr
+	}
 	if err := child.Start(); err != nil {
 		os.Exit(73)
 	}
@@ -219,6 +254,8 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "setsid-inherit-stderr-exit":
+		os.Exit(17)
 	case "parent-initialize":
 		reader := bufio.NewReader(os.Stdin)
 		readInitializeRequestFromReaderOrExit(reader)

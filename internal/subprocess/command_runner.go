@@ -34,31 +34,49 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	if outputLimit <= 0 {
 		outputLimit = DefaultCommandOutputLimit
 	}
-	stdout := NewBoundedBuffer(outputLimit)
-	stderr := NewBoundedBuffer(outputLimit)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	// A successful leader may leave descendants holding inherited output
-	// descriptors. Bound exec's pipe wait so process-group reaping can run.
+	stdoutCapture, err := NewOutputCapture(outputLimit)
+	if err != nil {
+		return CommandResult{Err: err}
+	}
+	stderrCapture, err := NewOutputCapture(outputLimit)
+	if err != nil {
+		stdoutCapture.Close()
+		return CommandResult{Err: err}
+	}
+	cmd.Stdout = stdoutCapture.Writer()
+	cmd.Stderr = stderrCapture.Writer()
+	// Stdin may still be a non-file reader. Bound that copy so process-group
+	// reaping can run; stdout/stderr completeness comes from OutputCapture.
 	cmd.WaitDelay = InheritedOutputCloseWait
 	group, err := BindProcessGroup(cmd)
 	if err != nil {
+		stdoutCapture.Close()
+		stderrCapture.Close()
 		return CommandResult{Err: err}
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdoutCapture.Close()
+		stderrCapture.Close()
 		return CommandResult{Err: err}
 	}
+	stdoutCapture.CloseWriter()
+	stderrCapture.CloseWriter()
+	stdoutCapture.StartCopy()
+	stderrCapture.StartCopy()
 	result := CommandResult{Started: true}
 	err = group.Await(ctx, InheritedOutputCloseWait)
-	result.Stdout = stdout.String()
-	result.Stderr = stderr.String()
+	stdout := stdoutCapture.Finish(InheritedOutputCloseWait)
+	stderr := stderrCapture.Finish(InheritedOutputCloseWait)
+	result.Stdout = stdout.Text
+	result.Stderr = stderr.Text
 	result.StdoutTruncated = stdout.Truncated()
 	result.StderrTruncated = stderr.Truncated()
+	outputIncomplete := stdout.Incomplete || stderr.Incomplete
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil || errors.Is(err, ErrProcessWaitAbandoned) {
-		// Forced, unsignalable, or abandoned wait means the command did not
-		// reach natural output closure.
+	if termination.ProcessesFound() || termination.UnsignalableOccupancy() || terminationErr != nil || errors.Is(err, ErrProcessWaitAbandoned) || outputIncomplete {
+		// Forced, unsignalable, abandoned, or still-open inherited writers
+		// mean the command did not reach natural output closure.
 		result.StdoutTruncated = true
 		result.StderrTruncated = true
 	}
@@ -72,13 +90,10 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 		result.Err = joinCommandProcessGroupCleanup(errors.Join(ctx.Err(), err), termination, terminationErr)
 		return result
 	}
-	outputDescriptorsHeldOpen := errors.Is(err, exec.ErrWaitDelay)
-	if err == nil || outputDescriptorsHeldOpen {
+	outputDescriptorsHeldOpen := errors.Is(err, exec.ErrWaitDelay) || (err == nil && outputIncomplete)
+	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
 		result.HasExitCode = true
 		if outputDescriptorsHeldOpen {
-			// WaitDelay does not identify which copy pipe it closed. Mark both
-			// fields incomplete so downstream redaction treats any secret
-			// suffix at the capture boundary conservatively.
 			result.StdoutTruncated = true
 			result.StderrTruncated = true
 			result.Err = errors.New("command exited while descendant processes kept inherited output descriptors open")

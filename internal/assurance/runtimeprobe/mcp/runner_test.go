@@ -12,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/isty2e/daem/internal/subprocess"
 )
 
 func TestDefaultCommandRunnerInitializesStdioServerAndCleansUp(t *testing.T) {
@@ -182,30 +180,6 @@ func TestReleaseUnstartedStdioClosesParentAndChildPipeEnds(t *testing.T) {
 	}
 	if _, err := stderr.WriteString("kept"); err != nil {
 		t.Fatalf("diagnostic stderr writer: %v", err)
-	}
-}
-
-func TestStderrCaptureIncompleteTreatsForcedOrUncertainClosureAsTruncated(t *testing.T) {
-	complete := subprocess.NewBoundedBuffer(32)
-	if stderrCaptureIncomplete(complete, nil, subprocess.ProcessTermination{}, nil) {
-		t.Fatal("complete capture marked truncated")
-	}
-
-	overflow := subprocess.NewBoundedBuffer(4)
-	if _, err := overflow.Write([]byte("12345")); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	if !stderrCaptureIncomplete(overflow, nil, subprocess.ProcessTermination{}, nil) {
-		t.Fatal("bounded overflow not truncated")
-	}
-	if !stderrCaptureIncomplete(complete, exec.ErrWaitDelay, subprocess.ProcessTermination{}, nil) {
-		t.Fatal("WaitDelay not truncated")
-	}
-	if !stderrCaptureIncomplete(complete, subprocess.ErrProcessWaitAbandoned, subprocess.ProcessTermination{}, nil) {
-		t.Fatal("abandoned wait not truncated")
-	}
-	if !stderrCaptureIncomplete(complete, nil, subprocess.ProcessTermination{}, errors.New("terminate failed")) {
-		t.Fatal("termination error not truncated")
 	}
 }
 
