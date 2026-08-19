@@ -42,13 +42,12 @@ type rootedLockDirectory struct {
 }
 
 type rootedAdvisoryLock struct {
-	capability       rootedpath.CommitCapability
-	rootFile         *os.File
-	directories      []rootedLockDirectory
-	recordFD         int
-	recordName       string
-	record           rootedLockObject
-	afterWaitBlocked func()
+	capability  rootedpath.CommitCapability
+	rootFile    *os.File
+	directories []rootedLockDirectory
+	recordFD    int
+	recordName  string
+	record      rootedLockObject
 }
 
 func acquireRootedAdvisoryLock(
@@ -65,13 +64,17 @@ func acquireRootedAdvisoryLock(
 		return nil, err
 	}
 	lock := &rootedAdvisoryLock{
-		capability:       capability,
-		recordFD:         -1,
-		afterWaitBlocked: afterWaitBlocked,
+		capability: capability,
+		recordFD:   -1,
 	}
+	handedOff := false
 	defer func() {
+		if handedOff {
+			return
+		}
+		closeErr := lock.close()
 		if returnErr != nil {
-			returnErr = errors.Join(returnErr, lock.close())
+			returnErr = errors.Join(returnErr, closeErr)
 		}
 	}()
 
@@ -102,12 +105,13 @@ func acquireRootedAdvisoryLock(
 	if err := lock.openRecord(); err != nil {
 		return nil, err
 	}
-	if err := lock.tryAcquire(ctx, pollInterval); err != nil {
+	if err := lock.tryAcquire(ctx, pollInterval, afterWaitBlocked); err != nil {
 		return nil, err
 	}
 	if err := lock.Validate(); err != nil {
 		return nil, err
 	}
+	handedOff = true
 	return lock, nil
 }
 
@@ -218,6 +222,7 @@ func (lock *rootedAdvisoryLock) openRecord() error {
 func (lock *rootedAdvisoryLock) tryAcquire(
 	ctx context.Context,
 	pollInterval time.Duration,
+	afterWaitBlocked func(),
 ) error {
 	if pollInterval <= 0 {
 		pollInterval = defaultLockPollInterval
@@ -233,8 +238,8 @@ func (lock *rootedAdvisoryLock) tryAcquire(
 		}
 		if !waitBlocked {
 			waitBlocked = true
-			if lock.afterWaitBlocked != nil {
-				lock.afterWaitBlocked()
+			if afterWaitBlocked != nil {
+				afterWaitBlocked()
 			}
 		}
 		if err := ctx.Err(); err != nil {

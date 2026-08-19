@@ -49,7 +49,8 @@ func NewLocker(root string) Locker {
 }
 
 // WithAfterWaitBlocked returns a copy that invokes fn once after the first
-// rooted wait-blocked flock.
+// rooted wait-blocked flock. The callback does not take ownership of lock
+// resources.
 func (locker Locker) WithAfterWaitBlocked(fn func()) Locker {
 	locker.afterWaitBlocked = fn
 	return locker

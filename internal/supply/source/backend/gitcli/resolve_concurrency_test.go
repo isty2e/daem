@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	artifactpkg "github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -369,9 +370,15 @@ func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
 	held := make(chan struct{})
 	release := make(chan struct{})
 	ownerErr := make(chan error, 1)
+	var releaseOnce sync.Once
+	releaseOwner := func() {
+		releaseOnce.Do(func() { close(release) })
+	}
+	ownerCtx, ownerCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer ownerCancel()
 	go func() {
 		ownerErr <- resolver.state.repoLocker.DoRooted(
-			context.Background(),
+			ownerCtx,
 			ownerRoot,
 			key,
 			func() error {
@@ -381,20 +388,66 @@ func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
 			},
 		)
 	}()
-	<-held
+	ownerDone := false
 	defer func() {
-		close(release)
-		if err := <-ownerErr; err != nil {
-			t.Errorf("owner DoRooted returned error: %v", err)
+		releaseOwner()
+		if ownerDone {
+			return
+		}
+		select {
+		case err := <-ownerErr:
+			if err != nil {
+				t.Errorf("owner DoRooted returned error: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("owner DoRooted did not finish")
 		}
 	}()
 
+	select {
+	case <-held:
+	case err := <-ownerErr:
+		ownerDone = true
+		t.Fatalf("owner DoRooted failed before hold: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for owner to hold rooted repo lock")
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	resolver.state.testAfterRepoLockWaitBlocked = cancel
-	_, err = resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
-	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("Resolve error = %v, want context cancellation", err)
+	waitEntered := make(chan struct{})
+	resolver.state.testAfterRepoLockWaitBlocked = func() {
+		close(waitEntered)
+		cancel()
+	}
+	waiterErr := make(chan error, 1)
+	go func() {
+		_, err := resolver.Resolve(ctx, mustGitSource(t, repoPath, "skills/demo", "main"), noOperationOptions)
+		waiterErr <- err
+	}()
+
+	select {
+	case <-waitEntered:
+		select {
+		case err = <-waiterErr:
+		case <-time.After(5 * time.Second):
+			cancel()
+			releaseOwner()
+			t.Fatal("timed out waiting for Resolve cancellation")
+		}
+	case err = <-waiterErr:
+		select {
+		case <-waitEntered:
+		default:
+			t.Fatalf("Resolve returned before wait-entered: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		cancel()
+		releaseOwner()
+		t.Fatal("timed out waiting for Resolve to enter rooted repo lock wait")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Resolve error = %v, want context.Canceled", err)
 	}
 	if !strings.Contains(err.Error(), "wait for rooted cache lock") ||
 		!strings.Contains(err.Error(), key.PathComponent()) ||
