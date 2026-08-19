@@ -19,11 +19,13 @@ behavior.
 
 On a not-admitted operating-system/architecture pair, use `daem doctor` or
 `daem doctor --json` for the platform diagnosis. Doctor resolves the selected
-manifest path but intentionally stops before reading file-set transactions,
-recovery journals, manifests, environment prerequisites, or host state. A
-path-resolution failure is reported alongside the platform error. This does
-not make apply, recovery, or other storage-backed workflows available; run
-those commands on a target admitted by [Platform Support](platforms.md).
+manifest path, keeps the platform error, and continues with independent
+remaining checks. Capability-bound work is named `unsupported` or `skipped`
+instead of `ok`. Durable file-set and recovery inventory adapters are not
+invoked. A path-resolution failure is reported alongside the platform error.
+This does not make apply, recovery, or other storage-backed workflows
+available; run those commands on a target admitted by
+[Platform Support](platforms.md).
 
 ## Pre-1.0 Durable Authority Schemas
 

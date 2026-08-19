@@ -124,7 +124,7 @@ func newSkillDiscoveryObservationFailure(
 
 func (finding skillDiscoveryFinding) check() findings.Check {
 	return findings.Check{
-		Severity: findings.SeverityWarn,
+		Status: findings.CheckWarn,
 		Name: fmt.Sprintf(
 			"%s target=%s scope=%s skill=%s",
 			finding.code,

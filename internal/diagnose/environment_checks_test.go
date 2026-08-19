@@ -11,14 +11,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/findings"
+	daempaths "github.com/isty2e/daem/internal/paths"
+	targetselection "github.com/isty2e/daem/internal/target/selection"
+	"github.com/isty2e/daem/test/testkit/doctorenv"
 )
 
 func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *testing.T) {
 	cases := []struct {
 		name       string
 		version    func(context.Context) (string, error)
-		want       findings.Severity
+		want       findings.CheckStatus
 		wantDetail string
 	}{
 		{
@@ -26,7 +30,7 @@ func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *te
 			version: func(context.Context) (string, error) {
 				return "git version test", nil
 			},
-			want:       findings.SeverityOK,
+			want:       findings.CheckOK,
 			wantDetail: "git version test",
 		},
 		{
@@ -34,7 +38,7 @@ func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *te
 			version: func(context.Context) (string, error) {
 				return "", fmt.Errorf("locate: %w", exec.ErrNotFound)
 			},
-			want:       findings.SeverityError,
+			want:       findings.CheckError,
 			wantDetail: "git executable was not found in PATH",
 		},
 		{
@@ -42,7 +46,7 @@ func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *te
 			version: func(context.Context) (string, error) {
 				return "", errors.New("exit status 7")
 			},
-			want:       findings.SeverityError,
+			want:       findings.CheckError,
 			wantDetail: "git --version failed: exit status 7",
 		},
 		{
@@ -50,7 +54,7 @@ func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *te
 			version: func(context.Context) (string, error) {
 				return "", nil
 			},
-			want:       findings.SeverityError,
+			want:       findings.CheckError,
 			wantDetail: "git --version returned empty output",
 		},
 	}
@@ -58,7 +62,7 @@ func TestGitCheckClassifiesSuccessAndFailuresWithoutCallingThemUnavailable(t *te
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			check := gitCheckWithTimeout(context.Background(), time.Second, tc.version)
-			if check.Name != "git" || check.Severity != tc.want || check.Detail != tc.wantDetail {
+			if check.Name != "git" || check.Status != tc.want || check.Detail != tc.wantDetail {
 				t.Fatalf("check = %#v, want name=git severity=%s detail=%q", check, tc.want, tc.wantDetail)
 			}
 			if strings.Contains(check.Detail, "git is unavailable") {
@@ -76,7 +80,7 @@ func TestGitCheckSeparatesOwnTimeoutFromCallerCancellation(t *testing.T) {
 
 	t.Run("check timeout", func(t *testing.T) {
 		check := gitCheckWithTimeout(context.Background(), 10*time.Millisecond, waitForCancellation)
-		if check.Severity != findings.SeverityError ||
+		if check.Status != findings.CheckError ||
 			check.Detail != "git version check timed out after 10ms" {
 			t.Fatalf("check = %#v, want internal timeout", check)
 		}
@@ -87,7 +91,7 @@ func TestGitCheckSeparatesOwnTimeoutFromCallerCancellation(t *testing.T) {
 		cancel()
 
 		check := gitCheckWithTimeout(ctx, time.Second, waitForCancellation)
-		if check.Severity != findings.SeverityError ||
+		if check.Status != findings.CheckError ||
 			check.Detail != "git check stopped by caller context: context canceled" {
 			t.Fatalf("check = %#v, want caller cancellation", check)
 		}
@@ -130,7 +134,7 @@ func TestGitEnvironmentCheckTimesOutStallingObjectFormatHelp(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	check := gitEnvironmentCheck(context.Background(), 80*time.Millisecond)
-	if check.Name != "git" || check.Severity != findings.SeverityError {
+	if check.Name != "git" || check.Status != findings.CheckError {
 		t.Fatalf("check = %#v, want git error", check)
 	}
 	if !strings.Contains(check.Detail, "timed out") {
@@ -153,7 +157,7 @@ func TestGitEnvironmentCheckRejectsUnrelatedHelpExit(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
-	if check.Name != "git" || check.Severity != findings.SeverityError {
+	if check.Name != "git" || check.Status != findings.CheckError {
 		t.Fatalf("check = %#v, want git error", check)
 	}
 	if strings.Contains(check.Detail, "object-format sha1") {
@@ -176,10 +180,52 @@ func TestGitEnvironmentCheckAcceptsGitHelpUsageExit(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	check := gitEnvironmentCheck(context.Background(), 5*time.Second)
-	if check.Name != "git" || check.Severity != findings.SeverityOK {
+	if check.Name != "git" || check.Status != findings.CheckOK {
 		t.Fatalf("check = %#v, want git ok", check)
 	}
 	if !strings.Contains(check.Detail, "object-format sha1") {
 		t.Fatalf("check = %#v, want sha1 capability label", check)
+	}
+}
+
+func TestIndependentEnvironmentChecksNamesHostEffectWithoutProbing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	doctorenv.WithFakeGit(t, "git version test")
+	cacheFile := filepath.Join(t.TempDir(), "cache-file")
+	if err := os.WriteFile(cacheFile, []byte("not-a-directory\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checks := IndependentEnvironmentChecks(
+		context.Background(),
+		daempaths.Paths{CacheDir: cacheFile, ManifestRoot: t.TempDir()},
+		true,
+		selection,
+		map[entity.Kind]struct{}{
+			entity.KindInstructions: {},
+			entity.KindSkill:        {},
+			entity.KindHook:         {},
+		},
+		true,
+	)
+	byName := map[string]findings.Check{}
+	for _, check := range checks {
+		byName[check.Name] = check
+		if strings.Contains(check.Name, "plugin_contribution") || strings.Contains(check.Name, "plugin_config") {
+			t.Fatalf("independent checks observed Codex plugin tree: %#v", checks)
+		}
+	}
+	if cache := byName["cache"]; cache.Status != findings.CheckUnsupported {
+		t.Fatalf("cache = %#v, want unsupported without probing a non-directory", cache)
+	}
+	if plugin := byName["codex_plugin"]; plugin.Status != findings.CheckUnsupported {
+		t.Fatalf("codex_plugin = %#v, want unsupported parent", plugin)
+	}
+	if configDir := byName["target=codex config_dir"]; configDir.Status != findings.CheckUnsupported {
+		t.Fatalf("config_dir = %#v, want unsupported", configDir)
 	}
 }

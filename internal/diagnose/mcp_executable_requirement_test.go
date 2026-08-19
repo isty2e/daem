@@ -179,8 +179,8 @@ func mustPrerequisiteSelection(t *testing.T, values ...string) targetselection.S
 func assertPrerequisiteWarnContains(t *testing.T, checks []findings.Check, name string, detail string) findings.Check {
 	t.Helper()
 	check := assertPrerequisiteCheck(t, checks, name)
-	if check.Severity != findings.SeverityWarn {
-		t.Fatalf("severity for %q = %s, want warn; detail = %q", name, check.Severity, check.Detail)
+	if check.Status != findings.CheckWarn {
+		t.Fatalf("severity for %q = %s, want warn; detail = %q", name, check.Status, check.Detail)
 	}
 	if !strings.Contains(check.Detail, detail) {
 		t.Fatalf("detail for %q = %q, want substring %q", name, check.Detail, detail)

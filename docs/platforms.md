@@ -53,8 +53,9 @@ timeout fails closed before workspace, source, storage, or host effects.
 `doctor` performs the same observation but retains its diagnostic path
 resolution exception; after path resolution it reports the running target,
 observed runtime or failure reason, required floor, verification lane, and next
-step without inspecting managed state or hosts. Target admission and runtime
-observation remain separate facts.
+step, then continues with independent remaining checks and named
+`unsupported`/`skipped` coverage instead of treating the rest of doctor as one
+atomic cut. Target admission and runtime observation remain separate facts.
 
 `compile only` means the source is cross-built to detect portability failures.
 It does not establish native execution, durable filesystem behavior, host
@@ -71,10 +72,13 @@ product. `daem doctor` reports the exact running `GOOS/GOARCH`, its verification
 class, and the admitted targets; it exits nonzero on a not-admitted platform.
 Doctor validates target selection and resolves the selected manifest path so
 that path errors remain actionable. After successful path resolution on a
-not-admitted platform, it emits only the platform finding and stops before
-file-set, recovery, manifest, environment, or host inspection. If path
-resolution itself fails, the platform and path findings are both reported.
-This diagnostic exception grants no storage or mutation capability.
+not-admitted platform, it keeps the platform error, runs only checks whose
+success meaning is unchanged, and emits named `unsupported` or `skipped`
+results for capability-bound remaining checks. It does not invoke durable
+file-set or recovery inventory adapters, so a storage abort cannot erase the
+platform finding. If path resolution itself fails, the platform and path
+findings are both reported and remaining checks are not invented. This
+diagnostic exception grants no storage or mutation capability.
 
 The platform-gated command families `add`, `apply`, `import`, `init`, `lock`,
 `outdated`, `recover`, `refresh`, `remove`, and `unmanage` reject a

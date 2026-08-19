@@ -19,6 +19,10 @@ func errorCheck(name string, detail string) findings.Check {
 	return findings.ErrorCheck(name, detail)
 }
 
+func unsupportedCheck(name string, detail string) findings.Check {
+	return findings.UnsupportedCheck(name, detail)
+}
+
 func resourceIDString(id entity.ID) string {
 	return fmt.Sprintf("%s/%s", id.Kind(), id.Name())
 }

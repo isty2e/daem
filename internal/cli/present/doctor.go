@@ -33,7 +33,7 @@ type doctorJSONManifest struct {
 }
 
 type doctorJSONCheck struct {
-	Severity      string   `json:"severity"`
+	Status        string   `json:"status"`
 	Name          string   `json:"name"`
 	Detail        string   `json:"detail"`
 	Repairability string   `json:"repairability,omitempty"`
@@ -43,24 +43,37 @@ type doctorJSONCheck struct {
 }
 
 func PrintDoctorChecksWithOptions(output io.Writer, checks []findings.Check, options HumanOptions) {
-	okCount, warnCount, errorCount := 0, 0, 0
+	okCount, warnCount, errorCount, skippedCount, unsupportedCount := 0, 0, 0, 0, 0
 	for _, check := range checks {
-		switch check.Severity {
-		case findings.SeverityOK:
+		switch check.Status {
+		case findings.CheckOK:
 			okCount++
-		case findings.SeverityWarn:
+		case findings.CheckWarn:
 			warnCount++
-		case findings.SeverityError:
+		case findings.CheckError:
 			errorCount++
+		case findings.CheckSkipped:
+			skippedCount++
+		case findings.CheckUnsupported:
+			unsupportedCount++
 		}
 	}
-	fmt.Fprintf(output, "doctor: %d checks (ok=%d warn=%d error=%d)\n", len(checks), okCount, warnCount, errorCount)
+	fmt.Fprintf(
+		output,
+		"doctor: %d checks (ok=%d warn=%d error=%d skipped=%d unsupported=%d)\n",
+		len(checks),
+		okCount,
+		warnCount,
+		errorCount,
+		skippedCount,
+		unsupportedCount,
+	)
 	for _, check := range checks {
-		if !options.Verbose && check.Severity == findings.SeverityOK {
+		if !options.Verbose && check.Status == findings.CheckOK {
 			continue
 		}
-		fmt.Fprintf(output, "%s %s", check.Severity, check.Name)
-		if check.Detail != "" && (options.Verbose || check.Severity != findings.SeverityOK) {
+		fmt.Fprintf(output, "%s %s", check.Status, check.Name)
+		if check.Detail != "" && (options.Verbose || check.Status != findings.CheckOK) {
 			fmt.Fprintf(output, " detail=%q", check.Detail)
 		}
 		if check.Repairability != "" {
@@ -111,7 +124,7 @@ func doctorJSONChecks(checks []findings.Check) []doctorJSONCheck {
 	result := make([]doctorJSONCheck, 0, len(checks))
 	for _, check := range checks {
 		result = append(result, doctorJSONCheck{
-			Severity:      string(check.Severity),
+			Status:        string(check.Status),
 			Name:          check.Name,
 			Detail:        check.Detail,
 			Repairability: check.Repairability,

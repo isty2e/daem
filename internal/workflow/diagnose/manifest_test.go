@@ -36,7 +36,7 @@ func TestRunLoadsValidManifestPipelineExactlyOnce(t *testing.T) {
 		t.Fatalf("Selection = %#v, want codex", got)
 	}
 	manifest, ok := checkNamed(result.Checks, "manifest")
-	if !ok || manifest.Severity != findings.SeverityOK {
+	if !ok || manifest.Status != findings.CheckOK {
 		t.Fatalf("manifest check = %#v, want parseable manifest", result.Checks)
 	}
 	if result.HasErrors {
@@ -55,7 +55,7 @@ func TestRunMissingImplicitManifestStopsAfterOneRead(t *testing.T) {
 	}
 	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
-	if !ok || manifest.Severity != findings.SeverityWarn {
+	if !ok || manifest.Status != findings.CheckWarn {
 		t.Fatalf("manifest check = %#v, want missing-manifest warning", result.Checks)
 	}
 	if !strings.Contains(manifest.Detail, "not found; running general diagnostics") {
@@ -84,7 +84,7 @@ func TestRunMalformedManifestStopsBeforeFactConstruction(t *testing.T) {
 	}
 	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
-	if !ok || manifest.Severity != findings.SeverityError {
+	if !ok || manifest.Status != findings.CheckError {
 		t.Fatalf("manifest check = %#v, want manifest error", result.Checks)
 	}
 	if !strings.HasPrefix(manifest.Detail, "parse "+manifestPath+":") {
@@ -166,7 +166,7 @@ func TestManifestLoaderClassifiesPostStatReadFailureAsReadEvidence(t *testing.T)
 	if postStatReadFailure.stage != manifestLoadStageReadFailure {
 		t.Fatalf("stage = %d, want read failure", postStatReadFailure.stage)
 	}
-	if check := manifestCheck("replaced.toml", true, postStatReadFailure); check.Severity != findings.SeverityError || !strings.HasPrefix(check.Detail, "read replaced.toml:") {
+	if check := manifestCheck("replaced.toml", true, postStatReadFailure); check.Status != findings.CheckError || !strings.HasPrefix(check.Detail, "read replaced.toml:") {
 		t.Fatalf("check = %#v, want read failure", check)
 	}
 
@@ -178,7 +178,7 @@ func TestManifestLoaderClassifiesPostStatReadFailureAsReadEvidence(t *testing.T)
 	if readFailure.stage != manifestLoadStageReadFailure {
 		t.Fatalf("stage = %d, want read failure", readFailure.stage)
 	}
-	if check := manifestCheck("blocked.toml", true, readFailure); check.Severity != findings.SeverityError || !strings.HasPrefix(check.Detail, "read blocked.toml:") {
+	if check := manifestCheck("blocked.toml", true, readFailure); check.Status != findings.CheckError || !strings.HasPrefix(check.Detail, "read blocked.toml:") {
 		t.Fatalf("check = %#v, want read failure", check)
 	}
 }
@@ -187,11 +187,11 @@ func TestManifestCheckDistinguishesImplicitAndExplicitMissing(t *testing.T) {
 	missing := manifestLoad{stage: manifestLoadStageReadFailure, err: fs.ErrNotExist}
 
 	implicit := manifestCheck("missing.toml", false, missing)
-	if implicit.Severity != findings.SeverityWarn || !strings.Contains(implicit.Detail, "running general diagnostics") {
+	if implicit.Status != findings.CheckWarn || !strings.Contains(implicit.Detail, "running general diagnostics") {
 		t.Fatalf("implicit check = %#v, want warning", implicit)
 	}
 	explicit := manifestCheck("missing.toml", true, missing)
-	if explicit.Severity != findings.SeverityError || !strings.HasPrefix(explicit.Detail, "read missing.toml:") {
+	if explicit.Status != findings.CheckError || !strings.HasPrefix(explicit.Detail, "read missing.toml:") {
 		t.Fatalf("explicit check = %#v, want read error", explicit)
 	}
 }
