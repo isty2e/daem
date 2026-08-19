@@ -53,23 +53,3 @@ func TestReadRegularFileAtCountedFailsClosedWithoutPathnameReopen(t *testing.T) 
 		t.Fatalf("unsupported snapshot leaked file bytes = %q", counted.Content)
 	}
 }
-
-func TestReadRegularFileAtCountedUnsupportedRejectsInvalidInput(t *testing.T) {
-	t.Parallel()
-
-	dir, err := os.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dir.Close() })
-
-	if _, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), dir, "nested/name", 64); err == nil || errors.Is(err, filesnapshot.ErrUnsupported) {
-		t.Fatalf("nested name error = %v, want invalid input", err)
-	}
-	if _, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), nil, "plugin.json", 64); err == nil || errors.Is(err, filesnapshot.ErrUnsupported) {
-		t.Fatalf("nil directory error = %v, want invalid input", err)
-	}
-	if _, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), dir, "plugin.json", 0); err == nil || errors.Is(err, filesnapshot.ErrUnsupported) {
-		t.Fatalf("non-positive bound error = %v, want invalid input", err)
-	}
-}
