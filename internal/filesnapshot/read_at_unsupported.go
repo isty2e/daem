@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 func readRegularFileAtCounted(
@@ -15,15 +14,20 @@ func readRegularFileAtCounted(
 	name string,
 	maximumBytes int64,
 ) (CountedContent, error) {
+	if ctx == nil {
+		return CountedContent{}, fmt.Errorf("file snapshot context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return CountedContent{}, err
+	}
 	if dir == nil {
 		return CountedContent{}, fmt.Errorf("file snapshot directory descriptor is required")
+	}
+	if maximumBytes <= 0 {
+		return CountedContent{}, fmt.Errorf("maximum file size must be positive")
 	}
 	if err := validDirentName(name); err != nil {
 		return CountedContent{}, err
 	}
-	path := dir.Name()
-	if path == "" {
-		return CountedContent{}, fmt.Errorf("file snapshot directory descriptor has no path")
-	}
-	return ReadRegularFileContextCounted(ctx, filepath.Join(path, name), maximumBytes)
+	return CountedContent{}, ErrUnsupported
 }

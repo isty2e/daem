@@ -41,6 +41,8 @@ func classifySnapshotError(err error) observecontribution.SourceContributionReas
 		return observecontribution.SourceContributionReasonArtifactPathBlocked
 	case errors.Is(err, filesnapshot.ErrNotRegular):
 		return observecontribution.SourceContributionReasonUnsupportedShape
+	case errors.Is(err, filesnapshot.ErrUnsupported):
+		return observecontribution.SourceContributionReasonArtifactUnavailable
 	default:
 		return observecontribution.SourceContributionReasonArtifactUnavailable
 	}
@@ -64,7 +66,9 @@ func snapshotAttemptCharges(exists bool, err error) bool {
 	if err == nil {
 		return exists
 	}
-	return !errors.Is(err, filesnapshot.ErrSymlink) && !errors.Is(err, filesnapshot.ErrNotRegular)
+	return !errors.Is(err, filesnapshot.ErrSymlink) &&
+		!errors.Is(err, filesnapshot.ErrNotRegular) &&
+		!errors.Is(err, filesnapshot.ErrUnsupported)
 }
 
 func observationCanceled(err error) bool {

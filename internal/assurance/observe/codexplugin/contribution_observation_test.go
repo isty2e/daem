@@ -22,6 +22,7 @@ func TestClassifySnapshotErrorDistinguishesIdentityAndBudget(t *testing.T) {
 		{filesnapshot.ErrLimitExceeded, observecontribution.SourceContributionReasonArtifactBudgetExceeded},
 		{filesnapshot.ErrSymlink, observecontribution.SourceContributionReasonArtifactPathBlocked},
 		{filesnapshot.ErrNotRegular, observecontribution.SourceContributionReasonUnsupportedShape},
+		{filesnapshot.ErrUnsupported, observecontribution.SourceContributionReasonArtifactUnavailable},
 		{os.ErrNotExist, observecontribution.SourceContributionReasonArtifactUnavailable},
 		{context.Canceled, observecontribution.SourceContributionReasonNone},
 	}
@@ -29,6 +30,16 @@ func TestClassifySnapshotErrorDistinguishesIdentityAndBudget(t *testing.T) {
 		if got := classifySnapshotError(testCase.err); got != testCase.want {
 			t.Fatalf("classifySnapshotError(%v) = %q, want %q", testCase.err, got, testCase.want)
 		}
+	}
+}
+
+func TestSnapshotAttemptChargesSkipsUnsupportedDescriptorReads(t *testing.T) {
+	t.Parallel()
+	if snapshotAttemptCharges(false, filesnapshot.ErrUnsupported) {
+		t.Fatal("unsupported descriptor-relative reads must not charge snapshot bytes")
+	}
+	if !snapshotAttemptCharges(true, filesnapshot.ErrChanged) {
+		t.Fatal("identity-changed reads must still charge attempted snapshot bytes")
 	}
 }
 
