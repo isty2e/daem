@@ -41,44 +41,33 @@ func TestRootedLockerWaiterCancellationReportsPathAfterWaitEntered(t *testing.T)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	waitEntered := make(chan struct{})
-	waiterErr := make(chan error, 1)
+	waiter := make(chan rootedLockWaiterResult, 1)
 	locker = locker.WithAfterWaitBlocked(func() {
 		close(waitEntered)
 		cancel()
 	})
 	go func() {
-		_, err := locker.acquireRooted(ctx, secondRoot, key)
-		waiterErr <- err
+		lock, err := locker.acquireRooted(ctx, secondRoot, key)
+		waiter <- rootedLockWaiterResult{lock: lock, err: err}
 	}()
 
-	var waiterResult error
-	select {
-	case <-waitEntered:
-		select {
-		case waiterResult = <-waiterErr:
-		case <-time.After(rootedLockTestWatchdog):
-			cancel()
-			_ = owner.Release()
-			t.Fatal("timed out waiting for waiter cancellation")
-		}
-	case waiterResult = <-waiterErr:
-		select {
-		case <-waitEntered:
-		default:
-			t.Fatalf("waiter returned before wait-entered: %v", waiterResult)
-		}
-	case <-time.After(rootedLockTestWatchdog):
-		cancel()
-		_ = owner.Release()
-		t.Fatal("timed out waiting for rooted wait-entered")
+	result := awaitRootedLockWaiterAfterWaitEntered(
+		t,
+		cancel,
+		owner,
+		waitEntered,
+		waiter,
+		"timed out waiting for waiter cancellation",
+		"timed out waiting for rooted wait-entered",
+	)
+	defer releaseRootedLockWaiterResult(t, result)
+	if !errors.Is(result.err, context.Canceled) {
+		t.Fatalf("waiter acquireRooted error = %v, want context.Canceled", result.err)
 	}
-	if !errors.Is(waiterResult, context.Canceled) {
-		t.Fatalf("waiter acquireRooted error = %v, want context.Canceled", waiterResult)
-	}
-	if !strings.Contains(waiterResult.Error(), "wait for rooted cache lock") ||
-		!strings.Contains(waiterResult.Error(), key.PathComponent()) ||
-		!strings.Contains(waiterResult.Error(), lockRoot) {
-		t.Fatalf("waiter error = %q, want rooted wait diagnostic", waiterResult)
+	if !strings.Contains(result.err.Error(), "wait for rooted cache lock") ||
+		!strings.Contains(result.err.Error(), key.PathComponent()) ||
+		!strings.Contains(result.err.Error(), lockRoot) {
+		t.Fatalf("waiter error = %q, want rooted wait diagnostic", result.err)
 	}
 }
 
@@ -119,21 +108,35 @@ func testRootedLockerWaitCallbackAbortClosesRecord(t *testing.T, abort func()) {
 		t.Fatal("owner holds no descriptors on the lock record")
 	}
 
-	done := make(chan struct{})
-	locker = locker.WithAfterWaitBlocked(abort)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	waitEntered := make(chan struct{})
+	waiter := make(chan rootedLockWaiterResult, 1)
+	locker = locker.WithAfterWaitBlocked(func() {
+		close(waitEntered)
+		abort()
+	})
 	go func() {
-		defer close(done)
+		var result rootedLockWaiterResult
 		defer func() {
 			_ = recover()
+			waiter <- result
 		}()
-		_, _ = locker.acquireRooted(t.Context(), secondRoot, key)
+		result.lock, result.err = locker.acquireRooted(ctx, secondRoot, key)
 	}()
 
-	select {
-	case <-done:
-	case <-time.After(rootedLockTestWatchdog):
-		_ = owner.Release()
-		t.Fatal("timed out waiting for aborted waiter")
+	result := awaitRootedLockWaiterAfterWaitEntered(
+		t,
+		cancel,
+		owner,
+		waitEntered,
+		waiter,
+		"timed out waiting for aborted waiter",
+		"timed out waiting for aborted waiter wait-entered",
+	)
+	defer releaseRootedLockWaiterResult(t, result)
+	if result.lock != nil {
+		t.Fatal("aborted waiter returned a lock")
 	}
 	if got := countOpenDescriptorsFor(t, lockRecord); got != ownerDescriptors {
 		t.Fatalf(
@@ -304,6 +307,89 @@ func mustCaptureRootedLockRoot(t *testing.T, root string) *rootedpath.CapturedRo
 		t.Fatalf("CaptureRootNoFollow returned error: %v", err)
 	}
 	return captured
+}
+
+type rootedLockWaiterResult struct {
+	lock *Lock
+	err  error
+}
+
+func awaitRootedLockWaiterResult(
+	waiter <-chan rootedLockWaiterResult,
+	timeout time.Duration,
+) (rootedLockWaiterResult, bool) {
+	select {
+	case result := <-waiter:
+		return result, true
+	case <-time.After(timeout):
+		return rootedLockWaiterResult{}, false
+	}
+}
+
+func releaseRootedLockWaiterResult(t *testing.T, result rootedLockWaiterResult) {
+	t.Helper()
+	if result.lock == nil {
+		return
+	}
+	if err := result.lock.Release(); err != nil {
+		t.Errorf("waiter Release returned error: %v", err)
+	}
+}
+
+func failRootedLockWaiterWatchdog(
+	t *testing.T,
+	cancel context.CancelFunc,
+	owner *Lock,
+	waiter <-chan rootedLockWaiterResult,
+	message string,
+) {
+	t.Helper()
+	if cancel != nil {
+		cancel()
+	}
+	if result, ok := awaitRootedLockWaiterResult(waiter, rootedLockTestWatchdog); ok {
+		releaseRootedLockWaiterResult(t, result)
+		t.Fatalf("%s (waiter returned after cancel: %v)", message, result.err)
+	}
+	if owner != nil {
+		_ = owner.Release()
+	}
+	if result, ok := awaitRootedLockWaiterResult(waiter, rootedLockTestWatchdog); ok {
+		releaseRootedLockWaiterResult(t, result)
+		t.Fatalf("%s (waiter returned after owner release: %v)", message, result.err)
+	}
+	t.Fatalf("%s (waiter still running)", message)
+}
+
+func awaitRootedLockWaiterAfterWaitEntered(
+	t *testing.T,
+	cancel context.CancelFunc,
+	owner *Lock,
+	waitEntered <-chan struct{},
+	waiter <-chan rootedLockWaiterResult,
+	waitMessage string,
+	enteredMessage string,
+) rootedLockWaiterResult {
+	t.Helper()
+	select {
+	case <-waitEntered:
+		result, ok := awaitRootedLockWaiterResult(waiter, rootedLockTestWatchdog)
+		if !ok {
+			failRootedLockWaiterWatchdog(t, cancel, owner, waiter, waitMessage)
+		}
+		return result
+	case result := <-waiter:
+		select {
+		case <-waitEntered:
+		default:
+			releaseRootedLockWaiterResult(t, result)
+			t.Fatalf("waiter returned before wait-entered: %v", result.err)
+		}
+		return result
+	case <-time.After(rootedLockTestWatchdog):
+		failRootedLockWaiterWatchdog(t, cancel, owner, waiter, enteredMessage)
+	}
+	return rootedLockWaiterResult{}
 }
 
 func countOpenDescriptorsFor(t *testing.T, path string) int {

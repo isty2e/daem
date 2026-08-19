@@ -16,6 +16,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 )
 
+const repoLockWaiterTestWatchdog = 5 * time.Second
+
 func TestResolveRootPathKeepsCompletionRecordOutsideContent(t *testing.T) {
 	t.Parallel()
 	requireGit(t)
@@ -426,26 +428,15 @@ func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
 		waiterErr <- err
 	}()
 
-	select {
-	case <-waitEntered:
-		select {
-		case err = <-waiterErr:
-		case <-time.After(5 * time.Second):
-			cancel()
-			releaseOwner()
-			t.Fatal("timed out waiting for Resolve cancellation")
-		}
-	case err = <-waiterErr:
-		select {
-		case <-waitEntered:
-		default:
-			t.Fatalf("Resolve returned before wait-entered: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		cancel()
-		releaseOwner()
-		t.Fatal("timed out waiting for Resolve to enter rooted repo lock wait")
-	}
+	err = awaitRepoLockWaiterAfterWaitEntered(
+		t,
+		cancel,
+		releaseOwner,
+		waitEntered,
+		waiterErr,
+		"timed out waiting for Resolve cancellation",
+		"timed out waiting for Resolve to enter rooted repo lock wait",
+	)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("Resolve error = %v, want context.Canceled", err)
 	}
@@ -454,6 +445,68 @@ func TestResolveRepoLockWaiterCancellationReportsPathContext(t *testing.T) {
 		!strings.Contains(err.Error(), filepath.Join("locks", "git-repo")) {
 		t.Fatalf("Resolve error = %q, want rooted repo lock wait diagnostic", err)
 	}
+}
+
+func awaitRepoLockWaiterError(waiter <-chan error, timeout time.Duration) (error, bool) {
+	select {
+	case err := <-waiter:
+		return err, true
+	case <-time.After(timeout):
+		return nil, false
+	}
+}
+
+func failRepoLockWaiterWatchdog(
+	t *testing.T,
+	cancel context.CancelFunc,
+	releaseOwner func(),
+	waiter <-chan error,
+	message string,
+) {
+	t.Helper()
+	if cancel != nil {
+		cancel()
+	}
+	if err, ok := awaitRepoLockWaiterError(waiter, repoLockWaiterTestWatchdog); ok {
+		t.Fatalf("%s (waiter returned after cancel: %v)", message, err)
+	}
+	if releaseOwner != nil {
+		releaseOwner()
+	}
+	if err, ok := awaitRepoLockWaiterError(waiter, repoLockWaiterTestWatchdog); ok {
+		t.Fatalf("%s (waiter returned after owner release: %v)", message, err)
+	}
+	t.Fatalf("%s (waiter still running)", message)
+}
+
+func awaitRepoLockWaiterAfterWaitEntered(
+	t *testing.T,
+	cancel context.CancelFunc,
+	releaseOwner func(),
+	waitEntered <-chan struct{},
+	waiter <-chan error,
+	waitMessage string,
+	enteredMessage string,
+) error {
+	t.Helper()
+	select {
+	case <-waitEntered:
+		err, ok := awaitRepoLockWaiterError(waiter, repoLockWaiterTestWatchdog)
+		if !ok {
+			failRepoLockWaiterWatchdog(t, cancel, releaseOwner, waiter, waitMessage)
+		}
+		return err
+	case err := <-waiter:
+		select {
+		case <-waitEntered:
+		default:
+			t.Fatalf("Resolve returned before wait-entered: %v", err)
+		}
+		return err
+	case <-time.After(repoLockWaiterTestWatchdog):
+		failRepoLockWaiterWatchdog(t, cancel, releaseOwner, waiter, enteredMessage)
+	}
+	return nil
 }
 
 type resolveResult struct {
