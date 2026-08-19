@@ -21,7 +21,11 @@ func currentCommandRunner() (commandRunner, bool) {
 }
 
 func runProductVersionCommand(ctx context.Context) commandResult {
-	commandContext, cancel := context.WithTimeout(ctx, productVersionCommandTimeout)
+	commandContext, cancel := context.WithTimeoutCause(
+		ctx,
+		productVersionCommandTimeout,
+		errDarwinProductVersionTimeout,
+	)
 	defer cancel()
 
 	stdout := subprocess.NewBoundedBuffer(productVersionOutputLimit)
@@ -36,10 +40,10 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 		return commandResult{err: err}
 	}
 	if err := command.Start(); err != nil {
-		return freezeDarwinCommandResult(ctx, err, stdout.String(), stdout.Truncated())
+		return freezeDarwinCommandResult(commandContext, err, stdout.String(), stdout.Truncated())
 	}
 	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
-	result := freezeDarwinCommandResult(ctx, waitErr, stdout.String(), stdout.Truncated())
+	result := freezeDarwinCommandResult(commandContext, waitErr, stdout.String(), stdout.Truncated())
 	termination, terminationErr := group.ReapAfterLeaderExit()
 	return joinDarwinCommandCleanup(result, termination, terminationErr)
 }

@@ -20,6 +20,12 @@ type commandResult struct {
 
 type commandRunner func(context.Context) commandResult
 
+// errDarwinProductVersionTimeout is the immutable cause of the nested Darwin
+// product-version command deadline. freezeDarwinCommandResult classifies
+// RuntimeObservationTimedOut from this cause, not from a live parent.Err()
+// check after Await returns.
+var errDarwinProductVersionTimeout = errors.New("macOS product-version command timed out")
+
 // Current observes the runtime evidence available on the running platform.
 func Current(ctx context.Context) (platformsupport.RuntimeObservation, error) {
 	if err := ctx.Err(); err != nil {
@@ -73,13 +79,20 @@ func observeDarwinProductVersion(
 	return observationFailure(platformsupport.RuntimeObservationCommandFailed)
 }
 
-func freezeDarwinCommandResult(parent context.Context, runErr error, stdout string, stdoutTruncated bool) commandResult {
+func freezeDarwinCommandResult(attempt context.Context, runErr error, stdout string, stdoutTruncated bool) commandResult {
 	result := commandResult{
 		stdout:          stdout,
 		stdoutTruncated: stdoutTruncated,
 		err:             runErr,
 	}
-	if errors.Is(runErr, context.DeadlineExceeded) && parent.Err() == nil {
+	if attempt == nil {
+		attempt = context.Background()
+	}
+	// The attempt context's timeout cause is frozen when the nested deadline
+	// fires. A later parent cancel cannot rewrite Cause, so classification
+	// must not consult a live parent.Err() after Await returns.
+	if errors.Is(runErr, context.DeadlineExceeded) &&
+		errors.Is(context.Cause(attempt), errDarwinProductVersionTimeout) {
 		result.timedOut = true
 	}
 	if errors.Is(runErr, context.Canceled) {

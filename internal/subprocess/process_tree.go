@@ -82,6 +82,10 @@ type ProcessGroup struct {
 // and before Await classifies a still-live attempt context against that wait.
 var afterProcessGroupWaitDone func()
 
+// afterProcessGroupTerminateStart is a test hook invoked on the first
+// terminate attempt after StartWait, before occupancy polling.
+var afterProcessGroupTerminateStart func()
+
 // BindProcessGroup configures command to create a fresh process group and replaces the
 // CommandContext direct-child cancellation hook with dedicated-group cleanup.
 // BindProcessGroup must be called before command.Start. Session-escaped
@@ -138,6 +142,9 @@ func (group *ProcessGroup) terminate(quiesce bool) (ProcessTermination, error) {
 	group.StartWait()
 
 	group.terminateOnce.Do(func() {
+		if hook := afterProcessGroupTerminateStart; hook != nil {
+			hook()
+		}
 		group.termination, group.terminateErr = terminateDedicatedProcessGroup(
 			group.command.Process.Pid,
 			group.options,
@@ -217,9 +224,11 @@ func (group *ProcessGroup) WaitDone() <-chan struct{} {
 // still be reaped.
 //
 // Once command.Wait has returned, that wait result is frozen. A later expired
-// attempt context does not rewrite a process-owned exit. CommandContext kill
-// during this Await still classifies timeout or cancel from a wait that has
-// not completed yet, or from a non-owned wait (typically a signal) that races
+// attempt context does not rewrite a process-owned exit. When ctx.Done fires,
+// Await captures ctx.Err() before bounded termination so later context
+// mutation cannot change the observed wait error. CommandContext kill during
+// this Await still classifies timeout or cancel from a wait that has not
+// completed yet, or from a non-owned wait (typically a signal) that races
 // with ctx.Done.
 func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration) error {
 	if group == nil {
@@ -243,8 +252,9 @@ func (group *ProcessGroup) Await(ctx context.Context, abandonBound time.Duration
 		invokeAfterProcessGroupWaitDone()
 		return completedWaitErr(group.waitErr, ctx.Err())
 	case <-ctx.Done():
+		ctxErr := ctx.Err()
 		_, terminateErr := group.Terminate()
-		return group.finishAwait(abandonBound, ctx.Err(), terminateErr)
+		return group.finishAwait(abandonBound, ctxErr, terminateErr)
 	case <-group.terminateDone:
 		return group.finishAwait(abandonBound, ctx.Err(), group.terminateErr)
 	}

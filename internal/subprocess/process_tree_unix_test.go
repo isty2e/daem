@@ -573,6 +573,97 @@ func TestGroupCancelImmediatelyAfterStartDoesNotReportUnsignalableOccupancy(t *t
 	}
 }
 
+func TestAwaitKeepsObservedDeadlineWhileTerminationBlocked(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "/bin/sleep", "30")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	attempt := newMutatingDoneContext()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterProcessGroupTerminateStart = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-release
+		attempt.setErr(context.Canceled)
+	}
+	t.Cleanup(func() {
+		afterProcessGroupTerminateStart = nil
+		releaseOnce.Do(func() { close(release) })
+		_, _ = group.Terminate()
+	})
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- group.Await(attempt, InheritedOutputCloseWait)
+	}()
+	attempt.fire(context.DeadlineExceeded)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("termination did not start after attempt deadline")
+	}
+	releaseOnce.Do(func() { close(release) })
+
+	select {
+	case waitErr := <-waitDone:
+		if !errors.Is(waitErr, context.DeadlineExceeded) {
+			t.Fatalf("Await = %v, want captured deadline while termination was blocked", waitErr)
+		}
+		if errors.Is(waitErr, context.Canceled) {
+			t.Fatalf("Await = %v, want deadline not rewritten by later cancel", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Await did not return after termination released")
+	}
+}
+
+type mutatingDoneContext struct {
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func newMutatingDoneContext() *mutatingDoneContext {
+	return &mutatingDoneContext{done: make(chan struct{})}
+}
+
+func (ctx *mutatingDoneContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *mutatingDoneContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *mutatingDoneContext) Err() error {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return ctx.err
+}
+
+func (ctx *mutatingDoneContext) Value(any) any {
+	return nil
+}
+
+func (ctx *mutatingDoneContext) fire(err error) {
+	ctx.mu.Lock()
+	ctx.err = err
+	ctx.mu.Unlock()
+	close(ctx.done)
+}
+
+func (ctx *mutatingDoneContext) setErr(err error) {
+	ctx.mu.Lock()
+	ctx.err = err
+	ctx.mu.Unlock()
+}
+
 func awaitBoundProcessGroup(group *ProcessGroup, ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()

@@ -92,16 +92,22 @@ func TestDefaultRunnerCancellationTerminatesGrandchild(t *testing.T) {
 }
 
 func TestDefaultRunnerLeaderOnlyCancellationDoesNotReportResidualMembers(t *testing.T) {
-	readyPath := t.TempDir() + "/ready"
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready$not-expanded"
 	executor := NewCommandExecutor(CommandOptions{Timeout: 2 * DefaultCommandTimeout, OutputLimit: 1024})
 	ctx, cancel := context.WithCancel(context.Background())
 	resultDone := make(chan CommandAttemptResult, 1)
 	go func() {
 		resultDone <- executor.executeWithoutWorkingDirectory(ctx, CommandAttemptRequest{
-			Command: "/bin/sh",
+			Command: executable,
 			Args: []string{
-				"-c",
-				"echo ready > " + strconv.Quote(readyPath) + "; exec /bin/sleep 30",
+				"-test.run=TestCommandExecProcessTreeHelper",
+				"--",
+				"leader",
+				readyPath,
 			},
 		})
 	}()
@@ -109,6 +115,19 @@ func TestDefaultRunnerLeaderOnlyCancellationDoesNotReportResidualMembers(t *test
 		cancel()
 		t.Fatal(err)
 	}
+	pidContent, err := os.ReadFile(readyPath)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidContent)))
+	if err != nil || pid <= 0 {
+		cancel()
+		t.Fatalf("leader pid evidence = %q", pidContent)
+	}
+	t.Cleanup(func() {
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
 	cancel()
 	var result CommandAttemptResult
 	select {
@@ -122,6 +141,7 @@ func TestDefaultRunnerLeaderOnlyCancellationDoesNotReportResidualMembers(t *test
 	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
 		t.Fatalf("error detail = %q, want leader-only cancellation without residual members", result.ErrorDetail())
 	}
+	assertCommandExecProcessesGone(t, []int{pid})
 }
 
 func TestDefaultRunnerRejectsSuccessfulLeaderWithResidualGrandchild(t *testing.T) {
@@ -623,6 +643,13 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		if mode == "child-short" {
 			time.Sleep(25 * time.Millisecond)
 			os.Exit(0)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
+	case "leader":
+		if err := writeCommandExecHelperFile(readyPath, []byte(strconv.Itoa(os.Getpid()))); err != nil {
+			os.Exit(81)
 		}
 		for {
 			time.Sleep(time.Hour)
