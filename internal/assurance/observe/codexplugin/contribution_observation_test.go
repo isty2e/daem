@@ -43,6 +43,20 @@ func TestSnapshotAttemptChargesSkipsUnsupportedDescriptorReads(t *testing.T) {
 	}
 }
 
+func TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing(t *testing.T) {
+	t.Parallel()
+	reason, err := classifyDirectoryError(errDescriptorRelativeTreeUnsupported)
+	if reason != observecontribution.SourceContributionReasonArtifactUnavailable || err != nil {
+		t.Fatalf("classifyDirectoryError(unsupported tree) = %q, %v, want SOURCE_ARTIFACT_UNAVAILABLE", reason, err)
+	}
+	if directoryMissing(errDescriptorRelativeTreeUnsupported) {
+		t.Fatal("unsupported tree capability must not classify as a missing directory")
+	}
+	if directoryMissing(filesnapshot.ErrUnsupported) {
+		t.Fatal("unsupported file snapshot capability must not classify as a missing directory")
+	}
+}
+
 func TestObservationBudgetConsumeNamesOverflows(t *testing.T) {
 	t.Parallel()
 	budget := &observationBudget{}

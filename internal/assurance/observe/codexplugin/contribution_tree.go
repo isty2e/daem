@@ -21,6 +21,10 @@ const (
 	childOther
 )
 
+var errDescriptorRelativeTreeUnsupported = errors.New(
+	"descriptor-relative Codex plugin directory snapshot is unsupported on this platform",
+)
+
 type observationDir struct {
 	file *os.File
 }
@@ -263,6 +267,9 @@ func classifyDirectoryError(err error) (observecontribution.SourceContributionRe
 	}
 	if errors.Is(err, filesnapshot.ErrSymlink) {
 		return observecontribution.SourceContributionReasonArtifactPathBlocked, nil
+	}
+	if errors.Is(err, errDescriptorRelativeTreeUnsupported) {
+		return observecontribution.SourceContributionReasonArtifactUnavailable, nil
 	}
 	return observecontribution.SourceContributionReasonArtifactUnavailable, nil
 }
