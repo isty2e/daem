@@ -38,6 +38,9 @@ func TestDefaultRunnerTimeoutTerminatesGrandchild(t *testing.T) {
 	if result.Reason() != CommandReasonTimeout || !result.Started() || !result.TimedOut() {
 		t.Fatalf("result = %#v, want started timeout", result)
 	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want timeout without residual-member diagnostic", result.ErrorDetail())
+	}
 	assertCommandExecProcessesGone(t, readCommandExecPIDs(t, readyPath))
 }
 
@@ -82,7 +85,43 @@ func TestDefaultRunnerCancellationTerminatesGrandchild(t *testing.T) {
 	if result.Reason() != CommandReasonCanceled || !result.Started() || !result.Canceled() {
 		t.Fatalf("result = %#v, want started cancellation", result)
 	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want cancellation without residual-member diagnostic", result.ErrorDetail())
+	}
 	assertCommandExecProcessesGone(t, pids)
+}
+
+func TestDefaultRunnerLeaderOnlyCancellationDoesNotReportResidualMembers(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{Timeout: 2 * DefaultCommandTimeout, OutputLimit: 1024})
+	ctx, cancel := context.WithCancel(context.Background())
+	resultDone := make(chan CommandAttemptResult, 1)
+	go func() {
+		resultDone <- executor.executeWithoutWorkingDirectory(ctx, CommandAttemptRequest{
+			Command: "/bin/sh",
+			Args: []string{
+				"-c",
+				"echo ready > " + strconv.Quote(readyPath) + "; exec /bin/sleep 30",
+			},
+		})
+	}()
+	if err := waitForCommandExecFile(readyPath, DefaultCommandTimeout); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	cancel()
+	var result CommandAttemptResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(DefaultCommandTimeout):
+		t.Fatal("timed out waiting for leader-only cancellation")
+	}
+	if result.Reason() != CommandReasonCanceled || !result.Started() || !result.Canceled() {
+		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want leader-only cancellation without residual members", result.ErrorDetail())
+	}
 }
 
 func TestDefaultRunnerRejectsSuccessfulLeaderWithResidualGrandchild(t *testing.T) {

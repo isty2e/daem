@@ -38,7 +38,7 @@ func configureDedicatedProcessGroup(command *exec.Cmd) error {
 	return nil
 }
 
-func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, quiesce bool) (ProcessTermination, error) {
+func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, quiesce bool, leaderExited bool) (ProcessTermination, error) {
 	if quiesce {
 		occupancy, err := waitForDedicatedProcessGroup(pid, options.QuiescencePeriod)
 		if err != nil {
@@ -62,7 +62,7 @@ func terminateDedicatedProcessGroup(pid int, options processTerminationOptions, 
 		return unsignalableProcessGroupTermination(pid, unix.EPERM)
 	}
 
-	termination := ProcessTermination{processesFound: true}
+	termination := ProcessTermination{processesFound: true, residualMembers: leaderExited}
 	termErr := signalDedicatedProcessGroup(pid, unix.SIGTERM)
 	if errors.Is(termErr, unix.ESRCH) {
 		return termination, nil

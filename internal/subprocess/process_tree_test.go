@@ -33,6 +33,31 @@ func TestJoinCommandProcessGroupCleanupReportsUnsignalableWithoutDescendantLangu
 	}
 }
 
+func TestJoinCommandProcessGroupCleanupDoesNotTreatInitialOccupancyAsResidual(t *testing.T) {
+	err := joinCommandProcessGroupCleanup(
+		context.Canceled,
+		ProcessTermination{processesFound: true},
+		nil,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cleanup error = %v, want cancellation without residual diagnostic", err)
+	}
+	if strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("cleanup error = %q, want leader-only occupancy not to claim residual members", err.Error())
+	}
+}
+
+func TestJoinCommandProcessGroupCleanupReportsResidualMembers(t *testing.T) {
+	err := joinCommandProcessGroupCleanup(
+		nil,
+		ProcessTermination{processesFound: true, residualMembers: true},
+		nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("cleanup error = %v, want residual-member diagnostic", err)
+	}
+}
+
 func TestProcessOwnedWaitResult(t *testing.T) {
 	t.Parallel()
 	if !processOwnedWaitResult(nil) {

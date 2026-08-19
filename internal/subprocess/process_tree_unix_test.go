@@ -73,8 +73,13 @@ func TestGroupTerminatesCompleteProcessTree(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Terminate: %v", err)
 			}
-			if !termination.ProcessesFound() || termination.escalated != test.wantEscalated {
-				t.Fatalf("termination = found:%t escalated:%t", termination.ProcessesFound(), termination.escalated)
+			if !termination.ProcessesFound() || termination.ResidualMembers() || termination.escalated != test.wantEscalated {
+				t.Fatalf(
+					"termination = found:%t residual:%t escalated:%t",
+					termination.ProcessesFound(),
+					termination.ResidualMembers(),
+					termination.escalated,
+				)
 			}
 			assertProcessTreeProcessesGone(t, pids)
 		})
@@ -111,8 +116,12 @@ func TestGroupTerminatesResidualGrandchildAfterLeaderExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terminate: %v", err)
 	}
-	if !termination.ProcessesFound() {
-		t.Fatal("ProcessesFound = false, want residual grandchild")
+	if !termination.ProcessesFound() || !termination.ResidualMembers() {
+		t.Fatalf(
+			"termination = found:%t residual:%t, want residual grandchild after leader exit",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+		)
 	}
 	assertProcessTreeProcessesGone(t, pids[1:])
 }
@@ -172,8 +181,12 @@ func TestGroupAllowsNaturalGrandchildQuiescenceAfterLeaderExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReapAfterLeaderExit: %v", err)
 	}
-	if termination.ProcessesFound() {
-		t.Fatal("ProcessesFound = true for naturally quiescent grandchild")
+	if termination.ProcessesFound() || termination.ResidualMembers() {
+		t.Fatalf(
+			"termination = found:%t residual:%t for naturally quiescent grandchild",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+		)
 	}
 	assertProcessTreeProcessesGone(t, pids[1:])
 }
@@ -221,8 +234,13 @@ func TestGroupConcurrentTerminationIsIdempotent(t *testing.T) {
 		}
 	}
 	for result := range results {
-		if !result.ProcessesFound() || !result.escalated {
-			t.Fatalf("termination = found:%t escalated:%t", result.ProcessesFound(), result.escalated)
+		if !result.ProcessesFound() || result.ResidualMembers() || !result.escalated {
+			t.Fatalf(
+				"termination = found:%t residual:%t escalated:%t",
+				result.ProcessesFound(),
+				result.ResidualMembers(),
+				result.escalated,
+			)
 		}
 	}
 	if err := awaitBoundProcessGroup(group, context.Background()); !isProcessTreeSignalExit(err) {
@@ -350,8 +368,13 @@ func TestGroupReapAfterLeaderExitLeavesSetsidChildAlive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReapAfterLeaderExit: %v", err)
 	}
-	if termination.ProcessesFound() || termination.UnsignalableOccupancy() {
-		t.Fatalf("termination = found:%t unsignalable:%t, want empty dedicated group", termination.ProcessesFound(), termination.UnsignalableOccupancy())
+	if termination.ProcessesFound() || termination.ResidualMembers() || termination.UnsignalableOccupancy() {
+		t.Fatalf(
+			"termination = found:%t residual:%t unsignalable:%t, want empty dedicated group",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+			termination.UnsignalableOccupancy(),
+		)
 	}
 	assertProcessTreeProcessesGone(t, pids[:2])
 	assertProcessTreeProcessAlive(t, escaped)
@@ -537,9 +560,9 @@ func TestGroupCancelImmediatelyAfterStartDoesNotReportUnsignalableOccupancy(t *t
 	cancel()
 	waitErr := awaitBoundProcessGroup(group, ctx)
 	termination, terminateErr := group.Terminate()
-	if termination.UnsignalableOccupancy() {
+	if termination.UnsignalableOccupancy() || termination.ResidualMembers() {
 		t.Fatalf(
-			"unsignalable occupancy after cancel immediately after start: wait=%v terminate=%v %#v",
+			"unsignalable occupancy or residual members after cancel immediately after start: wait=%v terminate=%v %#v",
 			waitErr,
 			terminateErr,
 			termination,

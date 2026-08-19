@@ -39,6 +39,9 @@ func TestFinalizeDefaultCommandResultClassifiesTimeoutFromWaitErrorOnly(t *testi
 	if !result.TimedOut || result.HasExitCode || !errors.Is(result.Err, context.DeadlineExceeded) {
 		t.Fatalf("result = %#v, want timeout from wait error", result)
 	}
+	if strings.Contains(result.Err.Error(), "process-group members remained") {
+		t.Fatalf("timeout error = %v, want no residual-member diagnostic for initial occupancy", result.Err)
+	}
 	if result.StdoutTruncated || result.StderrTruncated {
 		t.Fatalf("truncation = %t/%t, want occupancy not to mark complete streams truncated", result.StdoutTruncated, result.StderrTruncated)
 	}
@@ -51,7 +54,7 @@ func TestFinalizeDefaultCommandResultKeepsStreamTruncationIndependent(t *testing
 		nil,
 		OutputSnapshot{Text: "complete-stdout"},
 		OutputSnapshot{Text: "partial-stderr", Incomplete: true},
-		ProcessTermination{processesFound: true},
+		ProcessTermination{processesFound: true, residualMembers: true},
 		nil,
 	)
 	if result.TimedOut || !result.HasExitCode || result.StdoutTruncated || !result.StderrTruncated {
@@ -74,7 +77,7 @@ func TestFinalizeDefaultCommandResultDoesNotTruncateCompleteStreamsForResidualPr
 		nil,
 		OutputSnapshot{Text: "out"},
 		OutputSnapshot{Text: "err"},
-		ProcessTermination{processesFound: true},
+		ProcessTermination{processesFound: true, residualMembers: true},
 		nil,
 	)
 	if result.StdoutTruncated || result.StderrTruncated || result.TimedOut || !result.HasExitCode {

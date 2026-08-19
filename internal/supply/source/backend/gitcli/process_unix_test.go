@@ -45,6 +45,9 @@ func TestRunGitOutputCancelsCompleteProcessTree(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("runGitOutput error = %v, want context.Canceled", err)
 		}
+		if strings.Contains(err.Error(), "process-group members remained") {
+			t.Fatalf("runGitOutput error = %v, want cancellation without residual members", err)
+		}
 	case <-time.After(6 * time.Second):
 		t.Fatal("runGitOutput did not return after cancellation")
 	}

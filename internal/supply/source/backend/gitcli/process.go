@@ -293,7 +293,7 @@ func joinGitProcessGroupResidual(base error, role string, result gitProcessResul
 	if result.termination.UnsignalableOccupancy() {
 		return base
 	}
-	if result.termination.ProcessesFound() {
+	if result.termination.ResidualMembers() {
 		return errors.Join(base, fmt.Errorf("%s exited while process-group members remained; terminated residual process group", role))
 	}
 	return base

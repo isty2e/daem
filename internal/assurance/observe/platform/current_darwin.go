@@ -39,23 +39,32 @@ func runProductVersionCommand(ctx context.Context) commandResult {
 		return freezeDarwinCommandResult(ctx, err, stdout.String(), stdout.Truncated())
 	}
 	waitErr := group.Await(commandContext, subprocess.InheritedOutputCloseWait)
+	result := freezeDarwinCommandResult(ctx, waitErr, stdout.String(), stdout.Truncated())
 	termination, terminationErr := group.ReapAfterLeaderExit()
-	if waitErr == nil {
-		waitErr = terminationErr
+	return joinDarwinCommandCleanup(result, termination, terminationErr)
+}
+
+func joinDarwinCommandCleanup(
+	result commandResult,
+	termination subprocess.ProcessTermination,
+	terminationErr error,
+) commandResult {
+	if result.err == nil {
+		result.err = terminationErr
 	} else if terminationErr != nil {
-		waitErr = errors.Join(waitErr, terminationErr)
+		result.err = errors.Join(result.err, terminationErr)
 	}
 	if occupancyErr := processGroupOccupancyErr(termination); occupancyErr != nil {
-		waitErr = errors.Join(waitErr, occupancyErr)
+		result.err = errors.Join(result.err, occupancyErr)
 	}
-	return freezeDarwinCommandResult(ctx, waitErr, stdout.String(), stdout.Truncated())
+	return result
 }
 
 func processGroupOccupancyErr(termination subprocess.ProcessTermination) error {
 	if termination.UnsignalableOccupancy() {
 		return errors.New("sw_vers process group occupancy is unsignalable")
 	}
-	if termination.ProcessesFound() {
+	if termination.ResidualMembers() {
 		return errors.New("sw_vers exited while process-group members remained")
 	}
 	return nil

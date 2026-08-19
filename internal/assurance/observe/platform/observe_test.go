@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/platformsupport"
 )
@@ -104,6 +105,20 @@ func TestObserveDarwinProductVersionUsesFrozenCanceledCommandResult(t *testing.T
 	}
 }
 
+func TestObserveDarwinProductVersionKeepsTypedTimeoutAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{timedOut: true, err: context.DeadlineExceeded}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	if observation.Reason() != platformsupport.RuntimeObservationTimedOut {
+		t.Fatalf("reason = %s, want typed timeout after later caller cancel", observation.Reason())
+	}
+}
+
 func TestFreezeDarwinCommandResultSnapshotsWaitWithoutParentReread(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	result := freezeDarwinCommandResult(ctx, errors.New("command failed"), "26.0\n", false)
@@ -122,8 +137,15 @@ func TestFreezeDarwinCommandResultSnapshotsWaitWithoutParentReread(t *testing.T)
 		t.Fatalf("command cancel = %#v, want canceled", canceled)
 	}
 
-	parentDeadline, cancelDeadline := context.WithCancel(context.Background())
-	cancelDeadline()
+	timeoutCtx, cancelTimeout := context.WithCancel(context.Background())
+	frozenTimeout := freezeDarwinCommandResult(timeoutCtx, context.DeadlineExceeded, "", false)
+	cancelTimeout()
+	if !frozenTimeout.timedOut || frozenTimeout.canceled {
+		t.Fatalf("frozen timeout = %#v, want timedOut after later parent cancel", frozenTimeout)
+	}
+
+	parentDeadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer cancelDeadline()
 	parentTimedOut := freezeDarwinCommandResult(parentDeadline, context.DeadlineExceeded, "", false)
 	if parentTimedOut.timedOut {
 		t.Fatalf("parent deadline = %#v, want wait deadline kept distinct from command timeout", parentTimedOut)

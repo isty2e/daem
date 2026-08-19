@@ -38,14 +38,22 @@ type processTerminationOptions struct {
 // ProcessTermination describes one idempotent process-group termination attempt.
 type ProcessTermination struct {
 	processesFound        bool
+	residualMembers       bool
 	escalated             bool
 	unsignalableOccupancy bool
 }
 
 // ProcessesFound reports whether the dedicated group still had signalable
-// members when termination began.
+// members when termination began. The command leader itself can satisfy this.
 func (termination ProcessTermination) ProcessesFound() bool {
 	return termination.processesFound
+}
+
+// ResidualMembers reports that signalable dedicated-group members remained
+// after the leader wait had already completed. Only this observation drives
+// "members remained" and residual process-group diagnostics.
+func (termination ProcessTermination) ResidualMembers() bool {
+	return termination.residualMembers
 }
 
 // UnsignalableOccupancy reports that the dedicated pgid was occupied but not
@@ -134,6 +142,7 @@ func (group *ProcessGroup) terminate(quiesce bool) (ProcessTermination, error) {
 			group.command.Process.Pid,
 			group.options,
 			quiesce,
+			group.leaderWaitCompleted(),
 		)
 		close(group.terminateDone)
 	})
@@ -176,6 +185,18 @@ func (group *ProcessGroup) StartWait() {
 		}()
 		<-started
 	})
+}
+
+func (group *ProcessGroup) leaderWaitCompleted() bool {
+	if group.waitDone == nil {
+		return false
+	}
+	select {
+	case <-group.waitDone:
+		return true
+	default:
+		return false
+	}
 }
 
 // WaitDone is closed after command.Wait returns. It starts the background wait

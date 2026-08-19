@@ -139,7 +139,7 @@ func joinCommandProcessGroupCleanup(resultErr error, termination ProcessTerminat
 	if terminationErr != nil {
 		return errors.Join(resultErr, fmt.Errorf("terminate command process group: %w", terminationErr))
 	}
-	if termination.ProcessesFound() {
+	if termination.ResidualMembers() {
 		return errors.Join(resultErr, errors.New("command exited while process-group members remained; terminated residual process group"))
 	}
 	return resultErr
