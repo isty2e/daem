@@ -42,18 +42,20 @@ type rootedLockDirectory struct {
 }
 
 type rootedAdvisoryLock struct {
-	capability  rootedpath.CommitCapability
-	rootFile    *os.File
-	directories []rootedLockDirectory
-	recordFD    int
-	recordName  string
-	record      rootedLockObject
+	capability       rootedpath.CommitCapability
+	rootFile         *os.File
+	directories      []rootedLockDirectory
+	recordFD         int
+	recordName       string
+	record           rootedLockObject
+	afterWaitBlocked func()
 }
 
 func acquireRootedAdvisoryLock(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	pollInterval time.Duration,
+	afterWaitBlocked func(),
 ) (_ lockReleaser, returnErr error) {
 	if capability == nil {
 		return nil, fmt.Errorf("rooted cache lock capability is required")
@@ -63,8 +65,9 @@ func acquireRootedAdvisoryLock(
 		return nil, err
 	}
 	lock := &rootedAdvisoryLock{
-		capability: capability,
-		recordFD:   -1,
+		capability:       capability,
+		recordFD:         -1,
+		afterWaitBlocked: afterWaitBlocked,
 	}
 	defer func() {
 		if returnErr != nil {
@@ -219,6 +222,7 @@ func (lock *rootedAdvisoryLock) tryAcquire(
 	if pollInterval <= 0 {
 		pollInterval = defaultLockPollInterval
 	}
+	waitBlocked := false
 	for {
 		err := unix.Flock(lock.recordFD, unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
@@ -226,6 +230,15 @@ func (lock *rootedAdvisoryLock) tryAcquire(
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			return fmt.Errorf("lock rooted cache record: %w", err)
+		}
+		if !waitBlocked {
+			waitBlocked = true
+			if lock.afterWaitBlocked != nil {
+				lock.afterWaitBlocked()
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		timer := time.NewTimer(pollInterval)
 		select {

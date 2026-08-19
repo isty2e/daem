@@ -70,30 +70,35 @@ func (resolver Resolver) resolveRepositorySnapshot(
 		return repositoryResolution{}, err
 	}
 	options.Emit(acquisition.EventCacheWait, sourceSpec, sourceID, "", nil)
-	lockErr := state.repoLocker.DoRooted(ctx, cacheRoot, key, func() error {
-		repository, err := resolver.ensureRepository(
-			ctx,
-			cacheRoot,
-			gitSource,
-			sourceSpec,
-			sourceID,
-			options,
-		)
-		if err != nil {
-			return err
-		}
+	lockErr := state.repoLocker.WithAfterWaitBlocked(state.testAfterRepoLockWaitBlocked).DoRooted(
+		ctx,
+		cacheRoot,
+		key,
+		func() error {
+			repository, err := resolver.ensureRepository(
+				ctx,
+				cacheRoot,
+				gitSource,
+				sourceSpec,
+				sourceID,
+				options,
+			)
+			if err != nil {
+				return err
+			}
 
-		commit, err := resolver.resolveCommit(ctx, repository, gitSource.Ref(), sourceSpec, sourceID, options)
-		if err != nil {
-			return err
-		}
+			commit, err := resolver.resolveCommit(ctx, repository, gitSource.Ref(), sourceSpec, sourceID, options)
+			if err != nil {
+				return err
+			}
 
-		resolution = repositoryResolution{
-			repository: repository,
-			commit:     commit,
-		}
-		return nil
-	})
+			resolution = repositoryResolution{
+				repository: repository,
+				commit:     commit,
+			}
+			return nil
+		},
+	)
 	closeErr := cacheRoot.Close()
 	if lockErr != nil || closeErr != nil {
 		return repositoryResolution{}, errors.Join(lockErr, closeErr)

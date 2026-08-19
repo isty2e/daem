@@ -14,6 +14,36 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
+func TestRootedLockerWaiterCancellationReportsPathAfterWaitEntered(t *testing.T) {
+	cacheRoot := physicalTestRoot(t, t.TempDir())
+	firstRoot := mustCaptureRootedLockRoot(t, cacheRoot)
+	defer firstRoot.Close()
+	secondRoot := mustCaptureRootedLockRoot(t, cacheRoot)
+	defer secondRoot.Close()
+	lockRoot := filepath.Join(cacheRoot, "locks", "git-repo")
+	locker := NewLocker(lockRoot)
+	key := mustKey(t, "git-repo", "wait-entered")
+
+	owner, err := locker.acquireRooted(t.Context(), firstRoot, key)
+	if err != nil {
+		t.Fatalf("owner acquireRooted returned error: %v", err)
+	}
+	defer owner.Release()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	locker.afterWaitBlocked = cancel
+	_, err = locker.acquireRooted(ctx, secondRoot, key)
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiter acquireRooted error = %v, want cancellation", err)
+	}
+	if !strings.Contains(err.Error(), "wait for rooted cache lock") ||
+		!strings.Contains(err.Error(), key.PathComponent()) ||
+		!strings.Contains(err.Error(), lockRoot) {
+		t.Fatalf("waiter error = %q, want rooted wait diagnostic", err)
+	}
+}
+
 func TestRootedLockerSerializesOneRetainedCacheRoot(t *testing.T) {
 	cacheRoot := physicalTestRoot(t, t.TempDir())
 	firstRoot := mustCaptureRootedLockRoot(t, cacheRoot)
