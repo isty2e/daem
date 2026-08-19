@@ -23,8 +23,9 @@ var ErrRootedLockAuthority = errors.New("rooted cache lock authority unavailable
 // Locker serializes exact-key cache mutations across processes using persistent
 // OS advisory-lock records.
 type Locker struct {
-	root         string
-	pollInterval time.Duration
+	root             string
+	pollInterval     time.Duration
+	afterWaitBlocked func()
 }
 
 type lockReleaser interface {
@@ -45,6 +46,14 @@ func NewLocker(root string) Locker {
 		root:         cleanRoot,
 		pollInterval: defaultLockPollInterval,
 	}
+}
+
+// WithAfterWaitBlocked returns a copy that invokes fn once after the first
+// rooted wait-blocked flock. The callback does not take ownership of lock
+// resources.
+func (locker Locker) WithAfterWaitBlocked(fn func()) Locker {
+	locker.afterWaitBlocked = fn
+	return locker
 }
 
 // Lock represents an acquired cache lock.
@@ -149,7 +158,12 @@ func (locker Locker) acquireRooted(
 		_ = capability.Close()
 		return nil, rootedLockAuthorityFailure(key, "project cache lock path", err)
 	}
-	lockFile, err := acquireRootedAdvisoryLock(ctx, capability, locker.pollInterval)
+	lockFile, err := acquireRootedAdvisoryLock(
+		ctx,
+		capability,
+		locker.pollInterval,
+		locker.afterWaitBlocked,
+	)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return nil, fmt.Errorf(

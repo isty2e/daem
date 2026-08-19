@@ -43,6 +43,7 @@ type resolverState struct {
 	testAfterArtifactEnsure          func()
 	testBeforeRepositoryCommand      func()
 	testAfterObservationProbePublish func(string)
+	testAfterRepoLockWaitBlocked     func()
 	testRemoteRefAdvertisementBudget *remoteRefAdvertisementBudget
 }
 

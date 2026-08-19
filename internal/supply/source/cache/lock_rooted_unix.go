@@ -54,6 +54,7 @@ func acquireRootedAdvisoryLock(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 	pollInterval time.Duration,
+	afterWaitBlocked func(),
 ) (_ lockReleaser, returnErr error) {
 	if capability == nil {
 		return nil, fmt.Errorf("rooted cache lock capability is required")
@@ -66,9 +67,14 @@ func acquireRootedAdvisoryLock(
 		capability: capability,
 		recordFD:   -1,
 	}
+	handedOff := false
 	defer func() {
+		if handedOff {
+			return
+		}
+		closeErr := lock.close()
 		if returnErr != nil {
-			returnErr = errors.Join(returnErr, lock.close())
+			returnErr = errors.Join(returnErr, closeErr)
 		}
 	}()
 
@@ -99,12 +105,13 @@ func acquireRootedAdvisoryLock(
 	if err := lock.openRecord(); err != nil {
 		return nil, err
 	}
-	if err := lock.tryAcquire(ctx, pollInterval); err != nil {
+	if err := lock.tryAcquire(ctx, pollInterval, afterWaitBlocked); err != nil {
 		return nil, err
 	}
 	if err := lock.Validate(); err != nil {
 		return nil, err
 	}
+	handedOff = true
 	return lock, nil
 }
 
@@ -215,10 +222,12 @@ func (lock *rootedAdvisoryLock) openRecord() error {
 func (lock *rootedAdvisoryLock) tryAcquire(
 	ctx context.Context,
 	pollInterval time.Duration,
+	afterWaitBlocked func(),
 ) error {
 	if pollInterval <= 0 {
 		pollInterval = defaultLockPollInterval
 	}
+	waitBlocked := false
 	for {
 		err := unix.Flock(lock.recordFD, unix.LOCK_EX|unix.LOCK_NB)
 		if err == nil {
@@ -226,6 +235,15 @@ func (lock *rootedAdvisoryLock) tryAcquire(
 		}
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) {
 			return fmt.Errorf("lock rooted cache record: %w", err)
+		}
+		if !waitBlocked {
+			waitBlocked = true
+			if afterWaitBlocked != nil {
+				afterWaitBlocked()
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		timer := time.NewTimer(pollInterval)
 		select {

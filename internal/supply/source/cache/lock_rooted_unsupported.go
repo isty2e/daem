@@ -14,6 +14,7 @@ func acquireRootedAdvisoryLock(
 	_ context.Context,
 	capability rootedpath.CommitCapability,
 	_ time.Duration,
+	_ func(),
 ) (lockReleaser, error) {
 	if capability != nil {
 		_ = capability.Close()
