@@ -43,6 +43,11 @@ func TestCommandResultWithContextOutcome(t *testing.T) {
 			wantResultErr: runnerErr,
 		},
 		{
+			name:          "nil await context preserves started failure",
+			result:        commandResult{Started: true, Err: runnerErr},
+			wantResultErr: runnerErr,
+		},
+		{
 			name:          "timeout remains stronger than cancellation",
 			result:        commandResult{Started: true, TimedOut: true, Err: runnerErr},
 			contextErr:    context.Canceled,
@@ -61,5 +66,36 @@ func TestCommandResultWithContextOutcome(t *testing.T) {
 				t.Fatalf("result error = %v, want %v", got.Err, test.wantResultErr)
 			}
 		})
+	}
+}
+
+func TestFinalizeCommandResultUsesAwaitContextNotLaterDeadline(t *testing.T) {
+	runnerErr := errors.New("exit status 17")
+	got := finalizeCommandResult(commandResult{Started: true, Err: runnerErr}, runnerErr, nil, nil)
+	if got.TimedOut || got.Canceled || !errors.Is(got.Err, runnerErr) {
+		t.Fatalf("result = %#v, want started failure without timeout", got)
+	}
+
+	gotTimeout := finalizeCommandResult(
+		commandResult{Started: true},
+		context.DeadlineExceeded,
+		nil,
+		context.DeadlineExceeded,
+	)
+	if !gotTimeout.TimedOut || !errors.Is(gotTimeout.Err, context.DeadlineExceeded) {
+		t.Fatalf("result = %#v, want timeout from await context", gotTimeout)
+	}
+}
+
+func TestFinalizeCommandResultPreservesProtocolFailureWhenCleanupWaitTimesOut(t *testing.T) {
+	initializeErr := errors.New("initialize error -32602: bad initialize")
+	got := finalizeCommandResult(
+		commandResult{Started: true, Err: initializeErr},
+		context.DeadlineExceeded,
+		nil,
+		nil,
+	)
+	if got.TimedOut || got.Canceled || !errors.Is(got.Err, initializeErr) {
+		t.Fatalf("result = %#v, want initialize failure without cleanup timeout", got)
 	}
 }

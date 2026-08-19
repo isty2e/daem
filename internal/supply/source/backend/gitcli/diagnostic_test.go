@@ -1,8 +1,12 @@
 package gitcli
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/isty2e/daem/internal/subprocess"
 )
 
 func TestSanitizeGitDiagnosticRedactsAndBoundsUntrustedStderr(t *testing.T) {
@@ -278,5 +282,29 @@ func TestSanitizeGitDiagnosticBoundsReplacementExpansion(t *testing.T) {
 	}
 	if n := len([]rune(got)); n > limit {
 		t.Fatalf("ssh userinfo expansion length = %d, want <= %d", n, limit)
+	}
+}
+
+func TestGitCommandErrorWithCapturePreservesCauseWithoutLeakingIt(t *testing.T) {
+	t.Parallel()
+	policy := subprocess.NewCapturePolicy(nil, maxGitDiagnosticRunes)
+
+	deadline := gitCommandErrorWithCapture(policy, context.DeadlineExceeded, "fatal: still-running", false)
+	if !errors.Is(deadline, context.DeadlineExceeded) {
+		t.Fatalf("deadline wrapper = %v, want errors.Is DeadlineExceeded", deadline)
+	}
+	if !strings.Contains(deadline.Error(), "fatal: still-running") {
+		t.Fatalf("deadline wrapper = %q, want sanitized stderr", deadline.Error())
+	}
+	if strings.Contains(deadline.Error(), "context deadline") {
+		t.Fatalf("deadline wrapper = %q, want diagnostic without unsanitized cause", deadline.Error())
+	}
+
+	abandoned := gitCommandErrorWithCapture(policy, subprocess.ErrProcessWaitAbandoned, "fatal: wait-abandoned", false)
+	if !errors.Is(abandoned, subprocess.ErrProcessWaitAbandoned) {
+		t.Fatalf("abandoned wrapper = %v, want errors.Is ErrProcessWaitAbandoned", abandoned)
+	}
+	if strings.Contains(abandoned.Error(), "process wait abandoned") {
+		t.Fatalf("abandoned wrapper = %q, want diagnostic without unsanitized cause", abandoned.Error())
 	}
 }

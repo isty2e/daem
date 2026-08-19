@@ -533,16 +533,9 @@ func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader
 		return err
 	}
 
-	readErr := consume(process.Stdout())
-	if readErr != nil {
-		_, _ = process.Terminate()
-	}
-	result := process.Wait()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		if result.terminationErr != nil {
-			return errors.Join(ctxErr, result.terminationErr)
-		}
-		return ctxErr
+	readErr, result := completeGitProcess(ctx, process, consume)
+	if lifecycleErr := gitObservedLifecycleError(readErr, result); lifecycleErr != nil {
+		return joinGitProcessGroupTerminateErr(lifecycleErr, "git", result)
 	}
 
 	runErr := readErr
@@ -552,12 +545,7 @@ func runGitReader(ctx context.Context, command *exec.Cmd, consume func(io.Reader
 	if result.stderrReadErr != nil {
 		runErr = errors.Join(runErr, fmt.Errorf("read git stderr: %w", result.stderrReadErr))
 	}
-	if result.terminationErr != nil {
-		runErr = errors.Join(runErr, fmt.Errorf("terminate git process tree: %w", result.terminationErr))
-	}
-	if result.termination.ProcessesFound() {
-		runErr = errors.Join(runErr, errors.New("git exited while descendant processes remained; terminated residual process tree"))
-	}
+	runErr = joinGitProcessGroupResidual(runErr, "git", result)
 	if runErr != nil {
 		return runErr
 	}

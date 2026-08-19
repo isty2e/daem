@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -34,6 +36,9 @@ func TestDefaultCommandRunnerInitializesStdioServerAndCleansUp(t *testing.T) {
 
 	if !result.Started || !result.InitializeSucceeded || result.Err != nil {
 		t.Fatalf("result = %#v, want started successful initialize", result)
+	}
+	if result.StderrTruncated || !strings.Contains(result.Stderr, "mcp-stderr-complete") {
+		t.Fatalf("stderr = %q truncated=%t, want complete captured stderr", result.Stderr, result.StderrTruncated)
 	}
 	content, err := os.ReadFile(markerPath)
 	if err != nil {
@@ -139,6 +144,46 @@ func TestDefaultCommandRunnerTimesOutAndCleansUp(t *testing.T) {
 	}
 }
 
+func TestReleaseUnstartedStdioClosesParentAndChildPipeEnds(t *testing.T) {
+	cmd := exec.Command("true")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("StdinPipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("StdoutPipe: %v", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	childIn, ok := cmd.Stdin.(*os.File)
+	if !ok {
+		t.Fatalf("cmd.Stdin type %T, want *os.File", cmd.Stdin)
+	}
+	childOut, ok := cmd.Stdout.(*os.File)
+	if !ok {
+		t.Fatalf("cmd.Stdout type %T, want *os.File", cmd.Stdout)
+	}
+
+	releaseUnstartedStdio(cmd, stdin, stdout)
+
+	if _, err := stdin.Write([]byte("x")); err == nil {
+		t.Fatal("parent stdin still writable after release")
+	}
+	if _, err := stdout.Read(make([]byte, 1)); err == nil {
+		t.Fatal("parent stdout still readable after release")
+	}
+	if _, err := childIn.Read(make([]byte, 1)); err == nil {
+		t.Fatal("child stdin still readable after release")
+	}
+	if _, err := childOut.Write([]byte("x")); err == nil {
+		t.Fatal("child stdout still writable after release")
+	}
+	if _, err := stderr.WriteString("kept"); err != nil {
+		t.Fatalf("diagnostic stderr writer: %v", err)
+	}
+}
+
 func TestDefaultCommandRunnerFailsClosedWithoutNativeWorkingDirectory(t *testing.T) {
 	result := defaultCommandRunner(context.Background(), commandRequest{
 		Command: os.Args[0],
@@ -150,7 +195,7 @@ func TestDefaultCommandRunnerFailsClosedWithoutNativeWorkingDirectory(t *testing
 	}
 }
 
-func TestFinalizeCommandResultRevokesInitializeSuccessOnCleanupFailure(t *testing.T) {
+func TestFinalizeCommandResultKeepsInitializeWhenCleanupFails(t *testing.T) {
 	cleanupErr := errors.New("descendant survived")
 	result := finalizeCommandResult(
 		commandResult{Started: true, InitializeSucceeded: true},
@@ -159,10 +204,8 @@ func TestFinalizeCommandResultRevokesInitializeSuccessOnCleanupFailure(t *testin
 		nil,
 	)
 
-	if result.InitializeSucceeded || result.Err == nil ||
-		!strings.Contains(result.Err.Error(), "terminate MCP process tree") ||
-		!errors.Is(result.Err, cleanupErr) {
-		t.Fatalf("result = %#v, want cleanup failure to revoke initialize success", result)
+	if !result.InitializeSucceeded || result.TimedOut || result.Canceled || result.Err != nil {
+		t.Fatalf("result = %#v, want initialize preserved through cleanup failure", result)
 	}
 }
 
@@ -235,6 +278,8 @@ func TestMCPProbeHelperProcess(t *testing.T) {
 		runNotificationFirstMCPProbeHelper()
 	case "initialize-error":
 		runInitializeErrorMCPProbeHelper()
+	case "initialize-error-hang":
+		runInitializeErrorThenHangMCPProbeHelper()
 	case "missing-protocol-version":
 		runMissingProtocolVersionMCPProbeHelper()
 	case "hang":
@@ -272,7 +317,7 @@ func runSuccessfulMCPProbeHelper(keepRunning bool) {
 		os.Exit(6)
 	}
 	if marker := os.Getenv("DAEM_MCPPROBE_MARKER"); marker != "" {
-		if err := os.WriteFile(marker, []byte("initialized\n"), 0o600); err != nil {
+		if err := writeMCPProbeMarker(marker, []byte("initialized\n")); err != nil {
 			os.Exit(7)
 		}
 	}
@@ -281,6 +326,7 @@ func runSuccessfulMCPProbeHelper(keepRunning bool) {
 			time.Sleep(time.Hour)
 		}
 	}
+	fmt.Fprintln(os.Stderr, "mcp-stderr-complete")
 	os.Exit(0)
 }
 
@@ -300,6 +346,19 @@ func runInitializeErrorMCPProbeHelper() {
 	readInitializeRequestOrExit()
 	fmt.Println(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad initialize"}}`)
 	os.Exit(0)
+}
+
+func runInitializeErrorThenHangMCPProbeHelper() {
+	readInitializeRequestOrExit()
+	fmt.Println(`{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"bad initialize"}}`)
+	if marker := os.Getenv("DAEM_MCPPROBE_MARKER"); marker != "" {
+		if err := writeMCPProbeMarker(marker, []byte("initialize-error\n")); err != nil {
+			os.Exit(7)
+		}
+	}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func runMissingProtocolVersionMCPProbeHelper() {
@@ -329,4 +388,11 @@ func readInitializeRequestFromReaderOrExit(reader *bufio.Reader) {
 		request.Method != "initialize" {
 		os.Exit(9)
 	}
+}
+
+func writeMCPProbeMarker(marker string, content []byte) error {
+	if err := os.WriteFile(marker+".pid", []byte(strconv.Itoa(os.Getpid())+"\n"), 0o600); err != nil {
+		return err
+	}
+	return os.WriteFile(marker, content, 0o600)
 }

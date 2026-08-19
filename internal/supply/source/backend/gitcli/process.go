@@ -1,10 +1,13 @@
 package gitcli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
 )
@@ -13,23 +16,17 @@ type gitProcess struct {
 	stdout           *os.File
 	stderr           *os.File
 	group            *subprocess.ProcessGroup
-	waitDone         chan gitProcessWait
 	stderrDone       chan error
 	diagnostic       gitDiagnosticBuffer
 	diagnosticPolicy subprocess.CapturePolicy
 }
 
-type gitProcessWait struct {
-	waitErr        error
-	termination    subprocess.ProcessTermination
-	terminationErr error
-}
-
 type gitProcessResult struct {
-	commandErr     error
-	termination    subprocess.ProcessTermination
-	terminationErr error
-	stderrReadErr  error
+	commandErr       error
+	termination      subprocess.ProcessTermination
+	terminationErr   error
+	stderrReadErr    error
+	outputIncomplete bool
 }
 
 func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
@@ -64,7 +61,7 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 	group, err := subprocess.BindProcessGroup(command)
 	if err != nil {
 		closePipes()
-		return nil, fmt.Errorf("supervise git process tree: %w", err)
+		return nil, fmt.Errorf("supervise git process group: %w", err)
 	}
 	if err := command.Start(); err != nil {
 		closePipes()
@@ -77,22 +74,13 @@ func startGitProcess(command *exec.Cmd) (*gitProcess, error) {
 		stdout:           stdoutReader,
 		stderr:           stderrReader,
 		group:            group,
-		waitDone:         make(chan gitProcessWait, 1),
 		stderrDone:       make(chan error, 1),
 		diagnosticPolicy: diagnosticPolicy,
 	}
+	group.StartWait()
 	go func() {
 		_, readErr := io.Copy(&process.diagnostic, process.stderr)
 		process.stderrDone <- readErr
-	}()
-	go func() {
-		waitErr := command.Wait()
-		termination, terminationErr := group.ReapAfterLeaderExit()
-		process.waitDone <- gitProcessWait{
-			waitErr:        waitErr,
-			termination:    termination,
-			terminationErr: terminationErr,
-		}
 	}()
 	return process, nil
 }
@@ -105,24 +93,208 @@ func (process *gitProcess) Terminate() (subprocess.ProcessTermination, error) {
 	return process.group.Terminate()
 }
 
-func (process *gitProcess) Wait() gitProcessResult {
-	wait := <-process.waitDone
+func (process *gitProcess) closeOutputReaders() {
 	_ = process.stdout.Close()
-	stderrReadErr := <-process.stderrDone
 	_ = process.stderr.Close()
-	commandErr := wait.waitErr
-	if commandErr != nil {
-		commandErr = gitCommandErrorWithCapture(
+}
+
+func (process *gitProcess) finishStderr() (error, bool) {
+	timer := time.NewTimer(subprocess.InheritedOutputCloseWait)
+	defer timer.Stop()
+	select {
+	case err := <-process.stderrDone:
+		_ = process.stderr.Close()
+		return err, false
+	case <-timer.C:
+		_ = process.stderr.Close()
+		return <-process.stderrDone, true
+	}
+}
+
+func completeGitProcess(
+	ctx context.Context,
+	process *gitProcess,
+	consume func(io.Reader) error,
+) (error, gitProcessResult) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	consumeDone := make(chan error, 1)
+	go func() {
+		consumeDone <- consume(process.Stdout())
+	}()
+
+	var drainTimer *time.Timer
+	var drain <-chan time.Time
+	startDrain := func() {
+		if drain != nil {
+			return
+		}
+		drainTimer = time.NewTimer(subprocess.InheritedOutputCloseWait)
+		drain = drainTimer.C
+	}
+	defer func() {
+		if drainTimer != nil {
+			drainTimer.Stop()
+		}
+	}()
+
+	ctxDone := ctx.Done()
+	waitDone := process.group.WaitDone()
+	var consumeErr error
+	incomplete := false
+	leaderExited := false
+	for {
+		select {
+		case consumeErr = <-consumeDone:
+			if consumeErr != nil {
+				_, _ = process.Terminate()
+			}
+			if ctx.Err() == nil && waitAlreadyDone(waitDone) {
+				leaderExited = true
+				invokeAfterGitLeaderWait()
+			}
+			goto waited
+		case <-ctxDone:
+			_, _ = process.Terminate()
+			startDrain()
+			ctxDone = nil
+		case <-waitDone:
+			if ctx.Err() == nil {
+				leaderExited = true
+			}
+			startDrain()
+			waitDone = nil
+			invokeAfterGitLeaderWait()
+		case <-drain:
+			process.closeOutputReaders()
+			consumeErr = <-consumeDone
+			incomplete = consumeErr != nil
+			goto waited
+		}
+	}
+
+waited:
+	awaitCtx := ctx
+	if leaderExited || gitFrozenNonContextConsumer(consumeErr) {
+		awaitCtx = context.WithoutCancel(ctx)
+	}
+	waitErr := process.group.Await(awaitCtx, subprocess.InheritedOutputCloseWait)
+	termination, terminationErr := process.group.ReapAfterLeaderExit()
+	stderrReadErr, stderrIncomplete := process.finishStderr()
+	_ = process.stdout.Close()
+	outputIncomplete := incomplete || stderrIncomplete || errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned)
+	stderrTruncated := process.diagnostic.Truncated() || stderrIncomplete
+	if waitErr != nil {
+		waitErr = gitCommandErrorWithCapture(
 			process.diagnosticPolicy,
-			commandErr,
+			waitErr,
 			process.diagnostic.String(),
-			process.diagnostic.Truncated(),
+			stderrTruncated,
 		)
 	}
-	return gitProcessResult{
-		commandErr:     commandErr,
-		termination:    wait.termination,
-		terminationErr: wait.terminationErr,
-		stderrReadErr:  stderrReadErr,
+	return consumeErr, gitProcessResult{
+		commandErr:       waitErr,
+		termination:      termination,
+		terminationErr:   terminationErr,
+		stderrReadErr:    stderrReadErr,
+		outputIncomplete: outputIncomplete,
 	}
+}
+
+func gitFrozenNonContextConsumer(err error) bool {
+	return err != nil && gitAttemptContextErr(err, gitProcessResult{}) == nil
+}
+
+func gitAttemptContextErr(consumeErr error, result gitProcessResult) error {
+	if errors.Is(consumeErr, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(consumeErr, context.Canceled) {
+		return context.Canceled
+	}
+	if consumeErr != nil {
+		return nil
+	}
+	if errors.Is(result.commandErr, context.DeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	if errors.Is(result.commandErr, context.Canceled) {
+		return context.Canceled
+	}
+	return nil
+}
+
+func gitObservedLifecycleError(consumeErr error, result gitProcessResult) error {
+	ctxErr := gitAttemptContextErr(consumeErr, result)
+	if ctxErr == nil {
+		return nil
+	}
+	var captured *capturedGitCommandError
+	if !errors.As(result.commandErr, &captured) || captured == nil {
+		return ctxErr
+	}
+	if errors.Is(captured, ctxErr) {
+		return captured
+	}
+	return &capturedGitCommandError{
+		diagnostic: captured.diagnostic,
+		cause:      errors.Join(ctxErr, captured.cause),
+	}
+}
+
+// afterGitLeaderWait is a test hook invoked after WaitDone is observed and
+// before completeGitProcess drains inherited output and Awaits cleanup.
+var afterGitLeaderWait func()
+
+func invokeAfterGitLeaderWait() {
+	if hook := afterGitLeaderWait; hook != nil {
+		hook()
+	}
+}
+
+func waitAlreadyDone(waitDone <-chan struct{}) bool {
+	if waitDone == nil {
+		return true
+	}
+	select {
+	case <-waitDone:
+		return true
+	default:
+		return false
+	}
+}
+
+func joinGitProcessGroupTerminateErr(base error, role string, result gitProcessResult) error {
+	if result.termination.UnsignalableOccupancy() {
+		cause := result.terminationErr
+		if cause == nil {
+			cause = errors.New("process group occupancy is unsignalable")
+		}
+		return errors.Join(base, fmt.Errorf("%s process group occupancy is unsignalable: %w", role, cause))
+	}
+	if result.terminationErr != nil {
+		return errors.Join(base, fmt.Errorf("terminate %s process group: %w", role, result.terminationErr))
+	}
+	if errors.Is(result.commandErr, subprocess.ErrProcessWaitAbandoned) {
+		return errors.Join(base, result.commandErr)
+	}
+	if errors.Is(base, context.Canceled) || errors.Is(base, context.DeadlineExceeded) {
+		return base
+	}
+	if result.outputIncomplete {
+		return errors.Join(base, fmt.Errorf("%s output was incomplete after pipe drain bound", role))
+	}
+	return base
+}
+
+func joinGitProcessGroupResidual(base error, role string, result gitProcessResult) error {
+	base = joinGitProcessGroupTerminateErr(base, role, result)
+	if result.termination.UnsignalableOccupancy() {
+		return base
+	}
+	if result.termination.ResidualMembers() {
+		return errors.Join(base, fmt.Errorf("%s exited while process-group members remained; terminated residual process group", role))
+	}
+	return base
 }

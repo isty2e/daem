@@ -3,6 +3,7 @@ package platform
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,10 +14,17 @@ type commandResult struct {
 	stdout          string
 	stdoutTruncated bool
 	timedOut        bool
+	canceled        bool
 	err             error
 }
 
 type commandRunner func(context.Context) commandResult
+
+// errDarwinProductVersionTimeout is the immutable cause of the nested Darwin
+// product-version command deadline. freezeDarwinCommandResult classifies
+// RuntimeObservationTimedOut from this cause, not from a live parent.Err()
+// check after Await returns.
+var errDarwinProductVersionTimeout = errors.New("macOS product-version command timed out")
 
 // Current observes the runtime evidence available on the running platform.
 func Current(ctx context.Context) (platformsupport.RuntimeObservation, error) {
@@ -42,28 +50,55 @@ func observeDarwinProductVersion(
 	}
 
 	result := run(ctx)
-	if err := ctx.Err(); err != nil {
-		return platformsupport.RuntimeObservation{}, err
-	}
 	if result.timedOut {
 		return observationFailure(platformsupport.RuntimeObservationTimedOut)
 	}
-	if result.err != nil {
-		return observationFailure(platformsupport.RuntimeObservationCommandFailed)
+	if result.err == nil {
+		if result.stdoutTruncated {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		value, err := canonicalProductVersionOutput(result.stdout)
+		if err != nil {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		version, err := platformsupport.ParseMacOSProductVersion(value)
+		if err != nil {
+			return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+		}
+		return platformsupport.NewRuntimeObservation(version)
 	}
-	if result.stdoutTruncated {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+	if result.canceled {
+		if result.err != nil {
+			return platformsupport.RuntimeObservation{}, result.err
+		}
+		return platformsupport.RuntimeObservation{}, context.Canceled
 	}
+	if errors.Is(result.err, context.Canceled) || errors.Is(result.err, context.DeadlineExceeded) {
+		return platformsupport.RuntimeObservation{}, result.err
+	}
+	return observationFailure(platformsupport.RuntimeObservationCommandFailed)
+}
 
-	value, err := canonicalProductVersionOutput(result.stdout)
-	if err != nil {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+func freezeDarwinCommandResult(attempt context.Context, runErr error, stdout string, stdoutTruncated bool) commandResult {
+	result := commandResult{
+		stdout:          stdout,
+		stdoutTruncated: stdoutTruncated,
+		err:             runErr,
 	}
-	version, err := platformsupport.ParseMacOSProductVersion(value)
-	if err != nil {
-		return observationFailure(platformsupport.RuntimeObservationInvalidOutput)
+	if attempt == nil {
+		attempt = context.Background()
 	}
-	return platformsupport.NewRuntimeObservation(version)
+	// The attempt context's timeout cause is frozen when the nested deadline
+	// fires. A later parent cancel cannot rewrite Cause, so classification
+	// must not consult a live parent.Err() after Await returns.
+	if errors.Is(runErr, context.DeadlineExceeded) &&
+		errors.Is(context.Cause(attempt), errDarwinProductVersionTimeout) {
+		result.timedOut = true
+	}
+	if errors.Is(runErr, context.Canceled) {
+		result.canceled = true
+	}
+	return result
 }
 
 func observationFailure(

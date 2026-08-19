@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/isty2e/daem/internal/subprocess"
@@ -53,50 +54,66 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	if err != nil {
 		return commandResult{WorkDirAuthorityFailed: true, Err: err}
 	}
+	// Bind before allocating protocol pipes so a supervision failure cannot
+	// retain unstarted stdin/stdout descriptors.
+	group, err := subprocess.BindProcessGroup(cmd)
+	if err != nil {
+		return commandResult{Err: err}
+	}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return commandResult{Err: err}
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return commandResult{Err: err}
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
+		releaseUnstartedStdio(cmd, stdin)
 		return commandResult{Err: err}
 	}
 	outputLimit := request.OutputLimit
 	if outputLimit <= 0 {
 		outputLimit = defaultOutputLimit
 	}
-	stderrBuffer := subprocess.NewBoundedBuffer(outputLimit)
-	group, err := subprocess.BindProcessGroup(cmd)
+	stderrCapture, err := subprocess.NewOutputCapture(outputLimit)
 	if err != nil {
+		releaseUnstartedStdio(cmd, stdin, stdout)
 		return commandResult{Err: err}
 	}
+	cmd.Stderr = stderrCapture.Writer()
+	cmd.WaitDelay = subprocess.InheritedOutputCloseWait
 
 	if err := cmd.Start(); err != nil {
+		stderrCapture.Close()
+		releaseUnstartedStdio(cmd, stdin, stdout)
 		return commandResult{Err: err}
 	}
 	result.Started = true
+	stderrCapture.CloseWriter()
+	stderrCapture.StartCopy()
 
-	stderrDone := make(chan struct{})
-	go func() {
-		_, _ = io.Copy(stderrBuffer, stderr)
-		close(stderrDone)
-	}()
-	defer func() {
+	closeProtocolStdio := sync.OnceFunc(func() {
 		_ = stdin.Close()
-		waitDone := make(chan error, 1)
-		go func() {
-			waitDone <- cmd.Wait()
-		}()
-		var waitErr error
+		_ = stdout.Close()
+	})
+	interruptDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			closeProtocolStdio()
+		case <-interruptDone:
+		}
+	}()
+	var protocolContextErr error
+	defer func() {
+		invokeAfterMCPProtocolOutcome()
+		closeProtocolStdio()
+		// Wait must start before Terminate so an unreaped leader cannot look
+		// like surviving process-group occupancy during cleanup polling.
+		group.StartWait()
 		processExited := false
 		if ctx.Err() == nil {
 			timer := time.NewTimer(stdinCloseGrace)
 			select {
-			case waitErr = <-waitDone:
+			case <-group.WaitDone():
 				processExited = true
 			case <-timer.C:
 			}
@@ -113,17 +130,21 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		} else {
 			_, terminationErr = group.Terminate()
 		}
-		if !processExited {
-			waitErr = <-waitDone
-		}
-		<-stderrDone
-		result.Stderr = stderrBuffer.String()
-		result.StderrTruncated = stderrBuffer.Truncated()
-		result = finalizeCommandResult(result, waitErr, terminationErr, ctx.Err())
+		// Cleanup wait is outside the attempt timeout. Do not let a later
+		// deadline rewrite an already-observed protocol outcome.
+		waitErr := group.Await(context.WithoutCancel(ctx), subprocess.InheritedOutputCloseWait)
+		close(interruptDone)
+		stderr := stderrCapture.Finish(subprocess.InheritedOutputCloseWait)
+		result.Stderr = stderr.Text
+		result.StderrTruncated = stderr.Truncated()
+		result = finalizeCommandResult(result, waitErr, terminationErr, protocolContextErr)
 	}()
 
+	// Protocol pipes: Wait starts only after initialize scanning returns.
+	// Cancellation unblocks the scanner by closing the parent stdin/stdout ends.
 	if err := writeInitializeRequest(stdin, request.ProtocolVersion); err != nil {
 		result.Err = err
+		protocolContextErr = ctx.Err()
 		return result
 	}
 
@@ -131,6 +152,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	scanner.Buffer(make([]byte, 0, 64*1024), maxScannerTokenBytes)
 	for range maxInitializeMessages {
 		if !scanner.Scan() {
+			protocolContextErr = ctx.Err()
 			if err := scanner.Err(); err != nil {
 				result.Err = fmt.Errorf("read initialize response: %w", err)
 				return result
@@ -165,6 +187,7 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 		}
 		if err := writeInitializedNotificationUnlessCanceled(ctx, stdin); err != nil {
 			result.Err = err
+			protocolContextErr = ctx.Err()
 			return result
 		}
 		result.InitializeSucceeded = true
@@ -175,20 +198,53 @@ func defaultCommandRunner(ctx context.Context, request commandRequest) (result c
 	return result
 }
 
+func releaseUnstartedStdio(command *exec.Cmd, parents ...io.Closer) {
+	for _, parent := range parents {
+		if parent != nil {
+			_ = parent.Close()
+		}
+	}
+	if command == nil {
+		return
+	}
+	for _, endpoint := range []any{command.Stdin, command.Stdout, command.Stderr} {
+		if closer, ok := endpoint.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+}
+
 func finalizeCommandResult(
 	result commandResult,
 	waitErr error,
 	terminationErr error,
 	contextErr error,
 ) commandResult {
-	if terminationErr != nil {
-		result.InitializeSucceeded = false
-		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process tree: %w", terminationErr))
+	if result.InitializeSucceeded {
+		// Protocol success is frozen before cleanup. Occupancy or abandoned
+		// wait must not revoke initialize or invent a timeout.
+		return result.withContextOutcome(contextErr)
 	}
-	if result.Err == nil && !result.InitializeSucceeded && waitErr != nil {
+	if terminationErr != nil {
+		result.Err = errors.Join(result.Err, fmt.Errorf("terminate MCP process group: %w", terminationErr))
+	}
+	if errors.Is(waitErr, subprocess.ErrProcessWaitAbandoned) {
+		result.Err = errors.Join(result.Err, waitErr)
+	}
+	if result.Err == nil && waitErr != nil {
 		result.Err = waitErr
 	}
 	return result.withContextOutcome(contextErr)
+}
+
+// afterMCPProtocolOutcome is a test hook invoked after the initialize scan has
+// stored its protocol result and before cleanup starts waiting or terminating.
+var afterMCPProtocolOutcome func()
+
+func invokeAfterMCPProtocolOutcome() {
+	if hook := afterMCPProtocolOutcome; hook != nil {
+		hook()
+	}
 }
 
 func writeInitializeRequest(writer io.Writer, protocolVersion string) error {

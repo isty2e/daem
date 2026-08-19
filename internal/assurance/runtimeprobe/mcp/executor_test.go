@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	"github.com/isty2e/daem/internal/subprocess"
@@ -58,7 +59,7 @@ func TestExecutorClassifiesCancellationAlongsideRunnerError(t *testing.T) {
 	executor := newExecutor(executorOptions{
 		Runner: func(context.Context, commandRequest) commandResult {
 			cancel()
-			return commandResult{Started: true, Err: errors.New("runner stopped")}
+			return commandResult{Started: true, Canceled: true, Err: errors.New("runner stopped")}
 		},
 	})
 
@@ -550,6 +551,32 @@ func TestExecutorInvalidatesSuccessWhenWorkingDirectoryAuthorityChanges(t *testi
 	}
 	if binding.closeCount != 1 {
 		t.Fatalf("binding close count = %d, want 1", binding.closeCount)
+	}
+}
+
+func TestExecutorDoesNotReclassifyStartedFailureAfterProbeTimeout(t *testing.T) {
+	executor := newExecutor(executorOptions{
+		Timeout: time.Millisecond,
+		Runner: func(ctx context.Context, request commandRequest) commandResult {
+			<-ctx.Done()
+			return commandResult{Started: true, Err: errors.New("exit status 17")}
+		},
+	})
+
+	facts, err := executor.Probe(context.Background(), ProbeRequest{
+		Transport: TransportStdio,
+		Command:   "node",
+	}, testProbeBinder(t))
+	if err != nil {
+		t.Fatalf("Probe returned error: %v", err)
+	}
+	observation := foldProbeFacts(t, facts)
+	detail := observation.ProtocolInitialize().SanitizedDetail()
+	if strings.Contains(detail, "probe timed out") {
+		t.Fatalf("detail = %q, want started failure preserved through post-wait timeout", detail)
+	}
+	if !strings.Contains(detail, "exit status 17") {
+		t.Fatalf("detail = %q, want runner exit error", detail)
 	}
 }
 

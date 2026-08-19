@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func TestDefaultCommandRunnerTimeoutTerminatesGrandchild(t *testing.T) {
 	select {
 	case result = <-resultDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for expired MCP process tree")
+		t.Fatal("timed out waiting for expired MCP process group")
 	}
 
 	if !result.Started || !result.TimedOut || result.InitializeSucceeded {
@@ -71,7 +72,7 @@ func TestDefaultCommandRunnerCancellationTerminatesGrandchild(t *testing.T) {
 	select {
 	case result = <-resultDone:
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for canceled MCP process tree")
+		t.Fatal("timed out waiting for canceled MCP process group")
 	}
 
 	if !result.Started || !result.Canceled || result.InitializeSucceeded {
@@ -89,11 +90,92 @@ func TestDefaultCommandRunnerSuccessCleansServerGrandchild(t *testing.T) {
 	if !result.Started || !result.InitializeSucceeded || result.Err != nil {
 		t.Fatalf("result = %#v, want successful initialize and cleanup", result)
 	}
+	if result.StderrTruncated {
+		t.Fatalf("stderr truncated after killing an initialized server, want complete kill+EOF capture")
+	}
 	assertMCPProbeProcessesGone(t, readMCPProbePIDs(t, readyPath))
+}
+
+func TestDefaultCommandRunnerReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "setsid-inherit-parent", readyPath))
+	}()
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	cancel()
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(6 * time.Second):
+		t.Fatal("timed out waiting for canceled MCP process group while a setsid child held pipes")
+	}
+	if !result.Started || !result.Canceled || result.InitializeSucceeded {
+		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	if !result.StderrTruncated {
+		t.Fatalf("stderr truncated=%t stderr=%q, want forced incomplete capture", result.StderrTruncated, result.Stderr)
+	}
+	capture := sanitizeCapture(result, []string{"super-secret"}, defaultOutputLimit)
+	if strings.Contains(capture.stderr, "super-") || strings.Contains(capture.stderr, "super-secret") {
+		t.Fatalf("capture leaked secret prefix: %#v", capture)
+	}
+	if !capture.stderrTruncated || !capture.redacted {
+		t.Fatalf("capture = %#v, want redacted truncated stderr", capture)
+	}
+	assertMCPProbeProcessAlive(t, pids[1])
+}
+
+func TestDefaultCommandRunnerNonzeroExitMarksSetsidStderrIncomplete(t *testing.T) {
+	readyPath := t.TempDir() + "/ready"
+	t.Cleanup(func() {
+		content, err := os.ReadFile(readyPath + ".child")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	result := defaultCommandRunner(ctx, mcpProcessTreeRequest(t, "setsid-inherit-stderr-exit", readyPath))
+	pids := readMCPProbePIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	if !result.Started || result.InitializeSucceeded || result.Canceled || result.TimedOut {
+		t.Fatalf("result = %#v, want started nonzero exit before initialize", result)
+	}
+	if !result.StderrTruncated {
+		t.Fatalf("stderr truncated=%t stderr=%q, want forced incomplete capture", result.StderrTruncated, result.Stderr)
+	}
+	capture := sanitizeCapture(result, []string{"super-secret"}, defaultOutputLimit)
+	if strings.Contains(capture.stderr, "super-") || strings.Contains(capture.stderr, "super-secret") {
+		t.Fatalf("capture leaked secret prefix: %#v", capture)
+	}
+	if !capture.stderrTruncated || !capture.redacted {
+		t.Fatalf("capture = %#v, want redacted truncated stderr", capture)
+	}
+	assertMCPProbeProcessesGone(t, pids[:1])
+	assertMCPProbeProcessAlive(t, pids[1])
 }
 
 func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
 	markerPath := t.TempDir() + "/initialized"
+	registerMCPMarkerPIDCleanup(t, markerPath)
+	entered, release := holdMCPProtocolCleanup(t)
 	ctx := newTriggeredDeadlineContext()
 	resultDone := make(chan commandResult, 1)
 	go func() {
@@ -111,10 +193,13 @@ func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCl
 			ProtocolVersion: defaultProtocolVersion,
 		}))
 	}()
-	if err := waitForMCPProbeFile(markerPath, 5*time.Second); err != nil {
-		t.Fatal(err)
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP protocol outcome before cleanup")
 	}
 	ctx.expire()
+	release()
 
 	var result commandResult
 	select {
@@ -124,6 +209,49 @@ func TestDefaultCommandRunnerKeepsCompletedInitializeWhenDeadlineExpiresDuringCl
 	}
 	if !result.Started || !result.InitializeSucceeded || result.TimedOut || result.Canceled || result.Err != nil {
 		t.Fatalf("result = %#v, want completed initialize preserved through cleanup deadline", result)
+	}
+}
+
+func TestDefaultCommandRunnerKeepsFailedInitializeWhenDeadlineExpiresDuringCleanup(t *testing.T) {
+	markerPath := t.TempDir() + "/initialize-error"
+	registerMCPMarkerPIDCleanup(t, markerPath)
+	entered, release := holdMCPProtocolCleanup(t)
+	ctx := newTriggeredDeadlineContext()
+	resultDone := make(chan commandResult, 1)
+	go func() {
+		resultDone <- defaultCommandRunner(ctx, commandRequestWithNativeWorkDir(t, commandRequest{
+			Command: os.Args[0],
+			Args: []string{
+				"-test.run=^TestMCPProbeHelperProcess$",
+			},
+			Env: append(
+				os.Environ(),
+				"DAEM_MCPPROBE_HELPER=initialize-error-hang",
+				"DAEM_MCPPROBE_MARKER="+markerPath,
+			),
+			OutputLimit:     defaultOutputLimit,
+			ProtocolVersion: defaultProtocolVersion,
+		}))
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for MCP protocol outcome before cleanup")
+	}
+	ctx.expire()
+	release()
+
+	var result commandResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for failed MCP initialize cleanup")
+	}
+	if !result.Started || result.InitializeSucceeded || result.TimedOut || result.Canceled {
+		t.Fatalf("result = %#v, want initialize failure preserved through cleanup deadline", result)
+	}
+	if result.Err == nil || !strings.Contains(result.Err.Error(), "initialize error") {
+		t.Fatalf("error = %v, want initialize error without timeout", result.Err)
 	}
 }
 
@@ -152,6 +280,21 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 		"DAEM_MCPPROBE_TREE_MODE=child",
 		"DAEM_MCPPROBE_TREE_READY="+readyPath,
 	)
+	if mode == "setsid-inherit-parent" {
+		if _, err := os.Stderr.WriteString("super-"); err != nil {
+			os.Exit(78)
+		}
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+	}
+	if mode == "setsid-inherit-stderr-exit" {
+		if _, err := os.Stderr.WriteString("super-"); err != nil {
+			os.Exit(78)
+		}
+		child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		child.Stderr = os.Stderr
+	}
 	if err := child.Start(); err != nil {
 		os.Exit(73)
 	}
@@ -166,10 +309,12 @@ func TestMCPProbeProcessTreeHelper(t *testing.T) {
 	}
 
 	switch mode {
-	case "parent-hang":
+	case "parent-hang", "setsid-inherit-parent":
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "setsid-inherit-stderr-exit":
+		os.Exit(17)
 	case "parent-initialize":
 		reader := bufio.NewReader(os.Stdin)
 		readInitializeRequestFromReaderOrExit(reader)
@@ -286,6 +431,48 @@ func writeMCPProbeHelperFile(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func holdMCPProtocolCleanup(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterMCPProtocolOutcome = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-releaseCh
+	}
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCh) })
+	}
+	t.Cleanup(func() {
+		afterMCPProtocolOutcome = nil
+		release()
+	})
+	return entered, release
+}
+
+func registerMCPMarkerPIDCleanup(t *testing.T, markerPath string) {
+	t.Helper()
+	t.Cleanup(func() {
+		content, err := os.ReadFile(markerPath + ".pid")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
+}
+
+func assertMCPProbeProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	err := unix.Kill(pid, 0)
+	if err != nil && err != unix.EPERM {
+		t.Fatalf("pid %d: %v, want alive", pid, err)
+	}
 }
 
 func assertMCPProbeProcessesGone(t *testing.T, pids []int) {

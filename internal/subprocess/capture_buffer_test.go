@@ -36,3 +36,23 @@ func TestBoundedBufferZeroLimitMarksOnlyNonEmptyInputTruncated(t *testing.T) {
 		t.Fatalf("zero-limit buffer = %q truncated=%t", buffer.String(), buffer.Truncated())
 	}
 }
+
+func TestBoundedBufferSnapshotIsConcurrencySafe(t *testing.T) {
+	buffer := NewBoundedBuffer(1 << 20)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 1000; i++ {
+			_, _ = buffer.Write([]byte("x"))
+		}
+	}()
+	for i := 0; i < 1000; i++ {
+		_, _ = buffer.snapshot()
+		_ = buffer.String()
+		_ = buffer.Truncated()
+	}
+	<-done
+	if got := len(buffer.String()); got != 1000 {
+		t.Fatalf("len(String) = %d, want 1000", got)
+	}
+}

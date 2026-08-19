@@ -65,16 +65,21 @@ func TestGroupTerminatesCompleteProcessTree(t *testing.T) {
 			pids := readProcessTreePIDs(t, readyPath)
 
 			cancel()
-			waitErr := cmd.Wait()
+			waitErr := awaitBoundProcessGroup(group, ctx)
 			if waitErr == nil || (!errors.Is(waitErr, context.Canceled) && !isProcessTreeSignalExit(waitErr)) {
-				t.Fatalf("Wait error = %v, want cancellation or signal exit", waitErr)
+				t.Fatalf("Await error = %v, want cancellation or signal exit", waitErr)
 			}
 			termination, err := group.Terminate()
 			if err != nil {
 				t.Fatalf("Terminate: %v", err)
 			}
-			if !termination.ProcessesFound() || termination.escalated != test.wantEscalated {
-				t.Fatalf("termination = found:%t escalated:%t", termination.ProcessesFound(), termination.escalated)
+			if !termination.ProcessesFound() || termination.ResidualMembers() || termination.escalated != test.wantEscalated {
+				t.Fatalf(
+					"termination = found:%t residual:%t escalated:%t",
+					termination.ProcessesFound(),
+					termination.ResidualMembers(),
+					termination.escalated,
+				)
 			}
 			assertProcessTreeProcessesGone(t, pids)
 		})
@@ -103,18 +108,43 @@ func TestGroupTerminatesResidualGrandchildAfterLeaderExit(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("Wait: %v", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
 	}
 
 	termination, err := group.Terminate()
 	if err != nil {
 		t.Fatalf("Terminate: %v", err)
 	}
-	if !termination.ProcessesFound() {
-		t.Fatal("ProcessesFound = false, want residual grandchild")
+	if !termination.ProcessesFound() || !termination.ResidualMembers() {
+		t.Fatalf(
+			"termination = found:%t residual:%t, want residual grandchild after leader exit",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+		)
 	}
 	assertProcessTreeProcessesGone(t, pids[1:])
+}
+
+func TestAwaitKeepsCompletedWaitWhenContextLaterExpires(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "/bin/echo", "await-frozen")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := group.Await(context.Background(), InheritedOutputCloseWait); err != nil {
+		t.Fatalf("first Await: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = group.Await(ctx, InheritedOutputCloseWait)
+	if err != nil {
+		t.Fatalf("second Await error = %v, want frozen successful wait", err)
+	}
 }
 
 func TestGroupAllowsNaturalGrandchildQuiescenceAfterLeaderExit(t *testing.T) {
@@ -143,16 +173,20 @@ func TestGroupAllowsNaturalGrandchildQuiescenceAfterLeaderExit(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	if err := cmd.Wait(); err != nil {
-		t.Fatalf("Wait: %v", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
 	}
 
 	termination, err := group.ReapAfterLeaderExit()
 	if err != nil {
 		t.Fatalf("ReapAfterLeaderExit: %v", err)
 	}
-	if termination.ProcessesFound() {
-		t.Fatal("ProcessesFound = true for naturally quiescent grandchild")
+	if termination.ProcessesFound() || termination.ResidualMembers() {
+		t.Fatalf(
+			"termination = found:%t residual:%t for naturally quiescent grandchild",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+		)
 	}
 	assertProcessTreeProcessesGone(t, pids[1:])
 }
@@ -179,8 +213,6 @@ func TestGroupConcurrentTerminationIsIdempotent(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	pids := readProcessTreePIDs(t, readyPath)
-	waitDone := make(chan error, 1)
-	go func() { waitDone <- cmd.Wait() }()
 
 	const callers = 8
 	results := make(chan ProcessTermination, callers)
@@ -202,12 +234,17 @@ func TestGroupConcurrentTerminationIsIdempotent(t *testing.T) {
 		}
 	}
 	for result := range results {
-		if !result.ProcessesFound() || !result.escalated {
-			t.Fatalf("termination = found:%t escalated:%t", result.ProcessesFound(), result.escalated)
+		if !result.ProcessesFound() || result.ResidualMembers() || !result.escalated {
+			t.Fatalf(
+				"termination = found:%t residual:%t escalated:%t",
+				result.ProcessesFound(),
+				result.ResidualMembers(),
+				result.escalated,
+			)
 		}
 	}
-	if err := <-waitDone; !isProcessTreeSignalExit(err) {
-		t.Fatalf("Wait error = %v, want signal exit", err)
+	if err := awaitBoundProcessGroup(group, context.Background()); !isProcessTreeSignalExit(err) {
+		t.Fatalf("Await error = %v, want signal exit", err)
 	}
 	assertProcessTreeProcessesGone(t, pids)
 }
@@ -221,6 +258,128 @@ func TestBindRejectsConflictingProcessGroupPolicy(t *testing.T) {
 	}
 }
 
+func TestClassifyProcessGroupProbeIsThreeValued(t *testing.T) {
+	tests := []struct {
+		err        error
+		occupancy  processGroupOccupancy
+		recognized bool
+	}{
+		{err: nil, occupancy: processGroupSignalable, recognized: true},
+		{err: unix.ESRCH, occupancy: processGroupAbsent, recognized: true},
+		{err: unix.EPERM, occupancy: processGroupUnsignalable, recognized: true},
+		{err: unix.EINVAL, occupancy: processGroupAbsent, recognized: false},
+	}
+	for _, test := range tests {
+		occupancy, recognized := classifyProcessGroupProbe(test.err)
+		if occupancy != test.occupancy || recognized != test.recognized {
+			t.Fatalf(
+				"classifyProcessGroupProbe(%v) = %d,%t, want %d,%t",
+				test.err,
+				occupancy,
+				recognized,
+				test.occupancy,
+				test.recognized,
+			)
+		}
+	}
+}
+
+func TestGroupCancelLeavesSetsidChildAlive(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	childReadyPath := readyPath + ".child"
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, executable, "-test.run=TestProcessTreeHelperProcess")
+	cmd.Env = append(
+		os.Environ(),
+		processTreeHelperMode+"=parent-mixed-setsid",
+		processTreeReadyPath+"="+readyPath,
+		processTreeChildReadyPath+"="+childReadyPath,
+	)
+	group, err := bindProcessGroupWithOptions(cmd, processTerminationOptions{GracePeriod: 100 * time.Millisecond, KillWait: time.Second})
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	pids := readProcessTreePIDs(t, readyPath)
+	if len(pids) != 3 {
+		t.Fatalf("pids = %v, want parent, in-group child, setsid child", pids)
+	}
+	escaped := pids[2]
+	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
+
+	cancel()
+	waitErr := awaitBoundProcessGroup(group, ctx)
+	if waitErr == nil || (!errors.Is(waitErr, context.Canceled) && !isProcessTreeSignalExit(waitErr)) {
+		t.Fatalf("Await error = %v, want cancellation or signal exit", waitErr)
+	}
+	termination, err := group.Terminate()
+	if err != nil {
+		t.Fatalf("Terminate: %v", err)
+	}
+	if termination.UnsignalableOccupancy() {
+		t.Fatalf("termination = %#v, want signalable in-group cleanup", termination)
+	}
+	assertProcessTreeProcessesGone(t, pids[:2])
+	assertProcessTreeProcessAlive(t, escaped)
+}
+
+func TestGroupReapAfterLeaderExitLeavesSetsidChildAlive(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	childReadyPath := readyPath + ".child"
+	cmd := exec.CommandContext(context.Background(), executable, "-test.run=TestProcessTreeHelperProcess")
+	cmd.Env = append(
+		os.Environ(),
+		processTreeHelperMode+"=parent-exit-mixed-setsid",
+		processTreeReadyPath+"="+readyPath,
+		processTreeChildReadyPath+"="+childReadyPath,
+	)
+	group, err := bindProcessGroupWithOptions(cmd, processTerminationOptions{
+		QuiescencePeriod: 500 * time.Millisecond,
+		GracePeriod:      100 * time.Millisecond,
+		KillWait:         time.Second,
+	})
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	pids := readProcessTreePIDs(t, readyPath)
+	if len(pids) != 3 {
+		t.Fatalf("pids = %v, want parent, in-group child, setsid child", pids)
+	}
+	escaped := pids[2]
+	t.Cleanup(func() { _ = unix.Kill(escaped, unix.SIGKILL) })
+	if err := awaitBoundProcessGroup(group, context.Background()); err != nil {
+		t.Fatalf("Await: %v", err)
+	}
+
+	termination, err := group.ReapAfterLeaderExit()
+	if err != nil {
+		t.Fatalf("ReapAfterLeaderExit: %v", err)
+	}
+	if termination.ProcessesFound() || termination.ResidualMembers() || termination.UnsignalableOccupancy() {
+		t.Fatalf(
+			"termination = found:%t residual:%t unsignalable:%t, want empty dedicated group",
+			termination.ProcessesFound(),
+			termination.ResidualMembers(),
+			termination.UnsignalableOccupancy(),
+		)
+	}
+	assertProcessTreeProcessesGone(t, pids[:2])
+	assertProcessTreeProcessAlive(t, escaped)
+}
+
 func TestProcessTreeHelperProcess(t *testing.T) {
 	mode := os.Getenv(processTreeHelperMode)
 	if mode == "" {
@@ -230,7 +389,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 	childReadyPath := os.Getenv(processTreeChildReadyPath)
 
 	switch mode {
-	case "grandchild", "grandchild-ignore-term", "grandchild-natural":
+	case "grandchild", "grandchild-ignore-term", "grandchild-natural", "grandchild-setsid":
 		if mode == "grandchild-ignore-term" {
 			signal.Ignore(syscall.SIGTERM)
 		}
@@ -244,7 +403,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
-	case "parent", "parent-ignore-term", "parent-exit", "parent-exit-natural":
+	case "parent", "parent-ignore-term", "parent-exit", "parent-exit-natural", "parent-mixed-setsid", "parent-exit-mixed-setsid":
 		ignoreTERM := mode == "parent-ignore-term"
 		if ignoreTERM {
 			signal.Ignore(syscall.SIGTERM)
@@ -256,7 +415,7 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 		childMode := "grandchild"
 		if ignoreTERM {
 			childMode = "grandchild-ignore-term"
-		} else if mode == "parent-exit-natural" {
+		} else if mode == "parent-exit-natural" || mode == "parent-exit-mixed-setsid" {
 			childMode = "grandchild-natural"
 		}
 		child := exec.Command(executable, "-test.run=TestProcessTreeHelperProcess")
@@ -273,11 +432,31 @@ func TestProcessTreeHelperProcess(t *testing.T) {
 			os.Exit(94)
 		}
 		content := fmt.Sprintf("%d,%d", os.Getpid(), child.Process.Pid)
+		if strings.HasSuffix(mode, "mixed-setsid") {
+			setsidReadyPath := childReadyPath + ".setsid"
+			setsidChild := exec.Command(executable, "-test.run=TestProcessTreeHelperProcess")
+			setsidChild.Env = append(
+				os.Environ(),
+				processTreeHelperMode+"=grandchild-setsid",
+				processTreeChildReadyPath+"="+setsidReadyPath,
+			)
+			setsidChild.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+			if err := setsidChild.Start(); err != nil {
+				_ = child.Process.Kill()
+				os.Exit(97)
+			}
+			if err := waitForProcessTreeHelperFile(setsidReadyPath, 5*time.Second); err != nil {
+				_ = child.Process.Kill()
+				_ = setsidChild.Process.Kill()
+				os.Exit(98)
+			}
+			content = fmt.Sprintf("%s,%d", content, setsidChild.Process.Pid)
+		}
 		if err := writeProcessTreeHelperFixture(readyPath, []byte(content)); err != nil {
 			_ = child.Process.Kill()
 			os.Exit(95)
 		}
-		if mode == "parent-exit" || mode == "parent-exit-natural" {
+		if mode == "parent-exit" || mode == "parent-exit-natural" || mode == "parent-exit-mixed-setsid" {
 			os.Exit(0)
 		}
 		for {
@@ -298,7 +477,7 @@ func readProcessTreePIDs(t *testing.T, path string) []int {
 		t.Fatal(err)
 	}
 	parts := strings.Split(strings.TrimSpace(string(content)), ",")
-	if len(parts) != 2 {
+	if len(parts) < 2 {
 		t.Fatalf("pid evidence = %q", content)
 	}
 	pids := make([]int, 0, len(parts))
@@ -335,6 +514,13 @@ func writeProcessTreeHelperFixture(path string, content []byte) error {
 	return os.Rename(temporaryPath, path)
 }
 
+func assertProcessTreeProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	if err := unix.Kill(pid, 0); err != nil && err != unix.EPERM {
+		t.Fatalf("pid %d not alive: %v", pid, err)
+	}
+}
+
 func assertProcessTreeProcessesGone(t *testing.T, pids []int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -356,6 +542,133 @@ func assertProcessTreeProcessesGone(t *testing.T, pids []int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func TestGroupCancelImmediatelyAfterStartDoesNotReportUnsignalableOccupancy(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, "/bin/sleep", "30")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = group.Terminate()
+	})
+	cancel()
+	waitErr := awaitBoundProcessGroup(group, ctx)
+	termination, terminateErr := group.Terminate()
+	if termination.UnsignalableOccupancy() || termination.ResidualMembers() {
+		t.Fatalf(
+			"unsignalable occupancy or residual members after cancel immediately after start: wait=%v terminate=%v %#v",
+			waitErr,
+			terminateErr,
+			termination,
+		)
+	}
+	if waitErr == nil {
+		t.Fatal("Await error = nil, want cancellation or signal after cancel immediately after start")
+	}
+}
+
+func TestAwaitKeepsObservedDeadlineWhileTerminationBlocked(t *testing.T) {
+	cmd := exec.CommandContext(context.Background(), "/bin/sleep", "30")
+	group, err := BindProcessGroup(cmd)
+	if err != nil {
+		t.Fatalf("BindProcessGroup: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	attempt := newMutatingDoneContext()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterProcessGroupTerminateStart = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-release
+		attempt.setErr(context.Canceled)
+	}
+	t.Cleanup(func() {
+		afterProcessGroupTerminateStart = nil
+		releaseOnce.Do(func() { close(release) })
+		_, _ = group.Terminate()
+	})
+
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- group.Await(attempt, InheritedOutputCloseWait)
+	}()
+	attempt.fire(context.DeadlineExceeded)
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("termination did not start after attempt deadline")
+	}
+	releaseOnce.Do(func() { close(release) })
+
+	select {
+	case waitErr := <-waitDone:
+		if !errors.Is(waitErr, context.DeadlineExceeded) {
+			t.Fatalf("Await = %v, want captured deadline while termination was blocked", waitErr)
+		}
+		if errors.Is(waitErr, context.Canceled) {
+			t.Fatalf("Await = %v, want deadline not rewritten by later cancel", waitErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Await did not return after termination released")
+	}
+}
+
+type mutatingDoneContext struct {
+	done chan struct{}
+	mu   sync.Mutex
+	err  error
+}
+
+func newMutatingDoneContext() *mutatingDoneContext {
+	return &mutatingDoneContext{done: make(chan struct{})}
+}
+
+func (ctx *mutatingDoneContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *mutatingDoneContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *mutatingDoneContext) Err() error {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return ctx.err
+}
+
+func (ctx *mutatingDoneContext) Value(any) any {
+	return nil
+}
+
+func (ctx *mutatingDoneContext) fire(err error) {
+	ctx.mu.Lock()
+	ctx.err = err
+	ctx.mu.Unlock()
+	close(ctx.done)
+}
+
+func (ctx *mutatingDoneContext) setErr(err error) {
+	ctx.mu.Lock()
+	ctx.err = err
+	ctx.mu.Unlock()
+}
+
+func awaitBoundProcessGroup(group *ProcessGroup, ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return group.Await(ctx, InheritedOutputCloseWait)
 }
 
 func isProcessTreeSignalExit(err error) bool {

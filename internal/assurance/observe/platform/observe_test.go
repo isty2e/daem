@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/isty2e/daem/internal/platformsupport"
 )
@@ -64,6 +65,124 @@ func TestObserveDarwinProductVersionHonorsCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || called {
 		t.Fatalf("error=%v called=%t, want canceled without runner", err, called)
 	}
+}
+
+func TestObserveDarwinProductVersionKeepsCompletedOutputAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{stdout: "26.0\n"}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	version, observed := observation.Version()
+	if !observed || version.String() != "26.0" {
+		t.Fatalf("version = %s,%t, want 26.0 after caller cancel during cleanup", version, observed)
+	}
+}
+
+func TestObserveDarwinProductVersionKeepsCommandFailureAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{err: errors.New("failed")}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	if observation.Reason() != platformsupport.RuntimeObservationCommandFailed {
+		t.Fatalf("reason = %s, want command_failed after caller cancel", observation.Reason())
+	}
+}
+
+func TestObserveDarwinProductVersionUsesFrozenCanceledCommandResult(t *testing.T) {
+	_, err := observeDarwinProductVersion(context.Background(), func(context.Context) commandResult {
+		return commandResult{canceled: true, err: context.Canceled}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v, want frozen canceled command result", err)
+	}
+}
+
+func TestObserveDarwinProductVersionKeepsTypedTimeoutAfterCallerCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	observation, err := observeDarwinProductVersion(ctx, func(context.Context) commandResult {
+		cancel()
+		return commandResult{timedOut: true, err: context.DeadlineExceeded}
+	})
+	if err != nil {
+		t.Fatalf("observeDarwinProductVersion: %v", err)
+	}
+	if observation.Reason() != platformsupport.RuntimeObservationTimedOut {
+		t.Fatalf("reason = %s, want typed timeout after later caller cancel", observation.Reason())
+	}
+}
+
+func TestFreezeDarwinCommandResultClassifiesAttemptCause(t *testing.T) {
+	failure := freezeDarwinCommandResult(context.Background(), errors.New("command failed"), "26.0\n", false)
+	if failure.canceled || failure.timedOut || failure.err == nil || failure.err.Error() != "command failed" {
+		t.Fatalf("frozen failure = %#v, want command error without later cancel", failure)
+	}
+
+	timedOut := freezeDarwinProductVersionTimeout(t, context.Background())
+	if !timedOut.timedOut || timedOut.canceled {
+		t.Fatalf("command timeout = %#v, want timedOut", timedOut)
+	}
+
+	canceled := freezeDarwinCommandResult(context.Background(), context.Canceled, "", false)
+	if !canceled.canceled || canceled.timedOut {
+		t.Fatalf("command cancel = %#v, want canceled", canceled)
+	}
+
+	timeoutParent, cancelTimeout := context.WithCancel(context.Background())
+	frozenTimeout := freezeDarwinProductVersionTimeout(t, timeoutParent)
+	cancelTimeout()
+	if !frozenTimeout.timedOut || frozenTimeout.canceled {
+		t.Fatalf("frozen timeout = %#v, want timedOut after later parent cancel", frozenTimeout)
+	}
+
+	parentDeadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
+	defer cancelDeadline()
+	attempt, cancelAttempt := context.WithTimeoutCause(parentDeadline, time.Hour, errDarwinProductVersionTimeout)
+	defer cancelAttempt()
+	parentTimedOut := freezeDarwinCommandResult(attempt, attempt.Err(), "", false)
+	if parentTimedOut.timedOut {
+		t.Fatalf("parent deadline = %#v, want wait deadline kept distinct from command timeout", parentTimedOut)
+	}
+
+	bareDeadline := freezeDarwinCommandResult(context.Background(), context.DeadlineExceeded, "", false)
+	if bareDeadline.timedOut {
+		t.Fatalf("bare deadline = %#v, want no Darwin timeout without attempt cause", bareDeadline)
+	}
+}
+
+func TestFreezeDarwinCommandResultKeepsTimeoutCauseAfterLaterCallerCancel(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	attempt, cancelAttempt := context.WithTimeoutCause(parent, time.Nanosecond, errDarwinProductVersionTimeout)
+	defer cancelAttempt()
+	select {
+	case <-attempt.Done():
+	case <-time.After(time.Second):
+		t.Fatal("attempt timeout did not fire")
+	}
+	cancelParent()
+	result := freezeDarwinCommandResult(attempt, attempt.Err(), "", false)
+	if !result.timedOut || result.canceled {
+		t.Fatalf("result = %#v, want internal timeout preserved after later caller cancel", result)
+	}
+}
+
+func freezeDarwinProductVersionTimeout(t *testing.T, parent context.Context) commandResult {
+	t.Helper()
+	attempt, cancel := context.WithTimeoutCause(parent, time.Nanosecond, errDarwinProductVersionTimeout)
+	t.Cleanup(cancel)
+	select {
+	case <-attempt.Done():
+	case <-time.After(time.Second):
+		t.Fatal("attempt timeout did not fire")
+	}
+	return freezeDarwinCommandResult(attempt, attempt.Err(), "", false)
 }
 
 func TestCanonicalProductVersionOutputAcceptsOnlyOneOptionalNewline(t *testing.T) {

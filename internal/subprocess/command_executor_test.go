@@ -89,6 +89,39 @@ func TestExecuteClassifiesTimeout(t *testing.T) {
 	}
 }
 
+func TestExecuteDoesNotReclassifyExitAfterAttemptContextExpires(t *testing.T) {
+	executor := NewCommandExecutor(CommandOptions{
+		Timeout: time.Millisecond,
+		Runner: func(ctx context.Context, request CommandRequest) CommandResult {
+			<-ctx.Done()
+			return CommandResult{Started: true, HasExitCode: true, ExitCode: 17, Err: errors.New("exit status 17")}
+		},
+	})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "cleanup-after-exit"})
+
+	exitCode, ok := result.ExitCode()
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() || !ok || exitCode != 17 {
+		t.Fatalf("result = %#v exit=(%d,%t), want nonzero 17 without timeout overwrite", result, exitCode, ok)
+	}
+}
+
+func TestExecuteDoesNotReclassifySuccessAfterAttemptContextExpires(t *testing.T) {
+	executor := NewCommandExecutor(CommandOptions{
+		Timeout: time.Millisecond,
+		Runner: func(ctx context.Context, request CommandRequest) CommandResult {
+			<-ctx.Done()
+			return CommandResult{Started: true, HasExitCode: true}
+		},
+	})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{Command: "cleanup-after-success"})
+
+	if result.Reason() != CommandReasonNone || result.TimedOut() || !result.Succeeded() {
+		t.Fatalf("result = %#v, want success preserved through post-exit context expiry", result)
+	}
+}
+
 func TestExecuteClassifiesCanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

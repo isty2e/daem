@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path"
@@ -171,35 +172,21 @@ func extractGitArchiveCommand(ctx context.Context, command *exec.Cmd, outputRoot
 		return err
 	}
 
-	extractErr := sourcearchive.ExtractTar(ctx, process.Stdout(), outputRoot)
-	if extractErr != nil {
-		_, _ = process.Terminate()
-	}
-
-	result := process.Wait()
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		if result.terminationErr != nil {
-			return errors.Join(ctxErr, result.terminationErr)
-		}
-		return ctxErr
+	extractErr, result := completeGitProcess(ctx, process, func(reader io.Reader) error {
+		return sourcearchive.ExtractTar(ctx, reader, outputRoot)
+	})
+	if lifecycleErr := gitObservedLifecycleError(extractErr, result); lifecycleErr != nil {
+		return joinGitProcessGroupTerminateErr(lifecycleErr, "git archive", result)
 	}
 	if extractErr != nil {
-		if result.terminationErr != nil {
-			return errors.Join(extractErr, fmt.Errorf("terminate git archive process tree: %w", result.terminationErr))
-		}
-		return extractErr
+		return joinGitProcessGroupTerminateErr(extractErr, "git archive", result)
 	}
 
 	waitErr := result.stderrReadErr
 	if result.commandErr != nil {
 		waitErr = errors.Join(waitErr, result.commandErr)
 	}
-	if result.terminationErr != nil {
-		waitErr = errors.Join(waitErr, fmt.Errorf("terminate git archive process tree: %w", result.terminationErr))
-	}
-	if result.termination.ProcessesFound() {
-		waitErr = errors.Join(waitErr, errors.New("git archive exited while descendant processes remained; terminated residual process tree"))
-	}
+	waitErr = joinGitProcessGroupResidual(waitErr, "git archive", result)
 	if waitErr != nil {
 		return waitErr
 	}

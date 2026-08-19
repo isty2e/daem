@@ -6,10 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 )
-
-const inheritedOutputCloseWait = 250 * time.Millisecond
 
 func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandResult {
 	path, err := exec.LookPath(request.Command)
@@ -37,58 +34,75 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 	if outputLimit <= 0 {
 		outputLimit = DefaultCommandOutputLimit
 	}
-	stdout := NewBoundedBuffer(outputLimit)
-	stderr := NewBoundedBuffer(outputLimit)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	// A successful leader may leave descendants holding inherited output
-	// descriptors. Bound exec's pipe wait so process-group reaping can run.
-	cmd.WaitDelay = inheritedOutputCloseWait
+	stdoutCapture, err := NewOutputCapture(outputLimit)
+	if err != nil {
+		return CommandResult{Err: err}
+	}
+	stderrCapture, err := NewOutputCapture(outputLimit)
+	if err != nil {
+		stdoutCapture.Close()
+		return CommandResult{Err: err}
+	}
+	cmd.Stdout = stdoutCapture.Writer()
+	cmd.Stderr = stderrCapture.Writer()
+	// Stdin may still be a non-file reader. Bound that copy so process-group
+	// reaping can run; stdout/stderr completeness comes from OutputCapture.
+	cmd.WaitDelay = InheritedOutputCloseWait
 	group, err := BindProcessGroup(cmd)
 	if err != nil {
+		stdoutCapture.Close()
+		stderrCapture.Close()
 		return CommandResult{Err: err}
 	}
 
 	if err := cmd.Start(); err != nil {
+		stdoutCapture.Close()
+		stderrCapture.Close()
 		return CommandResult{Err: err}
 	}
+	stdoutCapture.CloseWriter()
+	stderrCapture.CloseWriter()
+	stdoutCapture.StartCopy()
+	stderrCapture.StartCopy()
 	result := CommandResult{Started: true}
-	err = cmd.Wait()
-	result.Stdout = stdout.String()
-	result.Stderr = stderr.String()
+	waitErr := group.Await(ctx, InheritedOutputCloseWait)
+	stdout := stdoutCapture.Finish(InheritedOutputCloseWait)
+	stderr := stderrCapture.Finish(InheritedOutputCloseWait)
+	termination, terminationErr := group.ReapAfterLeaderExit()
+	return finalizeDefaultCommandResult(result, request, waitErr, stdout, stderr, termination, terminationErr)
+}
+
+func finalizeDefaultCommandResult(
+	result CommandResult,
+	request CommandRequest,
+	waitErr error,
+	stdout OutputSnapshot,
+	stderr OutputSnapshot,
+	termination ProcessTermination,
+	terminationErr error,
+) CommandResult {
+	result.Stdout = stdout.Text
+	result.Stderr = stderr.Text
 	result.StdoutTruncated = stdout.Truncated()
 	result.StderrTruncated = stderr.Truncated()
-	termination, terminationErr := group.ReapAfterLeaderExit()
-	if termination.ProcessesFound() || terminationErr != nil {
-		// Forced or indeterminate descendant cleanup means the complete command
-		// tree did not reach natural output closure.
-		result.StdoutTruncated = true
-		result.StderrTruncated = true
-	}
-	if ctx.Err() == context.DeadlineExceeded {
+	if errors.Is(waitErr, context.DeadlineExceeded) {
 		result.TimedOut = true
-		result.Err = errors.Join(ctx.Err(), terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(waitErr, termination, terminationErr)
 		return result
 	}
-	if errors.Is(ctx.Err(), context.Canceled) {
+	if errors.Is(waitErr, context.Canceled) {
 		result.Canceled = true
-		result.Err = errors.Join(ctx.Err(), terminationErr)
+		result.Err = joinCommandProcessGroupCleanup(waitErr, termination, terminationErr)
 		return result
 	}
-	outputDescriptorsHeldOpen := errors.Is(err, exec.ErrWaitDelay)
-	if err == nil || outputDescriptorsHeldOpen {
+	if waitErr == nil || errors.Is(waitErr, exec.ErrWaitDelay) {
 		result.HasExitCode = true
-		if outputDescriptorsHeldOpen {
-			// WaitDelay does not identify which copy pipe it closed. Mark both
-			// fields incomplete so downstream redaction treats any secret
-			// suffix at the capture boundary conservatively.
-			result.StdoutTruncated = true
-			result.StderrTruncated = true
+		if errors.Is(waitErr, exec.ErrWaitDelay) || stdout.Incomplete || stderr.Incomplete {
 			result.Err = errors.New("command exited while descendant processes kept inherited output descriptors open")
 		}
 	} else {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			if exitErr.ExitCode() < 0 {
 				result.Signaled = true
 			} else {
@@ -96,7 +110,7 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 				result.ExitCode = exitErr.ExitCode()
 			}
 		}
-		result.Err = err
+		result.Err = waitErr
 	}
 	if request.nativeWorkDir != nil && result.HasExitCode && result.ExitCode == 126 {
 		result.WorkDirAuthorityFailed = reportsWorkingDirectorySetupFailure(result.Stderr)
@@ -107,13 +121,26 @@ func defaultCommandRunner(ctx context.Context, request CommandRequest) CommandRe
 			result.HasExitCode = false
 		}
 	}
-	if terminationErr != nil {
-		result.Err = errors.Join(result.Err, fmt.Errorf("terminate command process tree: %w", terminationErr))
-		return result
-	}
-	if termination.ProcessesFound() {
-		result.Err = errors.Join(result.Err, errors.New("command exited while descendant processes remained; terminated residual process tree"))
-		return result
+	result.Err = joinCommandProcessGroupCleanup(result.Err, termination, terminationErr)
+	if errors.Is(waitErr, ErrProcessWaitAbandoned) {
+		result.Err = errors.Join(result.Err, waitErr)
 	}
 	return result
+}
+
+func joinCommandProcessGroupCleanup(resultErr error, termination ProcessTermination, terminationErr error) error {
+	if termination.UnsignalableOccupancy() {
+		cause := terminationErr
+		if cause == nil {
+			cause = errProcessGroupUnsignalable
+		}
+		return errors.Join(resultErr, fmt.Errorf("command process group occupancy is unsignalable: %w", cause))
+	}
+	if terminationErr != nil {
+		return errors.Join(resultErr, fmt.Errorf("terminate command process group: %w", terminationErr))
+	}
+	if termination.ResidualMembers() {
+		return errors.Join(resultErr, errors.New("command exited while process-group members remained; terminated residual process group"))
+	}
+	return resultErr
 }

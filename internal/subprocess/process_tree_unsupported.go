@@ -12,6 +12,6 @@ func configureDedicatedProcessGroup(*exec.Cmd) error {
 	return fmt.Errorf("%w on %s", errProcessTreeUnsupported, runtime.GOOS)
 }
 
-func terminateDedicatedProcessGroup(int, processTerminationOptions, bool) (ProcessTermination, error) {
+func terminateDedicatedProcessGroup(int, processTerminationOptions, bool, bool) (ProcessTermination, error) {
 	return ProcessTermination{}, fmt.Errorf("%w on %s", errProcessTreeUnsupported, runtime.GOOS)
 }

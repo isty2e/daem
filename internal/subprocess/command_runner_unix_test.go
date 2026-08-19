@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -35,6 +37,9 @@ func TestDefaultRunnerTimeoutTerminatesGrandchild(t *testing.T) {
 
 	if result.Reason() != CommandReasonTimeout || !result.Started() || !result.TimedOut() {
 		t.Fatalf("result = %#v, want started timeout", result)
+	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want timeout without residual-member diagnostic", result.ErrorDetail())
 	}
 	assertCommandExecProcessesGone(t, readCommandExecPIDs(t, readyPath))
 }
@@ -80,7 +85,63 @@ func TestDefaultRunnerCancellationTerminatesGrandchild(t *testing.T) {
 	if result.Reason() != CommandReasonCanceled || !result.Started() || !result.Canceled() {
 		t.Fatalf("result = %#v, want started cancellation", result)
 	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want cancellation without residual-member diagnostic", result.ErrorDetail())
+	}
 	assertCommandExecProcessesGone(t, pids)
+}
+
+func TestDefaultRunnerLeaderOnlyCancellationDoesNotReportResidualMembers(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready$not-expanded"
+	executor := NewCommandExecutor(CommandOptions{Timeout: 2 * DefaultCommandTimeout, OutputLimit: 1024})
+	ctx, cancel := context.WithCancel(context.Background())
+	resultDone := make(chan CommandAttemptResult, 1)
+	go func() {
+		resultDone <- executor.executeWithoutWorkingDirectory(ctx, CommandAttemptRequest{
+			Command: executable,
+			Args: []string{
+				"-test.run=TestCommandExecProcessTreeHelper",
+				"--",
+				"leader",
+				readyPath,
+			},
+		})
+	}()
+	if err := waitForCommandExecFile(readyPath, DefaultCommandTimeout); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	pidContent, err := os.ReadFile(readyPath)
+	if err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(pidContent)))
+	if err != nil || pid <= 0 {
+		cancel()
+		t.Fatalf("leader pid evidence = %q", pidContent)
+	}
+	t.Cleanup(func() {
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
+	cancel()
+	var result CommandAttemptResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(DefaultCommandTimeout):
+		t.Fatal("timed out waiting for leader-only cancellation")
+	}
+	if result.Reason() != CommandReasonCanceled || !result.Started() || !result.Canceled() {
+		t.Fatalf("result = %#v, want started cancellation", result)
+	}
+	if strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want leader-only cancellation without residual members", result.ErrorDetail())
+	}
+	assertCommandExecProcessesGone(t, []int{pid})
 }
 
 func TestDefaultRunnerRejectsSuccessfulLeaderWithResidualGrandchild(t *testing.T) {
@@ -107,11 +168,45 @@ func TestDefaultRunnerRejectsSuccessfulLeaderWithResidualGrandchild(t *testing.T
 	if exitCode, ok := result.ExitCode(); !ok || exitCode != 0 {
 		t.Fatalf("exit code = %d/%t, want observed direct-child exit 0", exitCode, ok)
 	}
-	if !strings.Contains(result.ErrorDetail(), "descendant processes remained") {
+	if !strings.Contains(result.ErrorDetail(), "process-group members remained") {
 		t.Fatalf("error detail = %q", result.ErrorDetail())
 	}
 	pids := readCommandExecPIDs(t, readyPath)
 	assertCommandExecProcessesGone(t, pids[1:])
+}
+
+func TestDefaultRunnerAllowsSetsidChildToOutliveLeader(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
+	executor := NewCommandExecutor(CommandOptions{Timeout: DefaultCommandTimeout, OutputLimit: 1024})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-exit-setsid",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNone || !result.Succeeded() {
+		t.Fatalf("result = %#v, want successful leader with out-of-group setsid child", result)
+	}
+	if strings.Contains(result.ErrorDetail(), "descendant") || strings.Contains(result.ErrorDetail(), "process tree") {
+		t.Fatalf("error detail = %q, want no spawn-tree residual claim", result.ErrorDetail())
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	if len(pids) != 2 {
+		t.Fatalf("pids = %v, want leader and setsid child", pids)
+	}
+	t.Cleanup(func() { _ = unix.Kill(pids[1], unix.SIGKILL) })
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
 }
 
 func TestDefaultRunnerDoesNotWaitForTimeoutWhenGrandchildHoldsOutputDescriptors(t *testing.T) {
@@ -256,6 +351,180 @@ func TestDefaultRunnerPreservesNonZeroExitWhenGrandchildHoldsOutputDescriptors(t
 	assertCommandExecProcessesGone(t, pids[1:])
 }
 
+func TestDefaultRunnerPreservesNonZeroExitWhenSetsidChildHoldsOutputDescriptors(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
+	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
+
+	startedAt := time.Now()
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-fail-setsid-inherited-output",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want prompt nonzero result with escaped inherited writers", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 17 {
+		t.Fatalf("exit code = %d/%t, want 17", exitCode, ok)
+	}
+	if !result.StdoutTruncated() || !result.StderrTruncated() {
+		t.Fatalf(
+			"truncation flags = %t/%t, want incomplete capture while a setsid child held pipes",
+			result.StdoutTruncated(),
+			result.StderrTruncated(),
+		)
+	}
+	if elapsed := time.Since(startedAt); elapsed >= 2*time.Second {
+		t.Fatalf("escaped output descriptor cleanup took %s, want less than 2s", elapsed)
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids[1:] {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
+func TestDefaultRunnerPreservesExitWhenCleanupCrossesDeadline(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
+	entered, release := holdProcessGroupWaitDone(t)
+	ctx := newTriggeredDeadlineContext()
+	executor := NewCommandExecutor(CommandOptions{
+		Timeout:     DefaultCommandTimeout,
+		OutputLimit: 1024,
+	})
+	resultDone := make(chan CommandAttemptResult, 1)
+	go func() {
+		resultDone <- executor.executeWithoutWorkingDirectory(ctx, CommandAttemptRequest{
+			Command: executable,
+			Args: []string{
+				"-test.run=TestCommandExecProcessTreeHelper",
+				"--",
+				"parent-fail-setsid-inherited-output",
+				readyPath,
+			},
+		})
+	}()
+
+	pids := readCommandExecPIDs(t, readyPath)
+	assertCommandExecProcessesGone(t, pids[:1])
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for leader wait before cleanup deadline")
+	}
+	ctx.expire()
+	release()
+
+	var result CommandAttemptResult
+	select {
+	case result = <-resultDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for runner after leader exit and cleanup deadline")
+	}
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want nonzero exit preserved when output cleanup crossed the attempt deadline", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 17 {
+		t.Fatalf("exit code = %d/%t, want 17", exitCode, ok)
+	}
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
+func TestDefaultRunnerResidualProcessWithoutInheritedOutputDoesNotTruncateCompleteStreams(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	executor := NewCommandExecutor(CommandOptions{Timeout: DefaultCommandTimeout, OutputLimit: 1024})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-exit-discard-output",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonRunnerError || result.TimedOut() {
+		t.Fatalf("result = %#v, want residual-process runner failure", result)
+	}
+	if exitCode, ok := result.ExitCode(); !ok || exitCode != 0 {
+		t.Fatalf("exit code = %d/%t, want observed direct-child exit 0", exitCode, ok)
+	}
+	if result.StdoutTruncated() || result.StderrTruncated() {
+		t.Fatalf(
+			"truncation flags = %t/%t, want complete streams when residual members held no output",
+			result.StdoutTruncated(),
+			result.StderrTruncated(),
+		)
+	}
+	if !strings.Contains(result.ErrorDetail(), "process-group members remained") {
+		t.Fatalf("error detail = %q, want residual process-group error", result.ErrorDetail())
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	assertCommandExecProcessesGone(t, pids[1:])
+}
+
+func TestDefaultRunnerMarksOnlyTheStreamHeldOpenByASetsidChild(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	readyPath := t.TempDir() + "/ready"
+	registerCommandExecEscapedChildCleanup(t, readyPath)
+	executor := NewCommandExecutor(CommandOptions{Timeout: 5 * time.Second, OutputLimit: 1024})
+
+	result := executor.executeWithoutWorkingDirectory(context.Background(), CommandAttemptRequest{
+		Command: executable,
+		Args: []string{
+			"-test.run=TestCommandExecProcessTreeHelper",
+			"--",
+			"parent-fail-setsid-inherited-stderr",
+			readyPath,
+		},
+	})
+
+	if result.Reason() != CommandReasonNonZeroExit || result.TimedOut() {
+		t.Fatalf("result = %#v, want nonzero exit with one held stderr stream", result)
+	}
+	if result.Stdout() != "leader stdout\n" || result.StdoutTruncated() {
+		t.Fatalf("stdout = %q truncated=%t, want complete leader stdout", result.Stdout(), result.StdoutTruncated())
+	}
+	if !result.StderrTruncated() || result.Stderr() != "leader stderr\n" {
+		t.Fatalf("stderr = %q truncated=%t, want incomplete held stderr", result.Stderr(), result.StderrTruncated())
+	}
+	pids := readCommandExecPIDs(t, readyPath)
+	t.Cleanup(func() {
+		for _, pid := range pids[1:] {
+			_ = unix.Kill(pid, unix.SIGKILL)
+		}
+	})
+	assertCommandExecProcessesGone(t, pids[:1])
+	assertCommandExecProcessAlive(t, pids[1])
+}
+
 func TestDefaultRunnerAllowsInheritedOutputGrandchildToClosePromptly(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -288,6 +557,76 @@ func TestDefaultRunnerAllowsInheritedOutputGrandchildToClosePromptly(t *testing.
 	assertCommandExecProcessesGone(t, pids[1:])
 }
 
+func registerCommandExecEscapedChildCleanup(t *testing.T, readyPath string) {
+	t.Helper()
+	t.Cleanup(func() {
+		content, err := os.ReadFile(readyPath + ".child")
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
+		if err != nil || pid <= 0 {
+			return
+		}
+		_ = unix.Kill(pid, unix.SIGKILL)
+	})
+}
+
+func holdProcessGroupWaitDone(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterProcessGroupWaitDone = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-releaseCh
+	}
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCh) })
+	}
+	t.Cleanup(func() {
+		afterProcessGroupWaitDone = nil
+		release()
+	})
+	return entered, release
+}
+
+type triggeredDeadlineContext struct {
+	done chan struct{}
+	once sync.Once
+}
+
+func newTriggeredDeadlineContext() *triggeredDeadlineContext {
+	return &triggeredDeadlineContext{done: make(chan struct{})}
+}
+
+func (ctx *triggeredDeadlineContext) Deadline() (time.Time, bool) {
+	return time.Time{}, false
+}
+
+func (ctx *triggeredDeadlineContext) Done() <-chan struct{} {
+	return ctx.done
+}
+
+func (ctx *triggeredDeadlineContext) Err() error {
+	select {
+	case <-ctx.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
+}
+
+func (ctx *triggeredDeadlineContext) Value(any) any {
+	return nil
+}
+
+func (ctx *triggeredDeadlineContext) expire() {
+	ctx.once.Do(func() {
+		close(ctx.done)
+	})
+}
+
 func TestCommandExecProcessTreeHelper(t *testing.T) {
 	args := argsAfterDoubleDash(os.Args)
 	if len(args) < 2 {
@@ -308,12 +647,23 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		for {
 			time.Sleep(time.Hour)
 		}
+	case "leader":
+		if err := writeCommandExecHelperFile(readyPath, []byte(strconv.Itoa(os.Getpid()))); err != nil {
+			os.Exit(81)
+		}
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "parent",
 		"parent-exit",
+		"parent-exit-discard-output",
 		"parent-exit-inherited-output",
 		"parent-exit-secret-prefix-inherited-output",
 		"parent-fail-inherited-output",
-		"parent-exit-short-inherited-output":
+		"parent-fail-setsid-inherited-output",
+		"parent-fail-setsid-inherited-stderr",
+		"parent-exit-short-inherited-output",
+		"parent-exit-setsid":
 		executable, err := os.Executable()
 		if err != nil {
 			os.Exit(82)
@@ -326,6 +676,23 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 		if strings.Contains(mode, "inherited-output") {
 			child.Stdout = os.Stdout
 			child.Stderr = os.Stderr
+		} else if strings.Contains(mode, "inherited-stderr") {
+			child.Stderr = os.Stderr
+			devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				os.Exit(88)
+			}
+			child.Stdout = devNull
+		} else if mode == "parent-exit-discard-output" {
+			devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+			if err != nil {
+				os.Exit(88)
+			}
+			child.Stdout = devNull
+			child.Stderr = devNull
+		}
+		if strings.Contains(mode, "setsid") {
+			child.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		}
 		if err := child.Start(); err != nil {
 			os.Exit(83)
@@ -339,7 +706,7 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			_ = child.Process.Kill()
 			os.Exit(85)
 		}
-		if strings.Contains(mode, "inherited-output") &&
+		if (strings.Contains(mode, "inherited-output") || strings.Contains(mode, "inherited-stderr")) &&
 			mode != "parent-exit-secret-prefix-inherited-output" {
 			fmt.Fprintln(os.Stdout, "leader stdout")
 			fmt.Fprintln(os.Stderr, "leader stderr")
@@ -351,7 +718,9 @@ func TestCommandExecProcessTreeHelper(t *testing.T) {
 			}
 			fmt.Fprint(os.Stdout, secret[:len(secret)-6])
 		}
-		if mode == "parent-fail-inherited-output" {
+		if mode == "parent-fail-inherited-output" ||
+			mode == "parent-fail-setsid-inherited-output" ||
+			mode == "parent-fail-setsid-inherited-stderr" {
 			os.Exit(17)
 		}
 		if mode != "parent" {
@@ -410,6 +779,13 @@ func writeCommandExecHelperFile(path string, content []byte) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
+}
+
+func assertCommandExecProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	if err := unix.Kill(pid, 0); err != nil && err != unix.EPERM {
+		t.Fatalf("pid %d not alive: %v", pid, err)
+	}
 }
 
 func assertCommandExecProcessesGone(t *testing.T, pids []int) {

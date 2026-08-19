@@ -3,6 +3,7 @@ package subprocess
 import (
 	"sort"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -12,6 +13,7 @@ import (
 // BoundedBuffer accumulates at most limit raw bytes while reporting whether
 // any input was omitted. Sanitization remains a separate CapturePolicy operation.
 type BoundedBuffer struct {
+	mu        sync.Mutex
 	limit     int
 	data      []byte
 	truncated bool
@@ -27,6 +29,8 @@ func NewBoundedBuffer(limit int) *BoundedBuffer {
 
 // Write implements io.Writer and always consumes the caller's full input.
 func (buffer *BoundedBuffer) Write(payload []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
 	written := len(payload)
 	remaining := buffer.limit - len(buffer.data)
 	if remaining <= 0 {
@@ -47,6 +51,8 @@ func (buffer *BoundedBuffer) Write(payload []byte) (int, error) {
 // WriteString implements io.StringWriter without first copying the complete
 // input into a byte slice.
 func (buffer *BoundedBuffer) WriteString(payload string) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
 	written := len(payload)
 	remaining := buffer.limit - len(buffer.data)
 	if remaining <= 0 {
@@ -66,12 +72,23 @@ func (buffer *BoundedBuffer) WriteString(payload string) (int, error) {
 
 // String returns the captured raw bytes as text for subsequent sanitation.
 func (buffer *BoundedBuffer) String() string {
-	return string(buffer.data)
+	text, _ := buffer.snapshot()
+	return text
 }
 
 // Truncated reports whether any non-empty input exceeded the bound.
 func (buffer *BoundedBuffer) Truncated() bool {
-	return buffer.truncated
+	_, truncated := buffer.snapshot()
+	return truncated
+}
+
+func (buffer *BoundedBuffer) snapshot() (string, bool) {
+	if buffer == nil {
+		return "", false
+	}
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return string(buffer.data), buffer.truncated
 }
 
 const (

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -41,8 +42,11 @@ func TestRunGitOutputCancelsCompleteProcessTree(t *testing.T) {
 	cancel()
 	select {
 	case err := <-result:
-		if err != context.Canceled {
-			t.Fatalf("runGitOutput error = %#v, want exact context.Canceled", err)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("runGitOutput error = %v, want context.Canceled", err)
+		}
+		if strings.Contains(err.Error(), "process-group members remained") {
+			t.Fatalf("runGitOutput error = %v, want cancellation without residual members", err)
 		}
 	case <-time.After(6 * time.Second):
 		t.Fatal("runGitOutput did not return after cancellation")
@@ -56,10 +60,142 @@ func TestRunGitOutputRejectsAndCleansResidualDescendant(t *testing.T) {
 	command := gitProcessHelperCommand(t, context.Background(), "residual-parent", pidFile)
 
 	_, err := runGitOutput(context.Background(), command)
-	if err == nil || !strings.Contains(err.Error(), "descendant processes remained") {
-		t.Fatalf("runGitOutput error = %v, want residual descendant classification", err)
+	if err == nil || !strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("runGitOutput error = %v, want residual process-group classification", err)
 	}
 	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
+}
+
+func TestRunGitOutputAllowsSetsidChildToOutliveLeader(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	command := gitProcessHelperCommand(t, context.Background(), "setsid-parent", pidFile)
+
+	_, err := runGitOutput(context.Background(), command)
+	if err != nil {
+		t.Fatalf("runGitOutput error = %v, want success with out-of-group setsid child", err)
+	}
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
+func TestRunGitOutputReturnsWhenSetsidChildHoldsPipes(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := gitProcessHelperCommand(t, ctx, "setsid-inherit-parent", pidFile)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := runGitOutput(ctx, command)
+		result <- err
+	}()
+
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	cancel()
+	select {
+	case <-result:
+	case <-time.After(6 * time.Second):
+		t.Fatal("runGitOutput did not return after cancellation while a setsid child held pipes")
+	}
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
+func TestRunGitOutputDoesNotTruncateCompleteStderrWhenSetsidChildHoldsStdout(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	command := gitProcessHelperCommand(t, context.Background(), "setsid-stdout-fail-parent", pidFile)
+
+	_, err := runGitOutput(context.Background(), command)
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	if err == nil {
+		t.Fatal("runGitOutput accepted failing helper")
+	}
+	message := err.Error()
+	if !strings.Contains(message, "complete-stderr-marker-xyz") {
+		t.Fatalf("runGitOutput error = %q, want complete stderr marker", message)
+	}
+	if strings.Contains(message, "[truncated]") {
+		t.Fatalf("runGitOutput error = %q, want complete stderr not marked truncated", message)
+	}
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
+func TestRunGitOutputKeepsCompletedWaitWhenCallerCancelsAfterLeaderExit(t *testing.T) {
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	entered, release := holdGitLeaderWait(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := gitProcessHelperCommand(t, ctx, "setsid-inherit-parent", pidFile)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := runGitOutput(ctx, command)
+		result <- err
+	}()
+
+	pids := waitForGitHelperPIDs(t, pidFile, 2)
+	t.Cleanup(func() { _ = syscall.Kill(pids[1], syscall.SIGKILL) })
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for git leader wait before post-exit cancel")
+	}
+	cancel()
+	release()
+	select {
+	case err := <-result:
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("runGitOutput error = %v, want completed wait preserved after post-exit cancel", err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("runGitOutput did not return after post-exit cancel")
+	}
+	assertGitHelperProcessesGone(t, pids[:1])
+	assertGitHelperProcessAlive(t, pids[1])
+}
+
+func TestRunGitOutputCancelWithStderrPreservesCause(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	ctx, cancel := context.WithCancel(context.Background())
+	command := gitProcessHelperCommand(t, ctx, "stderr-hang-parent", pidFile)
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := runGitOutput(ctx, command)
+		result <- err
+	}()
+
+	pids := waitForGitHelperPIDs(t, pidFile, 1)
+	t.Cleanup(func() { _ = syscall.Kill(pids[0], syscall.SIGKILL) })
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("runGitOutput error = %#v, want context.Canceled cause", err)
+		}
+		if err == context.Canceled {
+			t.Fatalf("runGitOutput error identity = context.Canceled, want diagnostic wrapper")
+		}
+		message := err.Error()
+		if !strings.Contains(message, "cancel-stderr-marker") {
+			t.Fatalf("runGitOutput error = %q, want sanitized stderr", message)
+		}
+		if strings.Contains(message, "context canceled") {
+			t.Fatalf("runGitOutput error = %q, want diagnostic without unsanitized cause", message)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("runGitOutput did not return after cancellation with stderr")
+	}
+	assertGitHelperProcessesGone(t, pids)
 }
 
 func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T) {
@@ -69,8 +205,8 @@ func TestExtractGitArchiveCommandRejectsAndCleansResidualDescendant(t *testing.T
 	command := gitProcessHelperCommand(t, context.Background(), "archive-parent", pidFile)
 
 	err := extractGitArchiveCommand(context.Background(), command, outputRoot)
-	if err == nil || !strings.Contains(err.Error(), "descendant processes remained") {
-		t.Fatalf("extractGitArchiveCommand error = %v, want residual descendant classification", err)
+	if err == nil || !strings.Contains(err.Error(), "process-group members remained") {
+		t.Fatalf("extractGitArchiveCommand error = %v, want residual process-group classification", err)
 	}
 	content, readErr := os.ReadFile(filepath.Join(outputRoot, "payload.txt"))
 	if readErr != nil || string(content) != "payload" {
@@ -133,6 +269,25 @@ func TestRunGitReaderTerminatesProcessTreeWhenListingBudgetFails(t *testing.T) {
 	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
 }
 
+func TestRunGitReaderKeepsConsumerFailureWhenCallerCancelsDuringCleanup(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "pids")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	command := gitProcessHelperCommand(t, ctx, "listing-overflow-parent", pidFile)
+	consumerErr := errors.New("consumer failure")
+
+	err := runGitReader(ctx, command, func(output io.Reader) error {
+		_, _ = io.Copy(io.Discard, io.LimitReader(output, 32))
+		cancel()
+		return consumerErr
+	})
+	if !errors.Is(err, consumerErr) {
+		t.Fatalf("runGitReader error = %v, want consumer failure", err)
+	}
+	assertGitHelperProcessesGone(t, waitForGitHelperPIDs(t, pidFile, 2))
+}
+
 func TestGitProcessHelper(t *testing.T) {
 	stage := os.Getenv(gitProcessHelperStageEnv)
 	if stage == "" {
@@ -155,7 +310,7 @@ func runGitProcessHelper(stage string, pidFile string) error {
 		return runGitProcessHelperChild("chain-child", pidFile, true)
 	case "chain-child":
 		return runGitProcessHelperChild("chain-grandchild", pidFile, true)
-	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child":
+	case "chain-grandchild", "residual-child", "archive-child", "archive-invalid-child", "listing-overflow-child", "setsid-child", "setsid-inherit-child", "setsid-stdout-child":
 		for {
 			time.Sleep(time.Hour)
 		}
@@ -164,6 +319,30 @@ func runGitProcessHelper(stage string, pidFile string) error {
 			return err
 		}
 		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-parent":
+		if err := startGitProcessHelperChild("setsid-child", pidFile); err != nil {
+			return err
+		}
+		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-inherit-parent":
+		if err := startGitProcessHelperChild("setsid-inherit-child", pidFile); err != nil {
+			return err
+		}
+		return waitForGitHelperPIDCount(pidFile, 2, 3*time.Second)
+	case "setsid-stdout-fail-parent":
+		if err := startGitProcessHelperChild("setsid-stdout-child", pidFile); err != nil {
+			return err
+		}
+		if err := waitForGitHelperPIDCount(pidFile, 2, 3*time.Second); err != nil {
+			return err
+		}
+		_, _ = io.WriteString(os.Stderr, "fatal: complete-stderr-marker-xyz\n")
+		return fmt.Errorf("forced helper failure")
+	case "stderr-hang-parent":
+		_, _ = io.WriteString(os.Stderr, "fatal: cancel-stderr-marker\n")
+		for {
+			time.Sleep(time.Hour)
+		}
 	case "archive-parent":
 		if err := startGitProcessHelperChild("archive-child", pidFile); err != nil {
 			return err
@@ -247,7 +426,19 @@ func newGitProcessHelperChild(stage string, pidFile string) (*exec.Cmd, error) {
 	}
 	command := exec.Command(executable, "-test.run=^TestGitProcessHelper$")
 	command.Env = gitProcessHelperEnv(stage, pidFile)
-	if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
+	if stage == "setsid-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = io.Discard
+		command.Stderr = io.Discard
+	} else if stage == "setsid-inherit-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+	} else if stage == "setsid-stdout-child" {
+		command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		command.Stdout = os.Stdout
+		command.Stderr = io.Discard
+	} else if stage == "residual-child" || stage == "archive-child" || stage == "archive-invalid-child" {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 	} else {
@@ -316,6 +507,14 @@ func waitForGitHelperPIDCount(path string, count int, timeout time.Duration) err
 	return fmt.Errorf("timed out waiting for %d helper PIDs", count)
 }
 
+func assertGitHelperProcessAlive(t *testing.T, pid int) {
+	t.Helper()
+	err := syscall.Kill(pid, 0)
+	if err != nil && !errors.Is(err, syscall.EPERM) {
+		t.Fatalf("helper process %d not alive: %v", pid, err)
+	}
+}
+
 func assertGitHelperProcessesGone(t *testing.T, pids []int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
@@ -347,4 +546,23 @@ func writeGitHelperArchive(output io.Writer) error {
 		return err
 	}
 	return writer.Close()
+}
+
+func holdGitLeaderWait(t *testing.T) (<-chan struct{}, func()) {
+	t.Helper()
+	entered := make(chan struct{})
+	releaseCh := make(chan struct{})
+	var enterOnce, releaseOnce sync.Once
+	afterGitLeaderWait = func() {
+		enterOnce.Do(func() { close(entered) })
+		<-releaseCh
+	}
+	release := func() {
+		releaseOnce.Do(func() { close(releaseCh) })
+	}
+	t.Cleanup(func() {
+		afterGitLeaderWait = nil
+		release()
+	})
+	return entered, release
 }
