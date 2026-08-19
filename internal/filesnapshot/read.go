@@ -19,6 +19,9 @@ var (
 	ErrLimitExceeded = errors.New("file size limit exceeded")
 	// ErrChanged reports a path or referent that changed during observation.
 	ErrChanged = errors.New("file changed while reading")
+	// ErrUnsupported reports that this platform cannot bind a directory-entry
+	// snapshot to the retained directory descriptor.
+	ErrUnsupported = errors.New("descriptor-relative file snapshot is unsupported on this platform")
 )
 
 type readHooks struct {
@@ -110,7 +113,8 @@ func ReadRegularFileContextCounted(
 // ReadRegularFileAtCounted reads at most maximumBytes from one directory entry
 // of dir without following that entry, and reports attempted read bytes.
 // Identity checks stay on dir's descriptor and name; they do not re-inspect a
-// pathname. A missing entry returns exists=false.
+// pathname. A missing entry returns exists=false. Platforms without a proven
+// descriptor-relative adapter return ErrUnsupported without reading.
 func ReadRegularFileAtCounted(
 	ctx context.Context,
 	dir *os.File,
