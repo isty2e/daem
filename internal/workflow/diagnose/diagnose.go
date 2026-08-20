@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/findings"
@@ -59,9 +60,8 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 	}
 	result.ManifestPath = paths.ManifestPath
 	if !assessment.IsAdmitted() {
-		result.Checks = []findings.Check{platformCheck}
-		result.HasErrors = true
-		return result, nil
+		selection, checks := remainingChecks(ctx, input, paths, platformCheck, result.Selection, remainingCheckIndependent)
+		return finishDiagnose(ctx, result, selection, checks)
 	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
 		return result, err
@@ -70,42 +70,75 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 		return result, err
 	}
 
+	selection, checks := remainingChecks(ctx, input, paths, platformCheck, result.Selection, remainingCheckFull)
+	return finishDiagnose(ctx, result, selection, checks)
+}
+
+type remainingCheckMode uint8
+
+const (
+	remainingCheckFull remainingCheckMode = iota
+	remainingCheckIndependent
+)
+
+func remainingChecks(
+	ctx context.Context,
+	input Input,
+	paths daempaths.Paths,
+	platformCheck findings.Check,
+	selection targetselection.Selection,
+	mode remainingCheckMode,
+) (targetselection.Selection, []findings.Check) {
 	loadedManifest := doctorManifestLoader.load(ctx, paths.ManifestPath)
-	if !input.TargetExplicit && !input.AllTargets && loadedManifest.ready() {
-		selection = loadedManifest.facts.ContextSelection()
-		result.Selection = selection
-	}
-
-	resourceKinds := allResourceKinds()
-	if !input.TargetExplicit && !input.AllTargets && loadedManifest.ready() {
-		resourceKinds = loadedManifest.facts.ResourceKinds()
-	}
-
-	checks := []findings.Check{platformCheck, manifestCheck(paths.ManifestPath, input.ManifestExplicit, loadedManifest)}
-	if loadedManifest.ready() {
-		manifestSkills, skillInspectionChecks := diagnose.InspectManifestSkills(
-			ctx,
-			paths,
-			loadedManifest.facts.Skills(),
-			loadedManifest.facts.SkillSets(),
+	selection, resourceKinds := applyManifestDiagnosticContext(input, loadedManifest, selection)
+	checks := []findings.Check{platformCheck}
+	if mode == remainingCheckIndependent {
+		checks = append(
+			checks,
+			findings.UnsupportedCheck("file_set", "durable file-set inventory cannot be honored on this platform"),
+			findings.UnsupportedCheck("recovery", "interrupted-apply recovery inventory cannot be honored on this platform"),
 		)
-		checks = append(checks, diagnose.HookCommandChecks(loadedManifest.facts.Hooks(), selection)...)
-		checks = append(checks, skillInspectionChecks...)
-		checks = append(checks, diagnose.ManifestSkillChecks(
-			ctx,
-			paths,
-			manifestSkills,
-			selection,
-		)...)
-		checks = append(checks, diagnose.RetainedSkillDiscoveryChecks(
-			ctx,
-			paths,
-			manifestSkills,
-			selection,
-		)...)
-		checks = append(checks, diagnose.MCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
 	}
-	checks = append(checks, diagnose.EnvironmentChecks(
+	checks = append(checks, manifestCheck(paths.ManifestPath, input.ManifestExplicit, loadedManifest))
+	if loadedManifest.ready() {
+		if mode == remainingCheckIndependent {
+			checks = append(checks, diagnose.HookCommandChecks(loadedManifest.facts.Hooks(), selection)...)
+			if len(loadedManifest.facts.Skills()) > 0 || len(loadedManifest.facts.SkillSets()) > 0 {
+				checks = append(checks, findings.SkippedCheck(
+					"skill_observation",
+					"skill-group expansion, compatibility, and retained discovery were not attempted; this platform cannot honor those host-observation contracts",
+				))
+			}
+			checks = append(checks, diagnose.IndependentMCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
+		} else {
+			manifestSkills, skillInspectionChecks := diagnose.InspectManifestSkills(
+				ctx,
+				paths,
+				loadedManifest.facts.Skills(),
+				loadedManifest.facts.SkillSets(),
+			)
+			checks = append(checks, diagnose.HookCommandChecks(loadedManifest.facts.Hooks(), selection)...)
+			checks = append(checks, skillInspectionChecks...)
+			checks = append(checks, diagnose.ManifestSkillChecks(
+				ctx,
+				paths,
+				manifestSkills,
+				selection,
+			)...)
+			checks = append(checks, diagnose.RetainedSkillDiscoveryChecks(
+				ctx,
+				paths,
+				manifestSkills,
+				selection,
+			)...)
+			checks = append(checks, diagnose.MCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
+		}
+	}
+	environment := diagnose.EnvironmentChecks
+	if mode == remainingCheckIndependent {
+		environment = diagnose.IndependentEnvironmentChecks
+	}
+	checks = append(checks, environment(
 		ctx,
 		paths,
 		paths.ProjectPlacementAllowed(),
@@ -113,11 +146,26 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 		resourceKinds,
 		input.TargetExplicit || input.AllTargets,
 	)...)
+	return selection, checks
+}
+
+func applyManifestDiagnosticContext(input Input, loadedManifest manifestLoad, selection targetselection.Selection) (targetselection.Selection, map[entity.Kind]struct{}) {
+	if !input.TargetExplicit && !input.AllTargets && loadedManifest.ready() {
+		selection = loadedManifest.facts.ContextSelection()
+	}
+	resourceKinds := allResourceKinds()
+	if !input.TargetExplicit && !input.AllTargets && loadedManifest.ready() {
+		resourceKinds = loadedManifest.facts.ResourceKinds()
+	}
+	return selection, resourceKinds
+}
+
+func finishDiagnose(ctx context.Context, result Result, selection targetselection.Selection, checks []findings.Check) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+	result.Selection = selection
 	result.Checks = checks
 	result.HasErrors = findings.HasCheckErrors(checks)
-
 	return result, nil
 }

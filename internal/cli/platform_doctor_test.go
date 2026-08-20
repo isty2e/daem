@@ -10,6 +10,7 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/platformsupport"
+	"github.com/isty2e/daem/test/testkit/doctorenv"
 )
 
 func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *testing.T) {
@@ -21,6 +22,7 @@ func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *tes
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	manifestPath := filepath.Join(home, "missing.toml")
+	doctorenv.WithFakeGit(t, "git version test")
 
 	t.Run("human", func(t *testing.T) {
 		var stdout bytes.Buffer
@@ -37,8 +39,11 @@ func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *tes
 		}
 		for _, want := range []string{
 			"targets: codex",
-			"doctor: 1 checks (ok=0 warn=0 error=1)",
+			"skipped=0 unsupported=",
 			"error platform",
+			"unsupported file_set",
+			"unsupported recovery",
+			"unsupported cache",
 			"windows/amd64",
 			"verification=compile-only",
 			"next=\"run daem on an admitted platform",
@@ -72,7 +77,7 @@ func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *tes
 			CheckCount    int      `json:"check_count"`
 			HasErrors     bool     `json:"has_errors"`
 			Checks        []struct {
-				Severity string `json:"severity"`
+				Status   string `json:"status"`
 				Name     string `json:"name"`
 				Detail   string `json:"detail"`
 				NextStep string `json:"next_step"`
@@ -86,24 +91,31 @@ func TestRunCommandDoctorDisclosesUnsupportedPlatformInHumanAndJSONOutput(t *tes
 		}
 		if payload.SchemaVersion != contractversion.DoctorJSON ||
 			payload.Command != "doctor" ||
-			payload.CheckCount != 1 ||
-			len(payload.Checks) != 1 ||
+			payload.CheckCount != len(payload.Checks) ||
+			payload.CheckCount < 4 ||
 			len(payload.Targets) != 1 ||
 			payload.Targets[0] != "codex" {
 			t.Fatalf("doctor JSON envelope = %#v", payload)
 		}
-		found := false
+		found := map[string]string{}
 		for _, check := range payload.Checks {
-			if check.Name != "platform" {
-				continue
-			}
-			found = true
-			if check.Severity != "error" || !strings.Contains(check.Detail, "windows/amd64") || !strings.Contains(check.NextStep, "darwin/arm64, linux/amd64") {
-				t.Fatalf("platform check = %#v", check)
+			found[check.Name] = check.Status
+			if check.Name == "platform" {
+				if check.Status != "error" || !strings.Contains(check.Detail, "windows/amd64") || !strings.Contains(check.NextStep, "darwin/arm64, linux/amd64") {
+					t.Fatalf("platform check = %#v", check)
+				}
 			}
 		}
-		if !found {
-			t.Fatalf("doctor JSON omitted platform check: %s", stdout.String())
+		if strings.Contains(stdout.String(), `"severity"`) {
+			t.Fatalf("doctor JSON retained severity: %s", stdout.String())
+		}
+		for _, name := range []string{"platform", "file_set", "recovery", "cache"} {
+			if _, ok := found[name]; !ok {
+				t.Fatalf("doctor JSON omitted %s: %s", name, stdout.String())
+			}
+		}
+		if found["platform"] != "error" || found["file_set"] != "unsupported" || found["recovery"] != "unsupported" {
+			t.Fatalf("named remaining checks = %#v", found)
 		}
 		if stderr.Len() != 0 {
 			t.Fatalf("stderr = %q, want empty", stderr.String())
@@ -155,7 +167,7 @@ func TestRunCommandDoctorKeepsPathFailureAlongsideUnsupportedPlatform(t *testing
 			if !jsonOutput {
 				if !strings.Contains(
 					stdout.String(),
-					"doctor: 2 checks (ok=0 warn=0 error=2)",
+					"doctor: 2 checks (ok=0 warn=0 error=2 skipped=0 unsupported=0)",
 				) {
 					t.Fatalf("human output = %q, want two errors", stdout.String())
 				}
@@ -193,6 +205,7 @@ func TestRunCommandDoctorDisclosesMacOSRuntimeFailureInHumanAndJSONOutput(t *tes
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
 	manifestPath := filepath.Join(home, "missing.toml")
+	doctorenv.WithFakeGit(t, "git version test")
 
 	tests := []struct {
 		name     string
@@ -233,22 +246,38 @@ func TestRunCommandDoctorDisclosesMacOSRuntimeFailureInHumanAndJSONOutput(t *tes
 						t.Fatalf("stdout = %q, want %q", stdout.String(), want)
 					}
 				}
-				if !jsonOutput && !strings.Contains(stdout.String(), "doctor: 1 checks (ok=0 warn=0 error=1)") {
+				if !jsonOutput && !strings.Contains(stdout.String(), "error platform") {
 					t.Fatalf("human stdout = %q", stdout.String())
+				}
+				if !jsonOutput && !strings.Contains(stdout.String(), "unsupported file_set") {
+					t.Fatalf("human stdout omitted remaining checks: %q", stdout.String())
 				}
 				if jsonOutput {
 					var payload struct {
-						CheckCount int `json:"check_count"`
+						CheckCount int  `json:"check_count"`
+						HasErrors  bool `json:"has_errors"`
 						Checks     []struct {
-							Name     string `json:"name"`
-							Severity string `json:"severity"`
+							Name   string `json:"name"`
+							Status string `json:"status"`
 						} `json:"checks"`
 					}
 					if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
 						t.Fatalf("decode JSON: %v", err)
 					}
-					if payload.CheckCount != 1 || len(payload.Checks) != 1 || payload.Checks[0].Name != "platform" || payload.Checks[0].Severity != "error" {
+					if !payload.HasErrors || payload.CheckCount != len(payload.Checks) || payload.CheckCount < 4 {
 						t.Fatalf("JSON payload = %#v", payload)
+					}
+					foundPlatform := false
+					for _, check := range payload.Checks {
+						if check.Name == "platform" {
+							foundPlatform = true
+							if check.Status != "error" {
+								t.Fatalf("platform check = %#v", check)
+							}
+						}
+					}
+					if !foundPlatform {
+						t.Fatalf("JSON payload omitted platform: %#v", payload)
 					}
 				}
 			})

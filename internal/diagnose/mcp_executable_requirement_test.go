@@ -13,6 +13,35 @@ import (
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
+func TestIndependentMCPExecutableRequirementChecksDoesNotLookPath(t *testing.T) {
+	selection := mustPrerequisiteSelection(t, "claude-code")
+	server := prerequisiteMCPServerWith(
+		t,
+		"independent",
+		"claude-code",
+		"project",
+		"must-not-search",
+		[]string{"server.js"},
+		map[string]string{"TOKEN": "MISSING_DOCTOR_TOKEN"},
+	)
+	checks := mcpExecutableRequirementChecks([]desiredmcp.Server{server}, selection, mcpExecutableEnvironment{
+		commandObservation: hostObservationIndependent,
+		lookPath: func(string) (string, error) {
+			t.Fatal("independent MCP command checks must not search PATH")
+			return "", errors.New("unreachable")
+		},
+		lookupEnv: func(string) (string, bool) { return "", false },
+	})
+	command := assertPrerequisiteCheck(t, checks, "target=claude-code scope=project mcp_server=independent executable_requirement=command")
+	if command.Status != findings.CheckUnsupported {
+		t.Fatalf("command = %#v, want unsupported", command)
+	}
+	envCheck := assertPrerequisiteCheck(t, checks, "target=claude-code scope=project mcp_server=independent executable_requirement=env_refs")
+	if envCheck.Status != findings.CheckWarn || !strings.Contains(envCheck.Detail, "MISSING_DOCTOR_TOKEN") {
+		t.Fatalf("env_refs = %#v, want in-memory missing-env warning", envCheck)
+	}
+}
+
 func TestMCPExecutableRequirementChecksReportMissingRunnerFamilies(t *testing.T) {
 	selection := mustPrerequisiteSelection(t, "claude-code")
 	setMCPExecutableLookupPath(t)
@@ -179,8 +208,8 @@ func mustPrerequisiteSelection(t *testing.T, values ...string) targetselection.S
 func assertPrerequisiteWarnContains(t *testing.T, checks []findings.Check, name string, detail string) findings.Check {
 	t.Helper()
 	check := assertPrerequisiteCheck(t, checks, name)
-	if check.Severity != findings.SeverityWarn {
-		t.Fatalf("severity for %q = %s, want warn; detail = %q", name, check.Severity, check.Detail)
+	if check.Status != findings.CheckWarn {
+		t.Fatalf("severity for %q = %s, want warn; detail = %q", name, check.Status, check.Detail)
 	}
 	if !strings.Contains(check.Detail, detail) {
 		t.Fatalf("detail for %q = %q, want substring %q", name, check.Detail, detail)

@@ -1,6 +1,7 @@
 package codexplugin
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 )
 
 func TestObserveConfigFileReportsMissingConfigWithoutError(t *testing.T) {
@@ -234,6 +236,101 @@ func TestObserveConfigFileReportsMalformedTOML(t *testing.T) {
 	if !observation.ConfigExists() {
 		t.Fatalf("ConfigExists = false, want true for malformed existing config")
 	}
+}
+
+func TestObserveConfigFileAcceptsSpaceSeparatedDatetime(t *testing.T) {
+	configPath := writeCodexConfig(t, `checked_at = 1987-07-05 17:45:00Z
+
+[plugins."alpha@market"]
+enabled = true
+`)
+
+	observation, err := ObserveConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("ObserveConfigFile returned error: %v", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for datetime-bearing config")
+	}
+}
+
+func TestObserveConfigFileRejectsDeepInlineTablesBeforeDecode(t *testing.T) {
+	var builder strings.Builder
+	builder.WriteString("k = ")
+	for range tomlstrict.MaximumDepth + 1 {
+		builder.WriteString("{k = ")
+	}
+	builder.WriteByte('1')
+	for range tomlstrict.MaximumDepth + 1 {
+		builder.WriteByte('}')
+	}
+	builder.WriteByte('\n')
+	configPath := writeCodexConfig(t, builder.String())
+
+	observation, err := ObserveConfigFile(configPath)
+	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+		t.Fatalf("ObserveConfigFile = %v, want depth exceeded", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for oversized existing config")
+	}
+}
+
+func TestObserveConfigFileRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.T) {
+	siblings := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
+	content := "[" + strings.Repeat("a", tomlstrict.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
+	configPath := writeCodexConfig(t, content)
+
+	observation, err := ObserveConfigFile(configPath)
+	if !errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded) {
+		t.Fatalf("ObserveConfigFile = %v, want path recopy exceeded", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for oversized existing config")
+	}
+}
+
+func TestObserveConfigFileAcceptsExactLongAncestorAnonymousInlineTablePathWork(t *testing.T) {
+	elements := tomlstrict.MaximumPathWork / tomlstrict.MaximumKeyBytes
+	content := longKeyCodexArrayElements(tomlstrict.MaximumKeyBytes, elements, "{}")
+	configPath := writeCodexConfig(t, content)
+
+	observation, err := ObserveConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("ObserveConfigFile(exact anonymous inline-table path work) = %v, want nil", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for admitted existing config")
+	}
+}
+
+func TestObserveConfigFileRejectsLongAncestorAnonymousArraysBeforeDecode(t *testing.T) {
+	elements := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
+	content := longKeyCodexArrayElements(tomlstrict.MaximumKeyBytes, elements, "[]")
+	configPath := writeCodexConfig(t, content)
+
+	observation, err := ObserveConfigFile(configPath)
+	if !errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded) {
+		t.Fatalf("ObserveConfigFile = %v, want anonymous-container path recopy exceeded", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for oversized existing config")
+	}
+}
+
+func longKeyCodexArrayElements(keyBytes int, elements int, value string) string {
+	var builder strings.Builder
+	builder.Grow(keyBytes + elements*(len(value)+2) + 6)
+	builder.WriteString(strings.Repeat("a", keyBytes))
+	builder.WriteString(" = [")
+	for index := range elements {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(value)
+	}
+	builder.WriteString("]\n")
+	return builder.String()
 }
 
 func TestObserveConfigFileReportsDuplicatePluginTablesAsMalformedTOML(t *testing.T) {

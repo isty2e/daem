@@ -7,18 +7,20 @@ import (
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
-func TestHasCheckErrorsUsesSeverityNotText(t *testing.T) {
+func TestHasCheckErrorsUsesStatusNotText(t *testing.T) {
 	checks := []Check{
 		OKCheck("manifest", "error-looking detail is not authoritative"),
 		WarnCheck("git", "warning"),
+		SkippedCheck("skill_observation", "not attempted"),
+		UnsupportedCheck("cache", "capability cannot be honored"),
 	}
 	if HasCheckErrors(checks) {
-		t.Fatalf("warning/detail text must not be treated as a check error")
+		t.Fatalf("non-error check status must not be treated as a check error")
 	}
 
 	checks = append(checks, ErrorCheck("paths", "failed"))
 	if !HasCheckErrors(checks) {
-		t.Fatalf("expected error severity to be reported")
+		t.Fatalf("expected error status to be reported")
 	}
 }
 

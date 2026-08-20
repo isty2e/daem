@@ -24,7 +24,7 @@ const (
 	ReconciliationPlanJSON = 12
 	ApplyResultJSON        = 18
 	RecoveryJSON           = 7
-	DoctorJSON             = 1
+	DoctorJSON             = 2
 	MCPProbeJSON           = 1
 	ExtensionRefreshJSON   = 3
 )

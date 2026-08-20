@@ -11,6 +11,7 @@ import (
 	"github.com/BurntSushi/toml"
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -56,6 +57,10 @@ func observeConfigFile(
 	existingObservation, err := configObservation(configPath, true, observeconfig.EntrySetNotDeclared, nil)
 	if err != nil {
 		return observeconfig.Observation{}, err
+	}
+
+	if err := tomlstrict.Admit(ctx, result.Content, tomlstrict.StandardLimits()); err != nil {
+		return existingObservation, err
 	}
 
 	var decoded map[string]any

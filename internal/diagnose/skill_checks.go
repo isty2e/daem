@@ -169,12 +169,8 @@ func skillRepairabilityChecks(
 			checks = append(checks, errorCheck(skillCompatibilityCheckName(target, skill), detail))
 			continue
 		}
-		severity := findings.SeverityError
-		if diagnostic.Severity == findings.SeverityWarn {
-			severity = findings.SeverityWarn
-		}
 		checks = append(checks, findings.Check{
-			Severity:      severity,
+			Status:        checkStatusFromDiagnostic(diagnostic),
 			Name:          skillCompatibilityCheckName(target, skill),
 			Detail:        detail + "; " + diagnostic.Detail,
 			Repairability: diagnostic.Repairability,
@@ -188,4 +184,11 @@ func skillRepairabilityChecks(
 
 func skillCompatibilityCheckName(target targetpkg.Target, skill skillresource.Skill) string {
 	return fmt.Sprintf("target=%s skill=%s compatibility", target, skill.ID().Name())
+}
+
+func checkStatusFromDiagnostic(diagnostic findings.Diagnostic) findings.CheckStatus {
+	if diagnostic.Severity == findings.SeverityWarn {
+		return findings.CheckWarn
+	}
+	return findings.CheckError
 }

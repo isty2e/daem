@@ -51,9 +51,9 @@ enabled = false
 	}
 
 	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="alpha@market"`, "activation configured true")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="beta@market"`, "activation configured false")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_config_entry key="gamma@market"`, "activation not declared")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_config_entry key="alpha@market"`, "activation configured true")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_config_entry key="beta@market"`, "activation configured false")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_config_entry key="gamma@market"`, "activation not declared")
 	for _, check := range checks {
 		for _, forbidden := range []string{"lock subject", "state subject", "ready", "converged", "managed"} {
 			if strings.Contains(check.Detail, forbidden) {
@@ -75,7 +75,7 @@ enabled = "yes"
 	}
 
 	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_config_entry key="alpha@market"`, "unsupported schema reason=activation_not_boolean")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_config_entry key="alpha@market"`, "unsupported schema reason=activation_not_boolean")
 }
 
 func TestCodexPluginChecksReportMissingAndMalformedConfig(t *testing.T) {
@@ -84,12 +84,12 @@ func TestCodexPluginChecksReportMissingAndMalformedConfig(t *testing.T) {
 		t.Fatalf("ForDiagnostics returned error: %v", err)
 	}
 	missingChecks := CodexPluginChecks(t.Context(), t.TempDir(), selection)
-	assertCodexPluginConfigCheck(t, missingChecks, findings.SeverityWarn, "target=codex plugin_config", "unavailable")
+	assertCodexPluginConfigCheck(t, missingChecks, findings.CheckWarn, "target=codex plugin_config", "unavailable")
 
 	homeDirectory := t.TempDir()
 	writeDiagnoseCodexConfig(t, homeDirectory, "[plugins.\"alpha@market\"\n")
 	malformedChecks := CodexPluginChecks(t.Context(), homeDirectory, selection)
-	assertCodexPluginConfigCheck(t, malformedChecks, findings.SeverityWarn, "target=codex plugin_config", "blocked: read or parse")
+	assertCodexPluginConfigCheck(t, malformedChecks, findings.CheckWarn, "target=codex plugin_config", "blocked: read or parse")
 }
 
 func TestCodexPluginConfigChecksReportPermissionDeniedAsBlockedObservation(t *testing.T) {
@@ -102,8 +102,8 @@ func TestCodexPluginConfigChecksReportPermissionDeniedAsBlockedObservation(t *te
 	}
 
 	checks := codexPluginConfigChecks("/tmp/codex/config.toml", observation, os.ErrPermission)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, "target=codex plugin_config", "blocked: read or parse")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, "target=codex plugin_config", "no daem ownership, lock, install, readiness, or mutation authority")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, "target=codex plugin_config", "blocked: read or parse")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, "target=codex plugin_config", "no daem ownership, lock, install, readiness, or mutation authority")
 }
 
 func TestCodexPluginChecksReportSourceDeclaredContributionsWithoutPayloads(t *testing.T) {
@@ -135,11 +135,11 @@ enabled = true
 	assertCodexPluginConfigCheck(
 		t,
 		checks,
-		findings.SeverityOK,
+		findings.CheckOK,
 		`target=codex plugin_contribution provided_by="alpha@market" kind=mcp-server key="context7"`,
 		`source-declared Codex plugin contribution from source_artifact_inspection`,
 	)
-	contributionCheck := findCodexPluginCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=mcp-server key="context7"`)
+	contributionCheck := findCodexPluginCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=mcp-server key="context7"`)
 	for _, want := range []string{
 		`provided_by="alpha@market"`,
 		`provenance=source_artifact_inspection`,
@@ -157,8 +157,8 @@ enabled = true
 			t.Fatalf("contribution detail = %q, want %q", contributionCheck.Detail, want)
 		}
 	}
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=app key="alpha"`, `source_marker=".app.json"`)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`, `source_marker="skills/review/SKILL.md"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=app key="alpha"`, `source_marker=".app.json"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`, `source_marker="skills/review/SKILL.md"`)
 	for _, forbidden := range []string{"SECRET_TOKEN", "must-not-leak", "command", "env", "lock subject", "state subject"} {
 		for _, check := range checks {
 			if strings.Contains(check.Name, "plugin_contribution") && strings.Contains(check.Detail, forbidden) {
@@ -187,10 +187,10 @@ enabled = true
 	}
 
 	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "state=source-artifact-unavailable")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="missing@market"`, "reason=SOURCE_ARTIFACT_UNAVAILABLE")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="bad@market"`, "state=source-artifact-blocked")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="bad@market"`, "reason=SOURCE_ARTIFACT_PATH_BLOCKED")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="missing@market"`, "state=source-artifact-unavailable")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="missing@market"`, "reason=SOURCE_ARTIFACT_UNAVAILABLE")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="bad@market"`, "state=source-artifact-blocked")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="bad@market"`, "reason=SOURCE_ARTIFACT_PATH_BLOCKED")
 }
 
 func TestCodexPluginContributionChecksRenderGenericFacts(t *testing.T) {
@@ -233,12 +233,12 @@ func TestCodexPluginContributionChecksRenderGenericFacts(t *testing.T) {
 	}
 
 	checks := codexPluginContributionChecks([]observecontribution.SourceContributionObservation{declared, empty, blocked})
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="search"`, `source_marker="skills/search/SKILL.md"`)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=mcp-server key="context7"`, `source_marker="mcpServers"`)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`, `source_marker="skills/review/SKILL.md"`)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=app key="alpha"`, `source_marker="apps/alpha.json"`)
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="empty@market"`, "contributions=none")
-	assertCodexPluginConfigCheck(t, checks, findings.SeverityWarn, `target=codex plugin_contribution provided_by="blocked@market"`, "reason=UNSUPPORTED_CONTRIBUTION_SHAPE")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="search"`, `source_marker="skills/search/SKILL.md"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=mcp-server key="context7"`, `source_marker="mcpServers"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`, `source_marker="skills/review/SKILL.md"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=app key="alpha"`, `source_marker="apps/alpha.json"`)
+	assertCodexPluginConfigCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="empty@market"`, "contributions=none")
+	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="blocked@market"`, "reason=UNSUPPORTED_CONTRIBUTION_SHAPE")
 	for _, check := range checks {
 		for _, forbidden := range []string{"ready", "converged", "managed", "lock subject", "state subject", "installability"} {
 			if strings.Contains(check.Detail, forbidden) {
@@ -277,8 +277,8 @@ func TestCodexPluginContributionChecksKeepDuplicateVisibleKeysProviderScoped(t *
 	}
 
 	checks := codexPluginContributionChecks([]observecontribution.SourceContributionObservation{alpha, beta})
-	alphaCheck := findCodexPluginCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`)
-	betaCheck := findCodexPluginCheck(t, checks, findings.SeverityOK, `target=codex plugin_contribution provided_by="beta@market" kind=skill key="review"`)
+	alphaCheck := findCodexPluginCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="alpha@market" kind=skill key="review"`)
+	betaCheck := findCodexPluginCheck(t, checks, findings.CheckOK, `target=codex plugin_contribution provided_by="beta@market" kind=skill key="review"`)
 	if alphaCheck.Detail == betaCheck.Detail ||
 		!strings.Contains(alphaCheck.Detail, `provided_by="alpha@market"`) ||
 		!strings.Contains(betaCheck.Detail, `provided_by="beta@market"`) {
@@ -391,7 +391,7 @@ func TestCodexPluginChecksBlockConfigKeyOverflowWithoutContributionInspection(t 
 	assertCodexPluginConfigCheck(
 		t,
 		checks,
-		findings.SeverityWarn,
+		findings.CheckWarn,
 		"target=codex plugin_config",
 		"SOURCE_ARTIFACT_BUDGET_EXCEEDED",
 	)
@@ -435,7 +435,7 @@ func TestCodexPluginChecksReportExactMaximumConfigEntriesWithoutContributionFami
 	}
 }
 
-func assertCodexPluginConfigCheck(t *testing.T, checks []findings.Check, severity findings.Severity, name string, detailSubstring string) {
+func assertCodexPluginConfigCheck(t *testing.T, checks []findings.Check, severity findings.CheckStatus, name string, detailSubstring string) {
 	t.Helper()
 
 	check := findCodexPluginCheck(t, checks, severity, name)
@@ -454,10 +454,10 @@ func assertNoCodexPluginContributionChecks(t *testing.T, checks []findings.Check
 	}
 }
 
-func findCodexPluginCheck(t *testing.T, checks []findings.Check, severity findings.Severity, name string) findings.Check {
+func findCodexPluginCheck(t *testing.T, checks []findings.Check, severity findings.CheckStatus, name string) findings.Check {
 	t.Helper()
 	for _, check := range checks {
-		if check.Severity == severity && check.Name == name {
+		if check.Status == severity && check.Name == name {
 			return check
 		}
 	}

@@ -60,7 +60,8 @@ func TestRunRefusesMalformedRecoveryBeforeDiagnosticChecks(t *testing.T) {
 	assertManifestStageCounts(t, counts, manifestStageCounts{})
 }
 
-func TestRunUnsupportedPlatformReportsResolvedManifestWithoutReadingIt(t *testing.T) {
+func TestRunUnsupportedPlatformReportsNamedRemainingChecks(t *testing.T) {
+	configureDoctorEnvironment(t)
 	admission, err := platformsupport.Lookup("windows", "amd64")
 	if err != nil {
 		t.Fatalf("Lookup returned error: %v", err)
@@ -75,12 +76,30 @@ func TestRunUnsupportedPlatformReportsResolvedManifestWithoutReadingIt(t *testin
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-	platform, ok := checkNamed(result.Checks, "platform")
-	if !ok || platform.Severity != findings.SeverityError || !strings.Contains(platform.Detail, "windows/amd64") {
-		t.Fatalf("platform check = %#v", platform)
+	assertCheckStatus(t, result.Checks, "platform", findings.CheckError)
+	assertCheckStatus(t, result.Checks, "file_set", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "recovery", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "manifest", findings.CheckError)
+	git, ok := checkNamed(result.Checks, "git")
+	if !ok {
+		t.Fatalf("checks = %#v, want git", result.Checks)
 	}
-	if len(result.Checks) != 1 || hasCheckNamed(result.Checks, "manifest") {
-		t.Fatalf("checks = %#v, want platform only", result.Checks)
+	if git.Status != findings.CheckUnsupported {
+		t.Fatalf("git = %#v, want unsupported without Git execution", git)
+	}
+	if strings.Contains(git.Detail, "git version test") {
+		t.Fatalf("git = %#v, want no executed version text", git)
+	}
+	assertCheckStatus(t, result.Checks, "cache", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "symlink", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "target=codex capability=hook", findings.CheckOK)
+	assertCheckStatus(t, result.Checks, "target=codex config_dir", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "codex_plugin", findings.CheckUnsupported)
+	if hasCheckNamed(result.Checks, "paths") {
+		t.Fatalf("path failure leaked into remaining checks: %#v", result.Checks)
+	}
+	if hasCheckNamed(result.Checks, "skill_observation") {
+		t.Fatalf("missing manifest invented skill observation: %#v", result.Checks)
 	}
 	absoluteManifestPath, err := filepath.Abs(manifestPath)
 	if err != nil {
@@ -98,7 +117,7 @@ func TestRunUnsupportedPlatformReportsResolvedManifestWithoutReadingIt(t *testin
 	}
 }
 
-func TestRunUnsupportedPlatformStopsBeforeManifestAndStorageGates(t *testing.T) {
+func TestRunUnsupportedPlatformSkipsStorageGatesAndRunsManifestSyntax(t *testing.T) {
 	configureDoctorEnvironment(t)
 	admission, err := platformsupport.Lookup("windows", "amd64")
 	if err != nil {
@@ -150,9 +169,9 @@ func TestRunUnsupportedPlatformStopsBeforeManifestAndStorageGates(t *testing.T) 
 				TargetValues:     []string{"codex"},
 			}, testPlatformAssessment(admission))
 			if err != nil {
-				t.Fatalf("Run returned error: %v", err)
+				t.Fatalf("Run returned error: %v, storage gates must not abort doctor", err)
 			}
-			assertManifestStageCounts(t, counts, manifestStageCounts{})
+			assertManifestStageCounts(t, counts, manifestStageCounts{read: 1, normalize: 1})
 			if result.ManifestPath != paths.ManifestPath {
 				t.Fatalf(
 					"ManifestPath = %q, want resolved path %q",
@@ -160,19 +179,87 @@ func TestRunUnsupportedPlatformStopsBeforeManifestAndStorageGates(t *testing.T) 
 					paths.ManifestPath,
 				)
 			}
-			if len(result.Checks) != 1 {
-				t.Fatalf("checks = %#v, want platform only", result.Checks)
-			}
-			platform, found := checkNamed(result.Checks, "platform")
-			if !found ||
-				platform.Severity != findings.SeverityError ||
-				!strings.Contains(platform.Detail, "windows/amd64") {
-				t.Fatalf("platform check = %#v", platform)
+			assertCheckStatus(t, result.Checks, "platform", findings.CheckError)
+			assertCheckStatus(t, result.Checks, "file_set", findings.CheckUnsupported)
+			assertCheckStatus(t, result.Checks, "recovery", findings.CheckUnsupported)
+			assertCheckStatus(t, result.Checks, "manifest", findings.CheckError)
+			manifest, _ := checkNamed(result.Checks, "manifest")
+			if !strings.Contains(manifest.Detail, "parse "+paths.ManifestPath) {
+				t.Fatalf("manifest check = %#v, want parse error", manifest)
 			}
 			if !result.HasErrors {
 				t.Fatal("HasErrors = false")
 			}
 		})
+	}
+}
+
+func TestRunUnsupportedPlatformDistinguishesManifestSyntaxFromHostObservation(t *testing.T) {
+	configureDoctorEnvironment(t)
+	admission, err := platformsupport.Lookup("windows", "amd64")
+	if err != nil {
+		t.Fatalf("Lookup returned error: %v", err)
+	}
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	writeDoctorManifest(t, manifestPath, `
+version = 1
+targets = ["codex"]
+
+[[skill]]
+name = "review"
+source = { path = "skills/review", mode = "vendor" }
+targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+env = { TOKEN = { from_env = "MISSING_DOCTOR_TOKEN" } }
+`)
+	if err := os.MkdirAll(filepath.Join(root, ".daem", "recovery", "active-operation"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Run(context.Background(), Input{
+		ManifestPath:     manifestPath,
+		ManifestExplicit: true,
+		TargetExplicit:   true,
+		TargetValues:     []string{"codex"},
+	}, testPlatformAssessment(admission))
+	if err != nil {
+		t.Fatalf("Run returned error: %v, blocked recovery must not abort unsupported-platform doctor", err)
+	}
+	assertCheckStatus(t, result.Checks, "platform", findings.CheckError)
+	assertCheckStatus(t, result.Checks, "manifest", findings.CheckOK)
+	assertCheckStatus(t, result.Checks, "skill_observation", findings.CheckSkipped)
+	assertCheckStatus(t, result.Checks, "git", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "cache", findings.CheckUnsupported)
+	assertCheckStatus(t, result.Checks, "codex_plugin", findings.CheckUnsupported)
+	assertCheckStatus(
+		t,
+		result.Checks,
+		"target=codex scope=project mcp_server=context7 executable_requirement=command",
+		findings.CheckUnsupported,
+	)
+	envCheck, ok := checkNamed(
+		result.Checks,
+		"target=codex scope=project mcp_server=context7 executable_requirement=env_refs",
+	)
+	if !ok {
+		t.Fatalf("checks = %#v, want MCP env_refs", result.Checks)
+	}
+	if envCheck.Status != findings.CheckWarn || !strings.Contains(envCheck.Detail, "MISSING_DOCTOR_TOKEN") {
+		t.Fatalf("env_refs = %#v, want in-memory missing-env warning", envCheck)
+	}
+	if hasCheckNamed(result.Checks, "target=codex skill=review compatibility") {
+		t.Fatalf("compatibility check ran on unsupported platform: %#v", result.Checks)
+	}
+	if !result.HasErrors {
+		t.Fatal("HasErrors = false")
 	}
 }
 
@@ -193,10 +280,10 @@ func TestRunKeepsPlatformAdmissionIndependentFromPathResolutionFailure(t *testin
 	}
 	platform, platformFound := checkNamed(result.Checks, "platform")
 	paths, pathsFound := checkNamed(result.Checks, "paths")
-	if !platformFound || platform.Severity != findings.SeverityError || !strings.Contains(platform.Detail, "windows/amd64") {
+	if !platformFound || platform.Status != findings.CheckError || !strings.Contains(platform.Detail, "windows/amd64") {
 		t.Fatalf("platform check = %#v", platform)
 	}
-	if !pathsFound || paths.Severity != findings.SeverityError || !strings.Contains(paths.Detail, "XDG_DATA_HOME must be an absolute path") {
+	if !pathsFound || paths.Status != findings.CheckError || !strings.Contains(paths.Detail, "XDG_DATA_HOME must be an absolute path") {
 		t.Fatalf("paths check = %#v", paths)
 	}
 	if len(result.Checks) != 2 || !result.HasErrors {
@@ -232,4 +319,15 @@ func checkNamed(checks []findings.Check, name string) (findings.Check, bool) {
 		}
 	}
 	return findings.Check{}, false
+}
+
+func assertCheckStatus(t *testing.T, checks []findings.Check, name string, want findings.CheckStatus) {
+	t.Helper()
+	check, ok := checkNamed(checks, name)
+	if !ok {
+		t.Fatalf("checks = %#v, want %s", checks, name)
+	}
+	if check.Status != want {
+		t.Fatalf("%s status = %s, want %s (%#v)", name, check.Status, want, check)
+	}
 }

@@ -60,8 +60,8 @@ func TestSkillChecksClassifiesMissingLocalSourceAsWarning(t *testing.T) {
 	if len(checks) != 1 {
 		t.Fatalf("checks = %#v, want one missing-source check", checks)
 	}
-	if checks[0].Severity != findings.SeverityWarn {
-		t.Fatalf("severity = %s, want %s: %s", checks[0].Severity, findings.SeverityWarn, checks[0].Detail)
+	if checks[0].Status != findings.CheckWarn {
+		t.Fatalf("severity = %s, want %s: %s", checks[0].Status, findings.CheckWarn, checks[0].Detail)
 	}
 	if !strings.Contains(checks[0].Detail, "local skill source skills/missing is missing") {
 		t.Fatalf("detail = %q, want missing local source diagnostic", checks[0].Detail)
@@ -74,13 +74,13 @@ func TestConfigFileCheckRejectsMultipleJSONValues(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	check := configFileCheck("target=claude-code config_file", doctorConfigFile{
+	check := configFileCheck(context.Background(), "target=claude-code config_file", doctorConfigFile{
 		Path:                configPath,
 		Format:              ConfigFormatJSON,
 		SyntaxErrorSeverity: findings.SeverityError,
 	})
-	if check.Severity != findings.SeverityError {
-		t.Fatalf("expected config syntax error, got %s: %s", check.Severity, check.Detail)
+	if check.Status != findings.CheckError {
+		t.Fatalf("expected config syntax error, got %s: %s", check.Status, check.Detail)
 	}
 	if !strings.Contains(check.Detail, "multiple JSON values") {
 		t.Fatalf("expected multiple JSON values detail, got %q", check.Detail)
@@ -89,8 +89,8 @@ func TestConfigFileCheckRejectsMultipleJSONValues(t *testing.T) {
 
 func TestDirectoryCheckReportsCreatableMissingDirectory(t *testing.T) {
 	check := directoryCheck("cache", filepath.Join(t.TempDir(), "missing", "cache"))
-	if check.Severity != findings.SeverityOK {
-		t.Fatalf("expected creatable directory to be ok, got %s: %s", check.Severity, check.Detail)
+	if check.Status != findings.CheckOK {
+		t.Fatalf("expected creatable directory to be ok, got %s: %s", check.Status, check.Detail)
 	}
 	if !strings.Contains(check.Detail, "can be created") {
 		t.Fatalf("expected creatable detail, got %q", check.Detail)

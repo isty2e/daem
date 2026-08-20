@@ -27,7 +27,7 @@ func TestRunDirectoryManifestIsClassifiedAsReadFailure(t *testing.T) {
 	}
 	assertManifestStageCounts(t, counts, manifestStageCounts{read: 1})
 	manifest, ok := checkNamed(result.Checks, "manifest")
-	if !ok || manifest.Severity != findings.SeverityError || !strings.HasPrefix(manifest.Detail, "read "+manifestPath+":") {
+	if !ok || manifest.Status != findings.CheckError || !strings.HasPrefix(manifest.Detail, "read "+manifestPath+":") {
 		t.Fatalf("manifest check = %#v, want read failure", result.Checks)
 	}
 	if !hasCheckNamed(result.Checks, "git") {

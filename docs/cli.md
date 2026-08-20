@@ -41,8 +41,12 @@ On an unsupported platform, all help and version routes remain available and
 as platform-gated in [Platform Support](platforms.md) fail before path
 resolution or effects, including in dry-run mode. Their normal command errors
 use stderr; `doctor --json` is the structured platform diagnostic. Doctor
-resolves its selected manifest path, then stops before storage, manifest,
-environment, or host checks on a not-admitted platform.
+resolves its selected manifest path. After successful path resolution on a
+not-admitted platform, doctor keeps the platform error and continues with
+checks whose success meaning is unchanged. Capability-bound remaining checks
+are named `unsupported` or `skipped` rather than `ok`. A storage abort must not
+erase the platform finding. Path-resolution errors are reported alongside the
+platform error.
 
 ## Workspace Selection
 
@@ -229,7 +233,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `status`, `apply --dry-run` | Reconciliation plan | `12` |
 | confirmed `apply` | Apply result | `18` |
 | `recover` | Recovery plan/result | `7` |
-| `doctor` | Passive diagnostics | `1` |
+| `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `3` |
 
@@ -1047,20 +1051,28 @@ servers, credential helpers, or network probes. It checks modeled paths,
 permissions, executable discovery, capability support, local skill
 compatibility, and available passive readiness facts.
 
-On a not-admitted platform, doctor reports one platform error after successful
-path resolution and does not attempt the checks above. A path-resolution error
-is reported alongside the platform error. Human and JSON forms use the same
-finding and exit with status `1`.
+On a not-admitted platform, doctor keeps the platform error after successful
+path resolution. It still runs checks whose success meaning is unchanged, such
+as manifest syntax after the path is known, and names remaining
+capability-bound checks `unsupported` or `skipped`. It does not execute Git,
+search PATH for MCP executables, or invoke durable file-set or recovery
+inventory adapters. Host config grammar checks read a bounded regular-file
+snapshot and admit TOML/JSON structure before decoding. A path-resolution
+error is reported alongside the platform
+error. Human and JSON forms use the same finding and exit with status `1`.
 
-Doctor refuses human and JSON diagnostics while an interrupted apply journal is
-active, before reading live host or target configuration. Run
-`daem recover --dry-run` first.
+On an admitted platform, doctor refuses human and JSON diagnostics while an
+interrupted apply journal is active, before reading live host or target
+configuration; run `daem recover --dry-run` first. On a not-admitted platform
+the recovery inventory is not invoked and the check is named `unsupported`.
 
-Default output prints ok/warn/error totals plus every warning and error.
-Successful checks are count-only. `--verbose` prints every check and bounded
-detail. Warnings do not fail doctor; errors do. Doctor JSON schema version is
-`1` and contains manifest context, selected targets, all typed checks, and
-`has_errors`.
+Default output prints ok/warn/error/skipped/unsupported totals plus every
+warning, error, skipped, and unsupported check. Successful `ok` checks are
+count-only. `--verbose` prints every check and bounded detail. Warnings,
+skipped checks, and unsupported checks do not fail doctor; errors do. Doctor
+JSON schema version is `2` and contains manifest context, selected targets, all
+typed checks with `status`, and `has_errors`. Check `status` is not diagnostic
+`severity`; apply diagnostics keep the three-value `severity` field.
 
 ## `probe mcp-server`
 

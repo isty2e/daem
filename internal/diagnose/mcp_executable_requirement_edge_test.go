@@ -75,7 +75,7 @@ func TestMCPExecutableRequirementEdgeHuntRoundTwoEnvIdentity(t *testing.T) {
 
 	checks = MCPExecutableRequirementChecks([]desiredmcp.Server{prerequisiteMCPServer(t, "no-env", "node", []string{"server.js"})}, selection)
 	check = assertPrerequisiteCheck(t, checks, "target=claude-code scope=project mcp_server=no-env executable_requirement=env_refs")
-	if check.Severity != findings.SeverityOK || !strings.Contains(check.Detail, "requires no environment references") {
+	if check.Status != findings.CheckOK || !strings.Contains(check.Detail, "requires no environment references") {
 		t.Fatalf("check = %#v, want explicit ok no-env prerequisite", check)
 	}
 
@@ -124,7 +124,7 @@ func TestMCPExecutableRequirementEdgeHuntRoundThreeRunnerIdentity(t *testing.T) 
 	}
 	for _, server := range servers {
 		check := assertPrerequisiteCheck(t, checks, "target=claude-code scope=project mcp_server="+server.ID().Name()+" executable_requirement=command")
-		if check.Severity != findings.SeverityOK {
+		if check.Status != findings.CheckOK {
 			t.Fatalf("check = %#v, want discoverable command", check)
 		}
 	}
@@ -134,7 +134,7 @@ func TestMCPExecutableRequirementEdgeHuntRoundThreeRunnerIdentity(t *testing.T) 
 	server := prerequisiteMCPServerWith(t, "warning-only", "claude-code", "project", "node", []string{"server.js"}, map[string]string{"SERVER_SECRET": "HOST_SECRET"})
 	checks = MCPExecutableRequirementChecks([]desiredmcp.Server{server}, selection)
 	for _, check := range checks {
-		if check.Severity == findings.SeverityError {
+		if check.Status == findings.CheckError {
 			t.Fatalf("check = %#v, want passive prerequisite warnings not errors", check)
 		}
 	}
@@ -153,7 +153,7 @@ func TestMCPExecutableRequirementEdgeHuntNoCommandExecutionCanary(t *testing.T) 
 	t.Setenv("PATH", tempDir)
 	checks := MCPExecutableRequirementChecks([]desiredmcp.Server{prerequisiteMCPServer(t, "canary", "must-not-run", nil)}, mustPrerequisiteSelection(t, "claude-code"))
 	check := assertPrerequisiteCheck(t, checks, "target=claude-code scope=project mcp_server=canary executable_requirement=command")
-	if check.Severity != findings.SeverityOK {
+	if check.Status != findings.CheckOK {
 		t.Fatalf("check = %#v, want command lookup ok without execution", check)
 	}
 	if _, err := os.Stat(sentinel); !errors.Is(err, os.ErrNotExist) {

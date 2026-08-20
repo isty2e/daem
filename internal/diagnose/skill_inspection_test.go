@@ -242,7 +242,7 @@ func assertSkillGroupBudgetCheck(t *testing.T, checks []findings.Check, detail s
 		t.Fatalf("checks = %#v, want one skill-group budget error", checks)
 	}
 	check := checks[0]
-	if check.Severity != findings.SeverityError || check.Name != skillGroupExpansionCheckName {
+	if check.Status != findings.CheckError || check.Name != skillGroupExpansionCheckName {
 		t.Fatalf("check = %#v, want named error", check)
 	}
 	if !findings.HasCheckErrors(checks) {

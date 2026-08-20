@@ -19,7 +19,7 @@ type doctorJSONTestPayload struct {
 	CheckCount int      `json:"check_count"`
 	HasErrors  bool     `json:"has_errors"`
 	Checks     []struct {
-		Severity      string   `json:"severity"`
+		Status        string   `json:"status"`
 		Name          string   `json:"name"`
 		Detail        string   `json:"detail"`
 		Repairability string   `json:"repairability"`
@@ -46,14 +46,14 @@ func decodeDoctorJSONTestPayload(t *testing.T, content []byte) doctorJSONTestPay
 	return payload
 }
 
-func assertDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, severity string, name string) {
+func assertDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, status string, name string) {
 	t.Helper()
 
-	_ = findDoctorJSONCheck(t, payload, severity, name)
+	_ = findDoctorJSONCheck(t, payload, status, name)
 }
 
-func findDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, severity string, name string) struct {
-	Severity      string   `json:"severity"`
+func findDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, status string, name string) struct {
+	Status        string   `json:"status"`
 	Name          string   `json:"name"`
 	Detail        string   `json:"detail"`
 	Repairability string   `json:"repairability"`
@@ -64,13 +64,13 @@ func findDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, severity s
 	t.Helper()
 
 	for _, check := range payload.Checks {
-		if check.Severity == severity && check.Name == name {
+		if check.Status == status && check.Name == name {
 			return check
 		}
 	}
-	t.Fatalf("checks = %#v, want %s %s", payload.Checks, severity, name)
+	t.Fatalf("checks = %#v, want %s %s", payload.Checks, status, name)
 	return struct {
-		Severity      string   `json:"severity"`
+		Status        string   `json:"status"`
 		Name          string   `json:"name"`
 		Detail        string   `json:"detail"`
 		Repairability string   `json:"repairability"`
@@ -83,18 +83,18 @@ func findDoctorJSONCheck(t *testing.T, payload doctorJSONTestPayload, severity s
 func assertDoctorJSONCheckDetail(
 	t *testing.T,
 	payload doctorJSONTestPayload,
-	severity string,
+	status string,
 	name string,
 	detail string,
 ) {
 	t.Helper()
 
 	for _, check := range payload.Checks {
-		if check.Severity == severity && check.Name == name && check.Detail == detail {
+		if check.Status == status && check.Name == name && check.Detail == detail {
 			return
 		}
 	}
-	t.Fatalf("checks = %#v, want %s %s detail %q", payload.Checks, severity, name, detail)
+	t.Fatalf("checks = %#v, want %s %s detail %q", payload.Checks, status, name, detail)
 }
 
 func assertDoctorJSONManifestPath(t *testing.T, got string, want string) {

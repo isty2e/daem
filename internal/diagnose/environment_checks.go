@@ -14,7 +14,15 @@ import (
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/subprocess"
+	targetpkg "github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
+)
+
+type hostObservationMode uint8
+
+const (
+	hostObservationFull hostObservationMode = iota
+	hostObservationIndependent
 )
 
 func EnvironmentChecks(
@@ -25,10 +33,64 @@ func EnvironmentChecks(
 	resourceKinds map[entity.Kind]struct{},
 	includePassivePluginDiagnostics bool,
 ) []findings.Check {
-	checks := []findings.Check{
-		gitCheck(ctx),
-		cacheCheck(paths.CacheDir),
-		symlinkCheck(),
+	return environmentChecks(
+		ctx,
+		paths,
+		projectPlacementAllowed,
+		selection,
+		resourceKinds,
+		includePassivePluginDiagnostics,
+		hostObservationFull,
+	)
+}
+
+// IndependentEnvironmentChecks reports in-memory capability and host-config
+// grammar. Git execution, cache/symlink readiness, and descriptor-relative
+// plugin observation are named unsupported instead of being probed.
+func IndependentEnvironmentChecks(
+	ctx context.Context,
+	paths daempaths.Paths,
+	projectPlacementAllowed bool,
+	selection targetselection.Selection,
+	resourceKinds map[entity.Kind]struct{},
+	includePassivePluginDiagnostics bool,
+) []findings.Check {
+	return environmentChecks(
+		ctx,
+		paths,
+		projectPlacementAllowed,
+		selection,
+		resourceKinds,
+		includePassivePluginDiagnostics,
+		hostObservationIndependent,
+	)
+}
+
+func environmentChecks(
+	ctx context.Context,
+	paths daempaths.Paths,
+	projectPlacementAllowed bool,
+	selection targetselection.Selection,
+	resourceKinds map[entity.Kind]struct{},
+	includePassivePluginDiagnostics bool,
+	observation hostObservationMode,
+) []findings.Check {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checks := make([]findings.Check, 0, 8)
+	if observation == hostObservationIndependent {
+		checks = append(
+			checks,
+			unsupportedCheck("git", "git version and object-format observation cannot be honored on this platform"),
+			unsupportedCheck("cache", "cache-directory readiness cannot be honored on this platform"),
+			unsupportedCheck("symlink", "symlink-placement probing cannot be honored on this platform"),
+		)
+	} else {
+		checks = append(checks, gitCheck(ctx), cacheCheck(paths.CacheDir), symlinkCheck())
+	}
+	if err := ctx.Err(); err != nil {
+		return checks
 	}
 
 	homeDirectory, err := os.UserHomeDir()
@@ -38,10 +100,26 @@ func EnvironmentChecks(
 	}
 
 	for _, target := range selection.Targets() {
-		checks = append(checks, targetChecks(homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
+		if err := ctx.Err(); err != nil {
+			return checks
+		}
+		if observation == hostObservationIndependent {
+			checks = append(checks, independentTargetChecks(ctx, homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
+			continue
+		}
+		checks = append(checks, targetChecks(ctx, homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
 	}
 	if includePassivePluginDiagnostics {
-		checks = append(checks, CodexPluginChecks(ctx, homeDirectory, selection)...)
+		if observation == hostObservationIndependent {
+			if selection.Includes(targetpkg.TargetCodex) {
+				checks = append(checks, unsupportedCheck(
+					"codex_plugin",
+					"descriptor-relative Codex plugin observation cannot be honored on this platform",
+				))
+			}
+		} else {
+			checks = append(checks, CodexPluginChecks(ctx, homeDirectory, selection)...)
+		}
 	}
 
 	return checks
@@ -67,7 +145,7 @@ func gitEnvironmentCheck(ctx context.Context, timeout time.Duration) findings.Ch
 		Args:    []string{"--version"},
 	})
 	check := classifyGitVersionAttempt(ctx, checkContext, timeout, version)
-	if check.Severity != findings.SeverityOK {
+	if check.Status != findings.CheckOK {
 		return check
 	}
 

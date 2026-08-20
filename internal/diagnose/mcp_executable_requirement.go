@@ -17,14 +17,28 @@ import (
 // MCPExecutableRequirementChecks reports executable prerequisites for selected MCP servers.
 func MCPExecutableRequirementChecks(servers []desiredmcp.Server, selection targetselection.Selection) []findings.Check {
 	return mcpExecutableRequirementChecks(servers, selection, mcpExecutableEnvironment{
-		lookPath:  exec.LookPath,
-		lookupEnv: os.LookupEnv,
+		commandObservation: hostObservationFull,
+		lookPath:           exec.LookPath,
+		lookupEnv:          os.LookupEnv,
+	})
+}
+
+// IndependentMCPExecutableRequirementChecks reports in-memory MCP projection and
+// environment-reference facts. PATH/executable discovery is named unsupported.
+func IndependentMCPExecutableRequirementChecks(
+	servers []desiredmcp.Server,
+	selection targetselection.Selection,
+) []findings.Check {
+	return mcpExecutableRequirementChecks(servers, selection, mcpExecutableEnvironment{
+		commandObservation: hostObservationIndependent,
+		lookupEnv:          os.LookupEnv,
 	})
 }
 
 type mcpExecutableEnvironment struct {
-	lookPath  func(string) (string, error)
-	lookupEnv func(string) (string, bool)
+	commandObservation hostObservationMode
+	lookPath           func(string) (string, error)
+	lookupEnv          func(string) (string, bool)
 }
 
 func mcpExecutableRequirementChecks(
@@ -44,7 +58,7 @@ func mcpExecutableRequirementChecks(
 				checks = append(checks, mcpExecutableProjectionCheck(server, binding, err))
 				continue
 			}
-			checks = append(checks, mcpExecutableCommandCheck(server, binding, facts.command, environment.lookPath))
+			checks = append(checks, mcpExecutableCommandCheck(server, binding, facts.command, environment))
 			checks = append(checks, mcpExecutableEnvCheck(server, binding, facts.envRefs, environment.lookupEnv))
 		}
 	}
@@ -115,8 +129,15 @@ func mcpExecutableCommandCheck(
 	server desiredmcp.Server,
 	binding desiredmcp.Binding,
 	command desiredmcp.Command,
-	lookPath func(string) (string, error),
+	environment mcpExecutableEnvironment,
 ) findings.Check {
+	if environment.commandObservation == hostObservationIndependent {
+		return unsupportedCheck(
+			mcpExecutableRequirementCheckName(server, binding, "command"),
+			"MCP executable PATH discovery cannot be honored on this platform",
+		)
+	}
+	lookPath := environment.lookPath
 	executable := command.Executable()
 	if _, err := lookPath(executable); err != nil {
 		if command.Resolution() == desiredmcp.CommandResolutionAbsolutePath {

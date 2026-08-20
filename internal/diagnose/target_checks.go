@@ -1,6 +1,7 @@
 package diagnose
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,7 @@ func resourceKindSelected(kinds map[entity.Kind]struct{}, kind entity.Kind) bool
 }
 
 func targetChecks(
+	ctx context.Context,
 	homeDirectory string,
 	manifestRoot string,
 	projectPlacementAllowed bool,
@@ -43,11 +45,65 @@ func targetChecks(
 	if spec.ConfigRoot != "" && resourceKindSelected(resourceKinds, entity.KindHook) {
 		checks = append(checks, directoryCheck(fmt.Sprintf("target=%s config_dir", target), spec.ConfigRoot))
 		for _, configFile := range spec.ConfigFiles {
-			checks = append(checks, configFileCheck(fmt.Sprintf("target=%s config_file", target), configFile))
+			checks = append(checks, configFileCheck(ctx, fmt.Sprintf("target=%s config_file", target), configFile))
 		}
 	}
 	if resourceKindSelected(resourceKinds, entity.KindSkill) {
 		checks = append(checks, skillRootChecks(homeDirectory, manifestRoot, projectPlacementAllowed, target)...)
+	}
+
+	return checks
+}
+
+func independentTargetChecks(
+	ctx context.Context,
+	homeDirectory string,
+	manifestRoot string,
+	projectPlacementAllowed bool,
+	target targetpkg.Target,
+	resourceKinds map[entity.Kind]struct{},
+) []findings.Check {
+	checks := targetCapabilityChecks(target, resourceKinds)
+	spec := targetSpecFor(homeDirectory, target)
+	if spec.ConfigRoot == "" && resourceKindSelected(resourceKinds, entity.KindHook) {
+		checks = append(checks, warnCheck(fmt.Sprintf("target=%s", target), "target diagnostics are not implemented"))
+	}
+	if spec.ConfigRoot != "" && resourceKindSelected(resourceKinds, entity.KindHook) {
+		checks = append(checks, unsupportedCheck(
+			fmt.Sprintf("target=%s config_dir", target),
+			"host config-directory readiness cannot be honored on this platform",
+		))
+		for _, configFile := range spec.ConfigFiles {
+			checks = append(checks, configFileCheck(ctx, fmt.Sprintf("target=%s config_file", target), configFile))
+		}
+	}
+	if resourceKindSelected(resourceKinds, entity.KindSkill) {
+		checks = append(checks, independentSkillRootChecks(projectPlacementAllowed, target)...)
+	}
+
+	return checks
+}
+
+func independentSkillRootChecks(projectPlacementAllowed bool, target targetpkg.Target) []findings.Check {
+	targetProfile := profile.Profile(target)
+	if !targetProfile.Supports(entity.KindSkill) {
+		return nil
+	}
+
+	rootSpecs := skillRootSpecs(targetProfile, targetpkg.ScopeGlobal)
+	if projectPlacementAllowed {
+		rootSpecs = append(rootSpecs, skillRootSpecs(targetProfile, targetpkg.ScopeProject)...)
+	}
+
+	checks := make([]findings.Check, 0, len(rootSpecs))
+	for _, rootSpec := range rootSpecs {
+		if strings.TrimSpace(rootSpec.Root) == "" {
+			continue
+		}
+		checks = append(checks, unsupportedCheck(
+			skillRootCheckName(target, rootSpec),
+			"skill-root readiness cannot be honored on this platform",
+		))
 	}
 
 	return checks
