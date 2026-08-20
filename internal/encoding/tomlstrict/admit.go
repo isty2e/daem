@@ -9,14 +9,18 @@ import (
 )
 
 const (
-	// MaximumDepth bounds inline-table, array, and dotted-key nesting.
+	// MaximumDepth bounds container nesting and the semantic key path BurntSushi
+	// walks from the document root, including implicit dotted-key prefixes.
 	MaximumDepth = 64
 	// MaximumContainers bounds tables, inline tables, and arrays. It stays
 	// above the Codex plugin observation entry budget so key overflow remains
 	// an observation-budget fact after a successful decode.
 	MaximumContainers = 16384
-	// MaximumWork bounds key parts, primitives, and container enters.
+	// MaximumWork bounds key parts, primitives, container enters, and prefix
+	// materialization hops.
 	MaximumWork = 65536
+	// MaximumKeyBytes bounds one assignment or header key's raw token bytes.
+	MaximumKeyBytes = 4096
 )
 
 var (
@@ -35,6 +39,7 @@ type Limits struct {
 	MaximumDepth      int
 	MaximumContainers int
 	MaximumWork       int
+	MaximumKeyBytes   int
 }
 
 // StandardLimits are the shared host-document ceilings.
@@ -43,6 +48,7 @@ func StandardLimits() Limits {
 		MaximumDepth:      MaximumDepth,
 		MaximumContainers: MaximumContainers,
 		MaximumWork:       MaximumWork,
+		MaximumKeyBytes:   MaximumKeyBytes,
 	}
 }
 
@@ -57,7 +63,10 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if limits.MaximumDepth <= 0 || limits.MaximumContainers <= 0 || limits.MaximumWork <= 0 {
+	if limits.MaximumDepth <= 0 ||
+		limits.MaximumContainers <= 0 ||
+		limits.MaximumWork <= 0 ||
+		limits.MaximumKeyBytes <= 0 {
 		return fmt.Errorf("TOML structure limits must be positive")
 	}
 	if !utf8.Valid(content) {
@@ -79,6 +88,7 @@ type scanner struct {
 	src        []byte
 	index      int
 	depth      int
+	pathDepth  int
 	containers int
 	work       int
 	limits     Limits
@@ -117,7 +127,7 @@ func (s *scanner) tableHeader() error {
 		arrayTable = true
 		s.index++
 	}
-	parts, err := s.headerKey()
+	parts, keyBytes, err := s.headerKey()
 	if err != nil {
 		return err
 	}
@@ -134,104 +144,109 @@ func (s *scanner) tableHeader() error {
 		}
 		s.index++
 	}
-	if parts > s.limits.MaximumDepth {
-		return fmt.Errorf("%w: maximum=%d", ErrMaximumDepthExceeded, s.limits.MaximumDepth)
+	s.pathDepth = 0
+	if err := s.chargeKey(parts, keyBytes); err != nil {
+		return err
 	}
+	s.pathDepth = parts
 	return s.chargeContainer()
 }
 
-func (s *scanner) headerKey() (int, error) {
+func (s *scanner) headerKey() (int, int, error) {
 	parts := 0
+	keyBytes := 0
 	for {
 		s.skipKeyWhitespace()
 		if s.done() {
-			return 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
+			return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 		}
 		if s.src[s.index] == ']' {
-			return parts, nil
+			return parts, keyBytes, nil
 		}
 		if parts > 0 {
 			if s.src[s.index] != '.' {
-				return 0, fmt.Errorf("%w: table header key", ErrMalformed)
+				return 0, 0, fmt.Errorf("%w: table header key", ErrMalformed)
 			}
 			s.index++
 			s.skipKeyWhitespace()
 			if s.done() {
-				return 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
+				return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 			}
 		}
-		if err := s.keyPart(); err != nil {
-			return 0, err
+		partBytes, err := s.keyPart()
+		if err != nil {
+			return 0, 0, err
 		}
 		parts++
-		if err := s.addWork(1); err != nil {
-			return 0, err
-		}
+		keyBytes += partBytes
 	}
 }
 
 func (s *scanner) assignment() error {
-	parts, err := s.assignmentKey()
+	parts, keyBytes, err := s.assignmentKey()
 	if err != nil {
 		return err
 	}
-	if parts > s.limits.MaximumDepth {
-		return fmt.Errorf("%w: maximum=%d", ErrMaximumDepthExceeded, s.limits.MaximumDepth)
+	if err := s.chargeKey(parts, keyBytes); err != nil {
+		return err
 	}
 	s.skipSpaceAndComments()
 	if s.done() || s.src[s.index] != '=' {
 		return fmt.Errorf("%w: expected assignment", ErrMalformed)
 	}
 	s.index++
-	return s.value()
+	return s.value(parts)
 }
 
-func (s *scanner) assignmentKey() (int, error) {
+func (s *scanner) assignmentKey() (int, int, error) {
 	parts := 0
+	keyBytes := 0
 	for {
 		s.skipKeyWhitespace()
 		if s.done() {
-			return 0, fmt.Errorf("%w: truncated key", ErrMalformed)
+			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
-		if err := s.keyPart(); err != nil {
-			return 0, err
+		partBytes, err := s.keyPart()
+		if err != nil {
+			return 0, 0, err
 		}
 		parts++
-		if err := s.addWork(1); err != nil {
-			return 0, err
-		}
+		keyBytes += partBytes
 		s.skipKeyWhitespace()
 		if s.done() {
-			return 0, fmt.Errorf("%w: truncated key", ErrMalformed)
+			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
 		if s.src[s.index] == '.' {
 			s.index++
 			continue
 		}
-		return parts, nil
+		return parts, keyBytes, nil
 	}
 }
 
-func (s *scanner) keyPart() error {
+func (s *scanner) keyPart() (int, error) {
 	if s.done() {
-		return fmt.Errorf("%w: truncated key", ErrMalformed)
+		return 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 	}
+	start := s.index
 	switch s.src[s.index] {
 	case '"', '\'':
-		return s.skipString(false)
+		if err := s.skipString(false); err != nil {
+			return 0, err
+		}
+		return s.index - start, nil
 	default:
-		start := s.index
 		for !s.done() && isBareKeyByte(s.src[s.index]) {
 			s.index++
 		}
 		if s.index == start {
-			return fmt.Errorf("%w: expected key", ErrMalformed)
+			return 0, fmt.Errorf("%w: expected key", ErrMalformed)
 		}
-		return nil
+		return s.index - start, nil
 	}
 }
 
-func (s *scanner) value() error {
+func (s *scanner) value(keyParts int) error {
 	if err := s.checkCancel(); err != nil {
 		return err
 	}
@@ -246,9 +261,9 @@ func (s *scanner) value() error {
 		}
 		return s.addWork(1)
 	case '[':
-		return s.array()
+		return s.array(keyParts)
 	case '{':
-		return s.inlineTable()
+		return s.inlineTable(keyParts)
 	default:
 		if err := s.skipBareValue(); err != nil {
 			return err
@@ -257,10 +272,11 @@ func (s *scanner) value() error {
 	}
 }
 
-func (s *scanner) array() error {
+func (s *scanner) array(keyParts int) error {
 	if err := s.enterNestedContainer(); err != nil {
 		return err
 	}
+	s.pathDepth += keyParts
 	s.index++
 	expectValue := true
 	for {
@@ -270,6 +286,7 @@ func (s *scanner) array() error {
 		}
 		if s.src[s.index] == ']' {
 			s.index++
+			s.pathDepth -= keyParts
 			s.leaveContainer()
 			return nil
 		}
@@ -281,17 +298,18 @@ func (s *scanner) array() error {
 			expectValue = true
 			continue
 		}
-		if err := s.value(); err != nil {
+		if err := s.value(0); err != nil {
 			return err
 		}
 		expectValue = false
 	}
 }
 
-func (s *scanner) inlineTable() error {
+func (s *scanner) inlineTable(keyParts int) error {
 	if err := s.enterNestedContainer(); err != nil {
 		return err
 	}
+	s.pathDepth += keyParts
 	s.index++
 	expectPair := true
 	for {
@@ -301,6 +319,7 @@ func (s *scanner) inlineTable() error {
 		}
 		if s.src[s.index] == '}' {
 			s.index++
+			s.pathDepth -= keyParts
 			s.leaveContainer()
 			return nil
 		}
@@ -385,13 +404,46 @@ func (s *scanner) skipBareValue() error {
 		return fmt.Errorf("%w: expected value", ErrMalformed)
 	}
 	start := s.index
-	for !s.done() && !isBareValueDelimiter(s.src[s.index]) {
+	datetime := false
+	for !s.done() {
+		char := s.src[s.index]
+		if char == ' ' && datetime {
+			next := s.index + 1
+			if next < len(s.src) && s.src[next] >= '0' && s.src[next] <= '9' {
+				s.index++
+				continue
+			}
+			break
+		}
+		if isBareValueDelimiter(char) {
+			break
+		}
+		if s.index > start && (char == '-' || char == ':') {
+			datetime = true
+		}
 		s.index++
 	}
 	if s.index == start {
 		return fmt.Errorf("%w: expected value", ErrMalformed)
 	}
 	return nil
+}
+
+func (s *scanner) chargeKey(parts int, keyBytes int) error {
+	if parts <= 0 {
+		return fmt.Errorf("%w: expected key", ErrMalformed)
+	}
+	if parts > s.limits.MaximumDepth || s.pathDepth > s.limits.MaximumDepth-parts {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumDepthExceeded, s.limits.MaximumDepth)
+	}
+	if keyBytes > s.limits.MaximumKeyBytes {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, s.limits.MaximumWork)
+	}
+	if err := s.addWork(parts); err != nil {
+		return err
+	}
+	walk := parts*s.pathDepth + parts*(parts+1)/2
+	return s.addWork(walk)
 }
 
 func (s *scanner) enterNestedContainer() error {
@@ -415,10 +467,13 @@ func (s *scanner) leaveContainer() {
 }
 
 func (s *scanner) addWork(amount int) error {
-	s.work += amount
-	if s.work > s.limits.MaximumWork {
+	if amount <= 0 {
+		return s.checkCancel()
+	}
+	if s.work > s.limits.MaximumWork-amount {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, s.limits.MaximumWork)
 	}
+	s.work += amount
 	return s.checkCancel()
 }
 

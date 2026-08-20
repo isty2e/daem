@@ -238,6 +238,22 @@ func TestObserveConfigFileReportsMalformedTOML(t *testing.T) {
 	}
 }
 
+func TestObserveConfigFileAcceptsSpaceSeparatedDatetime(t *testing.T) {
+	configPath := writeCodexConfig(t, `checked_at = 1987-07-05 17:45:00Z
+
+[plugins."alpha@market"]
+enabled = true
+`)
+
+	observation, err := ObserveConfigFile(configPath)
+	if err != nil {
+		t.Fatalf("ObserveConfigFile returned error: %v", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for datetime-bearing config")
+	}
+}
+
 func TestObserveConfigFileRejectsDeepInlineTablesBeforeDecode(t *testing.T) {
 	var builder strings.Builder
 	builder.WriteString("k = ")

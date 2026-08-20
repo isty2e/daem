@@ -123,5 +123,6 @@ func isConfigSyntaxError(err error) bool {
 	var jsonSyntaxError *json.SyntaxError
 	return errors.As(err, &jsonSyntaxError) ||
 		errors.Is(err, errMultipleJSONValues) ||
-		errors.Is(err, jsonstrict.ErrMultipleValues)
+		errors.Is(err, jsonstrict.ErrMultipleValues) ||
+		errors.Is(err, jsonstrict.ErrDuplicateObjectKey)
 }

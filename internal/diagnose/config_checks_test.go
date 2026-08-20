@@ -76,7 +76,7 @@ func TestConfigFileCheckParsesBoundedTOML(t *testing.T) {
 
 func TestConfigFileCheckRejectsDeepTOMLBeforeDecode(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth+1)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
@@ -91,7 +91,7 @@ func TestConfigFileCheckRejectsDeepTOMLBeforeDecode(t *testing.T) {
 
 func TestConfigFileCheckAcceptsExactTOMLDepth(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.toml")
-	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth)), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(nestedDoctorInlineTables(tomlstrict.MaximumDepth-1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
@@ -116,6 +116,84 @@ func TestConfigFileCheckRejectsDeepJSON(t *testing.T) {
 	})
 	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "depth") {
 		t.Fatalf("check = %#v, want JSON depth error", check)
+	}
+}
+
+func TestConfigFileCheckRejectsDeepJSONEvenWhenSyntaxIsWarning(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.WriteFile(path, nestedDoctorJSONObjects(tomlstrict.MaximumDepth+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=opencode config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatJSON,
+		SyntaxErrorSeverity: findings.SeverityWarn,
+	})
+	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "depth") {
+		t.Fatalf("check = %#v, want JSON depth error not syntax warn", check)
+	}
+}
+
+func TestConfigFileCheckWarnsDuplicateJSONKeysForWarningTargets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "opencode.json")
+	if err := os.WriteFile(path, []byte(`{"model":"a","model":"b"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=opencode config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatJSON,
+		SyntaxErrorSeverity: findings.SeverityWarn,
+	})
+	if check.Status != findings.CheckWarn ||
+		!strings.Contains(check.Detail, "strict parse") ||
+		!strings.Contains(check.Detail, "duplicate") {
+		t.Fatalf("check = %#v, want duplicate-key syntax warning", check)
+	}
+}
+
+func TestConfigFileCheckErrorsDuplicateJSONKeysForErrorTargets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"model":"a","model":"b"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=claude-code config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatJSON,
+		SyntaxErrorSeverity: findings.SeverityError,
+	})
+	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "duplicate") {
+		t.Fatalf("check = %#v, want duplicate-key error", check)
+	}
+}
+
+func TestConfigFileCheckAcceptsSpaceSeparatedTOMLDatetime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("checked_at = 1987-07-05 17:45:00Z\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatTOML,
+		SyntaxErrorSeverity: findings.SeverityError,
+	})
+	if check.Status != findings.CheckOK || !strings.Contains(check.Detail, "is parseable") {
+		t.Fatalf("check = %#v, want parseable space-separated datetime", check)
+	}
+}
+
+func TestConfigFileCheckRejectsDottedInlinePathBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	content := "k = { " + strings.Repeat("a.", tomlstrict.MaximumDepth-1) + "a = 1 }\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatTOML,
+		SyntaxErrorSeverity: findings.SeverityWarn,
+	})
+	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "depth") {
+		t.Fatalf("check = %#v, want semantic-path error not syntax warn", check)
 	}
 }
 
