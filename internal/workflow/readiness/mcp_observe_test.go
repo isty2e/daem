@@ -1,6 +1,7 @@
 package readiness
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,6 +52,7 @@ func TestUnsupportedAlternateMCPProjectionConfigUsesCanonicalPlacementPath(t *te
 		)
 	}
 	present, err := observeAggregatePrecondition(
+		context.Background(),
 		liveobserve.DestinationResolver(hostpath.NewResolver(root).Resolve),
 		precondition,
 	)

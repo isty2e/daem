@@ -16,6 +16,7 @@ import (
 	desiredhook "github.com/isty2e/daem/internal/desired/hook"
 	"github.com/isty2e/daem/internal/encoding/hookdocument"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -26,18 +27,19 @@ import (
 const declarationHookTypeCommand = "command"
 
 const (
-	importHookSkipMissing                  = "missing"
-	importHookSkipNotRegular               = "not_regular_file"
-	importHookSkipSymlink                  = "hook_final_symlink"
-	importHookSkipTooLarge                 = "hook_file_too_large"
-	importHookSkipChanged                  = "hook_file_changed_during_read"
-	importHookSkipDuplicateJSONKey         = "duplicate_json_key"
-	importHookSkipJSONDepth                = "json_depth_exceeded"
-	importHookSkipBudgetExceeded           = "hook_import_budget_exceeded"
-	importHookSkipInvalidCanonical         = "invalid_canonical_hook"
-	maximumInlineConfigBytes         int64 = 4 << 20
-	maximumImportHookSkips                 = 4096
-	maximumImportHookDiagnosticBytes       = 256 << 10
+	importHookSkipMissing                     = "missing"
+	importHookSkipNotRegular                  = "not_regular_file"
+	importHookSkipSymlink                     = "hook_final_symlink"
+	importHookSkipTooLarge                    = "hook_file_too_large"
+	importHookSkipChanged                     = "hook_file_changed_during_read"
+	importHookSkipDuplicateJSONKey            = "duplicate_json_key"
+	importHookSkipJSONDepth                   = "json_depth_exceeded"
+	importHookSkipBudgetExceeded              = "hook_import_budget_exceeded"
+	importHookSkipInvalidCanonical            = "invalid_canonical_hook"
+	importHookSkipInlineConfigStructure       = "inline_config_structure_limit"
+	maximumInlineConfigBytes            int64 = 4 << 20
+	maximumImportHookSkips                    = 4096
+	maximumImportHookDiagnosticBytes          = 256 << 10
 )
 
 type importHookGroup struct {
@@ -127,6 +129,16 @@ func importCodexInlineHookSkips(
 	}
 	if !exists {
 		return nil, nil
+	}
+	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		reason := importHookSkipInlineConfigStructure
+		if errors.Is(err, tomlstrict.ErrMalformed) {
+			reason = "inline_config_malformed"
+		}
+		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: reason}}, nil
 	}
 	var decoded map[string]toml.Primitive
 	metadata, err := toml.Decode(string(content), &decoded)

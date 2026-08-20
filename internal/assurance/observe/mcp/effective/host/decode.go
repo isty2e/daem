@@ -2,11 +2,13 @@ package host
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 
 	burnttoml "github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/tailscale/hujson"
 )
 
@@ -140,6 +142,12 @@ func decodeCodexImportServerNames(
 ) (map[string]struct{}, error) {
 	var root map[string]any
 	if tomlDocument {
+		if int64(len(content)) > maximumConfigBytes {
+			return nil, fmt.Errorf("Codex MCP import exceeds %d bytes", maximumConfigBytes)
+		}
+		if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
+			return nil, err
+		}
 		if _, err := burnttoml.Decode(string(content), &root); err != nil {
 			return nil, err
 		}

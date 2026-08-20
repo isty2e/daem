@@ -262,7 +262,7 @@ func observeAggregateDocuments(
 			)
 		}
 		for _, precondition := range preconditions {
-			satisfied, err := observeAggregatePrecondition(resolver, precondition)
+			satisfied, err := observeAggregatePrecondition(ctx, resolver, precondition)
 			if err != nil {
 				return aggregateDocumentObservations{}, err
 			}
@@ -273,7 +273,7 @@ func observeAggregateDocuments(
 			result.preconditions = append(result.preconditions, observed)
 		}
 		logical := address.AggregateRoot()
-		if err := liveobserve.ValidateAggregateReadPreconditions(logical, resolver); err != nil {
+		if err := liveobserve.ValidateAggregateReadPreconditions(ctx, logical, resolver); err != nil {
 			return aggregateDocumentObservations{}, err
 		}
 		physical, err := resolver(logical)

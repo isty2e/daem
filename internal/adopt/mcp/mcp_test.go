@@ -557,6 +557,29 @@ func TestCandidatesReportsGlobalMalformedConfigWithoutPartialImport(t *testing.T
 	}
 }
 
+func TestCandidatesReportsCodexStructureLimitAsMalformedWithoutPartialImport(t *testing.T) {
+	tempDir := t.TempDir()
+	homeDir := filepath.Join(tempDir, "home")
+	t.Setenv("HOME", homeDir)
+	livePath := filepath.Join(homeDir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(livePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "root = " + strings.Repeat("{ k = ", 64) + "1" + strings.Repeat(" }", 64) + "\n"
+	if err := os.WriteFile(livePath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 0 || len(skipped) != 1 ||
+		skipped[0].LivePath != livePath || skipped[0].Reason != "mcp_config_malformed" {
+		t.Fatalf("Candidates = (%#v, %#v), want one malformed Codex structure-limit skip", servers, skipped)
+	}
+}
+
 func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) {
 	tempDir := t.TempDir()
 	withWorkingDirectory(t, tempDir)

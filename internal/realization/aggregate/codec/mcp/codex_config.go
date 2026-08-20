@@ -2,10 +2,12 @@ package mcpcodec
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sort"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -284,6 +286,20 @@ type codexProjectMCPConfig struct {
 	servers map[string]any
 }
 
+func decodeCodexTOMLMap(content []byte) (map[string]any, error) {
+	if err := validateMCPDocumentSize(content); err != nil {
+		return nil, err
+	}
+	if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
+		return nil, err
+	}
+	var decoded map[string]any
+	if _, err := toml.Decode(string(content), &decoded); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
 // decodeCodexProjectMCPConfig stays separate from the JSON aggregate helper:
 // Codex uses TOML table semantics and entry maps, while the shared helper owns
 // only JSON object aggregates over raw entry bytes.
@@ -302,13 +318,15 @@ func decodeCodexProjectMCPConfig(content []byte) (codexProjectMCPConfig, error) 
 			"Codex MCP config TOML is empty",
 		)
 	}
-	if _, err := toml.Decode(string(content), &config.top); err != nil {
+	top, err := decodeCodexTOMLMap(content)
+	if err != nil {
 		return codexProjectMCPConfig{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			aggregate.CodexProjectMCPConfigPath,
 			fmt.Sprintf("decode Codex MCP config TOML: %v", err),
 		)
 	}
+	config.top = top
 	rawServers, ok := config.top[codexProjectMCPManagedField]
 	if !ok {
 		return config, nil
@@ -355,8 +373,8 @@ func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexPro
 			"Codex MCP canonical entry TOML is empty",
 		)
 	}
-	var raw map[string]any
-	if _, err := toml.Decode(string(content), &raw); err != nil {
+	raw, err := decodeCodexTOMLMap(content)
+	if err != nil {
 		return CodexProjectMCPServerEntry{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			CodexProjectMCPContentPath(serverID),

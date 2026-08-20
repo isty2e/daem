@@ -1,18 +1,22 @@
 package live
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/test/outputtest"
 )
 
 func TestRejectCodexInlineHooksConflictIsScopedToCodexHookDestinations(t *testing.T) {
-	err := ValidateAggregateReadPreconditions(outputtest.Parse(t, ".claude/settings.json"), func(destination output.Destination) (string, error) {
+	err := ValidateAggregateReadPreconditions(context.Background(), outputtest.Parse(t, ".claude/settings.json"), func(destination output.Destination) (string, error) {
 		t.Fatalf("resolver called for non-Codex hook destination %q", destination)
 		return "", nil
 	})
@@ -72,7 +76,7 @@ func TestRejectCodexInlineHooksConflictChecksPairedConfigOnly(t *testing.T) {
 				writeTestFile(t, caseDir, test.configDestination, test.configContent)
 			}
 
-			err := ValidateAggregateReadPreconditions(test.hookDestination, testDestinationResolver(caseDir))
+			err := ValidateAggregateReadPreconditions(context.Background(), test.hookDestination, testDestinationResolver(caseDir))
 			if test.wantError == "" {
 				if err != nil {
 					t.Fatalf("rejectCodexInlineHooksConflict returned error: %v", err)
@@ -91,9 +95,84 @@ func TestRejectCodexInlineHooksConflictChecksPairedConfigOnly(t *testing.T) {
 	missingResolution := func(destination output.Destination) (string, error) {
 		return "", fmt.Errorf("unexpected destination %q", destination)
 	}
-	if err := ValidateAggregateReadPreconditions(outputtest.Parse(t, ".codex/hooks.json"), missingResolution); err == nil {
+	if err := ValidateAggregateReadPreconditions(context.Background(), outputtest.Parse(t, ".codex/hooks.json"), missingResolution); err == nil {
 		t.Fatal("rejectCodexInlineHooksConflict returned nil for resolver failure")
 	}
+}
+
+func TestRejectCodexInlineHooksConflictBoundsTOMLBeforeDecode(t *testing.T) {
+	root := t.TempDir()
+	destination := outputtest.Parse(t, ".codex/hooks.json")
+	configPath := filepath.Join(root, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	deep := "root = " + strings.Repeat("{ k = ", tomlstrict.MaximumDepth) +
+		"1" + strings.Repeat(" }", tomlstrict.MaximumDepth) + "\n"
+	if err := os.WriteFile(configPath, []byte(deep), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ValidateAggregateReadPreconditions(context.Background(), destination, testDestinationResolver(root))
+	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+		t.Fatalf("ValidateAggregateReadPreconditions(deep TOML) = %v, want depth rejection", err)
+	}
+
+	file, err := os.OpenFile(configPath, os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate((4 << 20) + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = ValidateAggregateReadPreconditions(context.Background(), destination, testDestinationResolver(root))
+	if !errors.Is(err, filesnapshot.ErrLimitExceeded) {
+		t.Fatalf("ValidateAggregateReadPreconditions(oversized TOML) = %v, want byte-limit rejection", err)
+	}
+}
+
+func TestRejectCodexInlineHooksConflictPreservesReferentAndCancellationSemantics(t *testing.T) {
+	t.Run("stable final symlink", func(t *testing.T) {
+		root := t.TempDir()
+		targetPath := filepath.Join(root, "shared-config.toml")
+		if err := os.WriteFile(targetPath, []byte("model = \"gpt-5-codex\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		configPath := filepath.Join(root, ".codex", "config.toml")
+		if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(targetPath, configPath); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if err := ValidateAggregateReadPreconditions(
+			context.Background(),
+			outputtest.Parse(t, ".codex/hooks.json"),
+			testDestinationResolver(root),
+		); err != nil {
+			t.Fatalf("ValidateAggregateReadPreconditions(symlink) = %v, want nil", err)
+		}
+	})
+
+	t.Run("caller cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		err := ValidateAggregateReadPreconditions(
+			ctx,
+			outputtest.Parse(t, ".codex/hooks.json"),
+			func(destination output.Destination) (string, error) {
+				t.Fatalf("resolver called after cancellation for %q", destination)
+				return "", nil
+			},
+		)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ValidateAggregateReadPreconditions(canceled) = %v, want context.Canceled", err)
+		}
+	})
 }
 
 func writeTestFile(t *testing.T, root string, relativePath string, content string) {

@@ -148,8 +148,8 @@ func decodeCodexGlobalMCPServerEntry(content []byte, serverID string) (CodexGlob
 			"Codex MCP canonical entry TOML is empty",
 		)
 	}
-	var raw map[string]any
-	if _, err := toml.Decode(string(content), &raw); err != nil {
+	raw, err := decodeCodexTOMLMap(content)
+	if err != nil {
 		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			CodexGlobalMCPContentPath(serverID),
