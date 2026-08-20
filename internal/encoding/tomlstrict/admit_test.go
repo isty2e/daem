@@ -315,6 +315,62 @@ func TestAdmitPathWorkMultiplyOverflowFailsClosed(t *testing.T) {
 	}
 }
 
+func TestAdmitAcceptsExactAnonymousNestedArrayPathWork(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 32)
+	content := "aaaaaaaa = [[], [], [], []]\n"
+	if err := Admit(context.Background(), []byte(content), limits); err != nil {
+		t.Fatalf("Admit(anonymous nested array pathWork=32) = %v, want nil", err)
+	}
+}
+
+func TestAdmitRejectsAnonymousNestedArrayPathWorkPlusOne(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 32)
+	content := "aaaaaaaa = [[], [], [], [], []]\n"
+	err := Admit(context.Background(), []byte(content), limits)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(anonymous nested array pathWork=40) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitAcceptsExactAnonymousInlineTablePathWork(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 32)
+	content := "aaaaaaaa = [{}, {}, {}, {}]\n"
+	if err := Admit(context.Background(), []byte(content), limits); err != nil {
+		t.Fatalf("Admit(anonymous inline table pathWork=32) = %v, want nil", err)
+	}
+}
+
+func TestAdmitRejectsAnonymousInlineTablePathWorkPlusOne(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 32)
+	content := "aaaaaaaa = [{}, {}, {}, {}, {}]\n"
+	err := Admit(context.Background(), []byte(content), limits)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(anonymous inline table pathWork=40) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitDoesNotChargePrimitiveArrayElementsAsPathWork(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 1)
+	content := "aaaaaaaa = [1, 2, 3, 4, 5]\n"
+	if err := Admit(context.Background(), []byte(content), limits); err != nil {
+		t.Fatalf("Admit(primitive array elements) = %v, want nil", err)
+	}
+}
+
+func TestAdmitRejectsLongAncestorAnonymousArraysBeyondPathWork(t *testing.T) {
+	elements := MaximumPathWork/MaximumKeyBytes + 1
+	content := longKeyArrayElements(MaximumKeyBytes, elements, "[]")
+	started := time.Now()
+	err := Admit(context.Background(), []byte(content), StandardLimits())
+	elapsed := time.Since(started)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(anonymous array pathWork=%d) = %v, want path recopy exceeded", MaximumPathWork+MaximumKeyBytes, err)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("Admit(long ancestor anonymous arrays) took %s, want fail-closed before Unmarshal cost", elapsed)
+	}
+}
+
 func TestAdmitChargesArrayInlineTableSiblingsAgainstArrayKeyBytes(t *testing.T) {
 	limits := testLimits(8, 16, 64, 64, 32)
 	content := "aaaaaaaa = [{k = 1}, {k = 1}, {k = 1}, {k = 1}, {k = 1}]\n"
@@ -351,6 +407,21 @@ func longAncestorSiblings(keyBytes int, siblings int) string {
 	for range siblings {
 		builder.WriteString("k = 1\n")
 	}
+	return builder.String()
+}
+
+func longKeyArrayElements(keyBytes int, elements int, value string) string {
+	var builder strings.Builder
+	builder.Grow(keyBytes + elements*(len(value)+2) + 6)
+	builder.WriteString(strings.Repeat("a", keyBytes))
+	builder.WriteString(" = [")
+	for index := range elements {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(value)
+	}
+	builder.WriteString("]\n")
 	return builder.String()
 }
 

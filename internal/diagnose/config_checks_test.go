@@ -214,6 +214,38 @@ func TestConfigFileCheckRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.
 	}
 }
 
+func TestConfigFileCheckRejectsLongAncestorAnonymousArraysBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	elements := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
+	content := longKeyDoctorArrayElements(tomlstrict.MaximumKeyBytes, elements, "[]")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatTOML,
+		SyntaxErrorSeverity: findings.SeverityWarn,
+	})
+	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "path recopy") {
+		t.Fatalf("check = %#v, want anonymous-container path-recopy error not syntax warn", check)
+	}
+}
+
+func longKeyDoctorArrayElements(keyBytes int, elements int, value string) string {
+	var builder strings.Builder
+	builder.Grow(keyBytes + elements*(len(value)+2) + 6)
+	builder.WriteString(strings.Repeat("a", keyBytes))
+	builder.WriteString(" = [")
+	for index := range elements {
+		if index > 0 {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(value)
+	}
+	builder.WriteString("]\n")
+	return builder.String()
+}
+
 func nestedDoctorInlineTables(depth int) string {
 	var builder strings.Builder
 	builder.WriteString("k = ")

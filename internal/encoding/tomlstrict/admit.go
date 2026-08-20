@@ -22,10 +22,10 @@ const (
 	MaximumWork = 65536
 	// MaximumKeyBytes bounds one assignment or header key's raw token bytes.
 	MaximumKeyBytes = 4096
-	// MaximumPathWork bounds ancestor-path byte recopies charged on each
-	// assignment. It matches the Codex observation aggregate name-byte scale so
-	// 4096 short plugin tables still admit, while a long established path
-	// reused across siblings cannot decode at GiB scale.
+	// MaximumPathWork bounds ancestor-path byte recopies charged on keyed values
+	// and anonymous nested containers. It matches the Codex observation
+	// aggregate name-byte scale so 4096 short plugin tables still admit, while a
+	// long established path reused across siblings cannot decode at GiB scale.
 	MaximumPathWork = 1 << 20
 )
 
@@ -65,8 +65,8 @@ func StandardLimits() Limits {
 const cancelCheckInterval = 4096
 
 // Admit checks TOML nesting, container count, aggregate token work, and
-// ancestor-path byte recopies without building a decoded document. Callers must
-// still parse admitted bytes.
+// ancestor-path byte recopies for keyed values and anonymous nested containers
+// without building a decoded document. Callers must still parse admitted bytes.
 func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -289,10 +289,7 @@ func (s *scanner) value(keyParts int, keyBytes int) error {
 }
 
 func (s *scanner) array(keyParts int, keyBytes int) error {
-	if err := s.enterNestedContainer(); err != nil {
-		return err
-	}
-	if err := s.pushPath(keyParts, keyBytes); err != nil {
+	if err := s.enterValueContainer(keyParts, keyBytes); err != nil {
 		return err
 	}
 	s.index++
@@ -324,10 +321,7 @@ func (s *scanner) array(keyParts int, keyBytes int) error {
 }
 
 func (s *scanner) inlineTable(keyParts int, keyBytes int) error {
-	if err := s.enterNestedContainer(); err != nil {
-		return err
-	}
-	if err := s.pushPath(keyParts, keyBytes); err != nil {
+	if err := s.enterValueContainer(keyParts, keyBytes); err != nil {
 		return err
 	}
 	s.index++
@@ -486,6 +480,18 @@ func (s *scanner) popPath(parts int, keyBytes int) {
 	s.pathBytes -= keyBytes
 }
 
+func (s *scanner) enterValueContainer(keyParts int, keyBytes int) error {
+	if err := s.enterNestedContainer(); err != nil {
+		return err
+	}
+	if keyParts == 0 {
+		if err := s.addPathWork(s.pathBytes, 1); err != nil {
+			return err
+		}
+	}
+	return s.pushPath(keyParts, keyBytes)
+}
+
 func (s *scanner) enterNestedContainer() error {
 	s.depth++
 	if s.depth > s.limits.MaximumDepth {
@@ -517,17 +523,17 @@ func (s *scanner) addWork(amount int) error {
 	return s.checkCancel()
 }
 
-func (s *scanner) addPathWork(pathBytes int, parts int) error {
-	if pathBytes == 0 || parts == 0 {
+func (s *scanner) addPathWork(pathBytes int, copies int) error {
+	if pathBytes == 0 || copies == 0 {
 		return s.checkCancel()
 	}
-	if pathBytes < 0 || parts < 0 {
+	if pathBytes < 0 || copies < 0 {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
 	}
-	if pathBytes > math.MaxInt/parts {
+	if pathBytes > math.MaxInt/copies {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
 	}
-	amount := pathBytes * parts
+	amount := pathBytes * copies
 	if amount > s.limits.MaximumPathWork || s.pathWork > s.limits.MaximumPathWork-amount {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
 	}
