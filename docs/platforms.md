@@ -76,7 +76,9 @@ not-admitted platform, it keeps the platform error, runs only checks whose
 success meaning is unchanged, and emits named `unsupported` or `skipped`
 results for capability-bound remaining checks. It does not execute Git, search
 PATH for MCP executables, or invoke durable file-set or recovery inventory
-adapters, so a storage abort cannot erase the platform finding. If path
+adapters, so a storage abort cannot erase the platform finding. Host config
+grammar checks read a bounded regular-file snapshot and admit TOML/JSON
+structure before decoding. If path
 resolution itself fails, the platform and path
 findings are both reported and remaining checks are not invented. This
 diagnostic exception grants no storage or mutation capability.

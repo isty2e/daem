@@ -10,6 +10,8 @@ import (
 	"os"
 
 	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/findings"
 )
@@ -51,7 +53,7 @@ func configFileCheck(ctx context.Context, name string, configFile doctorConfigFi
 		return warnCheck(name, fmt.Sprintf("%s is missing", configFile.Path))
 	}
 
-	if err := parseConfigFileBytes(configFile, content); err != nil {
+	if err := parseConfigFileBytes(ctx, configFile, content); err != nil {
 		if configFile.SyntaxErrorSeverity == findings.SeverityWarn && isConfigSyntaxError(err) {
 			return warnCheck(name, fmt.Sprintf("strict parse of %s failed: %v", configFile.Path, err))
 		}
@@ -75,15 +77,27 @@ func configFileReadError(name string, path string, err error) findings.Check {
 	}
 }
 
-func parseConfigFileBytes(configFile doctorConfigFile, content []byte) error {
+func parseConfigFileBytes(ctx context.Context, configFile doctorConfigFile, content []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	switch configFile.Format {
 	case ConfigFormatTOML:
+		if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+			return err
+		}
 		var decoded map[string]toml.Primitive
 		if err := toml.Unmarshal(content, &decoded); err != nil {
 			return err
 		}
 		return nil
 	case ConfigFormatJSON:
+		if err := jsonstrict.Validate(content, "host config", tomlstrict.MaximumDepth); err != nil {
+			return err
+		}
 		decoder := json.NewDecoder(bytes.NewReader(content))
 		var decoded map[string]json.RawMessage
 		if err := decoder.Decode(&decoded); err != nil {
@@ -107,5 +121,7 @@ func parseConfigFileBytes(configFile doctorConfigFile, content []byte) error {
 
 func isConfigSyntaxError(err error) bool {
 	var jsonSyntaxError *json.SyntaxError
-	return errors.As(err, &jsonSyntaxError) || errors.Is(err, errMultipleJSONValues)
+	return errors.As(err, &jsonSyntaxError) ||
+		errors.Is(err, errMultipleJSONValues) ||
+		errors.Is(err, jsonstrict.ErrMultipleValues)
 }
