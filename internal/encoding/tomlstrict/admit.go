@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"unicode/utf8"
 )
 
@@ -21,6 +22,11 @@ const (
 	MaximumWork = 65536
 	// MaximumKeyBytes bounds one assignment or header key's raw token bytes.
 	MaximumKeyBytes = 4096
+	// MaximumPathWork bounds ancestor-path byte recopies charged on each
+	// assignment. It matches the Codex observation aggregate name-byte scale so
+	// 4096 short plugin tables still admit, while a long established path
+	// reused across siblings cannot decode at GiB scale.
+	MaximumPathWork = 1 << 20
 )
 
 var (
@@ -30,6 +36,8 @@ var (
 	ErrMaximumContainersExceeded = errors.New("TOML container count exceeded")
 	// ErrMaximumWorkExceeded classifies aggregate TOML structure work.
 	ErrMaximumWorkExceeded = errors.New("TOML aggregate work exceeded")
+	// ErrMaximumPathWorkExceeded classifies ancestor-path byte recopy work.
+	ErrMaximumPathWorkExceeded = errors.New("TOML path recopy work exceeded")
 	// ErrMalformed classifies structural TOML that cannot be admitted.
 	ErrMalformed = errors.New("malformed TOML structure")
 )
@@ -40,6 +48,7 @@ type Limits struct {
 	MaximumContainers int
 	MaximumWork       int
 	MaximumKeyBytes   int
+	MaximumPathWork   int
 }
 
 // StandardLimits are the shared host-document ceilings.
@@ -49,13 +58,15 @@ func StandardLimits() Limits {
 		MaximumContainers: MaximumContainers,
 		MaximumWork:       MaximumWork,
 		MaximumKeyBytes:   MaximumKeyBytes,
+		MaximumPathWork:   MaximumPathWork,
 	}
 }
 
 const cancelCheckInterval = 4096
 
-// Admit checks TOML nesting, container count, and aggregate work without
-// building a decoded document. Callers must still parse admitted bytes.
+// Admit checks TOML nesting, container count, aggregate token work, and
+// ancestor-path byte recopies without building a decoded document. Callers must
+// still parse admitted bytes.
 func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -66,7 +77,8 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if limits.MaximumDepth <= 0 ||
 		limits.MaximumContainers <= 0 ||
 		limits.MaximumWork <= 0 ||
-		limits.MaximumKeyBytes <= 0 {
+		limits.MaximumKeyBytes <= 0 ||
+		limits.MaximumPathWork <= 0 {
 		return fmt.Errorf("TOML structure limits must be positive")
 	}
 	if !utf8.Valid(content) {
@@ -89,8 +101,10 @@ type scanner struct {
 	index      int
 	depth      int
 	pathDepth  int
+	pathBytes  int
 	containers int
 	work       int
+	pathWork   int
 	limits     Limits
 	ctx        context.Context
 	cancelAt   int
@@ -145,10 +159,12 @@ func (s *scanner) tableHeader() error {
 		s.index++
 	}
 	s.pathDepth = 0
+	s.pathBytes = 0
 	if err := s.chargeKey(parts, keyBytes); err != nil {
 		return err
 	}
 	s.pathDepth = parts
+	s.pathBytes = keyBytes
 	return s.chargeContainer()
 }
 
@@ -195,7 +211,7 @@ func (s *scanner) assignment() error {
 		return fmt.Errorf("%w: expected assignment", ErrMalformed)
 	}
 	s.index++
-	return s.value(parts)
+	return s.value(parts, keyBytes)
 }
 
 func (s *scanner) assignmentKey() (int, int, error) {
@@ -246,7 +262,7 @@ func (s *scanner) keyPart() (int, error) {
 	}
 }
 
-func (s *scanner) value(keyParts int) error {
+func (s *scanner) value(keyParts int, keyBytes int) error {
 	if err := s.checkCancel(); err != nil {
 		return err
 	}
@@ -261,9 +277,9 @@ func (s *scanner) value(keyParts int) error {
 		}
 		return s.addWork(1)
 	case '[':
-		return s.array(keyParts)
+		return s.array(keyParts, keyBytes)
 	case '{':
-		return s.inlineTable(keyParts)
+		return s.inlineTable(keyParts, keyBytes)
 	default:
 		if err := s.skipBareValue(); err != nil {
 			return err
@@ -272,11 +288,13 @@ func (s *scanner) value(keyParts int) error {
 	}
 }
 
-func (s *scanner) array(keyParts int) error {
+func (s *scanner) array(keyParts int, keyBytes int) error {
 	if err := s.enterNestedContainer(); err != nil {
 		return err
 	}
-	s.pathDepth += keyParts
+	if err := s.pushPath(keyParts, keyBytes); err != nil {
+		return err
+	}
 	s.index++
 	expectValue := true
 	for {
@@ -286,7 +304,7 @@ func (s *scanner) array(keyParts int) error {
 		}
 		if s.src[s.index] == ']' {
 			s.index++
-			s.pathDepth -= keyParts
+			s.popPath(keyParts, keyBytes)
 			s.leaveContainer()
 			return nil
 		}
@@ -298,18 +316,20 @@ func (s *scanner) array(keyParts int) error {
 			expectValue = true
 			continue
 		}
-		if err := s.value(0); err != nil {
+		if err := s.value(0, 0); err != nil {
 			return err
 		}
 		expectValue = false
 	}
 }
 
-func (s *scanner) inlineTable(keyParts int) error {
+func (s *scanner) inlineTable(keyParts int, keyBytes int) error {
 	if err := s.enterNestedContainer(); err != nil {
 		return err
 	}
-	s.pathDepth += keyParts
+	if err := s.pushPath(keyParts, keyBytes); err != nil {
+		return err
+	}
 	s.index++
 	expectPair := true
 	for {
@@ -319,7 +339,7 @@ func (s *scanner) inlineTable(keyParts int) error {
 		}
 		if s.src[s.index] == '}' {
 			s.index++
-			s.pathDepth -= keyParts
+			s.popPath(keyParts, keyBytes)
 			s.leaveContainer()
 			return nil
 		}
@@ -443,7 +463,27 @@ func (s *scanner) chargeKey(parts int, keyBytes int) error {
 		return err
 	}
 	walk := parts*s.pathDepth + parts*(parts+1)/2
-	return s.addWork(walk)
+	if err := s.addWork(walk); err != nil {
+		return err
+	}
+	return s.addPathWork(s.pathBytes, parts)
+}
+
+func (s *scanner) pushPath(parts int, keyBytes int) error {
+	if keyBytes < 0 || parts < 0 {
+		return fmt.Errorf("%w: invalid path", ErrMalformed)
+	}
+	if keyBytes > 0 && s.pathBytes > math.MaxInt-keyBytes {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
+	}
+	s.pathDepth += parts
+	s.pathBytes += keyBytes
+	return nil
+}
+
+func (s *scanner) popPath(parts int, keyBytes int) {
+	s.pathDepth -= parts
+	s.pathBytes -= keyBytes
 }
 
 func (s *scanner) enterNestedContainer() error {
@@ -474,6 +514,24 @@ func (s *scanner) addWork(amount int) error {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, s.limits.MaximumWork)
 	}
 	s.work += amount
+	return s.checkCancel()
+}
+
+func (s *scanner) addPathWork(pathBytes int, parts int) error {
+	if pathBytes == 0 || parts == 0 {
+		return s.checkCancel()
+	}
+	if pathBytes < 0 || parts < 0 {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
+	}
+	if pathBytes > math.MaxInt/parts {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
+	}
+	amount := pathBytes * parts
+	if amount > s.limits.MaximumPathWork || s.pathWork > s.limits.MaximumPathWork-amount {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, s.limits.MaximumPathWork)
+	}
+	s.pathWork += amount
 	return s.checkCancel()
 }
 

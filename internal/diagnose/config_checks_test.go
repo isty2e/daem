@@ -197,6 +197,23 @@ func TestConfigFileCheckRejectsDottedInlinePathBeforeDecode(t *testing.T) {
 	}
 }
 
+func TestConfigFileCheckRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	siblings := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
+	content := "[" + strings.Repeat("a", tomlstrict.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check := configFileCheck(context.Background(), "target=codex config_file", doctorConfigFile{
+		Path:                path,
+		Format:              ConfigFormatTOML,
+		SyntaxErrorSeverity: findings.SeverityWarn,
+	})
+	if check.Status != findings.CheckError || !strings.Contains(check.Detail, "path recopy") {
+		t.Fatalf("check = %#v, want path-recopy error not syntax warn", check)
+	}
+}
+
 func nestedDoctorInlineTables(depth int) string {
 	var builder strings.Builder
 	builder.WriteString("k = ")

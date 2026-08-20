@@ -3,6 +3,7 @@ package tomlstrict
 import (
 	"context"
 	"errors"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -43,7 +44,7 @@ func TestAdmitRejectsNestedArraysBeyondContainerDepth(t *testing.T) {
 }
 
 func TestAdmitAcceptsExactContainerLimit(t *testing.T) {
-	limits := testLimits(8, 3, 64, 64)
+	limits := testLimits(8, 3, 64, 64, 64)
 	content := "[a]\n[b]\n[c]\n"
 	if err := Admit(context.Background(), []byte(content), limits); err != nil {
 		t.Fatalf("Admit(containers=3) = %v, want nil", err)
@@ -51,7 +52,7 @@ func TestAdmitAcceptsExactContainerLimit(t *testing.T) {
 }
 
 func TestAdmitRejectsContainerLimitPlusOne(t *testing.T) {
-	limits := testLimits(8, 3, 64, 64)
+	limits := testLimits(8, 3, 64, 64, 64)
 	content := "[a]\n[b]\n[c]\n[d]\n"
 	err := Admit(context.Background(), []byte(content), limits)
 	if !errors.Is(err, ErrMaximumContainersExceeded) {
@@ -60,7 +61,7 @@ func TestAdmitRejectsContainerLimitPlusOne(t *testing.T) {
 }
 
 func TestAdmitAcceptsExactWorkLimit(t *testing.T) {
-	limits := testLimits(8, 8, 5, 64)
+	limits := testLimits(8, 8, 5, 64, 64)
 	// key tokens (1) + root walk (1) + array enter (1) + two primitives (2) = 5
 	if err := Admit(context.Background(), []byte("k = [1, 2]\n"), limits); err != nil {
 		t.Fatalf("Admit(work=5) = %v, want nil", err)
@@ -68,7 +69,7 @@ func TestAdmitAcceptsExactWorkLimit(t *testing.T) {
 }
 
 func TestAdmitRejectsWorkLimitPlusOne(t *testing.T) {
-	limits := testLimits(8, 8, 5, 64)
+	limits := testLimits(8, 8, 5, 64, 64)
 	err := Admit(context.Background(), []byte("k = [1, 2, 3]\n"), limits)
 	if !errors.Is(err, ErrMaximumWorkExceeded) {
 		t.Fatalf("Admit(work=6) = %v, want work exceeded", err)
@@ -221,13 +222,136 @@ func TestAdmitRejectsDottedKeyInsideArrayOfInlineTablesBeyondPath(t *testing.T) 
 	}
 }
 
-func testLimits(depth int, containers int, work int, keyBytes int) Limits {
+func TestAdmitAcceptsExactPathWorkOfLongAncestorSiblings(t *testing.T) {
+	if MaximumPathWork%MaximumKeyBytes != 0 {
+		t.Fatalf("MaximumPathWork=%d is not a multiple of MaximumKeyBytes=%d", MaximumPathWork, MaximumKeyBytes)
+	}
+	siblings := MaximumPathWork / MaximumKeyBytes
+	content := longAncestorSiblings(MaximumKeyBytes, siblings)
+	if err := Admit(context.Background(), []byte(content), StandardLimits()); err != nil {
+		t.Fatalf("Admit(pathWork=%d) = %v, want nil", MaximumPathWork, err)
+	}
+}
+
+func TestAdmitRejectsLongAncestorSiblingsBeyondPathWork(t *testing.T) {
+	siblings := MaximumPathWork/MaximumKeyBytes + 1
+	content := longAncestorSiblings(MaximumKeyBytes, siblings)
+	started := time.Now()
+	err := Admit(context.Background(), []byte(content), StandardLimits())
+	elapsed := time.Since(started)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(pathWork=%d) = %v, want path recopy exceeded", MaximumPathWork+MaximumKeyBytes, err)
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Fatalf("Admit(long ancestor siblings) took %s, want fail-closed before Unmarshal cost", elapsed)
+	}
+}
+
+func TestAdmitAcceptsExactParameterizedPathWork(t *testing.T) {
+	limits := testLimits(8, 8, 64, 64, 32)
+	content := longAncestorSiblings(8, 4)
+	if err := Admit(context.Background(), []byte(content), limits); err != nil {
+		t.Fatalf("Admit(pathWork=32) = %v, want nil", err)
+	}
+}
+
+func TestAdmitRejectsParameterizedPathWorkPlusOne(t *testing.T) {
+	limits := testLimits(8, 8, 64, 64, 32)
+	err := Admit(context.Background(), []byte(longAncestorSiblings(8, 5)), limits)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(pathWork=40) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitChargesDottedAssignmentAgainstAncestorPathBytes(t *testing.T) {
+	limits := testLimits(8, 8, 64, 64, 15)
+	content := "[aaaaaaaa]\na.b = 1\n"
+	err := Admit(context.Background(), []byte(content), limits)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(dotted recopy 16>15) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitRejectsNestedLongKeySiblingRecopy(t *testing.T) {
+	siblings := MaximumPathWork/MaximumKeyBytes + 1
+	content := "k = { " + strings.Repeat("a", MaximumKeyBytes) + " = { " +
+		strings.Repeat("x = 1, ", siblings-1) + "x = 1 } }\n"
+	err := Admit(context.Background(), []byte(content), StandardLimits())
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(nested long-key siblings) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitAcceptsRootLevelLongKeyWithoutRecopy(t *testing.T) {
+	content := strings.Repeat("a", MaximumKeyBytes) + " = 1\n"
+	if err := Admit(context.Background(), []byte(content), StandardLimits()); err != nil {
+		t.Fatalf("Admit(root long key) = %v, want nil", err)
+	}
+}
+
+func TestAdmitAcceptsPluginTableCountUnderObservationBudget(t *testing.T) {
+	const pluginTables = 4096
+	var builder strings.Builder
+	builder.Grow(pluginTables * 40)
+	for index := range pluginTables {
+		builder.WriteString("[plugins.\"p")
+		builder.WriteString(strconv.Itoa(index))
+		builder.WriteString("\"]\nenabled = true\n")
+	}
+	if err := Admit(context.Background(), []byte(builder.String()), StandardLimits()); err != nil {
+		t.Fatalf("Admit(%d plugin tables) = %v, want nil so observation budget remains first", pluginTables, err)
+	}
+}
+
+func TestAdmitPathWorkMultiplyOverflowFailsClosed(t *testing.T) {
+	scanner := scanner{
+		ctx:       context.Background(),
+		limits:    StandardLimits(),
+		pathBytes: math.MaxInt,
+	}
+	err := scanner.chargeKey(2, 1)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("chargeKey(MaxInt pathBytes, 2 parts) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitChargesArrayInlineTableSiblingsAgainstArrayKeyBytes(t *testing.T) {
+	limits := testLimits(8, 16, 64, 64, 32)
+	content := "aaaaaaaa = [{k = 1}, {k = 1}, {k = 1}, {k = 1}, {k = 1}]\n"
+	err := Admit(context.Background(), []byte(content), limits)
+	if !errors.Is(err, ErrMaximumPathWorkExceeded) {
+		t.Fatalf("Admit(array inline siblings) = %v, want path recopy exceeded", err)
+	}
+}
+
+func TestAdmitResetsPathBytesOnTableHeaderSwitch(t *testing.T) {
+	limits := testLimits(8, 8, 64, 64, 8)
+	content := "[aaaaaaaa]\n[b]\nk = 1\n"
+	if err := Admit(context.Background(), []byte(content), limits); err != nil {
+		t.Fatalf("Admit(header switch) = %v, want nil after path reset", err)
+	}
+}
+
+func testLimits(depth int, containers int, work int, keyBytes int, pathWork int) Limits {
 	return Limits{
 		MaximumDepth:      depth,
 		MaximumContainers: containers,
 		MaximumWork:       work,
 		MaximumKeyBytes:   keyBytes,
+		MaximumPathWork:   pathWork,
 	}
+}
+
+func longAncestorSiblings(keyBytes int, siblings int) string {
+	var builder strings.Builder
+	builder.Grow(keyBytes + siblings*7 + 4)
+	builder.WriteByte('[')
+	builder.WriteString(strings.Repeat("a", keyBytes))
+	builder.WriteString("]\n")
+	for range siblings {
+		builder.WriteString("k = 1\n")
+	}
+	return builder.String()
 }
 
 func nestedInlineTables(depth int) string {

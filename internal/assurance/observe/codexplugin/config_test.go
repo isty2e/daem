@@ -276,6 +276,20 @@ func TestObserveConfigFileRejectsDeepInlineTablesBeforeDecode(t *testing.T) {
 	}
 }
 
+func TestObserveConfigFileRejectsLongAncestorSiblingRecopyBeforeDecode(t *testing.T) {
+	siblings := tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1
+	content := "[" + strings.Repeat("a", tomlstrict.MaximumKeyBytes) + "]\n" + strings.Repeat("k = 1\n", siblings)
+	configPath := writeCodexConfig(t, content)
+
+	observation, err := ObserveConfigFile(configPath)
+	if !errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded) {
+		t.Fatalf("ObserveConfigFile = %v, want path recopy exceeded", err)
+	}
+	if !observation.ConfigExists() {
+		t.Fatalf("ConfigExists = false, want true for oversized existing config")
+	}
+}
+
 func TestObserveConfigFileReportsDuplicatePluginTablesAsMalformedTOML(t *testing.T) {
 	configPath := writeCodexConfig(t, `
 [plugins."alpha@market"]
