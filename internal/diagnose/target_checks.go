@@ -1,6 +1,7 @@
 package diagnose
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,7 @@ func resourceKindSelected(kinds map[entity.Kind]struct{}, kind entity.Kind) bool
 }
 
 func targetChecks(
+	ctx context.Context,
 	homeDirectory string,
 	manifestRoot string,
 	projectPlacementAllowed bool,
@@ -43,7 +45,7 @@ func targetChecks(
 	if spec.ConfigRoot != "" && resourceKindSelected(resourceKinds, entity.KindHook) {
 		checks = append(checks, directoryCheck(fmt.Sprintf("target=%s config_dir", target), spec.ConfigRoot))
 		for _, configFile := range spec.ConfigFiles {
-			checks = append(checks, configFileCheck(fmt.Sprintf("target=%s config_file", target), configFile))
+			checks = append(checks, configFileCheck(ctx, fmt.Sprintf("target=%s config_file", target), configFile))
 		}
 	}
 	if resourceKindSelected(resourceKinds, entity.KindSkill) {
@@ -54,6 +56,7 @@ func targetChecks(
 }
 
 func independentTargetChecks(
+	ctx context.Context,
 	homeDirectory string,
 	manifestRoot string,
 	projectPlacementAllowed bool,
@@ -71,7 +74,7 @@ func independentTargetChecks(
 			"host config-directory readiness cannot be honored on this platform",
 		))
 		for _, configFile := range spec.ConfigFiles {
-			checks = append(checks, configFileCheck(fmt.Sprintf("target=%s config_file", target), configFile))
+			checks = append(checks, configFileCheck(ctx, fmt.Sprintf("target=%s config_file", target), configFile))
 		}
 	}
 	if resourceKindSelected(resourceKinds, entity.KindSkill) {

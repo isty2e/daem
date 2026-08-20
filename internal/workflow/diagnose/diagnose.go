@@ -109,7 +109,7 @@ func remainingChecks(
 					"skill-group expansion, compatibility, and retained discovery were not attempted; this platform cannot honor those host-observation contracts",
 				))
 			}
-			checks = append(checks, diagnose.MCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
+			checks = append(checks, diagnose.IndependentMCPExecutableRequirementChecks(loadedManifest.facts.MCPServers(), selection)...)
 		} else {
 			manifestSkills, skillInspectionChecks := diagnose.InspectManifestSkills(
 				ctx,

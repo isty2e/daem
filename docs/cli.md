@@ -1054,10 +1054,10 @@ compatibility, and available passive readiness facts.
 On a not-admitted platform, doctor keeps the platform error after successful
 path resolution. It still runs checks whose success meaning is unchanged, such
 as manifest syntax after the path is known, and names remaining
-capability-bound checks `unsupported` or `skipped`. It does not invoke durable
-file-set or recovery inventory adapters. A path-resolution error is reported
-alongside the platform error. Human and JSON forms use the same
-finding and exit with status `1`.
+capability-bound checks `unsupported` or `skipped`. It does not execute Git,
+search PATH for MCP executables, or invoke durable file-set or recovery
+inventory adapters. A path-resolution error is reported alongside the platform
+error. Human and JSON forms use the same finding and exit with status `1`.
 
 On an admitted platform, doctor refuses human and JSON diagnostics while an
 interrupted apply journal is active, before reading live host or target

@@ -222,10 +222,20 @@ func TestIndependentEnvironmentChecksNamesHostEffectWithoutProbing(t *testing.T)
 	if cache := byName["cache"]; cache.Status != findings.CheckUnsupported {
 		t.Fatalf("cache = %#v, want unsupported without probing a non-directory", cache)
 	}
+	if git := byName["git"]; git.Status != findings.CheckUnsupported {
+		t.Fatalf("git = %#v, want unsupported without executing PATH git", git)
+	}
+	if strings.Contains(byName["git"].Detail, "git version test") {
+		t.Fatalf("git = %#v, want no executed version text", byName["git"])
+	}
 	if plugin := byName["codex_plugin"]; plugin.Status != findings.CheckUnsupported {
 		t.Fatalf("codex_plugin = %#v, want unsupported parent", plugin)
 	}
 	if configDir := byName["target=codex config_dir"]; configDir.Status != findings.CheckUnsupported {
 		t.Fatalf("config_dir = %#v, want unsupported", configDir)
+	}
+	if configFile := byName["target=codex config_file"]; configFile.Status != findings.CheckWarn ||
+		!strings.Contains(configFile.Detail, "is missing") {
+		t.Fatalf("config_file = %#v, want missing warning from bounded snapshot", configFile)
 	}
 }

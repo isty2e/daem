@@ -74,9 +74,10 @@ Doctor validates target selection and resolves the selected manifest path so
 that path errors remain actionable. After successful path resolution on a
 not-admitted platform, it keeps the platform error, runs only checks whose
 success meaning is unchanged, and emits named `unsupported` or `skipped`
-results for capability-bound remaining checks. It does not invoke durable
-file-set or recovery inventory adapters, so a storage abort cannot erase the
-platform finding. If path resolution itself fails, the platform and path
+results for capability-bound remaining checks. It does not execute Git, search
+PATH for MCP executables, or invoke durable file-set or recovery inventory
+adapters, so a storage abort cannot erase the platform finding. If path
+resolution itself fails, the platform and path
 findings are both reported and remaining checks are not invented. This
 diagnostic exception grants no storage or mutation capability.
 

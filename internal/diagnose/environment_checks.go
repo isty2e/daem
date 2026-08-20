@@ -44,9 +44,9 @@ func EnvironmentChecks(
 	)
 }
 
-// IndependentEnvironmentChecks reports tool presence, in-memory capability, and
-// host-config grammar. Host-effect readiness and descriptor-relative plugin
-// observation are named unsupported instead of being probed.
+// IndependentEnvironmentChecks reports in-memory capability and host-config
+// grammar. Git execution, cache/symlink readiness, and descriptor-relative
+// plugin observation are named unsupported instead of being probed.
 func IndependentEnvironmentChecks(
 	ctx context.Context,
 	paths daempaths.Paths,
@@ -75,15 +75,22 @@ func environmentChecks(
 	includePassivePluginDiagnostics bool,
 	observation hostObservationMode,
 ) []findings.Check {
-	checks := []findings.Check{gitCheck(ctx)}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	checks := make([]findings.Check, 0, 8)
 	if observation == hostObservationIndependent {
 		checks = append(
 			checks,
+			unsupportedCheck("git", "git version and object-format observation cannot be honored on this platform"),
 			unsupportedCheck("cache", "cache-directory readiness cannot be honored on this platform"),
 			unsupportedCheck("symlink", "symlink-placement probing cannot be honored on this platform"),
 		)
 	} else {
-		checks = append(checks, cacheCheck(paths.CacheDir), symlinkCheck())
+		checks = append(checks, gitCheck(ctx), cacheCheck(paths.CacheDir), symlinkCheck())
+	}
+	if err := ctx.Err(); err != nil {
+		return checks
 	}
 
 	homeDirectory, err := os.UserHomeDir()
@@ -93,11 +100,14 @@ func environmentChecks(
 	}
 
 	for _, target := range selection.Targets() {
+		if err := ctx.Err(); err != nil {
+			return checks
+		}
 		if observation == hostObservationIndependent {
-			checks = append(checks, independentTargetChecks(homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
+			checks = append(checks, independentTargetChecks(ctx, homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
 			continue
 		}
-		checks = append(checks, targetChecks(homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
+		checks = append(checks, targetChecks(ctx, homeDirectory, paths.ManifestRoot, projectPlacementAllowed, target, resourceKinds)...)
 	}
 	if includePassivePluginDiagnostics {
 		if observation == hostObservationIndependent {

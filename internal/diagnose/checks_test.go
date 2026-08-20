@@ -74,7 +74,7 @@ func TestConfigFileCheckRejectsMultipleJSONValues(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	check := configFileCheck("target=claude-code config_file", doctorConfigFile{
+	check := configFileCheck(context.Background(), "target=claude-code config_file", doctorConfigFile{
 		Path:                configPath,
 		Format:              ConfigFormatJSON,
 		SyntaxErrorSeverity: findings.SeverityError,

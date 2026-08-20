@@ -84,8 +84,11 @@ func TestRunUnsupportedPlatformReportsNamedRemainingChecks(t *testing.T) {
 	if !ok {
 		t.Fatalf("checks = %#v, want git", result.Checks)
 	}
-	if git.Status == findings.CheckSkipped || git.Status == findings.CheckUnsupported {
-		t.Fatalf("git = %#v, want an attempted tool-presence check", git)
+	if git.Status != findings.CheckUnsupported {
+		t.Fatalf("git = %#v, want unsupported without Git execution", git)
+	}
+	if strings.Contains(git.Detail, "git version test") {
+		t.Fatalf("git = %#v, want no executed version text", git)
 	}
 	assertCheckStatus(t, result.Checks, "cache", findings.CheckUnsupported)
 	assertCheckStatus(t, result.Checks, "symlink", findings.CheckUnsupported)
@@ -207,6 +210,15 @@ targets = ["codex"]
 name = "review"
 source = { path = "skills/review", mode = "vendor" }
 targets = ["codex"]
+
+[[mcp_server]]
+name = "context7"
+targets = ["codex"]
+scope = "project"
+transport = "stdio"
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+env = { TOKEN = { from_env = "MISSING_DOCTOR_TOKEN" } }
 `)
 	if err := os.MkdirAll(filepath.Join(root, ".daem", "recovery", "active-operation"), 0o700); err != nil {
 		t.Fatal(err)
@@ -224,8 +236,25 @@ targets = ["codex"]
 	assertCheckStatus(t, result.Checks, "platform", findings.CheckError)
 	assertCheckStatus(t, result.Checks, "manifest", findings.CheckOK)
 	assertCheckStatus(t, result.Checks, "skill_observation", findings.CheckSkipped)
+	assertCheckStatus(t, result.Checks, "git", findings.CheckUnsupported)
 	assertCheckStatus(t, result.Checks, "cache", findings.CheckUnsupported)
 	assertCheckStatus(t, result.Checks, "codex_plugin", findings.CheckUnsupported)
+	assertCheckStatus(
+		t,
+		result.Checks,
+		"target=codex scope=project mcp_server=context7 executable_requirement=command",
+		findings.CheckUnsupported,
+	)
+	envCheck, ok := checkNamed(
+		result.Checks,
+		"target=codex scope=project mcp_server=context7 executable_requirement=env_refs",
+	)
+	if !ok {
+		t.Fatalf("checks = %#v, want MCP env_refs", result.Checks)
+	}
+	if envCheck.Status != findings.CheckWarn || !strings.Contains(envCheck.Detail, "MISSING_DOCTOR_TOKEN") {
+		t.Fatalf("env_refs = %#v, want in-memory missing-env warning", envCheck)
+	}
 	if hasCheckNamed(result.Checks, "target=codex skill=review compatibility") {
 		t.Fatalf("compatibility check ran on unsupported platform: %#v", result.Checks)
 	}
