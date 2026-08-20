@@ -12,6 +12,7 @@ func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
 	tests := []struct {
 		name   string
 		decode func() error
+		want   MCPProjectionReasonCode
 	}{
 		{
 			name: "host document",
@@ -19,6 +20,7 @@ func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
 				_, err := decodeCodexProjectMCPConfig(content)
 				return err
 			},
+			want: MCPProjectionReasonConfigMalformed,
 		},
 		{
 			name: "project canonical entry",
@@ -26,6 +28,7 @@ func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
 				_, err := decodeCodexProjectMCPServerEntry(content, "context7")
 				return err
 			},
+			want: MCPProjectionReasonCode("CANONICAL_INVALID"),
 		},
 		{
 			name: "global canonical entry",
@@ -33,15 +36,16 @@ func TestCodexTOMLDecodersRejectExcessiveStructure(t *testing.T) {
 				_, err := decodeCodexGlobalMCPServerEntry(content, "context7")
 				return err
 			},
+			want: MCPProjectionReasonCode("CANONICAL_INVALID"),
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			err := test.decode()
 			reason, ok := MCPProjectionReasonCodeOf(err)
-			if !ok || reason != MCPProjectionReasonConfigMalformed ||
+			if !ok || reason != test.want ||
 				!strings.Contains(err.Error(), tomlstrict.ErrMaximumDepthExceeded.Error()) {
-				t.Fatalf("decode error = %v, reason = %q, want config-malformed depth rejection", err, reason)
+				t.Fatalf("decode error = %v, reason = %q, want %q depth rejection", err, reason, test.want)
 			}
 		})
 	}
@@ -53,8 +57,10 @@ func TestCodexTOMLDecoderRejectsContentBeyondDocumentLimit(t *testing.T) {
 	content = append(content, '"', '\n')
 
 	_, err := decodeCodexProjectMCPServerEntry(content, "context7")
-	if err == nil || !strings.Contains(err.Error(), "exceeds 4194304 bytes") {
-		t.Fatalf("decode oversized canonical entry = %v, want document byte-limit rejection", err)
+	reason, ok := MCPProjectionReasonCodeOf(err)
+	if !ok || reason != MCPProjectionReasonCode("CANONICAL_INVALID") ||
+		!strings.Contains(err.Error(), "exceeds 4194304 bytes") {
+		t.Fatalf("decode oversized canonical entry = %v, reason = %q, want canonical byte-limit rejection", err, reason)
 	}
 }
 

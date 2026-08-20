@@ -2,7 +2,9 @@ package live
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
@@ -43,6 +45,9 @@ func ValidateAggregateReadPreconditions(
 		maximumCodexInlineConfigBytes,
 	)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf(
 			"observe destination %q: parse %q for Codex inline hooks: %w",
 			destination,

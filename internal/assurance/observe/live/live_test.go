@@ -136,6 +136,36 @@ func TestRejectCodexInlineHooksConflictBoundsTOMLBeforeDecode(t *testing.T) {
 }
 
 func TestRejectCodexInlineHooksConflictPreservesReferentAndCancellationSemantics(t *testing.T) {
+	t.Run("stable dangling final symlink", func(t *testing.T) {
+		tests := []struct {
+			name   string
+			hook   string
+			config string
+		}{
+			{name: "project", hook: ".codex/hooks.json", config: ".codex/config.toml"},
+			{name: "global", hook: "~/.codex/hooks.json", config: "~/.codex/config.toml"},
+		}
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				root := t.TempDir()
+				configPath := filepath.Join(root, filepath.FromSlash(test.config))
+				if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(root, "missing-referent.toml"), configPath); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+				if err := ValidateAggregateReadPreconditions(
+					context.Background(),
+					outputtest.Parse(t, test.hook),
+					testDestinationResolver(root),
+				); err != nil {
+					t.Fatalf("ValidateAggregateReadPreconditions(dangling %s config) = %v, want absence", test.name, err)
+				}
+			})
+		}
+	})
+
 	t.Run("stable final symlink", func(t *testing.T) {
 		root := t.TempDir()
 		targetPath := filepath.Join(root, "shared-config.toml")

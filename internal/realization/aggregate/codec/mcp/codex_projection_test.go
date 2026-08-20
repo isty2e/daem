@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
 
@@ -63,6 +64,60 @@ func TestCodexGlobalMCPProjectionFactsAndCanonicalEntry(t *testing.T) {
 	if got := CodexGlobalMCPContentPath("context7"); got != "/mcp_servers/context7" {
 		t.Fatalf("content path = %q", got)
 	}
+}
+
+func TestCodexCanonicalProducersMatchTOMLRenderContract(t *testing.T) {
+	maximumServerIDBytes := tomlstrict.MaximumKeyBytes - len(codexProjectMCPManagedField)
+	project := func(serverID string, args []string) error {
+		projection := validCodexMCPProjection(serverID)
+		projection.Args = args
+		_, err := CanonicalCodexProjectMCPServerEntry(projection)
+		return err
+	}
+	global := func(serverID string, args []string) error {
+		projection := validCodexGlobalMCPProjection(serverID)
+		projection.Args = args
+		_, err := CanonicalCodexGlobalMCPServerEntry(projection)
+		return err
+	}
+	for _, producer := range []struct {
+		name string
+		call func(string, []string) error
+	}{
+		{name: "project", call: project},
+		{name: "global", call: global},
+	} {
+		t.Run(producer.name, func(t *testing.T) {
+			if err := producer.call(strings.Repeat("a", maximumServerIDBytes), nil); err != nil {
+				t.Fatalf("producer rejected exact Codex key limit: %v", err)
+			}
+			assertMCPProjectionReason(
+				t,
+				producer.call(strings.Repeat("a", maximumServerIDBytes+1), nil),
+				MCPProjectionReasonCode("CANONICAL_INVALID"),
+			)
+			assertMCPProjectionReason(
+				t,
+				producer.call("context7", []string{strings.Repeat("\n", 2_200_000)}),
+				MCPProjectionReasonCode("CANONICAL_INVALID"),
+			)
+			assertMCPProjectionReason(
+				t,
+				producer.call("context7", make([]string, tomlstrict.MaximumWork+1)),
+				MCPProjectionReasonCode("CANONICAL_INVALID"),
+			)
+		})
+	}
+}
+
+func TestCodexFullDocumentProducerRejectsExpandedOutput(t *testing.T) {
+	host := []byte("note = '''" + strings.Repeat("\n", 2_200_000) + "'''\n")
+	if int64(len(host)) >= maximumDocumentBytes {
+		t.Fatalf("host fixture bytes = %d, want below document limit", len(host))
+	}
+	canonical := mustCanonicalCodexProjectMCPServerEntry(t, validCodexMCPProjection("context7"))
+	_, err := mergeCodexProjectMCPServerCanonicalEntry(host, "context7", canonical)
+	assertMCPProjectionReason(t, err, MCPProjectionReasonCode("CANONICAL_INVALID"))
 }
 
 func TestCodexProjectMCPProjectionMergeCompareAndPreserveSiblings(t *testing.T) {

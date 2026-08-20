@@ -28,8 +28,8 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 		{aggregate.MCPPlacementAntigravityGlobal, `{"type":"stdio","command":"npx","args":[]}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementOpenCodeProject, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
 		{aggregate.MCPPlacementOpenCodeGlobal, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
-		{aggregate.MCPPlacementCodexProject, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "unsupported_managed_field"},
-		{aggregate.MCPPlacementCodexGlobal, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "secret_literal_forbidden"},
+		{aggregate.MCPPlacementCodexProject, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "canonical_contribution_invalid"},
+		{aggregate.MCPPlacementCodexGlobal, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "canonical_contribution_invalid"},
 	}
 
 	for _, test := range tests {
