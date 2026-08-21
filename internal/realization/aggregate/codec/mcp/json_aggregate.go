@@ -17,6 +17,10 @@ func canonicalMCPJSONError(subject string, operation string, err error) error {
 }
 
 func canonicalJSON(value any) ([]byte, error) {
+	expectedBytes, err := canonicalJSONEncodedSize(value)
+	if err != nil {
+		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
+	}
 	content, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
@@ -24,6 +28,13 @@ func canonicalJSON(value any) ([]byte, error) {
 	content = append(content, '\n')
 	if err := validateMCPDocumentSize(content); err != nil {
 		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
+	}
+	if int64(len(content)) != expectedBytes {
+		return nil, canonicalMCPJSONError(
+			"",
+			"encode canonical MCP JSON",
+			fmt.Errorf("size preflight measured %d bytes, encoder produced %d", expectedBytes, len(content)),
+		)
 	}
 	if err := jsonstrict.Validate(content, "canonical MCP JSON", maximumMCPJSONDepth); err != nil {
 		return nil, canonicalMCPJSONError("", "validate canonical MCP JSON", err)

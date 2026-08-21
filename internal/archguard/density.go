@@ -99,11 +99,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "a child would export or duplicate descriptor anchors, platform identity, mount validation, fault phases, and traversal budgets that are private evidence for one guarded publication and cleanup transaction",
 	},
 	"internal/realization/aggregate/codec/mcp": {
-		reviewedValue:       18,
+		reviewedValue:       19,
 		owner:               "MCP aggregate external protocol",
-		reason:              "at 18 production files, canonical entry, mutation fold, restore, compare, preservation, launch-vector decoding, Codex global environment-reference normalization, and the shared Pi adapter document codec form one syntax boundary while capability admission remains profile-owned",
+		reason:              "at 19 production files, canonical entry and exact output-size admission, mutation fold, restore, compare, preservation, launch-vector decoding, Codex global environment-reference normalization, and the shared Pi adapter document codec form one syntax boundary while capability admission remains profile-owned",
 		naturalSplit:        "create one aggregate codec package per host",
-		alternativeRejected: "host packages would duplicate protocol rules and require a facade over the same canonical aggregate",
+		alternativeRejected: "host packages would duplicate protocol and canonical-size rules and require a facade over the same canonical aggregate",
 	},
 	"internal/workflow/apply": {
 		reviewedValue:       25,
