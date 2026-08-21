@@ -323,6 +323,33 @@ func TestObservePiAdapterTreatsMissingImportAsExactAbsence(t *testing.T) {
 	}
 }
 
+func TestObservePiAdapterTreatsExcessiveCodexTOMLAsOpaque(t *testing.T) {
+	root := t.TempDir()
+	homeDir := filepath.Join(root, "home")
+	workDir := filepath.Join(root, "project")
+	agentRoot := filepath.Join(homeDir, ".pi", "agent")
+	selectedPath := filepath.Join(workDir, ".pi", "mcp.json")
+	writeEffectiveConfig(t, selectedPath, `{
+		"imports": ["codex"],
+		"mcpServers": {"context7": {"command": "node"}}
+	}`)
+	writeEffectiveConfig(
+		t,
+		filepath.Join(homeDir, ".codex", "config.toml"),
+		"root = "+strings.Repeat("{ k = ", 64)+"1"+strings.Repeat(" }", 64)+"\n",
+	)
+
+	observation := mustObservePiAdapter(t, PiAdapterInput{
+		Projection: piEffectiveProjection(t, target.ScopeProject),
+		HomeDir:    homeDir, WorkDir: workDir, AgentRoot: agentRoot, SelectedPath: selectedPath,
+	})
+	blocking := observation.BlockingSources()
+	if observation.State() != mcpeffective.StateUnobservable || len(blocking) != 1 ||
+		!strings.Contains(blocking[0].Detail(), "TOML nesting depth exceeded") {
+		t.Fatalf("observation = %#v, blocking = %#v, want opaque Codex structure-limit source", observation, blocking)
+	}
+}
+
 func TestObservePiAdapterTurnsOpaqueActiveSourcesIntoBlockers(t *testing.T) {
 	tests := []struct {
 		name    string

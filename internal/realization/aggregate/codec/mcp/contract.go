@@ -25,6 +25,7 @@ const (
 	MCPProjectionReasonUnsupportedManagedField        MCPProjectionReasonCode = "UNSUPPORTED_MANAGED_FIELD"
 	MCPProjectionReasonSecretLiteralForbidden         MCPProjectionReasonCode = "SECRET_LITERAL_FORBIDDEN"
 	MCPProjectionReasonProjectionEquivalenceUndefined MCPProjectionReasonCode = "PROJECTION_EQUIVALENCE_UNDEFINED"
+	MCPProjectionReasonCanonicalInvalid               MCPProjectionReasonCode = "CANONICAL_INVALID"
 	MCPProjectionReasonStaleAdapterContract           MCPProjectionReasonCode = "STALE_ADAPTER_CONTRACT"
 	MCPProjectionReasonProviderDocumentLossy          MCPProjectionReasonCode = "PROVIDER_DOCUMENT_LOSSY"
 )

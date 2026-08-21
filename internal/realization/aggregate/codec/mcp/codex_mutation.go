@@ -5,7 +5,7 @@ import "fmt"
 type codexMCPEntryContract[T any] struct {
 	decodeCanonical func([]byte, string) (T, error)
 	decodeValue     func(any, string) (T, error)
-	encode          func(T) ([]byte, error)
+	encode          func(T, string) ([]byte, error)
 	entryMap        func(T) map[string]any
 	equal           func(T, T) bool
 }
@@ -39,6 +39,11 @@ func observeCodexMCPProjections[T any](
 	serverIDs []string,
 	contract codexMCPEntryContract[T],
 ) (MCPProjectionObservation, error) {
+	for _, serverID := range serverIDs {
+		if err := validateCodexMCPServerID(serverID); err != nil {
+			return MCPProjectionObservation{}, err
+		}
+	}
 	config, err := decodeCodexProjectMCPConfig(existing)
 	if err != nil {
 		return MCPProjectionObservation{}, err
@@ -53,7 +58,7 @@ func observeCodexMCPProjections[T any](
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}
-		content, err := contract.encode(entry)
+		content, err := contract.encode(entry, serverID)
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}

@@ -12,12 +12,13 @@ import (
 )
 
 func observeAggregatePrecondition(
+	ctx context.Context,
 	resolver liveobserve.DestinationResolver,
 	precondition aggregate.OperationPrecondition,
 ) (bool, error) {
 	document := precondition.DocumentAddress()
 	logical := document.AggregateRoot()
-	if err := liveobserve.ValidateAggregateReadPreconditions(logical, resolver); err != nil {
+	if err := liveobserve.ValidateAggregateReadPreconditions(ctx, logical, resolver); err != nil {
 		return false, err
 	}
 	physical, err := resolver(logical)

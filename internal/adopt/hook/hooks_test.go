@@ -219,6 +219,26 @@ func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
 	assertSkip(importHookSkipTooLarge)
 }
 
+func TestCandidatesClassifiesCodexInlineConfigStructureLimit(t *testing.T) {
+	root := t.TempDir()
+	withHookWorkingDirectory(t, root)
+	if err := os.MkdirAll(".codex", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "root = " + strings.Repeat("{ k = ", 64) + "1" + strings.Repeat(" }", 64) + "\n"
+	if err := os.WriteFile(filepath.Join(".codex", "config.toml"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
+	if err != nil {
+		t.Fatalf("Candidates returned error: %v", err)
+	}
+	if len(hooks) != 0 || !hasHookSkip(skipped, ".codex/config.toml", "inline_config_structure_limit") {
+		t.Fatalf("Candidates = (%#v, %#v), want inline config structure-limit skip", hooks, skipped)
+	}
+}
+
 func TestCandidatesStopsWhenHookImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

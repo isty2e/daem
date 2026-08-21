@@ -1,6 +1,12 @@
 package host
 
-import "testing"
+import (
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
+)
 
 func TestDecodeNormalDocumentUsesNullishAliasSemantics(t *testing.T) {
 	fallback, err := decodeNormalDocument([]byte(
@@ -69,5 +75,15 @@ func TestDecodeCodexImportUsesFallbackOnlyForNullishPrimary(t *testing.T) {
 	}
 	if _, present := names["context7"]; !present {
 		t.Fatal("Codex null primary alias did not select the fallback table")
+	}
+}
+
+func TestDecodeCodexImportRejectsExcessiveTOMLStructure(t *testing.T) {
+	content := []byte("root = " + strings.Repeat("{ k = ", tomlstrict.MaximumDepth) +
+		"1" + strings.Repeat(" }", tomlstrict.MaximumDepth) + "\n")
+
+	_, err := decodeCodexImportServerNames(content, true)
+	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+		t.Fatalf("decode Codex TOML import = %v, want depth rejection", err)
 	}
 }

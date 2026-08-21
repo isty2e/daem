@@ -243,7 +243,7 @@ func CanonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) ([
 	if err != nil {
 		return nil, err
 	}
-	return encodeCodexProjectMCPServerEntry(entry)
+	return encodeCodexProjectMCPServerEntry(entry, projection.ServerID)
 }
 
 // CanonicalCodexGlobalMCPServerEntry returns the canonical managed server entry bytes.
@@ -252,7 +252,7 @@ func CanonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjectio
 	if err != nil {
 		return nil, err
 	}
-	return encodeCodexGlobalMCPServerEntry(entry)
+	return encodeCodexGlobalMCPServerEntry(entry, projection.ServerID)
 }
 
 func canonicalServerEntry(projection ClaudeProjectMCPServerProjection) (ClaudeProjectMCPServerEntry, error) {
@@ -396,6 +396,9 @@ func canonicalCodexProjectMCPServerEntry(projection MCPNoEnvServerProjection) (C
 	); err != nil {
 		return CodexProjectMCPServerEntry{}, err
 	}
+	if err := validateCodexMCPServerID(projection.ServerID); err != nil {
+		return CodexProjectMCPServerEntry{}, err
+	}
 	return CodexProjectMCPServerEntry{
 		Command: projection.Command,
 		Args:    append([]string{}, projection.Args...),
@@ -410,7 +413,7 @@ func canonicalCodexGlobalMCPServerEntry(projection CodexGlobalMCPServerProjectio
 			"unsupported Codex global MCP adapter contract",
 		)
 	}
-	if err := validateServerID(projection.ServerID); err != nil {
+	if err := validateCodexMCPServerID(projection.ServerID); err != nil {
 		return CodexGlobalMCPServerEntry{}, err
 	}
 	if err := validateMCPCommand(projection.Command); err != nil {

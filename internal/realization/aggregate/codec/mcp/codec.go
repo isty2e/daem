@@ -471,6 +471,8 @@ func mcpCodecFailure(
 			reason = aggregate.CodecFailureSecretLiteralForbidden
 		case MCPProjectionReasonProjectionEquivalenceUndefined:
 			reason = aggregate.CodecFailureEquivalenceUndefined
+		case MCPProjectionReasonCanonicalInvalid:
+			reason = aggregate.CodecFailureCanonicalInvalid
 		case MCPProjectionReasonStaleAdapterContract:
 			reason = aggregate.CodecFailureCanonicalInvalid
 		case MCPProjectionReasonProviderDocumentLossy:

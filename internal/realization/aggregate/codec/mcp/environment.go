@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 )
 
@@ -138,25 +137,33 @@ func validateOpenCodeHostEnvReference(value string, subject string) error {
 }
 
 func decodeCodexGlobalMCPServerEntry(content []byte, serverID string) (CodexGlobalMCPServerEntry, error) {
-	if err := validateServerID(serverID); err != nil {
+	if err := validateCodexMCPServerID(serverID); err != nil {
 		return CodexGlobalMCPServerEntry{}, err
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
 		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
+			MCPProjectionReasonCanonicalInvalid,
 			CodexGlobalMCPContentPath(serverID),
 			"Codex MCP canonical entry TOML is empty",
 		)
 	}
-	var raw map[string]any
-	if _, err := toml.Decode(string(content), &raw); err != nil {
-		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
+	raw, err := decodeCodexTOMLMap(content)
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, canonicalCodexTOMLError(
 			CodexGlobalMCPContentPath(serverID),
-			fmt.Sprintf("decode Codex MCP canonical entry TOML: %v", err),
+			"decode Codex MCP canonical entry TOML",
+			err,
 		)
 	}
-	return decodeCodexGlobalMCPServerEntryValue(raw, serverID)
+	entry, err := decodeCodexGlobalMCPServerEntryValue(raw, serverID)
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, canonicalCodexTOMLError(
+			CodexGlobalMCPContentPath(serverID),
+			"validate Codex MCP canonical entry",
+			err,
+		)
+	}
+	return entry, nil
 }
 
 func decodeCodexGlobalMCPServerEntryValue(value any, serverID string) (CodexGlobalMCPServerEntry, error) {
@@ -290,16 +297,20 @@ func codexGlobalMCPEnvVarName(value any, subject string) (string, error) {
 	return name, nil
 }
 
-func encodeCodexGlobalMCPServerEntry(entry CodexGlobalMCPServerEntry) ([]byte, error) {
-	content, err := toml.Marshal(CodexGlobalMCPServerEntry{
+func encodeCodexGlobalMCPServerEntry(entry CodexGlobalMCPServerEntry, serverID string) ([]byte, error) {
+	canonical := CodexGlobalMCPServerEntry{
 		Command: entry.Command,
 		Args:    append([]string(nil), entry.Args...),
 		EnvVars: append([]string(nil), entry.EnvVars...),
-	})
-	if err != nil {
-		return nil, err
 	}
-	return content, nil
+	return encodeCodexMCPServerEntry(
+		serverID,
+		canonical.Command,
+		canonical.Args,
+		canonical.EnvVars,
+		canonical,
+		codexGlobalMCPServerEntryMap(canonical),
+	)
 }
 
 func codexGlobalMCPServerEntryMap(entry CodexGlobalMCPServerEntry) map[string]any {

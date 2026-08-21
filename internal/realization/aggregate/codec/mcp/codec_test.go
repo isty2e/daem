@@ -1,6 +1,7 @@
 package mcpcodec
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -42,6 +43,10 @@ func TestMCPCodecFailureMapsSemanticReasonsWithoutPrivateDiagnosticInterpretatio
 			code: MCPProjectionReasonSecretLiteralForbidden,
 			want: aggregate.CodecFailureSecretLiteralForbidden,
 		},
+		{
+			code: MCPProjectionReasonCanonicalInvalid,
+			want: aggregate.CodecFailureCanonicalInvalid,
+		},
 	}
 
 	for _, test := range tests {
@@ -75,8 +80,25 @@ func TestValidatePersistedContributionUsesMCPCodecContract(t *testing.T) {
 	}
 
 	malformed := mcpCodecContribution(t, placement, "context7", []byte("not canonical TOML"))
-	if err := codec.ValidateContributions(mcpCodecExclusiveSet(t, malformed)); err == nil {
-		t.Fatal("ValidateContributions accepted malformed MCP canonical bytes")
+	err := codec.ValidateContributions(mcpCodecExclusiveSet(t, malformed))
+	var failure *aggregate.CodecFailure
+	if !errors.As(err, &failure) || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("ValidateContributions(malformed canonical) = %v, want canonical invalid", err)
+	}
+
+	unsupportedCanonical := []byte("command = \"npx\"\nurl = \"https://example.invalid/mcp\"\n")
+	unsupported := mcpCodecContribution(t, placement, "context7", unsupportedCanonical)
+	err = codec.ValidateContributions(mcpCodecExclusiveSet(t, unsupported))
+	if !errors.As(err, &failure) || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("ValidateContributions(unsupported canonical) = %v, want canonical invalid", err)
+	}
+
+	oversizedCanonical := []byte("command = \"npx\"\nargs = [\"" +
+		strings.Repeat("a", int(maximumDocumentBytes)) + "\"]\n")
+	oversized := mcpCodecContribution(t, placement, "context7", oversizedCanonical)
+	err = codec.ValidateContributions(mcpCodecExclusiveSet(t, oversized))
+	if !errors.As(err, &failure) || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+		t.Fatalf("ValidateContributions(oversized canonical) = %v, want canonical invalid", err)
 	}
 }
 
@@ -235,6 +257,48 @@ func TestMCPCodecRejectsRenderedAndRestoredDocumentsBeyondLimit(t *testing.T) {
 	}
 }
 
+func TestMCPCodecReadOnlyEmitsRestorableCodexCanonicalProjections(t *testing.T) {
+	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementCodexProject)
+	placement := operations.Placement()
+	canonical := mustCanonicalCodexProjectMCPServerEntry(t, validCodexMCPProjection("context7"))
+	contribution := mcpCodecContribution(t, placement, "context7", canonical)
+	selection, err := aggregate.NewSelection([]aggregate.ProjectionContract{contribution.Contract()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codec, ok := For(placement.CodecContractID())
+	if !ok {
+		t.Fatal("Codex MCP codec is missing")
+	}
+
+	t.Run("restorable expansion", func(t *testing.T) {
+		host := codexHostWithMultilineArgument(1024)
+		baseline, failure := codec.Read(aggregate.ExistingDocument(host), selection)
+		if failure != nil {
+			t.Fatalf("Read(restorable host): %v", failure)
+		}
+		restored, failure := codec.Restore(aggregate.AbsentDocument(), baseline)
+		if failure != nil {
+			t.Fatalf("Restore(restorable baseline): %v", failure)
+		}
+		readBack, failure := codec.Read(restored.Document(), selection)
+		if failure != nil || !readBack.Equal(baseline) {
+			t.Fatalf("Read(restored) = %#v, %v, want baseline", readBack, failure)
+		}
+	})
+
+	t.Run("unrestorable expansion", func(t *testing.T) {
+		host := codexHostWithMultilineArgument(2_200_000)
+		if int64(len(host)) >= maximumDocumentBytes {
+			t.Fatalf("host fixture bytes = %d, want below document limit", len(host))
+		}
+		_, failure := codec.Read(aggregate.ExistingDocument(host), selection)
+		if failure == nil || failure.Reason() != aggregate.CodecFailureCanonicalInvalid {
+			t.Fatalf("Read(unrestorable host) = %v, want canonical invalid", failure)
+		}
+	})
+}
+
 func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementCodexProject)
 	placement := operations.Placement()
@@ -305,6 +369,11 @@ func TestMCPCodecRestorePreservesConcurrentUnmanagedSibling(t *testing.T) {
 			)
 		}
 	}
+}
+
+func codexHostWithMultilineArgument(newlines int) []byte {
+	return []byte("[mcp_servers.context7]\ncommand = \"npx\"\nargs = ['''" +
+		strings.Repeat("\n", newlines) + "''']\n")
 }
 
 func mustMCPCodecOperations(t *testing.T, placementID aggregate.MCPPlacementID) MCPPlacementOperations {
