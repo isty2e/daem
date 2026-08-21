@@ -1,21 +1,79 @@
 package build
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/acquisition"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestBuildAcceptsMaximumSelectedSkillsAndLockfileRoundTrips(t *testing.T) {
+	const skillCount = 4_096
+	tempDir := t.TempDir()
+	sharedSkillPath := writeSkill(t, tempDir, "shared-skill")
+	rootSource := sourcetest.Local(t, "groups", source.LocalSourceModeVendor)
+	childNames := make([]string, 0, skillCount)
+	artifacts := make(map[string]resolutionFixture, skillCount)
+	for index := range skillCount {
+		name := fmt.Sprintf("skill-%04d", index)
+		childNames = append(childNames, name)
+		sourceID := artifact.SourceID("local:groups/" + name + "?mode=vendor")
+		artifacts[string(sourceID)] = resolutionFixture{
+			SourceID: sourceID, ContentPath: sharedSkillPath, Kind: artifact.ArtifactKindDirectory,
+		}
+	}
+	resolver := &rootListingResolver{
+		root:      mustRootListing(t, rootSource, "", artifact.ArtifactKindDirectory, childNames),
+		artifacts: artifacts,
+	}
+	environment := lockEnvironment(t, desired.Spec{SkillSets: []skill.SkillSet{
+		projectCopySkillSet(
+			t,
+			rootSource,
+			[]skill.Selector{desiredtest.Selector(t, "glob:*")},
+			[]target.Target{target.TargetCodex},
+			false,
+		),
+	}})
+
+	locked, err := buildWithTestOptions(t.Context(), environment, resolver, Options{})
+	if err != nil {
+		t.Fatalf("BuildWithOptions(%d selected skills): %v", skillCount, err)
+	}
+	content, err := lockfile.Marshal(locked)
+	if err != nil {
+		t.Fatalf("lockfile.Marshal(%d selected skills): %v", skillCount, err)
+	}
+	path := filepath.Join(t.TempDir(), "daem.lock.toml")
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		t.Fatalf("write lockfile: %v", err)
+	}
+	loaded, err := lockfile.Load(t.Context(), path)
+	if err != nil {
+		t.Fatalf("lockfile.Load(%d selected skills): %v", skillCount, err)
+	}
+	reencoded, err := lockfile.Marshal(loaded)
+	if err != nil {
+		t.Fatalf("lockfile.Marshal(loaded): %v", err)
+	}
+	if !bytes.Equal(reencoded, content) {
+		t.Fatal("maximum selected-skill lockfile did not round trip byte-exactly")
+	}
+}
 
 func TestBuildRejectsExpansionBudgetBeforeResolvingChildren(t *testing.T) {
 	rootSource := sourcetest.Local(t, "groups", source.LocalSourceModeVendor)

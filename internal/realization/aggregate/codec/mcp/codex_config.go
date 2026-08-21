@@ -300,7 +300,7 @@ func decodeCodexTOMLMap(content []byte) (map[string]any, error) {
 		return nil, err
 	}
 	var decoded map[string]any
-	if _, err := toml.Decode(string(content), &decoded); err != nil {
+	if _, err := tomlstrict.DecodeAdmitted(context.Background(), content, &decoded); err != nil {
 		return nil, err
 	}
 	return decoded, nil

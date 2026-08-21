@@ -1,11 +1,13 @@
 package authoring
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration"
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 )
 
 func TestSkillAddBehaviorMergesTargetsAndRejectsConflicts(t *testing.T) {
@@ -323,6 +325,35 @@ unknown = true
 	})
 	if err == nil || !strings.Contains(err.Error(), `invalid manifest: unknown manifest key "unknown"`) {
 		t.Fatalf("err = %v, want unknown manifest key validation", err)
+	}
+}
+
+func TestAuthoringRejectsOverDepthManifestBeforeHeaderOrBlockDecode(t *testing.T) {
+	var content strings.Builder
+	content.WriteString("version = 1\ntargets = [\"codex\"]\nextra = ")
+	for range tomlstrict.MaximumDepth {
+		content.WriteString("{ k = ")
+	}
+	content.WriteByte('1')
+	for range tomlstrict.MaximumDepth {
+		content.WriteString(" }")
+	}
+	content.WriteByte('\n')
+
+	_, err := BuildAddHookChange(ManifestDocument{
+		Path:    "daem.toml",
+		Root:    t.TempDir(),
+		Content: []byte(content.String()),
+	}, AddHookRequest{
+		Name:    "protect-env",
+		Event:   "PreToolUse",
+		Command: "python3 hooks/protect.py",
+	})
+	if !errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) {
+		t.Fatalf("BuildAddHookChange error = %v, want depth exceeded", err)
+	}
+	if !strings.Contains(err.Error(), "invalid manifest:") {
+		t.Fatalf("BuildAddHookChange error = %v, want invalid manifest context", err)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/doctorenv"
@@ -92,6 +93,41 @@ func TestRunMalformedManifestStopsBeforeFactConstruction(t *testing.T) {
 	}
 	if got := result.Selection.Targets(); len(got) != len(target.SupportedTargets()) {
 		t.Fatalf("Selection = %#v, want all supported targets", got)
+	}
+	if !hasCheckNamed(result.Checks, "git") {
+		t.Fatalf("general diagnostics did not continue: %#v", result.Checks)
+	}
+}
+
+func TestRunOverDepthManifestBecomesParseFailureWithoutManifestFacts(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	var content strings.Builder
+	content.WriteString("version = 1\ntargets = [\"codex\"]\nextra = ")
+	for range tomlstrict.MaximumDepth {
+		content.WriteString("{ k = ")
+	}
+	content.WriteByte('1')
+	for range tomlstrict.MaximumDepth {
+		content.WriteString(" }")
+	}
+	content.WriteByte('\n')
+	writeDoctorManifest(t, manifestPath, content.String())
+	configureDoctorEnvironment(t)
+
+	result, err := runCurrent(t.Context(), Input{
+		ManifestPath:     manifestPath,
+		ManifestExplicit: true,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	manifest, ok := checkNamed(result.Checks, "manifest")
+	if !ok || manifest.Status != findings.CheckError {
+		t.Fatalf("manifest check = %#v, want manifest error", result.Checks)
+	}
+	if !strings.Contains(manifest.Detail, tomlstrict.ErrMaximumDepthExceeded.Error()) {
+		t.Fatalf("manifest detail = %q, want depth exceeded", manifest.Detail)
 	}
 	if !hasCheckNamed(result.Checks, "git") {
 		t.Fatalf("general diagnostics did not continue: %#v", result.Checks)

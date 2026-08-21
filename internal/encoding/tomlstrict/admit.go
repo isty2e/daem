@@ -2,11 +2,14 @@
 package tomlstrict
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"unicode/utf8"
+
+	"github.com/BurntSushi/toml"
 )
 
 const (
@@ -51,6 +54,38 @@ type Limits struct {
 	MaximumPathWork   int
 }
 
+// StructureUsage records the payload-independent TOML structure observed by
+// admission. Semantic key bytes and container nodes may extend a caller's
+// structure capacity; primitive nodes and formatting never do.
+type StructureUsage struct {
+	containers int
+	work       int
+	pathWork   int
+	keyBytes   int
+}
+
+// StructuralUnits returns semantic key bytes plus container nodes.
+func (usage StructureUsage) StructuralUnits() int {
+	return usage.keyBytes + usage.containers
+}
+
+// Validate applies count ceilings to a completed structure observation.
+func (usage StructureUsage) Validate(limits Limits) error {
+	if err := validateLimits(limits); err != nil {
+		return err
+	}
+	if usage.containers > limits.MaximumContainers {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumContainersExceeded, limits.MaximumContainers)
+	}
+	if usage.work > limits.MaximumWork {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, limits.MaximumWork)
+	}
+	if usage.pathWork > limits.MaximumPathWork {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, limits.MaximumPathWork)
+	}
+	return nil
+}
+
 // StandardLimits are the shared host-document ceilings.
 func StandardLimits() Limits {
 	return Limits{
@@ -64,25 +99,83 @@ func StandardLimits() Limits {
 
 const cancelCheckInterval = 4096
 
-// Admit checks TOML nesting, container count, aggregate token work, and
-// ancestor-path byte recopies for keyed values and anonymous nested containers
-// without building a decoded document. Callers must still parse admitted bytes.
-func Admit(ctx context.Context, content []byte, limits Limits) error {
+// ValidateUTF8 checks one byte slice without allowing a long validation pass
+// to outlive caller cancellation.
+func ValidateUTF8(ctx context.Context, content []byte) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if limits.MaximumDepth <= 0 ||
-		limits.MaximumContainers <= 0 ||
-		limits.MaximumWork <= 0 ||
-		limits.MaximumKeyBytes <= 0 ||
-		limits.MaximumPathWork <= 0 {
-		return fmt.Errorf("TOML structure limits must be positive")
+
+	for start := 0; start < len(content); {
+		end := min(start+cancelCheckInterval, len(content))
+		if end < len(content) {
+			for end > start && !utf8.RuneStart(content[end]) {
+				end--
+			}
+			if end == start {
+				end = min(start+cancelCheckInterval, len(content))
+			}
+		}
+		if !utf8.Valid(content[start:end]) {
+			return fmt.Errorf("document is not valid UTF-8")
+		}
+		start = end
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
-	if !utf8.Valid(content) {
-		return fmt.Errorf("%w: document is not valid UTF-8", ErrMalformed)
+	return ctx.Err()
+}
+
+// DecodeAdmitted decodes bytes that the caller has already admitted with the
+// appropriate TOML structure limits. Decoder errors retain precedence; caller
+// cancellation observed after a successful decode is returned instead.
+func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaData, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return toml.MetaData{}, err
+	}
+	metadata, err := toml.NewDecoder(bytes.NewReader(content)).Decode(target)
+	if err != nil {
+		return metadata, err
+	}
+	if err := ctx.Err(); err != nil {
+		return metadata, err
+	}
+	return metadata, nil
+}
+
+// Admit checks TOML nesting, container count, aggregate token work, and
+// ancestor-path byte recopies for keyed values and anonymous nested containers
+// without building a decoded document. Callers must still parse admitted bytes.
+func Admit(ctx context.Context, content []byte, limits Limits) error {
+	_, err := AdmitWithUsage(ctx, content, limits)
+	return err
+}
+
+// AdmitWithUsage admits TOML and returns its payload-independent structure
+// observation. The supplied limits must bound the scan itself; callers may
+// apply a stricter policy to the returned usage before decoding.
+func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (StructureUsage, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return StructureUsage{}, err
+	}
+	if err := validateLimits(limits); err != nil {
+		return StructureUsage{}, err
+	}
+	if err := ValidateUTF8(ctx, content); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return StructureUsage{}, err
+		}
+		return StructureUsage{}, fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
 
 	scanner := scanner{
@@ -93,7 +186,30 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if len(content) >= 3 && content[0] == 0xef && content[1] == 0xbb && content[2] == 0xbf {
 		scanner.index = 3
 	}
-	return scanner.document()
+	if err := scanner.document(); err != nil {
+		return StructureUsage{}, err
+	}
+	usage := StructureUsage{
+		containers: scanner.containers,
+		work:       scanner.work,
+		pathWork:   scanner.pathWork,
+		keyBytes:   scanner.keyBytes,
+	}
+	if usage.StructuralUnits() > len(content) {
+		return StructureUsage{}, fmt.Errorf("TOML structure accounting exceeds document bytes")
+	}
+	return usage, nil
+}
+
+func validateLimits(limits Limits) error {
+	if limits.MaximumDepth <= 0 ||
+		limits.MaximumContainers <= 0 ||
+		limits.MaximumWork <= 0 ||
+		limits.MaximumKeyBytes <= 0 ||
+		limits.MaximumPathWork <= 0 {
+		return fmt.Errorf("TOML structure limits must be positive")
+	}
+	return nil
 }
 
 type scanner struct {
@@ -105,6 +221,7 @@ type scanner struct {
 	containers int
 	work       int
 	pathWork   int
+	keyBytes   int
 	limits     Limits
 	ctx        context.Context
 	cancelAt   int
@@ -115,9 +232,11 @@ func (s *scanner) document() error {
 		if err := s.checkCancel(); err != nil {
 			return err
 		}
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
-			return nil
+			return s.ctx.Err()
 		}
 		if s.src[s.index] == '[' {
 			if err := s.tableHeader(); err != nil {
@@ -172,7 +291,9 @@ func (s *scanner) headerKey() (int, int, error) {
 	parts := 0
 	keyBytes := 0
 	for {
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 		}
@@ -184,7 +305,9 @@ func (s *scanner) headerKey() (int, int, error) {
 				return 0, 0, fmt.Errorf("%w: table header key", ErrMalformed)
 			}
 			s.index++
-			s.skipKeyWhitespace()
+			if err := s.skipKeyWhitespace(); err != nil {
+				return 0, 0, err
+			}
 			if s.done() {
 				return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 			}
@@ -206,7 +329,9 @@ func (s *scanner) assignment() error {
 	if err := s.chargeKey(parts, keyBytes); err != nil {
 		return err
 	}
-	s.skipSpaceAndComments()
+	if err := s.skipSpaceAndComments(); err != nil {
+		return err
+	}
 	if s.done() || s.src[s.index] != '=' {
 		return fmt.Errorf("%w: expected assignment", ErrMalformed)
 	}
@@ -218,7 +343,9 @@ func (s *scanner) assignmentKey() (int, int, error) {
 	parts := 0
 	keyBytes := 0
 	for {
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
@@ -228,7 +355,9 @@ func (s *scanner) assignmentKey() (int, int, error) {
 		}
 		parts++
 		keyBytes += partBytes
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
@@ -254,6 +383,9 @@ func (s *scanner) keyPart() (int, error) {
 	default:
 		for !s.done() && isBareKeyByte(s.src[s.index]) {
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return 0, err
+			}
 		}
 		if s.index == start {
 			return 0, fmt.Errorf("%w: expected key", ErrMalformed)
@@ -266,7 +398,9 @@ func (s *scanner) value(keyParts int, keyBytes int) error {
 	if err := s.checkCancel(); err != nil {
 		return err
 	}
-	s.skipSpaceAndComments()
+	if err := s.skipSpaceAndComments(); err != nil {
+		return err
+	}
 	if s.done() {
 		return fmt.Errorf("%w: truncated value", ErrMalformed)
 	}
@@ -295,7 +429,9 @@ func (s *scanner) array(keyParts int, keyBytes int) error {
 	s.index++
 	expectValue := true
 	for {
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
 			return fmt.Errorf("%w: unclosed array", ErrMalformed)
 		}
@@ -327,7 +463,9 @@ func (s *scanner) inlineTable(keyParts int, keyBytes int) error {
 	s.index++
 	expectPair := true
 	for {
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
 			return fmt.Errorf("%w: unclosed inline table", ErrMalformed)
 		}
@@ -378,11 +516,17 @@ func (s *scanner) skipString(allowMultiline bool) error {
 		if escaped {
 			escaped = false
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if quote == '"' && char == '\\' {
 			escaped = true
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if !multiline && (char == '\n' || char == '\r') {
@@ -390,15 +534,21 @@ func (s *scanner) skipString(allowMultiline bool) error {
 		}
 		if char != quote {
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if !multiline {
 			s.index++
-			return nil
+			return s.checkCancel()
 		}
 		run := 1
 		for s.index+run < len(s.src) && s.src[s.index+run] == quote {
 			run++
+			if err := s.checkCancelAt(s.index + run); err != nil {
+				return err
+			}
 		}
 		if run < 3 {
 			s.index += run
@@ -408,7 +558,7 @@ func (s *scanner) skipString(allowMultiline bool) error {
 			return fmt.Errorf("%w: malformed multiline string closer", ErrMalformed)
 		}
 		s.index += run
-		return nil
+		return s.checkCancel()
 	}
 	return fmt.Errorf("%w: unclosed string", ErrMalformed)
 }
@@ -425,6 +575,9 @@ func (s *scanner) skipBareValue() error {
 			next := s.index + 1
 			if next < len(s.src) && s.src[next] >= '0' && s.src[next] <= '9' {
 				s.index++
+				if err := s.checkCancel(); err != nil {
+					return err
+				}
 				continue
 			}
 			break
@@ -436,6 +589,9 @@ func (s *scanner) skipBareValue() error {
 			datetime = true
 		}
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
 	if s.index == start {
 		return fmt.Errorf("%w: expected value", ErrMalformed)
@@ -453,6 +609,7 @@ func (s *scanner) chargeKey(parts int, keyBytes int) error {
 	if keyBytes > s.limits.MaximumKeyBytes {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, s.limits.MaximumWork)
 	}
+	s.keyBytes += keyBytes
 	if err := s.addWork(parts); err != nil {
 		return err
 	}
@@ -542,10 +699,14 @@ func (s *scanner) addPathWork(pathBytes int, copies int) error {
 }
 
 func (s *scanner) checkCancel() error {
-	if s.index-s.cancelAt < cancelCheckInterval {
+	return s.checkCancelAt(s.index)
+}
+
+func (s *scanner) checkCancelAt(index int) error {
+	if index-s.cancelAt < cancelCheckInterval {
 		return nil
 	}
-	s.cancelAt = s.index
+	s.cancelAt = index
 	return s.ctx.Err()
 }
 
@@ -553,37 +714,54 @@ func (s *scanner) done() bool {
 	return s.index >= len(s.src)
 }
 
-func (s *scanner) skipSpaceAndComments() {
+func (s *scanner) skipSpaceAndComments() error {
 	for !s.done() {
 		switch s.src[s.index] {
 		case ' ', '\t', '\n', '\r':
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 		case '#':
-			s.skipLine()
+			if err := s.skipLine(); err != nil {
+				return err
+			}
 		default:
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
-func (s *scanner) skipKeyWhitespace() {
+func (s *scanner) skipKeyWhitespace() error {
 	for !s.done() {
 		switch s.src[s.index] {
 		case ' ', '\t', '\n', '\r':
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 		default:
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
-func (s *scanner) skipLine() {
+func (s *scanner) skipLine() error {
 	for !s.done() && s.src[s.index] != '\n' {
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
 	if !s.done() {
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func isBareKeyByte(char byte) bool {
