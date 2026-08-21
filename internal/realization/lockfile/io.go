@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
 	"github.com/isty2e/daem/internal/realization/lock"
@@ -66,7 +67,7 @@ func Load(ctx context.Context, path string) (lock.File, error) {
 	if err != nil {
 		return lock.File{}, err
 	}
-	return loadContent(content)
+	return loadContent(ctx, content)
 }
 
 // ReadReplacementContent reads exact lockfile bytes and verifies that the
@@ -76,22 +77,22 @@ func ReadReplacementContent(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateReplacementContent(content); err != nil {
+	if err := validateReplacementContent(ctx, content); err != nil {
 		return nil, err
 	}
 	return content, nil
 }
 
-// ValidateReplacementContent verifies that existing lockfile bytes may be
+// validateReplacementContent verifies that existing lockfile bytes may be
 // replaced by a newly generated current lockfile. Current content remains
 // strict; explicitly supported legacy schemas are treated as opaque.
-func ValidateReplacementContent(content []byte) error {
-	version, err := lockfileVersion(content)
+func validateReplacementContent(ctx context.Context, content []byte) error {
+	version, err := lockfileVersion(ctx, content)
 	if err != nil {
 		return err
 	}
 	if version == lock.CurrentVersion {
-		_, err := loadCurrentContent(content)
+		_, err := loadCurrentContent(ctx, content)
 		return err
 	}
 	versionErr := UnsupportedVersionError{Found: version, Supported: lock.CurrentVersion}
@@ -101,8 +102,8 @@ func ValidateReplacementContent(content []byte) error {
 	return versionErr
 }
 
-func loadContent(content []byte) (lock.File, error) {
-	version, err := lockfileVersion(content)
+func loadContent(ctx context.Context, content []byte) (lock.File, error) {
+	version, err := lockfileVersion(ctx, content)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -112,19 +113,25 @@ func loadContent(content []byte) (lock.File, error) {
 			Supported: lock.CurrentVersion,
 		}
 	}
-	return loadCurrentContent(content)
+	return loadCurrentContent(ctx, content)
 }
 
-func lockfileVersion(content []byte) (int, error) {
+func lockfileVersion(ctx context.Context, content []byte) (int, error) {
 	if err := declarationartifact.Admit(content); err != nil {
 		return 0, err
 	}
 	if !utf8.Valid(content) {
 		return 0, fmt.Errorf("lockfile is not valid UTF-8")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	text := strings.TrimPrefix(string(content), "\uFEFF")
 	var envelope string
 	for line := range strings.SplitSeq(text, "\n") {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -134,6 +141,9 @@ func lockfileVersion(content []byte) (int, error) {
 	}
 	if envelope == "" {
 		return 0, fmt.Errorf("lockfile version envelope is required")
+	}
+	if err := tomlstrict.Admit(ctx, []byte(envelope), tomlstrict.StandardLimits()); err != nil {
+		return 0, err
 	}
 	var header struct {
 		Version int `toml:"version"`
@@ -148,7 +158,11 @@ func lockfileVersion(content []byte) (int, error) {
 	return header.Version, nil
 }
 
-func loadCurrentContent(content []byte) (lock.File, error) {
+func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
+	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+		return lock.File{}, err
+	}
+
 	var header struct {
 		Version int `toml:"version"`
 	}
@@ -201,7 +215,11 @@ func Marshal(file lock.File) ([]byte, error) {
 	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
 		return nil, err
 	}
-	return output.Bytes(), nil
+	content := output.Bytes()
+	if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
+		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
+	}
+	return content, nil
 }
 
 func validateConcreteAggregateContributions(file lock.File) error {

@@ -29,12 +29,12 @@ func TestUnsupportedVersionRelockPolicy(t *testing.T) {
 }
 
 func TestValidateReplacementContentTreatsLegacyBodiesAsOpaqueAndFutureBodiesAsAuthoritative(t *testing.T) {
-	if err := ValidateReplacementContent([]byte("version = 3\nfuture_or_legacy_payload = { malformed = [\n")); err != nil {
+	if err := validateReplacementContent(t.Context(), []byte("version = 3\nfuture_or_legacy_payload = { malformed = [\n")); err != nil {
 		t.Fatalf("schema 3 opaque replacement authority returned error: %v", err)
 	}
 
 	future := []byte("version = 7\nfuture_payload = { malformed = [\n")
-	err := ValidateReplacementContent(future)
+	err := validateReplacementContent(t.Context(), future)
 	if err == nil {
 		t.Fatal("future lockfile replacement returned nil error")
 	}
