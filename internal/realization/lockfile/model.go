@@ -122,7 +122,7 @@ type deterministicTransformDTO struct {
 }
 
 type repairRecipeDTO struct {
-	Version    int                  `toml:"version"`
+	Version    int64                `toml:"version"`
 	RecipeHash string               `toml:"recipe_hash"`
 	Input      exactIdentityDTO     `toml:"input"`
 	Output     exactIdentityDTO     `toml:"output"`

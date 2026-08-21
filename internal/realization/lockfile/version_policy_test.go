@@ -14,6 +14,7 @@ import (
 var (
 	_ func(context.Context, []byte) (int64, error) = lockfileVersion
 	_ int64                                        = fileDTO{}.Version
+	_ int64                                        = repairRecipeDTO{}.Version
 	_ int64                                        = versionEnvelopeDTO{}.Version
 )
 

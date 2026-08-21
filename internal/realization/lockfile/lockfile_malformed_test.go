@@ -417,6 +417,16 @@ declaration_identity = "skill-set-declaration:v1:sha256:not-a-digest"
 			wantError: "repair recipe requires Skill entity",
 		},
 		{
+			name:      "width-congruent future repair recipe version",
+			content:   replaceRecipeVersion(t, repaired, 1<<32+1),
+			wantError: "repair recipe version 4294967297 is unsupported",
+		},
+		{
+			name:      "maximum repair recipe wire version",
+			content:   replaceRecipeVersion(t, repaired, 9223372036854775807),
+			wantError: "repair recipe version 9223372036854775807 is unsupported",
+		},
+		{
 			name:      "repair missing recipe hash",
 			content:   replaceRecipeHash(t, repaired, ""),
 			wantError: "does not match canonical hash",
@@ -677,6 +687,17 @@ func replaceRecipeHash(t *testing.T, content string, replacement string) string 
 	prefix := content[:section]
 	tail := content[section:]
 	return prefix + replaceFirstNamedStringValue(t, tail, "recipe_hash", replacement)
+}
+
+func replaceRecipeVersion(t *testing.T, content string, replacement int64) string {
+	t.Helper()
+	section := strings.Index(content, "[locked.subject.repair_recipe]")
+	if section < 0 {
+		t.Fatalf("lockfile content is missing repair recipe:\n%s", content)
+	}
+	prefix := content[:section]
+	tail := content[section:]
+	return prefix + replaceLockfileStringOnce(t, tail, "version = 1", fmt.Sprintf("version = %d", replacement))
 }
 
 func removeFirstRepairOldValuePresence(t *testing.T, content string) string {
