@@ -511,6 +511,17 @@ func decodeCodexProjectMCPServerEntry(content []byte, serverID string) (CodexPro
 			err,
 		)
 	}
+	canonical, err := encodeCodexProjectMCPServerEntry(entry, serverID)
+	if err != nil {
+		return CodexProjectMCPServerEntry{}, err
+	}
+	if !bytes.Equal(content, canonical) {
+		return CodexProjectMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonCanonicalInvalid,
+			CodexProjectMCPContentPath(serverID),
+			"canonical Codex MCP entry bytes do not match the codec encoding",
+		)
+	}
 	return entry, nil
 }
 
@@ -524,7 +535,7 @@ func decodeCodexProjectMCPServerEntryValue(value any, serverID string) (CodexPro
 			"projection object is not a TOML table",
 		)
 	}
-	for key := range object {
+	for _, key := range sortedCodexMCPObjectKeys(object) {
 		switch key {
 		case "command", "args":
 		default:
@@ -624,6 +635,15 @@ func sortedCodexMCPServerIDs(servers map[string]any) []string {
 	}
 	sort.Strings(serverIDs)
 	return serverIDs
+}
+
+func sortedCodexMCPObjectKeys(object map[string]any) []string {
+	keys := make([]string, 0, len(object))
+	for key := range object {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func orderedCodexMCPServers(servers map[string]any) map[string]any {

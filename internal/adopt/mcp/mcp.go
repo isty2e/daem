@@ -435,6 +435,8 @@ func reasonString(reason mcpcodec.MCPProjectionReasonCode) string {
 	switch reason {
 	case mcpcodec.MCPProjectionReasonConfigMalformed:
 		return "mcp_config_malformed"
+	case mcpcodec.MCPProjectionReasonDuplicateKey:
+		return "mcp_config_malformed"
 	case mcpcodec.MCPProjectionReasonUnsupportedTransport:
 		return "unsupported_mcp_transport"
 	case mcpcodec.MCPProjectionReasonUnsupportedManagedField:

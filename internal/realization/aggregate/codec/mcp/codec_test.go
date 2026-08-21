@@ -32,6 +32,10 @@ func TestMCPCodecFailureMapsSemanticReasonsWithoutPrivateDiagnosticInterpretatio
 		want aggregate.CodecFailureReason
 	}{
 		{
+			code: MCPProjectionReasonDuplicateKey,
+			want: aggregate.CodecFailureDuplicateKey,
+		},
+		{
 			code: MCPProjectionReasonUnsupportedTransport,
 			want: aggregate.CodecFailureUnsupportedTransport,
 		},

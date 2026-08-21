@@ -333,7 +333,7 @@ subject = []
 		{
 			name:      "MCP malformed canonical contribution",
 			content:   replaceLockfileStringOnce(t, mcp, `canonical_contribution = "{\n`, `canonical_contribution = "not-json\n`),
-			wantError: "aggregate codec equivalence_undefined",
+			wantError: "aggregate codec canonical_contribution_invalid",
 		},
 		{
 			name:      "MCP replay contract drift",

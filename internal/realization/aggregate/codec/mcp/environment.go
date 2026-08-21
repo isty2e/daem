@@ -163,6 +163,17 @@ func decodeCodexGlobalMCPServerEntry(content []byte, serverID string) (CodexGlob
 			err,
 		)
 	}
+	canonical, err := encodeCodexGlobalMCPServerEntry(entry, serverID)
+	if err != nil {
+		return CodexGlobalMCPServerEntry{}, err
+	}
+	if !bytes.Equal(content, canonical) {
+		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonCanonicalInvalid,
+			CodexGlobalMCPContentPath(serverID),
+			"canonical Codex MCP entry bytes do not match the codec encoding",
+		)
+	}
 	return entry, nil
 }
 
@@ -176,15 +187,16 @@ func decodeCodexGlobalMCPServerEntryValue(value any, serverID string) (CodexGlob
 			"projection object is not a TOML table",
 		)
 	}
-	for key := range object {
+	if _, present := object["env"]; present {
+		return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
+			MCPProjectionReasonSecretLiteralForbidden,
+			subject+"/env",
+			"literal environment values are not an admitted Codex global MCP projection",
+		)
+	}
+	for _, key := range sortedCodexMCPObjectKeys(object) {
 		switch key {
 		case "command", "args", "env_vars":
-		case "env":
-			return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
-				MCPProjectionReasonSecretLiteralForbidden,
-				subject+"/env",
-				"literal environment values are not an admitted Codex global MCP projection",
-			)
 		default:
 			return CodexGlobalMCPServerEntry{}, newMCPProjectionError(
 				MCPProjectionReasonUnsupportedManagedField,
@@ -262,7 +274,7 @@ func codexGlobalMCPEnvVarName(value any, subject string) (string, error) {
 			"env var must be a name or local name object",
 		)
 	}
-	for key := range object {
+	for _, key := range sortedCodexMCPObjectKeys(object) {
 		switch key {
 		case "name", "source":
 		default:

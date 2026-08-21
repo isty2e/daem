@@ -599,8 +599,8 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 	if len(servers) != 0 {
 		t.Fatalf("servers = %#v, want no partial import", servers)
 	}
-	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "projection_equivalence_undefined" {
-		t.Fatalf("skipped = %#v, want duplicate-key projection rejection", skipped)
+	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "mcp_config_malformed" {
+		t.Fatalf("skipped = %#v, want duplicate-key config rejection", skipped)
 	}
 }
 

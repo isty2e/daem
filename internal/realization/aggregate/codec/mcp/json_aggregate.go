@@ -1,21 +1,102 @@
 package mcpcodec
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
+
+func canonicalMCPJSONError(subject string, operation string, err error) error {
+	return newMCPProjectionError(
+		MCPProjectionReasonCanonicalInvalid,
+		subject,
+		fmt.Sprintf("%s: %v", operation, err),
+	)
+}
 
 func canonicalJSON(value any) ([]byte, error) {
 	content, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
 	}
-	return append(content, '\n'), nil
+	content = append(content, '\n')
+	if err := validateMCPDocumentSize(content); err != nil {
+		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
+	}
+	if err := jsonstrict.Validate(content, "canonical MCP JSON", maximumMCPJSONDepth); err != nil {
+		return nil, canonicalMCPJSONError("", "validate canonical MCP JSON", err)
+	}
+	return content, nil
 }
 
 type mcpJSONServerEntryDecoder[E any] func(json.RawMessage, string) (E, error)
 
 type mcpJSONServerEntryEqual[E any] func(E, E) bool
+
+func encodeMCPJSONServerEntry[E any](
+	entry E,
+	serverID string,
+	spec mcpConfigSpec,
+) ([]byte, error) {
+	if err := validateServerID(serverID); err != nil {
+		return nil, err
+	}
+	canonical, err := canonicalJSON(entry)
+	if err != nil {
+		return nil, err
+	}
+	config := mcpConfig{
+		spec:    spec,
+		top:     make(map[string]json.RawMessage),
+		servers: map[string]json.RawMessage{serverID: canonical},
+	}
+	if _, err := config.encode(); err != nil {
+		return nil, canonicalMCPJSONError(
+			spec.serversPath+"/"+serverID,
+			"render canonical MCP JSON entry",
+			err,
+		)
+	}
+	return canonical, nil
+}
+
+func decodeCanonicalMCPJSONServerEntry[E any](
+	canonical []byte,
+	serverID string,
+	spec mcpConfigSpec,
+	decodeEntry mcpJSONServerEntryDecoder[E],
+) (E, error) {
+	var zero E
+	subject := spec.serversPath + "/" + serverID
+	if err := validateMCPDocumentSize(canonical); err != nil {
+		return zero, canonicalMCPJSONError(subject, "admit canonical MCP JSON entry", err)
+	}
+	if err := jsonstrict.Validate(
+		canonical,
+		"canonical MCP JSON entry",
+		maximumMCPJSONDepth,
+	); err != nil {
+		return zero, canonicalMCPJSONError(subject, "admit canonical MCP JSON entry", err)
+	}
+	entry, err := decodeEntry(json.RawMessage(canonical), serverID)
+	if err != nil {
+		return zero, canonicalMCPJSONError(subject, "validate canonical MCP JSON entry", err)
+	}
+	expected, err := encodeMCPJSONServerEntry(entry, serverID, spec)
+	if err != nil {
+		return zero, err
+	}
+	if !bytes.Equal(canonical, expected) {
+		return zero, newMCPProjectionError(
+			MCPProjectionReasonCanonicalInvalid,
+			subject,
+			"canonical MCP JSON entry bytes do not match the codec encoding",
+		)
+	}
+	return entry, nil
+}
 
 func observeMCPJSONServerProjections[E any](
 	existing []byte,
@@ -37,7 +118,7 @@ func observeMCPJSONServerProjections[E any](
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}
-		content, err := canonicalJSON(entry)
+		content, err := encodeMCPJSONServerEntry(entry, serverID, spec)
 		if err != nil {
 			return MCPProjectionObservation{}, err
 		}
@@ -98,18 +179,18 @@ func applyMCPJSONServerMutations[E any](
 		case mcpProjectionMutationRemove:
 			delete(config.servers, mutation.serverID)
 		case mcpProjectionMutationInsert, mcpProjectionMutationUpsert:
-			desired, err := decodeEntry(json.RawMessage(mutation.canonical), mutation.serverID)
-			if err != nil {
+			if _, err := decodeCanonicalMCPJSONServerEntry(
+				mutation.canonical,
+				mutation.serverID,
+				spec,
+				decodeEntry,
+			); err != nil {
 				return err
 			}
 			if exists && mutation.kind == mcpProjectionMutationInsert {
 				return mcpProjectionReplacementAuthorityError(spec.label, mutation.serverID)
 			}
-			desiredRaw, err := canonicalJSON(desired)
-			if err != nil {
-				return err
-			}
-			config.servers[mutation.serverID] = json.RawMessage(desiredRaw)
+			config.servers[mutation.serverID] = json.RawMessage(bytes.Clone(mutation.canonical))
 		default:
 			return fmt.Errorf("unsupported MCP projection mutation kind %d", mutation.kind)
 		}
@@ -143,7 +224,12 @@ func verifyMCPJSONServerMutations[E any](
 		if err != nil {
 			return err
 		}
-		desiredEntry, err := decodeEntry(json.RawMessage(mutation.canonical), mutation.serverID)
+		desiredEntry, err := decodeCanonicalMCPJSONServerEntry(
+			mutation.canonical,
+			mutation.serverID,
+			spec,
+			decodeEntry,
+		)
 		if err != nil {
 			return err
 		}
@@ -164,7 +250,7 @@ func mergeMCPJSONServerCanonicalEntry[E any](
 	if err := validateServerID(serverID); err != nil {
 		return nil, err
 	}
-	desired, err := decodeEntry(json.RawMessage(canonical), serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(canonical, serverID, spec, decodeEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +267,7 @@ func mergeMCPJSONServerEntry[E any](
 	if err := validateServerID(serverID); err != nil {
 		return nil, err
 	}
-	desiredRaw, err := canonicalJSON(desired)
+	desiredRaw, err := encodeMCPJSONServerEntry(desired, serverID, spec)
 	if err != nil {
 		return nil, err
 	}
@@ -283,7 +369,7 @@ func extractMCPJSONServerProjectionBytes[E any](
 	if err != nil || !present {
 		return nil, present, err
 	}
-	content, err := canonicalJSON(entry)
+	content, err := encodeMCPJSONServerEntry(entry, serverID, spec)
 	if err != nil {
 		return nil, false, err
 	}

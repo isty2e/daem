@@ -3,13 +3,16 @@ package mcpcodec
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"sort"
 
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 )
+
+const maximumMCPJSONDepth = 64
 
 func mergeClaudeProjectMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
 	return mergeMCPJSONServerCanonicalEntry(
@@ -143,17 +146,17 @@ func claudeProjectMCPServersParentPresent(existing []byte) (bool, error) {
 }
 
 type mcpConfigSpec struct {
-	configPath           string
-	label                string
-	serversKey           string
-	serversPath          string
-	documentPrecondition func([]byte, mcpConfigSpec) error
+	configPath        string
+	label             string
+	serversKey        string
+	serversPath       string
+	documentAdmission func([]byte, mcpConfigSpec) error
 }
 
-func (spec mcpConfigSpec) withDocumentPrecondition(
-	precondition func([]byte, mcpConfigSpec) error,
+func (spec mcpConfigSpec) withDocumentAdmission(
+	admission func([]byte, mcpConfigSpec) error,
 ) mcpConfigSpec {
-	spec.documentPrecondition = precondition
+	spec.documentAdmission = admission
 	return spec
 }
 
@@ -205,10 +208,8 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 	if content == nil {
 		return config, nil
 	}
-	if spec.documentPrecondition != nil {
-		if err := spec.documentPrecondition(content, spec); err != nil {
-			return mcpConfig{}, err
-		}
+	if err := validateMCPDocumentSize(content); err != nil {
+		return mcpConfig{}, mcpJSONHostDocumentError(spec, err)
 	}
 	if len(bytes.TrimSpace(content)) == 0 {
 		return mcpConfig{}, newMCPProjectionError(
@@ -217,7 +218,11 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 			spec.label+" config JSON is empty",
 		)
 	}
-	if err := rejectDuplicateMCPConfigKeys(content, spec); err != nil {
+	admit := spec.documentAdmission
+	if admit == nil {
+		admit = admitStrictMCPJSONDocument
+	}
+	if err := admit(content, spec); err != nil {
 		return mcpConfig{}, err
 	}
 
@@ -227,20 +232,6 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 			MCPProjectionReasonConfigMalformed,
 			spec.configPath,
 			fmt.Sprintf("decode %s config JSON: %v", spec.label, err),
-		)
-	}
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err == nil {
-		return mcpConfig{}, newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			spec.configPath,
-			spec.label+" config JSON contains multiple values",
-		)
-	} else if err != io.EOF {
-		return mcpConfig{}, newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			spec.configPath,
-			fmt.Sprintf("decode trailing %s config JSON: %v", spec.label, err),
 		)
 	}
 	if config.top == nil {
@@ -259,6 +250,25 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 		return mcpConfig{}, err
 	}
 	return config, nil
+}
+
+func admitStrictMCPJSONDocument(content []byte, spec mcpConfigSpec) error {
+	if err := jsonstrict.Validate(content, spec.label+" config JSON", maximumMCPJSONDepth); err != nil {
+		return mcpJSONHostDocumentError(spec, err)
+	}
+	return nil
+}
+
+func mcpJSONHostDocumentError(spec mcpConfigSpec, err error) error {
+	reason := MCPProjectionReasonConfigMalformed
+	if errors.Is(err, jsonstrict.ErrDuplicateObjectKey) {
+		reason = MCPProjectionReasonDuplicateKey
+	}
+	return newMCPProjectionError(
+		reason,
+		spec.configPath,
+		fmt.Sprintf("decode %s config JSON: %v", spec.label, err),
+	)
 }
 
 func (config mcpConfig) encode() ([]byte, error) {
@@ -312,125 +322,4 @@ func encodeSortedRawObject(values map[string]json.RawMessage) (json.RawMessage, 
 		return nil, err
 	}
 	return json.RawMessage(content), nil
-}
-
-func rejectDuplicateMCPConfigKeys(content []byte, spec mcpConfigSpec) error {
-	decoder := json.NewDecoder(bytes.NewReader(content))
-	if err := scanMCPConfigJSONValue(decoder, spec.configPath, spec); err != nil {
-		return err
-	}
-	if _, err := decoder.Token(); err == nil {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			spec.configPath,
-			spec.label+" config JSON contains multiple values",
-		)
-	} else if err != io.EOF {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			spec.configPath,
-			fmt.Sprintf("decode trailing %s config JSON: %v", spec.label, err),
-		)
-	}
-	return nil
-}
-
-func scanMCPConfigJSONValue(decoder *json.Decoder, subject string, spec mcpConfigSpec) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			fmt.Sprintf("decode %s config JSON: %v", spec.label, err),
-		)
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	switch delimiter {
-	case '{':
-		return scanMCPConfigJSONObject(decoder, subject, spec)
-	case '[':
-		return scanMCPConfigJSONArray(decoder, subject, spec)
-	default:
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			"unexpected JSON delimiter",
-		)
-	}
-}
-
-func scanMCPConfigJSONObject(decoder *json.Decoder, subject string, spec mcpConfigSpec) error {
-	seen := make(map[string]struct{})
-	for decoder.More() {
-		keyToken, err := decoder.Token()
-		if err != nil {
-			return newMCPProjectionError(
-				MCPProjectionReasonConfigMalformed,
-				subject,
-				fmt.Sprintf("decode %s config object key: %v", spec.label, err),
-			)
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return newMCPProjectionError(
-				MCPProjectionReasonConfigMalformed,
-				subject,
-				spec.label+" config object key is not a string",
-			)
-		}
-		if _, ok := seen[key]; ok {
-			return newMCPProjectionError(
-				MCPProjectionReasonProjectionEquivalenceUndefined,
-				subject,
-				fmt.Sprintf("JSON object contains duplicate key %q", key),
-			)
-		}
-		seen[key] = struct{}{}
-		if err := scanMCPConfigJSONValue(decoder, subject+"/"+key, spec); err != nil {
-			return err
-		}
-	}
-	endToken, err := decoder.Token()
-	if err != nil {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			fmt.Sprintf("decode %s config object terminator: %v", spec.label, err),
-		)
-	}
-	if endToken != json.Delim('}') {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			spec.label+" config object is not closed",
-		)
-	}
-	return nil
-}
-
-func scanMCPConfigJSONArray(decoder *json.Decoder, subject string, spec mcpConfigSpec) error {
-	for decoder.More() {
-		if err := scanMCPConfigJSONValue(decoder, subject+"[]", spec); err != nil {
-			return err
-		}
-	}
-	endToken, err := decoder.Token()
-	if err != nil {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			fmt.Sprintf("decode %s config array terminator: %v", spec.label, err),
-		)
-	}
-	if endToken != json.Delim(']') {
-		return newMCPProjectionError(
-			MCPProjectionReasonConfigMalformed,
-			subject,
-			spec.label+" config array is not closed",
-		)
-	}
-	return nil
 }

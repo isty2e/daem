@@ -25,6 +25,7 @@ import (
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	commandhook "github.com/isty2e/daem/internal/realization/aggregate/hook"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
@@ -34,6 +35,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
+	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 	topologyprojection "github.com/isty2e/daem/internal/topology/projection"
 	"github.com/isty2e/daem/test/outputtest"
 )
@@ -371,6 +373,74 @@ func TestSnapshotV9MarshalRejectsMalformedManagedAggregateContribution(t *testin
 	}
 	if strings.Contains(err.Error(), secretCanary) {
 		t.Fatalf("Marshal leaked contribution secret canary: %q", err)
+	}
+}
+
+func TestSnapshotV9RejectsNoncanonicalMCPContributionOnMarshalAndDecode(t *testing.T) {
+	placement, ok := aggregate.MCPPlacementForID(aggregate.MCPPlacementClaudeProject)
+	if !ok {
+		t.Fatal("Claude project MCP placement is missing")
+	}
+	canonical, err := mcpcodec.CanonicalClaudeProjectMCPServerEntry(
+		mcpcodec.ClaudeProjectMCPServerProjection{
+			ServerID:        "context7",
+			Command:         "npx",
+			Args:            []string{"-y"},
+			Env:             map[string]string{},
+			AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildSnapshot := func(content string) durable.Snapshot {
+		contribution, err := placement.Contribution("context7", content)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subject, err := topologymcp.ProjectionSubject(
+			placement.Target(),
+			placement.Scope(),
+			"context7",
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		state, err := durable.NewManagedAggregateState(subject, contribution)
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshot, err := durable.NewSnapshot(durable.SnapshotInput{
+			ManagedAggregates: []durable.ManagedAggregateState{state},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snapshot
+	}
+
+	noncanonical := strings.TrimSuffix(string(canonical), "\n")
+	if _, err := Marshal(buildSnapshot(noncanonical)); err == nil ||
+		!strings.Contains(err.Error(), "canonical_contribution_invalid") {
+		t.Fatalf("Marshal(noncanonical MCP) error = %v, want canonical invalid", err)
+	}
+
+	encoded, err := Marshal(buildSnapshot(string(canonical)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted snapshotDTO
+	if err := json.Unmarshal(encoded, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	persisted.ManagedAggregateBaselines[0].CanonicalContribution = noncanonical
+	tampered, err := json.Marshal(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(tampered); err == nil ||
+		!strings.Contains(err.Error(), "canonical_contribution_invalid") {
+		t.Fatalf("Decode(noncanonical MCP) error = %v, want canonical invalid", err)
 	}
 }
 
