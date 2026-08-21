@@ -54,6 +54,38 @@ type Limits struct {
 	MaximumPathWork   int
 }
 
+// StructureUsage records the payload-independent TOML structure observed by
+// admission. Semantic key bytes and container nodes may extend a caller's
+// structure capacity; primitive nodes and formatting never do.
+type StructureUsage struct {
+	containers int
+	work       int
+	pathWork   int
+	keyBytes   int
+}
+
+// StructuralUnits returns semantic key bytes plus container nodes.
+func (usage StructureUsage) StructuralUnits() int {
+	return usage.keyBytes + usage.containers
+}
+
+// Validate applies count ceilings to a completed structure observation.
+func (usage StructureUsage) Validate(limits Limits) error {
+	if err := validateLimits(limits); err != nil {
+		return err
+	}
+	if usage.containers > limits.MaximumContainers {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumContainersExceeded, limits.MaximumContainers)
+	}
+	if usage.work > limits.MaximumWork {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, limits.MaximumWork)
+	}
+	if usage.pathWork > limits.MaximumPathWork {
+		return fmt.Errorf("%w: maximum=%d", ErrMaximumPathWorkExceeded, limits.MaximumPathWork)
+	}
+	return nil
+}
+
 // StandardLimits are the shared host-document ceilings.
 func StandardLimits() Limits {
 	return Limits{
@@ -122,24 +154,28 @@ func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaD
 // ancestor-path byte recopies for keyed values and anonymous nested containers
 // without building a decoded document. Callers must still parse admitted bytes.
 func Admit(ctx context.Context, content []byte, limits Limits) error {
+	_, err := AdmitWithUsage(ctx, content, limits)
+	return err
+}
+
+// AdmitWithUsage admits TOML and returns its payload-independent structure
+// observation. The supplied limits must bound the scan itself; callers may
+// apply a stricter policy to the returned usage before decoding.
+func AdmitWithUsage(ctx context.Context, content []byte, limits Limits) (StructureUsage, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return StructureUsage{}, err
 	}
-	if limits.MaximumDepth <= 0 ||
-		limits.MaximumContainers <= 0 ||
-		limits.MaximumWork <= 0 ||
-		limits.MaximumKeyBytes <= 0 ||
-		limits.MaximumPathWork <= 0 {
-		return fmt.Errorf("TOML structure limits must be positive")
+	if err := validateLimits(limits); err != nil {
+		return StructureUsage{}, err
 	}
 	if err := ValidateUTF8(ctx, content); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return err
+			return StructureUsage{}, err
 		}
-		return fmt.Errorf("%w: %v", ErrMalformed, err)
+		return StructureUsage{}, fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
 
 	scanner := scanner{
@@ -150,7 +186,30 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 	if len(content) >= 3 && content[0] == 0xef && content[1] == 0xbb && content[2] == 0xbf {
 		scanner.index = 3
 	}
-	return scanner.document()
+	if err := scanner.document(); err != nil {
+		return StructureUsage{}, err
+	}
+	usage := StructureUsage{
+		containers: scanner.containers,
+		work:       scanner.work,
+		pathWork:   scanner.pathWork,
+		keyBytes:   scanner.keyBytes,
+	}
+	if usage.StructuralUnits() > len(content) {
+		return StructureUsage{}, fmt.Errorf("TOML structure accounting exceeds document bytes")
+	}
+	return usage, nil
+}
+
+func validateLimits(limits Limits) error {
+	if limits.MaximumDepth <= 0 ||
+		limits.MaximumContainers <= 0 ||
+		limits.MaximumWork <= 0 ||
+		limits.MaximumKeyBytes <= 0 ||
+		limits.MaximumPathWork <= 0 {
+		return fmt.Errorf("TOML structure limits must be positive")
+	}
+	return nil
 }
 
 type scanner struct {
@@ -162,6 +221,7 @@ type scanner struct {
 	containers int
 	work       int
 	pathWork   int
+	keyBytes   int
 	limits     Limits
 	ctx        context.Context
 	cancelAt   int
@@ -549,6 +609,7 @@ func (s *scanner) chargeKey(parts int, keyBytes int) error {
 	if keyBytes > s.limits.MaximumKeyBytes {
 		return fmt.Errorf("%w: maximum=%d", ErrMaximumWorkExceeded, s.limits.MaximumWork)
 	}
+	s.keyBytes += keyBytes
 	if err := s.addWork(parts); err != nil {
 		return err
 	}

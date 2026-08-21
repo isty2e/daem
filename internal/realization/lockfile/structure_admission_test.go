@@ -113,6 +113,28 @@ func TestCurrentLockfileRejectsDenseWorkBeforeDecoderAllocation(t *testing.T) {
 	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumWorkExceeded)
 }
 
+func TestCurrentLockfileTriviaDoesNotExpandStructureBudget(t *testing.T) {
+	unpadded := currentLockfileWithDenseUnknownEntries(t, 16_000, 0)
+	padded := currentLockfileWithDenseUnknownEntries(t, 16_000, 600<<10)
+	for _, test := range []struct {
+		name    string
+		content []byte
+	}{
+		{name: "unpadded", content: unpadded},
+		{name: "comment padded", content: padded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateReplacementContent(t.Context(), test.content); !errors.Is(err, tomlstrict.ErrMaximumWorkExceeded) {
+				t.Fatalf("ValidateReplacementContent error = %v, want work exceeded", err)
+			}
+			if _, err := Load(t.Context(), writeLockfileText(t, string(test.content))); !errors.Is(err, tomlstrict.ErrMaximumWorkExceeded) {
+				t.Fatalf("Load error = %v, want work exceeded", err)
+			}
+		})
+	}
+	assertRejectedLockfileAllocationBound(t, padded, tomlstrict.ErrMaximumWorkExceeded)
+}
+
 func assertRejectedLockfileAllocationBound(t *testing.T, content []byte, want error) {
 	t.Helper()
 	result := testing.Benchmark(func(b *testing.B) {
@@ -289,4 +311,22 @@ func currentLockfileWithLongAncestorSiblings(siblings int) []byte {
 		builder.WriteString("k = 1\n")
 	}
 	return []byte(builder.String())
+}
+
+func currentLockfileWithDenseUnknownEntries(t *testing.T, count int, targetBytes int) []byte {
+	t.Helper()
+	var entries strings.Builder
+	for index := range count {
+		fmt.Fprintf(&entries, "k%d={a.b.c=0}\n", index)
+	}
+	version := fmt.Sprintf("version = %d\n", lock.CurrentVersion)
+	unpadded := version + entries.String()
+	if targetBytes == 0 {
+		return []byte(unpadded)
+	}
+	paddingBytes := targetBytes - len(unpadded) - 2
+	if paddingBytes <= 0 {
+		t.Fatalf("dense fixture bytes = %d, target %d", len(unpadded), targetBytes)
+	}
+	return []byte(version + "#" + strings.Repeat("p", paddingBytes) + "\n" + entries.String())
 }

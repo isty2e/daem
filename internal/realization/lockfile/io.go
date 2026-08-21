@@ -14,43 +14,34 @@ import (
 )
 
 // Current lockfiles are collection-dense and can legitimately approach the
-// selected-skill ceiling. Byte-scaled limits preserve that schema capacity
-// while rejecting structures denser than canonical lockfile output.
+// selected-skill ceiling. Capacity follows observed structure rather than raw
+// bytes so comments, formatting, and primitive payload length cannot expand
+// the amount of container or path material admitted before decoding.
 const (
-	minimumRegenerableVersion     = 3
-	lockfileContainerBytesPerUnit = 32
-	lockfileWorkBytesPerUnit      = 3
-	lockfilePathWorkBytesPerUnit  = 1
-	lockfileContextCheckInterval  = 4096
+	minimumRegenerableVersion                = 3
+	lockfileStructuralUnitsPerExtraContainer = 24
+	lockfilePathWorkPerStructuralUnit        = 3
+	lockfileContextCheckInterval             = 4096
 )
 
-func currentLockfileStructureLimits(content []byte) tomlstrict.Limits {
+func currentLockfileStructureLimits(structuralUnits int) tomlstrict.Limits {
 	limits := tomlstrict.StandardLimits()
-	limits.MaximumContainers = scaledTOMLLimit(
-		limits.MaximumContainers,
-		len(content),
-		lockfileContainerBytesPerUnit,
-	)
-	limits.MaximumWork = scaledTOMLLimit(
-		limits.MaximumWork,
-		len(content),
-		lockfileWorkBytesPerUnit,
-	)
-	limits.MaximumPathWork = scaledTOMLLimit(
-		limits.MaximumPathWork,
-		len(content),
-		lockfilePathWorkBytesPerUnit,
-	)
+	limits.MaximumContainers += structuralUnits / lockfileStructuralUnitsPerExtraContainer
+	if structuralUnits%lockfileStructuralUnitsPerExtraContainer != 0 {
+		limits.MaximumContainers++
+	}
+	limits.MaximumWork += structuralUnits
+	limits.MaximumPathWork += lockfilePathWorkPerStructuralUnit * structuralUnits
 	return limits
 }
 
-func scaledTOMLLimit(base int, byteCount int, bytesPerUnit int) int {
-	extra := byteCount / bytesPerUnit
-	maximumInt := int(^uint(0) >> 1)
-	if extra > maximumInt-base {
-		return maximumInt
+func admitCurrentLockfileStructure(ctx context.Context, content []byte) error {
+	maximumLimits := currentLockfileStructureLimits(int(declarationartifact.MaximumBytes))
+	usage, err := tomlstrict.AdmitWithUsage(ctx, content, maximumLimits)
+	if err != nil {
+		return err
 	}
-	return base + extra
+	return usage.Validate(currentLockfileStructureLimits(usage.StructuralUnits()))
 }
 
 // UnsupportedVersionError reports a lock schema that this reader cannot use.
@@ -245,7 +236,7 @@ func isTOMLLineWhitespace(value byte) bool {
 }
 
 func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
-	if err := tomlstrict.Admit(ctx, content, currentLockfileStructureLimits(content)); err != nil {
+	if err := admitCurrentLockfileStructure(ctx, content); err != nil {
 		return lock.File{}, err
 	}
 
@@ -302,7 +293,7 @@ func Marshal(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 	content := output.Bytes()
-	if err := tomlstrict.Admit(context.Background(), content, currentLockfileStructureLimits(content)); err != nil {
+	if err := admitCurrentLockfileStructure(context.Background(), content); err != nil {
 		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
 	}
 	return content, nil

@@ -207,6 +207,56 @@ func TestAdmitRejectsNonPositiveLimits(t *testing.T) {
 	}
 }
 
+func TestAdmitWithUsageIgnoresTriviaAndPrimitivePayloadLength(t *testing.T) {
+	compact, err := AdmitWithUsage(
+		context.Background(),
+		[]byte(`root={child="x"}`),
+		StandardLimits(),
+	)
+	if err != nil {
+		t.Fatalf("AdmitWithUsage(compact): %v", err)
+	}
+	padded, err := AdmitWithUsage(
+		context.Background(),
+		[]byte("  # leading comment\nroot = { child = \""+strings.Repeat("payload ", 1024)+"\" } # trailing comment\n"),
+		StandardLimits(),
+	)
+	if err != nil {
+		t.Fatalf("AdmitWithUsage(padded): %v", err)
+	}
+	if compact != padded {
+		t.Fatalf("structure usage changed with trivia/payload: compact=%#v padded=%#v", compact, padded)
+	}
+	if got, want := compact.StructuralUnits(), compact.keyBytes+compact.containers; got != want {
+		t.Fatalf("StructuralUnits = %d, want %d", got, want)
+	}
+}
+
+func TestStructureUsageValidatesExactLimitsAndClassifiesOverflow(t *testing.T) {
+	usage := StructureUsage{containers: 3, work: 5, pathWork: 7, keyBytes: 11}
+	exact := testLimits(8, 3, 5, 64, 7)
+	if err := usage.Validate(exact); err != nil {
+		t.Fatalf("Validate(exact): %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		limits Limits
+		want   error
+	}{
+		{name: "containers", limits: testLimits(8, 2, 5, 64, 7), want: ErrMaximumContainersExceeded},
+		{name: "work", limits: testLimits(8, 3, 4, 64, 7), want: ErrMaximumWorkExceeded},
+		{name: "path work", limits: testLimits(8, 3, 5, 64, 6), want: ErrMaximumPathWorkExceeded},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := usage.Validate(test.limits); !errors.Is(err, test.want) {
+				t.Fatalf("Validate = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
 func TestAdmitAcceptsExactSemanticPathInDottedInlineTable(t *testing.T) {
 	// Outer key contributes path 1; 63-part inner key reaches MaximumDepth.
 	content := "k = { " + dottedKey(MaximumDepth-1) + " = 1 }\n"
