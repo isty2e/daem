@@ -271,26 +271,82 @@ func mcpJSONHostDocumentError(spec mcpConfigSpec, err error) error {
 	)
 }
 
+type mcpJSONConfigEncodingPlan struct {
+	expectedBytes    int64
+	keepDocument     bool
+	includeMCPParent bool
+}
+
+func (config mcpConfig) encodingPlan(parentExistedBefore bool) (mcpJSONConfigEncodingPlan, error) {
+	if len(config.servers) == 0 && !parentExistedBefore {
+		top := maps.Clone(config.top)
+		delete(top, config.spec.serversKey)
+		if len(top) == 0 {
+			return mcpJSONConfigEncodingPlan{}, nil
+		}
+		expectedBytes, err := canonicalJSONEncodedSize(top)
+		if err != nil {
+			return mcpJSONConfigEncodingPlan{}, canonicalMCPJSONError(
+				"",
+				"encode canonical MCP JSON",
+				err,
+			)
+		}
+		return mcpJSONConfigEncodingPlan{
+			expectedBytes: expectedBytes,
+			keepDocument:  true,
+		}, nil
+	}
+
+	expectedBytes, err := canonicalMCPJSONConfigEncodedSize(
+		config.top,
+		config.spec.serversKey,
+		config.servers,
+	)
+	if err != nil {
+		return mcpJSONConfigEncodingPlan{}, canonicalMCPJSONError(
+			"",
+			"encode canonical MCP JSON",
+			err,
+		)
+	}
+	return mcpJSONConfigEncodingPlan{
+		expectedBytes:    expectedBytes,
+		keepDocument:     true,
+		includeMCPParent: true,
+	}, nil
+}
+
+func (config mcpConfig) preflightEncodePreservingMCPParent(parentExistedBefore bool) error {
+	_, err := config.encodingPlan(parentExistedBefore)
+	return err
+}
+
 func (config mcpConfig) encode() ([]byte, error) {
 	content, _, err := config.encodePreservingMCPParent(true)
 	return content, err
 }
 
 func (config mcpConfig) encodePreservingMCPParent(parentExistedBefore bool) ([]byte, bool, error) {
-	if len(config.servers) == 0 && !parentExistedBefore {
+	plan, err := config.encodingPlan(parentExistedBefore)
+	if err != nil {
+		return nil, false, err
+	}
+	if !plan.keepDocument {
+		return nil, false, nil
+	}
+	if !plan.includeMCPParent {
 		delete(config.top, config.spec.serversKey)
-		if len(config.top) == 0 {
-			return nil, false, nil
-		}
-		content, err := canonicalJSON(config.top)
+		content, err := marshalPreflightedCanonicalJSON(config.top, plan.expectedBytes)
 		return content, true, err
 	}
+
 	serversRaw, err := encodeSortedRawObject(config.servers)
 	if err != nil {
 		return nil, false, err
 	}
 	config.top[config.spec.serversKey] = serversRaw
-	content, err := canonicalJSON(config.top)
+	content, err := marshalPreflightedCanonicalJSON(config.top, plan.expectedBytes)
 	return content, true, err
 }
 

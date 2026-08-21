@@ -294,7 +294,11 @@ func (codec mcpProjectionCodec) Restore(document aggregate.Document, baseline ag
 }
 
 func validateMCPDocumentSize(content []byte) error {
-	if int64(len(content)) > maximumDocumentBytes {
+	return validateMCPDocumentByteCount(int64(len(content)))
+}
+
+func validateMCPDocumentByteCount(bytes int64) error {
+	if bytes > maximumDocumentBytes {
 		return fmt.Errorf("MCP host document exceeds %d bytes", maximumDocumentBytes)
 	}
 	return nil
