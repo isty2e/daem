@@ -80,7 +80,7 @@ func TestLockfileVersionPolicyDoesNotInterpretOpaqueBodies(t *testing.T) {
 	future := lockfileWithVersionAndNestedInlineTables(futureVersion, tomlstrict.MaximumDepth+128)
 	err := validateReplacementContent(t.Context(), future)
 	var versionErr UnsupportedVersionError
-	if !errors.As(err, &versionErr) || versionErr.Found != futureVersion {
+	if !errors.As(err, &versionErr) || versionErr.Found != int64(futureVersion) {
 		t.Fatalf("future opaque body error = %v, want UnsupportedVersionError(%d)", err, futureVersion)
 	}
 }

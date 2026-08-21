@@ -1,7 +1,11 @@
 package lockfile
 
+type versionEnvelopeDTO struct {
+	Version int64 `toml:"version"`
+}
+
 type fileDTO struct {
-	Version int              `toml:"version"`
+	Version int64            `toml:"version"`
 	Locked  lockedSectionDTO `toml:"locked"`
 }
 
