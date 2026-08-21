@@ -21,6 +21,10 @@ func canonicalJSON(value any) ([]byte, error) {
 	if err != nil {
 		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
 	}
+	return marshalPreflightedCanonicalJSON(value, expectedBytes)
+}
+
+func marshalPreflightedCanonicalJSON(value any, expectedBytes int64) ([]byte, error) {
 	content, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
@@ -54,20 +58,47 @@ func encodeMCPJSONServerEntry[E any](
 	if err := validateServerID(serverID); err != nil {
 		return nil, err
 	}
-	canonical, err := canonicalJSON(entry)
+	entryBytes, err := canonicalJSONEncodedSize(entry)
 	if err != nil {
-		return nil, err
+		return nil, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
 	}
-	config := mcpConfig{
-		spec:    spec,
-		top:     make(map[string]json.RawMessage),
-		servers: map[string]json.RawMessage{serverID: canonical},
-	}
-	if _, err := config.encode(); err != nil {
+	hostBytes, err := canonicalMCPJSONTypedEntryHostEncodedSize(
+		entry,
+		serverID,
+		spec.serversKey,
+	)
+	if err != nil {
 		return nil, canonicalMCPJSONError(
 			spec.serversPath+"/"+serverID,
 			"render canonical MCP JSON entry",
-			err,
+			canonicalMCPJSONError("", "encode canonical MCP JSON", err),
+		)
+	}
+	canonical, err := marshalPreflightedCanonicalJSON(entry, entryBytes)
+	if err != nil {
+		return nil, err
+	}
+	encodedHostBytes, err := canonicalMCPJSONConfigEncodedSize(
+		nil,
+		spec.serversKey,
+		map[string]json.RawMessage{serverID: canonical},
+	)
+	if err != nil {
+		return nil, canonicalMCPJSONError(
+			spec.serversPath+"/"+serverID,
+			"render canonical MCP JSON entry",
+			canonicalMCPJSONError("", "encode canonical MCP JSON", err),
+		)
+	}
+	if encodedHostBytes != hostBytes {
+		return nil, canonicalMCPJSONError(
+			spec.serversPath+"/"+serverID,
+			"render canonical MCP JSON entry",
+			fmt.Errorf(
+				"typed host preflight measured %d bytes, canonical entry measured %d",
+				hostBytes,
+				encodedHostBytes,
+			),
 		)
 	}
 	return canonical, nil

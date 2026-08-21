@@ -15,16 +15,8 @@ type boundedCanonicalJSONSize struct {
 }
 
 func canonicalJSONEncodedSize(value any) (int64, error) {
-	switch value.(type) {
-	case ClaudeProjectMCPServerEntry,
-		ClaudeGlobalMCPServerEntry,
-		AntigravityGlobalMCPServerEntry,
-		OpenCodeProjectMCPServerEntry,
-		OpenCodeGlobalMCPServerEntry,
-		PiMCPAdapterServerEntry,
-		map[string]json.RawMessage:
-	default:
-		return 0, fmt.Errorf("unsupported canonical MCP JSON value type %T", value)
+	if err := admitCanonicalJSONValue(value); err != nil {
+		return 0, err
 	}
 
 	counter := boundedCanonicalJSONSize{}
@@ -37,12 +29,35 @@ func canonicalJSONEncodedSize(value any) (int64, error) {
 	return counter.bytes, nil
 }
 
+func admitCanonicalJSONValue(value any) error {
+	if isCanonicalJSONServerEntry(value) {
+		return nil
+	}
+	switch value.(type) {
+	case map[string]json.RawMessage:
+	default:
+		return fmt.Errorf("unsupported canonical MCP JSON value type %T", value)
+	}
+	return nil
+}
+
+func isCanonicalJSONServerEntry(value any) bool {
+	switch value.(type) {
+	case ClaudeProjectMCPServerEntry,
+		ClaudeGlobalMCPServerEntry,
+		AntigravityGlobalMCPServerEntry,
+		OpenCodeProjectMCPServerEntry,
+		OpenCodeGlobalMCPServerEntry,
+		PiMCPAdapterServerEntry:
+		return true
+	default:
+		return false
+	}
+}
+
 func (counter *boundedCanonicalJSONSize) addValue(value reflect.Value, depth int) error {
 	if value.Type() == rawJSONMessageType {
-		if value.IsNil() {
-			return counter.addBytes(int64(len("null")))
-		}
-		return counter.addRawJSON(value.Bytes(), depth)
+		return counter.addRawJSONValue(value.Bytes(), depth)
 	}
 
 	switch value.Kind() {
@@ -78,31 +93,17 @@ func (counter *boundedCanonicalJSONSize) addMap(value reflect.Value, depth int) 
 		return err
 	}
 	iterator := value.MapRange()
-	first := true
+	included := 0
 	for iterator.Next() {
-		if !first {
-			if err := counter.addBytes(1); err != nil {
-				return err
-			}
-		}
-		first = false
-		if err := counter.addNewlineIndent(depth + 1); err != nil {
-			return err
-		}
-		if err := counter.addJSONString(iterator.Key().String()); err != nil {
-			return err
-		}
-		if err := counter.addBytes(int64(len(": "))); err != nil {
+		if err := counter.addObjectField(iterator.Key().String(), depth, included); err != nil {
 			return err
 		}
 		if err := counter.addValue(iterator.Value(), depth+1); err != nil {
 			return err
 		}
+		included++
 	}
-	if err := counter.addNewlineIndent(depth); err != nil {
-		return err
-	}
-	return counter.addBytes(1)
+	return counter.finishObject(depth, included)
 }
 
 func (counter *boundedCanonicalJSONSize) addSequence(value reflect.Value, depth int) error {
@@ -156,25 +157,33 @@ func (counter *boundedCanonicalJSONSize) addStruct(value reflect.Value, depth in
 		if omitEmpty && isEmptyCanonicalJSONValue(fieldValue) {
 			continue
 		}
-		if included > 0 {
-			if err := counter.addBytes(1); err != nil {
-				return err
-			}
-		}
-		included++
-		if err := counter.addNewlineIndent(depth + 1); err != nil {
-			return err
-		}
-		if err := counter.addJSONString(name); err != nil {
-			return err
-		}
-		if err := counter.addBytes(int64(len(": "))); err != nil {
+		if err := counter.addObjectField(name, depth, included); err != nil {
 			return err
 		}
 		if err := counter.addValue(fieldValue, depth+1); err != nil {
 			return err
 		}
+		included++
 	}
+	return counter.finishObject(depth, included)
+}
+
+func (counter *boundedCanonicalJSONSize) addObjectField(name string, depth int, included int) error {
+	if included > 0 {
+		if err := counter.addBytes(1); err != nil {
+			return err
+		}
+	}
+	if err := counter.addNewlineIndent(depth + 1); err != nil {
+		return err
+	}
+	if err := counter.addJSONString(name); err != nil {
+		return err
+	}
+	return counter.addBytes(int64(len(": ")))
+}
+
+func (counter *boundedCanonicalJSONSize) finishObject(depth int, included int) error {
 	if included > 0 {
 		if err := counter.addNewlineIndent(depth); err != nil {
 			return err
@@ -285,6 +294,13 @@ func (counter *boundedCanonicalJSONSize) addJSONString(value string) error {
 		index += width
 	}
 	return nil
+}
+
+func (counter *boundedCanonicalJSONSize) addRawJSONValue(content []byte, depth int) error {
+	if content == nil {
+		return counter.addBytes(int64(len("null")))
+	}
+	return counter.addRawJSON(content, depth)
 }
 
 func (counter *boundedCanonicalJSONSize) addRawJSON(content []byte, depth int) error {

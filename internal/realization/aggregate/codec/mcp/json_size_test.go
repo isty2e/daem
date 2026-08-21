@@ -61,6 +61,94 @@ func TestCanonicalJSONRejectsHostReindentExpansionWithoutExpandedAllocation(t *t
 	}
 }
 
+func TestMCPJSONCanonicalProducerRejectsMinimalHostOverflowWithoutIntermediateAllocation(t *testing.T) {
+	expansion := claudeProjectMinimalHostArgumentExpansion(t)
+	projection := validMCPProjection("context7")
+	projection.Args = []string{strings.Repeat("a", expansion+1)}
+
+	result := testing.Benchmark(func(b *testing.B) {
+		for b.Loop() {
+			if _, err := CanonicalClaudeProjectMCPServerEntry(projection); err == nil {
+				b.Fatal("minimal-host limit+1 producer succeeded")
+			}
+		}
+	})
+	if got := result.AllocedBytesPerOp(); got > maximumRejectedJSONProducerAllocationBytes {
+		t.Fatalf(
+			"minimal-host limit+1 rejection allocated %d bytes per call, want at most %d",
+			got,
+			maximumRejectedJSONProducerAllocationBytes,
+		)
+	}
+
+	_, err := CanonicalClaudeProjectMCPServerEntry(projection)
+	var projectionErr *MCPProjectionError
+	if !errors.As(err, &projectionErr) || projectionErr.Code() != MCPProjectionReasonCanonicalInvalid {
+		t.Fatalf("minimal-host limit+1 error = %v, want canonical invalid", err)
+	}
+}
+
+func TestMCPJSONConfigRejectsPreservedSiblingOverflowWithoutServerObjectAllocation(t *testing.T) {
+	expansion := claudeProjectMinimalHostArgumentExpansion(t)
+	projection := validMCPProjection("context7")
+	projection.Args = []string{strings.Repeat("a", expansion)}
+	canonical, err := CanonicalClaudeProjectMCPServerEntry(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	encode := func() error {
+		config := mcpConfig{
+			spec: claudeProjectMCPConfigSpec(),
+			top: map[string]json.RawMessage{
+				"preserved": json.RawMessage(`{"value":"keep"}`),
+			},
+			servers: map[string]json.RawMessage{"context7": canonical},
+		}
+		_, err := config.encode()
+		return err
+	}
+	result := testing.Benchmark(func(b *testing.B) {
+		for b.Loop() {
+			if err := encode(); err == nil {
+				b.Fatal("preserved-sibling overflow succeeded")
+			}
+		}
+	})
+	if got := result.AllocedBytesPerOp(); got > maximumRejectedJSONProducerAllocationBytes {
+		t.Fatalf(
+			"preserved-sibling overflow allocated %d bytes per call, want at most %d",
+			got,
+			maximumRejectedJSONProducerAllocationBytes,
+		)
+	}
+
+	err = encode()
+	var projectionErr *MCPProjectionError
+	if !errors.As(err, &projectionErr) || projectionErr.Code() != MCPProjectionReasonCanonicalInvalid {
+		t.Fatalf("preserved-sibling overflow error = %v, want canonical invalid", err)
+	}
+}
+
+func claudeProjectMinimalHostArgumentExpansion(t *testing.T) int {
+	t.Helper()
+	projection := validMCPProjection("context7")
+	projection.Args = []string{""}
+	canonical, err := CanonicalClaudeProjectMCPServerEntry(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, err := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject).mergeCanonicalEntry(
+		nil,
+		"context7",
+		canonical,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return int(maximumDocumentBytes) - len(host)
+}
+
 func TestMCPJSONCanonicalProducersHonorMinimalHostByteBoundary(t *testing.T) {
 	type producerCase struct {
 		name       string
@@ -228,5 +316,43 @@ func TestCanonicalJSONPreservesStdlibBytesAcrossSupportedShapes(t *testing.T) {
 				t.Fatalf("canonical JSON differs:\nactual:\n%s\nexpected:\n%s", actual, expected)
 			}
 		})
+	}
+}
+
+func TestMCPJSONHostEncodedSizeMatchesStdlibWithPreservedAndReplacedFields(t *testing.T) {
+	servers := map[string]json.RawMessage{
+		"alpha": json.RawMessage(` { "command": "node", "args": ["a"] } `),
+		"nil":   nil,
+	}
+	top := map[string]json.RawMessage{
+		"mcpServers": json.RawMessage(`{"stale":{"command":"old"}}`),
+		"model":      json.RawMessage(` { "name": "keep", "html": "<>&" } `),
+		"nil":        nil,
+	}
+	measured, err := canonicalMCPJSONConfigEncodedSize(
+		top,
+		"mcpServers",
+		servers,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serversRaw, err := encodeSortedRawObject(servers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actualTop := map[string]json.RawMessage{
+		"mcpServers": serversRaw,
+		"model":      top["model"],
+		"nil":        nil,
+	}
+	actual, err := json.MarshalIndent(actualTop, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual = append(actual, '\n')
+	if measured != int64(len(actual)) {
+		t.Fatalf("host preflight bytes = %d, stdlib produced %d", measured, len(actual))
 	}
 }

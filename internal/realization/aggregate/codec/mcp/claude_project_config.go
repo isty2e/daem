@@ -285,12 +285,20 @@ func (config mcpConfig) encodePreservingMCPParent(parentExistedBefore bool) ([]b
 		content, err := canonicalJSON(config.top)
 		return content, true, err
 	}
+	expectedBytes, err := canonicalMCPJSONConfigEncodedSize(
+		config.top,
+		config.spec.serversKey,
+		config.servers,
+	)
+	if err != nil {
+		return nil, false, canonicalMCPJSONError("", "encode canonical MCP JSON", err)
+	}
 	serversRaw, err := encodeSortedRawObject(config.servers)
 	if err != nil {
 		return nil, false, err
 	}
 	config.top[config.spec.serversKey] = serversRaw
-	content, err := canonicalJSON(config.top)
+	content, err := marshalPreflightedCanonicalJSON(config.top, expectedBytes)
 	return content, true, err
 }
 
