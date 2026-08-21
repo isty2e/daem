@@ -9,7 +9,7 @@ import (
 )
 
 // CurrentManifestVersion is the manifest schema version emitted and accepted by daem.
-const CurrentManifestVersion = contractversion.ManifestSchema
+const CurrentManifestVersion int64 = contractversion.ManifestSchema
 
 func DecodeManifest(content []byte) (Manifest, error) {
 	if err := admitManifestStructure(content); err != nil {

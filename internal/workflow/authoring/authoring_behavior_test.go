@@ -328,6 +328,21 @@ unknown = true
 	}
 }
 
+func TestAuthoringRejectsWidthCongruentManifestVersionBeforeHeaderDecode(t *testing.T) {
+	_, err := BuildAddHookChange(ManifestDocument{
+		Path:    "daem.toml",
+		Root:    t.TempDir(),
+		Content: []byte("version = 4294967297\ntargets = [\"codex\"]\n"),
+	}, AddHookRequest{
+		Name:    "protect-env",
+		Event:   "PreToolUse",
+		Command: "python3 hooks/protect.py",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid manifest: unsupported manifest version 4294967297") {
+		t.Fatalf("err = %v, want width-independent manifest version rejection", err)
+	}
+}
+
 func TestAuthoringRejectsOverDepthManifestBeforeHeaderOrBlockDecode(t *testing.T) {
 	var content strings.Builder
 	content.WriteString("version = 1\ntargets = [\"codex\"]\nextra = ")

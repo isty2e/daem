@@ -7,7 +7,7 @@ import (
 )
 
 type Manifest struct {
-	Version      int                     `toml:"version"`
+	Version      int64                   `toml:"version"`
 	Targets      []string                `toml:"targets"`
 	Defaults     Defaults                `toml:"defaults"`
 	Skills       []Skill                 `toml:"skill"`

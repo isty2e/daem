@@ -8,6 +8,13 @@ import (
 )
 
 func snapshotFromDTO(dto fileDTO) (lock.File, error) {
+	if dto.Version != currentLockfileVersion {
+		return lock.File{}, UnsupportedVersionError{
+			Found:     dto.Version,
+			Supported: currentLockfileVersion,
+		}
+	}
+
 	subjects, err := subjectsFromDTO(dto.Locked.Subjects)
 	if err != nil {
 		return lock.File{}, err
@@ -21,7 +28,7 @@ func snapshotFromDTO(dto fileDTO) (lock.File, error) {
 		return lock.File{}, err
 	}
 	return lock.File{
-		Version: dto.Version,
+		Version: lock.CurrentVersion,
 		Locked:  locked,
 	}, nil
 }
@@ -36,7 +43,7 @@ func dtoFromSnapshot(file lock.File) (fileDTO, error) {
 		return fileDTO{}, err
 	}
 	return fileDTO{
-		Version: file.Version,
+		Version: int64(file.Version),
 		Locked: lockedSectionDTO{
 			Subjects:         subjects,
 			OrderConstraints: orderConstraints,

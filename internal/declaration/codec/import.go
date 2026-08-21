@@ -110,7 +110,7 @@ type ImportManifestBody struct {
 }
 
 type importManifest struct {
-	Version int      `toml:"version"`
+	Version int64    `toml:"version"`
 	Targets []string `toml:"targets"`
 	ImportManifestBody
 }

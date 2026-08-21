@@ -18,10 +18,11 @@ import (
 // bytes so comments, formatting, and primitive payload length cannot expand
 // the amount of container or path material admitted before decoding.
 const (
-	minimumRegenerableVersion                = 3
-	lockfileStructuralUnitsPerExtraContainer = 24
-	lockfilePathWorkPerStructuralUnit        = 3
-	lockfileContextCheckInterval             = 4096
+	minimumRegenerableVersion                int64 = 3
+	currentLockfileVersion                   int64 = lock.CurrentVersion
+	lockfileStructuralUnitsPerExtraContainer       = 24
+	lockfilePathWorkPerStructuralUnit              = 3
+	lockfileContextCheckInterval                   = 4096
 )
 
 func currentLockfileStructureLimits(structuralUnits int) tomlstrict.Limits {
@@ -46,8 +47,8 @@ func admitCurrentLockfileStructure(ctx context.Context, content []byte) error {
 
 // UnsupportedVersionError reports a lock schema that this reader cannot use.
 type UnsupportedVersionError struct {
-	Found     int
-	Supported int
+	Found     int64
+	Supported int64
 }
 
 func (err UnsupportedVersionError) Error() string {
@@ -84,7 +85,7 @@ func (err UnsupportedVersionError) BoundedErrorEvidence(maximumRunes int) (strin
 // RelockSupported reports whether the lock workflow may replace this exact
 // prior schema without interpreting its contents.
 func (err UnsupportedVersionError) RelockSupported() bool {
-	return err.Supported == lock.CurrentVersion &&
+	return err.Supported == currentLockfileVersion &&
 		err.Found >= minimumRegenerableVersion &&
 		err.Found < err.Supported
 }
@@ -123,7 +124,7 @@ func validateReplacementContent(ctx context.Context, content []byte) error {
 		_, err := loadCurrentContent(ctx, content)
 		return err
 	}
-	versionErr := UnsupportedVersionError{Found: version, Supported: lock.CurrentVersion}
+	versionErr := UnsupportedVersionError{Found: version, Supported: currentLockfileVersion}
 	if versionErr.RelockSupported() {
 		return nil
 	}
@@ -135,16 +136,16 @@ func loadContent(ctx context.Context, content []byte) (lock.File, error) {
 	if err != nil {
 		return lock.File{}, err
 	}
-	if version != lock.CurrentVersion {
+	if version != currentLockfileVersion {
 		return lock.File{}, UnsupportedVersionError{
 			Found:     version,
-			Supported: lock.CurrentVersion,
+			Supported: currentLockfileVersion,
 		}
 	}
 	return loadCurrentContent(ctx, content)
 }
 
-func lockfileVersion(ctx context.Context, content []byte) (int, error) {
+func lockfileVersion(ctx context.Context, content []byte) (int64, error) {
 	if err := declarationartifact.Admit(content); err != nil {
 		return 0, err
 	}
@@ -167,9 +168,7 @@ func lockfileVersion(ctx context.Context, content []byte) (int, error) {
 	if err := tomlstrict.Admit(ctx, envelope, tomlstrict.StandardLimits()); err != nil {
 		return 0, err
 	}
-	var header struct {
-		Version int `toml:"version"`
-	}
+	var header versionEnvelopeDTO
 	metadata, err := tomlstrict.DecodeAdmitted(ctx, envelope, &header)
 	if err != nil {
 		return 0, err
@@ -240,9 +239,7 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 		return lock.File{}, err
 	}
 
-	var header struct {
-		Version int `toml:"version"`
-	}
+	var header versionEnvelopeDTO
 	headerMetadata, err := tomlstrict.DecodeAdmitted(ctx, content, &header)
 	if err != nil {
 		return lock.File{}, err

@@ -12,7 +12,7 @@ func repairRecipeFromDTO(dto *repairRecipeDTO) (*skillrepair.Recipe, error) {
 	if dto == nil {
 		return nil, nil
 	}
-	if dto.Version != skillrepair.RecipeVersion {
+	if dto.Version != int64(skillrepair.RecipeVersion) {
 		return nil, fmt.Errorf("repair recipe version %d is unsupported", dto.Version)
 	}
 	input, err := exactIdentityFromDTO(dto.Input)
@@ -42,7 +42,7 @@ func repairRecipeToDTO(recipe skillrepair.Recipe, present bool) *repairRecipeDTO
 		return nil
 	}
 	return &repairRecipeDTO{
-		Version:    recipe.Version(),
+		Version:    int64(recipe.Version()),
 		RecipeHash: recipe.Hash(),
 		Input:      exactIdentityToDTO(recipe.Input()),
 		Output:     exactIdentityToDTO(recipe.Output()),

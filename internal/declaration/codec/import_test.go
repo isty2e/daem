@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/declaration"
 )
 
+var _ int64 = importManifest{}.Version
+
 func TestRenderImportManifestGolden(t *testing.T) {
 	body := ImportManifestBody{
 		Instructions: map[string]ImportManifestInstruction{
