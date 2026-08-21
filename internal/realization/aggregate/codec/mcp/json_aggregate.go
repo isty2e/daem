@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
@@ -180,6 +181,9 @@ func foldMCPJSONServerMutations[E any](
 	if err != nil {
 		return nil, err
 	}
+	if err := preflightMCPJSONServerMutations(config, mutations, true); err != nil {
+		return nil, err
+	}
 	if err := applyMCPJSONServerMutations(&config, mutations, spec, decodeEntry); err != nil {
 		return nil, err
 	}
@@ -197,10 +201,33 @@ func restoreMCPJSONServerMutations[E any](
 	if err != nil {
 		return nil, false, err
 	}
+	if err := preflightMCPJSONServerMutations(config, mutations, parentExistedBefore); err != nil {
+		return nil, false, err
+	}
 	if err := applyMCPJSONServerMutations(&config, mutations, spec, decodeEntry); err != nil {
 		return nil, false, err
 	}
 	return config.encodePreservingMCPParent(parentExistedBefore)
+}
+
+func preflightMCPJSONServerMutations(
+	config mcpConfig,
+	mutations []MCPProjectionMutation,
+	parentExistedBefore bool,
+) error {
+	servers := maps.Clone(config.servers)
+	for _, mutation := range mutations {
+		switch mutation.kind {
+		case mcpProjectionMutationRemove:
+			delete(servers, mutation.serverID)
+		case mcpProjectionMutationInsert, mcpProjectionMutationUpsert:
+			servers[mutation.serverID] = json.RawMessage(mutation.canonical)
+		default:
+			return fmt.Errorf("unsupported MCP projection mutation kind %d", mutation.kind)
+		}
+	}
+	config.servers = servers
+	return config.preflightEncodePreservingMCPParent(parentExistedBefore)
 }
 
 func applyMCPJSONServerMutations[E any](
@@ -292,30 +319,23 @@ func mergeMCPJSONServerCanonicalEntry[E any](
 	if err := validateServerID(serverID); err != nil {
 		return nil, err
 	}
-	desired, err := decodeCanonicalMCPJSONServerEntry(canonical, serverID, spec, decodeEntry)
-	if err != nil {
-		return nil, err
-	}
-	return mergeMCPJSONServerEntry(existing, serverID, desired, spec, decodeEntry)
-}
-
-func mergeMCPJSONServerEntry[E any](
-	existing []byte,
-	serverID string,
-	desired E,
-	spec mcpConfigSpec,
-	decodeEntry mcpJSONServerEntryDecoder[E],
-) ([]byte, error) {
-	if err := validateServerID(serverID); err != nil {
-		return nil, err
-	}
-	desiredRaw, err := encodeMCPJSONServerEntry(desired, serverID, spec)
-	if err != nil {
-		return nil, err
-	}
-
 	config, err := decodeMCPConfig(existing, spec)
 	if err != nil {
+		return nil, err
+	}
+	mutation := MCPProjectionMutation{
+		kind:      mcpProjectionMutationUpsert,
+		serverID:  serverID,
+		canonical: canonical,
+	}
+	if err := preflightMCPJSONServerMutations(
+		config,
+		[]MCPProjectionMutation{mutation},
+		true,
+	); err != nil {
+		return nil, err
+	}
+	if _, err := decodeCanonicalMCPJSONServerEntry(canonical, serverID, spec, decodeEntry); err != nil {
 		return nil, err
 	}
 	if existingRaw, exists := config.servers[serverID]; exists {
@@ -323,7 +343,7 @@ func mergeMCPJSONServerEntry[E any](
 			return nil, err
 		}
 	}
-	config.servers[serverID] = json.RawMessage(desiredRaw)
+	config.servers[serverID] = json.RawMessage(bytes.Clone(canonical))
 	return config.encode()
 }
 

@@ -130,6 +130,126 @@ func TestMCPJSONConfigRejectsPreservedSiblingOverflowWithoutServerObjectAllocati
 	}
 }
 
+func TestMCPJSONMutationPathsRejectCompleteHostOverflowBeforeEntryMaterialization(t *testing.T) {
+	expansion := claudeProjectMinimalHostArgumentExpansion(t)
+	projection := validMCPProjection("context7")
+	projection.Args = []string{strings.Repeat("a", expansion)}
+	canonical, err := CanonicalClaudeProjectMCPServerEntry(projection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutation := mustMCPProjectionUpsert(t, "context7", canonical)
+	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject)
+	existing := []byte(`{"preserved":{"value":"keep"}}`)
+
+	for _, test := range []struct {
+		name      string
+		operation func() error
+	}{
+		{
+			name: "fold",
+			operation: func() error {
+				_, err := operations.FoldMutations(existing, []MCPProjectionMutation{mutation})
+				return err
+			},
+		},
+		{
+			name: "restore",
+			operation: func() error {
+				_, _, err := operations.RestoreMutations(
+					existing,
+					[]MCPProjectionMutation{mutation},
+					false,
+				)
+				return err
+			},
+		},
+		{
+			name: "direct merge",
+			operation: func() error {
+				_, err := operations.mergeCanonicalEntry(existing, "context7", canonical)
+				return err
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			assertMCPJSONRejectedAllocationBound(t, test.operation)
+		})
+	}
+}
+
+func TestMCPJSONFoldRejectsMultiMutationOverflowBeforeEntryMaterialization(t *testing.T) {
+	operations := mustMCPCodecOperations(t, aggregate.MCPPlacementClaudeProject)
+	spec := claudeProjectMCPConfigSpec()
+	first := validMCPProjection("alpha")
+	first.Args = []string{""}
+	firstBase, err := CanonicalClaudeProjectMCPServerEntry(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := validMCPProjection("beta")
+	second.Args = []string{""}
+	secondBase, err := CanonicalClaudeProjectMCPServerEntry(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseBytes, err := canonicalMCPJSONConfigEncodedSize(
+		nil,
+		spec.serversKey,
+		map[string]json.RawMessage{
+			"alpha": firstBase,
+			"beta":  secondBase,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expansion := int(maximumDocumentBytes - baseBytes)
+	first.Args = []string{strings.Repeat("a", expansion/2)}
+	second.Args = []string{strings.Repeat("b", expansion-expansion/2+1)}
+	firstCanonical, err := CanonicalClaudeProjectMCPServerEntry(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCanonical, err := CanonicalClaudeProjectMCPServerEntry(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutations := []MCPProjectionMutation{
+		mustMCPProjectionInsert(t, "alpha", firstCanonical),
+		mustMCPProjectionInsert(t, "beta", secondCanonical),
+	}
+
+	assertMCPJSONRejectedAllocationBound(t, func() error {
+		_, err := operations.FoldMutations(nil, mutations)
+		return err
+	})
+}
+
+func assertMCPJSONRejectedAllocationBound(t *testing.T, operation func() error) {
+	t.Helper()
+	result := testing.Benchmark(func(b *testing.B) {
+		for b.Loop() {
+			if err := operation(); err == nil {
+				b.Fatal("complete-host overflow succeeded")
+			}
+		}
+	})
+	if got := result.AllocedBytesPerOp(); got > maximumRejectedJSONProducerAllocationBytes {
+		t.Fatalf(
+			"complete-host overflow allocated %d bytes per call, want at most %d",
+			got,
+			maximumRejectedJSONProducerAllocationBytes,
+		)
+	}
+
+	err := operation()
+	var projectionErr *MCPProjectionError
+	if !errors.As(err, &projectionErr) || projectionErr.Code() != MCPProjectionReasonCanonicalInvalid {
+		t.Fatalf("complete-host overflow error = %v, want canonical invalid", err)
+	}
+}
+
 func claudeProjectMinimalHostArgumentExpansion(t *testing.T) int {
 	t.Helper()
 	projection := validMCPProjection("context7")
