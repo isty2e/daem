@@ -23,11 +23,11 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 		canonical string
 		reason    string
 	}{
-		{aggregate.MCPPlacementClaudeProject, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
-		{aggregate.MCPPlacementClaudeGlobal, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
-		{aggregate.MCPPlacementAntigravityGlobal, `{"type":"stdio","command":"npx","args":[]}`, "unsupported_managed_field"},
-		{aggregate.MCPPlacementOpenCodeProject, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "unsupported_managed_field"},
-		{aggregate.MCPPlacementOpenCodeGlobal, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "secret_literal_forbidden"},
+		{aggregate.MCPPlacementClaudeProject, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "canonical_contribution_invalid"},
+		{aggregate.MCPPlacementClaudeGlobal, `{"type":"stdio","command":"npx","env":{"API_TOKEN":"SECRET_CANARY"}}`, "canonical_contribution_invalid"},
+		{aggregate.MCPPlacementAntigravityGlobal, `{"type":"stdio","command":"npx","args":[]}`, "canonical_contribution_invalid"},
+		{aggregate.MCPPlacementOpenCodeProject, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "canonical_contribution_invalid"},
+		{aggregate.MCPPlacementOpenCodeGlobal, `{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}`, "canonical_contribution_invalid"},
 		{aggregate.MCPPlacementCodexProject, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "canonical_contribution_invalid"},
 		{aggregate.MCPPlacementCodexGlobal, "command = \"npx\"\nenv = { TOKEN = \"SECRET_CANARY\" }\n", "canonical_contribution_invalid"},
 	}
@@ -48,6 +48,37 @@ func TestMarshalRejectsMalformedMCPContributionsAcrossPlacements(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "SECRET_CANARY") {
 				t.Fatalf("Marshal leaked secret canary: %q", err)
+			}
+		})
+	}
+}
+
+func TestMarshalRejectsSemanticallyEquivalentNoncanonicalMCPContributions(t *testing.T) {
+	tests := []struct {
+		placement aggregate.MCPPlacementID
+		canonical string
+	}{
+		{
+			placement: aggregate.MCPPlacementClaudeProject,
+			canonical: `{"type":"stdio","command":"npx","args":[],"env":{}}`,
+		},
+		{
+			placement: aggregate.MCPPlacementCodexProject,
+			canonical: "command = \"npx\"\nargs = []",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(string(test.placement), func(t *testing.T) {
+			contract := snapshottest.MCPProjection(t, snapshottest.MCPProjectionInput{
+				PlacementID:         test.placement,
+				ServerID:            "context7",
+				LauncherCommand:     "npx",
+				CanonicalProjection: test.canonical,
+			})
+			_, err := Marshal(snapshottest.File(t, contract))
+			if err == nil || !strings.Contains(err.Error(), "canonical_contribution_invalid") {
+				t.Fatalf("Marshal error = %v, want canonical byte rejection", err)
 			}
 		})
 	}

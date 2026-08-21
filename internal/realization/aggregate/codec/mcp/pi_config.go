@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"unicode/utf8"
 
+	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/tailscale/hujson"
 )
@@ -31,7 +33,7 @@ func newPiMCPPlacementCodec(placementID aggregate.MCPPlacementID) piMCPPlacement
 			placementID,
 			"pi-mcp-adapter MCP",
 			mcpManagedServersField,
-		).withDocumentPrecondition(validatePiMCPDocumentSyntax),
+		).withDocumentAdmission(admitPiMCPDocument),
 	}
 }
 
@@ -151,7 +153,12 @@ func (codec piMCPPlacementCodec) compareCanonicalEntry(
 	serverID string,
 	canonical []byte,
 ) (MCPProjectionCanonicalComparison, error) {
-	desired, err := codec.decodeEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical,
+		serverID,
+		codec.spec,
+		codec.decodeEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -182,8 +189,9 @@ func (codec piMCPPlacementCodec) parentPresent(existing []byte) (bool, error) {
 	return mcpJSONServersParentPresent(existing, codec.spec)
 }
 
-func validatePiMCPDocumentSyntax(content []byte, spec mcpConfigSpec) error {
-	if content == nil || json.Valid(content) {
+func admitPiMCPDocument(content []byte, spec mcpConfigSpec) error {
+	strictErr := jsonstrict.Validate(content, spec.label+" config JSON", maximumMCPJSONDepth)
+	if strictErr == nil {
 		var top map[string]json.RawMessage
 		if err := json.Unmarshal(content, &top); err == nil && top != nil {
 			if _, aliasPresent := top["mcp-servers"]; aliasPresent {
@@ -196,19 +204,99 @@ func validatePiMCPDocumentSyntax(content []byte, spec mcpConfigSpec) error {
 		}
 		return nil
 	}
+	if !utf8.Valid(content) {
+		return mcpJSONHostDocumentError(spec, strictErr)
+	}
+	if err := admitPiMCPJSONCNesting(content, maximumMCPJSONDepth); err != nil {
+		return mcpJSONHostDocumentError(spec, err)
+	}
 	standardized, err := hujson.Standardize(content)
 	if err != nil {
-		return nil
+		return mcpJSONHostDocumentError(spec, strictErr)
+	}
+	if err := jsonstrict.Validate(
+		standardized,
+		spec.label+" standardized config JSON",
+		maximumMCPJSONDepth,
+	); err != nil {
+		return mcpJSONHostDocumentError(spec, err)
 	}
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(standardized, &top); err != nil || top == nil {
-		return nil
+		return newMCPProjectionError(
+			MCPProjectionReasonConfigMalformed,
+			spec.configPath,
+			spec.label+" standardized config JSON must be an object",
+		)
 	}
 	return newMCPProjectionError(
 		MCPProjectionReasonProviderDocumentLossy,
 		spec.configPath,
 		"provider-valid JSONC cannot be mutated without losing comments or trailing commas",
 	)
+}
+
+func admitPiMCPJSONCNesting(content []byte, maximumDepth int) error {
+	const (
+		piJSONNormal uint8 = iota
+		piJSONString
+		piJSONLineComment
+		piJSONBlockComment
+	)
+	state := piJSONNormal
+	depth := 0
+	for index := 0; index < len(content); index++ {
+		character := content[index]
+		switch state {
+		case piJSONString:
+			switch character {
+			case '\\':
+				index++
+			case '"':
+				state = piJSONNormal
+			}
+		case piJSONLineComment:
+			if character == '\n' {
+				state = piJSONNormal
+			}
+		case piJSONBlockComment:
+			if character == '*' && index+1 < len(content) && content[index+1] == '/' {
+				state = piJSONNormal
+				index++
+			}
+		default:
+			switch character {
+			case '"':
+				state = piJSONString
+			case '/':
+				if index+1 >= len(content) {
+					continue
+				}
+				switch content[index+1] {
+				case '/':
+					state = piJSONLineComment
+					index++
+				case '*':
+					state = piJSONBlockComment
+					index++
+				}
+			case '{', '[':
+				depth++
+				if depth > maximumDepth {
+					return fmt.Errorf(
+						"%w: maximum=%d",
+						jsonstrict.ErrMaximumDepthExceeded,
+						maximumDepth,
+					)
+				}
+			case '}', ']':
+				if depth > 0 {
+					depth--
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func decodePiMCPAdapterServerEntry(
@@ -345,7 +433,7 @@ func CanonicalPiMCPAdapterServerEntry(projection PiMCPAdapterServerProjection) (
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, newPiMCPPlacementCodec(aggregate.MCPPlacementPiProject).spec)
 }
 
 func piMCPAdapterServerEntriesEqual(

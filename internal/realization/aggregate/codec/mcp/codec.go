@@ -463,6 +463,8 @@ func mcpCodecFailure(
 		switch code {
 		case MCPProjectionReasonConfigMalformed:
 			reason = aggregate.CodecFailureDocumentMalformed
+		case MCPProjectionReasonDuplicateKey:
+			reason = aggregate.CodecFailureDuplicateKey
 		case MCPProjectionReasonUnsupportedTransport:
 			reason = aggregate.CodecFailureUnsupportedTransport
 		case MCPProjectionReasonUnsupportedManagedField:

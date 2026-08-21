@@ -1,7 +1,9 @@
 package mcpcodec
 
 func compareClaudeProjectMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeClaudeProjectMCPServerEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical, serverID, claudeProjectMCPConfigSpec(), decodeClaudeProjectMCPServerEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -9,7 +11,9 @@ func compareClaudeProjectMCPServerCanonicalEntry(existing []byte, serverID strin
 }
 
 func compareClaudeGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeClaudeGlobalMCPServerEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical, serverID, claudeGlobalMCPConfigSpec(), decodeClaudeGlobalMCPServerEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -17,7 +21,9 @@ func compareClaudeGlobalMCPServerCanonicalEntry(existing []byte, serverID string
 }
 
 func compareAntigravityGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeAntigravityGlobalMCPServerEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical, serverID, antigravityGlobalMCPConfigSpec(), decodeAntigravityGlobalMCPServerEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -25,7 +31,9 @@ func compareAntigravityGlobalMCPServerCanonicalEntry(existing []byte, serverID s
 }
 
 func compareOpenCodeProjectMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeOpenCodeProjectMCPServerEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical, serverID, openCodeProjectMCPConfigSpec(), decodeOpenCodeProjectMCPServerEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}
@@ -33,7 +41,9 @@ func compareOpenCodeProjectMCPServerCanonicalEntry(existing []byte, serverID str
 }
 
 func compareOpenCodeGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) (MCPProjectionCanonicalComparison, error) {
-	desired, err := decodeOpenCodeGlobalMCPServerEntry(canonical, serverID)
+	desired, err := decodeCanonicalMCPJSONServerEntry(
+		canonical, serverID, openCodeGlobalMCPConfigSpec(), decodeOpenCodeGlobalMCPServerEntry,
+	)
 	if err != nil {
 		return MCPProjectionCanonicalComparison{}, err
 	}

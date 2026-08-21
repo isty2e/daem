@@ -198,7 +198,7 @@ func CanonicalClaudeProjectMCPServerEntry(projection ClaudeProjectMCPServerProje
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, claudeProjectMCPConfigSpec())
 }
 
 // CanonicalClaudeGlobalMCPServerEntry returns the canonical managed server entry bytes.
@@ -207,7 +207,7 @@ func CanonicalClaudeGlobalMCPServerEntry(projection ClaudeGlobalMCPServerProject
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, claudeGlobalMCPConfigSpec())
 }
 
 // CanonicalAntigravityGlobalMCPServerEntry returns the canonical managed server entry bytes.
@@ -216,7 +216,7 @@ func CanonicalAntigravityGlobalMCPServerEntry(projection AntigravityGlobalMCPSer
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, antigravityGlobalMCPConfigSpec())
 }
 
 // CanonicalOpenCodeProjectMCPServerEntry returns the canonical managed server entry bytes.
@@ -225,7 +225,7 @@ func CanonicalOpenCodeProjectMCPServerEntry(projection MCPNoEnvServerProjection)
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, openCodeProjectMCPConfigSpec())
 }
 
 // CanonicalOpenCodeGlobalMCPServerEntry returns the canonical managed server entry bytes.
@@ -234,7 +234,7 @@ func CanonicalOpenCodeGlobalMCPServerEntry(projection OpenCodeGlobalMCPServerPro
 	if err != nil {
 		return nil, err
 	}
-	return canonicalJSON(entry)
+	return encodeMCPJSONServerEntry(entry, projection.ServerID, openCodeGlobalMCPConfigSpec())
 }
 
 // CanonicalCodexProjectMCPServerEntry returns the canonical managed server entry bytes.

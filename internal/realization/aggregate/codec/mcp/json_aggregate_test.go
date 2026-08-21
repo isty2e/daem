@@ -133,8 +133,8 @@ func TestMCPJSONAggregateAlgorithmsRejectMalformedAndDuplicateAggregateKeys(t *t
 			}{
 				{name: "empty config", input: []byte("  "), want: MCPProjectionReasonConfigMalformed},
 				{name: "parent non object", input: fmt.Appendf(nil, `{"%s":[]}`, tc.parentKey), want: MCPProjectionReasonProjectionEquivalenceUndefined},
-				{name: "duplicate parent key", input: fmt.Appendf(nil, `{"%s":{},"%s":{}}`, tc.parentKey, tc.parentKey), want: MCPProjectionReasonProjectionEquivalenceUndefined},
-				{name: "duplicate server key", input: fmt.Appendf(nil, `{"%s":{"context7":%s,"context7":%s}}`, tc.parentKey, canonical, canonical), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+				{name: "duplicate parent key", input: fmt.Appendf(nil, `{"%s":{},"%s":{}}`, tc.parentKey, tc.parentKey), want: MCPProjectionReasonDuplicateKey},
+				{name: "duplicate server key", input: fmt.Appendf(nil, `{"%s":{"context7":%s,"context7":%s}}`, tc.parentKey, canonical, canonical), want: MCPProjectionReasonDuplicateKey},
 			}
 			for _, malformed := range cases {
 				t.Run(malformed.name, func(t *testing.T) {

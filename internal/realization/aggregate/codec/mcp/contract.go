@@ -21,6 +21,7 @@ type MCPProjectionReasonCode string
 const (
 	MCPProjectionReasonNone                           MCPProjectionReasonCode = ""
 	MCPProjectionReasonConfigMalformed                MCPProjectionReasonCode = "CONFIG_MALFORMED"
+	MCPProjectionReasonDuplicateKey                   MCPProjectionReasonCode = "DUPLICATE_KEY"
 	MCPProjectionReasonUnsupportedTransport           MCPProjectionReasonCode = "UNSUPPORTED_TRANSPORT"
 	MCPProjectionReasonUnsupportedManagedField        MCPProjectionReasonCode = "UNSUPPORTED_MANAGED_FIELD"
 	MCPProjectionReasonSecretLiteralForbidden         MCPProjectionReasonCode = "SECRET_LITERAL_FORBIDDEN"

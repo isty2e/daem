@@ -321,6 +321,28 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 	}
 }
 
+func TestCandidatesRejectsUnpairedSurrogateWithoutPartialImport(t *testing.T) {
+	tempDir := t.TempDir()
+	withWorkingDirectory(t, tempDir)
+	if err := os.WriteFile(
+		filepath.Join(tempDir, aggregate.ClaudeProjectMCPConfigPath),
+		[]byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node","args":["\ud800"]}}}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 0 || len(skipped) != 1 ||
+		skipped[0].LivePath != aggregate.ClaudeProjectMCPConfigPath ||
+		skipped[0].Reason != "mcp_config_malformed" {
+		t.Fatalf("Candidates = (%#v, %#v), want one malformed config skip", servers, skipped)
+	}
+}
+
 func TestCandidatesSkipsOversizedMCPDocumentWithoutPartialImport(t *testing.T) {
 	tempDir := t.TempDir()
 	withWorkingDirectory(t, tempDir)
@@ -599,8 +621,8 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 	if len(servers) != 0 {
 		t.Fatalf("servers = %#v, want no partial import", servers)
 	}
-	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "projection_equivalence_undefined" {
-		t.Fatalf("skipped = %#v, want duplicate-key projection rejection", skipped)
+	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "mcp_config_malformed" {
+		t.Fatalf("skipped = %#v, want duplicate-key config rejection", skipped)
 	}
 }
 

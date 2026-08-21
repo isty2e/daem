@@ -66,7 +66,7 @@ func restoreOpenCodeGlobalMCPProjectionMutations(
 		mutations,
 		parentExistedBefore,
 		openCodeGlobalMCPConfigSpec(),
-		decodeOpenCodeProjectMCPServerEntry,
+		decodeOpenCodeGlobalMCPServerEntry,
 	)
 }
 

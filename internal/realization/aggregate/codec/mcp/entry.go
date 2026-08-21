@@ -347,9 +347,11 @@ func decodeRequiredString(fields map[string]json.RawMessage, fieldName string, s
 func claudeProjectMCPRuntimeProbeLaunch(
 	canonicalProjection string,
 ) (string, []string, map[string]string, error) {
-	entry, err := decodeClaudeProjectMCPServerEntry(
-		json.RawMessage(canonicalProjection),
+	entry, err := decodeCanonicalMCPJSONServerEntry(
+		[]byte(canonicalProjection),
 		"runtime-probe",
+		claudeProjectMCPConfigSpec(),
+		decodeClaudeProjectMCPServerEntry,
 	)
 	if err != nil {
 		return "", nil, nil, err
@@ -370,9 +372,11 @@ func claudeProjectMCPRuntimeProbeLaunch(
 func openCodeProjectMCPRuntimeProbeLaunch(
 	canonicalProjection string,
 ) (string, []string, map[string]string, error) {
-	entry, err := decodeOpenCodeProjectMCPServerEntry(
-		json.RawMessage(canonicalProjection),
+	entry, err := decodeCanonicalMCPJSONServerEntry(
+		[]byte(canonicalProjection),
 		"runtime-probe",
+		openCodeProjectMCPConfigSpec(),
+		decodeOpenCodeProjectMCPServerEntry,
 	)
 	if err != nil {
 		return "", nil, nil, err

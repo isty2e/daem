@@ -267,7 +267,7 @@ func TestOpenCodeProjectMCPProjectionRejectsUnsupportedSameNameShapes(t *testing
 		{name: "unsupported env field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":{"TOKEN":"SECRET_CANARY"}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported cwd field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"cwd":"/tmp"}}}`), want: MCPProjectionReasonUnsupportedManagedField},
 		{name: "unsupported timeout field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"timeout":30}}}`), want: MCPProjectionReasonUnsupportedManagedField},
-		{name: "duplicate key", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"command":["node"]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+		{name: "duplicate key", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"command":["node"]}}}`), want: MCPProjectionReasonDuplicateKey},
 	}
 
 	for _, tc := range cases {
@@ -299,7 +299,7 @@ func TestOpenCodeGlobalMCPProjectionRejectsUnsupportedSameNameShapes(t *testing.
 		{name: "environment array", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":[]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "environment null", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"environment":null}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 		{name: "unknown field", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"headers":{}}}}`), want: MCPProjectionReasonUnsupportedManagedField},
-		{name: "duplicate command key", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"command":["node"]}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
+		{name: "duplicate command key", input: []byte(`{"mcp":{"context7":{"type":"local","command":["npx"],"command":["node"]}}}`), want: MCPProjectionReasonDuplicateKey},
 		{name: "command string", input: []byte(`{"mcp":{"context7":{"type":"local","command":"npx"}}}`), want: MCPProjectionReasonProjectionEquivalenceUndefined},
 	}
 

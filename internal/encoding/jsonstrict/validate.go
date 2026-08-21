@@ -62,6 +62,9 @@ func validate(content []byte, document string, maximumDepth int, canonicalObject
 	if !utf8.Valid(content) {
 		return fmt.Errorf("%s is not valid UTF-8", document)
 	}
+	if err := validateUnicodeScalarEscapes(content, document); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.UseNumber()
 	if err := consumeValue(decoder, document, maximumDepth, 0, canonicalObjectKeys); err != nil {
@@ -259,6 +262,94 @@ func consumeValue(
 		return consumeClosingDelimiter(decoder, document, ']')
 	default:
 		return fmt.Errorf("%s has unexpected JSON delimiter %q", document, delimiter)
+	}
+}
+
+func validateUnicodeScalarEscapes(content []byte, document string) error {
+	for index := 0; index < len(content); index++ {
+		if content[index] != '"' {
+			continue
+		}
+		closing, err := validateJSONStringScalarEscapes(content, document, index+1)
+		if err != nil {
+			return err
+		}
+		index = closing
+	}
+	return nil
+}
+
+func validateJSONStringScalarEscapes(content []byte, document string, index int) (int, error) {
+	for index < len(content) {
+		switch content[index] {
+		case '"':
+			return index, nil
+		case '\\':
+			if index+1 >= len(content) {
+				return len(content), nil
+			}
+			if content[index+1] != 'u' {
+				index += 2
+				continue
+			}
+			first, ok := decodeJSONUnicodeEscape(content, index)
+			if !ok {
+				index += 2
+				continue
+			}
+			switch {
+			case first >= 0xd800 && first <= 0xdbff:
+				secondIndex := index + 6
+				second, paired := decodeJSONUnicodeEscape(content, secondIndex)
+				if !paired || second < 0xdc00 || second > 0xdfff {
+					return 0, fmt.Errorf(
+						"%s contains unpaired UTF-16 surrogate escape at byte %d",
+						document,
+						index,
+					)
+				}
+				index = secondIndex + 6
+			case first >= 0xdc00 && first <= 0xdfff:
+				return 0, fmt.Errorf(
+					"%s contains unpaired UTF-16 surrogate escape at byte %d",
+					document,
+					index,
+				)
+			default:
+				index += 6
+			}
+		default:
+			index++
+		}
+	}
+	return len(content), nil
+}
+
+func decodeJSONUnicodeEscape(content []byte, index int) (uint16, bool) {
+	if index+6 > len(content) || content[index] != '\\' || content[index+1] != 'u' {
+		return 0, false
+	}
+	var value uint16
+	for _, digit := range content[index+2 : index+6] {
+		nibble, ok := jsonHexNibble(digit)
+		if !ok {
+			return 0, false
+		}
+		value = value<<4 | nibble
+	}
+	return value, true
+}
+
+func jsonHexNibble(digit byte) (uint16, bool) {
+	switch {
+	case digit >= '0' && digit <= '9':
+		return uint16(digit - '0'), true
+	case digit >= 'a' && digit <= 'f':
+		return uint16(digit-'a') + 10, true
+	case digit >= 'A' && digit <= 'F':
+		return uint16(digit-'A') + 10, true
+	default:
+		return 0, false
 	}
 }
 
