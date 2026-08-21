@@ -163,6 +163,27 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 	}); err == nil {
 		t.Fatal("candidate set accepted an empty environment reference")
 	}
+	for name, argument := range map[string]string{
+		"invalid UTF-8":         string([]byte{0xff}),
+		"control":               "safe\x00text",
+		"bidirectional control": "safe\u202etext",
+	} {
+		t.Run("MCP argument "+name, func(t *testing.T) {
+			_, err := NewCandidateSet(CandidateSetInput{
+				MCPServers: []MCPServer{{
+					ResourceName: "bad",
+					Target:       targetpkg.TargetCodex,
+					Scope:        targetpkg.ScopeProject,
+					SourceRoute:  testMCPSourceRoute(t, "live", "/mcp/bad"),
+					Command:      "npx",
+					Args:         []string{argument},
+				}},
+			})
+			if err == nil {
+				t.Fatalf("candidate set accepted %s", name)
+			}
+		})
+	}
 	if _, err := NewCandidateSet(CandidateSetInput{
 		Scans: []Scan{{ResourceKind: "skill", ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1, Evidence: DirectoryListingScanEvidence()}},
 	}); err == nil {

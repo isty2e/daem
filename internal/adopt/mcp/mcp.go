@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	adopt "github.com/isty2e/daem/internal/adopt"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/hostpath"
@@ -25,6 +26,7 @@ const (
 	skipTooLarge          = "mcp_config_too_large"
 	skipChangedDuringRead = "mcp_config_changed_during_read"
 	skipAlternateConfig   = "unsupported_mcp_alternate_config"
+	skipInvalidArgument   = "invalid_mcp_argument"
 )
 
 type importSource struct {
@@ -105,11 +107,35 @@ func Candidates(ctx context.Context, target targetpkg.Target, scope targetpkg.Sc
 		}
 		requiredAbsentPaths = append(requiredAbsentPaths, conflictingPath)
 	}
-	return importConfig(
+	servers, skipped, err := importConfig(
 		ctx,
 		newImportSource(primaryPath, requiredAbsentPaths...),
 		codec.MaximumDocumentBytes(),
 	)
+	if err != nil {
+		return nil, nil, err
+	}
+	servers, skipped = admitMCPArgumentCandidates(servers, skipped)
+	return servers, skipped, nil
+}
+
+func admitMCPArgumentCandidates(
+	servers []adopt.MCPServer,
+	skipped []adopt.Skipped,
+) ([]adopt.MCPServer, []adopt.Skipped) {
+	admitted := make([]adopt.MCPServer, 0, len(servers))
+	classified := append([]adopt.Skipped(nil), skipped...)
+	for _, server := range servers {
+		if err := desiredmcp.ValidateStdioArguments(server.Args); err != nil {
+			classified = append(classified, adopt.Skipped{
+				LivePath: server.LivePath(),
+				Reason:   skipInvalidArgument,
+			})
+			continue
+		}
+		admitted = append(admitted, server)
+	}
+	return admitted, classified
 }
 
 func claudeProjectCandidates(ctx context.Context, source importSource, maximumBytes int64) ([]adopt.MCPServer, []adopt.Skipped, error) {
