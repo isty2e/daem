@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	burnttoml "github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/tailscale/hujson"
@@ -148,7 +147,7 @@ func decodeCodexImportServerNames(
 		if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
 			return nil, err
 		}
-		if _, err := burnttoml.Decode(string(content), &root); err != nil {
+		if _, err := tomlstrict.DecodeAdmitted(context.Background(), content, &root); err != nil {
 			return nil, err
 		}
 	} else {

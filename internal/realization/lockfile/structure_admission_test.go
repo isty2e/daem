@@ -1,14 +1,24 @@
 package lockfile
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/declarationartifact"
+	desiredskill "github.com/isty2e/daem/internal/desired/skill"
+	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 	"github.com/isty2e/daem/internal/realization/lock"
+	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
+	"github.com/isty2e/daem/internal/supply/source"
+	"github.com/isty2e/daem/internal/supply/source/sourcetest"
+	"github.com/isty2e/daem/internal/target"
 )
 
 const maximumRejectedLockfileStructureAllocationBytes = 256 << 10
@@ -26,17 +36,17 @@ func TestCurrentLockfileRejectsOverLimitTOMLStructure(t *testing.T) {
 		},
 		{
 			name:    "containers",
-			content: currentLockfileWithTables(tomlstrict.MaximumContainers + 1),
+			content: currentLockfileWithRepeatedTables(25_000),
 			want:    tomlstrict.ErrMaximumContainersExceeded,
 		},
 		{
 			name:    "work",
-			content: currentLockfileWithArrayValues(tomlstrict.MaximumWork),
+			content: currentLockfileWithDenseArrayValues(250_000),
 			want:    tomlstrict.ErrMaximumWorkExceeded,
 		},
 		{
 			name:    "path work",
-			content: currentLockfileWithLongAncestorSiblings(tomlstrict.MaximumPathWork/tomlstrict.MaximumKeyBytes + 1),
+			content: currentLockfileWithLongAncestorSiblings(512),
 			want:    tomlstrict.ErrMaximumPathWorkExceeded,
 		},
 	}
@@ -84,41 +94,148 @@ func TestLockfileStructureAdmissionHonorsLoadCancellation(t *testing.T) {
 	}
 }
 
+func TestVersionEnvelopeScanHonorsCancellationWithinLeadingComment(t *testing.T) {
+	ctx := &lockfileScanCancellationContext{cancelAt: 2}
+	content := []byte("#" + strings.Repeat("a", lockfileContextCheckInterval*4) + "\nversion = 6\n")
+	_, err := firstSignificantTOMLLine(ctx, content)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("firstSignificantTOMLLine = %v, want context.Canceled", err)
+	}
+}
+
 func TestCurrentLockfileRejectsDeepTOMLBeforeDecoderAllocation(t *testing.T) {
 	content := currentLockfileWithNestedInlineTables(256)
+	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumDepthExceeded)
+}
+
+func TestCurrentLockfileRejectsDenseWorkBeforeDecoderAllocation(t *testing.T) {
+	content := currentLockfileWithDenseArrayValues(250_000)
+	assertRejectedLockfileAllocationBound(t, content, tomlstrict.ErrMaximumWorkExceeded)
+}
+
+func assertRejectedLockfileAllocationBound(t *testing.T, content []byte, want error) {
+	t.Helper()
 	result := testing.Benchmark(func(b *testing.B) {
 		for b.Loop() {
-			if err := validateReplacementContent(b.Context(), content); err == nil {
-				b.Fatal("validateReplacementContent accepted over-depth current lockfile")
+			err := validateReplacementContent(b.Context(), content)
+			if !errors.Is(err, want) {
+				b.Fatalf("validateReplacementContent error = %v, want %v", err, want)
 			}
 		}
 	})
 	if got := result.AllocedBytesPerOp(); got > maximumRejectedLockfileStructureAllocationBytes {
 		t.Fatalf(
-			"over-depth current lockfile allocated %d bytes per call, want at most %d",
+			"rejected current lockfile allocated %d bytes per call, want at most %d",
 			got,
 			maximumRejectedLockfileStructureAllocationBytes,
 		)
 	}
 }
 
-func TestMarshalRejectsStructurallyOversizedCanonicalLockfile(t *testing.T) {
-	const subjectCount = 5000
-	subjects := make([]lock.LockedSubjectContract, 0, subjectCount)
-	for index := range subjectCount {
-		subjects = append(subjects, directSkillSubjectContract(t, fmt.Sprintf("skill-%05d", index)))
+func TestMaximumSelectorSkillsAcrossAllTargetsMarshal(t *testing.T) {
+	const skillCount = 4_096
+	root := sourcetest.Local(t, "skills", source.LocalSourceModeVendor)
+	supportedTargets := target.SupportedTargets()
+	subjects := make([]lock.LockedSubjectContract, 0, skillCount*5)
+	for index := range skillCount {
+		name := fmt.Sprintf("all-target-skill-%05d", index)
+		value := desiredtest.Skill(t, desiredskill.Spec{
+			Name: name, Source: root, Targets: supportedTargets,
+			Scope: target.ScopeProject, InstallMode: desiredskill.InstallModeCopy,
+		})
+		subjects = append(subjects, directSkillSubjectContract(t, name))
+		projections, err := lockrefine.SkillPathProjections(value)
+		if err != nil {
+			t.Fatalf("SkillPathProjections(%q): %v", name, err)
+		}
+		subjects = append(subjects, projections...)
 	}
-	_, err := Marshal(lockfileWithSubjects(t, subjects...))
-	if !lockfileStructureLimitError(err) {
-		t.Fatalf("Marshal error = %v, want TOML structure limit", err)
+	if len(subjects) != skillCount*5 {
+		t.Fatalf("all-target subjects = %d, want %d", len(subjects), skillCount*5)
+	}
+
+	content, err := Marshal(lockfileWithSubjects(t, subjects...))
+	if err != nil {
+		t.Fatalf("Marshal(%d all-target skills): %v", skillCount, err)
+	}
+	if int64(len(content)) > declarationartifact.MaximumBytes {
+		t.Fatalf("all-target lockfile bytes = %d, maximum %d", len(content), declarationartifact.MaximumBytes)
 	}
 }
 
-func lockfileStructureLimitError(err error) bool {
-	return errors.Is(err, tomlstrict.ErrMaximumDepthExceeded) ||
-		errors.Is(err, tomlstrict.ErrMaximumContainersExceeded) ||
-		errors.Is(err, tomlstrict.ErrMaximumWorkExceeded) ||
-		errors.Is(err, tomlstrict.ErrMaximumPathWorkExceeded)
+func TestMarshalRejectsImpossibleLargeSnapshotBeforeEncoding(t *testing.T) {
+	const subjectCount = 1_024
+	subjects := make([]lock.LockedSubjectContract, 0, subjectCount)
+	for index := range subjectCount {
+		subjects = append(subjects, directSkillSubjectContract(t, fmt.Sprintf("invalid-skill-%05d", index)))
+	}
+	file := lockfileWithSubjects(t, subjects...)
+	file.Version = 1
+
+	result := testing.Benchmark(func(b *testing.B) {
+		for b.Loop() {
+			if _, err := Marshal(file); err == nil {
+				b.Fatal("Marshal accepted invalid snapshot version")
+			}
+		}
+	})
+	if got := result.AllocedBytesPerOp(); got > maximumRejectedLockfileStructureAllocationBytes {
+		t.Fatalf(
+			"invalid large snapshot allocated %d bytes per call, want at most %d",
+			got,
+			maximumRejectedLockfileStructureAllocationBytes,
+		)
+	}
+}
+
+func TestLoadAndRelockPreAdmissionLargeCurrentLockfile(t *testing.T) {
+	const subjectCount = 1_024
+	subjects := make([]lock.LockedSubjectContract, 0, subjectCount)
+	for index := range subjectCount {
+		subjects = append(subjects, directSkillSubjectContract(t, fmt.Sprintf("legacy-skill-%05d", index)))
+	}
+	content := encodeCurrentLockfileWithoutStructureAdmission(t, lockfileWithSubjects(t, subjects...))
+
+	loaded, err := loadContent(t.Context(), content)
+	if err != nil {
+		t.Fatalf("loadContent(pre-admission v6): %v", err)
+	}
+	relocked, err := Marshal(loaded)
+	if err != nil {
+		t.Fatalf("Marshal(pre-admission v6): %v", err)
+	}
+	if !bytes.Equal(relocked, content) {
+		t.Fatal("pre-admission current lockfile did not relock byte-exactly")
+	}
+}
+
+func encodeCurrentLockfileWithoutStructureAdmission(t *testing.T, file lock.File) []byte {
+	t.Helper()
+	output := declarationartifact.NewOutputBuffer()
+	dto, err := dtoFromSnapshot(file)
+	if err != nil {
+		t.Fatalf("dtoFromSnapshot: %v", err)
+	}
+	if err := toml.NewEncoder(&output).Encode(dto); err != nil {
+		t.Fatalf("encode pre-admission lockfile: %v", err)
+	}
+	return append([]byte(nil), output.Bytes()...)
+}
+
+type lockfileScanCancellationContext struct {
+	calls    int
+	cancelAt int
+}
+
+func (ctx *lockfileScanCancellationContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (ctx *lockfileScanCancellationContext) Done() <-chan struct{}       { return nil }
+func (ctx *lockfileScanCancellationContext) Value(any) any               { return nil }
+func (ctx *lockfileScanCancellationContext) Err() error {
+	ctx.calls++
+	if ctx.calls >= ctx.cancelAt {
+		return context.Canceled
+	}
+	return nil
 }
 
 func currentLockfileWithNestedInlineTables(depth int) []byte {
@@ -139,22 +256,23 @@ func lockfileWithVersionAndNestedInlineTables(version int, depth int) []byte {
 	return []byte(builder.String())
 }
 
-func currentLockfileWithTables(count int) []byte {
+func currentLockfileWithRepeatedTables(count int) []byte {
 	var builder strings.Builder
+	builder.Grow(count*4 + 32)
 	fmt.Fprintf(&builder, "version = %d\n", lock.CurrentVersion)
-	for index := range count {
-		fmt.Fprintf(&builder, "[extra%d]\n", index)
+	for range count {
+		builder.WriteString("[a]\n")
 	}
 	return []byte(builder.String())
 }
 
-func currentLockfileWithArrayValues(count int) []byte {
+func currentLockfileWithDenseArrayValues(count int) []byte {
 	var builder strings.Builder
-	builder.Grow(count*3 + 32)
+	builder.Grow(count*2 + 32)
 	fmt.Fprintf(&builder, "version = %d\nextra = [", lock.CurrentVersion)
 	for index := range count {
 		if index > 0 {
-			builder.WriteString(", ")
+			builder.WriteByte(',')
 		}
 		builder.WriteByte('0')
 	}

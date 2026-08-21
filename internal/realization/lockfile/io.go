@@ -2,9 +2,8 @@ package lockfile
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	"github.com/isty2e/daem/internal/declarationartifact"
@@ -14,7 +13,45 @@ import (
 	"github.com/isty2e/daem/internal/realization/lock"
 )
 
-const minimumRegenerableVersion = 3
+// Current lockfiles are collection-dense and can legitimately approach the
+// selected-skill ceiling. Byte-scaled limits preserve that schema capacity
+// while rejecting structures denser than canonical lockfile output.
+const (
+	minimumRegenerableVersion     = 3
+	lockfileContainerBytesPerUnit = 32
+	lockfileWorkBytesPerUnit      = 3
+	lockfilePathWorkBytesPerUnit  = 1
+	lockfileContextCheckInterval  = 4096
+)
+
+func currentLockfileStructureLimits(content []byte) tomlstrict.Limits {
+	limits := tomlstrict.StandardLimits()
+	limits.MaximumContainers = scaledTOMLLimit(
+		limits.MaximumContainers,
+		len(content),
+		lockfileContainerBytesPerUnit,
+	)
+	limits.MaximumWork = scaledTOMLLimit(
+		limits.MaximumWork,
+		len(content),
+		lockfileWorkBytesPerUnit,
+	)
+	limits.MaximumPathWork = scaledTOMLLimit(
+		limits.MaximumPathWork,
+		len(content),
+		lockfilePathWorkBytesPerUnit,
+	)
+	return limits
+}
+
+func scaledTOMLLimit(base int, byteCount int, bytesPerUnit int) int {
+	extra := byteCount / bytesPerUnit
+	maximumInt := int(^uint(0) >> 1)
+	if extra > maximumInt-base {
+		return maximumInt
+	}
+	return base + extra
+}
 
 // UnsupportedVersionError reports a lock schema that this reader cannot use.
 type UnsupportedVersionError struct {
@@ -120,35 +157,29 @@ func lockfileVersion(ctx context.Context, content []byte) (int, error) {
 	if err := declarationartifact.Admit(content); err != nil {
 		return 0, err
 	}
-	if !utf8.Valid(content) {
-		return 0, fmt.Errorf("lockfile is not valid UTF-8")
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	text := strings.TrimPrefix(string(content), "\uFEFF")
-	var envelope string
-	for line := range strings.SplitSeq(text, "\n") {
-		if err := ctx.Err(); err != nil {
+	if err := tomlstrict.ValidateUTF8(ctx, content); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return 0, err
 		}
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		envelope = line
-		break
+		return 0, fmt.Errorf("lockfile is not valid UTF-8")
 	}
-	if envelope == "" {
+	envelope, err := firstSignificantTOMLLine(ctx, content)
+	if err != nil {
+		return 0, err
+	}
+	if len(envelope) == 0 {
 		return 0, fmt.Errorf("lockfile version envelope is required")
 	}
-	if err := tomlstrict.Admit(ctx, []byte(envelope), tomlstrict.StandardLimits()); err != nil {
+	if err := tomlstrict.Admit(ctx, envelope, tomlstrict.StandardLimits()); err != nil {
 		return 0, err
 	}
 	var header struct {
 		Version int `toml:"version"`
 	}
-	metadata, err := toml.Decode(envelope, &header)
+	metadata, err := tomlstrict.DecodeAdmitted(ctx, envelope, &header)
 	if err != nil {
 		return 0, err
 	}
@@ -158,15 +189,70 @@ func lockfileVersion(ctx context.Context, content []byte) (int, error) {
 	return header.Version, nil
 }
 
+func firstSignificantTOMLLine(ctx context.Context, content []byte) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	index := 0
+	if len(content) >= 3 && content[0] == 0xef && content[1] == 0xbb && content[2] == 0xbf {
+		index = 3
+	}
+	cancelAt := index
+	checkContext := func(position int) error {
+		if position-cancelAt < lockfileContextCheckInterval {
+			return nil
+		}
+		cancelAt = position
+		return ctx.Err()
+	}
+
+	for index < len(content) {
+		first := -1
+		last := -1
+		lineEnd := index
+		for lineEnd < len(content) && content[lineEnd] != '\n' {
+			if !isTOMLLineWhitespace(content[lineEnd]) {
+				if first < 0 {
+					first = lineEnd
+				}
+				last = lineEnd + 1
+			}
+			lineEnd++
+			if err := checkContext(lineEnd); err != nil {
+				return nil, err
+			}
+		}
+		if first >= 0 && content[first] != '#' {
+			return content[first:last], nil
+		}
+		index = lineEnd
+		if index < len(content) {
+			index++
+			if err := checkContext(index); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return nil, ctx.Err()
+}
+
+func isTOMLLineWhitespace(value byte) bool {
+	return value == ' ' || value == '\t' || value == '\r'
+}
+
 func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) {
-	if err := tomlstrict.Admit(ctx, content, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlstrict.Admit(ctx, content, currentLockfileStructureLimits(content)); err != nil {
 		return lock.File{}, err
 	}
 
 	var header struct {
 		Version int `toml:"version"`
 	}
-	headerMetadata, err := toml.Decode(string(content), &header)
+	headerMetadata, err := tomlstrict.DecodeAdmitted(ctx, content, &header)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -175,7 +261,7 @@ func loadCurrentContent(ctx context.Context, content []byte) (lock.File, error) 
 	}
 
 	var dto fileDTO
-	metadata, err := toml.Decode(string(content), &dto)
+	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &dto)
 	if err != nil {
 		return lock.File{}, err
 	}
@@ -216,7 +302,7 @@ func Marshal(file lock.File) ([]byte, error) {
 		return nil, err
 	}
 	content := output.Bytes()
-	if err := tomlstrict.Admit(context.Background(), content, tomlstrict.StandardLimits()); err != nil {
+	if err := tomlstrict.Admit(context.Background(), content, currentLockfileStructureLimits(content)); err != nil {
 		return nil, fmt.Errorf("lockfile TOML structure: %w", err)
 	}
 	return content, nil

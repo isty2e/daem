@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	burnttoml "github.com/BurntSushi/toml"
-
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 )
@@ -19,7 +17,7 @@ func DecodeManifest(content []byte) (Manifest, error) {
 	}
 
 	var manifest Manifest
-	metadata, err := burnttoml.Decode(string(content), &manifest)
+	metadata, err := tomlstrict.DecodeAdmitted(context.Background(), content, &manifest)
 	if err != nil {
 		return Manifest{}, err
 	}

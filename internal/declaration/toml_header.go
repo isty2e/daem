@@ -1,10 +1,11 @@
 package declaration
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
-	burnttoml "github.com/BurntSushi/toml"
+	"github.com/isty2e/daem/internal/encoding/tomlstrict"
 )
 
 type ManifestHeader struct {
@@ -37,7 +38,7 @@ func DecodeManifestHeader(content []byte) (ManifestHeader, error) {
 	}
 
 	var header ManifestHeader
-	if _, err := burnttoml.Decode(string(content), &header); err != nil {
+	if _, err := tomlstrict.DecodeAdmitted(context.Background(), content, &header); err != nil {
 		return ManifestHeader{}, fmt.Errorf("parse manifest header: %w", err)
 	}
 	return header, nil

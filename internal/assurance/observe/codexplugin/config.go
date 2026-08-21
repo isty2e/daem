@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/toml"
 	observeconfig "github.com/isty2e/daem/internal/assurance/observe/config"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	"github.com/isty2e/daem/internal/encoding/tomlstrict"
@@ -64,7 +63,7 @@ func observeConfigFile(
 	}
 
 	var decoded map[string]any
-	if _, err := toml.Decode(string(result.Content), &decoded); err != nil {
+	if _, err := tomlstrict.DecodeAdmitted(ctx, result.Content, &decoded); err != nil {
 		return existingObservation, err
 	}
 

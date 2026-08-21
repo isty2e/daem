@@ -90,7 +90,7 @@ func parseConfigFileBytes(ctx context.Context, configFile doctorConfigFile, cont
 			return err
 		}
 		var decoded map[string]toml.Primitive
-		if err := toml.Unmarshal(content, &decoded); err != nil {
+		if _, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded); err != nil {
 			return err
 		}
 		return nil

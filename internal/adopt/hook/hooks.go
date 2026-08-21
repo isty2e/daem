@@ -141,8 +141,11 @@ func importCodexInlineHookSkips(
 		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: reason}}, nil
 	}
 	var decoded map[string]toml.Primitive
-	metadata, err := toml.Decode(string(content), &decoded)
+	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded)
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
 		return []adopt.Skipped{{LivePath: configDestination.String(), Reason: "inline_config_malformed"}}, nil
 	}
 	if metadata.IsDefined("hooks") {

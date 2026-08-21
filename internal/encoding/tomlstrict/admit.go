@@ -2,11 +2,14 @@
 package tomlstrict
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"unicode/utf8"
+
+	"github.com/BurntSushi/toml"
 )
 
 const (
@@ -64,6 +67,57 @@ func StandardLimits() Limits {
 
 const cancelCheckInterval = 4096
 
+// ValidateUTF8 checks one byte slice without allowing a long validation pass
+// to outlive caller cancellation.
+func ValidateUTF8(ctx context.Context, content []byte) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for start := 0; start < len(content); {
+		end := min(start+cancelCheckInterval, len(content))
+		if end < len(content) {
+			for end > start && !utf8.RuneStart(content[end]) {
+				end--
+			}
+			if end == start {
+				end = min(start+cancelCheckInterval, len(content))
+			}
+		}
+		if !utf8.Valid(content[start:end]) {
+			return fmt.Errorf("document is not valid UTF-8")
+		}
+		start = end
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+// DecodeAdmitted decodes bytes that the caller has already admitted with the
+// appropriate TOML structure limits. Decoder errors retain precedence; caller
+// cancellation observed after a successful decode is returned instead.
+func DecodeAdmitted(ctx context.Context, content []byte, target any) (toml.MetaData, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return toml.MetaData{}, err
+	}
+	metadata, err := toml.NewDecoder(bytes.NewReader(content)).Decode(target)
+	if err != nil {
+		return metadata, err
+	}
+	if err := ctx.Err(); err != nil {
+		return metadata, err
+	}
+	return metadata, nil
+}
+
 // Admit checks TOML nesting, container count, aggregate token work, and
 // ancestor-path byte recopies for keyed values and anonymous nested containers
 // without building a decoded document. Callers must still parse admitted bytes.
@@ -81,8 +135,11 @@ func Admit(ctx context.Context, content []byte, limits Limits) error {
 		limits.MaximumPathWork <= 0 {
 		return fmt.Errorf("TOML structure limits must be positive")
 	}
-	if !utf8.Valid(content) {
-		return fmt.Errorf("%w: document is not valid UTF-8", ErrMalformed)
+	if err := ValidateUTF8(ctx, content); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return fmt.Errorf("%w: %v", ErrMalformed, err)
 	}
 
 	scanner := scanner{
@@ -115,9 +172,11 @@ func (s *scanner) document() error {
 		if err := s.checkCancel(); err != nil {
 			return err
 		}
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
-			return nil
+			return s.ctx.Err()
 		}
 		if s.src[s.index] == '[' {
 			if err := s.tableHeader(); err != nil {
@@ -172,7 +231,9 @@ func (s *scanner) headerKey() (int, int, error) {
 	parts := 0
 	keyBytes := 0
 	for {
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 		}
@@ -184,7 +245,9 @@ func (s *scanner) headerKey() (int, int, error) {
 				return 0, 0, fmt.Errorf("%w: table header key", ErrMalformed)
 			}
 			s.index++
-			s.skipKeyWhitespace()
+			if err := s.skipKeyWhitespace(); err != nil {
+				return 0, 0, err
+			}
 			if s.done() {
 				return 0, 0, fmt.Errorf("%w: truncated table header", ErrMalformed)
 			}
@@ -206,7 +269,9 @@ func (s *scanner) assignment() error {
 	if err := s.chargeKey(parts, keyBytes); err != nil {
 		return err
 	}
-	s.skipSpaceAndComments()
+	if err := s.skipSpaceAndComments(); err != nil {
+		return err
+	}
 	if s.done() || s.src[s.index] != '=' {
 		return fmt.Errorf("%w: expected assignment", ErrMalformed)
 	}
@@ -218,7 +283,9 @@ func (s *scanner) assignmentKey() (int, int, error) {
 	parts := 0
 	keyBytes := 0
 	for {
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
@@ -228,7 +295,9 @@ func (s *scanner) assignmentKey() (int, int, error) {
 		}
 		parts++
 		keyBytes += partBytes
-		s.skipKeyWhitespace()
+		if err := s.skipKeyWhitespace(); err != nil {
+			return 0, 0, err
+		}
 		if s.done() {
 			return 0, 0, fmt.Errorf("%w: truncated key", ErrMalformed)
 		}
@@ -254,6 +323,9 @@ func (s *scanner) keyPart() (int, error) {
 	default:
 		for !s.done() && isBareKeyByte(s.src[s.index]) {
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return 0, err
+			}
 		}
 		if s.index == start {
 			return 0, fmt.Errorf("%w: expected key", ErrMalformed)
@@ -266,7 +338,9 @@ func (s *scanner) value(keyParts int, keyBytes int) error {
 	if err := s.checkCancel(); err != nil {
 		return err
 	}
-	s.skipSpaceAndComments()
+	if err := s.skipSpaceAndComments(); err != nil {
+		return err
+	}
 	if s.done() {
 		return fmt.Errorf("%w: truncated value", ErrMalformed)
 	}
@@ -295,7 +369,9 @@ func (s *scanner) array(keyParts int, keyBytes int) error {
 	s.index++
 	expectValue := true
 	for {
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
 			return fmt.Errorf("%w: unclosed array", ErrMalformed)
 		}
@@ -327,7 +403,9 @@ func (s *scanner) inlineTable(keyParts int, keyBytes int) error {
 	s.index++
 	expectPair := true
 	for {
-		s.skipSpaceAndComments()
+		if err := s.skipSpaceAndComments(); err != nil {
+			return err
+		}
 		if s.done() {
 			return fmt.Errorf("%w: unclosed inline table", ErrMalformed)
 		}
@@ -378,11 +456,17 @@ func (s *scanner) skipString(allowMultiline bool) error {
 		if escaped {
 			escaped = false
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if quote == '"' && char == '\\' {
 			escaped = true
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if !multiline && (char == '\n' || char == '\r') {
@@ -390,15 +474,21 @@ func (s *scanner) skipString(allowMultiline bool) error {
 		}
 		if char != quote {
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 			continue
 		}
 		if !multiline {
 			s.index++
-			return nil
+			return s.checkCancel()
 		}
 		run := 1
 		for s.index+run < len(s.src) && s.src[s.index+run] == quote {
 			run++
+			if err := s.checkCancelAt(s.index + run); err != nil {
+				return err
+			}
 		}
 		if run < 3 {
 			s.index += run
@@ -408,7 +498,7 @@ func (s *scanner) skipString(allowMultiline bool) error {
 			return fmt.Errorf("%w: malformed multiline string closer", ErrMalformed)
 		}
 		s.index += run
-		return nil
+		return s.checkCancel()
 	}
 	return fmt.Errorf("%w: unclosed string", ErrMalformed)
 }
@@ -425,6 +515,9 @@ func (s *scanner) skipBareValue() error {
 			next := s.index + 1
 			if next < len(s.src) && s.src[next] >= '0' && s.src[next] <= '9' {
 				s.index++
+				if err := s.checkCancel(); err != nil {
+					return err
+				}
 				continue
 			}
 			break
@@ -436,6 +529,9 @@ func (s *scanner) skipBareValue() error {
 			datetime = true
 		}
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
 	if s.index == start {
 		return fmt.Errorf("%w: expected value", ErrMalformed)
@@ -542,10 +638,14 @@ func (s *scanner) addPathWork(pathBytes int, copies int) error {
 }
 
 func (s *scanner) checkCancel() error {
-	if s.index-s.cancelAt < cancelCheckInterval {
+	return s.checkCancelAt(s.index)
+}
+
+func (s *scanner) checkCancelAt(index int) error {
+	if index-s.cancelAt < cancelCheckInterval {
 		return nil
 	}
-	s.cancelAt = s.index
+	s.cancelAt = index
 	return s.ctx.Err()
 }
 
@@ -553,37 +653,54 @@ func (s *scanner) done() bool {
 	return s.index >= len(s.src)
 }
 
-func (s *scanner) skipSpaceAndComments() {
+func (s *scanner) skipSpaceAndComments() error {
 	for !s.done() {
 		switch s.src[s.index] {
 		case ' ', '\t', '\n', '\r':
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 		case '#':
-			s.skipLine()
+			if err := s.skipLine(); err != nil {
+				return err
+			}
 		default:
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
-func (s *scanner) skipKeyWhitespace() {
+func (s *scanner) skipKeyWhitespace() error {
 	for !s.done() {
 		switch s.src[s.index] {
 		case ' ', '\t', '\n', '\r':
 			s.index++
+			if err := s.checkCancel(); err != nil {
+				return err
+			}
 		default:
-			return
+			return nil
 		}
 	}
+	return nil
 }
 
-func (s *scanner) skipLine() {
+func (s *scanner) skipLine() error {
 	for !s.done() && s.src[s.index] != '\n' {
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
 	if !s.done() {
 		s.index++
+		if err := s.checkCancel(); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func isBareKeyByte(char byte) bool {

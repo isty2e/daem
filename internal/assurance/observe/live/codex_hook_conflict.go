@@ -68,7 +68,7 @@ func ValidateAggregateReadPreconditions(
 	}
 
 	var decoded map[string]toml.Primitive
-	metadata, err := toml.Decode(string(content), &decoded)
+	metadata, err := tomlstrict.DecodeAdmitted(ctx, content, &decoded)
 	if err != nil {
 		return fmt.Errorf(
 			"observe destination %q: parse %q for Codex inline hooks: %w",
