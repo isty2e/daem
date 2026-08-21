@@ -37,6 +37,34 @@ func TestValidateAcceptsOneBoundedValue(t *testing.T) {
 	if err := Validate([]byte(`{"HostField":{"TOKEN":"value"}}`), "host document", 4); err != nil {
 		t.Fatalf("general Validate rejected external key spelling: %v", err)
 	}
+	for _, content := range []string{
+		`{"emoji":"\ud83d\ude00","key\uD83D\uDE00":"value"}`,
+		`{"minimum":"\ud800\udc00","maximum":"\udbff\udfff"}`,
+	} {
+		if err := Validate([]byte(content), "surrogate-pair document", 4); err != nil {
+			t.Fatalf("Validate rejected valid surrogate pairs: %v", err)
+		}
+	}
+}
+
+func TestValidateRejectsUnpairedSurrogateEscapesBeforeMaterialization(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		content string
+	}{
+		{name: "lone high", content: `{"value":"\ud800"}`},
+		{name: "lone low", content: `{"value":"\udc00"}`},
+		{name: "high followed by scalar", content: `{"value":"\ud800\u0041"}`},
+		{name: "high followed by escaped text", content: `{"value":"\ud800\\uDC00"}`},
+		{name: "unpaired object key", content: `{"key\udfff":true}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := Validate([]byte(test.content), "test document", 4)
+			if err == nil || !strings.Contains(err.Error(), "unpaired UTF-16 surrogate escape") {
+				t.Fatalf("Validate error = %v, want unpaired surrogate rejection", err)
+			}
+		})
+	}
 }
 
 func TestValidateDepthBoundaryIsInclusive(t *testing.T) {
