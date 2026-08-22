@@ -110,10 +110,8 @@ func NewStdioTransport(
 		return Transport{}, fmt.Errorf("stdio command: %w", err)
 	}
 	canonicalArgs := append([]string(nil), args...)
-	for index, argument := range canonicalArgs {
-		if err := validateArgument(argument); err != nil {
-			return Transport{}, fmt.Errorf("stdio args[%d]: %w", index, err)
-		}
+	if err := ValidateStdioArguments(canonicalArgs); err != nil {
+		return Transport{}, err
 	}
 	canonicalEnv := make(map[string]EnvReference, len(env))
 	envNames := make([]string, 0, len(env))
@@ -140,6 +138,17 @@ func NewStdioTransport(
 			env:     canonicalEnv,
 		},
 	}, nil
+}
+
+// ValidateStdioArguments verifies that each argv value is representable by the
+// canonical stdio transport without interpreting it through a shell.
+func ValidateStdioArguments(args []string) error {
+	for index, argument := range args {
+		if err := validateArgument(argument); err != nil {
+			return fmt.Errorf("stdio args[%d]: %w", index, err)
+		}
+	}
+	return nil
 }
 
 // Kind returns the closed transport variant.

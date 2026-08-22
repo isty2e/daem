@@ -70,6 +70,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	var skills []adoptmodel.Skill
 	var hooks []adoptmodel.Hook
 	var mcpServers []adoptmodel.MCPServer
+	var mcpAuthorities []adoptmodel.MCPSourceAuthority
 	var scans []adoptmodel.Scan
 	var skipped []adoptmodel.Skipped
 	extensionResult, err := adoptextension.Collect(adoptextension.Input{
@@ -112,7 +113,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 			if err := ctx.Err(); err != nil {
 				return adoptmodel.Plan{}, err
 			}
-			importedSources, importedSkills, importedHooks, importedMCPServers, observedScans, observedSkipped, err := importCandidates(
+			importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, observedSkipped, err := importCandidates(
 				ctx,
 				sourceDirectory,
 				target,
@@ -129,6 +130,7 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 			skills = append(skills, importedSkills...)
 			hooks = append(hooks, importedHooks...)
 			mcpServers = append(mcpServers, importedMCPServers...)
+			mcpAuthorities = append(mcpAuthorities, observedMCPAuthorities...)
 		}
 	}
 	skills, err = adoptskill.Finalize(skills)
@@ -141,13 +143,14 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	}
 
 	candidates, err := adoptmodel.NewCandidateSet(adoptmodel.CandidateSetInput{
-		Sources:    sources,
-		Skills:     skills,
-		Hooks:      hooks,
-		MCPServers: mcpServers,
-		Extensions: extensionResult,
-		Scans:      scans,
-		Skipped:    skipped,
+		Sources:              sources,
+		Skills:               skills,
+		Hooks:                hooks,
+		MCPServers:           mcpServers,
+		MCPSourceAuthorities: mcpAuthorities,
+		Extensions:           extensionResult,
+		Scans:                scans,
+		Skipped:              skipped,
 	})
 	if err != nil {
 		return adoptmodel.Plan{}, err

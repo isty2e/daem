@@ -7,6 +7,7 @@ import (
 
 	adoptextension "github.com/isty2e/daem/internal/adopt/extension"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
+	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -159,8 +160,8 @@ func (candidates CandidateSet) MCPServers() []MCPServer {
 	return cloneMCPServers(candidates.mcpServers)
 }
 
-// MCPSourceAuthorities returns every physical source route that supports a
-// planned MCP decision, including routes whose merge result is a no-op.
+// MCPSourceAuthorities returns every exact physical document observation that
+// supports a planned MCP decision, including skipped and merge-no-op documents.
 func (candidates CandidateSet) MCPSourceAuthorities() []MCPSourceAuthority {
 	return cloneMCPSourceAuthorities(candidates.mcpAuthorities)
 }
@@ -290,6 +291,9 @@ func validateMCPServer(server MCPServer) error {
 	}
 	if strings.TrimSpace(server.Command) == "" {
 		return fmt.Errorf("command is required")
+	}
+	if err := desiredmcp.ValidateStdioArguments(server.Args); err != nil {
+		return err
 	}
 	for key, value := range server.Env {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {

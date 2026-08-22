@@ -212,33 +212,49 @@ func NewMCPSourceRoute(input MCPSourceRouteInput) (MCPSourceRoute, error) {
 }
 
 func (route MCPSourceRoute) validate() error {
-	if strings.TrimSpace(route.PrimaryPath) == "" || strings.TrimSpace(route.PrimaryPath) != route.PrimaryPath {
-		return fmt.Errorf("primary config path must be non-empty and trimmed")
-	}
-	if filepath.Clean(route.PrimaryPath) != route.PrimaryPath {
-		return fmt.Errorf("primary config path must be canonical")
-	}
-	if strings.TrimSpace(route.PrimaryRevision) == "" ||
-		strings.TrimSpace(route.PrimaryRevision) != route.PrimaryRevision {
-		return fmt.Errorf("primary config revision must be non-empty and trimmed")
-	}
-	if route.MaximumBytes <= 0 {
-		return fmt.Errorf("primary config maximum bytes must be positive")
+	if err := validateMCPPhysicalSource(
+		route.PrimaryPath,
+		route.PrimaryRevision,
+		route.MaximumBytes,
+		route.RequiredAbsentPaths,
+	); err != nil {
+		return err
 	}
 	if _, err := aggregate.ParseContentPath(route.ContentPath); err != nil {
 		return fmt.Errorf("content path: %w", err)
 	}
-	for index, absentPath := range route.RequiredAbsentPaths {
+	return nil
+}
+
+func validateMCPPhysicalSource(
+	primaryPath string,
+	primaryRevision string,
+	maximumBytes int64,
+	requiredAbsentPaths []string,
+) error {
+	if strings.TrimSpace(primaryPath) == "" || strings.TrimSpace(primaryPath) != primaryPath {
+		return fmt.Errorf("primary config path must be non-empty and trimmed")
+	}
+	if filepath.Clean(primaryPath) != primaryPath {
+		return fmt.Errorf("primary config path must be canonical")
+	}
+	if strings.TrimSpace(primaryRevision) == "" || strings.TrimSpace(primaryRevision) != primaryRevision {
+		return fmt.Errorf("primary config revision must be non-empty and trimmed")
+	}
+	if maximumBytes <= 0 {
+		return fmt.Errorf("primary config maximum bytes must be positive")
+	}
+	for index, absentPath := range requiredAbsentPaths {
 		if strings.TrimSpace(absentPath) == "" || strings.TrimSpace(absentPath) != absentPath {
 			return fmt.Errorf("required-absent path %d must be non-empty and trimmed", index)
 		}
 		if filepath.Clean(absentPath) != absentPath {
 			return fmt.Errorf("required-absent path %q must be canonical", absentPath)
 		}
-		if absentPath == route.PrimaryPath {
+		if absentPath == primaryPath {
 			return fmt.Errorf("primary config path cannot also be required absent")
 		}
-		if index > 0 && route.RequiredAbsentPaths[index-1] >= absentPath {
+		if index > 0 && requiredAbsentPaths[index-1] >= absentPath {
 			return fmt.Errorf("required-absent paths must be sorted and unique")
 		}
 	}
@@ -251,22 +267,27 @@ func (route MCPSourceRoute) LivePath() string {
 	return route.PrimaryPath + "#" + route.ContentPath
 }
 
-// MCPSourceAuthority is the exact physical source evidence that supports one
-// imported MCP projection decision, independently of whether it is writable.
+// MCPSourceAuthority is the exact physical document evidence that supports one
+// MCP import decision, independently of whether any projection is writable.
 type MCPSourceAuthority struct {
-	Target targetpkg.Target
-	Scope  targetpkg.Scope
-	Route  MCPSourceRoute
+	Target              targetpkg.Target
+	Scope               targetpkg.Scope
+	PrimaryPath         string
+	PrimaryRevision     string
+	MaximumBytes        int64
+	RequiredAbsentPaths []string
 }
 
 func (authority MCPSourceAuthority) validate() error {
 	if err := validateTargetScope(authority.Target, authority.Scope); err != nil {
 		return err
 	}
-	if err := authority.Route.validate(); err != nil {
-		return fmt.Errorf("source route: %w", err)
-	}
-	return nil
+	return validateMCPPhysicalSource(
+		authority.PrimaryPath,
+		authority.PrimaryRevision,
+		authority.MaximumBytes,
+		authority.RequiredAbsentPaths,
+	)
 }
 
 // MCPServer is one imported standalone MCP projection candidate. ResourceName
@@ -287,9 +308,12 @@ func (server MCPServer) LivePath() string { return server.SourceRoute.LivePath()
 
 func (server MCPServer) sourceAuthority() MCPSourceAuthority {
 	return MCPSourceAuthority{
-		Target: server.Target,
-		Scope:  server.Scope,
-		Route:  server.SourceRoute,
+		Target:              server.Target,
+		Scope:               server.Scope,
+		PrimaryPath:         server.SourceRoute.PrimaryPath,
+		PrimaryRevision:     server.SourceRoute.PrimaryRevision,
+		MaximumBytes:        server.SourceRoute.MaximumBytes,
+		RequiredAbsentPaths: cloneStrings(server.SourceRoute.RequiredAbsentPaths),
 	}
 }
 

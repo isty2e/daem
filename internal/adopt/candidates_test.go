@@ -108,7 +108,7 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 	disclosedServers[0].Args[0] = "--changed"
 	disclosedServers[0].Env["TOKEN"] = "CHANGED"
 	disclosedServers[0].SourceRoute.RequiredAbsentPaths[0] = "changed"
-	disclosedAuthorities[0].Route.RequiredAbsentPaths[0] = "changed"
+	disclosedAuthorities[0].RequiredAbsentPaths[0] = "changed"
 	disclosedScans[0].Status = "changed"
 	disclosedSkipped[0].Reason = "changed"
 	assertCandidateSetUnchanged(t, candidates)
@@ -133,7 +133,7 @@ func assertCandidateSetUnchanged(t *testing.T, candidates CandidateSet) {
 		got[0].SourceRoute.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP servers changed through alias: %#v", got)
 	}
-	if got := candidates.MCPSourceAuthorities(); got[0].Route.RequiredAbsentPaths[0] != ".codex/config.jsonc" {
+	if got := candidates.MCPSourceAuthorities(); got[0].RequiredAbsentPaths[0] != ".codex/config.jsonc" {
 		t.Fatalf("MCP source authorities changed through alias: %#v", got)
 	}
 	if got := candidates.Scans(); got[0].Status != "scanned" ||
@@ -162,6 +162,27 @@ func TestCandidateSetRejectsInvalidNestedFacts(t *testing.T) {
 		}},
 	}); err == nil {
 		t.Fatal("candidate set accepted an empty environment reference")
+	}
+	for name, argument := range map[string]string{
+		"invalid UTF-8":         string([]byte{0xff}),
+		"control":               "safe\x00text",
+		"bidirectional control": "safe\u202etext",
+	} {
+		t.Run("MCP argument "+name, func(t *testing.T) {
+			_, err := NewCandidateSet(CandidateSetInput{
+				MCPServers: []MCPServer{{
+					ResourceName: "bad",
+					Target:       targetpkg.TargetCodex,
+					Scope:        targetpkg.ScopeProject,
+					SourceRoute:  testMCPSourceRoute(t, "live", "/mcp/bad"),
+					Command:      "npx",
+					Args:         []string{argument},
+				}},
+			})
+			if err == nil {
+				t.Fatalf("candidate set accepted %s", name)
+			}
+		})
 	}
 	if _, err := NewCandidateSet(CandidateSetInput{
 		Scans: []Scan{{ResourceKind: "skill", ResourceName: "root", Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, LivePath: "live", Status: "scanned", Entries: 1, Imported: 1, Skipped: 1, Evidence: DirectoryListingScanEvidence()}},
@@ -353,16 +374,33 @@ func TestCandidateSetRejectsDuplicateMCPProjectionSubject(t *testing.T) {
 	}
 }
 
+func TestCandidateSetRetainsMCPSourceAuthorityWithoutServer(t *testing.T) {
+	authority := testMCPSourceAuthority(targetpkg.TargetCodex, targetpkg.ScopeProject, "project-config")
+	authority.RequiredAbsentPaths = []string{"project-config.jsonc"}
+
+	candidates, err := NewCandidateSet(CandidateSetInput{
+		MCPSourceAuthorities: []MCPSourceAuthority{authority},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disclosed := candidates.MCPSourceAuthorities()
+	if len(disclosed) != 1 || disclosed[0].PrimaryRevision != "test-source-revision" {
+		t.Fatalf("MCP source authorities = %#v, want document authority without server", disclosed)
+	}
+	disclosed[0].RequiredAbsentPaths[0] = "changed"
+	if got := candidates.MCPSourceAuthorities(); got[0].RequiredAbsentPaths[0] != "project-config.jsonc" {
+		t.Fatalf("MCP source authority changed through alias: %#v", got)
+	}
+}
+
 func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOneSubject(t *testing.T) {
-	route := testMCPSourceRoute(t, "project-config", "/mcp/context7")
-	conflictingRoute := route
-	conflictingRoute.PrimaryRevision = "other-source-revision"
+	authority := testMCPSourceAuthority(targetpkg.TargetCodex, targetpkg.ScopeProject, "project-config")
+	conflicting := authority
+	conflicting.PrimaryRevision = "other-source-revision"
 
 	_, err := NewCandidateSet(CandidateSetInput{
-		MCPSourceAuthorities: []MCPSourceAuthority{
-			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: route},
-			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: conflictingRoute},
-		},
+		MCPSourceAuthorities: []MCPSourceAuthority{authority, conflicting},
 	})
 	if err == nil || !strings.Contains(err.Error(), "conflicting exact revisions") {
 		t.Fatalf("NewCandidateSet error = %v, want conflicting source authority", err)
@@ -370,18 +408,29 @@ func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOneSubject(t *testin
 }
 
 func TestCandidateSetRejectsConflictingMCPSourceAuthorityForOnePhysicalFile(t *testing.T) {
-	left := testMCPSourceRoute(t, "project-config", "/mcp/context7")
-	right := testMCPSourceRoute(t, "project-config", "/mcp/other")
+	left := testMCPSourceAuthority(targetpkg.TargetCodex, targetpkg.ScopeProject, "project-config")
+	right := testMCPSourceAuthority(targetpkg.TargetClaudeCode, targetpkg.ScopeProject, "project-config")
 	right.PrimaryRevision = "other-source-revision"
 
 	_, err := NewCandidateSet(CandidateSetInput{
-		MCPSourceAuthorities: []MCPSourceAuthority{
-			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: left},
-			{Target: targetpkg.TargetCodex, Scope: targetpkg.ScopeProject, Route: right},
-		},
+		MCPSourceAuthorities: []MCPSourceAuthority{left, right},
 	})
 	if err == nil || !strings.Contains(err.Error(), "primary source") {
 		t.Fatalf("NewCandidateSet error = %v, want conflicting physical source authority", err)
+	}
+}
+
+func testMCPSourceAuthority(
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+	primaryPath string,
+) MCPSourceAuthority {
+	return MCPSourceAuthority{
+		Target:          target,
+		Scope:           scope,
+		PrimaryPath:     primaryPath,
+		PrimaryRevision: "test-source-revision",
+		MaximumBytes:    1024,
 	}
 }
 

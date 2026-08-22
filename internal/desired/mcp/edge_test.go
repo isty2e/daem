@@ -91,6 +91,34 @@ func TestServerAllowsSameTargetAtDistinctScopes(t *testing.T) {
 	}
 }
 
+func TestValidateStdioArgumentsMatchesTransportAdmission(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "valid Unicode and empty", args: []string{"안녕👩‍💻", ""}},
+		{name: "invalid UTF-8", args: []string{string([]byte{'b', 'a', 'd', 0xff})}, want: "valid UTF-8"},
+		{name: "control", args: []string{"safe\x00text"}, want: "control"},
+		{name: "bidirectional control", args: []string{"safe\u202etext"}, want: "control"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateStdioArguments(test.args)
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("ValidateStdioArguments error = %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("ValidateStdioArguments error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestStdioTransportRejectsInvalidUTF8Argument(t *testing.T) {
 	command, _ := NewAmbientCommand("node")
 	if _, err := NewStdioTransport(command, []string{string([]byte{'b', 'a', 'd', 0xff})}, nil); err == nil || !strings.Contains(err.Error(), "valid UTF-8") {

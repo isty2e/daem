@@ -127,8 +127,8 @@ func (plan Plan) MCPServers() []MCPServer {
 	return plan.candidates.MCPServers()
 }
 
-// MCPSourceAuthorities returns all physical source evidence supporting MCP
-// decisions in this plan, whether or not a declaration will be written.
+// MCPSourceAuthorities returns all exact physical document evidence supporting
+// MCP decisions in this plan, whether projections are written, skipped, or no-op.
 func (plan Plan) MCPSourceAuthorities() []MCPSourceAuthority {
 	return plan.candidates.MCPSourceAuthorities()
 }

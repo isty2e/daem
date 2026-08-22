@@ -44,21 +44,21 @@ func validateMCPSourceAuthorities(authorities []MCPSourceAuthority, servers []MC
 		}
 		subject := mcpSourceAuthoritySubjectOf(authority)
 		if existing, exists := available[subject]; exists && compareMCPSourceAuthority(existing, authority) != 0 {
-			return fmt.Errorf("mcp source authority %q carries conflicting exact revisions", authority.Route.LivePath())
+			return fmt.Errorf("mcp source authority %q carries conflicting exact revisions", authority.PrimaryPath)
 		}
 		available[subject] = authority
 		primaryFact := primarySourceFact{
-			revision:     authority.Route.PrimaryRevision,
-			maximumBytes: authority.Route.MaximumBytes,
+			revision:     authority.PrimaryRevision,
+			maximumBytes: authority.MaximumBytes,
 		}
-		if existing, exists := primarySources[authority.Route.PrimaryPath]; exists && existing != primaryFact {
-			return fmt.Errorf("MCP primary source %q carries conflicting exact revisions", authority.Route.PrimaryPath)
+		if existing, exists := primarySources[authority.PrimaryPath]; exists && existing != primaryFact {
+			return fmt.Errorf("MCP primary source %q carries conflicting exact revisions", authority.PrimaryPath)
 		}
-		if _, conflicts := requiredAbsent[authority.Route.PrimaryPath]; conflicts {
-			return fmt.Errorf("MCP source path %q cannot be both present and required absent", authority.Route.PrimaryPath)
+		if _, conflicts := requiredAbsent[authority.PrimaryPath]; conflicts {
+			return fmt.Errorf("MCP source path %q cannot be both present and required absent", authority.PrimaryPath)
 		}
-		primarySources[authority.Route.PrimaryPath] = primaryFact
-		for _, path := range authority.Route.RequiredAbsentPaths {
+		primarySources[authority.PrimaryPath] = primaryFact
+		for _, path := range authority.RequiredAbsentPaths {
 			if _, conflicts := primarySources[path]; conflicts {
 				return fmt.Errorf("MCP source path %q cannot be both present and required absent", path)
 			}
@@ -79,15 +79,13 @@ type mcpSourceAuthoritySubject struct {
 	target      targetpkg.Target
 	scope       targetpkg.Scope
 	primaryPath string
-	contentPath string
 }
 
 func mcpSourceAuthoritySubjectOf(authority MCPSourceAuthority) mcpSourceAuthoritySubject {
 	return mcpSourceAuthoritySubject{
 		target:      authority.Target,
 		scope:       authority.Scope,
-		primaryPath: authority.Route.PrimaryPath,
-		contentPath: authority.Route.ContentPath,
+		primaryPath: authority.PrimaryPath,
 	}
 }
 
@@ -95,29 +93,28 @@ func compareMCPSourceAuthority(left MCPSourceAuthority, right MCPSourceAuthority
 	for _, pair := range [][2]string{
 		{string(left.Target), string(right.Target)},
 		{string(left.Scope), string(right.Scope)},
-		{left.Route.PrimaryPath, right.Route.PrimaryPath},
-		{left.Route.ContentPath, right.Route.ContentPath},
-		{left.Route.PrimaryRevision, right.Route.PrimaryRevision},
+		{left.PrimaryPath, right.PrimaryPath},
+		{left.PrimaryRevision, right.PrimaryRevision},
 	} {
 		if comparison := strings.Compare(pair[0], pair[1]); comparison != 0 {
 			return comparison
 		}
 	}
-	if left.Route.MaximumBytes < right.Route.MaximumBytes {
+	if left.MaximumBytes < right.MaximumBytes {
 		return -1
 	}
-	if left.Route.MaximumBytes > right.Route.MaximumBytes {
+	if left.MaximumBytes > right.MaximumBytes {
 		return 1
 	}
-	for index := 0; index < len(left.Route.RequiredAbsentPaths) && index < len(right.Route.RequiredAbsentPaths); index++ {
+	for index := 0; index < len(left.RequiredAbsentPaths) && index < len(right.RequiredAbsentPaths); index++ {
 		if comparison := strings.Compare(
-			left.Route.RequiredAbsentPaths[index],
-			right.Route.RequiredAbsentPaths[index],
+			left.RequiredAbsentPaths[index],
+			right.RequiredAbsentPaths[index],
 		); comparison != 0 {
 			return comparison
 		}
 	}
-	return len(left.Route.RequiredAbsentPaths) - len(right.Route.RequiredAbsentPaths)
+	return len(left.RequiredAbsentPaths) - len(right.RequiredAbsentPaths)
 }
 
 func cloneMCPSourceAuthorities(values []MCPSourceAuthority) []MCPSourceAuthority {
@@ -127,7 +124,7 @@ func cloneMCPSourceAuthorities(values []MCPSourceAuthority) []MCPSourceAuthority
 	cloned := make([]MCPSourceAuthority, len(values))
 	copy(cloned, values)
 	for index := range cloned {
-		cloned[index].Route.RequiredAbsentPaths = cloneStrings(cloned[index].Route.RequiredAbsentPaths)
+		cloned[index].RequiredAbsentPaths = cloneStrings(cloned[index].RequiredAbsentPaths)
 	}
 	return cloned
 }
