@@ -13,7 +13,7 @@ func fileInfoAtCtime(info os.FileInfo) changeVersion {
 		return changeVersion{}
 	}
 	return changeVersion{
-		seconds:     stat.Ctimespec.Sec,
-		nanoseconds: stat.Ctimespec.Nsec,
+		seconds:     int64(stat.Ctimespec.Sec),
+		nanoseconds: int64(stat.Ctimespec.Nsec),
 	}
 }

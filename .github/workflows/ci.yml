@@ -213,21 +213,32 @@ jobs:
           test "$(go env GOARCH)" = "amd64"
           go mod verify
           go test -count=1 \
-            -run '^(TestReadRegularFileAtCountedStaysOnWindowsDirectoryHandle|TestReadRegularFileAtCountedRejectsWindowsEntryReplacement|TestWindowsFileIdentityRejectsUnprovableValues|TestOpenEntryAtRejectsWindowsAlternateDataStreamSyntax)$' \
+            -run '^(TestReadRegularFileAtCountedStaysOnWindowsDirectoryHandle|TestReadRegularFileAtCountedRejectsWindowsEntryReplacement|TestReadRegularFileAtCountedExcludesWindowsConcurrentSameSizeWriter|TestReadRegularFileAtCountedRejectsExistingWindowsWriter|TestReadRegularFileContextCountedRejectsExistingWindowsWriter|TestReadRegularFileAtCountedHonorsCancellationBeforeSuccessOnWindows|TestWindowsFileIdentityRejectsUnprovableValues|TestOpenEntryAtRejectsWindowsAlternateDataStreamSyntax)$' \
             ./internal/filesnapshot
           go test -count=1 \
             -run '^(TestWindowsPluginObservationStaysOnRetainedRootHandle|TestObserveConfiguredPluginContributionsOnWindows|TestClassifySnapshotErrorDistinguishesIdentityAndBudget|TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing)$' \
             ./internal/assurance/observe/codexplugin
 
   bsd_observation_compile:
-    name: BSD observation compile (${{ matrix.goos }}/amd64)
+    name: BSD observation compile (${{ matrix.goos }}/${{ matrix.goarch }})
     strategy:
       fail-fast: false
       matrix:
-        goos:
-          - freebsd
-          - netbsd
-          - openbsd
+        include:
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: "386"
+          - goos: freebsd
+            goarch: arm
+          - goos: netbsd
+            goarch: amd64
+          - goos: netbsd
+            goarch: "386"
+          - goos: netbsd
+            goarch: arm
+          - goos: openbsd
+            goarch: amd64
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -243,13 +254,16 @@ jobs:
       - name: Compile retained-directory snapshot tests without runtime claims
         env:
           GOOS: ${{ matrix.goos }}
-          GOARCH: amd64
+          GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
           test "$(go env GOVERSION)" = "go1.26.6"
           go test -c \
-            -o "${RUNNER_TEMP}/filesnapshot-${GOOS}-amd64.test" \
+            -o "${RUNNER_TEMP}/filesnapshot-${GOOS}-${GOARCH}.test" \
             ./internal/filesnapshot
+          go test -c \
+            -o "${RUNNER_TEMP}/codexplugin-${GOOS}-${GOARCH}.test" \
+            ./internal/assurance/observe/codexplugin
 
   compile_only:
     name: Compile only (${{ matrix.goos }}/${{ matrix.goarch }})
