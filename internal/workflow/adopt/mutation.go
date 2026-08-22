@@ -400,7 +400,7 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 	}
 	for _, authority := range plan.MCPSourceAuthorities() {
 		if err := ensurePhysicalDomain(
-			authority.Route.PrimaryPath,
+			authority.PrimaryPath,
 			string(authority.Target),
 			string(authority.Scope),
 			mutation.PathEffectReferent,
@@ -408,10 +408,10 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			return nil, nil, nil, err
 		}
 		externallyValidated[importObservedPathKey(
-			authority.Route.PrimaryPath,
+			authority.PrimaryPath,
 			mutation.PathEffectReferent,
 		)] = struct{}{}
-		for _, requiredAbsentPath := range authority.Route.RequiredAbsentPaths {
+		for _, requiredAbsentPath := range authority.RequiredAbsentPaths {
 			if err := addPhysicalRevision(
 				requiredAbsentPath,
 				string(authority.Target),
@@ -511,11 +511,11 @@ func validateMCPSourceAuthoritiesCurrent(ctx context.Context, plan adoptmodel.Pl
 	primarySources := make(map[string]primarySource)
 	requiredAbsent := make(map[string]struct{})
 	for _, authority := range plan.MCPSourceAuthorities() {
-		primarySources[authority.Route.PrimaryPath] = primarySource{
-			maximumBytes: authority.Route.MaximumBytes,
-			revision:     authority.Route.PrimaryRevision,
+		primarySources[authority.PrimaryPath] = primarySource{
+			maximumBytes: authority.MaximumBytes,
+			revision:     authority.PrimaryRevision,
 		}
-		for _, path := range authority.Route.RequiredAbsentPaths {
+		for _, path := range authority.RequiredAbsentPaths {
 			requiredAbsent[path] = struct{}{}
 		}
 	}

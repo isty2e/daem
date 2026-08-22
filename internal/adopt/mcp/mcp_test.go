@@ -26,7 +26,7 @@ func TestCandidatesImportsClaudeProjectMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, authorities, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +35,9 @@ func TestCandidatesImportsClaudeProjectMCPAndReportsRejectedRows(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json#/mcpServers/remote" || skipped[0].Reason != "unsupported_mcp_transport" {
 		t.Fatalf("skipped = %#v, want remote unsupported transport", skipped)
+	}
+	if len(authorities) != 1 || authorities[0].PrimaryPath != aggregate.ClaudeProjectMCPConfigPath {
+		t.Fatalf("authorities = %#v, want one document authority for admitted and rejected rows", authorities)
 	}
 }
 
@@ -63,7 +66,7 @@ func TestCandidatesImportsClaudeGlobalMCPAndReportsRejectedRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeGlobal)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +110,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +144,7 @@ func TestCandidatesRejectsUnsupportedSurfacesExplicitly(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			servers, skipped, err := Candidates(t.Context(), tc.target, tc.scope)
+			servers, _, skipped, err := Candidates(t.Context(), tc.target, tc.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -176,7 +179,7 @@ env = { API_TOKEN = "SECRET_CANARY" }
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +221,7 @@ func TestCandidatesImportsOpenCodeGlobalMCPAndReportsRejectedRows(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetOpenCode, target.ScopeGlobal)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetOpenCode, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +292,7 @@ func TestCandidatesSkipsOpenCodeMCPWhenAlternateConfigExists(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(t.Context(), target.TargetOpenCode, test.scope)
+			servers, _, skipped, err := Candidates(t.Context(), target.TargetOpenCode, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -309,7 +312,7 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,6 +321,48 @@ func TestCandidatesReportsMalformedConfigWithoutPartialImport(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "mcp_config_malformed" {
 		t.Fatalf("skipped = %#v, want malformed config", skipped)
+	}
+}
+
+func TestCandidatesRetainsAuthorityForMalformedAndEmptyDocuments(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		content    string
+		wantReason string
+	}{
+		{name: "malformed", content: `{"mcpServers":`, wantReason: "mcp_config_malformed"},
+		{name: "empty", content: `{"mcpServers":{}}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			withWorkingDirectory(t, root)
+			if err := os.WriteFile(aggregate.ClaudeProjectMCPConfigPath, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			servers, authorities, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(servers) != 0 {
+				t.Fatalf("servers = %#v, want none", servers)
+			}
+			if len(authorities) != 1 ||
+				authorities[0].PrimaryPath != aggregate.ClaudeProjectMCPConfigPath ||
+				authorities[0].PrimaryRevision == "" ||
+				authorities[0].MaximumBytes <= 0 {
+				t.Fatalf("authorities = %#v, want exact readable document authority", authorities)
+			}
+			if test.wantReason == "" {
+				if len(skipped) != 0 {
+					t.Fatalf("skipped = %#v, want none for empty document", skipped)
+				}
+				return
+			}
+			if len(skipped) != 1 || skipped[0].Reason != test.wantReason {
+				t.Fatalf("skipped = %#v, want %q", skipped, test.wantReason)
+			}
+		})
 	}
 }
 
@@ -332,7 +377,7 @@ func TestCandidatesRejectsUnpairedSurrogateWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +412,7 @@ func TestCandidatesSkipsOversizedMCPDocumentWithoutPartialImport(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +427,7 @@ func TestCandidatesStopsWhenMCPImportContextIsCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	servers, skipped, err := Candidates(ctx, target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(ctx, target.TargetClaudeCode, target.ScopeProject)
 	if !errors.Is(err, context.Canceled) || servers != nil || skipped != nil {
 		t.Fatalf("Candidates = (%#v, %#v, %v), want context cancellation", servers, skipped, err)
 	}
@@ -402,7 +447,7 @@ func TestCandidatesDoesNotFlattenProviderScopedSiblingMCP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +545,7 @@ command = "plugin-owned"
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
+			servers, _, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -565,7 +610,7 @@ func TestCandidatesReportsGlobalMalformedConfigWithoutPartialImport(t *testing.T
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
+			servers, _, skipped, err := Candidates(t.Context(), test.target, target.ScopeGlobal)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -592,7 +637,7 @@ func TestCandidatesReportsCodexStructureLimitAsMalformedWithoutPartialImport(t *
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetCodex, target.ScopeGlobal)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -614,7 +659,7 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	servers, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
+	servers, _, skipped, err := Candidates(t.Context(), target.TargetClaudeCode, target.ScopeProject)
 	if err != nil {
 		t.Fatal(err)
 	}

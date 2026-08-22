@@ -160,8 +160,8 @@ func (candidates CandidateSet) MCPServers() []MCPServer {
 	return cloneMCPServers(candidates.mcpServers)
 }
 
-// MCPSourceAuthorities returns every physical source route that supports a
-// planned MCP decision, including routes whose merge result is a no-op.
+// MCPSourceAuthorities returns every exact physical document observation that
+// supports a planned MCP decision, including skipped and merge-no-op documents.
 func (candidates CandidateSet) MCPSourceAuthorities() []MCPSourceAuthority {
 	return cloneMCPSourceAuthorities(candidates.mcpAuthorities)
 }

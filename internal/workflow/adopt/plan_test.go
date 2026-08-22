@@ -343,6 +343,61 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 	}
 }
 
+func TestExecuteCommandPlanRejectsInvalidOnlyMCPSourceDriftAfterRebuild(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	if err := os.WriteFile("CLAUDE.md", []byte("# Claude instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalidMCP := []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node","args":["\u0000unsafe"]}}}`)
+	validMCP := []byte(`{"mcpServers":{"context7":{"type":"stdio","command":"node","args":["server.js"]}}}`)
+	if err := os.WriteFile(aggregate.ClaudeProjectMCPConfigPath, invalidMCP, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"claude-code"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(planned.AdoptionPlan().MCPServers()); got != 0 {
+		t.Fatalf("MCP servers = %d, want invalid-only source filtered", got)
+	}
+	if got := len(planned.AdoptionPlan().MCPSourceAuthorities()); got != 1 {
+		t.Fatalf("MCP source authorities = %d, want invalid-only document authority", got)
+	}
+	sources := planned.AdoptionPlan().Sources()
+	if len(sources) != 1 {
+		t.Fatalf("instruction sources = %#v, want one writable sibling", sources)
+	}
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			current, buildErr := BuildPlan(ctx, request)
+			if buildErr != nil {
+				return adoptmodel.Plan{}, buildErr
+			}
+			if writeErr := os.WriteFile(aggregate.ClaudeProjectMCPConfigPath, validMCP, 0o600); writeErr != nil {
+				return adoptmodel.Plan{}, writeErr
+			}
+			return current, nil
+		},
+	)
+	var stale mutation.StaleSnapshotError
+	if !errors.As(err, &stale) {
+		t.Fatalf("executeCommandPlan error = %v, want stale invalid-only MCP source", err)
+	}
+	for _, path := range []string{output, sources[0].SourcePath} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("stale invalid-only MCP source published %q: %v", path, statErr)
+		}
+	}
+}
+
 func TestExecuteCommandPlanRejectsMCPSourceContentDriftOutsideProjection(t *testing.T) {
 	root := enterAdoptTestDirectory(t)
 	before := []byte(`{"mcp":{"context7":{"type":"local","command":["npx"]}},"theme":"one"}`)

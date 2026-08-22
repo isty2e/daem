@@ -187,6 +187,66 @@ func TestPlanIdentityIncludesNonwritableSkillSourceAuthority(t *testing.T) {
 	}
 }
 
+func TestPlanIdentityIncludesSkippedOnlyMCPSourceAuthority(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourceDirectory, err := NewSourceDirectory(output, filepath.Join(root, "daem.d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRequest(
+		[]targetpkg.Target{targetpkg.TargetClaudeCode},
+		[]targetpkg.Scope{targetpkg.ScopeProject},
+		output,
+		sourceDirectory,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPlan := func(revision string) Plan {
+		t.Helper()
+		candidates, candidateErr := NewCandidateSet(CandidateSetInput{
+			Sources: []Source{{
+				ResourceName: "instructions",
+				Target:       targetpkg.TargetClaudeCode,
+				Scope:        targetpkg.ScopeProject,
+				LivePath:     "CLAUDE.md",
+				SourcePath:   filepath.Join(sourceDirectory.Root(), "instructions.md"),
+				Content:      []byte("instructions\n"),
+			}},
+			MCPSourceAuthorities: []MCPSourceAuthority{{
+				Target:          targetpkg.TargetClaudeCode,
+				Scope:           targetpkg.ScopeProject,
+				PrimaryPath:     ".mcp.json",
+				PrimaryRevision: revision,
+				MaximumBytes:    1024,
+			}},
+			Skipped: []Skipped{{LivePath: ".mcp.json#/mcpServers/invalid", Reason: "invalid_mcp_argument"}},
+		})
+		if candidateErr != nil {
+			t.Fatal(candidateErr)
+		}
+		plan, planErr := NewPlan(request, nil, []byte("version = 1\n"), candidates, nil)
+		if planErr != nil {
+			t.Fatal(planErr)
+		}
+		return plan
+	}
+
+	before, err := newPlan("revision-one").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := newPlan("revision-two").IdentityBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, after) {
+		t.Fatal("plan identity ignored skipped-only MCP source authority")
+	}
+}
+
 func TestMergePlanOwnsOriginalBytesAndResults(t *testing.T) {
 	root := t.TempDir()
 	output := filepath.Join(root, "daem.toml")

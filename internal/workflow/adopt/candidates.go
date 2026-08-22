@@ -18,12 +18,21 @@ func importCandidates(
 	scope targetpkg.Scope,
 	importedSkillDestinations adoptskill.DestinationClaims,
 	skillSourceIdentities *adoptskill.SourceIdentityCache,
-) ([]adoptmodel.Source, []adoptmodel.Skill, []adoptmodel.Hook, []adoptmodel.MCPServer, []adoptmodel.Scan, []adoptmodel.Skipped, error) {
+) (
+	[]adoptmodel.Source,
+	[]adoptmodel.Skill,
+	[]adoptmodel.Hook,
+	[]adoptmodel.MCPServer,
+	[]adoptmodel.MCPSourceAuthority,
+	[]adoptmodel.Scan,
+	[]adoptmodel.Skipped,
+	error,
+) {
 	sources := make([]adoptmodel.Source, 0, 1)
 	skipped := make([]adoptmodel.Skipped, 0, 2)
 	instructionSources, instructionSkipped, err := adoptinstructions.Candidates(ctx, sourceDirectory, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 	sources = append(sources, instructionSources...)
 	skipped = append(skipped, instructionSkipped...)
@@ -37,21 +46,21 @@ func importCandidates(
 		skillSourceIdentities,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 	skipped = append(skipped, skillSkipped...)
 
 	hooks, hookSkipped, err := adopthook.Candidates(ctx, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 	skipped = append(skipped, hookSkipped...)
 
-	mcpServers, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
+	mcpServers, mcpAuthorities, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 	skipped = append(skipped, mcpSkipped...)
 
-	return sources, skills, hooks, mcpServers, skillScans, skipped, nil
+	return sources, skills, hooks, mcpServers, mcpAuthorities, skillScans, skipped, nil
 }

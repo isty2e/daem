@@ -3,6 +3,7 @@ package mcp
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -145,12 +146,21 @@ args = ["server.js"]
 				t.Fatal(err)
 			}
 
-			servers, skipped, err := Candidates(t.Context(), test.target, test.scope)
+			servers, authorities, skipped, err := Candidates(t.Context(), test.target, test.scope)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if len(servers) != 1 || servers[0].ResourceName != "valid" {
 				t.Fatalf("servers = %#v, want only valid sibling", servers)
+			}
+			if len(authorities) != 1 ||
+				authorities[0].Target != test.target ||
+				authorities[0].Scope != test.scope ||
+				authorities[0].PrimaryPath != livePath ||
+				authorities[0].PrimaryRevision != servers[0].SourceRoute.PrimaryRevision ||
+				authorities[0].MaximumBytes != servers[0].SourceRoute.MaximumBytes ||
+				!slices.Equal(authorities[0].RequiredAbsentPaths, servers[0].SourceRoute.RequiredAbsentPaths) {
+				t.Fatalf("authorities = %#v, want one exact document authority", authorities)
 			}
 			wantPath := test.wantPath
 			if test.scope == target.ScopeGlobal {
