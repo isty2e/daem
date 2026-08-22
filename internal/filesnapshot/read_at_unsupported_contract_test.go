@@ -16,7 +16,8 @@ func TestUnsupportedAtAdapterSourceFailsClosedWithoutPathnameReopen(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(source), "//go:build !darwin && !linux && !freebsd && !netbsd && !openbsd && !windows\n") {
+	normalizedSource := strings.ReplaceAll(string(source), "\r\n", "\n")
+	if !strings.HasPrefix(normalizedSource, "//go:build !darwin && !linux && !freebsd && !netbsd && !openbsd && !windows\n") {
 		t.Fatal("read_at_unsupported.go must compile only when supported Unix At-adapters are absent")
 	}
 

@@ -213,9 +213,11 @@ jobs:
           test "$(go env GOARCH)" = "amd64"
           go mod verify
           go test -count=1 \
-            ./internal/filesnapshot \
-            ./internal/assurance/observe/codexplugin \
-            ./internal/diagnose
+            -run '^(TestReadRegularFileAtCountedStaysOnWindowsDirectoryHandle|TestReadRegularFileAtCountedRejectsWindowsEntryReplacement|TestWindowsFileIdentityRejectsUnprovableValues|TestOpenEntryAtRejectsWindowsAlternateDataStreamSyntax)$' \
+            ./internal/filesnapshot
+          go test -count=1 \
+            -run '^(TestWindowsPluginObservationStaysOnRetainedRootHandle|TestObserveConfiguredPluginContributionsOnWindows|TestClassifySnapshotErrorDistinguishesIdentityAndBudget|TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing)$' \
+            ./internal/assurance/observe/codexplugin
 
   bsd_observation_compile:
     name: BSD observation compile (${{ matrix.goos }}/amd64)

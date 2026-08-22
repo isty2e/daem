@@ -42,3 +42,27 @@ func TestWindowsPluginObservationStaysOnRetainedRootHandle(t *testing.T) {
 		t.Fatalf("snapshot content = %q, want retained inside plugin.json", content)
 	}
 }
+
+func TestObserveConfiguredPluginContributionsOnWindows(t *testing.T) {
+	homeDirectory := t.TempDir()
+	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")
+	writeFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "mcpServers": {"local": {}}
+}`)
+
+	observations := observeIndependentPluginContributions(
+		t.Context(),
+		homeDirectory,
+		configuredPluginObservation(t, "alpha@market"),
+	)
+	row := firstDiagnosticRow(t, observations[0])
+	if row.State() != observecontribution.SourceContributionDeclared {
+		t.Fatalf("observation = %#v, want declared Windows contribution", observations[0])
+	}
+	assertSourceContribution(
+		t,
+		observations[0].DiagnosticRows(),
+		observecontribution.SourceContributionMCPServer,
+		"local",
+	)
+}
