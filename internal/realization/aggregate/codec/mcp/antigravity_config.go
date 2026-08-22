@@ -86,9 +86,8 @@ func ExtractAntigravityGlobalMCPServerProjections(ctx context.Context, existing 
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		contentPath := AntigravityGlobalMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementAntigravityGlobal, serverID, err))
 			continue
 		}
 		entry, entryErr := decodeAntigravityGlobalMCPServerEntry(config.servers[serverID], serverID)
@@ -96,7 +95,7 @@ func ExtractAntigravityGlobalMCPServerProjections(ctx context.Context, existing 
 			return nil, nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementAntigravityGlobal, serverID, entryErr))
 			continue
 		}
 		projections = append(projections, AntigravityGlobalMCPServerProjection{

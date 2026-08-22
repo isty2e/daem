@@ -86,9 +86,8 @@ func ExtractClaudeGlobalMCPServerProjections(ctx context.Context, existing []byt
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		contentPath := ClaudeGlobalMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementClaudeGlobal, serverID, err))
 			continue
 		}
 		entry, entryErr := decodeClaudeGlobalMCPServerEntry(config.servers[serverID], serverID)
@@ -96,7 +95,7 @@ func ExtractClaudeGlobalMCPServerProjections(ctx context.Context, existing []byt
 			return nil, nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementClaudeGlobal, serverID, entryErr))
 			continue
 		}
 		projections = append(projections, ClaudeGlobalMCPServerProjection{

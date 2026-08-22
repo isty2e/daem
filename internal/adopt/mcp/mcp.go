@@ -568,8 +568,8 @@ func rejectionSkips(livePath string, rejections []mcpcodec.MCPProjectionRejectio
 	skipped := make([]adopt.Skipped, 0, len(rejections))
 	for _, rejection := range rejections {
 		skipped = append(skipped, adopt.Skipped{
-			LivePath: livePath + "#" + rejection.ContentPath,
-			Reason:   reasonString(rejection.Reason),
+			LivePath: livePath + "#" + string(rejection.ContentPath()),
+			Reason:   reasonString(rejection.Reason()),
 		})
 	}
 	return skipped

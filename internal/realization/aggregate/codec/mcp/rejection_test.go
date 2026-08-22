@@ -165,7 +165,7 @@ func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(
 func assertProjectionRejection(t *testing.T, rejections []MCPProjectionRejection, contentPath string, reason MCPProjectionReasonCode) {
 	t.Helper()
 	for _, rejection := range rejections {
-		if rejection.ContentPath == contentPath && rejection.Reason == reason {
+		if string(rejection.ContentPath()) == contentPath && rejection.Reason() == reason {
 			return
 		}
 	}

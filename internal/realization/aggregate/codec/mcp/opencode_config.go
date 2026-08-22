@@ -176,9 +176,8 @@ func ExtractOpenCodeGlobalMCPServerProjections(ctx context.Context, existing []b
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		contentPath := OpenCodeGlobalMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, err))
 			continue
 		}
 		entry, entryErr := decodeOpenCodeGlobalMCPServerEntry(config.servers[serverID], serverID)
@@ -186,7 +185,7 @@ func ExtractOpenCodeGlobalMCPServerProjections(ctx context.Context, existing []b
 			return nil, nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeGlobal, serverID, entryErr))
 			continue
 		}
 		projections = append(projections, OpenCodeGlobalMCPServerProjection{
@@ -218,9 +217,8 @@ func extractOpenCodeMCPServerProjections(ctx context.Context, existing []byte, s
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		contentPath := OpenCodeProjectMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, err))
 			continue
 		}
 		entry, entryErr := decodeOpenCodeProjectMCPServerEntry(config.servers[serverID], serverID)
@@ -228,7 +226,7 @@ func extractOpenCodeMCPServerProjections(ctx context.Context, existing []byte, s
 			return nil, nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementOpenCodeProject, serverID, entryErr))
 			continue
 		}
 		projections = append(projections, MCPNoEnvServerProjection{

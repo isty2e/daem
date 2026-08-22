@@ -8,11 +8,12 @@ import (
 )
 
 const (
-	mcpManagedServersField         = "mcpServers"
-	codexProjectMCPManagedField    = "mcp_servers"
-	openCodeProjectMCPManagedField = "mcp"
-	claudeProjectMCPTransportStdio = "stdio"
-	openCodeProjectMCPTypeLocal    = "local"
+	mcpManagedServersField           = "mcpServers"
+	codexProjectMCPManagedField      = "mcp_servers"
+	openCodeProjectMCPManagedField   = "mcp"
+	claudeProjectMCPTransportStdio   = "stdio"
+	openCodeProjectMCPTypeLocal      = "local"
+	maximumMCPRejectionServerIDBytes = 4096
 )
 
 // MCPProjectionReasonCode is a stable machine-readable reason for MCP projection adapter failures.
@@ -34,8 +35,19 @@ const (
 // MCPProjectionRejection reports one host MCP entry that exists but cannot be
 // represented by the current standalone projection adapter.
 type MCPProjectionRejection struct {
-	ContentPath string
-	Reason      MCPProjectionReasonCode
+	contentPath aggregate.ContentPath
+	reason      MCPProjectionReasonCode
+}
+
+// ContentPath returns the greatest canonical location established for the
+// rejected row without retaining an unsafe host identifier.
+func (rejection MCPProjectionRejection) ContentPath() aggregate.ContentPath {
+	return rejection.contentPath
+}
+
+// Reason returns the stable row-rejection classification.
+func (rejection MCPProjectionRejection) Reason() MCPProjectionReasonCode {
+	return rejection.reason
 }
 
 // MCPProjectionError reports why an MCP projection cannot be canonicalized.
@@ -265,5 +277,38 @@ func mcpProjectionSubject(placementID aggregate.MCPPlacementID, serverID string)
 	if err == nil {
 		return string(contentPath)
 	}
-	return string(placement.ContentPathPrefix()) + "/" + serverID
+	return string(placement.ContentPathPrefix())
+}
+
+func mcpProjectionRejection(
+	placementID aggregate.MCPPlacementID,
+	serverID string,
+	err error,
+) MCPProjectionRejection {
+	reason, ok := MCPProjectionReasonCodeOf(err)
+	if !ok {
+		reason = MCPProjectionReasonProjectionEquivalenceUndefined
+	}
+	return MCPProjectionRejection{
+		contentPath: mcpRejectionContentPath(placementID, serverID),
+		reason:      reason,
+	}
+}
+
+func mcpRejectionContentPath(
+	placementID aggregate.MCPPlacementID,
+	serverID string,
+) aggregate.ContentPath {
+	placement, ok := aggregate.MCPPlacementForID(placementID)
+	if !ok {
+		panic(fmt.Sprintf("MCP placement %q is not registered", placementID))
+	}
+	if len(serverID) > maximumMCPRejectionServerIDBytes {
+		return aggregate.ContentPath(placement.ContentPathPrefix())
+	}
+	contentPath, err := placement.ContentPath(serverID)
+	if err == nil {
+		return contentPath
+	}
+	return aggregate.ContentPath(placement.ContentPathPrefix())
 }

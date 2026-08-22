@@ -95,9 +95,8 @@ func ExtractClaudeProjectMCPServerProjections(ctx context.Context, existing []by
 		if err := ctx.Err(); err != nil {
 			return nil, nil, err
 		}
-		contentPath := ClaudeProjectMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementClaudeProject, serverID, err))
 			continue
 		}
 		entry, entryErr := decodeClaudeProjectMCPServerEntry(config.servers[serverID], serverID)
@@ -105,7 +104,7 @@ func ExtractClaudeProjectMCPServerProjections(ctx context.Context, existing []by
 			return nil, nil, err
 		}
 		if entryErr != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
+			rejections = append(rejections, mcpProjectionRejection(aggregate.MCPPlacementClaudeProject, serverID, entryErr))
 			continue
 		}
 		projections = append(projections, ClaudeProjectMCPServerProjection{
@@ -135,14 +134,6 @@ func sortedMCPServerIDs(servers map[string]json.RawMessage) []string {
 	}
 	sort.Strings(serverIDs)
 	return serverIDs
-}
-
-func mcpProjectionRejection(contentPath string, err error) MCPProjectionRejection {
-	reason, ok := MCPProjectionReasonCodeOf(err)
-	if !ok {
-		reason = MCPProjectionReasonProjectionEquivalenceUndefined
-	}
-	return MCPProjectionRejection{ContentPath: contentPath, Reason: reason}
 }
 
 func cloneStringMap(values map[string]string) map[string]string {
