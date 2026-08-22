@@ -256,7 +256,7 @@ func observeConfiguredPluginContributionResult(
 		), nil
 	}
 
-	manifest, reason := decodePluginContributionManifest(content)
+	manifest, reason := decodePluginContributionManifest(content, budget)
 	if reason != observecontribution.SourceContributionReasonNone {
 		return sourceContributionBlocker(
 			provider,

@@ -96,6 +96,40 @@ func TestObservationBudgetConsumeNamesOverflows(t *testing.T) {
 	}
 }
 
+func TestObservationBudgetConsumeJSONObjectKeyBoundsRetention(t *testing.T) {
+	t.Parallel()
+	countBudget := &observationBudget{}
+	for range maximumObservationJSONKeys {
+		if countBudget.consumeJSONObjectKey("x") {
+			t.Fatal("exact JSON key count budget must be admitted")
+		}
+	}
+	if countBudget.jsonKeys != maximumObservationJSONKeys || countBudget.exceeded {
+		t.Fatalf("count budget = %#v, want exact admitted limit", countBudget)
+	}
+	if !countBudget.consumeJSONObjectKey("x") || !countBudget.exceeded {
+		t.Fatal("want JSON key count overflow to exhaust the observation budget")
+	}
+
+	byteBudget := &observationBudget{jsonKeyBytes: maximumObservationJSONKeyBytes - 1}
+	if byteBudget.consumeJSONObjectKey("x") || byteBudget.exceeded {
+		t.Fatal("exact JSON key byte budget must be admitted")
+	}
+	if byteBudget.jsonKeyBytes != maximumObservationJSONKeyBytes {
+		t.Fatalf("JSON key bytes = %d, want %d", byteBudget.jsonKeyBytes, maximumObservationJSONKeyBytes)
+	}
+
+	overflowBudget := &observationBudget{jsonKeyBytes: maximumObservationJSONKeyBytes}
+	if !overflowBudget.consumeJSONObjectKey("x") || !overflowBudget.exceeded {
+		t.Fatal("want aggregate JSON key byte overflow to exhaust the observation budget")
+	}
+	longKey := strings.Repeat("x", MaximumObservationEntryNameBytes+1)
+	longKeyBudget := &observationBudget{}
+	if !longKeyBudget.consumeJSONObjectKey(longKey) || !longKeyBudget.exceeded {
+		t.Fatal("want overlong JSON key to exhaust the observation budget")
+	}
+}
+
 func TestObserveConfiguredPluginContributionsOmitsCanceledRows(t *testing.T) {
 	homeDirectory := t.TempDir()
 	pluginRoot := codexPluginRoot(homeDirectory, "market", "alpha", "local")
@@ -332,9 +366,9 @@ func TestObserveConfiguredPluginContributionsBlocksSkillPathOverflow(t *testing.
 	}
 }
 
-func TestObserveConfiguredPluginContributionsKeepsLargeInlineHookObjectDeclared(t *testing.T) {
+func TestObserveConfiguredPluginContributionsKeepsInlineHookAtStructuralKeyLimitDeclared(t *testing.T) {
 	homeDirectory := t.TempDir()
-	keys := make([]string, MaximumObservationEntries+1)
+	keys := make([]string, MaximumObservationEntries-1)
 	for index := range keys {
 		keys[index] = `"` + versionName(index) + `": {}`
 	}
@@ -352,7 +386,7 @@ func TestObserveConfiguredPluginContributionsKeepsLargeInlineHookObjectDeclared(
 		!row.HasContribution() ||
 		row.Kind() != observecontribution.SourceContributionHook ||
 		row.Key() != "inline" {
-		t.Fatalf("observation = %#v, want declared inline hook without materializing keys", observations[0])
+		t.Fatalf("observation = %#v, want declared inline hook at the structural key limit", observations[0])
 	}
 }
 

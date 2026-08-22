@@ -19,11 +19,16 @@ const (
 	// MaximumObservationPathComponents bounds relative descent from a retained
 	// plugin directory descriptor.
 	MaximumObservationPathComponents = 64
+
+	maximumObservationJSONKeys     = MaximumObservationEntries
+	maximumObservationJSONKeyBytes = MaximumObservationNameBytes
 )
 
 type observationBudget struct {
 	entries       int
 	nameBytes     int
+	jsonKeys      int
+	jsonKeyBytes  int
 	snapshotBytes int64
 	exceeded      bool
 }
@@ -49,6 +54,8 @@ func (budget *observationBudget) exhaust() {
 	budget.exceeded = true
 	budget.entries = MaximumObservationEntries
 	budget.nameBytes = MaximumObservationNameBytes
+	budget.jsonKeys = maximumObservationJSONKeys
+	budget.jsonKeyBytes = maximumObservationJSONKeyBytes
 	budget.snapshotBytes = MaximumObservationSnapshotBytes
 }
 
@@ -70,6 +77,23 @@ func (budget *observationBudget) consumeNames(names []string) bool {
 		budget.entries++
 		budget.nameBytes += nameBytes
 	}
+	return false
+}
+
+func (budget *observationBudget) consumeJSONObjectKey(key string) bool {
+	if budget == nil {
+		return true
+	}
+	keyBytes := len(key)
+	if budget.exceeded ||
+		keyBytes > MaximumObservationEntryNameBytes ||
+		budget.jsonKeys+1 > maximumObservationJSONKeys ||
+		budget.jsonKeyBytes+keyBytes > maximumObservationJSONKeyBytes {
+		budget.exhaust()
+		return true
+	}
+	budget.jsonKeys++
+	budget.jsonKeyBytes += keyBytes
 	return false
 }
 

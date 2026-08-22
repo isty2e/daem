@@ -1,7 +1,10 @@
 package codexplugin
 
 import (
+	"encoding/json"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
@@ -70,6 +73,10 @@ func TestObserveConfiguredPluginContributionsBlocksNestedDuplicateKeys(t *testin
 		{name: "nested MCP server field", manifest: `{"mcpServers":{"server":{"command":"first","command":"second"}}}`},
 		{name: "inline hook key", manifest: `{"hooks":{"same":{},"same":{}}}`},
 		{name: "nested inline hook field", manifest: `{"hooks":{"event":{"command":"first","command":"second"}}}`},
+		{
+			name:     "nested ignored root field",
+			manifest: `{"ignored":{"same":{},"same":{}},"mcpServers":{"valid":{}}}`,
+		},
 	}
 
 	for _, testCase := range cases {
@@ -86,6 +93,106 @@ func TestObserveConfiguredPluginContributionsBlocksNestedDuplicateKeys(t *testin
 			assertMalformedContributionObservation(t, observations)
 		})
 	}
+}
+
+func TestObserveConfiguredPluginContributionsBlocksStructuralKeyOverflow(t *testing.T) {
+	cases := []struct {
+		name       string
+		manifest   string
+		referenced string
+	}{
+		{
+			name:     "ignored root value",
+			manifest: `{"ignored":` + uniqueJSONObject(MaximumObservationEntries) + `,"mcpServers":{"valid":{}}}`,
+		},
+		{
+			name:     "nested MCP value",
+			manifest: `{"mcpServers":{"valid":` + uniqueJSONObject(MaximumObservationEntries) + `}}`,
+		},
+		{
+			name:     "inline hook",
+			manifest: `{"hooks":` + uniqueJSONObject(MaximumObservationEntries) + `}`,
+		},
+		{
+			name: "overlong inline hook key",
+			manifest: `{"hooks":{` +
+				strconv.Quote(strings.Repeat("x", MaximumObservationEntryNameBytes+1)) +
+				`:{}}}`,
+		},
+		{
+			name:       "referenced MCP wrapper",
+			manifest:   `{"mcpServers":"./mcp.json"}`,
+			referenced: `{"mcpServers":{"valid":` + uniqueJSONObject(MaximumObservationEntries-2) + `}}`,
+		},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			homeDirectory := t.TempDir()
+			root := codexPluginRoot(homeDirectory, "market", "alpha", "local")
+			writeFile(t, filepath.Join(root, ".codex-plugin", "plugin.json"), testCase.manifest)
+			if testCase.referenced != "" {
+				writeFile(t, filepath.Join(root, "mcp.json"), testCase.referenced)
+			}
+
+			observations := observeIndependentPluginContributions(
+				t.Context(),
+				homeDirectory,
+				configuredPluginObservation(t, "alpha@market"),
+			)
+			assertBudgetExceededContributionObservation(t, observations)
+		})
+	}
+}
+
+func TestDecodeInlineHookObjectBoundsUniqueKeyAllocation(t *testing.T) {
+	const maximumRejectedAllocationBytes = 4 << 20
+	raw := json.RawMessage(uniqueJSONObject(100_000))
+	var inline bool
+	var reason observecontribution.SourceContributionReason
+	result := testing.Benchmark(func(benchmark *testing.B) {
+		for range benchmark.N {
+			inline, reason = decodeInlineHookObject(raw, &observationBudget{})
+		}
+	})
+	if !inline || reason != observecontribution.SourceContributionReasonArtifactBudgetExceeded {
+		t.Fatalf("decode = (%t, %q), want inline hook structural budget rejection", inline, reason)
+	}
+	allocated := result.AllocedBytesPerOp()
+	t.Logf("structural rejection allocated %d bytes per call", allocated)
+	if allocated > maximumRejectedAllocationBytes {
+		t.Fatalf(
+			"structural rejection allocated %d bytes per call, want at most %d",
+			allocated,
+			maximumRejectedAllocationBytes,
+		)
+	}
+}
+
+func TestDecodeInlineHookObjectPrefersStructuralBudgetAtDuplicateBoundary(t *testing.T) {
+	budget := &observationBudget{jsonKeys: maximumObservationJSONKeys - 1}
+	inline, reason := decodeInlineHookObject(
+		json.RawMessage(`{"same":{},"same":{}}`),
+		budget,
+	)
+	if !inline || reason != observecontribution.SourceContributionReasonArtifactBudgetExceeded {
+		t.Fatalf("decode = (%t, %q), want structural budget precedence", inline, reason)
+	}
+}
+
+func uniqueJSONObject(keys int) string {
+	var content strings.Builder
+	content.Grow(keys * 12)
+	content.WriteByte('{')
+	for index := range keys {
+		if index > 0 {
+			content.WriteByte(',')
+		}
+		content.WriteString(strconv.Quote("k" + strconv.Itoa(index)))
+		content.WriteString(":{}")
+	}
+	content.WriteByte('}')
+	return content.String()
 }
 
 func TestObserveConfiguredPluginContributionsBlocksReferencedMCPDuplicateKeys(t *testing.T) {
@@ -167,6 +274,26 @@ func TestObserveConfiguredPluginContributionsKeepsValidProviderSiblingAfterDupli
 		t.Fatalf("beta observation = %#v, want one declared row", observations[1])
 	}
 	assertSourceContribution(t, betaRows, observecontribution.SourceContributionMCPServer, "valid")
+}
+
+func assertBudgetExceededContributionObservation(
+	t *testing.T,
+	observations []observecontribution.SourceContributionObservation,
+) {
+	t.Helper()
+	if len(observations) != 1 {
+		t.Fatalf("observations = %#v, want one provider blocker", observations)
+	}
+	rows := observations[0].DiagnosticRows()
+	if len(rows) != 1 {
+		t.Fatalf("rows = %#v, want one provider blocker row", rows)
+	}
+	row := rows[0]
+	if row.State() != observecontribution.SourceContributionBlocked ||
+		row.Reason() != observecontribution.SourceContributionReasonArtifactBudgetExceeded ||
+		row.HasContribution() {
+		t.Fatalf("observation = %#v, want budget blocker without contributions", observations[0])
+	}
 }
 
 func assertMalformedContributionObservation(
