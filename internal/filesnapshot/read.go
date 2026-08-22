@@ -28,8 +28,9 @@ var (
 )
 
 type readHooks struct {
-	afterInspect func()
-	afterOpen    func()
+	afterInspect  func()
+	afterOpen     func()
+	beforeSuccess func()
 }
 
 type finalSymlinkPolicy uint8

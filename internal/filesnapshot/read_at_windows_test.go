@@ -3,9 +3,12 @@
 package filesnapshot
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/windows"
@@ -48,6 +51,94 @@ func TestReadRegularFileAtCountedRejectsWindowsEntryReplacement(t *testing.T) {
 	})
 	if !errors.Is(err, ErrChanged) {
 		t.Fatalf("replacement error = %v, want ErrChanged", err)
+	}
+}
+
+func TestReadRegularFileAtCountedExcludesWindowsConcurrentSameSizeWriter(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.json")
+	original := strings.Repeat("a", 64*1024)
+	writeWindowsTestFile(t, path, original)
+	dir := openWindowsTestDirectory(t, root)
+
+	var writerErr error
+	counted, err := readRegularFileAtCountedWithHooks(t.Context(), dir, "plugin.json", int64(len(original)), readHooks{
+		afterInspect: func() {
+			var writer windows.Handle
+			writer, writerErr = openWindowsTestWriter(path)
+			if writerErr != nil {
+				return
+			}
+			defer windows.CloseHandle(writer)
+
+			replacement := bytes.Repeat([]byte{'b'}, len(original))
+			var written uint32
+			writerErr = windows.WriteFile(writer, replacement, &written, nil)
+			if writerErr == nil && int(written) != len(replacement) {
+				writerErr = errors.New("short same-size Windows test write")
+			}
+		},
+	})
+	if !errors.Is(writerErr, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("concurrent writer error = %v, want ERROR_SHARING_VIOLATION", writerErr)
+	}
+	if err != nil || !counted.Exists || string(counted.Content) != original {
+		t.Fatalf("snapshot with excluded writer = %+v, %v", counted, err)
+	}
+}
+
+func TestReadRegularFileAtCountedRejectsExistingWindowsWriter(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "plugin.json")
+	writeWindowsTestFile(t, path, "inside")
+	dir := openWindowsTestDirectory(t, root)
+	writer, err := openWindowsTestWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(writer) })
+
+	counted, err := ReadRegularFileAtCounted(t.Context(), dir, "plugin.json", 64)
+	if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("snapshot with existing writer = %+v, %v, want sharing violation", counted, err)
+	}
+	if counted.Exists || counted.Attempted != 0 || len(counted.Content) != 0 {
+		t.Fatalf("snapshot with existing writer = %+v, want zero evidence", counted)
+	}
+}
+
+func TestReadRegularFileContextCountedRejectsExistingWindowsWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plugin.json")
+	writeWindowsTestFile(t, path, "inside")
+	writer, err := openWindowsTestWriter(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = windows.CloseHandle(writer) })
+
+	counted, err := ReadRegularFileContextCounted(t.Context(), path, 64)
+	if !errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
+		t.Fatalf("pathname snapshot with existing writer = %+v, %v, want sharing violation", counted, err)
+	}
+	if counted.Exists || counted.Attempted != 0 || len(counted.Content) != 0 {
+		t.Fatalf("pathname snapshot with existing writer = %+v, want zero evidence", counted)
+	}
+}
+
+func TestReadRegularFileAtCountedHonorsCancellationBeforeSuccessOnWindows(t *testing.T) {
+	root := t.TempDir()
+	writeWindowsTestFile(t, filepath.Join(root, "plugin.json"), "inside")
+	dir := openWindowsTestDirectory(t, root)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	counted, err := readRegularFileAtCountedWithHooks(ctx, dir, "plugin.json", 64, readHooks{
+		beforeSuccess: cancel,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("final validation cancellation = %+v, %v, want context.Canceled", counted, err)
+	}
+	if counted.Exists || counted.Attempted != 6 || len(counted.Content) != 0 {
+		t.Fatalf("final validation cancellation = %+v, want attempted bytes without content", counted)
 	}
 }
 
@@ -106,4 +197,20 @@ func writeWindowsTestFile(t *testing.T, path string, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func openWindowsTestWriter(path string) (windows.Handle, error) {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return windows.InvalidHandle, err
+	}
+	return windows.CreateFile(
+		name,
+		windows.GENERIC_WRITE,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_ATTRIBUTE_NORMAL,
+		0,
+	)
 }

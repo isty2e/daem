@@ -129,6 +129,12 @@ func readRegularFileAtCountedWithHooks(
 		int64(len(content)) != afterOpen.Size() {
 		return CountedContent{Attempted: attempted}, ErrChanged
 	}
+	if hooks.beforeSuccess != nil {
+		hooks.beforeSuccess()
+	}
+	if err := ctx.Err(); err != nil {
+		return CountedContent{Attempted: attempted}, err
+	}
 	return CountedContent{Content: content, Exists: true, Attempted: attempted}, nil
 }
 

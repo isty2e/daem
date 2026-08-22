@@ -29,7 +29,20 @@ type windowsFileBasicInfo struct {
 	FileAttributes uint32
 }
 
+const (
+	windowsSnapshotShareMode  uint32 = windows.FILE_SHARE_READ | windows.FILE_SHARE_DELETE
+	windowsTraversalShareMode uint32 = windowsSnapshotShareMode | windows.FILE_SHARE_WRITE
+)
+
 func openEntryAt(dir *os.File, name string) (*os.File, error) {
+	return openWindowsEntryAt(dir, name, windowsTraversalShareMode)
+}
+
+func openSnapshotEntryAt(dir *os.File, name string) (*os.File, error) {
+	return openWindowsEntryAt(dir, name, windowsSnapshotShareMode)
+}
+
+func openWindowsEntryAt(dir *os.File, name string, shareMode uint32) (*os.File, error) {
 	if strings.ContainsRune(name, ':') {
 		return nil, ErrPathBlocked
 	}
@@ -51,7 +64,7 @@ func openEntryAt(dir *os.File, name string) (*os.File, error) {
 		&windows.IO_STATUS_BLOCK{},
 		nil,
 		windows.FILE_ATTRIBUTE_NORMAL,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
+		shareMode,
 		windows.FILE_OPEN,
 		windows.FILE_OPEN_FOR_BACKUP_INTENT|windows.FILE_SYNCHRONOUS_IO_NONALERT,
 		0,

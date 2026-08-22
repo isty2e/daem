@@ -42,7 +42,7 @@ func readRegularFileAtCountedWithHooks(
 		return CountedContent{}, err
 	}
 
-	file, err := OpenEntryAt(dir, name)
+	file, err := openSnapshotEntryAt(dir, name)
 	if errors.Is(err, os.ErrNotExist) {
 		return CountedContent{}, nil
 	}
@@ -96,7 +96,7 @@ func readRegularFileAtCountedWithHooks(
 		return CountedContent{Attempted: attempted}, err
 	}
 
-	current, err := OpenEntryAt(dir, name)
+	current, err := openSnapshotEntryAt(dir, name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrSymlink) {
 			return CountedContent{Attempted: attempted}, ErrChanged
@@ -114,6 +114,12 @@ func readRegularFileAtCountedWithHooks(
 	if beforeID != afterID || beforeID != currentID || beforeState != afterState ||
 		beforeInfo.Size() != afterInfo.Size() || int64(len(content)) != afterInfo.Size() {
 		return CountedContent{Attempted: attempted}, ErrChanged
+	}
+	if hooks.beforeSuccess != nil {
+		hooks.beforeSuccess()
+	}
+	if err := ctx.Err(); err != nil {
+		return CountedContent{Attempted: attempted}, err
 	}
 	return CountedContent{Content: content, Exists: true, Attempted: attempted}, nil
 }
