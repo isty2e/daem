@@ -1,4 +1,4 @@
-//go:build darwin || linux
+//go:build darwin || linux || freebsd || netbsd || openbsd
 
 package filesnapshot
 
@@ -180,17 +180,9 @@ func unixStatMatchesInfo(stat unix.Stat_t, info os.FileInfo) bool {
 		uint64(stat.Ino) == uint64(sys.Ino) &&
 		stat.Size == sys.Size &&
 		unixStatMtime(stat) == fileInfoMtime(info) &&
-		unixStatCtime(stat) == fileInfoCtime(info)
+		unixStatCtime(stat) == fileInfoAtCtime(info)
 }
 
 func fileInfoMtime(info os.FileInfo) changeVersion {
 	return changeVersion{seconds: info.ModTime().Unix(), nanoseconds: int64(info.ModTime().Nanosecond())}
-}
-
-func fileInfoCtime(info os.FileInfo) changeVersion {
-	change, ok := fileChangeVersion(info)
-	if !ok {
-		return changeVersion{}
-	}
-	return change
 }

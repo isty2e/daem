@@ -16,8 +16,8 @@ func TestUnsupportedAtAdapterSourceFailsClosedWithoutPathnameReopen(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(source), "//go:build !darwin && !linux\n") {
-		t.Fatal("read_at_unsupported.go must compile only when Darwin/Linux At-adapters are absent")
+	if !strings.HasPrefix(string(source), "//go:build !darwin && !linux && !freebsd && !netbsd && !openbsd\n") {
+		t.Fatal("read_at_unsupported.go must compile only when supported Unix At-adapters are absent")
 	}
 
 	parsed, err := parser.ParseFile(token.NewFileSet(), "read_at_unsupported.go", source, parser.SkipObjectResolution)
