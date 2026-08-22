@@ -21,6 +21,7 @@ func TestClassifySnapshotErrorDistinguishesIdentityAndBudget(t *testing.T) {
 		{filesnapshot.ErrChanged, observecontribution.SourceContributionReasonArtifactUnstable},
 		{filesnapshot.ErrLimitExceeded, observecontribution.SourceContributionReasonArtifactBudgetExceeded},
 		{filesnapshot.ErrSymlink, observecontribution.SourceContributionReasonArtifactPathBlocked},
+		{filesnapshot.ErrPathBlocked, observecontribution.SourceContributionReasonArtifactPathBlocked},
 		{filesnapshot.ErrNotRegular, observecontribution.SourceContributionReasonUnsupportedShape},
 		{filesnapshot.ErrUnsupported, observecontribution.SourceContributionReasonArtifactUnavailable},
 		{os.ErrNotExist, observecontribution.SourceContributionReasonArtifactUnavailable},
@@ -54,6 +55,10 @@ func TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing(t *testing
 	}
 	if directoryMissing(filesnapshot.ErrUnsupported) {
 		t.Fatal("unsupported file snapshot capability must not classify as a missing directory")
+	}
+	reason, err = classifyDirectoryError(filesnapshot.ErrPathBlocked)
+	if reason != observecontribution.SourceContributionReasonArtifactPathBlocked || err != nil {
+		t.Fatalf("classifyDirectoryError(path blocked) = %q, %v, want SOURCE_ARTIFACT_PATH_BLOCKED", reason, err)
 	}
 }
 

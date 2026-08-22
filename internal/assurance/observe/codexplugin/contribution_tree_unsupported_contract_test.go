@@ -16,8 +16,8 @@ func TestUnsupportedTreeAdapterSourceFailsClosedWithoutPathnameReopen(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(string(source), "//go:build !darwin && !linux\n") {
-		t.Fatal("contribution_tree_unsupported.go must compile only when Darwin/Linux tree adapters are absent")
+	if !strings.HasPrefix(string(source), "//go:build !darwin && !linux && !windows\n") {
+		t.Fatal("contribution_tree_unsupported.go must compile only when Darwin/Linux/Windows tree adapters are absent")
 	}
 
 	parsed, err := parser.ParseFile(token.NewFileSet(), "contribution_tree_unsupported.go", source, parser.SkipObjectResolution)
