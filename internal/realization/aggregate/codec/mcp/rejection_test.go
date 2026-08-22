@@ -84,7 +84,7 @@ func TestClaudeProjectMCPProjectionRejectsUnsupportedShapesWithReasonCodes(t *te
 }
 
 func TestExtractClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRows(t *testing.T) {
-	projections, rejections, err := ExtractClaudeProjectMCPServerProjections([]byte(`{
+	projections, rejections, err := ExtractClaudeProjectMCPServerProjections(t.Context(), []byte(`{
   "project": "keep",
   "mcpServers": {
     "context7": {"type": "stdio", "command": "npx", "args": ["-y"], "env": {"TOKEN": "${TOKEN}"}},
@@ -113,7 +113,7 @@ func TestExtractClaudeProjectMCPServerProjectionsSeparatesAdmittedAndRejectedRow
 }
 
 func TestExtractOpenCodeProjectMCPServerProjectionsSplitsCommandArray(t *testing.T) {
-	projections, rejections, err := ExtractOpenCodeProjectMCPServerProjections([]byte(`{
+	projections, rejections, err := ExtractOpenCodeProjectMCPServerProjections(t.Context(), []byte(`{
   "mcp": {
     "context7": {"type": "local", "command": ["npx", "-y", "@upstash/context7-mcp"]},
     "withEnv": {"type": "local", "command": ["npx"], "env": {"TOKEN": "${TOKEN}"}}
@@ -132,7 +132,7 @@ func TestExtractOpenCodeProjectMCPServerProjectionsSplitsCommandArray(t *testing
 }
 
 func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(t *testing.T) {
-	projections, rejections, err := ExtractAntigravityGlobalMCPServerProjections([]byte(`{
+	projections, rejections, err := ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "context7": {"command": "npx", "args": ["-y"]},
     "remote": {"serverUrl": "https://example.invalid/mcp"}
@@ -148,7 +148,7 @@ func TestExtractAntigravityGlobalMCPServerProjectionsSeparatesUnsupportedFields(
 		t.Fatalf("imported environment names = %#v, want no inferred ambient references", projections[0].EnvironmentNames)
 	}
 	projections[0].Args[0] = "mutated"
-	reimported, _, err := ExtractAntigravityGlobalMCPServerProjections([]byte(`{
+	reimported, _, err := ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "context7": {"command": "npx", "args": ["-y"]}
   }

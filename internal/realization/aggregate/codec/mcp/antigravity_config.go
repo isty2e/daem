@@ -1,6 +1,10 @@
 package mcpcodec
 
-import "github.com/isty2e/daem/internal/realization/aggregate"
+import (
+	"context"
+
+	"github.com/isty2e/daem/internal/realization/aggregate"
+)
 
 func mergeAntigravityGlobalMCPServerCanonicalEntry(existing []byte, serverID string, canonical []byte) ([]byte, error) {
 	return mergeMCPJSONServerCanonicalEntry(
@@ -64,22 +68,35 @@ func ExtractAntigravityGlobalMCPServerProjection(existing []byte, serverID strin
 	return extractMCPJSONServerProjection(existing, serverID, antigravityGlobalMCPConfigSpec(), decodeAntigravityGlobalMCPServerEntry)
 }
 
-func ExtractAntigravityGlobalMCPServerProjections(existing []byte) ([]AntigravityGlobalMCPServerProjection, []MCPProjectionRejection, error) {
-	config, err := decodeMCPConfig(existing, antigravityGlobalMCPConfigSpec())
+func ExtractAntigravityGlobalMCPServerProjections(ctx context.Context, existing []byte) ([]AntigravityGlobalMCPServerProjection, []MCPProjectionRejection, error) {
+	config, err := decodeMCPConfigContext(ctx, existing, antigravityGlobalMCPConfigSpec())
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, nil, contextErr
+		}
 		return nil, nil, err
 	}
 	projections := make([]AntigravityGlobalMCPServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
-	for _, serverID := range sortedMCPServerIDs(config.servers) {
+	serverIDs := sortedMCPServerIDs(config.servers)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	for _, serverID := range serverIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		contentPath := AntigravityGlobalMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		entry, err := decodeAntigravityGlobalMCPServerEntry(config.servers[serverID], serverID)
-		if err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+		entry, entryErr := decodeAntigravityGlobalMCPServerEntry(config.servers[serverID], serverID)
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		if entryErr != nil {
+			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
 			continue
 		}
 		projections = append(projections, AntigravityGlobalMCPServerProjection{
@@ -90,7 +107,7 @@ func ExtractAntigravityGlobalMCPServerProjections(existing []byte) ([]Antigravit
 			AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
 		})
 	}
-	return projections, rejections, nil
+	return projections, rejections, ctx.Err()
 }
 
 func extractAntigravityGlobalMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {

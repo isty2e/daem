@@ -27,14 +27,17 @@ func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing
 		"bidirectional control": "safe\u202etext",
 	} {
 		t.Run(name, func(t *testing.T) {
-			servers, skipped := admitMCPArgumentCandidates([]adopt.MCPServer{{
+			servers, skipped, err := admitMCPArgumentCandidates(t.Context(), []adopt.MCPServer{{
 				ResourceName: "invalid",
 				Target:       target.TargetClaudeCode,
 				Scope:        target.ScopeProject,
 				SourceRoute:  route,
 				Command:      "node",
 				Args:         []string{argument},
-			}}, nil)
+			}}, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if len(servers) != 0 || len(skipped) != 1 ||
 				skipped[0].LivePath != "config.json#/mcp/invalid" ||
 				skipped[0].Reason != skipInvalidArgument {

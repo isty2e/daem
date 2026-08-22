@@ -484,7 +484,7 @@ command = "npx"
 headers = { Authorization = "Bearer SECRET_CANARY" }
 `)
 
-	projections, rejections, err := ExtractCodexGlobalMCPServerProjections(existing)
+	projections, rejections, err := ExtractCodexGlobalMCPServerProjections(t.Context(), existing)
 	if err != nil {
 		t.Fatalf("ExtractCodexGlobalMCPServerProjections returned error: %v", err)
 	}
@@ -650,7 +650,7 @@ command = "npx"
 headers = { Authorization = "Bearer SECRET_CANARY" }
 `)
 
-	projections, rejections, err := ExtractCodexProjectMCPServerProjections(existing)
+	projections, rejections, err := ExtractCodexProjectMCPServerProjections(t.Context(), existing)
 	if err != nil {
 		t.Fatalf("ExtractCodexProjectMCPServerProjections returned error: %v", err)
 	}

@@ -1,10 +1,12 @@
 package jsonstrict
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestValidateRejectsAmbiguousAndUnboundedDocuments(t *testing.T) {
@@ -185,4 +187,36 @@ func TestDecodeVersionEnvelopeClassifiesLegacyCurrentAndFuture(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateContextPreservesCancellationDuringBoundedScanning(t *testing.T) {
+	content := []byte(`{"value":"` + strings.Repeat("a", cancelCheckInterval*4) + `"}`)
+	ctx := &cancelAfterJSONChecksContext{cancelAt: 3}
+	if err := ValidateContext(ctx, content, "test document", 4); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ValidateContext error = %v, want context.Canceled", err)
+	}
+}
+
+func TestValidateContextRejectsPreCanceledOperation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := ValidateContext(ctx, []byte(`{"value":true}`), "test document", 4); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ValidateContext error = %v, want context.Canceled", err)
+	}
+}
+
+type cancelAfterJSONChecksContext struct {
+	calls    int
+	cancelAt int
+}
+
+func (ctx *cancelAfterJSONChecksContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (ctx *cancelAfterJSONChecksContext) Done() <-chan struct{}       { return nil }
+func (ctx *cancelAfterJSONChecksContext) Value(any) any               { return nil }
+func (ctx *cancelAfterJSONChecksContext) Err() error {
+	ctx.calls++
+	if ctx.calls >= ctx.cancelAt {
+		return context.Canceled
+	}
+	return nil
 }

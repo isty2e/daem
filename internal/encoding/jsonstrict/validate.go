@@ -3,6 +3,7 @@ package jsonstrict
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"unicode/utf8"
 )
+
+const cancelCheckInterval = 4096
 
 var (
 	// ErrDuplicateObjectKey classifies a JSON object with repeated key text.
@@ -49,43 +52,73 @@ func (err classifiedError) Unwrap() error { return err.kind }
 
 // Validate requires one UTF-8 JSON value with unique object keys and bounded nesting.
 func Validate(content []byte, document string, maximumDepth int) error {
-	return validate(content, document, maximumDepth, false)
+	return ValidateContext(context.Background(), content, document, maximumDepth)
 }
 
-func validate(content []byte, document string, maximumDepth int, canonicalObjectKeys bool) error {
+// ValidateContext requires one UTF-8 JSON value with unique object keys and
+// bounded nesting while preserving caller cancellation during validation.
+func ValidateContext(ctx context.Context, content []byte, document string, maximumDepth int) error {
+	return validate(ctx, content, document, maximumDepth, false)
+}
+
+func validate(
+	ctx context.Context,
+	content []byte,
+	document string,
+	maximumDepth int,
+	canonicalObjectKeys bool,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(document) == "" {
 		return fmt.Errorf("JSON document label is required")
 	}
 	if maximumDepth <= 0 {
 		return fmt.Errorf("%s JSON maximum depth must be positive", document)
 	}
-	if !utf8.Valid(content) {
+	if err := validateUTF8(ctx, content); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 		return fmt.Errorf("%s is not valid UTF-8", document)
 	}
-	if err := validateUnicodeScalarEscapes(content, document); err != nil {
+	if err := validateUnicodeScalarEscapes(ctx, content, document); err != nil {
 		return err
 	}
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	decoder.UseNumber()
-	if err := consumeValue(decoder, document, maximumDepth, 0, canonicalObjectKeys); err != nil {
+	if err := consumeValue(ctx, decoder, document, maximumDepth, 0, canonicalObjectKeys); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if token, err := decoder.Token(); err == nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		return classifiedError{
 			kind:    ErrMultipleValues,
 			message: fmt.Sprintf("%s contains multiple JSON values beginning with %v", document, token),
 		}
 	} else if err != io.EOF {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		return fmt.Errorf("parse %s trailer: %w", document, err)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // ValidateVersionedObject validates one strict versioned persistence object
 // and returns its required positive integer version. Every object key must use
 // canonical ASCII lower_snake_case spelling; schema-specific fields stay opaque.
 func ValidateVersionedObject(content []byte, document string, maximumDepth int) (int, error) {
-	if err := validate(content, document, maximumDepth, true); err != nil {
+	if err := validate(context.Background(), content, document, maximumDepth, true); err != nil {
 		return 0, err
 	}
 	return exactObjectVersion(content, document)
@@ -190,12 +223,16 @@ func skipValue(decoder *json.Decoder, document string) error {
 }
 
 func consumeValue(
+	ctx context.Context,
 	decoder *json.Decoder,
 	document string,
 	maximumDepth int,
 	depth int,
 	canonicalObjectKeys bool,
 ) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if depth > maximumDepth {
 		return classifiedError{
 			kind:    ErrMaximumDepthExceeded,
@@ -204,7 +241,13 @@ func consumeValue(
 	}
 	token, err := decoder.Token()
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		return fmt.Errorf("parse %s: %w", document, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	delimiter, composite := token.(json.Delim)
 	if !composite {
@@ -214,9 +257,18 @@ func consumeValue(
 	case '{':
 		seen := make(map[string]struct{})
 		for decoder.More() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			keyToken, err := decoder.Token()
 			if err != nil {
+				if contextErr := ctx.Err(); contextErr != nil {
+					return contextErr
+				}
 				return fmt.Errorf("parse %s object key: %w", document, err)
+			}
+			if err := ctx.Err(); err != nil {
+				return err
 			}
 			key, ok := keyToken.(string)
 			if !ok {
@@ -237,6 +289,7 @@ func consumeValue(
 			}
 			seen[key] = struct{}{}
 			if err := consumeValue(
+				ctx,
 				decoder,
 				document,
 				maximumDepth,
@@ -246,10 +299,14 @@ func consumeValue(
 				return err
 			}
 		}
-		return consumeClosingDelimiter(decoder, document, '}')
+		return consumeClosingDelimiterContext(ctx, decoder, document, '}')
 	case '[':
 		for decoder.More() {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if err := consumeValue(
+				ctx,
 				decoder,
 				document,
 				maximumDepth,
@@ -259,14 +316,43 @@ func consumeValue(
 				return err
 			}
 		}
-		return consumeClosingDelimiter(decoder, document, ']')
+		return consumeClosingDelimiterContext(ctx, decoder, document, ']')
 	default:
 		return fmt.Errorf("%s has unexpected JSON delimiter %q", document, delimiter)
 	}
 }
 
-func validateUnicodeScalarEscapes(content []byte, document string) error {
+func validateUTF8(ctx context.Context, content []byte) error {
+	for start := 0; start < len(content); {
+		end := min(start+cancelCheckInterval, len(content))
+		if end < len(content) {
+			for end > start && !utf8.RuneStart(content[end]) {
+				end--
+			}
+			if end == start {
+				end = min(start+cancelCheckInterval, len(content))
+			}
+		}
+		if !utf8.Valid(content[start:end]) {
+			return fmt.Errorf("invalid UTF-8")
+		}
+		start = end
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
+}
+
+func validateUnicodeScalarEscapes(ctx context.Context, content []byte, document string) error {
+	cancelAt := cancelCheckInterval
 	for index := 0; index < len(content); index++ {
+		if index >= cancelAt {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			cancelAt = index + cancelCheckInterval
+		}
 		if content[index] != '"' {
 			continue
 		}
@@ -276,7 +362,7 @@ func validateUnicodeScalarEscapes(content []byte, document string) error {
 		}
 		index = closing
 	}
-	return nil
+	return ctx.Err()
 }
 
 func validateJSONStringScalarEscapes(content []byte, document string, index int) (int, error) {
@@ -378,6 +464,31 @@ func consumeClosingDelimiter(decoder *json.Decoder, document string, expected js
 	closing, err := decoder.Token()
 	if err != nil {
 		return fmt.Errorf("parse %s closing delimiter: %w", document, err)
+	}
+	if closing != expected {
+		return fmt.Errorf("%s has invalid closing delimiter %v", document, closing)
+	}
+	return nil
+}
+
+func consumeClosingDelimiterContext(
+	ctx context.Context,
+	decoder *json.Decoder,
+	document string,
+	expected json.Delim,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	closing, err := decoder.Token()
+	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
+		return fmt.Errorf("parse %s closing delimiter: %w", document, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if closing != expected {
 		return fmt.Errorf("%s has invalid closing delimiter %v", document, closing)

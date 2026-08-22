@@ -2,6 +2,7 @@ package mcpcodec
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,22 +77,35 @@ func ExtractClaudeProjectMCPServerProjection(existing []byte, serverID string) (
 	return extractMCPJSONServerProjection(existing, serverID, claudeProjectMCPConfigSpec(), decodeClaudeProjectMCPServerEntry)
 }
 
-func ExtractClaudeProjectMCPServerProjections(existing []byte) ([]ClaudeProjectMCPServerProjection, []MCPProjectionRejection, error) {
-	config, err := decodeMCPConfig(existing, claudeProjectMCPConfigSpec())
+func ExtractClaudeProjectMCPServerProjections(ctx context.Context, existing []byte) ([]ClaudeProjectMCPServerProjection, []MCPProjectionRejection, error) {
+	config, err := decodeMCPConfigContext(ctx, existing, claudeProjectMCPConfigSpec())
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, nil, contextErr
+		}
 		return nil, nil, err
 	}
 	projections := make([]ClaudeProjectMCPServerProjection, 0, len(config.servers))
 	rejections := make([]MCPProjectionRejection, 0)
-	for _, serverID := range sortedMCPServerIDs(config.servers) {
+	serverIDs := sortedMCPServerIDs(config.servers)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	for _, serverID := range serverIDs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		contentPath := ClaudeProjectMCPContentPath(serverID)
 		if err := validateServerID(serverID); err != nil {
 			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
 			continue
 		}
-		entry, err := decodeClaudeProjectMCPServerEntry(config.servers[serverID], serverID)
-		if err != nil {
-			rejections = append(rejections, mcpProjectionRejection(contentPath, err))
+		entry, entryErr := decodeClaudeProjectMCPServerEntry(config.servers[serverID], serverID)
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
+		if entryErr != nil {
+			rejections = append(rejections, mcpProjectionRejection(contentPath, entryErr))
 			continue
 		}
 		projections = append(projections, ClaudeProjectMCPServerProjection{
@@ -102,7 +116,7 @@ func ExtractClaudeProjectMCPServerProjections(existing []byte) ([]ClaudeProjectM
 			AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
 		})
 	}
-	return projections, rejections, nil
+	return projections, rejections, ctx.Err()
 }
 
 func extractClaudeProjectMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {
@@ -200,6 +214,16 @@ type mcpConfig struct {
 }
 
 func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
+	return decodeMCPConfigContext(context.Background(), content, spec)
+}
+
+func decodeMCPConfigContext(ctx context.Context, content []byte, spec mcpConfigSpec) (mcpConfig, error) {
+	if ctx == nil {
+		return mcpConfig{}, fmt.Errorf("MCP projection extraction context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return mcpConfig{}, err
+	}
 	config := mcpConfig{
 		spec:    spec,
 		top:     make(map[string]json.RawMessage),
@@ -211,7 +235,11 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 	if err := validateMCPDocumentSize(content); err != nil {
 		return mcpConfig{}, mcpJSONHostDocumentError(spec, err)
 	}
-	if len(bytes.TrimSpace(content)) == 0 {
+	trimmed := bytes.TrimSpace(content)
+	if err := ctx.Err(); err != nil {
+		return mcpConfig{}, err
+	}
+	if len(trimmed) == 0 {
 		return mcpConfig{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			spec.configPath,
@@ -220,19 +248,32 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 	}
 	admit := spec.documentAdmission
 	if admit == nil {
-		admit = admitStrictMCPJSONDocument
+		if err := admitStrictMCPJSONDocumentContext(ctx, content, spec); err != nil {
+			return mcpConfig{}, err
+		}
+	} else if err := admit(content, spec); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return mcpConfig{}, contextErr
+		}
+		return mcpConfig{}, err
 	}
-	if err := admit(content, spec); err != nil {
+	if err := ctx.Err(); err != nil {
 		return mcpConfig{}, err
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(content))
 	if err := decoder.Decode(&config.top); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return mcpConfig{}, contextErr
+		}
 		return mcpConfig{}, newMCPProjectionError(
 			MCPProjectionReasonConfigMalformed,
 			spec.configPath,
 			fmt.Sprintf("decode %s config JSON: %v", spec.label, err),
 		)
+	}
+	if err := ctx.Err(); err != nil {
+		return mcpConfig{}, err
 	}
 	if config.top == nil {
 		return mcpConfig{}, newMCPProjectionError(
@@ -244,16 +285,29 @@ func decodeMCPConfig(content []byte, spec mcpConfigSpec) (mcpConfig, error) {
 
 	rawServers, ok := config.top[spec.serversKey]
 	if !ok {
-		return config, nil
+		return config, ctx.Err()
 	}
 	if err := decodeObject(rawServers, &config.servers, spec.serversPath); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return mcpConfig{}, contextErr
+		}
+		return mcpConfig{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return mcpConfig{}, err
 	}
 	return config, nil
 }
 
 func admitStrictMCPJSONDocument(content []byte, spec mcpConfigSpec) error {
-	if err := jsonstrict.Validate(content, spec.label+" config JSON", maximumMCPJSONDepth); err != nil {
+	return admitStrictMCPJSONDocumentContext(context.Background(), content, spec)
+}
+
+func admitStrictMCPJSONDocumentContext(ctx context.Context, content []byte, spec mcpConfigSpec) error {
+	if err := jsonstrict.ValidateContext(ctx, content, spec.label+" config JSON", maximumMCPJSONDepth); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return contextErr
+		}
 		return mcpJSONHostDocumentError(spec, err)
 	}
 	return nil
