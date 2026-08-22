@@ -193,6 +193,42 @@ enabled = true
 	assertCodexPluginConfigCheck(t, checks, findings.CheckWarn, `target=codex plugin_contribution provided_by="bad@market"`, "reason=SOURCE_ARTIFACT_PATH_BLOCKED")
 }
 
+func TestCodexPluginChecksKeepDuplicateManifestKeysPrivate(t *testing.T) {
+	const secretKey = "token=duplicate-key-canary"
+	homeDirectory := t.TempDir()
+	writeDiagnoseCodexConfig(t, homeDirectory, `
+[plugins."alpha@market"]
+enabled = true
+`)
+	pluginRoot := filepath.Join(homeDirectory, ".codex", "plugins", "cache", "market", "alpha", "local")
+	writeDiagnoseFile(t, filepath.Join(pluginRoot, ".codex-plugin", "plugin.json"), `{
+  "mcpServers": {
+    "server": {
+      "token=duplicate-key-canary": "first",
+      "token=duplicate-key-canary": "second"
+    }
+  }
+}`)
+	selection, err := targetselection.ForDiagnostics([]string{"codex"})
+	if err != nil {
+		t.Fatalf("ForDiagnostics returned error: %v", err)
+	}
+
+	checks := CodexPluginChecks(t.Context(), homeDirectory, selection)
+	assertCodexPluginConfigCheck(
+		t,
+		checks,
+		findings.CheckWarn,
+		`target=codex plugin_contribution provided_by="alpha@market"`,
+		"reason=SOURCE_ARTIFACT_MALFORMED",
+	)
+	for _, check := range checks {
+		if strings.Contains(check.Name, secretKey) || strings.Contains(check.Detail, secretKey) {
+			t.Fatalf("duplicate-key diagnostic leaked key text: %#v", check)
+		}
+	}
+}
+
 func TestCodexPluginContributionChecksRenderGenericFacts(t *testing.T) {
 	declaredContributions := []observecontribution.SourceContribution{
 		mustDiagnoseSourceContribution(t, observecontribution.SourceContributionSkill, "search", "skills/search/SKILL.md"),

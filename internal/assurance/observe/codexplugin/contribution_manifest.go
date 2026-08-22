@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	errJSONShape = errors.New("unsupported JSON shape")
-	errJSONDepth = errors.New("JSON nesting exceeds observation depth")
+	errJSONShape     = errors.New("unsupported JSON shape")
+	errJSONDepth     = errors.New("JSON nesting exceeds observation depth")
+	errJSONDuplicate = errors.New("duplicate JSON object key")
 )
 
 const maximumObservationJSONDepth = 128
@@ -27,6 +28,48 @@ type rawPluginContributionManifest struct {
 	MCPServers json.RawMessage `json:"mcpServers"`
 	Apps       json.RawMessage `json:"apps"`
 	Hooks      json.RawMessage `json:"hooks"`
+}
+
+func decodePluginContributionManifest(
+	content []byte,
+) (rawPluginContributionManifest, observecontribution.SourceContributionReason) {
+	decoder := observationJSONDecoder(content)
+	if err := consumeJSONDelim(decoder, '{'); err != nil {
+		return rawPluginContributionManifest{}, observecontribution.SourceContributionReasonArtifactMalformed
+	}
+
+	manifest := rawPluginContributionManifest{}
+	seen := make(map[string]struct{})
+	for decoder.More() {
+		key, err := nextUniqueJSONObjectKey(decoder, seen)
+		if err != nil {
+			return rawPluginContributionManifest{}, jsonSkipReason(err)
+		}
+		switch key {
+		case "name":
+			err = decoder.Decode(&manifest.Name)
+		case "version":
+			err = decoder.Decode(&manifest.Version)
+		case "skills":
+			err = decoder.Decode(&manifest.Skills)
+		case "mcpServers":
+			err = decoder.Decode(&manifest.MCPServers)
+		case "apps":
+			err = decoder.Decode(&manifest.Apps)
+		case "hooks":
+			err = decoder.Decode(&manifest.Hooks)
+		default:
+			var ignored json.RawMessage
+			err = decoder.Decode(&ignored)
+		}
+		if err != nil {
+			return rawPluginContributionManifest{}, observecontribution.SourceContributionReasonArtifactMalformed
+		}
+	}
+	if err := consumeJSONDelim(decoder, '}'); err != nil || !jsonEOF(decoder) {
+		return rawPluginContributionManifest{}, observecontribution.SourceContributionReasonArtifactMalformed
+	}
+	return manifest, observecontribution.SourceContributionReasonNone
 }
 
 func sourceContributionsFromManifest(
@@ -294,7 +337,11 @@ func hookContributions(
 	artifactIdentity string,
 	raw json.RawMessage,
 ) ([]observecontribution.SourceContribution, observecontribution.SourceContributionReason, error) {
-	if jsonObjectShape(raw) {
+	inline, reason := decodeInlineHookObject(raw)
+	if reason != observecontribution.SourceContributionReasonNone {
+		return nil, reason, nil
+	}
+	if inline {
 		return emitContribution(plugin.budget, observecontribution.SourceContributionHook, "inline", artifactIdentity, true)
 	}
 	paths, reason := decodePathList(raw, plugin.budget)
@@ -387,14 +434,11 @@ func decodeObjectKeys(
 		return nil, observecontribution.SourceContributionReasonUnsupportedShape
 	}
 	keys := []string{}
+	seen := make(map[string]struct{})
 	for decoder.More() {
-		keyToken, err := decoder.Token()
+		key, err := nextUniqueJSONObjectKey(decoder, seen)
 		if err != nil {
-			return nil, observecontribution.SourceContributionReasonUnsupportedShape
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return nil, observecontribution.SourceContributionReasonUnsupportedShape
+			return nil, jsonSkipReason(err)
 		}
 		key = strings.TrimSpace(key)
 		if !observecontribution.ValidSourceToken(key) {
@@ -425,14 +469,11 @@ func decodeReferencedMCPServerKeys(
 	}
 	var mcpServers json.RawMessage
 	found := false
+	seen := make(map[string]struct{})
 	for decoder.More() {
-		keyToken, err := decoder.Token()
+		key, err := nextUniqueJSONObjectKey(decoder, seen)
 		if err != nil {
-			return nil, observecontribution.SourceContributionReasonArtifactMalformed
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return nil, observecontribution.SourceContributionReasonArtifactMalformed
+			return nil, jsonSkipReason(err)
 		}
 		if key == "mcpServers" {
 			if err := decoder.Decode(&mcpServers); err != nil {
@@ -454,34 +495,59 @@ func decodeReferencedMCPServerKeys(
 	return decodeObjectKeys(content, budget)
 }
 
-func jsonObjectShape(raw json.RawMessage) bool {
+func decodeInlineHookObject(
+	raw json.RawMessage,
+) (bool, observecontribution.SourceContributionReason) {
 	decoder := observationJSONDecoder(raw)
-	if err := consumeJSONDelim(decoder, '{'); err != nil {
-		return false
+	opening, err := decoder.Token()
+	if err != nil {
+		return false, observecontribution.SourceContributionReasonArtifactMalformed
 	}
+	if opening != json.Delim('{') {
+		return false, observecontribution.SourceContributionReasonNone
+	}
+	seen := make(map[string]struct{})
 	for decoder.More() {
-		keyToken, err := decoder.Token()
+		key, err := nextUniqueJSONObjectKey(decoder, seen)
 		if err != nil {
-			return false
-		}
-		key, ok := keyToken.(string)
-		if !ok {
-			return false
+			return true, jsonSkipReason(err)
 		}
 		if !observecontribution.ValidSourceToken(strings.TrimSpace(key)) {
-			return false
+			return true, observecontribution.SourceContributionReasonUnsupportedShape
 		}
 		if err := skipJSONValue(decoder, 1); err != nil {
-			return false
+			return true, jsonSkipReason(err)
 		}
 	}
-	return consumeJSONDelim(decoder, '}') == nil && jsonEOF(decoder)
+	if err := consumeJSONDelim(decoder, '}'); err != nil || !jsonEOF(decoder) {
+		return true, observecontribution.SourceContributionReasonArtifactMalformed
+	}
+	return true, observecontribution.SourceContributionReasonNone
 }
 
 func observationJSONDecoder(data []byte) *json.Decoder {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
 	return decoder
+}
+
+func nextUniqueJSONObjectKey(
+	decoder *json.Decoder,
+	seen map[string]struct{},
+) (string, error) {
+	keyToken, err := decoder.Token()
+	if err != nil {
+		return "", err
+	}
+	key, ok := keyToken.(string)
+	if !ok {
+		return "", errJSONShape
+	}
+	if _, duplicate := seen[key]; duplicate {
+		return "", errJSONDuplicate
+	}
+	seen[key] = struct{}{}
+	return key, nil
 }
 
 func skipJSONValue(decoder *json.Decoder, depth int) error {
@@ -498,8 +564,9 @@ func skipJSONValue(decoder *json.Decoder, depth int) error {
 	}
 	switch delimiter {
 	case '{':
+		seen := make(map[string]struct{})
 		for decoder.More() {
-			if _, err := decoder.Token(); err != nil {
+			if _, err := nextUniqueJSONObjectKey(decoder, seen); err != nil {
 				return err
 			}
 			if err := skipJSONValue(decoder, depth+1); err != nil {

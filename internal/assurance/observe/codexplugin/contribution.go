@@ -2,7 +2,6 @@ package codexplugin
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 
@@ -257,13 +256,13 @@ func observeConfiguredPluginContributionResult(
 		), nil
 	}
 
-	var manifest rawPluginContributionManifest
-	if err := json.Unmarshal(content, &manifest); err != nil {
+	manifest, reason := decodePluginContributionManifest(content)
+	if reason != observecontribution.SourceContributionReasonNone {
 		return sourceContributionBlocker(
 			provider,
 			providerLabel,
 			observecontribution.SourceContributionBlocked,
-			observecontribution.SourceContributionReasonArtifactMalformed,
+			reason,
 			artifactIdentity,
 		), nil
 	}
