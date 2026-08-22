@@ -1,6 +1,7 @@
 package mcpcodec
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -117,7 +118,7 @@ func TestMCPNoEnvServerProjectionCanonicalEntriesOwnArgs(t *testing.T) {
 }
 
 func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
-	type extractFunc func([]byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error)
+	type extractFunc func(context.Context, []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error)
 	tests := []struct {
 		name    string
 		content []byte
@@ -136,7 +137,7 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			first, rejections, err := test.extract(test.content)
+			first, rejections, err := test.extract(t.Context(), test.content)
 			if err != nil {
 				t.Fatalf("first extraction: %v", err)
 			}
@@ -145,7 +146,7 @@ func TestMCPNoEnvServerProjectionExtractionOwnsArgs(t *testing.T) {
 			}
 			first[0].Args[0] = "caller-mutated"
 
-			second, rejections, err := test.extract(test.content)
+			second, rejections, err := test.extract(t.Context(), test.content)
 			if err != nil {
 				t.Fatalf("second extraction: %v", err)
 			}

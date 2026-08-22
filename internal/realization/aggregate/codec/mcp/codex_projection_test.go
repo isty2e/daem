@@ -484,7 +484,7 @@ command = "npx"
 headers = { Authorization = "Bearer SECRET_CANARY" }
 `)
 
-	projections, rejections, err := ExtractCodexGlobalMCPServerProjections(existing)
+	projections, rejections, err := ExtractCodexGlobalMCPServerProjections(t.Context(), existing)
 	if err != nil {
 		t.Fatalf("ExtractCodexGlobalMCPServerProjections returned error: %v", err)
 	}
@@ -498,8 +498,8 @@ headers = { Authorization = "Bearer SECRET_CANARY" }
 		t.Fatalf("projections = %#v, want one context7 Codex global projection", projections)
 	}
 	if len(rejections) != 1 ||
-		rejections[0].ContentPath != "/mcp_servers/remote" ||
-		rejections[0].Reason != MCPProjectionReasonUnsupportedManagedField {
+		string(rejections[0].ContentPath()) != "/mcp_servers/remote" ||
+		rejections[0].Reason() != MCPProjectionReasonUnsupportedManagedField {
 		t.Fatalf("rejections = %#v, want remote unsupported managed field", rejections)
 	}
 }
@@ -650,7 +650,7 @@ command = "npx"
 headers = { Authorization = "Bearer SECRET_CANARY" }
 `)
 
-	projections, rejections, err := ExtractCodexProjectMCPServerProjections(existing)
+	projections, rejections, err := ExtractCodexProjectMCPServerProjections(t.Context(), existing)
 	if err != nil {
 		t.Fatalf("ExtractCodexProjectMCPServerProjections returned error: %v", err)
 	}
@@ -661,8 +661,8 @@ headers = { Authorization = "Bearer SECRET_CANARY" }
 		t.Fatalf("projections = %#v, want one context7 Codex projection", projections)
 	}
 	if len(rejections) != 1 ||
-		rejections[0].ContentPath != "/mcp_servers/remote" ||
-		rejections[0].Reason != MCPProjectionReasonUnsupportedManagedField {
+		string(rejections[0].ContentPath()) != "/mcp_servers/remote" ||
+		rejections[0].Reason() != MCPProjectionReasonUnsupportedManagedField {
 		t.Fatalf("rejections = %#v, want remote unsupported managed field", rejections)
 	}
 }

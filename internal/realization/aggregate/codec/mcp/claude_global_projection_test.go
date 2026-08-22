@@ -230,7 +230,7 @@ func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows
     "secret": {"type": "stdio", "command": "npx", "env": {"TOKEN": "SECRET_CANARY"}}
   }
 }`)
-	projections, rejections, err := ExtractClaudeGlobalMCPServerProjections(document)
+	projections, rejections, err := ExtractClaudeGlobalMCPServerProjections(t.Context(), document)
 	if err != nil {
 		t.Fatalf("ExtractClaudeGlobalMCPServerProjections returned error: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestExtractClaudeGlobalMCPServerProjectionsSeparatesAdmittedAndRejectedRows
 
 	projection.Args[0] = "--mutated"
 	projection.Env["API_TOKEN"] = "${MUTATED_TOKEN}"
-	reextracted, _, err := ExtractClaudeGlobalMCPServerProjections(document)
+	reextracted, _, err := ExtractClaudeGlobalMCPServerProjections(t.Context(), document)
 	if err != nil {
 		t.Fatalf("re-extract Claude global projections returned error: %v", err)
 	}
