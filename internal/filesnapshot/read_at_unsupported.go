@@ -1,4 +1,4 @@
-//go:build !darwin && !linux && !freebsd && !netbsd && !openbsd
+//go:build !darwin && !linux && !freebsd && !netbsd && !openbsd && !windows
 
 package filesnapshot
 

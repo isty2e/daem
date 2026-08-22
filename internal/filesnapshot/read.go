@@ -19,6 +19,9 @@ var (
 	ErrLimitExceeded = errors.New("file size limit exceeded")
 	// ErrChanged reports a path or referent that changed during observation.
 	ErrChanged = errors.New("file changed while reading")
+	// ErrPathBlocked reports entry syntax that could escape the one-entry
+	// namespace, such as a Windows alternate data stream selector.
+	ErrPathBlocked = errors.New("file snapshot directory entry path is blocked")
 	// ErrUnsupported reports that this platform cannot bind a directory-entry
 	// snapshot to the retained directory descriptor.
 	ErrUnsupported = errors.New("descriptor-relative file snapshot is unsupported on this platform")
@@ -122,6 +125,19 @@ func ReadRegularFileAtCounted(
 	maximumBytes int64,
 ) (CountedContent, error) {
 	return readRegularFileAtCounted(ctx, dir, name, maximumBytes)
+}
+
+// OpenEntryAt opens one directory entry relative to dir without following a
+// symlink or reparse point. Platforms without a proven retained-directory
+// adapter return ErrUnsupported without reopening dir by pathname.
+func OpenEntryAt(dir *os.File, name string) (*os.File, error) {
+	if dir == nil {
+		return nil, fmt.Errorf("file snapshot directory descriptor is required")
+	}
+	if err := validDirentName(name); err != nil {
+		return nil, err
+	}
+	return openEntryAt(dir, name)
 }
 
 // ReadRegularFileSnapshotContext reads one bounded regular-file snapshot and
