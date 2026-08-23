@@ -180,6 +180,41 @@ func commitWindowsFileWithFaults(
 	if err := ensureWindowsCanonicalMetadataSupported(stageMetadata, canonical.facts); err != nil {
 		return cleanupStage(err, phaseApplyMetadata)
 	}
+	if err := faults.check(ctx, phaseClosePayload); err != nil {
+		return cleanupStage(err, phaseClosePayload)
+	}
+	if err := stage.handle.Close(); err != nil {
+		stage = nil
+		return EntryIdentity{}, classifyWindowsStageReopenFailure(anchor, stageName, stageFacts.identity, request.path, stagePath, err)
+	}
+	stage = nil
+	stage, err = openWindowsRelativeFile(
+		anchor.parentHandle(),
+		stageName,
+		windows.FILE_GENERIC_READ|windows.FILE_READ_EA|windows.READ_CONTROL|windows.DELETE|windows.WRITE_DAC,
+		windowsPublicationShareMode,
+		windows.FILE_OPEN,
+		true,
+	)
+	if err != nil {
+		return EntryIdentity{}, classifyWindowsStageReopenFailure(anchor, stageName, stageFacts.identity, request.path, stagePath, err)
+	}
+	reopenedFacts, factsErr := queryWindowsEntryFacts(stage.handle.Handle())
+	reopenedMetadata, metadataErr := queryWindowsMetadataFacts(stage.handle.Handle())
+	if factsErr != nil || metadataErr != nil || !stageFacts.identity.equal(reopenedFacts.identity) ||
+		reopenedFacts.standard.directory || reopenedFacts.standard.endOfFile != int64(len(request.payload)) {
+		return cleanupStage(
+			errors.Join(factsErr, metadataErr, fmt.Errorf("reopened Windows file stage changed after payload close")),
+			phaseRevalidateEntry,
+		)
+	}
+	if err := validateWindowsCanonicalEntryAttributes(reopenedFacts.attribute.attributes, false); err != nil {
+		return cleanupStage(err, phaseApplyMetadata)
+	}
+	if err := ensureWindowsCanonicalMetadataSupported(reopenedMetadata, canonical.facts); err != nil {
+		return cleanupStage(err, phaseApplyMetadata)
+	}
+	stageFacts = reopenedFacts
 	if err := faults.check(ctx, phaseRevalidateEntry); err != nil {
 		return cleanupStage(err, phaseRevalidateEntry)
 	}
@@ -393,6 +428,32 @@ func cleanupWindowsFileStage(
 		failures = append(failures, err)
 	}
 	return errors.Join(failures...)
+}
+
+func classifyWindowsStageReopenFailure(
+	anchor *windowsDestinationAnchor,
+	stageName string,
+	expected windowsEntryIdentityNative,
+	path string,
+	stagePath string,
+	cause error,
+) error {
+	observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+	if observeErr == nil && observed.exists && expected.sameObject(observed.identity) {
+		return newFailure(
+			failureRetainedResidue,
+			phaseClosePayload,
+			path,
+			errors.Join(cause, observeErr),
+			stagePath,
+		)
+	}
+	return newFailure(
+		failureIndeterminateCommit,
+		phaseClosePayload,
+		path,
+		errors.Join(cause, observeErr),
+	)
 }
 
 func observeWindowsRenameFailure(

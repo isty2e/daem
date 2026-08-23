@@ -94,6 +94,7 @@ func TestWindowsFileCommitFaultClassification(t *testing.T) {
 		phaseWritePayload,
 		phaseSyncPayload,
 		phaseCaptureMetadata,
+		phaseClosePayload,
 		phaseRevalidateEntry,
 		phaseCommitEntry,
 	} {
