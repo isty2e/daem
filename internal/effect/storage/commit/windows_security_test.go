@@ -195,7 +195,6 @@ func TestWindowsCanonicalSecurityFactRejections(t *testing.T) {
 		mutate func(*windowsSecurityFacts)
 	}{
 		{name: "foreign owner", mutate: func(facts *windowsSecurityFacts) { facts.ownerSID = "S-1-5-18" }},
-		{name: "auto inherited", mutate: func(facts *windowsSecurityFacts) { facts.control |= windows.SE_DACL_AUTO_INHERITED }},
 		{name: "null DACL", mutate: func(facts *windowsSecurityFacts) { facts.daclNull = true }},
 		{name: "non-allow ACE", mutate: func(facts *windowsSecurityFacts) { facts.dacl.aces[0].type_ = windows.ACCESS_DENIED_ACE_TYPE }},
 		{name: "inherited ACE", mutate: func(facts *windowsSecurityFacts) { facts.dacl.aces[0].flags = windows.INHERITED_ACE }},

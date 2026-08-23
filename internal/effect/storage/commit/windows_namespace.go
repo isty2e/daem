@@ -11,6 +11,13 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var windowsNtSetInformationFile = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtSetInformationFile")
+
+const (
+	windowsFileDispositionInformationExClass = 64
+	windowsFileRenameInformationExClass      = 65
+)
+
 type windowsRenameMode uint8
 
 const (
@@ -67,11 +74,10 @@ func setWindowsRenameInformationEx(
 	if err != nil {
 		return err
 	}
-	return windows.SetFileInformationByHandle(
+	return setWindowsNativeFileInformation(
 		source,
-		windows.FileRenameInfoEx,
-		&buffer[0],
-		uint32(len(buffer)),
+		buffer,
+		windowsFileRenameInformationExClass,
 	)
 }
 
@@ -142,11 +148,11 @@ func disposeWindowsByHandle(handle windows.Handle, ignoreReadOnly bool) (windows
 		Flags uint32
 	}
 	binary.LittleEndian.PutUint32((*[4]byte)(unsafe.Pointer(&ex))[:], flags)
-	if err := windows.SetFileInformationByHandle(
+	buffer := unsafe.Slice((*byte)(unsafe.Pointer(&ex)), int(unsafe.Sizeof(ex)))
+	if err := setWindowsNativeFileInformation(
 		handle,
-		windows.FileDispositionInfoEx,
-		(*byte)(unsafe.Pointer(&ex)),
-		uint32(unsafe.Sizeof(ex)),
+		buffer,
+		windowsFileDispositionInformationExClass,
 	); err != nil {
 		if windowsDispositionCompatibilityError(err) {
 			return 0, windowsNativeUnsupported(
@@ -162,4 +168,26 @@ func disposeWindowsByHandle(handle windows.Handle, ignoreReadOnly bool) (windows
 
 func windowsDispositionCompatibilityError(err error) bool {
 	return windowsRenameCompatibilityError(err)
+}
+
+func setWindowsNativeFileInformation(
+	handle windows.Handle,
+	buffer []byte,
+	class uint32,
+) error {
+	if len(buffer) == 0 {
+		return fmt.Errorf("Windows native file-information buffer is empty")
+	}
+	var statusBlock windows.IO_STATUS_BLOCK
+	result, _, _ := windowsNtSetInformationFile.Call(
+		uintptr(handle),
+		uintptr(unsafe.Pointer(&statusBlock)),
+		uintptr(unsafe.Pointer(&buffer[0])),
+		uintptr(len(buffer)),
+		uintptr(class),
+	)
+	if result != 0 {
+		return windows.NTStatus(result)
+	}
+	return nil
 }

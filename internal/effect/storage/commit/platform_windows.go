@@ -39,7 +39,11 @@ func CaptureEntryIdentity(ctx context.Context, path string) (EntryIdentity, erro
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
 	}
 	defer capability.Close()
-	return captureWindowsEntryIdentity(ctx, capability, false)
+	identity, err := captureWindowsEntryIdentity(ctx, capability, false)
+	if err == nil {
+		identity.path = path
+	}
+	return identity, err
 }
 
 // CaptureRootedEntryIdentity captures a no-follow final entry without consuming
@@ -137,6 +141,7 @@ func ReadRegularFileSnapshotUpTo(
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
+	identity.path = path
 	return mutationfs.NewRegularFileSnapshot(content, mode, identity)
 }
 
@@ -158,7 +163,7 @@ func SnapshotDirectory(
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
 	}
 	defer capability.Close()
-	return snapshotWindowsDirectoryEntries(ctx, capability, maximumEntries)
+	return snapshotWindowsDirectoryEntries(ctx, capability, path, maximumEntries)
 }
 
 // ReadRootedRegularFile returns content, canonical mode, and identity without
@@ -232,7 +237,7 @@ func SnapshotRootedDirectoryEntries(
 	capability rootedpath.CommitCapability,
 	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
-	return snapshotWindowsDirectoryEntries(ctx, capability, maximumEntries)
+	return snapshotWindowsDirectoryEntries(ctx, capability, "", maximumEntries)
 }
 
 // CommitFile publishes one private, flushed Windows file stage through an

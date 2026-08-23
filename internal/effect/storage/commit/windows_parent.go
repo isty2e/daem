@@ -178,7 +178,7 @@ func prepareWindowsCommitParent(
 				component,
 				windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 					windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
-				windowsPublicationShareMode,
+				windowsParentShareMode,
 				true,
 				privateSecurity.descriptor,
 			)

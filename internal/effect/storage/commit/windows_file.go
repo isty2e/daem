@@ -17,6 +17,7 @@ const maximumWindowsTemporaryNameAttempts = 16
 
 func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, error) {
 	capability := request.capability
+	rootedRequest := capability != nil
 	if capability != nil {
 		defer capability.Close()
 	}
@@ -51,8 +52,10 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 		}
 		defer capability.Close()
 	}
-	if err := validateRootedCapability(request.path, capability); err != nil {
-		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, err)
+	if rootedRequest {
+		if err := validateRootedCapability(request.path, capability); err != nil {
+			return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, err)
+		}
 	}
 	anchor, err := openWindowsDestinationAnchor(ctx, capability, true)
 	if anchor != nil {

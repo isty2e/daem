@@ -25,8 +25,6 @@ const windowsSecurityControlMask = windows.SE_OWNER_DEFAULTED |
 	windows.SE_GROUP_DEFAULTED |
 	windows.SE_DACL_PRESENT |
 	windows.SE_DACL_DEFAULTED |
-	windows.SE_DACL_AUTO_INHERIT_REQ |
-	windows.SE_DACL_AUTO_INHERITED |
 	windows.SE_DACL_PROTECTED |
 	windows.SE_SELF_RELATIVE
 
@@ -104,8 +102,6 @@ func validateWindowsCanonicalSecurityFacts(actual, expected windowsSecurityFacts
 	}
 	if actual.control&windows.SE_DACL_PROTECTED == 0 ||
 		actual.control&windows.SE_DACL_DEFAULTED != 0 ||
-		actual.control&windows.SE_DACL_AUTO_INHERIT_REQ != 0 ||
-		actual.control&windows.SE_DACL_AUTO_INHERITED != 0 ||
 		actual.ownerDefaulted || actual.groupDefaulted || actual.daclDefaulted {
 		return windowsNativeUnsupported(windowsNativePhaseSecurity, "security descriptor is inherited or defaulted", nil)
 	}

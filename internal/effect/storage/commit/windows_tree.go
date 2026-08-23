@@ -136,7 +136,7 @@ func PrepareRootedTreeWithLimits(
 		stageName,
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
-		windowsPublicationShareMode,
+		windowsParentShareMode,
 		true,
 		privateSecurity.descriptor,
 	)
@@ -245,7 +245,7 @@ func (writer *rootedTreeWriterWindows) CreateDirectory(path mutationfs.TreeRelat
 		name,
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
-		windowsPublicationShareMode,
+		windowsParentShareMode,
 		true,
 		security.descriptor,
 	)
@@ -300,7 +300,7 @@ func (writer *rootedTreeWriterWindows) WriteFile(
 		name,
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_GENERIC_EXECUTE|windows.FILE_READ_EA|
 			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
-		windowsPublicationShareMode,
+		windowsParentShareMode,
 		true,
 		security.descriptor,
 	)

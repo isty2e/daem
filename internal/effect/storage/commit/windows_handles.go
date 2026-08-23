@@ -94,6 +94,7 @@ func openWindowsRelativeChildWithSecurity(
 	if parent == 0 || parent == windows.InvalidHandle {
 		return nil, fmt.Errorf("Windows parent handle is required")
 	}
+	access |= windows.SYNCHRONIZE
 	component, err := parseWindowsComponent(name)
 	if err != nil {
 		return nil, err

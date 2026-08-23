@@ -17,6 +17,7 @@ import (
 func snapshotWindowsDirectoryEntries(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
+	diagnosticPath string,
 	maximumEntries int,
 ) (mutationfs.DirectorySnapshot, error) {
 	if maximumEntries <= 0 {
@@ -25,6 +26,9 @@ func snapshotWindowsDirectoryEntries(
 	path, err := rootedCapabilityPath(capability)
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, err
+	}
+	if diagnosticPath != "" {
+		path = diagnosticPath
 	}
 	anchor, err := openWindowsDestinationAnchor(ctx, capability, false)
 	if anchor != nil {
@@ -40,6 +44,7 @@ func snapshotWindowsDirectoryEntries(
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
 	}
+	root.identity.path = path
 	if root.identity.kind == entryKindSymlink {
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, rootedFinalSymlinkFailure(path))
 	}
