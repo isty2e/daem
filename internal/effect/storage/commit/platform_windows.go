@@ -212,6 +212,9 @@ func readWindowsRegularFile(
 	if observed.identity.kind != entryKindRegular {
 		return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("entry is not a regular file"))
 	}
+	if err := validateWindowsCanonicalEntryAttributes(observed.facts.attribute.attributes, false); err != nil {
+		return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, path, err)
+	}
 	content, err := readWindowsPayloadUpTo(ctx, observed.handle.Handle(), maximumBytes)
 	if err != nil {
 		return nil, 0, EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)

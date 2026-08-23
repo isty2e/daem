@@ -152,9 +152,12 @@ func openWindowsRelativeChildWithSecurity(
 		return nil, fmt.Errorf("Windows relative-open entry kind is invalid")
 	}
 	options |= windowsWriteThroughOption(writeThrough)
-	attributesOnCreate := uint32(windows.FILE_ATTRIBUTE_NORMAL)
-	if kind == windowsRelativeDirectory {
-		attributesOnCreate = windows.FILE_ATTRIBUTE_DIRECTORY
+	attributesOnCreate := uint32(0)
+	if disposition != windows.FILE_OPEN {
+		attributesOnCreate = windows.FILE_ATTRIBUTE_NORMAL
+		if kind == windowsRelativeDirectory {
+			attributesOnCreate = windows.FILE_ATTRIBUTE_DIRECTORY
+		}
 	}
 	var handle windows.Handle
 	if err := windows.NtCreateFile(

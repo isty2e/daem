@@ -68,6 +68,9 @@ func snapshotWindowsRootedDirectory(
 	if root.identity.kind != entryKindDirectory {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("entry is not a directory"))
 	}
+	if err := validateWindowsCanonicalEntryAttributes(root.facts.attribute.attributes, true); err != nil {
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, path, err)
+	}
 	budget, err := newTreeTraversalBudget(limits)
 	if err != nil {
 		return EntryIdentity{}, err
@@ -155,6 +158,10 @@ func snapshotWindowsDirectoryRecursive(
 		if !entry.identity.equal(facts.identity) || windowsEntryKindFromFacts(facts) != kind {
 			_ = opened.handle.Close()
 			return fmt.Errorf("rooted tree entry changed while opening %q", entryPath)
+		}
+		if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, kind == entryKindDirectory); err != nil {
+			_ = opened.handle.Close()
+			return err
 		}
 		mode, err := windowsCanonicalModeFromSecurity(metadata.security)
 		if err != nil {

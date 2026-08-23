@@ -170,7 +170,9 @@ func prepareWindowsCommitParent(
 			false,
 		)
 		created := false
+		attemptedCreate := false
 		if openErr != nil && windowsNativeErrorClassOf(openErr) == windowsNativeErrorNotFound {
+			attemptedCreate = true
 			opened, openErr = createWindowsRelativeDirectory(
 				parentHandle,
 				component,
@@ -183,22 +185,33 @@ func prepareWindowsCommitParent(
 			created = openErr == nil
 		}
 		if openErr != nil {
-			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, windowsUnsupportedCause(openErr))
+			if attemptedCreate {
+				observed, observeErr := observeWindowsEntryAt(parentHandle, component)
+				if observed.exists || observeErr != nil {
+					return newFailure(
+						failureIndeterminateCommit,
+						phaseCreateAncestors,
+						path,
+						errors.Join(openErr, observeErr),
+						currentPath,
+					)
+				}
+			}
+			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, openErr)
 		}
 		facts, factsErr := queryWindowsEntryFacts(opened.handle.Handle())
 		if factsErr != nil || !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			_ = opened.handle.Close()
-			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, errors.Join(factsErr, fmt.Errorf("commit ancestor is not a non-reparse directory")))
+			cause := errors.Join(factsErr, fmt.Errorf("commit ancestor is not a non-reparse directory"))
+			if created {
+				return newFailure(failureIndeterminateCommit, phaseCreateAncestors, path, cause, currentPath)
+			}
+			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, cause)
 		}
 		if created {
-			metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
-			if metadataErr != nil {
+			if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
 				_ = opened.handle.Close()
-				return windowsFailureBeforeVisibility(phaseApplyMetadata, path, metadataErr)
-			}
-			if err := ensureWindowsCanonicalMetadataSupported(metadata, privateSecurity.facts); err != nil {
-				_ = opened.handle.Close()
-				return windowsFailureBeforeVisibility(phaseApplyMetadata, path, err)
+				return newFailure(failureIndeterminateCommit, phaseApplyMetadata, path, err, currentPath)
 			}
 			parentCopy, copyErr := duplicateWindowsOwnedHandle(parentHandle)
 			handleCopy, handleErr := duplicateWindowsOwnedHandle(opened.handle.Handle())
@@ -206,7 +219,13 @@ func prepareWindowsCommitParent(
 				_ = parentCopy.Close()
 				_ = handleCopy.Close()
 				_ = opened.handle.Close()
-				return windowsFailureBeforeVisibility(phaseCreateAncestors, path, errors.Join(copyErr, handleErr))
+				return newFailure(
+					failureIndeterminateCommit,
+					phaseCreateAncestors,
+					path,
+					errors.Join(copyErr, handleErr),
+					currentPath,
+				)
 			}
 			state.directories = append(state.directories, windowsCreatedDirectory{
 				path: currentPath,
@@ -219,6 +238,15 @@ func prepareWindowsCommitParent(
 				parent: parentCopy,
 				handle: handleCopy,
 			})
+			metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
+			if metadataErr != nil {
+				_ = opened.handle.Close()
+				return newFailure(failureRetainedResidue, phaseApplyMetadata, path, metadataErr, currentPath)
+			}
+			if err := ensureWindowsCanonicalMetadataSupported(metadata, privateSecurity.facts); err != nil {
+				_ = opened.handle.Close()
+				return newFailure(failureRetainedResidue, phaseApplyMetadata, path, err, currentPath)
+			}
 			if err := flushWindowsHandle(parentHandle, windowsFlushPolicy{directory: true}); err != nil {
 				_ = opened.handle.Close()
 				return newFailure(failureIndeterminateCommit, phaseSyncAncestors, path, err, currentPath)

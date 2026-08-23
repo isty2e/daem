@@ -21,10 +21,14 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 		defer capability.Close()
 	}
 	if ctx == nil {
-		return EntryIdentity{}, fmt.Errorf("file commit context is required")
+		return EntryIdentity{}, windowsFailureBeforeVisibility(
+			phaseValidate,
+			request.path,
+			fmt.Errorf("file commit context is required"),
+		)
 	}
 	if err := ctx.Err(); err != nil {
-		return EntryIdentity{}, err
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, err)
 	}
 	if err := validateCommitPath(request.path); err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseValidate, request.path, err)
@@ -77,7 +81,18 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	}
 	stageName, stage, err := createWindowsFileStage(anchor, canonical)
 	if err != nil {
-		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCreateTemporary, request.path, windowsUnsupportedCause(err))
+		if stageName != "" {
+			observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+			if observed.exists || observeErr != nil {
+				return EntryIdentity{}, newFailure(
+					failureIndeterminateCommit,
+					phaseCreateTemporary,
+					request.path,
+					errors.Join(err, observeErr),
+				)
+			}
+		}
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCreateTemporary, request.path, err)
 	}
 	stagePath := filepath.Join(filepath.Dir(request.path), stageName)
 	defer func() {
@@ -87,15 +102,30 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	}()
 
 	cleanupStage := func(primary error, failedPhase phase) (EntryIdentity, error) {
+		stageIdentity := windowsEntryIdentityNative{}
+		if stage != nil && stage.handle != nil {
+			if facts, factsErr := queryWindowsEntryFacts(stage.handle.Handle()); factsErr == nil {
+				stageIdentity = facts.identity
+			}
+		}
 		cleanupErr := cleanupWindowsFileStage(anchor, stageName, stage)
 		stage = nil
 		if cleanupErr != nil {
+			observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+			if observeErr == nil && observed.exists && stageIdentity.sameObject(observed.identity) {
+				return EntryIdentity{}, newFailure(
+					failureRetainedResidue,
+					failedPhase,
+					request.path,
+					errors.Join(primary, cleanupErr),
+					stagePath,
+				)
+			}
 			return EntryIdentity{}, newFailure(
-				failureRetainedResidue,
+				failureIndeterminateCommit,
 				failedPhase,
 				request.path,
-				errors.Join(primary, cleanupErr),
-				stagePath,
+				errors.Join(primary, cleanupErr, observeErr),
 			)
 		}
 		return EntryIdentity{}, windowsFailureBeforeVisibility(failedPhase, request.path, windowsUnsupportedCause(primary))
@@ -185,6 +215,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 			fmt.Errorf("published Windows file does not match its private stage"),
 		)
 	}
+	if err := validateWindowsCanonicalEntryAttributes(publishedFacts.attribute.attributes, false); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
 	if err := ensureWindowsCanonicalMetadataSupported(publishedMetadata, canonical.facts); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
@@ -268,7 +301,7 @@ func createWindowsFileStage(
 			return name, opened, nil
 		}
 		if windowsNativeErrorClassOf(err) != windowsNativeErrorCollision {
-			return "", nil, err
+			return name, nil, err
 		}
 	}
 	return "", nil, fmt.Errorf("cannot allocate a unique Windows file stage name")
@@ -328,6 +361,7 @@ func observeWindowsRenameFailure(
 		windows.FILE_OPEN,
 		false,
 	)
+	destinationStable := false
 	if destinationErr == nil {
 		facts, factsErr := queryWindowsEntryFacts(destination.handle.Handle())
 		closeErr := destination.handle.Close()
@@ -337,13 +371,11 @@ func observeWindowsRenameFailure(
 		if stageIdentity.sameObject(facts.identity) {
 			return true, false, nil
 		}
-		if existing == nil || !existing.facts.identity.equal(facts.identity) {
-			return false, false, nil
-		}
+		destinationStable = existing == nil || existing.facts.identity.equal(facts.identity)
 	} else if windowsNativeErrorClassOf(destinationErr) != windowsNativeErrorNotFound {
 		return false, false, destinationErr
-	} else if existing != nil {
-		return false, false, nil
+	} else {
+		destinationStable = existing == nil
 	}
 	stage, stageErr := openWindowsRelativeEntry(
 		anchor.parentHandle(),
@@ -361,7 +393,7 @@ func observeWindowsRenameFailure(
 	if factsErr != nil || closeErr != nil {
 		return false, false, joinWindowsErrors(factsErr, closeErr)
 	}
-	return false, stageIdentity.equal(facts.identity), nil
+	return false, destinationStable && stageIdentity.equal(facts.identity), nil
 }
 
 func newWindowsPrivateName(prefix string) (string, error) {

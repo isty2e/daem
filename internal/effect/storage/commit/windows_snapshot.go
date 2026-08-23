@@ -46,6 +46,9 @@ func snapshotWindowsDirectoryEntries(
 	if root.identity.kind != entryKindDirectory {
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("entry is not a directory"))
 	}
+	if err := validateWindowsCanonicalEntryAttributes(root.facts.attribute.attributes, true); err != nil {
+		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, path, err)
+	}
 
 	first, err := enumerateWindowsDirectoryOnce(ctx, root.handle.Handle(), maximumEntries)
 	if err != nil {
@@ -96,6 +99,11 @@ func snapshotWindowsDirectoryEntries(
 			return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, filepath.Join(path, entry.name), err)
 		}
 		kind := windowsEntryKindFromFacts(facts)
+		if kind == entryKindRegular || kind == entryKindDirectory {
+			if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, kind == entryKindDirectory); err != nil {
+				return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureMetadata, filepath.Join(path, entry.name), err)
+			}
+		}
 		size := facts.standard.endOfFile
 		if kind != entryKindRegular || size < 0 {
 			size = 0

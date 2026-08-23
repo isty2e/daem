@@ -84,6 +84,13 @@ func readWindowsLinkTarget(handle windows.Handle) (string, error) {
 	if len(data) < metadataSize {
 		return "", windowsNativeUnsupported(windowsNativePhaseRead, "reparse link metadata is truncated", nil)
 	}
+	if tag == windows.IO_REPARSE_TAG_SYMLINK {
+		const relativeFlag = uint32(1)
+		flags := binary.LittleEndian.Uint32(data[8:12])
+		if flags&^relativeFlag != 0 {
+			return "", windowsNativeUnsupported(windowsNativePhaseRead, "symbolic-link flags are unsupported", nil)
+		}
+	}
 	substitute, err := decodeWindowsReparseSpan(
 		data,
 		metadataSize,
@@ -102,13 +109,19 @@ func readWindowsLinkTarget(handle windows.Handle) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if printName != "" {
-		return printName, nil
+	target := printName
+	if target == "" {
+		target = substitute
+		if strings.HasPrefix(target, `\??\UNC\`) {
+			target = `\\` + strings.TrimPrefix(target, `\??\UNC\`)
+		} else {
+			target = strings.TrimPrefix(target, `\??\`)
+		}
 	}
-	if strings.HasPrefix(substitute, `\??\UNC\`) {
-		return `\\` + strings.TrimPrefix(substitute, `\??\UNC\`), nil
+	if target == "" {
+		return "", windowsNativeUnsupported(windowsNativePhaseRead, "reparse link target is empty", nil)
 	}
-	return strings.TrimPrefix(substitute, `\??\`), nil
+	return target, nil
 }
 
 func decodeWindowsReparseSpan(data []byte, pathOffset int, offset uint16, length uint16) (string, error) {

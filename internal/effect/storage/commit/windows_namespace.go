@@ -40,9 +40,9 @@ func renameWindowsByHandle(
 	if mode != windowsRenameNoReplace && mode != windowsRenameReplace {
 		return 0, fmt.Errorf("Windows rename mode is invalid")
 	}
-	flags := uint32(windows.FILE_RENAME_POSIX_SEMANTICS)
+	flags := uint32(0)
 	if mode == windowsRenameReplace {
-		flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS
+		flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS
 	}
 	if err := setWindowsRenameInformationEx(source, parent, component, flags); err != nil {
 		if windowsRenameCompatibilityError(err) {
@@ -63,7 +63,10 @@ func setWindowsRenameInformationEx(
 	component windowsComponent,
 	flags uint32,
 ) error {
-	buffer := windowsRenameInformationBuffer(component, flags, parent)
+	buffer, err := windowsRenameInformationBuffer(component, flags, parent)
+	if err != nil {
+		return err
+	}
 	return windows.SetFileInformationByHandle(
 		source,
 		windows.FileRenameInfoEx,
@@ -76,20 +79,23 @@ func windowsRenameInformationBuffer(
 	component windowsComponent,
 	flags uint32,
 	parent windows.Handle,
-) []byte {
+) ([]byte, error) {
 	units := component.utf16()
+	if len(units) >= windows.MAX_PATH {
+		return nil, fmt.Errorf("Windows rename component exceeds FILE_RENAME_INFORMATION_EX capacity")
+	}
 	pointerSize := int(unsafe.Sizeof(parent))
 	rootOffset := alignWindowsOffset(4, pointerSize)
 	lengthOffset := rootOffset + pointerSize
 	nameOffset := lengthOffset + 4
-	buffer := make([]byte, nameOffset+len(units)*2)
+	buffer := make([]byte, nameOffset+windows.MAX_PATH*2)
 	binary.LittleEndian.PutUint32(buffer[0:4], flags)
 	putWindowsHandle(buffer[rootOffset:rootOffset+pointerSize], parent)
 	binary.LittleEndian.PutUint32(buffer[lengthOffset:lengthOffset+4], uint32(len(units)*2))
 	for index, unit := range units {
 		binary.LittleEndian.PutUint16(buffer[nameOffset+index*2:], unit)
 	}
-	return buffer
+	return buffer, nil
 }
 
 func putWindowsHandle(buffer []byte, handle windows.Handle) {

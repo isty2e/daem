@@ -121,7 +121,10 @@ func TestWindowsRenameInformationBuffers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	buffer := windowsRenameInformationBuffer(component, windows.FILE_RENAME_REPLACE_IF_EXISTS, windows.Handle(0x1234))
+	buffer, err := windowsRenameInformationBuffer(component, windows.FILE_RENAME_REPLACE_IF_EXISTS, windows.Handle(0x1234))
+	if err != nil {
+		t.Fatal(err)
+	}
 	pointerSize := int(unsafeSizeofWindowsHandle())
 	rootOffset := alignWindowsOffset(4, pointerSize)
 	lengthOffset := rootOffset + pointerSize
@@ -132,8 +135,12 @@ func TestWindowsRenameInformationBuffers(t *testing.T) {
 	if binary.LittleEndian.Uint32(buffer[lengthOffset:lengthOffset+4]) != uint32(len(component.units)*2) {
 		t.Fatalf("rename name length = %d", binary.LittleEndian.Uint32(buffer[lengthOffset:lengthOffset+4]))
 	}
-	if got := buffer[nameOffset:]; !bytes.Equal(got, utf16Bytes(component.units)) {
-		t.Fatalf("rename UTF-16 payload = %x, want %x", got, utf16Bytes(component.units))
+	wantName := utf16Bytes(component.units)
+	if got := buffer[nameOffset : nameOffset+len(wantName)]; !bytes.Equal(got, wantName) {
+		t.Fatalf("rename UTF-16 payload = %x, want %x", got, wantName)
+	}
+	if tail := buffer[nameOffset+len(wantName):]; !allZeroBytes(tail) {
+		t.Fatalf("rename buffer tail is not zero-filled: %x", tail)
 	}
 }
 
@@ -607,8 +614,7 @@ func skipWindowsNativeCapability(t *testing.T, err error) {
 
 func windowsNativeFeatureUnavailable(err error) bool {
 	if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) || errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		errors.Is(err, windows.ERROR_NOT_SUPPORTED) || errors.Is(err, windows.ERROR_INVALID_FUNCTION) ||
-		errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+		errors.Is(err, windows.ERROR_NOT_SUPPORTED) || errors.Is(err, windows.ERROR_INVALID_FUNCTION) {
 		return true
 	}
 	var status windows.NTStatus

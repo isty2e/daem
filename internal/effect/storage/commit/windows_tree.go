@@ -261,6 +261,9 @@ func (writer *rootedTreeWriterWindows) CreateDirectory(path mutationfs.TreeRelat
 	if !facts.standard.directory {
 		return fmt.Errorf("prepared Windows directory is not a directory")
 	}
+	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
+		return err
+	}
 	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
 		return err
 	}
@@ -330,6 +333,9 @@ func (writer *rootedTreeWriterWindows) WriteFile(
 	}
 	if facts.standard.directory || facts.standard.endOfFile != written {
 		return fmt.Errorf("prepared Windows file size changed during staging")
+	}
+	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, false); err != nil {
+		return err
 	}
 	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
 		return err
@@ -421,6 +427,7 @@ func copyWindowsPreparedFile(
 	}
 	buffer := make([]byte, windowsPayloadChunkSize)
 	var written int64
+	zeroReads := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return written, err
@@ -432,6 +439,7 @@ func copyWindowsPreparedFile(
 		}
 		count, readErr := reader.Read(buffer[:limit])
 		if count > 0 {
+			zeroReads = 0
 			if int64(count) > remaining {
 				return written, fmt.Errorf("prepared tree exceeds %d regular-file bytes", maximumBytes)
 			}
@@ -447,7 +455,10 @@ func copyWindowsPreparedFile(
 			return written, readErr
 		}
 		if count == 0 {
-			return written, io.ErrNoProgress
+			zeroReads++
+			if zeroReads >= 100 {
+				return written, io.ErrNoProgress
+			}
 		}
 	}
 }

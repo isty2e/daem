@@ -120,6 +120,12 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 	if _, err := canonicalWindowsDACLGrammar(0o600, "foreign", groupSID, everyoneSID); err == nil {
 		t.Fatal("malformed owner SID unexpectedly succeeded")
 	}
+	if err := validateWindowsCanonicalFileMode(0o400); err == nil {
+		t.Fatal("read-only file mode unexpectedly entered the recoverable Windows profile")
+	}
+	if err := validateWindowsCanonicalDirectoryMode(0o500); err == nil {
+		t.Fatal("write-disabled directory mode unexpectedly entered the durable Windows profile")
+	}
 }
 
 func TestWindowsCanonicalDACLGrammarRoundTrip(t *testing.T) {
@@ -232,7 +238,7 @@ func TestWindowsCanonicalSecurityNativeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := validateWindowsCanonicalSecurityFacts(created, initial.facts); err != nil {
-		t.Fatalf("creation-time canonical security: %v", err)
+		t.Fatalf("creation-time canonical security: %v\nactual: %#v\nexpected: %#v", err, created, initial.facts)
 	}
 
 	for _, mode := range []fs.FileMode{0o600, 0o644} {

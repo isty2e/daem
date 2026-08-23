@@ -175,7 +175,7 @@ func classifyWindowsNativeError(err error) windowsNativeErrorClass {
 	if errors.Is(err, windows.ERROR_SHARING_VIOLATION) || errors.Is(err, windows.ERROR_LOCK_VIOLATION) {
 		return windowsNativeErrorSharing
 	}
-	if errors.Is(err, windows.ERROR_INVALID_FUNCTION) || errors.Is(err, windows.ERROR_INVALID_PARAMETER) ||
+	if errors.Is(err, windows.ERROR_INVALID_FUNCTION) ||
 		errors.Is(err, windows.ERROR_NOT_SUPPORTED) || errors.Is(err, windows.ERROR_CALL_NOT_IMPLEMENTED) ||
 		errors.Is(err, windows.ERROR_EAS_NOT_SUPPORTED) {
 		return windowsNativeErrorUnsupported
