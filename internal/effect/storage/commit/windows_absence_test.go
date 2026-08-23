@@ -55,35 +55,65 @@ func TestWindowsRootedAbsenceAdmitsPathOnlyBudget(t *testing.T) {
 
 func TestWindowsRootedAbsenceUsesFourCompletePathObservations(t *testing.T) {
 	rootPath := t.TempDir()
+	calibrationBudget := &windowsAbsenceRecordingBudget{}
+	calibration := acquireWindowsBoundedAbsenceCapability(t, rootPath, "missing/nested", calibrationBudget)
+	beforeOpen := calibrationBudget.pathCharges
+	rootFile, err := calibration.OpenRootDirectoryForMutation()
+	if err != nil {
+		_ = calibration.Close()
+		t.Fatal(err)
+	}
+	perOpen := calibrationBudget.pathCharges - beforeOpen
+	if err := rootFile.Close(); err != nil {
+		_ = calibration.Close()
+		t.Fatal(err)
+	}
+	if err := calibration.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	budget := &windowsAbsenceRecordingBudget{}
 	capability := acquireWindowsBoundedAbsenceCapability(t, rootPath, "missing/nested", budget)
-	before := len(budget.physicalCharges)
+	before := budget.pathCharges
 	if _, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability); err != nil {
 		t.Fatal(err)
 	}
-	charges := budget.physicalCharges[before:]
-	if len(charges) != 4 {
-		t.Fatalf("absence physical observations = %d, want 4: %v", len(charges), charges)
-	}
-	for index, charge := range charges {
-		if charge != 2 {
-			t.Fatalf("absence observation %d path components = %d, want 2", index, charge)
-		}
+	charged := budget.pathCharges - before
+	if charged != 4*perOpen {
+		t.Fatalf("absence path work = %d components, want four root opens of %d", charged, perOpen)
 	}
 }
 
 func TestWindowsRootedAbsencePreservesCallerCancellationBetweenPasses(t *testing.T) {
 	rootPath := t.TempDir()
+	calibrationBudget := &windowsAbsenceRecordingBudget{}
+	calibration := acquireWindowsBoundedAbsenceCapability(t, rootPath, "missing/nested", calibrationBudget)
+	beforeOpen := calibrationBudget.pathCharges
+	rootFile, err := calibration.OpenRootDirectoryForMutation()
+	if err != nil {
+		_ = calibration.Close()
+		t.Fatal(err)
+	}
+	perOpen := calibrationBudget.pathCharges - beforeOpen
+	if err := rootFile.Close(); err != nil {
+		_ = calibration.Close()
+		t.Fatal(err)
+	}
+	if err := calibration.Close(); err != nil {
+		t.Fatal(err)
+	}
+
 	ctx, cancel := context.WithCancel(t.Context())
-	budget := &windowsAbsenceRecordingBudget{cancelAt: 2, cancel: cancel}
+	budget := &windowsAbsenceRecordingBudget{}
 	capability := acquireWindowsBoundedAbsenceCapability(t, rootPath, "missing/nested", budget)
-	before := len(budget.physicalCharges)
-	_, err := ConfirmRootedEntryAbsentWithOutcome(ctx, capability)
+	before := budget.pathCharges
+	faults := faultPlan{actions: map[phase]func(){phaseSyncCleanupParent: cancel}}
+	err = confirmWindowsRootedAbsenceWithFaults(ctx, capability, faults)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("absence cancellation error = %v, want context.Canceled", err)
 	}
-	if got := len(budget.physicalCharges[before:]); got != 2 {
-		t.Fatalf("absence observations before cancellation = %d, want 2", got)
+	if got := budget.pathCharges - before; got != perOpen {
+		t.Fatalf("absence observations before cancellation charged %d components, want one root open of %d", got, perOpen)
 	}
 }
 

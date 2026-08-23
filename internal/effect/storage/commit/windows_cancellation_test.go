@@ -41,11 +41,11 @@ func TestWindowsLogicalRemovalAdmitsPreEffectCancellationAsUncommitted(t *testin
 		_ = capability.Close()
 		t.Fatal(err)
 	}
-	request, err := NewLogicalRemoval(target, expected)
+	_ = capability.Close()
+	request, err := NewLogicalRemoval(expected.path, expected)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request.capability = capability
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -59,7 +59,7 @@ func TestWindowsLogicalRemovalAdmitsPreEffectCancellationAsUncommitted(t *testin
 	if outcome.State() != mutationfs.CommitOutcomeUncommitted {
 		t.Fatalf("pre-cancelled logical removal outcome = %q, want uncommitted", outcome.State())
 	}
-	if _, statErr := os.Lstat(target); statErr != nil {
+	if _, statErr := os.Lstat(expected.path); statErr != nil {
 		t.Fatalf("pre-cancelled logical removal removed the entry: %v", statErr)
 	}
 }

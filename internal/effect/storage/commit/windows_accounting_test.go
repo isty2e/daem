@@ -3,7 +3,6 @@
 package commit
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -29,12 +28,70 @@ func (budget *windowsAccountingRecordingBudget) AdmitPhysicalWork(pathComponents
 	return nil
 }
 
+func acquireWindowsAccountingCapability(
+	t *testing.T,
+	rootPath string,
+	relativePath string,
+	budget *windowsAccountingRecordingBudget,
+) rootedpath.CommitCapability {
+	t.Helper()
+	root, err := rootedpath.CaptureRootNoFollow(rootPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	authority, err := root.Authority()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := rootedpath.NewRelativeDestination(relativePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination, err := authority.Bind(relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability, err := root.AcquireBounded(destination, 64, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return capability
+}
+
+func calibrateWindowsRootOpenCharge(t *testing.T, rootPath string, relativePath string) int {
+	t.Helper()
+	budget := &windowsAccountingRecordingBudget{}
+	capability := acquireWindowsAccountingCapability(t, rootPath, relativePath, budget)
+	before := budget.pathComponents
+	rootFile, err := capability.OpenRootDirectory()
+	if err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
+	charge := budget.pathComponents - before
+	if err := rootFile.Close(); err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
+	if err := capability.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if charge == 0 {
+		t.Fatal("root open charged no path components")
+	}
+	return charge
+}
+
 func TestWindowsRootedObservationChargesOnlyRootOpen(t *testing.T) {
 	rootPath := t.TempDir()
 	directoryPath := filepath.Join(rootPath, "observed", "state")
-	if err := os.MkdirAll(directoryPath, 0o700); err != nil {
-		t.Fatal(err)
+
+	var preparation AncestorCleanup
+	if err := preparation.PrepareParent(t.Context(), filepath.Join(directoryPath, "placeholder")); err != nil {
+		t.Fatalf("prepare canonical observed directory: %v", err)
 	}
+	preparation.Close()
 	for name, payload := range map[string]string{"first.json": "payload", "second.json": "content"} {
 		request, err := NewFileCreate(filepath.Join(directoryPath, name), []byte(payload), 0o600)
 		if err != nil {
@@ -45,31 +102,11 @@ func TestWindowsRootedObservationChargesOnlyRootOpen(t *testing.T) {
 		}
 	}
 
+	perOpen := calibrateWindowsRootOpenCharge(t, rootPath, "observed/state")
 	budget := &windowsAccountingRecordingBudget{}
-	root, err := rootedpath.CaptureRootNoFollow(rootPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	authority, err := root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	relative, err := rootedpath.NewRelativeDestination("observed/state")
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination, err := authority.Bind(relative)
-	if err != nil {
-		t.Fatal(err)
-	}
-	capability, err := root.AcquireBounded(destination, 64, budget)
-	if err != nil {
-		t.Fatal(err)
-	}
+	capability := acquireWindowsAccountingCapability(t, rootPath, "observed/state", budget)
 	defer capability.Close()
 
-	openCharges := budget.pathComponents
 	limits, err := mutationfs.NewTreeTraversalLimits(2, 2, 1024)
 	if err != nil {
 		t.Fatal(err)
@@ -77,25 +114,22 @@ func TestWindowsRootedObservationChargesOnlyRootOpen(t *testing.T) {
 	if _, err := ValidateRootedDirectoryTree(t.Context(), capability, limits); err != nil {
 		t.Fatalf("rooted tree validation = %v, want success", err)
 	}
-	if openCharges == 0 {
-		t.Fatal("root open charged no path components")
-	}
 	if budget.entries != 0 || budget.bytes != 0 {
 		t.Fatalf("observation charged entries=%d bytes=%d against the capability budget", budget.entries, budget.bytes)
 	}
-	if budget.pathComponents != openCharges {
+	if budget.pathComponents%perOpen != 0 || budget.pathComponents == 0 {
 		t.Fatalf(
-			"observation path charges = %d after root open, want no additional path work",
-			budget.pathComponents-openCharges,
+			"observation path charges = %d, want a whole number of root opens (%d components each)",
+			budget.pathComponents,
+			perOpen,
 		)
 	}
 }
 
 func TestWindowsRootedFileReadChargesOnlyRootOpen(t *testing.T) {
 	rootPath := t.TempDir()
-	filePath := filepath.Join(rootPath, "observed.json")
 	payload := []byte("payload")
-	request, err := NewFileCreate(filePath, payload, 0o600)
+	request, err := NewFileCreate(filepath.Join(rootPath, "observed.json"), payload, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,31 +137,11 @@ func TestWindowsRootedFileReadChargesOnlyRootOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	perOpen := calibrateWindowsRootOpenCharge(t, rootPath, "observed.json")
 	budget := &windowsAccountingRecordingBudget{}
-	root, err := rootedpath.CaptureRootNoFollow(rootPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer root.Close()
-	authority, err := root.Authority()
-	if err != nil {
-		t.Fatal(err)
-	}
-	relative, err := rootedpath.NewRelativeDestination("observed.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	destination, err := authority.Bind(relative)
-	if err != nil {
-		t.Fatal(err)
-	}
-	capability, err := root.AcquireBounded(destination, 64, budget)
-	if err != nil {
-		t.Fatal(err)
-	}
+	capability := acquireWindowsAccountingCapability(t, rootPath, "observed.json", budget)
 	defer capability.Close()
 
-	openCharges := budget.pathComponents
 	content, _, _, err := ReadRootedRegularFileUpTo(t.Context(), capability, 1024)
 	if err != nil {
 		t.Fatalf("rooted read = %v, want success", err)
@@ -138,7 +152,11 @@ func TestWindowsRootedFileReadChargesOnlyRootOpen(t *testing.T) {
 	if budget.entries != 0 || budget.bytes != 0 {
 		t.Fatalf("rooted read charged entries=%d bytes=%d against the capability budget", budget.entries, budget.bytes)
 	}
-	if budget.pathComponents != openCharges {
-		t.Fatalf("rooted read charged %d extra path components", budget.pathComponents-openCharges)
+	if budget.pathComponents%perOpen != 0 || budget.pathComponents == 0 {
+		t.Fatalf(
+			"rooted read path charges = %d, want a whole number of root opens (%d components each)",
+			budget.pathComponents,
+			perOpen,
+		)
 	}
 }

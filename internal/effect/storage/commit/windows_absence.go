@@ -20,76 +20,96 @@ func ConfirmRootedEntryAbsentWithOutcome(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
 ) (mutationfs.CommitOutcome, error) {
+	err := confirmWindowsRootedAbsenceWithFaults(ctx, capability, faultPlan{})
+	return outcomeFromError(err), err
+}
+
+func confirmWindowsRootedAbsenceWithFaults(
+	ctx context.Context,
+	capability rootedpath.CommitCapability,
+	faults faultPlan,
+) error {
 	path, pathErr := rootedCapabilityPath(capability)
 	if capability != nil {
 		defer capability.Close()
 	}
-	fail := func(err error) (mutationfs.CommitOutcome, error) { return outcomeFromError(err), err }
 	if pathErr != nil {
-		return fail(windowsFailureBeforeVisibility(phaseValidate, path, pathErr))
+		return windowsFailureBeforeVisibility(phaseValidate, path, pathErr)
 	}
 	if ctx == nil {
-		return fail(windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("rooted absence context is required")))
+		return windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("rooted absence context is required"))
 	}
 
 	for attempt := range windowsRootedAbsenceSyncAttempts {
 		observation, err := observeWindowsRootedAbsence(ctx, capability)
 		if err != nil {
-			return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err)))
+			return windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err))
 		}
 		if !observation.absent {
 			closeErr := observation.close()
 			if attempt == 0 {
-				return fail(windowsFailureBeforeVisibility(
+				return windowsFailureBeforeVisibility(
 					phaseVerifyEntry,
 					path,
 					errors.Join(fmt.Errorf("rooted entry is present before absence confirmation"), closeErr),
-				))
+				)
 			}
-			return fail(newFailure(
+			return newFailure(
 				failureRetainedResidue,
 				phaseVerifyEntry,
 				path,
 				errors.Join(fmt.Errorf("rooted entry reappeared while confirming durable absence"), closeErr),
 				path,
-			))
+			)
 		}
 		if err := ctx.Err(); err != nil {
 			closeErr := observation.close()
-			return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, errors.Join(err, closeErr)))
+			return windowsFailureBeforeVisibility(phaseVerifyEntry, path, errors.Join(err, closeErr))
 		}
-		flushErr := flushWindowsHandle(observation.parent.Handle(), windowsFlushPolicy{directory: true})
-		validationErr := capability.ValidateRetainedDirectoryHandle(observation.root.Fd())
-		closeErr := observation.close()
-		if flushErr != nil || validationErr != nil || closeErr != nil {
-			return fail(newFailure(
+		if err := faults.run(ctx, phaseSyncCleanupParent, func() error {
+			return flushWindowsHandle(observation.parent.Handle(), windowsFlushPolicy{directory: true})
+		}); err != nil {
+			validationErr := capability.ValidateRetainedDirectoryHandle(observation.root.Fd())
+			closeErr := observation.close()
+			return newFailure(
 				failureRetainedResidue,
 				phaseSyncCleanupParent,
 				path,
-				windowsUnsupportedCause(errors.Join(flushErr, validationErr, closeErr)),
+				windowsUnsupportedCause(errors.Join(err, validationErr, closeErr)),
 				path,
-			))
+			)
+		}
+		validationErr := capability.ValidateRetainedDirectoryHandle(observation.root.Fd())
+		closeErr := observation.close()
+		if validationErr != nil || closeErr != nil {
+			return newFailure(
+				failureRetainedResidue,
+				phaseSyncCleanupParent,
+				path,
+				windowsUnsupportedCause(errors.Join(validationErr, closeErr)),
+				path,
+			)
 		}
 	}
 
 	final, err := observeWindowsRootedAbsence(ctx, capability)
 	if err != nil {
-		return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err)))
+		return windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err))
 	}
 	if !final.absent {
 		closeErr := final.close()
-		return fail(newFailure(
+		return newFailure(
 			failureRetainedResidue,
 			phaseVerifyEntry,
 			path,
 			errors.Join(fmt.Errorf("rooted entry reappeared after final durability confirmation"), closeErr),
 			path,
-		))
+		)
 	}
 	if err := final.close(); err != nil {
-		return fail(windowsFailureBeforeVisibility(phaseClosePayload, path, err))
+		return windowsFailureBeforeVisibility(phaseClosePayload, path, err)
 	}
-	return outcomeFromError(nil), nil
+	return nil
 }
 
 type windowsRootedAbsenceObservation struct {
