@@ -137,7 +137,7 @@ func canonicalWindowsDACLGrammar(
 		entries: []windowsCanonicalACEGrammar{
 			{
 				sid:   ownerSID,
-				mask:  windowsModeRights(owner) | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
+				mask:  windowsModeRights(owner) | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 				type_: windowsAllowedACEType,
 				flags: windowsCanonicalACEFlags,
 			},
@@ -191,6 +191,28 @@ func validateWindowsCanonicalMode(mode fs.FileMode) error {
 	return nil
 }
 
+func validateWindowsCanonicalFileMode(mode fs.FileMode) error {
+	if err := validateWindowsCanonicalMode(mode); err != nil {
+		return err
+	}
+	owner, _, _ := windowsModeTriples(mode)
+	if owner&6 != 6 {
+		return fmt.Errorf("Windows canonical files require owner read and write permissions for verified recovery")
+	}
+	return nil
+}
+
+func validateWindowsCanonicalDirectoryMode(mode fs.FileMode) error {
+	if err := validateWindowsCanonicalMode(mode); err != nil {
+		return err
+	}
+	owner, _, _ := windowsModeTriples(mode)
+	if owner&7 != 7 {
+		return fmt.Errorf("Windows canonical directories require owner read, write, and traversal permissions")
+	}
+	return nil
+}
+
 func windowsModeTriples(mode fs.FileMode) (owner, group, other fs.FileMode) {
 	permissions := mode.Perm()
 	return (permissions >> 6) & 7, (permissions >> 3) & 7, permissions & 7
@@ -199,37 +221,28 @@ func windowsModeTriples(mode fs.FileMode) (owner, group, other fs.FileMode) {
 func windowsModeRights(permission fs.FileMode) windows.ACCESS_MASK {
 	var rights windows.ACCESS_MASK
 	if permission&4 != 0 {
-		rights |= windows.GENERIC_READ
+		rights |= windows.FILE_GENERIC_READ
 	}
 	if permission&2 != 0 {
-		rights |= windows.GENERIC_WRITE
+		rights |= windows.FILE_GENERIC_WRITE
 	}
 	if permission&1 != 0 {
-		rights |= windows.GENERIC_EXECUTE
+		rights |= windows.FILE_GENERIC_EXECUTE
 	}
 	return rights
 }
 
 func windowsPermissionFromRights(rights windows.ACCESS_MASK) (fs.FileMode, error) {
-	const modeled = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.GENERIC_EXECUTE
-	if rights&^modeled != 0 {
-		return 0, windowsNativeUnsupported(
-			windowsNativePhaseSecurity,
-			"DACL ACE contains rights outside the canonical mode grammar",
-			nil,
-		)
+	for permission := fs.FileMode(0); permission <= 7; permission++ {
+		if windowsModeRights(permission) == rights {
+			return permission, nil
+		}
 	}
-	var permission fs.FileMode
-	if rights&windows.GENERIC_READ != 0 {
-		permission |= 4
-	}
-	if rights&windows.GENERIC_WRITE != 0 {
-		permission |= 2
-	}
-	if rights&windows.GENERIC_EXECUTE != 0 {
-		permission |= 1
-	}
-	return permission, nil
+	return 0, windowsNativeUnsupported(
+		windowsNativePhaseSecurity,
+		"DACL ACE contains rights outside the canonical mode grammar",
+		nil,
+	)
 }
 
 func windowsCanonicalModeFromSecurity(facts windowsSecurityFacts) (fs.FileMode, error) {
@@ -245,7 +258,7 @@ func windowsCanonicalModeFromSecurity(facts windowsSecurityFacts) (fs.FileMode, 
 		)
 	}
 	ownerRights := facts.dacl.aces[0].mask
-	const ownerControl = windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE
+	const ownerControl = windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE
 	if ownerRights&ownerControl != ownerControl {
 		return 0, windowsNativeUnsupported(
 			windowsNativePhaseSecurity,
@@ -442,6 +455,18 @@ func buildWindowsCanonicalSecurity(mode fs.FileMode) (*windowsCanonicalSecurity,
 func applyWindowsCanonicalSecurity(handle windows.Handle, mode fs.FileMode) (windowsSecurityFacts, error) {
 	if handle == 0 || handle == windows.InvalidHandle {
 		return windowsSecurityFacts{}, fmt.Errorf("Windows security apply handle is required")
+	}
+	standard, err := queryWindowsStandardFacts(handle)
+	if err != nil {
+		return windowsSecurityFacts{}, err
+	}
+	if standard.directory {
+		err = validateWindowsCanonicalDirectoryMode(mode)
+	} else {
+		err = validateWindowsCanonicalFileMode(mode)
+	}
+	if err != nil {
+		return windowsSecurityFacts{}, windowsNativeUnsupported(windowsNativePhaseSecurity, "mode is outside the recoverable Windows profile", err)
 	}
 	canonical, err := buildWindowsCanonicalSecurity(mode)
 	if err != nil {

@@ -674,7 +674,7 @@ func windowsDirectoryRecord(name string, next uint32) []byte {
 	buffer := make([]byte, windowsExtendedDirectoryInfoHeaderSize+len(units)*2)
 	binary.LittleEndian.PutUint32(buffer[:4], next)
 	binary.LittleEndian.PutUint64(buffer[8:16], 1)
-	binary.LittleEndian.PutUint64(buffer[40:48], 2)
+	binary.LittleEndian.PutUint64(buffer[32:40], 2)
 	binary.LittleEndian.PutUint32(buffer[60:64], uint32(len(units)*2))
 	for index := range buffer[72:88] {
 		buffer[72+index] = byte(index + 1)

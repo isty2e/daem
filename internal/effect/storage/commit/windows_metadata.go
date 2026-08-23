@@ -90,7 +90,7 @@ func queryWindowsStreamFacts(handle windows.Handle) (windowsStreamFacts, error) 
 
 var windowsNtQueryInformationFile = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtQueryInformationFile")
 
-const windowsFileEaInformationClass = 15
+const windowsFileEaInformationClass = 7
 
 func queryWindowsExtendedAttributeFacts(handle windows.Handle) (windowsExtendedAttributeFacts, error) {
 	if handle == 0 || handle == windows.InvalidHandle {

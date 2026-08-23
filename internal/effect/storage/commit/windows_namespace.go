@@ -40,9 +40,9 @@ func renameWindowsByHandle(
 	if mode != windowsRenameNoReplace && mode != windowsRenameReplace {
 		return 0, fmt.Errorf("Windows rename mode is invalid")
 	}
-	flags := uint32(0)
+	flags := uint32(windows.FILE_RENAME_POSIX_SEMANTICS)
 	if mode == windowsRenameReplace {
-		flags = windows.FILE_RENAME_REPLACE_IF_EXISTS | windows.FILE_RENAME_POSIX_SEMANTICS
+		flags |= windows.FILE_RENAME_REPLACE_IF_EXISTS
 	}
 	if err := setWindowsRenameInformationEx(source, parent, component, flags); err != nil {
 		if windowsRenameCompatibilityError(err) {

@@ -117,7 +117,7 @@ func parseWindowsExtendedDirectoryInformation(buffer []byte) ([]windowsDirectory
 		}
 		next := binary.LittleEndian.Uint32(buffer[offset : offset+4])
 		creationTime := int64(binary.LittleEndian.Uint64(buffer[offset+8 : offset+16]))
-		changeTime := int64(binary.LittleEndian.Uint64(buffer[offset+40 : offset+48]))
+		changeTime := int64(binary.LittleEndian.Uint64(buffer[offset+32 : offset+40]))
 		attributes := binary.LittleEndian.Uint32(buffer[offset+56 : offset+60])
 		nameLength := binary.LittleEndian.Uint32(buffer[offset+60 : offset+64])
 		eaSize := binary.LittleEndian.Uint32(buffer[offset+64 : offset+68])

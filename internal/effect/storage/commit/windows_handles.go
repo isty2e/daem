@@ -279,7 +279,63 @@ func openWindowsRelativeEntry(
 	disposition uint32,
 	writeThrough bool,
 ) (*windowsRelativeOpen, error) {
-	return openWindowsRelativeChild(parent, name, access, share, disposition, windowsRelativeAny, writeThrough)
+	opened, neutralErr := openWindowsRelativeChild(
+		parent,
+		name,
+		access,
+		share,
+		disposition,
+		windowsRelativeAny,
+		writeThrough,
+	)
+	if neutralErr == nil {
+		return opened, nil
+	}
+	file, fileErr := openWindowsRelativeChild(
+		parent,
+		name,
+		access,
+		share,
+		disposition,
+		windowsRelativeFile,
+		writeThrough,
+	)
+	if fileErr == nil {
+		return file, nil
+	}
+	directory, directoryErr := openWindowsRelativeChild(
+		parent,
+		name,
+		access,
+		share,
+		disposition,
+		windowsRelativeDirectory,
+		writeThrough,
+	)
+	if directoryErr == nil {
+		return directory, nil
+	}
+	for _, candidate := range []error{fileErr, directoryErr} {
+		class := windowsNativeErrorClassOf(candidate)
+		if class == windowsNativeErrorNotFound || class == windowsNativeErrorSharing {
+			return nil, candidate
+		}
+	}
+	if windowsEntryTypeMismatch(fileErr) {
+		return nil, directoryErr
+	}
+	if windowsEntryTypeMismatch(directoryErr) {
+		return nil, fileErr
+	}
+	return nil, neutralErr
+}
+
+func windowsEntryTypeMismatch(err error) bool {
+	var status windows.NTStatus
+	if errors.As(err, &status) {
+		return status == windows.STATUS_FILE_IS_A_DIRECTORY || status == windows.STATUS_NOT_A_DIRECTORY
+	}
+	return errors.Is(err, windows.ERROR_DIRECTORY)
 }
 
 func duplicateWindowsOwnedHandle(handle windows.Handle) (*windowsOwnedHandle, error) {
