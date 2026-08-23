@@ -51,17 +51,26 @@ func TestWindowsFileReplacementRefreshesParentFromRetainedAuthority(t *testing.T
 	if err := CommitFile(t.Context(), create); err != nil {
 		t.Fatal(err)
 	}
-	expectedFile, err := CaptureEntryIdentity(t.Context(), path)
+	capability := acquireWindowsTestCommitCapability(t, path)
+	expectedFile, err := CaptureRootedEntryIdentity(t.Context(), capability)
 	if err != nil {
+		_ = capability.Close()
 		t.Fatal(err)
 	}
 	expectedParent, err := CaptureEntryIdentity(t.Context(), root)
 	if err != nil {
+		_ = capability.Close()
 		t.Fatal(err)
 	}
+	authorizedPath, err := rootedCapabilityPath(capability)
+	if err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
+	expectedParent.path = filepath.Dir(authorizedPath)
 	outcome, refreshed, err := (Adapter{}).ReplaceRootedFileAndRefreshParent(
 		t.Context(),
-		acquireWindowsTestCommitCapability(t, path),
+		capability,
 		[]byte("after"),
 		0o600,
 		expectedFile,
@@ -77,8 +86,8 @@ func TestWindowsFileReplacementRefreshesParentFromRetainedAuthority(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if parent.path != root || parent.kind != entryKindDirectory || !expectedParent.platform.sameObject(parent.platform) {
-		t.Fatalf("refreshed parent = %#v, want retained object for %q", parent, root)
+	if parent.path != expectedParent.path || parent.kind != entryKindDirectory || !expectedParent.platform.sameObject(parent.platform) {
+		t.Fatalf("refreshed parent = %#v, want retained object for %q", parent, expectedParent.path)
 	}
 	assertWindowsRegularFileSnapshot(t, path, "after", 0o600)
 }

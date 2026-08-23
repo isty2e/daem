@@ -32,13 +32,20 @@ func ConfirmRootedEntryAbsentWithOutcome(
 		return fail(windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("rooted absence context is required")))
 	}
 
-	for range windowsRootedAbsenceSyncAttempts {
+	for attempt := range windowsRootedAbsenceSyncAttempts {
 		observation, err := observeWindowsRootedAbsence(ctx, capability)
 		if err != nil {
 			return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err)))
 		}
 		if !observation.absent {
 			closeErr := observation.close()
+			if attempt == 0 {
+				return fail(windowsFailureBeforeVisibility(
+					phaseVerifyEntry,
+					path,
+					errors.Join(fmt.Errorf("rooted entry is present before absence confirmation"), closeErr),
+				))
+			}
 			return fail(newFailure(
 				failureRetainedResidue,
 				phaseVerifyEntry,

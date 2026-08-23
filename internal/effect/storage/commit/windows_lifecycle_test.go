@@ -111,19 +111,18 @@ func TestWindowsLogicalRemovalDisposesNoFollowSymlink(t *testing.T) {
 	}
 }
 
-func TestWindowsLogicalRemovalDisposesReadOnlyCanonicalDirectory(t *testing.T) {
+func TestWindowsLogicalRemovalRejectsReadOnlyDirectoryBeforeTombstone(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "read-only")
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	opened := openWindowsNativeTestDirectory(t, path)
-	if _, err := applyWindowsCanonicalSecurity(opened.Handle(), 0o500); err != nil {
-		t.Fatal(err)
-	}
-	if err := opened.Close(); err != nil {
-		t.Fatal(err)
-	}
+	setWindowsTestDirectoryMode(t, opened.Handle(), 0o500)
+	t.Cleanup(func() {
+		setWindowsTestDirectoryMode(t, opened.Handle(), 0o700)
+		_ = opened.Close()
+	})
 	expected, err := CaptureEntryIdentity(t.Context(), path)
 	if err != nil {
 		t.Fatal(err)
@@ -132,11 +131,11 @@ func TestWindowsLogicalRemovalDisposesReadOnlyCanonicalDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitLogicalRemoval(t.Context(), request); err != nil {
-		t.Fatal(err)
+	if err := CommitLogicalRemoval(t.Context(), request); !hasStorageFailureKind(err, mutationfs.FailureUncommitted) {
+		t.Fatalf("read-only directory removal = %v, want uncommitted", err)
 	}
-	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("read-only directory = %v, want absent", err)
+	if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+		t.Fatalf("read-only directory after rejected removal = %#v, %v", info, err)
 	}
 }
 
@@ -305,11 +304,10 @@ func TestWindowsReadRootedFileUsesReadOnlyRootAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	rootHandle := openWindowsNativeTestDirectory(t, root)
-	if _, err := applyWindowsCanonicalSecurity(rootHandle.Handle(), 0o500); err != nil {
-		t.Fatal(err)
-	}
+	setWindowsTestDirectoryMode(t, rootHandle.Handle(), 0o500)
 	t.Cleanup(func() {
-		_, _ = applyWindowsCanonicalSecurity(rootHandle.Handle(), 0o700)
+		setWindowsTestDirectoryMode(t, rootHandle.Handle(), 0o700)
+		_ = rootHandle.Close()
 	})
 	capability := acquireWindowsTestCommitCapability(t, path)
 	defer capability.Close()
@@ -319,6 +317,25 @@ func TestWindowsReadRootedFileUsesReadOnlyRootAuthority(t *testing.T) {
 	}
 	if string(content) != "payload" || mode != 0o600 {
 		t.Fatalf("read-only rooted file = %q mode %04o", content, mode)
+	}
+}
+
+func setWindowsTestDirectoryMode(t *testing.T, handle windows.Handle, mode os.FileMode) {
+	t.Helper()
+	security, err := buildWindowsCanonicalSecurity(mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := windows.SetSecurityInfo(
+		handle,
+		windows.SE_FILE_OBJECT,
+		windows.SECURITY_INFORMATION(windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION),
+		nil,
+		nil,
+		security.dacl,
+		nil,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

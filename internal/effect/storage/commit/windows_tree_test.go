@@ -201,9 +201,15 @@ func TestWindowsPreparedRootedTreeRejectsHardLinkedFile(t *testing.T) {
 func TestWindowsPreparedRootedTreeCloseFailureRetainsPublishedDestinationEvidence(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "tree")
+	capability := acquireWindowsTestCommitCapability(t, destination)
+	authorizedDestination, err := rootedCapabilityPath(capability)
+	if err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
 	prepared, err := PrepareRootedTree(
 		t.Context(),
-		acquireWindowsTestCommitCapability(t, destination),
+		capability,
 		func(writer mutationfs.RootedTreeWriter) error {
 			return writer.WriteFile(mustWindowsTreePath(t, "entry"), 0o600, strings.NewReader("payload"))
 		},
@@ -223,8 +229,8 @@ func TestWindowsPreparedRootedTreeCloseFailureRetainsPublishedDestinationEvidenc
 		t.Fatalf("close failure type = %T, want storage failure", err)
 	}
 	residue := storageFailure.retainedResidue()
-	if len(residue) != 1 || residue[0] != destination {
-		t.Fatalf("close failure residue = %v, want %q", residue, destination)
+	if len(residue) != 1 || residue[0] != authorizedDestination {
+		t.Fatalf("close failure residue = %v, want %q", residue, authorizedDestination)
 	}
 }
 

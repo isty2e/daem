@@ -70,6 +70,27 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 	if !existing.identity.sameEntry(request.expected) {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.path, fmt.Errorf("removal entry no longer matches expected identity"))
 	}
+	limits := defaultTreeTraversalLimits()
+	if request.names != nil {
+		limits = request.limits
+	}
+	preflightBudget, err := newTreeTraversalBudget(limits)
+	if err != nil {
+		return windowsFailureBeforeVisibility(phaseValidate, request.path, err)
+	}
+	if err := preflightWindowsEntryTree(
+		ctx,
+		anchor.parentDirectory(),
+		anchor.name.String(),
+		request.path,
+		request.expected,
+		0,
+		preflightBudget,
+		nil,
+		"",
+	); err != nil {
+		return windowsFailureBeforeVisibility(phaseCleanupTombstone, request.path, windowsUnsupportedCause(err))
+	}
 
 	residueName := ""
 	cleanupName := ""
@@ -164,10 +185,6 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 	if err := existing.close(); err != nil {
 		return newFailure(failureRetainedResidue, phaseClosePayload, request.path, err, cleanupPath)
 	}
-	limits := defaultTreeTraversalLimits()
-	if request.names != nil {
-		limits = request.limits
-	}
 	budget, err := newTreeTraversalBudget(limits)
 	if err != nil {
 		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, cleanupPath)
@@ -225,6 +242,29 @@ func validateWindowsRemovalRequest(request LogicalRemoval) error {
 	}
 }
 
+type windowsTreeWalkMode uint8
+
+const (
+	windowsTreeWalkPreflight windowsTreeWalkMode = iota
+	windowsTreeWalkRemove
+)
+
+func preflightWindowsEntryTree(
+	ctx context.Context,
+	parent windowsDirectoryHandle,
+	name string,
+	path string,
+	expected EntryIdentity,
+	depth int,
+	budget *treeTraversalBudget,
+	plan *windowsPreparedTreeRemovalPlan,
+	relativePath string,
+) error {
+	return walkWindowsEntryTree(
+		ctx, parent, name, path, expected, depth, budget, plan, relativePath, windowsTreeWalkPreflight,
+	)
+}
+
 func removeWindowsEntryTree(
 	ctx context.Context,
 	parent windowsDirectoryHandle,
@@ -236,6 +276,23 @@ func removeWindowsEntryTree(
 	plan *windowsPreparedTreeRemovalPlan,
 	relativePath string,
 ) error {
+	return walkWindowsEntryTree(
+		ctx, parent, name, path, expected, depth, budget, plan, relativePath, windowsTreeWalkRemove,
+	)
+}
+
+func walkWindowsEntryTree(
+	ctx context.Context,
+	parent windowsDirectoryHandle,
+	name string,
+	path string,
+	expected EntryIdentity,
+	depth int,
+	budget *treeTraversalBudget,
+	plan *windowsPreparedTreeRemovalPlan,
+	relativePath string,
+	mode windowsTreeWalkMode,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -245,7 +302,7 @@ func removeWindowsEntryTree(
 	access := uint32(windows.FILE_READ_ATTRIBUTES | windows.FILE_READ_EA | windows.READ_CONTROL |
 		windows.DELETE | windows.SYNCHRONIZE)
 	if expected.kind == entryKindDirectory {
-		access |= windows.FILE_GENERIC_READ | windows.FILE_TRAVERSE
+		access |= windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.FILE_TRAVERSE
 	}
 	opened, err := openWindowsRelativeEntry(
 		parent,
@@ -340,7 +397,7 @@ func removeWindowsEntryTree(
 			if err != nil {
 				return err
 			}
-			if err := removeWindowsEntryTree(
+			if err := walkWindowsEntryTree(
 				ctx,
 				childDirectory,
 				child.name,
@@ -350,23 +407,36 @@ func removeWindowsEntryTree(
 				budget,
 				plan,
 				childRelativePath,
+				mode,
 			); err != nil {
 				return err
 			}
 		}
-		remaining, err := enumerateWindowsDirectoryOnce(ctx, opened.handle.Handle(), 1)
+		remainingLimit := 1
+		if mode == windowsTreeWalkPreflight {
+			remainingLimit = len(first) + 1
+		}
+		remaining, err := enumerateWindowsDirectoryOnce(ctx, opened.handle.Handle(), remainingLimit)
 		if err != nil {
 			return err
 		}
-		if len(remaining) != 0 {
+		if mode == windowsTreeWalkRemove && len(remaining) != 0 {
 			return fmt.Errorf("cleanup directory is not empty at %q", path)
 		}
-		if err := flushWindowsHandle(opened.handle.Handle(), windowsFlushPolicy{directory: true}); err != nil {
-			return err
+		if mode == windowsTreeWalkPreflight && !equalWindowsDirectoryEntries(first, remaining) {
+			return fmt.Errorf("cleanup directory changed during preflight at %q", path)
+		}
+		if mode == windowsTreeWalkRemove {
+			if err := flushWindowsHandle(opened.handle.Handle(), windowsFlushPolicy{directory: true}); err != nil {
+				return err
+			}
 		}
 	}
 	if err := requireWindowsNameMatches(parent, name, facts.identity, false); err != nil {
 		return err
+	}
+	if mode == windowsTreeWalkPreflight {
+		return nil
 	}
 	if _, err := disposeWindowsByHandle(opened.handle.Handle(), false); err != nil {
 		return err

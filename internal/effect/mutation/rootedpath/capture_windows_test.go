@@ -187,7 +187,7 @@ func TestWindowsCapabilityCloneAndCloseIndependence(t *testing.T) {
 	if err := second.Validate(); err != nil {
 		t.Fatalf("closing first clone invalidated second clone: %v", err)
 	}
-	opened, err := second.OpenRootDirectory()
+	opened, err := second.OpenRootDirectoryForMutation()
 	if err != nil {
 		second.Close()
 		t.Fatal(err)
