@@ -157,6 +157,32 @@ func TestWindowsConfirmRootedEntryAbsentAndRejectPresent(t *testing.T) {
 	}
 }
 
+func TestWindowsDestinationAnchorRejectsMovedAncestorBinding(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "parent")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(parent, "state.json")
+	capability := acquireWindowsTestCommitCapability(t, target)
+	anchor, err := openWindowsDestinationAnchor(t.Context(), capability, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer anchor.close()
+
+	moved := filepath.Join(root, "moved")
+	if err := os.Rename(parent, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := anchor.revalidate(t.Context()); err == nil {
+		t.Fatal("destination anchor accepted a replaced ancestor binding")
+	}
+}
+
 func TestWindowsAncestorCleanupRejectsMovedBinding(t *testing.T) {
 	root := t.TempDir()
 	created := filepath.Join(root, "created")

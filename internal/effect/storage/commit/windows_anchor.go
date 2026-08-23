@@ -16,10 +16,16 @@ import (
 type windowsDestinationAnchor struct {
 	capability  rootedpath.CommitCapability
 	root        *os.File
-	parent      *windowsOwnedHandle
+	directories []*windowsOwnedHandle
+	bindings    []windowsDirectoryBinding
 	parentFacts windowsEntryFactsNative
 	name        windowsComponent
 	path        string
+}
+
+type windowsDirectoryBinding struct {
+	name     string
+	identity windowsEntryIdentityNative
 }
 
 func acquireWindowsPathCapability(path string) (rootedpath.CommitCapability, error) {
@@ -119,13 +125,11 @@ func openWindowsDestinationAnchor(
 			_ = opened.handle.Close()
 			return fail(factsErr)
 		}
-		if anchor.parent != nil {
-			if closeErr := anchor.parent.Close(); closeErr != nil {
-				_ = opened.handle.Close()
-				return fail(closeErr)
-			}
-		}
-		anchor.parent = opened.handle
+		anchor.directories = append(anchor.directories, opened.handle)
+		anchor.bindings = append(anchor.bindings, windowsDirectoryBinding{
+			name:     raw,
+			identity: facts.identity,
+		})
 		parentHandle = opened.handle.Handle()
 		parentFacts = facts
 	}
@@ -140,8 +144,8 @@ func (anchor *windowsDestinationAnchor) parentHandle() windows.Handle {
 	if anchor == nil {
 		return windows.InvalidHandle
 	}
-	if anchor.parent != nil {
-		return anchor.parent.Handle()
+	if len(anchor.directories) != 0 {
+		return anchor.directories[len(anchor.directories)-1].Handle()
 	}
 	if anchor.root == nil {
 		return windows.InvalidHandle
@@ -159,6 +163,26 @@ func (anchor *windowsDestinationAnchor) revalidate(ctx context.Context) error {
 	if err := anchor.capability.ValidateRetainedDirectoryHandle(anchor.root.Fd()); err != nil {
 		return err
 	}
+	parentHandle := windows.Handle(anchor.root.Fd())
+	for index, binding := range anchor.bindings {
+		observed, err := observeWindowsEntryAt(parentHandle, binding.name)
+		if err != nil {
+			return err
+		}
+		if !observed.exists || observed.kind != entryKindDirectory ||
+			!binding.identity.sameObject(observed.identity) {
+			return fmt.Errorf("Windows destination ancestor binding changed")
+		}
+		retained, err := queryWindowsEntryFacts(anchor.directories[index].Handle())
+		if err != nil {
+			return err
+		}
+		if !binding.identity.sameObject(retained.identity) || !retained.standard.directory ||
+			retained.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			return fmt.Errorf("Windows retained destination ancestor changed")
+		}
+		parentHandle = anchor.directories[index].Handle()
+	}
 	current, err := queryWindowsEntryFacts(anchor.parentHandle())
 	if err != nil {
 		return err
@@ -175,10 +199,11 @@ func (anchor *windowsDestinationAnchor) close() error {
 		return nil
 	}
 	var failures []error
-	if anchor.parent != nil {
-		failures = append(failures, anchor.parent.Close())
-		anchor.parent = nil
+	for index := len(anchor.directories) - 1; index >= 0; index-- {
+		failures = append(failures, anchor.directories[index].Close())
 	}
+	anchor.directories = nil
+	anchor.bindings = nil
 	if anchor.root != nil {
 		failures = append(failures, anchor.root.Close())
 		anchor.root = nil
