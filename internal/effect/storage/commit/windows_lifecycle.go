@@ -123,6 +123,9 @@ func CommitRootedEntryCleanup(
 	if !observed.identity.sameEntry(request.expected) {
 		return fail(windowsFailureBeforeVisibility(phaseRevalidateEntry, request.path, fmt.Errorf("cleanup entry no longer matches expected identity")))
 	}
+	if err := observed.close(); err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseClosePayload, request.path, err))
+	}
 	budget, err := newTreeTraversalBudget(request.limits)
 	if err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))

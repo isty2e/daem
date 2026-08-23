@@ -152,6 +152,9 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		cleanupIdentity.platform = platformIdentity{native: promoted.identity}
 	}
 
+	if err := existing.close(); err != nil {
+		return newFailure(failureRetainedResidue, phaseClosePayload, request.path, err, cleanupPath)
+	}
 	limits := defaultTreeTraversalLimits()
 	if request.names != nil {
 		limits = request.limits
