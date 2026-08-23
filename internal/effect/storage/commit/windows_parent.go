@@ -14,13 +14,23 @@ import (
 )
 
 type windowsCreatedDirectory struct {
-	path     string
-	name     string
-	identity EntryIdentity
-	parent   *windowsOwnedHandle
-	handle   *windowsOwnedHandle
-	retired  bool
+	path                     string
+	name                     string
+	identity                 EntryIdentity
+	parent                   *windowsOwnedHandle
+	parentCaseSensitive      bool
+	handle                   *windowsOwnedHandle
+	cleanupState             windowsCreatedDirectoryCleanupState
+	pendingDurabilityFailure error
 }
+
+type windowsCreatedDirectoryCleanupState uint8
+
+const (
+	windowsCreatedDirectoryCleanupActive windowsCreatedDirectoryCleanupState = iota
+	windowsCreatedDirectoryCleanupPendingDurability
+	windowsCreatedDirectoryCleanupRetired
+)
 
 type windowsAncestorCleanupState struct {
 	directories []windowsCreatedDirectory
@@ -60,7 +70,11 @@ func (cleanup *AncestorCleanup) RemoveEmpty(ctx context.Context) error {
 	var failures []error
 	for index := len(state.directories) - 1; index >= 0; index-- {
 		directory := &state.directories[index]
-		if directory.retired {
+		if directory.cleanupState == windowsCreatedDirectoryCleanupRetired {
+			continue
+		}
+		if directory.cleanupState == windowsCreatedDirectoryCleanupPendingDurability {
+			failures = append(failures, directory.pendingDurabilityFailure)
 			continue
 		}
 		if err := removeWindowsCreatedDirectory(ctx, directory); err != nil {
@@ -142,12 +156,18 @@ func prepareWindowsCommitParent(
 	if len(components) < 1 {
 		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, fmt.Errorf("commit destination has no components"))
 	}
-	rootFile, err := capability.OpenRootDirectory()
+	rootFile, err := capability.OpenRootDirectoryForMutation()
 	if err != nil {
 		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, windowsUnsupportedCause(err))
 	}
 	defer rootFile.Close()
-	parentHandle := windows.Handle(rootFile.Fd())
+	parentDirectory, err := captureWindowsDirectoryHandle(windows.Handle(rootFile.Fd()))
+	if err != nil {
+		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, windowsUnsupportedCause(err))
+	}
+	if err := capability.ValidateDirectoryHandle(rootFile.Fd()); err != nil {
+		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
+	}
 	var traversal []*windowsOwnedHandle
 	defer func() { _ = closeWindowsOwnedHandles(traversal...) }()
 	privateSecurity, err := buildWindowsCanonicalSecurity(preparedTreePrivateDirectoryMode)
@@ -164,7 +184,7 @@ func prepareWindowsCommitParent(
 		}
 		currentPath = filepath.Join(currentPath, component)
 		opened, openErr := openWindowsRelativeDirectory(
-			parentHandle,
+			parentDirectory,
 			component,
 			windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 				windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
@@ -177,7 +197,7 @@ func prepareWindowsCommitParent(
 		if openErr != nil && windowsNativeErrorClassOf(openErr) == windowsNativeErrorNotFound {
 			attemptedCreate = true
 			opened, openErr = createWindowsRelativeDirectory(
-				parentHandle,
+				parentDirectory,
 				component,
 				windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 					windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
@@ -189,7 +209,7 @@ func prepareWindowsCommitParent(
 		}
 		if openErr != nil {
 			if attemptedCreate {
-				observed, observeErr := observeWindowsEntryAt(parentHandle, component)
+				observed, observeErr := observeWindowsEntryAt(parentDirectory, component)
 				if observed.exists || observeErr != nil {
 					return newFailure(
 						failureIndeterminateCommit,
@@ -216,7 +236,7 @@ func prepareWindowsCommitParent(
 				_ = opened.handle.Close()
 				return newFailure(failureIndeterminateCommit, phaseApplyMetadata, path, err, currentPath)
 			}
-			parentCopy, copyErr := duplicateWindowsOwnedHandle(parentHandle)
+			parentCopy, copyErr := duplicateWindowsOwnedHandle(parentDirectory.Handle())
 			handleCopy, handleErr := duplicateWindowsOwnedHandle(opened.handle.Handle())
 			if copyErr != nil || handleErr != nil {
 				_ = parentCopy.Close()
@@ -238,8 +258,9 @@ func prepareWindowsCommitParent(
 					kind:     entryKindDirectory,
 					platform: platformIdentity{native: facts.identity},
 				},
-				parent: parentCopy,
-				handle: handleCopy,
+				parent:              parentCopy,
+				parentCaseSensitive: parentDirectory.caseSensitive,
+				handle:              handleCopy,
 			})
 			metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
 			if metadataErr != nil {
@@ -254,13 +275,13 @@ func prepareWindowsCommitParent(
 				_ = opened.handle.Close()
 				return newFailure(failureRetainedResidue, phaseSyncAncestors, path, err, currentPath)
 			}
-			if err := flushWindowsHandle(parentHandle, windowsFlushPolicy{directory: true}); err != nil {
+			if err := flushWindowsHandle(parentDirectory.Handle(), windowsFlushPolicy{directory: true}); err != nil {
 				_ = opened.handle.Close()
 				return newFailure(failureIndeterminateCommit, phaseSyncAncestors, path, err, currentPath)
 			}
 		}
 		traversal = append(traversal, opened.handle)
-		parentHandle = opened.handle.Handle()
+		parentDirectory = opened.directory
 	}
 	if err := capability.ValidateRetainedDirectoryHandle(rootFile.Fd()); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, path, err)
@@ -269,8 +290,22 @@ func prepareWindowsCommitParent(
 }
 
 func removeWindowsCreatedDirectory(ctx context.Context, directory *windowsCreatedDirectory) error {
-	if directory == nil || directory.retired || directory.parent == nil || directory.handle == nil {
+	return removeWindowsCreatedDirectoryWithFaults(ctx, directory, faultPlan{})
+}
+
+func removeWindowsCreatedDirectoryWithFaults(
+	ctx context.Context,
+	directory *windowsCreatedDirectory,
+	faults faultPlan,
+) error {
+	if directory == nil || directory.cleanupState == windowsCreatedDirectoryCleanupRetired {
 		return nil
+	}
+	if directory.cleanupState == windowsCreatedDirectoryCleanupPendingDurability {
+		return directory.pendingDurabilityFailure
+	}
+	if directory.parent == nil || directory.handle == nil {
+		return fmt.Errorf("created ancestor cleanup authority is unavailable")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -289,8 +324,12 @@ func removeWindowsCreatedDirectory(ctx context.Context, directory *windowsCreate
 	if len(entries) != 0 {
 		return fmt.Errorf("created ancestor is not empty")
 	}
+	parentDirectory := windowsDirectoryHandle{
+		handle:        directory.parent.Handle(),
+		caseSensitive: directory.parentCaseSensitive,
+	}
 	if err := requireWindowsNameMatches(
-		directory.parent.Handle(),
+		parentDirectory,
 		directory.name,
 		directory.identity.platform.native,
 		false,
@@ -300,19 +339,66 @@ func removeWindowsCreatedDirectory(ctx context.Context, directory *windowsCreate
 	if _, err := disposeWindowsByHandle(directory.handle.Handle(), false); err != nil {
 		return err
 	}
+	directory.cleanupState = windowsCreatedDirectoryCleanupPendingDurability
 	if err := directory.handle.Close(); err != nil {
-		return err
+		directory.handle = nil
+		return retainWindowsCreatedDirectoryDurabilityFailure(directory, newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			directory.path,
+			err,
+			directory.path,
+		))
+	}
+	directory.handle = nil
+	if err := faults.check(ctx, phaseSyncCleanupParent); err != nil {
+		return retainWindowsCreatedDirectoryDurabilityFailure(directory, newFailure(
+			failureIndeterminateCommit,
+			phaseSyncCleanupParent,
+			directory.path,
+			err,
+			directory.path,
+		))
 	}
 	if err := flushWindowsHandle(directory.parent.Handle(), windowsFlushPolicy{directory: true}); err != nil {
-		return err
+		return retainWindowsCreatedDirectoryDurabilityFailure(directory, newFailure(
+			failureIndeterminateCommit,
+			phaseSyncCleanupParent,
+			directory.path,
+			err,
+			directory.path,
+		))
 	}
-	if err := requireWindowsSiblingAbsent(directory.parent.Handle(), directory.name); err != nil {
-		return err
+	if err := requireWindowsSiblingAbsent(parentDirectory, directory.name); err != nil {
+		return retainWindowsCreatedDirectoryDurabilityFailure(directory, newFailure(
+			failureIndeterminateCommit,
+			phaseVerifyEntry,
+			directory.path,
+			err,
+			directory.path,
+		))
 	}
 	if err := directory.parent.Close(); err != nil {
-		return err
+		directory.parent = nil
+		return retainWindowsCreatedDirectoryDurabilityFailure(directory, newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			directory.path,
+			err,
+			directory.path,
+		))
 	}
 	directory.parent = nil
-	directory.retired = true
+	directory.cleanupState = windowsCreatedDirectoryCleanupRetired
+	directory.pendingDurabilityFailure = nil
 	return nil
+}
+
+func retainWindowsCreatedDirectoryDurabilityFailure(
+	directory *windowsCreatedDirectory,
+	err error,
+) error {
+	directory.cleanupState = windowsCreatedDirectoryCleanupPendingDurability
+	directory.pendingDurabilityFailure = err
+	return err
 }

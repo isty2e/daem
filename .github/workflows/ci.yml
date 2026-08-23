@@ -221,6 +221,7 @@ jobs:
           go test -count=1 -run '^TestWindows' \
             ./internal/effect/storage/commit \
             ./internal/effect/mutation/rootedpath \
+            ./internal/supply/source/backend/gitcli \
             ./internal/workflow/probe
 
   bsd_observation_compile:

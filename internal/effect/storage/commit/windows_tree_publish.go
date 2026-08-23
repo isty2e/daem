@@ -54,7 +54,7 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 		return windowsFailureBeforeVisibility(phaseClosePayload, request.destination, err)
 	}
 	writableStage, err := openWindowsRelativeDirectory(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName.String(),
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
@@ -78,11 +78,15 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 	if err != nil {
 		return windowsFailureBeforeVisibility(phaseValidate, request.destination, err)
 	}
-	if err := syncValidateWindowsDirectoryTree(ctx, writableStage.handle.Handle(), request.stagedRoot, 0, budget); err != nil {
+	writableDirectory, err := writableStage.Directory()
+	if err != nil {
+		return windowsFailureBeforeVisibility(phaseValidate, request.destination, err)
+	}
+	if err := syncValidateWindowsDirectoryTree(ctx, writableDirectory, request.stagedRoot, 0, budget); err != nil {
 		return windowsFailureBeforeVisibility(errorPhase(err, phaseSyncTreeDirectory), request.destination, windowsUnsupportedCause(err))
 	}
 	if err := requireWindowsNameMatches(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName.String(),
 		writableFacts.identity,
 		true,
@@ -92,9 +96,12 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 	if err := requireWindowsDestinationAbsent(anchor); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.destination, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return windowsFailureBeforeVisibility(phaseCommitEntry, request.destination, err)
+	}
 	if _, err := renameWindowsByHandle(writableStage.handle.Handle(), anchor.parentHandle(), anchor.name.String(), windowsRenameNoReplace); err != nil {
 		moved, unchanged, observeErr := observeWindowsNamespaceTransition(
-			anchor.parentHandle(), stageName.String(), anchor.name.String(), writableFacts.identity,
+			anchor.parentDirectory(), stageName.String(), anchor.name.String(), writableFacts.identity,
 		)
 		if unchanged && observeErr == nil {
 			return windowsFailureBeforeVisibility(phaseCommitEntry, request.destination, err)
@@ -106,12 +113,12 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 		return newFailure(failureIndeterminateCommit, phaseCommitEntry, request.destination, errors.Join(err, observeErr), residue...)
 	}
 	postRenameFacts, factsErr := queryWindowsEntryFacts(writableStage.handle.Handle())
-	published, observeErr := observeWindowsEntryAt(anchor.parentHandle(), anchor.name.String())
+	published, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), anchor.name.String())
 	if factsErr != nil || observeErr != nil || !published.exists || !postRenameFacts.identity.equal(published.identity) {
 		observeErr = errors.Join(factsErr, observeErr)
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, observeErr, request.destination)
 	}
-	if err := requireWindowsSiblingAbsent(anchor.parentHandle(), stageName.String()); err != nil {
+	if err := requireWindowsSiblingAbsent(anchor.parentDirectory(), stageName.String()); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, err, request.destination)
 	}
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
@@ -119,6 +126,15 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 	}
 	if err := anchor.revalidate(context.WithoutCancel(ctx)); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, err, request.destination)
+	}
+	if err := writableStage.handle.Close(); err != nil {
+		return newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			request.destination,
+			err,
+			request.destination,
+		)
 	}
 	return nil
 }
@@ -138,7 +154,7 @@ func validateWindowsPreparedTreeRequest(request PreparedTreeCommit) error {
 
 func syncValidateWindowsDirectoryTree(
 	ctx context.Context,
-	directory windows.Handle,
+	directory windowsDirectoryHandle,
 	path string,
 	depth int,
 	budget *treeTraversalBudget,
@@ -149,14 +165,14 @@ func syncValidateWindowsDirectoryTree(
 	if err := budget.admitDepth(depth); err != nil {
 		return err
 	}
-	facts, err := queryWindowsEntryFacts(directory)
+	facts, err := queryWindowsEntryFacts(directory.Handle())
 	if err != nil {
 		return atPhase(phaseValidate, err)
 	}
 	if !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		return atPhase(phaseValidate, fmt.Errorf("prepared Windows tree entry %q is not a non-reparse directory", path))
 	}
-	metadata, err := queryWindowsMetadataFacts(directory)
+	metadata, err := queryWindowsMetadataFacts(directory.Handle())
 	if err != nil {
 		return atPhase(phaseCaptureMetadata, err)
 	}
@@ -173,7 +189,7 @@ func syncValidateWindowsDirectoryTree(
 	if err := validateWindowsCanonicalDirectoryMode(mode); err != nil {
 		return atPhase(phaseCaptureMetadata, err)
 	}
-	entries, err := enumerateWindowsDirectoryOnce(ctx, directory, budget.remainingEntries()+1)
+	entries, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), budget.remainingEntries()+1)
 	if err != nil {
 		return atPhase(phaseValidate, err)
 	}
@@ -225,8 +241,24 @@ func syncValidateWindowsDirectoryTree(
 				_ = opened.handle.Close()
 				return atPhase(phaseCaptureMetadata, err)
 			}
-			err = syncValidateWindowsDirectoryTree(ctx, opened.handle.Handle(), entryPath, depth+1, budget)
+			childDirectory, directoryErr := opened.Directory()
+			if directoryErr != nil {
+				_ = opened.handle.Close()
+				return atPhase(phaseValidate, directoryErr)
+			}
+			err = syncValidateWindowsDirectoryTree(ctx, childDirectory, entryPath, depth+1, budget)
 		} else {
+			if childFacts.standard.numberOfLinks != 1 {
+				_ = opened.handle.Close()
+				return atPhase(
+					phaseValidate,
+					windowsNativeUnsupported(
+						windowsNativePhaseIdentity,
+						fmt.Sprintf("prepared tree file %q has %d hard links", entryPath, childFacts.standard.numberOfLinks),
+						nil,
+					),
+				)
+			}
 			if err := validateWindowsCanonicalFileMode(childMode); err != nil {
 				_ = opened.handle.Close()
 				return atPhase(phaseCaptureMetadata, err)
@@ -242,11 +274,11 @@ func syncValidateWindowsDirectoryTree(
 			return atPhase(phaseSyncTreeFile, errors.Join(err, closeErr))
 		}
 	}
-	second, err := enumerateWindowsDirectoryOnce(ctx, directory, len(entries)+1)
+	second, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), len(entries)+1)
 	if err != nil || !equalWindowsDirectoryEntries(entries, second) {
 		return atPhase(phaseRevalidateEntry, errors.Join(err, fmt.Errorf("prepared tree changed while syncing %q", path)))
 	}
-	if err := flushWindowsHandle(directory, windowsFlushPolicy{directory: true}); err != nil {
+	if err := flushWindowsHandle(directory.Handle(), windowsFlushPolicy{directory: true}); err != nil {
 		return atPhase(phaseSyncTreeDirectory, err)
 	}
 	return nil

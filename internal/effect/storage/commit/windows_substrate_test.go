@@ -8,12 +8,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"unsafe"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/windows"
 )
 
@@ -110,6 +112,19 @@ func TestWindowsNativeErrorNormalization(t *testing.T) {
 	}
 	if !errors.Is(windowsNativeUnsupported(windowsNativePhaseIdentity, "missing identity", nil), errWindowsNativeUnsupported) {
 		t.Fatal("unsupported result did not retain typed unsupported marker")
+	}
+	notFound := normalizeWindowsNativeError(windowsNativePhaseOpen, windows.STATUS_OBJECT_NAME_NOT_FOUND, false)
+	if !errors.Is(notFound, fs.ErrNotExist) {
+		t.Fatalf("Windows not-found error = %v, want fs.ErrNotExist compatibility", notFound)
+	}
+	authorityFailure := rootedpath.NewBoundaryFailure(
+		rootedpath.FailureUnsupportedPlatform,
+		"",
+		"injected unsupported authority",
+		nil,
+	)
+	if err := windowsUnsupportedCause(authorityFailure); !isUnsupported(err) {
+		t.Fatalf("rootedpath unsupported mapping = %v, want storage unsupported guarantee", err)
 	}
 }
 
@@ -215,6 +230,30 @@ func TestWindowsOwnedHandleCloseIsDeterministic(t *testing.T) {
 	}
 }
 
+func TestWindowsDestinationAnchorRejectsCaseSensitivityDrift(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "case-root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "entry")
+	capability := acquireWindowsTestCommitCapability(t, path)
+	defer capability.Close()
+	anchor, err := openWindowsDestinationAnchor(t.Context(), capability, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer anchor.close()
+	if err := setWindowsTestCaseSensitiveDirectory(root, true); err != nil {
+		if windowsNativeFeatureUnavailable(err) {
+			t.Skipf("per-directory case sensitivity unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if err := anchor.revalidate(t.Context()); err == nil {
+		t.Fatal("destination anchor accepted changed case semantics")
+	}
+}
+
 func TestWindowsNativeIdentityPayloadAndFlush(t *testing.T) {
 	root := t.TempDir()
 	parent := openWindowsNativeTestDirectory(t, root)
@@ -223,7 +262,7 @@ func TestWindowsNativeIdentityPayloadAndFlush(t *testing.T) {
 	}
 
 	opened, err := openWindowsRelativeFile(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"payload.bin",
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE,
 		windowsPublicationShareMode,
@@ -274,7 +313,7 @@ func TestWindowsNativeIdentityPayloadAndFlush(t *testing.T) {
 	}
 
 	reopened, err := openWindowsRelativeFile(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"payload.bin",
 		windows.FILE_GENERIC_READ|windows.DELETE,
 		windowsPublicationShareMode,
@@ -334,7 +373,7 @@ func TestWindowsNativeNoFollowReparse(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened, err := openWindowsRelativeFile(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"link.txt",
 		windows.FILE_GENERIC_READ,
 		windowsParentShareMode,
@@ -369,7 +408,7 @@ func TestWindowsNativeNoFollowReparse(t *testing.T) {
 		t.Fatal(err)
 	}
 	neutral, err := openWindowsRelativeEntry(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"directory-link",
 		windows.FILE_READ_ATTRIBUTES|windows.DELETE,
 		windowsParentShareMode,
@@ -389,7 +428,7 @@ func TestWindowsNativeNoFollowReparse(t *testing.T) {
 		t.Fatalf("neutral no-follow open did not return the directory reparse entry: %#x", neutralFacts.attributes)
 	}
 	if child, childErr := openWindowsRelativeEntry(
-		neutral.handle.Handle(),
+		windowsDirectoryHandle{handle: neutral.handle.Handle()},
 		"child",
 		windows.FILE_READ_ATTRIBUTES,
 		windowsParentShareMode,
@@ -415,7 +454,7 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	createTestFile := func(name, content string) {
 		t.Helper()
 		opened, err := openWindowsRelativeFile(
-			parent.Handle(),
+			mustWindowsDirectoryHandle(t, parent.Handle()),
 			name,
 			windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE,
 			windowsPublicationShareMode,
@@ -436,7 +475,7 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	createTestFile("destination.txt", "destination")
 
 	source, err := openWindowsRelativeFile(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"source.txt",
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE,
 		windowsPublicationShareMode,
@@ -459,13 +498,13 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	if err := source.handle.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if opened, err := openWindowsRelativeFile(parent.Handle(), "source.txt", windows.FILE_GENERIC_READ, windowsParentShareMode, windows.FILE_OPEN, false); err == nil {
+	if opened, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "source.txt", windows.FILE_GENERIC_READ, windowsParentShareMode, windows.FILE_OPEN, false); err == nil {
 		_ = opened.handle.Close()
 		t.Fatal("renamed source remained visible")
 	} else if windowsNativeErrorClassOf(err) != windowsNativeErrorNotFound {
 		t.Fatalf("renamed source error = %v, class %v", err, windowsNativeErrorClassOf(err))
 	}
-	destination, err := openWindowsRelativeFile(parent.Handle(), "destination.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
+	destination, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "destination.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +515,7 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	}
 
 	createTestFile("remove.txt", "remove")
-	removable, err := openWindowsRelativeFile(parent.Handle(), "remove.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsPublicationShareMode, windows.FILE_OPEN, true)
+	removable, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "remove.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsPublicationShareMode, windows.FILE_OPEN, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +529,7 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	if err := removable.handle.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if opened, err := openWindowsRelativeFile(parent.Handle(), "remove.txt", windows.FILE_GENERIC_READ, windowsParentShareMode, windows.FILE_OPEN, false); err == nil {
+	if opened, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "remove.txt", windows.FILE_GENERIC_READ, windowsParentShareMode, windows.FILE_OPEN, false); err == nil {
 		_ = opened.handle.Close()
 		t.Fatal("disposition did not remove the entry")
 	} else if windowsNativeErrorClassOf(err) != windowsNativeErrorNotFound {
@@ -498,12 +537,12 @@ func TestWindowsNativeRenameDispositionAndSharing(t *testing.T) {
 	}
 
 	createTestFile("shared.txt", "shared")
-	writer, err := openWindowsRelativeFile(parent.Handle(), "shared.txt", windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE, windowsPublicationShareMode, windows.FILE_OPEN, false)
+	writer, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "shared.txt", windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE, windowsPublicationShareMode, windows.FILE_OPEN, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer writer.handle.Close()
-	if opened, err := openWindowsRelativeFile(parent.Handle(), "shared.txt", windows.FILE_GENERIC_WRITE, windowsPublicationShareMode, windows.FILE_OPEN, false); opened != nil || windowsNativeErrorClassOf(err) != windowsNativeErrorSharing {
+	if opened, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "shared.txt", windows.FILE_GENERIC_WRITE, windowsPublicationShareMode, windows.FILE_OPEN, false); opened != nil || windowsNativeErrorClassOf(err) != windowsNativeErrorSharing {
 		if opened != nil {
 			_ = opened.handle.Close()
 		}
@@ -521,7 +560,7 @@ func TestWindowsNativeSecurityAndStreamComparison(t *testing.T) {
 	if err := os.WriteFile(filePath, []byte("metadata"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	file, err := openWindowsRelativeFile(parent.Handle(), "metadata.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
+	file, err := openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "metadata.txt", windows.FILE_GENERIC_READ|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +584,7 @@ func TestWindowsNativeSecurityAndStreamComparison(t *testing.T) {
 		}
 		t.Fatal(err)
 	}
-	file, err = openWindowsRelativeFile(parent.Handle(), "metadata.txt", windows.FILE_GENERIC_READ|windows.FILE_WRITE_EA|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
+	file, err = openWindowsRelativeFile(mustWindowsDirectoryHandle(t, parent.Handle()), "metadata.txt", windows.FILE_GENERIC_READ|windows.FILE_WRITE_EA|windows.DELETE, windowsParentShareMode, windows.FILE_OPEN, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,6 +640,45 @@ func openWindowsNativeTestDirectory(t *testing.T, path string) *windowsOwnedHand
 	return owner
 }
 
+func setWindowsTestCaseSensitiveDirectory(path string, enabled bool) error {
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	handle, err := windows.CreateFile(
+		name,
+		windows.FILE_GENERIC_READ|windows.FILE_WRITE_ATTRIBUTES,
+		windowsParentShareMode,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_BACKUP_SEMANTICS,
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	defer windows.CloseHandle(handle)
+	flags := uint32(0)
+	if enabled {
+		flags = windows.FILE_CS_FLAG_CASE_SENSITIVE_DIR
+	}
+	return windows.SetFileInformationByHandle(
+		handle,
+		windows.FileCaseSensitiveInfo,
+		(*byte)(unsafe.Pointer(&flags)),
+		uint32(unsafe.Sizeof(flags)),
+	)
+}
+
+func mustWindowsDirectoryHandle(t *testing.T, handle windows.Handle) windowsDirectoryHandle {
+	t.Helper()
+	directory, err := captureWindowsDirectoryHandle(handle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return directory
+}
+
 func skipWindowsNativeCapability(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {
@@ -614,7 +692,8 @@ func skipWindowsNativeCapability(t *testing.T, err error) {
 
 func windowsNativeFeatureUnavailable(err error) bool {
 	if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) || errors.Is(err, windows.ERROR_ACCESS_DENIED) ||
-		errors.Is(err, windows.ERROR_NOT_SUPPORTED) || errors.Is(err, windows.ERROR_INVALID_FUNCTION) {
+		errors.Is(err, windows.ERROR_NOT_SUPPORTED) || errors.Is(err, windows.ERROR_INVALID_FUNCTION) ||
+		errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
 		return true
 	}
 	var status windows.NTStatus

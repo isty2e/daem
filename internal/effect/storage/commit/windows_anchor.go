@@ -14,18 +14,20 @@ import (
 )
 
 type windowsDestinationAnchor struct {
-	capability  rootedpath.CommitCapability
-	root        *os.File
-	directories []*windowsOwnedHandle
-	bindings    []windowsDirectoryBinding
-	parentFacts windowsEntryFactsNative
-	name        windowsComponent
-	path        string
+	capability    rootedpath.CommitCapability
+	root          *os.File
+	rootDirectory windowsDirectoryHandle
+	directories   []*windowsOwnedHandle
+	bindings      []windowsDirectoryBinding
+	parentFacts   windowsEntryFactsNative
+	name          windowsComponent
+	path          string
 }
 
 type windowsDirectoryBinding struct {
-	name     string
-	identity windowsEntryIdentityNative
+	name          string
+	identity      windowsEntryIdentityNative
+	caseSensitive bool
 }
 
 func acquireWindowsPathCapability(path string) (rootedpath.CommitCapability, error) {
@@ -74,15 +76,26 @@ func openWindowsDestinationAnchor(
 	if err := capability.AdmitPhysicalWork(len(components), 0, 0); err != nil {
 		return nil, err
 	}
-	root, err := capability.OpenRootDirectory()
+	var root *os.File
+	if mutating {
+		root, err = capability.OpenRootDirectoryForMutation()
+	} else {
+		root, err = capability.OpenRootDirectory()
+	}
 	if err != nil {
 		return nil, err
 	}
+	rootDirectory, err := captureWindowsDirectoryHandle(windows.Handle(root.Fd()))
+	if err != nil {
+		_ = root.Close()
+		return nil, err
+	}
 	anchor := &windowsDestinationAnchor{
-		capability: capability,
-		root:       root,
-		name:       name,
-		path:       path,
+		capability:    capability,
+		root:          root,
+		rootDirectory: rootDirectory,
+		name:          name,
+		path:          path,
 	}
 	fail := func(cause error) (*windowsDestinationAnchor, error) {
 		return nil, errors.Join(cause, anchor.close())
@@ -90,8 +103,8 @@ func openWindowsDestinationAnchor(
 	if err := capability.ValidateDirectoryHandle(root.Fd()); err != nil {
 		return fail(err)
 	}
-	parentHandle := windows.Handle(root.Fd())
-	parentFacts, err := queryWindowsEntryFacts(parentHandle)
+	parentDirectory := rootDirectory
+	parentFacts, err := queryWindowsEntryFacts(parentDirectory.Handle())
 	if err != nil {
 		return fail(err)
 	}
@@ -107,7 +120,7 @@ func openWindowsDestinationAnchor(
 			access |= windows.FILE_GENERIC_WRITE | windows.WRITE_DAC | windows.DELETE
 		}
 		opened, openErr := openWindowsRelativeDirectory(
-			parentHandle,
+			parentDirectory,
 			raw,
 			access,
 			windowsParentShareMode,
@@ -127,10 +140,11 @@ func openWindowsDestinationAnchor(
 		}
 		anchor.directories = append(anchor.directories, opened.handle)
 		anchor.bindings = append(anchor.bindings, windowsDirectoryBinding{
-			name:     raw,
-			identity: facts.identity,
+			name:          raw,
+			identity:      facts.identity,
+			caseSensitive: opened.directory.caseSensitive,
 		})
-		parentHandle = opened.handle.Handle()
+		parentDirectory = opened.directory
 		parentFacts = facts
 	}
 	anchor.parentFacts = parentFacts
@@ -153,6 +167,19 @@ func (anchor *windowsDestinationAnchor) parentHandle() windows.Handle {
 	return windows.Handle(anchor.root.Fd())
 }
 
+func (anchor *windowsDestinationAnchor) parentDirectory() windowsDirectoryHandle {
+	if anchor == nil {
+		return windowsDirectoryHandle{}
+	}
+	if len(anchor.directories) != 0 {
+		return windowsDirectoryHandle{
+			handle:        anchor.directories[len(anchor.directories)-1].Handle(),
+			caseSensitive: anchor.bindings[len(anchor.bindings)-1].caseSensitive,
+		}
+	}
+	return anchor.rootDirectory
+}
+
 func (anchor *windowsDestinationAnchor) revalidate(ctx context.Context) error {
 	if anchor == nil || anchor.root == nil || anchor.capability == nil {
 		return fmt.Errorf("Windows destination anchor is not initialized")
@@ -163,9 +190,16 @@ func (anchor *windowsDestinationAnchor) revalidate(ctx context.Context) error {
 	if err := anchor.capability.ValidateDirectoryHandle(anchor.root.Fd()); err != nil {
 		return err
 	}
-	parentHandle := windows.Handle(anchor.root.Fd())
+	rootDirectory, err := captureWindowsDirectoryHandle(windows.Handle(anchor.root.Fd()))
+	if err != nil {
+		return err
+	}
+	if rootDirectory.caseSensitive != anchor.rootDirectory.caseSensitive {
+		return fmt.Errorf("Windows destination root lookup case semantics changed")
+	}
+	parentDirectory := anchor.rootDirectory
 	for index, binding := range anchor.bindings {
-		observed, err := observeWindowsEntryAt(parentHandle, binding.name)
+		observed, err := observeWindowsEntryAt(parentDirectory, binding.name)
 		if err != nil {
 			return err
 		}
@@ -181,7 +215,14 @@ func (anchor *windowsDestinationAnchor) revalidate(ctx context.Context) error {
 			retained.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			return fmt.Errorf("Windows retained destination ancestor changed")
 		}
-		parentHandle = anchor.directories[index].Handle()
+		retainedDirectory, err := captureWindowsDirectoryHandle(anchor.directories[index].Handle())
+		if err != nil {
+			return err
+		}
+		if retainedDirectory.caseSensitive != binding.caseSensitive {
+			return fmt.Errorf("Windows destination ancestor lookup case semantics changed")
+		}
+		parentDirectory = retainedDirectory
 	}
 	current, err := queryWindowsEntryFacts(anchor.parentHandle())
 	if err != nil {
@@ -204,6 +245,7 @@ func (anchor *windowsDestinationAnchor) close() error {
 	}
 	anchor.directories = nil
 	anchor.bindings = nil
+	anchor.rootDirectory = windowsDirectoryHandle{}
 	if anchor.root != nil {
 		failures = append(failures, anchor.root.Close())
 		anchor.root = nil

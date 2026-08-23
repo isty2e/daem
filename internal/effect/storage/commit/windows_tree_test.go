@@ -54,6 +54,47 @@ func TestWindowsDirectPreparedTreeCommit(t *testing.T) {
 	}
 }
 
+func TestWindowsDirectPreparedTreeRejectsHardLinkedFile(t *testing.T) {
+	root := t.TempDir()
+	staged := filepath.Join(root, "staged")
+	destination := filepath.Join(root, "published")
+	if err := os.Mkdir(staged, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := openWindowsNativeTestDirectory(t, staged)
+	if _, err := applyWindowsCanonicalSecurity(opened.Handle(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(staged, "entry.txt")
+	create, err := NewFileCreate(entry, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitFile(t.Context(), create); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(entry, filepath.Join(root, "alias")); err != nil {
+		t.Fatal(err)
+	}
+	identity, err := CaptureEntryIdentity(t.Context(), staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewPreparedTreeCommit(staged, destination, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitPreparedTree(t.Context(), request); !hasStorageFailureKind(err, mutationfs.FailureUnsupportedGuarantee) {
+		t.Fatalf("direct hard-linked tree error = %v, want unsupported guarantee", err)
+	}
+	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("hard-linked direct destination = %v, want absent", err)
+	}
+}
+
 func TestWindowsPreparedRootedTreeCommitAndSnapshot(t *testing.T) {
 	root := t.TempDir()
 	destination := root + `\tree`
@@ -88,6 +129,103 @@ func TestWindowsPreparedRootedTreeCommitAndSnapshot(t *testing.T) {
 		t.Fatalf("prepared tree root snapshot = mode %04o entries %+v", snapshot.RootMode(), snapshot.Entries())
 	}
 	assertNoWindowsStorageResidue(t, root)
+}
+
+func TestWindowsPreparedRootedTreeRejectsDescendantReplacementAndPreservesItOnAbort(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "tree")
+	prepared, err := PrepareRootedTree(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, destination),
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(mustWindowsTreePath(t, "entry"), 0o600, strings.NewReader("payload"))
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(prepared.stagePath, "entry")
+	if err := os.Remove(entry); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := NewFileCreate(entry, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitFile(t.Context(), replacement); err != nil {
+		t.Fatal(err)
+	}
+	_, err = prepared.CommitWithOutcome(t.Context())
+	if !hasStorageFailureKind(err, mutationfs.FailureRetainedResidue) {
+		t.Fatalf("replacement commit error = %v, want retained residue", err)
+	}
+	if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("replacement destination = %v, want absent", statErr)
+	}
+	content, readErr := os.ReadFile(entry)
+	if readErr != nil || string(content) != "payload" {
+		t.Fatalf("replacement entry = %q, %v; want preserved", content, readErr)
+	}
+}
+
+func TestWindowsPreparedRootedTreeRejectsHardLinkedFile(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "tree")
+	prepared, err := PrepareRootedTree(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, destination),
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(mustWindowsTreePath(t, "entry"), 0o600, strings.NewReader("payload"))
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Link(filepath.Join(prepared.stagePath, "entry"), alias); err != nil {
+		t.Fatal(err)
+	}
+	_, err = prepared.CommitWithOutcome(t.Context())
+	if !hasStorageFailureKind(err, mutationfs.FailureRetainedResidue) {
+		t.Fatalf("hard-linked commit error = %v, want retained residue", err)
+	}
+	if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("hard-linked destination = %v, want absent", statErr)
+	}
+	content, readErr := os.ReadFile(alias)
+	if readErr != nil || string(content) != "payload" {
+		t.Fatalf("external alias = %q, %v; want preserved", content, readErr)
+	}
+}
+
+func TestWindowsPreparedRootedTreeCloseFailureRetainsPublishedDestinationEvidence(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "tree")
+	prepared, err := PrepareRootedTree(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, destination),
+		func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(mustWindowsTreePath(t, "entry"), 0o600, strings.NewReader("payload"))
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = prepared.commitWithPublishedIdentityAndFaults(
+		t.Context(),
+		faultPlan{failures: map[phase]error{phaseClosePayload: errors.New("injected close failure")}},
+	)
+	if !hasStorageFailureKind(err, mutationfs.FailureIndeterminateCommit) {
+		t.Fatalf("close failure = %v, want indeterminate", err)
+	}
+	var storageFailure *failure
+	if !errors.As(err, &storageFailure) {
+		t.Fatalf("close failure type = %T, want storage failure", err)
+	}
+	residue := storageFailure.retainedResidue()
+	if len(residue) != 1 || residue[0] != destination {
+		t.Fatalf("close failure residue = %v, want %q", residue, destination)
+	}
 }
 
 func TestWindowsPreparedRootedTreeAbortAndPopulateFailureRemoveStage(t *testing.T) {

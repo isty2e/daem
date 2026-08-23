@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"golang.org/x/sys/windows"
 )
 
 func TestWindowsLogicalRemovalAndRootedRename(t *testing.T) {
@@ -57,6 +58,86 @@ func TestWindowsLogicalRemovalAndRootedRename(t *testing.T) {
 		t.Fatalf("removed destination = %v, want missing", err)
 	}
 	assertNoWindowsStorageResidue(t, root)
+}
+
+func TestWindowsLogicalRemovalDisposesNoFollowSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.WriteFile(target, []byte("target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink("target", link); err != nil {
+		if windowsNativeFeatureUnavailable(err) {
+			t.Skipf("symbolic links unavailable: %v", err)
+		}
+		t.Fatal(err)
+	}
+	parent := openWindowsNativeTestDirectory(t, root)
+	opened, err := openWindowsRelativeEntry(
+		mustWindowsDirectoryHandle(t, parent.Handle()),
+		"link",
+		windows.FILE_GENERIC_READ|windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
+		windowsParentShareMode,
+		windows.FILE_OPEN,
+		false,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := applyWindowsCanonicalSecurity(opened.handle.Handle(), 0o600); err != nil {
+		_ = opened.handle.Close()
+		t.Fatal(err)
+	}
+	if err := opened.handle.Close(); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureEntryIdentity(t.Context(), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewLogicalRemoval(link, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitLogicalRemoval(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("removed link = %v, want absent", err)
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "target" {
+		t.Fatalf("symlink target = %q, %v; want unchanged", content, err)
+	}
+}
+
+func TestWindowsLogicalRemovalDisposesReadOnlyCanonicalDirectory(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "read-only")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	opened := openWindowsNativeTestDirectory(t, path)
+	if _, err := applyWindowsCanonicalSecurity(opened.Handle(), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	if err := opened.Close(); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := CaptureEntryIdentity(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewLogicalRemoval(path, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitLogicalRemoval(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only directory = %v, want absent", err)
+	}
 }
 
 func TestWindowsRootedDirectoryCleanupRemovesExactPreparedTree(t *testing.T) {
@@ -207,6 +288,37 @@ func TestWindowsAncestorCleanupRejectsMovedBinding(t *testing.T) {
 		if err != nil || !info.IsDir() {
 			t.Fatalf("preserved directory %q = %#v, %v", path, info, err)
 		}
+	}
+}
+
+func TestWindowsReadRootedFileUsesReadOnlyRootAuthority(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "read-root")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "entry")
+	create, err := NewFileCreate(path, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitFile(t.Context(), create); err != nil {
+		t.Fatal(err)
+	}
+	rootHandle := openWindowsNativeTestDirectory(t, root)
+	if _, err := applyWindowsCanonicalSecurity(rootHandle.Handle(), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = applyWindowsCanonicalSecurity(rootHandle.Handle(), 0o700)
+	})
+	capability := acquireWindowsTestCommitCapability(t, path)
+	defer capability.Close()
+	content, mode, _, err := ReadRootedRegularFile(t.Context(), capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "payload" || mode != 0o600 {
+		t.Fatalf("read-only rooted file = %q mode %04o", content, mode)
 	}
 }
 

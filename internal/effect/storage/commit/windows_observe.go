@@ -12,11 +12,12 @@ import (
 )
 
 type windowsObservedEntry struct {
-	handle   *windowsOwnedHandle
-	facts    windowsEntryFactsNative
-	metadata windowsMetadataFacts
-	identity EntryIdentity
-	mode     fs.FileMode
+	handle    *windowsOwnedHandle
+	directory windowsDirectoryHandle
+	facts     windowsEntryFactsNative
+	metadata  windowsMetadataFacts
+	identity  EntryIdentity
+	mode      fs.FileMode
 }
 
 func windowsEntryKindFromFacts(facts windowsEntryFactsNative) entryKind {
@@ -52,10 +53,10 @@ func openWindowsObservedEntry(
 		access |= windows.FILE_GENERIC_READ
 	}
 	if deleteAccess {
-		access |= windows.DELETE | windows.WRITE_DAC
+		access |= windows.DELETE
 	}
 	opened, err := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		anchor.name.String(),
 		access,
 		windowsPublicationShareMode,
@@ -74,6 +75,12 @@ func openWindowsObservedEntry(
 		return fail(err)
 	}
 	kind := windowsEntryKindFromFacts(observed.facts)
+	if kind == entryKindDirectory {
+		observed.directory, err = captureWindowsDirectoryHandle(opened.handle.Handle())
+		if err != nil {
+			return fail(err)
+		}
+	}
 	observed.identity = EntryIdentity{
 		path:     anchor.path,
 		kind:     kind,
@@ -118,7 +125,7 @@ func revalidateWindowsObservedEntry(
 		return err
 	}
 	current, err := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		anchor.name.String(),
 		windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL|windows.SYNCHRONIZE,
 		windowsPublicationShareMode,
@@ -136,6 +143,15 @@ func revalidateWindowsObservedEntry(
 	if !expected.facts.identity.equal(facts.identity) ||
 		windowsEntryKindFromFacts(expected.facts) != windowsEntryKindFromFacts(facts) {
 		return fmt.Errorf("Windows destination entry changed during observation")
+	}
+	if expected.identity.kind == entryKindDirectory {
+		currentDirectory, err := captureWindowsDirectoryHandle(current.handle.Handle())
+		if err != nil {
+			return err
+		}
+		if currentDirectory.caseSensitive != expected.directory.caseSensitive {
+			return fmt.Errorf("Windows destination directory lookup case semantics changed")
+		}
 	}
 	return ctx.Err()
 }

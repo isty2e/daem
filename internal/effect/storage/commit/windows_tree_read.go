@@ -80,7 +80,7 @@ func snapshotWindowsRootedDirectory(
 			return EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
 		}
 	}
-	if err := snapshotWindowsDirectoryRecursive(ctx, capability, root.handle.Handle(), path, nil, budget, sink); err != nil {
+	if err := snapshotWindowsDirectoryRecursive(ctx, capability, root.directory, path, nil, budget, sink); err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
 	}
 	if err := revalidateWindowsObservedEntry(ctx, anchor, root); err != nil {
@@ -92,7 +92,7 @@ func snapshotWindowsRootedDirectory(
 func snapshotWindowsDirectoryRecursive(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
-	directory windows.Handle,
+	directory windowsDirectoryHandle,
 	directoryPath string,
 	relative []string,
 	budget *treeTraversalBudget,
@@ -101,7 +101,7 @@ func snapshotWindowsDirectoryRecursive(
 	if err := budget.admitDepth(len(relative)); err != nil {
 		return err
 	}
-	first, err := enumerateWindowsDirectoryOnce(ctx, directory, budget.remainingEntries()+1)
+	first, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), budget.remainingEntries()+1)
 	if err != nil {
 		return err
 	}
@@ -183,7 +183,7 @@ func snapshotWindowsDirectoryRecursive(
 			err = snapshotWindowsDirectoryRecursive(
 				ctx,
 				capability,
-				opened.handle.Handle(),
+				opened.directory,
 				entryPath,
 				entryRelative,
 				budget,
@@ -217,7 +217,7 @@ func snapshotWindowsDirectoryRecursive(
 			return errors.Join(err, closeErr)
 		}
 	}
-	second, err := enumerateWindowsDirectoryOnce(ctx, directory, len(first)+1)
+	second, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), len(first)+1)
 	if err != nil {
 		return err
 	}

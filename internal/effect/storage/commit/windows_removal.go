@@ -77,12 +77,12 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		residueName = request.names.Residue()
 		cleanupName = request.names.Cleanup()
 		for _, name := range []string{residueName, cleanupName} {
-			if err := requireWindowsSiblingAbsent(anchor.parentHandle(), name); err != nil {
+			if err := requireWindowsSiblingAbsent(anchor.parentDirectory(), name); err != nil {
 				return windowsFailureBeforeVisibility(phaseCommitTombstone, request.path, err)
 			}
 		}
 	} else {
-		residueName, err = unusedWindowsSiblingName(anchor.parentHandle(), tombstonePrefix)
+		residueName, err = unusedWindowsSiblingName(anchor.parentDirectory(), tombstonePrefix)
 		if err != nil {
 			return windowsFailureBeforeVisibility(phaseCommitTombstone, request.path, err)
 		}
@@ -91,9 +91,12 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 	if err := revalidateWindowsObservedEntry(ctx, anchor, existing); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.path, err)
 	}
+	if err := ctx.Err(); err != nil {
+		return windowsFailureBeforeVisibility(phaseCommitTombstone, request.path, err)
+	}
 	if _, err := renameWindowsByHandle(existing.handle.Handle(), anchor.parentHandle(), residueName, windowsRenameNoReplace); err != nil {
 		moved, unchanged, observeErr := observeWindowsNamespaceTransition(
-			anchor.parentHandle(),
+			anchor.parentDirectory(),
 			anchor.name.String(),
 			residueName,
 			existing.facts.identity,
@@ -108,7 +111,7 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		}
 	}
 	postRenameFacts, factsErr := queryWindowsEntryFacts(existing.handle.Handle())
-	moved, err := observeWindowsEntryAt(anchor.parentHandle(), residueName)
+	moved, err := observeWindowsEntryAt(anchor.parentDirectory(), residueName)
 	if factsErr != nil || err != nil || !moved.exists || !postRenameFacts.identity.equal(moved.identity) {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, errors.Join(factsErr, err), residuePath)
 	}
@@ -127,12 +130,15 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		platform: platformIdentity{native: moved.identity},
 	}
 	if cleanupName != "" {
+		if err := ctx.Err(); err != nil {
+			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, residuePath)
+		}
 		if _, err := renameWindowsByHandle(existing.handle.Handle(), anchor.parentHandle(), cleanupName, windowsRenameNoReplace); err != nil {
 			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, residuePath)
 		}
 		cleanupPath = filepath.Join(filepath.Dir(request.path), cleanupName)
 		postPromoteFacts, factsErr := queryWindowsEntryFacts(existing.handle.Handle())
-		promoted, observeErr := observeWindowsEntryAt(anchor.parentHandle(), cleanupName)
+		promoted, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), cleanupName)
 		if factsErr != nil || observeErr != nil || !promoted.exists || !postPromoteFacts.identity.equal(promoted.identity) {
 			observeErr = errors.Join(factsErr, observeErr)
 			return newFailure(
@@ -144,7 +150,7 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 				cleanupPath,
 			)
 		}
-		if err := requireWindowsSiblingAbsent(anchor.parentHandle(), residueName); err != nil {
+		if err := requireWindowsSiblingAbsent(anchor.parentDirectory(), residueName); err != nil {
 			return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, residuePath, cleanupPath)
 		}
 		if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
@@ -168,12 +174,14 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 	}
 	if err := removeWindowsEntryTree(
 		ctx,
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		cleanupEntryName,
 		cleanupPath,
 		cleanupIdentity,
 		0,
 		budget,
+		nil,
+		"",
 	); err != nil {
 		return newFailure(failureRetainedResidue, phaseCleanupTombstone, request.path, err, cleanupPath)
 	}
@@ -219,12 +227,14 @@ func validateWindowsRemovalRequest(request LogicalRemoval) error {
 
 func removeWindowsEntryTree(
 	ctx context.Context,
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	path string,
 	expected EntryIdentity,
 	depth int,
 	budget *treeTraversalBudget,
+	plan *windowsPreparedTreeRemovalPlan,
+	relativePath string,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -233,9 +243,9 @@ func removeWindowsEntryTree(
 		return err
 	}
 	access := uint32(windows.FILE_READ_ATTRIBUTES | windows.FILE_READ_EA | windows.READ_CONTROL |
-		windows.WRITE_DAC | windows.DELETE | windows.SYNCHRONIZE)
+		windows.DELETE | windows.SYNCHRONIZE)
 	if expected.kind == entryKindDirectory {
-		access |= windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.FILE_TRAVERSE
+		access |= windows.FILE_GENERIC_READ | windows.FILE_TRAVERSE
 	}
 	opened, err := openWindowsRelativeEntry(
 		parent,
@@ -258,6 +268,11 @@ func removeWindowsEntryTree(
 	if !actual.sameEntry(expected) {
 		return fmt.Errorf("cleanup entry identity changed for %q", path)
 	}
+	if plan != nil && relativePath != "" {
+		if err := plan.validate(relativePath, kind, facts); err != nil {
+			return err
+		}
+	}
 	metadata, err := queryWindowsMetadataFacts(opened.handle.Handle())
 	if err != nil {
 		return err
@@ -268,8 +283,10 @@ func removeWindowsEntryTree(
 	if err := validateWindowsObservedMetadata(metadata); err != nil {
 		return err
 	}
-	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, kind == entryKindDirectory); err != nil {
-		return err
+	if kind == entryKindRegular || kind == entryKindDirectory {
+		if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, kind == entryKindDirectory); err != nil {
+			return err
+		}
 	}
 	if kind == entryKindRegular {
 		if err := budget.admitBytes(facts.standard.endOfFile); err != nil {
@@ -291,6 +308,9 @@ func removeWindowsEntryTree(
 		if !equalWindowsDirectoryEntries(first, second) {
 			return fmt.Errorf("cleanup directory changed before traversal at %q", path)
 		}
+		if err := plan.validateChildren(relativePath, first); err != nil {
+			return err
+		}
 		for _, child := range first {
 			childKind := entryKindRegular
 			if child.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
@@ -307,12 +327,30 @@ func removeWindowsEntryTree(
 				return windowsNativeUnsupported(windowsNativePhaseDisposition, "special cleanup entries are not supported", nil)
 			}
 			childPath := filepath.Join(path, child.name)
+			childRelativePath := child.name
+			if relativePath != "" {
+				childRelativePath = relativePath + "/" + child.name
+			}
 			childIdentity := EntryIdentity{
 				path:     childPath,
 				kind:     childKind,
 				platform: platformIdentity{native: child.identity},
 			}
-			if err := removeWindowsEntryTree(ctx, opened.handle.Handle(), child.name, childPath, childIdentity, depth+1, budget); err != nil {
+			childDirectory, err := opened.Directory()
+			if err != nil {
+				return err
+			}
+			if err := removeWindowsEntryTree(
+				ctx,
+				childDirectory,
+				child.name,
+				childPath,
+				childIdentity,
+				depth+1,
+				budget,
+				plan,
+				childRelativePath,
+			); err != nil {
 				return err
 			}
 		}
@@ -343,7 +381,7 @@ func removeWindowsEntryTree(
 	return nil
 }
 
-func observeWindowsEntryAt(parent windows.Handle, name string) (windowsNamespaceObservation, error) {
+func observeWindowsEntryAt(parent windowsDirectoryHandle, name string) (windowsNamespaceObservation, error) {
 	opened, err := openWindowsRelativeEntry(
 		parent,
 		name,
@@ -371,7 +409,7 @@ func observeWindowsEntryAt(parent windows.Handle, name string) (windowsNamespace
 }
 
 func observeWindowsNamespaceTransition(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	sourceName string,
 	destinationName string,
 	expected windowsEntryIdentityNative,
@@ -394,7 +432,7 @@ func observeWindowsNamespaceTransition(
 }
 
 func requireWindowsNameMatches(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	expected windowsEntryIdentityNative,
 	exact bool,
@@ -416,7 +454,7 @@ func requireWindowsNameMatches(
 	return nil
 }
 
-func requireWindowsSiblingAbsent(parent windows.Handle, name string) error {
+func requireWindowsSiblingAbsent(parent windowsDirectoryHandle, name string) error {
 	observed, err := observeWindowsEntryAt(parent, name)
 	if err != nil {
 		return err
@@ -427,7 +465,7 @@ func requireWindowsSiblingAbsent(parent windows.Handle, name string) error {
 	return nil
 }
 
-func unusedWindowsSiblingName(parent windows.Handle, prefix string) (string, error) {
+func unusedWindowsSiblingName(parent windowsDirectoryHandle, prefix string) (string, error) {
 	for range maximumWindowsTemporaryNameAttempts {
 		name, err := newWindowsPrivateName(prefix)
 		if err != nil {

@@ -305,6 +305,21 @@ func TestWindowsCaseSensitiveParentUsesPerDirectoryResolution(t *testing.T) {
 	}
 }
 
+func TestWindowsCapturedRootRejectsCaseSensitivityDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "captured")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root := captureWindowsContractRoot(t, path)
+	defer root.Close()
+	if err := enableWindowsCaseSensitiveDirectory(path); err != nil {
+		t.Skipf("per-directory case sensitivity unavailable: %v", err)
+	}
+	if _, err := root.Authority(); !hasFailureKind(err, FailureRootReplaced) {
+		t.Fatalf("case-semantics drift validation error = %v, want %s", err, FailureRootReplaced)
+	}
+}
+
 func TestWindowsObjectIdentityUsesVolumeFileIDAndCreationTime(t *testing.T) {
 	info := windowsFileIDInfo{VolumeSerialNumber: 7, FileID: [16]byte{1}}
 	first, err := windowsObjectTokenFromInfo(info, 11)

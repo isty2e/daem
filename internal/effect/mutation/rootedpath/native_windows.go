@@ -135,7 +135,7 @@ func queryWindowsFileBasicInfo(handle windows.Handle) (windowsFileBasicInfo, err
 		(*byte)(unsafe.Pointer(&info)),
 		uint32(unsafe.Sizeof(info)),
 	); err != nil {
-		return windowsFileBasicInfo{}, err
+		return windowsFileBasicInfo{}, windowsCapabilityQueryError("query FILE_BASIC_INFO", err)
 	}
 	return info, nil
 }
@@ -263,7 +263,11 @@ func nativeRecoveryMountToken(handle windows.Handle) (identityToken, error) {
 }
 
 func nativeMountTokenAt(parent windows.Handle, name string) (identityToken, error) {
-	handle, _, err := openWindowsChild(parent, name)
+	caseSensitive, err := queryWindowsCaseSensitive(parent)
+	if err != nil {
+		return identityToken{}, err
+	}
+	handle, _, err := openWindowsChild(parent, caseSensitive, name)
 	if err != nil {
 		return identityToken{}, err
 	}

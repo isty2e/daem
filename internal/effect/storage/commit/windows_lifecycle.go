@@ -32,7 +32,7 @@ func CommitRootedEntryRename(
 	if err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseCaptureIdentity, request.sourcePath, windowsUnsupportedCause(err)))
 	}
-	if err := requireWindowsSiblingAbsent(anchor.parentHandle(), request.destinationName); err != nil {
+	if err := requireWindowsSiblingAbsent(anchor.parentDirectory(), request.destinationName); err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.sourcePath, err))
 	}
 	source, err := openWindowsObservedEntry(ctx, anchor, true, false, true)
@@ -48,9 +48,12 @@ func CommitRootedEntryRename(
 	if err := revalidateWindowsObservedEntry(ctx, anchor, source); err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseRevalidateEntry, request.sourcePath, err))
 	}
+	if err := ctx.Err(); err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseCommitEntry, request.sourcePath, err))
+	}
 	if _, err := renameWindowsByHandle(source.handle.Handle(), anchor.parentHandle(), request.destinationName, windowsRenameNoReplace); err != nil {
 		moved, unchanged, observeErr := observeWindowsNamespaceTransition(
-			anchor.parentHandle(),
+			anchor.parentDirectory(),
 			anchor.name.String(),
 			request.destinationName,
 			source.facts.identity,
@@ -67,7 +70,7 @@ func CommitRootedEntryRename(
 	}
 	destinationPath := filepath.Join(filepath.Dir(request.sourcePath), request.destinationName)
 	postRenameFacts, factsErr := queryWindowsEntryFacts(source.handle.Handle())
-	moved, err := observeWindowsEntryAt(anchor.parentHandle(), request.destinationName)
+	moved, err := observeWindowsEntryAt(anchor.parentDirectory(), request.destinationName)
 	if factsErr != nil || err != nil || !moved.exists || !postRenameFacts.identity.equal(moved.identity) {
 		err = errors.Join(factsErr, err)
 		return fail(newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.sourcePath, err, destinationPath))
@@ -80,6 +83,15 @@ func CommitRootedEntryRename(
 	}
 	if err := anchor.revalidate(context.WithoutCancel(ctx)); err != nil {
 		return fail(newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.sourcePath, err, destinationPath))
+	}
+	if err := source.close(); err != nil {
+		return fail(newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			request.sourcePath,
+			err,
+			destinationPath,
+		))
 	}
 	if request.moved != nil {
 		*request.moved = EntryIdentity{
@@ -132,7 +144,17 @@ func CommitRootedEntryCleanup(
 	if err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
 	}
-	err = removeWindowsEntryTree(ctx, anchor.parentHandle(), anchor.name.String(), request.path, request.expected, 0, budget)
+	err = removeWindowsEntryTree(
+		ctx,
+		anchor.parentDirectory(),
+		anchor.name.String(),
+		request.path,
+		request.expected,
+		0,
+		budget,
+		nil,
+		"",
+	)
 	if err != nil {
 		return fail(classifyWindowsExactCleanupFailure(anchor, request, err))
 	}
@@ -222,7 +244,7 @@ func classifyWindowsExactCleanupFailure(
 	request RootedEntryCleanup,
 	cause error,
 ) error {
-	observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), anchor.name.String())
+	observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), anchor.name.String())
 	switch {
 	case observeErr == nil && observed.exists && request.expected.platform.native.equal(observed.identity):
 		return windowsFailureBeforeVisibility(phaseCleanupEntry, request.path, cause)

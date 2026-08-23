@@ -48,8 +48,52 @@ func (owner *windowsOwnedHandle) Close() error {
 }
 
 type windowsRelativeOpen struct {
-	name   windowsComponent
-	handle *windowsOwnedHandle
+	name      windowsComponent
+	handle    *windowsOwnedHandle
+	directory windowsDirectoryHandle
+}
+
+type windowsDirectoryHandle struct {
+	handle        windows.Handle
+	caseSensitive bool
+}
+
+func captureWindowsDirectoryHandle(handle windows.Handle) (windowsDirectoryHandle, error) {
+	if handle == 0 || handle == windows.InvalidHandle {
+		return windowsDirectoryHandle{}, fmt.Errorf("Windows directory handle is required")
+	}
+	caseSensitive, err := queryWindowsCaseSensitive(handle)
+	if err != nil {
+		return windowsDirectoryHandle{}, err
+	}
+	return windowsDirectoryHandle{handle: handle, caseSensitive: caseSensitive}, nil
+}
+
+func (directory windowsDirectoryHandle) Handle() windows.Handle {
+	if directory.handle == 0 {
+		return windows.InvalidHandle
+	}
+	return directory.handle
+}
+
+func (opened *windowsRelativeOpen) Directory() (windowsDirectoryHandle, error) {
+	if opened == nil || opened.handle == nil || windowsHandleIsClosed(opened.handle) {
+		return windowsDirectoryHandle{}, fmt.Errorf("opened Windows directory is unavailable")
+	}
+	if opened.directory.Handle() == windows.InvalidHandle {
+		facts, err := queryWindowsEntryFacts(opened.handle.Handle())
+		if err != nil {
+			return windowsDirectoryHandle{}, err
+		}
+		if !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+			return windowsDirectoryHandle{}, fmt.Errorf("opened Windows entry is not a non-reparse directory")
+		}
+		opened.directory, err = captureWindowsDirectoryHandle(opened.handle.Handle())
+		if err != nil {
+			return windowsDirectoryHandle{}, err
+		}
+	}
+	return opened.directory, nil
 }
 
 type windowsRelativeKind uint8
@@ -61,7 +105,7 @@ const (
 )
 
 func openWindowsRelativeChild(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -82,7 +126,7 @@ func openWindowsRelativeChild(
 }
 
 func openWindowsRelativeChildWithSecurity(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -91,7 +135,7 @@ func openWindowsRelativeChildWithSecurity(
 	writeThrough bool,
 	security *windows.SECURITY_DESCRIPTOR,
 ) (*windowsRelativeOpen, error) {
-	if parent == 0 || parent == windows.InvalidHandle {
+	if parent.Handle() == windows.InvalidHandle {
 		return nil, fmt.Errorf("Windows parent handle is required")
 	}
 	access |= windows.SYNCHRONIZE
@@ -99,7 +143,7 @@ func openWindowsRelativeChildWithSecurity(
 	if err != nil {
 		return nil, err
 	}
-	parentFacts, err := queryWindowsEntryFacts(parent)
+	parentFacts, err := queryWindowsEntryFacts(parent.Handle())
 	if err != nil {
 		return nil, err
 	}
@@ -108,6 +152,13 @@ func openWindowsRelativeChildWithSecurity(
 	}
 	if err := validateWindowsComponentForVolume(component, parentFacts.volume.maximumComponentUTF16); err != nil {
 		return nil, err
+	}
+	currentCaseSensitive, err := queryWindowsCaseSensitive(parent.Handle())
+	if err != nil {
+		return nil, err
+	}
+	if currentCaseSensitive != parent.caseSensitive {
+		return nil, fmt.Errorf("Windows parent lookup case semantics changed")
 	}
 	if kind == windowsRelativeAny && disposition != windows.FILE_OPEN {
 		return nil, fmt.Errorf("neutral Windows entry opens cannot create entries")
@@ -119,21 +170,17 @@ func openWindowsRelativeChildWithSecurity(
 	if disposition != windows.FILE_OPEN {
 		operationPhase = windowsNativePhaseCreate
 	}
-	caseSensitive, err := queryWindowsCaseSensitive(parent)
-	if err != nil {
-		return nil, err
-	}
 	objectName, err := windows.NewNTUnicodeString(component.value)
 	if err != nil {
 		return nil, normalizeWindowsNativeError(operationPhase, err, false)
 	}
 	attributes := uint32(0)
-	if !caseSensitive {
+	if !parent.caseSensitive {
 		attributes |= windows.OBJ_CASE_INSENSITIVE
 	}
 	objectAttributes := &windows.OBJECT_ATTRIBUTES{
 		Length:             uint32(unsafe.Sizeof(windows.OBJECT_ATTRIBUTES{})),
-		RootDirectory:      parent,
+		RootDirectory:      parent.Handle(),
 		ObjectName:         objectName,
 		Attributes:         attributes,
 		SecurityDescriptor: security,
@@ -181,7 +228,16 @@ func openWindowsRelativeChildWithSecurity(
 		_ = windows.CloseHandle(handle)
 		return nil, normalizeWindowsNativeError(operationPhase, err, false)
 	}
-	return &windowsRelativeOpen{name: component, handle: owner}, nil
+	opened := &windowsRelativeOpen{name: component, handle: owner}
+	if kind == windowsRelativeDirectory {
+		directory, directoryErr := captureWindowsDirectoryHandle(owner.Handle())
+		if directoryErr != nil {
+			_ = owner.Close()
+			return nil, directoryErr
+		}
+		opened.directory = directory
+	}
+	return opened, nil
 }
 
 func queryWindowsCaseSensitive(handle windows.Handle) (bool, error) {
@@ -208,7 +264,7 @@ func windowsWriteThroughOption(enabled bool) uint32 {
 }
 
 func openWindowsRelativeFile(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -219,7 +275,7 @@ func openWindowsRelativeFile(
 }
 
 func openWindowsRelativeDirectory(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -230,7 +286,7 @@ func openWindowsRelativeDirectory(
 }
 
 func createWindowsRelativeFile(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -253,7 +309,7 @@ func createWindowsRelativeFile(
 }
 
 func createWindowsRelativeDirectory(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,
@@ -276,7 +332,7 @@ func createWindowsRelativeDirectory(
 }
 
 func openWindowsRelativeEntry(
-	parent windows.Handle,
+	parent windowsDirectoryHandle,
 	name string,
 	access uint32,
 	share uint32,

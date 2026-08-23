@@ -10,19 +10,29 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/windows"
 )
 
 const maximumWindowsTemporaryNameAttempts = 16
 
 func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, error) {
-	return commitWindowsFileWithFaults(ctx, request, faultPlan{})
+	return commitWindowsFileWithFaultsAndParent(ctx, request, faultPlan{}, nil)
 }
 
 func commitWindowsFileWithFaults(
 	ctx context.Context,
 	request FileCommit,
 	faults faultPlan,
+) (EntryIdentity, error) {
+	return commitWindowsFileWithFaultsAndParent(ctx, request, faults, nil)
+}
+
+func commitWindowsFileWithFaultsAndParent(
+	ctx context.Context,
+	request FileCommit,
+	faults faultPlan,
+	refreshedParent *EntryIdentity,
 ) (EntryIdentity, error) {
 	capability := request.capability
 	rootedRequest := capability != nil
@@ -96,7 +106,7 @@ func commitWindowsFileWithFaults(
 	stageName, stage, err := createWindowsFileStage(anchor, canonical)
 	if err != nil {
 		if stageName != "" {
-			observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+			observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), stageName)
 			if observed.exists || observeErr != nil {
 				return EntryIdentity{}, newFailure(
 					failureIndeterminateCommit,
@@ -128,7 +138,7 @@ func commitWindowsFileWithFaults(
 		}
 		stage = nil
 		if cleanupErr != nil {
-			observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+			observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), stageName)
 			if observeErr == nil && observed.exists && stageIdentity.sameObject(observed.identity) {
 				return EntryIdentity{}, newFailure(
 					failureRetainedResidue,
@@ -189,7 +199,7 @@ func commitWindowsFileWithFaults(
 	}
 	stage = nil
 	stage, err = openWindowsRelativeFile(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName,
 		windows.FILE_GENERIC_READ|windows.FILE_READ_EA|windows.READ_CONTROL|windows.DELETE|windows.WRITE_DAC,
 		windowsPublicationShareMode,
@@ -221,7 +231,7 @@ func commitWindowsFileWithFaults(
 	if err := anchor.revalidate(ctx); err != nil {
 		return cleanupStage(err, phaseRevalidateEntry)
 	}
-	if err := requireWindowsNameMatches(anchor.parentHandle(), stageName, stageFacts.identity, true); err != nil {
+	if err := requireWindowsNameMatches(anchor.parentDirectory(), stageName, stageFacts.identity, true); err != nil {
 		return cleanupStage(err, phaseRevalidateEntry)
 	}
 	if existing != nil {
@@ -249,6 +259,9 @@ func commitWindowsFileWithFaults(
 	} else if err := requireWindowsDestinationAbsent(anchor); err != nil {
 		return cleanupStage(err, phaseCommitEntry)
 	}
+	if err := ctx.Err(); err != nil {
+		return cleanupStage(err, phaseCommitEntry)
+	}
 	if _, err := renameWindowsByHandle(stage.handle.Handle(), anchor.parentHandle(), anchor.name.String(), renameMode); err != nil {
 		visible, stable, observationErr := observeWindowsRenameFailure(anchor, stageName, stageFacts.identity, existing)
 		if visible || !stable || observationErr != nil {
@@ -269,7 +282,7 @@ func commitWindowsFileWithFaults(
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	published, err := openWindowsRelativeFile(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		anchor.name.String(),
 		windows.FILE_GENERIC_READ|windows.FILE_READ_EA|windows.READ_CONTROL|windows.DELETE|windows.WRITE_DAC,
 		windowsParentShareMode,
@@ -305,7 +318,7 @@ func commitWindowsFileWithFaults(
 	if err := ensureWindowsCanonicalMetadataSupported(publishedMetadata, canonical.facts); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
-	if err := requireWindowsSiblingAbsent(anchor.parentHandle(), stageName); err != nil {
+	if err := requireWindowsSiblingAbsent(anchor.parentDirectory(), stageName); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	if err := anchor.revalidate(ctx); err != nil {
@@ -317,9 +330,43 @@ func commitWindowsFileWithFaults(
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err)
 	}
+	if err := anchor.revalidate(ctx); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	parentFacts, err := queryWindowsEntryFacts(anchor.parentHandle())
+	if err != nil || !parentFacts.standard.directory ||
+		parentFacts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		return EntryIdentity{}, newFailure(
+			failureIndeterminateCommit,
+			phaseVerifyEntry,
+			request.path,
+			errors.Join(err, fmt.Errorf("published Windows file parent authority is unavailable")),
+		)
+	}
+	if request.expectedParent.valid() && !request.expectedParent.platform.native.sameObject(parentFacts.identity) {
+		return EntryIdentity{}, newFailure(
+			failureIndeterminateCommit,
+			phaseVerifyEntry,
+			request.path,
+			fmt.Errorf("published Windows file parent object changed"),
+		)
+	}
+	if refreshedParent != nil {
+		*refreshedParent = EntryIdentity{
+			path:     filepath.Dir(request.path),
+			kind:     entryKindDirectory,
+			platform: platformIdentity{native: parentFacts.identity},
+		}
+	}
 	if err := stage.handle.Close(); err != nil {
 		stage = nil
-		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseClosePayload, request.path, err)
+		return EntryIdentity{}, newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			request.path,
+			err,
+			request.path,
+		)
 	}
 	stage = nil
 	return EntryIdentity{
@@ -353,7 +400,7 @@ func observeWindowsFileCommitDestination(
 
 func requireWindowsDestinationAbsent(anchor *windowsDestinationAnchor) error {
 	opened, err := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		anchor.name.String(),
 		windows.FILE_READ_ATTRIBUTES|windows.READ_CONTROL|windows.SYNCHRONIZE,
 		windowsParentShareMode,
@@ -380,7 +427,7 @@ func createWindowsFileStage(
 			return "", nil, err
 		}
 		opened, err := createWindowsRelativeFile(
-			anchor.parentHandle(),
+			anchor.parentDirectory(),
 			name,
 			windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_GENERIC_EXECUTE|windows.DELETE|windows.WRITE_DAC|windows.READ_CONTROL,
 			windowsPublicationShareMode,
@@ -409,7 +456,7 @@ func cleanupWindowsFileStage(
 	facts, factsErr := queryWindowsEntryFacts(stage.handle.Handle())
 	if factsErr != nil {
 		failures = append(failures, factsErr)
-	} else if err := requireWindowsNameMatches(anchor.parentHandle(), stageName, facts.identity, false); err != nil {
+	} else if err := requireWindowsNameMatches(anchor.parentDirectory(), stageName, facts.identity, false); err != nil {
 		failures = append(failures, err)
 	} else if _, err := disposeWindowsByHandle(stage.handle.Handle(), false); err != nil {
 		failures = append(failures, err)
@@ -421,7 +468,7 @@ func cleanupWindowsFileStage(
 		failures = append(failures, err)
 	}
 	opened, err := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName,
 		windows.FILE_READ_ATTRIBUTES,
 		windowsParentShareMode,
@@ -445,7 +492,7 @@ func classifyWindowsStageReopenFailure(
 	stagePath string,
 	cause error,
 ) error {
-	observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+	observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), stageName)
 	if observeErr == nil && observed.exists && expected.sameObject(observed.identity) {
 		return newFailure(
 			failureRetainedResidue,
@@ -470,7 +517,7 @@ func observeWindowsRenameFailure(
 	existing *windowsObservedEntry,
 ) (visible bool, stable bool, err error) {
 	destination, destinationErr := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		anchor.name.String(),
 		windows.FILE_READ_ATTRIBUTES,
 		windowsParentShareMode,
@@ -494,7 +541,7 @@ func observeWindowsRenameFailure(
 		destinationStable = existing == nil
 	}
 	stage, stageErr := openWindowsRelativeEntry(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName,
 		windows.FILE_READ_ATTRIBUTES,
 		windowsParentShareMode,
@@ -530,6 +577,10 @@ func windowsUnsupportedCause(err error) error {
 	}
 	if errors.Is(err, errWindowsNativeUnsupported) {
 		return unsupported("Windows storage guarantee is unavailable", err)
+	}
+	var authorityFailure *rootedpath.Failure
+	if errors.As(err, &authorityFailure) && authorityFailure.Kind() == rootedpath.FailureUnsupportedPlatform {
+		return unsupported("Windows rooted-path authority guarantee is unavailable", err)
 	}
 	return err
 }

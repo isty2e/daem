@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -33,11 +34,14 @@ const (
 )
 
 type windowsPreparedTreeExpectation struct {
-	path   string
-	kind   entryKind
-	mode   fs.FileMode
-	size   int64
-	digest [sha256.Size]byte
+	path          string
+	kind          entryKind
+	mode          fs.FileMode
+	size          int64
+	digest        [sha256.Size]byte
+	created       windowsEntryIdentityNative
+	expected      windowsEntryIdentityNative
+	numberOfLinks uint32
 }
 
 // PreparedRootedTree owns one private Windows stage and retained destination
@@ -125,14 +129,14 @@ func PrepareRootedTreeWithLimits(
 		_ = capability.Close()
 		return nil, windowsFailureBeforeVisibility(phaseCreateTemporary, path, windowsUnsupportedCause(err))
 	}
-	stageName, err := unusedWindowsSiblingName(anchor.parentHandle(), temporaryPrefix)
+	stageName, err := unusedWindowsSiblingName(anchor.parentDirectory(), temporaryPrefix)
 	if err != nil {
 		_ = anchor.close()
 		_ = capability.Close()
 		return nil, windowsFailureBeforeVisibility(phaseCreateTemporary, path, err)
 	}
 	stage, err := createWindowsRelativeDirectory(
-		anchor.parentHandle(),
+		anchor.parentDirectory(),
 		stageName,
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
 			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
@@ -153,7 +157,7 @@ func PrepareRootedTreeWithLimits(
 		entries:     make(map[string]windowsPreparedTreeExpectation),
 	}
 	if err != nil {
-		observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
+		observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), stageName)
 		if observed.exists || observeErr != nil {
 			prepared.state = preparedRootedTreeTerminal
 			_ = prepared.releaseLocked()
@@ -267,7 +271,14 @@ func (writer *rootedTreeWriterWindows) CreateDirectory(path mutationfs.TreeRelat
 	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
 		return err
 	}
-	return writer.record(windowsPreparedTreeExpectation{path: path.Path(), kind: entryKindDirectory, mode: mode.Perm()})
+	return writer.record(windowsPreparedTreeExpectation{
+		path:          path.Path(),
+		kind:          entryKindDirectory,
+		mode:          mode.Perm(),
+		created:       facts.identity,
+		expected:      facts.identity,
+		numberOfLinks: facts.standard.numberOfLinks,
+	})
 }
 
 func (writer *rootedTreeWriterWindows) WriteFile(
@@ -343,7 +354,14 @@ func (writer *rootedTreeWriterWindows) WriteFile(
 	var contentDigest [sha256.Size]byte
 	copy(contentDigest[:], digest.Sum(nil))
 	return writer.record(windowsPreparedTreeExpectation{
-		path: path.Path(), kind: entryKindRegular, mode: mode.Perm(), size: written, digest: contentDigest,
+		path:          path.Path(),
+		kind:          entryKindRegular,
+		mode:          mode.Perm(),
+		size:          written,
+		digest:        contentDigest,
+		created:       facts.identity,
+		expected:      facts.identity,
+		numberOfLinks: facts.standard.numberOfLinks,
 	})
 }
 
@@ -387,9 +405,9 @@ func (writer *rootedTreeWriterWindows) record(expectation windowsPreparedTreeExp
 
 func (writer *rootedTreeWriterWindows) openParent(
 	path mutationfs.TreeRelativePath,
-) (windows.Handle, string, func() error, error) {
+) (windowsDirectoryHandle, string, func() error, error) {
 	components := strings.Split(path.Path(), "/")
-	parent := writer.prepared.stage.handle.Handle()
+	parent := writer.prepared.stage.directory
 	opened := make([]*windowsOwnedHandle, 0, len(components)-1)
 	closeOpened := func() error { return closeWindowsOwnedHandles(opened...) }
 	for _, component := range components[:len(components)-1] {
@@ -403,15 +421,15 @@ func (writer *rootedTreeWriterWindows) openParent(
 			false,
 		)
 		if err != nil {
-			return windows.InvalidHandle, "", closeOpened, errors.Join(err, closeOpened())
+			return windowsDirectoryHandle{}, "", closeOpened, errors.Join(err, closeOpened())
 		}
 		facts, err := queryWindowsEntryFacts(child.handle.Handle())
 		if err != nil || !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			_ = child.handle.Close()
-			return windows.InvalidHandle, "", closeOpened, errors.Join(err, closeOpened())
+			return windowsDirectoryHandle{}, "", closeOpened, errors.Join(err, closeOpened())
 		}
 		opened = append(opened, child.handle)
-		parent = child.handle.Handle()
+		parent = child.directory
 	}
 	return parent, components[len(components)-1], closeOpened, nil
 }
@@ -490,10 +508,25 @@ func (prepared *PreparedRootedTree) finalizeLocked(ctx context.Context) error {
 		}
 		_, applyErr := applyWindowsCanonicalSecurity(handle, expectation.mode)
 		flushErr := flushWindowsHandle(handle, windowsFlushPolicy{directory: expectation.kind == entryKindDirectory})
+		facts, factsErr := queryWindowsEntryFacts(handle)
 		closeErr := closeHandle()
-		if applyErr != nil || flushErr != nil || closeErr != nil {
-			return errors.Join(applyErr, flushErr, closeErr)
+		if applyErr != nil || flushErr != nil || factsErr != nil || closeErr != nil {
+			return errors.Join(applyErr, flushErr, factsErr, closeErr)
 		}
+		if !expectation.created.sameObject(facts.identity) ||
+			windowsEntryKindFromFacts(facts) != expectation.kind {
+			return fmt.Errorf("prepared Windows tree entry %q changed while finalizing", path)
+		}
+		if expectation.kind == entryKindRegular && facts.standard.numberOfLinks != 1 {
+			return windowsNativeUnsupported(
+				windowsNativePhaseIdentity,
+				fmt.Sprintf("prepared Windows tree file %q has %d hard links", path, facts.standard.numberOfLinks),
+				nil,
+			)
+		}
+		expectation.expected = facts.identity
+		expectation.numberOfLinks = facts.standard.numberOfLinks
+		prepared.entries[path] = expectation
 	}
 	if _, err := applyWindowsCanonicalSecurity(prepared.stage.handle.Handle(), prepared.rootMode); err != nil {
 		return err
@@ -515,7 +548,7 @@ func (prepared *PreparedRootedTree) openEntry(
 	mutating bool,
 ) (windows.Handle, func() error, error) {
 	components := strings.Split(path, "/")
-	parent := prepared.stage.handle.Handle()
+	parent := prepared.stage.directory
 	opened := make([]*windowsOwnedHandle, 0, len(components))
 	closeOpened := func() error { return closeWindowsOwnedHandles(opened...) }
 	for index, component := range components {
@@ -543,9 +576,11 @@ func (prepared *PreparedRootedTree) openEntry(
 			return windows.InvalidHandle, closeOpened, errors.Join(err, closeOpened())
 		}
 		opened = append(opened, entry.handle)
-		parent = entry.handle.Handle()
+		if entryKindHint == windowsRelativeDirectory {
+			parent = entry.directory
+		}
 	}
-	return parent, closeOpened, nil
+	return opened[len(opened)-1].Handle(), closeOpened, nil
 }
 
 func (prepared *PreparedRootedTree) verifyLocked(ctx context.Context) (EntryIdentity, error) {
@@ -560,7 +595,7 @@ func (prepared *PreparedRootedTree) verifyLocked(ctx context.Context) (EntryIden
 		return EntryIdentity{}, err
 	}
 	if err := requireWindowsNameMatches(
-		prepared.anchor.parentHandle(),
+		prepared.anchor.parentDirectory(),
 		prepared.stageName,
 		facts.identity,
 		false,
@@ -586,7 +621,7 @@ func (prepared *PreparedRootedTree) verifyLocked(ctx context.Context) (EntryIden
 	if err != nil {
 		return EntryIdentity{}, err
 	}
-	if err := prepared.verifyDirectory(ctx, prepared.stage.handle.Handle(), "", visited, budget); err != nil {
+	if err := prepared.verifyDirectory(ctx, prepared.stage.directory, "", visited, budget); err != nil {
 		return EntryIdentity{}, err
 	}
 	if len(visited) != len(prepared.entries) {
@@ -601,7 +636,7 @@ func (prepared *PreparedRootedTree) verifyLocked(ctx context.Context) (EntryIden
 
 func (prepared *PreparedRootedTree) verifyDirectory(
 	ctx context.Context,
-	directory windows.Handle,
+	directory windowsDirectoryHandle,
 	prefix string,
 	visited map[string]struct{},
 	budget *treeTraversalBudget,
@@ -613,14 +648,14 @@ func (prepared *PreparedRootedTree) verifyDirectory(
 	if err := budget.admitDepth(depth); err != nil {
 		return err
 	}
-	entries, err := enumerateWindowsDirectoryOnce(ctx, directory, budget.remainingEntries()+1)
+	entries, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), budget.remainingEntries()+1)
 	if err != nil {
 		return err
 	}
 	if err := budget.admitEntries(len(entries)); err != nil {
 		return err
 	}
-	second, err := enumerateWindowsDirectoryOnce(ctx, directory, len(entries)+1)
+	second, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), len(entries)+1)
 	if err != nil || !equalWindowsDirectoryEntries(entries, second) {
 		return errors.Join(err, fmt.Errorf("prepared Windows tree directory changed during verification"))
 	}
@@ -654,9 +689,18 @@ func (prepared *PreparedRootedTree) verifyDirectory(
 			return errors.Join(factsErr, metadataErr, modeErr, observedMetadataErr, attributesErr)
 		}
 		if mode != expectation.mode || windowsEntryKindFromFacts(facts) != expectation.kind ||
-			!entry.identity.equal(facts.identity) {
+			!expectation.created.sameObject(facts.identity) || !expectation.expected.equal(facts.identity) ||
+			!entry.identity.equal(facts.identity) || facts.standard.numberOfLinks != expectation.numberOfLinks {
 			_ = closeHandle()
 			return fmt.Errorf("prepared Windows tree entry %q changed", path)
+		}
+		if expectation.kind == entryKindRegular && facts.standard.numberOfLinks != 1 {
+			_ = closeHandle()
+			return windowsNativeUnsupported(
+				windowsNativePhaseIdentity,
+				fmt.Sprintf("prepared Windows tree file %q has %d hard links", path, facts.standard.numberOfLinks),
+				nil,
+			)
 		}
 		if expectation.kind == entryKindRegular {
 			if err := budget.admitBytes(facts.standard.endOfFile); err != nil {
@@ -678,14 +722,19 @@ func (prepared *PreparedRootedTree) verifyDirectory(
 			if err != nil {
 				return err
 			}
-			err = prepared.verifyDirectory(ctx, child, path, visited, budget)
+			childDirectory, directoryErr := captureWindowsDirectoryHandle(child)
+			if directoryErr != nil {
+				_ = closeChild()
+				return directoryErr
+			}
+			err = prepared.verifyDirectory(ctx, childDirectory, path, visited, budget)
 			closeErr := closeChild()
 			if err != nil || closeErr != nil {
 				return errors.Join(err, closeErr)
 			}
 		}
 	}
-	final, err := enumerateWindowsDirectoryOnce(ctx, directory, len(entries)+1)
+	final, err := enumerateWindowsDirectoryOnce(ctx, directory.Handle(), len(entries)+1)
 	if err != nil || !equalWindowsDirectoryEntries(entries, final) {
 		return errors.Join(err, fmt.Errorf("prepared Windows tree directory changed during traversal"))
 	}
@@ -704,6 +753,13 @@ func (prepared *PreparedRootedTree) CommitWithOutcome(ctx context.Context) (muta
 
 func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 	ctx context.Context,
+) (mutationfs.CommitOutcome, EntryIdentity, error) {
+	return prepared.commitWithPublishedIdentityAndFaults(ctx, faultPlan{})
+}
+
+func (prepared *PreparedRootedTree) commitWithPublishedIdentityAndFaults(
+	ctx context.Context,
+	faults faultPlan,
 ) (mutationfs.CommitOutcome, EntryIdentity, error) {
 	if prepared == nil {
 		err := windowsFailureBeforeVisibility(phaseValidate, "", fmt.Errorf("prepared rooted tree is required"))
@@ -735,6 +791,10 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		err = prepared.failBeforeVisibilityLocked(phaseRevalidateEntry, err)
 		return outcomeFromError(err), EntryIdentity{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		err = prepared.failBeforeVisibilityLocked(phaseCommitEntry, err)
+		return outcomeFromError(err), EntryIdentity{}, err
+	}
 	if _, err := renameWindowsByHandle(
 		prepared.stage.handle.Handle(),
 		prepared.anchor.parentHandle(),
@@ -742,7 +802,7 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		windowsRenameNoReplace,
 	); err != nil {
 		moved, unchanged, observeErr := observeWindowsNamespaceTransition(
-			prepared.anchor.parentHandle(), prepared.stageName, prepared.anchor.name.String(), current.platform.native,
+			prepared.anchor.parentDirectory(), prepared.stageName, prepared.anchor.name.String(), current.platform.native,
 		)
 		if unchanged && observeErr == nil {
 			err = prepared.failBeforeVisibilityLocked(phaseCommitEntry, err)
@@ -752,7 +812,7 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		residue := []string(nil)
 		if moved {
 			published, publishedErr := observeWindowsEntryAt(
-				prepared.anchor.parentHandle(),
+				prepared.anchor.parentDirectory(),
 				prepared.anchor.name.String(),
 			)
 			observeErr = errors.Join(observeErr, publishedErr)
@@ -769,12 +829,12 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		return outcomeFromError(err), identity, err
 	}
 	postRenameFacts, factsErr := queryWindowsEntryFacts(prepared.stage.handle.Handle())
-	published, observeErr := observeWindowsEntryAt(prepared.anchor.parentHandle(), prepared.anchor.name.String())
+	published, observeErr := observeWindowsEntryAt(prepared.anchor.parentDirectory(), prepared.anchor.name.String())
 	if factsErr != nil || observeErr != nil || !published.exists || !postRenameFacts.identity.equal(published.identity) {
 		err = prepared.finishVisibleLocked(phaseVerifyEntry, errors.Join(factsErr, observeErr), prepared.destination)
 		return outcomeFromError(err), EntryIdentity{}, err
 	}
-	if err := requireWindowsSiblingAbsent(prepared.anchor.parentHandle(), prepared.stageName); err != nil {
+	if err := requireWindowsSiblingAbsent(prepared.anchor.parentDirectory(), prepared.stageName); err != nil {
 		err = prepared.finishVisibleLocked(phaseVerifyEntry, err, prepared.destination)
 		return outcomeFromError(err), EntryIdentity{}, err
 	}
@@ -787,13 +847,117 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		err = prepared.finishVisibleLocked(phaseSyncParent, err, prepared.destination)
 		return outcomeFromError(err), identity, err
 	}
-	closeErr := prepared.releaseLocked()
+	closeErr := faults.check(context.WithoutCancel(ctx), phaseClosePayload)
+	closeErr = errors.Join(closeErr, prepared.releaseLocked())
 	prepared.state = preparedRootedTreeTerminal
 	if closeErr != nil {
-		err = newFailure(failureIndeterminateCommit, phaseClosePayload, prepared.destination, closeErr)
+		err = newFailure(
+			failureIndeterminateCommit,
+			phaseClosePayload,
+			prepared.destination,
+			closeErr,
+			prepared.destination,
+		)
 		return outcomeFromError(err), identity, err
 	}
 	return outcomeFromError(nil), identity, nil
+}
+
+type windowsPreparedTreeRemovalPlan struct {
+	entries   map[string]windowsPreparedTreeExpectation
+	children  map[string][]string
+	finalized bool
+	visited   map[string]struct{}
+}
+
+func newWindowsPreparedTreeRemovalPlan(
+	entries map[string]windowsPreparedTreeExpectation,
+	finalized bool,
+) *windowsPreparedTreeRemovalPlan {
+	children := make(map[string][]string)
+	for path := range entries {
+		parent := ""
+		name := path
+		if separator := strings.LastIndexByte(path, '/'); separator >= 0 {
+			parent = path[:separator]
+			name = path[separator+1:]
+		}
+		children[parent] = append(children[parent], name)
+	}
+	for parent := range children {
+		sort.Strings(children[parent])
+	}
+	return &windowsPreparedTreeRemovalPlan{
+		entries:   entries,
+		children:  children,
+		finalized: finalized,
+		visited:   make(map[string]struct{}, len(entries)),
+	}
+}
+
+func (plan *windowsPreparedTreeRemovalPlan) validate(
+	path string,
+	kind entryKind,
+	facts windowsEntryFactsNative,
+) error {
+	if plan == nil {
+		return nil
+	}
+	expectation, ok := plan.entries[path]
+	if !ok {
+		return fmt.Errorf("prepared Windows cleanup found unplanned entry %q", path)
+	}
+	if _, duplicate := plan.visited[path]; duplicate {
+		return fmt.Errorf("prepared Windows cleanup visited %q twice", path)
+	}
+	if expectation.kind != kind || !expectation.created.sameObject(facts.identity) {
+		return fmt.Errorf("prepared Windows cleanup entry %q changed object", path)
+	}
+	if plan.finalized && !expectation.expected.equal(facts.identity) {
+		return fmt.Errorf("prepared Windows cleanup entry %q changed after finalization", path)
+	}
+	if facts.standard.numberOfLinks != expectation.numberOfLinks {
+		return fmt.Errorf("prepared Windows cleanup entry %q changed link count", path)
+	}
+	if kind == entryKindRegular && facts.standard.numberOfLinks != 1 {
+		return windowsNativeUnsupported(
+			windowsNativePhaseIdentity,
+			fmt.Sprintf("prepared Windows cleanup file %q has %d hard links", path, facts.standard.numberOfLinks),
+			nil,
+		)
+	}
+	plan.visited[path] = struct{}{}
+	return nil
+}
+
+func (plan *windowsPreparedTreeRemovalPlan) validateChildren(
+	parent string,
+	entries []windowsDirectoryEntry,
+) error {
+	if plan == nil {
+		return nil
+	}
+	actual := make([]string, len(entries))
+	for index := range entries {
+		actual[index] = entries[index].name
+	}
+	sort.Strings(actual)
+	expected := plan.children[parent]
+	if !slices.Equal(actual, expected) {
+		return fmt.Errorf("prepared Windows cleanup directory %q changed shape", parent)
+	}
+	return nil
+}
+
+func (plan *windowsPreparedTreeRemovalPlan) complete() error {
+	if plan == nil || len(plan.visited) == len(plan.entries) {
+		return nil
+	}
+	return fmt.Errorf(
+		"prepared Windows cleanup visited %d entries, want %d",
+		len(plan.visited),
+		len(plan.entries),
+	)
 }
 
 func (prepared *PreparedRootedTree) Abort(ctx context.Context) error {
@@ -826,20 +990,26 @@ func (prepared *PreparedRootedTree) abortLocked(ctx context.Context) error {
 			cleanupIdentity.platform = platformIdentity{native: facts.identity}
 		}
 		budget, err := newTreeTraversalBudget(prepared.limits)
+		plan := newWindowsPreparedTreeRemovalPlan(prepared.entries, prepared.expected.valid())
 		if cleanupErr == nil {
 			if err != nil {
 				cleanupErr = err
 			} else {
 				cleanupErr = removeWindowsEntryTree(
 					context.WithoutCancel(ctx),
-					prepared.anchor.parentHandle(),
+					prepared.anchor.parentDirectory(),
 					prepared.stageName,
 					prepared.stagePath,
 					cleanupIdentity,
 					0,
 					budget,
+					plan,
+					"",
 				)
 			}
+		}
+		if cleanupErr == nil {
+			cleanupErr = plan.complete()
 		}
 		if cleanupErr == nil {
 			cleanupErr = flushWindowsHandle(prepared.anchor.parentHandle(), windowsFlushPolicy{directory: true})

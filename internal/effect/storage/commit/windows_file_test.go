@@ -41,6 +41,48 @@ func TestWindowsFileCreateReplaceAndReadRoundTrip(t *testing.T) {
 	assertNoWindowsStorageResidue(t, root)
 }
 
+func TestWindowsFileReplacementRefreshesParentFromRetainedAuthority(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	create, err := NewFileCreate(path, []byte("before"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitFile(t.Context(), create); err != nil {
+		t.Fatal(err)
+	}
+	expectedFile, err := CaptureEntryIdentity(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedParent, err := CaptureEntryIdentity(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, refreshed, err := (Adapter{}).ReplaceRootedFileAndRefreshParent(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, path),
+		[]byte("after"),
+		0o600,
+		expectedFile,
+		expectedParent,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("replacement outcome = %q, want complete", outcome.State())
+	}
+	parent, err := concreteEntryIdentity(refreshed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.path != root || parent.kind != entryKindDirectory || !expectedParent.platform.sameObject(parent.platform) {
+		t.Fatalf("refreshed parent = %#v, want retained object for %q", parent, root)
+	}
+	assertWindowsRegularFileSnapshot(t, path, "after", 0o600)
+}
+
 func TestWindowsFileCreateCollisionAndStaleReplacementAreUncommitted(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "state.json")
@@ -133,6 +175,32 @@ func TestWindowsFileCommitFaultClassification(t *testing.T) {
 				t.Fatalf("%s destination = %q, %v", failedPhase, content, readErr)
 			}
 		})
+	}
+}
+
+func TestWindowsFilePostVisibilityRefreshFailureIsIndeterminate(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	request, err := NewFileCreate(path, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var refreshed EntryIdentity
+	_, err = commitWindowsFileWithFaultsAndParent(
+		t.Context(),
+		request,
+		windowsFaultAt(phaseSyncParent),
+		&refreshed,
+	)
+	if !hasStorageFailureKind(err, mutationfs.FailureIndeterminateCommit) {
+		t.Fatalf("parent refresh failure = %v, want indeterminate", err)
+	}
+	if refreshed.valid() {
+		t.Fatalf("failed parent refresh returned authority: %#v", refreshed)
+	}
+	content, readErr := os.ReadFile(path)
+	if readErr != nil || string(content) != "payload" {
+		t.Fatalf("published file = %q, %v", content, readErr)
 	}
 }
 

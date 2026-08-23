@@ -187,6 +187,7 @@ type CommitCapability interface {
 	Destination() Destination
 	Validate() error
 	OpenRootDirectory() (*os.File, error)
+	OpenRootDirectoryForMutation() (*os.File, error)
 	ValidateDirectoryHandle(handle uintptr) error
 	ValidateRetainedDirectoryHandle(handle uintptr) error
 	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error

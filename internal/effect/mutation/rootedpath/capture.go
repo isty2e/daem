@@ -774,12 +774,42 @@ func (capability *commitCapability) OpenRootDirectory() (*os.File, error) {
 	if err := capability.validateLocked(); err != nil {
 		return nil, err
 	}
+	file, err := openCapturedRootDirectory(&capability.platform)
+	if err != nil {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			capability.destination.root.physicalRoot,
+			"open read-only root descriptor",
+			err,
+		)
+	}
+	return file, nil
+}
+
+func (capability *commitCapability) OpenRootDirectoryForMutation() (*os.File, error) {
+	if capability == nil {
+		return nil, newFailure(FailureRootUnavailable, "", "commit capability is required", nil)
+	}
+	capability.mu.Lock()
+	defer capability.mu.Unlock()
+	if capability.budget != nil {
+		if err := ChargeDestinationPath(
+			capability.destination,
+			capability.maximumPhysicalDepth,
+			capability.budget,
+		); err != nil {
+			return nil, fmt.Errorf("admit rooted destination mutation: %w", err)
+		}
+	}
+	if err := capability.validateLocked(); err != nil {
+		return nil, err
+	}
 	file, err := openCapturedCommitRootDirectory(&capability.platform)
 	if err != nil {
 		return nil, newFailure(
 			FailureRootUnavailable,
 			capability.destination.root.physicalRoot,
-			"open commit root descriptor",
+			"open mutating root descriptor",
 			err,
 		)
 	}

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -251,10 +250,7 @@ func commitFileAndRefreshParent(
 	ctx context.Context,
 	request FileCommit,
 ) (EntryIdentity, error) {
-	_, err := commitWindowsFile(ctx, request)
-	if err != nil {
-		return EntryIdentity{}, err
-	}
-	parentPath := filepath.Dir(request.path)
-	return CaptureEntryIdentity(ctx, parentPath)
+	var refreshedParent EntryIdentity
+	_, err := commitWindowsFileWithFaultsAndParent(ctx, request, faultPlan{}, &refreshedParent)
+	return refreshedParent, err
 }

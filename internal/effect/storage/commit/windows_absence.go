@@ -6,12 +6,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"golang.org/x/sys/windows"
 )
+
+const windowsRootedAbsenceSyncAttempts = mutationfs.RootedAbsencePathObservationCount - 1
 
 func ConfirmRootedEntryAbsentWithOutcome(
 	ctx context.Context,
@@ -28,62 +31,128 @@ func ConfirmRootedEntryAbsentWithOutcome(
 	if ctx == nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("rooted absence context is required")))
 	}
-	missing, err := confirmWindowsMissingPass(ctx, capability)
+
+	for range windowsRootedAbsenceSyncAttempts {
+		observation, err := observeWindowsRootedAbsence(ctx, capability)
+		if err != nil {
+			return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err)))
+		}
+		if !observation.absent {
+			closeErr := observation.close()
+			return fail(newFailure(
+				failureRetainedResidue,
+				phaseVerifyEntry,
+				path,
+				errors.Join(fmt.Errorf("rooted entry reappeared while confirming durable absence"), closeErr),
+				path,
+			))
+		}
+		if err := ctx.Err(); err != nil {
+			closeErr := observation.close()
+			return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, errors.Join(err, closeErr)))
+		}
+		flushErr := flushWindowsHandle(observation.parent.Handle(), windowsFlushPolicy{directory: true})
+		validationErr := capability.ValidateRetainedDirectoryHandle(observation.root.Fd())
+		closeErr := observation.close()
+		if flushErr != nil || validationErr != nil || closeErr != nil {
+			return fail(newFailure(
+				failureRetainedResidue,
+				phaseSyncCleanupParent,
+				path,
+				windowsUnsupportedCause(errors.Join(flushErr, validationErr, closeErr)),
+				path,
+			))
+		}
+	}
+
+	final, err := observeWindowsRootedAbsence(ctx, capability)
 	if err != nil {
-		return fail(windowsFailureBeforeVisibility(phaseValidate, path, windowsUnsupportedCause(err)))
+		return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, windowsUnsupportedCause(err)))
 	}
-	if !missing {
-		return fail(windowsFailureBeforeVisibility(phaseVerifyEntry, path, fmt.Errorf("rooted entry is still present")))
+	if !final.absent {
+		closeErr := final.close()
+		return fail(newFailure(
+			failureRetainedResidue,
+			phaseVerifyEntry,
+			path,
+			errors.Join(fmt.Errorf("rooted entry reappeared after final durability confirmation"), closeErr),
+			path,
+		))
 	}
-	missing, err = confirmWindowsMissingPass(context.WithoutCancel(ctx), capability)
-	if err != nil {
-		return fail(newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, windowsUnsupportedCause(err)))
-	}
-	if !missing {
-		return fail(newFailure(failureIndeterminateCommit, phaseVerifyEntry, path, fmt.Errorf("rooted entry appeared while confirming absence")))
+	if err := final.close(); err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseClosePayload, path, err))
 	}
 	return outcomeFromError(nil), nil
 }
 
-func confirmWindowsMissingPass(
+type windowsRootedAbsenceObservation struct {
+	root   *os.File
+	opened []*windowsOwnedHandle
+	parent windowsDirectoryHandle
+	absent bool
+}
+
+func (observation *windowsRootedAbsenceObservation) close() error {
+	if observation == nil {
+		return nil
+	}
+	var failures []error
+	for index := len(observation.opened) - 1; index >= 0; index-- {
+		failures = append(failures, observation.opened[index].Close())
+	}
+	observation.opened = nil
+	if observation.root != nil {
+		failures = append(failures, observation.root.Close())
+		observation.root = nil
+	}
+	return errors.Join(failures...)
+}
+
+func observeWindowsRootedAbsence(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,
-) (bool, error) {
+) (*windowsRootedAbsenceObservation, error) {
 	if err := ctx.Err(); err != nil {
-		return false, err
+		return nil, err
 	}
 	destination := capability.Destination()
 	if err := destination.Validate(); err != nil {
-		return false, err
+		return nil, err
 	}
 	components := strings.Split(destination.Relative().Path(), "/")
 	if err := capability.AdmitPhysicalWork(len(components), 0, 0); err != nil {
-		return false, err
+		return nil, err
 	}
-	root, err := capability.OpenRootDirectory()
+	root, err := capability.OpenRootDirectoryForMutation()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	var parent *windowsOwnedHandle
-	closeAll := func() error {
-		var failures []error
-		if parent != nil {
-			failures = append(failures, parent.Close())
+	observation := &windowsRootedAbsenceObservation{root: root}
+	closeOnError := true
+	defer func() {
+		if closeOnError {
+			_ = observation.close()
 		}
-		failures = append(failures, root.Close())
-		return errors.Join(failures...)
+	}()
+	rootDirectory, err := captureWindowsDirectoryHandle(windows.Handle(root.Fd()))
+	if err != nil {
+		return nil, err
 	}
-	parentHandle := windows.Handle(root.Fd())
+	if err := capability.ValidateDirectoryHandle(root.Fd()); err != nil {
+		return nil, err
+	}
+	observation.parent = rootDirectory
+
 	for index, component := range components {
 		if err := ctx.Err(); err != nil {
-			return false, errors.Join(err, closeAll())
+			return nil, err
 		}
 		access := uint32(windows.FILE_READ_ATTRIBUTES | windows.READ_CONTROL | windows.SYNCHRONIZE)
 		if index < len(components)-1 {
 			access |= windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.FILE_TRAVERSE
 		}
 		opened, openErr := openWindowsRelativeEntry(
-			parentHandle,
+			observation.parent,
 			component,
 			access,
 			windowsParentShareMode,
@@ -92,33 +161,34 @@ func confirmWindowsMissingPass(
 		)
 		if openErr != nil {
 			if windowsNativeErrorClassOf(openErr) != windowsNativeErrorNotFound {
-				return false, errors.Join(openErr, closeAll())
+				return nil, openErr
 			}
-			flushErr := flushWindowsHandle(parentHandle, windowsFlushPolicy{directory: true})
-			validationErr := capability.ValidateRetainedDirectoryHandle(root.Fd())
-			return true, errors.Join(flushErr, validationErr, closeAll())
+			observation.absent = true
+			closeOnError = false
+			return observation, nil
 		}
 		facts, factsErr := queryWindowsEntryFacts(opened.handle.Handle())
 		if factsErr != nil {
 			_ = opened.handle.Close()
-			return false, errors.Join(factsErr, closeAll())
+			return nil, factsErr
 		}
 		if index == len(components)-1 {
 			_ = opened.handle.Close()
-			return false, closeAll()
+			observation.absent = false
+			closeOnError = false
+			return observation, nil
 		}
 		if !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 			_ = opened.handle.Close()
-			return false, errors.Join(fmt.Errorf("Windows absence ancestor is not a non-reparse directory"), closeAll())
+			return nil, fmt.Errorf("Windows absence ancestor is not a non-reparse directory")
 		}
-		if parent != nil {
-			if err := parent.Close(); err != nil {
-				_ = opened.handle.Close()
-				return false, errors.Join(err, closeAll())
-			}
+		directory, directoryErr := opened.Directory()
+		if directoryErr != nil {
+			_ = opened.handle.Close()
+			return nil, directoryErr
 		}
-		parent = opened.handle
-		parentHandle = opened.handle.Handle()
+		observation.opened = append(observation.opened, opened.handle)
+		observation.parent = directory
 	}
-	return false, errors.Join(fmt.Errorf("rooted absence destination has no components"), closeAll())
+	return nil, fmt.Errorf("rooted absence destination has no components")
 }

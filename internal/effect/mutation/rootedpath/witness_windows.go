@@ -32,11 +32,14 @@ func validateCapturedRootPlatform(platform *capturedRootPlatform) error {
 		if facts.object != current.object {
 			return newFailure(FailureRootReplaced, current.path, "retained root handle changed identity", nil)
 		}
+		if facts.caseSensitive != current.caseSensitive {
+			return newFailure(FailureRootReplaced, current.path, "retained root lookup case semantics changed", nil)
+		}
 		if index == 0 {
 			continue
 		}
 		parent := platform.directories[index-1]
-		handle, facts, openErr := openWindowsChild(parent.handle, current.name)
+		handle, facts, openErr := openWindowsChild(parent.handle, parent.caseSensitive, current.name)
 		if openErr != nil {
 			return newFailure(FailureRootReplaced, current.path, "physical root binding is unavailable", openErr)
 		}
@@ -48,7 +51,7 @@ func validateCapturedRootPlatform(platform *capturedRootPlatform) error {
 		if closeErr != nil {
 			return newFailure(FailureRootUnavailable, current.path, "close physical root binding probe", closeErr)
 		}
-		if facts.mount != current.mount || facts.object != current.object {
+		if facts.mount != current.mount || facts.object != current.object || facts.caseSensitive != current.caseSensitive {
 			return newFailure(FailureRootReplaced, current.path, "physical root binding changed", nil)
 		}
 	}
@@ -119,13 +122,15 @@ func openCapturedCommitRootDirectory(platform *capturedRootPlatform) (*os.File, 
 	parent := platform.directories[len(platform.directories)-2]
 	handle, facts, err := openWindowsChildWithAccess(
 		parent.handle,
+		parent.caseSensitive,
 		root.name,
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if facts.reparse || !facts.isDirectory || facts.mount != root.mount || facts.object != root.object {
+	if facts.reparse || !facts.isDirectory || facts.mount != root.mount || facts.object != root.object ||
+		facts.caseSensitive != root.caseSensitive {
 		return nil, errors.Join(
 			newFailure(FailureRootReplaced, root.path, "commit root binding changed", nil),
 			closeWindowsHandle(handle),
@@ -162,7 +167,7 @@ func capturedRootChildExistsNoFollow(platform *capturedRootPlatform, name string
 		return false, newFailure(FailureRootUnavailable, name, "captured root is unavailable", nil)
 	}
 	root := platform.directories[len(platform.directories)-1]
-	probe, err := probeWindowsChild(root.handle, name)
+	probe, err := probeWindowsChild(root, name)
 	if err != nil {
 		return false, windowsRootFailure(name, "observe retained-root child", err)
 	}

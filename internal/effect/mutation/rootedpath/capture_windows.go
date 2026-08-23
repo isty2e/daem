@@ -94,7 +94,7 @@ func captureRootPlatform(
 		if err := validatePlatformRelativeForRoot(&platform, name); err != nil {
 			return fail(err)
 		}
-		handle, facts, openErr := openWindowsChild(parent.handle, name)
+		handle, facts, openErr := openWindowsChild(parent.handle, parent.caseSensitive, name)
 		if openErr != nil {
 			return fail(windowsRootFailure(filepath.Join(parent.path, name), "open selected root component", openErr))
 		}
@@ -192,10 +192,11 @@ type windowsPendingComponent struct {
 }
 
 type windowsReparseFrame struct {
-	parent      windows.Handle
-	name        string
-	path        string
-	observation windowsReparseObservation
+	parent              windows.Handle
+	parentCaseSensitive bool
+	name                string
+	path                string
+	observation         windowsReparseObservation
 }
 
 type windowsPendingPath struct {
@@ -479,8 +480,8 @@ func splitWindowsTargetComponents(value string) []string {
 	return components
 }
 
-func probeWindowsChild(parent windows.Handle, name string) (windowsChildProbe, error) {
-	handle, facts, err := openWindowsChild(parent, name)
+func probeWindowsChild(parent capturedDirectory, name string) (windowsChildProbe, error) {
+	handle, facts, err := openWindowsChild(parent.handle, parent.caseSensitive, name)
 	if err != nil {
 		if windowsNotFound(err) {
 			return windowsChildProbe{}, nil
@@ -539,28 +540,36 @@ func openWindowsVolumeRoot(volume string) (capturedRootPlatform, error) {
 	}, nil
 }
 
-func openWindowsChild(parent windows.Handle, name string) (windows.Handle, windowsDirectoryFacts, error) {
-	return openWindowsChildWithAccess(parent, name, windows.FILE_GENERIC_READ|windows.FILE_TRAVERSE)
+func openWindowsChild(
+	parent windows.Handle,
+	parentCaseSensitive bool,
+	name string,
+) (windows.Handle, windowsDirectoryFacts, error) {
+	return openWindowsChildWithAccess(parent, parentCaseSensitive, name, windows.FILE_GENERIC_READ|windows.FILE_TRAVERSE)
 }
 
 func openWindowsChildWithAccess(
 	parent windows.Handle,
+	parentCaseSensitive bool,
 	name string,
 	access uint32,
 ) (windows.Handle, windowsDirectoryFacts, error) {
 	if err := validatePlatformComponent(name); err != nil {
 		return windows.InvalidHandle, windowsDirectoryFacts{}, err
 	}
-	caseSensitive, err := queryWindowsCaseSensitive(parent)
+	currentCaseSensitive, err := queryWindowsCaseSensitive(parent)
 	if err != nil {
 		return windows.InvalidHandle, windowsDirectoryFacts{}, err
+	}
+	if currentCaseSensitive != parentCaseSensitive {
+		return windows.InvalidHandle, windowsDirectoryFacts{}, fmt.Errorf("Windows parent lookup case semantics changed")
 	}
 	objectName, err := windows.NewNTUnicodeString(name)
 	if err != nil {
 		return windows.InvalidHandle, windowsDirectoryFacts{}, err
 	}
 	attributes := uint32(0)
-	if !caseSensitive {
+	if !parentCaseSensitive {
 		attributes |= windows.OBJ_CASE_INSENSITIVE
 	}
 	objectAttributes := &windows.OBJECT_ATTRIBUTES{
@@ -721,7 +730,12 @@ func resolveWindowsPendingPath(
 				return nil, newFailure(FailureRootUnavailable, "", "Windows reparse frame is unavailable", nil)
 			}
 			frame := pending.frames[component.frameIndex]
-			if err := verifyWindowsReparseObservation(frame.parent, frame.name, frame.observation); err != nil {
+			if err := verifyWindowsReparseObservation(
+				frame.parent,
+				frame.parentCaseSensitive,
+				frame.name,
+				frame.observation,
+			); err != nil {
 				closeErr := closeWindowsHandle(frame.parent)
 				pending.frames[component.frameIndex].parent = windows.InvalidHandle
 				return nil, windowsReparseFailure(frame.path, "revalidate destination reparse target", errors.Join(err, closeErr), allowMissing)
@@ -760,7 +774,7 @@ func resolveWindowsPendingPath(
 			return nil, err
 		}
 		candidatePath := filepath.Join(parent.path, component.name)
-		probe, probeErr := probeWindowsChild(parent.handle, component.name)
+		probe, probeErr := probeWindowsChild(parent, component.name)
 		if probeErr != nil {
 			return nil, windowsRootFailure(candidatePath, "inspect destination ancestor", probeErr)
 		}
@@ -800,10 +814,11 @@ func resolveWindowsPendingPath(
 				}
 			}
 			pending.pushReparseTarget(target.components, windowsReparseFrame{
-				parent:      parentHandle,
-				name:        component.name,
-				path:        candidatePath,
-				observation: observation,
+				parent:              parentHandle,
+				parentCaseSensitive: parent.caseSensitive,
+				name:                component.name,
+				path:                candidatePath,
+				observation:         observation,
 			})
 			continue
 		}
@@ -854,8 +869,13 @@ func windowsReparseFailure(path string, detail string, err error, allowMissing b
 	return newFailure(kind, path, detail, err)
 }
 
-func verifyWindowsReparseObservation(parent windows.Handle, name string, expected windowsReparseObservation) error {
-	handle, facts, err := openWindowsChild(parent, name)
+func verifyWindowsReparseObservation(
+	parent windows.Handle,
+	parentCaseSensitive bool,
+	name string,
+	expected windowsReparseObservation,
+) error {
+	handle, facts, err := openWindowsChild(parent, parentCaseSensitive, name)
 	if err != nil {
 		return fmt.Errorf("%w: reopen reparse point: %w", errWindowsReparseChanged, err)
 	}
@@ -882,11 +902,11 @@ func verifyWindowsResolvedTarget(platform *capturedRootPlatform) error {
 	}
 	last := platform.directories[len(platform.directories)-1]
 	parent := platform.directories[len(platform.directories)-2]
-	handle, facts, err := openWindowsChild(parent.handle, last.name)
+	handle, facts, err := openWindowsChild(parent.handle, parent.caseSensitive, last.name)
 	if err != nil {
 		return fmt.Errorf("%w: reopen final target component: %w", errWindowsReparseChanged, err)
 	}
-	if facts.reparse || facts.object != last.object {
+	if facts.reparse || facts.object != last.object || facts.caseSensitive != last.caseSensitive {
 		return errors.Join(
 			fmt.Errorf("%w: final target incarnation changed", errWindowsReparseChanged),
 			closeWindowsHandle(handle),

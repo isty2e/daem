@@ -5,6 +5,7 @@ package commit
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 
 	"golang.org/x/sys/windows"
 )
@@ -81,6 +82,8 @@ func (err *windowsNativeError) Is(target error) bool {
 		return err.class == windowsNativeErrorUnsupported
 	case target == errWindowsNativeIndeterminate:
 		return err.class == windowsNativeErrorIndeterminate
+	case target == fs.ErrNotExist:
+		return err.class == windowsNativeErrorNotFound
 	default:
 		return false
 	}

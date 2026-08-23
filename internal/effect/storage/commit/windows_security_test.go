@@ -228,7 +228,7 @@ func TestWindowsCanonicalSecurityNativeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	opened, err := createWindowsRelativeFile(
-		parent.Handle(),
+		mustWindowsDirectoryHandle(t, parent.Handle()),
 		"canonical-security.txt",
 		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_GENERIC_EXECUTE|windows.DELETE|windows.WRITE_DAC,
 		windowsPublicationShareMode,

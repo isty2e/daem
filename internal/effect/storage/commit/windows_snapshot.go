@@ -68,7 +68,7 @@ func snapshotWindowsDirectoryEntries(
 			return mutationfs.DirectorySnapshot{}, err
 		}
 		child, childErr := openWindowsRelativeEntry(
-			root.handle.Handle(),
+			root.directory,
 			entry.name,
 			windows.FILE_READ_ATTRIBUTES|windows.FILE_READ_EA|windows.READ_CONTROL|windows.SYNCHRONIZE,
 			windowsPublicationShareMode,
