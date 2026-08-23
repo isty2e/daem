@@ -10,7 +10,38 @@ import (
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"golang.org/x/sys/windows"
 )
+
+func setWindowsTestEntryCanonicalMode(t *testing.T, path string, mode os.FileMode, directory bool) {
+	t.Helper()
+	name, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	access := uint32(windows.READ_CONTROL | windows.WRITE_DAC | windows.SYNCHRONIZE)
+	flags := uint32(windows.FILE_FLAG_OPEN_REPARSE_POINT)
+	if directory {
+		access |= windows.FILE_LIST_DIRECTORY
+		flags |= windows.FILE_FLAG_BACKUP_SEMANTICS
+	} else {
+		access |= windows.FILE_READ_ATTRIBUTES
+	}
+	handle, err := windows.CreateFile(
+		name,
+		access,
+		windowsParentShareMode,
+		nil,
+		windows.OPEN_EXISTING,
+		flags,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("open %q for canonical security: %v", path, err)
+	}
+	defer windows.Close(handle)
+	setWindowsTestDirectoryMode(t, handle, mode)
+}
 
 func TestWindowsRootedCleanupPreflightRejectsBeforeAnyDisposition(t *testing.T) {
 	root := t.TempDir()
@@ -18,11 +49,13 @@ func TestWindowsRootedCleanupPreflightRejectsBeforeAnyDisposition(t *testing.T) 
 	if err := os.Mkdir(residue, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	setWindowsTestEntryCanonicalMode(t, residue, 0o700, true)
 	child := filepath.Join(residue, "child.json")
 	payload := []byte("payload")
 	if err := os.WriteFile(child, payload, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	setWindowsTestEntryCanonicalMode(t, child, 0o600, false)
 
 	capability := acquireWindowsTestCommitCapability(t, residue)
 	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
@@ -57,10 +90,13 @@ func TestWindowsRootedCleanupReportsResidueAfterPartialDisposition(t *testing.T)
 	if err := os.Mkdir(residue, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	setWindowsTestEntryCanonicalMode(t, residue, 0o700, true)
 	for _, name := range []string{"first.json", "second.json"} {
-		if err := os.WriteFile(filepath.Join(residue, name), []byte(name), 0o600); err != nil {
+		child := filepath.Join(residue, name)
+		if err := os.WriteFile(child, []byte(name), 0o600); err != nil {
 			t.Fatal(err)
 		}
+		setWindowsTestEntryCanonicalMode(t, child, 0o600, false)
 	}
 
 	capability := acquireWindowsTestCommitCapability(t, residue)
@@ -109,6 +145,7 @@ func TestWindowsRootedCleanupHonorsCancellationBeforeFirstDisposition(t *testing
 	if err := os.WriteFile(target, []byte("payload"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	setWindowsTestEntryCanonicalMode(t, target, 0o600, false)
 
 	capability := acquireWindowsTestCommitCapability(t, target)
 	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
