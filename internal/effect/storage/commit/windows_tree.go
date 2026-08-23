@@ -812,19 +812,29 @@ func (prepared *PreparedRootedTree) abortLocked(ctx context.Context) error {
 	if prepared.anchor != nil && prepared.stage != nil && !prepared.stageObject.valid() {
 		cleanupErr = fmt.Errorf("prepared Windows stage identity is unavailable for safe cleanup")
 	} else if prepared.anchor != nil && prepared.stage != nil {
-		budget, err := newTreeTraversalBudget(prepared.limits)
-		if err == nil {
-			cleanupErr = removeWindowsEntryTree(
-				context.WithoutCancel(ctx),
-				prepared.anchor.parentHandle(),
-				prepared.stageName,
-				prepared.stagePath,
-				prepared.stageObject,
-				0,
-				budget,
-			)
+		cleanupIdentity := prepared.stageObject
+		if facts, factsErr := queryWindowsEntryFacts(prepared.stage.handle.Handle()); factsErr != nil {
+			cleanupErr = factsErr
+		} else if !prepared.stageObject.platform.native.sameObject(facts.identity) {
+			cleanupErr = fmt.Errorf("prepared Windows stage handle changed before cleanup")
 		} else {
-			cleanupErr = err
+			cleanupIdentity.platform = platformIdentity{native: facts.identity}
+		}
+		budget, err := newTreeTraversalBudget(prepared.limits)
+		if cleanupErr == nil {
+			if err != nil {
+				cleanupErr = err
+			} else {
+				cleanupErr = removeWindowsEntryTree(
+					context.WithoutCancel(ctx),
+					prepared.anchor.parentHandle(),
+					prepared.stageName,
+					prepared.stagePath,
+					cleanupIdentity,
+					0,
+					budget,
+				)
+			}
 		}
 		if cleanupErr == nil {
 			cleanupErr = flushWindowsHandle(prepared.anchor.parentHandle(), windowsFlushPolicy{directory: true})
