@@ -16,6 +16,14 @@ import (
 const maximumWindowsTemporaryNameAttempts = 16
 
 func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, error) {
+	return commitWindowsFileWithFaults(ctx, request, faultPlan{})
+}
+
+func commitWindowsFileWithFaults(
+	ctx context.Context,
+	request FileCommit,
+	faults faultPlan,
+) (EntryIdentity, error) {
 	capability := request.capability
 	rootedRequest := capability != nil
 	if capability != nil {
@@ -82,6 +90,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	if err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseRevalidateEntry, request.path, windowsUnsupportedCause(err))
 	}
+	if err := faults.check(ctx, phaseCreateTemporary); err != nil {
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCreateTemporary, request.path, err)
+	}
 	stageName, stage, err := createWindowsFileStage(anchor, canonical)
 	if err != nil {
 		if stageName != "" {
@@ -111,7 +122,10 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 				stageIdentity = facts.identity
 			}
 		}
-		cleanupErr := cleanupWindowsFileStage(anchor, stageName, stage)
+		cleanupErr := faults.check(ctx, phaseCleanupTemporary)
+		if cleanupErr == nil {
+			cleanupErr = cleanupWindowsFileStage(anchor, stageName, stage)
+		}
 		stage = nil
 		if cleanupErr != nil {
 			observed, observeErr := observeWindowsEntryAt(anchor.parentHandle(), stageName)
@@ -134,8 +148,14 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 		return EntryIdentity{}, windowsFailureBeforeVisibility(failedPhase, request.path, windowsUnsupportedCause(primary))
 	}
 
+	if err := faults.check(ctx, phaseWritePayload); err != nil {
+		return cleanupStage(err, phaseWritePayload)
+	}
 	if err := writeWindowsPayload(ctx, stage.handle.Handle(), request.payload); err != nil {
 		return cleanupStage(err, phaseWritePayload)
+	}
+	if err := faults.check(ctx, phaseSyncPayload); err != nil {
+		return cleanupStage(err, phaseSyncPayload)
 	}
 	if err := flushWindowsHandle(stage.handle.Handle(), windowsFlushPolicy{}); err != nil {
 		return cleanupStage(err, phaseSyncPayload)
@@ -143,6 +163,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	stageFacts, err := queryWindowsEntryFacts(stage.handle.Handle())
 	if err != nil {
 		return cleanupStage(err, phaseRevalidateEntry)
+	}
+	if err := faults.check(ctx, phaseCaptureMetadata); err != nil {
+		return cleanupStage(err, phaseCaptureMetadata)
 	}
 	stageMetadata, err := queryWindowsMetadataFacts(stage.handle.Handle())
 	if err != nil {
@@ -156,6 +179,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	}
 	if err := ensureWindowsCanonicalMetadataSupported(stageMetadata, canonical.facts); err != nil {
 		return cleanupStage(err, phaseApplyMetadata)
+	}
+	if err := faults.check(ctx, phaseRevalidateEntry); err != nil {
+		return cleanupStage(err, phaseRevalidateEntry)
 	}
 	if err := anchor.revalidate(ctx); err != nil {
 		return cleanupStage(err, phaseRevalidateEntry)
@@ -175,6 +201,19 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	if request.policy == filePolicyReplaceExpected {
 		renameMode = windowsRenameReplace
 	}
+	if err := faults.check(ctx, phaseCommitEntry); err != nil {
+		return cleanupStage(err, phaseCommitEntry)
+	}
+	if err := anchor.revalidate(ctx); err != nil {
+		return cleanupStage(err, phaseCommitEntry)
+	}
+	if existing != nil {
+		if err := revalidateWindowsObservedEntry(ctx, anchor, existing); err != nil {
+			return cleanupStage(err, phaseCommitEntry)
+		}
+	} else if err := requireWindowsDestinationAbsent(anchor); err != nil {
+		return cleanupStage(err, phaseCommitEntry)
+	}
 	if _, err := renameWindowsByHandle(stage.handle.Handle(), anchor.parentHandle(), anchor.name.String(), renameMode); err != nil {
 		visible, stable, observationErr := observeWindowsRenameFailure(anchor, stageName, stageFacts.identity, existing)
 		if visible || !stable || observationErr != nil {
@@ -186,6 +225,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 			)
 		}
 		return cleanupStage(err, phaseCommitEntry)
+	}
+	if err := faults.check(ctx, phaseVerifyEntry); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	published, err := openWindowsRelativeFile(
 		anchor.parentHandle(),
@@ -226,6 +268,9 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 	}
 	if err := anchor.revalidate(ctx); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	if err := faults.check(ctx, phaseSyncParent); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err)
 	}
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseSyncParent, request.path, err)
