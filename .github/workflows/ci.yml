@@ -191,6 +191,80 @@ jobs:
             -test -scan=symbol -show verbose ./... || scan_status=1
           exit "$scan_status"
 
+  windows_observation_capability:
+    name: Windows observation capability
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: go.sum
+      - name: Run retained-directory observation tests natively
+        shell: bash
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOOS)" = "windows"
+          test "$(go env GOARCH)" = "amd64"
+          go mod verify
+          go test -count=1 \
+            -run '^(TestReadRegularFileAtCountedStaysOnWindowsDirectoryHandle|TestReadRegularFileAtCountedRejectsWindowsEntryReplacement|TestReadRegularFileAtCountedExcludesWindowsConcurrentSameSizeWriter|TestReadRegularFileAtCountedRejectsExistingWindowsWriter|TestReadRegularFileContextCountedRejectsExistingWindowsWriter|TestReadRegularFileAtCountedHonorsCancellationBeforeSuccessOnWindows|TestWindowsFileIdentityRejectsUnprovableValues|TestOpenEntryAtRejectsWindowsAlternateDataStreamSyntax)$' \
+            ./internal/filesnapshot
+          go test -count=1 \
+            -run '^(TestWindowsPluginObservationStaysOnRetainedRootHandle|TestObserveConfiguredPluginContributionsOnWindows|TestClassifySnapshotErrorDistinguishesIdentityAndBudget|TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing)$' \
+            ./internal/assurance/observe/codexplugin
+
+  bsd_observation_compile:
+    name: BSD observation compile (${{ matrix.goos }}/${{ matrix.goarch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: freebsd
+            goarch: amd64
+          - goos: freebsd
+            goarch: "386"
+          - goos: freebsd
+            goarch: arm
+          - goos: netbsd
+            goarch: amd64
+          - goos: netbsd
+            goarch: "386"
+          - goos: netbsd
+            goarch: arm
+          - goos: openbsd
+            goarch: amd64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: go.sum
+      - name: Compile retained-directory snapshot tests without runtime claims
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          test "$(go env GOVERSION)" = "go1.26.6"
+          go test -c \
+            -o "${RUNNER_TEMP}/filesnapshot-${GOOS}-${GOARCH}.test" \
+            ./internal/filesnapshot
+          go test -c \
+            -o "${RUNNER_TEMP}/codexplugin-${GOOS}-${GOARCH}.test" \
+            ./internal/assurance/observe/codexplugin
+
   compile_only:
     name: Compile only (${{ matrix.goos }}/${{ matrix.goarch }})
     strategy:

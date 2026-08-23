@@ -265,7 +265,7 @@ func classifyDirectoryError(err error) (observecontribution.SourceContributionRe
 	if directoryPathBlocked(err) {
 		return observecontribution.SourceContributionReasonArtifactPathBlocked, nil
 	}
-	if errors.Is(err, filesnapshot.ErrSymlink) {
+	if errors.Is(err, filesnapshot.ErrSymlink) || errors.Is(err, filesnapshot.ErrPathBlocked) {
 		return observecontribution.SourceContributionReasonArtifactPathBlocked, nil
 	}
 	if errors.Is(err, errDescriptorRelativeTreeUnsupported) {

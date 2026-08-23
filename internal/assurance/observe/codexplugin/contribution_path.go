@@ -37,7 +37,7 @@ func classifySnapshotError(err error) observecontribution.SourceContributionReas
 		return observecontribution.SourceContributionReasonArtifactUnstable
 	case errors.Is(err, filesnapshot.ErrLimitExceeded):
 		return observecontribution.SourceContributionReasonArtifactBudgetExceeded
-	case errors.Is(err, filesnapshot.ErrSymlink):
+	case errors.Is(err, filesnapshot.ErrSymlink), errors.Is(err, filesnapshot.ErrPathBlocked):
 		return observecontribution.SourceContributionReasonArtifactPathBlocked
 	case errors.Is(err, filesnapshot.ErrNotRegular):
 		return observecontribution.SourceContributionReasonUnsupportedShape

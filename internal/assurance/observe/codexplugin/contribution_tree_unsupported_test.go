@@ -1,4 +1,4 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package codexplugin
 
@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	observecontribution "github.com/isty2e/daem/internal/assurance/observe/contribution"
-	"github.com/isty2e/daem/internal/filesnapshot"
 )
 
 func TestUnsupportedTreeAdaptersFailClosedWithoutPathnameReopen(t *testing.T) {
@@ -57,14 +56,6 @@ func TestUnsupportedTreeAdaptersFailClosedWithoutPathnameReopen(t *testing.T) {
 	kind, err := classifyChild(parent, "inside.json")
 	if kind != childMissing || !errors.Is(err, errDescriptorRelativeTreeUnsupported) {
 		t.Fatalf("classifyChild after path replacement = %v, %v, want unsupported", kind, err)
-	}
-
-	counted, err := filesnapshot.ReadRegularFileAtCounted(t.Context(), parent, "inside.json", 64)
-	if !errors.Is(err, filesnapshot.ErrUnsupported) {
-		t.Fatalf("ReadRegularFileAtCounted after path replacement = %+v, %v, want ErrUnsupported", counted, err)
-	}
-	if string(counted.Content) == "outside" || string(counted.Content) == "inside" {
-		t.Fatalf("tree observation leaked file bytes = %q", counted.Content)
 	}
 }
 
