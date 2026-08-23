@@ -91,6 +91,14 @@ func openWindowsObservedEntry(
 		if err := validateWindowsObservedMetadata(observed.metadata); err != nil {
 			return fail(err)
 		}
+		if kind == entryKindRegular || kind == entryKindDirectory {
+			if err := validateWindowsCanonicalEntryAttributes(
+				observed.facts.attribute.attributes,
+				kind == entryKindDirectory,
+			); err != nil {
+				return fail(err)
+			}
+		}
 	}
 	if err := revalidateWindowsObservedEntry(ctx, anchor, observed); err != nil {
 		return fail(err)

@@ -247,6 +247,10 @@ func prepareWindowsCommitParent(
 				_ = opened.handle.Close()
 				return newFailure(failureRetainedResidue, phaseApplyMetadata, path, err, currentPath)
 			}
+			if err := flushWindowsHandle(opened.handle.Handle(), windowsFlushPolicy{directory: true}); err != nil {
+				_ = opened.handle.Close()
+				return newFailure(failureRetainedResidue, phaseSyncAncestors, path, err, currentPath)
+			}
 			if err := flushWindowsHandle(parentHandle, windowsFlushPolicy{directory: true}); err != nil {
 				_ = opened.handle.Close()
 				return newFailure(failureIndeterminateCommit, phaseSyncAncestors, path, err, currentPath)
