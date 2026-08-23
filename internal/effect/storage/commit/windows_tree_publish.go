@@ -50,22 +50,51 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 	if stage.identity.kind != entryKindDirectory || !stage.identity.sameEntry(request.expected) {
 		return windowsFailureBeforeVisibility(phaseValidate, request.destination, fmt.Errorf("prepared tree no longer matches its expected identity"))
 	}
+	if err := stage.close(); err != nil {
+		return windowsFailureBeforeVisibility(phaseClosePayload, request.destination, err)
+	}
+	writableStage, err := openWindowsRelativeDirectory(
+		anchor.parentHandle(),
+		stageName.String(),
+		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE|windows.FILE_READ_EA|
+			windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
+		windowsPublicationShareMode,
+		windows.FILE_OPEN,
+		false,
+	)
+	if err != nil {
+		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.destination, err)
+	}
+	defer writableStage.handle.Close()
+	writableFacts, err := queryWindowsEntryFacts(writableStage.handle.Handle())
+	if err != nil || !stage.facts.identity.equal(writableFacts.identity) {
+		return windowsFailureBeforeVisibility(
+			phaseRevalidateEntry,
+			request.destination,
+			errors.Join(err, fmt.Errorf("prepared tree changed while acquiring flush authority")),
+		)
+	}
 	budget, err := newTreeTraversalBudget(defaultTreeTraversalLimits())
 	if err != nil {
 		return windowsFailureBeforeVisibility(phaseValidate, request.destination, err)
 	}
-	if err := syncValidateWindowsDirectoryTree(ctx, stage.handle.Handle(), request.stagedRoot, 0, budget); err != nil {
+	if err := syncValidateWindowsDirectoryTree(ctx, writableStage.handle.Handle(), request.stagedRoot, 0, budget); err != nil {
 		return windowsFailureBeforeVisibility(errorPhase(err, phaseSyncTreeDirectory), request.destination, windowsUnsupportedCause(err))
 	}
-	if err := revalidateWindowsObservedEntry(ctx, &stageAnchor, stage); err != nil {
+	if err := requireWindowsNameMatches(
+		anchor.parentHandle(),
+		stageName.String(),
+		writableFacts.identity,
+		true,
+	); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.destination, err)
 	}
 	if err := requireWindowsDestinationAbsent(anchor); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, request.destination, err)
 	}
-	if _, err := renameWindowsByHandle(stage.handle.Handle(), anchor.parentHandle(), anchor.name.String(), windowsRenameNoReplace); err != nil {
+	if _, err := renameWindowsByHandle(writableStage.handle.Handle(), anchor.parentHandle(), anchor.name.String(), windowsRenameNoReplace); err != nil {
 		moved, unchanged, observeErr := observeWindowsNamespaceTransition(
-			anchor.parentHandle(), stageName.String(), anchor.name.String(), stage.facts.identity,
+			anchor.parentHandle(), stageName.String(), anchor.name.String(), writableFacts.identity,
 		)
 		if unchanged && observeErr == nil {
 			return windowsFailureBeforeVisibility(phaseCommitEntry, request.destination, err)
@@ -77,7 +106,7 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 		return newFailure(failureIndeterminateCommit, phaseCommitEntry, request.destination, errors.Join(err, observeErr), residue...)
 	}
 	published, observeErr := observeWindowsEntryAt(anchor.parentHandle(), anchor.name.String())
-	if observeErr != nil || !published.exists || !stage.facts.identity.sameObject(published.identity) {
+	if observeErr != nil || !published.exists || !writableFacts.identity.sameRetainedFile(published.identity) {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, observeErr, request.destination)
 	}
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {

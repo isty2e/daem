@@ -64,6 +64,7 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 		name     string
 		mode     fs.FileMode
 		valid    bool
+		count    int
 		owner    windows.ACCESS_MASK
 		group    windows.ACCESS_MASK
 		everyone windows.ACCESS_MASK
@@ -72,6 +73,7 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 			name:     "0600",
 			mode:     0o600,
 			valid:    true,
+			count:    1,
 			owner:    windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 			group:    0,
 			everyone: 0,
@@ -80,6 +82,7 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 			name:     "0644",
 			mode:     0o644,
 			valid:    true,
+			count:    3,
 			owner:    windows.FILE_GENERIC_READ | windows.FILE_GENERIC_WRITE | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 			group:    windows.FILE_GENERIC_READ,
 			everyone: windows.FILE_GENERIC_READ,
@@ -99,13 +102,17 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(grammar.entries) != 3 || grammar.entries[0].sid != ownerSID ||
-				grammar.entries[1].sid != groupSID || grammar.entries[2].sid != everyoneSID {
+			if len(grammar.entries) != testCase.count || grammar.entries[0].sid != ownerSID {
 				t.Fatalf("canonical principal order = %+v", grammar.entries)
 			}
-			if grammar.entries[0].mask != testCase.owner || grammar.entries[1].mask != testCase.group ||
-				grammar.entries[2].mask != testCase.everyone {
-				t.Fatalf("canonical masks = %+v", grammar.entries)
+			if grammar.entries[0].mask != testCase.owner {
+				t.Fatalf("canonical owner mask = %+v", grammar.entries)
+			}
+			if testCase.count > 1 && (grammar.entries[1].sid != groupSID || grammar.entries[1].mask != testCase.group) {
+				t.Fatalf("canonical group ACE = %+v", grammar.entries)
+			}
+			if testCase.count > 2 && (grammar.entries[2].sid != everyoneSID || grammar.entries[2].mask != testCase.everyone) {
+				t.Fatalf("canonical Everyone ACE = %+v", grammar.entries)
 			}
 			for _, entry := range grammar.entries {
 				if entry.type_ != windows.ACCESS_ALLOWED_ACE_TYPE || entry.flags != 0 {
@@ -282,26 +289,6 @@ func TestWindowsCanonicalSecurityNativeRoundTrip(t *testing.T) {
 				TrusteeForm:  windows.TRUSTEE_IS_SID,
 				TrusteeType:  windows.TRUSTEE_IS_USER,
 				TrusteeValue: windows.TrusteeValueFromSID(expected.principals.owner),
-			},
-		},
-		{
-			AccessPermissions: expected.facts.dacl.aces[1].mask,
-			AccessMode:        windows.GRANT_ACCESS,
-			Inheritance:       inheritance,
-			Trustee: windows.TRUSTEE{
-				TrusteeForm:  windows.TRUSTEE_IS_SID,
-				TrusteeType:  windows.TRUSTEE_IS_GROUP,
-				TrusteeValue: windows.TrusteeValueFromSID(expected.principals.group),
-			},
-		},
-		{
-			AccessPermissions: expected.facts.dacl.aces[2].mask,
-			AccessMode:        windows.GRANT_ACCESS,
-			Inheritance:       inheritance,
-			Trustee: windows.TRUSTEE{
-				TrusteeForm:  windows.TRUSTEE_IS_SID,
-				TrusteeType:  windows.TRUSTEE_IS_WELL_KNOWN_GROUP,
-				TrusteeValue: windows.TrusteeValueFromSID(expected.principals.everyone),
 			},
 		},
 	}, nil)

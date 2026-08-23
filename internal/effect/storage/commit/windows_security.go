@@ -126,29 +126,23 @@ func canonicalWindowsDACLGrammar(
 		return windowsCanonicalDACLGrammar{}, fmt.Errorf("canonical DACL SIDs must be distinct")
 	}
 	owner, group, other := windowsModeTriples(mode)
-	return windowsCanonicalDACLGrammar{
-		revision: windowsCanonicalACLRevision,
-		entries: []windowsCanonicalACEGrammar{
-			{
-				sid:   ownerSID,
-				mask:  windowsModeRights(owner) | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
-				type_: windowsAllowedACEType,
-				flags: windowsCanonicalACEFlags,
-			},
-			{
-				sid:   groupSID,
-				mask:  windowsModeRights(group),
-				type_: windowsAllowedACEType,
-				flags: windowsCanonicalACEFlags,
-			},
-			{
-				sid:   everyoneSID,
-				mask:  windowsModeRights(other),
-				type_: windowsAllowedACEType,
-				flags: windowsCanonicalACEFlags,
-			},
-		},
-	}, nil
+	entries := []windowsCanonicalACEGrammar{{
+		sid:   ownerSID,
+		mask:  windowsModeRights(owner) | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
+		type_: windowsAllowedACEType,
+		flags: windowsCanonicalACEFlags,
+	}}
+	if rights := windowsModeRights(group); rights != 0 {
+		entries = append(entries, windowsCanonicalACEGrammar{
+			sid: groupSID, mask: rights, type_: windowsAllowedACEType, flags: windowsCanonicalACEFlags,
+		})
+	}
+	if rights := windowsModeRights(other); rights != 0 {
+		entries = append(entries, windowsCanonicalACEGrammar{
+			sid: everyoneSID, mask: rights, type_: windowsAllowedACEType, flags: windowsCanonicalACEFlags,
+		})
+	}
+	return windowsCanonicalDACLGrammar{revision: windowsCanonicalACLRevision, entries: entries}, nil
 }
 
 func validWindowsSIDString(value string) bool {
@@ -244,7 +238,8 @@ func windowsCanonicalModeFromSecurity(facts windowsSecurityFacts) (fs.FileMode, 
 	if err != nil {
 		return 0, err
 	}
-	if len(facts.dacl.aces) != 3 || facts.ownerSID != principals.ownerSID || facts.groupSID != principals.groupSID {
+	if len(facts.dacl.aces) < 1 || len(facts.dacl.aces) > 3 ||
+		facts.ownerSID != principals.ownerSID || facts.groupSID != principals.groupSID {
 		return 0, windowsNativeUnsupported(
 			windowsNativePhaseSecurity,
 			"security descriptor principals are outside the canonical mode grammar",
@@ -264,13 +259,28 @@ func windowsCanonicalModeFromSecurity(facts windowsSecurityFacts) (fs.FileMode, 
 	if err != nil {
 		return 0, err
 	}
-	group, err := windowsPermissionFromRights(facts.dacl.aces[1].mask)
-	if err != nil {
-		return 0, err
-	}
-	other, err := windowsPermissionFromRights(facts.dacl.aces[2].mask)
-	if err != nil {
-		return 0, err
+	group := fs.FileMode(0)
+	other := fs.FileMode(0)
+	seenEveryone := false
+	for _, ace := range facts.dacl.aces[1:] {
+		switch ace.sid {
+		case principals.groupSID:
+			if seenEveryone || group != 0 {
+				return 0, windowsNativeUnsupported(windowsNativePhaseSecurity, "group ACE order is not canonical", nil)
+			}
+			group, err = windowsPermissionFromRights(ace.mask)
+		case principals.everyoneSID:
+			if seenEveryone {
+				return 0, windowsNativeUnsupported(windowsNativePhaseSecurity, "Everyone ACE is duplicated", nil)
+			}
+			seenEveryone = true
+			other, err = windowsPermissionFromRights(ace.mask)
+		default:
+			return 0, windowsNativeUnsupported(windowsNativePhaseSecurity, "DACL contains an unexpected principal", nil)
+		}
+		if err != nil {
+			return 0, err
+		}
 	}
 	mode := owner<<6 | group<<3 | other
 	expected, err := buildWindowsCanonicalSecurity(mode)
@@ -359,15 +369,29 @@ func buildWindowsCanonicalDACL(
 	grammar windowsCanonicalDACLGrammar,
 	principals windowsCanonicalSecurityPrincipals,
 ) (*windows.ACL, error) {
-	if grammar.revision != windowsCanonicalACLRevision || len(grammar.entries) != 3 {
+	if grammar.revision != windowsCanonicalACLRevision || len(grammar.entries) < 1 || len(grammar.entries) > 3 {
 		return nil, windowsNativeUnsupported(windowsNativePhaseSecurity, "canonical DACL grammar has the wrong shape", nil)
 	}
-	sids := []*windows.SID{principals.owner, principals.group, principals.everyone}
+	principalSIDs := map[string]*windows.SID{
+		principals.ownerSID:    principals.owner,
+		principals.groupSID:    principals.group,
+		principals.everyoneSID: principals.everyone,
+	}
+	principalOrder := map[string]int{
+		principals.ownerSID:    0,
+		principals.groupSID:    1,
+		principals.everyoneSID: 2,
+	}
+	sids := make([]*windows.SID, len(grammar.entries))
+	lastOrder := -1
 	for index, entry := range grammar.entries {
-		if entry.sid == "" || entry.type_ != windowsAllowedACEType || entry.flags != windowsCanonicalACEFlags ||
-			!strings.EqualFold(entry.sid, []string{principals.ownerSID, principals.groupSID, principals.everyoneSID}[index]) {
+		order, exists := principalOrder[entry.sid]
+		if entry.sid == "" || !exists || order <= lastOrder || index == 0 && order != 0 ||
+			entry.type_ != windowsAllowedACEType || entry.flags != windowsCanonicalACEFlags || entry.mask == 0 {
 			return nil, windowsNativeUnsupported(windowsNativePhaseSecurity, "canonical DACL grammar contains an invalid ACE", nil)
 		}
+		lastOrder = order
+		sids[index] = principalSIDs[entry.sid]
 		if sids[index] == nil || !sids[index].IsValid() {
 			return nil, windowsNativeUnsupported(windowsNativePhaseSecurity, "canonical DACL contains an invalid SID", nil)
 		}

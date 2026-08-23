@@ -209,7 +209,7 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 			joinWindowsErrors(factsErr, metadataErr, closePublishedErr),
 		)
 	}
-	if !stageFacts.identity.sameObject(publishedFacts.identity) || publishedFacts.standard.directory ||
+	if !stageFacts.identity.sameRetainedFile(publishedFacts.identity) || publishedFacts.standard.directory ||
 		publishedFacts.standard.endOfFile != int64(len(request.payload)) {
 		return EntryIdentity{}, newFailure(
 			failureIndeterminateCommit,
@@ -371,7 +371,7 @@ func observeWindowsRenameFailure(
 		if factsErr != nil || closeErr != nil {
 			return false, false, joinWindowsErrors(factsErr, closeErr)
 		}
-		if stageIdentity.sameObject(facts.identity) {
+		if stageIdentity.sameRetainedFile(facts.identity) {
 			return true, false, nil
 		}
 		destinationStable = existing == nil || existing.facts.identity.equal(facts.identity)

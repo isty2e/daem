@@ -129,6 +129,61 @@ func TestWindowsPrepareCommitParentAndAncestorCleanup(t *testing.T) {
 	}
 }
 
+func TestWindowsConfirmRootedEntryAbsentAndRejectPresent(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	outcome, err := ConfirmRootedEntryAbsentWithOutcome(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, missing),
+	)
+	if err != nil || outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("confirm missing = %q, %v", outcome.State(), err)
+	}
+
+	present := filepath.Join(root, "present")
+	request, err := NewFileCreate(present, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitFile(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err = ConfirmRootedEntryAbsentWithOutcome(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, present),
+	)
+	if err == nil || outcome.State() != mutationfs.CommitOutcomeUncommitted {
+		t.Fatalf("confirm present = %q, %v, want uncommitted", outcome.State(), err)
+	}
+}
+
+func TestWindowsAncestorCleanupRejectsMovedBinding(t *testing.T) {
+	root := t.TempDir()
+	created := filepath.Join(root, "created")
+	target := filepath.Join(created, "state.json")
+	var cleanup AncestorCleanup
+	if err := cleanup.PrepareParent(t.Context(), target); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(root, "moved")
+	if err := os.Rename(created, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(created, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup.RemoveEmpty(t.Context()); err == nil {
+		t.Fatal("ancestor cleanup removed a replaced name binding")
+	}
+	cleanup.Close()
+	for _, path := range []string{created, moved} {
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			t.Fatalf("preserved directory %q = %#v, %v", path, info, err)
+		}
+	}
+}
+
 func TestWindowsReadRootedSymlinkTarget(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "target"), []byte("target"), 0o600); err != nil {

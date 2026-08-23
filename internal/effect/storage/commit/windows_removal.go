@@ -108,7 +108,7 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		}
 	}
 	moved, err := observeWindowsEntryAt(anchor.parentHandle(), residueName)
-	if err != nil || !moved.exists || !existing.facts.identity.sameObject(moved.identity) {
+	if err != nil || !moved.exists || !existing.facts.identity.sameRetainedFile(moved.identity) {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, residuePath)
 	}
 	if err := requireWindowsDestinationAbsent(anchor); err != nil {
@@ -131,7 +131,7 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		}
 		cleanupPath = filepath.Join(filepath.Dir(request.path), cleanupName)
 		promoted, observeErr := observeWindowsEntryAt(anchor.parentHandle(), cleanupName)
-		if observeErr != nil || !promoted.exists || !moved.identity.sameObject(promoted.identity) {
+		if observeErr != nil || !promoted.exists || !moved.identity.sameRetainedFile(promoted.identity) {
 			return newFailure(
 				failureIndeterminateCommit,
 				phaseVerifyEntry,
@@ -381,7 +381,7 @@ func observeWindowsNamespaceTransition(
 	if destinationErr != nil {
 		return false, false, destinationErr
 	}
-	if !source.exists && destination.exists && expected.sameObject(destination.identity) {
+	if !source.exists && destination.exists && expected.sameRetainedFile(destination.identity) {
 		return true, false, nil
 	}
 	if source.exists && expected.equal(source.identity) && !destination.exists {

@@ -154,7 +154,10 @@ func prepareWindowsCommitParent(
 	if err != nil {
 		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, windowsUnsupportedCause(err))
 	}
-	currentPath := destination.Root().PhysicalRoot()
+	currentPath := path
+	for range components {
+		currentPath = filepath.Dir(currentPath)
+	}
 	for _, component := range components[:len(components)-1] {
 		if err := ctx.Err(); err != nil {
 			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
@@ -306,6 +309,10 @@ func removeWindowsCreatedDirectory(ctx context.Context, directory *windowsCreate
 	if err := requireWindowsSiblingAbsent(directory.parent.Handle(), directory.name); err != nil {
 		return err
 	}
+	if err := directory.parent.Close(); err != nil {
+		return err
+	}
+	directory.parent = nil
 	directory.retired = true
 	return nil
 }

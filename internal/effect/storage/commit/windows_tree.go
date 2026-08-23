@@ -756,7 +756,7 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 				prepared.anchor.name.String(),
 			)
 			observeErr = errors.Join(observeErr, publishedErr)
-			if publishedErr == nil && published.exists && current.platform.native.sameObject(published.identity) {
+			if publishedErr == nil && published.exists && current.platform.native.sameRetainedFile(published.identity) {
 				identity = EntryIdentity{
 					path:     prepared.destination,
 					kind:     entryKindDirectory,
@@ -769,7 +769,7 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		return outcomeFromError(err), identity, err
 	}
 	published, observeErr := observeWindowsEntryAt(prepared.anchor.parentHandle(), prepared.anchor.name.String())
-	if observeErr != nil || !published.exists || !current.platform.native.sameObject(published.identity) {
+	if observeErr != nil || !published.exists || !current.platform.native.sameRetainedFile(published.identity) {
 		err = prepared.finishVisibleLocked(phaseVerifyEntry, observeErr, prepared.destination)
 		return outcomeFromError(err), EntryIdentity{}, err
 	}

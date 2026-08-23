@@ -44,6 +44,11 @@ func (identity windowsEntryIdentityNative) sameObject(other windowsEntryIdentity
 		identity.fileID == other.fileID && identity.creationTime == other.creationTime
 }
 
+func (identity windowsEntryIdentityNative) sameRetainedFile(other windowsEntryIdentityNative) bool {
+	return identity.valid() && other.valid() && identity.volumeSerial == other.volumeSerial &&
+		identity.fileID == other.fileID
+}
+
 type windowsVolumeFactsNative struct {
 	serial                uint32
 	guid                  string
