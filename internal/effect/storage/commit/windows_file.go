@@ -122,7 +122,7 @@ func commitWindowsFileWithFaults(
 				stageIdentity = facts.identity
 			}
 		}
-		cleanupErr := faults.check(ctx, phaseCleanupTemporary)
+		cleanupErr := faults.check(context.WithoutCancel(ctx), phaseCleanupTemporary)
 		if cleanupErr == nil {
 			cleanupErr = cleanupWindowsFileStage(anchor, stageName, stage)
 		}

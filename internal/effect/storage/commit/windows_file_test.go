@@ -135,6 +135,25 @@ func TestWindowsFileCommitFaultClassification(t *testing.T) {
 	}
 }
 
+func TestWindowsFileCommitCleansPrivateStageAfterCancellation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "state.json")
+	request, err := NewFileCreate(path, []byte("payload"), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	faults := faultPlan{actions: map[phase]func(){phaseRevalidateEntry: cancel}}
+	_, err = commitWindowsFileWithFaults(ctx, request, faults)
+	if !errors.Is(err, context.Canceled) || !hasStorageFailureKind(err, mutationfs.FailureUncommitted) {
+		t.Fatalf("canceled staged commit = %v, want uncommitted context.Canceled", err)
+	}
+	if _, statErr := os.Lstat(path); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("canceled destination = %v, want missing", statErr)
+	}
+	assertNoWindowsStorageResidue(t, root)
+}
+
 func TestWindowsFileCommitReportsRetainedStageCleanupFailure(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "state.json")
