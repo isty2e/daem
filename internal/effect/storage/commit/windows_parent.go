@@ -133,6 +133,15 @@ func prepareWindowsCommitParent(
 	path string,
 	state *windowsAncestorCleanupState,
 ) error {
+	return prepareWindowsCommitParentWithFaults(ctx, path, state, faultPlan{})
+}
+
+func prepareWindowsCommitParentWithFaults(
+	ctx context.Context,
+	path string,
+	state *windowsAncestorCleanupState,
+	faults faultPlan,
+) error {
 	if ctx == nil {
 		return windowsFailureBeforeVisibility(phaseValidate, path, fmt.Errorf("commit parent context is required"))
 	}
@@ -142,7 +151,7 @@ func prepareWindowsCommitParent(
 	if err := ctx.Err(); err != nil {
 		return windowsFailureBeforeVisibility(phaseValidate, path, err)
 	}
-	root, destination, err := rootedpath.CaptureDestination(path)
+	root, destination, err := rootedpath.CaptureDestinationNoFollow(path)
 	if err != nil {
 		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
 	}
@@ -196,6 +205,12 @@ func prepareWindowsCommitParent(
 		attemptedCreate := false
 		if openErr != nil && windowsNativeErrorClassOf(openErr) == windowsNativeErrorNotFound {
 			attemptedCreate = true
+			if err := faults.check(ctx, phaseCreateAncestors); err != nil {
+				return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
+			}
+			if err := ctx.Err(); err != nil {
+				return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
+			}
 			opened, openErr = createWindowsRelativeDirectory(
 				parentDirectory,
 				component,
@@ -334,6 +349,12 @@ func removeWindowsCreatedDirectoryWithFaults(
 		directory.identity.platform.native,
 		false,
 	); err != nil {
+		return err
+	}
+	if err := faults.check(ctx, phaseCleanupEntry); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if _, err := disposeWindowsByHandle(directory.handle.Handle(), false); err != nil {

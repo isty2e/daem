@@ -225,6 +225,22 @@ func CaptureDestinationBounded(
 // descendants remain root-relative names, so later mutation never resolves
 // the selected path through ambient ancestors again.
 func CaptureDestination(path string) (*CapturedRoot, Destination, error) {
+	return captureDestinationWithSelection(path, rootSelectionResolveAlias)
+}
+
+// CaptureDestinationNoFollow binds one absolute destination the same way as
+// CaptureDestination but refuses alias components in the retained physical
+// root. A destination whose existing ancestor chain contains a symbolic link,
+// junction, or other reparse component fails closed before any effect rather
+// than adopting the alias referent as the lexical namespace.
+func CaptureDestinationNoFollow(path string) (*CapturedRoot, Destination, error) {
+	return captureDestinationWithSelection(path, rootSelectionNoFollow)
+}
+
+func captureDestinationWithSelection(
+	path string,
+	selectionMode rootSelectionMode,
+) (*CapturedRoot, Destination, error) {
 	absolute, err := canonicalDestinationPath(path)
 	if err != nil {
 		return nil, Destination{}, err
@@ -240,7 +256,7 @@ func CaptureDestination(path string) (*CapturedRoot, Destination, error) {
 			if filepath.Dir(ancestor) == ancestor {
 				return nil, Destination{}, newFailure(FailureUnsupportedPlatform, absolute, "destination has no capturable directory below the filesystem root", nil)
 			}
-			root, captureErr := CaptureRoot(ancestor)
+			root, captureErr := captureRoot(ancestor, selectionMode)
 			if captureErr != nil {
 				return nil, Destination{}, captureErr
 			}
@@ -861,6 +877,9 @@ func (capability *commitCapability) AdmitPhysicalWork(
 	}
 	budget, ok := capability.budget.(physicalWorkBudget)
 	if !ok {
+		if entries == 0 && bytes == 0 {
+			return capability.budget.AdmitPathComponents(pathComponents)
+		}
 		return fmt.Errorf("bounded commit capability lacks physical-work capacity")
 	}
 	return budget.AdmitPhysicalWork(pathComponents, entries, bytes)

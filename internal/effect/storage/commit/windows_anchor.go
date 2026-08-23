@@ -31,7 +31,7 @@ type windowsDirectoryBinding struct {
 }
 
 func acquireWindowsPathCapability(path string) (rootedpath.CommitCapability, error) {
-	root, destination, err := rootedpath.CaptureDestination(path)
+	root, destination, err := rootedpath.CaptureDestinationNoFollow(path)
 	if err != nil {
 		return nil, err
 	}

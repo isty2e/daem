@@ -7,6 +7,7 @@ import (
 	"errors"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
@@ -28,6 +29,28 @@ func (budget *windowsAbsenceRecordingBudget) AdmitPhysicalWork(pathComponents in
 		budget.cancel()
 	}
 	return nil
+}
+
+type windowsAbsencePathOnlyBudget struct {
+	components int
+}
+
+func (budget *windowsAbsencePathOnlyBudget) AdmitPathComponents(count int) error {
+	budget.components += count
+	return nil
+}
+
+func TestWindowsRootedAbsenceAdmitsPathOnlyBudget(t *testing.T) {
+	rootPath := t.TempDir()
+	budget := &windowsAbsencePathOnlyBudget{}
+	capability := acquireWindowsBoundedAbsenceCapability(t, rootPath, "missing/nested", budget)
+	outcome, err := ConfirmRootedEntryAbsentWithOutcome(t.Context(), capability)
+	if err != nil || outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("path-only bounded absence = %q, %v, want complete", outcome.State(), err)
+	}
+	if budget.components == 0 {
+		t.Fatal("path-only bounded absence charged no component work")
+	}
 }
 
 func TestWindowsRootedAbsenceUsesFourCompletePathObservations(t *testing.T) {
@@ -68,7 +91,7 @@ func acquireWindowsBoundedAbsenceCapability(
 	t *testing.T,
 	rootPath string,
 	relativePath string,
-	budget *windowsAbsenceRecordingBudget,
+	budget rootedpath.PhysicalTraversalBudget,
 ) rootedpath.CommitCapability {
 	t.Helper()
 	root, err := rootedpath.CaptureRootNoFollow(rootPath)

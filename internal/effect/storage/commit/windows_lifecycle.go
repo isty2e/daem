@@ -107,6 +107,14 @@ func CommitRootedEntryCleanup(
 	ctx context.Context,
 	request RootedEntryCleanup,
 ) (mutationfs.CommitOutcome, error) {
+	return commitRootedEntryCleanupWithFaults(ctx, request, faultPlan{})
+}
+
+func commitRootedEntryCleanupWithFaults(
+	ctx context.Context,
+	request RootedEntryCleanup,
+	faults faultPlan,
+) (mutationfs.CommitOutcome, error) {
 	if request.capability != nil {
 		defer request.capability.Close()
 	}
@@ -144,7 +152,7 @@ func CommitRootedEntryCleanup(
 	if err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
 	}
-	err = removeWindowsEntryTree(
+	if err := preflightWindowsEntryTree(
 		ctx,
 		anchor.parentDirectory(),
 		anchor.name.String(),
@@ -153,10 +161,29 @@ func CommitRootedEntryCleanup(
 		0,
 		budget,
 		nil,
+		faults,
+		"",
+	); err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseCleanupEntry, request.path, windowsUnsupportedCause(err)))
+	}
+	removalBudget, err := newTreeTraversalBudget(request.limits)
+	if err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
+	}
+	changed, err := removeWindowsEntryTree(
+		ctx,
+		anchor.parentDirectory(),
+		anchor.name.String(),
+		request.path,
+		request.expected,
+		0,
+		removalBudget,
+		nil,
+		faults,
 		"",
 	)
 	if err != nil {
-		return fail(classifyWindowsExactCleanupFailure(anchor, request, err))
+		return fail(classifyWindowsExactCleanupFailure(anchor, request, changed, err))
 	}
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
 		return fail(newFailure(failureIndeterminateCommit, phaseSyncCleanupParent, request.path, err, request.path))
@@ -242,8 +269,12 @@ func admitWindowsRootedCleanupWork(request RootedEntryCleanup) error {
 func classifyWindowsExactCleanupFailure(
 	anchor *windowsDestinationAnchor,
 	request RootedEntryCleanup,
+	changed bool,
 	cause error,
 ) error {
+	if changed {
+		return newFailure(failureRetainedResidue, phaseCleanupEntry, request.path, cause, request.path)
+	}
 	observed, observeErr := observeWindowsEntryAt(anchor.parentDirectory(), anchor.name.String())
 	switch {
 	case observeErr == nil && observed.exists && request.expected.platform.native.equal(observed.identity):

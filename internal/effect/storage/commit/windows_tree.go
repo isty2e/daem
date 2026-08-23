@@ -995,7 +995,7 @@ func (prepared *PreparedRootedTree) abortLocked(ctx context.Context) error {
 			if err != nil {
 				cleanupErr = err
 			} else {
-				cleanupErr = removeWindowsEntryTree(
+				_, cleanupErr = removeWindowsEntryTree(
 					context.WithoutCancel(ctx),
 					prepared.anchor.parentDirectory(),
 					prepared.stageName,
@@ -1004,6 +1004,7 @@ func (prepared *PreparedRootedTree) abortLocked(ctx context.Context) error {
 					0,
 					budget,
 					plan,
+					faultPlan{},
 					"",
 				)
 			}
