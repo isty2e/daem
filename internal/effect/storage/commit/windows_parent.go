@@ -298,6 +298,9 @@ func prepareWindowsCommitParentWithFaults(
 		traversal = append(traversal, opened.handle)
 		parentDirectory = opened.directory
 	}
+	if err := faults.check(ctx, phaseCreateAncestors); err != nil {
+		return windowsFailureBeforeVisibility(phaseCreateAncestors, path, err)
+	}
 	if err := capability.ValidateRetainedDirectoryHandle(rootFile.Fd()); err != nil {
 		return windowsFailureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}

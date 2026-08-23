@@ -127,9 +127,6 @@ func observeWindowsRootedAbsence(
 		return nil, err
 	}
 	components := strings.Split(destination.Relative().Path(), "/")
-	if err := capability.AdmitPhysicalWork(len(components), 0, 0); err != nil {
-		return nil, err
-	}
 	root, err := capability.OpenRootDirectoryForMutation()
 	if err != nil {
 		return nil, err

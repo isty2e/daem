@@ -15,6 +15,9 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 	if ctx == nil {
 		return windowsFailureBeforeVisibility(phaseValidate, request.destination, fmt.Errorf("prepared tree context is required"))
 	}
+	if err := ctx.Err(); err != nil {
+		return windowsFailureBeforeVisibility(phaseValidate, request.destination, err)
+	}
 	if err := validateWindowsPreparedTreeRequest(request); err != nil {
 		return windowsFailureBeforeVisibility(phaseValidate, request.destination, err)
 	}

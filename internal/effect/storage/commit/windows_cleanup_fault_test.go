@@ -174,3 +174,78 @@ func TestWindowsRootedCleanupHonorsCancellationBeforeFirstDisposition(t *testing
 		t.Fatalf("cleanup entry removed despite cancellation: %v", statErr)
 	}
 }
+
+func TestWindowsRootedCleanupAdmitsDirectFilesAtZeroDepth(t *testing.T) {
+	root := t.TempDir()
+	residue := filepath.Join(root, ".retained")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setWindowsTestEntryCanonicalMode(t, residue, 0o700, true)
+	for _, name := range []string{"first.json", "second.json"} {
+		child := filepath.Join(residue, name)
+		if err := os.WriteFile(child, []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		setWindowsTestEntryCanonicalMode(t, child, 0o600, false)
+	}
+
+	capability := acquireWindowsTestCommitCapability(t, residue)
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(2, 0, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRootedEntryCleanup(capability, expected, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := CommitRootedEntryCleanup(t.Context(), request)
+	if err != nil || outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("zero-depth direct-file cleanup = %q, %v, want complete", outcome.State(), err)
+	}
+	if _, statErr := os.Lstat(residue); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("cleanup residue after zero-depth cleanup: %v", statErr)
+	}
+}
+
+func TestWindowsRootedCleanupAdmitsFileInsideMaximumDepthDirectory(t *testing.T) {
+	root := t.TempDir()
+	residue := filepath.Join(root, ".retained")
+	if err := os.MkdirAll(filepath.Join(residue, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	setWindowsTestEntryCanonicalMode(t, residue, 0o700, true)
+	setWindowsTestEntryCanonicalMode(t, filepath.Join(residue, "nested"), 0o700, true)
+	child := filepath.Join(residue, "nested", "child.json")
+	if err := os.WriteFile(child, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	setWindowsTestEntryCanonicalMode(t, child, 0o600, false)
+
+	capability := acquireWindowsTestCommitCapability(t, residue)
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
+	if err != nil {
+		_ = capability.Close()
+		t.Fatal(err)
+	}
+	limits, err := mutationfs.NewTreeTraversalLimits(3, 1, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := NewRootedEntryCleanup(capability, expected, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := CommitRootedEntryCleanup(t.Context(), request)
+	if err != nil || outcome.State() != mutationfs.CommitOutcomeComplete {
+		t.Fatalf("maximum-depth file cleanup = %q, %v, want complete", outcome.State(), err)
+	}
+	if _, statErr := os.Lstat(residue); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("cleanup residue after maximum-depth cleanup: %v", statErr)
+	}
+}

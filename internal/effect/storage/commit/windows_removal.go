@@ -37,10 +37,10 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 		defer capability.Close()
 	}
 	if ctx == nil {
-		return fmt.Errorf("logical removal context is required")
+		return windowsFailureBeforeVisibility(phaseValidate, request.path, fmt.Errorf("logical removal context is required"))
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return windowsFailureBeforeVisibility(phaseValidate, request.path, err)
 	}
 	if err := validateWindowsRemovalRequest(request); err != nil {
 		return windowsFailureBeforeVisibility(phaseValidate, request.path, err)
@@ -305,8 +305,10 @@ func walkWindowsEntryTree(
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	if err := budget.admitDepth(depth); err != nil {
-		return false, err
+	if expected.kind == entryKindDirectory {
+		if err := budget.admitDepth(depth); err != nil {
+			return false, err
+		}
 	}
 	access := uint32(windows.FILE_READ_ATTRIBUTES | windows.FILE_READ_EA | windows.READ_CONTROL |
 		windows.DELETE | windows.SYNCHRONIZE)

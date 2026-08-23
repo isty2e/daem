@@ -33,6 +33,12 @@ func CaptureEntryIdentity(ctx context.Context, path string) (EntryIdentity, erro
 	if err := validateCommitPath(path); err != nil {
 		return EntryIdentity{}, err
 	}
+	if ctx == nil {
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, fmt.Errorf("identity capture context is required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
+	}
 	capability, err := acquireWindowsPathCapability(path)
 	if err != nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
@@ -131,6 +137,12 @@ func ReadRegularFileSnapshotUpTo(
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.RegularFileSnapshot{}, err
 	}
+	if ctx == nil {
+		return mutationfs.RegularFileSnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, fmt.Errorf("file snapshot context is required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return mutationfs.RegularFileSnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
+	}
 	capability, err := acquireWindowsPathCapability(path)
 	if err != nil {
 		return mutationfs.RegularFileSnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
@@ -156,6 +168,12 @@ func SnapshotDirectory(
 	}
 	if err := validateCommitPath(path); err != nil {
 		return mutationfs.DirectorySnapshot{}, err
+	}
+	if ctx == nil {
+		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, fmt.Errorf("directory snapshot context is required"))
+	}
+	if err := ctx.Err(); err != nil {
+		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, err)
 	}
 	capability, err := acquireWindowsPathCapability(path)
 	if err != nil {

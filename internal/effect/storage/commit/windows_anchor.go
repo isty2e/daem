@@ -73,9 +73,6 @@ func openWindowsDestinationAnchor(
 	if err != nil {
 		return nil, err
 	}
-	if err := capability.AdmitPhysicalWork(len(components), 0, 0); err != nil {
-		return nil, err
-	}
 	var root *os.File
 	if mutating {
 		root, err = capability.OpenRootDirectoryForMutation()

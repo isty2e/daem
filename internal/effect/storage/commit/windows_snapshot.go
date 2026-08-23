@@ -59,9 +59,6 @@ func snapshotWindowsDirectoryEntries(
 	if err != nil {
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
 	}
-	if err := capability.AdmitPhysicalWork(0, len(first), 0); err != nil {
-		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseReadPayload, path, err)
-	}
 	entries := make([]mutationfs.DirectoryEntrySnapshot, 0, len(first))
 	for _, entry := range first {
 		if err := ctx.Err(); err != nil {
@@ -127,9 +124,6 @@ func snapshotWindowsDirectoryEntries(
 
 	second, err := enumerateWindowsDirectoryOnce(ctx, root.handle.Handle(), maximumEntries)
 	if err != nil {
-		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseRevalidateEntry, path, err)
-	}
-	if err := capability.AdmitPhysicalWork(0, len(second), 0); err != nil {
 		return mutationfs.DirectorySnapshot{}, windowsFailureBeforeVisibility(phaseRevalidateEntry, path, err)
 	}
 	if !equalWindowsDirectoryEntries(first, second) {

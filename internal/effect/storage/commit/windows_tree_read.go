@@ -109,9 +109,6 @@ func snapshotWindowsDirectoryRecursive(
 	if err := budget.admitEntries(len(first)); err != nil {
 		return err
 	}
-	if err := capability.AdmitPhysicalWork(0, len(first), 0); err != nil {
-		return err
-	}
 	for _, entry := range first {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -204,9 +201,6 @@ func snapshotWindowsDirectoryRecursive(
 			}
 			if err == nil {
 				err = budget.admitBytes(size)
-			}
-			if err == nil {
-				err = capability.AdmitPhysicalWork(0, 0, size)
 			}
 			if err == nil && sink != nil {
 				err = sink.VisitRegularFile(relativePath, mode, size, bytes.NewReader(content))
