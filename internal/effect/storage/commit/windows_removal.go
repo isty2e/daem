@@ -238,7 +238,7 @@ func removeWindowsEntryTree(
 		parent,
 		name,
 		access,
-		windowsPublicationShareMode,
+		windowsParentShareMode,
 		windows.FILE_OPEN,
 		false,
 	)
