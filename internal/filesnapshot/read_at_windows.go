@@ -83,6 +83,9 @@ func readRegularFileAtCountedWithHooks(
 	if err := ctx.Err(); err != nil {
 		return CountedContent{Attempted: attempted}, err
 	}
+	if hooks.afterRead != nil {
+		hooks.afterRead()
+	}
 	afterInfo, err := file.Stat()
 	if err != nil {
 		return CountedContent{Attempted: attempted}, err
@@ -98,7 +101,8 @@ func readRegularFileAtCountedWithHooks(
 
 	current, err := openSnapshotEntryAt(dir, name)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrSymlink) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrSymlink) ||
+			errors.Is(err, windows.ERROR_SHARING_VIOLATION) {
 			return CountedContent{Attempted: attempted}, ErrChanged
 		}
 		return CountedContent{Attempted: attempted}, err

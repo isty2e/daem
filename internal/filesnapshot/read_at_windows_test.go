@@ -36,21 +36,47 @@ func TestReadRegularFileAtCountedStaysOnWindowsDirectoryHandle(t *testing.T) {
 }
 
 func TestReadRegularFileAtCountedRejectsWindowsEntryReplacement(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "plugin.json")
-	writeWindowsTestFile(t, path, "inside")
-	dir := openWindowsTestDirectory(t, root)
+	for _, testCase := range []struct {
+		name             string
+		holdWriter       bool
+		replaceAfterRead bool
+	}{
+		{name: "closed replacement"},
+		{name: "writer-held replacement after read", holdWriter: true, replaceAfterRead: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "plugin.json")
+			writeWindowsTestFile(t, path, "inside")
+			dir := openWindowsTestDirectory(t, root)
 
-	_, err := readRegularFileAtCountedWithHooks(t.Context(), dir, "plugin.json", 64, readHooks{
-		afterInspect: func() {
-			if renameErr := os.Rename(path, path+".moved"); renameErr != nil {
-				t.Fatal(renameErr)
+			replaceEntry := func() {
+				if renameErr := os.Rename(path, path+".moved"); renameErr != nil {
+					t.Fatal(renameErr)
+				}
+				writeWindowsTestFile(t, path, "outside")
+				if !testCase.holdWriter {
+					return
+				}
+				writer, writerErr := openWindowsTestWriter(path)
+				if writerErr != nil {
+					t.Fatal(writerErr)
+				}
+				t.Cleanup(func() { _ = windows.CloseHandle(writer) })
 			}
-			writeWindowsTestFile(t, path, "outside")
-		},
-	})
-	if !errors.Is(err, ErrChanged) {
-		t.Fatalf("replacement error = %v, want ErrChanged", err)
+			hooks := readHooks{afterInspect: replaceEntry}
+			if testCase.replaceAfterRead {
+				hooks = readHooks{afterRead: replaceEntry}
+			}
+
+			counted, err := readRegularFileAtCountedWithHooks(t.Context(), dir, "plugin.json", 64, hooks)
+			if !errors.Is(err, ErrChanged) {
+				t.Fatalf("replacement snapshot = %+v, %v, want ErrChanged", counted, err)
+			}
+			if counted.Exists || counted.Attempted != 6 || len(counted.Content) != 0 {
+				t.Fatalf("replacement snapshot = %+v, want attempted original bytes only", counted)
+			}
+		})
 	}
 }
 

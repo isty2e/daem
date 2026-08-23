@@ -30,6 +30,7 @@ var (
 type readHooks struct {
 	afterInspect  func()
 	afterOpen     func()
+	afterRead     func()
 	beforeSuccess func()
 }
 
