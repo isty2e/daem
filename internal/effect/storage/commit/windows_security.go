@@ -137,7 +137,7 @@ func canonicalWindowsDACLGrammar(
 		entries: []windowsCanonicalACEGrammar{
 			{
 				sid:   ownerSID,
-				mask:  windowsModeRights(owner) | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER,
+				mask:  windowsModeRights(owner) | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 				type_: windowsAllowedACEType,
 				flags: windowsCanonicalACEFlags,
 			},
@@ -208,6 +208,72 @@ func windowsModeRights(permission fs.FileMode) windows.ACCESS_MASK {
 		rights |= windows.GENERIC_EXECUTE
 	}
 	return rights
+}
+
+func windowsPermissionFromRights(rights windows.ACCESS_MASK) (fs.FileMode, error) {
+	const modeled = windows.GENERIC_READ | windows.GENERIC_WRITE | windows.GENERIC_EXECUTE
+	if rights&^modeled != 0 {
+		return 0, windowsNativeUnsupported(
+			windowsNativePhaseSecurity,
+			"DACL ACE contains rights outside the canonical mode grammar",
+			nil,
+		)
+	}
+	var permission fs.FileMode
+	if rights&windows.GENERIC_READ != 0 {
+		permission |= 4
+	}
+	if rights&windows.GENERIC_WRITE != 0 {
+		permission |= 2
+	}
+	if rights&windows.GENERIC_EXECUTE != 0 {
+		permission |= 1
+	}
+	return permission, nil
+}
+
+func windowsCanonicalModeFromSecurity(facts windowsSecurityFacts) (fs.FileMode, error) {
+	principals, err := currentWindowsCanonicalSecurityPrincipals()
+	if err != nil {
+		return 0, err
+	}
+	if len(facts.dacl.aces) != 3 || facts.ownerSID != principals.ownerSID || facts.groupSID != principals.groupSID {
+		return 0, windowsNativeUnsupported(
+			windowsNativePhaseSecurity,
+			"security descriptor principals are outside the canonical mode grammar",
+			nil,
+		)
+	}
+	ownerRights := facts.dacl.aces[0].mask
+	const ownerControl = windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE
+	if ownerRights&ownerControl != ownerControl {
+		return 0, windowsNativeUnsupported(
+			windowsNativePhaseSecurity,
+			"owner ACE lacks canonical control rights",
+			nil,
+		)
+	}
+	owner, err := windowsPermissionFromRights(ownerRights &^ ownerControl)
+	if err != nil {
+		return 0, err
+	}
+	group, err := windowsPermissionFromRights(facts.dacl.aces[1].mask)
+	if err != nil {
+		return 0, err
+	}
+	other, err := windowsPermissionFromRights(facts.dacl.aces[2].mask)
+	if err != nil {
+		return 0, err
+	}
+	mode := owner<<6 | group<<3 | other
+	expected, err := buildWindowsCanonicalSecurity(mode)
+	if err != nil {
+		return 0, err
+	}
+	if err := validateWindowsCanonicalSecurityFacts(facts, expected.facts); err != nil {
+		return 0, err
+	}
+	return mode, nil
 }
 
 func currentWindowsCanonicalSecurityPrincipals() (windowsCanonicalSecurityPrincipals, error) {

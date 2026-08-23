@@ -178,13 +178,6 @@ func queryWindowsEntryFacts(handle windows.Handle) (windowsEntryFactsNative, err
 	if err != nil {
 		return windowsEntryFactsNative{}, err
 	}
-	if fileID.volumeSerial != uint64(volume.serial) {
-		return windowsEntryFactsNative{}, windowsNativeUnsupported(
-			windowsNativePhaseIdentity,
-			"entry and volume serial evidence disagree",
-			nil,
-		)
-	}
 	identity := windowsEntryIdentityNative{
 		volumeSerial: fileID.volumeSerial,
 		fileID:       fileID.fileID,

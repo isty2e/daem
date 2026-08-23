@@ -49,7 +49,7 @@ func queryWindowsStreamFacts(handle windows.Handle) (windowsStreamFacts, error) 
 	facts := windowsStreamFacts{}
 	for offset := 0; offset < len(buffer); {
 		remaining := len(buffer) - offset
-		if remaining == 0 || allZeroBytes(buffer[offset:]) {
+		if remaining == 0 || offset > 0 && allZeroBytes(buffer[offset:]) {
 			break
 		}
 		if remaining < 24 {
@@ -253,7 +253,7 @@ func parseWindowsStreamInformation(buffer []byte) (windowsStreamFacts, error) {
 	facts := windowsStreamFacts{}
 	for offset := 0; offset < len(buffer); {
 		remaining := len(buffer) - offset
-		if remaining == 0 || allZeroBytes(buffer[offset:]) {
+		if remaining == 0 || offset > 0 && allZeroBytes(buffer[offset:]) {
 			break
 		}
 		if remaining < 24 {

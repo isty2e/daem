@@ -72,7 +72,7 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 			name:     "0600",
 			mode:     0o600,
 			valid:    true,
-			owner:    windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER,
+			owner:    windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 			group:    0,
 			everyone: 0,
 		},
@@ -80,7 +80,7 @@ func TestWindowsCanonicalModeGrammar(t *testing.T) {
 			name:     "0644",
 			mode:     0o644,
 			valid:    true,
-			owner:    windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER,
+			owner:    windows.GENERIC_READ | windows.GENERIC_WRITE | windows.READ_CONTROL | windows.WRITE_DAC | windows.WRITE_OWNER | windows.DELETE,
 			group:    windows.GENERIC_READ,
 			everyone: windows.GENERIC_READ,
 		},
@@ -246,6 +246,13 @@ func TestWindowsCanonicalSecurityNativeRoundTrip(t *testing.T) {
 		}
 		if !actual.equal(expected.facts) {
 			t.Fatalf("canonical security facts did not round-trip for %04o: actual=%+v expected=%+v", mode, actual, expected.facts)
+		}
+		observedMode, err := windowsCanonicalModeFromSecurity(actual)
+		if err != nil {
+			t.Fatalf("derive canonical mode for %04o: %v", mode, err)
+		}
+		if observedMode != mode {
+			t.Fatalf("derived canonical mode = %04o, want %04o", observedMode, mode)
 		}
 	}
 
