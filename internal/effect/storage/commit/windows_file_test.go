@@ -197,18 +197,31 @@ func TestWindowsFileCommitRejectsAncestorReplacementAtCommitPoint(t *testing.T) 
 		t.Fatal(err)
 	}
 	moved := filepath.Join(root, "moved")
+	var actionErr error
+	renamed := false
 	faults := faultPlan{actions: map[phase]func(){
 		phaseCommitEntry: func() {
-			if err := os.Rename(active, moved); err != nil {
-				t.Errorf("rename active parent: %v", err)
-				return
-			}
-			if err := os.Mkdir(active, 0o700); err != nil {
-				t.Errorf("replace active parent: %v", err)
+			actionErr = os.Rename(active, moved)
+			if actionErr == nil {
+				renamed = true
+				actionErr = os.Mkdir(active, 0o700)
 			}
 		},
 	}}
 	_, err = commitWindowsFileWithFaults(t.Context(), request, faults)
+	if actionErr != nil && renamed {
+		t.Fatalf("replace active parent after rename: %v", actionErr)
+	}
+	if actionErr != nil {
+		if err != nil {
+			t.Fatalf("blocked ancestor replacement also failed publication: %v; action: %v", err, actionErr)
+		}
+		content, readErr := os.ReadFile(path)
+		if readErr != nil || string(content) != "managed" {
+			t.Fatalf("blocked replacement publication = %q, %v", content, readErr)
+		}
+		return
+	}
 	if !hasStorageFailureKind(err, mutationfs.FailureUncommitted) {
 		t.Fatalf("ancestor replacement failure = %v, want uncommitted", err)
 	}
