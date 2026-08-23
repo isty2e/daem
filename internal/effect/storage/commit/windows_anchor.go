@@ -160,7 +160,7 @@ func (anchor *windowsDestinationAnchor) revalidate(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := anchor.capability.ValidateRetainedDirectoryHandle(anchor.root.Fd()); err != nil {
+	if err := anchor.capability.ValidateDirectoryHandle(anchor.root.Fd()); err != nil {
 		return err
 	}
 	parentHandle := windows.Handle(anchor.root.Fd())

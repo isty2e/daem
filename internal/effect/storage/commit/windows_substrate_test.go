@@ -582,7 +582,7 @@ func openWindowsNativeTestDirectory(t *testing.T, path string) *windowsOwnedHand
 	}
 	handle, err := windows.CreateFile(
 		name,
-		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.DELETE,
+		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.READ_CONTROL|windows.WRITE_DAC|windows.DELETE,
 		windowsParentShareMode,
 		nil,
 		windows.OPEN_EXISTING,
