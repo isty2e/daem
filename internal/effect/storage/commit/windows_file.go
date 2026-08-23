@@ -191,7 +191,7 @@ func commitWindowsFile(ctx context.Context, request FileCommit) (EntryIdentity, 
 		anchor.parentHandle(),
 		anchor.name.String(),
 		windows.FILE_GENERIC_READ|windows.FILE_READ_EA|windows.READ_CONTROL|windows.DELETE|windows.WRITE_DAC,
-		windowsPublicationShareMode,
+		windowsParentShareMode,
 		windows.FILE_OPEN,
 		false,
 	)

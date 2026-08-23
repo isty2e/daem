@@ -46,7 +46,7 @@ func openWindowsObservedEntry(
 	}
 	access := uint32(windows.FILE_READ_ATTRIBUTES | windows.READ_CONTROL | windows.SYNCHRONIZE)
 	if withMetadata {
-		access |= windows.FILE_READ_EA
+		access |= windows.FILE_GENERIC_READ | windows.FILE_READ_EA
 	}
 	if readPayload {
 		access |= windows.FILE_GENERIC_READ

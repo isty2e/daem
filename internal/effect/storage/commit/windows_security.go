@@ -3,7 +3,6 @@
 package commit
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io/fs"
@@ -45,8 +44,7 @@ type windowsDACLFact struct {
 }
 
 func (facts windowsDACLFact) equal(other windowsDACLFact) bool {
-	if facts.revision != other.revision || facts.size != other.size || facts.aceCount != other.aceCount ||
-		!bytes.Equal(facts.raw, other.raw) || len(facts.aces) != len(other.aces) {
+	if facts.revision != other.revision || facts.aceCount != other.aceCount || len(facts.aces) != len(other.aces) {
 		return false
 	}
 	for index := range facts.aces {
