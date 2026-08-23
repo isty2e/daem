@@ -22,11 +22,12 @@ func TestWindowsLogicalRemovalAndRootedRename(t *testing.T) {
 	if err := CommitFile(t.Context(), create); err != nil {
 		t.Fatal(err)
 	}
-	expected, err := CaptureEntryIdentity(t.Context(), source)
+	capability := acquireWindowsTestCommitCapability(t, source)
+	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
 	if err != nil {
+		_ = capability.Close()
 		t.Fatal(err)
 	}
-	capability := acquireWindowsTestCommitCapability(t, source)
 	rename, err := NewRootedEntryRename(capability, "renamed.json", expected)
 	if err != nil {
 		t.Fatal(err)
