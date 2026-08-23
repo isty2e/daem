@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -216,28 +217,32 @@ func TestWindowsRootedCleanupAdmitsDirectFilesAtZeroDepth(t *testing.T) {
 func TestWindowsRootedCleanupAdmitsFileInsideMaximumDepthDirectory(t *testing.T) {
 	root := t.TempDir()
 	residue := filepath.Join(root, ".retained")
-	if err := os.MkdirAll(filepath.Join(residue, "nested"), 0o700); err != nil {
+	prepared, err := PrepareRootedTree(
+		t.Context(),
+		acquireWindowsTestCommitCapability(t, residue),
+		func(writer mutationfs.RootedTreeWriter) error {
+			if err := writer.SetRootMode(0o700); err != nil {
+				return err
+			}
+			if err := writer.CreateDirectory(mustWindowsTreePath(t, "nested"), 0o700); err != nil {
+				return err
+			}
+			return writer.WriteFile(mustWindowsTreePath(t, "nested", "child.json"), 0o600, strings.NewReader("payload"))
+		},
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
-	setWindowsTestEntryCanonicalMode(t, residue, 0o700, true)
-	setWindowsTestEntryCanonicalMode(t, filepath.Join(residue, "nested"), 0o700, true)
-	child := filepath.Join(residue, "nested", "child.json")
-	if err := os.WriteFile(child, []byte("payload"), 0o600); err != nil {
+	_, expected, err := prepared.CommitWithPublishedIdentity(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	setWindowsTestEntryCanonicalMode(t, child, 0o600, false)
 
-	capability := acquireWindowsTestCommitCapability(t, residue)
-	expected, err := CaptureRootedEntryIdentity(t.Context(), capability)
-	if err != nil {
-		_ = capability.Close()
-		t.Fatal(err)
-	}
-	limits, err := mutationfs.NewTreeTraversalLimits(3, 1, 1024)
+	limits, err := mutationfs.NewTreeTraversalLimits(4, 1, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
-	request, err := NewRootedEntryCleanup(capability, expected, limits)
+	request, err := NewRootedEntryCleanup(acquireWindowsTestCommitCapability(t, residue), expected, limits)
 	if err != nil {
 		t.Fatal(err)
 	}

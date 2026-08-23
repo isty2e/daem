@@ -106,6 +106,7 @@ func TestWindowsRootedObservationChargesOnlyRootOpen(t *testing.T) {
 	budget := &windowsAccountingRecordingBudget{}
 	capability := acquireWindowsAccountingCapability(t, rootPath, "observed/state", budget)
 	defer capability.Close()
+	before := budget.pathComponents
 
 	limits, err := mutationfs.NewTreeTraversalLimits(2, 2, 1024)
 	if err != nil {
@@ -117,10 +118,11 @@ func TestWindowsRootedObservationChargesOnlyRootOpen(t *testing.T) {
 	if budget.entries != 0 || budget.bytes != 0 {
 		t.Fatalf("observation charged entries=%d bytes=%d against the capability budget", budget.entries, budget.bytes)
 	}
-	if budget.pathComponents%perOpen != 0 || budget.pathComponents == 0 {
+	charged := budget.pathComponents - before
+	if charged != perOpen {
 		t.Fatalf(
-			"observation path charges = %d, want a whole number of root opens (%d components each)",
-			budget.pathComponents,
+			"observation path charges = %d components, want exactly one root open of %d",
+			charged,
 			perOpen,
 		)
 	}
@@ -141,6 +143,7 @@ func TestWindowsRootedFileReadChargesOnlyRootOpen(t *testing.T) {
 	budget := &windowsAccountingRecordingBudget{}
 	capability := acquireWindowsAccountingCapability(t, rootPath, "observed.json", budget)
 	defer capability.Close()
+	before := budget.pathComponents
 
 	content, _, _, err := ReadRootedRegularFileUpTo(t.Context(), capability, 1024)
 	if err != nil {
@@ -152,10 +155,11 @@ func TestWindowsRootedFileReadChargesOnlyRootOpen(t *testing.T) {
 	if budget.entries != 0 || budget.bytes != 0 {
 		t.Fatalf("rooted read charged entries=%d bytes=%d against the capability budget", budget.entries, budget.bytes)
 	}
-	if budget.pathComponents%perOpen != 0 || budget.pathComponents == 0 {
+	charged := budget.pathComponents - before
+	if charged != perOpen {
 		t.Fatalf(
-			"rooted read path charges = %d, want a whole number of root opens (%d components each)",
-			budget.pathComponents,
+			"rooted read path charges = %d components, want exactly one root open of %d",
+			charged,
 			perOpen,
 		)
 	}
