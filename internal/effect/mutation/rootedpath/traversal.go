@@ -152,6 +152,9 @@ func captureDestinationBounded(
 }
 
 func canonicalDestinationPath(value string) (string, error) {
+	if err := validatePlatformDestinationPath(value); err != nil {
+		return "", err
+	}
 	if strings.TrimSpace(value) == "" {
 		return "", newFailure(FailureInvalidDestination, value, "destination is required", nil)
 	}

@@ -157,6 +157,9 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 			strings.IndexFunc(name, isForbiddenPathRune) >= 0 {
 			return [2]bool{}, newFailure(FailureInvalidDestination, name, "immediate child name is invalid", nil)
 		}
+		if err := validatePlatformComponent(name); err != nil {
+			return [2]bool{}, err
+		}
 	}
 	if names[0] == names[1] {
 		return [2]bool{}, newFailure(FailureInvalidDestination, names[0], "immediate child name is duplicated", nil)
@@ -166,6 +169,11 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 	defer root.mu.Unlock()
 	if root.closed {
 		return [2]bool{}, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	for _, name := range names {
+		if err := validatePlatformRelativeForRoot(&root.platform, name); err != nil {
+			return [2]bool{}, err
+		}
 	}
 	validationVisits, err := capturedRootValidationPathComponents(&root.platform)
 	if err != nil {
@@ -462,6 +470,9 @@ func (root *CapturedRoot) ReserveDestinationAccess(
 			nil,
 		)
 	}
+	if err := validatePlatformRelativeForRoot(&root.platform, destination.relative.value); err != nil {
+		return err
+	}
 	visits, err := capturedRootValidationPathComponents(&root.platform)
 	if err != nil {
 		return err
@@ -496,6 +507,9 @@ func (root *CapturedRoot) acquire(
 			"destination belongs to a different root authority",
 			nil,
 		)
+	}
+	if err := validatePlatformRelativeForRoot(&root.platform, destination.relative.value); err != nil {
+		return nil, err
 	}
 	if budget != nil {
 		visits, err := capturedRootValidationPathComponents(&root.platform)
