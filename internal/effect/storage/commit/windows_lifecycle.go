@@ -66,8 +66,10 @@ func CommitRootedEntryRename(
 		return fail(newFailure(failureIndeterminateCommit, phaseCommitEntry, request.sourcePath, errors.Join(err, observeErr), residue...))
 	}
 	destinationPath := filepath.Join(filepath.Dir(request.sourcePath), request.destinationName)
+	postRenameFacts, factsErr := queryWindowsEntryFacts(source.handle.Handle())
 	moved, err := observeWindowsEntryAt(anchor.parentHandle(), request.destinationName)
-	if err != nil || !moved.exists || !source.facts.identity.sameRetainedFile(moved.identity) {
+	if factsErr != nil || err != nil || !moved.exists || !postRenameFacts.identity.equal(moved.identity) {
+		err = errors.Join(factsErr, err)
 		return fail(newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.sourcePath, err, destinationPath))
 	}
 	if err := requireWindowsDestinationAbsent(anchor); err != nil {

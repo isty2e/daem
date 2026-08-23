@@ -264,6 +264,10 @@ func commitWindowsFileWithFaults(
 	if err := faults.check(ctx, phaseVerifyEntry); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
+	postRenameStageFacts, err := queryWindowsEntryFacts(stage.handle.Handle())
+	if err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
 	published, err := openWindowsRelativeFile(
 		anchor.parentHandle(),
 		anchor.name.String(),
@@ -286,7 +290,7 @@ func commitWindowsFileWithFaults(
 			joinWindowsErrors(factsErr, metadataErr, closePublishedErr),
 		)
 	}
-	if !stageFacts.identity.sameRetainedFile(publishedFacts.identity) || publishedFacts.standard.directory ||
+	if !postRenameStageFacts.identity.equal(publishedFacts.identity) || publishedFacts.standard.directory ||
 		publishedFacts.standard.endOfFile != int64(len(request.payload)) {
 		return EntryIdentity{}, newFailure(
 			failureIndeterminateCommit,
@@ -299,6 +303,9 @@ func commitWindowsFileWithFaults(
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	if err := ensureWindowsCanonicalMetadataSupported(publishedMetadata, canonical.facts); err != nil {
+		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
+	}
+	if err := requireWindowsSiblingAbsent(anchor.parentHandle(), stageName); err != nil {
 		return EntryIdentity{}, newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err)
 	}
 	if err := anchor.revalidate(ctx); err != nil {

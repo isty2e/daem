@@ -107,9 +107,10 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 			return newFailure(failureIndeterminateCommit, phaseCommitTombstone, request.path, errors.Join(err, observeErr), residuePath)
 		}
 	}
+	postRenameFacts, factsErr := queryWindowsEntryFacts(existing.handle.Handle())
 	moved, err := observeWindowsEntryAt(anchor.parentHandle(), residueName)
-	if err != nil || !moved.exists || !existing.facts.identity.sameRetainedFile(moved.identity) {
-		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, residuePath)
+	if factsErr != nil || err != nil || !moved.exists || !postRenameFacts.identity.equal(moved.identity) {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, errors.Join(factsErr, err), residuePath)
 	}
 	if err := requireWindowsDestinationAbsent(anchor); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.path, err, residuePath)
@@ -130,8 +131,10 @@ func commitWindowsLogicalRemoval(ctx context.Context, request LogicalRemoval) er
 			return newFailure(failureRetainedResidue, phasePromoteCleanup, request.path, err, residuePath)
 		}
 		cleanupPath = filepath.Join(filepath.Dir(request.path), cleanupName)
+		postPromoteFacts, factsErr := queryWindowsEntryFacts(existing.handle.Handle())
 		promoted, observeErr := observeWindowsEntryAt(anchor.parentHandle(), cleanupName)
-		if observeErr != nil || !promoted.exists || !moved.identity.sameRetainedFile(promoted.identity) {
+		if factsErr != nil || observeErr != nil || !promoted.exists || !postPromoteFacts.identity.equal(promoted.identity) {
+			observeErr = errors.Join(factsErr, observeErr)
 			return newFailure(
 				failureIndeterminateCommit,
 				phaseVerifyEntry,

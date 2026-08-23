@@ -768,9 +768,14 @@ func (prepared *PreparedRootedTree) CommitWithPublishedIdentity(
 		err = prepared.finishVisibleLocked(phaseCommitEntry, errors.Join(err, observeErr), residue...)
 		return outcomeFromError(err), identity, err
 	}
+	postRenameFacts, factsErr := queryWindowsEntryFacts(prepared.stage.handle.Handle())
 	published, observeErr := observeWindowsEntryAt(prepared.anchor.parentHandle(), prepared.anchor.name.String())
-	if observeErr != nil || !published.exists || !current.platform.native.sameRetainedFile(published.identity) {
-		err = prepared.finishVisibleLocked(phaseVerifyEntry, observeErr, prepared.destination)
+	if factsErr != nil || observeErr != nil || !published.exists || !postRenameFacts.identity.equal(published.identity) {
+		err = prepared.finishVisibleLocked(phaseVerifyEntry, errors.Join(factsErr, observeErr), prepared.destination)
+		return outcomeFromError(err), EntryIdentity{}, err
+	}
+	if err := requireWindowsSiblingAbsent(prepared.anchor.parentHandle(), prepared.stageName); err != nil {
+		err = prepared.finishVisibleLocked(phaseVerifyEntry, err, prepared.destination)
 		return outcomeFromError(err), EntryIdentity{}, err
 	}
 	identity := EntryIdentity{

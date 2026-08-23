@@ -105,9 +105,14 @@ func CommitPreparedTree(ctx context.Context, request PreparedTreeCommit) error {
 		}
 		return newFailure(failureIndeterminateCommit, phaseCommitEntry, request.destination, errors.Join(err, observeErr), residue...)
 	}
+	postRenameFacts, factsErr := queryWindowsEntryFacts(writableStage.handle.Handle())
 	published, observeErr := observeWindowsEntryAt(anchor.parentHandle(), anchor.name.String())
-	if observeErr != nil || !published.exists || !writableFacts.identity.sameRetainedFile(published.identity) {
+	if factsErr != nil || observeErr != nil || !published.exists || !postRenameFacts.identity.equal(published.identity) {
+		observeErr = errors.Join(factsErr, observeErr)
 		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, observeErr, request.destination)
+	}
+	if err := requireWindowsSiblingAbsent(anchor.parentHandle(), stageName.String()); err != nil {
+		return newFailure(failureIndeterminateCommit, phaseVerifyEntry, request.destination, err, request.destination)
 	}
 	if err := flushWindowsHandle(anchor.parentHandle(), windowsFlushPolicy{directory: true}); err != nil {
 		return newFailure(failureIndeterminateCommit, phaseSyncParent, request.destination, err, request.destination)
