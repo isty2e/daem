@@ -51,6 +51,10 @@ func openCapturedRootDirectory(_ *capturedRootPlatform) (*os.File, error) {
 	return nil, fmt.Errorf("native rooted-path authority is unavailable on this platform")
 }
 
+func openCapturedCommitRootDirectory(_ *capturedRootPlatform) (*os.File, error) {
+	return nil, fmt.Errorf("native rooted-path commit authority is unavailable on this platform")
+}
+
 func validateCapturedDirectoryHandle(_ *capturedRootPlatform, _ uintptr) error {
 	return newFailure(FailureUnsupportedPlatform, "", "native rooted-path authority is unavailable on this platform", nil)
 }

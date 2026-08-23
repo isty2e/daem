@@ -3,6 +3,7 @@
 package rootedpath
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -106,6 +107,34 @@ func openCapturedRootDirectory(platform *capturedRootPlatform) (*os.File, error)
 	if file == nil {
 		_ = windows.CloseHandle(duplicate)
 		return nil, fmt.Errorf("wrap duplicated root handle")
+	}
+	return file, nil
+}
+
+func openCapturedCommitRootDirectory(platform *capturedRootPlatform) (*os.File, error) {
+	if platform == nil || len(platform.directories) < 2 {
+		return nil, fmt.Errorf("captured commit root witness is not initialized")
+	}
+	root := platform.directories[len(platform.directories)-1]
+	parent := platform.directories[len(platform.directories)-2]
+	handle, facts, err := openWindowsChildWithAccess(
+		parent.handle,
+		root.name,
+		windows.FILE_GENERIC_READ|windows.FILE_GENERIC_WRITE|windows.FILE_TRAVERSE,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if facts.reparse || !facts.isDirectory || facts.mount != root.mount || facts.object != root.object {
+		return nil, errors.Join(
+			newFailure(FailureRootReplaced, root.path, "commit root binding changed", nil),
+			closeWindowsHandle(handle),
+		)
+	}
+	file := os.NewFile(uintptr(handle), root.path)
+	if file == nil {
+		_ = windows.CloseHandle(handle)
+		return nil, fmt.Errorf("wrap commit root handle")
 	}
 	return file, nil
 }

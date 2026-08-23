@@ -197,6 +197,11 @@ func TestWindowsCapabilityCloneAndCloseIndependence(t *testing.T) {
 		second.Close()
 		t.Fatal(err)
 	}
+	if err := windows.FlushFileBuffers(windows.Handle(opened.Fd())); err != nil {
+		opened.Close()
+		second.Close()
+		t.Fatalf("flush commit root directory: %v", err)
+	}
 	if err := opened.Close(); err != nil {
 		second.Close()
 		t.Fatal(err)

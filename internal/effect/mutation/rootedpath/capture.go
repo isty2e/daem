@@ -774,12 +774,12 @@ func (capability *commitCapability) OpenRootDirectory() (*os.File, error) {
 	if err := capability.validateLocked(); err != nil {
 		return nil, err
 	}
-	file, err := openCapturedRootDirectory(&capability.platform)
+	file, err := openCapturedCommitRootDirectory(&capability.platform)
 	if err != nil {
 		return nil, newFailure(
 			FailureRootUnavailable,
 			capability.destination.root.physicalRoot,
-			"duplicate commit root descriptor",
+			"open commit root descriptor",
 			err,
 		)
 	}

@@ -219,6 +219,7 @@ jobs:
             -run '^(TestWindowsPluginObservationStaysOnRetainedRootHandle|TestObserveConfiguredPluginContributionsOnWindows|TestClassifySnapshotErrorDistinguishesIdentityAndBudget|TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing)$' \
             ./internal/assurance/observe/codexplugin
           go test -count=1 -run '^TestWindows' \
+            ./internal/effect/storage/commit \
             ./internal/effect/mutation/rootedpath \
             ./internal/workflow/probe
 

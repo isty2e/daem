@@ -540,6 +540,14 @@ func openWindowsVolumeRoot(volume string) (capturedRootPlatform, error) {
 }
 
 func openWindowsChild(parent windows.Handle, name string) (windows.Handle, windowsDirectoryFacts, error) {
+	return openWindowsChildWithAccess(parent, name, windows.FILE_GENERIC_READ|windows.FILE_TRAVERSE)
+}
+
+func openWindowsChildWithAccess(
+	parent windows.Handle,
+	name string,
+	access uint32,
+) (windows.Handle, windowsDirectoryFacts, error) {
 	if err := validatePlatformComponent(name); err != nil {
 		return windows.InvalidHandle, windowsDirectoryFacts{}, err
 	}
@@ -565,7 +573,7 @@ func openWindowsChild(parent windows.Handle, name string) (windows.Handle, windo
 	var handle windows.Handle
 	if err := windows.NtCreateFile(
 		&handle,
-		windows.FILE_GENERIC_READ|windows.FILE_TRAVERSE,
+		access,
 		objectAttributes,
 		&windows.IO_STATUS_BLOCK{},
 		nil,
