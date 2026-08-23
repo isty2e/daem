@@ -247,7 +247,13 @@ func TestWindowsCanonicalSecurityNativeRoundTrip(t *testing.T) {
 		}
 		actual, err := applyWindowsCanonicalSecurity(opened.handle.Handle(), mode)
 		if err != nil {
-			t.Fatalf("apply canonical security for %04o: %v", mode, err)
+			t.Fatalf(
+				"apply canonical security for %04o: %v\nactual: %#v\nexpected: %#v",
+				mode,
+				err,
+				actual,
+				expected.facts,
+			)
 		}
 		if !actual.equal(expected.facts) {
 			t.Fatalf("canonical security facts did not round-trip for %04o: actual=%+v expected=%+v", mode, actual, expected.facts)

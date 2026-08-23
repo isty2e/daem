@@ -496,7 +496,7 @@ func applyWindowsCanonicalSecurity(handle windows.Handle, mode fs.FileMode) (win
 		return windowsSecurityFacts{}, err
 	}
 	if err := validateWindowsCanonicalSecurityFacts(actual, canonical.facts); err != nil {
-		return windowsSecurityFacts{}, err
+		return actual, err
 	}
 	return actual, nil
 }
