@@ -16,11 +16,12 @@ import (
 )
 
 type CommandInput struct {
-	TargetValues []string
-	ScopeValues  []string
-	ManifestPath string
-	SourceDir    string
-	Merge        bool
+	TargetValues   []string
+	ScopeValues    []string
+	ManifestPath   string
+	SourceDir      string
+	Merge          bool
+	ProgressEvents ProgressEventSink
 }
 
 type CommandPlan struct {
@@ -67,7 +68,13 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 	}
 
 	result := CommandPlan{request: request}
-	plan, err := BuildPlan(ctx, request)
+	progressTotal := importProgressTotal(request.Targets(), request.Scopes())
+	input.ProgressEvents.emit(ProgressEvent{
+		Kind:  ProgressEventPhaseStarted,
+		Phase: ProgressPhaseDiscovery,
+		Total: progressTotal,
+	})
+	plan, err := buildPlan(ctx, request, ProgressPhaseDiscovery, input.ProgressEvents)
 	if err != nil {
 		return result, err
 	}
@@ -81,6 +88,12 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 	}
 	result.revisions = revisions
 	result.stableRevisions = stableRevisions
+	input.ProgressEvents.emit(ProgressEvent{
+		Kind:      ProgressEventPhaseCompleted,
+		Phase:     ProgressPhaseDiscovery,
+		Completed: progressTotal,
+		Total:     progressTotal,
+	})
 	return result, nil
 }
 

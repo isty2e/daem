@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"io"
 
@@ -9,7 +8,8 @@ import (
 	workflowadopt "github.com/isty2e/daem/internal/workflow/adopt"
 )
 
-func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer) int {
+func runImport(args []string, stdout io.Writer, stderr io.Writer, options commandOptions) int {
+	ctx := options.context
 	if commandHelpRequested(args) {
 		printCommandUsage([]string{"import"}, stdout, 0)
 		return 0
@@ -49,14 +49,19 @@ func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.W
 		return 1
 	}
 
+	progress := newImportProgressRenderer(*jsonOutput, stderr, options)
+	defer progress.Close()
+
 	commandPlan, err := workflowadopt.BuildCommandPlan(ctx, workflowadopt.CommandInput{
-		TargetValues: targetValues.strings(),
-		ScopeValues:  scopeValues.strings(),
-		ManifestPath: *manifestPath,
-		SourceDir:    *sourceDir,
-		Merge:        *merge,
+		TargetValues:   targetValues.strings(),
+		ScopeValues:    scopeValues.strings(),
+		ManifestPath:   *manifestPath,
+		SourceDir:      *sourceDir,
+		Merge:          *merge,
+		ProgressEvents: progress.Sink(),
 	})
 	if err != nil {
+		progress.Close()
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
 		if commandPlan.OutputPath() == "" {
 			return 2
@@ -69,6 +74,7 @@ func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.W
 	plan := commandPlan.AdoptionPlan()
 
 	if *dryRun {
+		progress.Close()
 		if *jsonOutput {
 			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ImportPlanJSONOutput("dry-run", plan)); err != nil {
 				fmt.Fprintf(stderr, "import failed: write json: %s\n", humanDiagnosticError(err))
@@ -90,6 +96,7 @@ func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.W
 		return 0
 	}
 	if commandPlan.HasMergeConflicts() {
+		progress.Close()
 		if *jsonOutput {
 			if err := clipresent.PrintManifestAuthoringJSON(stdout, clipresent.ImportPlanJSONOutput("write", plan)); err != nil {
 				fmt.Fprintf(stderr, "import failed: write json: %s\n", humanDiagnosticError(err))
@@ -100,11 +107,13 @@ func runImport(ctx context.Context, args []string, stdout io.Writer, stderr io.W
 		return 1
 	}
 	if err := ctx.Err(); err != nil {
+		progress.Close()
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
 		return 1
 	}
 
-	commandPlan, err = workflowadopt.ExecuteCommandPlan(ctx, commandPlan)
+	commandPlan, err = workflowadopt.ExecuteCommandPlan(ctx, commandPlan, progress.Sink())
+	progress.Close()
 	if err != nil {
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
 		return 1

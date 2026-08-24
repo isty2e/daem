@@ -19,8 +19,12 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-// BuildPlan scans selected live agent resources and produces a manifest import plan.
-func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+func buildPlan(
+	ctx context.Context,
+	request adoptmodel.Request,
+	progressPhase ProgressPhase,
+	progressEvents ProgressEventSink,
+) (adoptmodel.Plan, error) {
 	if ctx == nil {
 		return adoptmodel.Plan{}, fmt.Errorf("import context is required")
 	}
@@ -30,6 +34,9 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	if err := request.Validate(); err != nil {
 		return adoptmodel.Plan{}, err
 	}
+	requestTargets := request.Targets()
+	requestScopes := request.Scopes()
+	progressTotal := importProgressTotal(requestTargets, requestScopes)
 	output := request.Output()
 	sourceDirectory := request.SourceDirectory()
 	merge := request.Merge()
@@ -75,8 +82,8 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	var skipped []adoptmodel.Skipped
 	extensionResult, err := adoptextension.Collect(adoptextension.Input{
 		ManifestRoot: filepath.Dir(output),
-		Targets:      request.Targets(),
-		Scopes:       request.Scopes(),
+		Targets:      requestTargets,
+		Scopes:       requestScopes,
 		Existing:     existingExtensions,
 	})
 	if err != nil {
@@ -108,11 +115,20 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	skillSourceIdentities := adoptskill.NewSourceIdentityCache(skillTreeLimit)
-	for _, target := range request.Targets() {
-		for _, scope := range request.Scopes() {
+	completedTargetScopes := 0
+	for _, target := range requestTargets {
+		for _, scope := range requestScopes {
 			if err := ctx.Err(); err != nil {
 				return adoptmodel.Plan{}, err
 			}
+			progressEvents.emit(ProgressEvent{
+				Kind:      ProgressEventTargetScopeStarted,
+				Phase:     progressPhase,
+				Target:    target,
+				Scope:     scope,
+				Completed: completedTargetScopes,
+				Total:     progressTotal,
+			})
 			importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, observedSkipped, err := importCandidates(
 				ctx,
 				sourceDirectory,
@@ -131,6 +147,15 @@ func BuildPlan(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan
 			hooks = append(hooks, importedHooks...)
 			mcpServers = append(mcpServers, importedMCPServers...)
 			mcpAuthorities = append(mcpAuthorities, observedMCPAuthorities...)
+			completedTargetScopes++
+			progressEvents.emit(ProgressEvent{
+				Kind:      ProgressEventTargetScopeCompleted,
+				Phase:     progressPhase,
+				Target:    target,
+				Scope:     scope,
+				Completed: completedTargetScopes,
+				Total:     progressTotal,
+			})
 		}
 	}
 	skills, err = adoptskill.Finalize(skills)

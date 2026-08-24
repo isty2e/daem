@@ -14,6 +14,14 @@ func newLockProgressRenderer(jsonOutput bool, stderr io.Writer, options commandO
 	return cliprogress.NewLockProgressRenderer(cliprogress.LockProgressRendererOptions{Output: stderr})
 }
 
+func newImportProgressRenderer(jsonOutput bool, stderr io.Writer, options commandOptions) *cliprogress.ImportProgressRenderer {
+	if jsonOutput || !options.stderrIsTerminal || stderr == nil {
+		return nil
+	}
+
+	return cliprogress.NewImportProgressRenderer(stderr)
+}
+
 func newApplyProgressRenderer(jsonOutput bool, stderr io.Writer, options commandOptions) *cliprogress.ApplyProgressRenderer {
 	if jsonOutput || !options.stderrIsTerminal || stderr == nil {
 		return nil

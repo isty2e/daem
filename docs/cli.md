@@ -1271,8 +1271,10 @@ workflow exposes a meaningful long-running phase. It is suppressed for JSON,
 non-TTY stderr, help, CLI misuse, and before interactive confirmation.
 
 Current progress-capable workflows are lock/outdated source resolution, apply
-execution, and the delegated host-process phase of `refresh extension`. They
-render at most one ephemeral stderr line, escape untrusted labels, and clear
+execution, import discovery, and the delegated host-process phase of
+`refresh extension`. Import dry runs report discovery; write mode also reports
+freshness revalidation and publication. They render at most one ephemeral
+stderr line, escape untrusted labels, and clear
 the line before stable output or diagnostics. Refresh reports only the selected
 extension and authorized timeout; it does not invent percentages or host
 progress that the child process does not expose. Duplicate completion events

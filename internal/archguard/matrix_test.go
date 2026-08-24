@@ -339,12 +339,15 @@ func TestStatefileMayConsumeCanonicalRelationSummariesButNotRelationAdapters(t *
 	}
 }
 
-func TestProgressPresentationMayConsumeOnlyLockWorkflowFacts(t *testing.T) {
-	if violations := analyzeImports(
-		"internal/cli/present/progress",
-		[]string{"example.com/project/internal/workflow/lock"},
-	); containsFindingRule(violations, rulePresentWorkflowImport) {
-		t.Fatalf("lock workflow fact import violations = %+v", violations)
+func TestProgressPresentationMayConsumeOnlyAdmittedWorkflowFacts(t *testing.T) {
+	for _, importPath := range []string{
+		"example.com/project/internal/workflow/adopt",
+		"example.com/project/internal/workflow/lock",
+	} {
+		violations := analyzeImports("internal/cli/present/progress", []string{importPath})
+		if containsFindingRule(violations, rulePresentWorkflowImport) {
+			t.Fatalf("progress workflow fact import %q violations = %+v", importPath, violations)
+		}
 	}
 
 	for _, importPath := range []string{
