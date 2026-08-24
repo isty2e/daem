@@ -2,6 +2,7 @@ package platformsupport
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -63,16 +64,20 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"exit \"${scan_status}\"",
 		"resolve-tag:",
 		"release_commit: ${{ steps.resolve.outputs.release_commit }}",
+		"release_toolchain: ${{ steps.toolchain.outputs.release_toolchain }}",
+		"release_setup_go_version: ${{ steps.toolchain.outputs.release_setup_go_version }}",
 		"ref: ${{ needs.resolve-tag.outputs.release_commit }}",
 		"RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}",
-		"go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}",
+		"RELEASE_TOOLCHAIN: ${{ needs.resolve-tag.outputs.release_toolchain }}",
+		"go-version: ${{ needs.resolve-tag.outputs.release_setup_go_version }}",
 		"Exercise documented installer flow against local artifacts",
 		"python3 -m http.server \"${installer_port}\" --bind 127.0.0.1",
 		"grep -F 'curl --fail --location' \"${recipe}\"",
 		"write_release_metadata() {",
 		`'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"'`,
 		`"DAEM_ORIGIN_API=\"http://127.0.0.1:${installer_port}\""`,
-		`"sha": "${RELEASE_REVISION}"`,
+		`"${directory}/commits/refs/tags/${RELEASE_TAG}"`,
+		`printf '%s' "${RELEASE_REVISION}"`,
 		"downloaded archive does not match its exact checksum entry",
 		"downloaded daem binary does not match the requested release identity",
 		"tar -czf \"${alien_dir}/${archive_name}\" -C \"${alien_stage}\" daem",
@@ -166,15 +171,13 @@ func TestReleaseArtifactWorkflowBindsEveryJobToOneResolvedCommit(t *testing.T) {
 
 	assertReleaseStepSequence(t, "vulnerability-scan", scanJob, []string{
 		"Check out resolved release commit",
-		"Resolve documented release toolchain",
-		"Set up documented release toolchain",
+		"Set up resolved release toolchain",
 		"Validate commit, tag, toolchain, and native target",
 		"Scan resolved commit for known vulnerabilities",
 	})
 	assertReleaseStepSequence(t, "artifact", artifactJob, []string{
 		"Check out resolved release commit",
-		"Resolve documented release toolchain",
-		"Set up documented release toolchain",
+		"Set up resolved release toolchain",
 		"Validate commit, tag, revision, toolchain, and native target",
 		"Run full native tests before artifact construction",
 		"Build twice from frozen inputs",
@@ -189,8 +192,8 @@ func TestReleaseArtifactWorkflowBindsEveryJobToOneResolvedCommit(t *testing.T) {
 
 	assertReleaseResolvedCheckout(t, "vulnerability-scan", scanJob.Steps[0])
 	assertReleaseResolvedCheckout(t, "artifact", artifactJob.Steps[0])
-	assertReleaseToolchainSteps(t, "vulnerability-scan", scanJob.Steps[1], scanJob.Steps[2])
-	assertReleaseToolchainSteps(t, "artifact", artifactJob.Steps[1], artifactJob.Steps[2])
+	assertReleaseSetupStep(t, "vulnerability-scan", scanJob.Steps[1])
+	assertReleaseSetupStep(t, "artifact", artifactJob.Steps[1])
 	assertReleaseScanStep(t, scanJob.Steps[len(scanJob.Steps)-1])
 	for _, step := range scanJob.Steps {
 		if strings.Contains(step.Run, "tools/test.sh") {
@@ -219,13 +222,16 @@ func assertReleaseTagResolutionJob(t *testing.T, job workflowJob) {
 		t.Fatalf("resolve-tag has custom if %q", job.If)
 	}
 	if !reflect.DeepEqual(job.Outputs, map[string]string{
-		"release_commit": "${{ steps.resolve.outputs.release_commit }}",
+		"release_commit":           "${{ steps.resolve.outputs.release_commit }}",
+		"release_setup_go_version": "${{ steps.toolchain.outputs.release_setup_go_version }}",
+		"release_toolchain":        "${{ steps.toolchain.outputs.release_toolchain }}",
 	}) {
-		t.Fatalf("resolve-tag outputs = %#v, want one release_commit output from the resolve step", job.Outputs)
+		t.Fatalf("resolve-tag outputs = %#v, want commit and toolchain outputs", job.Outputs)
 	}
 	assertReleaseStepSequence(t, "resolve-tag", job, []string{
 		"Check out selected tag",
 		"Resolve selected tag to exactly one commit",
+		"Resolve selected tag toolchain",
 	})
 	checkout := job.Steps[0]
 	if checkout.Uses != "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" {
@@ -264,6 +270,35 @@ func assertReleaseTagResolutionJob(t *testing.T, job workflowJob) {
 			t.Errorf("resolve-tag resolution step is missing fragment %q", required)
 		}
 	}
+
+	toolchain := job.Steps[2]
+	if toolchain.Id != "toolchain" {
+		t.Fatalf("resolve-tag toolchain step id = %q, want toolchain", toolchain.Id)
+	}
+	if toolchain.If != "" {
+		t.Fatalf("resolve-tag toolchain step has custom if %q", toolchain.If)
+	}
+	ordered := []string{
+		`$1 == "toolchain"`,
+		"grep -E -x 'go[0-9]+\\.[0-9]+\\.[0-9]+'",
+		`/^DAEM_GO_VERSION=/`,
+		`test "${documented_toolchain}" = "${release_toolchain}"`,
+		`setup_go_version="${release_toolchain#go}"`,
+		"grep -E -x '[0-9]+\\.[0-9]+\\.[0-9]+'",
+		"printf 'release_toolchain=%s\\n' \"${release_toolchain}\" >> \"${GITHUB_OUTPUT}\"",
+		"printf 'release_setup_go_version=%s\\n' \"${setup_go_version}\" >> \"${GITHUB_OUTPUT}\"",
+	}
+	last := -1
+	for _, fragment := range ordered {
+		index := strings.Index(toolchain.Run, fragment)
+		if index < 0 {
+			t.Fatalf("resolve-tag toolchain step is missing fragment %q", fragment)
+		}
+		if index < last {
+			t.Fatalf("resolve-tag toolchain fragment %q is out of order", fragment)
+		}
+		last = index
+	}
 }
 
 func assertReleaseResolvedCheckout(t *testing.T, jobName string, step releaseStep) {
@@ -281,30 +316,8 @@ func assertReleaseResolvedCheckout(t *testing.T, jobName string, step releaseSte
 	})
 }
 
-func assertReleaseToolchainSteps(t *testing.T, jobName string, resolve releaseStep, setup releaseStep) {
+func assertReleaseSetupStep(t *testing.T, jobName string, setup releaseStep) {
 	t.Helper()
-	if resolve.If != "" {
-		t.Fatalf("%s toolchain resolution has custom if %q", jobName, resolve.If)
-	}
-	ordered := []string{
-		"/^DAEM_GO_VERSION=/",
-		"grep -E -x 'go[0-9]+\\.[0-9]+\\.[0-9]+'",
-		`setup_go_version="${documented_toolchain#go}"`,
-		"grep -E -x '[0-9]+\\.[0-9]+\\.[0-9]+'",
-		"printf 'RELEASE_TOOLCHAIN=%s\\n' \"${documented_toolchain}\" >> \"${GITHUB_ENV}\"",
-		"printf 'RELEASE_SETUP_GO_VERSION=%s\\n' \"${setup_go_version}\" >> \"${GITHUB_ENV}\"",
-	}
-	last := -1
-	for _, fragment := range ordered {
-		index := strings.Index(resolve.Run, fragment)
-		if index < 0 {
-			t.Fatalf("%s toolchain resolution is missing fragment %q", jobName, fragment)
-		}
-		if index < last {
-			t.Fatalf("%s toolchain resolution fragment %q is out of order", jobName, fragment)
-		}
-		last = index
-	}
 	if setup.Uses != "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c" {
 		t.Fatalf("%s setup-go uses %q, want pinned setup-go action", jobName, setup.Uses)
 	}
@@ -312,8 +325,129 @@ func assertReleaseToolchainSteps(t *testing.T, jobName string, resolve releaseSt
 		t.Fatalf("%s setup-go has custom if %q", jobName, setup.If)
 	}
 	assertReleaseStepWith(t, jobName+" setup-go", setup, map[string]string{
-		"go-version":            "${{ env.RELEASE_SETUP_GO_VERSION }}",
+		"go-version":            "${{ needs.resolve-tag.outputs.release_setup_go_version }}",
 		"cache-dependency-path": "go.sum",
+	})
+}
+
+func TestReleaseArtifactToolchainResolutionContract(t *testing.T) {
+	var workflow struct {
+		Jobs map[string]workflowJob `yaml:"jobs"`
+	}
+	content := readRepositoryFile(t, ".github/workflows/release-artifact.yml")
+	if err := yaml.Unmarshal([]byte(content), &workflow); err != nil {
+		t.Fatalf("decode release artifact workflow: %v", err)
+	}
+	resolveJob, ok := workflow.Jobs["resolve-tag"]
+	if !ok {
+		t.Fatal("release workflow lacks resolve-tag job")
+	}
+	var toolchain releaseStep
+	for _, step := range resolveJob.Steps {
+		if step.Name == "Resolve selected tag toolchain" {
+			toolchain = step
+			break
+		}
+	}
+	if toolchain.Run == "" {
+		t.Fatal("release workflow lacks executable selected-tag toolchain resolution")
+	}
+
+	runToolchain := func(t *testing.T, directory string) (string, error) {
+		t.Helper()
+		outputPath := filepath.Join(t.TempDir(), "github-output")
+		command := exec.Command("bash", "-c", toolchain.Run)
+		command.Dir = directory
+		command.Env = append(os.Environ(), "GITHUB_OUTPUT="+outputPath)
+		combined, err := command.CombinedOutput()
+		if err != nil {
+			return string(combined), err
+		}
+		output, readErr := os.ReadFile(outputPath)
+		if readErr != nil {
+			return "", readErr
+		}
+		return string(output), nil
+	}
+
+	const expected = "release_toolchain=go1.26.5\nrelease_setup_go_version=1.26.5\n"
+	fixtureDirectory := filepath.Join("testdata", "release", "v0.1.0")
+	goMod, err := os.ReadFile(filepath.Join(fixtureDirectory, "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	historicalInstall, err := os.ReadFile(filepath.Join(fixtureDirectory, "install.md.fixture"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Run("historical v0.1.0 without documented toolchain", func(t *testing.T) {
+		directory := t.TempDir()
+		if err := os.WriteFile(filepath.Join(directory, "go.mod"), goMod, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		docsDirectory := filepath.Join(directory, "docs")
+		if err := os.MkdirAll(docsDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(docsDirectory, "install.md"), historicalInstall, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		output, err := runToolchain(t, directory)
+		if err != nil {
+			t.Fatalf("resolve historical v0.1.0 toolchain: %v\n%s", err, output)
+		}
+		if output != expected {
+			t.Fatalf("historical v0.1.0 toolchain output = %q, want %q", output, expected)
+		}
+	})
+
+	for _, test := range []struct {
+		name       string
+		documented string
+		accepted   bool
+	}{
+		{name: "matching documented toolchain", documented: "DAEM_GO_VERSION=go1.26.5\n", accepted: true},
+		{name: "mismatched documented toolchain", documented: "DAEM_GO_VERSION=go1.26.6\n"},
+		{name: "empty documented toolchain", documented: "DAEM_GO_VERSION=\n"},
+		{name: "duplicate documented toolchain", documented: "DAEM_GO_VERSION=go1.26.5\nDAEM_GO_VERSION=go1.26.5\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			if err := os.WriteFile(filepath.Join(directory, "go.mod"), goMod, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			docsDirectory := filepath.Join(directory, "docs")
+			if err := os.MkdirAll(docsDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(docsDirectory, "install.md"), []byte(test.documented), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := runToolchain(t, directory)
+			if (err == nil) != test.accepted {
+				t.Fatalf("toolchain resolution error = %v, want accepted=%t\n%s", err, test.accepted, output)
+			}
+			if test.accepted && output != expected {
+				t.Fatalf("toolchain output = %q, want %q", output, expected)
+			}
+		})
+	}
+
+	t.Run("missing tag toolchain authority", func(t *testing.T) {
+		directory := t.TempDir()
+		if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte("module github.com/isty2e/daem\n\ngo 1.25.0\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		docsDirectory := filepath.Join(directory, "docs")
+		if err := os.MkdirAll(docsDirectory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(docsDirectory, "install.md"), []byte("DAEM_VERSION=v0.1.0\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if output, err := runToolchain(t, directory); err == nil {
+			t.Fatalf("missing tag toolchain unexpectedly accepted\n%s", output)
+		}
 	})
 }
 

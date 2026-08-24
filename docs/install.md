@@ -20,8 +20,8 @@ support and evidence contract.
 Select the complete release requirement instead of relying on a moving
 latest-release URL. A release requirement includes the tag, commit time, Go
 toolchain, and native target; after platform admission the recipe resolves the
-release commit from the release metadata authority at run time. This example
-installs `v0.1.0` under `~/.local/bin`:
+release commit from GitHub's bounded commit-reference metadata at run time.
+This example installs `v0.1.0` under `~/.local/bin`:
 
 ```bash
 set -eu
@@ -304,41 +304,20 @@ daem_release_binary_matches() {
   ' "$1"
 }
 
-daem_json_last_string() {
-  /usr/bin/awk -F'"' -v key="$2" '
-    $2 == key { value = $4 }
-    END { if (value == "") exit 1; print value }
-  ' "$1"
-}
-
 daem_resolve_release_revision() {
-  daem_metadata_url="${DAEM_ORIGIN_API}/git/ref/tags/$1"
-  daem_metadata_round=0
-  while [ "$daem_metadata_round" -lt 8 ]; do
-    daem_metadata_json="$2.tag-metadata.$daem_metadata_round.json"
-    if ! curl --fail --location --max-time 60 \
-      --output "$daem_metadata_json" \
-      "$daem_metadata_url"; then
-      return 1
-    fi
-    daem_object_type="$(daem_json_last_string "$daem_metadata_json" type)" || return 1
-    daem_object_sha="$(daem_json_last_string "$daem_metadata_json" sha)" || return 1
-    daem_admitted_release_revision "$daem_object_sha" || return 1
-    case "$daem_object_type" in
-      commit)
-        printf '%s\n' "$daem_object_sha"
-        return 0
-        ;;
-      tag)
-        daem_metadata_url="${DAEM_ORIGIN_API}/git/tags/$daem_object_sha"
-        ;;
-      *)
-        return 1
-        ;;
-    esac
-    daem_metadata_round=$((daem_metadata_round + 1))
-  done
-  return 1
+  daem_metadata_revision="$2.tag-commit"
+  if ! curl --fail --max-time 60 --max-filesize 64 \
+    --header 'Accept: application/vnd.github.sha' \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    --output "$daem_metadata_revision" \
+    "${DAEM_ORIGIN_API}/commits/refs/tags/$1"; then
+    return 1
+  fi
+  daem_metadata_bytes="$(/usr/bin/wc -c < "$daem_metadata_revision")"
+  [ "$daem_metadata_bytes" -eq 40 ] || return 1
+  daem_revision="$(/bin/cat "$daem_metadata_revision")"
+  daem_admitted_release_revision "$daem_revision" || return 1
+  printf '%s\n' "$daem_revision"
 }
 
 DAEM_VERSION=v0.1.0

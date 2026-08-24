@@ -30,6 +30,8 @@ jobs:
     timeout-minutes: 10
     outputs:
       release_commit: ${{ steps.resolve.outputs.release_commit }}
+      release_toolchain: ${{ steps.toolchain.outputs.release_toolchain }}
+      release_setup_go_version: ${{ steps.toolchain.outputs.release_setup_go_version }}
     env:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
@@ -50,6 +52,41 @@ jobs:
           printf '%s\n' "${release_commit}" | grep -E -x '[0-9a-f]{40}'
           test "$(git rev-parse --verify HEAD)" = "${release_commit}"
           printf 'release_commit=%s\n' "${release_commit}" >> "${GITHUB_OUTPUT}"
+      - name: Resolve selected tag toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_toolchain="$(awk '
+            $1 == "toolchain" {
+              if (seen++ || NF != 2) exit 1
+              value = $2
+            }
+            END {
+              if (seen != 1 || value == "") exit 1
+              print value
+            }
+          ' go.mod)"
+          printf '%s\n' "${release_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
+
+          documented_toolchain="$(awk -F= '
+            /^DAEM_GO_VERSION=/ {
+              if (seen++) exit 1
+              value = $2
+            }
+            END {
+              if (seen > 1 || (seen == 1 && value == "")) exit 1
+              if (seen == 1) print value
+            }
+          ' docs/install.md)"
+          if [ -n "${documented_toolchain}" ]; then
+            test "${documented_toolchain}" = "${release_toolchain}"
+          fi
+
+          setup_go_version="${release_toolchain#go}"
+          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
+          printf 'release_toolchain=%s\n' "${release_toolchain}" >> "${GITHUB_OUTPUT}"
+          printf 'release_setup_go_version=%s\n' "${setup_go_version}" >> "${GITHUB_OUTPUT}"
   vulnerability-scan:
     name: Vulnerability scan (${{ matrix.name }})
     needs: resolve-tag
@@ -70,6 +107,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
+      RELEASE_TOOLCHAIN: ${{ needs.resolve-tag.outputs.release_toolchain }}
       RELEASE_GOOS: ${{ matrix.goos }}
       RELEASE_GOARCH: ${{ matrix.goarch }}
     steps:
@@ -79,29 +117,10 @@ jobs:
           ref: ${{ needs.resolve-tag.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Resolve documented release toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          documented_toolchain="$(awk -F= '
-            /^DAEM_GO_VERSION=/ {
-              if (seen++) exit 1
-              value = $2
-            }
-            END {
-              if (seen != 1 || value == "") exit 1
-              print value
-            }
-          ' docs/install.md)"
-          printf '%s\n' "${documented_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
-          setup_go_version="${documented_toolchain#go}"
-          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
-          printf 'RELEASE_TOOLCHAIN=%s\n' "${documented_toolchain}" >> "${GITHUB_ENV}"
-          printf 'RELEASE_SETUP_GO_VERSION=%s\n' "${setup_go_version}" >> "${GITHUB_ENV}"
-      - name: Set up documented release toolchain
+      - name: Set up resolved release toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}
+          go-version: ${{ needs.resolve-tag.outputs.release_setup_go_version }}
           cache-dependency-path: go.sum
       - name: Validate commit, tag, toolchain, and native target
         shell: bash
@@ -153,6 +172,7 @@ jobs:
     env:
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
+      RELEASE_TOOLCHAIN: ${{ needs.resolve-tag.outputs.release_toolchain }}
       RELEASE_GOOS: ${{ matrix.goos }}
       RELEASE_GOARCH: ${{ matrix.goarch }}
     steps:
@@ -162,29 +182,10 @@ jobs:
           ref: ${{ needs.resolve-tag.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Resolve documented release toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          documented_toolchain="$(awk -F= '
-            /^DAEM_GO_VERSION=/ {
-              if (seen++) exit 1
-              value = $2
-            }
-            END {
-              if (seen != 1 || value == "") exit 1
-              print value
-            }
-          ' docs/install.md)"
-          printf '%s\n' "${documented_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
-          setup_go_version="${documented_toolchain#go}"
-          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
-          printf 'RELEASE_TOOLCHAIN=%s\n' "${documented_toolchain}" >> "${GITHUB_ENV}"
-          printf 'RELEASE_SETUP_GO_VERSION=%s\n' "${setup_go_version}" >> "${GITHUB_ENV}"
-      - name: Set up documented release toolchain
+      - name: Set up resolved release toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}
+          go-version: ${{ needs.resolve-tag.outputs.release_setup_go_version }}
           cache-dependency-path: go.sum
       - name: Validate commit, tag, revision, toolchain, and native target
         shell: bash
@@ -423,15 +424,9 @@ jobs:
 
           write_release_metadata() {
             directory="$1"
-            mkdir -p "${directory}/git/ref/tags"
-            cat > "${directory}/git/ref/tags/${RELEASE_TAG}" <<EOF
-          {
-            "object": {
-              "sha": "${RELEASE_REVISION}",
-              "type": "commit"
-            }
-          }
-          EOF
+            mkdir -p "${directory}/commits/refs/tags"
+            printf '%s' "${RELEASE_REVISION}" \
+              > "${directory}/commits/refs/tags/${RELEASE_TAG}"
           }
 
           # shellcheck disable=SC2016
