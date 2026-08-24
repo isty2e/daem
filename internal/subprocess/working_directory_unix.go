@@ -41,6 +41,12 @@ func writeDescriptorHelperError(stage string, err error) {
 	_, _ = unix.Write(2, fmt.Appendf(nil, "daem internal %s failed: %v\n", stage, err))
 }
 
+// ValidateWorkingDirectoryCapability reports whether this platform can launch
+// a child from descriptor-backed working-directory authority.
+func ValidateWorkingDirectoryCapability() error {
+	return nil
+}
+
 // ValidateWorkingDirectory verifies that directory is an open native directory
 // witness suitable for descriptor-backed launch.
 func ValidateWorkingDirectory(directory *os.File) error {

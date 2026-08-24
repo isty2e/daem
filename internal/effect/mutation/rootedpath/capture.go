@@ -157,6 +157,9 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 			strings.IndexFunc(name, isForbiddenPathRune) >= 0 {
 			return [2]bool{}, newFailure(FailureInvalidDestination, name, "immediate child name is invalid", nil)
 		}
+		if err := validatePlatformComponent(name); err != nil {
+			return [2]bool{}, err
+		}
 	}
 	if names[0] == names[1] {
 		return [2]bool{}, newFailure(FailureInvalidDestination, names[0], "immediate child name is duplicated", nil)
@@ -166,6 +169,11 @@ func (root *CapturedRoot) ChildrenExistNoFollow(
 	defer root.mu.Unlock()
 	if root.closed {
 		return [2]bool{}, newFailure(FailureRootUnavailable, root.authority.physicalRoot, "captured root is closed", nil)
+	}
+	for _, name := range names {
+		if err := validatePlatformRelativeForRoot(&root.platform, name); err != nil {
+			return [2]bool{}, err
+		}
 	}
 	validationVisits, err := capturedRootValidationPathComponents(&root.platform)
 	if err != nil {
@@ -217,6 +225,22 @@ func CaptureDestinationBounded(
 // descendants remain root-relative names, so later mutation never resolves
 // the selected path through ambient ancestors again.
 func CaptureDestination(path string) (*CapturedRoot, Destination, error) {
+	return captureDestinationWithSelection(path, rootSelectionResolveAlias)
+}
+
+// CaptureDestinationNoFollow binds one absolute destination the same way as
+// CaptureDestination but refuses alias components in the retained physical
+// root. A destination whose existing ancestor chain contains a symbolic link,
+// junction, or other reparse component fails closed before any effect rather
+// than adopting the alias referent as the lexical namespace.
+func CaptureDestinationNoFollow(path string) (*CapturedRoot, Destination, error) {
+	return captureDestinationWithSelection(path, rootSelectionNoFollow)
+}
+
+func captureDestinationWithSelection(
+	path string,
+	selectionMode rootSelectionMode,
+) (*CapturedRoot, Destination, error) {
 	absolute, err := canonicalDestinationPath(path)
 	if err != nil {
 		return nil, Destination{}, err
@@ -232,7 +256,7 @@ func CaptureDestination(path string) (*CapturedRoot, Destination, error) {
 			if filepath.Dir(ancestor) == ancestor {
 				return nil, Destination{}, newFailure(FailureUnsupportedPlatform, absolute, "destination has no capturable directory below the filesystem root", nil)
 			}
-			root, captureErr := CaptureRoot(ancestor)
+			root, captureErr := captureRoot(ancestor, selectionMode)
 			if captureErr != nil {
 				return nil, Destination{}, captureErr
 			}
@@ -462,6 +486,9 @@ func (root *CapturedRoot) ReserveDestinationAccess(
 			nil,
 		)
 	}
+	if err := validatePlatformRelativeForRoot(&root.platform, destination.relative.value); err != nil {
+		return err
+	}
 	visits, err := capturedRootValidationPathComponents(&root.platform)
 	if err != nil {
 		return err
@@ -496,6 +523,9 @@ func (root *CapturedRoot) acquire(
 			"destination belongs to a different root authority",
 			nil,
 		)
+	}
+	if err := validatePlatformRelativeForRoot(&root.platform, destination.relative.value); err != nil {
+		return nil, err
 	}
 	if budget != nil {
 		visits, err := capturedRootValidationPathComponents(&root.platform)
@@ -765,7 +795,37 @@ func (capability *commitCapability) OpenRootDirectory() (*os.File, error) {
 		return nil, newFailure(
 			FailureRootUnavailable,
 			capability.destination.root.physicalRoot,
-			"duplicate commit root descriptor",
+			"open read-only root descriptor",
+			err,
+		)
+	}
+	return file, nil
+}
+
+func (capability *commitCapability) OpenRootDirectoryForMutation() (*os.File, error) {
+	if capability == nil {
+		return nil, newFailure(FailureRootUnavailable, "", "commit capability is required", nil)
+	}
+	capability.mu.Lock()
+	defer capability.mu.Unlock()
+	if capability.budget != nil {
+		if err := ChargeDestinationPath(
+			capability.destination,
+			capability.maximumPhysicalDepth,
+			capability.budget,
+		); err != nil {
+			return nil, fmt.Errorf("admit rooted destination mutation: %w", err)
+		}
+	}
+	if err := capability.validateLocked(); err != nil {
+		return nil, err
+	}
+	file, err := openCapturedCommitRootDirectory(&capability.platform)
+	if err != nil {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			capability.destination.root.physicalRoot,
+			"open mutating root descriptor",
 			err,
 		)
 	}
@@ -817,6 +877,9 @@ func (capability *commitCapability) AdmitPhysicalWork(
 	}
 	budget, ok := capability.budget.(physicalWorkBudget)
 	if !ok {
+		if entries == 0 && bytes == 0 {
+			return capability.budget.AdmitPathComponents(pathComponents)
+		}
 		return fmt.Errorf("bounded commit capability lacks physical-work capacity")
 	}
 	return budget.AdmitPhysicalWork(pathComponents, entries, bytes)

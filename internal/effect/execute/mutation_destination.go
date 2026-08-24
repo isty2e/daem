@@ -48,6 +48,29 @@ func (phase *physicalTraversalPhase) AdmitPathComponents(count int) error {
 	return phase.current.AdmitPathComponents(count)
 }
 
+// AdmitPhysicalWork forwards storage-owned physical work to the currently
+// admitted phase budget. A budget that can only charge path components
+// admits path-only charges through that contract and refuses entry or byte
+// work.
+func (phase *physicalTraversalPhase) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	if phase == nil || phase.current == nil {
+		return fmt.Errorf("physical traversal phase is unavailable")
+	}
+	if worker, ok := phase.current.(interface {
+		AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error
+	}); ok {
+		return worker.AdmitPhysicalWork(pathComponents, entries, bytes)
+	}
+	if entries == 0 && bytes == 0 {
+		return phase.current.AdmitPathComponents(pathComponents)
+	}
+	return fmt.Errorf("physical traversal phase cannot admit entry or byte work")
+}
+
 func (phase *physicalTraversalPhase) advance(
 	next rootedpath.PhysicalTraversalBudget,
 ) error {

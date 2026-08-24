@@ -74,7 +74,7 @@ func validatePhysicalRoot(physicalRoot string) error {
 	if filepath.Dir(physicalRoot) == physicalRoot {
 		return newFailure(FailureInvalidRoot, physicalRoot, "filesystem root cannot be mutation authority", nil)
 	}
-	return nil
+	return validatePlatformPhysicalRoot(physicalRoot)
 }
 
 // PhysicalRoot returns the canonical physical spelling captured at ingress.
@@ -135,6 +135,9 @@ func NewRelativeDestination(value string) (RelativeDestination, error) {
 	if canonical == "." || canonical == ".." || strings.HasPrefix(canonical, "../") {
 		return RelativeDestination{}, newFailure(FailureInvalidDestination, value, "destination must name an entry below the captured root", nil)
 	}
+	if err := validatePlatformRelativeDestination(canonical); err != nil {
+		return RelativeDestination{}, err
+	}
 	relative := RelativeDestination{value: canonical}
 	if err := relative.Validate(); err != nil {
 		return RelativeDestination{}, err
@@ -158,7 +161,7 @@ func (relative RelativeDestination) Validate() error {
 			return newFailure(FailureInvalidDestination, relative.value, "destination contains a parent traversal", nil)
 		}
 	}
-	return nil
+	return validatePlatformRelativeDestination(relative.value)
 }
 
 // Path returns the canonical slash-separated relative path.
@@ -184,6 +187,7 @@ type CommitCapability interface {
 	Destination() Destination
 	Validate() error
 	OpenRootDirectory() (*os.File, error)
+	OpenRootDirectoryForMutation() (*os.File, error)
 	ValidateDirectoryHandle(handle uintptr) error
 	ValidateRetainedDirectoryHandle(handle uintptr) error
 	AdmitPhysicalWork(pathComponents int, entries int, bytes int64) error

@@ -9,10 +9,16 @@ import (
 	"os/exec"
 )
 
+// ValidateWorkingDirectoryCapability fails closed where descriptor-backed cwd
+// launch has no admitted platform implementation.
+func ValidateWorkingDirectoryCapability() error {
+	return fmt.Errorf("descriptor-backed working directories are unsupported on this platform")
+}
+
 // ValidateWorkingDirectory fails closed where descriptor-backed cwd launch has no
 // admitted platform implementation.
 func ValidateWorkingDirectory(_ *os.File) error {
-	return fmt.Errorf("descriptor-backed working directories are unsupported on this platform")
+	return ValidateWorkingDirectoryCapability()
 }
 
 // PrepareCommandInWorkingDirectory fails closed where descriptor-backed cwd launch has no admitted

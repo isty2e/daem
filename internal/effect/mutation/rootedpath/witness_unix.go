@@ -100,6 +100,10 @@ func openCapturedRootDirectory(platform *capturedRootPlatform) (*os.File, error)
 	return file, nil
 }
 
+func openCapturedCommitRootDirectory(platform *capturedRootPlatform) (*os.File, error) {
+	return openCapturedRootDirectory(platform)
+}
+
 func validateCapturedDirectoryHandle(platform *capturedRootPlatform, handle uintptr) error {
 	if platform == nil || len(platform.directories) == 0 {
 		return newFailure(FailureRootUnavailable, "", "captured root witness is not initialized", nil)

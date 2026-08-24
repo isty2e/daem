@@ -1,4 +1,4 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package rootedpath
 
@@ -49,6 +49,10 @@ func closeCapturedRootPlatform(_ *capturedRootPlatform) error {
 
 func openCapturedRootDirectory(_ *capturedRootPlatform) (*os.File, error) {
 	return nil, fmt.Errorf("native rooted-path authority is unavailable on this platform")
+}
+
+func openCapturedCommitRootDirectory(_ *capturedRootPlatform) (*os.File, error) {
+	return nil, fmt.Errorf("native rooted-path commit authority is unavailable on this platform")
 }
 
 func validateCapturedDirectoryHandle(_ *capturedRootPlatform, _ uintptr) error {

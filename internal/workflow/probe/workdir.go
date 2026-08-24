@@ -11,6 +11,9 @@ import (
 
 func projectWorkingDirectoryBinder(selectedRoot string) subprocess.WorkingDirectoryBinder {
 	return func() (subprocess.WorkingDirectoryBinding, error) {
+		if err := validateProjectWorkingDirectoryPlatform(); err != nil {
+			return nil, err
+		}
 		root, err := rootedpath.CaptureRoot(selectedRoot)
 		if err != nil {
 			return nil, fmt.Errorf("capture selected project root: %w", err)

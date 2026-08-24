@@ -191,8 +191,8 @@ jobs:
             -test -scan=symbol -show verbose ./... || scan_status=1
           exit "$scan_status"
 
-  windows_observation_capability:
-    name: Windows observation capability
+  windows_filesystem_capabilities:
+    name: Windows filesystem capabilities
     runs-on: windows-2025
     timeout-minutes: 20
     steps:
@@ -205,7 +205,7 @@ jobs:
         with:
           go-version: "1.26.6"
           cache-dependency-path: go.sum
-      - name: Run retained-directory observation tests natively
+      - name: Run retained-directory and rooted-authority tests natively
         shell: bash
         run: |
           test "$(go env GOVERSION)" = "go1.26.6"
@@ -218,6 +218,11 @@ jobs:
           go test -count=1 \
             -run '^(TestWindowsPluginObservationStaysOnRetainedRootHandle|TestObserveConfiguredPluginContributionsOnWindows|TestClassifySnapshotErrorDistinguishesIdentityAndBudget|TestClassifyDirectoryErrorUnsupportedTreeIsUnavailableNotMissing)$' \
             ./internal/assurance/observe/codexplugin
+          go test -count=1 -run '^(TestWindows|TestCaptureDestination)' \
+            ./internal/effect/storage/commit \
+            ./internal/effect/mutation/rootedpath \
+            ./internal/supply/source/backend/gitcli \
+            ./internal/workflow/probe
 
   bsd_observation_compile:
     name: BSD observation compile (${{ matrix.goos }}/${{ matrix.goarch }})

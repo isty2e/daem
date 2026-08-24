@@ -63,12 +63,12 @@ integration, or product support. A successful local build on an unlisted target
 does not promote that target.
 
 Narrow capability jobs do not promote a target either. CI executes the Windows
-retained-directory filesnapshot and Codex contribution-observation packages on
-a native Windows runner, while FreeBSD, NetBSD, and OpenBSD filesnapshot and
-Codex observation test packages are cross-compiled only. Those jobs verify only
-the named observation adapter;
-they do not change the product-support or verification rows above. No native
-BSD execution is claimed.
+retained-root, filesystem-observation, and handle-relative storage
+publication/removal packages on a native Windows runner, while FreeBSD, NetBSD,
+and OpenBSD filesnapshot and Codex observation test packages are cross-compiled
+only. Those jobs verify only the named capability adapters; they do not change
+the product-support or verification rows above. No native BSD execution is
+claimed.
 
 ## Unsupported Builds
 
