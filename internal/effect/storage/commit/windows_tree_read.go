@@ -3,10 +3,10 @@
 package commit
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 
@@ -192,18 +192,34 @@ func snapshotWindowsDirectoryRecursive(
 				err = fmt.Errorf("rooted tree exceeds %d regular-file bytes", budget.limits.MaximumBytes())
 				break
 			}
-			var content []byte
-			if size != 0 {
-				content, err = readWindowsPayloadUpTo(ctx, opened.handle.Handle(), size)
-			}
-			if err == nil && int64(len(content)) != size {
-				err = fmt.Errorf("rooted tree file size changed while reading %q", entryPath)
-			}
 			if err == nil {
 				err = budget.admitBytes(size)
 			}
 			if err == nil && sink != nil {
-				err = sink.VisitRegularFile(relativePath, mode, size, bytes.NewReader(content))
+				reader := &windowsRootedTreeFileReader{
+					ctx:       ctx,
+					handle:    opened.handle.Handle(),
+					remaining: size,
+				}
+				err = sink.VisitRegularFile(relativePath, mode, size, reader)
+				if err == nil && reader.count != size {
+					err = fmt.Errorf(
+						"rooted tree snapshot sink consumed %d of %d bytes for %q",
+						reader.count,
+						size,
+						entryPath,
+					)
+				}
+				if err == nil {
+					var extra [1]byte
+					count, readErr := reader.readRaw(extra[:])
+					if count != 0 || readErr != io.EOF {
+						if readErr == nil {
+							readErr = fmt.Errorf("content exceeds observed size %d", size)
+						}
+						err = readErr
+					}
+				}
 			}
 		}
 		closeErr := opened.handle.Close()
@@ -219,4 +235,45 @@ func snapshotWindowsDirectoryRecursive(
 		return fmt.Errorf("rooted tree directory changed during snapshot at %q", directoryPath)
 	}
 	return ctx.Err()
+}
+
+// windowsRootedTreeFileReader streams one rooted regular file from the
+// retained entry handle without materializing the payload. The walk enforces
+// exact consumption: the sink must read exactly the observed size, and the
+// trailing read must report EOF without content.
+type windowsRootedTreeFileReader struct {
+	ctx       context.Context
+	handle    windows.Handle
+	remaining int64
+	count     int64
+}
+
+func (reader *windowsRootedTreeFileReader) Read(p []byte) (int, error) {
+	count, err := reader.readRaw(p)
+	reader.count += int64(count)
+	return count, err
+}
+
+func (reader *windowsRootedTreeFileReader) readRaw(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if reader.remaining <= 0 {
+		return 0, io.EOF
+	}
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	if int64(len(p)) > reader.remaining {
+		p = p[:reader.remaining]
+	}
+	var read uint32
+	if err := windows.ReadFile(reader.handle, p, &read, nil); err != nil {
+		return 0, normalizeWindowsNativeError(windowsNativePhaseRead, err, false)
+	}
+	if read == 0 {
+		return 0, io.EOF
+	}
+	reader.remaining -= int64(read)
+	return int(read), nil
 }

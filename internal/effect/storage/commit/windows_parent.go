@@ -239,29 +239,25 @@ func prepareWindowsCommitParentWithFaults(
 		}
 		facts, factsErr := queryWindowsEntryFacts(opened.handle.Handle())
 		if factsErr != nil || !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-			_ = opened.handle.Close()
 			cause := errors.Join(factsErr, fmt.Errorf("commit ancestor is not a non-reparse directory"))
 			if created {
-				return newFailure(failureIndeterminateCommit, phaseCreateAncestors, path, cause, currentPath)
+				return windowsCleanupFreshCreatedAncestor(parentDirectory, opened, component, cause, path, currentPath)
 			}
+			_ = opened.handle.Close()
 			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, cause)
 		}
 		if created {
-			if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
-				_ = opened.handle.Close()
-				return newFailure(failureIndeterminateCommit, phaseApplyMetadata, path, err, currentPath)
-			}
 			parentCopy, copyErr := duplicateWindowsOwnedHandle(parentDirectory.Handle())
 			handleCopy, handleErr := duplicateWindowsOwnedHandle(opened.handle.Handle())
 			if copyErr != nil || handleErr != nil {
 				_ = parentCopy.Close()
 				_ = handleCopy.Close()
-				_ = opened.handle.Close()
-				return newFailure(
-					failureIndeterminateCommit,
-					phaseCreateAncestors,
-					path,
+				return windowsCleanupFreshCreatedAncestor(
+					parentDirectory,
+					opened,
+					component,
 					errors.Join(copyErr, handleErr),
+					path,
 					currentPath,
 				)
 			}
@@ -277,6 +273,10 @@ func prepareWindowsCommitParentWithFaults(
 				parentCaseSensitive: parentDirectory.caseSensitive,
 				handle:              handleCopy,
 			})
+			if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
+				_ = opened.handle.Close()
+				return newFailure(failureIndeterminateCommit, phaseApplyMetadata, path, err, currentPath)
+			}
 			metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
 			if metadataErr != nil {
 				_ = opened.handle.Close()
@@ -312,6 +312,53 @@ func prepareWindowsCommitParentWithFaults(
 
 func removeWindowsCreatedDirectory(ctx context.Context, directory *windowsCreatedDirectory) error {
 	return removeWindowsCreatedDirectoryWithFaults(ctx, directory, faultPlan{})
+}
+
+// windowsCleanupFreshCreatedAncestor removes a just-created, still-empty
+// ancestor through its retained handle when cleanup authority could not be
+// registered. Confirmed absence keeps the failure uncommitted; any remaining
+// visibility returns indeterminate evidence instead of an untracked residue.
+func windowsCleanupFreshCreatedAncestor(
+	parentDirectory windowsDirectoryHandle,
+	opened *windowsRelativeOpen,
+	component string,
+	cause error,
+	path string,
+	currentPath string,
+) error {
+	_, disposeErr := disposeWindowsByHandle(opened.handle.Handle(), false)
+	closeErr := opened.handle.Close()
+	if disposeErr != nil || closeErr != nil {
+		return newFailure(
+			failureIndeterminateCommit,
+			phaseCreateAncestors,
+			path,
+			errors.Join(cause, disposeErr, closeErr),
+			currentPath,
+		)
+	}
+	reopen, observeErr := openWindowsRelativeDirectory(
+		parentDirectory,
+		component,
+		windows.FILE_READ_ATTRIBUTES|windows.SYNCHRONIZE,
+		windowsParentShareMode,
+		windows.FILE_OPEN,
+		false,
+	)
+	if observeErr != nil {
+		if windowsNativeErrorClassOf(observeErr) == windowsNativeErrorNotFound {
+			return windowsFailureBeforeVisibility(phaseCreateAncestors, path, cause)
+		}
+		return newFailure(
+			failureIndeterminateCommit,
+			phaseCreateAncestors,
+			path,
+			errors.Join(cause, observeErr),
+			currentPath,
+		)
+	}
+	_ = reopen.handle.Close()
+	return newFailure(failureIndeterminateCommit, phaseCreateAncestors, path, cause, currentPath)
 }
 
 func removeWindowsCreatedDirectoryWithFaults(

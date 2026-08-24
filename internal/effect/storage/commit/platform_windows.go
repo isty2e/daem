@@ -109,10 +109,17 @@ func CaptureWorkingDirectoryIdentity(
 	if err != nil {
 		return EntryIdentity{}, err
 	}
+	if err := ctx.Err(); err != nil {
+		_ = file.Close()
+		return EntryIdentity{}, err
+	}
 	facts, factsErr := queryWindowsEntryFacts(windows.Handle(file.Fd()))
 	closeErr := file.Close()
 	if factsErr != nil || closeErr != nil {
 		return EntryIdentity{}, errors.Join(factsErr, closeErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return EntryIdentity{}, err
 	}
 	if !facts.standard.directory || facts.attribute.attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
 		return EntryIdentity{}, fmt.Errorf("working-directory capability does not identify a non-reparse directory")

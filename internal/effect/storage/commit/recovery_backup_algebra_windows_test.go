@@ -3,6 +3,7 @@
 package commit
 
 import (
+	"fmt"
 	"io"
 	"io/fs"
 	"path/filepath"
@@ -39,8 +40,15 @@ func (sink *windowsBackupExactSink) VisitRegularFile(
 	_ mutationfs.TreeRelativePath,
 	_ fs.FileMode,
 	size int64,
-	_ io.Reader,
+	content io.Reader,
 ) error {
+	written, err := io.Copy(io.Discard, content)
+	if err != nil {
+		return err
+	}
+	if written != size {
+		return fmt.Errorf("backup sink consumed %d of %d bytes", written, size)
+	}
 	sink.entries++
 	sink.bytes += size
 	return nil

@@ -125,6 +125,9 @@ func commitRootedEntryCleanupWithFaults(
 	if err := validateWindowsRootedEntryCleanup(request); err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
 	}
+	if err := ctx.Err(); err != nil {
+		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
+	}
 	if err := admitWindowsRootedCleanupWork(request); err != nil {
 		return fail(windowsFailureBeforeVisibility(phaseValidate, request.path, err))
 	}
