@@ -15,7 +15,9 @@ func TestCIMatricesMatchPlatformAdmissionRows(t *testing.T) {
 	native := workflowPairs(t, workflow, "native")
 	vulnerability := workflowPairs(t, workflow, "vulnerability")
 	compileOnly := workflowPairs(t, workflow, "compile_only")
-	releaseArtifacts := workflowPairs(t, readRepositoryFile(t, ".github/workflows/release-artifact.yml"), "artifact")
+	releaseWorkflow := readRepositoryFile(t, ".github/workflows/release-artifact.yml")
+	releaseArtifacts := workflowPairs(t, releaseWorkflow, "artifact")
+	releaseScans := workflowPairs(t, releaseWorkflow, "vulnerability-scan")
 
 	var wantNative []string
 	var wantCompileOnly []string
@@ -31,6 +33,7 @@ func TestCIMatricesMatchPlatformAdmissionRows(t *testing.T) {
 	assertSameStringSet(t, "vulnerability CI rows", vulnerability, wantNative)
 	assertSameStringSet(t, "compile-only CI rows", compileOnly, wantCompileOnly)
 	assertSameStringSet(t, "release artifact rows", releaseArtifacts, wantNative)
+	assertSameStringSet(t, "release vulnerability-scan rows", releaseScans, wantNative)
 }
 
 func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
@@ -57,12 +60,14 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"-C cmd/daem -scan=module -show verbose",
 		"-test -scan=package -show verbose",
 		"-test -scan=symbol -show verbose",
+		"exit \"${scan_status}\"",
+		"needs: vulnerability-scan",
 		"Exercise documented installer flow against local artifacts",
 		"python3 -m http.server \"${installer_port}\" --bind 127.0.0.1",
 		"grep -F 'curl --fail --location' \"${recipe}\"",
 		"downloaded archive does not match its exact checksum entry",
 		"downloaded daem binary does not match the requested release identity",
-		"DAEM_REVISION=0000000000000000000000000000000000000000",
+		"tar -czf \"${alien_dir}/${archive_name}\" -C \"${alien_stage}\" daem",
 		"internal/releaseartifact/cmd/releasepack",
 		"shasum -a 256 -c",
 		"actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
@@ -81,6 +86,7 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"write-all",
 		"continue-on-error:",
 		"if: always()",
+		"DAEM_REVISION=0000000000000000000000000000000000000000",
 	} {
 		if strings.Contains(workflow, forbidden) {
 			t.Errorf("release artifact workflow contains publishing fragment %q", forbidden)
@@ -88,7 +94,7 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 	}
 }
 
-func TestReleaseArtifactWorkflowHasOneFailClosedNativeJob(t *testing.T) {
+func TestReleaseArtifactWorkflowIsolatesScanningBeforeTagControlledCode(t *testing.T) {
 	var workflow struct {
 		On          map[string]yaml.Node   `yaml:"on"`
 		Permissions map[string]string      `yaml:"permissions"`
@@ -122,40 +128,68 @@ func TestReleaseArtifactWorkflowHasOneFailClosedNativeJob(t *testing.T) {
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
 		t.Fatalf("release workflow permissions = %#v, want contents: read only", workflow.Permissions)
 	}
-	if len(workflow.Jobs) != 1 {
-		t.Fatalf("release workflow jobs = %#v, want artifact only", reflect.ValueOf(workflow.Jobs).MapKeys())
+	if len(workflow.Jobs) != 2 {
+		t.Fatalf("release workflow jobs = %#v, want vulnerability-scan and artifact", reflect.ValueOf(workflow.Jobs).MapKeys())
+	}
+	scanJob, ok := workflow.Jobs["vulnerability-scan"]
+	if !ok {
+		t.Fatalf("release workflow lacks vulnerability-scan job: %#v", reflect.ValueOf(workflow.Jobs).MapKeys())
 	}
 	job, ok := workflow.Jobs["artifact"]
 	if !ok {
 		t.Fatalf("release workflow lacks artifact job: %#v", reflect.ValueOf(workflow.Jobs).MapKeys())
 	}
-	if job.RunsOn != "${{ matrix.os }}" {
-		t.Fatalf("artifact runs-on = %q, want matrix native runner", job.RunsOn)
-	}
-	if job.TimeoutMinutes <= 0 {
-		t.Fatalf("artifact timeout-minutes = %d, want a finite positive timeout", job.TimeoutMinutes)
-	}
-	if job.Strategy.FailFast == nil || *job.Strategy.FailFast {
-		t.Fatalf("artifact fail-fast = %v, want explicit false", job.Strategy.FailFast)
+	if !reflect.DeepEqual(releaseJobNeeds(t, job), []string{"vulnerability-scan"}) {
+		t.Fatalf("artifact needs = %#v, want dependency on vulnerability-scan so scanning precedes tag-controlled code", releaseJobNeeds(t, job))
 	}
 
-	rows := make([]string, 0, len(job.Strategy.Matrix.Include))
-	for _, row := range job.Strategy.Matrix.Include {
-		rows = append(rows, row.Name+"|"+row.OS+"|"+row.GOOS+"/"+row.GOARCH)
-	}
-	assertSameStringSet(t, "release artifact native runners", rows, []string{
-		"linux-amd64|ubuntu-24.04|linux/amd64",
-		"darwin-arm64|macos-26|darwin/arm64",
-	})
+	assertReleaseJobShape(t, "vulnerability-scan", scanJob)
+	assertReleaseJobShape(t, "artifact", job)
 
-	if len(job.Steps) == 0 {
-		t.Fatal("artifact job has no steps")
+	wantScanSteps := []string{
+		"Check out selected tag",
+		"Set up exact default Go toolchain",
+		"Validate tag, toolchain, and native target",
+		"Scan exact tag for known vulnerabilities",
 	}
-	for _, step := range job.Steps {
-		if step.ContinueOnError != nil {
-			t.Fatalf("artifact step %q weakens failure with continue-on-error", step.Name)
+	assertReleaseStepSequence(t, "vulnerability-scan", scanJob, wantScanSteps)
+	scan := scanJob.Steps[len(scanJob.Steps)-1]
+	for _, required := range []string{
+		"set -euo pipefail",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -C cmd/daem -scan=module -show verbose || scan_status=1",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=package -show verbose ./... || scan_status=1",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=symbol -show verbose ./... || scan_status=1",
+		"exit \"${scan_status}\"",
+	} {
+		if !strings.Contains(scan.Run, required) {
+			t.Errorf("vulnerability scan step is missing control-flow fragment %q", required)
 		}
 	}
+	if strings.Contains(scan.Run, "|| true") {
+		t.Error("vulnerability scan step swallows failures with || true")
+	}
+	for _, step := range scanJob.Steps {
+		if strings.Contains(step.Run, "tools/test.sh") {
+			t.Errorf("vulnerability-scan step %q runs tag-controlled scripts before scanning", step.Name)
+		}
+	}
+
+	wantArtifactSteps := []string{
+		"Check out selected tag",
+		"Set up exact default Go toolchain",
+		"Validate tag, revision, toolchain, and native target",
+		"Run full native tests before artifact construction",
+		"Build twice from frozen inputs",
+		"Verify embedded version contract",
+		"Smoke-test native CLI artifact",
+		"Assemble and verify archive twice",
+		"Build development binary for identity rehearsals",
+		"Exercise documented installer flow against local artifacts",
+		"Smoke-test install, source upgrade, and executable rollback",
+		"Upload private workflow artifact",
+	}
+	assertReleaseStepSequence(t, "artifact", job, wantArtifactSteps)
+
 	upload := job.Steps[len(job.Steps)-1]
 	if upload.Uses != "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" {
 		t.Fatalf("last artifact step uses %q, want pinned private upload", upload.Uses)
@@ -165,9 +199,71 @@ func TestReleaseArtifactWorkflowHasOneFailClosedNativeJob(t *testing.T) {
 	}
 }
 
+func assertReleaseJobShape(t *testing.T, name string, job workflowJob) {
+	t.Helper()
+	if job.RunsOn != "${{ matrix.os }}" {
+		t.Fatalf("%s runs-on = %q, want matrix native runner", name, job.RunsOn)
+	}
+	if job.TimeoutMinutes <= 0 {
+		t.Fatalf("%s timeout-minutes = %d, want a finite positive timeout", name, job.TimeoutMinutes)
+	}
+	if job.Strategy.FailFast == nil || *job.Strategy.FailFast {
+		t.Fatalf("%s fail-fast = %v, want explicit false", name, job.Strategy.FailFast)
+	}
+
+	rows := make([]string, 0, len(job.Strategy.Matrix.Include))
+	for _, row := range job.Strategy.Matrix.Include {
+		rows = append(rows, row.Name+"|"+row.OS+"|"+row.GOOS+"/"+row.GOARCH)
+	}
+	assertSameStringSet(t, name+" native runners", rows, []string{
+		"linux-amd64|ubuntu-24.04|linux/amd64",
+		"darwin-arm64|macos-26|darwin/arm64",
+	})
+
+	if len(job.Steps) == 0 {
+		t.Fatalf("%s job has no steps", name)
+	}
+	for _, step := range job.Steps {
+		if step.ContinueOnError != nil {
+			t.Fatalf("%s step %q weakens failure with continue-on-error", name, step.Name)
+		}
+	}
+}
+
+func assertReleaseStepSequence(t *testing.T, jobName string, job workflowJob, want []string) {
+	t.Helper()
+	names := make([]string, 0, len(job.Steps))
+	for _, step := range job.Steps {
+		names = append(names, step.Name)
+	}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("%s step sequence = %#v, want %#v", jobName, names, want)
+	}
+}
+
+func releaseJobNeeds(t *testing.T, job workflowJob) []string {
+	t.Helper()
+	switch job.Needs.Kind {
+	case 0:
+		return nil
+	case yaml.ScalarNode:
+		return []string{job.Needs.Value}
+	case yaml.SequenceNode:
+		var needs []string
+		if err := job.Needs.Decode(&needs); err != nil {
+			t.Fatalf("decode job needs: %v", err)
+		}
+		return needs
+	default:
+		t.Fatalf("job needs has unexpected YAML kind %v", job.Needs.Kind)
+		return nil
+	}
+}
+
 type workflowJob struct {
-	RunsOn         string `yaml:"runs-on"`
-	TimeoutMinutes int    `yaml:"timeout-minutes"`
+	RunsOn         string    `yaml:"runs-on"`
+	Needs          yaml.Node `yaml:"needs"`
+	TimeoutMinutes int       `yaml:"timeout-minutes"`
 	Strategy       struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct {
@@ -183,6 +279,7 @@ type workflowJob struct {
 		Name            string     `yaml:"name"`
 		Uses            string     `yaml:"uses"`
 		If              string     `yaml:"if"`
+		Run             string     `yaml:"run"`
 		ContinueOnError *yaml.Node `yaml:"continue-on-error"`
 	} `yaml:"steps"`
 }

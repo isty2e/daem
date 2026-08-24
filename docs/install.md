@@ -18,8 +18,9 @@ support and evidence contract.
 ## Install
 
 Select the complete release requirement instead of relying on a moving
-latest-release URL. A release requirement includes the tag, commit, commit
-time, Go toolchain, and native target. This example installs `v0.1.0` under
+latest-release URL. A release requirement includes the tag, commit time, Go
+toolchain, and native target; the recipe resolves the release commit from the
+immutable tag reference at run time. This example installs `v0.1.0` under
 `~/.local/bin`:
 
 ```bash
@@ -158,9 +159,8 @@ daem_admitted_release_go_version() {
 
 daem_admitted_release_requirement() {
   daem_admitted_release_version_token "$1" &&
-    daem_admitted_release_revision "$2" &&
-    daem_admitted_release_timestamp "$3" &&
-    daem_admitted_release_go_version "$4"
+    daem_admitted_release_timestamp "$2" &&
+    daem_admitted_release_go_version "$3"
 }
 
 daem_release_target() {
@@ -227,7 +227,7 @@ daem_extract_release_binary() {
 }
 
 daem_release_binary_matches() {
-  daem_admitted_release_requirement "$2" "$3" "$4" "$5" || return 1
+  daem_admitted_release_requirement "$2" "$4" "$5" || return 1
   case "$6" in
     darwin_arm64) expected_goos=darwin; expected_goarch=arm64 ;;
     linux_amd64) expected_goos=linux; expected_goarch=amd64 ;;
@@ -305,12 +305,21 @@ daem_release_binary_matches() {
 }
 
 DAEM_VERSION=v0.1.0
-DAEM_REVISION=2bf957187f9f847aa87b0e807d6ca960589f1083
 DAEM_REVISION_TIME=2026-07-28T02:19:30Z
 DAEM_GO_VERSION=go1.26.5
 if ! daem_admitted_release_requirement \
-  "$DAEM_VERSION" "$DAEM_REVISION" "$DAEM_REVISION_TIME" "$DAEM_GO_VERSION"; then
+  "$DAEM_VERSION" "$DAEM_REVISION_TIME" "$DAEM_GO_VERSION"; then
   echo "invalid daem release requirement" >&2
+  exit 1
+fi
+
+DAEM_ORIGIN_URL="https://github.com/isty2e/daem.git"
+DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}^{}" | cut -f1)"
+if [ -z "$DAEM_REVISION" ]; then
+  DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}" | cut -f1)"
+fi
+if ! daem_admitted_release_revision "$DAEM_REVISION"; then
+  echo "cannot resolve the daem release tag ${DAEM_VERSION} to exactly one commit" >&2
   exit 1
 fi
 
@@ -434,11 +443,12 @@ artifact identity.
 ## Upgrade
 
 Use the complete install recipe from the target release's tagged documentation.
-Do not change `DAEM_VERSION` alone: `DAEM_VERSION`, `DAEM_REVISION`,
-`DAEM_REVISION_TIME`, and `DAEM_GO_VERSION` form one release requirement. The
-release build checks these values against the binary before assembling its
-archive. The staged binary reports the same identity before it replaces the
-current executable. A pre-existing executable is retained as
+Do not change `DAEM_VERSION` alone: `DAEM_VERSION`, `DAEM_REVISION_TIME`, and
+`DAEM_GO_VERSION` form one documented release requirement, and the recipe
+resolves the release commit from the selected tag. The release build checks
+the documented values against the binary before assembling its archive. The
+staged binary reports the same identity, including the resolved commit, before
+it replaces the current executable. A pre-existing executable is retained as
 `~/.local/bin/daem.previous`.
 
 Before running a mutating command with the new binary:

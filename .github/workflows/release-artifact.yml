@@ -24,8 +24,71 @@ env:
   GOWORK: "off"
 
 jobs:
+  vulnerability-scan:
+    name: Vulnerability scan (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: darwin-arm64
+            os: macos-26
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_GOOS: ${{ matrix.goos }}
+      RELEASE_GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Check out selected tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up exact default Go toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: go.sum
+      - name: Validate tag, toolchain, and native target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/${RELEASE_TAG}"
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          revision="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          test "$(git rev-parse --verify HEAD)" = "${revision}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOOS)" = "${RELEASE_GOOS}"
+          test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+      - name: Scan exact tag for known vulnerabilities
+        shell: bash
+        run: |
+          # This job executes no tag-controlled script, so the tag cannot
+          # poison its toolchain or environment; artifact jobs depend on
+          # this result before they run tag-controlled tests or builds.
+          set -euo pipefail
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version
+          scan_status=0
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -C cmd/daem -scan=module -show verbose || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=package -show verbose ./... || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=symbol -show verbose ./... || scan_status=1
+          exit "${scan_status}"
   artifact:
     name: Artifact (${{ matrix.name }})
+    needs: vulnerability-scan
     strategy:
       fail-fast: false
       matrix:
@@ -78,21 +141,6 @@ jobs:
           go mod verify
           tools/test.sh full
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-      - name: Scan exact tag for known vulnerabilities
-        shell: bash
-        run: |
-          set -euo pipefail
-          go version
-          go env GOOS GOARCH GOTOOLCHAIN
-          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version
-          scan_status=0
-          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
-            -C cmd/daem -scan=module -show verbose || scan_status=1
-          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
-            -test -scan=package -show verbose ./... || scan_status=1
-          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
-            -test -scan=symbol -show verbose ./... || scan_status=1
-          exit "${scan_status}"
       - name: Build twice from frozen inputs
         shell: bash
         env:
@@ -153,7 +201,8 @@ jobs:
           assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
           # The tagged docs cannot state their own tag commit hash
           # (self-referential), so docs revision equality is not asserted;
-          # the binary-vs-tag revision binding above is authoritative.
+          # the binary-vs-tag revision binding above is authoritative, and
+          # the documented recipe resolves the commit from the tag itself.
           assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
           assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
       - name: Smoke-test native CLI artifact
@@ -225,6 +274,25 @@ jobs:
           test -x "${RUNNER_TEMP}/extracted/daem"
           cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/extracted/daem"
           "${RUNNER_TEMP}/extracted/daem" --version
+      - name: Build development binary for identity rehearsals
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOAMD64: v1
+          GOARM64: v8.0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          GOCACHE="${RUNNER_TEMP}/development-cache" \
+            go build -mod=readonly -buildvcs=false -trimpath \
+              -o "${RUNNER_TEMP}/development-daem" ./cmd/daem
+          "${RUNNER_TEMP}/development-daem" version --json \
+            > "${RUNNER_TEMP}/development-version.json"
+          if cmp -s "${RUNNER_TEMP}/development-daem" "${RUNNER_TEMP}/build-1/daem"; then
+            echo "development and release binaries unexpectedly match" >&2
+            exit 1
+          fi
       - name: Exercise documented installer flow against local artifacts
         shell: bash
         run: |
@@ -337,32 +405,40 @@ jobs:
               "${RUNNER_TEMP}/installer-corrupt.err"
           fi
 
-          if grep -F -x -q "DAEM_REVISION=${RELEASE_REVISION}" "${recipe}"; then
-            wrong_recipe="${RUNNER_TEMP}/installer-recipe-wrong-revision.sh"
-            cp "${recipe}" "${wrong_recipe}"
-            substitute_once "${wrong_recipe}" \
-              "DAEM_REVISION=${RELEASE_REVISION}" \
-              "DAEM_REVISION=0000000000000000000000000000000000000000"
-            bash -n "${wrong_recipe}"
-            wrong_home="${RUNNER_TEMP}/installer-home-wrong"
-            mkdir -p "${wrong_home}"
-            serve_directory "${release_dir}"
-            if env -i HOME="${wrong_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
-              bash "${wrong_recipe}" \
-              > "${RUNNER_TEMP}/installer-wrong.out" \
-              2> "${RUNNER_TEMP}/installer-wrong.err"; then
-              echo "wrong-revision install unexpectedly succeeded" >&2
+          # Wrong-identity rehearsal: serve a valid archive and sidecar that
+          # carry a binary without the release identity. The recipe must
+          # reject it through identity matching, independently of any
+          # documented literal assignment. Older recipes without identity
+          # matching are skipped through the marker guard.
+          if grep -F -q 'downloaded daem binary does not match the requested release identity' "${recipe}"; then
+            alien_stage="${RUNNER_TEMP}/installer-alien-stage"
+            mkdir "${alien_stage}"
+            cp "${RUNNER_TEMP}/development-daem" "${alien_stage}/daem"
+            chmod 0755 "${alien_stage}/daem"
+            alien_dir="${RUNNER_TEMP}/installer-release-alien"
+            mkdir "${alien_dir}"
+            tar -czf "${alien_dir}/${archive_name}" -C "${alien_stage}" daem
+            (
+              cd "${alien_dir}"
+              shasum -a 256 "${archive_name}" > "${archive_name}.sha256"
+            )
+            alien_home="${RUNNER_TEMP}/installer-home-alien"
+            mkdir -p "${alien_home}"
+            serve_directory "${alien_dir}"
+            if env -i HOME="${alien_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+              bash "${recipe}" \
+              > "${RUNNER_TEMP}/installer-alien.out" \
+              2> "${RUNNER_TEMP}/installer-alien.err"; then
+              echo "wrong-identity install unexpectedly succeeded" >&2
               exit 1
             fi
             stop_server
             grep -F 'downloaded daem binary does not match the requested release identity' \
-              "${RUNNER_TEMP}/installer-wrong.err"
+              "${RUNNER_TEMP}/installer-alien.err"
           fi
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Smoke-test install, source upgrade, and executable rollback
         shell: bash
-        env:
-          CGO_ENABLED: "0"
         run: |
           set -euo pipefail
           release_binary="${RUNNER_TEMP}/extracted/daem"
@@ -382,15 +458,9 @@ jobs:
           grep -F -x "  \"goarch\": \"${RELEASE_GOARCH}\"" \
             "${RUNNER_TEMP}/fresh-version.json"
 
-          GOCACHE="${RUNNER_TEMP}/development-cache" \
-            go build -mod=readonly -buildvcs=false -trimpath \
-              -o "${development_binary}" ./cmd/daem
+          test -x "${development_binary}"
           "${development_binary}" version --json \
-            > "${RUNNER_TEMP}/development-version.json"
-          if cmp -s "${development_binary}" "${release_binary}"; then
-            echo "development and release binaries unexpectedly match" >&2
-            exit 1
-          fi
+            > "${RUNNER_TEMP}/upgrade-development-version.json"
 
           install -d "$(dirname "${upgrade_bin}")"
           install -m 0755 "${development_binary}" "${upgrade_bin}"
@@ -398,8 +468,7 @@ jobs:
           install -m 0755 "${release_binary}" "${upgrade_bin}.new"
           mv -f "${upgrade_bin}.new" "${upgrade_bin}"
           cmp "${release_binary}" "${upgrade_bin}"
-          "${upgrade_bin}" version --json \
-            > "${RUNNER_TEMP}/upgraded-version.json"
+          "${upgrade_bin}" version --json > "${RUNNER_TEMP}/upgraded-version.json"
           grep -F -x "  \"version\": \"${RELEASE_TAG}\"," \
             "${RUNNER_TEMP}/upgraded-version.json"
 
@@ -407,8 +476,7 @@ jobs:
             "${upgrade_bin}.rollback"
           mv -f "${upgrade_bin}.rollback" "${upgrade_bin}"
           cmp "${development_binary}" "${upgrade_bin}"
-          "${upgrade_bin}" version --json \
-            > "${RUNNER_TEMP}/rollback-version.json"
+          "${upgrade_bin}" version --json > "${RUNNER_TEMP}/rollback-version.json"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Upload private workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

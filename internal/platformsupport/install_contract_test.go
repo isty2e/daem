@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -467,13 +468,18 @@ func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
 	recipe := installRecipe(t)
 	for _, fact := range []string{
 		"DAEM_VERSION=v0.1.0",
-		"DAEM_REVISION=2bf957187f9f847aa87b0e807d6ca960589f1083",
 		"DAEM_REVISION_TIME=2026-07-28T02:19:30Z",
 		"DAEM_GO_VERSION=go1.26.5",
+		`DAEM_ORIGIN_URL="https://github.com/isty2e/daem.git"`,
+		`DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}^{}" | cut -f1)"`,
+		`DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}" | cut -f1)"`,
 	} {
 		if !strings.Contains(recipe, fact) {
 			t.Fatalf("install recipe is missing exact published release fact %q", fact)
 		}
+	}
+	if literalRevision := regexp.MustCompile(`(?m)^DAEM_REVISION=[0-9a-f]{40}$`); literalRevision.MatchString(recipe) {
+		t.Fatal("install recipe pins a literal release revision that cannot equal its own tag")
 	}
 	if !goversion.IsValid("go1.26.5") {
 		t.Fatal("documented release toolchain is not a valid Go version")
