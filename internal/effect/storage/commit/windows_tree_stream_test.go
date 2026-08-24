@@ -216,18 +216,19 @@ func TestWindowsRootedCleanupPreCancelledContextDoesNotConsumeBudget(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	beforeComponents, beforeEntries, beforeBytes := budget.pathComponents, budget.entries, budget.bytes
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	_, err = CommitRootedEntryCleanup(ctx, request)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("pre-cancelled cleanup = %v, want context.Canceled", err)
 	}
-	if budget.pathComponents != 0 || budget.entries != 0 || budget.bytes != 0 {
+	if budget.pathComponents != beforeComponents || budget.entries != beforeEntries || budget.bytes != beforeBytes {
 		t.Fatalf(
-			"pre-cancelled cleanup consumed budget components=%d entries=%d bytes=%d, want none",
-			budget.pathComponents,
-			budget.entries,
-			budget.bytes,
+			"pre-cancelled cleanup consumed components=%d entries=%d bytes=%d, want none",
+			budget.pathComponents-beforeComponents,
+			budget.entries-beforeEntries,
+			budget.bytes-beforeBytes,
 		)
 	}
 }
