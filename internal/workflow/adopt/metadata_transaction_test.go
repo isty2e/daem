@@ -67,7 +67,7 @@ func TestExecuteCommandPlanRefusesMetadataTransactionStartedAfterPlanning(
 	}
 	metadatatx.WriteInterrupted(t, paths.StateDir)
 
-	_, err = ExecuteCommandPlan(context.Background(), planned)
+	_, err = ExecuteCommandPlan(context.Background(), planned, nil)
 	if err == nil || !strings.Contains(err.Error(), "interrupted file-set transaction") {
 		t.Fatalf("error = %v, want interrupted file-set transaction", err)
 	}

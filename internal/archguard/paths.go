@@ -116,7 +116,8 @@ func isAllowedCLIPresentationChildPackage(packagePath string) bool {
 
 func isAllowedPresentWorkflowResultImport(packagePath string, importPath string) bool {
 	if packagePath == "internal/cli/present/progress" {
-		return importPath == "internal/workflow/lock"
+		return importPath == "internal/workflow/adopt" ||
+			importPath == "internal/workflow/lock"
 	}
 	if packagePath != "internal/cli/present" {
 		return false

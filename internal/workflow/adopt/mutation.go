@@ -21,14 +21,26 @@ type importObservedPath struct {
 }
 
 // ExecuteCommandPlan revalidates and writes an import candidate under one complete lease set.
-func ExecuteCommandPlan(ctx context.Context, optimistic CommandPlan) (result CommandPlan, returnErr error) {
-	return executeCommandPlan(ctx, optimistic, BuildPlan)
+func ExecuteCommandPlan(
+	ctx context.Context,
+	optimistic CommandPlan,
+	progressEvents ProgressEventSink,
+) (result CommandPlan, returnErr error) {
+	return executeCommandPlan(
+		ctx,
+		optimistic,
+		func(currentContext context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+			return buildPlan(currentContext, request, ProgressPhaseRevalidation, progressEvents)
+		},
+		progressEvents,
+	)
 }
 
 func executeCommandPlan(
 	ctx context.Context,
 	optimistic CommandPlan,
 	buildCurrentPlan func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error),
+	progressEvents ProgressEventSink,
 ) (result CommandPlan, returnErr error) {
 	if ctx == nil {
 		return CommandPlan{}, fmt.Errorf("import context is required")
@@ -36,6 +48,12 @@ func executeCommandPlan(
 	if err := ctx.Err(); err != nil {
 		return CommandPlan{}, err
 	}
+	progressTotal := importProgressTotal(optimistic.request.Targets(), optimistic.request.Scopes())
+	progressEvents.emit(ProgressEvent{
+		Kind:  ProgressEventPhaseStarted,
+		Phase: ProgressPhaseRevalidation,
+		Total: progressTotal,
+	})
 	optimisticFingerprint, err := importPlanFingerprint(optimistic.plan)
 	if err != nil {
 		return CommandPlan{}, err
@@ -152,9 +170,23 @@ func executeCommandPlan(
 		}
 		return nil
 	}
+	progressEvents.emit(ProgressEvent{
+		Kind:      ProgressEventPhaseCompleted,
+		Phase:     ProgressPhaseRevalidation,
+		Completed: progressTotal,
+		Total:     progressTotal,
+	})
+	progressEvents.emit(ProgressEvent{
+		Kind:  ProgressEventPhaseStarted,
+		Phase: ProgressPhasePublication,
+	})
 	if err := writePlan(ctx, currentPlan, validateStable); err != nil {
 		return CommandPlan{}, err
 	}
+	progressEvents.emit(ProgressEvent{
+		Kind:  ProgressEventPhaseCompleted,
+		Phase: ProgressPhasePublication,
+	})
 	return CommandPlan{
 		request:         optimistic.request,
 		plan:            currentPlan,

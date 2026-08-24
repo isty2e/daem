@@ -51,7 +51,7 @@ func TestBuildPlanManifestContentMatchesAdoptionRenderer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plan, err := BuildPlan(context.Background(), request)
+	plan, err := buildPlanForTest(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestExtensionImportPlanAndExecuteWriteOnlyManifest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildPlan(context.Background(), request)
+	plan, err := buildPlanForTest(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,6 +120,7 @@ func TestExtensionImportPlanAndExecuteWriteOnlyManifest(t *testing.T) {
 	executed, err := ExecuteCommandPlan(
 		context.Background(),
 		commandPlanWithRevisionEvidence(t, request, plan),
+		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -198,7 +199,7 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := BuildPlan(context.Background(), request)
+	plan, err := buildPlanForTest(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,6 +214,7 @@ func TestExtensionImportRefusesChangedInventoryWithoutWritingManifest(t *testing
 	_, err = ExecuteCommandPlan(
 		context.Background(),
 		commandPlanWithRevisionEvidence(t, request, plan),
+		nil,
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -258,7 +260,7 @@ func TestExtensionImportRefusesInventoryDriftAfterRebuild(t *testing.T) {
 		t.Context(),
 		planned,
 		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := BuildPlan(ctx, request)
+			current, buildErr := buildPlanForTest(ctx, request)
 			if buildErr != nil {
 				return adoptmodel.Plan{}, buildErr
 			}
@@ -271,6 +273,7 @@ func TestExtensionImportRefusesInventoryDriftAfterRebuild(t *testing.T) {
 			}
 			return current, nil
 		},
+		nil,
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -322,7 +325,7 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 		t.Fatal(err)
 	}
 
-	_, err = BuildPlan(context.Background(), request)
+	_, err = buildPlanForTest(context.Background(), request)
 	if !errors.Is(err, adoptmodel.ErrNothingToImport) || !strings.Contains(err.Error(), "unsupported_mcp_alternate_config") {
 		t.Fatalf("BuildPlan error = %v, want alternate-config skip", err)
 	}
@@ -377,7 +380,7 @@ func TestExecuteCommandPlanRejectsInvalidOnlyMCPSourceDriftAfterRebuild(t *testi
 		t.Context(),
 		planned,
 		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := BuildPlan(ctx, request)
+			current, buildErr := buildPlanForTest(ctx, request)
 			if buildErr != nil {
 				return adoptmodel.Plan{}, buildErr
 			}
@@ -386,6 +389,7 @@ func TestExecuteCommandPlanRejectsInvalidOnlyMCPSourceDriftAfterRebuild(t *testi
 			}
 			return current, nil
 		},
+		nil,
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -418,7 +422,7 @@ func TestExecuteCommandPlanRejectsMCPSourceContentDriftOutsideProjection(t *test
 		t.Fatal(err)
 	}
 
-	_, err = ExecuteCommandPlan(t.Context(), planned)
+	_, err = ExecuteCommandPlan(t.Context(), planned, nil)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("ExecuteCommandPlan error = %v, want stale MCP source", err)
@@ -450,7 +454,7 @@ func TestExecuteCommandPlanRejectsIdenticalMCPSourceReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = ExecuteCommandPlan(t.Context(), planned)
+	_, err = ExecuteCommandPlan(t.Context(), planned, nil)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("ExecuteCommandPlan error = %v, want stale replacement", err)
@@ -494,7 +498,7 @@ func TestExecuteCommandPlanRejectsSkillRevisionDepthGrowthBeforePublication(t *t
 		t.Fatal(err)
 	}
 
-	_, err = ExecuteCommandPlan(t.Context(), planned)
+	_, err = ExecuteCommandPlan(t.Context(), planned, nil)
 	if !errors.Is(err, mutation.ErrRevisionLimitExceeded) {
 		t.Fatalf("ExecuteCommandPlan error = %v, want revision limit exhaustion", err)
 	}
@@ -567,7 +571,7 @@ command = "npx"
 		t.Fatal(err)
 	}
 
-	_, err = ExecuteCommandPlan(t.Context(), planned)
+	_, err = ExecuteCommandPlan(t.Context(), planned, nil)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
 		t.Fatalf("ExecuteCommandPlan error = %v, want stale noop authority", err)
@@ -638,7 +642,7 @@ func TestExecuteCommandPlanRejectsMergeTargetSkillRouteDriftAfterRebuild(t *test
 		t.Context(),
 		planned,
 		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := BuildPlan(ctx, request)
+			current, buildErr := buildPlanForTest(ctx, request)
 			if buildErr != nil {
 				return adoptmodel.Plan{}, buildErr
 			}
@@ -650,6 +654,7 @@ func TestExecuteCommandPlanRejectsMergeTargetSkillRouteDriftAfterRebuild(t *test
 			}
 			return current, nil
 		},
+		nil,
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -730,7 +735,7 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 		t.Context(),
 		planned,
 		func(ctx context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
-			current, buildErr := BuildPlan(ctx, request)
+			current, buildErr := buildPlanForTest(ctx, request)
 			if buildErr != nil {
 				return adoptmodel.Plan{}, buildErr
 			}
@@ -739,6 +744,7 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 			}
 			return current, nil
 		},
+		nil,
 	)
 	var stale mutation.StaleSnapshotError
 	if !errors.As(err, &stale) {
@@ -751,6 +757,13 @@ func TestExecuteCommandPlanRejectsSelectorMembershipLockDriftAfterRebuild(t *tes
 	if !bytes.Equal(current, original) {
 		t.Fatal("stale selector membership authority changed manifest")
 	}
+}
+
+func buildPlanForTest(
+	ctx context.Context,
+	request adoptmodel.Request,
+) (adoptmodel.Plan, error) {
+	return buildPlan(ctx, request, "", nil)
 }
 
 func commandPlanWithRevisionEvidence(
@@ -808,7 +821,7 @@ func selectorSkillMergeFixture(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ExecuteCommandPlan(t.Context(), initial); err != nil {
+	if _, err := ExecuteCommandPlan(t.Context(), initial, nil); err != nil {
 		t.Fatal(err)
 	}
 	original, err := os.ReadFile(output)
@@ -894,7 +907,7 @@ func TestMalformedExtensionInventoryProducesNoPartialManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := BuildPlan(context.Background(), request); err == nil {
+	if _, err := buildPlanForTest(context.Background(), request); err == nil {
 		t.Fatal("BuildPlan accepted malformed Pi extension inventory")
 	}
 	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
@@ -940,7 +953,7 @@ source = { host_source = "npm:@acme/tool@1.2.3" }
 		t.Fatal(err)
 	}
 
-	_, err = BuildPlan(context.Background(), request)
+	_, err = buildPlanForTest(context.Background(), request)
 	if err == nil || !strings.Contains(err.Error(), "supports exactly one target") {
 		t.Fatalf("BuildPlan error = %v, want multi-target extension rejection", err)
 	}

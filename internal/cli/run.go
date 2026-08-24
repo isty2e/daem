@@ -219,7 +219,7 @@ func runCommand(args []string, stdout io.Writer, stderr io.Writer, options RunOp
 	case "doctor":
 		return runDoctor(args[1:], stdout, stderr, commandInvocation)
 	case "import":
-		return runImport(commandInvocation.context, args[1:], stdout, stderr)
+		return runImport(args[1:], stdout, stderr, commandInvocation)
 	case "init":
 		return runInit(commandInvocation.context, args[1:], stdout, stderr)
 	case "list":

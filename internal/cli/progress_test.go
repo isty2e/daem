@@ -42,15 +42,21 @@ func TestProgressAdmissionRequiresTerminalTextStderr(t *testing.T) {
 				test.stderr,
 				test.options,
 			) != nil
+			importAdmitted := newImportProgressRenderer(
+				test.jsonOutput,
+				test.stderr,
+				test.options,
+			) != nil
 			applyAdmitted := newApplyProgressRenderer(
 				test.jsonOutput,
 				test.stderr,
 				test.options,
 			) != nil
-			if lockAdmitted != test.want || applyAdmitted != test.want {
+			if lockAdmitted != test.want || importAdmitted != test.want || applyAdmitted != test.want {
 				t.Fatalf(
-					"lock/apply admission = %t/%t, want %t",
+					"lock/import/apply admission = %t/%t/%t, want %t",
 					lockAdmitted,
+					importAdmitted,
 					applyAdmitted,
 					test.want,
 				)
