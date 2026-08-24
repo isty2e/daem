@@ -24,8 +24,143 @@ env:
   GOWORK: "off"
 
 jobs:
+  resolve-tag:
+    name: Resolve release tag to one commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release_commit: ${{ steps.resolve.outputs.release_commit }}
+      release_toolchain: ${{ steps.toolchain.outputs.release_toolchain }}
+      release_setup_go_version: ${{ steps.toolchain.outputs.release_setup_go_version }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out selected tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve selected tag to exactly one commit
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/${RELEASE_TAG}"
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          release_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          printf '%s\n' "${release_commit}" | grep -E -x '[0-9a-f]{40}'
+          test "$(git rev-parse --verify HEAD)" = "${release_commit}"
+          printf 'release_commit=%s\n' "${release_commit}" >> "${GITHUB_OUTPUT}"
+      - name: Resolve selected tag toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_toolchain="$(awk '
+            $1 == "toolchain" {
+              if (seen++) exit 1
+              directive = $0
+              comment = index(directive, "//")
+              if (comment > 0) directive = substr(directive, 1, comment - 1)
+              sub(/^[[:space:]]*toolchain[[:space:]]+/, "", directive)
+              sub(/[[:space:]]+$/, "", directive)
+              if (directive == "" || directive ~ /[[:space:]]/) exit 1
+              value = directive
+            }
+            END {
+              if (seen != 1 || value == "") exit 1
+              print value
+            }
+          ' go.mod)"
+          printf '%s\n' "${release_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
+
+          documented_toolchain="$(awk -F= '
+            /^DAEM_GO_VERSION=/ {
+              if (seen++) exit 1
+              value = $2
+            }
+            END {
+              if (seen > 1 || (seen == 1 && value == "")) exit 1
+              if (seen == 1) print value
+            }
+          ' docs/install.md)"
+          if [ -n "${documented_toolchain}" ]; then
+            test "${documented_toolchain}" = "${release_toolchain}"
+          fi
+
+          setup_go_version="${release_toolchain#go}"
+          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
+          printf 'release_toolchain=%s\n' "${release_toolchain}" >> "${GITHUB_OUTPUT}"
+          printf 'release_setup_go_version=%s\n' "${setup_go_version}" >> "${GITHUB_OUTPUT}"
+  vulnerability-scan:
+    name: Vulnerability scan (${{ matrix.name }})
+    needs: resolve-tag
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-24.04
+            goos: linux
+            goarch: amd64
+          - name: darwin-arm64
+            os: macos-26
+            goos: darwin
+            goarch: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
+      RELEASE_TOOLCHAIN: ${{ needs.resolve-tag.outputs.release_toolchain }}
+      RELEASE_GOOS: ${{ matrix.goos }}
+      RELEASE_GOARCH: ${{ matrix.goarch }}
+    steps:
+      - name: Check out resolved release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve-tag.outputs.release_commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up resolved release toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ needs.resolve-tag.outputs.release_setup_go_version }}
+          cache-dependency-path: go.sum
+      - name: Validate commit, tag, toolchain, and native target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "${RELEASE_COMMIT}"
+          test "$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")" = "${RELEASE_COMMIT}"
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+          test "$(go env GOVERSION)" = "${RELEASE_TOOLCHAIN}"
+          test "$(go env GOOS)" = "${RELEASE_GOOS}"
+          test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+      - name: Scan resolved commit for known vulnerabilities
+        shell: bash
+        run: |
+          # This job executes no tag-controlled script, so the tag cannot
+          # poison its toolchain or environment; artifact jobs depend on
+          # this result before they run tag-controlled tests or builds.
+          set -euo pipefail
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version
+          scan_status=0
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -C cmd/daem -scan=module -show verbose || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=package -show verbose ./... || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=symbol -show verbose ./... || scan_status=1
+          exit "${scan_status}"
   artifact:
     name: Artifact (${{ matrix.name }})
+    needs:
+      - resolve-tag
+      - vulnerability-scan
     strategy:
       fail-fast: false
       matrix:
@@ -42,30 +177,33 @@ jobs:
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
+      RELEASE_TOOLCHAIN: ${{ needs.resolve-tag.outputs.release_toolchain }}
       RELEASE_GOOS: ${{ matrix.goos }}
       RELEASE_GOARCH: ${{ matrix.goarch }}
     steps:
-      - name: Check out selected tag
+      - name: Check out resolved release commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up exact default Go toolchain
+      - name: Set up resolved release toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.6"
+          go-version: ${{ needs.resolve-tag.outputs.release_setup_go_version }}
           cache-dependency-path: go.sum
-      - name: Validate tag, revision, toolchain, and native target
+      - name: Validate commit, tag, revision, toolchain, and native target
         shell: bash
         run: |
           set -euo pipefail
           git check-ref-format "refs/tags/${RELEASE_TAG}"
           git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse --verify HEAD)" = "${RELEASE_COMMIT}"
           revision="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
-          test "$(git rev-parse --verify HEAD)" = "${revision}"
+          test "${revision}" = "${RELEASE_COMMIT}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOVERSION)" = "${RELEASE_TOOLCHAIN}"
           test "$(go env GOOS)" = "${RELEASE_GOOS}"
           test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
           printf 'RELEASE_REVISION=%s\n' "${revision}" >> "${GITHUB_ENV}"
@@ -130,10 +268,18 @@ jobs:
             count="$(grep -F -x -c "$1=$2" docs/install.md)"
             test "${count}" = 1
           }
+          assert_installer_requirement_if_present() {
+            if grep -E -q "^$1=" docs/install.md; then
+              assert_installer_requirement "$1" "$2"
+            fi
+          }
           assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
-          assert_installer_requirement DAEM_REVISION "${RELEASE_REVISION}"
-          assert_installer_requirement DAEM_REVISION_TIME "${revision_time}"
-          assert_installer_requirement DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
+          # The tagged docs cannot state their own tag commit hash
+          # (self-referential), so docs revision equality is not asserted;
+          # the binary-vs-tag revision binding above is authoritative, and
+          # the documented recipe resolves the commit from release metadata.
+          assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
+          assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
       - name: Smoke-test native CLI artifact
         shell: bash
         run: |
@@ -203,10 +349,188 @@ jobs:
           test -x "${RUNNER_TEMP}/extracted/daem"
           cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/extracted/daem"
           "${RUNNER_TEMP}/extracted/daem" --version
-      - name: Smoke-test install, source upgrade, and executable rollback
+      - name: Build development binary for identity rehearsals
         shell: bash
         env:
           CGO_ENABLED: "0"
+          GOAMD64: v1
+          GOARM64: v8.0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          GOCACHE="${RUNNER_TEMP}/development-cache" \
+            go build -mod=readonly -buildvcs=false -trimpath \
+              -o "${RUNNER_TEMP}/development-daem" ./cmd/daem
+          "${RUNNER_TEMP}/development-daem" version --json \
+            > "${RUNNER_TEMP}/development-version.json"
+          if cmp -s "${RUNNER_TEMP}/development-daem" "${RUNNER_TEMP}/build-1/daem"; then
+            echo "development and release binaries unexpectedly match" >&2
+            exit 1
+          fi
+      - name: Exercise documented installer flow against local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="daem_${RELEASE_TAG#v}_${RELEASE_GOOS}_${RELEASE_GOARCH}.tar.gz"
+          installer_port=18080
+          installer_server_pid=""
+          trap 'if [ -n "${installer_server_pid}" ]; then kill "${installer_server_pid}" 2>/dev/null || true; fi' EXIT
+
+          recipe="${RUNNER_TEMP}/installer-recipe.sh"
+          awk '
+            /^```bash$/ { fence++; if (fence == 1) next }
+            fence == 1 && /^```$/ { exit }
+            fence == 1 { print }
+          ' docs/install.md > "${recipe}"
+          bash -n "${recipe}"
+          test "$(head -n 1 "${recipe}")" = "set -eu"
+          grep -F 'curl --fail --location' "${recipe}"
+          grep -F 'DAEM_BASE_URL=' "${recipe}"
+          modern_flow=0
+          if grep -F -q 'daem_verify_archive_checksum' "${recipe}"; then
+            modern_flow=1
+          fi
+
+          substitute_once() {
+            file="$1"
+            original="$2"
+            replacement="$3"
+            count="$(grep -F -x -c -- "${original}" "${file}")"
+            test "${count}" = 1
+            awk -v old="${original}" -v new="${replacement}" '
+              { if ($0 == old) print new; else print $0 }
+            ' "${file}" > "${file}.new"
+            mv "${file}.new" "${file}"
+          }
+
+          serve_directory() {
+            directory="$1"
+            (
+              cd "${directory}"
+              exec python3 -m http.server "${installer_port}" --bind 127.0.0.1 \
+                >/dev/null 2>&1
+            ) &
+            installer_server_pid=$!
+            for _ in $(seq 1 100); do
+              if curl -sf -o /dev/null "http://127.0.0.1:${installer_port}/"; then
+                return 0
+              fi
+              sleep 0.2
+            done
+            echo "local artifact server did not become ready" >&2
+            exit 1
+          }
+
+          stop_server() {
+            kill "${installer_server_pid}" 2>/dev/null || true
+            wait "${installer_server_pid}" 2>/dev/null || true
+            installer_server_pid=""
+          }
+
+          write_release_metadata() {
+            directory="$1"
+            mkdir -p "${directory}/commits/refs/tags"
+            printf '%s' "${RELEASE_REVISION}" \
+              > "${directory}/commits/refs/tags/${RELEASE_TAG}"
+          }
+
+          # shellcheck disable=SC2016
+          substitute_once "${recipe}" \
+            'DAEM_BASE_URL="https://github.com/isty2e/daem/releases/download/${DAEM_VERSION}"' \
+            "DAEM_BASE_URL=\"http://127.0.0.1:${installer_port}\""
+          if grep -F -x -q \
+            'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"' \
+            "${recipe}"; then
+            substitute_once "${recipe}" \
+              'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"' \
+              "DAEM_ORIGIN_API=\"http://127.0.0.1:${installer_port}\""
+          fi
+          bash -n "${recipe}"
+
+          release_dir="${RUNNER_TEMP}/installer-release"
+          mkdir "${release_dir}"
+          write_release_metadata "${release_dir}"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${release_dir}/"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}.sha256" "${release_dir}/"
+
+          installer_home="${RUNNER_TEMP}/installer-home"
+          mkdir -p "${installer_home}"
+          serve_directory "${release_dir}"
+          env -i HOME="${installer_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            bash "${recipe}" \
+            > "${RUNNER_TEMP}/installer-positive.out" \
+            2> "${RUNNER_TEMP}/installer-positive.err"
+          stop_server
+          test -x "${installer_home}/.local/bin/daem"
+          "${installer_home}/.local/bin/daem" version --json | \
+            grep -F -x "  \"version\": \"${RELEASE_TAG}\","
+
+          corrupt_dir="${RUNNER_TEMP}/installer-release-corrupt"
+          mkdir "${corrupt_dir}"
+          write_release_metadata "${corrupt_dir}"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${corrupt_dir}/"
+          awk '
+            NR == 1 {
+              first = substr($1, 1, 1)
+              flipped = (first == "0") ? "1" : "0"
+              print flipped substr($1, 2) "  " $2
+              next
+            }
+            { print }
+          ' "${RUNNER_TEMP}/artifact-1/${archive_name}.sha256" \
+            > "${corrupt_dir}/${archive_name}.sha256"
+          corrupt_home="${RUNNER_TEMP}/installer-home-corrupt"
+          mkdir -p "${corrupt_home}"
+          serve_directory "${corrupt_dir}"
+          if env -i HOME="${corrupt_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            bash "${recipe}" \
+            > "${RUNNER_TEMP}/installer-corrupt.out" \
+            2> "${RUNNER_TEMP}/installer-corrupt.err"; then
+            echo "corrupted checksum install unexpectedly succeeded" >&2
+            exit 1
+          fi
+          stop_server
+          if [ "${modern_flow}" = 1 ]; then
+            grep -F 'downloaded archive does not match its exact checksum entry' \
+              "${RUNNER_TEMP}/installer-corrupt.err"
+          fi
+
+          # Wrong-identity rehearsal: serve a valid archive and sidecar that
+          # carry a binary without the release identity. The recipe must
+          # reject it through identity matching, independently of any
+          # documented literal assignment. Older recipes without identity
+          # matching are skipped through the marker guard.
+          if grep -F -q 'downloaded daem binary does not match the requested release identity' "${recipe}"; then
+            alien_stage="${RUNNER_TEMP}/installer-alien-stage"
+            mkdir "${alien_stage}"
+            cp "${RUNNER_TEMP}/development-daem" "${alien_stage}/daem"
+            chmod 0755 "${alien_stage}/daem"
+            alien_dir="${RUNNER_TEMP}/installer-release-alien"
+            mkdir "${alien_dir}"
+            write_release_metadata "${alien_dir}"
+            tar -czf "${alien_dir}/${archive_name}" -C "${alien_stage}" daem
+            (
+              cd "${alien_dir}"
+              shasum -a 256 "${archive_name}" > "${archive_name}.sha256"
+            )
+            alien_home="${RUNNER_TEMP}/installer-home-alien"
+            mkdir -p "${alien_home}"
+            serve_directory "${alien_dir}"
+            if env -i HOME="${alien_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+              bash "${recipe}" \
+              > "${RUNNER_TEMP}/installer-alien.out" \
+              2> "${RUNNER_TEMP}/installer-alien.err"; then
+              echo "wrong-identity install unexpectedly succeeded" >&2
+              exit 1
+            fi
+            stop_server
+            grep -F 'downloaded daem binary does not match the requested release identity' \
+              "${RUNNER_TEMP}/installer-alien.err"
+          fi
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Smoke-test install, source upgrade, and executable rollback
+        shell: bash
         run: |
           set -euo pipefail
           release_binary="${RUNNER_TEMP}/extracted/daem"
@@ -226,15 +550,9 @@ jobs:
           grep -F -x "  \"goarch\": \"${RELEASE_GOARCH}\"" \
             "${RUNNER_TEMP}/fresh-version.json"
 
-          GOCACHE="${RUNNER_TEMP}/development-cache" \
-            go build -mod=readonly -buildvcs=false -trimpath \
-              -o "${development_binary}" ./cmd/daem
+          test -x "${development_binary}"
           "${development_binary}" version --json \
-            > "${RUNNER_TEMP}/development-version.json"
-          if cmp -s "${development_binary}" "${release_binary}"; then
-            echo "development and release binaries unexpectedly match" >&2
-            exit 1
-          fi
+            > "${RUNNER_TEMP}/upgrade-development-version.json"
 
           install -d "$(dirname "${upgrade_bin}")"
           install -m 0755 "${development_binary}" "${upgrade_bin}"
@@ -242,8 +560,7 @@ jobs:
           install -m 0755 "${release_binary}" "${upgrade_bin}.new"
           mv -f "${upgrade_bin}.new" "${upgrade_bin}"
           cmp "${release_binary}" "${upgrade_bin}"
-          "${upgrade_bin}" version --json \
-            > "${RUNNER_TEMP}/upgraded-version.json"
+          "${upgrade_bin}" version --json > "${RUNNER_TEMP}/upgraded-version.json"
           grep -F -x "  \"version\": \"${RELEASE_TAG}\"," \
             "${RUNNER_TEMP}/upgraded-version.json"
 
@@ -251,8 +568,7 @@ jobs:
             "${upgrade_bin}.rollback"
           mv -f "${upgrade_bin}.rollback" "${upgrade_bin}"
           cmp "${development_binary}" "${upgrade_bin}"
-          "${upgrade_bin}" version --json \
-            > "${RUNNER_TEMP}/rollback-version.json"
+          "${upgrade_bin}" version --json > "${RUNNER_TEMP}/rollback-version.json"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Upload private workflow artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

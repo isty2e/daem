@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -467,13 +468,22 @@ func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
 	recipe := installRecipe(t)
 	for _, fact := range []string{
 		"DAEM_VERSION=v0.1.0",
-		"DAEM_REVISION=2bf957187f9f847aa87b0e807d6ca960589f1083",
 		"DAEM_REVISION_TIME=2026-07-28T02:19:30Z",
 		"DAEM_GO_VERSION=go1.26.5",
+		`DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"`,
+		`daem_resolve_release_revision() {`,
+		`"${DAEM_ORIGIN_API}/commits/refs/tags/$1"`,
+		`Accept: application/vnd.github.sha`,
+		`X-GitHub-Api-Version: 2022-11-28`,
+		"--max-time 60",
+		"--max-filesize 64",
 	} {
 		if !strings.Contains(recipe, fact) {
 			t.Fatalf("install recipe is missing exact published release fact %q", fact)
 		}
+	}
+	if literalRevision := regexp.MustCompile(`(?m)^DAEM_REVISION=[0-9a-f]{40}$`); literalRevision.MatchString(recipe) {
+		t.Fatal("install recipe pins a literal release revision that cannot equal its own tag")
 	}
 	if !goversion.IsValid("go1.26.5") {
 		t.Fatal("documented release toolchain is not a valid Go version")
@@ -484,9 +494,124 @@ func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
 	}
 }
 
+func TestInstallRecipeResolvesReleaseRevisionFromBoundedSHAResponse(t *testing.T) {
+	const (
+		releaseTag         = "v0.1.0"
+		releaseCommit      = "2bf957187f9f847aa87b0e807d6ca960589f1083"
+		annotatedTagObject = "a5ce8f24fee87d52659d1968465d3b2823c459f3"
+	)
+	compactTagJSON := `{"ref":"refs/tags/` + releaseTag + `",` +
+		`"node_id":"REF_kwDOTkGrl7ByZWZzL3RhZ3MvdjAuMS4w",` +
+		`"url":"https://api.github.com/repos/isty2e/daem/git/refs/tags/` + releaseTag + `",` +
+		`"object":{"sha":"` + annotatedTagObject + `","type":"tag",` +
+		`"url":"https://api.github.com/repos/isty2e/daem/git/tags/` + annotatedTagObject + `"}}`
+	reorderedTagJSON := `{"object":{"url":"https://api.github.com/repos/isty2e/daem/git/tags/` + annotatedTagObject + `",` +
+		`"type":"tag","sha":"` + annotatedTagObject + `"},` +
+		`"url":"https://api.github.com/repos/isty2e/daem/git/refs/tags/` + releaseTag + `",` +
+		`"node_id":"REF_kwDOTkGrl7ByZWZzL3RhZ3MvdjAuMS4w","ref":"refs/tags/` + releaseTag + `"}`
+	tests := []struct {
+		name     string
+		response string
+		resolved bool
+	}{
+		{name: "annotated v0.1.0 tag commit media", response: releaseCommit, resolved: true},
+		{name: "compact tag JSON", response: compactTagJSON},
+		{name: "reordered tag JSON", response: reorderedTagJSON},
+		{name: "malformed tag JSON", response: strings.TrimSuffix(compactTagJSON, "}")},
+		{name: "short SHA", response: strings.Repeat("3", 39)},
+		{name: "long SHA", response: strings.Repeat("3", 41)},
+		{name: "trailing newline", response: releaseCommit + "\n"},
+		{name: "uppercase SHA", response: strings.Repeat("A", 40)},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixtureDirectory := t.TempDir()
+			fixturePath := filepath.Join(fixtureDirectory, "response")
+			if err := os.WriteFile(fixturePath, []byte(test.response), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			binDirectory := t.TempDir()
+			fakeCurl := `#!/bin/sh
+set -eu
+output=
+url=
+accept=
+api_version=
+maximum_time=
+maximum_size=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --header)
+      case "$2" in
+        "Accept: "*) accept="$2" ;;
+        "X-GitHub-Api-Version: "*) api_version="$2" ;;
+      esac
+      shift 2
+      ;;
+    --max-time)
+      maximum_time="$2"
+      shift 2
+      ;;
+    --max-filesize)
+      maximum_size="$2"
+      shift 2
+      ;;
+    --fail)
+      shift
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+test "$url" = "https://api.example.invalid/repos/isty2e/daem/commits/refs/tags/` + releaseTag + `"
+test "$accept" = "Accept: application/vnd.github.sha"
+test "$api_version" = "X-GitHub-Api-Version: 2022-11-28"
+test "$maximum_time" = 60
+test "$maximum_size" = 64
+cp "$DAEM_FIXTURE_PATH" "$output"
+`
+			fakeCurlPath := filepath.Join(binDirectory, "curl")
+			if err := os.WriteFile(fakeCurlPath, []byte(fakeCurl), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			stagePrefix := filepath.Join(t.TempDir(), "metadata")
+			command := exec.Command(
+				"/bin/sh",
+				"-c",
+				installRecipeFunctions(t)+"\n"+`DAEM_ORIGIN_API="https://api.example.invalid/repos/isty2e/daem"`+"\n"+`daem_resolve_release_revision `+releaseTag+` "$1"`,
+				"daem-install-test",
+				stagePrefix,
+			)
+			command.Env = append(
+				os.Environ(),
+				"PATH="+binDirectory+":/usr/bin:/bin",
+				"DAEM_FIXTURE_PATH="+fixturePath,
+			)
+			output, err := command.CombinedOutput()
+			if (err == nil) != test.resolved {
+				t.Fatalf("resolve release revision error = %v, want resolved=%t\n%s", err, test.resolved, output)
+			}
+			if test.resolved && strings.TrimSpace(string(output)) != releaseCommit {
+				t.Fatalf("resolved revision = %q, want %q", strings.TrimSpace(string(output)), releaseCommit)
+			}
+		})
+	}
+}
+
 func TestInstallRecipeVerifiesBeforeReplacingExecutable(t *testing.T) {
 	recipe := installRecipe(t)
 	assertInstallRecipeOrder(t, recipe, `daem_admitted_release_requirement`, `curl --fail --location`)
+	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`)
+	assertInstallRecipeOrder(t, recipe, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`, `DAEM_ARCHIVE="daem_`)
 	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `curl --fail --location`)
 	assertInstallRecipeOrder(t, recipe, `daem_verify_archive_checksum`, `daem_extract_release_binary`)
 	assertInstallRecipeOrder(t, recipe, `daem_extract_release_binary`, `daem_release_binary_matches`)
