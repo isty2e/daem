@@ -222,7 +222,12 @@ func TestPlanIdentityIncludesSkippedOnlyMCPSourceAuthority(t *testing.T) {
 				PrimaryRevision: revision,
 				MaximumBytes:    1024,
 			}},
-			Skipped: []Skipped{{LivePath: ".mcp.json#/mcpServers/invalid", Reason: "invalid_mcp_argument"}},
+			Skipped: []Skipped{{
+				Target:   targetpkg.TargetClaudeCode,
+				Scope:    targetpkg.ScopeProject,
+				LivePath: ".mcp.json#/mcpServers/invalid",
+				Reason:   "invalid_mcp_argument",
+			}},
 		})
 		if candidateErr != nil {
 			t.Fatal(candidateErr)

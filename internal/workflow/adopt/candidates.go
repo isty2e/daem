@@ -35,7 +35,7 @@ func importCandidates(
 		return nil, nil, nil, nil, nil, nil, nil, err
 	}
 	sources = append(sources, instructionSources...)
-	skipped = append(skipped, instructionSkipped...)
+	skipped = appendRouteSkipped(skipped, instructionSkipped, target, scope)
 
 	skills, skillScans, skillSkipped, err := adoptskill.Candidates(
 		ctx,
@@ -48,19 +48,33 @@ func importCandidates(
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = append(skipped, skillSkipped...)
+	skipped = appendRouteSkipped(skipped, skillSkipped, target, scope)
 
 	hooks, hookSkipped, err := adopthook.Candidates(ctx, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = append(skipped, hookSkipped...)
+	skipped = appendRouteSkipped(skipped, hookSkipped, target, scope)
 
 	mcpServers, mcpAuthorities, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
 	if err != nil {
 		return nil, nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = append(skipped, mcpSkipped...)
+	skipped = appendRouteSkipped(skipped, mcpSkipped, target, scope)
 
 	return sources, skills, hooks, mcpServers, mcpAuthorities, skillScans, skipped, nil
+}
+
+func appendRouteSkipped(
+	destination []adoptmodel.Skipped,
+	values []adoptmodel.Skipped,
+	target targetpkg.Target,
+	scope targetpkg.Scope,
+) []adoptmodel.Skipped {
+	for _, value := range values {
+		value.Target = target
+		value.Scope = scope
+		destination = append(destination, value)
+	}
+	return destination
 }

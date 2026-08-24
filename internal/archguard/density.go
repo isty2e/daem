@@ -85,9 +85,9 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "the child would import parent-owned File and LockedSubjectContract while the parent imported its validation and comparison results, creating a cycle or exporting aggregate-private construction rules",
 	},
 	"internal/cli/present": {
-		reviewedValue:       34,
+		reviewedValue:       35,
 		owner:               "CLI human, JSON, diff, and exit projection",
-		reason:              "at 34 production files, command, inventory, carrier-lifecycle, and physical relation-order projections have distinct change reasons while sharing private JSON subject identities, schema envelopes, source-identity disclosure policy, human output policy, and error shaping",
+		reason:              "at 35 production files, command, inventory, import-skip, carrier-lifecycle, and physical relation-order projections have distinct change reasons while sharing private JSON subject identities, schema envelopes, source-identity disclosure policy, human output policy, and error shaping",
 		naturalSplit:        "create one presentation child package per semantic decision family",
 		alternativeRejected: "child packages would export or duplicate private JSON subject and schema helpers while leaving cross-command transport consistency as an implicit facade concern",
 	},

@@ -109,6 +109,8 @@ func buildPlan(
 	}
 	for _, skip := range extensionResult.Skipped() {
 		skipped = append(skipped, adoptmodel.Skipped{
+			Target:   skip.Target,
+			Scope:    skip.Scope,
 			LivePath: skip.LivePath,
 			Reason:   skip.Reason,
 		})

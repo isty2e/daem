@@ -2,6 +2,7 @@ package adopt
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
@@ -12,12 +13,70 @@ func skippedSummary(skipped []adoptmodel.Skipped) string {
 		return ""
 	}
 
-	parts := make([]string, 0, len(skipped))
+	var actionRequired int
+	var unsupported int
+	var informational int
+	type groupKey struct {
+		category adoptmodel.SkipCategory
+		target   string
+		reason   string
+	}
+	groups := make(map[groupKey]int)
+	actionable := make([]string, 0)
 	for _, value := range skipped {
-		parts = append(parts, fmt.Sprintf("%s: %s", value.LivePath, value.Reason))
+		category := value.Category()
+		switch category {
+		case adoptmodel.SkipCategoryActionRequired:
+			actionRequired++
+		case adoptmodel.SkipCategoryUnsupported:
+			unsupported++
+		case adoptmodel.SkipCategoryInformational:
+			informational++
+		}
+		if category == adoptmodel.SkipCategoryActionRequired {
+			actionable = append(actionable, fmt.Sprintf("%s: %s", value.LivePath, value.Reason))
+			continue
+		}
+		groups[groupKey{
+			category: category,
+			target:   string(value.Target),
+			reason:   value.Reason,
+		}]++
 	}
 
-	return " (skipped " + strings.Join(parts, ", ") + ")"
+	parts := []string{fmt.Sprintf(
+		"action_required=%d unsupported=%d informational=%d",
+		actionRequired,
+		unsupported,
+		informational,
+	)}
+	if len(actionable) != 0 {
+		parts = append(parts, "action_required "+strings.Join(actionable, ", "))
+	}
+	orderedGroups := make([]groupKey, 0, len(groups))
+	for key := range groups {
+		orderedGroups = append(orderedGroups, key)
+	}
+	sort.Slice(orderedGroups, func(left int, right int) bool {
+		if orderedGroups[left].category != orderedGroups[right].category {
+			return orderedGroups[left].category < orderedGroups[right].category
+		}
+		if orderedGroups[left].target != orderedGroups[right].target {
+			return orderedGroups[left].target < orderedGroups[right].target
+		}
+		return orderedGroups[left].reason < orderedGroups[right].reason
+	})
+	for _, key := range orderedGroups {
+		parts = append(parts, fmt.Sprintf(
+			"%s target=%s reason=%s count=%d",
+			key.category,
+			key.target,
+			key.reason,
+			groups[key],
+		))
+	}
+
+	return " (skipped " + strings.Join(parts, "; ") + ")"
 }
 
 func scanSummary(scans []adoptmodel.Scan) string {

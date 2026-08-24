@@ -90,7 +90,8 @@ func TestRunImportMissingInputFailsWithoutWrites(t *testing.T) {
 	}
 	for _, want := range []string{
 		"nothing to import",
-		"AGENTS.md",
+		"action_required=0 unsupported=0 informational=5",
+		"informational target=codex reason=missing count=5",
 		"next: verify that the selected --target and --scope have live agent files to import",
 		"next: try another selection, such as --scope global or a different --target",
 		"next: choose the destination with --manifest <path>, or add --merge when importing into an existing manifest",

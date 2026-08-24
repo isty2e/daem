@@ -27,6 +27,8 @@ type Input struct {
 type Skip struct {
 	LivePath string
 	Reason   string
+	Target   target.Target
+	Scope    target.Scope
 }
 
 // Scan records one selected host extension inventory used by the proposal.

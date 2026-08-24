@@ -88,9 +88,9 @@ command = "make inline"
 	}
 	for _, want := range []string{
 		"nothing to import",
-		"AGENTS.md: missing",
-		".codex/hooks.json: missing",
-		".codex/config.toml: unsupported_inline_hooks",
+		"action_required=0 unsupported=1 informational=4",
+		"informational target=codex reason=missing count=4",
+		"unsupported target=codex reason=unsupported_inline_hooks count=1",
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)

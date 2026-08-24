@@ -300,5 +300,10 @@ func validateCandidatesAgainstRequest(request Request, candidates CandidateSet) 
 			return err
 		}
 	}
+	for _, skipped := range candidates.skipped {
+		if err := validate("skipped observation", string(skipped.Target), string(skipped.Scope)); err != nil {
+			return err
+		}
+	}
 	return nil
 }

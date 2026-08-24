@@ -225,7 +225,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `4` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `5` |
 | `lock`, `outdated` | Lock comparison | `4` |
 | `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
@@ -350,10 +350,18 @@ document retains its 1 MiB limit.
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.
 
-Default human output contains target/scope totals, resource and skip counts,
-the destination, and nearest next commands. `--verbose` adds individual clean
-scan, resource, and merge rows. JSON retains every typed row. After a successful
-write with imported resources, human output points to lock preview and then to
+Default human output contains target/scope totals, resource counts, skip counts
+by `action_required`, `unsupported`, and `informational` category, the
+destination, and nearest next commands. `action_required` identifies a live
+source or explicit authoring decision the user can resolve; `unsupported`
+identifies a surface this daem version cannot manage; `informational`
+identifies expected discovery or deduplication noise. Every actionable skip
+remains visible with a next action. Unsupported and informational skips are
+compacted by target and reason; `--verbose` retains every exact per-path skip in addition to
+individual clean scan, resource, and merge rows. JSON retains every typed row
+with target, scope, category, and an optional stable action hint. After a
+successful write with imported resources, human output points to lock preview
+and then to
 `apply --manage-existing --dry-run` after the lockfile is written. The latter
 only previews registration of eligible exact matching live outputs; import does
 not register them and never recommends `--yes`.
@@ -496,7 +504,7 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `4` without changing existing
+Structured output uses authoring schema `5` without changing existing
 add/remove rows:
 
 - `command` and `operation` are `unmanage`;
@@ -528,7 +536,7 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, and import use schema `4` with these common
+Init uses schema `1`. Add, remove, and import use schema `5` with these common
 fields:
 
 | Field | Meaning |
@@ -539,6 +547,12 @@ fields:
 | `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
 | `has_errors`, optional `warnings` | result classification |
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
+
+Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
+`reason` values plus one stable `category`. `action_hint` is present only for
+`action_required` rows and is a machine code rather than human next-action
+prose. Unknown future reason codes default to `action_required` so default
+human output cannot silently compact them.
 
 Imported extension changes use `resource.kind = "extension"` and include the
 exact `carrier`, `target`, and `scope`. A source identity proven public by the
@@ -554,7 +568,7 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `4`. CLI misuse or
+Human next-command prose is deliberately absent from schema `5`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.

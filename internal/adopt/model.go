@@ -78,13 +78,18 @@ type Source struct {
 }
 
 // Skipped records one live import candidate that was not importable.
+// Target and Scope identify the selected observation route.
 type Skipped struct {
+	Target   targetpkg.Target
+	Scope    targetpkg.Scope
 	LivePath string
 	Reason   string
 }
 
 func UnsupportedSurfaceSkip(target targetpkg.Target, scope targetpkg.Scope, surface string) Skipped {
 	return Skipped{
+		Target:   target,
+		Scope:    scope,
 		LivePath: fmt.Sprintf("%s:%s:%s", target, scope, surface),
 		Reason:   "unsupported_" + surface + "_surface",
 	}

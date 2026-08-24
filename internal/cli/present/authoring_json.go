@@ -99,8 +99,12 @@ type ImportAuthoringJSONScan struct {
 }
 
 type ImportAuthoringJSONSkipped struct {
-	LivePath string `json:"live_path"`
-	Reason   string `json:"reason"`
+	Target     string `json:"target"`
+	Scope      string `json:"scope"`
+	LivePath   string `json:"live_path"`
+	Reason     string `json:"reason"`
+	Category   string `json:"category"`
+	ActionHint string `json:"action_hint,omitempty"`
 }
 
 type ImportAuthoringJSONMerge struct {
@@ -377,8 +381,12 @@ func importPlanJSONSkipped(skipped []adoptmodel.Skipped) []ImportAuthoringJSONSk
 	result := make([]ImportAuthoringJSONSkipped, 0, len(skipped))
 	for _, item := range skipped {
 		result = append(result, ImportAuthoringJSONSkipped{
-			LivePath: item.LivePath,
-			Reason:   item.Reason,
+			Target:     string(item.Target),
+			Scope:      string(item.Scope),
+			LivePath:   item.LivePath,
+			Reason:     item.Reason,
+			Category:   string(item.Category()),
+			ActionHint: string(item.ActionHint()),
 		})
 	}
 	return result
