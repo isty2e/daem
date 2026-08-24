@@ -19,9 +19,9 @@ support and evidence contract.
 
 Select the complete release requirement instead of relying on a moving
 latest-release URL. A release requirement includes the tag, commit time, Go
-toolchain, and native target; the recipe resolves the release commit from the
-immutable tag reference at run time. This example installs `v0.1.0` under
-`~/.local/bin`:
+toolchain, and native target; after platform admission the recipe resolves the
+release commit from the release metadata authority at run time. This example
+installs `v0.1.0` under `~/.local/bin`:
 
 ```bash
 set -eu
@@ -304,22 +304,50 @@ daem_release_binary_matches() {
   ' "$1"
 }
 
+daem_json_last_string() {
+  /usr/bin/awk -F'"' -v key="$2" '
+    $2 == key { value = $4 }
+    END { if (value == "") exit 1; print value }
+  ' "$1"
+}
+
+daem_resolve_release_revision() {
+  daem_metadata_url="${DAEM_ORIGIN_API}/git/ref/tags/$1"
+  daem_metadata_round=0
+  while [ "$daem_metadata_round" -lt 8 ]; do
+    daem_metadata_json="$2.tag-metadata.$daem_metadata_round.json"
+    if ! curl --fail --location --max-time 60 \
+      --output "$daem_metadata_json" \
+      "$daem_metadata_url"; then
+      return 1
+    fi
+    daem_object_type="$(daem_json_last_string "$daem_metadata_json" type)" || return 1
+    daem_object_sha="$(daem_json_last_string "$daem_metadata_json" sha)" || return 1
+    daem_admitted_release_revision "$daem_object_sha" || return 1
+    case "$daem_object_type" in
+      commit)
+        printf '%s\n' "$daem_object_sha"
+        return 0
+        ;;
+      tag)
+        daem_metadata_url="${DAEM_ORIGIN_API}/git/tags/$daem_object_sha"
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+    daem_metadata_round=$((daem_metadata_round + 1))
+  done
+  return 1
+}
+
 DAEM_VERSION=v0.1.0
 DAEM_REVISION_TIME=2026-07-28T02:19:30Z
 DAEM_GO_VERSION=go1.26.5
+DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"
 if ! daem_admitted_release_requirement \
   "$DAEM_VERSION" "$DAEM_REVISION_TIME" "$DAEM_GO_VERSION"; then
   echo "invalid daem release requirement" >&2
-  exit 1
-fi
-
-DAEM_ORIGIN_URL="https://github.com/isty2e/daem.git"
-DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}^{}" | cut -f1)"
-if [ -z "$DAEM_REVISION" ]; then
-  DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}" | cut -f1)"
-fi
-if ! daem_admitted_release_revision "$DAEM_REVISION"; then
-  echo "cannot resolve the daem release tag ${DAEM_VERSION} to exactly one commit" >&2
   exit 1
 fi
 
@@ -350,6 +378,11 @@ case "$DAEM_TARGET" in
     fi
     ;;
 esac
+
+if ! DAEM_REVISION="$(daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE")"; then
+  echo "cannot resolve the daem release tag ${DAEM_VERSION} to exactly one commit" >&2
+  exit 1
+fi
 
 DAEM_ARCHIVE="daem_${DAEM_VERSION#v}_${DAEM_TARGET}.tar.gz"
 DAEM_BASE_URL="https://github.com/isty2e/daem/releases/download/${DAEM_VERSION}"
@@ -421,14 +454,19 @@ decision for supported workflows, so the shell check cannot bypass the binary
 gate.
 
 The recipe accepts exactly one checksum entry for the requested archive, then
-requires one regular executable named `daem` in that archive. Before replacing
-an installed binary, it verifies that the staged executable exactly matches the
-selected tag, commit, commit time, Go toolchain, and native target, and that it
-reports Git VCS metadata and a clean source state. These checks detect transfer
-errors and release-assembly mismatches. The archive and its checksum sidecar
-share the same mutable GitHub release authority. This does not prove publisher
-identity, provenance, or post-publication immutability. Confirm that both
-downloads came from the expected GitHub repository and HTTPS endpoint.
+requires one regular executable named `daem` in that archive. It resolves the
+release commit from the selected tag's GitHub Git reference metadata after
+platform admission and before any download, using the same release authority
+as the archive download; a release requirement literal is never substituted
+into that resolution. Before replacing an installed binary, it verifies that
+the staged executable exactly matches the selected tag, resolved commit,
+commit time, Go toolchain, and native target, and that it reports Git VCS
+metadata and a clean source state. These checks detect transfer errors and
+release-assembly mismatches. The archive and its checksum sidecar share the
+same mutable GitHub release authority. The tag reference metadata comes from
+that same authority. This does not prove publisher identity, provenance, or
+post-publication immutability. Confirm that the downloads and metadata came
+from the expected GitHub repository and HTTPS endpoints.
 
 ## Release Mutability
 

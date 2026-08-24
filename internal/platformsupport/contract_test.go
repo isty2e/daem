@@ -61,10 +61,18 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 		"-test -scan=package -show verbose",
 		"-test -scan=symbol -show verbose",
 		"exit \"${scan_status}\"",
-		"needs: vulnerability-scan",
+		"resolve-tag:",
+		"release_commit: ${{ steps.resolve.outputs.release_commit }}",
+		"ref: ${{ needs.resolve-tag.outputs.release_commit }}",
+		"RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}",
+		"go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}",
 		"Exercise documented installer flow against local artifacts",
 		"python3 -m http.server \"${installer_port}\" --bind 127.0.0.1",
 		"grep -F 'curl --fail --location' \"${recipe}\"",
+		"write_release_metadata() {",
+		`'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"'`,
+		`"DAEM_ORIGIN_API=\"http://127.0.0.1:${installer_port}\""`,
+		`"sha": "${RELEASE_REVISION}"`,
 		"downloaded archive does not match its exact checksum entry",
 		"downloaded daem binary does not match the requested release identity",
 		"tar -czf \"${alien_dir}/${archive_name}\" -C \"${alien_stage}\" daem",
@@ -94,7 +102,7 @@ func TestReleaseArtifactWorkflowIsNonpublishingAndFailClosed(t *testing.T) {
 	}
 }
 
-func TestReleaseArtifactWorkflowIsolatesScanningBeforeTagControlledCode(t *testing.T) {
+func TestReleaseArtifactWorkflowBindsEveryJobToOneResolvedCommit(t *testing.T) {
 	var workflow struct {
 		On          map[string]yaml.Node   `yaml:"on"`
 		Permissions map[string]string      `yaml:"permissions"`
@@ -128,56 +136,46 @@ func TestReleaseArtifactWorkflowIsolatesScanningBeforeTagControlledCode(t *testi
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
 		t.Fatalf("release workflow permissions = %#v, want contents: read only", workflow.Permissions)
 	}
-	if len(workflow.Jobs) != 2 {
-		t.Fatalf("release workflow jobs = %#v, want vulnerability-scan and artifact", reflect.ValueOf(workflow.Jobs).MapKeys())
+	if len(workflow.Jobs) != 3 {
+		t.Fatalf("release workflow jobs = %#v, want resolve-tag, vulnerability-scan, and artifact", reflect.ValueOf(workflow.Jobs).MapKeys())
+	}
+	resolveJob, ok := workflow.Jobs["resolve-tag"]
+	if !ok {
+		t.Fatalf("release workflow lacks resolve-tag job: %#v", reflect.ValueOf(workflow.Jobs).MapKeys())
 	}
 	scanJob, ok := workflow.Jobs["vulnerability-scan"]
 	if !ok {
 		t.Fatalf("release workflow lacks vulnerability-scan job: %#v", reflect.ValueOf(workflow.Jobs).MapKeys())
 	}
-	job, ok := workflow.Jobs["artifact"]
+	artifactJob, ok := workflow.Jobs["artifact"]
 	if !ok {
 		t.Fatalf("release workflow lacks artifact job: %#v", reflect.ValueOf(workflow.Jobs).MapKeys())
 	}
-	if !reflect.DeepEqual(releaseJobNeeds(t, job), []string{"vulnerability-scan"}) {
-		t.Fatalf("artifact needs = %#v, want dependency on vulnerability-scan so scanning precedes tag-controlled code", releaseJobNeeds(t, job))
+
+	assertReleaseTagResolutionJob(t, resolveJob)
+
+	if !reflect.DeepEqual(releaseJobNeeds(t, scanJob), []string{"resolve-tag"}) {
+		t.Fatalf("vulnerability-scan needs = %#v, want dependency on resolve-tag", releaseJobNeeds(t, scanJob))
+	}
+	if !reflect.DeepEqual(releaseJobNeeds(t, artifactJob), []string{"resolve-tag", "vulnerability-scan"}) {
+		t.Fatalf("artifact needs = %#v, want dependency on resolve-tag and vulnerability-scan", releaseJobNeeds(t, artifactJob))
 	}
 
 	assertReleaseJobShape(t, "vulnerability-scan", scanJob)
-	assertReleaseJobShape(t, "artifact", job)
+	assertReleaseJobShape(t, "artifact", artifactJob)
 
-	wantScanSteps := []string{
-		"Check out selected tag",
-		"Set up exact default Go toolchain",
-		"Validate tag, toolchain, and native target",
-		"Scan exact tag for known vulnerabilities",
-	}
-	assertReleaseStepSequence(t, "vulnerability-scan", scanJob, wantScanSteps)
-	scan := scanJob.Steps[len(scanJob.Steps)-1]
-	for _, required := range []string{
-		"set -euo pipefail",
-		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -C cmd/daem -scan=module -show verbose || scan_status=1",
-		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=package -show verbose ./... || scan_status=1",
-		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=symbol -show verbose ./... || scan_status=1",
-		"exit \"${scan_status}\"",
-	} {
-		if !strings.Contains(scan.Run, required) {
-			t.Errorf("vulnerability scan step is missing control-flow fragment %q", required)
-		}
-	}
-	if strings.Contains(scan.Run, "|| true") {
-		t.Error("vulnerability scan step swallows failures with || true")
-	}
-	for _, step := range scanJob.Steps {
-		if strings.Contains(step.Run, "tools/test.sh") {
-			t.Errorf("vulnerability-scan step %q runs tag-controlled scripts before scanning", step.Name)
-		}
-	}
-
-	wantArtifactSteps := []string{
-		"Check out selected tag",
-		"Set up exact default Go toolchain",
-		"Validate tag, revision, toolchain, and native target",
+	assertReleaseStepSequence(t, "vulnerability-scan", scanJob, []string{
+		"Check out resolved release commit",
+		"Resolve documented release toolchain",
+		"Set up documented release toolchain",
+		"Validate commit, tag, toolchain, and native target",
+		"Scan resolved commit for known vulnerabilities",
+	})
+	assertReleaseStepSequence(t, "artifact", artifactJob, []string{
+		"Check out resolved release commit",
+		"Resolve documented release toolchain",
+		"Set up documented release toolchain",
+		"Validate commit, tag, revision, toolchain, and native target",
 		"Run full native tests before artifact construction",
 		"Build twice from frozen inputs",
 		"Verify embedded version contract",
@@ -187,15 +185,171 @@ func TestReleaseArtifactWorkflowIsolatesScanningBeforeTagControlledCode(t *testi
 		"Exercise documented installer flow against local artifacts",
 		"Smoke-test install, source upgrade, and executable rollback",
 		"Upload private workflow artifact",
-	}
-	assertReleaseStepSequence(t, "artifact", job, wantArtifactSteps)
+	})
 
-	upload := job.Steps[len(job.Steps)-1]
+	assertReleaseResolvedCheckout(t, "vulnerability-scan", scanJob.Steps[0])
+	assertReleaseResolvedCheckout(t, "artifact", artifactJob.Steps[0])
+	assertReleaseToolchainSteps(t, "vulnerability-scan", scanJob.Steps[1], scanJob.Steps[2])
+	assertReleaseToolchainSteps(t, "artifact", artifactJob.Steps[1], artifactJob.Steps[2])
+	assertReleaseScanStep(t, scanJob.Steps[len(scanJob.Steps)-1])
+	for _, step := range scanJob.Steps {
+		if strings.Contains(step.Run, "tools/test.sh") {
+			t.Errorf("vulnerability-scan step %q runs tag-controlled scripts before scanning", step.Name)
+		}
+	}
+
+	upload := artifactJob.Steps[len(artifactJob.Steps)-1]
 	if upload.Uses != "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" {
 		t.Fatalf("last artifact step uses %q, want pinned private upload", upload.Uses)
 	}
 	if upload.If != "" {
 		t.Fatalf("artifact upload has custom if %q, want default prior-step success gate", upload.If)
+	}
+}
+
+func assertReleaseTagResolutionJob(t *testing.T, job workflowJob) {
+	t.Helper()
+	if job.RunsOn != "ubuntu-24.04" {
+		t.Fatalf("resolve-tag runs-on = %q, want fixed ubuntu-24.04", job.RunsOn)
+	}
+	if job.TimeoutMinutes <= 0 {
+		t.Fatalf("resolve-tag timeout-minutes = %d, want a finite positive timeout", job.TimeoutMinutes)
+	}
+	if job.If != "" {
+		t.Fatalf("resolve-tag has custom if %q", job.If)
+	}
+	if !reflect.DeepEqual(job.Outputs, map[string]string{
+		"release_commit": "${{ steps.resolve.outputs.release_commit }}",
+	}) {
+		t.Fatalf("resolve-tag outputs = %#v, want one release_commit output from the resolve step", job.Outputs)
+	}
+	assertReleaseStepSequence(t, "resolve-tag", job, []string{
+		"Check out selected tag",
+		"Resolve selected tag to exactly one commit",
+	})
+	checkout := job.Steps[0]
+	if checkout.Uses != "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" {
+		t.Fatalf("resolve-tag checkout uses %q, want pinned checkout action", checkout.Uses)
+	}
+	if checkout.If != "" {
+		t.Fatalf("resolve-tag checkout has custom if %q", checkout.If)
+	}
+	assertReleaseStepWith(t, "resolve-tag checkout", checkout, map[string]string{
+		"ref":                 "refs/tags/${{ inputs.tag }}",
+		"fetch-depth":         "0",
+		"persist-credentials": "false",
+	})
+	for _, step := range job.Steps {
+		if step.ContinueOnError != nil {
+			t.Fatalf("resolve-tag step %q weakens failure with continue-on-error", step.Name)
+		}
+	}
+	resolve := job.Steps[1]
+	if resolve.Id != "resolve" {
+		t.Fatalf("resolve-tag resolution step id = %q, want resolve", resolve.Id)
+	}
+	if resolve.If != "" {
+		t.Fatalf("resolve-tag resolution step has custom if %q", resolve.If)
+	}
+	for _, required := range []string{
+		"set -euo pipefail",
+		"git check-ref-format \"refs/tags/${RELEASE_TAG}\"",
+		"git show-ref --verify --quiet \"refs/tags/${RELEASE_TAG}\"",
+		"git rev-parse --verify \"refs/tags/${RELEASE_TAG}^{commit}\"",
+		"grep -E -x '[0-9a-f]{40}'",
+		"test \"$(git rev-parse --verify HEAD)\" = \"${release_commit}\"",
+		"printf 'release_commit=%s\\n' \"${release_commit}\" >> \"${GITHUB_OUTPUT}\"",
+	} {
+		if !strings.Contains(resolve.Run, required) {
+			t.Errorf("resolve-tag resolution step is missing fragment %q", required)
+		}
+	}
+}
+
+func assertReleaseResolvedCheckout(t *testing.T, jobName string, step releaseStep) {
+	t.Helper()
+	if step.Uses != "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd" {
+		t.Fatalf("%s checkout uses %q, want pinned checkout action", jobName, step.Uses)
+	}
+	if step.If != "" {
+		t.Fatalf("%s checkout has custom if %q", jobName, step.If)
+	}
+	assertReleaseStepWith(t, jobName+" checkout", step, map[string]string{
+		"ref":                 "${{ needs.resolve-tag.outputs.release_commit }}",
+		"fetch-depth":         "0",
+		"persist-credentials": "false",
+	})
+}
+
+func assertReleaseToolchainSteps(t *testing.T, jobName string, resolve releaseStep, setup releaseStep) {
+	t.Helper()
+	if resolve.If != "" {
+		t.Fatalf("%s toolchain resolution has custom if %q", jobName, resolve.If)
+	}
+	ordered := []string{
+		"/^DAEM_GO_VERSION=/",
+		"grep -E -x 'go[0-9]+\\.[0-9]+\\.[0-9]+'",
+		`setup_go_version="${documented_toolchain#go}"`,
+		"grep -E -x '[0-9]+\\.[0-9]+\\.[0-9]+'",
+		"printf 'RELEASE_TOOLCHAIN=%s\\n' \"${documented_toolchain}\" >> \"${GITHUB_ENV}\"",
+		"printf 'RELEASE_SETUP_GO_VERSION=%s\\n' \"${setup_go_version}\" >> \"${GITHUB_ENV}\"",
+	}
+	last := -1
+	for _, fragment := range ordered {
+		index := strings.Index(resolve.Run, fragment)
+		if index < 0 {
+			t.Fatalf("%s toolchain resolution is missing fragment %q", jobName, fragment)
+		}
+		if index < last {
+			t.Fatalf("%s toolchain resolution fragment %q is out of order", jobName, fragment)
+		}
+		last = index
+	}
+	if setup.Uses != "actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c" {
+		t.Fatalf("%s setup-go uses %q, want pinned setup-go action", jobName, setup.Uses)
+	}
+	if setup.If != "" {
+		t.Fatalf("%s setup-go has custom if %q", jobName, setup.If)
+	}
+	assertReleaseStepWith(t, jobName+" setup-go", setup, map[string]string{
+		"go-version":            "${{ env.RELEASE_SETUP_GO_VERSION }}",
+		"cache-dependency-path": "go.sum",
+	})
+}
+
+func assertReleaseScanStep(t *testing.T, scan releaseStep) {
+	t.Helper()
+	if scan.If != "" {
+		t.Fatalf("vulnerability scan step has custom if %q, want unconditional execution", scan.If)
+	}
+	ordered := []string{
+		"set -euo pipefail",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version",
+		"scan_status=0",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -C cmd/daem -scan=module -show verbose || scan_status=1",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=package -show verbose ./... || scan_status=1",
+		"go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \\\n  -test -scan=symbol -show verbose ./... || scan_status=1",
+		"exit \"${scan_status}\"",
+	}
+	last := -1
+	for _, fragment := range ordered {
+		index := strings.Index(scan.Run, fragment)
+		if index < 0 {
+			t.Fatalf("vulnerability scan step is missing control-flow fragment %q", fragment)
+		}
+		if index < last {
+			t.Fatalf("vulnerability scan step fragment %q is out of order", fragment)
+		}
+		last = index
+	}
+	if count := strings.Count(scan.Run, "scan_status=0"); count != 1 {
+		t.Fatalf("vulnerability scan step initializes scan_status %d times, want exactly one before propagation", count)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(scan.Run), `exit "${scan_status}"`) {
+		t.Fatal("vulnerability scan step does not end by propagating scan_status")
+	}
+	if strings.Contains(scan.Run, "|| true") {
+		t.Error("vulnerability scan step swallows failures with || true")
 	}
 }
 
@@ -206,6 +360,9 @@ func assertReleaseJobShape(t *testing.T, name string, job workflowJob) {
 	}
 	if job.TimeoutMinutes <= 0 {
 		t.Fatalf("%s timeout-minutes = %d, want a finite positive timeout", name, job.TimeoutMinutes)
+	}
+	if job.If != "" {
+		t.Fatalf("%s has custom if %q", name, job.If)
 	}
 	if job.Strategy.FailFast == nil || *job.Strategy.FailFast {
 		t.Fatalf("%s fail-fast = %v, want explicit false", name, job.Strategy.FailFast)
@@ -260,10 +417,38 @@ func releaseJobNeeds(t *testing.T, job workflowJob) []string {
 	}
 }
 
+func assertReleaseStepWith(t *testing.T, stepName string, step releaseStep, want map[string]string) {
+	t.Helper()
+	if len(step.With) != len(want) {
+		t.Fatalf("%s with = %#v, want exactly %#v", stepName, step.With, want)
+	}
+	for key, value := range want {
+		field, ok := step.With[key]
+		if !ok {
+			t.Fatalf("%s lacks with.%s", stepName, key)
+		}
+		if field.Value != value {
+			t.Fatalf("%s with.%s = %q, want %q", stepName, key, field.Value, value)
+		}
+	}
+}
+
+type releaseStep struct {
+	Name            string               `yaml:"name"`
+	Id              string               `yaml:"id"`
+	Uses            string               `yaml:"uses"`
+	If              string               `yaml:"if"`
+	Run             string               `yaml:"run"`
+	With            map[string]yaml.Node `yaml:"with"`
+	ContinueOnError *yaml.Node           `yaml:"continue-on-error"`
+}
+
 type workflowJob struct {
-	RunsOn         string    `yaml:"runs-on"`
-	Needs          yaml.Node `yaml:"needs"`
-	TimeoutMinutes int       `yaml:"timeout-minutes"`
+	RunsOn         string            `yaml:"runs-on"`
+	If             string            `yaml:"if"`
+	Needs          yaml.Node         `yaml:"needs"`
+	TimeoutMinutes int               `yaml:"timeout-minutes"`
+	Outputs        map[string]string `yaml:"outputs"`
 	Strategy       struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct {
@@ -275,13 +460,7 @@ type workflowJob struct {
 			} `yaml:"include"`
 		} `yaml:"matrix"`
 	} `yaml:"strategy"`
-	Steps []struct {
-		Name            string     `yaml:"name"`
-		Uses            string     `yaml:"uses"`
-		If              string     `yaml:"if"`
-		Run             string     `yaml:"run"`
-		ContinueOnError *yaml.Node `yaml:"continue-on-error"`
-	} `yaml:"steps"`
+	Steps []releaseStep `yaml:"steps"`
 }
 
 func TestPlatformContractsMatchCanonicalRows(t *testing.T) {

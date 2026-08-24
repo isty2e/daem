@@ -24,8 +24,35 @@ env:
   GOWORK: "off"
 
 jobs:
+  resolve-tag:
+    name: Resolve release tag to one commit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      release_commit: ${{ steps.resolve.outputs.release_commit }}
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Check out selected tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve selected tag to exactly one commit
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          git check-ref-format "refs/tags/${RELEASE_TAG}"
+          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          release_commit="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
+          printf '%s\n' "${release_commit}" | grep -E -x '[0-9a-f]{40}'
+          test "$(git rev-parse --verify HEAD)" = "${release_commit}"
+          printf 'release_commit=%s\n' "${release_commit}" >> "${GITHUB_OUTPUT}"
   vulnerability-scan:
     name: Vulnerability scan (${{ matrix.name }})
+    needs: resolve-tag
     strategy:
       fail-fast: false
       matrix:
@@ -42,35 +69,53 @@ jobs:
     timeout-minutes: 30
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
       RELEASE_GOOS: ${{ matrix.goos }}
       RELEASE_GOARCH: ${{ matrix.goarch }}
     steps:
-      - name: Check out selected tag
+      - name: Check out resolved release commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up exact default Go toolchain
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
-        with:
-          go-version: "1.26.6"
-          cache-dependency-path: go.sum
-      - name: Validate tag, toolchain, and native target
+      - name: Resolve documented release toolchain
         shell: bash
         run: |
           set -euo pipefail
-          git check-ref-format "refs/tags/${RELEASE_TAG}"
-          git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
-          revision="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
-          test "$(git rev-parse --verify HEAD)" = "${revision}"
+          documented_toolchain="$(awk -F= '
+            /^DAEM_GO_VERSION=/ {
+              if (seen++) exit 1
+              value = $2
+            }
+            END {
+              if (seen != 1 || value == "") exit 1
+              print value
+            }
+          ' docs/install.md)"
+          printf '%s\n' "${documented_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
+          setup_go_version="${documented_toolchain#go}"
+          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
+          printf 'RELEASE_TOOLCHAIN=%s\n' "${documented_toolchain}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_SETUP_GO_VERSION=%s\n' "${setup_go_version}" >> "${GITHUB_ENV}"
+      - name: Set up documented release toolchain
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}
+          cache-dependency-path: go.sum
+      - name: Validate commit, tag, toolchain, and native target
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse --verify HEAD)" = "${RELEASE_COMMIT}"
+          test "$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")" = "${RELEASE_COMMIT}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOVERSION)" = "${RELEASE_TOOLCHAIN}"
           test "$(go env GOOS)" = "${RELEASE_GOOS}"
           test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
           go version
           go env GOOS GOARCH GOTOOLCHAIN
-      - name: Scan exact tag for known vulnerabilities
+      - name: Scan resolved commit for known vulnerabilities
         shell: bash
         run: |
           # This job executes no tag-controlled script, so the tag cannot
@@ -88,7 +133,9 @@ jobs:
           exit "${scan_status}"
   artifact:
     name: Artifact (${{ matrix.name }})
-    needs: vulnerability-scan
+    needs:
+      - resolve-tag
+      - vulnerability-scan
     strategy:
       fail-fast: false
       matrix:
@@ -105,30 +152,51 @@ jobs:
     timeout-minutes: 45
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      RELEASE_COMMIT: ${{ needs.resolve-tag.outputs.release_commit }}
       RELEASE_GOOS: ${{ matrix.goos }}
       RELEASE_GOARCH: ${{ matrix.goarch }}
     steps:
-      - name: Check out selected tag
+      - name: Check out resolved release commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: refs/tags/${{ inputs.tag }}
+          ref: ${{ needs.resolve-tag.outputs.release_commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up exact default Go toolchain
+      - name: Resolve documented release toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          documented_toolchain="$(awk -F= '
+            /^DAEM_GO_VERSION=/ {
+              if (seen++) exit 1
+              value = $2
+            }
+            END {
+              if (seen != 1 || value == "") exit 1
+              print value
+            }
+          ' docs/install.md)"
+          printf '%s\n' "${documented_toolchain}" | grep -E -x 'go[0-9]+\.[0-9]+\.[0-9]+'
+          setup_go_version="${documented_toolchain#go}"
+          printf '%s\n' "${setup_go_version}" | grep -E -x '[0-9]+\.[0-9]+\.[0-9]+'
+          printf 'RELEASE_TOOLCHAIN=%s\n' "${documented_toolchain}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_SETUP_GO_VERSION=%s\n' "${setup_go_version}" >> "${GITHUB_ENV}"
+      - name: Set up documented release toolchain
         uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
-          go-version: "1.26.6"
+          go-version: ${{ env.RELEASE_SETUP_GO_VERSION }}
           cache-dependency-path: go.sum
-      - name: Validate tag, revision, toolchain, and native target
+      - name: Validate commit, tag, revision, toolchain, and native target
         shell: bash
         run: |
           set -euo pipefail
           git check-ref-format "refs/tags/${RELEASE_TAG}"
           git show-ref --verify --quiet "refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse --verify HEAD)" = "${RELEASE_COMMIT}"
           revision="$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")"
-          test "$(git rev-parse --verify HEAD)" = "${revision}"
+          test "${revision}" = "${RELEASE_COMMIT}"
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
-          test "$(go env GOVERSION)" = "go1.26.6"
+          test "$(go env GOVERSION)" = "${RELEASE_TOOLCHAIN}"
           test "$(go env GOOS)" = "${RELEASE_GOOS}"
           test "$(go env GOARCH)" = "${RELEASE_GOARCH}"
           printf 'RELEASE_REVISION=%s\n' "${revision}" >> "${GITHUB_ENV}"
@@ -202,7 +270,7 @@ jobs:
           # The tagged docs cannot state their own tag commit hash
           # (self-referential), so docs revision equality is not asserted;
           # the binary-vs-tag revision binding above is authoritative, and
-          # the documented recipe resolves the commit from the tag itself.
+          # the documented recipe resolves the commit from release metadata.
           assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
           assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
       - name: Smoke-test native CLI artifact
@@ -353,14 +421,35 @@ jobs:
             installer_server_pid=""
           }
 
+          write_release_metadata() {
+            directory="$1"
+            mkdir -p "${directory}/git/ref/tags"
+            cat > "${directory}/git/ref/tags/${RELEASE_TAG}" <<EOF
+          {
+            "object": {
+              "sha": "${RELEASE_REVISION}",
+              "type": "commit"
+            }
+          }
+          EOF
+          }
+
           # shellcheck disable=SC2016
           substitute_once "${recipe}" \
             'DAEM_BASE_URL="https://github.com/isty2e/daem/releases/download/${DAEM_VERSION}"' \
             "DAEM_BASE_URL=\"http://127.0.0.1:${installer_port}\""
+          if grep -F -x -q \
+            'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"' \
+            "${recipe}"; then
+            substitute_once "${recipe}" \
+              'DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"' \
+              "DAEM_ORIGIN_API=\"http://127.0.0.1:${installer_port}\""
+          fi
           bash -n "${recipe}"
 
           release_dir="${RUNNER_TEMP}/installer-release"
           mkdir "${release_dir}"
+          write_release_metadata "${release_dir}"
           cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${release_dir}/"
           cp "${RUNNER_TEMP}/artifact-1/${archive_name}.sha256" "${release_dir}/"
 
@@ -378,6 +467,7 @@ jobs:
 
           corrupt_dir="${RUNNER_TEMP}/installer-release-corrupt"
           mkdir "${corrupt_dir}"
+          write_release_metadata "${corrupt_dir}"
           cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${corrupt_dir}/"
           awk '
             NR == 1 {
@@ -417,6 +507,7 @@ jobs:
             chmod 0755 "${alien_stage}/daem"
             alien_dir="${RUNNER_TEMP}/installer-release-alien"
             mkdir "${alien_dir}"
+            write_release_metadata "${alien_dir}"
             tar -czf "${alien_dir}/${archive_name}" -C "${alien_stage}" daem
             (
               cd "${alien_dir}"

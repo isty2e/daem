@@ -470,9 +470,13 @@ func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
 		"DAEM_VERSION=v0.1.0",
 		"DAEM_REVISION_TIME=2026-07-28T02:19:30Z",
 		"DAEM_GO_VERSION=go1.26.5",
-		`DAEM_ORIGIN_URL="https://github.com/isty2e/daem.git"`,
-		`DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}^{}" | cut -f1)"`,
-		`DAEM_REVISION="$(git ls-remote "$DAEM_ORIGIN_URL" "refs/tags/${DAEM_VERSION}" | cut -f1)"`,
+		`DAEM_ORIGIN_API="https://api.github.com/repos/isty2e/daem"`,
+		`daem_json_last_string() {`,
+		`daem_resolve_release_revision() {`,
+		`"${DAEM_ORIGIN_API}/git/ref/tags/$1"`,
+		`"${DAEM_ORIGIN_API}/git/tags/$daem_object_sha"`,
+		`while [ "$daem_metadata_round" -lt 8 ]`,
+		"--max-time 60",
 	} {
 		if !strings.Contains(recipe, fact) {
 			t.Fatalf("install recipe is missing exact published release fact %q", fact)
@@ -490,9 +494,86 @@ func TestInstallRecipeUsesExactPublishedReleaseRequirement(t *testing.T) {
 	}
 }
 
+func TestInstallRecipeResolvesNestedAnnotatedTagToCommit(t *testing.T) {
+	const (
+		firstTag  = "1111111111111111111111111111111111111111"
+		secondTag = "2222222222222222222222222222222222222222"
+		commit    = "3333333333333333333333333333333333333333"
+	)
+	fixtureDirectory := t.TempDir()
+	for name, content := range map[string]string{
+		"reference.json":  "{\n  \"object\": {\n    \"sha\": \"" + firstTag + "\",\n    \"type\": \"tag\"\n  }\n}\n",
+		"first-tag.json":  "{\n  \"sha\": \"" + firstTag + "\",\n  \"object\": {\n    \"sha\": \"" + secondTag + "\",\n    \"type\": \"tag\"\n  }\n}\n",
+		"second-tag.json": "{\n  \"sha\": \"" + secondTag + "\",\n  \"object\": {\n    \"sha\": \"" + commit + "\",\n    \"type\": \"commit\"\n  }\n}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(fixtureDirectory, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	binDirectory := t.TempDir()
+	fakeCurl := `#!/bin/sh
+set -eu
+output=
+url=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output)
+      output="$2"
+      shift 2
+      ;;
+    --max-time)
+      shift 2
+      ;;
+    --fail|--location)
+      shift
+      ;;
+    *)
+      url="$1"
+      shift
+      ;;
+  esac
+done
+case "$url" in
+  */git/ref/tags/v1.2.3) source=reference.json ;;
+  */git/tags/` + firstTag + `) source=first-tag.json ;;
+  */git/tags/` + secondTag + `) source=second-tag.json ;;
+  *) exit 1 ;;
+esac
+cp "$DAEM_FIXTURE_DIRECTORY/$source" "$output"
+`
+	fakeCurlPath := filepath.Join(binDirectory, "curl")
+	if err := os.WriteFile(fakeCurlPath, []byte(fakeCurl), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	stagePrefix := filepath.Join(t.TempDir(), "metadata")
+	command := exec.Command(
+		"/bin/sh",
+		"-c",
+		installRecipeFunctions(t)+"\n"+`DAEM_ORIGIN_API="https://api.example.invalid/repos/isty2e/daem"`+"\n"+`daem_resolve_release_revision v1.2.3 "$1"`,
+		"daem-install-test",
+		stagePrefix,
+	)
+	command.Env = append(
+		os.Environ(),
+		"PATH="+binDirectory+":/usr/bin:/bin",
+		"DAEM_FIXTURE_DIRECTORY="+fixtureDirectory,
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("resolve nested annotated tag: %v\n%s", err, output)
+	}
+	if got := strings.TrimSpace(string(output)); got != commit {
+		t.Fatalf("resolved revision = %q, want %q", got, commit)
+	}
+}
+
 func TestInstallRecipeVerifiesBeforeReplacingExecutable(t *testing.T) {
 	recipe := installRecipe(t)
 	assertInstallRecipeOrder(t, recipe, `daem_admitted_release_requirement`, `curl --fail --location`)
+	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`)
+	assertInstallRecipeOrder(t, recipe, `daem_resolve_release_revision "$DAEM_VERSION" "$DAEM_STAGE"`, `DAEM_ARCHIVE="daem_`)
 	assertInstallRecipeOrder(t, recipe, `daem_release_target "$DAEM_SYSTEM" "$DAEM_MACHINE" "$DAEM_TRANSLATED"`, `curl --fail --location`)
 	assertInstallRecipeOrder(t, recipe, `daem_verify_archive_checksum`, `daem_extract_release_binary`)
 	assertInstallRecipeOrder(t, recipe, `daem_extract_release_binary`, `daem_release_binary_matches`)
