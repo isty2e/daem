@@ -78,6 +78,21 @@ jobs:
           go mod verify
           tools/test.sh full
           test -z "$(git status --porcelain=v1 --untracked-files=all)"
+      - name: Scan exact tag for known vulnerabilities
+        shell: bash
+        run: |
+          set -euo pipefail
+          go version
+          go env GOOS GOARCH GOTOOLCHAIN
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 -version
+          scan_status=0
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -C cmd/daem -scan=module -show verbose || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=package -show verbose ./... || scan_status=1
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 \
+            -test -scan=symbol -show verbose ./... || scan_status=1
+          exit "${scan_status}"
       - name: Build twice from frozen inputs
         shell: bash
         env:
@@ -130,10 +145,17 @@ jobs:
             count="$(grep -F -x -c "$1=$2" docs/install.md)"
             test "${count}" = 1
           }
+          assert_installer_requirement_if_present() {
+            if grep -E -q "^$1=" docs/install.md; then
+              assert_installer_requirement "$1" "$2"
+            fi
+          }
           assert_installer_requirement DAEM_VERSION "${RELEASE_TAG}"
-          assert_installer_requirement DAEM_REVISION "${RELEASE_REVISION}"
-          assert_installer_requirement DAEM_REVISION_TIME "${revision_time}"
-          assert_installer_requirement DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
+          # The tagged docs cannot state their own tag commit hash
+          # (self-referential), so docs revision equality is not asserted;
+          # the binary-vs-tag revision binding above is authoritative.
+          assert_installer_requirement_if_present DAEM_REVISION_TIME "${revision_time}"
+          assert_installer_requirement_if_present DAEM_GO_VERSION "${RELEASE_GO_VERSION}"
       - name: Smoke-test native CLI artifact
         shell: bash
         run: |
@@ -203,6 +225,140 @@ jobs:
           test -x "${RUNNER_TEMP}/extracted/daem"
           cmp "${RUNNER_TEMP}/build-1/daem" "${RUNNER_TEMP}/extracted/daem"
           "${RUNNER_TEMP}/extracted/daem" --version
+      - name: Exercise documented installer flow against local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive_name="daem_${RELEASE_TAG#v}_${RELEASE_GOOS}_${RELEASE_GOARCH}.tar.gz"
+          installer_port=18080
+          installer_server_pid=""
+          trap 'if [ -n "${installer_server_pid}" ]; then kill "${installer_server_pid}" 2>/dev/null || true; fi' EXIT
+
+          recipe="${RUNNER_TEMP}/installer-recipe.sh"
+          awk '
+            /^```bash$/ { fence++; if (fence == 1) next }
+            fence == 1 && /^```$/ { exit }
+            fence == 1 { print }
+          ' docs/install.md > "${recipe}"
+          bash -n "${recipe}"
+          test "$(head -n 1 "${recipe}")" = "set -eu"
+          grep -F 'curl --fail --location' "${recipe}"
+          grep -F 'DAEM_BASE_URL=' "${recipe}"
+          modern_flow=0
+          if grep -F -q 'daem_verify_archive_checksum' "${recipe}"; then
+            modern_flow=1
+          fi
+
+          substitute_once() {
+            file="$1"
+            original="$2"
+            replacement="$3"
+            count="$(grep -F -x -c -- "${original}" "${file}")"
+            test "${count}" = 1
+            awk -v old="${original}" -v new="${replacement}" '
+              { if ($0 == old) print new; else print $0 }
+            ' "${file}" > "${file}.new"
+            mv "${file}.new" "${file}"
+          }
+
+          serve_directory() {
+            directory="$1"
+            (
+              cd "${directory}"
+              exec python3 -m http.server "${installer_port}" --bind 127.0.0.1 \
+                >/dev/null 2>&1
+            ) &
+            installer_server_pid=$!
+            for _ in $(seq 1 100); do
+              if curl -sf -o /dev/null "http://127.0.0.1:${installer_port}/"; then
+                return 0
+              fi
+              sleep 0.2
+            done
+            echo "local artifact server did not become ready" >&2
+            exit 1
+          }
+
+          stop_server() {
+            kill "${installer_server_pid}" 2>/dev/null || true
+            wait "${installer_server_pid}" 2>/dev/null || true
+            installer_server_pid=""
+          }
+
+          # shellcheck disable=SC2016
+          substitute_once "${recipe}" \
+            'DAEM_BASE_URL="https://github.com/isty2e/daem/releases/download/${DAEM_VERSION}"' \
+            "DAEM_BASE_URL=\"http://127.0.0.1:${installer_port}\""
+          bash -n "${recipe}"
+
+          release_dir="${RUNNER_TEMP}/installer-release"
+          mkdir "${release_dir}"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${release_dir}/"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}.sha256" "${release_dir}/"
+
+          installer_home="${RUNNER_TEMP}/installer-home"
+          mkdir -p "${installer_home}"
+          serve_directory "${release_dir}"
+          env -i HOME="${installer_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            bash "${recipe}" \
+            > "${RUNNER_TEMP}/installer-positive.out" \
+            2> "${RUNNER_TEMP}/installer-positive.err"
+          stop_server
+          test -x "${installer_home}/.local/bin/daem"
+          "${installer_home}/.local/bin/daem" version --json | \
+            grep -F -x "  \"version\": \"${RELEASE_TAG}\","
+
+          corrupt_dir="${RUNNER_TEMP}/installer-release-corrupt"
+          mkdir "${corrupt_dir}"
+          cp "${RUNNER_TEMP}/artifact-1/${archive_name}" "${corrupt_dir}/"
+          awk '
+            NR == 1 {
+              first = substr($1, 1, 1)
+              flipped = (first == "0") ? "1" : "0"
+              print flipped substr($1, 2) "  " $2
+              next
+            }
+            { print }
+          ' "${RUNNER_TEMP}/artifact-1/${archive_name}.sha256" \
+            > "${corrupt_dir}/${archive_name}.sha256"
+          corrupt_home="${RUNNER_TEMP}/installer-home-corrupt"
+          mkdir -p "${corrupt_home}"
+          serve_directory "${corrupt_dir}"
+          if env -i HOME="${corrupt_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+            bash "${recipe}" \
+            > "${RUNNER_TEMP}/installer-corrupt.out" \
+            2> "${RUNNER_TEMP}/installer-corrupt.err"; then
+            echo "corrupted checksum install unexpectedly succeeded" >&2
+            exit 1
+          fi
+          stop_server
+          if [ "${modern_flow}" = 1 ]; then
+            grep -F 'downloaded archive does not match its exact checksum entry' \
+              "${RUNNER_TEMP}/installer-corrupt.err"
+          fi
+
+          if grep -F -x -q "DAEM_REVISION=${RELEASE_REVISION}" "${recipe}"; then
+            wrong_recipe="${RUNNER_TEMP}/installer-recipe-wrong-revision.sh"
+            cp "${recipe}" "${wrong_recipe}"
+            substitute_once "${wrong_recipe}" \
+              "DAEM_REVISION=${RELEASE_REVISION}" \
+              "DAEM_REVISION=0000000000000000000000000000000000000000"
+            bash -n "${wrong_recipe}"
+            wrong_home="${RUNNER_TEMP}/installer-home-wrong"
+            mkdir -p "${wrong_home}"
+            serve_directory "${release_dir}"
+            if env -i HOME="${wrong_home}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+              bash "${wrong_recipe}" \
+              > "${RUNNER_TEMP}/installer-wrong.out" \
+              2> "${RUNNER_TEMP}/installer-wrong.err"; then
+              echo "wrong-revision install unexpectedly succeeded" >&2
+              exit 1
+            fi
+            stop_server
+            grep -F 'downloaded daem binary does not match the requested release identity' \
+              "${RUNNER_TEMP}/installer-wrong.err"
+          fi
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
       - name: Smoke-test install, source upgrade, and executable rollback
         shell: bash
         env:
