@@ -59,8 +59,14 @@ jobs:
           set -euo pipefail
           release_toolchain="$(awk '
             $1 == "toolchain" {
-              if (seen++ || NF != 2) exit 1
-              value = $2
+              if (seen++) exit 1
+              directive = $0
+              comment = index(directive, "//")
+              if (comment > 0) directive = substr(directive, 1, comment - 1)
+              sub(/^[[:space:]]*toolchain[[:space:]]+/, "", directive)
+              sub(/[[:space:]]+$/, "", directive)
+              if (directive == "" || directive ~ /[[:space:]]/) exit 1
+              value = directive
             }
             END {
               if (seen != 1 || value == "") exit 1

@@ -402,6 +402,41 @@ func TestReleaseArtifactToolchainResolutionContract(t *testing.T) {
 	})
 
 	for _, test := range []struct {
+		name      string
+		directive string
+		accepted  bool
+	}{
+		{name: "inline toolchain comment", directive: "toolchain go1.26.5 // release compiler", accepted: true},
+		{name: "adjacent inline toolchain comment", directive: "toolchain go1.26.5//release compiler", accepted: true},
+		{name: "unexpected trailing token", directive: "toolchain go1.26.5 release-compiler"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			directory := t.TempDir()
+			modifiedGoMod := strings.Replace(string(goMod), "toolchain go1.26.5", test.directive, 1)
+			if modifiedGoMod == string(goMod) {
+				t.Fatal("historical fixture lacks the expected toolchain directive")
+			}
+			if err := os.WriteFile(filepath.Join(directory, "go.mod"), []byte(modifiedGoMod), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			docsDirectory := filepath.Join(directory, "docs")
+			if err := os.MkdirAll(docsDirectory, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(docsDirectory, "install.md"), historicalInstall, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := runToolchain(t, directory)
+			if (err == nil) != test.accepted {
+				t.Fatalf("toolchain resolution error = %v, want accepted=%t\n%s", err, test.accepted, output)
+			}
+			if test.accepted && output != expected {
+				t.Fatalf("toolchain output = %q, want %q", output, expected)
+			}
+		})
+	}
+
+	for _, test := range []struct {
 		name       string
 		documented string
 		accepted   bool
