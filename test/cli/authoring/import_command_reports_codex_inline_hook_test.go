@@ -173,7 +173,8 @@ func TestRunImportSkipsClaudeExecFormArgsWithoutDroppingRepresentableSiblings(t 
 	for _, want := range []string{
 		"import: 1 resources",
 		`resource="hook/claude_code_project_posttooluse_1_2"`,
-		`reason=event=PostToolUse,group=1,handler=1,unsupported_handler_field_args`,
+		`reason=unsupported_handler_field`,
+		`detail="event=PostToolUse,group=1,handler=1,field=args"`,
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, want %q", stdout.String(), want)

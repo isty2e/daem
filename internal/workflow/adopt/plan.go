@@ -112,7 +112,7 @@ func buildPlan(
 			Target:   skip.Target,
 			Scope:    skip.Scope,
 			LivePath: skip.LivePath,
-			Reason:   skip.Reason,
+			Reason:   adoptmodel.SkipReason(skip.Reason),
 		})
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
@@ -183,7 +183,7 @@ func buildPlan(
 		return adoptmodel.Plan{}, err
 	}
 	if candidates.ResourceCount() == 0 {
-		return adoptmodel.Plan{}, fmt.Errorf("%w%s%s", adoptmodel.ErrNothingToImport, scanSummary(scans), skippedSummary(skipped))
+		return adoptmodel.Plan{}, newNothingToImportError(scans, skipped)
 	}
 
 	var mergedPlan adoptmodel.Plan

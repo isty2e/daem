@@ -18,29 +18,21 @@ type ImportSkipped struct {
 	Target     string
 	Scope      string
 	LivePath   string
-	Reason     string
+	Reason     adoptmodel.SkipReason
+	Detail     string
 	Category   adoptmodel.SkipCategory
 	ActionHint adoptmodel.SkipActionHint
+}
+
+// PrintImportSkippedActions renders every actionable skipped row with its next action.
+func PrintImportSkippedActions(output io.Writer, skipped []adoptmodel.Skipped) {
+	printImportActionRequired(output, importSkippedFromAdoption(skipped))
 }
 
 func printImportSkippedDefault(output io.Writer, skipped []ImportSkipped) {
 	counts := importSkipCounts(skipped)
 	if counts.ActionRequired != 0 {
-		fmt.Fprintln(output, "action required:")
-		for _, item := range skipped {
-			if item.Category != adoptmodel.SkipCategoryActionRequired {
-				continue
-			}
-			fmt.Fprintf(
-				output,
-				"  skip live=%q reason=%s target=%s scope=%s\n",
-				item.LivePath,
-				item.Reason,
-				item.Target,
-				item.Scope,
-			)
-			fmt.Fprintf(output, "    next: %s\n", importSkipActionText(item.ActionHint))
-		}
+		printImportActionRequired(output, skipped)
 	}
 
 	compacted := false
@@ -69,6 +61,32 @@ func printImportSkippedDefault(output io.Writer, skipped []ImportSkipped) {
 	}
 }
 
+func printImportActionRequired(output io.Writer, skipped []ImportSkipped) {
+	printedHeader := false
+	for _, item := range skipped {
+		if item.Category != adoptmodel.SkipCategoryActionRequired {
+			continue
+		}
+		if !printedHeader {
+			fmt.Fprintln(output, "action required:")
+			printedHeader = true
+		}
+		fmt.Fprintf(
+			output,
+			"  skip live=%q reason=%s target=%s scope=%s",
+			item.LivePath,
+			item.Reason,
+			item.Target,
+			item.Scope,
+		)
+		if item.Detail != "" {
+			fmt.Fprintf(output, " detail=%q", item.Detail)
+		}
+		fmt.Fprintln(output)
+		fmt.Fprintf(output, "    next: %s\n", importSkipActionText(item.ActionHint))
+	}
+}
+
 func printImportSkippedVerbose(output io.Writer, skipped []ImportSkipped) {
 	for _, item := range skipped {
 		fmt.Fprintf(
@@ -80,6 +98,9 @@ func printImportSkippedVerbose(output io.Writer, skipped []ImportSkipped) {
 			item.Scope,
 			item.Category,
 		)
+		if item.Detail != "" {
+			fmt.Fprintf(output, " detail=%q", item.Detail)
+		}
 		if item.ActionHint != "" {
 			fmt.Fprintf(output, " action_hint=%s", item.ActionHint)
 		}
@@ -89,14 +110,14 @@ func printImportSkippedVerbose(output io.Writer, skipped []ImportSkipped) {
 
 type importSkipGroup struct {
 	target string
-	reason string
+	reason adoptmodel.SkipReason
 	count  int
 }
 
 func importSkipGroups(skipped []ImportSkipped, category adoptmodel.SkipCategory) []importSkipGroup {
 	type key struct {
 		target string
-		reason string
+		reason adoptmodel.SkipReason
 	}
 	counts := make(map[key]int)
 	for _, item := range skipped {
@@ -136,6 +157,8 @@ func importSkipActionText(actionHint adoptmodel.SkipActionHint) string {
 		return "replace the live entry with a supported file or directory, or leave it unmanaged"
 	case adoptmodel.SkipActionRepairSource:
 		return "repair the live source to a supported form or leave it unmanaged"
+	case adoptmodel.SkipActionResolveConflict:
+		return "keep one skill definition, make the definitions identical, or rename one skill"
 	default:
 		return "review the live source and author it explicitly, or leave it unmanaged"
 	}
@@ -164,6 +187,7 @@ func importSkippedFromAdoption(skipped []adoptmodel.Skipped) []ImportSkipped {
 			Scope:      string(item.Scope),
 			LivePath:   item.LivePath,
 			Reason:     item.Reason,
+			Detail:     item.Detail,
 			Category:   item.Category(),
 			ActionHint: item.ActionHint(),
 		})

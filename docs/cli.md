@@ -536,8 +536,8 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, and import use schema `5` with these common
-fields:
+Init uses schema `1`. Add, remove, import, and unmanage use schema `5` with
+these common fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -546,13 +546,15 @@ fields:
 | optional `lockfile` | adjacent lock path and would-write/written/unchanged status |
 | `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
 | `has_errors`, optional `warnings` | result classification |
+| unmanage `management`, `host` | exact management-state outcome and retained-host projection |
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
-`reason` values plus one stable `category`. `action_hint` is present only for
-`action_required` rows and is a machine code rather than human next-action
-prose. Unknown future reason codes default to `action_required` so default
-human output cannot silently compact them.
+stable `reason` code values plus one stable `category`. Optional `detail`
+contains bounded diagnostic context and never changes classification.
+`action_hint` is present only for `action_required` rows and is a machine code
+rather than human next-action prose. Unknown future reason codes default to
+`action_required` so default human output cannot silently compact them.
 
 Imported extension changes use `resource.kind = "extension"` and include the
 exact `carrier`, `target`, and `scope`. A source identity proven public by the

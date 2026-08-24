@@ -1,12 +1,42 @@
 package adopt
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 )
+
+type nothingToImportError struct {
+	message string
+	skipped []adoptmodel.Skipped
+}
+
+func newNothingToImportError(scans []adoptmodel.Scan, skipped []adoptmodel.Skipped) error {
+	return &nothingToImportError{
+		message: adoptmodel.ErrNothingToImport.Error() + scanSummary(scans) + skippedSummary(skipped),
+		skipped: append([]adoptmodel.Skipped(nil), skipped...),
+	}
+}
+
+func (err *nothingToImportError) Error() string {
+	return err.message
+}
+
+func (err *nothingToImportError) Unwrap() error {
+	return adoptmodel.ErrNothingToImport
+}
+
+// NothingToImportSkipped returns an immutable copy of typed skip evidence.
+func NothingToImportSkipped(err error) []adoptmodel.Skipped {
+	var detail *nothingToImportError
+	if !errors.As(err, &detail) {
+		return nil
+	}
+	return append([]adoptmodel.Skipped(nil), detail.skipped...)
+}
 
 func skippedSummary(skipped []adoptmodel.Skipped) string {
 	if len(skipped) == 0 {
@@ -19,7 +49,7 @@ func skippedSummary(skipped []adoptmodel.Skipped) string {
 	type groupKey struct {
 		category adoptmodel.SkipCategory
 		target   string
-		reason   string
+		reason   adoptmodel.SkipReason
 	}
 	groups := make(map[groupKey]int)
 	actionable := make([]string, 0)

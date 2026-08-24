@@ -105,7 +105,7 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipInvalidName}, nil
 	}
 	if suppliedReason := suppliedSkillSkipReason(livePath, cleanName); suppliedReason != "" {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: suppliedReason}, nil
+		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: adopt.SkipReason(suppliedReason)}, nil
 	}
 
 	readPath, err := resolvedImportSkillReadPath(livePath)
@@ -113,7 +113,7 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
 	}
 	if suppliedReason := suppliedSkillSkipReason(readPath, cleanName); suppliedReason != "" {
-		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: suppliedReason}, nil
+		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: adopt.SkipReason(suppliedReason)}, nil
 	}
 	info, err := os.Stat(readPath)
 	if err != nil {
@@ -127,13 +127,6 @@ func importSkillFromEntry(
 		Scope:       scope,
 		InstallName: cleanName,
 	}
-	if _, exists := importedDestinations[destination]; exists {
-		return adopt.Skill{}, adopt.Skipped{
-			LivePath: livePath,
-			Reason:   importSkillSkipDuplicateName,
-		}, nil
-	}
-
 	contentHash, err := sourceIdentities.ContentHash(ctx, readPath)
 	if err != nil {
 		if errors.Is(err, access.ErrRequiredRootRegularFile) {
@@ -148,12 +141,28 @@ func importSkillFromEntry(
 		}
 		return adopt.Skill{}, adopt.Skipped{}, err
 	}
+	if claimed, exists := importedDestinations.source(destination); exists {
+		reason := adopt.SkipReason(importSkillSkipDuplicateName)
+		detail := "duplicates=" + claimed.livePath
+		if contentHash != claimed.contentHash {
+			reason = importSkillSkipConflictingName
+			detail = "conflicts_with=" + claimed.livePath
+		}
+		return adopt.Skill{}, adopt.Skipped{
+			LivePath: livePath,
+			Reason:   reason,
+			Detail:   detail,
+		}, nil
+	}
 
 	sourcePath, err := importSkillSourcePath(sourceDirectory, cleanName, contentHash)
 	if err != nil {
 		return adopt.Skill{}, adopt.Skipped{}, err
 	}
-	importedDestinations[destination] = livePath
+	importedDestinations.add(destination, destinationClaimSource{
+		livePath:    livePath,
+		contentHash: contentHash,
+	})
 
 	placements := make(map[targetpkg.Target]string)
 	if installTo != "" {

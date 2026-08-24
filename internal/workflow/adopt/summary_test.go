@@ -1,6 +1,7 @@
 package adopt
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -40,5 +41,29 @@ func TestSkippedSummaryCompactsBenignRowsAndRetainsActionablePaths(t *testing.T)
 	}
 	if strings.Contains(summary, "missing-0000") || len(summary) > 512 {
 		t.Fatalf("summary = %q, want bounded benign output", summary)
+	}
+}
+
+func TestNothingToImportErrorPreservesTypedSkippedEvidence(t *testing.T) {
+	t.Parallel()
+
+	want := []adoptmodel.Skipped{{
+		Target:   target.TargetClaudeCode,
+		Scope:    target.ScopeProject,
+		LivePath: ".mcp.json#/mcpServers/secret",
+		Reason:   "secret_literal_forbidden",
+		Detail:   "provider=claude-code",
+	}}
+	err := newNothingToImportError(nil, want)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
+		t.Fatalf("error = %v, want ErrNothingToImport", err)
+	}
+	got := NothingToImportSkipped(err)
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("typed skipped = %#v, want %#v", got, want)
+	}
+	got[0].Detail = "mutated"
+	if again := NothingToImportSkipped(err); len(again) != 1 || again[0] != want[0] {
+		t.Fatalf("typed skipped alias = %#v, want immutable copy %#v", again, want)
 	}
 }

@@ -7,6 +7,10 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
+// SkipReason identifies one stable semantic cause for a skipped observation.
+// Diagnostic context belongs in Skipped.Detail and must not affect classification.
+type SkipReason string
+
 // SkipCategory identifies the user-response class of one skipped observation.
 type SkipCategory string
 
@@ -27,11 +31,16 @@ const (
 	SkipActionReplaceUnsupportedEntry SkipActionHint = "replace_unsupported_entry"
 	SkipActionAuthorExplicitSource    SkipActionHint = "author_explicit_source"
 	SkipActionUseSymbolicEnvironment  SkipActionHint = "use_symbolic_environment_reference"
+	SkipActionResolveConflict         SkipActionHint = "resolve_conflict"
 )
 
 // Category returns the stable user-response class for the skipped reason.
 func (skipped Skipped) Category() SkipCategory {
-	switch skipped.Reason {
+	return skipped.Reason.category()
+}
+
+func (reason SkipReason) category() SkipCategory {
+	switch reason {
 	case "missing",
 		"empty_instruction_file",
 		"hooks_empty",
@@ -49,6 +58,12 @@ func (skipped Skipped) Category() SkipCategory {
 		"unsupported_mcp_transport",
 		"unsupported_mcp_managed_field",
 		"unsupported_mcp_projection",
+		"unsupported_group_field",
+		"unsupported_handler_field",
+		"unsupported_handler_type",
+		"unsupported_async",
+		"unsupported_condition",
+		"unsupported_target_shape",
 		"stale_adapter_contract":
 		return SkipCategoryUnsupported
 	default:
@@ -58,39 +73,55 @@ func (skipped Skipped) Category() SkipCategory {
 
 // ActionHint returns a stable next-action family for actionable skipped rows.
 func (skipped Skipped) ActionHint() SkipActionHint {
-	if skipped.Category() != SkipCategoryActionRequired {
+	return skipped.Reason.actionHint()
+}
+
+func (reason SkipReason) actionHint() SkipActionHint {
+	if reason.category() != SkipCategoryActionRequired {
 		return ""
 	}
 
-	switch skipped.Reason {
+	switch reason {
 	case "secret_literal_forbidden":
 		return SkipActionUseSymbolicEnvironment
 	case "source_not_importable", "source_provenance_unrecoverable":
 		return SkipActionAuthorExplicitSource
-	}
-	if strings.Contains(skipped.Reason, "changed_during_read") {
+	case "conflicting_skill_name":
+		return SkipActionResolveConflict
+	case "instruction_file_changed_during_read",
+		"hook_file_changed_during_read",
+		"mcp_config_changed_during_read":
 		return SkipActionRetryWhenStable
-	}
-	if strings.Contains(skipped.Reason, "too_large") ||
-		strings.Contains(skipped.Reason, "depth_exceeded") ||
-		strings.Contains(skipped.Reason, "budget_exceeded") ||
-		strings.Contains(skipped.Reason, "structure_limit") {
+	case "instruction_file_too_large",
+		"hook_file_too_large",
+		"mcp_config_too_large",
+		"json_depth_exceeded",
+		"hook_import_budget_exceeded",
+		"inline_config_structure_limit":
 		return SkipActionReduceSource
-	}
-	if strings.Contains(skipped.Reason, "not_regular") ||
-		strings.Contains(skipped.Reason, "not_directory") ||
-		strings.Contains(skipped.Reason, "final_symlink") ||
-		skipped.Reason == "nested_symlink" {
+	case "instruction_not_regular_file",
+		"not_regular_file",
+		"skill_not_directory",
+		"instruction_final_symlink",
+		"hook_final_symlink",
+		"mcp_config_final_symlink",
+		"nested_symlink":
 		return SkipActionReplaceUnsupportedEntry
-	}
-	if strings.Contains(skipped.Reason, "malformed") ||
-		strings.Contains(skipped.Reason, "invalid_") ||
-		strings.Contains(skipped.Reason, "duplicate_") ||
-		strings.Contains(skipped.Reason, "equivalence_undefined") ||
-		skipped.Reason == "missing_skill_md" {
+	case "mcp_config_malformed",
+		"inline_config_malformed",
+		"duplicate_json_key",
+		"invalid_canonical_hook",
+		"invalid_mcp_argument",
+		"invalid_skill_name",
+		"missing_skill_md",
+		"projection_equivalence_undefined",
+		"malformed_json",
+		"malformed_group",
+		"malformed_handler":
 		return SkipActionRepairSource
+	default:
+		return SkipActionReviewSource
 	}
-	return SkipActionReviewSource
 }
 
 func (skipped Skipped) validate() error {
@@ -100,7 +131,7 @@ func (skipped Skipped) validate() error {
 	if _, err := target.ParseScope(string(skipped.Scope)); err != nil {
 		return fmt.Errorf("scope: %w", err)
 	}
-	if strings.TrimSpace(skipped.LivePath) == "" || strings.TrimSpace(skipped.Reason) == "" {
+	if strings.TrimSpace(skipped.LivePath) == "" || strings.TrimSpace(string(skipped.Reason)) == "" {
 		return fmt.Errorf("live path and reason are required")
 	}
 	if skipped.Category() == SkipCategoryActionRequired && skipped.ActionHint() == "" {

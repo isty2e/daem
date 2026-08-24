@@ -346,6 +346,42 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 	}
 }
 
+func TestExecuteCommandPlanPreservesTypedNothingToImportFromRevalidation(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	if err := os.WriteFile("CLAUDE.md", []byte("# Claude instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"claude-code"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: filepath.Join(root, "daem.toml"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []adoptmodel.Skipped{{
+		Target:   target.TargetClaudeCode,
+		Scope:    target.ScopeProject,
+		LivePath: ".mcp.json#/mcpServers/secret",
+		Reason:   "secret_literal_forbidden",
+	}}
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error) {
+			return adoptmodel.Plan{}, newNothingToImportError(nil, want)
+		},
+		nil,
+	)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want ErrNothingToImport", err)
+	}
+	if got := NothingToImportSkipped(err); len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("revalidation skipped = %#v, want %#v", got, want)
+	}
+}
+
 func TestExecuteCommandPlanRejectsInvalidOnlyMCPSourceDriftAfterRebuild(t *testing.T) {
 	root := enterAdoptTestDirectory(t)
 	if err := os.WriteFile("CLAUDE.md", []byte("# Claude instructions\n"), 0o600); err != nil {

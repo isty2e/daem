@@ -359,7 +359,7 @@ func TestCandidatesRetainsAuthorityForMalformedAndEmptyDocuments(t *testing.T) {
 				}
 				return
 			}
-			if len(skipped) != 1 || skipped[0].Reason != test.wantReason {
+			if len(skipped) != 1 || string(skipped[0].Reason) != test.wantReason {
 				t.Fatalf("skipped = %#v, want %q", skipped, test.wantReason)
 			}
 		})

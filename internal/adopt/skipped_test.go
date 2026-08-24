@@ -11,7 +11,7 @@ func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		reason     string
+		reason     SkipReason
 		category   SkipCategory
 		actionHint SkipActionHint
 	}{
@@ -19,6 +19,7 @@ func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
 		{name: "empty instruction", reason: "empty_instruction_file", category: SkipCategoryInformational},
 		{name: "empty hooks", reason: "hooks_empty", category: SkipCategoryInformational},
 		{name: "duplicate skill", reason: "duplicate_skill_name", category: SkipCategoryInformational},
+		{name: "conflicting skill", reason: "conflicting_skill_name", category: SkipCategoryActionRequired, actionHint: SkipActionResolveConflict},
 		{name: "supplied skill root", reason: "supplied_skill_root", category: SkipCategoryInformational},
 		{name: "supplied skill entry", reason: "supplied_skill_entry", category: SkipCategoryInformational},
 		{name: "supplied plugin cache skill", reason: "supplied_plugin_cache_skill", category: SkipCategoryInformational},
@@ -31,7 +32,26 @@ func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
 		{name: "unsupported transport", reason: "unsupported_mcp_transport", category: SkipCategoryUnsupported},
 		{name: "unsupported managed field", reason: "unsupported_mcp_managed_field", category: SkipCategoryUnsupported},
 		{name: "unsupported projection", reason: "unsupported_mcp_projection", category: SkipCategoryUnsupported},
+		{name: "unsupported hook group field", reason: "unsupported_group_field", category: SkipCategoryUnsupported},
+		{name: "unsupported hook handler field", reason: "unsupported_handler_field", category: SkipCategoryUnsupported},
+		{name: "unsupported hook handler type", reason: "unsupported_handler_type", category: SkipCategoryUnsupported},
+		{name: "unsupported async hook", reason: "unsupported_async", category: SkipCategoryUnsupported},
+		{name: "unsupported hook condition", reason: "unsupported_condition", category: SkipCategoryUnsupported},
+		{name: "unsupported target hook shape", reason: "unsupported_target_shape", category: SkipCategoryUnsupported},
 		{name: "stale adapter", reason: "stale_adapter_contract", category: SkipCategoryUnsupported},
+		{name: "empty hook event", reason: "empty_event", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "hook groups not array", reason: "groups_not_array", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "malformed hook group", reason: "malformed_group", category: SkipCategoryActionRequired, actionHint: SkipActionRepairSource},
+		{name: "missing hook handlers", reason: "missing_handlers", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "malformed hook handler", reason: "malformed_handler", category: SkipCategoryActionRequired, actionHint: SkipActionRepairSource},
+		{name: "missing hook command", reason: "missing_command", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "empty hook JSON", reason: "empty_json", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "malformed hook JSON", reason: "malformed_json", category: SkipCategoryActionRequired, actionHint: SkipActionRepairSource},
+		{name: "multiple hook JSON values", reason: "multiple_json_values", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "hook top level not object", reason: "top_level_not_object", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "hooks missing", reason: "hooks_missing", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "hooks null", reason: "hooks_null", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "hooks not object", reason: "hooks_not_object", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
 		{name: "literal secret", reason: "secret_literal_forbidden", category: SkipCategoryActionRequired, actionHint: SkipActionUseSymbolicEnvironment},
 		{name: "source not importable", reason: "source_not_importable", category: SkipCategoryActionRequired, actionHint: SkipActionAuthorExplicitSource},
 		{name: "lost provenance", reason: "source_provenance_unrecoverable", category: SkipCategoryActionRequired, actionHint: SkipActionAuthorExplicitSource},

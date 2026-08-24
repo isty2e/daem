@@ -131,21 +131,29 @@ func boundedImportHookToken(value string) string {
 	return fmt.Sprintf("%s_%x", prefix[:32], digest[:8])
 }
 
-func importHookSkipReason(eventToken string, groupIndex int, handlerIndex int, reason string) string {
-	return fmt.Sprintf("event=%s,group=%d,handler=%d,%s", eventToken, groupIndex+1, handlerIndex+1, reason)
+func importHookSkipDetail(eventToken string, groupIndex int, handlerIndex int, field string) string {
+	detail := fmt.Sprintf("event=%s,group=%d,handler=%d", eventToken, groupIndex+1, handlerIndex+1)
+	if field != "" {
+		detail += ",field=" + field
+	}
+	return detail
 }
 
-func (collector *importHookCollector) addSkip(reason string) {
+func (collector *importHookCollector) addSkip(reason adopt.SkipReason, detail string) {
 	if collector.exceeded {
 		return
 	}
-	nextBytes := collector.diagnosticBytes + len(collector.livePath) + len(reason)
+	nextBytes := collector.diagnosticBytes + len(collector.livePath) + len(reason) + len(detail)
 	if len(collector.skipped) >= maximumImportHookSkips || nextBytes > maximumImportHookDiagnosticBytes {
 		collector.exceeded = true
 		return
 	}
 	collector.diagnosticBytes = nextBytes
-	collector.skipped = append(collector.skipped, adopt.Skipped{LivePath: collector.livePath, Reason: reason})
+	collector.skipped = append(collector.skipped, adopt.Skipped{
+		LivePath: collector.livePath,
+		Reason:   reason,
+		Detail:   detail,
+	})
 }
 
 func importHookBudgetFailure(livePath string) ([]adopt.Hook, []adopt.Skipped) {

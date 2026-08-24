@@ -93,6 +93,39 @@ func TestImportSkipPresentationCompactsBenignRowsAndShowsEveryAction(t *testing.
 	}
 }
 
+func TestImportSkipPresentationShowsConflictRoutesAndStableDetail(t *testing.T) {
+	t.Parallel()
+
+	const first = "/home/user/.agents/skills/review"
+	const second = "/home/user/.codex/skills/review"
+	skipped := adoptmodel.Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeGlobal,
+		LivePath: second,
+		Reason:   "conflicting_skill_name",
+		Detail:   "conflicts_with=" + first,
+	}
+
+	var output bytes.Buffer
+	PrintImportSkippedActions(&output, []adoptmodel.Skipped{skipped})
+	for _, want := range []string{
+		`skip live="` + second + `" reason=conflicting_skill_name target=codex scope=global`,
+		`detail="conflicts_with=` + first + `"`,
+		"next: keep one skill definition, make the definitions identical, or rename one skill",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("output = %q, want %q", output.String(), want)
+		}
+	}
+
+	rows := importPlanJSONSkipped([]adoptmodel.Skipped{skipped})
+	if len(rows) != 1 || rows[0].Reason != "conflicting_skill_name" ||
+		rows[0].Detail != "conflicts_with="+first ||
+		rows[0].ActionHint != "resolve_conflict" {
+		t.Fatalf("JSON rows = %#v, want exact conflict code, detail, and action", rows)
+	}
+}
+
 func TestImportJSONSkippedIncludesStableClassification(t *testing.T) {
 	t.Parallel()
 

@@ -471,7 +471,7 @@ func withWorkingDirectory(t *testing.T, directory string) {
 
 func hasSkipped(skipped []adopt.Skipped, livePath string, reason string) bool {
 	for _, item := range skipped {
-		if item.LivePath == livePath && item.Reason == reason {
+		if item.LivePath == livePath && string(item.Reason) == reason {
 			return true
 		}
 	}

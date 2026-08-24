@@ -526,7 +526,7 @@ func readConfig(ctx context.Context, livePath string, maximumBytes int64) (impor
 func mcpSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
 	for _, candidate := range []struct {
 		match  error
-		reason string
+		reason adopt.SkipReason
 	}{
 		{match: filesnapshot.ErrSymlink, reason: skipFinalSymlink},
 		{match: filesnapshot.ErrNotRegular, reason: skipNotRegular},
@@ -575,7 +575,7 @@ func rejectionSkips(livePath string, rejections []mcpcodec.MCPProjectionRejectio
 	return skipped
 }
 
-func skipReason(err error) string {
+func skipReason(err error) adopt.SkipReason {
 	reason, ok := mcpcodec.MCPProjectionReasonCodeOf(err)
 	if !ok {
 		return "unsupported_mcp_projection"
@@ -583,7 +583,7 @@ func skipReason(err error) string {
 	return reasonString(reason)
 }
 
-func reasonString(reason mcpcodec.MCPProjectionReasonCode) string {
+func reasonString(reason mcpcodec.MCPProjectionReasonCode) adopt.SkipReason {
 	switch reason {
 	case mcpcodec.MCPProjectionReasonConfigMalformed:
 		return "mcp_config_malformed"

@@ -67,7 +67,7 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 			return 2
 		}
 		if workflowadopt.IsNothingToImport(err) {
-			printImportNothingToImportHint(stderr, commandPlan.OutputPath(), commandPlan.Merge())
+			printImportNothingToImportDetails(stderr, err, commandPlan)
 		}
 		return 1
 	}
@@ -112,10 +112,14 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 		return 1
 	}
 
+	optimisticPlan := commandPlan
 	commandPlan, err = workflowadopt.ExecuteCommandPlan(ctx, commandPlan, progress.Sink())
 	progress.Close()
 	if err != nil {
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
+		if workflowadopt.IsNothingToImport(err) {
+			printImportNothingToImportDetails(stderr, err, optimisticPlan)
+		}
 		return 1
 	}
 	plan = commandPlan.AdoptionPlan()
@@ -128,4 +132,9 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 	}
 	clipresent.PrintImportPlanWithOptions(stdout, clipresent.ImportPlanFromAdoption("imported", plan, false), clipresent.HumanOptions{Verbose: *verbose})
 	return 0
+}
+
+func printImportNothingToImportDetails(output io.Writer, err error, commandPlan workflowadopt.CommandPlan) {
+	clipresent.PrintImportSkippedActions(output, workflowadopt.NothingToImportSkipped(err))
+	printImportNothingToImportHint(output, commandPlan.OutputPath(), commandPlan.Merge())
 }

@@ -103,6 +103,7 @@ type ImportAuthoringJSONSkipped struct {
 	Scope      string `json:"scope"`
 	LivePath   string `json:"live_path"`
 	Reason     string `json:"reason"`
+	Detail     string `json:"detail,omitempty"`
 	Category   string `json:"category"`
 	ActionHint string `json:"action_hint,omitempty"`
 }
@@ -384,7 +385,8 @@ func importPlanJSONSkipped(skipped []adoptmodel.Skipped) []ImportAuthoringJSONSk
 			Target:     string(item.Target),
 			Scope:      string(item.Scope),
 			LivePath:   item.LivePath,
-			Reason:     item.Reason,
+			Reason:     string(item.Reason),
+			Detail:     item.Detail,
 			Category:   string(item.Category()),
 			ActionHint: string(item.ActionHint()),
 		})

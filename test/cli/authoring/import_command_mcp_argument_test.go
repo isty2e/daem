@@ -121,8 +121,47 @@ func TestRunImportWithOnlyInvalidMCPArgumentsWritesNothing(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "nothing to import") ||
 		!strings.Contains(stderr.String(), ".mcp.json#/mcpServers/invalid: invalid_mcp_argument") ||
+		!strings.Contains(stderr.String(), `skip live=".mcp.json#/mcpServers/invalid" reason=invalid_mcp_argument target=claude-code scope=project`) ||
+		!strings.Contains(stderr.String(), "next: repair the live source to a supported form or leave it unmanaged") ||
 		strings.Contains(stderr.String(), canary) {
 		t.Fatalf("stderr = %q, want safe nothing-to-import diagnostics", stderr.String())
+	}
+	testkit.AssertPathMissing(t, outputPath)
+}
+
+func TestRunImportWithOnlySecretMCPServerShowsTypedRemediation(t *testing.T) {
+	const canary = "ONLY_SECRET_ARGUMENT_LEAK_CANARY"
+	root := t.TempDir()
+	testkit.WithWorkingDirectory(t, root)
+	outputPath := filepath.Join(root, "daem.toml")
+	testkit.WriteFile(t, root, aggregate.ClaudeProjectMCPConfigPath, `{
+  "mcpServers": {
+    "secret": {"type": "stdio", "command": "node", "env": {"TOKEN": "`+canary+`"}}
+  }
+}`)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunCLI(
+		[]string{"import", "--target", "claude-code", "--manifest", outputPath},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 1 || stdout.Len() != 0 {
+		t.Fatalf("import exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{
+		"nothing to import",
+		`skip live=".mcp.json#/mcpServers/secret" reason=secret_literal_forbidden target=claude-code scope=project`,
+		"next: replace literal secrets with symbolic environment references or leave this row unmanaged",
+		"next: verify that the selected --target and --scope have live agent files to import",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+	if strings.Contains(stderr.String(), canary) {
+		t.Fatalf("stderr disclosed literal secret: %q", stderr.String())
 	}
 	testkit.AssertPathMissing(t, outputPath)
 }

@@ -257,6 +257,79 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 	}
 }
 
+func TestImportSkillClassifiesDuplicateDestinationByContentIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		secondContent  string
+		wantReason     adopt.SkipReason
+		wantCategory   adopt.SkipCategory
+		wantDetailLead string
+	}{
+		{
+			name:           "identical content",
+			secondContent:  "---\nname: review\ndescription: same\n---\n",
+			wantReason:     importSkillSkipDuplicateName,
+			wantCategory:   adopt.SkipCategoryInformational,
+			wantDetailLead: "duplicates=",
+		},
+		{
+			name:           "conflicting content",
+			secondContent:  "---\nname: review\ndescription: different\n---\n",
+			wantReason:     importSkillSkipConflictingName,
+			wantCategory:   adopt.SkipCategoryActionRequired,
+			wantDetailLead: "conflicts_with=",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			first := filepath.Join(root, "first", "review")
+			second := filepath.Join(root, "second", "review")
+			for _, path := range []string{first, second} {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			firstContent := "---\nname: review\ndescription: same\n---\n"
+			if err := os.WriteFile(filepath.Join(first, "SKILL.md"), []byte(firstContent), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(second, "SKILL.md"), []byte(test.secondContent), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			sourceDirectory, err := adopt.NewSourceDirectory(
+				filepath.Join(root, "daem.toml"),
+				filepath.Join(root, "daem.d"),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			claims := NewDestinationClaims()
+			identities := NewSourceIdentityCache(skillTreeStructureLimitForTest(t))
+
+			candidate, skipped, err := importSkillFromEntry(
+				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
+				"", first, "review", claims, identities,
+			)
+			if err != nil || candidate.ResourceName != "review" || skipped.Reason != "" {
+				t.Fatalf("first import = (%#v, %#v, %v), want retained candidate", candidate, skipped, err)
+			}
+			candidate, skipped, err = importSkillFromEntry(
+				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
+				"", second, "review", claims, identities,
+			)
+			if err != nil || candidate.ResourceName != "" {
+				t.Fatalf("second import = (%#v, %#v, %v), want skip", candidate, skipped, err)
+			}
+			if skipped.LivePath != second || skipped.Reason != test.wantReason ||
+				skipped.Category() != test.wantCategory ||
+				!strings.HasPrefix(skipped.Detail, test.wantDetailLead) ||
+				!strings.Contains(skipped.Detail, first) {
+				t.Fatalf("second skip = %#v, want reason=%q category=%q and both routes", skipped, test.wantReason, test.wantCategory)
+			}
+		})
+	}
+}
+
 func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing.T) {
 	for _, test := range []struct {
 		name  string

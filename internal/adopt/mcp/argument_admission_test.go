@@ -172,7 +172,7 @@ args = ["server.js"]
 			if len(skipped) != 1 || skipped[0].LivePath != wantPath || skipped[0].Reason != skipInvalidArgument {
 				t.Fatalf("skipped = %#v, want invalid argument skip at %q", skipped, wantPath)
 			}
-			if strings.Contains(skipped[0].Reason, canary) {
+			if strings.Contains(string(skipped[0].Reason), canary) {
 				t.Fatalf("skip reason disclosed argument content: %q", skipped[0].Reason)
 			}
 		})
