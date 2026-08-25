@@ -1,6 +1,8 @@
 package adopt
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/target"
@@ -31,7 +33,10 @@ func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
 		{name: "unsupported alternate config", reason: "unsupported_mcp_alternate_config", category: SkipCategoryUnsupported},
 		{name: "unsupported transport", reason: "unsupported_mcp_transport", category: SkipCategoryUnsupported},
 		{name: "unsupported managed field", reason: "unsupported_mcp_managed_field", category: SkipCategoryUnsupported},
-		{name: "unsupported projection", reason: "unsupported_mcp_projection", category: SkipCategoryUnsupported},
+		{name: "legacy unsupported projection", reason: "unsupported_mcp_projection", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
+		{name: "invalid canonical MCP", reason: "invalid_canonical_mcp", category: SkipCategoryActionRequired, actionHint: SkipActionRepairSource},
+		{name: "lossy provider MCP document", reason: "mcp_provider_document_lossy", category: SkipCategoryActionRequired, actionHint: SkipActionRepairSource},
+		{name: "unclassified MCP projection", reason: "mcp_projection_unclassified", category: SkipCategoryActionRequired, actionHint: SkipActionReviewSource},
 		{name: "unsupported hook group field", reason: "unsupported_group_field", category: SkipCategoryUnsupported},
 		{name: "unsupported hook handler field", reason: "unsupported_handler_field", category: SkipCategoryUnsupported},
 		{name: "unsupported hook handler type", reason: "unsupported_handler_type", category: SkipCategoryUnsupported},
@@ -101,6 +106,81 @@ func TestSkippedClassificationIsTotalAndFailVisible(t *testing.T) {
 				t.Fatalf("ActionHint() = %q, want %q", got, test.actionHint)
 			}
 		})
+	}
+}
+
+func TestSkippedCollectorBoundsRowsDiagnosticBytesAndDetail(t *testing.T) {
+	t.Parallel()
+
+	collector := NewSkippedCollector()
+	row := Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeProject,
+		LivePath: "live",
+		Reason:   "missing",
+	}
+	for range maximumSkippedObservations {
+		if err := collector.Add(row); err != nil {
+			t.Fatalf("exact row budget returned error: %v", err)
+		}
+	}
+	if err := collector.Add(row); !errors.Is(err, ErrSkipObservationLimitExceeded) {
+		t.Fatalf("limit+1 error = %v, want skip observation exhaustion", err)
+	}
+
+	collector = NewSkippedCollector()
+	oversizedDetail := "conflicts_with=" + strings.Repeat("x", maximumSkippedDetailBytes)
+	if err := collector.Add(Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeGlobal,
+		LivePath: "duplicate",
+		Reason:   "conflicting_skill_name",
+		Detail:   oversizedDetail,
+	}); err != nil {
+		t.Fatalf("bounded detail returned error: %v", err)
+	}
+	bounded := collector.Skipped()
+	if len(bounded) != 1 || len(bounded[0].Detail) > maximumSkippedDetailBytes ||
+		strings.Contains(bounded[0].Detail, strings.Repeat("x", 32)) ||
+		!strings.Contains(bounded[0].Detail, "detail_omitted:sha256:") {
+		t.Fatalf("bounded detail = %#v", bounded)
+	}
+
+	collector = NewSkippedCollector()
+	if err := collector.Add(Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeProject,
+		LivePath: strings.Repeat("p", maximumSkippedDiagnosticBytes),
+		Reason:   "missing",
+	}); !errors.Is(err, ErrSkipObservationLimitExceeded) {
+		t.Fatalf("diagnostic-byte error = %v, want skip observation exhaustion", err)
+	}
+	if got := collector.Skipped(); len(got) != 0 {
+		t.Fatalf("over-limit row retained: %#v", got)
+	}
+}
+
+func TestCandidateSetRejectsSkippedObservationBudgetBypass(t *testing.T) {
+	t.Parallel()
+
+	base := Skipped{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeProject,
+		LivePath: "live",
+		Reason:   "missing",
+	}
+	tooMany := make([]Skipped, maximumSkippedObservations+1)
+	for index := range tooMany {
+		tooMany[index] = base
+	}
+	if _, err := NewCandidateSet(CandidateSetInput{Skipped: tooMany}); err == nil {
+		t.Fatal("NewCandidateSet accepted too many skipped observations")
+	}
+
+	oversizedDetail := base
+	oversizedDetail.Detail = strings.Repeat("d", maximumSkippedDetailBytes+1)
+	if _, err := NewCandidateSet(CandidateSetInput{Skipped: []Skipped{oversizedDetail}}); err == nil {
+		t.Fatal("NewCandidateSet accepted an oversized skipped detail")
 	}
 }
 

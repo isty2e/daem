@@ -1,11 +1,136 @@
 package adopt
 
 import (
+	"crypto/sha256"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/isty2e/daem/internal/target"
 )
+
+const (
+	maximumSkippedObservations    = 4096
+	maximumSkippedDiagnosticBytes = 256 << 10
+	maximumSkippedDetailBytes     = 4096
+)
+
+// ErrSkipObservationLimitExceeded classifies operation-wide skipped-result
+// count or diagnostic-byte exhaustion.
+var ErrSkipObservationLimitExceeded = errors.New("import skip observation limit exceeded")
+
+// SkippedCollector admits one bounded operation-wide set of exact skipped
+// observations. It is sequential and must not be shared by concurrent callers.
+type SkippedCollector struct {
+	skipped         []Skipped
+	diagnosticBytes int
+	exhausted       bool
+}
+
+// NewSkippedCollector constructs an empty operation-wide skip collector.
+func NewSkippedCollector() *SkippedCollector {
+	return &SkippedCollector{skipped: make([]Skipped, 0)}
+}
+
+// Add normalizes and admits one exact skipped observation.
+func (collector *SkippedCollector) Add(skipped Skipped) error {
+	if collector == nil {
+		return fmt.Errorf("skipped observation collector is required")
+	}
+	if collector.exhausted {
+		return ErrSkipObservationLimitExceeded
+	}
+	skipped.Detail = boundedSkippedDetail(skipped.Detail)
+	if err := skipped.validate(); err != nil {
+		return err
+	}
+	remainingBytes := maximumSkippedDiagnosticBytes - collector.diagnosticBytes
+	rowBytes, withinBudget := skippedDiagnosticBytesWithin(skipped, remainingBytes)
+	if len(collector.skipped) >= maximumSkippedObservations {
+		collector.exhausted = true
+		return fmt.Errorf(
+			"%w: rows observed=%d limit=%d",
+			ErrSkipObservationLimitExceeded,
+			len(collector.skipped)+1,
+			maximumSkippedObservations,
+		)
+	}
+	if !withinBudget {
+		collector.exhausted = true
+		return fmt.Errorf(
+			"%w: diagnostic_bytes observed>%d limit=%d",
+			ErrSkipObservationLimitExceeded,
+			maximumSkippedDiagnosticBytes,
+			maximumSkippedDiagnosticBytes,
+		)
+	}
+	collector.skipped = append(collector.skipped, skipped)
+	collector.diagnosticBytes += rowBytes
+	return nil
+}
+
+// Skipped returns an owned copy of every admitted exact skipped observation.
+func (collector *SkippedCollector) Skipped() []Skipped {
+	if collector == nil {
+		return nil
+	}
+	return cloneSkipped(collector.skipped)
+}
+
+func boundedSkippedDetail(detail string) string {
+	if len(detail) <= maximumSkippedDetailBytes {
+		return detail
+	}
+	digest := sha256.Sum256([]byte(detail))
+	return fmt.Sprintf("detail_omitted:sha256:%x:bytes=%d", digest, len(detail))
+}
+
+func skippedDiagnosticBytesWithin(skipped Skipped, maximum int) (int, bool) {
+	if maximum < 0 {
+		return 0, false
+	}
+	total := 0
+	for _, length := range []int{
+		len(skipped.Target),
+		len(skipped.Scope),
+		len(skipped.LivePath),
+		len(skipped.Reason),
+		len(skipped.Detail),
+	} {
+		if length > maximum-total {
+			return 0, false
+		}
+		total += length
+	}
+	return total, true
+}
+
+func validateSkippedObservations(skipped []Skipped) error {
+	if len(skipped) > maximumSkippedObservations {
+		return fmt.Errorf(
+			"skipped observations exceed %d rows",
+			maximumSkippedObservations,
+		)
+	}
+	diagnosticBytes := 0
+	for index, observation := range skipped {
+		if err := observation.validate(); err != nil {
+			return fmt.Errorf("skipped observation %d: %w", index, err)
+		}
+		rowBytes, withinBudget := skippedDiagnosticBytesWithin(
+			observation,
+			maximumSkippedDiagnosticBytes-diagnosticBytes,
+		)
+		if !withinBudget {
+			return fmt.Errorf(
+				"skipped observations exceed %d diagnostic bytes",
+				maximumSkippedDiagnosticBytes,
+			)
+		}
+		diagnosticBytes += rowBytes
+	}
+	return nil
+}
 
 // SkipReason identifies one stable semantic cause for a skipped observation.
 // Diagnostic context belongs in Skipped.Detail and must not affect classification.
@@ -57,7 +182,6 @@ func (reason SkipReason) category() SkipCategory {
 		"unsupported_mcp_alternate_config",
 		"unsupported_mcp_transport",
 		"unsupported_mcp_managed_field",
-		"unsupported_mcp_projection",
 		"unsupported_group_field",
 		"unsupported_handler_field",
 		"unsupported_handler_type",
@@ -111,6 +235,8 @@ func (reason SkipReason) actionHint() SkipActionHint {
 		"inline_config_malformed",
 		"duplicate_json_key",
 		"invalid_canonical_hook",
+		"invalid_canonical_mcp",
+		"mcp_provider_document_lossy",
 		"invalid_mcp_argument",
 		"invalid_skill_name",
 		"missing_skill_md",
@@ -133,6 +259,9 @@ func (skipped Skipped) validate() error {
 	}
 	if strings.TrimSpace(skipped.LivePath) == "" || strings.TrimSpace(string(skipped.Reason)) == "" {
 		return fmt.Errorf("live path and reason are required")
+	}
+	if len(skipped.Detail) > maximumSkippedDetailBytes {
+		return fmt.Errorf("detail exceeds %d bytes", maximumSkippedDetailBytes)
 	}
 	if skipped.Category() == SkipCategoryActionRequired && skipped.ActionHint() == "" {
 		return fmt.Errorf("actionable skip requires an action hint")

@@ -107,7 +107,7 @@ func TestImportSkipPresentationShowsConflictRoutesAndStableDetail(t *testing.T) 
 	}
 
 	var output bytes.Buffer
-	PrintImportSkippedActions(&output, []adoptmodel.Skipped{skipped})
+	PrintImportSkippedReport(&output, []adoptmodel.Skipped{skipped}, HumanOptions{}, false)
 	for _, want := range []string{
 		`skip live="` + second + `" reason=conflicting_skill_name target=codex scope=global`,
 		`detail="conflicts_with=` + first + `"`,
@@ -123,6 +123,43 @@ func TestImportSkipPresentationShowsConflictRoutesAndStableDetail(t *testing.T) 
 		rows[0].Detail != "conflicts_with="+first ||
 		rows[0].ActionHint != "resolve_conflict" {
 		t.Fatalf("JSON rows = %#v, want exact conflict code, detail, and action", rows)
+	}
+}
+
+func TestImportFailureSkipReportHonorsVerboseModeAndMarksOverflow(t *testing.T) {
+	t.Parallel()
+
+	skipped := []adoptmodel.Skipped{
+		{
+			Target:   target.TargetCodex,
+			Scope:    target.ScopeGlobal,
+			LivePath: "duplicate-skill",
+			Reason:   "duplicate_skill_name",
+		},
+		{
+			Target:   target.TargetClaudeCode,
+			Scope:    target.ScopeProject,
+			LivePath: "unsupported-server",
+			Reason:   "unsupported_mcp_transport",
+		},
+	}
+
+	var output bytes.Buffer
+	PrintImportSkippedReport(&output, skipped, HumanOptions{}, false)
+	if strings.Contains(output.String(), "duplicate-skill") || strings.Contains(output.String(), "unsupported-server") {
+		t.Fatalf("default failure output = %q, want compact non-actionable rows", output.String())
+	}
+
+	output.Reset()
+	PrintImportSkippedReport(&output, skipped, HumanOptions{Verbose: true}, true)
+	for _, want := range []string{
+		`skip live="duplicate-skill" reason=duplicate_skill_name`,
+		`skip live="unsupported-server" reason=unsupported_mcp_transport`,
+		"skipped detail omitted: the operation-wide skip diagnostic budget was exhausted",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("verbose failure output = %q, want %q", output.String(), want)
+		}
 	}
 }
 

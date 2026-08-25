@@ -326,8 +326,12 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 	}
 
 	_, err = buildPlanForTest(context.Background(), request)
-	if !errors.Is(err, adoptmodel.ErrNothingToImport) || !strings.Contains(err.Error(), "unsupported_mcp_alternate_config") {
-		t.Fatalf("BuildPlan error = %v, want alternate-config skip", err)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
+		t.Fatalf("BuildPlan error = %v, want nothing-to-import", err)
+	}
+	skipped, overflow := ImportFailureSkipped(err)
+	if overflow || len(skipped) == 0 || skipped[len(skipped)-1].Reason != "unsupported_mcp_alternate_config" {
+		t.Fatalf("BuildPlan skipped = %#v overflow=%t, want alternate-config skip", skipped, overflow)
 	}
 	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
 		t.Fatalf("alternate-config import wrote manifest: %v", statErr)
@@ -377,8 +381,8 @@ func TestExecuteCommandPlanPreservesTypedNothingToImportFromRevalidation(t *test
 	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
 		t.Fatalf("ExecuteCommandPlan error = %v, want ErrNothingToImport", err)
 	}
-	if got := NothingToImportSkipped(err); len(got) != 1 || got[0] != want[0] {
-		t.Fatalf("revalidation skipped = %#v, want %#v", got, want)
+	if got, overflow := ImportFailureSkipped(err); overflow || len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("revalidation skipped = %#v overflow=%t, want %#v/false", got, overflow, want)
 	}
 }
 

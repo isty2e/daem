@@ -10,7 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestSkippedSummaryCompactsBenignRowsAndRetainsActionablePaths(t *testing.T) {
+func TestSkippedSummaryContainsOnlyCompactAggregateCounts(t *testing.T) {
 	t.Parallel()
 
 	skipped := make([]adoptmodel.Skipped, 0, 1001)
@@ -30,21 +30,20 @@ func TestSkippedSummaryCompactsBenignRowsAndRetainsActionablePaths(t *testing.T)
 	})
 
 	summary := skippedSummary(skipped)
-	for _, expected := range []string{
-		"action_required=1 unsupported=0 informational=1000",
-		".mcp.json#/mcpServers/secret: secret_literal_forbidden",
-		"informational target=codex reason=missing count=1000",
-	} {
-		if !strings.Contains(summary, expected) {
-			t.Fatalf("summary = %q, want %q", summary, expected)
+	if !strings.Contains(summary, "action_required=1 unsupported=0 informational=1000") {
+		t.Fatalf("summary = %q, want aggregate counts", summary)
+	}
+	for _, forbidden := range []string{"missing-0000", ".mcp.json", "secret_literal_forbidden"} {
+		if strings.Contains(summary, forbidden) {
+			t.Fatalf("summary = %q, want no detailed row %q", summary, forbidden)
 		}
 	}
-	if strings.Contains(summary, "missing-0000") || len(summary) > 512 {
-		t.Fatalf("summary = %q, want bounded benign output", summary)
+	if len(summary) > 128 {
+		t.Fatalf("summary = %q, want bounded aggregate output", summary)
 	}
 }
 
-func TestNothingToImportErrorPreservesTypedSkippedEvidence(t *testing.T) {
+func TestNothingToImportErrorPreservesTypedSkippedEvidenceOutsideErrorText(t *testing.T) {
 	t.Parallel()
 
 	want := []adoptmodel.Skipped{{
@@ -58,12 +57,35 @@ func TestNothingToImportErrorPreservesTypedSkippedEvidence(t *testing.T) {
 	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
 		t.Fatalf("error = %v, want ErrNothingToImport", err)
 	}
-	got := NothingToImportSkipped(err)
-	if len(got) != 1 || got[0] != want[0] {
-		t.Fatalf("typed skipped = %#v, want %#v", got, want)
+	if strings.Contains(err.Error(), want[0].LivePath) || strings.Contains(err.Error(), want[0].Detail) {
+		t.Fatalf("error text = %q, want detailed rows kept out of Error()", err)
+	}
+	got, overflow := ImportFailureSkipped(err)
+	if overflow || len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("typed skipped = %#v overflow=%t, want %#v/false", got, overflow, want)
 	}
 	got[0].Detail = "mutated"
-	if again := NothingToImportSkipped(err); len(again) != 1 || again[0] != want[0] {
-		t.Fatalf("typed skipped alias = %#v, want immutable copy %#v", again, want)
+	if again, againOverflow := ImportFailureSkipped(err); againOverflow || len(again) != 1 || again[0] != want[0] {
+		t.Fatalf("typed skipped alias = %#v overflow=%t, want immutable copy %#v", again, againOverflow, want)
+	}
+}
+
+func TestSkippedObservationErrorCarriesOnlyBoundedRetainedRows(t *testing.T) {
+	t.Parallel()
+
+	retained := []adoptmodel.Skipped{{
+		Target:   target.TargetCodex,
+		Scope:    target.ScopeProject,
+		LivePath: "retained",
+		Reason:   "missing",
+	}}
+	cause := fmt.Errorf("%w: rows observed=2 limit=1", adoptmodel.ErrSkipObservationLimitExceeded)
+	err := newSkippedObservationError(cause, retained)
+	if !errors.Is(err, adoptmodel.ErrSkipObservationLimitExceeded) {
+		t.Fatalf("error = %v, want skip observation limit", err)
+	}
+	got, overflow := ImportFailureSkipped(err)
+	if !overflow || len(got) != 1 || got[0] != retained[0] {
+		t.Fatalf("typed skipped = %#v overflow=%t, want retained evidence", got, overflow)
 	}
 }

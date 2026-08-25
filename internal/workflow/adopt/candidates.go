@@ -18,6 +18,7 @@ func importCandidates(
 	scope targetpkg.Scope,
 	importedSkillDestinations adoptskill.DestinationClaims,
 	skillSourceIdentities *adoptskill.SourceIdentityCache,
+	skippedCollector *adoptmodel.SkippedCollector,
 ) (
 	[]adoptmodel.Source,
 	[]adoptmodel.Skill,
@@ -25,17 +26,17 @@ func importCandidates(
 	[]adoptmodel.MCPServer,
 	[]adoptmodel.MCPSourceAuthority,
 	[]adoptmodel.Scan,
-	[]adoptmodel.Skipped,
 	error,
 ) {
 	sources := make([]adoptmodel.Source, 0, 1)
-	skipped := make([]adoptmodel.Skipped, 0, 2)
 	instructionSources, instructionSkipped, err := adoptinstructions.Candidates(ctx, sourceDirectory, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
 	sources = append(sources, instructionSources...)
-	skipped = appendRouteSkipped(skipped, instructionSkipped, target, scope)
+	if err := appendRouteSkipped(skippedCollector, instructionSkipped, target, scope); err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
 
 	skills, skillScans, skillSkipped, err := adoptskill.Candidates(
 		ctx,
@@ -46,35 +47,43 @@ func importCandidates(
 		skillSourceIdentities,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = appendRouteSkipped(skipped, skillSkipped, target, scope)
+	if err := appendRouteSkipped(skippedCollector, skillSkipped, target, scope); err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
 
 	hooks, hookSkipped, err := adopthook.Candidates(ctx, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = appendRouteSkipped(skipped, hookSkipped, target, scope)
+	if err := appendRouteSkipped(skippedCollector, hookSkipped, target, scope); err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
 
 	mcpServers, mcpAuthorities, mcpSkipped, err := adoptmcp.Candidates(ctx, target, scope)
 	if err != nil {
-		return nil, nil, nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, nil, nil, err
 	}
-	skipped = appendRouteSkipped(skipped, mcpSkipped, target, scope)
+	if err := appendRouteSkipped(skippedCollector, mcpSkipped, target, scope); err != nil {
+		return nil, nil, nil, nil, nil, nil, err
+	}
 
-	return sources, skills, hooks, mcpServers, mcpAuthorities, skillScans, skipped, nil
+	return sources, skills, hooks, mcpServers, mcpAuthorities, skillScans, nil
 }
 
 func appendRouteSkipped(
-	destination []adoptmodel.Skipped,
+	collector *adoptmodel.SkippedCollector,
 	values []adoptmodel.Skipped,
 	target targetpkg.Target,
 	scope targetpkg.Scope,
-) []adoptmodel.Skipped {
+) error {
 	for _, value := range values {
 		value.Target = target
 		value.Scope = scope
-		destination = append(destination, value)
+		if err := collector.Add(value); err != nil {
+			return err
+		}
 	}
-	return destination
+	return nil
 }

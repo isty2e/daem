@@ -1,6 +1,35 @@
 package access
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrTraversalEntryLimitExceeded classifies a caller-selected traversal entry
+// limit reached before another artifact entry could be admitted.
+var ErrTraversalEntryLimitExceeded = errors.New("artifact traversal entry limit exceeded")
+
+type traversalEntryLimitError struct {
+	operation string
+	path      string
+	limit     uint64
+}
+
+func (err *traversalEntryLimitError) Error() string {
+	if err == nil {
+		return ErrTraversalEntryLimitExceeded.Error()
+	}
+	return fmt.Sprintf(
+		"artifact %s exceeds entry limit %d at %q",
+		err.operation,
+		err.limit,
+		err.path,
+	)
+}
+
+func (err *traversalEntryLimitError) Unwrap() error {
+	return ErrTraversalEntryLimitExceeded
+}
 
 // LimitError reports that one artifact access operation exceeded the
 // caller-selected byte budget. The access package observes the exhaustion but
@@ -47,5 +76,13 @@ func newLimitError(operation string, path string, limit int64, observed int64) *
 		path:      path,
 		limit:     limit,
 		observed:  observed,
+	}
+}
+
+func newTraversalEntryLimitError(operation string, path string, limit uint64) error {
+	return &traversalEntryLimitError{
+		operation: operation,
+		path:      path,
+		limit:     limit,
 	}
 }

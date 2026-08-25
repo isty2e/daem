@@ -24,9 +24,32 @@ type ImportSkipped struct {
 	ActionHint adoptmodel.SkipActionHint
 }
 
-// PrintImportSkippedActions renders every actionable skipped row with its next action.
-func PrintImportSkippedActions(output io.Writer, skipped []adoptmodel.Skipped) {
-	printImportActionRequired(output, importSkippedFromAdoption(skipped))
+// PrintImportSkippedReport renders bounded typed skip evidence in the selected
+// human mode and marks operation-wide diagnostic-budget exhaustion explicitly.
+func PrintImportSkippedReport(
+	output io.Writer,
+	skipped []adoptmodel.Skipped,
+	options HumanOptions,
+	overflow bool,
+) {
+	printImportSkippedReport(output, importSkippedFromAdoption(skipped), options, overflow)
+}
+
+func printImportSkippedReport(
+	output io.Writer,
+	skipped []ImportSkipped,
+	options HumanOptions,
+	overflow bool,
+) {
+	if options.Verbose {
+		printImportSkippedVerbose(output, skipped)
+	} else {
+		printImportSkippedDefault(output, skipped)
+	}
+	if overflow {
+		fmt.Fprintln(output, "skipped detail omitted: the operation-wide skip diagnostic budget was exhausted")
+		fmt.Fprintln(output, "next: reduce the observed source set or its rejected rows, then retry import")
+	}
 }
 
 func printImportSkippedDefault(output io.Writer, skipped []ImportSkipped) {

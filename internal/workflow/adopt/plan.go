@@ -79,7 +79,7 @@ func buildPlan(
 	var mcpServers []adoptmodel.MCPServer
 	var mcpAuthorities []adoptmodel.MCPSourceAuthority
 	var scans []adoptmodel.Scan
-	var skipped []adoptmodel.Skipped
+	skippedCollector := adoptmodel.NewSkippedCollector()
 	extensionResult, err := adoptextension.Collect(adoptextension.Input{
 		ManifestRoot: filepath.Dir(output),
 		Targets:      requestTargets,
@@ -108,12 +108,14 @@ func buildPlan(
 		})
 	}
 	for _, skip := range extensionResult.Skipped() {
-		skipped = append(skipped, adoptmodel.Skipped{
+		if err := skippedCollector.Add(adoptmodel.Skipped{
 			Target:   skip.Target,
 			Scope:    skip.Scope,
 			LivePath: skip.LivePath,
 			Reason:   adoptmodel.SkipReason(skip.Reason),
-		})
+		}); err != nil {
+			return adoptmodel.Plan{}, wrapSkippedObservationError(err, skippedCollector)
+		}
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	skillSourceIdentities := adoptskill.NewSourceIdentityCache(skillTreeLimit)
@@ -131,19 +133,19 @@ func buildPlan(
 				Completed: completedTargetScopes,
 				Total:     progressTotal,
 			})
-			importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, observedSkipped, err := importCandidates(
+			importedSources, importedSkills, importedHooks, importedMCPServers, observedMCPAuthorities, observedScans, err := importCandidates(
 				ctx,
 				sourceDirectory,
 				target,
 				scope,
 				importedSkillDestinations,
 				skillSourceIdentities,
+				skippedCollector,
 			)
 			if err != nil {
-				return adoptmodel.Plan{}, err
+				return adoptmodel.Plan{}, wrapSkippedObservationError(err, skippedCollector)
 			}
 			scans = append(scans, observedScans...)
-			skipped = append(skipped, observedSkipped...)
 			sources = append(sources, importedSources...)
 			skills = append(skills, importedSkills...)
 			hooks = append(hooks, importedHooks...)
@@ -169,6 +171,7 @@ func buildPlan(
 		return adoptmodel.Plan{}, err
 	}
 
+	skipped := skippedCollector.Skipped()
 	candidates, err := adoptmodel.NewCandidateSet(adoptmodel.CandidateSetInput{
 		Sources:              sources,
 		Skills:               skills,

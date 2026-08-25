@@ -99,10 +99,8 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 			return CandidateSet{}, fmt.Errorf("scan observation %d: %w", index, err)
 		}
 	}
-	for index, skip := range input.Skipped {
-		if err := skip.validate(); err != nil {
-			return CandidateSet{}, fmt.Errorf("skipped observation %d: %w", index, err)
-		}
+	if err := validateSkippedObservations(input.Skipped); err != nil {
+		return CandidateSet{}, err
 	}
 
 	return CandidateSet{

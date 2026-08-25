@@ -66,9 +66,7 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 		if commandPlan.OutputPath() == "" {
 			return 2
 		}
-		if workflowadopt.IsNothingToImport(err) {
-			printImportNothingToImportDetails(stderr, err, commandPlan)
-		}
+		printImportFailureDetails(stderr, err, commandPlan, *verbose)
 		return 1
 	}
 	plan := commandPlan.AdoptionPlan()
@@ -117,9 +115,7 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 	progress.Close()
 	if err != nil {
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
-		if workflowadopt.IsNothingToImport(err) {
-			printImportNothingToImportDetails(stderr, err, optimisticPlan)
-		}
+		printImportFailureDetails(stderr, err, optimisticPlan, *verbose)
 		return 1
 	}
 	plan = commandPlan.AdoptionPlan()
@@ -134,7 +130,22 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 	return 0
 }
 
-func printImportNothingToImportDetails(output io.Writer, err error, commandPlan workflowadopt.CommandPlan) {
-	clipresent.PrintImportSkippedActions(output, workflowadopt.NothingToImportSkipped(err))
-	printImportNothingToImportHint(output, commandPlan.OutputPath(), commandPlan.Merge())
+func printImportFailureDetails(
+	output io.Writer,
+	err error,
+	commandPlan workflowadopt.CommandPlan,
+	verbose bool,
+) {
+	skipped, overflow := workflowadopt.ImportFailureSkipped(err)
+	if len(skipped) != 0 || overflow {
+		clipresent.PrintImportSkippedReport(
+			output,
+			skipped,
+			clipresent.HumanOptions{Verbose: verbose},
+			overflow,
+		)
+	}
+	if workflowadopt.IsNothingToImport(err) {
+		printImportNothingToImportHint(output, commandPlan.OutputPath(), commandPlan.Merge())
+	}
 }

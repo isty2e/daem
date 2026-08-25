@@ -232,13 +232,16 @@ func requireRootRegularFile(
 	}
 	name := budget.requiredRootRegularFile
 	if !slices.Contains(names, name) {
+		budget.chargeRootListing(len(names))
 		return fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
 	}
 	observed, _, err := observeNativeEntry(directoryFD, name)
 	if err != nil {
+		budget.chargeRootListing(len(names))
 		return err
 	}
 	if observed.kind != nativeKindFile {
+		budget.chargeRootListing(len(names))
 		return fmt.Errorf("%w: %q", ErrRequiredRootRegularFile, name)
 	}
 	return nil

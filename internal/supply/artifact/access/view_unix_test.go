@@ -189,6 +189,7 @@ func TestHashWithLimitRejectsEntryAndByteOverflow(t *testing.T) {
 		t.Fatalf("NewTraversalLimit returned error: %v", err)
 	}
 	if _, _, err := view.HashWithLimit(context.Background(), entryLimit); err == nil ||
+		!errors.Is(err, ErrTraversalEntryLimitExceeded) ||
 		!strings.Contains(err.Error(), "entry limit 2") {
 		t.Fatalf("HashWithLimit entry error = %v, want bounded rejection", err)
 	}
@@ -236,7 +237,7 @@ func TestHashWithLimitMatchesUnboundedHashWithinBudget(t *testing.T) {
 }
 
 func TestHashDirectoryWithLimitsDistinguishesEmptyTreeFromFirstOverflowEntry(t *testing.T) {
-	traversal, err := NewTraversalLimit(1, 1)
+	traversal, err := NewTraversalLimit(1, 0)
 	if err != nil {
 		t.Fatalf("construct proof traversal limit: %v", err)
 	}
@@ -328,13 +329,17 @@ func TestHashDirectoryRequiringRootFileBindsEligibilityToTreeIdentity(t *testing
 		t.Fatal(err)
 	}
 
-	got, err := view.HashDirectoryRequiringRootFile(
+	got, measurement, err := view.HashDirectoryRequiringRootFile(
 		context.Background(),
 		"SKILL.md",
+		accessTraversalLimitForTest(t),
 		accessTreeStructureLimitForTest(t, 8, 4),
 	)
 	if err != nil {
 		t.Fatalf("HashDirectoryRequiringRootFile returned error: %v", err)
+	}
+	if measurement.DescendantEntries() != 3 || measurement.RegularFileBytes() == 0 {
+		t.Fatalf("measurement = %#v, want complete tree work", measurement)
 	}
 	want, err := view.Hash(context.Background())
 	if err != nil {
@@ -380,12 +385,17 @@ func TestHashDirectoryRequiringRootFileRejectsMissingOrNonregularEntry(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := view.HashDirectoryRequiringRootFile(
+			_, measurement, err := view.HashDirectoryRequiringRootFile(
 				context.Background(),
 				"SKILL.md",
+				accessTraversalLimitForTest(t),
 				accessTreeStructureLimitForTest(t, 8, 4),
-			); !errors.Is(err, ErrRequiredRootRegularFile) {
+			)
+			if !errors.Is(err, ErrRequiredRootRegularFile) {
 				t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection", err)
+			}
+			if measurement.DescendantEntries() == 0 {
+				t.Fatalf("failed root eligibility measurement = %#v, want listed entries charged", measurement)
 			}
 		})
 	}
@@ -435,9 +445,10 @@ func TestHashDirectoryRequiringRootFileEnforcesTreeStructureLimit(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = view.HashDirectoryRequiringRootFile(
+			_, _, err = view.HashDirectoryRequiringRootFile(
 				context.Background(),
 				"SKILL.md",
+				accessTraversalLimitForTest(t),
 				test.limit,
 			)
 			if test.wantErr == "" {
@@ -461,9 +472,10 @@ func TestHashDirectoryRequiringRootFileRejectsMissingFileBeforeTreeBudget(t *tes
 		t.Fatal(err)
 	}
 
-	if _, err := view.HashDirectoryRequiringRootFile(
+	if _, _, err := view.HashDirectoryRequiringRootFile(
 		context.Background(),
 		"SKILL.md",
+		accessTraversalLimitForTest(t),
 		accessTreeStructureLimitForTest(t, 2, 1),
 	); !errors.Is(err, ErrRequiredRootRegularFile) {
 		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want required-file rejection before tree budget", err)
@@ -480,9 +492,10 @@ func TestHashDirectoryRequiringRootFileRejectsRootBreadthOverflowBeforeMissingFi
 		t.Fatal(err)
 	}
 
-	_, err = view.HashDirectoryRequiringRootFile(
+	_, _, err = view.HashDirectoryRequiringRootFile(
 		context.Background(),
 		"SKILL.md",
+		accessTraversalLimitForTest(t),
 		accessTreeStructureLimitForTest(t, 2, 1),
 	)
 	if err == nil || errors.Is(err, ErrRequiredRootRegularFile) {
@@ -508,6 +521,15 @@ func TestHashDirectoryRequiringRootFileHonorsCancellationDuringRootLookup(t *tes
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("walkNative error = %v, want context.Canceled during root lookup", err)
 	}
+}
+
+func accessTraversalLimitForTest(t *testing.T) TraversalLimit {
+	t.Helper()
+	limit, err := NewTraversalLimit(1024, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return limit
 }
 
 func accessTreeStructureLimitForTest(

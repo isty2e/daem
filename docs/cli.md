@@ -329,10 +329,14 @@ Skill import may resolve the selected top-level skill directory through a
 symlink, but records the resulting absolute route and does not follow any
 symlink within the skill tree. Daem proves that the root `SKILL.md` is regular
 in the same descriptor-bound traversal that hashes the tree. It hashes each
-shared resolved route once per planning pass; when identical content from
-several target routes becomes one multi-target declaration, every contributing
-route remains freshness evidence and the representative target's canonical
-route supplies the bytes. Daem then streams that exact planned directory
+shared resolved route once per planning pass. Every distinct route observed for
+same-name duplicate or conflict classification is charged to the same
+400,000-entry/16-GiB source-identity observation budget even when that route is
+later skipped and therefore does not become publication freshness authority.
+When identical content from several target routes becomes one multi-target
+declaration, every contributing route remains freshness evidence and the
+representative target's canonical route supplies the bytes. Daem then streams
+that exact planned directory
 identity into private staging. Any identity-changing replacement or mutation,
 including an entry, executable-mode, or entry-kind change during copying,
 fails before manifest publication. Import planning and private staging both
@@ -355,11 +359,18 @@ by `action_required`, `unsupported`, and `informational` category, the
 destination, and nearest next commands. `action_required` identifies a live
 source or explicit authoring decision the user can resolve; `unsupported`
 identifies a surface this daem version cannot manage; `informational`
-identifies expected discovery or deduplication noise. Every actionable skip
-remains visible with a next action. Unsupported and informational skips are
-compacted by target and reason; `--verbose` retains every exact per-path skip in addition to
-individual clean scan, resource, and merge rows. JSON retains every typed row
-with target, scope, category, and an optional stable action hint. After a
+identifies expected discovery or deduplication noise. Every actionable skip in
+an admitted completed result remains visible with a next action. One import
+planning pass retains at most 4,096 skip rows and 256 KiB of aggregate dynamic
+skip diagnostics; one `detail` value is at most 4,096 bytes and a larger value
+is replaced by a whole-value digest and byte count. Exceeding either aggregate
+limit aborts before a plan or write, emits the already-retained rows once plus
+an explicit diagnostic-budget marker on stderr, and emits no JSON result
+envelope. Unsupported and informational skips are compacted by target and
+reason; `--verbose` retains every admitted exact per-path skip in successful and
+no-resource failure output, in addition to individual clean scan, resource, and
+merge rows on successful plans. JSON retains every admitted typed row with
+target, scope, category, and an optional stable action hint. After a
 successful write with imported resources, human output points to lock preview
 and then to
 `apply --manage-existing --dry-run` after the lockfile is written. The latter
@@ -551,10 +562,13 @@ these common fields:
 
 Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
 stable `reason` code values plus one stable `category`. Optional `detail`
-contains bounded diagnostic context and never changes classification.
-`action_hint` is present only for `action_required` rows and is a machine code
-rather than human next-action prose. Unknown future reason codes default to
-`action_required` so default human output cannot silently compact them.
+contains at most 4,096 bytes of non-authoritative diagnostic context and never
+changes classification. `action_hint` is present only for `action_required`
+rows and is a machine code rather than human next-action prose. MCP canonical
+invalidity and provider-lossy documents are actionable repair reasons; unknown
+or untyped MCP projection codes become `mcp_projection_unclassified` and remain
+actionable. Unknown future reason codes default to `action_required` so default
+human output cannot silently compact them.
 
 Imported extension changes use `resource.kind = "extension"` and include the
 exact `carrier`, `target`, and `scope`. A source identity proven public by the

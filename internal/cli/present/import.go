@@ -83,10 +83,8 @@ func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options Human
 	printImportSummary(output, plan)
 	if options.Verbose {
 		printImportEvidence(output, plan)
-		printImportSkippedVerbose(output, plan.Skipped)
-	} else {
-		printImportSkippedDefault(output, plan.Skipped)
 	}
+	printImportSkippedReport(output, plan.Skipped, options, false)
 	fmt.Fprintf(output, "manifest: %s\n", Escape(plan.ManifestPath))
 	if options.Verbose {
 		fmt.Fprintf(output, "source-dir: %s\n", Escape(plan.SourceDir))

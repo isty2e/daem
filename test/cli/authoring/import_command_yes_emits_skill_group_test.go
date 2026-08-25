@@ -271,9 +271,8 @@ func TestRunImportReportsEmptyAndNoImportableSkillRoots(t *testing.T) {
 	}
 	for _, want := range []string{
 		"nothing to import",
-		filepath.Join(homeDir, ".agents", "skills") + ": empty entries=0 imported=0 skipped=0",
-		filepath.Join(homeDir, ".codex", "skills") + ": no_importable_entries entries=1 imported=0 skipped=1",
-		"missing_skill_md",
+		"scanned roots=3 entries=1 imported=0 skipped=1",
+		`skip live="` + filepath.Join(homeDir, ".codex", "skills", "missing-skill") + `" reason=missing_skill_md target=codex scope=global`,
 		"next: verify that the selected --target and --scope have live agent files to import",
 		"next: try another selection, such as --scope global or a different --target",
 	} {
@@ -306,7 +305,7 @@ func TestRunImportYesReportsNestedSkillSymlinkWithoutDestination(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), ": nested_symlink") {
+	if !strings.Contains(stderr.String(), `reason=nested_symlink target=codex scope=global`) {
 		t.Fatalf("stderr = %q, want nested symlink skip diagnostic", stderr.String())
 	}
 	testkit.AssertPathMissing(t, outputPath)

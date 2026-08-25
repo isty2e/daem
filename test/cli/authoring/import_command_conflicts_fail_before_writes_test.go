@@ -43,7 +43,7 @@ func TestRunImportConflictsFailBeforeWrites(t *testing.T) {
 					t.Fatalf("Mkdir returned error: %v", err)
 				}
 			},
-			want: "AGENTS.md: instruction_not_regular_file",
+			want: `skip live="AGENTS.md" reason=instruction_not_regular_file target=codex scope=project`,
 		},
 	}
 
@@ -91,7 +91,7 @@ func TestRunImportMissingInputFailsWithoutWrites(t *testing.T) {
 	for _, want := range []string{
 		"nothing to import",
 		"action_required=0 unsupported=0 informational=5",
-		"informational target=codex reason=missing count=5",
+		`skip live="AGENTS.md" reason=missing target=codex scope=project category=informational`,
 		"next: verify that the selected --target and --scope have live agent files to import",
 		"next: try another selection, such as --scope global or a different --target",
 		"next: choose the destination with --manifest <path>, or add --merge when importing into an existing manifest",

@@ -3,8 +3,6 @@ package adopt
 import (
 	"errors"
 	"fmt"
-	"sort"
-	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
 )
@@ -29,13 +27,51 @@ func (err *nothingToImportError) Unwrap() error {
 	return adoptmodel.ErrNothingToImport
 }
 
-// NothingToImportSkipped returns an immutable copy of typed skip evidence.
-func NothingToImportSkipped(err error) []adoptmodel.Skipped {
-	var detail *nothingToImportError
-	if !errors.As(err, &detail) {
+type skippedObservationError struct {
+	cause   error
+	skipped []adoptmodel.Skipped
+}
+
+func newSkippedObservationError(cause error, skipped []adoptmodel.Skipped) error {
+	return &skippedObservationError{
+		cause:   cause,
+		skipped: append([]adoptmodel.Skipped(nil), skipped...),
+	}
+}
+
+func wrapSkippedObservationError(err error, collector *adoptmodel.SkippedCollector) error {
+	if !errors.Is(err, adoptmodel.ErrSkipObservationLimitExceeded) {
+		return err
+	}
+	return newSkippedObservationError(err, collector.Skipped())
+}
+
+func (err *skippedObservationError) Error() string {
+	if err == nil || err.cause == nil {
+		return adoptmodel.ErrSkipObservationLimitExceeded.Error()
+	}
+	return err.cause.Error()
+}
+
+func (err *skippedObservationError) Unwrap() error {
+	if err == nil {
 		return nil
 	}
-	return append([]adoptmodel.Skipped(nil), detail.skipped...)
+	return err.cause
+}
+
+// ImportFailureSkipped returns immutable typed skip evidence and whether an
+// operation-wide skip budget omitted one or more later rows.
+func ImportFailureSkipped(err error) ([]adoptmodel.Skipped, bool) {
+	var nothing *nothingToImportError
+	if errors.As(err, &nothing) {
+		return append([]adoptmodel.Skipped(nil), nothing.skipped...), false
+	}
+	var exhausted *skippedObservationError
+	if errors.As(err, &exhausted) {
+		return append([]adoptmodel.Skipped(nil), exhausted.skipped...), true
+	}
+	return nil, false
 }
 
 func skippedSummary(skipped []adoptmodel.Skipped) string {
@@ -46,16 +82,8 @@ func skippedSummary(skipped []adoptmodel.Skipped) string {
 	var actionRequired int
 	var unsupported int
 	var informational int
-	type groupKey struct {
-		category adoptmodel.SkipCategory
-		target   string
-		reason   adoptmodel.SkipReason
-	}
-	groups := make(map[groupKey]int)
-	actionable := make([]string, 0)
 	for _, value := range skipped {
-		category := value.Category()
-		switch category {
+		switch value.Category() {
 		case adoptmodel.SkipCategoryActionRequired:
 			actionRequired++
 		case adoptmodel.SkipCategoryUnsupported:
@@ -63,50 +91,13 @@ func skippedSummary(skipped []adoptmodel.Skipped) string {
 		case adoptmodel.SkipCategoryInformational:
 			informational++
 		}
-		if category == adoptmodel.SkipCategoryActionRequired {
-			actionable = append(actionable, fmt.Sprintf("%s: %s", value.LivePath, value.Reason))
-			continue
-		}
-		groups[groupKey{
-			category: category,
-			target:   string(value.Target),
-			reason:   value.Reason,
-		}]++
 	}
-
-	parts := []string{fmt.Sprintf(
-		"action_required=%d unsupported=%d informational=%d",
+	return fmt.Sprintf(
+		" (skipped action_required=%d unsupported=%d informational=%d)",
 		actionRequired,
 		unsupported,
 		informational,
-	)}
-	if len(actionable) != 0 {
-		parts = append(parts, "action_required "+strings.Join(actionable, ", "))
-	}
-	orderedGroups := make([]groupKey, 0, len(groups))
-	for key := range groups {
-		orderedGroups = append(orderedGroups, key)
-	}
-	sort.Slice(orderedGroups, func(left int, right int) bool {
-		if orderedGroups[left].category != orderedGroups[right].category {
-			return orderedGroups[left].category < orderedGroups[right].category
-		}
-		if orderedGroups[left].target != orderedGroups[right].target {
-			return orderedGroups[left].target < orderedGroups[right].target
-		}
-		return orderedGroups[left].reason < orderedGroups[right].reason
-	})
-	for _, key := range orderedGroups {
-		parts = append(parts, fmt.Sprintf(
-			"%s target=%s reason=%s count=%d",
-			key.category,
-			key.target,
-			key.reason,
-			groups[key],
-		))
-	}
-
-	return " (skipped " + strings.Join(parts, "; ") + ")"
+	)
 }
 
 func scanSummary(scans []adoptmodel.Scan) string {
@@ -114,20 +105,19 @@ func scanSummary(scans []adoptmodel.Scan) string {
 		return ""
 	}
 
-	parts := make([]string, 0, len(scans))
+	var entries int
+	var imported int
+	var skipped int
 	for _, scan := range scans {
-		parts = append(
-			parts,
-			fmt.Sprintf(
-				"%s: %s entries=%d imported=%d skipped=%d",
-				scan.LivePath,
-				scan.Status,
-				scan.Entries,
-				scan.Imported,
-				scan.Skipped,
-			),
-		)
+		entries += scan.Entries
+		imported += scan.Imported
+		skipped += scan.Skipped
 	}
-
-	return " (scanned " + strings.Join(parts, ", ") + ")"
+	return fmt.Sprintf(
+		" (scanned roots=%d entries=%d imported=%d skipped=%d)",
+		len(scans),
+		entries,
+		imported,
+		skipped,
+	)
 }

@@ -89,8 +89,8 @@ command = "make inline"
 	for _, want := range []string{
 		"nothing to import",
 		"action_required=0 unsupported=1 informational=4",
-		"informational target=codex reason=missing count=4",
-		"unsupported target=codex reason=unsupported_inline_hooks count=1",
+		`skip live=".codex/hooks.json" reason=missing target=codex scope=project category=informational`,
+		`skip live=".codex/config.toml" reason=unsupported_inline_hooks target=codex scope=project category=unsupported`,
 	} {
 		if !strings.Contains(stderr.String(), want) {
 			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
@@ -198,7 +198,7 @@ func TestRunImportReportsMultipleHookJSONValuesAsSkipped(t *testing.T) {
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), ".claude/settings.json: multiple_json_values") {
+	if !strings.Contains(stderr.String(), `skip live=".claude/settings.json" reason=multiple_json_values target=claude-code scope=project`) {
 		t.Fatalf("stderr = %q, want multiple_json_values skip summary", stderr.String())
 	}
 	testkit.AssertPathMissing(t, outputPath)
@@ -263,7 +263,7 @@ func TestRunImportReportsOversizedMCPDocumentWithoutPartialImport(t *testing.T) 
 	if exitCode != 1 || stdout.Len() != 0 {
 		t.Fatalf("exitCode = %d, stdout = %q, stderr = %q, want no-import failure", exitCode, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(stderr.String(), aggregate.ClaudeProjectMCPConfigPath+": mcp_config_too_large") {
+	if !strings.Contains(stderr.String(), `skip live="`+aggregate.ClaudeProjectMCPConfigPath+`" reason=mcp_config_too_large target=claude-code scope=project`) {
 		t.Fatalf("stderr = %q, want MCP document size skip", stderr.String())
 	}
 	testkit.AssertPathMissing(t, outputPath)

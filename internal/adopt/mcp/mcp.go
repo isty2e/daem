@@ -578,7 +578,7 @@ func rejectionSkips(livePath string, rejections []mcpcodec.MCPProjectionRejectio
 func skipReason(err error) adopt.SkipReason {
 	reason, ok := mcpcodec.MCPProjectionReasonCodeOf(err)
 	if !ok {
-		return "unsupported_mcp_projection"
+		return "mcp_projection_unclassified"
 	}
 	return reasonString(reason)
 }
@@ -588,7 +588,7 @@ func reasonString(reason mcpcodec.MCPProjectionReasonCode) adopt.SkipReason {
 	case mcpcodec.MCPProjectionReasonConfigMalformed:
 		return "mcp_config_malformed"
 	case mcpcodec.MCPProjectionReasonDuplicateKey:
-		return "mcp_config_malformed"
+		return "duplicate_json_key"
 	case mcpcodec.MCPProjectionReasonUnsupportedTransport:
 		return "unsupported_mcp_transport"
 	case mcpcodec.MCPProjectionReasonUnsupportedManagedField:
@@ -597,10 +597,14 @@ func reasonString(reason mcpcodec.MCPProjectionReasonCode) adopt.SkipReason {
 		return "secret_literal_forbidden"
 	case mcpcodec.MCPProjectionReasonProjectionEquivalenceUndefined:
 		return "projection_equivalence_undefined"
+	case mcpcodec.MCPProjectionReasonCanonicalInvalid:
+		return "invalid_canonical_mcp"
 	case mcpcodec.MCPProjectionReasonStaleAdapterContract:
 		return "stale_adapter_contract"
+	case mcpcodec.MCPProjectionReasonProviderDocumentLossy:
+		return "mcp_provider_document_lossy"
 	default:
-		return "unsupported_mcp_projection"
+		return "mcp_projection_unclassified"
 	}
 }
 

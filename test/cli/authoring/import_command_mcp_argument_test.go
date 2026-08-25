@@ -120,9 +120,7 @@ func TestRunImportWithOnlyInvalidMCPArgumentsWritesNothing(t *testing.T) {
 		t.Fatalf("import exitCode=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "nothing to import") ||
-		!strings.Contains(stderr.String(), ".mcp.json#/mcpServers/invalid: invalid_mcp_argument") ||
-		!strings.Contains(stderr.String(), `skip live=".mcp.json#/mcpServers/invalid" reason=invalid_mcp_argument target=claude-code scope=project`) ||
-		!strings.Contains(stderr.String(), "next: repair the live source to a supported form or leave it unmanaged") ||
+		!strings.Contains(stderr.String(), `skip live=".mcp.json#/mcpServers/invalid" reason=invalid_mcp_argument target=claude-code scope=project category=action_required action_hint=repair_source`) ||
 		strings.Contains(stderr.String(), canary) {
 		t.Fatalf("stderr = %q, want safe nothing-to-import diagnostics", stderr.String())
 	}
