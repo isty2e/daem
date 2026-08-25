@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/isty2e/daem/internal/adopt"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	targetpkg "github.com/isty2e/daem/internal/target"
@@ -245,7 +246,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		targetpkg.TargetOpenCode,
 		targetpkg.ScopeProject,
 		NewDestinationClaims(),
-		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -279,6 +280,7 @@ func TestImportSkillChargesDuplicateRouteBeforeClassification(t *testing.T) {
 		func(_ context.Context, path string, _ access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 			return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: 3}, nil
 		},
+		mutationfs.DefaultTreeTraversalLimits(),
 		2,
 		5,
 	)
@@ -346,7 +348,7 @@ func TestImportSkillClassifiesDuplicateDestinationByContentIdentity(t *testing.T
 				t.Fatal(err)
 			}
 			claims := NewDestinationClaims()
-			identities := NewSourceIdentityCache(skillTreeStructureLimitForTest(t))
+			identities := NewSourceIdentityCache(skillTreeLimitsForTest(t))
 
 			candidate, skipped, err := importSkillFromEntry(
 				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
@@ -414,7 +416,7 @@ func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing
 				skillRoot,
 				"review",
 				NewDestinationClaims(),
-				NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+				NewSourceIdentityCache(skillTreeLimitsForTest(t)),
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -442,7 +444,7 @@ func TestImportSkillSkipsMissingSkillMDBeforeTreeTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit, err := access.NewTreeStructureLimit(2, 1)
+	limit, err := mutationfs.NewTreeTraversalLimits(2, 1, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +486,7 @@ func TestImportSkillFailsClosedOnRootBreadthOverflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit, err := access.NewTreeStructureLimit(2, 1)
+	limit, err := mutationfs.NewTreeTraversalLimits(2, 1, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,7 +545,7 @@ func TestImportSkillSkipsNestedSymlinkFromIdentityTraversal(t *testing.T) {
 		skillRoot,
 		"unsafe",
 		NewDestinationClaims(),
-		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -589,7 +591,7 @@ func TestImportSkillTreatsSymlinkSkillDocumentAsMissing(t *testing.T) {
 		skillRoot,
 		"review",
 		NewDestinationClaims(),
-		NewSourceIdentityCache(skillTreeStructureLimitForTest(t)),
+		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -636,7 +638,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 		traversalLimit access.TraversalLimit,
 	) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		observations++
-		return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, skillTreeStructureLimitForTest(t))
+		return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, skillTreeLimitsForTest(t))
 	})
 	destinations := NewDestinationClaims()
 	var imported []adopt.Skill

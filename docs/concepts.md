@@ -191,9 +191,12 @@ their 64 MiB regular-file boundary rather than recursive content evidence.
 Extension inventory scans retain bounded regular-file content under the same
 byte ceiling used by the corresponding host observer.
 
-One revision observation pass admits at most 100,000 descendants and 64
-descendant-directory levels in any one complete-content tree, and at most
-400,000 descendant entries and 16 GiB of regular-file content across the pass.
+One revision observation pass admits at most 100,000 descendants, 64
+descendant-directory levels, and 4 GiB of regular-file bytes in any one
+complete-content directory tree, and at most 400,000 descendant entries and
+16 GiB of regular-file content across the pass. Complete-content files,
+required-absence entries, and immediate directory listings keep their existing
+observation modes and do not inherit the per-tree byte ceiling.
 Incremental observations that belong to one pass share the same aggregate
 budget. Initial capture and every freshness check use the same policy. The
 first over-limit probe returns a resource error; it does not produce a partial,

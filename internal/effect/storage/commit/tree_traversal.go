@@ -6,12 +6,6 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
-const (
-	defaultTreeTraversalMaximumEntries = 100_000
-	defaultTreeTraversalMaximumDepth   = 64
-	defaultTreeTraversalMaximumBytes   = 4 << 30
-)
-
 type treeTraversalBudget struct {
 	limits  mutationfs.TreeTraversalLimits
 	entries int
@@ -28,29 +22,7 @@ func newTreeTraversalBudget(
 }
 
 func defaultTreeTraversalLimits() mutationfs.TreeTraversalLimits {
-	structureLimit := RootedTreeStagingStructureLimits()
-	limits, err := mutationfs.NewTreeTraversalLimits(
-		structureLimit.MaximumEntries(),
-		structureLimit.MaximumDepth(),
-		defaultTreeTraversalMaximumBytes,
-	)
-	if err != nil {
-		panic(err)
-	}
-	return limits
-}
-
-// RootedTreeStagingStructureLimits returns the maximum tree shape that
-// PrepareRootedTree can create and later clean up on every failure path.
-func RootedTreeStagingStructureLimits() mutationfs.TreeStructureLimits {
-	limit, err := mutationfs.NewTreeStructureLimits(
-		defaultTreeTraversalMaximumEntries,
-		defaultTreeTraversalMaximumDepth,
-	)
-	if err != nil {
-		panic(err)
-	}
-	return limit
+	return mutationfs.DefaultTreeTraversalLimits()
 }
 
 func (budget *treeTraversalBudget) admitBytes(count int64) error {

@@ -362,7 +362,7 @@ func captureBoundedRevisionFile(
 		return SnapshotRevision{}, &RevisionLimitError{
 			kind:     RevisionLimitOperationBytes,
 			limit:    operationBudget.limits.maximumOperationBytes,
-			observed: treeBudget.rejectedByteTotal(info.Size()),
+			observed: treeBudget.rejectedOperationByteTotal(info.Size()),
 		}
 	}
 	if err := treeBudget.admitBytes(info.Size()); err != nil {
@@ -663,7 +663,7 @@ func hashRevisionOpenedFile(
 	entry revisionNativeEntry,
 	budget *revisionTreeBudget,
 ) error {
-	if err := budget.admitBytes(entry.size); err != nil {
+	if err := budget.admitTreeBytes(entry.size); err != nil {
 		return err
 	}
 	executable := "not-executable"

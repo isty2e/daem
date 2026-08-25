@@ -230,9 +230,10 @@ func validateWindowsRemovalRequest(request LogicalRemoval) error {
 		if err := request.limits.Validate(); err != nil {
 			return err
 		}
-		if request.limits.MaximumEntries() > defaultTreeTraversalMaximumEntries ||
-			request.limits.MaximumDepth() > defaultTreeTraversalMaximumDepth ||
-			request.limits.MaximumBytes() > defaultTreeTraversalMaximumBytes {
+		defaults := defaultTreeTraversalLimits()
+		if request.limits.MaximumEntries() > defaults.MaximumEntries() ||
+			request.limits.MaximumDepth() > defaults.MaximumDepth() ||
+			request.limits.MaximumBytes() > defaults.MaximumBytes() {
 			return fmt.Errorf("journal-authorized removal traversal limits exceed storage maximum")
 		}
 	}

@@ -243,26 +243,15 @@ func TestPrepareRootedTreeRejectsStructureOutsideCleanupLimitsWithoutResidue(t *
 }
 
 func TestRootedTreeStagingStructureLimitMatchesCleanupAdmission(t *testing.T) {
-	limit := RootedTreeStagingStructureLimits()
-	if limit.MaximumEntries() != defaultTreeTraversalMaximumEntries ||
-		limit.MaximumDepth() != defaultTreeTraversalMaximumDepth {
+	defaults := defaultTreeTraversalLimits()
+	if defaults.MaximumEntries() != 100_000 ||
+		defaults.MaximumDepth() != 64 ||
+		defaults.MaximumBytes() != 4<<30 {
 		t.Fatalf(
-			"staging structure limit = entries:%d depth:%d, want entries:%d depth:%d",
-			limit.MaximumEntries(),
-			limit.MaximumDepth(),
-			defaultTreeTraversalMaximumEntries,
-			defaultTreeTraversalMaximumDepth,
-		)
-	}
-	cleanup := defaultTreeTraversalLimits()
-	if cleanup.MaximumEntries() != limit.MaximumEntries() ||
-		cleanup.MaximumDepth() != limit.MaximumDepth() {
-		t.Fatalf(
-			"cleanup limit = entries:%d depth:%d, staging limit = entries:%d depth:%d",
-			cleanup.MaximumEntries(),
-			cleanup.MaximumDepth(),
-			limit.MaximumEntries(),
-			limit.MaximumDepth(),
+			"staging publication capability = entries:%d depth:%d bytes:%d, want 100000/64/4GiB",
+			defaults.MaximumEntries(),
+			defaults.MaximumDepth(),
+			defaults.MaximumBytes(),
 		)
 	}
 }
@@ -411,8 +400,9 @@ func TestPrepareRootedTreeRejectsDefaultCleanupDepthBoundaryWithoutResidue(t *te
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, ".agents/skills/review")
 	prepared, err := PrepareRootedTree(context.Background(), capability, func(writer mutationfs.RootedTreeWriter) error {
-		components := make([]string, 0, defaultTreeTraversalMaximumDepth+1)
-		for depth := 1; depth <= defaultTreeTraversalMaximumDepth+1; depth++ {
+		maximumDepth := defaultTreeTraversalLimits().MaximumDepth()
+		components := make([]string, 0, maximumDepth+1)
+		for depth := 1; depth <= maximumDepth+1; depth++ {
 			components = append(components, "nested")
 			if err := writer.CreateDirectory(treePathForTest(t, components...), 0o700); err != nil {
 				return err
@@ -489,7 +479,7 @@ func TestPreparedRootedTreeAbortUsesItsCustomEnvelopeDepth(t *testing.T) {
 	}
 	captured := captureRootForCommitTest(t, root)
 	capability := rootedCapabilityForCommitTest(t, captured, "bounded")
-	const envelopeDepth = defaultTreeTraversalMaximumDepth + 1
+	envelopeDepth := defaultTreeTraversalLimits().MaximumDepth() + 1
 	limits, err := mutationfs.NewTreeTraversalLimits(envelopeDepth, envelopeDepth, 0)
 	if err != nil {
 		t.Fatal(err)

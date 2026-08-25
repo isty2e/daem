@@ -7,6 +7,7 @@ import (
 	"math"
 	"path/filepath"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
@@ -49,13 +50,8 @@ func newSourceIdentityBudget(maximumEntries int, maximumBytes int64) (*sourceIde
 	}, nil
 }
 
-func (budget *sourceIdentityBudget) traversalLimit() (access.TraversalLimit, error) {
-	if budget == nil {
-		return access.TraversalLimit{}, fmt.Errorf("skill source identity budget is required")
-	}
-	remainingEntries := budget.maximumEntries - budget.entries
-	remainingBytes := budget.maximumBytes - budget.bytes
-	return access.NewTraversalLimit(uint64(remainingEntries)+1, remainingBytes)
+func (budget *sourceIdentityBudget) remainingBytes() int64 {
+	return budget.maximumBytes - budget.bytes
 }
 
 func (budget *sourceIdentityBudget) consume(measurement sourceIdentityMeasurement) error {
@@ -75,25 +71,6 @@ func (budget *sourceIdentityBudget) consume(measurement sourceIdentityMeasuremen
 	}
 	budget.entries += entries
 	budget.bytes += bytes
-	return nil
-}
-
-func (budget *sourceIdentityBudget) traversalError(err error, previousBytes int64) error {
-	if errors.Is(err, access.ErrTraversalEntryLimitExceeded) {
-		return budget.limitError(
-			"operation_entries",
-			int64(budget.maximumEntries),
-			int64(budget.maximumEntries)+1,
-		)
-	}
-	var byteLimit *access.LimitError
-	if errors.As(err, &byteLimit) {
-		return budget.limitError(
-			"operation_bytes",
-			budget.maximumBytes,
-			saturatedAdd(previousBytes, byteLimit.Observed()),
-		)
-	}
 	return nil
 }
 
@@ -123,23 +100,34 @@ type SourceIdentityCache struct {
 	classified    map[string]error
 	observe       sourceIdentityObserver
 	budget        *sourceIdentityBudget
+	treeLimits    mutationfs.TreeTraversalLimits
 }
 
 // NewSourceIdentityCache constructs an empty operation-local identity cache
-// with the caller-selected tree-shape limit and the import observation envelope.
-func NewSourceIdentityCache(structureLimit access.TreeStructureLimit) *SourceIdentityCache {
-	return newSourceIdentityCache(func(
-		ctx context.Context,
-		readPath string,
-		traversalLimit access.TraversalLimit,
-	) (artifact.ContentHash, sourceIdentityMeasurement, error) {
-		return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, structureLimit)
-	})
+// with the caller-selected per-tree publication capability and the import
+// observation envelope.
+func NewSourceIdentityCache(treeLimits mutationfs.TreeTraversalLimits) *SourceIdentityCache {
+	if err := treeLimits.Validate(); err != nil {
+		panic(err)
+	}
+	return newSourceIdentityCacheWithLimits(
+		func(
+			ctx context.Context,
+			readPath string,
+			traversalLimit access.TraversalLimit,
+		) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+			return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, treeLimits)
+		},
+		treeLimits,
+		maximumSourceIdentityOperationEntries,
+		maximumSourceIdentityOperationBytes,
+	)
 }
 
 func newSourceIdentityCache(observer sourceIdentityObserver) *SourceIdentityCache {
 	return newSourceIdentityCacheWithLimits(
 		observer,
+		mutationfs.DefaultTreeTraversalLimits(),
 		maximumSourceIdentityOperationEntries,
 		maximumSourceIdentityOperationBytes,
 	)
@@ -147,9 +135,13 @@ func newSourceIdentityCache(observer sourceIdentityObserver) *SourceIdentityCach
 
 func newSourceIdentityCacheWithLimits(
 	observer sourceIdentityObserver,
+	treeLimits mutationfs.TreeTraversalLimits,
 	maximumEntries int,
 	maximumBytes int64,
 ) *SourceIdentityCache {
+	if err := treeLimits.Validate(); err != nil {
+		panic(err)
+	}
 	budget, err := newSourceIdentityBudget(maximumEntries, maximumBytes)
 	if err != nil {
 		panic(err)
@@ -159,7 +151,44 @@ func newSourceIdentityCacheWithLimits(
 		classified:    make(map[string]error),
 		observe:       observer,
 		budget:        budget,
+		treeLimits:    treeLimits,
 	}
+}
+
+func (cache *SourceIdentityCache) traversalLimit() (access.TraversalLimit, error) {
+	if cache == nil || cache.budget == nil {
+		return access.TraversalLimit{}, fmt.Errorf("skill source identity budget is required")
+	}
+	remainingEntries := cache.budget.maximumEntries - cache.budget.entries
+	remainingBytes := min(cache.treeLimits.MaximumBytes(), cache.budget.remainingBytes())
+	return access.NewTraversalLimit(uint64(remainingEntries)+1, remainingBytes)
+}
+
+func (cache *SourceIdentityCache) traversalError(err error, previousBytes int64) error {
+	if cache == nil || cache.budget == nil {
+		return fmt.Errorf("skill source identity budget is required")
+	}
+	if errors.Is(err, access.ErrTraversalEntryLimitExceeded) {
+		return cache.budget.limitError(
+			"operation_entries",
+			int64(cache.budget.maximumEntries),
+			int64(cache.budget.maximumEntries)+1,
+		)
+	}
+	var byteLimit *access.LimitError
+	if errors.As(err, &byteLimit) {
+		treeRemaining := cache.treeLimits.MaximumBytes()
+		operationRemaining := cache.budget.maximumBytes - previousBytes
+		if treeRemaining <= operationRemaining {
+			return cache.budget.limitError("tree_bytes", treeRemaining, byteLimit.Observed())
+		}
+		return cache.budget.limitError(
+			"operation_bytes",
+			cache.budget.maximumBytes,
+			saturatedAdd(previousBytes, byteLimit.Observed()),
+		)
+	}
+	return nil
 }
 
 // ContentHash returns the exact content hash of one fully resolved skill route.
@@ -171,6 +200,9 @@ func (cache *SourceIdentityCache) ContentHash(
 ) (artifact.ContentHash, error) {
 	if cache == nil || cache.observe == nil || cache.contentHashes == nil || cache.classified == nil || cache.budget == nil {
 		return "", fmt.Errorf("skill source identity cache is required")
+	}
+	if err := cache.treeLimits.Validate(); err != nil {
+		return "", err
 	}
 	if ctx == nil {
 		return "", fmt.Errorf("skill source identity context is required")
@@ -187,7 +219,7 @@ func (cache *SourceIdentityCache) ContentHash(
 	if classified, exists := cache.classified[readPath]; exists {
 		return "", classified
 	}
-	traversalLimit, err := cache.budget.traversalLimit()
+	traversalLimit, err := cache.traversalLimit()
 	if err != nil {
 		return "", err
 	}
@@ -197,7 +229,7 @@ func (cache *SourceIdentityCache) ContentHash(
 		return "", err
 	}
 	if observationErr != nil {
-		if limitErr := cache.budget.traversalError(observationErr, previousBytes); limitErr != nil {
+		if limitErr := cache.traversalError(observationErr, previousBytes); limitErr != nil {
 			return "", limitErr
 		}
 		if !classifiedSkillSkip(observationErr) {
@@ -227,8 +259,15 @@ func observeSkillDirectoryIdentity(
 	ctx context.Context,
 	readPath string,
 	traversalLimit access.TraversalLimit,
-	structureLimit access.TreeStructureLimit,
+	treeLimits mutationfs.TreeTraversalLimits,
 ) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+	structureLimit, err := access.NewTreeStructureLimit(
+		treeLimits.MaximumEntries(),
+		treeLimits.MaximumDepth(),
+	)
+	if err != nil {
+		return "", sourceIdentityMeasurement{}, err
+	}
 	view, err := access.OpenNoFollowView(readPath)
 	if err != nil {
 		return "", sourceIdentityMeasurement{}, fmt.Errorf("open skill tree %q: %w", readPath, err)

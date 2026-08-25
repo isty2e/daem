@@ -5,19 +5,31 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
-func skillTreeStructureLimitForTest(t *testing.T) access.TreeStructureLimit {
+func skillTreeLimitsForTest(t *testing.T) mutationfs.TreeTraversalLimits {
 	t.Helper()
-	limit, err := access.NewTreeStructureLimit(100, 16)
+	return mustSkillTreeLimits(t, 100, 16, 1<<20)
+}
+
+func mustSkillTreeLimits(
+	t *testing.T,
+	maximumEntries int,
+	maximumDepth int,
+	maximumBytes int64,
+) mutationfs.TreeTraversalLimits {
+	t.Helper()
+	limits, err := mutationfs.NewTreeTraversalLimits(maximumEntries, maximumDepth, maximumBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return limit
+	return limits
 }
 
 func TestSourceIdentityCacheObservesOneCanonicalRouteOnce(t *testing.T) {
@@ -178,6 +190,7 @@ func TestSourceIdentityCacheChargesEveryDistinctRouteToOneAggregateBudget(t *tes
 			observations++
 			return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: 3}, nil
 		},
+		mutationfs.DefaultTreeTraversalLimits(),
 		2,
 		5,
 	)
@@ -204,6 +217,7 @@ func TestSourceIdentityCacheChargesClassifiedSkipsBeforeMemoizingThem(t *testing
 			}
 			return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: 3}, nil
 		},
+		mutationfs.DefaultTreeTraversalLimits(),
 		2,
 		5,
 	)
@@ -240,7 +254,7 @@ func TestSourceIdentityCacheStopsPhysicalHashAtRemainingOperationBudget(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			structure := skillTreeStructureLimitForTest(t)
+			structure := skillTreeLimitsForTest(t)
 			cache := newSourceIdentityCacheWithLimits(
 				func(
 					ctx context.Context,
@@ -249,6 +263,7 @@ func TestSourceIdentityCacheStopsPhysicalHashAtRemainingOperationBudget(t *testi
 				) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 					return observeSkillDirectoryIdentity(ctx, readPath, traversal, structure)
 				},
+				structure,
 				test.maxEntries,
 				test.maxBytes,
 			)
@@ -276,5 +291,80 @@ func TestSourceIdentityCacheRejectsNoncanonicalKeysBeforeObservation(t *testing.
 	}
 	if observed {
 		t.Fatal("noncanonical cache key reached source observer")
+	}
+}
+
+func TestSourceIdentityCacheAcceptsExactTreeBytesAndRejectsOverflow(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skill")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("1234"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "payload"), []byte("56"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	exact := mustSkillTreeLimits(t, 8, 4, 6)
+	if _, err := NewSourceIdentityCache(exact).ContentHash(t.Context(), root); err != nil {
+		t.Fatalf("exact tree-byte ContentHash returned error: %v", err)
+	}
+
+	overflow := mustSkillTreeLimits(t, 8, 4, 5)
+	err = func() error {
+		_, hashErr := NewSourceIdentityCache(overflow).ContentHash(t.Context(), root)
+		return hashErr
+	}()
+	if !errors.Is(err, errSourceIdentityLimitExceeded) || !strings.Contains(err.Error(), "tree_bytes") {
+		t.Fatalf("overflow ContentHash error = %v, want tree_bytes exhaustion", err)
+	}
+	if strings.Contains(err.Error(), "operation_bytes") {
+		t.Fatalf("overflow ContentHash error = %v, want tree_bytes rather than operation_bytes", err)
+	}
+}
+
+func TestSourceIdentityCacheRejectsOversizeTreeBeforePayloadHash(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "skill")
+	if err := os.Mkdir(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("skill"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payload := filepath.Join(root, "payload")
+	file, err := os.Create(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(1 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	treeLimits := mustSkillTreeLimits(t, 8, 4, 64)
+	if _, err := NewSourceIdentityCache(treeLimits).ContentHash(t.Context(), root); !errors.Is(err, errSourceIdentityLimitExceeded) {
+		t.Fatalf("oversize ContentHash error = %v, want tree-byte rejection", err)
+	}
+	result := testing.Benchmark(func(benchmark *testing.B) {
+		for benchmark.Loop() {
+			_, _ = NewSourceIdentityCache(treeLimits).ContentHash(t.Context(), root)
+		}
+	})
+	if allocated := result.AllocedBytesPerOp(); allocated >= 1<<20 {
+		t.Fatalf(
+			"oversize tree hash allocated %d bytes/op, want rejection before payload materialization",
+			allocated,
+		)
 	}
 }

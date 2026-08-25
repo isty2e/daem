@@ -63,11 +63,33 @@ func (limits TreeStructureLimits) MaximumEntries() int { return limits.maximumEn
 // MaximumDepth returns the maximum descendant-directory depth.
 func (limits TreeStructureLimits) MaximumDepth() int { return limits.maximumDepth }
 
+const (
+	defaultTreeTraversalMaximumEntries = 100_000
+	defaultTreeTraversalMaximumDepth   = 64
+	defaultTreeTraversalMaximumBytes   = 4 << 30
+)
+
 // TreeTraversalLimits adds a regular-file byte bound to one tree-shape limit.
 type TreeTraversalLimits struct {
 	structure    TreeStructureLimits
 	maximumBytes int64
 	initialized  bool
+}
+
+// DefaultTreeTraversalLimits is the rooted-tree publication capability:
+// 100,000 descendant entries, 64 descendant-directory levels, and 4 GiB of
+// regular-file bytes. Identity, freshness, copy, staging, and publication share
+// this inclusive per-tree contract. Operation-wide envelopes stay separate.
+func DefaultTreeTraversalLimits() TreeTraversalLimits {
+	limits, err := NewTreeTraversalLimits(
+		defaultTreeTraversalMaximumEntries,
+		defaultTreeTraversalMaximumDepth,
+		defaultTreeTraversalMaximumBytes,
+	)
+	if err != nil {
+		panic(err)
+	}
+	return limits
 }
 
 // RootedCleanupWorkEnvelope is the complete storage work admitted for one

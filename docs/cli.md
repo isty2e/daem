@@ -346,13 +346,14 @@ that exact planned directory
 identity into private staging. Any identity-changing replacement or mutation,
 including an entry, executable-mode, or entry-kind change during copying,
 fails before manifest publication. Import planning and private staging both
-accept at most 100,000 entries and 64 descendant-directory levels, matching the
-cleanup traversal that owns failed stages. A dry run therefore never recommends
-writing a skill tree that staging would reject. A skill has no separate
-per-tree byte ceiling, but the complete import freshness observation admits at
-most 400,000 entries and 16 GiB of regular-file content across all observed
-trees. The containing skills root is observed as an immediate inventory and
-does not reduce an individual skill's depth allowance. Extension inventory
+accept at most 100,000 entries, 64 descendant-directory levels, and 4 GiB of
+regular-file bytes, matching the cleanup traversal that owns failed stages. A
+dry run therefore never recommends writing a skill tree that staging would
+reject. The complete import freshness observation also admits at most 400,000
+entries and 16 GiB of regular-file content across all observed trees and cannot
+widen that per-tree publication ceiling. The containing skills root is observed
+as an immediate inventory and does not reduce an individual skill's depth
+allowance. Extension inventory
 files retain bounded content evidence through publication using each host
 observer's ingress limit. Files are streamed. The `SKILL.md` compatibility
 document retains its 1 MiB limit.

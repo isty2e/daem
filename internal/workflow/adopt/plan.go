@@ -14,9 +14,8 @@ import (
 	"github.com/isty2e/daem/internal/desired"
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	desiredskill "github.com/isty2e/daem/internal/desired/skill"
-	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	daempaths "github.com/isty2e/daem/internal/paths"
-	"github.com/isty2e/daem/internal/supply/artifact/access"
 )
 
 func buildPlan(
@@ -40,14 +39,6 @@ func buildPlan(
 	output := request.Output()
 	sourceDirectory := request.SourceDirectory()
 	merge := request.Merge()
-	stagingStructureLimits := storagecommit.RootedTreeStagingStructureLimits()
-	skillTreeLimit, err := access.NewTreeStructureLimit(
-		stagingStructureLimits.MaximumEntries(),
-		stagingStructureLimits.MaximumDepth(),
-	)
-	if err != nil {
-		return adoptmodel.Plan{}, fmt.Errorf("derive skill import staging limit: %w", err)
-	}
 	outputExists, err := pathExists(output)
 	if err != nil {
 		return adoptmodel.Plan{}, fmt.Errorf("inspect output manifest: %w", err)
@@ -118,7 +109,7 @@ func buildPlan(
 		}
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
-	skillSourceIdentities := adoptskill.NewSourceIdentityCache(skillTreeLimit)
+	skillSourceIdentities := adoptskill.NewSourceIdentityCache(mutationfs.DefaultTreeTraversalLimits())
 	completedTargetScopes := 0
 	for _, target := range requestTargets {
 		for _, scope := range requestScopes {

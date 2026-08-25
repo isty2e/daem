@@ -340,7 +340,11 @@ func copyImportedSkillDirectory(
 			if err != nil {
 				return err
 			}
-			return view.CopyVerified(ctx, identity, sink)
+			traversalLimit, structureLimit, err := skillPublicationAccessLimits()
+			if err != nil {
+				return err
+			}
+			return view.CopyVerifiedWithLimits(ctx, identity, sink, traversalLimit, structureLimit)
 		},
 	)
 	if err != nil {
@@ -377,4 +381,23 @@ func storageCommitMayBeVisible(err error) bool {
 	}
 	kind, classified := mutationfs.FailureKindOf(err)
 	return classified && kind == mutationfs.FailureIndeterminateCommit
+}
+
+func skillPublicationAccessLimits() (access.TraversalLimit, access.TreeStructureLimit, error) {
+	limits := mutationfs.DefaultTreeTraversalLimits()
+	structureLimit, err := access.NewTreeStructureLimit(
+		limits.MaximumEntries(),
+		limits.MaximumDepth(),
+	)
+	if err != nil {
+		return access.TraversalLimit{}, access.TreeStructureLimit{}, err
+	}
+	traversalLimit, err := access.NewTraversalLimit(
+		uint64(limits.MaximumEntries())+1,
+		limits.MaximumBytes(),
+	)
+	if err != nil {
+		return access.TraversalLimit{}, access.TreeStructureLimit{}, err
+	}
+	return traversalLimit, structureLimit, nil
 }

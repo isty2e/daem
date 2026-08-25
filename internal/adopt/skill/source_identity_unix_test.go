@@ -36,7 +36,7 @@ func TestSourceIdentityCacheDoesNotMemoizeClassifiedSymlinkWhenRemainderExceedsB
 	}
 
 	observations := 0
-	structure := skillTreeStructureLimitForTest(t)
+	structure := skillTreeLimitsForTest(t)
 	cache := newSourceIdentityCacheWithLimits(
 		func(
 			ctx context.Context,
@@ -46,6 +46,7 @@ func TestSourceIdentityCacheDoesNotMemoizeClassifiedSymlinkWhenRemainderExceedsB
 			observations++
 			return observeSkillDirectoryIdentity(ctx, readPath, traversal, structure)
 		},
+		structure,
 		2,
 		1<<20,
 	)
@@ -80,7 +81,7 @@ func TestSourceIdentityCacheMemoizesClassifiedSymlinkWhenRemainderFitsBudget(t *
 	}
 
 	observations := 0
-	structure := skillTreeStructureLimitForTest(t)
+	structure := skillTreeLimitsForTest(t)
 	cache := newSourceIdentityCacheWithLimits(
 		func(
 			ctx context.Context,
@@ -90,6 +91,7 @@ func TestSourceIdentityCacheMemoizesClassifiedSymlinkWhenRemainderFitsBudget(t *
 			observations++
 			return observeSkillDirectoryIdentity(ctx, readPath, traversal, structure)
 		},
+		structure,
 		16,
 		1<<20,
 	)

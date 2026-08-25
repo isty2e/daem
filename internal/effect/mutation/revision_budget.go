@@ -4,11 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"math"
+
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 )
 
 const (
-	maximumRevisionTreeEntries      = 100_000
-	maximumRevisionTreeDepth        = 64
 	maximumRevisionOperationEntries = 400_000
 	maximumRevisionOperationBytes   = int64(16 << 30)
 )
@@ -19,6 +19,7 @@ type RevisionLimitKind string
 const (
 	RevisionLimitTreeEntries      RevisionLimitKind = "tree_entries"
 	RevisionLimitTreeDepth        RevisionLimitKind = "tree_depth"
+	RevisionLimitTreeBytes        RevisionLimitKind = "tree_bytes"
 	RevisionLimitOperationEntries RevisionLimitKind = "operation_entries"
 	RevisionLimitOperationBytes   RevisionLimitKind = "operation_bytes"
 )
@@ -76,6 +77,7 @@ func (err *RevisionLimitError) Observed() int64 {
 type revisionCaptureLimits struct {
 	maximumTreeEntries      int
 	maximumTreeDepth        int
+	maximumTreeBytes        int64
 	maximumOperationEntries int
 	maximumOperationBytes   int64
 	initialized             bool
@@ -84,6 +86,7 @@ type revisionCaptureLimits struct {
 func newRevisionCaptureLimits(
 	maximumTreeEntries int,
 	maximumTreeDepth int,
+	maximumTreeBytes int64,
 	maximumOperationEntries int,
 	maximumOperationBytes int64,
 ) (revisionCaptureLimits, error) {
@@ -92,6 +95,9 @@ func newRevisionCaptureLimits(
 	}
 	if maximumTreeDepth < 0 {
 		return revisionCaptureLimits{}, fmt.Errorf("mutation revision tree depth must not be negative")
+	}
+	if maximumTreeBytes < 0 {
+		return revisionCaptureLimits{}, fmt.Errorf("mutation revision tree bytes must not be negative")
 	}
 	if maximumOperationEntries < 0 {
 		return revisionCaptureLimits{}, fmt.Errorf("mutation revision operation entries must not be negative")
@@ -102,6 +108,7 @@ func newRevisionCaptureLimits(
 	return revisionCaptureLimits{
 		maximumTreeEntries:      maximumTreeEntries,
 		maximumTreeDepth:        maximumTreeDepth,
+		maximumTreeBytes:        maximumTreeBytes,
 		maximumOperationEntries: maximumOperationEntries,
 		maximumOperationBytes:   maximumOperationBytes,
 		initialized:             true,
@@ -109,9 +116,11 @@ func newRevisionCaptureLimits(
 }
 
 func defaultRevisionCaptureLimits() revisionCaptureLimits {
+	tree := mutationfs.DefaultTreeTraversalLimits()
 	limits, err := newRevisionCaptureLimits(
-		maximumRevisionTreeEntries,
-		maximumRevisionTreeDepth,
+		tree.MaximumEntries(),
+		tree.MaximumDepth(),
+		tree.MaximumBytes(),
 		maximumRevisionOperationEntries,
 		maximumRevisionOperationBytes,
 	)
@@ -152,6 +161,7 @@ func (budget *revisionCaptureBudget) remainingBytes() int64 {
 type revisionTreeBudget struct {
 	operation *revisionCaptureBudget
 	entries   int
+	bytes     int64
 }
 
 func (budget *revisionTreeBudget) remainingEntries() int {
@@ -201,6 +211,10 @@ func (budget *revisionTreeBudget) remainingBytes() int64 {
 	return budget.operation.remainingBytes()
 }
 
+func (budget *revisionTreeBudget) remainingTreeBytes() int64 {
+	return budget.operation.limits.maximumTreeBytes - budget.bytes
+}
+
 func (budget *revisionTreeBudget) admitBytes(count int64) error {
 	if budget == nil || budget.operation == nil || count < 0 {
 		return fmt.Errorf("mutation revision byte budget is invalid")
@@ -209,7 +223,7 @@ func (budget *revisionTreeBudget) admitBytes(count int64) error {
 		return &RevisionLimitError{
 			kind:     RevisionLimitOperationBytes,
 			limit:    budget.operation.limits.maximumOperationBytes,
-			observed: budget.rejectedByteTotal(count),
+			observed: budget.rejectedOperationByteTotal(count),
 		}
 	}
 	observed := budget.operation.bytes + count
@@ -217,9 +231,41 @@ func (budget *revisionTreeBudget) admitBytes(count int64) error {
 	return nil
 }
 
-func (budget *revisionTreeBudget) rejectedByteTotal(count int64) int64 {
+func (budget *revisionTreeBudget) admitTreeBytes(count int64) error {
+	if budget == nil || budget.operation == nil || count < 0 {
+		return fmt.Errorf("mutation revision tree byte budget is invalid")
+	}
+	treeRemaining := budget.remainingTreeBytes()
+	operationRemaining := budget.operation.remainingBytes()
+	if count > min(treeRemaining, operationRemaining) {
+		if treeRemaining <= operationRemaining {
+			return &RevisionLimitError{
+				kind:     RevisionLimitTreeBytes,
+				limit:    budget.operation.limits.maximumTreeBytes,
+				observed: budget.rejectedTreeByteTotal(count),
+			}
+		}
+		return &RevisionLimitError{
+			kind:     RevisionLimitOperationBytes,
+			limit:    budget.operation.limits.maximumOperationBytes,
+			observed: budget.rejectedOperationByteTotal(count),
+		}
+	}
+	budget.bytes += count
+	budget.operation.bytes += count
+	return nil
+}
+
+func (budget *revisionTreeBudget) rejectedOperationByteTotal(count int64) int64 {
 	if count > math.MaxInt64-budget.operation.bytes {
 		return math.MaxInt64
 	}
 	return budget.operation.bytes + count
+}
+
+func (budget *revisionTreeBudget) rejectedTreeByteTotal(count int64) int64 {
+	if count > math.MaxInt64-budget.bytes {
+		return math.MaxInt64
+	}
+	return budget.bytes + count
 }

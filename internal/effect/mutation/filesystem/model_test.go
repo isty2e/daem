@@ -126,6 +126,19 @@ func TestTreeTraversalLimitsRequireFiniteCanonicalBounds(t *testing.T) {
 			limits.Validate(),
 		)
 	}
+	defaults := DefaultTreeTraversalLimits()
+	if defaults.MaximumEntries() != 100_000 ||
+		defaults.MaximumDepth() != 64 ||
+		defaults.MaximumBytes() != 4<<30 ||
+		defaults.Validate() != nil {
+		t.Fatalf(
+			"default traversal limits = (%d, %d, %d), validation=%v",
+			defaults.MaximumEntries(),
+			defaults.MaximumDepth(),
+			defaults.MaximumBytes(),
+			defaults.Validate(),
+		)
+	}
 }
 
 func TestRootedCleanupWorkEnvelopeOwnsCompleteStorageWork(t *testing.T) {

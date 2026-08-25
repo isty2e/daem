@@ -316,13 +316,14 @@ identity. A top-level skill symlink is allowed because daem resolves it before
 planning; nested symlinks are not. For a merged multi-target import, every
 contributing source route must remain stable even though the representative
 target's canonical route supplies the copied bytes. Imported skill planning and
-staging are both limited to 100,000 entries and 64 descendant-directory levels
-so a preview admits only trees that private staging can create and clean up.
-This is a per-tree structural limit, not a separate whole-skill byte limit.
-The containing skills root contributes only its immediate inventory; it does
-not consume a level from an individual skill's supported depth.
-The complete import freshness pass is additionally limited to 400,000 entries
-and 16 GiB of regular-file content across all observed trees.
+staging are both limited to 100,000 entries, 64 descendant-directory levels,
+and 4 GiB of regular-file bytes so a preview admits only trees that private
+staging can create and clean up.
+This is the per-tree publication contract. The containing skills root
+contributes only its immediate inventory; it does not consume a level from an
+individual skill's supported depth. The complete import freshness pass is
+additionally limited to 400,000 entries and 16 GiB of regular-file content
+across all observed trees and cannot widen the per-tree ceiling.
 Rerun `daem import --target <target> --dry-run` after the tree is stable and
 within those bounds.
 Daem does not publish the generated manifest or a partial vendored skill when
