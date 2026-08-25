@@ -311,7 +311,10 @@ be `.daem`, contain the manifest, or overlap daem-managed metadata.
 
 Without `--merge`, the selected manifest must not exist. With `--merge`, it
 must exist and decode as a valid current manifest before live resources are
-scanned. Conflicts fail before mutation. Unsupported or lossy live forms are
+scanned. Conflicts fail before mutation. Write-mode merge conflicts still
+render admitted skip rows, including every actionable skip and its next action,
+before the dry-run conflict hint. JSON and `--dry-run` human output already
+include those rows in the completed plan. Unsupported or lossy live forms are
 reported as skipped instead of being imported approximately.
 
 Imported instruction files must be stable regular files no larger than 128
@@ -333,6 +336,9 @@ shared resolved route once per planning pass. Every distinct route observed for
 same-name duplicate or conflict classification is charged to the same
 400,000-entry/16-GiB source-identity observation budget even when that route is
 later skipped and therefore does not become publication freshness authority.
+A classified nested-symlink exit still charges every listed name the traversal
+had already materialized but had not yet consumed, including remaining names in
+ancestor directories, so listing work cannot bypass that envelope.
 When identical content from several target routes becomes one multi-target
 declaration, every contributing route remains freshness evidence and the
 representative target's canonical route supplies the bytes. Daem then streams
@@ -369,7 +375,8 @@ an explicit diagnostic-budget marker on stderr, and emits no JSON result
 envelope. Unsupported and informational skips are compacted by target and
 reason; `--verbose` retains every admitted exact per-path skip in successful and
 no-resource failure output, in addition to individual clean scan, resource, and
-merge rows on successful plans. JSON retains every admitted typed row with
+merge rows on successful plans. Write-mode merge conflicts use the same skip
+report before the dry-run conflict hint. JSON retains every admitted typed row with
 target, scope, category, and an optional stable action hint. After a
 successful write with imported resources, human output points to lock preview
 and then to

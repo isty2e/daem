@@ -506,6 +506,62 @@ func TestHashDirectoryRequiringRootFileRejectsRootBreadthOverflowBeforeMissingFi
 	}
 }
 
+func TestHashDirectoryRequiringRootFileChargesUnprocessedNamesOnClassifiedSymlink(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+	writeAccessTestFile(t, filepath.Join(root, "z-extra"), []byte("later"))
+	if err := os.Symlink(filepath.Join(root, "z-extra"), filepath.Join(root, "a-link")); err != nil {
+		t.Fatal(err)
+	}
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, measurement, err := view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTraversalLimitForTest(t),
+		accessTreeStructureLimitForTest(t, 8, 4),
+	)
+	if !errors.Is(err, ErrUnsupportedSymlink) {
+		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want classified symlink", err)
+	}
+	if measurement.DescendantEntries() != 3 {
+		t.Fatalf("measurement = %#v, want every listed name charged once", measurement)
+	}
+}
+
+func TestHashDirectoryRequiringRootFileChargesAncestorRemainderOnNestedClassifiedSymlink(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "SKILL.md"), []byte("skill"))
+	writeAccessTestFile(t, filepath.Join(root, "a_dir", "z-extra"), []byte("nested"))
+	if err := os.Symlink(
+		filepath.Join(root, "a_dir", "z-extra"),
+		filepath.Join(root, "a_dir", "a-link"),
+	); err != nil {
+		t.Fatal(err)
+	}
+	writeAccessTestFile(t, filepath.Join(root, "z_file"), []byte("sibling"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, measurement, err := view.HashDirectoryRequiringRootFile(
+		context.Background(),
+		"SKILL.md",
+		accessTraversalLimitForTest(t),
+		accessTreeStructureLimitForTest(t, 8, 4),
+	)
+	if !errors.Is(err, ErrUnsupportedSymlink) {
+		t.Fatalf("HashDirectoryRequiringRootFile error = %v, want nested classified symlink", err)
+	}
+	if measurement.DescendantEntries() != 5 {
+		t.Fatalf("measurement = %#v, want nested remainder plus ancestor sibling", measurement)
+	}
+}
+
 func TestHashDirectoryRequiringRootFileHonorsCancellationDuringRootLookup(t *testing.T) {
 	root := resolvedAccessTestRoot(t)
 	writeAccessTestFile(t, filepath.Join(root, "payload"), []byte("content"))

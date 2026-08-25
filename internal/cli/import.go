@@ -101,6 +101,12 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 			}
 			return 1
 		}
+		clipresent.PrintImportSkippedReport(
+			stderr,
+			plan.Skipped(),
+			clipresent.HumanOptions{Verbose: *verbose},
+			false,
+		)
 		fmt.Fprintln(stderr, "import failed: merge conflicts detected; run daem import --merge --dry-run to inspect conflicts")
 		return 1
 	}

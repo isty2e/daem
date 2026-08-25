@@ -124,7 +124,7 @@ func hashNativeDirectoryEntries(
 	if err := requireRootRegularFile(ctx, directoryFD, relativeRoot, names, budget); err != nil {
 		return err
 	}
-	for _, name := range names {
+	for index, name := range names {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -134,8 +134,8 @@ func hashNativeDirectoryEntries(
 		}
 		entry, err := openNativeChild(directoryFD, name)
 		if err != nil {
-			var symlink *unsupportedSymlinkError
-			if errors.As(err, &symlink) {
+			if errors.Is(err, ErrUnsupportedSymlink) {
+				chargeClassifiedSymlinkRemainder(budget, names, index, true)
 				return &unsupportedSymlinkError{path: relativePath}
 			}
 			return err
@@ -208,6 +208,9 @@ func hashNativeDirectoryEntries(
 		}
 		closeErr := unix.Close(entry.fd)
 		if operationErr != nil {
+			if errors.Is(operationErr, ErrUnsupportedSymlink) {
+				chargeClassifiedSymlinkRemainder(budget, names, index, false)
+			}
 			return errors.Join(operationErr, closeErr)
 		}
 		if closeErr != nil {
@@ -215,6 +218,19 @@ func hashNativeDirectoryEntries(
 		}
 	}
 	return verifyNativeDirectoryNames(ctx, directoryFD, names)
+}
+
+func chargeClassifiedSymlinkRemainder(
+	budget *traversalBudget,
+	names []string,
+	current int,
+	includeCurrent bool,
+) {
+	remaining := len(names) - current
+	if !includeCurrent {
+		remaining--
+	}
+	budget.chargeRootListing(remaining)
 }
 
 func requireRootRegularFile(
