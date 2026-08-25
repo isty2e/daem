@@ -53,6 +53,9 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	if err := ctx.Err(); err != nil {
 		return transactionMarker{}, err
 	}
+	if err := admitFileSetTargetCount(len(targets)); err != nil {
+		return transactionMarker{}, err
+	}
 	canonical, err := canonicalStateDir(stateDir)
 	if err != nil {
 		return transactionMarker{}, err
@@ -72,42 +75,6 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 		Version: contractversion.MetadataTransaction,
 		Targets: make([]targetMarker, 0, len(targets)),
 	}
-	type stagedFile struct {
-		name    string
-		content []byte
-	}
-	staged := make([]stagedFile, 0, len(targets)+1)
-	for index, target := range targets {
-		backupName := fmt.Sprintf("target-%03d.before", index)
-		before, content, captureErr := captureFileState(
-			ctx,
-			target.path,
-			filepath.Join(transactionDir, backupName),
-		)
-		if captureErr != nil {
-			return transactionMarker{}, captureErr
-		}
-		row := targetMarker{
-			Path:        target.path,
-			Before:      before,
-			Write:       target.write,
-			CommitPoint: target.commitPoint,
-		}
-		if target.write {
-			row.AfterHash = hashBytes(target.content)
-		}
-		marker.Targets = append(marker.Targets, row)
-		if before.Exists {
-			staged = append(staged, stagedFile{name: backupName, content: content})
-		}
-	}
-
-	content, err := marshalMarker(marker)
-	if err != nil {
-		return transactionMarker{}, fmt.Errorf("marshal file-set transaction marker: %w", err)
-	}
-	staged = append(staged, stagedFile{name: transactionMarkerFile, content: content})
-
 	capturedRoot, destination, err := rootedpath.CaptureDestinationNoFollow(transactionDir)
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("capture file-set evidence destination: %w", err)
@@ -118,16 +85,58 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 		return transactionMarker{}, fmt.Errorf("acquire file-set evidence publication capability: %w", err)
 	}
 	prepared, err := storagecommit.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
-		for _, file := range staged {
-			path, pathErr := mutationfs.NewTreeRelativePath(file.name)
+		var stagedBeforeBytes int64
+		for index, target := range targets {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			backupName := fmt.Sprintf("target-%03d.before", index)
+			before, content, captureErr := captureFileState(
+				ctx,
+				target.path,
+				filepath.Join(transactionDir, backupName),
+			)
+			if captureErr != nil {
+				return captureErr
+			}
+			row := targetMarker{
+				Path:        target.path,
+				Before:      before,
+				Write:       target.write,
+				CommitPoint: target.commitPoint,
+			}
+			if target.write {
+				row.AfterHash = hashBytes(target.content)
+			}
+			marker.Targets = append(marker.Targets, row)
+			if !before.Exists {
+				continue
+			}
+			if err := admitStagedBeforeImageBytes(stagedBeforeBytes, len(content)); err != nil {
+				return err
+			}
+			path, pathErr := mutationfs.NewTreeRelativePath(backupName)
 			if pathErr != nil {
 				return pathErr
 			}
-			if writeErr := writer.WriteFile(path, transactionEvidenceMode, bytes.NewReader(file.content)); writeErr != nil {
+			if writeErr := writer.WriteFile(path, transactionEvidenceMode, bytes.NewReader(content)); writeErr != nil {
 				return writeErr
 			}
+			stagedBeforeBytes += int64(len(content))
+			content = nil
 		}
-		return nil
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		markerContent, marshalErr := marshalMarker(marker)
+		if marshalErr != nil {
+			return fmt.Errorf("marshal file-set transaction marker: %w", marshalErr)
+		}
+		relativeMarker, pathErr := mutationfs.NewTreeRelativePath(transactionMarkerFile)
+		if pathErr != nil {
+			return pathErr
+		}
+		return writer.WriteFile(relativeMarker, transactionEvidenceMode, bytes.NewReader(markerContent))
 	})
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("prepare file-set transaction evidence: %w", err)

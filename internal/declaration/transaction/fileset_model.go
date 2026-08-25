@@ -9,7 +9,11 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 )
 
-const maximumTargetBytes int64 = 64 << 20
+const (
+	maximumTargetBytes            int64 = 64 << 20
+	maximumFileSetTargets               = 8
+	maximumStagedBeforeImageBytes int64 = 4 * maximumTargetBytes
+)
 
 // FileTarget is one exact file transition in a recoverable transaction.
 type FileTarget struct {
@@ -73,9 +77,39 @@ func NewFileRetain(path string) (FileTarget, error) {
 // Path returns the canonical directory-entry path.
 func (target FileTarget) Path() string { return target.path }
 
+func admitFileSetTargetCount(count int) error {
+	if count > maximumFileSetTargets {
+		return fmt.Errorf(
+			"file-set transaction contains %d targets, maximum %d",
+			count,
+			maximumFileSetTargets,
+		)
+	}
+	return nil
+}
+
+func admitStagedBeforeImageBytes(total int64, additional int) error {
+	if additional < 0 {
+		return fmt.Errorf("file-set transaction before-image byte length must not be negative")
+	}
+	additionalBytes := int64(additional)
+	if additionalBytes > maximumStagedBeforeImageBytes ||
+		total > maximumStagedBeforeImageBytes-additionalBytes {
+		return fmt.Errorf(
+			"file-set transaction before-images contain %d bytes, maximum %d",
+			total+additionalBytes,
+			maximumStagedBeforeImageBytes,
+		)
+	}
+	return nil
+}
+
 func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("file-set transaction requires at least one target")
+	}
+	if err := admitFileSetTargetCount(len(values)); err != nil {
+		return nil, err
 	}
 	targets := make([]FileTarget, len(values))
 	commitPoints := 0

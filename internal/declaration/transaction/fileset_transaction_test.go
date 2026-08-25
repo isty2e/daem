@@ -518,6 +518,148 @@ func TestTransactionTargetByteLimit(t *testing.T) {
 	}
 }
 
+func TestFileSetTargetCardinalityLimit(t *testing.T) {
+	t.Parallel()
+
+	if err := admitFileSetTargetCount(maximumFileSetTargets); err != nil {
+		t.Fatalf("exact target cardinality returned error: %v", err)
+	}
+	if err := admitFileSetTargetCount(maximumFileSetTargets + 1); err == nil {
+		t.Fatal("over-limit target cardinality was admitted")
+	}
+
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	targets := make([]FileTarget, 0, maximumFileSetTargets+1)
+	for index := 0; index < maximumFileSetTargets+1; index++ {
+		targets = append(targets, mustWriteTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index)), "after"))
+	}
+	err := CommitFileSet(context.Background(), FileSetInput{
+		StateDir: stateDir,
+		Targets:  targets,
+	})
+	if err == nil || !strings.Contains(err.Error(), "targets, maximum") {
+		t.Fatalf("Commit error = %v, want target cardinality rejection", err)
+	}
+	assertMissing(t, transactionDir(stateDir))
+}
+
+func TestFileSetTargetCardinalityExactLimitSucceeds(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	targets := make([]FileTarget, 0, maximumFileSetTargets)
+	paths := make([]string, 0, maximumFileSetTargets)
+	for index := 0; index < maximumFileSetTargets; index++ {
+		path := filepath.Join(root, fmt.Sprintf("target-%02d", index))
+		paths = append(paths, path)
+		targets = append(targets, mustWriteTarget(t, path, fmt.Sprintf("after-%02d", index)))
+	}
+	if err := CommitFileSet(context.Background(), FileSetInput{
+		StateDir: stateDir,
+		Targets:  targets,
+	}); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	for index, path := range paths {
+		assertContent(t, path, fmt.Sprintf("after-%02d", index))
+	}
+	assertMissing(t, transactionDir(stateDir))
+}
+
+func TestPrepareMarkerRejectsTargetCardinalityBeforeEvidence(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	targets := make([]FileTarget, 0, maximumFileSetTargets+1)
+	for index := 0; index < maximumFileSetTargets+1; index++ {
+		targets = append(targets, mustRetainedTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index))))
+	}
+	_, err := prepareMarker(context.Background(), stateDir, targets)
+	if err == nil || !strings.Contains(err.Error(), "targets, maximum") {
+		t.Fatalf("prepareMarker error = %v, want target cardinality rejection", err)
+	}
+	assertMissing(t, transactionDir(stateDir))
+}
+
+func TestAdmitStagedBeforeImageBytes(t *testing.T) {
+	t.Parallel()
+
+	if err := admitStagedBeforeImageBytes(0, int(maximumStagedBeforeImageBytes)); err != nil {
+		t.Fatalf("exact aggregate before-image limit returned error: %v", err)
+	}
+	if err := admitStagedBeforeImageBytes(maximumStagedBeforeImageBytes, 0); err != nil {
+		t.Fatalf("zero additional at exact aggregate limit returned error: %v", err)
+	}
+	if err := admitStagedBeforeImageBytes(0, int(maximumStagedBeforeImageBytes)+1); err == nil {
+		t.Fatal("aggregate before-image limit plus one was admitted")
+	}
+	if err := admitStagedBeforeImageBytes(maximumStagedBeforeImageBytes, 1); err == nil {
+		t.Fatal("additional byte beyond aggregate before-image limit was admitted")
+	}
+	if err := admitStagedBeforeImageBytes(maximumStagedBeforeImageBytes-1, 1); err != nil {
+		t.Fatalf("final remaining before-image byte returned error: %v", err)
+	}
+}
+
+func TestPrepareMarkerWritesEachBeforeImageThenMarker(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	writeFixture(t, first, "first-before", 0o644)
+	writeFixture(t, second, "second-before", 0o600)
+	targets := []FileTarget{
+		mustWriteTarget(t, first, "first-after"),
+		mustRetainedTarget(t, second),
+	}
+	marker, err := prepareMarker(context.Background(), stateDir, targets)
+	if err != nil {
+		t.Fatalf("prepareMarker returned error: %v", err)
+	}
+	evidenceDir := transactionDir(stateDir)
+	assertContent(t, filepath.Join(evidenceDir, "target-000.before"), "first-before")
+	assertContent(t, filepath.Join(evidenceDir, "target-001.before"), "second-before")
+	assertMode(t, filepath.Join(evidenceDir, "target-000.before"), transactionEvidenceMode)
+	assertMode(t, filepath.Join(evidenceDir, transactionMarkerFile), transactionEvidenceMode)
+	if len(marker.Targets) != 2 || !marker.Targets[0].Before.Exists || !marker.Targets[1].Before.Exists {
+		t.Fatalf("marker targets = %+v, want two existing before-images", marker.Targets)
+	}
+	loaded, err := loadMarker(context.Background(), markerPath(stateDir))
+	if err != nil {
+		t.Fatalf("loadMarker returned error: %v", err)
+	}
+	if loaded.Targets[0].Before.Hash != hashBytes([]byte("first-before")) ||
+		loaded.Targets[1].Before.Hash != hashBytes([]byte("second-before")) {
+		t.Fatalf("loaded before hashes = %+v", loaded.Targets)
+	}
+}
+
+func TestPrepareMarkerCallbackFailureLeavesNoEvidence(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	valid := filepath.Join(root, "valid")
+	oversized := filepath.Join(root, "oversized")
+	writeFixture(t, valid, "valid-before", 0o600)
+	file, err := os.Create(oversized)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maximumTargetBytes + 1); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = prepareMarker(context.Background(), stateDir, []FileTarget{
+		mustRetainedTarget(t, valid),
+		mustRetainedTarget(t, oversized),
+	})
+	if err == nil {
+		t.Fatal("prepareMarker admitted an oversized before-image")
+	}
+	assertMissing(t, transactionDir(stateDir))
+}
+
 func TestMarshalMarkerRejectsOutputOverReadLimit(t *testing.T) {
 	t.Parallel()
 

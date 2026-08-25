@@ -369,10 +369,13 @@ in-memory decode inputs and generated manifest or lockfile output. Final
 manifest or lockfile symlinks are admitted only while the selected link and
 regular-file referent remain stable for the complete read. Metadata file-set
 transactions also refuse any target after-image, captured before-image, or
-restored backup larger than 64 MiB. These transaction limits bound physical
-evidence; the statefile and carrier-registry codecs retain their stricter 16
-MiB semantic limits. Daem refuses input statefiles larger than 16 MiB before
-planning and refuses recovery journals larger than 64 MiB. Individual
+restored backup larger than 64 MiB, more than 8 targets, or more than 256 MiB
+of captured before-image bytes in one transaction. Before-images are staged
+one file at a time through the sealed evidence tree; the transaction marker is
+written last. These transaction limits bound physical evidence; the statefile
+and carrier-registry codecs retain their stricter 16 MiB semantic limits. Daem
+refuses input statefiles larger than 16 MiB before planning and refuses
+recovery journals larger than 64 MiB. Individual
 regular-file recovery backups larger than 128 MiB are refused before the
 covered host mutation; produced state and journal documents are also
 size-checked before publication. Managed hook and MCP host documents are
