@@ -323,11 +323,6 @@ func commitFileAndRefreshParent(
 	return EntryIdentity{}, CommitFile(ctx, request)
 }
 
-// CommitPreparedTree returns unsupported_guarantee without performing effects.
-func CommitPreparedTree(_ context.Context, request PreparedTreeCommit) error {
-	return newUnsupportedPlatformFailure(request.destination)
-}
-
 // CommitLogicalRemoval returns unsupported_guarantee without performing effects.
 func CommitLogicalRemoval(_ context.Context, request LogicalRemoval) error {
 	if request.capability != nil {

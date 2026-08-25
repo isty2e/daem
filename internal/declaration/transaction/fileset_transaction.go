@@ -213,6 +213,9 @@ func classifyTargets(ctx context.Context, marker transactionMarker) (targetClass
 }
 
 func restoreTransaction(ctx context.Context, marker transactionMarker, ops operations) error {
+	if err := preflightRestorableBackups(ctx, marker); err != nil {
+		return err
+	}
 	failures := make([]error, 0)
 	for _, target := range marker.Targets {
 		if err := restoreFile(ctx, target.Path, target.Before, ops); err != nil {
@@ -220,6 +223,41 @@ func restoreTransaction(ctx context.Context, marker transactionMarker, ops opera
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func preflightRestorableBackups(ctx context.Context, marker transactionMarker) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := admitFileSetTargetCount(len(marker.Targets)); err != nil {
+		return err
+	}
+	var stagedBeforeBytes int64
+	for _, target := range marker.Targets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !target.Before.Exists {
+			continue
+		}
+		content, _, err := readTransactionFile(ctx, target.Before.BackupPath)
+		if err != nil {
+			return fmt.Errorf("preflight backup %q: %w", target.Before.BackupPath, err)
+		}
+		if err := admitStagedBeforeImageBytes(stagedBeforeBytes, len(content)); err != nil {
+			return err
+		}
+		if hash := hashBytes(content); hash != target.Before.Hash {
+			return fmt.Errorf(
+				"backup %q hash %q does not match marker hash %q",
+				target.Before.BackupPath,
+				hash,
+				target.Before.Hash,
+			)
+		}
+		stagedBeforeBytes += int64(len(content))
+	}
+	return nil
 }
 
 func restoreFile(ctx context.Context, path string, state fileState, ops operations) error {

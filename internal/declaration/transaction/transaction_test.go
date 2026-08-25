@@ -64,6 +64,9 @@ func writeAdapterFixture(t *testing.T, path string, content string, mode os.File
 	if err := os.WriteFile(path, []byte(content), mode); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertAdapterContent(t *testing.T, path string, want string) {

@@ -3,7 +3,9 @@
 package commit
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,88 +14,6 @@ import (
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
-
-func TestWindowsDirectPreparedTreeCommit(t *testing.T) {
-	root := t.TempDir()
-	staged := filepath.Join(root, "staged")
-	destination := filepath.Join(root, "published")
-	if err := os.Mkdir(staged, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	opened := openWindowsNativeTestDirectory(t, staged)
-	if _, err := applyWindowsCanonicalSecurity(opened.Handle(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := opened.Close(); err != nil {
-		t.Fatal(err)
-	}
-	child, err := NewFileCreate(filepath.Join(staged, "entry.txt"), []byte("payload"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CommitFile(t.Context(), child); err != nil {
-		t.Fatal(err)
-	}
-	identity, err := CaptureEntryIdentity(t.Context(), staged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := NewPreparedTreeCommit(staged, destination, identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CommitPreparedTree(t.Context(), request); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Lstat(staged); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("staged tree remains: %v", err)
-	}
-	content, err := os.ReadFile(filepath.Join(destination, "entry.txt"))
-	if err != nil || string(content) != "payload" {
-		t.Fatalf("published content = %q, %v", content, err)
-	}
-}
-
-func TestWindowsDirectPreparedTreeRejectsHardLinkedFile(t *testing.T) {
-	root := t.TempDir()
-	staged := filepath.Join(root, "staged")
-	destination := filepath.Join(root, "published")
-	if err := os.Mkdir(staged, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	opened := openWindowsNativeTestDirectory(t, staged)
-	if _, err := applyWindowsCanonicalSecurity(opened.Handle(), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := opened.Close(); err != nil {
-		t.Fatal(err)
-	}
-	entry := filepath.Join(staged, "entry.txt")
-	create, err := NewFileCreate(entry, []byte("payload"), 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CommitFile(t.Context(), create); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Link(entry, filepath.Join(root, "alias")); err != nil {
-		t.Fatal(err)
-	}
-	identity, err := CaptureEntryIdentity(t.Context(), staged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	request, err := NewPreparedTreeCommit(staged, destination, identity)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CommitPreparedTree(t.Context(), request); !hasStorageFailureKind(err, mutationfs.FailureUnsupportedGuarantee) {
-		t.Fatalf("direct hard-linked tree error = %v, want unsupported guarantee", err)
-	}
-	if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("hard-linked direct destination = %v, want absent", err)
-	}
-}
 
 func TestWindowsPreparedRootedTreeCommitAndSnapshot(t *testing.T) {
 	root := t.TempDir()
@@ -276,6 +196,79 @@ func TestWindowsPreparedRootedTreeAbortAndPopulateFailureRemoveStage(t *testing.
 			assertNoWindowsStorageResidue(t, root)
 		})
 	}
+}
+
+func TestWindowsPreparedRootedTreeWriteFileFailureRemovesPartialChild(t *testing.T) {
+	t.Run("payload error", func(t *testing.T) {
+		root := t.TempDir()
+		destination := root + `\tree`
+		_, err := PrepareRootedTree(t.Context(), acquireWindowsTestCommitCapability(t, destination), func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				mustWindowsTreePath(t, "partial"),
+				0o600,
+				&windowsPartialPayloadReader{remaining: []byte("partial-payload"), fail: errors.New("injected payload failure")},
+			)
+		})
+		if err == nil || !strings.Contains(err.Error(), "injected payload failure") {
+			t.Fatalf("PrepareRootedTree error = %v, want injected payload failure", err)
+		}
+		if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed populate published destination: %v", statErr)
+		}
+		assertNoWindowsStorageResidue(t, root)
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		root := t.TempDir()
+		destination := root + `\tree`
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		_, err := PrepareRootedTree(ctx, acquireWindowsTestCommitCapability(t, destination), func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				mustWindowsTreePath(t, "partial"),
+				0o600,
+				&windowsCancelAfterBytesReader{remaining: []byte("partial-payload"), cancel: cancel},
+			)
+		})
+		if err == nil || (!errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled")) {
+			t.Fatalf("PrepareRootedTree error = %v, want cancellation", err)
+		}
+		if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed populate published destination: %v", statErr)
+		}
+		assertNoWindowsStorageResidue(t, root)
+	})
+}
+
+type windowsPartialPayloadReader struct {
+	remaining []byte
+	fail      error
+}
+
+func (reader *windowsPartialPayloadReader) Read(buffer []byte) (int, error) {
+	if len(reader.remaining) == 0 {
+		return 0, reader.fail
+	}
+	count := copy(buffer, reader.remaining)
+	reader.remaining = reader.remaining[count:]
+	return count, nil
+}
+
+type windowsCancelAfterBytesReader struct {
+	remaining []byte
+	cancel    context.CancelFunc
+}
+
+func (reader *windowsCancelAfterBytesReader) Read(buffer []byte) (int, error) {
+	if len(reader.remaining) == 0 {
+		reader.cancel()
+		return 0, io.EOF
+	}
+	count := copy(buffer, reader.remaining)
+	reader.remaining = reader.remaining[count:]
+	if len(reader.remaining) == 0 {
+		reader.cancel()
+	}
+	return count, nil
 }
 
 func acquireWindowsTestCommitCapability(t *testing.T, path string) rootedpath.CommitCapability {

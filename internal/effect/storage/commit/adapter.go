@@ -93,23 +93,6 @@ func (Adapter) RemoveEntry(
 	return CommitLogicalRemoval(ctx, request)
 }
 
-func (Adapter) PublishPreparedTree(
-	ctx context.Context,
-	stagedRoot string,
-	destination string,
-	expected mutationfs.EntryIdentity,
-) error {
-	identity, err := concreteEntryIdentity(expected)
-	if err != nil {
-		return failureBeforeVisibility(phaseValidate, destination, err)
-	}
-	request, err := NewPreparedTreeCommit(stagedRoot, destination, identity)
-	if err != nil {
-		return failureBeforeVisibility(phaseValidate, destination, err)
-	}
-	return CommitPreparedTree(ctx, request)
-}
-
 func (Adapter) CaptureRootedEntryIdentity(
 	ctx context.Context,
 	capability rootedpath.CommitCapability,

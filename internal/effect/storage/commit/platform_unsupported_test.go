@@ -43,9 +43,6 @@ func TestUnsupportedPlatformFailsClosed(t *testing.T) {
 		{name: "file replace", run: func() error {
 			return CommitFile(context.Background(), FileCommit{path: path, policy: filePolicyReplaceExpected})
 		}},
-		{name: "tree publish", run: func() error {
-			return CommitPreparedTree(context.Background(), PreparedTreeCommit{destination: treePath})
-		}},
 		{name: "logical removal", run: func() error {
 			return CommitLogicalRemoval(context.Background(), LogicalRemoval{path: path})
 		}},

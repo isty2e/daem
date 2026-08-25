@@ -178,41 +178,6 @@ func NewRootedFileReplacement(
 	return request, nil
 }
 
-// PreparedTreeCommit is a valid same-parent, no-replace tree publication.
-type PreparedTreeCommit struct {
-	stagedRoot  string
-	destination string
-	expected    EntryIdentity
-}
-
-// NewPreparedTreeCommit constructs publication of an already prepared tree.
-func NewPreparedTreeCommit(
-	stagedRoot string,
-	destination string,
-	expected EntryIdentity,
-) (PreparedTreeCommit, error) {
-	if err := validateCommitPath(stagedRoot); err != nil {
-		return PreparedTreeCommit{}, fmt.Errorf("staged root: %w", err)
-	}
-	if err := validateCommitPath(destination); err != nil {
-		return PreparedTreeCommit{}, fmt.Errorf("destination: %w", err)
-	}
-	if stagedRoot == destination {
-		return PreparedTreeCommit{}, fmt.Errorf("staged root and destination must differ")
-	}
-	if filepath.Dir(stagedRoot) != filepath.Dir(destination) {
-		return PreparedTreeCommit{}, fmt.Errorf("staged root and destination must have the same parent")
-	}
-	if err := validateExpectedIdentity(stagedRoot, expected, entryKindDirectory); err != nil {
-		return PreparedTreeCommit{}, err
-	}
-	return PreparedTreeCommit{
-		stagedRoot:  stagedRoot,
-		destination: destination,
-		expected:    expected,
-	}, nil
-}
-
 // LogicalRemoval is a valid identity-guarded directory-entry removal.
 type LogicalRemoval struct {
 	path       string

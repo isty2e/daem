@@ -42,12 +42,6 @@ type PathCommitter interface {
 		expected EntryIdentity,
 	) error
 	RemoveEntry(ctx context.Context, path string, expected EntryIdentity) error
-	PublishPreparedTree(
-		ctx context.Context,
-		stagedRoot string,
-		destination string,
-		expected EntryIdentity,
-	) error
 }
 
 // RootedReader observes one destination through retained-root authority without
