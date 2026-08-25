@@ -3,7 +3,9 @@
 package commit
 
 import (
+	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -194,6 +196,79 @@ func TestWindowsPreparedRootedTreeAbortAndPopulateFailureRemoveStage(t *testing.
 			assertNoWindowsStorageResidue(t, root)
 		})
 	}
+}
+
+func TestWindowsPreparedRootedTreeWriteFileFailureRemovesPartialChild(t *testing.T) {
+	t.Run("payload error", func(t *testing.T) {
+		root := t.TempDir()
+		destination := root + `\tree`
+		_, err := PrepareRootedTree(t.Context(), acquireWindowsTestCommitCapability(t, destination), func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				mustWindowsTreePath(t, "partial"),
+				0o600,
+				&windowsPartialPayloadReader{remaining: []byte("partial-payload"), fail: errors.New("injected payload failure")},
+			)
+		})
+		if err == nil || !strings.Contains(err.Error(), "injected payload failure") {
+			t.Fatalf("PrepareRootedTree error = %v, want injected payload failure", err)
+		}
+		if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed populate published destination: %v", statErr)
+		}
+		assertNoWindowsStorageResidue(t, root)
+	})
+	t.Run("cancellation", func(t *testing.T) {
+		root := t.TempDir()
+		destination := root + `\tree`
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		_, err := PrepareRootedTree(ctx, acquireWindowsTestCommitCapability(t, destination), func(writer mutationfs.RootedTreeWriter) error {
+			return writer.WriteFile(
+				mustWindowsTreePath(t, "partial"),
+				0o600,
+				&windowsCancelAfterBytesReader{remaining: []byte("partial-payload"), cancel: cancel},
+			)
+		})
+		if err == nil || (!errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled")) {
+			t.Fatalf("PrepareRootedTree error = %v, want cancellation", err)
+		}
+		if _, statErr := os.Lstat(destination); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("failed populate published destination: %v", statErr)
+		}
+		assertNoWindowsStorageResidue(t, root)
+	})
+}
+
+type windowsPartialPayloadReader struct {
+	remaining []byte
+	fail      error
+}
+
+func (reader *windowsPartialPayloadReader) Read(buffer []byte) (int, error) {
+	if len(reader.remaining) == 0 {
+		return 0, reader.fail
+	}
+	count := copy(buffer, reader.remaining)
+	reader.remaining = reader.remaining[count:]
+	return count, nil
+}
+
+type windowsCancelAfterBytesReader struct {
+	remaining []byte
+	cancel    context.CancelFunc
+}
+
+func (reader *windowsCancelAfterBytesReader) Read(buffer []byte) (int, error) {
+	if len(reader.remaining) == 0 {
+		reader.cancel()
+		return 0, io.EOF
+	}
+	count := copy(buffer, reader.remaining)
+	reader.remaining = reader.remaining[count:]
+	if len(reader.remaining) == 0 {
+		reader.cancel()
+	}
+	return count, nil
 }
 
 func acquireWindowsTestCommitCapability(t *testing.T, path string) rootedpath.CommitCapability {

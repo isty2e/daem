@@ -332,6 +332,9 @@ func validateMarker(path string, marker transactionMarker) error {
 	if len(marker.Targets) == 0 {
 		return fmt.Errorf("file-set transaction marker requires targets")
 	}
+	if err := admitFileSetTargetCount(len(marker.Targets)); err != nil {
+		return err
+	}
 	markerDir := filepath.Dir(path)
 	previousOrdinary := ""
 	commitPointSeen := false

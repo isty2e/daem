@@ -256,29 +256,53 @@ func (writer *rootedTreeWriterWindows) CreateDirectory(path mutationfs.TreeRelat
 	if err != nil {
 		return err
 	}
-	facts, factsErr := queryWindowsEntryFacts(opened.handle.Handle())
-	metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
-	closeErr := opened.handle.Close()
-	if factsErr != nil || metadataErr != nil || closeErr != nil {
-		return errors.Join(factsErr, metadataErr, closeErr)
+	closed := false
+	defer func() {
+		if !closed {
+			_ = opened.handle.Close()
+		}
+	}()
+	facts, err := queryWindowsEntryFacts(opened.handle.Handle())
+	if err != nil {
+		return writer.disposeCreatedChild(parent, name, "", opened.handle, &closed, err)
 	}
 	if !facts.standard.directory {
-		return fmt.Errorf("prepared Windows directory is not a directory")
+		return writer.disposeCreatedChild(
+			parent,
+			name,
+			"",
+			opened.handle,
+			&closed,
+			fmt.Errorf("prepared Windows directory is not a directory"),
+		)
 	}
-	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
-		return err
-	}
-	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
-		return err
-	}
-	return writer.record(windowsPreparedTreeExpectation{
-		path:          path.Path(),
+	relativePath := path.Path()
+	if err := writer.record(windowsPreparedTreeExpectation{
+		path:          relativePath,
 		kind:          entryKindDirectory,
 		mode:          mode.Perm(),
 		created:       facts.identity,
 		expected:      facts.identity,
 		numberOfLinks: facts.standard.numberOfLinks,
-	})
+	}); err != nil {
+		return writer.disposeCreatedChild(parent, name, "", opened.handle, &closed, err)
+	}
+	metadata, err := queryWindowsMetadataFacts(opened.handle.Handle())
+	if err != nil {
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
+	}
+	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, true); err != nil {
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
+	}
+	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
+	}
+	if err := opened.handle.Close(); err != nil {
+		closed = true
+		return err
+	}
+	closed = true
+	return nil
 }
 
 func (writer *rootedTreeWriterWindows) WriteFile(
@@ -324,37 +348,72 @@ func (writer *rootedTreeWriterWindows) WriteFile(
 			_ = opened.handle.Close()
 		}
 	}()
+	facts, err := queryWindowsEntryFacts(opened.handle.Handle())
+	if err != nil {
+		return writer.disposeCreatedChild(parent, name, "", opened.handle, &closed, err)
+	}
+	if facts.standard.directory {
+		return writer.disposeCreatedChild(
+			parent,
+			name,
+			"",
+			opened.handle,
+			&closed,
+			fmt.Errorf("prepared Windows file is a directory"),
+		)
+	}
+	relativePath := path.Path()
+	if err := writer.record(windowsPreparedTreeExpectation{
+		path:          relativePath,
+		kind:          entryKindRegular,
+		mode:          mode.Perm(),
+		created:       facts.identity,
+		expected:      facts.identity,
+		numberOfLinks: facts.standard.numberOfLinks,
+	}); err != nil {
+		return writer.disposeCreatedChild(parent, name, "", opened.handle, &closed, err)
+	}
 	digest := sha256.New()
 	written, err := copyWindowsPreparedFile(writer.ctx, opened.handle.Handle(), io.TeeReader(content, digest), writer.budget.remainingBytes())
 	if err != nil {
-		return err
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
 	}
 	if err := writer.budget.admitBytes(written); err != nil {
-		return err
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
 	}
 	if err := flushWindowsHandle(opened.handle.Handle(), windowsFlushPolicy{}); err != nil {
-		return err
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
 	}
 	facts, factsErr := queryWindowsEntryFacts(opened.handle.Handle())
 	metadata, metadataErr := queryWindowsMetadataFacts(opened.handle.Handle())
-	closeErr := opened.handle.Close()
-	closed = true
-	if factsErr != nil || metadataErr != nil || closeErr != nil {
-		return errors.Join(factsErr, metadataErr, closeErr)
+	if factsErr != nil || metadataErr != nil {
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, errors.Join(factsErr, metadataErr))
 	}
 	if facts.standard.directory || facts.standard.endOfFile != written {
-		return fmt.Errorf("prepared Windows file size changed during staging")
+		return writer.disposeCreatedChild(
+			parent,
+			name,
+			relativePath,
+			opened.handle,
+			&closed,
+			fmt.Errorf("prepared Windows file size changed during staging"),
+		)
 	}
 	if err := validateWindowsCanonicalEntryAttributes(facts.attribute.attributes, false); err != nil {
-		return err
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
 	}
 	if err := ensureWindowsCanonicalMetadataSupported(metadata, security.facts); err != nil {
+		return writer.disposeCreatedChild(parent, name, relativePath, opened.handle, &closed, err)
+	}
+	if err := opened.handle.Close(); err != nil {
+		closed = true
 		return err
 	}
+	closed = true
 	var contentDigest [sha256.Size]byte
 	copy(contentDigest[:], digest.Sum(nil))
 	return writer.record(windowsPreparedTreeExpectation{
-		path:          path.Path(),
+		path:          relativePath,
 		kind:          entryKindRegular,
 		mode:          mode.Perm(),
 		size:          written,
@@ -401,6 +460,29 @@ func (writer *rootedTreeWriterWindows) validatePath(
 func (writer *rootedTreeWriterWindows) record(expectation windowsPreparedTreeExpectation) error {
 	writer.prepared.entries[expectation.path] = expectation
 	return nil
+}
+
+func (writer *rootedTreeWriterWindows) disposeCreatedChild(
+	parent windowsDirectoryHandle,
+	name string,
+	relativePath string,
+	handle *windowsOwnedHandle,
+	closed *bool,
+	cause error,
+) error {
+	_, dispErr := disposeWindowsByHandle(handle.Handle(), true)
+	closeErr := handle.Close()
+	*closed = true
+	if dispErr != nil || closeErr != nil {
+		return cause
+	}
+	if err := requireWindowsSiblingAbsent(parent, name); err != nil {
+		return cause
+	}
+	if relativePath != "" {
+		delete(writer.prepared.entries, relativePath)
+	}
+	return cause
 }
 
 func (writer *rootedTreeWriterWindows) openParent(

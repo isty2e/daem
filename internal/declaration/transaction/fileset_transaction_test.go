@@ -507,6 +507,200 @@ func TestRecoverPreservesOversizedLegacyBeforeImageForOldWriter(t *testing.T) {
 	}
 }
 
+func TestLoadMarkerRejectsCurrentSchemaTargetCardinality(t *testing.T) {
+	root := t.TempDir()
+	markerFile := filepath.Join(root, transactionMarkerFile)
+	targets := make([]targetMarker, 0, maximumFileSetTargets+1)
+	for index := 0; index < maximumFileSetTargets+1; index++ {
+		targets = append(targets, targetMarker{
+			Path:   filepath.Join(root, fmt.Sprintf("target-%02d", index)),
+			Before: fileState{},
+		})
+	}
+	content, err := marshalMarker(transactionMarker{
+		Version: contractversion.MetadataTransaction,
+		Targets: targets,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerFile, content, transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+	_, err = loadMarker(context.Background(), markerFile)
+	if err == nil || !strings.Contains(err.Error(), "targets, maximum") {
+		t.Fatalf("loadMarker error = %v, want current-schema cardinality rejection", err)
+	}
+}
+
+func TestRecoverRejectsCurrentSchemaTargetCardinalityWithoutRestore(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	evidenceDir := transactionDir(stateDir)
+	if err := os.MkdirAll(evidenceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	allowed := make([]string, 0, maximumFileSetTargets+1)
+	targets := make([]targetMarker, 0, maximumFileSetTargets+1)
+	live := make([]string, 0, maximumFileSetTargets+1)
+	for index := 0; index < maximumFileSetTargets+1; index++ {
+		path := mustWriteTarget(t, filepath.Join(root, fmt.Sprintf("target-%02d", index)), "after").Path()
+		writeFixture(t, path, "after", 0o600)
+		allowed = append(allowed, path)
+		live = append(live, path)
+		targets = append(targets, targetMarker{
+			Path: path,
+			Before: fileState{
+				Exists:     true,
+				Hash:       hashBytes([]byte("before")),
+				BackupPath: filepath.Join(evidenceDir, fmt.Sprintf("target-%03d.before", index)),
+				Mode:       0o600,
+			},
+			AfterHash: hashBytes([]byte("after")),
+			Write:     true,
+		})
+		writeFixture(t, targets[index].Before.BackupPath, "before", transactionEvidenceMode)
+	}
+	content, err := marshalMarker(transactionMarker{
+		Version: contractversion.MetadataTransaction,
+		Targets: targets,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath(stateDir), content, transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+	err = RecoverFileSet(t.Context(), stateDir, allowed)
+	if err == nil || !strings.Contains(err.Error(), "targets, maximum") {
+		t.Fatalf("RecoverFileSet error = %v, want current-schema cardinality rejection", err)
+	}
+	for _, path := range live {
+		assertContent(t, path, "after")
+	}
+	if _, err := os.Stat(markerPath(stateDir)); err != nil {
+		t.Fatalf("over-limit marker was not preserved: %v", err)
+	}
+}
+
+func TestRecoverPreflightsBackupsBeforeAnyRestore(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	evidenceDir := transactionDir(stateDir)
+	if err := os.MkdirAll(evidenceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	first := mustWriteTarget(t, filepath.Join(root, "first"), "first-after").Path()
+	second := mustWriteTarget(t, filepath.Join(root, "second"), "second-after").Path()
+	writeFixture(t, first, "first-after", 0o600)
+	writeFixture(t, second, "second-before", 0o600)
+	firstBackup := filepath.Join(evidenceDir, "target-000.before")
+	secondBackup := filepath.Join(evidenceDir, "target-001.before")
+	writeFixture(t, firstBackup, "first-before", transactionEvidenceMode)
+	writeFixture(t, secondBackup, "tampered-before", transactionEvidenceMode)
+	content, err := marshalMarker(transactionMarker{
+		Version: contractversion.MetadataTransaction,
+		Targets: []targetMarker{
+			{
+				Path: first,
+				Before: fileState{
+					Exists:     true,
+					Hash:       hashBytes([]byte("first-before")),
+					BackupPath: firstBackup,
+					Mode:       0o600,
+				},
+				AfterHash: hashBytes([]byte("first-after")),
+				Write:     true,
+			},
+			{
+				Path: second,
+				Before: fileState{
+					Exists:     true,
+					Hash:       hashBytes([]byte("second-before")),
+					BackupPath: secondBackup,
+					Mode:       0o600,
+				},
+				AfterHash: hashBytes([]byte("second-after")),
+				Write:     true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath(stateDir), content, transactionEvidenceMode); err != nil {
+		t.Fatal(err)
+	}
+
+	writes := 0
+	err = recoverWithOperations(t.Context(), stateDir, []string{first, second}, operations{
+		writeFile: func(ctx context.Context, path string, content []byte, mode os.FileMode) error {
+			writes++
+			return commitFile(ctx, path, content, mode)
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match marker hash") {
+		t.Fatalf("Recover error = %v, want backup hash preflight rejection", err)
+	}
+	if writes != 0 {
+		t.Fatalf("restore wrote %d targets before backup preflight failed", writes)
+	}
+	assertContent(t, first, "first-after")
+	assertContent(t, second, "second-before")
+	if _, err := os.Stat(markerPath(stateDir)); err != nil {
+		t.Fatalf("invalid-backup marker was not preserved: %v", err)
+	}
+}
+
+func TestPreflightRestorableBackupsRejectsOversizedBackupBeforeRestore(t *testing.T) {
+	root := t.TempDir()
+	stateDir := mustCanonicalStateDir(t, filepath.Join(root, ".daem"))
+	evidenceDir := transactionDir(stateDir)
+	if err := os.MkdirAll(evidenceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	firstBackup := filepath.Join(evidenceDir, "target-000.before")
+	secondBackup := filepath.Join(evidenceDir, "target-001.before")
+	writeFixture(t, firstBackup, "first-before", transactionEvidenceMode)
+	oversized, err := os.Create(secondBackup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := oversized.Truncate(maximumTargetBytes + 1); err != nil {
+		_ = oversized.Close()
+		t.Fatal(err)
+	}
+	if err := oversized.Close(); err != nil {
+		t.Fatal(err)
+	}
+	err = preflightRestorableBackups(t.Context(), transactionMarker{
+		Version: contractversion.MetadataTransaction,
+		Targets: []targetMarker{
+			{
+				Path: filepath.Join(root, "first"),
+				Before: fileState{
+					Exists:     true,
+					Hash:       hashBytes([]byte("first-before")),
+					BackupPath: firstBackup,
+					Mode:       0o600,
+				},
+			},
+			{
+				Path: filepath.Join(root, "second"),
+				Before: fileState{
+					Exists:     true,
+					Hash:       hashBytes([]byte("second-before")),
+					BackupPath: secondBackup,
+					Mode:       0o600,
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "preflight backup") {
+		t.Fatalf("preflight error = %v, want oversized backup rejection", err)
+	}
+}
+
 func TestTransactionTargetByteLimit(t *testing.T) {
 	t.Parallel()
 
