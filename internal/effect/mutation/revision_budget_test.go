@@ -24,7 +24,7 @@ func TestContentRevisionRequiresExplicitCaptureMode(t *testing.T) {
 func TestContentRevisionTreeEntryLimitAcceptsExactAndRejectsOverflow(t *testing.T) {
 	root := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(root, "one"), "x", 0o600)
-	limits := mustRevisionCaptureLimits(t, 1, 1, 2, 2)
+	limits := mustRevisionCaptureLimits(t, 1, 1, math.MaxInt64, 2, 2)
 	request := NewBoundedContentRevisionRequest(root, PathEffectReferent)
 
 	if _, err := captureRevisionSetWithLimits(t.Context(), limits, request); err != nil {
@@ -46,7 +46,7 @@ func TestContentRevisionTreeDepthLimit(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "one", "two"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	limits := mustRevisionCaptureLimits(t, 4, 1, 4, 1)
+	limits := mustRevisionCaptureLimits(t, 4, 1, math.MaxInt64, 4, 1)
 	_, err := captureRevisionSetWithLimits(
 		t.Context(),
 		limits,
@@ -70,7 +70,7 @@ func TestContentRevisionTreeDepthLimitAcceptsExactBoundary(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	limits := mustRevisionCaptureLimits(t, 2, 2, 2, 0)
+	limits := mustRevisionCaptureLimits(t, 2, 2, math.MaxInt64, 2, 0)
 	if _, err := captureRevisionSetWithLimits(
 		t.Context(),
 		limits,
@@ -85,7 +85,7 @@ func TestContentRevisionOperationEntryLimitSpansTrees(t *testing.T) {
 	second := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(first, "entry"), "", 0o600)
 	writeMutationTestFile(t, filepath.Join(second, "entry"), "", 0o600)
-	limits := mustRevisionCaptureLimits(t, 2, 1, 1, 1)
+	limits := mustRevisionCaptureLimits(t, 2, 1, math.MaxInt64, 1, 1)
 	_, err := captureRevisionSetWithLimits(
 		t.Context(),
 		limits,
@@ -114,7 +114,7 @@ func TestDirectoryListingRevisionBoundsImmediateEntriesWithoutTraversingChildren
 			t.Fatal(err)
 		}
 	}
-	limits := mustRevisionCaptureLimits(t, 1, 1, 1, 0)
+	limits := mustRevisionCaptureLimits(t, 1, 1, math.MaxInt64, 1, 0)
 	request := NewBoundedDirectoryListingRevisionRequest(root)
 	set, err := captureRevisionSetWithLimits(t.Context(), limits, request)
 	if err != nil {
@@ -140,7 +140,7 @@ func TestContentRevisionOperationByteLimitSpansFiles(t *testing.T) {
 	second := filepath.Join(root, "second")
 	writeMutationTestFile(t, first, "123", 0o600)
 	writeMutationTestFile(t, second, "456", 0o600)
-	limits := mustRevisionCaptureLimits(t, 0, 0, 0, 5)
+	limits := mustRevisionCaptureLimits(t, 0, 0, math.MaxInt64, 0, 5)
 	_, err := captureRevisionSetWithLimits(
 		t.Context(),
 		limits,
@@ -162,7 +162,7 @@ func TestRevisionObservationPassSharesBudgetAcrossIncrementalCaptures(t *testing
 	second := filepath.Join(root, "second")
 	writeMutationTestFile(t, first, "123", 0o600)
 	writeMutationTestFile(t, second, "456", 0o600)
-	limits := mustRevisionCaptureLimits(t, 0, 0, 0, 5)
+	limits := mustRevisionCaptureLimits(t, 0, 0, math.MaxInt64, 0, 5)
 	pass, err := newRevisionObservationPass(limits)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestRevisionObservationPassSharesBudgetAcrossIncrementalCaptures(t *testing
 }
 
 func TestRevisionByteBudgetRejectsOverflow(t *testing.T) {
-	limits := mustRevisionCaptureLimits(t, 0, 0, 0, math.MaxInt64-1)
+	limits := mustRevisionCaptureLimits(t, 0, 0, math.MaxInt64, 0, math.MaxInt64-1)
 	operation, err := newRevisionCaptureBudget(limits)
 	if err != nil {
 		t.Fatal(err)
@@ -211,7 +211,7 @@ func TestRevisionByteBudgetRejectsOverflow(t *testing.T) {
 func TestContentRevisionRevalidationReportsGrowthAsExhaustion(t *testing.T) {
 	root := t.TempDir()
 	writeMutationTestFile(t, filepath.Join(root, "one"), "", 0o600)
-	limits := mustRevisionCaptureLimits(t, 1, 1, 1, 1)
+	limits := mustRevisionCaptureLimits(t, 1, 1, math.MaxInt64, 1, 1)
 	set, err := captureRevisionSetWithLimits(
 		t.Context(),
 		limits,
@@ -262,10 +262,68 @@ func TestContentRevisionChecksCancellationWhileStreamingFile(t *testing.T) {
 	}
 }
 
+func TestContentRevisionTreeByteLimitAcceptsExactAndRejectsOverflow(t *testing.T) {
+	root := t.TempDir()
+	writeMutationTestFile(t, filepath.Join(root, "one"), "1234", 0o600)
+	writeMutationTestFile(t, filepath.Join(root, "two"), "56", 0o600)
+	request := NewBoundedContentRevisionRequest(root, PathEffectReferent)
+
+	exact := mustRevisionCaptureLimits(t, 4, 1, 6, 4, 1<<20)
+	if _, err := captureRevisionSetWithLimits(t.Context(), exact, request); err != nil {
+		t.Fatalf("exact tree byte limit returned error: %v", err)
+	}
+
+	overflow := mustRevisionCaptureLimits(t, 4, 1, 5, 4, 1<<20)
+	_, err := captureRevisionSetWithLimits(t.Context(), overflow, request)
+	assertRevisionLimitError(t, err, RevisionLimitTreeBytes, 5, 6)
+}
+
+func TestContentRevisionCompleteFileIgnoresTreeByteLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	writeMutationTestFile(t, path, "12345", 0o600)
+	limits := mustRevisionCaptureLimits(t, 0, 0, 3, 0, 1<<20)
+	if _, err := captureRevisionSetWithLimits(
+		t.Context(),
+		limits,
+		NewBoundedContentRevisionRequest(path, PathEffectReferent),
+	); err != nil {
+		t.Fatalf("complete-content file observed tree bytes: %v", err)
+	}
+}
+
+func TestDirectoryListingRevisionDoesNotChargeTreeBytes(t *testing.T) {
+	root := t.TempDir()
+	writeMutationTestFile(t, filepath.Join(root, "payload"), "12345", 0o600)
+	limits := mustRevisionCaptureLimits(t, 1, 0, 0, 1, 0)
+	if _, err := captureRevisionSetWithLimits(
+		t.Context(),
+		limits,
+		NewBoundedDirectoryListingRevisionRequest(root),
+	); err != nil {
+		t.Fatalf("directory listing charged tree bytes: %v", err)
+	}
+}
+
+func TestContentRevisionOperationBytesStillBindAcrossTrees(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	writeMutationTestFile(t, filepath.Join(first, "entry"), "1234", 0o600)
+	writeMutationTestFile(t, filepath.Join(second, "entry"), "56", 0o600)
+	limits := mustRevisionCaptureLimits(t, 4, 1, 8, 4, 5)
+	_, err := captureRevisionSetWithLimits(
+		t.Context(),
+		limits,
+		NewBoundedContentRevisionRequest(first, PathEffectReferent),
+		NewBoundedContentRevisionRequest(second, PathEffectReferent),
+	)
+	assertRevisionLimitError(t, err, RevisionLimitOperationBytes, 5, 6)
+}
+
 func mustRevisionCaptureLimits(
 	t *testing.T,
 	maximumTreeEntries int,
 	maximumTreeDepth int,
+	maximumTreeBytes int64,
 	maximumOperationEntries int,
 	maximumOperationBytes int64,
 ) revisionCaptureLimits {
@@ -273,6 +331,7 @@ func mustRevisionCaptureLimits(
 	limits, err := newRevisionCaptureLimits(
 		maximumTreeEntries,
 		maximumTreeDepth,
+		maximumTreeBytes,
 		maximumOperationEntries,
 		maximumOperationBytes,
 	)

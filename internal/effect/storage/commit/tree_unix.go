@@ -110,7 +110,7 @@ func syncPreparedDirectory(ctx context.Context, directoryFD int, path string, fa
 		ctx,
 		directoryFD,
 		path,
-		defaultTreeTraversalMaximumEntries,
+		defaultTreeTraversalLimits().MaximumEntries(),
 	)
 	if err != nil {
 		return atPhase(phaseValidate, err)
