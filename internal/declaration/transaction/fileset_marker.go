@@ -15,6 +15,8 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/encoding/jsonstrict"
 )
@@ -65,27 +67,21 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	if err := storagecommit.PrepareCommitParent(ctx, transactionDir); err != nil {
 		return transactionMarker{}, fmt.Errorf("prepare file-set evidence parent: %w", err)
 	}
-	stagedDir, err := os.MkdirTemp(stateDir, ".metadata-stage-")
-	if err != nil {
-		return transactionMarker{}, fmt.Errorf("create file-set evidence stage: %w", err)
-	}
-	prepared := false
-	defer func() {
-		if !prepared {
-			_ = os.RemoveAll(stagedDir)
-		}
-	}()
 
 	marker := transactionMarker{
 		Version: contractversion.MetadataTransaction,
 		Targets: make([]targetMarker, 0, len(targets)),
 	}
+	type stagedFile struct {
+		name    string
+		content []byte
+	}
+	staged := make([]stagedFile, 0, len(targets)+1)
 	for index, target := range targets {
 		backupName := fmt.Sprintf("target-%03d.before", index)
-		before, captureErr := captureFileState(
+		before, content, captureErr := captureFileState(
 			ctx,
 			target.path,
-			filepath.Join(stagedDir, backupName),
 			filepath.Join(transactionDir, backupName),
 		)
 		if captureErr != nil {
@@ -101,31 +97,44 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 			row.AfterHash = hashBytes(target.content)
 		}
 		marker.Targets = append(marker.Targets, row)
+		if before.Exists {
+			staged = append(staged, stagedFile{name: backupName, content: content})
+		}
 	}
 
 	content, err := marshalMarker(marker)
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("marshal file-set transaction marker: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(stagedDir, transactionMarkerFile), content, transactionEvidenceMode); err != nil {
-		return transactionMarker{}, fmt.Errorf("stage file-set transaction marker: %w", err)
-	}
-	stagedIdentity, err := storagecommit.CaptureEntryIdentity(ctx, stagedDir)
+	staged = append(staged, stagedFile{name: transactionMarkerFile, content: content})
+
+	capturedRoot, destination, err := rootedpath.CaptureDestinationNoFollow(transactionDir)
 	if err != nil {
-		return transactionMarker{}, fmt.Errorf("capture file-set evidence stage identity: %w", err)
+		return transactionMarker{}, fmt.Errorf("capture file-set evidence destination: %w", err)
 	}
-	request, err := storagecommit.NewPreparedTreeCommit(stagedDir, transactionDir, stagedIdentity)
+	defer func() { _ = capturedRoot.Close() }()
+	capability, err := capturedRoot.Acquire(destination)
 	if err != nil {
-		return transactionMarker{}, fmt.Errorf("prepare file-set evidence publication: %w", err)
+		return transactionMarker{}, fmt.Errorf("acquire file-set evidence publication capability: %w", err)
 	}
-	if err := storagecommit.CommitPreparedTree(ctx, request); err != nil {
-		if commitMayBeVisible(err) {
-			prepared = true
+	prepared, err := storagecommit.PrepareRootedTree(ctx, capability, func(writer mutationfs.RootedTreeWriter) error {
+		for _, file := range staged {
+			path, pathErr := mutationfs.NewTreeRelativePath(file.name)
+			if pathErr != nil {
+				return pathErr
+			}
+			if writeErr := writer.WriteFile(path, transactionEvidenceMode, bytes.NewReader(file.content)); writeErr != nil {
+				return writeErr
+			}
 		}
+		return nil
+	})
+	if err != nil {
+		return transactionMarker{}, fmt.Errorf("prepare file-set transaction evidence: %w", err)
+	}
+	if err := prepared.Commit(ctx); err != nil {
 		return transactionMarker{}, fmt.Errorf("publish file-set transaction evidence: %w", err)
 	}
-
-	prepared = true
 	return marker, nil
 }
 
@@ -375,23 +384,20 @@ func validateBeforeState(name string, state fileState, expectedBackupPath string
 	return nil
 }
 
-func captureFileState(ctx context.Context, path string, stagedBackupPath string, activeBackupPath string) (fileState, error) {
+func captureFileState(ctx context.Context, path string, activeBackupPath string) (fileState, []byte, error) {
 	content, mode, err := readTransactionFile(ctx, path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fileState{}, nil
+			return fileState{}, nil, nil
 		}
-		return fileState{}, fmt.Errorf("capture before-image %q: %w", path, err)
-	}
-	if err := os.WriteFile(stagedBackupPath, content, transactionEvidenceMode); err != nil {
-		return fileState{}, fmt.Errorf("stage before-image %q: %w", path, err)
+		return fileState{}, nil, fmt.Errorf("capture before-image %q: %w", path, err)
 	}
 	return fileState{
 		Exists:     true,
 		Hash:       hashBytes(content),
 		BackupPath: activeBackupPath,
 		Mode:       uint32(mode.Perm()),
-	}, nil
+	}, content, nil
 }
 
 func canonicalStateDir(path string) (string, error) {

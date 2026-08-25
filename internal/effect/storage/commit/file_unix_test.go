@@ -75,18 +75,6 @@ func TestStorageCommitModelsRejectIncompatibleIdentities(t *testing.T) {
 	if _, err := NewFileReplacement(directory, nil, 0o600, directoryIdentity); err == nil {
 		t.Fatal("NewFileReplacement accepted directory identity")
 	}
-
-	otherParent := filepath.Join(root, "other")
-	if err := os.Mkdir(otherParent, 0o700); err != nil {
-		t.Fatalf("Mkdir other parent returned error: %v", err)
-	}
-	if _, err := NewPreparedTreeCommit(
-		directory,
-		filepath.Join(otherParent, "active"),
-		directoryIdentity,
-	); err == nil {
-		t.Fatal("NewPreparedTreeCommit accepted different parents")
-	}
 	if _, err := NewLogicalRemoval(filepath.Join(root, "other-entry"), directoryIdentity); err == nil {
 		t.Fatal("NewLogicalRemoval accepted identity for another path")
 	}
@@ -131,7 +119,6 @@ func TestCaptureEntryIdentityRejectsMissingAndSpecialEntries(t *testing.T) {
 
 func TestStorageCommitZeroValuesFailBeforeEffects(t *testing.T) {
 	assertFailure(t, CommitFile(context.Background(), FileCommit{}), failureUncommitted, phaseValidate)
-	assertFailure(t, CommitPreparedTree(context.Background(), PreparedTreeCommit{}), failureUncommitted, phaseValidate)
 	assertFailure(t, CommitLogicalRemoval(context.Background(), LogicalRemoval{}), failureUncommitted, phaseValidate)
 }
 

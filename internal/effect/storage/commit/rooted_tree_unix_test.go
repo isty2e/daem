@@ -640,6 +640,70 @@ func TestPreparedRootedTreeRejectsNestedFileMutationAcrossCommitPhases(t *testin
 	}
 }
 
+func TestPreparedRootedTreeAncestorSwapDoesNotPublishToAttacker(t *testing.T) {
+	root := canonicalTempDir(t)
+	activeParent := filepath.Join(root, "owned")
+	movedParent := filepath.Join(root, "moved")
+	attackerParent := filepath.Join(root, "attacker")
+	if err := os.Mkdir(activeParent, 0o700); err != nil {
+		t.Fatalf("Mkdir active parent returned error: %v", err)
+	}
+	if err := os.Mkdir(attackerParent, 0o700); err != nil {
+		t.Fatalf("Mkdir attacker parent returned error: %v", err)
+	}
+	attackerDestination := filepath.Join(attackerParent, "published")
+	if err := os.Mkdir(attackerDestination, 0o700); err != nil {
+		t.Fatalf("Mkdir attacker destination returned error: %v", err)
+	}
+	writeTestFile(t, filepath.Join(attackerDestination, "payload"), "attacker", 0o600)
+
+	captured := captureRootForCommitTest(t, activeParent)
+	capability := rootedCapabilityForCommitTest(t, captured, "published")
+	prepared, err := PrepareRootedTree(context.Background(), capability, func(writer mutationfs.RootedTreeWriter) error {
+		return writer.WriteFile(treePathForTest(t, "payload"), 0o600, strings.NewReader("managed"))
+	})
+	if err != nil {
+		t.Fatalf("PrepareRootedTree returned error: %v", err)
+	}
+
+	var actionErr error
+	faults := faultPlan{actions: map[phase]func(){
+		phaseCommitEntry: func() {
+			if err := os.Rename(activeParent, movedParent); err != nil {
+				actionErr = err
+				return
+			}
+			actionErr = os.Symlink(attackerParent, activeParent)
+		},
+	}}
+	err = commitPreparedRootedTreeWithFaults(context.Background(), prepared, faults)
+	if actionErr != nil {
+		t.Fatalf("ancestor swap returned error: %v", actionErr)
+	}
+	assertFailure(t, err, failureIndeterminateCommit, phaseCommitEntry)
+	if !hasRootedPathFailureKind(err, rootedpath.FailureRootReplaced) {
+		t.Fatalf("PreparedRootedTree.Commit error = %v, want %s", err, rootedpath.FailureRootReplaced)
+	}
+	assertClosedRootedCapability(t, capability)
+	assertFile(t, filepath.Join(attackerDestination, "payload"), "attacker", 0o600)
+	if _, statErr := os.Lstat(filepath.Join(movedParent, "published")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("swap published through the moved parent: %v", statErr)
+	}
+	entries, readErr := os.ReadDir(movedParent)
+	if readErr != nil {
+		t.Fatalf("read moved parent: %v", readErr)
+	}
+	privateEntries := 0
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), temporaryPrefix) {
+			privateEntries++
+		}
+	}
+	if privateEntries != 1 {
+		t.Fatalf("retained private stage count = %d, want 1", privateEntries)
+	}
+}
+
 func TestPreparedRootedTreeCleansRestrictiveStageAfterModeTransitionFailure(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o700); err != nil {

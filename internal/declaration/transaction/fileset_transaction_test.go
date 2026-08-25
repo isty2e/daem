@@ -551,12 +551,10 @@ func TestTransactionPhysicalReadsRejectOversizedFiles(t *testing.T) {
 	}
 
 	t.Run("capture before-image", func(t *testing.T) {
-		staged := filepath.Join(root, "staged.before")
-		_, err := captureFileState(t.Context(), oversized, staged, filepath.Join(root, "active.before"))
+		_, _, err := captureFileState(t.Context(), oversized, filepath.Join(root, "active.before"))
 		if err == nil {
 			t.Fatal("captureFileState admitted an oversized target")
 		}
-		assertMissing(t, staged)
 	})
 
 	t.Run("classify target", func(t *testing.T) {
