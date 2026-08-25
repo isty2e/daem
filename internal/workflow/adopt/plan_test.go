@@ -326,8 +326,12 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 	}
 
 	_, err = buildPlanForTest(context.Background(), request)
-	if !errors.Is(err, adoptmodel.ErrNothingToImport) || !strings.Contains(err.Error(), "unsupported_mcp_alternate_config") {
-		t.Fatalf("BuildPlan error = %v, want alternate-config skip", err)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
+		t.Fatalf("BuildPlan error = %v, want nothing-to-import", err)
+	}
+	skipped, overflow := ImportFailureSkipped(err)
+	if overflow || len(skipped) == 0 || skipped[len(skipped)-1].Reason != "unsupported_mcp_alternate_config" {
+		t.Fatalf("BuildPlan skipped = %#v overflow=%t, want alternate-config skip", skipped, overflow)
 	}
 	if _, statErr := os.Lstat(output); !os.IsNotExist(statErr) {
 		t.Fatalf("alternate-config import wrote manifest: %v", statErr)
@@ -343,6 +347,42 @@ func TestBuildPlanSkipsOpenCodeMCPWhenAlternateConfigExistsWithoutWriting(t *tes
 		if !bytes.Equal(got, want) {
 			t.Fatalf("import changed host config %q: %q", path, got)
 		}
+	}
+}
+
+func TestExecuteCommandPlanPreservesTypedNothingToImportFromRevalidation(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	if err := os.WriteFile("CLAUDE.md", []byte("# Claude instructions\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"claude-code"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: filepath.Join(root, "daem.toml"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []adoptmodel.Skipped{{
+		Target:   target.TargetClaudeCode,
+		Scope:    target.ScopeProject,
+		LivePath: ".mcp.json#/mcpServers/secret",
+		Reason:   "secret_literal_forbidden",
+	}}
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		planned,
+		func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error) {
+			return adoptmodel.Plan{}, newNothingToImportError(nil, want)
+		},
+		nil,
+	)
+	if !errors.Is(err, adoptmodel.ErrNothingToImport) {
+		t.Fatalf("ExecuteCommandPlan error = %v, want ErrNothingToImport", err)
+	}
+	if got, overflow := ImportFailureSkipped(err); overflow || len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("revalidation skipped = %#v overflow=%t, want %#v/false", got, overflow, want)
 	}
 }
 

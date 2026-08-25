@@ -225,7 +225,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | --- | --- | ---: |
 | `version` | Executable identity | `1` |
 | `init` | Manifest initialization | `1` |
-| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `4` |
+| `add`, `remove`, `import`, `unmanage extension` | Manifest authoring | `5` |
 | `lock`, `outdated` | Lock comparison | `4` |
 | `list resources` | Resource inventory | `2` |
 | `list outputs` | Output inventory | `4` |
@@ -311,7 +311,10 @@ be `.daem`, contain the manifest, or overlap daem-managed metadata.
 
 Without `--merge`, the selected manifest must not exist. With `--merge`, it
 must exist and decode as a valid current manifest before live resources are
-scanned. Conflicts fail before mutation. Unsupported or lossy live forms are
+scanned. Conflicts fail before mutation. Write-mode merge conflicts still
+render admitted skip rows, including every actionable skip and its next action,
+before the dry-run conflict hint. JSON and `--dry-run` human output already
+include those rows in the completed plan. Unsupported or lossy live forms are
 reported as skipped instead of being imported approximately.
 
 Imported instruction files must be stable regular files no larger than 128
@@ -329,10 +332,17 @@ Skill import may resolve the selected top-level skill directory through a
 symlink, but records the resulting absolute route and does not follow any
 symlink within the skill tree. Daem proves that the root `SKILL.md` is regular
 in the same descriptor-bound traversal that hashes the tree. It hashes each
-shared resolved route once per planning pass; when identical content from
-several target routes becomes one multi-target declaration, every contributing
-route remains freshness evidence and the representative target's canonical
-route supplies the bytes. Daem then streams that exact planned directory
+shared resolved route once per planning pass. Every distinct route observed for
+same-name duplicate or conflict classification is charged to the same
+400,000-entry/16-GiB source-identity observation budget even when that route is
+later skipped and therefore does not become publication freshness authority.
+A classified nested-symlink exit still charges every listed name the traversal
+had already materialized but had not yet consumed, including remaining names in
+ancestor directories, so listing work cannot bypass that envelope.
+When identical content from several target routes becomes one multi-target
+declaration, every contributing route remains freshness evidence and the
+representative target's canonical route supplies the bytes. Daem then streams
+that exact planned directory
 identity into private staging. Any identity-changing replacement or mutation,
 including an entry, executable-mode, or entry-kind change during copying,
 fails before manifest publication. Import planning and private staging both
@@ -350,10 +360,26 @@ document retains its 1 MiB limit.
 Import refuses preview and write modes while an interrupted apply journal is
 active, before scanning live agent files. Run `daem recover --dry-run` first.
 
-Default human output contains target/scope totals, resource and skip counts,
-the destination, and nearest next commands. `--verbose` adds individual clean
-scan, resource, and merge rows. JSON retains every typed row. After a successful
-write with imported resources, human output points to lock preview and then to
+Default human output contains target/scope totals, resource counts, skip counts
+by `action_required`, `unsupported`, and `informational` category, the
+destination, and nearest next commands. `action_required` identifies a live
+source or explicit authoring decision the user can resolve; `unsupported`
+identifies a surface this daem version cannot manage; `informational`
+identifies expected discovery or deduplication noise. Every actionable skip in
+an admitted completed result remains visible with a next action. One import
+planning pass retains at most 4,096 skip rows and 256 KiB of aggregate dynamic
+skip diagnostics; one `detail` value is at most 4,096 bytes and a larger value
+is replaced by a whole-value digest and byte count. Exceeding either aggregate
+limit aborts before a plan or write, emits the already-retained rows once plus
+an explicit diagnostic-budget marker on stderr, and emits no JSON result
+envelope. Unsupported and informational skips are compacted by target and
+reason; `--verbose` retains every admitted exact per-path skip in successful and
+no-resource failure output, in addition to individual clean scan, resource, and
+merge rows on successful plans. Write-mode merge conflicts use the same skip
+report before the dry-run conflict hint. JSON retains every admitted typed row with
+target, scope, category, and an optional stable action hint. After a
+successful write with imported resources, human output points to lock preview
+and then to
 `apply --manage-existing --dry-run` after the lockfile is written. The latter
 only previews registration of eligible exact matching live outputs; import does
 not register them and never recommends `--yes`.
@@ -496,7 +522,7 @@ The default human result must always include `host: retained` plus manifest,
 lockfile, and management-state outcomes. Verbose output may add the exact
 claim and route identities but may not imply current host usability.
 
-Structured output uses authoring schema `4` without changing existing
+Structured output uses authoring schema `5` without changing existing
 add/remove rows:
 
 - `command` and `operation` are `unmanage`;
@@ -528,8 +554,8 @@ recovery journals and does not consume this marker.
 
 ## Authoring JSON
 
-Init uses schema `1`. Add, remove, and import use schema `4` with these common
-fields:
+Init uses schema `1`. Add, remove, import, and unmanage use schema `5` with
+these common fields:
 
 | Field | Meaning |
 | --- | --- |
@@ -538,7 +564,18 @@ fields:
 | optional `lockfile` | adjacent lock path and would-write/written/unchanged status |
 | `resource_count`, `change_count`, `changes` | typed affected resources and manifest blocks |
 | `has_errors`, optional `warnings` | result classification |
+| unmanage `management`, `host` | exact management-state outcome and retained-host projection |
 | import `summary`, `scans`, `skipped`, `merge_results` | exhaustive observation and merge rows |
+
+Each import `skipped` row contains exact `target`, `scope`, `live_path`, and
+stable `reason` code values plus one stable `category`. Optional `detail`
+contains at most 4,096 bytes of non-authoritative diagnostic context and never
+changes classification. `action_hint` is present only for `action_required`
+rows and is a machine code rather than human next-action prose. MCP canonical
+invalidity and provider-lossy documents are actionable repair reasons; unknown
+or untyped MCP projection codes become `mcp_projection_unclassified` and remain
+actionable. Unknown future reason codes default to `action_required` so default
+human output cannot silently compact them.
 
 Imported extension changes use `resource.kind = "extension"` and include the
 exact `carrier`, `target`, and `scope`. A source identity proven public by the
@@ -554,7 +591,7 @@ Projection-specific import merge rows include a canonical `subject_id` in
 `resource_id`, such as project and global MCP projections with the same server
 name. Aggregate-level merge rows omit `subject_id`.
 
-Human next-command prose is deliberately absent from schema `4`. CLI misuse or
+Human next-command prose is deliberately absent from schema `5`. CLI misuse or
 a failure before a result envelope exists goes to stderr and produces no JSON.
 An import conflict has a valid result envelope, so it emits JSON with
 `has_errors: true` and exits `1`.

@@ -134,7 +134,7 @@ func importCodexInlineHookSkips(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, err
 		}
-		reason := importHookSkipInlineConfigStructure
+		reason := adopt.SkipReason(importHookSkipInlineConfigStructure)
 		if errors.Is(err, tomlstrict.ErrMalformed) {
 			reason = "inline_config_malformed"
 		}
@@ -180,12 +180,12 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 	for _, event := range eventNames {
 		identity := newImportHookEventIdentity(event)
 		if strings.TrimSpace(event) == "" {
-			collector.addSkip("empty_event")
+			collector.addSkip("empty_event", "")
 			continue
 		}
 		var groups []json.RawMessage
 		if err := json.Unmarshal(rawHooks[event], &groups); err != nil {
-			collector.addSkip(importHookSkipReason(identity.diagnosticToken, 0, 0, "groups_not_array"))
+			collector.addSkip("groups_not_array", importHookSkipDetail(identity.diagnosticToken, 0, 0, ""))
 			continue
 		}
 		for groupIndex, rawGroup := range groups {
@@ -205,7 +205,7 @@ func parseImportHooks(content []byte, target targetpkg.Target, scope targetpkg.S
 	return collector.hooks, collector.skipped
 }
 
-func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, string) {
+func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, adopt.SkipReason) {
 	if len(bytes.TrimSpace(content)) == 0 {
 		return nil, false, "empty_json"
 	}
@@ -245,7 +245,7 @@ func importHooksProjection(content []byte) (map[string]json.RawMessage, bool, st
 }
 
 func hookSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
-	reason := ""
+	var reason adopt.SkipReason
 	switch {
 	case errors.Is(err, filesnapshot.ErrSymlink):
 		reason = importHookSkipSymlink
@@ -261,7 +261,7 @@ func hookSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
 	return adopt.Skipped{LivePath: livePath, Reason: reason}, true
 }
 
-func hookSyntaxSkipReason(err error) string {
+func hookSyntaxSkipReason(err error) adopt.SkipReason {
 	switch {
 	case errors.Is(err, jsonstrict.ErrDuplicateObjectKey):
 		return importHookSkipDuplicateJSONKey
@@ -295,16 +295,19 @@ func (collector *importHookCollector) importGroup(
 	rawGroup json.RawMessage,
 ) {
 	if unsupported, ok := unsupportedImportHookField(rawGroup, importHookGroupAllowedFields()); ok {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "unsupported_group_field_"+boundedImportHookToken(unsupported)))
+		collector.addSkip(
+			"unsupported_group_field",
+			importHookSkipDetail(identity.diagnosticToken, groupIndex, 0, boundedImportHookToken(unsupported)),
+		)
 		return
 	}
 	var group importHookGroup
 	if err := json.Unmarshal(rawGroup, &group); err != nil {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "malformed_group"))
+		collector.addSkip("malformed_group", importHookSkipDetail(identity.diagnosticToken, groupIndex, 0, ""))
 		return
 	}
 	if group.Hooks == nil {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, 0, "missing_handlers"))
+		collector.addSkip("missing_handlers", importHookSkipDetail(identity.diagnosticToken, groupIndex, 0, ""))
 		return
 	}
 	for handlerIndex, rawHandler := range group.Hooks {
@@ -324,32 +327,35 @@ func (collector *importHookCollector) importHandler(
 	rawHandler json.RawMessage,
 ) {
 	if unsupported, ok := unsupportedImportHookField(rawHandler, importHookHandlerAllowedFields()); ok {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_handler_field_"+boundedImportHookToken(unsupported)))
+		collector.addSkip(
+			"unsupported_handler_field",
+			importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, boundedImportHookToken(unsupported)),
+		)
 		return
 	}
 	var handler importHookHandler
 	if err := json.Unmarshal(rawHandler, &handler); err != nil {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "malformed_handler"))
+		collector.addSkip("malformed_handler", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	if strings.TrimSpace(handler.Type) != declarationHookTypeCommand {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_handler_type"))
+		collector.addSkip("unsupported_handler_type", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	if strings.TrimSpace(handler.Command) == "" {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "missing_command"))
+		collector.addSkip("missing_command", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	if handler.Async {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_async"))
+		collector.addSkip("unsupported_async", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	if collector.target == targetpkg.TargetCodex && strings.TrimSpace(handler.Condition) != "" {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_condition"))
+		collector.addSkip("unsupported_condition", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	if err := commandhook.ValidateShape("import", collector.target, strings.TrimSpace(event), strings.TrimSpace(matcher), strings.TrimSpace(handler.Condition)); err != nil {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, "unsupported_target_shape"))
+		collector.addSkip("unsupported_target_shape", importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 
@@ -372,7 +378,7 @@ func (collector *importHookCollector) importHandler(
 		Condition:     strings.TrimSpace(handler.Condition),
 	}
 	if err := validateImportHookCandidate(candidate); err != nil {
-		collector.addSkip(importHookSkipReason(identity.diagnosticToken, groupIndex, handlerIndex, importHookSkipInvalidCanonical))
+		collector.addSkip(importHookSkipInvalidCanonical, importHookSkipDetail(identity.diagnosticToken, groupIndex, handlerIndex, ""))
 		return
 	}
 	candidate.ResourceName = collector.reserveHookName(identity, groupIndex, handlerIndex)

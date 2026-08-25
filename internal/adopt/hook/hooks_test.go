@@ -132,7 +132,7 @@ func TestImportHooksProjectionRejectsAmbiguousDocumentWithoutPartialHooks(t *tes
 	for _, test := range []struct {
 		name    string
 		content string
-		reason  string
+		reason  adopt.SkipReason
 	}{
 		{name: "duplicate root", content: `{"hooks":` + validHook + `,"hooks":{}}`, reason: importHookSkipDuplicateJSONKey},
 		{name: "duplicate nested", content: `{"meta":{"x":1,"x":2},"hooks":` + validHook + `}`, reason: importHookSkipDuplicateJSONKey},
@@ -161,8 +161,30 @@ func TestImportHooksProjectionDoesNotInterpretJSONNumbers(t *testing.T) {
 		target.ScopeProject,
 		".codex/hooks.json",
 	)
-	if len(hooks) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0].Reason, "unsupported_handler_field_ignored") {
+	if len(hooks) != 0 || len(skipped) != 1 ||
+		skipped[0].Reason != "unsupported_handler_field" ||
+		!strings.Contains(skipped[0].Detail, "field=ignored") {
 		t.Fatalf("parseImportHooks = (%#v, %#v), want semantic skip after syntax-only number scan", hooks, skipped)
+	}
+}
+
+func TestParseImportHooksClassifiesOnlyTypedReasonCode(t *testing.T) {
+	t.Parallel()
+
+	hooks, skipped := parseImportHooks(
+		[]byte(`{"hooks":{"changed_during_read":[{"hooks":[{"type":"command","command":"true","async":true}]}]}}`),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+		".claude/settings.json",
+	)
+	if len(hooks) != 0 || len(skipped) != 1 {
+		t.Fatalf("parseImportHooks = (%#v, %#v), want one skip", hooks, skipped)
+	}
+	if skipped[0].Reason != "unsupported_async" ||
+		skipped[0].Category() != adopt.SkipCategoryUnsupported ||
+		skipped[0].ActionHint() != "" ||
+		!strings.Contains(skipped[0].Detail, "event=changed_during_read") {
+		t.Fatalf("skip = %#v, want unsupported typed reason independent of event detail", skipped[0])
 	}
 }
 
@@ -174,7 +196,7 @@ func TestCandidatesRejectsUnsafeHookFileShapes(t *testing.T) {
 	}
 	livePath := filepath.Join(".codex", "hooks.json")
 
-	assertSkip := func(reason string) {
+	assertSkip := func(reason adopt.SkipReason) {
 		t.Helper()
 		hooks, skipped, err := Candidates(context.Background(), target.TargetCodex, target.ScopeProject)
 		if err != nil {
@@ -409,7 +431,7 @@ func TestScanImportHookStructuralBudgetMatchesSharedDepthBoundary(t *testing.T) 
 	for _, test := range []struct {
 		name   string
 		depth  int
-		reason string
+		reason adopt.SkipReason
 	}{
 		{name: "exact", depth: hookdocument.MaximumDepth},
 		{name: "exceeded", depth: hookdocument.MaximumDepth + 1, reason: importHookSkipJSONDepth},
@@ -492,8 +514,8 @@ func TestParseImportHooksUsesDeterministicCollisionNames(t *testing.T) {
 	if hooks[0].ResourceName != base || hooks[1].ResourceName != base+"_2" {
 		t.Fatalf("collision names = %q, %q, want %q, %q", hooks[0].ResourceName, hooks[1].ResourceName, base, base+"_2")
 	}
-	if len(skipped[0].Reason) > 256 || strings.Contains(skipped[0].Reason, longField) {
-		t.Fatalf("skip reason is not bounded: length=%d reason=%q", len(skipped[0].Reason), skipped[0].Reason)
+	if len(skipped[0].Detail) > 256 || strings.Contains(skipped[0].Detail, longField) {
+		t.Fatalf("skip detail is not bounded: length=%d detail=%q", len(skipped[0].Detail), skipped[0].Detail)
 	}
 }
 
@@ -626,7 +648,7 @@ func TestParseImportHooksRejectsCandidateOutsideDesiredHookInvariant(t *testing.
 		target.ScopeProject,
 		".claude/settings.json",
 	)
-	if len(hooks) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0].Reason, importHookSkipInvalidCanonical) {
+	if len(hooks) != 0 || len(skipped) != 1 || skipped[0].Reason != importHookSkipInvalidCanonical {
 		t.Fatalf("parseImportHooks = (%#v, %#v), want one canonical-invariant skip", hooks, skipped)
 	}
 }
@@ -661,7 +683,7 @@ func withHookWorkingDirectory(t *testing.T, directory string) {
 	})
 }
 
-func hasHookSkip(skipped []adopt.Skipped, livePath string, reason string) bool {
+func hasHookSkip(skipped []adopt.Skipped, livePath string, reason adopt.SkipReason) bool {
 	for _, skip := range skipped {
 		if skip.LivePath == livePath && skip.Reason == reason {
 			return true

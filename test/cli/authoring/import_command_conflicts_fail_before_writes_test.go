@@ -43,7 +43,7 @@ func TestRunImportConflictsFailBeforeWrites(t *testing.T) {
 					t.Fatalf("Mkdir returned error: %v", err)
 				}
 			},
-			want: "AGENTS.md: instruction_not_regular_file",
+			want: `skip live="AGENTS.md" reason=instruction_not_regular_file target=codex scope=project`,
 		},
 	}
 
@@ -90,7 +90,8 @@ func TestRunImportMissingInputFailsWithoutWrites(t *testing.T) {
 	}
 	for _, want := range []string{
 		"nothing to import",
-		"AGENTS.md",
+		"action_required=0 unsupported=0 informational=5",
+		`skip live="AGENTS.md" reason=missing target=codex scope=project category=informational`,
 		"next: verify that the selected --target and --scope have live agent files to import",
 		"next: try another selection, such as --scope global or a different --target",
 		"next: choose the destination with --manifest <path>, or add --merge when importing into an existing manifest",
@@ -160,6 +161,54 @@ scope = "project"
 	}
 	if want := "run daem import --merge --dry-run to inspect conflicts"; !strings.Contains(stderr.String(), want) {
 		t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+	}
+	testkit.AssertFileContent(t, outputPath, string(original))
+	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.d"))
+}
+
+func TestRunImportWriteMergeConflictShowsActionableSkips(t *testing.T) {
+	tempDir := t.TempDir()
+	testkit.WithWorkingDirectory(t, tempDir)
+	outputPath := filepath.Join(tempDir, "daem.toml")
+	testkit.WriteFile(t, tempDir, "AGENTS.md", "project instructions\n")
+	testkit.WriteFile(t, tempDir, "daem.toml", `
+version = 1
+targets = ["codex"]
+
+[instructions.codex_project]
+source = "instructions/other.md"
+targets = ["codex"]
+scope = "project"
+`)
+	skillRoot := filepath.Join(tempDir, ".agents", "skills", "unsafe")
+	testkit.WriteFile(t, skillRoot, "SKILL.md", "---\nname: unsafe\ndescription: Unsafe\n---\n")
+	testkit.WriteFile(t, skillRoot, "payload.txt", "payload\n")
+	if err := os.Symlink(filepath.Join(skillRoot, "payload.txt"), filepath.Join(skillRoot, "z-link")); err != nil {
+		t.Fatalf("Symlink returned error: %v", err)
+	}
+	original, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("ReadFile returned error: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunCLI([]string{"import", "--target", "codex", "--manifest", outputPath, "--merge"}, &stdout, &stderr)
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1, stderr = %q, stdout = %q", exitCode, stderr.String(), stdout.String())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty before human conflict rendering", stdout.String())
+	}
+	for _, want := range []string{
+		"action required:",
+		`reason=nested_symlink target=codex scope=project`,
+		"replace the live entry with a supported file or directory, or leave it unmanaged",
+		"run daem import --merge --dry-run to inspect conflicts",
+	} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
 	}
 	testkit.AssertFileContent(t, outputPath, string(original))
 	testkit.AssertPathMissing(t, filepath.Join(tempDir, "daem.d"))

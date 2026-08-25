@@ -66,9 +66,7 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 		if commandPlan.OutputPath() == "" {
 			return 2
 		}
-		if workflowadopt.IsNothingToImport(err) {
-			printImportNothingToImportHint(stderr, commandPlan.OutputPath(), commandPlan.Merge())
-		}
+		printImportFailureDetails(stderr, err, commandPlan, *verbose)
 		return 1
 	}
 	plan := commandPlan.AdoptionPlan()
@@ -103,6 +101,12 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 			}
 			return 1
 		}
+		clipresent.PrintImportSkippedReport(
+			stderr,
+			plan.Skipped(),
+			clipresent.HumanOptions{Verbose: *verbose},
+			false,
+		)
 		fmt.Fprintln(stderr, "import failed: merge conflicts detected; run daem import --merge --dry-run to inspect conflicts")
 		return 1
 	}
@@ -112,10 +116,12 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 		return 1
 	}
 
+	optimisticPlan := commandPlan
 	commandPlan, err = workflowadopt.ExecuteCommandPlan(ctx, commandPlan, progress.Sink())
 	progress.Close()
 	if err != nil {
 		fmt.Fprintf(stderr, "import failed: %s\n", humanDiagnosticError(err))
+		printImportFailureDetails(stderr, err, optimisticPlan, *verbose)
 		return 1
 	}
 	plan = commandPlan.AdoptionPlan()
@@ -128,4 +134,24 @@ func runImport(args []string, stdout io.Writer, stderr io.Writer, options comman
 	}
 	clipresent.PrintImportPlanWithOptions(stdout, clipresent.ImportPlanFromAdoption("imported", plan, false), clipresent.HumanOptions{Verbose: *verbose})
 	return 0
+}
+
+func printImportFailureDetails(
+	output io.Writer,
+	err error,
+	commandPlan workflowadopt.CommandPlan,
+	verbose bool,
+) {
+	skipped, overflow := workflowadopt.ImportFailureSkipped(err)
+	if len(skipped) != 0 || overflow {
+		clipresent.PrintImportSkippedReport(
+			output,
+			skipped,
+			clipresent.HumanOptions{Verbose: verbose},
+			overflow,
+		)
+	}
+	if workflowadopt.IsNothingToImport(err) {
+		printImportNothingToImportHint(output, commandPlan.OutputPath(), commandPlan.Merge())
+	}
 }

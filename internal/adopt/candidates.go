@@ -99,10 +99,8 @@ func NewCandidateSet(input CandidateSetInput) (CandidateSet, error) {
 			return CandidateSet{}, fmt.Errorf("scan observation %d: %w", index, err)
 		}
 	}
-	for index, skip := range input.Skipped {
-		if strings.TrimSpace(skip.LivePath) == "" || strings.TrimSpace(skip.Reason) == "" {
-			return CandidateSet{}, fmt.Errorf("skipped observation %d requires live path and reason", index)
-		}
+	if err := validateSkippedObservations(input.Skipped); err != nil {
+		return CandidateSet{}, err
 	}
 
 	return CandidateSet{

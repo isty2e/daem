@@ -78,20 +78,13 @@ type ImportMergeResult struct {
 	Detail   string
 }
 
-type ImportSkipped struct {
-	LivePath string
-	Reason   string
-}
-
 func PrintImportPlanWithOptions(output io.Writer, plan ImportPlan, options HumanOptions) {
 	fmt.Fprintf(output, "%s: %d resources\n", plan.Label, plan.ResourceCount)
 	printImportSummary(output, plan)
 	if options.Verbose {
 		printImportEvidence(output, plan)
 	}
-	for _, skipped := range plan.Skipped {
-		fmt.Fprintf(output, "skip live=%q reason=%s\n", skipped.LivePath, skipped.Reason)
-	}
+	printImportSkippedReport(output, plan.Skipped, options, false)
 	fmt.Fprintf(output, "manifest: %s\n", Escape(plan.ManifestPath))
 	if options.Verbose {
 		fmt.Fprintf(output, "source-dir: %s\n", Escape(plan.SourceDir))
@@ -208,6 +201,16 @@ func printImportSummary(output io.Writer, plan ImportPlan) {
 		plan.Summary.Skipped,
 		plan.Summary.Scans,
 	)
+	if plan.Summary.Skipped != 0 {
+		counts := importSkipCounts(plan.Skipped)
+		fmt.Fprintf(
+			output,
+			"skipped: action_required=%d unsupported=%d informational=%d\n",
+			counts.ActionRequired,
+			counts.Unsupported,
+			counts.Informational,
+		)
+	}
 	for _, row := range plan.Summary.Rows {
 		fmt.Fprintf(
 			output,
@@ -225,6 +228,7 @@ func printImportSummary(output io.Writer, plan ImportPlan) {
 }
 
 func ImportPlanFromAdoption(label string, plan adoptmodel.Plan, dryRun bool) ImportPlan {
+	skipped := importSkippedFromAdoption(plan.Skipped())
 	return ImportPlan{
 		Label:         label,
 		DryRun:        dryRun,
@@ -236,7 +240,7 @@ func ImportPlanFromAdoption(label string, plan adoptmodel.Plan, dryRun bool) Imp
 		Scans:         importScansFromAdoption(plan.Scans()),
 		Resources:     importResourcesFromAdoption(plan),
 		MergeResults:  importMergeResultsFromAdoption(plan.MergeResults()),
-		Skipped:       importSkippedFromAdoption(plan.Skipped()),
+		Skipped:       skipped,
 	}
 }
 
@@ -356,15 +360,4 @@ func importMergeResultsFromAdoption(results []adoptmodel.MergeResult) []ImportMe
 		})
 	}
 	return presentResults
-}
-
-func importSkippedFromAdoption(skipped []adoptmodel.Skipped) []ImportSkipped {
-	result := make([]ImportSkipped, 0, len(skipped))
-	for _, item := range skipped {
-		result = append(result, ImportSkipped{
-			LivePath: item.LivePath,
-			Reason:   item.Reason,
-		})
-	}
-	return result
 }

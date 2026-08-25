@@ -144,6 +144,8 @@ func (collector *importCollector) collectOpenCode(scope target.Scope) error {
 				collector.skipped = append(collector.skipped, Skip{
 					LivePath: fmt.Sprintf("%s#plugin[%d]", document.Path(), index),
 					Reason:   reasonSourceNotImportable,
+					Target:   target.TargetOpenCode,
+					Scope:    scope,
 				})
 			} else {
 				if err := collector.addCandidate(key, loadIdentity); err != nil {
@@ -329,6 +331,8 @@ func (collector *importCollector) collectAntigravity() error {
 		collector.skipped = append(collector.skipped, Skip{
 			LivePath: paths.ImportManifestPath() + "#plugin=" + name,
 			Reason:   reasonSourceProvenanceUnrecoverable,
+			Target:   target.TargetAntigravityCLI,
+			Scope:    target.ScopeGlobal,
 		})
 	}
 	collector.scans = append(collector.scans, Scan{

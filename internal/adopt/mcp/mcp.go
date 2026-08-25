@@ -526,7 +526,7 @@ func readConfig(ctx context.Context, livePath string, maximumBytes int64) (impor
 func mcpSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
 	for _, candidate := range []struct {
 		match  error
-		reason string
+		reason adopt.SkipReason
 	}{
 		{match: filesnapshot.ErrSymlink, reason: skipFinalSymlink},
 		{match: filesnapshot.ErrNotRegular, reason: skipNotRegular},
@@ -575,20 +575,20 @@ func rejectionSkips(livePath string, rejections []mcpcodec.MCPProjectionRejectio
 	return skipped
 }
 
-func skipReason(err error) string {
+func skipReason(err error) adopt.SkipReason {
 	reason, ok := mcpcodec.MCPProjectionReasonCodeOf(err)
 	if !ok {
-		return "unsupported_mcp_projection"
+		return "mcp_projection_unclassified"
 	}
 	return reasonString(reason)
 }
 
-func reasonString(reason mcpcodec.MCPProjectionReasonCode) string {
+func reasonString(reason mcpcodec.MCPProjectionReasonCode) adopt.SkipReason {
 	switch reason {
 	case mcpcodec.MCPProjectionReasonConfigMalformed:
 		return "mcp_config_malformed"
 	case mcpcodec.MCPProjectionReasonDuplicateKey:
-		return "mcp_config_malformed"
+		return "duplicate_json_key"
 	case mcpcodec.MCPProjectionReasonUnsupportedTransport:
 		return "unsupported_mcp_transport"
 	case mcpcodec.MCPProjectionReasonUnsupportedManagedField:
@@ -597,10 +597,14 @@ func reasonString(reason mcpcodec.MCPProjectionReasonCode) string {
 		return "secret_literal_forbidden"
 	case mcpcodec.MCPProjectionReasonProjectionEquivalenceUndefined:
 		return "projection_equivalence_undefined"
+	case mcpcodec.MCPProjectionReasonCanonicalInvalid:
+		return "invalid_canonical_mcp"
 	case mcpcodec.MCPProjectionReasonStaleAdapterContract:
 		return "stale_adapter_contract"
+	case mcpcodec.MCPProjectionReasonProviderDocumentLossy:
+		return "mcp_provider_document_lossy"
 	default:
-		return "unsupported_mcp_projection"
+		return "mcp_projection_unclassified"
 	}
 }
 

@@ -282,7 +282,9 @@ func TestCollectReportsAntigravitySourceProvenanceSkip(t *testing.T) {
 	}
 	skipped := result.Skipped()
 	if len(skipped) != 1 ||
-		skipped[0].Reason != reasonSourceProvenanceUnrecoverable {
+		skipped[0].Reason != reasonSourceProvenanceUnrecoverable ||
+		skipped[0].Target != target.TargetAntigravityCLI ||
+		skipped[0].Scope != target.ScopeGlobal {
 		t.Fatalf("skipped = %#v", skipped)
 	}
 }

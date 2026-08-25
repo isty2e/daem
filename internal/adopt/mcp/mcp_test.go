@@ -11,6 +11,7 @@ import (
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
+	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -359,7 +360,7 @@ func TestCandidatesRetainsAuthorityForMalformedAndEmptyDocuments(t *testing.T) {
 				}
 				return
 			}
-			if len(skipped) != 1 || skipped[0].Reason != test.wantReason {
+			if len(skipped) != 1 || string(skipped[0].Reason) != test.wantReason {
 				t.Fatalf("skipped = %#v, want %q", skipped, test.wantReason)
 			}
 		})
@@ -666,7 +667,7 @@ func TestCandidatesRejectsDuplicateServerKeysWithoutPartialImport(t *testing.T) 
 	if len(servers) != 0 {
 		t.Fatalf("servers = %#v, want no partial import", servers)
 	}
-	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "mcp_config_malformed" {
+	if len(skipped) != 1 || skipped[0].LivePath != ".mcp.json" || skipped[0].Reason != "duplicate_json_key" {
 		t.Fatalf("skipped = %#v, want duplicate-key config rejection", skipped)
 	}
 }
@@ -695,6 +696,34 @@ func TestMCPConfigPathUsesCanonicalScopeAwareOutputGrammar(t *testing.T) {
 	_, err = mcpConfigPath(dataDestination, target.ScopeGlobal)
 	if err == nil || !strings.Contains(err.Error(), "managed data root is required") {
 		t.Fatalf("mcpConfigPath(data) error = %v, want explicit unavailable data root", err)
+	}
+}
+
+func TestMCPProjectionReasonMappingIsExplicitAndFailVisible(t *testing.T) {
+	t.Parallel()
+
+	for reason, want := range map[mcpcodec.MCPProjectionReasonCode]string{
+		mcpcodec.MCPProjectionReasonConfigMalformed:                "mcp_config_malformed",
+		mcpcodec.MCPProjectionReasonDuplicateKey:                   "duplicate_json_key",
+		mcpcodec.MCPProjectionReasonUnsupportedTransport:           "unsupported_mcp_transport",
+		mcpcodec.MCPProjectionReasonUnsupportedManagedField:        "unsupported_mcp_managed_field",
+		mcpcodec.MCPProjectionReasonSecretLiteralForbidden:         "secret_literal_forbidden",
+		mcpcodec.MCPProjectionReasonProjectionEquivalenceUndefined: "projection_equivalence_undefined",
+		mcpcodec.MCPProjectionReasonCanonicalInvalid:               "invalid_canonical_mcp",
+		mcpcodec.MCPProjectionReasonStaleAdapterContract:           "stale_adapter_contract",
+		mcpcodec.MCPProjectionReasonProviderDocumentLossy:          "mcp_provider_document_lossy",
+	} {
+		if got := reasonString(reason); string(got) != want {
+			t.Fatalf("reasonString(%q) = %q, want %q", reason, got, want)
+		}
+	}
+	for _, reason := range []mcpcodec.MCPProjectionReasonCode{"", "FUTURE_REASON"} {
+		if got := reasonString(reason); got != "mcp_projection_unclassified" {
+			t.Fatalf("reasonString(%q) = %q, want fail-visible fallback", reason, got)
+		}
+	}
+	if got := skipReason(errors.New("untyped projection failure")); got != "mcp_projection_unclassified" {
+		t.Fatalf("skipReason(untyped) = %q, want fail-visible fallback", got)
 	}
 }
 

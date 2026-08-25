@@ -52,15 +52,26 @@ func readNativeDirectoryNamesWithinBudget(
 	relativeRoot string,
 	budget *traversalBudget,
 ) ([]string, error) {
-	remaining, bounded := budget.structureEntriesRemaining()
-	if !bounded {
-		return readNativeDirectoryNamesUpTo(ctx, directoryFD, -1)
+	structureRemaining, structureBounded := budget.structureEntriesRemaining()
+	traversalRemaining, traversalBounded := budget.traversalEntriesRemaining()
+	maximumEntries := -1
+	switch {
+	case structureBounded && traversalBounded:
+		maximumEntries = min(structureRemaining, traversalRemaining)
+	case structureBounded:
+		maximumEntries = structureRemaining
+	case traversalBounded:
+		maximumEntries = traversalRemaining
 	}
-	names, err := readNativeDirectoryNamesUpTo(ctx, directoryFD, remaining)
+	names, err := readNativeDirectoryNamesUpTo(ctx, directoryFD, maximumEntries)
 	if err != nil {
 		return nil, err
 	}
-	if len(names) > remaining {
+	if maximumEntries >= 0 && len(names) > maximumEntries {
+		budget.chargeRootListing(len(names))
+		if traversalBounded && (!structureBounded || traversalRemaining < structureRemaining) {
+			return nil, newTraversalEntryLimitError("traversal", relativeRoot, budget.limit.maxEntries)
+		}
 		return nil, fmt.Errorf(
 			"artifact tree exceeds %d entries below %q",
 			budget.structureLimit.maximumEntries,

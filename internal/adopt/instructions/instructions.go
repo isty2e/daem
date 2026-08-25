@@ -195,7 +195,7 @@ func readInstructionImportContent(ctx context.Context, livePath string) ([]byte,
 }
 
 func instructionSnapshotSkip(livePath string, err error) (adopt.Skipped, bool) {
-	reason := ""
+	var reason adopt.SkipReason
 	switch {
 	case errors.Is(err, filesnapshot.ErrSymlink):
 		reason = importInstructionSkipSymlink

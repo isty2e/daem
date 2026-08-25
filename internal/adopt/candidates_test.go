@@ -73,7 +73,12 @@ func TestCandidateSetOwnsNestedFactsAndDefensivelyDisclosesThem(t *testing.T) {
 			Imported:     1,
 			Evidence:     DirectoryListingScanEvidence(),
 		}},
-		Skipped: []Skipped{{LivePath: "/host/empty", Reason: "empty"}},
+		Skipped: []Skipped{{
+			Target:   targetpkg.TargetCodex,
+			Scope:    targetpkg.ScopeProject,
+			LivePath: "/host/empty",
+			Reason:   "empty",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)

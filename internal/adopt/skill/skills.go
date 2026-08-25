@@ -10,6 +10,7 @@ import (
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/supply/artifact"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
 
@@ -19,6 +20,7 @@ const (
 	importSkillSkipMissingSkillMD          = "missing_skill_md"
 	importSkillSkipInvalidName             = "invalid_skill_name"
 	importSkillSkipDuplicateName           = "duplicate_skill_name"
+	importSkillSkipConflictingName         = "conflicting_skill_name"
 	importSkillSkipSuppliedRoot            = "supplied_skill_root"
 	importSkillSkipSuppliedEntry           = "supplied_skill_entry"
 	importSkillSkipSuppliedPluginCache     = "supplied_plugin_cache_skill"
@@ -37,10 +39,26 @@ type DestinationClaim struct {
 	InstallName string
 }
 
-type DestinationClaims map[DestinationClaim]string
+type destinationClaimSource struct {
+	livePath    string
+	contentHash artifact.ContentHash
+}
+
+type DestinationClaims struct {
+	sources map[DestinationClaim]destinationClaimSource
+}
 
 func NewDestinationClaims() DestinationClaims {
-	return make(DestinationClaims)
+	return DestinationClaims{sources: make(map[DestinationClaim]destinationClaimSource)}
+}
+
+func (claims DestinationClaims) source(destination DestinationClaim) (destinationClaimSource, bool) {
+	source, exists := claims.sources[destination]
+	return source, exists
+}
+
+func (claims DestinationClaims) add(destination DestinationClaim, source destinationClaimSource) {
+	claims.sources[destination] = source
 }
 
 func Candidates(

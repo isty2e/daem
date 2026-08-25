@@ -15,7 +15,7 @@ import (
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
 )
 
-// ErrNothingToImport reports that all selected live roots were absent, empty, or unsupported.
+// ErrNothingToImport reports that no selected live resource was importable.
 var ErrNothingToImport = errors.New("nothing to import")
 
 // MergeStatus classifies how an imported resource relates to an existing manifest.
@@ -78,15 +78,21 @@ type Source struct {
 }
 
 // Skipped records one live import candidate that was not importable.
+// Target and Scope identify the selected observation route.
 type Skipped struct {
+	Target   targetpkg.Target
+	Scope    targetpkg.Scope
 	LivePath string
-	Reason   string
+	Reason   SkipReason
+	Detail   string
 }
 
 func UnsupportedSurfaceSkip(target targetpkg.Target, scope targetpkg.Scope, surface string) Skipped {
 	return Skipped{
+		Target:   target,
+		Scope:    scope,
 		LivePath: fmt.Sprintf("%s:%s:%s", target, scope, surface),
-		Reason:   "unsupported_" + surface + "_surface",
+		Reason:   SkipReason("unsupported_" + surface + "_surface"),
 	}
 }
 

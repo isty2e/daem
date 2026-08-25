@@ -3,6 +3,7 @@ package skill
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -23,12 +24,12 @@ func TestSourceIdentityCacheObservesOneCanonicalRouteOnce(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
 	want := artifact.HashFileContent([]byte("skill"))
 	observations := 0
-	cache := newSourceIdentityCache(func(_ context.Context, path string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(_ context.Context, path string, _ access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		observations++
 		if path != readPath {
 			t.Fatalf("observed path = %q, want %q", path, readPath)
 		}
-		return want, nil
+		return want, sourceIdentityMeasurement{entries: 1, bytes: 5}, nil
 	})
 
 	for range 3 {
@@ -50,9 +51,9 @@ func TestSourceIdentityCacheKeepsDistinctCanonicalRoutesSeparate(t *testing.T) {
 	first := filepath.Join(root, "first")
 	second := filepath.Join(root, "second")
 	observed := make(map[string]int)
-	cache := newSourceIdentityCache(func(_ context.Context, path string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(_ context.Context, path string, _ access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		observed[path]++
-		return artifact.HashFileContent([]byte(path)), nil
+		return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: int64(len(path))}, nil
 	})
 
 	firstHash, err := cache.ContentHash(context.Background(), first)
@@ -75,9 +76,9 @@ func TestSourceIdentityCacheDoesNotMemoizeFailedObservation(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
 	wantErr := errors.New("identity drift")
 	attempts := 0
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		attempts++
-		return "", wantErr
+		return "", sourceIdentityMeasurement{entries: 1, bytes: 2}, wantErr
 	})
 
 	for range 2 {
@@ -93,9 +94,9 @@ func TestSourceIdentityCacheDoesNotMemoizeFailedObservation(t *testing.T) {
 func TestSourceIdentityCacheDoesNotMemoizeMalformedIdentity(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
 	attempts := 0
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		attempts++
-		return "sha256:short", nil
+		return "sha256:short", sourceIdentityMeasurement{entries: 1, bytes: 2}, nil
 	})
 
 	for range 2 {
@@ -111,9 +112,9 @@ func TestSourceIdentityCacheDoesNotMemoizeMalformedIdentity(t *testing.T) {
 func TestSourceIdentityCacheMemoizesClassifiedEligibilitySkips(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
 	attempts := 0
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		attempts++
-		return "", access.ErrRequiredRootRegularFile
+		return "", sourceIdentityMeasurement{entries: 1, bytes: 0}, access.ErrRequiredRootRegularFile
 	})
 
 	for range 2 {
@@ -128,8 +129,8 @@ func TestSourceIdentityCacheMemoizesClassifiedEligibilitySkips(t *testing.T) {
 
 func TestSourceIdentityCacheHonorsCancellationBeforeCachedResult(t *testing.T) {
 	readPath := filepath.Join(t.TempDir(), "skill")
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
-		return artifact.HashFileContent([]byte("skill")), nil
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+		return artifact.HashFileContent([]byte("skill")), sourceIdentityMeasurement{entries: 1, bytes: 5}, nil
 	})
 	if _, err := cache.ContentHash(context.Background(), readPath); err != nil {
 		t.Fatal(err)
@@ -146,10 +147,10 @@ func TestSourceIdentityCacheDoesNotMemoizeObservationCompletedAfterCancellation(
 	readPath := filepath.Join(t.TempDir(), "skill")
 	ctx, cancel := context.WithCancel(context.Background())
 	attempts := 0
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		attempts++
 		cancel()
-		return artifact.HashFileContent([]byte("skill")), nil
+		return artifact.HashFileContent([]byte("skill")), sourceIdentityMeasurement{entries: 1, bytes: 5}, nil
 	})
 
 	if _, err := cache.ContentHash(ctx, readPath); !errors.Is(err, context.Canceled) {
@@ -167,11 +168,103 @@ func TestSourceIdentityCacheDoesNotMemoizeObservationCompletedAfterCancellation(
 	}
 }
 
+func TestSourceIdentityCacheChargesEveryDistinctRouteToOneAggregateBudget(t *testing.T) {
+	root := t.TempDir()
+	first := filepath.Join(root, "first")
+	second := filepath.Join(root, "second")
+	observations := 0
+	cache := newSourceIdentityCacheWithLimits(
+		func(_ context.Context, path string, _ access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+			observations++
+			return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: 3}, nil
+		},
+		2,
+		5,
+	)
+
+	if _, err := cache.ContentHash(t.Context(), first); err != nil {
+		t.Fatalf("first ContentHash returned error: %v", err)
+	}
+	if _, err := cache.ContentHash(t.Context(), second); !errors.Is(err, errSourceIdentityLimitExceeded) {
+		t.Fatalf("second ContentHash error = %v, want aggregate byte exhaustion", err)
+	}
+	if observations != 2 {
+		t.Fatalf("identity observations = %d, want both distinct routes charged", observations)
+	}
+}
+
+func TestSourceIdentityCacheChargesClassifiedSkipsBeforeMemoizingThem(t *testing.T) {
+	root := t.TempDir()
+	missing := filepath.Join(root, "missing")
+	valid := filepath.Join(root, "valid")
+	cache := newSourceIdentityCacheWithLimits(
+		func(_ context.Context, path string, _ access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+			if path == missing {
+				return "", sourceIdentityMeasurement{entries: 1, bytes: 3}, access.ErrRequiredRootRegularFile
+			}
+			return artifact.HashFileContent([]byte(path)), sourceIdentityMeasurement{entries: 1, bytes: 3}, nil
+		},
+		2,
+		5,
+	)
+
+	if _, err := cache.ContentHash(t.Context(), missing); !errors.Is(err, access.ErrRequiredRootRegularFile) {
+		t.Fatalf("classified ContentHash error = %v, want required root file", err)
+	}
+	if _, err := cache.ContentHash(t.Context(), valid); !errors.Is(err, errSourceIdentityLimitExceeded) {
+		t.Fatalf("valid ContentHash error = %v, want prior classified work charged", err)
+	}
+}
+
+func TestSourceIdentityCacheStopsPhysicalHashAtRemainingOperationBudget(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		maxEntries int
+		maxBytes   int64
+	}{
+		{name: "entries", maxEntries: 1, maxBytes: 64},
+		{name: "bytes", maxEntries: 8, maxBytes: 5},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := filepath.Join(t.TempDir(), "skill")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "SKILL.md"), []byte("1234"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "payload"), []byte("56"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			root, err := filepath.EvalSymlinks(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			structure := skillTreeStructureLimitForTest(t)
+			cache := newSourceIdentityCacheWithLimits(
+				func(
+					ctx context.Context,
+					readPath string,
+					traversal access.TraversalLimit,
+				) (artifact.ContentHash, sourceIdentityMeasurement, error) {
+					return observeSkillDirectoryIdentity(ctx, readPath, traversal, structure)
+				},
+				test.maxEntries,
+				test.maxBytes,
+			)
+
+			if _, err := cache.ContentHash(t.Context(), root); !errors.Is(err, errSourceIdentityLimitExceeded) {
+				t.Fatalf("ContentHash error = %v, want source identity operation limit", err)
+			}
+		})
+	}
+}
+
 func TestSourceIdentityCacheRejectsNoncanonicalKeysBeforeObservation(t *testing.T) {
 	observed := false
-	cache := newSourceIdentityCache(func(context.Context, string) (artifact.ContentHash, error) {
+	cache := newSourceIdentityCache(func(context.Context, string, access.TraversalLimit) (artifact.ContentHash, sourceIdentityMeasurement, error) {
 		observed = true
-		return "", nil
+		return "", sourceIdentityMeasurement{}, nil
 	})
 
 	root := t.TempDir()
