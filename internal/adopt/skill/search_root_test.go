@@ -18,7 +18,7 @@ func TestSearchRootCacheAcceptsExactEntryAndNameLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(entries); got != "[aa bb]" {
+	if got := fmt.Sprint(entries.names); got != "[aa bb]" {
 		t.Fatalf("entries = %s, want [aa bb]", got)
 	}
 }
@@ -107,8 +107,8 @@ func TestSearchRootCacheAcceptsManyExactLengthNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed) != entries {
-		t.Fatalf("listed names = %d, want %d", len(listed), entries)
+	if len(listed.names) != entries {
+		t.Fatalf("listed names = %d, want %d", len(listed.names), entries)
 	}
 }
 
@@ -193,12 +193,12 @@ func TestSearchRootCacheReusesSortedListingDefensively(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first[0] = "changed"
+	first.names[0] = "changed"
 	second, err := cache.entries(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprint(second); got != "[alpha middle zeta]" {
+	if got := fmt.Sprint(second.names); got != "[alpha middle zeta]" {
 		t.Fatalf("cached entries = %s, want [alpha middle zeta]", got)
 	}
 	if observations != 1 {

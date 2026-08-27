@@ -30,7 +30,7 @@ func ExecuteCommandPlan(
 	return executeCommandPlan(
 		ctx,
 		optimistic,
-		func(currentContext context.Context, request adoptmodel.Request) (adoptmodel.Plan, error) {
+		func(currentContext context.Context, request adoptmodel.Request) (observedImportPlan, error) {
 			return buildPlan(currentContext, request, ProgressPhaseRevalidation, progressEvents)
 		},
 		progressEvents,
@@ -40,7 +40,7 @@ func ExecuteCommandPlan(
 func executeCommandPlan(
 	ctx context.Context,
 	optimistic CommandPlan,
-	buildCurrentPlan func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error),
+	buildCurrentPlan func(context.Context, adoptmodel.Request) (observedImportPlan, error),
 	progressEvents ProgressEventSink,
 ) (result CommandPlan, returnErr error) {
 	if ctx == nil {
@@ -91,6 +91,11 @@ func executeCommandPlan(
 	if err := validateMCPSourceAuthoritiesCurrent(ctx, optimistic.plan); err != nil {
 		return CommandPlan{}, err
 	}
+	if optimistic.skillSearchRoots != nil {
+		if err := optimistic.skillSearchRoots.Validate(ctx); err != nil {
+			return CommandPlan{}, fmt.Errorf("revalidate planned Skill search roots: %w", err)
+		}
+	}
 
 	revisions := optimistic.revisions
 	stableRevisions := optimistic.stableRevisions
@@ -103,10 +108,11 @@ func executeCommandPlan(
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	currentPlan, err := buildCurrentPlan(ctx, optimistic.request)
+	currentObserved, err := buildCurrentPlan(ctx, optimistic.request)
 	if err != nil {
 		return CommandPlan{}, err
 	}
+	currentPlan := currentObserved.plan
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return CommandPlan{}, err
 	}
@@ -179,6 +185,9 @@ func executeCommandPlan(
 		if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
 			return err
 		}
+		if err := currentObserved.validateSkillSearchRoots(ctx); err != nil {
+			return err
+		}
 		return optimistic.barrier.Validate(ctx)
 	}
 	progressEvents.emit(ProgressEvent{
@@ -194,6 +203,9 @@ func executeCommandPlan(
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return CommandPlan{}, err
 	}
+	if err := currentObserved.validateSkillSearchRoots(ctx); err != nil {
+		return CommandPlan{}, err
+	}
 	if err := writePlan(ctx, currentPlan, validateStable); err != nil {
 		return CommandPlan{}, err
 	}
@@ -202,11 +214,12 @@ func executeCommandPlan(
 		Phase: ProgressPhasePublication,
 	})
 	return CommandPlan{
-		request:         optimistic.request,
-		plan:            currentPlan,
-		revisions:       revisions,
-		stableRevisions: stableRevisions,
-		barrier:         optimistic.barrier,
+		request:          optimistic.request,
+		plan:             currentPlan,
+		skillSearchRoots: currentObserved.skillSearchRoots,
+		revisions:        revisions,
+		stableRevisions:  stableRevisions,
+		barrier:          optimistic.barrier,
 	}, nil
 }
 

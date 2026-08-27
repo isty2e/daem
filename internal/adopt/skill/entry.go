@@ -28,13 +28,14 @@ func importSkillsFromRoot(
 		return nil, adopt.Scan{}, nil, fmt.Errorf("read skill root %q: %w", liveRoot, err)
 	}
 
-	skills := make([]adopt.Skill, 0, len(entries))
+	skills := make([]adopt.Skill, 0, len(entries.names))
 	skipped := make([]adopt.Skipped, 0)
-	for _, name := range entries {
+	for _, name := range entries.names {
 		if err := ctx.Err(); err != nil {
 			return nil, adopt.Scan{}, nil, err
 		}
 		livePath := filepath.Join(liveRoot, name)
+		observedPath := filepath.Join(entries.readRoot, name)
 		skill, skip, err := importSkillFromEntry(
 			ctx,
 			sourceDirectory,
@@ -42,6 +43,7 @@ func importSkillsFromRoot(
 			scope,
 			installTo,
 			livePath,
+			observedPath,
 			name,
 			importedDestinations,
 			sourceIdentities,
@@ -57,12 +59,12 @@ func importSkillsFromRoot(
 	}
 
 	scanStatus := importSkillRootScanScanned
-	if len(entries) == 0 {
+	if len(entries.names) == 0 {
 		scanStatus = importSkillRootScanEmpty
 	} else if len(skills) == 0 {
 		scanStatus = importSkillRootScanNoImportableEntries
 	}
-	scan := newSkillRootScan(target, scope, liveRoot, scanStatus, len(entries), len(skills), len(skipped))
+	scan := newSkillRootScan(target, scope, liveRoot, scanStatus, len(entries.names), len(skills), len(skipped))
 
 	return skills, scan, skipped, nil
 }
@@ -97,6 +99,7 @@ func importSkillFromEntry(
 	scope targetpkg.Scope,
 	installTo string,
 	livePath string,
+	observedPath string,
 	name string,
 	importedDestinations DestinationClaims,
 	sourceIdentities *SourceIdentityCache,
@@ -109,7 +112,7 @@ func importSkillFromEntry(
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: adopt.SkipReason(suppliedReason)}, nil
 	}
 
-	readPath, err := resolvedImportSkillReadPath(livePath)
+	readPath, err := resolvedImportSkillReadPath(observedPath)
 	if err != nil {
 		return adopt.Skill{}, adopt.Skipped{LivePath: livePath, Reason: importSkillSkipNotDirectory}, nil
 	}

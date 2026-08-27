@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	adoptskill "github.com/isty2e/daem/internal/adopt/skill"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/profile"
@@ -24,11 +25,12 @@ type CommandInput struct {
 }
 
 type CommandPlan struct {
-	request         adoptmodel.Request
-	plan            adoptmodel.Plan
-	revisions       mutation.RevisionSet
-	stableRevisions mutation.RevisionSet
-	barrier         recoverygate.EffectAuthority
+	request          adoptmodel.Request
+	plan             adoptmodel.Plan
+	skillSearchRoots *adoptskill.SearchRootCache
+	revisions        mutation.RevisionSet
+	stableRevisions  mutation.RevisionSet
+	barrier          recoverygate.EffectAuthority
 }
 
 func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, error) {
@@ -75,19 +77,23 @@ func BuildCommandPlan(ctx context.Context, input CommandInput) (CommandPlan, err
 		Phase: ProgressPhaseDiscovery,
 		Total: progressTotal,
 	})
-	plan, err := buildPlan(ctx, request, ProgressPhaseDiscovery, input.ProgressEvents)
+	observed, err := buildPlan(ctx, request, ProgressPhaseDiscovery, input.ProgressEvents)
 	if err != nil {
 		return result, err
 	}
-	result.plan = plan
-	if err := validateMCPSourceAuthoritiesCurrent(ctx, plan); err != nil {
+	result.plan = observed.plan
+	result.skillSearchRoots = observed.skillSearchRoots
+	if err := validateMCPSourceAuthoritiesCurrent(ctx, observed.plan); err != nil {
 		return result, err
 	}
-	revisions, stableRevisions, err := captureImportRevisionEvidence(ctx, plan, barrier)
+	revisions, stableRevisions, err := captureImportRevisionEvidence(ctx, observed.plan, barrier)
 	if err != nil {
 		return result, err
 	}
 	if err := barrier.Validate(ctx); err != nil {
+		return result, err
+	}
+	if err := observed.validateSkillSearchRoots(ctx); err != nil {
 		return result, err
 	}
 	result.revisions = revisions

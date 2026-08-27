@@ -326,9 +326,11 @@ at most 100,000 immediate root entries, 32 MiB of aggregate entry-name bytes,
 and 4,096 bytes for one entry name across newly observed distinct resolved
 roots. If this inventory boundary is exceeded, remove or move unrelated root
 entries, shorten an over-limit name, or select fewer target/scope roots before
-rerunning the preview. Reused roots retain one listing but are identity-checked
-on every reuse and before the final result; if the root changed, let it become
-stable and rerun rather than relying on a partial preview. The complete import
+rerunning the preview. Reused roots retain one listing, but daem revalidates the
+observed directory and each live-root symlink binding on reuse, after revision
+capture, and before publication. Child reads stay under the captured resolved
+root. If the root or alias changed, let it become stable and rerun rather than
+relying on a partial preview. The complete import
 freshness pass is additionally limited to 400,000 entries and 16 GiB of
 regular-file content across all observed trees and cannot widen the per-tree
 ceiling. Rerun `daem import --target <target> --dry-run` after the tree is stable

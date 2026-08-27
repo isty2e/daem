@@ -32,6 +32,14 @@ func resolvedImportSkillReadPath(livePath string) (string, error) {
 	return filepath.Clean(absolute), nil
 }
 
+func absoluteImportSkillLivePath(livePath string) (string, error) {
+	absolute, err := filepath.Abs(livePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve imported skill live path %q: %w", livePath, err)
+	}
+	return filepath.Clean(absolute), nil
+}
+
 func importSkillHashDirectoryName(contentHash artifact.ContentHash) string {
 	return strings.ReplaceAll(string(contentHash), ":", "-")
 }

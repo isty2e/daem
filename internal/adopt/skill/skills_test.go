@@ -288,14 +288,14 @@ func TestImportSkillChargesDuplicateRouteBeforeClassification(t *testing.T) {
 
 	candidate, skipped, err := importSkillFromEntry(
 		t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-		"", first, "review", claims, identities,
+		"", first, first, "review", claims, identities,
 	)
 	if err != nil || candidate.ResourceName != "review" || skipped.Reason != "" {
 		t.Fatalf("first import = (%#v, %#v, %v), want retained candidate", candidate, skipped, err)
 	}
 	candidate, skipped, err = importSkillFromEntry(
 		t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-		"", second, "review", claims, identities,
+		"", second, second, "review", claims, identities,
 	)
 	if !errors.Is(err, errSourceIdentityLimitExceeded) || candidate.ResourceName != "" || skipped.Reason != "" {
 		t.Fatalf("duplicate import = (%#v, %#v, %v), want aggregate identity-budget failure before classification", candidate, skipped, err)
@@ -353,14 +353,14 @@ func TestImportSkillClassifiesDuplicateDestinationByContentIdentity(t *testing.T
 
 			candidate, skipped, err := importSkillFromEntry(
 				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-				"", first, "review", claims, identities,
+				"", first, first, "review", claims, identities,
 			)
 			if err != nil || candidate.ResourceName != "review" || skipped.Reason != "" {
 				t.Fatalf("first import = (%#v, %#v, %v), want retained candidate", candidate, skipped, err)
 			}
 			candidate, skipped, err = importSkillFromEntry(
 				t.Context(), sourceDirectory, targetpkg.TargetCodex, targetpkg.ScopeGlobal,
-				"", second, "review", claims, identities,
+				"", second, second, "review", claims, identities,
 			)
 			if err != nil || candidate.ResourceName != "" {
 				t.Fatalf("second import = (%#v, %#v, %v), want skip", candidate, skipped, err)
@@ -415,6 +415,7 @@ func TestImportSkillRequiresRegularSkillDocumentInIdentityObservation(t *testing
 				targetpkg.ScopeProject,
 				"",
 				skillRoot,
+				skillRoot,
 				"review",
 				NewDestinationClaims(),
 				NewSourceIdentityCache(skillTreeLimitsForTest(t)),
@@ -457,6 +458,7 @@ func TestImportSkillSkipsMissingSkillMDBeforeTreeTraversal(t *testing.T) {
 		targetpkg.ScopeProject,
 		"",
 		skillRoot,
+		skillRoot,
 		"review",
 		NewDestinationClaims(),
 		NewSourceIdentityCache(limit),
@@ -498,6 +500,7 @@ func TestImportSkillFailsClosedOnRootBreadthOverflow(t *testing.T) {
 		targetpkg.TargetCodex,
 		targetpkg.ScopeProject,
 		"",
+		skillRoot,
 		skillRoot,
 		"review",
 		NewDestinationClaims(),
@@ -544,6 +547,7 @@ func TestImportSkillSkipsNestedSymlinkFromIdentityTraversal(t *testing.T) {
 		targetpkg.ScopeProject,
 		"",
 		skillRoot,
+		skillRoot,
 		"unsafe",
 		NewDestinationClaims(),
 		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
@@ -589,6 +593,7 @@ func TestImportSkillTreatsSymlinkSkillDocumentAsMissing(t *testing.T) {
 		targetpkg.TargetCodex,
 		targetpkg.ScopeProject,
 		"",
+		skillRoot,
 		skillRoot,
 		"review",
 		NewDestinationClaims(),

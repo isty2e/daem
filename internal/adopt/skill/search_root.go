@@ -136,10 +136,17 @@ type searchRootListing struct {
 	observation searchRootObservation
 }
 
+type searchRootEntries struct {
+	names    []string
+	readRoot string
+}
+
 // SearchRootCache owns one candidate-collection pass's bounded, sorted Skill
-// search-root listings. It is intentionally not safe for concurrent use.
+// search-root listings and their live-root-to-read-root bindings. It is
+// intentionally not safe for concurrent use.
 type SearchRootCache struct {
 	listings map[string]searchRootListing
+	bindings map[string]string
 	observe  searchRootObserver
 	budget   *searchRootBudget
 }
@@ -166,34 +173,51 @@ func newSearchRootCache(
 	}
 	return &SearchRootCache{
 		listings: make(map[string]searchRootListing),
+		bindings: make(map[string]string),
 		observe:  observer,
 		budget:   budget,
 	}, nil
 }
 
-func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) ([]string, error) {
-	if cache == nil || cache.observe == nil || cache.listings == nil || cache.budget == nil {
-		return nil, fmt.Errorf("skill search-root cache is required")
+func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) (searchRootEntries, error) {
+	if cache == nil || cache.observe == nil || cache.listings == nil || cache.bindings == nil || cache.budget == nil {
+		return searchRootEntries{}, fmt.Errorf("skill search-root cache is required")
 	}
 	if ctx == nil {
-		return nil, fmt.Errorf("skill search-root context is required")
+		return searchRootEntries{}, fmt.Errorf("skill search-root context is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return searchRootEntries{}, err
 	}
-	readRoot, err := resolvedImportSkillReadPath(liveRoot)
+	liveBinding, err := absoluteImportSkillLivePath(liveRoot)
 	if err != nil {
-		return nil, fmt.Errorf("resolve skill search root %q: %w", liveRoot, err)
+		return searchRootEntries{}, fmt.Errorf("resolve skill search-root binding %q: %w", liveRoot, err)
+	}
+	readRoot, err := resolvedImportSkillReadPath(liveBinding)
+	if err != nil {
+		return searchRootEntries{}, fmt.Errorf("resolve skill search root %q: %w", liveRoot, err)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return searchRootEntries{}, err
+	}
+	if expectedReadRoot, exists := cache.bindings[liveBinding]; exists && expectedReadRoot != readRoot {
+		cache.invalidate(expectedReadRoot)
+		return searchRootEntries{}, searchRootBindingChangedError(liveBinding)
 	}
 	if listing, exists := cache.listings[readRoot]; exists {
-		if err := cache.revalidate(ctx, readRoot, listing); err != nil {
-			delete(cache.listings, readRoot)
-			return nil, err
+		if err := cache.revalidateBinding(ctx, liveBinding, readRoot); err != nil {
+			cache.invalidate(readRoot)
+			return searchRootEntries{}, err
 		}
-		return append([]string(nil), listing.names...), nil
+		if err := cache.revalidateListing(ctx, readRoot, listing); err != nil {
+			cache.invalidate(readRoot)
+			return searchRootEntries{}, err
+		}
+		cache.bindings[liveBinding] = readRoot
+		return searchRootEntries{
+			names:    append([]string(nil), listing.names...),
+			readRoot: readRoot,
+		}, nil
 	}
 
 	names := make([]string, 0, min(cache.budget.limits.maximumEntries, 256))
@@ -208,29 +232,33 @@ func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) ([]s
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return searchRootEntries{}, err
 	}
 	if observation.revalidate == nil {
-		return nil, fmt.Errorf("skill search-root observation revalidation is required")
+		return searchRootEntries{}, fmt.Errorf("skill search-root observation revalidation is required")
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return searchRootEntries{}, err
 	}
 	slices.Sort(names)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return searchRootEntries{}, err
+	}
+	if err := cache.revalidateBinding(ctx, liveBinding, readRoot); err != nil {
+		return searchRootEntries{}, err
 	}
 	cache.listings[readRoot] = searchRootListing{
 		names:       append([]string(nil), names...),
 		observation: observation,
 	}
-	return names, nil
+	cache.bindings[liveBinding] = readRoot
+	return searchRootEntries{names: names, readRoot: readRoot}, nil
 }
 
-// Validate revalidates every retained search-root observation before a plan
-// result can use its cached names.
+// Validate revalidates every retained live-root binding and listing observation
+// before a plan result can use cached names.
 func (cache *SearchRootCache) Validate(ctx context.Context) error {
-	if cache == nil || cache.observe == nil || cache.listings == nil || cache.budget == nil {
+	if cache == nil || cache.observe == nil || cache.listings == nil || cache.bindings == nil || cache.budget == nil {
 		return fmt.Errorf("skill search-root cache is required")
 	}
 	if ctx == nil {
@@ -239,6 +267,18 @@ func (cache *SearchRootCache) Validate(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	liveRoots := make([]string, 0, len(cache.bindings))
+	for liveRoot := range cache.bindings {
+		liveRoots = append(liveRoots, liveRoot)
+	}
+	slices.Sort(liveRoots)
+	for _, liveRoot := range liveRoots {
+		readRoot := cache.bindings[liveRoot]
+		if err := cache.revalidateBinding(ctx, liveRoot, readRoot); err != nil {
+			cache.invalidate(readRoot)
+			return err
+		}
+	}
 	readRoots := make([]string, 0, len(cache.listings))
 	for readRoot := range cache.listings {
 		readRoots = append(readRoots, readRoot)
@@ -246,15 +286,46 @@ func (cache *SearchRootCache) Validate(ctx context.Context) error {
 	slices.Sort(readRoots)
 	for _, readRoot := range readRoots {
 		listing := cache.listings[readRoot]
-		if err := cache.revalidate(ctx, readRoot, listing); err != nil {
-			delete(cache.listings, readRoot)
+		if err := cache.revalidateListing(ctx, readRoot, listing); err != nil {
+			cache.invalidate(readRoot)
 			return err
 		}
 	}
 	return ctx.Err()
 }
 
-func (cache *SearchRootCache) revalidate(
+func (cache *SearchRootCache) invalidate(readRoot string) {
+	delete(cache.listings, readRoot)
+	for liveRoot, boundReadRoot := range cache.bindings {
+		if boundReadRoot == readRoot {
+			delete(cache.bindings, liveRoot)
+		}
+	}
+}
+
+func (cache *SearchRootCache) revalidateBinding(
+	ctx context.Context,
+	liveRoot string,
+	expectedReadRoot string,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	currentReadRoot, err := resolvedImportSkillReadPath(liveRoot)
+	if err != nil {
+		return fmt.Errorf("revalidate skill search-root binding %q: %w", liveRoot, err)
+	}
+	if currentReadRoot != expectedReadRoot {
+		return searchRootBindingChangedError(liveRoot)
+	}
+	return ctx.Err()
+}
+
+func searchRootBindingChangedError(liveRoot string) error {
+	return fmt.Errorf("skill search-root binding %q changed after observation", liveRoot)
+}
+
+func (cache *SearchRootCache) revalidateListing(
 	ctx context.Context,
 	readRoot string,
 	listing searchRootListing,

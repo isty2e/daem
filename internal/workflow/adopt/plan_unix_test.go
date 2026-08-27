@@ -98,6 +98,107 @@ func TestBuildCommandPlanRejectsSkillRootGrowthBeforeNonemptyPlan(t *testing.T) 
 	}
 }
 
+func TestBuildCommandPlanRejectsEmptySkillRootAliasRetarget(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	t.Setenv("HOME", root)
+	first := filepath.Join(root, "first-skills")
+	second := filepath.Join(root, "second-skills")
+	for _, physicalRoot := range []string{first, second} {
+		if err := os.Mkdir(physicalRoot, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeImportSkill(t, filepath.Join(second, "late"), "late")
+	alias := filepath.Join(root, ".agents", "skills")
+	if err := os.MkdirAll(filepath.Dir(alias), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(first, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	_, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+		ProgressEvents: func(event ProgressEvent) {
+			if event.Kind == ProgressEventTargetScopeCompleted {
+				retargetImportSkillRoot(t, alias, second)
+			}
+		},
+	})
+	if err == nil || IsNothingToImport(err) || !strings.Contains(err.Error(), "binding") ||
+		!strings.Contains(err.Error(), "changed after observation") {
+		t.Fatalf("BuildCommandPlan error = %v, want changed root binding", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("retargeted empty root published manifest: %v", statErr)
+	}
+}
+
+func TestExecuteCommandPlanRejectsOverlappingSkillRootAliasRetarget(t *testing.T) {
+	root := enterAdoptTestDirectory(t)
+	t.Setenv("HOME", root)
+	first := filepath.Join(root, "first-skills")
+	second := filepath.Join(root, "second-skills")
+	writeImportSkill(t, filepath.Join(first, "shared"), "shared")
+	writeImportSkill(t, filepath.Join(second, "shared"), "shared")
+	writeImportSkill(t, filepath.Join(second, "second-only"), "second-only")
+	alias := filepath.Join(root, ".agents", "skills")
+	if err := os.MkdirAll(filepath.Dir(alias), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(first, alias); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(root, "daem.toml")
+	planned, err := BuildCommandPlan(t.Context(), CommandInput{
+		TargetValues: []string{"codex"},
+		ScopeValues:  []string{"project"},
+		ManifestPath: output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	route, err := planned.AdoptionPlan().Skills()[0].PrimarySourceRoute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantReadPath, err := filepath.EvalSymlinks(filepath.Join(first, "shared"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if route.ReadPath != wantReadPath {
+		t.Fatalf("planned Skill read path = %q, want captured-root path %q", route.ReadPath, wantReadPath)
+	}
+
+	mutated := false
+	_, err = ExecuteCommandPlan(t.Context(), planned, func(event ProgressEvent) {
+		if mutated || event.Phase != ProgressPhaseRevalidation || event.Kind != ProgressEventTargetScopeCompleted {
+			return
+		}
+		mutated = true
+		retargetImportSkillRoot(t, alias, second)
+	})
+	if !mutated {
+		t.Fatal("test did not retarget the Skill root during write-mode revalidation")
+	}
+	if err == nil || !strings.Contains(err.Error(), "binding") ||
+		!strings.Contains(err.Error(), "changed after observation") {
+		t.Fatalf("ExecuteCommandPlan error = %v, want changed root binding", err)
+	}
+	if _, statErr := os.Lstat(output); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("retargeted overlapping root published manifest: %v", statErr)
+	}
+	for _, skill := range planned.AdoptionPlan().Skills() {
+		if _, statErr := os.Lstat(skill.SourcePath); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("retargeted overlapping root published Skill source %q: %v", skill.SourcePath, statErr)
+		}
+	}
+}
+
 func TestBuildCommandPlanRejectsSkillTreeBytesBeforePublication(t *testing.T) {
 	root := enterAdoptTestDirectory(t)
 	skillRoot := filepath.Join(root, ".agents", "skills", "review")
@@ -182,5 +283,29 @@ func TestExecuteCommandPlanRejectsSkillRevisionByteGrowthBeforePublication(t *te
 		if _, statErr := os.Lstat(skill.SourcePath); !errors.Is(statErr, os.ErrNotExist) {
 			t.Fatalf("over-byte source published import path %q: %v", skill.SourcePath, statErr)
 		}
+	}
+}
+
+func writeImportSkill(t *testing.T, root string, name string) {
+	t.Helper()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "SKILL.md"),
+		[]byte("---\nname: "+name+"\ndescription: "+name+" skill\n---\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func retargetImportSkillRoot(t *testing.T, alias string, target string) {
+	t.Helper()
+	if err := os.Remove(alias); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, alias); err != nil {
+		t.Fatal(err)
 	}
 }
