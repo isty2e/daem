@@ -3,12 +3,34 @@ package clipresent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"slices"
 	"testing"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	refreshworkflow "github.com/isty2e/daem/internal/workflow/refresh"
 )
+
+func TestRefreshJSONPreservesKnownFenceBesideUnknownJournal(t *testing.T) {
+	cause := recoverygate.Combine(
+		errors.New("recovery inventory inspection failed"),
+		transaction.ErrAbandonedFileSetResidue,
+	)
+	result := refreshworkflow.CommandResult{
+		Mode:            refreshworkflow.ModeExecute,
+		ResultClass:     refreshworkflow.ResultRefused,
+		ReasonCode:      refreshworkflow.ReasonAbandonedFileSetResidue,
+		RecoveryBarrier: recoverygate.StateOf(cause),
+	}
+	report := RefreshReportFrom(result)
+	if report.Result.RecoveryBarrier == nil ||
+		report.Result.RecoveryBarrier.Journal != "unknown" ||
+		report.Result.RecoveryBarrier.FileSet != "abandoned_residue" {
+		t.Fatalf("recovery barrier = %#v", report.Result.RecoveryBarrier)
+	}
+}
 
 func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 	report := RefreshReportFrom(refreshworkflow.CommandResult{
@@ -100,6 +122,32 @@ func TestRefreshJSONPreservesFrozenNestedShapeAndEmptyArrays(t *testing.T) {
 	}
 	if result.Detail != "" {
 		t.Fatalf("successful detail = %q, want empty", result.Detail)
+	}
+}
+
+func TestRefreshJSONProjectsCleanupOnlyContinuingFenceReason(t *testing.T) {
+	report := RefreshReportFrom(refreshworkflow.CommandResult{
+		Mode:        refreshworkflow.ModeDryRun,
+		ResultClass: refreshworkflow.ResultRefused,
+		ReasonCode:  refreshworkflow.ReasonJournalCleanupFileSetFence,
+		Remediation: []string{"run daem recover --dry-run"},
+	})
+	var output bytes.Buffer
+	if err := PrintRefreshJSON(&output, report); err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Result struct {
+			ReasonCode string `json:"reason_code"`
+			Detail     string `json:"detail"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Result.ReasonCode != string(refreshworkflow.ReasonJournalCleanupFileSetFence) ||
+		payload.Result.Detail != "journal cleanup is incomplete; run daem recover first; the file-set fence remains after recover" {
+		t.Fatalf("payload = %s", output.String())
 	}
 }
 

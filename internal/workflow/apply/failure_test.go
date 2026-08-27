@@ -7,7 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
@@ -65,6 +68,69 @@ func TestClassifyFailureDerivesClosedPublicFacts(t *testing.T) {
 			phase:   FailurePhaseExecution,
 			outcome: FailureOutcomeIncomplete,
 		},
+		{
+			name:    "abandoned file-set residue",
+			err:     fmt.Errorf("wrap: %w", transaction.ErrAbandonedFileSetResidue),
+			reason:  FailureReasonAbandonedFileSetResidue,
+			phase:   FailurePhasePreflight,
+			outcome: FailureOutcomeRefused,
+		},
+		{
+			name:    "recoverable interrupted apply",
+			err:     fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply),
+			reason:  FailureReasonInterruptedApply,
+			phase:   FailurePhasePreflight,
+			outcome: FailureOutcomeRefused,
+		},
+		{
+			name: "recoverable journal with continuing residue",
+			err: recoverygate.Combine(
+				fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply),
+				transaction.ErrAbandonedFileSetResidue,
+			),
+			reason:  FailureReasonInterruptedApplyFileSetFence,
+			phase:   FailurePhasePreflight,
+			outcome: FailureOutcomeRefused,
+		},
+		{
+			name: "cleanup journal with continuing residue",
+			err: recoverygate.Combine(
+				fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrIncompleteJournalCleanup),
+				transaction.ErrAbandonedFileSetResidue,
+			),
+			reason:  FailureReasonJournalCleanupFileSetFence,
+			phase:   FailurePhasePreflight,
+			outcome: FailureOutcomeRefused,
+		},
+		{
+			name:    "unprovable StateDir access after effects still names the boundary",
+			err:     fmt.Errorf("wrap: %w", transaction.ErrFileSetAccessUnprovable),
+			result:  CommandResult{ExecutionAttempted: true},
+			reason:  FailureReasonFileSetAccessUnprovable,
+			phase:   FailurePhaseExecution,
+			outcome: FailureOutcomeIncomplete,
+		},
+		{
+			name: "joined stale plan does not mask abandoned residue",
+			err: errors.Join(
+				mutation.StalePlanError{},
+				transaction.ErrAbandonedFileSetResidue,
+			),
+			reason:  FailureReasonAbandonedFileSetResidue,
+			phase:   FailurePhasePreflight,
+			outcome: FailureOutcomeRefused,
+		},
+		{
+			name: "joined stale snapshot does not mask unprovable access after effects",
+			err: errors.Join(
+				mutation.StaleSnapshotError{},
+				fmt.Errorf("replan after MCP provider prerequisite: %w", transaction.ErrFileSetAccessUnprovable),
+			),
+			result:  CommandResult{ExecutionAttempted: true},
+			reason:  FailureReasonFileSetAccessUnprovable,
+			phase:   FailurePhaseExecution,
+			outcome: FailureOutcomeIncomplete,
+		},
 	}
 
 	for _, test := range tests {
@@ -98,6 +164,31 @@ func TestStaleApplyErrorPreservesCancellation(t *testing.T) {
 	for _, disclosed := range []bool{false, true} {
 		if err := staleApplyError(disclosed, context.Canceled); err != context.Canceled {
 			t.Fatalf("staleApplyError(%t) = %v, want exact cancellation", disclosed, err)
+		}
+	}
+}
+
+func TestStaleApplyErrorPreservesFileSetFenceSentinels(t *testing.T) {
+	t.Parallel()
+	causes := []error{
+		transaction.ErrAbandonedFileSetResidue,
+		fmt.Errorf("inspect file-set state dir: %w", transaction.ErrFileSetAccessUnprovable),
+	}
+	for _, disclosed := range []bool{false, true} {
+		for _, cause := range causes {
+			got := staleApplyError(disclosed, cause)
+			if got != cause {
+				t.Fatalf("staleApplyError(%t, %v) = %v, want exact cause", disclosed, cause, got)
+			}
+			failure := ClassifyFailure(got, CommandResult{ExecutionAttempted: disclosed})
+			if failure.Reason() != FailureReasonAbandonedFileSetResidue &&
+				failure.Reason() != FailureReasonFileSetAccessUnprovable {
+				t.Fatalf("reason = %q, want a file-set fence reason", failure.Reason())
+			}
+			if strings.Contains(failure.Detail(), "authoritative inputs changed") ||
+				strings.Contains(failure.Detail(), "authorized apply plan changed") {
+				t.Fatalf("detail = %q, want fence guidance not stale-plan retry", failure.Detail())
+			}
 		}
 	}
 }

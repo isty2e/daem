@@ -21,6 +21,10 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	if err != nil {
 		return Result{}, err
 	}
+	stateDirAuthority, err := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	if err != nil {
+		return Result{}, err
+	}
 	outputPath := outputLockfilePath(input.LockfilePath, paths)
 	errorContext := CommandError{
 		ManifestPath:     paths.ManifestPath,
@@ -32,7 +36,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -51,6 +55,15 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
+	stateDirDomains, err := lockStateDirDomains(
+		paths.StateDir,
+		stateDirAuthority.PresentAtCapture(),
+	)
+	if err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
+	domains = append(domains, stateDirDomains...)
 	store, err := mutation.NewStore(paths.DataDir)
 	if err != nil {
 		errorContext.Err = err
@@ -73,7 +86,7 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = mutation.StaleSnapshotError{}
 		return Result{}, errorContext
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
@@ -102,6 +115,10 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = mutation.StaleSnapshotError{}
 		return Result{}, errorContext
 	}
+	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
 
 	built, err := buildCommandResult(
 		ctx,
@@ -115,6 +132,10 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	)
 	if err != nil {
 		return Result{}, err
+	}
+	if err := stateDirAuthority.AcceptCurrentIncarnation(ctx); err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
 	}
 	matches, err := revisions.MatchesCurrent(ctx)
 	if err != nil {
@@ -136,10 +157,25 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
+	if err := lockRequireStateDirClear(ctx, stateDirAuthority); err != nil {
+		errorContext.Err = err
+		return Result{}, errorContext
+	}
 	if err := commitLockfile(ctx, built.Result.LockfilePath, built.Content, 0o600); err != nil {
 		return Result{}, fmt.Errorf("write lockfile: %w", err)
 	}
 	return built.Result, nil
+}
+
+func lockRequireStateDirClear(
+	ctx context.Context,
+	authority transaction.StateDirAuthority,
+) error {
+	err := authority.RequireClear(ctx)
+	if errors.Is(err, transaction.ErrStateDirAppeared) {
+		return errors.Join(mutation.StaleSnapshotError{}, err)
+	}
+	return err
 }
 
 func commandLocalPaths(ctx context.Context, paths daempaths.Paths) ([]string, error) {
@@ -151,6 +187,27 @@ func commandLocalPaths(ctx context.Context, paths daempaths.Paths) ([]string, er
 		Paths:       paths,
 		Environment: environment,
 	})
+}
+
+func lockStateDirDomains(stateDir string, present bool) ([]mutation.Domain, error) {
+	access := mutation.AccessShared
+	if !present {
+		access = mutation.AccessExclusive
+	}
+	domains := make([]mutation.Domain, 0, 2)
+	for _, effect := range []mutation.PathEffect{
+		mutation.PathEffectDirectoryEntry,
+		mutation.PathEffectReferent,
+	} {
+		domain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
+			Path: stateDir, Access: access, Effect: effect,
+		})
+		if err != nil {
+			return nil, err
+		}
+		domains = append(domains, domain)
+	}
+	return domains, nil
 }
 
 func lockMutationDomains(

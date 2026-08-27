@@ -337,11 +337,26 @@ another recovery action: a new `recover` plan cannot be constructed from
 GC-only residue.
 
 Once the active journal has become retained cleanup residue, ordinary
-workflows do not finalize it implicitly. `daem recover --dry-run` reports
-`retained_cleanup_residue` with one `finalize_journal_cleanup` action.
-Confirmed recovery then uses only recovery-root/control/residue authority; it
-does not inspect or mutate host outputs, state, ownership, manifest, or
-lockfile.
+workflows do not finalize it implicitly. This cleanup-only authority is not an
+`interrupted_apply`: public command results report `journal_cleanup_incomplete`.
+`daem recover --dry-run` reports `retained_cleanup_residue` with one
+`finalize_journal_cleanup` action. Confirmed recovery then uses only
+recovery-root/control/residue authority; it does not inspect or mutate host
+outputs, state, ownership, manifest, or lockfile.
+
+Forward authoring, unmanage, import publication, init publication, prepared
+MCP probe execution, apply, and refresh preserve canonical RecoveryDir
+lease/revision authority plus a planning-time no-follow StateDir namespace and
+directory-incarnation witness from plan to effect. A planning-time absent
+StateDir can bind its first incarnation only after the owning operation creates
+it; an unrelated first appearance is a `stale_snapshot`, while replacement of
+a bound object or mount fails as `file_set_access_unprovable`. These workflows
+revalidate the journal and
+file-set barrier after acquiring mutation authority and immediately before the
+durable or host effect phase. Operation-owned rollback and cleanup remain
+compensation, not a new forward effect. Lockfile-only generation remains
+available during active recovery, but its source-build and publication paths
+still preserve the independent StateDir identity and file-set fence.
 
 Pre-1.0 `.daem-tombstone-<32 lowercase hex>` directories use an obsolete
 recovery-authority schema. Current daem recognizes the exact old name only to

@@ -13,8 +13,21 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// CaptureEntryIdentity captures ephemeral no-follow identity evidence for path.
+// CaptureEntryIdentity captures ephemeral no-follow identity evidence for a
+// storage mutation path.
 func CaptureEntryIdentity(ctx context.Context, path string) (EntryIdentity, error) {
+	if err := validateCommitPath(path); err != nil {
+		return EntryIdentity{}, err
+	}
+	return captureEntryIdentity(ctx, path, nil)
+}
+
+// ObserveEntryIdentity captures ephemeral no-follow identity evidence without
+// applying storage-reserved basename policy.
+func ObserveEntryIdentity(ctx context.Context, path string) (EntryIdentity, error) {
+	if err := validateRootedPath(path); err != nil {
+		return EntryIdentity{}, err
+	}
 	return captureEntryIdentity(ctx, path, nil)
 }
 
@@ -70,12 +83,10 @@ func captureEntryIdentity(
 	path string,
 	capability rootedpath.CommitCapability,
 ) (EntryIdentity, error) {
-	if capability == nil {
-		if err := validateCommitPath(path); err != nil {
+	if capability != nil {
+		if err := validateRootedCapability(path, capability); err != nil {
 			return EntryIdentity{}, err
 		}
-	} else if err := validateRootedCapability(path, capability); err != nil {
-		return EntryIdentity{}, err
 	}
 	if err := (faultPlan{}).check(ctx, phaseCaptureIdentity); err != nil {
 		return EntryIdentity{}, newFailure(failureUncommitted, phaseCaptureIdentity, path, err)

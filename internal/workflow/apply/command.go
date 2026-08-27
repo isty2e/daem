@@ -34,6 +34,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
+	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -50,23 +51,32 @@ var (
 type FailureReason string
 
 const (
-	FailureReasonStaleSnapshot              FailureReason = "stale_snapshot"
-	FailureReasonStalePlan                  FailureReason = "stale_plan"
-	FailureReasonMutationContended          FailureReason = "mutation_contended"
-	FailureReasonCancelled                  FailureReason = "mutation_cancelled"
-	FailureReasonLockfileUnavailable        FailureReason = "lockfile_unavailable"
-	FailureReasonRelationActionBlocked      FailureReason = "relation_action_blocked"
-	FailureReasonRelationOrderBlocked       FailureReason = "relation_order_blocked"
-	FailureReasonCarrierAdoptionBlocked     FailureReason = "carrier_adoption_blocked"
-	FailureReasonCarrierAbsenceBlocked      FailureReason = "carrier_absence_blocked"
-	FailureReasonRelationOrderRiskExpanded  FailureReason = "relation_order_risk_expanded"
-	FailureReasonRelationOrderUnauthorized  FailureReason = "relation_order_not_authorized"
-	FailureReasonMCPEnvironmentUnavailable  FailureReason = "mcp_environment_unavailable"
-	FailureReasonDelegateAttemptFailed      FailureReason = "delegate_attempt_failed"
-	FailureReasonHostRouteAttemptFailed     FailureReason = "host_route_attempt_failed"
-	FailureReasonCarrierPostconditionFailed FailureReason = "carrier_removal_postcondition_failed"
-	FailureReasonApplyRefused               FailureReason = "apply_refused"
-	FailureReasonApplyIncomplete            FailureReason = "apply_incomplete"
+	FailureReasonStaleSnapshot                 FailureReason = "stale_snapshot"
+	FailureReasonStalePlan                     FailureReason = "stale_plan"
+	FailureReasonMutationContended             FailureReason = "mutation_contended"
+	FailureReasonCancelled                     FailureReason = "mutation_cancelled"
+	FailureReasonLockfileUnavailable           FailureReason = "lockfile_unavailable"
+	FailureReasonRelationActionBlocked         FailureReason = "relation_action_blocked"
+	FailureReasonRelationOrderBlocked          FailureReason = "relation_order_blocked"
+	FailureReasonCarrierAdoptionBlocked        FailureReason = "carrier_adoption_blocked"
+	FailureReasonCarrierAbsenceBlocked         FailureReason = "carrier_absence_blocked"
+	FailureReasonRelationOrderRiskExpanded     FailureReason = "relation_order_risk_expanded"
+	FailureReasonRelationOrderUnauthorized     FailureReason = "relation_order_not_authorized"
+	FailureReasonMCPEnvironmentUnavailable     FailureReason = "mcp_environment_unavailable"
+	FailureReasonDelegateAttemptFailed         FailureReason = "delegate_attempt_failed"
+	FailureReasonHostRouteAttemptFailed        FailureReason = "host_route_attempt_failed"
+	FailureReasonCarrierPostconditionFailed    FailureReason = "carrier_removal_postcondition_failed"
+	FailureReasonInterruptedApply              FailureReason = "interrupted_apply"
+	FailureReasonInterruptedApplyFileSetFence  FailureReason = "interrupted_apply_file_set_fence"
+	FailureReasonJournalCleanupIncomplete      FailureReason = "journal_cleanup_incomplete"
+	FailureReasonJournalCleanupFileSetFence    FailureReason = "journal_cleanup_file_set_fence"
+	FailureReasonInterruptedFileSetTransaction FailureReason = "interrupted_file_set_transaction"
+	FailureReasonFileSetEvidenceInvalid        FailureReason = "file_set_evidence_invalid"
+	FailureReasonAbandonedFileSetResidue       FailureReason = "abandoned_file_set_residue"
+	FailureReasonFileSetFenceCensusLimit       FailureReason = "file_set_fence_census_limit"
+	FailureReasonFileSetAccessUnprovable       FailureReason = "file_set_access_unprovable"
+	FailureReasonApplyRefused                  FailureReason = "apply_refused"
+	FailureReasonApplyIncomplete               FailureReason = "apply_incomplete"
 )
 
 // FailurePhase identifies where apply stopped relative to its effect boundary.
@@ -91,6 +101,7 @@ type Failure struct {
 	reason  FailureReason
 	phase   FailurePhase
 	outcome FailureOutcome
+	barrier recoverygate.State
 }
 
 // ClassifyFailure derives public failure facts without copying internal error text.
@@ -109,12 +120,44 @@ func ClassifyFailure(err error, result CommandResult) Failure {
 		reason:  classifyFailureReason(err, result.ExecutionAttempted),
 		phase:   phase,
 		outcome: outcome,
+		barrier: recoverygate.StateOf(err),
 	}
 }
 
 func classifyFailureReason(err error, executionAttempted bool) FailureReason {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return FailureReasonCancelled
+	}
+	state := recoverygate.StateOf(err)
+	switch state.FileSet() {
+	case transaction.FileSetFenceAccessUnprovable:
+		return FailureReasonFileSetAccessUnprovable
+	case transaction.FileSetFenceInvalidEvidence:
+		return FailureReasonFileSetEvidenceInvalid
+	}
+	if state.JournalKnown() && state.Journal() == journal.InterruptionActiveApply && state.HasContinuingFileSetFence() {
+		return FailureReasonInterruptedApplyFileSetFence
+	}
+	if state.JournalKnown() && state.Journal() == journal.InterruptionCleanupOnly && state.HasContinuingFileSetFence() {
+		return FailureReasonJournalCleanupFileSetFence
+	}
+	if state.JournalKnown() {
+		switch state.Journal() {
+		case journal.InterruptionActiveApply:
+			return FailureReasonInterruptedApply
+		case journal.InterruptionCleanupOnly:
+			return FailureReasonJournalCleanupIncomplete
+		}
+	}
+	if state.FileSetKnown() {
+		switch state.FileSet() {
+		case transaction.FileSetFencePublishedTransaction:
+			return FailureReasonInterruptedFileSetTransaction
+		case transaction.FileSetFenceAbandonedResidue:
+			return FailureReasonAbandonedFileSetResidue
+		case transaction.FileSetFenceCensusLimit:
+			return FailureReasonFileSetFenceCensusLimit
+		}
 	}
 	if reason, ok := mutation.ReasonCodeOf(err); ok {
 		switch reason {
@@ -171,9 +214,19 @@ func (failure Failure) Reason() FailureReason   { return failure.reason }
 func (failure Failure) Phase() FailurePhase     { return failure.phase }
 func (failure Failure) Outcome() FailureOutcome { return failure.outcome }
 
+// RecoveryBarrier returns the independently preserved journal and file-set
+// evidence associated with this failure.
+func (failure Failure) RecoveryBarrier() recoverygate.State { return failure.barrier }
+
 // Detail derives bounded public prose only from closed failure facts.
 func (failure Failure) Detail() string {
 	detail := failure.reasonDetail()
+	if failure.barrier.JournalObserved() && !failure.barrier.JournalKnown() {
+		detail += "; journal recovery authority could not be classified"
+	}
+	if failure.barrier.FileSetObserved() && !failure.barrier.FileSetKnown() {
+		detail += "; file-set fence could not be classified"
+	}
 	if failure.outcome == FailureOutcomeRolledBack {
 		return detail + "; host changes were rolled back"
 	}
@@ -215,6 +268,24 @@ func (failure Failure) reasonDetail() string {
 		return "host route attempt failed"
 	case FailureReasonCarrierPostconditionFailed:
 		return "pending carrier removal postconditions are not satisfied"
+	case FailureReasonInterruptedApply:
+		return "interrupted apply journal is present; run daem recover --dry-run first"
+	case FailureReasonInterruptedApplyFileSetFence:
+		return "interrupted apply journal is present; run daem recover --dry-run first; the file-set fence remains after recover and is not cleared by it"
+	case FailureReasonJournalCleanupIncomplete:
+		return "journal cleanup is incomplete; run daem recover --dry-run first"
+	case FailureReasonJournalCleanupFileSetFence:
+		return "journal cleanup is incomplete; run daem recover --dry-run first; the file-set fence remains afterward"
+	case FailureReasonInterruptedFileSetTransaction:
+		return "an interrupted file-set transaction requires its owning workflow to recover it before apply"
+	case FailureReasonFileSetEvidenceInvalid:
+		return "file-set transaction evidence is incomplete or invalid; preserve and repair it before apply or recover"
+	case FailureReasonAbandonedFileSetResidue:
+		return "abandoned file-set residue remains; preserve it for analysis; do not retry apply or delete it from its name prefix"
+	case FailureReasonFileSetFenceCensusLimit:
+		return "the bounded file-set census could not prove the fence clean; inspect or reduce StateDir entries before apply"
+	case FailureReasonFileSetAccessUnprovable:
+		return "StateDir access or identity could not be proven; restore access before apply or recover"
 	case FailureReasonApplyIncomplete:
 		return "apply did not complete after an effect boundary was crossed"
 	default:
@@ -275,6 +346,7 @@ type commandPlan struct {
 	context     commandContext
 	assessment  readiness.Assessment
 	projectRoot *rootedpath.CapturedRoot
+	barrier     recoverygate.EffectAuthority
 }
 
 // DryRunPlan is a capability-free dry-run result plus the immutable inputs
@@ -308,6 +380,10 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 	if err != nil {
 		return unavailablePreparedWrite(CommandResult{}), err
 	}
+	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		return unavailablePreparedWrite(CommandResult{}), err
+	}
 	// Root authority must precede every declaration read, including revision
 	// hashing, so planning never adopts a replacement project root.
 	root, rootCaptureErr := captureProjectRootAuthorityBeforeLoad(paths)
@@ -333,7 +409,7 @@ func PlanWrite(ctx context.Context, input CommandInput) (prepared *PreparedWrite
 			err,
 		)
 	}
-	planned, err := planReadinessAtPaths(ctx, input, operationContext, paths)
+	planned, err := planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, &barrier)
 	if err != nil {
 		return unavailablePreparedWrite(planned.result), err
 	}
@@ -437,8 +513,21 @@ func planReadinessAtPaths(
 	operationContext reconcile.OperationContext,
 	paths daempaths.Paths,
 ) (commandPlan, error) {
-	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths)
+	return planReadinessAtPathsWithBarrier(ctx, input, operationContext, paths, nil)
+}
+
+func planReadinessAtPathsWithBarrier(
+	ctx context.Context,
+	input CommandInput,
+	operationContext reconcile.OperationContext,
+	paths daempaths.Paths,
+	barrier *recoverygate.EffectAuthority,
+) (commandPlan, error) {
+	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths, barrier)
 	planned := commandPlan{result: result, context: loaded}
+	if barrier != nil {
+		planned.barrier = *barrier
+	}
 	if err != nil {
 		return planned, err
 	}
@@ -559,6 +648,7 @@ func loadCommandInputsAtPaths(
 	ctx context.Context,
 	input CommandInput,
 	paths daempaths.Paths,
+	barrier *recoverygate.EffectAuthority,
 ) (commandContext, CommandResult, error) {
 	lockfilePath, err := selectedLockfilePath(paths, input.LockfilePath)
 	if err != nil {
@@ -571,10 +661,11 @@ func loadCommandInputsAtPaths(
 		StatefilePath:    paths.StatefilePath,
 	}
 
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
-		return commandContext{}, result, err
-	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if barrier != nil {
+		if err := barrier.Validate(ctx); err != nil {
+			return commandContext{}, result, fmt.Errorf("validate recovery barrier before apply planning: %w", err)
+		}
+	} else if err := refuseJournalAndFileSet(ctx, paths); err != nil {
 		return commandContext{}, result, err
 	}
 
@@ -700,4 +791,8 @@ func cloneCommandInput(input CommandInput) CommandInput {
 	cloned := input
 	cloned.TargetValues = append([]string(nil), input.TargetValues...)
 	return cloned
+}
+
+func refuseJournalAndFileSet(ctx context.Context, paths daempaths.Paths) error {
+	return recoverygate.RequireClear(ctx, paths)
 }

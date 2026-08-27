@@ -6,6 +6,7 @@ import (
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -71,6 +72,7 @@ func refusedResult(
 		result.ResultClass = ResultCancelled
 	}
 	result.ReasonCode = code
+	result.RecoveryBarrier = recoverygate.StateOf(cause)
 	if remediation != "" {
 		result.Remediation = []string{remediation}
 	}
@@ -84,6 +86,10 @@ func (result CommandResult) FailureDetail() string {
 	if !result.HasErrors() {
 		return ""
 	}
+	return result.failureDetail() + result.recoveryBarrierDetail()
+}
+
+func (result CommandResult) failureDetail() string {
 	switch result.ReasonCode {
 	case ReasonInvalidSelection:
 		return "the selected extension relation is invalid"
@@ -105,6 +111,24 @@ func (result CommandResult) FailureDetail() string {
 		return "the authorized refresh plan is stale"
 	case ReasonMutationAuthority:
 		return "required mutation authority is unavailable"
+	case ReasonInterruptedApply:
+		return "interrupted apply journal is present; run daem recover first"
+	case ReasonInterruptedApplyFileSetFence:
+		return "interrupted apply journal is present; run daem recover first; the file-set fence remains after recover"
+	case ReasonJournalCleanupIncomplete:
+		return "journal cleanup is incomplete; run daem recover first"
+	case ReasonJournalCleanupFileSetFence:
+		return "journal cleanup is incomplete; run daem recover first; the file-set fence remains after recover"
+	case ReasonInterruptedFileSetTransaction:
+		return "an interrupted file-set transaction requires its owning workflow to recover it"
+	case ReasonFileSetEvidenceInvalid:
+		return "file-set transaction evidence is incomplete or invalid"
+	case ReasonAbandonedFileSetResidue:
+		return "abandoned file-set residue remains; current daem cannot recover markerless residue"
+	case ReasonFileSetFenceCensusLimit:
+		return "the bounded file-set fence census could not prove the fence clean"
+	case ReasonFileSetAccessUnprovable:
+		return "file-set state directory access or identity could not be proven"
 	case ReasonCommandFailed:
 		return result.commandFailureDetail()
 	case ReasonInvalidTimeout:
@@ -123,6 +147,17 @@ func (result CommandResult) FailureDetail() string {
 	default:
 		return unavailableFailureDetail
 	}
+}
+
+func (result CommandResult) recoveryBarrierDetail() string {
+	detail := ""
+	if result.RecoveryBarrier.JournalObserved() && !result.RecoveryBarrier.JournalKnown() {
+		detail += "; journal recovery authority could not be classified"
+	}
+	if result.RecoveryBarrier.FileSetObserved() && !result.RecoveryBarrier.FileSetKnown() {
+		detail += "; file-set fence could not be classified"
+	}
+	return detail
 }
 
 func (result CommandResult) commandFailureDetail() string {

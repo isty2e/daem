@@ -421,11 +421,30 @@ func canonicalStateDir(path string) (string, error) {
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("resolve file-set transaction state dir %q: %w", path, err)
+		return "", wrapFileSetAccessUnprovable(
+			fmt.Errorf("resolve file-set transaction state dir %q: %w", path, err),
+		)
 	}
-	probe, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(filepath.Clean(absolute), ".metadata-state-probe"))
+	clean := filepath.Clean(absolute)
+	info, lstatErr := os.Lstat(clean)
+	switch {
+	case lstatErr == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0):
+		return "", wrapFileSetAccessUnprovable(fmt.Errorf(
+			"file-set transaction state dir %q is not a directory",
+			path,
+		))
+	case lstatErr != nil && !errors.Is(lstatErr, os.ErrNotExist):
+		return "", wrapFileSetAccessUnprovable(fmt.Errorf(
+			"inspect file-set transaction state dir %q: %w",
+			path,
+			lstatErr,
+		))
+	}
+	probe, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(clean, ".metadata-state-probe"))
 	if err != nil {
-		return "", fmt.Errorf("canonicalize file-set transaction state dir %q: %w", path, err)
+		return "", wrapFileSetAccessUnprovable(
+			fmt.Errorf("canonicalize file-set transaction state dir %q: %w", path, err),
+		)
 	}
 	return filepath.Dir(probe), nil
 }

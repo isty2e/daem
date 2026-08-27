@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 )
 
@@ -37,6 +38,7 @@ type ExecutionResult struct {
 	disclosure         journal.RecoverablePlan
 	operationID        string
 	executionSucceeded bool
+	fileSetFence       transaction.FileSetFenceKind
 }
 
 type terminalExecutionFailure struct {
@@ -98,6 +100,24 @@ func unknownExecutionResult(operationID string) ExecutionResult {
 func (result ExecutionResult) withExecutionFailure() ExecutionResult {
 	result.executionSucceeded = false
 	return result
+}
+
+func (result ExecutionResult) withFileSetFence(kind transaction.FileSetFenceKind) ExecutionResult {
+	result.fileSetFence = kind
+	return result
+}
+
+// ContinuingFileSetFence returns the separately observed file-set fence that
+// journal recovery did not clear.
+func (result ExecutionResult) ContinuingFileSetFence() (transaction.FileSetFenceKind, bool) {
+	switch result.fileSetFence {
+	case transaction.FileSetFencePublishedTransaction,
+		transaction.FileSetFenceAbandonedResidue,
+		transaction.FileSetFenceCensusLimit:
+		return result.fileSetFence, true
+	default:
+		return transaction.FileSetFenceClear, false
+	}
 }
 
 // Phase returns the public post-execution lifecycle projection.

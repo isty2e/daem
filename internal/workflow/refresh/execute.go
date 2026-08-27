@@ -118,15 +118,19 @@ func Execute(
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
 
-	current, err := planAtPaths(
+	current, err := planAtPathsWithBarrier(
 		ctx,
 		execution.input,
 		execution.planned.timeout,
 		execution.options,
 		effectPaths,
 		ModeExecute,
+		&execution.planned.barrier,
 	)
 	if err != nil {
+		if isPreservedReplanCause(err) {
+			return staleBeforeAttempt(result, err)
+		}
 		return staleBeforeAttempt(result, errors.Join(mutation.StalePlanError{}, err))
 	}
 	current.authority, err = buildAuthorityEvidence(current, execution.root)

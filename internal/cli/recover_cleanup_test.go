@@ -15,6 +15,7 @@ import (
 
 	clipresent "github.com/isty2e/daem/internal/cli/present"
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
@@ -98,10 +99,11 @@ func TestRecoverActiveFailureProjectionPreservesDetailedCause(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	if err := clipresent.PrintRecoverResultJSON(
+	if err := clipresent.PrintRecoverResultJSONWithFence(
 		&output,
 		"write",
 		disclosure,
+		transaction.FileSetFenceClear,
 		nil,
 		cause,
 	); err != nil {
@@ -254,10 +256,11 @@ func TestRecoverCleanupFailureProjectionIsSharedAndPathNeutral(t *testing.T) {
 	}
 
 	var output bytes.Buffer
-	if err := clipresent.PrintRecoverResultJSON(
+	if err := clipresent.PrintRecoverResultJSONWithFence(
 		&output,
 		"write",
 		disclosure,
+		transaction.FileSetFenceClear,
 		nil,
 		resultErr,
 	); err != nil {

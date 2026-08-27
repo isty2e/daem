@@ -57,7 +57,7 @@ func validateBeforeHostAttempt(
 	} else if !matches {
 		return mutation.StalePlanError{}
 	}
-	return nil
+	return current.barrier.Validate(ctx)
 }
 
 func buildAuthorityEvidence(
@@ -81,6 +81,10 @@ func buildAuthorityEvidence(
 	rootIdentity := rootFact{
 		PhysicalRoot:         authority.PhysicalRoot(),
 		AuthorityFingerprint: fingerprint,
+	}
+	barrierFingerprint, err := planned.barrier.IdentityFingerprint()
+	if err != nil {
+		return authorityEvidence{}, err
 	}
 
 	facts := make([]authorityFact, 0)
@@ -181,12 +185,26 @@ func buildAuthorityEvidence(
 	); err != nil {
 		return authorityEvidence{}, err
 	}
-	if err := addLogicalPair(
-		planned.paths.RecoveryDir,
-		mutation.AccessExclusive,
-		mutation.AccessExclusive,
-	); err != nil {
-		return authorityEvidence{}, err
+	for _, path := range []struct {
+		value  string
+		access mutation.AccessMode
+	}{
+		{value: planned.paths.RecoveryDir, access: mutation.AccessExclusive},
+		{value: planned.paths.StateDir, access: mutation.AccessShared},
+	} {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			facts = append(facts, authorityFact{
+				Kind: "recovery_barrier", Path: path.value,
+				Access: path.access, Effect: effect,
+			})
+		}
+	}
+	domains = append(domains, planned.barrier.Domains()...)
+	for _, revision := range planned.barrier.RevisionRequests() {
+		revisions[revisionKey(revision.Path, revision.Effect)] = revision
 	}
 	for _, observedPath := range planned.authorityPaths {
 		for _, effect := range []mutation.PathEffect{
@@ -227,11 +245,13 @@ func buildAuthorityEvidence(
 		return authorityFactKey(facts[left]) < authorityFactKey(facts[right])
 	})
 	canonical, err := json.Marshal(struct {
-		Domains []authorityFact
-		Root    rootFact
+		Domains         []authorityFact
+		Root            rootFact
+		RecoveryBarrier string
 	}{
-		Domains: facts,
-		Root:    rootIdentity,
+		Domains:         facts,
+		Root:            rootIdentity,
+		RecoveryBarrier: barrierFingerprint,
 	})
 	if err != nil {
 		return authorityEvidence{}, fmt.Errorf("fingerprint refresh authority: %w", err)

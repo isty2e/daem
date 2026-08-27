@@ -443,9 +443,23 @@ do not delete the reported `metadata-transaction` directory or edit the
 recorded files independently. Preserve the diagnostic and the selected project
 state for manual inspection.
 
-If apply-journal recovery or incomplete journal cleanup is also present, run
-`daem recover` first. An `unmanage` retry will not inspect or repair the
-metadata transaction until that journal authority is clear.
+If active apply recovery is also present, `interrupted_apply` identifies host
+recovery; retained/finalizing journal cleanup instead reports
+`journal_cleanup_incomplete`. With a valid published marker, markerless residue,
+or bounded census exhaustion, their joint reasons report a continuing file-set
+fence. Run `daem recover --dry-run` first for the journal authority; recover does
+not consume the metadata marker, reserved residue, or census-limit fence.
+
+StateDir access/identity loss is different from census exhaustion. If StateDir
+cannot be canonicalized, opened, or enumerated, or its identity changed, recover
+is blocked even when an active journal was already observed. Restore StateDir
+access and identity first; do not perform host/recovery mutation through a
+RecoveryDir child whose parent boundary is unprovable. A census limit means the
+directory boundary was accessible but the bounded sibling classification did
+not finish; journal recovery may proceed while that census fence remains.
+Invalid or incomplete published evidence likewise requires repair before
+journal recovery. An `unmanage` retry will not inspect or repair the metadata
+transaction until journal authority is clear.
 
 Metadata transaction marker version 3 enforces bounded declaration recovery.
 Versions 1 and 2 predate that contract, so current daem versions preserve but
@@ -461,9 +475,21 @@ the interrupted write cannot restore the fence. Retrying the authoring or
 `unmanage` command, refreshing a carrier, or running `daem recover` will not
 remove that residue: a name prefix is not deletion authority. Preserve the
 reported directory for analysis. Do not delete, rename, or empty it merely
-because it matches a reserved prefix. If a published `metadata-transaction`
-marker is also present, retry the exact interrupted write first; leftover
-siblings still block later commands until they are independently resolved.
+because it matches a reserved prefix. If a recoverable apply journal is also
+present, finish `daem recover` first; the residue remains afterward and still
+blocks later commands. If a published `metadata-transaction` marker is also
+present, retry the exact interrupted write after the journal is clear;
+leftover siblings still block later commands until they are independently
+resolved.
+
+When the state directory cannot be inspected or exceeds the fence proof
+limit, daem also fails closed: it cannot prove the fence clean. Overflow of
+the state-directory census is still a fence, but recover can plan if the
+recovery root itself remains readable. When the state directory identity or
+access cannot be proven, restore access first and do not run recover until
+the directory can be inspected. That is not a published interrupted marker
+and not named residue. Do not retry an interrupted write, and do not delete
+entries because they match a reserved prefix.
 
 ## Lockfile Is Missing Or Stale
 

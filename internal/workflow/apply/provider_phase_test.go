@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -111,6 +112,49 @@ func TestProviderEffectPreventsWholeApplyRolledBackOutcome(t *testing.T) {
 	}
 	if _, statErr := os.Stat(piProviderPackagePath(root)); statErr != nil {
 		t.Fatalf("provider effect did not remain after managed rollback: %v", statErr)
+	}
+}
+
+func TestProviderReplanPreservesAbandonedFileSetResidue(t *testing.T) {
+	root, manifestPath := writePiProviderMCPFixture(t)
+	paths := applyTestPaths(t, root)
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+			writePiProviderInstallation(t, root, "2.15.0")
+			plantAbandonedFileSetResidue(t, paths.StateDir)
+			return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+		},
+	})
+
+	planned, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		HostRouteExecutor: executor,
+	})
+	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
+	}
+	failure := ClassifyFailure(err, result)
+	if failure.Reason() != FailureReasonAbandonedFileSetResidue {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonAbandonedFileSetResidue)
+	}
+	if strings.Contains(failure.Detail(), "authorized apply plan changed") ||
+		strings.Contains(failure.Detail(), "authoritative inputs changed") ||
+		strings.Contains(failure.Detail(), "rerun") {
+		t.Fatalf("detail = %q, want preserve-residue guidance not stale-plan retry", failure.Detail())
+	}
+}
+
+func plantAbandonedFileSetResidue(t *testing.T, stateDir string) {
+	t.Helper()
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	residue := filepath.Join(stateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
 	}
 }
 

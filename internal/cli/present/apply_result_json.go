@@ -7,10 +7,60 @@ import (
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
 	durablecarrier "github.com/isty2e/daem/internal/assurance/durable/carrier"
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/findings"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	applyworkflow "github.com/isty2e/daem/internal/workflow/apply"
 )
+
+type recoveryBarrierJSON struct {
+	Journal string `json:"journal,omitempty"`
+	FileSet string `json:"file_set,omitempty"`
+}
+
+func recoveryBarrierJSONFor(state recoverygate.State) *recoveryBarrierJSON {
+	if !state.Observed() {
+		return nil
+	}
+	result := recoveryBarrierJSON{}
+	if state.JournalObserved() {
+		result.Journal = "unknown"
+		if state.JournalKnown() {
+			switch state.Journal() {
+			case journal.InterruptionClear:
+				result.Journal = "clear"
+			case journal.InterruptionActiveApply:
+				result.Journal = "active_apply"
+			case journal.InterruptionCleanupOnly:
+				result.Journal = "cleanup_only"
+			case journal.InterruptionInvalid:
+				result.Journal = "invalid"
+			}
+		}
+	}
+	if state.FileSetObserved() {
+		result.FileSet = "unknown"
+		if state.FileSetKnown() {
+			switch state.FileSet() {
+			case transaction.FileSetFenceClear:
+				result.FileSet = "clear"
+			case transaction.FileSetFencePublishedTransaction:
+				result.FileSet = "published_transaction"
+			case transaction.FileSetFenceInvalidEvidence:
+				result.FileSet = "invalid_evidence"
+			case transaction.FileSetFenceAbandonedResidue:
+				result.FileSet = "abandoned_residue"
+			case transaction.FileSetFenceCensusLimit:
+				result.FileSet = "census_limit"
+			case transaction.FileSetFenceAccessUnprovable:
+				result.FileSet = "access_unprovable"
+			}
+		}
+	}
+	return &result
+}
 
 type ApplyResultJSONInput struct {
 	ActionCount            int
@@ -50,10 +100,11 @@ type applyResultJSONOutput struct {
 }
 
 type applyResultJSONError struct {
-	Code    applyworkflow.FailureReason  `json:"code"`
-	Phase   applyworkflow.FailurePhase   `json:"phase"`
-	Outcome applyworkflow.FailureOutcome `json:"outcome"`
-	Message string                       `json:"message"`
+	Code            applyworkflow.FailureReason  `json:"code"`
+	Phase           applyworkflow.FailurePhase   `json:"phase"`
+	Outcome         applyworkflow.FailureOutcome `json:"outcome"`
+	Message         string                       `json:"message"`
+	RecoveryBarrier *recoveryBarrierJSON         `json:"recovery_barrier,omitempty"`
 }
 
 func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
@@ -91,10 +142,11 @@ func PrintApplyResultJSON(output io.Writer, input ApplyResultJSONInput) error {
 	if input.Failure != nil {
 		payload.HasErrors = true
 		payload.Errors = append(payload.Errors, applyResultJSONError{
-			Code:    input.Failure.Reason(),
-			Phase:   input.Failure.Phase(),
-			Outcome: input.Failure.Outcome(),
-			Message: input.Failure.Detail(),
+			Code:            input.Failure.Reason(),
+			Phase:           input.Failure.Phase(),
+			Outcome:         input.Failure.Outcome(),
+			Message:         input.Failure.Detail(),
+			RecoveryBarrier: recoveryBarrierJSONFor(input.Failure.RecoveryBarrier()),
 		})
 	}
 

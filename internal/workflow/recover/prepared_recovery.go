@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -30,6 +31,9 @@ type recoveryPreparation struct {
 	input             PlanInput
 	operationEvidence mutation.OperationFingerprint
 	authorityEvidence recoveryAuthorityEvidence
+	stateDirAuthority transaction.StateDirAuthority
+	activeStateDir    bool
+	fileSetFence      transaction.FileSetFenceKind
 }
 
 // PreparedRecovery owns one exact recovery operation. Disclosure returns only
@@ -37,8 +41,9 @@ type recoveryPreparation struct {
 // operation and its evidence exactly once. Value copies remain aliases of one
 // shared lifecycle and cannot duplicate execution authority.
 type PreparedRecovery struct {
-	disclosure journal.RecoverablePlan
-	lifecycle  *preparedRecoveryLifecycle
+	disclosure   journal.RecoverablePlan
+	fileSetFence transaction.FileSetFenceKind
+	lifecycle    *preparedRecoveryLifecycle
 }
 
 type preparedRecoveryLifecycle struct {
@@ -49,7 +54,8 @@ type preparedRecoveryLifecycle struct {
 
 func newPreparedRecovery(planned recoveryPreparation) *PreparedRecovery {
 	return &PreparedRecovery{
-		disclosure: planned.plan.Clone(),
+		disclosure:   planned.plan.Clone(),
+		fileSetFence: planned.fileSetFence,
 		lifecycle: &preparedRecoveryLifecycle{
 			state:   preparedRecoveryReady,
 			planned: planned,
@@ -59,6 +65,22 @@ func newPreparedRecovery(planned recoveryPreparation) *PreparedRecovery {
 
 // Disclosure returns an independent recovery snapshot for presentation.
 // It grants no authority to execute the disclosed actions.
+// ContinuingFileSetFence returns the separate file-set fence that active
+// journal recovery does not clear.
+func (prepared *PreparedRecovery) ContinuingFileSetFence() (transaction.FileSetFenceKind, bool) {
+	if prepared == nil {
+		return transaction.FileSetFenceClear, false
+	}
+	switch prepared.fileSetFence {
+	case transaction.FileSetFencePublishedTransaction,
+		transaction.FileSetFenceAbandonedResidue,
+		transaction.FileSetFenceCensusLimit:
+		return prepared.fileSetFence, true
+	default:
+		return transaction.FileSetFenceClear, false
+	}
+}
+
 func (prepared *PreparedRecovery) Disclosure() journal.RecoverablePlan {
 	if prepared == nil || prepared.lifecycle == nil {
 		return nil

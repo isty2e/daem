@@ -4,6 +4,7 @@ package commit
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -27,12 +28,36 @@ func (identity platformIdentity) sameObject(other platformIdentity) bool {
 	return identity.native.sameObject(other.native)
 }
 
+func (identity platformIdentity) objectToken() []byte {
+	if !identity.valid() {
+		return nil
+	}
+	token := make([]byte, 32)
+	binary.LittleEndian.PutUint64(token[:8], identity.native.volumeSerial)
+	copy(token[8:24], identity.native.fileID[:])
+	binary.LittleEndian.PutUint64(token[24:], uint64(identity.native.creationTime))
+	return token
+}
+
 // CaptureEntryIdentity captures ephemeral no-follow identity evidence through
-// a retained Windows root and parent handle.
+// a retained Windows root and parent handle for a storage mutation path.
 func CaptureEntryIdentity(ctx context.Context, path string) (EntryIdentity, error) {
 	if err := validateCommitPath(path); err != nil {
 		return EntryIdentity{}, err
 	}
+	return observeWindowsEntryIdentity(ctx, path)
+}
+
+// ObserveEntryIdentity captures ephemeral no-follow identity evidence without
+// applying storage-reserved basename policy.
+func ObserveEntryIdentity(ctx context.Context, path string) (EntryIdentity, error) {
+	if err := validateRootedPath(path); err != nil {
+		return EntryIdentity{}, err
+	}
+	return observeWindowsEntryIdentity(ctx, path)
+}
+
+func observeWindowsEntryIdentity(ctx context.Context, path string) (EntryIdentity, error) {
 	if ctx == nil {
 		return EntryIdentity{}, windowsFailureBeforeVisibility(phaseCaptureIdentity, path, fmt.Errorf("identity capture context is required"))
 	}

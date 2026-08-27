@@ -55,10 +55,11 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 	}
 	defer prepared.Close()
 	plan := prepared.Disclosure()
+	fileSetFence, _ := prepared.ContinuingFileSetFence()
 
 	if *dryRun {
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(stdout, "dry-run", plan, nil, nil); err != nil {
+			if err := clipresent.PrintRecoverResultJSONWithFence(stdout, "dry-run", plan, fileSetFence, nil, nil); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
 				return 1
 			}
@@ -67,7 +68,7 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			}
 			return 0
 		}
-		clipresent.PrintRecoverPlanWithOptions(stdout, plan, clipresent.HumanOptions{Verbose: *verbose})
+		clipresent.PrintRecoverPlanWithFenceOptions(stdout, plan, fileSetFence, clipresent.HumanOptions{Verbose: *verbose})
 		if plan.HasErrors() {
 			return 1
 		}
@@ -76,19 +77,19 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 
 	if plan.Blocked() || plan.HasErrors() {
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(stdout, "write", plan, nil, nil); err != nil {
+			if err := clipresent.PrintRecoverResultJSONWithFence(stdout, "write", plan, fileSetFence, nil, nil); err != nil {
 				fmt.Fprintf(stderr, "recover failed: write json: %s\n", humanDiagnosticError(err))
 				return 1
 			}
 		}
 		if !*jsonOutput {
-			clipresent.PrintRecoverPlanWithOptions(stdout, plan, clipresent.HumanOptions{Verbose: *verbose})
+			clipresent.PrintRecoverPlanWithFenceOptions(stdout, plan, fileSetFence, clipresent.HumanOptions{Verbose: *verbose})
 		}
 		return 1
 	}
 
 	if !*jsonOutput {
-		clipresent.PrintRecoverPlanWithOptions(stdout, plan, clipresent.HumanOptions{Verbose: *verbose})
+		clipresent.PrintRecoverPlanWithFenceOptions(stdout, plan, fileSetFence, clipresent.HumanOptions{Verbose: *verbose})
 	}
 	if interactiveConfirmation {
 		confirmed, err := options.confirmation.prompt("recover")
@@ -108,10 +109,11 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			options.recoverExecuteOptions,
 		)
 		if *jsonOutput {
-			if err := clipresent.PrintRecoverResultJSON(
+			if err := clipresent.PrintRecoverResultJSONWithFence(
 				stdout,
 				"write",
 				plan,
+				fileSetFence,
 				&executionResult,
 				executeErr,
 			); err != nil {
@@ -131,7 +133,15 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			)
 			return 1
 		}
-		fmt.Fprintln(stdout, "recovery completed")
+		if continuing, present := executionResult.ContinuingFileSetFence(); present {
+			fmt.Fprintf(
+				stdout,
+				"journal recovery completed; continuing file-set fence remains: %s\n",
+				continuing,
+			)
+		} else {
+			fmt.Fprintln(stdout, "recovery completed")
+		}
 	}
 
 	return 0

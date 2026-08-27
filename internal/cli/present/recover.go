@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/contractversion"
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/journal/recovery"
@@ -14,13 +15,15 @@ import (
 	recoverworkflow "github.com/isty2e/daem/internal/workflow/recover"
 )
 
-func PrintRecoverPlanWithOptions(
+func PrintRecoverPlanWithFenceOptions(
 	output io.Writer,
 	disclosure journal.RecoverablePlan,
+	fileSetFence transaction.FileSetFenceKind,
 	options HumanOptions,
 ) {
 	if plan, ok := journal.ActiveRecoveryPlan(disclosure); ok {
 		printActiveRecoverPlan(output, plan, options)
+		printContinuingFileSetFence(output, fileSetFence)
 		return
 	}
 	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {
@@ -31,6 +34,30 @@ func PrintRecoverPlanWithOptions(
 		return
 	}
 	fmt.Fprintln(output, "recover: invalid")
+}
+
+func printContinuingFileSetFence(output io.Writer, kind transaction.FileSetFenceKind) {
+	switch kind {
+	case transaction.FileSetFencePublishedTransaction,
+		transaction.FileSetFenceAbandonedResidue,
+		transaction.FileSetFenceCensusLimit:
+		fmt.Fprintf(
+			output,
+			"continuing file-set fence: %s; journal recovery does not clear this fence\n",
+			kind,
+		)
+	}
+}
+
+func continuingFileSetFenceValue(kind transaction.FileSetFenceKind) string {
+	switch kind {
+	case transaction.FileSetFencePublishedTransaction,
+		transaction.FileSetFenceAbandonedResidue,
+		transaction.FileSetFenceCensusLimit:
+		return string(kind)
+	default:
+		return ""
+	}
 }
 
 func printActiveRecoverPlan(
@@ -140,6 +167,7 @@ type recoveryPlanJSONOutput struct {
 	Actions                []recoveryPlanJSONAction          `json:"actions"`
 	CleanupObligations     []recoveryCleanupObligationOutput `json:"cleanup_obligations"`
 	Errors                 []string                          `json:"errors,omitempty"`
+	ContinuingFileSetFence string                            `json:"continuing_file_set_fence,omitempty"`
 }
 
 type recoveryCleanupObligationOutput struct {
@@ -174,14 +202,15 @@ type recoverPlanJSONResource struct {
 	Name string `json:"name"`
 }
 
-func PrintRecoverResultJSON(
+func PrintRecoverResultJSONWithFence(
 	output io.Writer,
 	mode string,
 	disclosure journal.RecoverablePlan,
+	fileSetFence transaction.FileSetFenceKind,
 	execution *recoverworkflow.ExecutionResult,
 	resultErr error,
 ) error {
-	payload, err := recoveryJSONPayload(mode, disclosure, execution)
+	payload, err := recoveryJSONPayload(mode, disclosure, fileSetFence, execution)
 	if err != nil {
 		return err
 	}
@@ -218,10 +247,16 @@ func RecoverResultError(
 func recoveryJSONPayload(
 	mode string,
 	disclosure journal.RecoverablePlan,
+	fileSetFence transaction.FileSetFenceKind,
 	execution *recoverworkflow.ExecutionResult,
 ) (recoveryPlanJSONOutput, error) {
 	phase := "planned"
 	if execution != nil {
+		if currentFence, present := execution.ContinuingFileSetFence(); present {
+			fileSetFence = currentFence
+		} else {
+			fileSetFence = transaction.FileSetFenceClear
+		}
 		if execution.OperationID() == "" ||
 			execution.OperationID() != recoveryOperationID(disclosure) {
 			return recoveryPlanJSONOutput{}, fmt.Errorf(
@@ -232,13 +267,14 @@ func recoveryJSONPayload(
 		current, retained := execution.CurrentDisclosure()
 		if !retained {
 			return recoveryPlanJSONOutput{
-				SchemaVersion:      contractversion.RecoveryJSON,
-				Command:            "recover",
-				Mode:               mode,
-				Phase:              phase,
-				OperationID:        execution.OperationID(),
-				Actions:            []recoveryPlanJSONAction{},
-				CleanupObligations: []recoveryCleanupObligationOutput{},
+				SchemaVersion:          contractversion.RecoveryJSON,
+				Command:                "recover",
+				Mode:                   mode,
+				Phase:                  phase,
+				OperationID:            execution.OperationID(),
+				Actions:                []recoveryPlanJSONAction{},
+				CleanupObligations:     []recoveryCleanupObligationOutput{},
+				ContinuingFileSetFence: continuingFileSetFenceValue(fileSetFence),
 			}, nil
 		}
 		if recoveryOperationID(current) != execution.OperationID() ||
@@ -266,6 +302,7 @@ func recoveryJSONPayload(
 			HasErrors:              plan.HasErrors(),
 			Actions:                recoveryPlanJSONActions(actions),
 			CleanupObligations:     cleanupObligations,
+			ContinuingFileSetFence: continuingFileSetFenceValue(fileSetFence),
 		}, nil
 	}
 	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {

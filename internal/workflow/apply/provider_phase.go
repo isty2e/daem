@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -293,11 +292,17 @@ func runMCPProviderPrerequisitePhase(
 		providerState = nextState
 		providerClaims = nextClaims
 		result.attempts = append(result.attempts, attempts...)
+		if stateDirErr := current.barrier.AcceptStateDirCreation(ctx); stateDirErr != nil {
+			return result, errors.Join(routeErr, stateDirErr)
+		}
 		if routeErr != nil {
 			return result, routeErr
 		}
 	}
 	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := current.barrier.AcceptStateDirCreation(ctx); err != nil {
 		return result, err
 	}
 	if err := leases.Release(); err != nil {
@@ -315,11 +320,12 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
-	refreshed, err := planReadinessAtPaths(
+	refreshed, err := planReadinessAtPathsWithBarrier(
 		ctx,
 		currentInput,
 		execution.operationContext,
 		current.context.Paths,
+		&current.barrier,
 	)
 	if err != nil {
 		return result, providerPhaseStale(
@@ -364,7 +370,7 @@ func runMCPProviderPrerequisitePhase(
 			_ = reboundLeases.Release()
 		}
 	}()
-	if err := transaction.RequireClearFileSet(ctx, refreshed.context.Paths.StateDir); err != nil {
+	if err := refreshed.barrier.Validate(ctx); err != nil {
 		return result, err
 	}
 	if _, err := projectRootFingerprint(refreshed); err != nil {
@@ -388,11 +394,12 @@ func runMCPProviderPrerequisitePhase(
 		return result, err
 	}
 
-	underLease, err := planReadinessAtPaths(
+	underLease, err := planReadinessAtPathsWithBarrier(
 		ctx,
 		currentInput,
 		execution.operationContext,
 		refreshed.context.Paths,
+		&refreshed.barrier,
 	)
 	if err != nil {
 		return result, providerPhaseStale(

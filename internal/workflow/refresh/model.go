@@ -16,6 +16,7 @@ import (
 	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -43,22 +44,31 @@ const (
 type ReasonCode string
 
 const (
-	ReasonNone                   ReasonCode = ""
-	ReasonInvalidSelection       ReasonCode = "invalid_selection"
-	ReasonManifestUnavailable    ReasonCode = "manifest_unavailable"
-	ReasonLockUnavailable        ReasonCode = "lock_unavailable"
-	ReasonLockMismatch           ReasonCode = "lock_mismatch"
-	ReasonRefreshUnsupported     ReasonCode = "refresh_unsupported"
-	ReasonRelationMissing        ReasonCode = "relation_missing"
-	ReasonRelationAmbiguous      ReasonCode = "relation_ambiguous"
-	ReasonObservationUnavailable ReasonCode = "observation_unavailable"
-	ReasonStalePlan              ReasonCode = "stale_plan"
-	ReasonMutationAuthority      ReasonCode = "mutation_authority"
-	ReasonCommandFailed          ReasonCode = "command_failed"
-	ReasonInvalidTimeout         ReasonCode = "invalid_timeout"
-	ReasonPostObservationFailed  ReasonCode = "post_observation_failed"
-	ReasonAttemptPersistence     ReasonCode = "attempt_persistence_failed"
-	ReasonCancelled              ReasonCode = "cancelled"
+	ReasonNone                          ReasonCode = ""
+	ReasonInvalidSelection              ReasonCode = "invalid_selection"
+	ReasonManifestUnavailable           ReasonCode = "manifest_unavailable"
+	ReasonLockUnavailable               ReasonCode = "lock_unavailable"
+	ReasonLockMismatch                  ReasonCode = "lock_mismatch"
+	ReasonRefreshUnsupported            ReasonCode = "refresh_unsupported"
+	ReasonRelationMissing               ReasonCode = "relation_missing"
+	ReasonRelationAmbiguous             ReasonCode = "relation_ambiguous"
+	ReasonObservationUnavailable        ReasonCode = "observation_unavailable"
+	ReasonStalePlan                     ReasonCode = "stale_plan"
+	ReasonMutationAuthority             ReasonCode = "mutation_authority"
+	ReasonInterruptedApply              ReasonCode = "interrupted_apply"
+	ReasonInterruptedApplyFileSetFence  ReasonCode = "interrupted_apply_file_set_fence"
+	ReasonJournalCleanupIncomplete      ReasonCode = "journal_cleanup_incomplete"
+	ReasonJournalCleanupFileSetFence    ReasonCode = "journal_cleanup_file_set_fence"
+	ReasonInterruptedFileSetTransaction ReasonCode = "interrupted_file_set_transaction"
+	ReasonFileSetEvidenceInvalid        ReasonCode = "file_set_evidence_invalid"
+	ReasonAbandonedFileSetResidue       ReasonCode = "abandoned_file_set_residue"
+	ReasonFileSetFenceCensusLimit       ReasonCode = "file_set_fence_census_limit"
+	ReasonFileSetAccessUnprovable       ReasonCode = "file_set_access_unprovable"
+	ReasonCommandFailed                 ReasonCode = "command_failed"
+	ReasonInvalidTimeout                ReasonCode = "invalid_timeout"
+	ReasonPostObservationFailed         ReasonCode = "post_observation_failed"
+	ReasonAttemptPersistence            ReasonCode = "attempt_persistence_failed"
+	ReasonCancelled                     ReasonCode = "cancelled"
 )
 
 type ObservationPosture string
@@ -160,6 +170,7 @@ type CommandResult struct {
 	Observation      *Observation
 	AttemptHistory   AttemptHistory
 	Remediation      []string
+	RecoveryBarrier  recoverygate.State
 }
 
 func (result CommandResult) HasErrors() bool {
@@ -308,4 +319,5 @@ type plan struct {
 	fingerprint       mutation.OperationFingerprint
 	authority         authorityEvidence
 	revisions         mutation.RevisionSet
+	barrier           recoverygate.EffectAuthority
 }

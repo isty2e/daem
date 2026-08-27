@@ -7,8 +7,6 @@ import (
 
 	liveobserve "github.com/isty2e/daem/internal/assurance/observe/live"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
-	"github.com/isty2e/daem/internal/effect/journal"
 	managedhostpath "github.com/isty2e/daem/internal/output/hostpath/managed"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -16,6 +14,7 @@ import (
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
 
@@ -34,10 +33,7 @@ func RunOutputs(ctx context.Context, input Input) (OutputResult, error) {
 		return OutputResult{}, err
 	}
 	result := OutputResult{ManifestPath: paths.ManifestPath}
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
-		return result, err
-	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireClear(ctx, paths); err != nil {
 		return result, err
 	}
 

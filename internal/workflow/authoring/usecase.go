@@ -24,6 +24,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 // AuthoringMode selects whether an authoring operation only plans changes or writes them.
@@ -258,17 +259,26 @@ func executeAuthoringOperation(ctx context.Context, options ExecutionOptions, bu
 	if ctx == nil {
 		return OperationResult{}, fmt.Errorf("authoring context is required")
 	}
+	var barrier recoverygate.EffectAuthority
 	if options.Mode == AuthoringModeDryRun {
 		if err := requireClearManifestFileSet(ctx, options.ManifestPath); err != nil {
 			return OperationResult{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
 		}
 	} else {
-		if err := recoverAuthoringFileSetBeforeRead(ctx, options); err != nil {
+		paths, err := daempaths.Resolve(options.ManifestPath)
+		if err != nil {
+			return OperationResult{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
+		}
+		barrier, err = recoverygate.NewEffectAuthority(ctx, paths)
+		if err != nil {
+			return OperationResult{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
+		}
+		if err := recoverAuthoringFileSetBeforeRead(ctx, options, barrier); err != nil {
 			return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 		}
 	}
 
-	optimistic, err := buildAuthoringCandidate(ctx, build, options.ManifestPath)
+	optimistic, err := buildAuthoringCandidate(ctx, build, options.ManifestPath, barrier)
 	if err != nil {
 		return OperationResult{}, err
 	}
@@ -301,6 +311,7 @@ func requireClearManifestFileSet(ctx context.Context, manifestPath string) error
 func recoverAuthoringFileSetBeforeRead(
 	ctx context.Context,
 	options ExecutionOptions,
+	barrier recoverygate.EffectAuthority,
 ) error {
 	paths, err := daempaths.Resolve(options.ManifestPath)
 	if err != nil {
@@ -314,6 +325,7 @@ func recoverAuthoringFileSetBeforeRead(
 		ctx,
 		paths,
 		[]string{paths.ManifestPath, lockfilePath},
+		barrier,
 	)
 }
 

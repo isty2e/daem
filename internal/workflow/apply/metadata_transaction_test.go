@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/recoverygate"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
 
@@ -80,9 +84,127 @@ func writeApplyMetadataTransactionMarker(t *testing.T, stateDir string) {
 	}
 }
 
+func TestApplyPlanningFailsClosedOnAbandonedFileSetResidue(t *testing.T) {
+	manifestPath, stateDir := applyMetadataTransactionFixture(t)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	residue := filepath.Join(stateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
+	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonAbandonedFileSetResidue {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonAbandonedFileSetResidue)
+	}
+	if strings.Contains(failure.Detail(), "refused before effects") ||
+		strings.Contains(failure.Detail(), residue) {
+		t.Fatalf("detail = %q, want typed path-neutral residue diagnosis", failure.Detail())
+	}
+}
+
+func TestApplyPlanningFailsClosedOnUnprovableFileSetFence(t *testing.T) {
+	manifestPath, stateDir := applyMetadataTransactionFixture(t)
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4097; i++ {
+		name := filepath.Join(stateDir, fmt.Sprintf("entry-%04d", i))
+		if err := os.WriteFile(name, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
+	if err == nil || !errors.Is(err, transaction.ErrFileSetFenceUnprovable) {
+		t.Fatalf("error = %v, want ErrFileSetFenceUnprovable", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonFileSetFenceCensusLimit {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonFileSetFenceCensusLimit)
+	}
+	if strings.Contains(failure.Detail(), "refused before effects") {
+		t.Fatalf("detail = %q, want typed unprovable fence diagnosis", failure.Detail())
+	}
+}
+
+func TestApplyPlanningFailsClosedOnUncanonicalizableStateDir(t *testing.T) {
+	manifestPath, stateDir := applyMetadataTransactionFixture(t)
+	replaceStateDirWithFile(t, stateDir)
+
+	_, err := PlanDryRun(context.Background(), CommandInput{ManifestPath: manifestPath})
+	if err == nil || !errors.Is(err, transaction.ErrFileSetAccessUnprovable) {
+		t.Fatalf("error = %v, want ErrFileSetAccessUnprovable", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonFileSetAccessUnprovable {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonFileSetAccessUnprovable)
+	}
+	if strings.Contains(failure.Detail(), "refused before effects") ||
+		strings.Contains(failure.Detail(), "authoritative inputs changed") ||
+		strings.Contains(failure.Detail(), "authorized apply plan changed") {
+		t.Fatalf("detail = %q, want restore-access guidance", failure.Detail())
+	}
+}
+
+func TestClassifyFailureJointJournalAndFileSetFence(t *testing.T) {
+	t.Parallel()
+	journalErr := fmt.Errorf("%w; run: daem recover --dry-run", journal.ErrInterruptedApply)
+	err := recoverygate.Combine(journalErr, transaction.ErrAbandonedFileSetResidue)
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonInterruptedApplyFileSetFence {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonInterruptedApplyFileSetFence)
+	}
+	detail := failure.Detail()
+	if !strings.Contains(detail, "run daem recover") ||
+		!strings.Contains(detail, "file-set fence remains") {
+		t.Fatalf("detail = %q, want recover-first continuing fence", detail)
+	}
+	if strings.Contains(detail, "refused before effects") {
+		t.Fatalf("detail = %q, want joint diagnosis", detail)
+	}
+}
+
+func TestClassifyFailureUnprovableAccessDoesNotRecommendRecover(t *testing.T) {
+	t.Parallel()
+	err := recoverygate.Combine(
+		errors.New("recovery inventory inspect failed"),
+		transaction.ErrFileSetAccessUnprovable,
+	)
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonFileSetAccessUnprovable {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonFileSetAccessUnprovable)
+	}
+	if strings.Contains(failure.Detail(), "run daem recover") {
+		t.Fatalf("detail = %q, want restore-access without recover-first", failure.Detail())
+	}
+}
+
+func replaceStateDirWithFile(t *testing.T, stateDir string) {
+	t.Helper()
+	if err := os.RemoveAll(stateDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(stateDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateDir, []byte("not-a-directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func assertApplyMetadataTransactionError(t *testing.T, err error) {
 	t.Helper()
-	if err == nil || !strings.Contains(err.Error(), "interrupted file-set transaction") {
+	if err == nil || !errors.Is(err, transaction.ErrInterruptedFileSetTransaction) {
 		t.Fatalf("error = %v, want interrupted file-set transaction", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{})
+	if failure.Reason() != FailureReasonInterruptedFileSetTransaction {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonInterruptedFileSetTransaction)
 	}
 }

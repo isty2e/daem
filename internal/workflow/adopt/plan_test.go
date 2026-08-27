@@ -812,7 +812,12 @@ func commandPlanWithRevisionEvidence(
 	plan adoptmodel.Plan,
 ) CommandPlan {
 	t.Helper()
-	revisions, stableRevisions, err := captureImportRevisionEvidence(t.Context(), plan)
+	barrier := mustImportBarrier(t, plan)
+	revisions, stableRevisions, err := captureImportRevisionEvidence(
+		t.Context(),
+		plan,
+		barrier,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -821,6 +826,7 @@ func commandPlanWithRevisionEvidence(
 		plan:            plan,
 		revisions:       revisions,
 		stableRevisions: stableRevisions,
+		barrier:         barrier,
 	}
 }
 

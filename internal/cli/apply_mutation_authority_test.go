@@ -164,6 +164,40 @@ func TestPrintApplyExecutionFailureBoundsAndSanitizesVerboseEvidence(
 	}
 }
 
+func TestRunApplyAbandonedResidueUsesTypedFenceRefusal(t *testing.T) {
+	root := isolatedApplyAuthorityRoot(t)
+	manifestPath, _, _ := writeApplyConfirmationFixture(t, root)
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	residue := filepath.Join(paths.StateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := RunWithOptions(
+		[]string{"apply", "--dry-run", "--manifest", manifestPath},
+		RunOptions{Stdout: &stdout, Stderr: &stderr},
+	)
+	if exitCode != 1 {
+		t.Fatalf("exitCode = %d, want 1; stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "abandoned file-set residue remains") ||
+		!strings.Contains(stderr.String(), "next: preserve the reported residue") {
+		t.Fatalf("stderr = %q, want typed residue refusal", stderr.String())
+	}
+	if strings.Contains(stderr.String(), "apply was refused before effects") ||
+		strings.Contains(stderr.String(), "retry the interrupted") {
+		t.Fatalf("stderr = %q, want no generic refused or retry-authoring guidance", stderr.String())
+	}
+}
+
 func TestRunApplyPlanningFailureUsesClosedDefaultDetail(t *testing.T) {
 	root := isolatedApplyAuthorityRoot(t)
 	manifestPath := filepath.Join(root, "private", "daem.toml")

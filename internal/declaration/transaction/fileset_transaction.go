@@ -109,41 +109,48 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 }
 
 // RequireClearFileSet fails closed when published transaction evidence or
-// abandoned private file-set residue exists. Mutating callers hold AuthorityPath;
-// read-only callers use this as a persisted-evidence gate.
+// abandoned private file-set residue exists. The observation is bound to one
+// no-follow StateDir namespace and directory identity.
 func RequireClearFileSet(ctx context.Context, stateDir string) error {
+	authority, err := CaptureStateDirAuthority(ctx, stateDir)
+	if err != nil {
+		return err
+	}
+	return authority.RequireClear(ctx)
+}
+
+func requireClearFileSetAtCanonicalPath(ctx context.Context, stateDir string) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	canonical, err := canonicalStateDir(stateDir)
-	if err != nil {
-		return err
-	}
-	evidencePath := transactionDir(canonical)
+	evidencePath := transactionDir(stateDir)
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return rejectAbandonedFileSetResidue(ctx, canonical)
+		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	if err != nil {
-		return fmt.Errorf("inspect file-set transaction evidence: %w", err)
+		return wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set transaction evidence: %w", err))
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("file-set transaction evidence at %s is not a directory", evidencePath)
+		return wrapFileSetEvidenceInvalid(fmt.Errorf(
+			"file-set transaction evidence at %s is not a directory",
+			evidencePath,
+		))
 	}
-	activeMarkerPath := markerPath(canonical)
+	activeMarkerPath := markerPath(stateDir)
 	if _, err := loadMarker(ctx, activeMarkerPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf(
+			return wrapFileSetEvidenceInvalid(fmt.Errorf(
 				"file-set transaction evidence at %s is incomplete: marker is missing",
 				evidencePath,
-			)
+			))
 		}
-		return err
+		return wrapFileSetEvidenceInvalid(err)
 	}
-	return fmt.Errorf("interrupted file-set transaction requires recovery at %s", activeMarkerPath)
+	return fmt.Errorf("%w at %s", ErrInterruptedFileSetTransaction, activeMarkerPath)
 }
 
 func recoverWithOperations(
@@ -372,10 +379,120 @@ const (
 	stateDirFenceEnumerationBatch = 64
 )
 
+// FileSetFenceKind is the closed semantic classification of the declaration
+// file-set boundary.
+type FileSetFenceKind string
+
+const (
+	FileSetFenceClear                FileSetFenceKind = ""
+	FileSetFencePublishedTransaction FileSetFenceKind = "published_transaction"
+	FileSetFenceInvalidEvidence      FileSetFenceKind = "invalid_evidence"
+	FileSetFenceAbandonedResidue     FileSetFenceKind = "abandoned_residue"
+	FileSetFenceCensusLimit          FileSetFenceKind = "census_limit"
+	FileSetFenceAccessUnprovable     FileSetFenceKind = "access_unprovable"
+)
+
+// ErrInterruptedFileSetTransaction reports one valid published marker whose
+// transaction remains a continuing fence until its owning workflow recovers it.
+var ErrInterruptedFileSetTransaction = errors.New("interrupted file-set transaction requires recovery")
+
+// ErrFileSetEvidenceInvalid reports published evidence whose authority cannot
+// be reconstructed safely enough for journal recovery to proceed.
+var ErrFileSetEvidenceInvalid = errors.New("file-set transaction evidence is incomplete or invalid")
+
 // ErrAbandonedFileSetResidue reports markerless file-set-class residue under the
 // state directory. A name prefix is not deletion authority, so recovery cannot
 // clear the fence.
 var ErrAbandonedFileSetResidue = errors.New("abandoned file-set transaction residue remains")
+
+// ErrFileSetFenceUnprovable is the compatibility parent for the distinct census
+// and StateDir access/identity failures below.
+var ErrFileSetFenceUnprovable = errors.New(
+	"file-set fence cannot be proven clean; restore access to the state directory or preserve it for analysis; do not retry an interrupted write or delete reserved names by prefix",
+)
+
+// ErrFileSetFenceCensusLimit reports bounded census exhaustion after StateDir
+// access and directory identity were established.
+var ErrFileSetFenceCensusLimit = errors.New("file-set fence census limit exceeded")
+
+// ErrFileSetAccessUnprovable reports that StateDir path identity or enumerable
+// directory access could not be established.
+var ErrFileSetAccessUnprovable = errors.New("file-set state directory access or identity cannot be proven")
+
+type fileSetFenceError struct {
+	kind     FileSetFenceKind
+	sentinel error
+	cause    error
+}
+
+func (err fileSetFenceError) Error() string {
+	return fmt.Sprintf("%s: %v", err.sentinel, err.cause)
+}
+
+func (err fileSetFenceError) Unwrap() []error {
+	return []error{ErrFileSetFenceUnprovable, err.sentinel, err.cause}
+}
+
+func wrapFileSetFenceError(kind FileSetFenceKind, sentinel error, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if FileSetFenceKindOf(err) == kind {
+		return err
+	}
+	return fileSetFenceError{kind: kind, sentinel: sentinel, cause: err}
+}
+
+func wrapFileSetAccessUnprovable(err error) error {
+	return wrapFileSetFenceError(FileSetFenceAccessUnprovable, ErrFileSetAccessUnprovable, err)
+}
+
+func wrapFileSetCensusLimit(err error) error {
+	return wrapFileSetFenceError(FileSetFenceCensusLimit, ErrFileSetFenceCensusLimit, err)
+}
+
+func wrapFileSetEvidenceInvalid(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrFileSetEvidenceInvalid) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrFileSetEvidenceInvalid, err)
+}
+
+// FileSetFenceKindOf returns the most specific closed file-set classification
+// preserved by err. Nil and unrelated errors both return FileSetFenceClear.
+func FileSetFenceKindOf(err error) FileSetFenceKind {
+	if err == nil {
+		return FileSetFenceClear
+	}
+	var classified fileSetFenceError
+	if errors.As(err, &classified) {
+		return classified.kind
+	}
+	switch {
+	case errors.Is(err, ErrInterruptedFileSetTransaction):
+		return FileSetFencePublishedTransaction
+	case errors.Is(err, ErrFileSetEvidenceInvalid):
+		return FileSetFenceInvalidEvidence
+	case errors.Is(err, ErrAbandonedFileSetResidue):
+		return FileSetFenceAbandonedResidue
+	case errors.Is(err, ErrFileSetFenceCensusLimit):
+		return FileSetFenceCensusLimit
+	case errors.Is(err, ErrFileSetAccessUnprovable),
+		errors.Is(err, ErrFileSetFenceUnprovable):
+		return FileSetFenceAccessUnprovable
+	default:
+		return FileSetFenceClear
+	}
+}
 
 type abandonedFileSetResidueError struct {
 	paths []string
@@ -432,14 +549,14 @@ func inspectAbandonedFileSetResidueLimited(
 		return finishFileSetResidueInspection(ctx, nil)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("inspect file-set state dir: %w", err)
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set state dir: %w", err))
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("file-set state dir %s is not a directory", stateDir)
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("file-set state dir %s is not a directory", stateDir))
 	}
 	directory, err := os.Open(stateDir)
 	if err != nil {
-		return nil, fmt.Errorf("open file-set state dir: %w", err)
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("open file-set state dir: %w", err))
 	}
 	defer directory.Close()
 
@@ -456,11 +573,11 @@ func inspectAbandonedFileSetResidueLimited(
 			}
 			seen++
 			if seen > limit {
-				return nil, fmt.Errorf(
+				return nil, wrapFileSetCensusLimit(fmt.Errorf(
 					"file-set state dir %s exceeds %d entries; cannot prove the fence is clean",
 					stateDir,
 					limit,
-				)
+				))
 			}
 			if name == transactionDirName || !fileSetPrivateName(name) {
 				continue
@@ -471,7 +588,7 @@ func inspectAbandonedFileSetResidueLimited(
 				continue
 			}
 			if lstatErr != nil {
-				return nil, fmt.Errorf("inspect file-set state dir entry %s: %w", path, lstatErr)
+				return nil, wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set state dir entry %s: %w", path, lstatErr))
 			}
 			if fileSetFenceResidue(name, entry.Mode()) {
 				residue = append(residue, path)
@@ -481,7 +598,7 @@ func inspectAbandonedFileSetResidueLimited(
 			if errors.Is(readErr, io.EOF) {
 				return finishFileSetResidueInspection(ctx, residue)
 			}
-			return nil, fmt.Errorf("enumerate file-set state dir: %w", readErr)
+			return nil, wrapFileSetAccessUnprovable(fmt.Errorf("enumerate file-set state dir: %w", readErr))
 		}
 		if len(names) == 0 {
 			return finishFileSetResidueInspection(ctx, residue)

@@ -9,9 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	runtimeprobemcp "github.com/isty2e/daem/internal/assurance/runtimeprobe/mcp"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
-	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
@@ -21,6 +20,7 @@ import (
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
 	topologymcp "github.com/isty2e/daem/internal/topology/mcp"
@@ -32,7 +32,15 @@ func Prepare(ctx context.Context, input CommandInput) (*PreparedCommand, error) 
 	if err := validateMode(input.Mode); err != nil {
 		return nil, err
 	}
-	loaded, result, err := loadCommandInputs(ctx, input)
+	paths, err := daempaths.Resolve(input.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
+	loaded, result, err := loadCommandInputs(ctx, input, paths, barrier)
 	if err != nil {
 		return nil, err
 	}
@@ -50,11 +58,25 @@ func Prepare(ctx context.Context, input CommandInput) (*PreparedCommand, error) 
 	if err != nil {
 		return nil, err
 	}
+	revisions, err := mutation.CaptureRevisionSet(ctx, barrier.RevisionRequests()...)
+	if err != nil {
+		return nil, err
+	}
+	if err := barrier.Validate(ctx); err != nil {
+		return nil, err
+	}
 	binding, err := projectWorkingDirectoryBinder(result.WorkingDirectory)()
 	if err != nil {
 		return nil, err
 	}
-	return newPreparedCommand(result, request, binding), nil
+	return newPreparedCommand(
+		result,
+		request,
+		binding,
+		loaded.paths.DataDir,
+		barrier,
+		revisions,
+	), nil
 }
 
 type commandInputs struct {
@@ -62,7 +84,12 @@ type commandInputs struct {
 	contract lock.LockedSubjectContract
 }
 
-func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, CommandResult, error) {
+func loadCommandInputs(
+	ctx context.Context,
+	input CommandInput,
+	paths daempaths.Paths,
+	barrier recoverygate.EffectAuthority,
+) (commandInputs, CommandResult, error) {
 	if strings.TrimSpace(input.ServerName) == "" {
 		return commandInputs{}, CommandResult{}, fmt.Errorf("mcp-server name is required")
 	}
@@ -71,10 +98,6 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		return commandInputs{}, CommandResult{}, err
 	}
 	selectedScope, err := parseProbeScope(input.ScopeValue)
-	if err != nil {
-		return commandInputs{}, CommandResult{}, err
-	}
-	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return commandInputs{}, CommandResult{}, err
 	}
@@ -88,10 +111,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		Mode:             input.Mode,
 		Timeout:          input.Timeout,
 	}
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
-		return commandInputs{}, result, err
-	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := barrier.Validate(ctx); err != nil {
 		return commandInputs{}, result, err
 	}
 
@@ -456,4 +476,8 @@ func probeSideEffects(request runtimeprobemcp.ProbeRequest) []string {
 		effects = append(effects, "may read referenced host environment variables by name and pass their values to the child process")
 	}
 	return effects
+}
+
+func refuseJournalAndFileSet(ctx context.Context, paths daempaths.Paths) error {
+	return recoverygate.RequireClear(ctx, paths)
 }

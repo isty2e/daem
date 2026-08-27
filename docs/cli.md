@@ -231,11 +231,11 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list outputs` | Output inventory | `4` |
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `12` |
-| confirmed `apply` | Apply result | `18` |
-| `recover` | Recovery plan/result | `7` |
+| confirmed `apply` | Apply result | `19` |
+| `recover` | Recovery plan/result | `8` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
-| `refresh extension` | Extension refresh | `3` |
+| `refresh extension` | Extension refresh | `4` |
 
 Consumers must select the expected command envelope, inspect
 `schema_version`, and reject unsupported versions before interpreting any
@@ -545,7 +545,10 @@ Both dry-run and write refuse before reading selected metadata while an active
 apply recovery or incomplete journal cleanup remains. Write mode checks the
 same recovery fence again under mutation authority before recovering a
 metadata transaction, rebuilding the candidate, or committing. Run
-`daem recover` first, then retry the exact `unmanage extension` command.
+`daem recover --dry-run` first when recover can produce a plan; markerless
+residue and published metadata-transaction markers remain after recover and
+are not cleared by it. If the state directory cannot be inspected, restore
+access first instead of running recover.
 
 An interrupted write leaves a recoverable metadata transaction marker. Other
 manifest/lock/state consumers fail closed while it exists; rerunning the exact
@@ -915,7 +918,7 @@ Carrier-absence rows expose `execution = "host_route"` for delegated removal,
 `execution = "observation_only"` for pending settlement, and
 `execution = "state_only"` for already-absent claim retirement.
 
-`apply --yes --json` uses result schema version `18`. It adds executed action
+`apply --yes --json` uses result schema version `19`. It adds executed action
 count, statefile path, bounded delegated and host-route attempt results, typed
 errors, carrier-adoption transitions and final claim provenance,
 carrier-absence outcomes, physical `relation_order_results`, and final
@@ -925,8 +928,21 @@ changed, and a failure detail when present. An earlier OpenCode
 document may remain converged when a later document fails; apply makes no
 cross-document rollback claim. Retry reobserves every selected sequence and
 continues idempotently from current files. Known mutation codes include
-`stale_snapshot`, `stale_plan`, `mutation_contended`, and
-`mutation_cancelled`. Each error also reports a closed `phase` and `outcome`;
+`stale_snapshot`, `stale_plan`, `mutation_contended`,
+`mutation_cancelled`, `interrupted_apply`,
+`interrupted_apply_file_set_fence`, `journal_cleanup_incomplete`,
+`journal_cleanup_file_set_fence`, `interrupted_file_set_transaction`,
+`file_set_evidence_invalid`, `abandoned_file_set_residue`,
+`file_set_fence_census_limit`, and `file_set_access_unprovable`. A typed
+`recovery_barrier` object on an apply error preserves each observed journal and
+file-set axis independently; an unclassified peer is `unknown` rather than
+hiding a known actionable axis. Active apply recovery and cleanup-only journal
+authority remain distinct. A valid published
+marker, markerless residue, and a bounded census limit are continuing file-set
+fences; invalid evidence or unprovable StateDir access requires repair or
+restore-access before apply or recover. These states are not `apply_refused`
+and must not be repaired by deleting reserved names by prefix. Each error also
+reports a closed `phase` and `outcome`;
 its bounded message is derived only from those typed facts and never from an
 internal error string. Outcomes distinguish work refused before effects,
 incomplete effects, and effects that were fully rolled back before returning.
@@ -1021,7 +1037,7 @@ in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before a plan is disclosed; current daem does not inspect or migrate
 it. Other names in that reserved namespace are blocked as malformed.
 
-Recovery JSON schema version is `7` for both `--dry-run --json` and
+Recovery JSON schema version is `8` for both `--dry-run --json` and
 `--yes --json`. Every result declares one `phase`. Dry-run results and write
 attempts rejected before execution use `planned`. After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
@@ -1040,11 +1056,16 @@ durable authority retirement uses `authority_retired`. If post-execution
 inventory cannot classify whether active, cleanup-only, or no authority remains,
 the result uses `authority_unknown`, exposes no retry plan, and instructs the
 operator to preserve recovery evidence. Terminal and unknown results retain
-only the path-neutral operation id, phase, error status, and empty action and
-cleanup-obligation arrays. They omit
+only the path-neutral operation id, phase, error status, empty action and
+cleanup-obligation arrays, and a continuing file-set fence when one remains.
+They omit
 `authority_kind`, `operation_dir`, `classification`, and the pre-execution plan
-because those facts no longer describe a retryable authority. A
-cleanup action error is projected only when fresh cleanup-only authority
+because those facts no longer describe a retryable authority. Active recovery
+also reports `continuing_file_set_fence` when a published marker, markerless
+residue, or census-limit fence remains. The field accompanies dry-run and
+terminal write output for that state, and journal completion does not imply
+that the separate fence was cleared. A cleanup action error is projected only
+when fresh cleanup-only authority
 remains; `authority_unknown` and `authority_retired` take precedence over the
 action from the pre-execution plan. A
 post-retirement validation error remains an error result with
@@ -1271,7 +1292,7 @@ operation. A sanitized,
 operation-indexed attempt row is persisted only for a started process and is
 history, not future skip or removal authority.
 
-Refresh JSON schema version is `3` and has exactly these top-level fields:
+Refresh JSON schema version is `4` and has exactly these top-level fields:
 
 ```text
 schema_version command mode selection route disclosure result has_errors
@@ -1283,10 +1304,22 @@ classes, and non-claims. `result.detail` is empty on success. For an error
 class, it is derived only from the closed `reason_code`, process-outcome, and
 relation-observation values already present in the result. It is never built by
 sanitizing an underlying parser, filesystem, subprocess, or adapter error
-string; those errors remain internal causes. Process and observation summaries
+string; those errors remain internal causes. Active apply recovery uses
+`interrupted_apply`; cleanup-only authority uses `journal_cleanup_incomplete`.
+Their joint continuing-fence forms use `interrupted_apply_file_set_fence` and
+`journal_cleanup_file_set_fence`. A valid published marker uses
+`interrupted_file_set_transaction`, markerless residue uses
+`abandoned_file_set_residue`, bounded census exhaustion uses
+`file_set_fence_census_limit`, and StateDir access or identity loss uses
+`file_set_access_unprovable`. Invalid or incomplete published evidence uses
+`file_set_evidence_invalid`. Cancellation outranks all of these during replan.
+None is flattened to `stale_plan` or generic `mutation_authority`. Process and observation summaries
 contain no subprocess output, raw errors, secret values, protocol payloads, or
-machine-local paths. Human refresh failures use the same typed detail instead
-of printing the underlying error.
+machine-local paths. When recovery-barrier observation is relevant,
+`result.recovery_barrier` preserves each observed journal and file-set axis;
+an unclassified peer is `unknown` while the known peer continues to determine
+the actionable `reason_code`. Human refresh failures use the same typed detail
+instead of printing the underlying error.
 `process_outcome.reason` describes only the mechanical command result.
 `authority_outcome.workdir_failed` independently reports a failed post-attempt
 cwd-authority check.

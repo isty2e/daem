@@ -159,6 +159,10 @@ func staleBeforeAttempt(
 		errors.Is(err, context.DeadlineExceeded) {
 		return cancelledBeforeAttempt(result, err)
 	}
+	if mapped, mappedErr, ok := mapPreservedReplanCause(result, err); ok {
+		mapped.Attempted = false
+		return mapped, mappedErr
+	}
 	result.ResultClass = ResultRefused
 	result.ReasonCode = ReasonStalePlan
 	result.Attempted = false

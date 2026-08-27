@@ -25,6 +25,7 @@ type recoverJSONTestPayload struct {
 	ActionCount            int    `json:"action_count"`
 	CleanupObligationCount int    `json:"cleanup_obligation_count"`
 	HasErrors              bool   `json:"has_errors"`
+	ContinuingFileSetFence string `json:"continuing_file_set_fence"`
 	Actions                []struct {
 		Kind    string `json:"kind"`
 		Reason  string `json:"reason"`
@@ -56,6 +57,52 @@ type recoverJSONTestPayload struct {
 		Destination string `json:"destination"`
 		Detail      string `json:"detail"`
 	} `json:"cleanup_obligations"`
+}
+
+func TestRecoverJSONCarriesContinuingFileSetFenceThroughCompletion(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "daem.toml")
+	paths, currentState, _, _, _ := captureCLIRecoveryUpdateJournal(t, manifestPath)
+	testkit.WriteStatefile(t, paths.StatefilePath, currentState)
+	testkit.WriteFile(t, root, "AGENTS.md", "new instructions\n")
+	residue := filepath.Join(paths.StateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := testkit.RunVerboseCLI(
+		[]string{"recover", "--manifest", manifestPath, "--dry-run", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("dry-run exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	planned := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	if planned.Phase != "planned" || planned.ContinuingFileSetFence != "abandoned_residue" {
+		t.Fatalf("planned payload = %#v", planned)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = testkit.RunVerboseCLI(
+		[]string{"recover", "--manifest", manifestPath, "--yes", "--json"},
+		&stdout,
+		&stderr,
+	)
+	if exitCode != 0 || stderr.Len() != 0 {
+		t.Fatalf("write exit=%d stdout=%q stderr=%q", exitCode, stdout.String(), stderr.String())
+	}
+	completed := decodeRecoverJSONTestPayload(t, stdout.Bytes())
+	if completed.Phase != "completed" || completed.HasErrors ||
+		completed.ContinuingFileSetFence != "abandoned_residue" {
+		t.Fatalf("completed payload = %#v", completed)
+	}
+	if _, err := os.Lstat(residue); err != nil {
+		t.Fatalf("continuing residue changed: %v", err)
+	}
 }
 
 func TestRunRecoverDryRunJSONPreservesManagedSkillSubjectAndConsumers(t *testing.T) {

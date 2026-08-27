@@ -16,6 +16,7 @@ import (
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type PlanInput struct {
@@ -42,31 +43,98 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 	return planRecoveryWithFilesystem(ctx, input, storagecommit.Adapter{})
 }
 
+func recoverySelectionInterruption(selection journal.RecoverablePlan) error {
+	switch selection.AuthorityKind() {
+	case journal.RecoveryAuthorityActiveJournal:
+		return journal.ErrInterruptedApply
+	case journal.RecoveryAuthorityJournalCleanup:
+		return journal.ErrIncompleteJournalCleanup
+	default:
+		return nil
+	}
+}
+
 func planRecoveryWithFilesystem(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
 ) (recoveryPreparation, error) {
+	return planRecoveryWithFilesystemAndFence(
+		ctx,
+		input,
+		filesystem,
+		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+			return authority.RequireClear(ctx)
+		},
+	)
+}
+
+func planRecoveryWithFilesystemAndFence(
+	ctx context.Context,
+	input PlanInput,
+	filesystem mutationfs.Reader,
+	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+) (recoveryPreparation, error) {
 	if filesystem == nil {
 		return recoveryPreparation{}, fmt.Errorf("recovery planning filesystem is required")
+	}
+	if observeFileSet == nil {
+		return recoveryPreparation{}, fmt.Errorf("recovery file-set observation is required")
 	}
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
-	recoverable, err := loadRecoverySelection(ctx, paths, filesystem)
-	if err != nil {
-		if transactionErr := transaction.RequireClearFileSet(
-			ctx,
-			paths.StateDir,
-		); transactionErr != nil {
-			return recoveryPreparation{}, transactionErr
-		}
+	stateDir, stateDirErr := transaction.CaptureStateDirAuthority(ctx, paths.StateDir)
+	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
-	plan := recoverable
+	recoverable, journalErr := loadRecoverySelection(ctx, paths, filesystem)
+	if err := ctx.Err(); err != nil {
+		return recoveryPreparation{}, err
+	}
+	if journalErr == nil && recoverable.AuthorityKind() == journal.RecoveryAuthorityJournalCleanup {
+		return finishRecoveryPreparation(paths, input, recoverable, transaction.StateDirAuthority{}, false, transaction.FileSetFenceClear)
+	}
 
-	operationEvidence, err := recoveryOperationFingerprint(paths, plan)
+	fenceErr := stateDirErr
+	if fenceErr == nil {
+		fenceErr = observeFileSet(ctx, stateDir)
+	}
+	if err := ctx.Err(); err != nil {
+		return recoveryPreparation{}, err
+	}
+	fenceKind := transaction.FileSetFenceKindOf(fenceErr)
+	blocksRecovery := fenceKind == transaction.FileSetFenceAccessUnprovable ||
+		fenceKind == transaction.FileSetFenceInvalidEvidence
+	if journalErr != nil {
+		if errors.Is(journalErr, journal.ErrNoRecoverableJournal) && !blocksRecovery {
+			return recoveryPreparation{}, journalErr
+		}
+		return recoveryPreparation{}, recoverygate.Combine(journalErr, fenceErr)
+	}
+	if recoverable.AuthorityKind() != journal.RecoveryAuthorityActiveJournal {
+		return recoveryPreparation{}, fmt.Errorf(
+			"recovery authority kind %q is unsupported",
+			recoverable.AuthorityKind(),
+		)
+	}
+	journalInterruption := recoverySelectionInterruption(recoverable)
+	if blocksRecovery {
+		return recoveryPreparation{}, recoverygate.Combine(journalInterruption, fenceErr)
+	}
+	return finishRecoveryPreparation(paths, input, recoverable, stateDir, true, fenceKind)
+}
+
+func finishRecoveryPreparation(
+	paths daempaths.Paths,
+	input PlanInput,
+	plan journal.RecoverablePlan,
+	stateDir transaction.StateDirAuthority,
+	activeStateDir bool,
+	fileSetFence transaction.FileSetFenceKind,
+) (recoveryPreparation, error) {
+	operationEvidence, err := recoveryOperationFingerprint(paths, plan, stateDir, activeStateDir)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
@@ -75,9 +143,12 @@ func planRecoveryWithFilesystem(
 		paths:             paths,
 		input:             input,
 		operationEvidence: operationEvidence,
+		stateDirAuthority: stateDir,
+		activeStateDir:    activeStateDir,
+		fileSetFence:      fileSetFence,
 	}
 	if !plan.Blocked() && !plan.HasErrors() {
-		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan)
+		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir)
 		if err != nil {
 			return recoveryPreparation{}, fmt.Errorf("derive recovery mutation authority: %w", err)
 		}
@@ -107,9 +178,6 @@ func loadRecoverySelection(
 			Codecs:            aggregatecodec.Catalog(),
 			StateCodec:        statefile.Codec{},
 			StateReader:       stateReader,
-			ValidateBeforeActiveObservation: func(ctx context.Context) error {
-				return transaction.RequireClearFileSet(ctx, paths.StateDir)
-			},
 		},
 	)
 }
@@ -125,6 +193,7 @@ func Execute(
 		return ExecutionResult{}, err
 	}
 	result, err = retainedExecutionResult(execution.plan)
+	result = result.withFileSetFence(execution.fileSetFence)
 	if err != nil {
 		return ExecutionResult{}, err
 	}
@@ -140,15 +209,30 @@ func Execute(
 	if execution.plan.Blocked() || execution.plan.HasErrors() {
 		return result, fmt.Errorf("recovery is blocked")
 	}
+	if execution.activeStateDir {
+		if err := execution.stateDirAuthority.Validate(ctx); err != nil {
+			return result, err
+		}
+	}
 	filesystem := options.Filesystem
 	if filesystem == nil {
 		filesystem = storagecommit.Adapter{}
 	}
-	visibleOperation, err := recoveryOperationFingerprint(execution.paths, execution.plan)
+	visibleOperation, err := recoveryOperationFingerprint(
+		execution.paths,
+		execution.plan,
+		execution.stateDirAuthority,
+		execution.activeStateDir,
+	)
 	if err != nil || !execution.operationEvidence.Equal(visibleOperation) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
-	visibleAuthority, err := buildRecoveryAuthorityEvidence(execution.paths, execution.plan)
+	visibleAuthority, err := buildRecoveryAuthorityEvidence(
+		execution.paths,
+		execution.plan,
+		execution.stateDirAuthority,
+		execution.activeStateDir,
+	)
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
@@ -200,6 +284,9 @@ func Execute(
 		}
 		if !matches {
 			return mutation.StaleSnapshotError{}
+		}
+		if execution.activeStateDir {
+			return execution.stateDirAuthority.Validate(ctx)
 		}
 		return nil
 	}
@@ -311,9 +398,14 @@ func classifyPostExecutionAuthority(
 	prior ExecutionResult,
 	executionErr error,
 ) (ExecutionResult, error) {
+	fileSetFence, fileSetErr := postExecutionFileSetFence(ctx, execution)
+	if fileSetErr != nil {
+		executionErr = errors.Join(executionErr, fileSetErr)
+	}
 	current, classificationErr := loadRecoverySelection(ctx, execution.paths, filesystem)
 	if classificationErr == nil {
 		result, err := retainedExecutionResult(current)
+		result = result.withFileSetFence(fileSetFence)
 		if err != nil {
 			return unknownExecutionResult(prior.OperationID()), errors.Join(executionErr, err)
 		}
@@ -331,12 +423,33 @@ func classifyPostExecutionAuthority(
 		return result.withExecutionFailure(), executionErr
 	}
 	if errors.Is(classificationErr, journal.ErrNoRecoverableJournal) {
-		return retiredExecutionResult(prior.OperationID(), executionErr == nil), executionErr
+		return retiredExecutionResult(prior.OperationID(), executionErr == nil).withFileSetFence(fileSetFence), executionErr
 	}
-	return unknownExecutionResult(prior.OperationID()), errors.Join(
+	return unknownExecutionResult(prior.OperationID()).withFileSetFence(fileSetFence), errors.Join(
 		executionErr,
 		fmt.Errorf("classify durable recovery authority after execution: %w", classificationErr),
 	)
+}
+
+func postExecutionFileSetFence(
+	ctx context.Context,
+	execution recoveryPreparation,
+) (transaction.FileSetFenceKind, error) {
+	if !execution.activeStateDir {
+		return transaction.FileSetFenceClear, nil
+	}
+	fenceErr := execution.stateDirAuthority.RequireClear(ctx)
+	kind := transaction.FileSetFenceKindOf(fenceErr)
+	switch kind {
+	case transaction.FileSetFencePublishedTransaction,
+		transaction.FileSetFenceAbandonedResidue,
+		transaction.FileSetFenceCensusLimit:
+		return kind, nil
+	case transaction.FileSetFenceClear:
+		return kind, fenceErr
+	default:
+		return kind, fenceErr
+	}
 }
 
 func stateReaderForPath(path string) durable.SnapshotReader {

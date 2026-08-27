@@ -25,8 +25,9 @@ type applyAuthorityEvidence struct {
 }
 
 type applyAuthorityFingerprintFacts struct {
-	Domains     []applyAuthorityFact
-	ProjectRoot *projectRootFingerprintFacts
+	Domains         []applyAuthorityFact
+	ProjectRoot     *projectRootFingerprintFacts
+	RecoveryBarrier string
 }
 
 type applyAuthorityFact struct {
@@ -42,6 +43,10 @@ type applyAuthorityFact struct {
 
 func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (applyAuthorityEvidence, error) {
 	projectRoot, err := projectRootFingerprint(planned)
+	if err != nil {
+		return applyAuthorityEvidence{}, err
+	}
+	barrierFingerprint, err := planned.barrier.IdentityFingerprint()
 	if err != nil {
 		return applyAuthorityEvidence{}, err
 	}
@@ -91,8 +96,26 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 	if err := addLogicalPair(planned.assessment.StatePath, mutation.AccessExclusive, mutation.AccessShared); err != nil {
 		return applyAuthorityEvidence{}, err
 	}
-	if err := addLogicalPair(planned.context.Paths.RecoveryDir, mutation.AccessExclusive, mutation.AccessExclusive); err != nil {
-		return applyAuthorityEvidence{}, err
+	for _, path := range []struct {
+		value  string
+		access mutation.AccessMode
+	}{
+		{value: planned.context.Paths.RecoveryDir, access: mutation.AccessExclusive},
+		{value: planned.context.Paths.StateDir, access: mutation.AccessShared},
+	} {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			facts = append(facts, applyAuthorityFact{
+				Kind: "recovery_barrier", Path: path.value,
+				Access: path.access, Effect: effect,
+			})
+		}
+	}
+	domains = append(domains, planned.barrier.Domains()...)
+	for _, revision := range planned.barrier.RevisionRequests() {
+		firstEffectRevisions[revisionRequestKey(revision.Path, revision.Effect)] = revision
 	}
 	metadataTransactionPath, err := transaction.FileSetAuthorityPath(planned.context.Paths.StateDir)
 	if err != nil {
@@ -338,8 +361,9 @@ func buildApplyAuthorityEvidence(ctx context.Context, planned commandPlan) (appl
 		return applyAuthorityFactKey(facts[left]) < applyAuthorityFactKey(facts[right])
 	})
 	canonical, err := json.Marshal(applyAuthorityFingerprintFacts{
-		Domains:     facts,
-		ProjectRoot: projectRoot,
+		Domains:         facts,
+		ProjectRoot:     projectRoot,
+		RecoveryBarrier: barrierFingerprint,
 	})
 	if err != nil {
 		return applyAuthorityEvidence{}, fmt.Errorf("fingerprint apply authority: %w", err)

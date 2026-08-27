@@ -1,6 +1,8 @@
 package commit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -48,6 +50,30 @@ func (identity EntryIdentity) sameEntry(other EntryIdentity) bool {
 func (identity EntryIdentity) Equal(other mutationfs.EntryIdentity) bool {
 	concrete, ok := other.(EntryIdentity)
 	return ok && identity.path == concrete.path && identity.sameEntry(concrete)
+}
+
+// SameObject reports whether two observations identify the same filesystem
+// object even when mutable entry metadata changed. It grants no mutation
+// authority.
+func (identity EntryIdentity) SameObject(other EntryIdentity) bool {
+	return identity.sameObject(other)
+}
+
+// ObjectFingerprint returns opaque operation-local evidence for the observed
+// filesystem object. It is not durable recovery evidence.
+func (identity EntryIdentity) ObjectFingerprint() (string, error) {
+	if !identity.valid() {
+		return "", fmt.Errorf("entry identity is uninitialized")
+	}
+	token := identity.platform.objectToken()
+	if len(token) == 0 {
+		return "", fmt.Errorf("entry identity object token is unavailable")
+	}
+	hasher := sha256.New()
+	hasher.Write([]byte("daem-storage-entry-object-v1"))
+	hasher.Write([]byte{0, byte(identity.kind)})
+	hasher.Write(token)
+	return "sha256:" + hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // Kind returns the no-follow structural form captured by this identity.

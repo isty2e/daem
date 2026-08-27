@@ -61,6 +61,7 @@ type RefreshResult struct {
 	Observation      *RefreshObservation      `json:"observation,omitempty"`
 	AttemptHistory   RefreshAttemptHistory    `json:"attempt_history"`
 	Remediation      []string                 `json:"remediation"`
+	RecoveryBarrier  *recoveryBarrierJSON     `json:"recovery_barrier,omitempty"`
 }
 
 type RefreshProcessOutcome struct {
@@ -140,7 +141,8 @@ func RefreshReportFrom(result refreshworkflow.CommandResult) RefreshReport {
 			AttemptHistory: RefreshAttemptHistory{
 				Persisted: result.AttemptHistory.Persisted,
 			},
-			Remediation: append([]string{}, result.Remediation...),
+			Remediation:     append([]string{}, result.Remediation...),
+			RecoveryBarrier: recoveryBarrierJSONFor(result.RecoveryBarrier),
 		},
 		HasErrors: result.HasErrors(),
 	}

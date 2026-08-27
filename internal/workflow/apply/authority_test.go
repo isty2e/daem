@@ -28,6 +28,7 @@ import (
 	"github.com/isty2e/daem/internal/realization/profile"
 	"github.com/isty2e/daem/internal/reconcile"
 	reconcileprojection "github.com/isty2e/daem/internal/reconcile/build/projection"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/source"
 	"github.com/isty2e/daem/internal/supply/source/sourcetest"
@@ -48,8 +49,8 @@ func TestBuildApplyAuthorityEvidenceCoversAuthoritativePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(evidence.domains) != 13 {
-		t.Fatalf("domain count = %d, want 13", len(evidence.domains))
+	if len(evidence.domains) != 15 {
+		t.Fatalf("domain count = %d, want 15 with RecoveryDir and StateDir barrier pairs", len(evidence.domains))
 	}
 	if len(evidence.firstEffectRevisions) != 9 {
 		t.Fatalf(
@@ -518,6 +519,10 @@ func TestBuildApplyAuthorityEvidenceRejectsDistinctLogicalDestinationsAtSamePhys
 		},
 		context: commandContext{Paths: paths},
 	}
+	planned.barrier, err = recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
 	captureApplyProjectRootForTest(t, &planned)
 	t.Cleanup(func() { _ = closeCommandPlan(&planned) })
 
@@ -598,6 +603,10 @@ func TestBuildApplyAuthorityEvidenceRevisesRelationObservationPaths(t *testing.T
 			RelationObservations: observations,
 		},
 	}
+	planned.barrier, err = recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
 	evidence, err := buildApplyAuthorityEvidence(t.Context(), planned)
 	if err != nil {
 		t.Fatal(err)
@@ -671,6 +680,10 @@ func applyAuthorityTestPlan(t *testing.T) commandPlan {
 		},
 	}
 	planned.assessment.Reconciliation = planned.result.Reconciliation.Clone()
+	planned.barrier, err = recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
 	captureApplyProjectRootForTest(t, &planned)
 	t.Cleanup(func() { _ = closeCommandPlan(&planned) })
 	return planned

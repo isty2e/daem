@@ -7,10 +7,10 @@ import (
 
 	declarationcodec "github.com/isty2e/daem/internal/declaration/codec"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/desired"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -46,7 +46,7 @@ func Run(ctx context.Context, input Input) (Result, error) {
 		return Result{}, err
 	}
 	result := Result{ManifestPath: paths.ManifestPath}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := recoverygate.RequireClear(ctx, paths); err != nil {
 		return result, err
 	}
 

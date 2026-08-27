@@ -7,13 +7,13 @@ import (
 	"fmt"
 
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/execute/delegate"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -132,8 +132,11 @@ func executeWithDependencies(
 	} else if !matches {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, nil)
 	}
-	if err := transaction.RequireClearFileSet(ctx, planned.context.Paths.StateDir); err != nil {
-		return disclose(planned), err
+	if err := planned.barrier.Validate(ctx); err != nil {
+		return disclose(planned), staleApplyError(
+			options.PlanWasDisclosed,
+			fmt.Errorf("validate planned recovery barrier: %w", err),
+		)
 	}
 	if _, err := projectRootFingerprint(planned); err != nil {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
@@ -156,7 +159,13 @@ func executeWithDependencies(
 	); err != nil {
 		return disclose(planned), err
 	}
-	current, err := planReadinessAtPaths(ctx, currentInput, execution.operationContext, planned.context.Paths)
+	current, err := planReadinessAtPathsWithBarrier(
+		ctx,
+		currentInput,
+		execution.operationContext,
+		planned.context.Paths,
+		&planned.barrier,
+	)
 	if err != nil {
 		return disclose(planned), staleApplyError(options.PlanWasDisclosed, err)
 	}
@@ -250,6 +259,9 @@ func executeWithDependencies(
 		if _, err := projectRootFingerprint(current); err != nil {
 			return staleApplyError(options.PlanWasDisclosed, err)
 		}
+		if err := current.barrier.ValidateStateDir(ctx); err != nil {
+			return fmt.Errorf("validate recovery barrier before apply effect: %w", err)
+		}
 		revisionBoundaryValidated = true
 		return nil
 	}
@@ -273,6 +285,9 @@ func executeWithDependencies(
 		}
 		if !accepted {
 			return staleApplyError(options.PlanWasDisclosed, nil)
+		}
+		if err := current.barrier.AcceptStateDirCreation(ctx); err != nil {
+			return err
 		}
 		if _, err := projectRootFingerprint(current); err != nil {
 			return staleApplyError(options.PlanWasDisclosed, err)
@@ -323,6 +338,7 @@ func executeWithDependencies(
 		),
 		executionGuard:                executionGuard,
 		validateBeforeEffects:         validateBeforeEffects,
+		acceptStateDirCreation:        current.barrier.AcceptStateDirCreation,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,
@@ -409,6 +425,10 @@ func executeWithDependencies(
 
 func staleApplyError(disclosed bool, cause error) error {
 	if errors.Is(cause, context.Canceled) || errors.Is(cause, context.DeadlineExceeded) {
+		return cause
+	}
+	state := recoverygate.StateOf(cause)
+	if state.Observed() {
 		return cause
 	}
 	var stale error = mutation.StaleSnapshotError{}

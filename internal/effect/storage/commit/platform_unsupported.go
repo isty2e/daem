@@ -23,6 +23,7 @@ func (platformIdentity) valid() bool { return false }
 func (platformIdentity) matches(platformIdentity) bool { return false }
 
 func (platformIdentity) sameObject(platformIdentity) bool { return false }
+func (platformIdentity) objectToken() []byte              { return nil }
 
 // CaptureEntryIdentity returns unsupported_guarantee on platforms without a
 // proven handle-relative adapter.
@@ -30,6 +31,19 @@ func CaptureEntryIdentity(_ context.Context, path string) (EntryIdentity, error)
 	if err := validateCommitPath(path); err != nil {
 		return EntryIdentity{}, err
 	}
+	return unsupportedEntryIdentity(path)
+}
+
+// ObserveEntryIdentity returns unsupported_guarantee without applying
+// storage-reserved basename policy.
+func ObserveEntryIdentity(_ context.Context, path string) (EntryIdentity, error) {
+	if err := validateRootedPath(path); err != nil {
+		return EntryIdentity{}, err
+	}
+	return unsupportedEntryIdentity(path)
+}
+
+func unsupportedEntryIdentity(path string) (EntryIdentity, error) {
 	return EntryIdentity{}, newFailure(
 		failureUnsupportedGuarantee,
 		phaseUnsupported,

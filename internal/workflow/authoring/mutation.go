@@ -10,12 +10,14 @@ import (
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/declarationartifact"
+	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	aggregatecodec "github.com/isty2e/daem/internal/realization/aggregate/codec"
 	hookcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/hook"
 	mcpcodec "github.com/isty2e/daem/internal/realization/aggregate/codec/mcp"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	lockgenerate "github.com/isty2e/daem/internal/workflow/lock/generate"
 )
 
@@ -171,33 +173,40 @@ type authoringCandidate struct {
 	document   ManifestDocument
 	change     Change
 	localPaths []string
+	barrier    recoverygate.EffectAuthority
 }
 
 func buildAuthoringCandidate(
 	ctx context.Context,
 	build authoringChangeBuilder,
 	manifestPath string,
+	barrier recoverygate.EffectAuthority,
 ) (authoringCandidate, error) {
 	document, err := LoadManifestDocument(ctx, manifestPath)
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
 	}
-	return buildAuthoringCandidateFromDocument(build, document)
+	return buildAuthoringCandidateFromDocument(build, document, barrier)
 }
 
 func reloadAuthoringCandidate(
 	ctx context.Context,
 	build authoringChangeBuilder,
 	paths daempaths.Paths,
+	barrier recoverygate.EffectAuthority,
 ) (authoringCandidate, error) {
 	document, err := loadManifestDocument(ctx, paths)
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseLoadManifest, Err: err}
 	}
-	return buildAuthoringCandidateFromDocument(build, document)
+	return buildAuthoringCandidateFromDocument(build, document, barrier)
 }
 
-func buildAuthoringCandidateFromDocument(build authoringChangeBuilder, document ManifestDocument) (authoringCandidate, error) {
+func buildAuthoringCandidateFromDocument(
+	build authoringChangeBuilder,
+	document ManifestDocument,
+	barrier recoverygate.EffectAuthority,
+) (authoringCandidate, error) {
 	change, err := build(document)
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseBuildManifestChange, Err: err}
@@ -210,7 +219,12 @@ func buildAuthoringCandidateFromDocument(build authoringChangeBuilder, document 
 	if err != nil {
 		return authoringCandidate{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}
-	return authoringCandidate{document: document, change: change, localPaths: localPaths}, nil
+	return authoringCandidate{
+		document:   document,
+		change:     change,
+		localPaths: localPaths,
+		barrier:    barrier,
+	}, nil
 }
 
 func executeAuthoringMutation(
@@ -237,6 +251,7 @@ func executeAuthoringMutation(
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
+	domains = append(domains, optimistic.barrier.Domains()...)
 	store, err := mutation.NewStore(optimistic.document.Paths.DataDir)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
@@ -254,6 +269,9 @@ func executeAuthoringMutation(
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	} else if !matches {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: mutation.StaleSnapshotError{}}
+	}
+	if err := optimistic.barrier.ValidateFileSetRecovery(ctx); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 
 	if err := transaction.RecoverInterruptedTransaction(
@@ -273,16 +291,21 @@ func executeAuthoringMutation(
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
+	revisionRequests = append(revisionRequests, optimistic.barrier.RevisionRequests()...)
 	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-	current, err := reloadAuthoringCandidate(ctx, build, optimistic.document.Paths)
+	current, err := reloadAuthoringCandidate(ctx, build, optimistic.document.Paths, optimistic.barrier)
 	if err != nil {
 		return OperationResult{}, err
 	}
-	if !equalAuthoringPathLists(optimistic.localPaths, current.localPaths) {
+	if !equalAuthoringPathLists(optimistic.localPaths, current.localPaths) ||
+		!optimistic.barrier.Equal(current.barrier) {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: mutation.StaleSnapshotError{}}
+	}
+	if err := optimistic.barrier.Validate(ctx); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 
 	lockfile, err := BuildLockfileChange(ctx, LockfileChangeInput{
@@ -295,6 +318,12 @@ func executeAuthoringMutation(
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}
+	if err := optimistic.barrier.AcceptStateDirCreation(ctx); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
+	}
+	if err := optimistic.barrier.Validate(ctx); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
+	}
 	matches, err := revisions.MatchesCurrent(ctx)
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
@@ -306,6 +335,9 @@ func executeAuthoringMutation(
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	} else if !matches {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: mutation.StaleSnapshotError{}}
+	}
+	if err := optimistic.barrier.Validate(ctx); err != nil {
+		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 	lockfile, err = commitManifestAndLockfile(ctx, current.change.ManifestPath, current.change.Content, lockfile)
 	if err != nil {
@@ -385,11 +417,16 @@ func recoverMetadataFileSetBeforeRead(
 	ctx context.Context,
 	paths daempaths.Paths,
 	targetPaths []string,
+	barrier recoverygate.EffectAuthority,
 ) (returnErr error) {
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err == nil {
+	observationErr := barrier.Validate(ctx)
+	if observationErr == nil {
 		return nil
-	} else if errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
-		return err
+	}
+	state := recoverygate.StateOf(observationErr)
+	if state.Journal() != journal.InterruptionClear ||
+		state.FileSet() != transaction.FileSetFencePublishedTransaction {
+		return observationErr
 	}
 	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {
@@ -399,6 +436,7 @@ func recoverMetadataFileSetBeforeRead(
 	if err != nil {
 		return err
 	}
+	domains = append(domains, barrier.Domains()...)
 	store, err := mutation.NewStore(paths.DataDir)
 	if err != nil {
 		return err
@@ -417,10 +455,13 @@ func recoverMetadataFileSetBeforeRead(
 	} else if !matches {
 		return mutation.StaleSnapshotError{}
 	}
+	if err := barrier.ValidateFileSetRecovery(ctx); err != nil {
+		return err
+	}
 	if err := transaction.RecoverFileSet(ctx, paths.StateDir, targetPaths); err != nil {
 		return err
 	}
-	return transaction.RequireClearFileSet(ctx, paths.StateDir)
+	return barrier.Validate(ctx)
 }
 
 func authoringRevisionRequests(

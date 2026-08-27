@@ -193,9 +193,10 @@ func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) 
 			t.Fatal(err)
 		}
 		err := RequireClearFileSet(context.Background(), stateDir)
-		if err == nil || !strings.Contains(err.Error(), "evidence") ||
+		if err == nil || !errors.Is(err, ErrFileSetEvidenceInvalid) ||
+			FileSetFenceKindOf(err) != FileSetFenceInvalidEvidence ||
 			!strings.Contains(err.Error(), "marker is missing") {
-			t.Fatalf("RequireClearFileSet error = %v, want incomplete evidence rejection", err)
+			t.Fatalf("RequireClearFileSet error = %v, want typed incomplete evidence rejection", err)
 		}
 	})
 
@@ -203,8 +204,10 @@ func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) 
 		stateDir := mustCanonicalStateDir(t, filepath.Join(t.TempDir(), ".daem"))
 		writeFixture(t, transactionDir(stateDir), "not-a-directory", 0o600)
 		err := RequireClearFileSet(context.Background(), stateDir)
-		if err == nil || !strings.Contains(err.Error(), "is not a directory") {
-			t.Fatalf("RequireClearFileSet error = %v, want evidence type rejection", err)
+		if err == nil || !errors.Is(err, ErrFileSetEvidenceInvalid) ||
+			FileSetFenceKindOf(err) != FileSetFenceInvalidEvidence ||
+			!strings.Contains(err.Error(), "is not a directory") {
+			t.Fatalf("RequireClearFileSet error = %v, want typed evidence rejection", err)
 		}
 	})
 
@@ -216,8 +219,65 @@ func TestRequireClearFileSetDistinguishesAbsentAndDamagedEvidence(t *testing.T) 
 			t.Fatal(err)
 		}
 		err := RequireClearFileSet(context.Background(), stateDir)
-		if err == nil || !strings.Contains(err.Error(), "interrupted file-set transaction") {
-			t.Fatalf("RequireClearFileSet error = %v, want interrupted transaction rejection", err)
+		if err == nil || !errors.Is(err, ErrInterruptedFileSetTransaction) ||
+			FileSetFenceKindOf(err) != FileSetFencePublishedTransaction {
+			t.Fatalf("RequireClearFileSet error = %v, want typed interrupted transaction rejection", err)
+		}
+	})
+}
+
+func TestCanonicalStateDirWrapsSupportedPathFailures(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty path stays input validation", func(t *testing.T) {
+		t.Parallel()
+		_, err := canonicalStateDir("")
+		if err == nil || !strings.Contains(err.Error(), "state dir is required") {
+			t.Fatalf("canonicalStateDir error = %v, want required-path validation", err)
+		}
+		if errors.Is(err, ErrFileSetFenceUnprovable) {
+			t.Fatalf("empty path must not be ErrFileSetFenceUnprovable: %v", err)
+		}
+	})
+
+	t.Run("regular file is unprovable", func(t *testing.T) {
+		t.Parallel()
+		stateDir := filepath.Join(t.TempDir(), ".daem")
+		if err := os.WriteFile(stateDir, []byte("not-a-directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := canonicalStateDir(stateDir)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) ||
+			!errors.Is(err, ErrFileSetAccessUnprovable) ||
+			FileSetFenceKindOf(err) != FileSetFenceAccessUnprovable {
+			t.Fatalf("canonicalStateDir error = %v, want typed StateDir access failure", err)
+		}
+		err = RequireClearFileSet(context.Background(), stateDir)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
+			t.Fatalf("RequireClearFileSet error = %v, want ErrFileSetFenceUnprovable", err)
+		}
+		err = RecoverFileSet(context.Background(), stateDir, nil)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
+			t.Fatalf("RecoverFileSet error = %v, want ErrFileSetFenceUnprovable", err)
+		}
+	})
+
+	t.Run("dangling symlink is unprovable", func(t *testing.T) {
+		t.Parallel()
+		root := t.TempDir()
+		stateDir := filepath.Join(root, ".daem")
+		if err := os.Symlink(filepath.Join(root, "missing-state"), stateDir); err != nil {
+			t.Fatal(err)
+		}
+		_, err := canonicalStateDir(stateDir)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) ||
+			!errors.Is(err, ErrFileSetAccessUnprovable) ||
+			FileSetFenceKindOf(err) != FileSetFenceAccessUnprovable {
+			t.Fatalf("canonicalStateDir error = %v, want typed StateDir access failure", err)
+		}
+		_, err = FileSetAuthorityPath(stateDir)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
+			t.Fatalf("FileSetAuthorityPath error = %v, want ErrFileSetFenceUnprovable", err)
 		}
 	})
 }
@@ -322,8 +382,11 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 			}
 		}
 		_, err := inspectAbandonedFileSetResidueLimited(context.Background(), stateDir, 2)
-		if err == nil || !strings.Contains(err.Error(), "exceeds 2 entries") {
-			t.Fatalf("inspectAbandonedFileSetResidueLimited error = %v, want overflow rejection", err)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) ||
+			!errors.Is(err, ErrFileSetFenceCensusLimit) ||
+			FileSetFenceKindOf(err) != FileSetFenceCensusLimit ||
+			!strings.Contains(err.Error(), "exceeds 2 entries") {
+			t.Fatalf("inspectAbandonedFileSetResidueLimited error = %v, want typed census limit", err)
 		}
 	})
 
@@ -372,6 +435,15 @@ func TestFileSetFenceRejectsAbandonedPrivateResidue(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "first "+earlier) {
 			t.Fatalf("RequireClearFileSet error = %v, want sorted first path %s", err, earlier)
+		}
+	})
+
+	t.Run("non-directory state dir is unprovable", func(t *testing.T) {
+		stateDir := filepath.Join(t.TempDir(), "state-file")
+		writeFixture(t, stateDir, "not a directory", 0o600)
+		_, err := inspectAbandonedFileSetResidueLimited(context.Background(), stateDir, maximumStateDirFenceEntries)
+		if err == nil || !errors.Is(err, ErrFileSetFenceUnprovable) {
+			t.Fatalf("inspectAbandonedFileSetResidueLimited error = %v, want ErrFileSetFenceUnprovable", err)
 		}
 	})
 
