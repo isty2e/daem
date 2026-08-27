@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,14 +26,14 @@ func TestSearchRootCacheAcceptsExactEntryAndNameLimits(t *testing.T) {
 func TestSearchRootCacheStopsAtFirstEntryOverflow(t *testing.T) {
 	root := t.TempDir()
 	visited := 0
-	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) error {
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
 		for _, name := range []string{"aa", "bb", "cc", "dd"} {
 			visited++
 			if err := visit(name); err != nil {
-				return err
+				return searchRootObservation{}, err
 			}
 		}
-		return nil
+		return stableSearchRootObservation(), nil
 	}, 2, 64, 8)
 
 	_, err := cache.entries(t.Context(), root)
@@ -113,9 +115,9 @@ func TestSearchRootCacheAcceptsManyExactLengthNames(t *testing.T) {
 func TestSearchRootCacheRejectsPreCancellationBeforeObservation(t *testing.T) {
 	root := t.TempDir()
 	observed := false
-	cache := mustSearchRootCache(t, func(_ context.Context, _ string, _ func(string) error) error {
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, _ func(string) error) (searchRootObservation, error) {
 		observed = true
-		return nil
+		return stableSearchRootObservation(), nil
 	}, 8, 64, 16)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -132,13 +134,16 @@ func TestSearchRootCacheHonorsCancellationAndDoesNotCacheFailure(t *testing.T) {
 	root := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	observations := 0
-	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) error {
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
 		observations++
 		if err := visit("first"); err != nil {
-			return err
+			return searchRootObservation{}, err
 		}
 		cancel()
-		return visit("second")
+		if err := visit("second"); err != nil {
+			return searchRootObservation{}, err
+		}
+		return stableSearchRootObservation(), nil
 	}, 8, 64, 16)
 
 	if _, err := cache.entries(ctx, root); !errors.Is(err, context.Canceled) {
@@ -174,14 +179,14 @@ func TestSearchRootCacheSharesBudgetAcrossDistinctRoots(t *testing.T) {
 func TestSearchRootCacheReusesSortedListingDefensively(t *testing.T) {
 	root := t.TempDir()
 	observations := 0
-	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) error {
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
 		observations++
 		for _, name := range []string{"zeta", "alpha", "middle"} {
 			if err := visit(name); err != nil {
-				return err
+				return searchRootObservation{}, err
 			}
 		}
-		return nil
+		return stableSearchRootObservation(), nil
 	}, 8, 64, 16)
 
 	first, err := cache.entries(t.Context(), root)
@@ -201,16 +206,89 @@ func TestSearchRootCacheReusesSortedListingDefensively(t *testing.T) {
 	}
 }
 
+func TestSearchRootCacheRevalidatesBeforeReuseAndInvalidatesFailure(t *testing.T) {
+	root := t.TempDir()
+	wantErr := errors.New("search-root identity changed")
+	changed := false
+	observations := 0
+	validations := 0
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
+		observations++
+		if err := visit("review"); err != nil {
+			return searchRootObservation{}, err
+		}
+		return searchRootObservation{revalidate: func(context.Context) error {
+			validations++
+			if changed {
+				return wantErr
+			}
+			return nil
+		}}, nil
+	}, 8, 64, 16)
+
+	if _, err := cache.entries(t.Context(), root); err != nil {
+		t.Fatal(err)
+	}
+	changed = true
+	if _, err := cache.entries(t.Context(), root); !errors.Is(err, wantErr) {
+		t.Fatalf("cached reuse error = %v, want changed identity", err)
+	}
+	if len(cache.listings) != 0 {
+		t.Fatalf("failed cached observation retained: %#v", cache.listings)
+	}
+	if observations != 1 || validations != 1 {
+		t.Fatalf("observations/validations = %d/%d, want 1/1", observations, validations)
+	}
+}
+
+func TestSearchRootCacheValidateUsesDeterministicRootOrder(t *testing.T) {
+	base := t.TempDir()
+	first := filepath.Join(base, "alpha")
+	second := filepath.Join(base, "zeta")
+	for _, root := range []string{first, second} {
+		if err := os.Mkdir(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	validated := make([]string, 0, 2)
+	cache := mustSearchRootCache(t, func(_ context.Context, root string, _ func(string) error) (searchRootObservation, error) {
+		return searchRootObservation{revalidate: func(context.Context) error {
+			validated = append(validated, root)
+			return nil
+		}}, nil
+	}, 8, 64, 16)
+
+	for _, root := range []string{second, first} {
+		if _, err := cache.entries(t.Context(), root); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := cache.Validate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	resolvedFirst, err := resolvedImportSkillReadPath(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolvedSecond, err := resolvedImportSkillReadPath(second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := fmt.Sprint(validated), fmt.Sprintf("[%s %s]", resolvedFirst, resolvedSecond); got != want {
+		t.Fatalf("validation order = %s, want %s", got, want)
+	}
+}
+
 func TestSearchRootCacheDoesNotCacheOperationalFailure(t *testing.T) {
 	root := t.TempDir()
 	wantErr := errors.New("listing changed")
 	observations := 0
-	cache := mustSearchRootCache(t, func(_ context.Context, _ string, _ func(string) error) error {
+	cache := mustSearchRootCache(t, func(_ context.Context, _ string, _ func(string) error) (searchRootObservation, error) {
 		observations++
 		if observations == 1 {
-			return wantErr
+			return searchRootObservation{}, wantErr
 		}
-		return nil
+		return stableSearchRootObservation(), nil
 	}, 8, 64, 16)
 
 	if _, err := cache.entries(t.Context(), root); !errors.Is(err, wantErr) {
@@ -229,14 +307,14 @@ func TestSearchRootCacheDoesNotMaterializeGeneratedOverflowRemainder(t *testing.
 	const generatedEntries = 1_000_000
 	const admittedEntries = 1_024
 	observed := 0
-	observer := func(_ context.Context, _ string, visit func(string) error) error {
+	observer := func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
 		for index := range generatedEntries {
 			observed++
 			if err := visit(fmt.Sprintf("entry-%07d", index)); err != nil {
-				return err
+				return searchRootObservation{}, err
 			}
 		}
-		return nil
+		return stableSearchRootObservation(), nil
 	}
 	cache := mustSearchRootCache(t, observer, admittedEntries, 1<<20, 64)
 	if _, err := cache.entries(t.Context(), root); !errors.Is(err, ErrSearchRootLimitExceeded) {
@@ -277,12 +355,16 @@ func mustSearchRootCache(
 }
 
 func searchRootObserverForNames(names ...string) searchRootObserver {
-	return func(_ context.Context, _ string, visit func(string) error) error {
+	return func(_ context.Context, _ string, visit func(string) error) (searchRootObservation, error) {
 		for _, name := range names {
 			if err := visit(name); err != nil {
-				return err
+				return searchRootObservation{}, err
 			}
 		}
-		return nil
+		return stableSearchRootObservation(), nil
 	}
+}
+
+func stableSearchRootObservation() searchRootObservation {
+	return searchRootObservation{revalidate: func(context.Context) error { return nil }}
 }

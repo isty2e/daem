@@ -9,6 +9,8 @@ import (
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
+type directoryListingIdentity struct{}
+
 func inspectNative(_ string) (artifact.ArtifactKind, error) {
 	return "", unavailableTraversal()
 }
@@ -38,6 +40,16 @@ func visitDirectoryNamesNative(
 	_ artifact.ArtifactKind,
 	_ string,
 	_ func(string) error,
+) (DirectoryListingWitness, error) {
+	return DirectoryListingWitness{}, unavailableTraversal()
+}
+
+func verifyDirectoryListingNative(
+	_ context.Context,
+	_ string,
+	_ artifact.ArtifactKind,
+	_ string,
+	_ DirectoryListingWitness,
 ) error {
 	return unavailableTraversal()
 }

@@ -125,12 +125,21 @@ type searchRootObserver func(
 	context.Context,
 	string,
 	func(string) error,
-) error
+) (searchRootObservation, error)
+
+type searchRootObservation struct {
+	revalidate func(context.Context) error
+}
+
+type searchRootListing struct {
+	names       []string
+	observation searchRootObservation
+}
 
 // SearchRootCache owns one candidate-collection pass's bounded, sorted Skill
 // search-root listings. It is intentionally not safe for concurrent use.
 type SearchRootCache struct {
-	listings map[string][]string
+	listings map[string]searchRootListing
 	observe  searchRootObserver
 	budget   *searchRootBudget
 }
@@ -156,7 +165,7 @@ func newSearchRootCache(
 		return nil, err
 	}
 	return &SearchRootCache{
-		listings: make(map[string][]string),
+		listings: make(map[string]searchRootListing),
 		observe:  observer,
 		budget:   budget,
 	}, nil
@@ -179,15 +188,16 @@ func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) ([]s
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if names, exists := cache.listings[readRoot]; exists {
-		if err := ctx.Err(); err != nil {
+	if listing, exists := cache.listings[readRoot]; exists {
+		if err := cache.revalidate(ctx, readRoot, listing); err != nil {
+			delete(cache.listings, readRoot)
 			return nil, err
 		}
-		return append([]string(nil), names...), nil
+		return append([]string(nil), listing.names...), nil
 	}
 
 	names := make([]string, 0, min(cache.budget.limits.maximumEntries, 256))
-	if err := cache.observe(ctx, readRoot, func(name string) error {
+	observation, err := cache.observe(ctx, readRoot, func(name string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -196,8 +206,12 @@ func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) ([]s
 		}
 		names = append(names, name)
 		return nil
-	}); err != nil {
+	})
+	if err != nil {
 		return nil, err
+	}
+	if observation.revalidate == nil {
+		return nil, fmt.Errorf("skill search-root observation revalidation is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -206,30 +220,83 @@ func (cache *SearchRootCache) entries(ctx context.Context, liveRoot string) ([]s
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	cache.listings[readRoot] = append([]string(nil), names...)
+	cache.listings[readRoot] = searchRootListing{
+		names:       append([]string(nil), names...),
+		observation: observation,
+	}
 	return names, nil
 }
 
-func observeSearchRoot(
-	ctx context.Context,
-	readRoot string,
-	visit func(string) error,
-) error {
+// Validate revalidates every retained search-root observation before a plan
+// result can use its cached names.
+func (cache *SearchRootCache) Validate(ctx context.Context) error {
+	if cache == nil || cache.observe == nil || cache.listings == nil || cache.budget == nil {
+		return fmt.Errorf("skill search-root cache is required")
+	}
 	if ctx == nil {
 		return fmt.Errorf("skill search-root context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	view, err := access.OpenNoFollowView(readRoot)
-	if err != nil {
-		return fmt.Errorf("open skill search root %q: %w", readRoot, err)
+	readRoots := make([]string, 0, len(cache.listings))
+	for readRoot := range cache.listings {
+		readRoots = append(readRoots, readRoot)
 	}
-	if view.Kind() != artifact.ArtifactKindDirectory {
-		return fmt.Errorf("skill search root %q is not a directory", readRoot)
+	slices.Sort(readRoots)
+	for _, readRoot := range readRoots {
+		listing := cache.listings[readRoot]
+		if err := cache.revalidate(ctx, readRoot, listing); err != nil {
+			delete(cache.listings, readRoot)
+			return err
+		}
 	}
-	if err := view.VisitDirectoryNames(ctx, ".", visit); err != nil {
-		return fmt.Errorf("enumerate skill search root %q: %w", readRoot, err)
+	return ctx.Err()
+}
+
+func (cache *SearchRootCache) revalidate(
+	ctx context.Context,
+	readRoot string,
+	listing searchRootListing,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if listing.observation.revalidate == nil {
+		return fmt.Errorf("skill search-root observation revalidation is required")
+	}
+	if err := listing.observation.revalidate(ctx); err != nil {
+		return fmt.Errorf("revalidate skill search root %q: %w", readRoot, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	return nil
+}
+
+func observeSearchRoot(
+	ctx context.Context,
+	readRoot string,
+	visit func(string) error,
+) (searchRootObservation, error) {
+	if ctx == nil {
+		return searchRootObservation{}, fmt.Errorf("skill search-root context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return searchRootObservation{}, err
+	}
+	view, err := access.OpenNoFollowView(readRoot)
+	if err != nil {
+		return searchRootObservation{}, fmt.Errorf("open skill search root %q: %w", readRoot, err)
+	}
+	if view.Kind() != artifact.ArtifactKindDirectory {
+		return searchRootObservation{}, fmt.Errorf("skill search root %q is not a directory", readRoot)
+	}
+	witness, err := view.VisitDirectoryNames(ctx, ".", visit)
+	if err != nil {
+		return searchRootObservation{}, fmt.Errorf("enumerate skill search root %q: %w", readRoot, err)
+	}
+	return searchRootObservation{revalidate: func(ctx context.Context) error {
+		return view.VerifyDirectoryListing(ctx, ".", witness)
+	}}, nil
 }

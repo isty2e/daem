@@ -187,7 +187,7 @@ func TestVisitDirectoryNamesStopsAtVisitorError(t *testing.T) {
 
 	wantErr := errors.New("listing admitted prefix complete")
 	visited := 0
-	err = view.VisitDirectoryNames(t.Context(), ".", func(string) error {
+	_, err = view.VisitDirectoryNames(t.Context(), ".", func(string) error {
 		visited++
 		if visited == 17 {
 			return wantErr
@@ -199,6 +199,27 @@ func TestVisitDirectoryNamesStopsAtVisitorError(t *testing.T) {
 	}
 	if visited != 17 {
 		t.Fatalf("visited names = %d, want 17", visited)
+	}
+}
+
+func TestDirectoryListingWitnessDetectsInventoryChange(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "original"), nil)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	witness, err := view.VisitDirectoryNames(t.Context(), ".", func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err != nil {
+		t.Fatalf("stable listing verification: %v", err)
+	}
+	writeAccessTestFile(t, filepath.Join(root, "added"), nil)
+	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err == nil {
+		t.Fatal("directory listing witness accepted an added entry")
 	}
 }
 

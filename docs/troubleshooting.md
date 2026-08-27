@@ -321,11 +321,18 @@ and 4 GiB of regular-file bytes so a preview admits only trees that private
 staging can create and clean up.
 This is the per-tree publication contract. The containing skills root
 contributes only its immediate inventory; it does not consume a level from an
-individual skill's supported depth. The complete import freshness pass is
-additionally limited to 400,000 entries and 16 GiB of regular-file content
-across all observed trees and cannot widen the per-tree ceiling.
-Rerun `daem import --target <target> --dry-run` after the tree is stable and
-within those bounds.
+individual skill's supported depth. A complete planning pass separately admits
+at most 100,000 immediate root entries, 32 MiB of aggregate entry-name bytes,
+and 4,096 bytes for one entry name across newly observed distinct resolved
+roots. If this inventory boundary is exceeded, remove or move unrelated root
+entries, shorten an over-limit name, or select fewer target/scope roots before
+rerunning the preview. Reused roots retain one listing but are identity-checked
+on every reuse and before the final result; if the root changed, let it become
+stable and rerun rather than relying on a partial preview. The complete import
+freshness pass is additionally limited to 400,000 entries and 16 GiB of
+regular-file content across all observed trees and cannot widen the per-tree
+ceiling. Rerun `daem import --target <target> --dry-run` after the tree is stable
+and within those bounds.
 Daem does not publish the generated manifest or a partial vendored skill when
 the copied tree differs from the planned content identity.
 

@@ -178,7 +178,16 @@ func buildPlan(
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
+	validateSkillSearchRoots := func() error {
+		if err := skillSearchRoots.Validate(ctx); err != nil {
+			return fmt.Errorf("revalidate Skill search roots: %w", err)
+		}
+		return nil
+	}
 	if candidates.ResourceCount() == 0 {
+		if err := validateSkillSearchRoots(); err != nil {
+			return adoptmodel.Plan{}, err
+		}
 		return adoptmodel.Plan{}, newNothingToImportError(scans, skipped)
 	}
 
@@ -209,6 +218,9 @@ func buildPlan(
 			return adoptmodel.Plan{}, err
 		}
 		if mergedPlan.HasMergeConflicts() {
+			if err := validateSkillSearchRoots(); err != nil {
+				return adoptmodel.Plan{}, err
+			}
 			return mergedPlan, nil
 		}
 		sources = mergedPlan.Sources()
@@ -251,6 +263,9 @@ func buildPlan(
 	}
 
 	if merge {
+		if err := validateSkillSearchRoots(); err != nil {
+			return adoptmodel.Plan{}, err
+		}
 		return mergedPlan, nil
 	}
 	manifestContent, err := adoptmodel.RenderManifestContent(
@@ -263,5 +278,12 @@ func buildPlan(
 	if err != nil {
 		return adoptmodel.Plan{}, err
 	}
-	return adoptmodel.NewPlan(request, nil, manifestContent, candidates, nil)
+	plan, err := adoptmodel.NewPlan(request, nil, manifestContent, candidates, nil)
+	if err != nil {
+		return adoptmodel.Plan{}, err
+	}
+	if err := validateSkillSearchRoots(); err != nil {
+		return adoptmodel.Plan{}, err
+	}
+	return plan, nil
 }

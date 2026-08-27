@@ -57,7 +57,7 @@ func visitDirectoryNative(
 	relativePath string,
 	visit func(Entry) error,
 ) error {
-	return visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
+	_, err := visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
 		return visitNativeDirectoryNames(entry.fd, func(name string) error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -73,6 +73,7 @@ func visitDirectoryNative(
 			})
 		})
 	})
+	return err
 }
 
 func visitDirectoryNamesNative(
@@ -81,7 +82,7 @@ func visitDirectoryNamesNative(
 	expectedKind artifact.ArtifactKind,
 	relativePath string,
 	visit func(string) error,
-) error {
+) (DirectoryListingWitness, error) {
 	return visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
 		return visitNativeDirectoryNames(entry.fd, func(name string) error {
 			if err := ctx.Err(); err != nil {
@@ -92,22 +93,41 @@ func visitDirectoryNamesNative(
 	})
 }
 
+func verifyDirectoryListingNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+	expected DirectoryListingWitness,
+) error {
+	current, err := visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(nativeEntry) error {
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !current.identity.equal(expected.identity) {
+		return fmt.Errorf("artifact access directory listing %q changed after observation", relativePath)
+	}
+	return nil
+}
+
 func visitOpenedNativeDirectory(
 	ctx context.Context,
 	root string,
 	expectedKind artifact.ArtifactKind,
 	relativePath string,
 	visit func(nativeEntry) error,
-) (resultErr error) {
+) (result DirectoryListingWitness, resultErr error) {
 	handle, err := openNativeRoot(root, expectedKind)
 	if err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
 	defer func() { resultErr = errors.Join(resultErr, handle.close()) }()
 
 	target, err := handle.openRelative(relativePath)
 	if err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
 	if target != nil {
 		defer func() { resultErr = errors.Join(resultErr, target.close()) }()
@@ -117,26 +137,29 @@ func visitOpenedNativeDirectory(
 		entry = target.entry
 	}
 	if entry.kind != nativeKindDirectory {
-		return fmt.Errorf("artifact access path %q is not a directory", relativePath)
+		return DirectoryListingWitness{}, fmt.Errorf("artifact access path %q is not a directory", relativePath)
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
 	if err := visit(entry); err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
 	if target != nil {
 		if err := target.verify(); err != nil {
-			return err
+			return DirectoryListingWitness{}, err
 		}
 	}
 	if err := handle.verify(); err != nil {
-		return err
+		return DirectoryListingWitness{}, err
 	}
-	return nil
+	if err := ctx.Err(); err != nil {
+		return DirectoryListingWitness{}, err
+	}
+	return newDirectoryListingWitness(entry.identity), nil
 }
 
 func readFileNative(

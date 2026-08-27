@@ -643,7 +643,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 	})
 	rootObservations := 0
 	searchRoots, err := newSearchRootCache(
-		func(ctx context.Context, readRoot string, visit func(string) error) error {
+		func(ctx context.Context, readRoot string, visit func(string) error) (searchRootObservation, error) {
 			rootObservations++
 			return observeSearchRoot(ctx, readRoot, visit)
 		},
