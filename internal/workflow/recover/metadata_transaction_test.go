@@ -87,9 +87,15 @@ func TestRecoverPlansActiveJournalBesideAbandonedResidue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Execute with residue: %v", err)
 	}
-	if fence, present := execution.ContinuingFileSetFence(); !present ||
-		fence != transaction.FileSetFenceAbandonedResidue {
-		t.Fatalf("terminal continuing fence = (%q, %t)", fence, present)
+	terminalFence := execution.FileSetFenceObservation()
+	if !terminalFence.Observed() || !terminalFence.Known() ||
+		terminalFence.Kind() != transaction.FileSetFenceAbandonedResidue {
+		t.Fatalf(
+			"terminal continuing fence = observed:%t known:%t kind:%q",
+			terminalFence.Observed(),
+			terminalFence.Known(),
+			terminalFence.Kind(),
+		)
 	}
 	if _, err := os.Lstat(residue); err != nil {
 		t.Fatalf("residue after recover: %v", err)

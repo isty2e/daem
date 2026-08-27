@@ -35,11 +35,12 @@ const (
 
 // LockfileChangeInput describes the prospective manifest bytes that should be locked.
 type LockfileChangeInput struct {
-	ManifestPath       string
-	Paths              daempaths.Paths
-	LockfilePath       string
-	ManifestBytes      []byte
-	UsePersistentCache bool
+	ManifestPath           string
+	Paths                  daempaths.Paths
+	LockfilePath           string
+	ManifestBytes          []byte
+	UsePersistentCache     bool
+	PreparePersistentCache func(context.Context) error
 }
 
 // LockfileChange is the lockfile half of an authoring manifest+lock transaction.
@@ -99,6 +100,7 @@ func BuildLockfileChange(ctx context.Context, input LockfileChangeInput) (Lockfi
 		Paths:                  paths,
 		Environment:            environment,
 		UsePersistentCache:     input.UsePersistentCache,
+		PreparePersistentCache: input.PreparePersistentCache,
 		HookEncoder:            hookcodec.CanonicalHookContribution,
 		MCPEncoder:             mcpcodec.CanonicalMCPBindingContribution,
 		ExtensionOrderIdentity: aggregatecodec.ExtensionOrderIdentityResolver(paths),
@@ -307,21 +309,20 @@ func executeAuthoringMutation(
 	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
-
 	lockfile, err := BuildLockfileChange(ctx, LockfileChangeInput{
 		ManifestPath:       current.change.ManifestPath,
 		Paths:              current.document.Paths,
 		LockfilePath:       options.LockfilePath,
 		ManifestBytes:      current.change.Content,
 		UsePersistentCache: usePersistentCache,
+		PreparePersistentCache: func(ctx context.Context) error {
+			return ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases)
+		},
 	})
 	if err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseBuildLockfile, Err: err}
 	}
-	if err := optimistic.barrier.AcceptStateDirCreation(ctx); err != nil {
-		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
-	}
-	if err := optimistic.barrier.Validate(ctx); err != nil {
+	if err := ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases); err != nil {
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 	matches, err := revisions.MatchesCurrent(ctx)
@@ -344,6 +345,32 @@ func executeAuthoringMutation(
 		return OperationResult{}, OperationError{Phase: OperationPhaseCommit, Err: err}
 	}
 	return operationResultFromChange(current.change, lockfile, options.Mode), nil
+}
+
+func ensureStateDirForAuthoringEffect(
+	ctx context.Context,
+	barrier recoverygate.EffectAuthority,
+	revisions mutation.RevisionSet,
+	leases *mutation.LeaseSet,
+) error {
+	_, err := barrier.EnsureStateDirForEffect(ctx, func(ctx context.Context) error {
+		matches, err := revisions.MatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		matches, err = leases.DomainsMatchCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		return nil
+	})
+	return err
 }
 
 func authoringMutationDomains(

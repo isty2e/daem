@@ -232,7 +232,7 @@ are unrelated and must not be compared as a product-wide sequence:
 | `list paths` | Agent location inventory | `1` |
 | `status`, `apply --dry-run` | Reconciliation plan | `12` |
 | confirmed `apply` | Apply result | `19` |
-| `recover` | Recovery plan/result | `8` |
+| `recover` | Recovery plan/result | `9` |
 | `doctor` | Passive diagnostics | `2` |
 | `probe mcp-server` | Runtime probe | `1` |
 | `refresh extension` | Extension refresh | `4` |
@@ -1037,7 +1037,7 @@ in verbose mode. Pre-1.0 `.daem-tombstone-<32 lowercase hex>` evidence is
 blocked before a plan is disclosed; current daem does not inspect or migrate
 it. Other names in that reserved namespace are blocked as malformed.
 
-Recovery JSON schema version is `8` for both `--dry-run --json` and
+Recovery JSON schema version is `9` for both `--dry-run --json` and
 `--yes --json`. Every result declares one `phase`. Dry-run results and write
 attempts rejected before execution use `planned`. After execution begins, a
 freshly reclassified active journal uses `active_authority_retained`; a
@@ -1061,10 +1061,13 @@ cleanup-obligation arrays, and a continuing file-set fence when one remains.
 They omit
 `authority_kind`, `operation_dir`, `classification`, and the pre-execution plan
 because those facts no longer describe a retryable authority. Active recovery
-also reports `continuing_file_set_fence` when a published marker, markerless
-residue, or census-limit fence remains. The field accompanies dry-run and
-terminal write output for that state, and journal completion does not imply
-that the separate fence was cleared. A cleanup action error is projected only
+also reports `continuing_file_set_fence` whenever a fresh terminal observation
+is non-clear or cannot be classified. Closed values include published markers,
+markerless residue, census limits, invalid evidence, and access-unprovable
+StateDir boundaries; `unknown` means the axis was observed but could not be
+classified. The field accompanies dry-run and terminal write output, includes
+path-neutral preserve/restore-access guidance in human diagnostics, and journal
+completion does not imply that the separate fence was cleared. A cleanup action error is projected only
 when fresh cleanup-only authority
 remains; `authority_unknown` and `authority_retired` take precedence over the
 action from the pre-execution plan. A

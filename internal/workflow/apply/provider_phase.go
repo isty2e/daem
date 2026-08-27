@@ -292,17 +292,11 @@ func runMCPProviderPrerequisitePhase(
 		providerState = nextState
 		providerClaims = nextClaims
 		result.attempts = append(result.attempts, attempts...)
-		if stateDirErr := current.barrier.AcceptStateDirCreation(ctx); stateDirErr != nil {
-			return result, errors.Join(routeErr, stateDirErr)
-		}
 		if routeErr != nil {
 			return result, routeErr
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return result, err
-	}
-	if err := current.barrier.AcceptStateDirCreation(ctx); err != nil {
 		return result, err
 	}
 	if err := leases.Release(); err != nil {

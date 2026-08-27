@@ -62,6 +62,25 @@ func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileComm
 	return CommitFile(ctx, request)
 }
 
+// CreatedDirectoryIdentity returns the exact identity retained for a directory
+// created by this cleanup authority. Existing or externally created
+// directories are never reported as created by this invocation.
+func (cleanup *AncestorCleanup) CreatedDirectoryIdentity(path string) (EntryIdentity, bool, error) {
+	state, err := cleanup.requireOpen()
+	if err != nil {
+		return EntryIdentity{}, false, err
+	}
+	for index := range state.directories {
+		directory := state.directories[index]
+		if directory.path == path &&
+			directory.cleanupState == windowsCreatedDirectoryCleanupActive &&
+			directory.identity.valid() {
+			return directory.identity, true, nil
+		}
+	}
+	return EntryIdentity{}, false, nil
+}
+
 func (cleanup *AncestorCleanup) RemoveEmpty(ctx context.Context) error {
 	state, err := cleanup.requireOpen()
 	if err != nil {

@@ -71,6 +71,23 @@ func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileComm
 	return commitFileWithFaultsAndParentRefresh(ctx, request, faultPlan{}, nil, cleanup)
 }
 
+// CreatedDirectoryIdentity returns the exact identity retained for a directory
+// created by this cleanup authority. Existing or externally created
+// directories are never reported as created by this invocation.
+func (cleanup *AncestorCleanup) CreatedDirectoryIdentity(path string) (EntryIdentity, bool, error) {
+	state, err := cleanup.requireOpen()
+	if err != nil {
+		return EntryIdentity{}, false, err
+	}
+	for index := range state.directories {
+		directory := state.directories[index]
+		if directory.path == path && directory.cleanupState == createdDirectoryCleanupActive && directory.valid() {
+			return directory.identity, true, nil
+		}
+	}
+	return EntryIdentity{}, false, nil
+}
+
 // RemoveEmpty attempts exact empty cleanup in reverse creation order. It keeps
 // checking later entries after one refusal so every retained path is reported.
 // A prior post-unlink durability failure remains indeterminate on every retry.

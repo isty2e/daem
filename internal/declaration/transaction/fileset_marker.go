@@ -416,6 +416,30 @@ func captureFileState(ctx context.Context, path string, activeBackupPath string)
 }
 
 func canonicalStateDir(path string) (string, error) {
+	return canonicalStateDirWithPathResolver(path, mutation.CanonicalDirectoryEntryPath, nil)
+}
+
+func canonicalStateDirBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, error) {
+	return canonicalStateDirWithPathResolver(
+		path,
+		func(probe string) (string, error) {
+			return mutation.CanonicalDirectoryEntryPathBounded(probe, maximumPhysicalDepth, budget)
+		},
+		func(clean string) error {
+			return rootedpath.ChargeAbsolutePath(clean, maximumPhysicalDepth, budget)
+		},
+	)
+}
+
+func canonicalStateDirWithPathResolver(
+	path string,
+	resolveProbe func(string) (string, error),
+	chargeLstat func(string) error,
+) (string, error) {
 	if path == "" {
 		return "", fmt.Errorf("file-set transaction state dir is required")
 	}
@@ -426,6 +450,13 @@ func canonicalStateDir(path string) (string, error) {
 		)
 	}
 	clean := filepath.Clean(absolute)
+	if chargeLstat != nil {
+		if err := chargeLstat(clean); err != nil {
+			return "", wrapFileSetAccessUnprovable(
+				fmt.Errorf("admit file-set transaction state dir %q: %w", path, err),
+			)
+		}
+	}
 	info, lstatErr := os.Lstat(clean)
 	switch {
 	case lstatErr == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0):
@@ -440,7 +471,7 @@ func canonicalStateDir(path string) (string, error) {
 			lstatErr,
 		))
 	}
-	probe, err := mutation.CanonicalDirectoryEntryPath(filepath.Join(clean, ".metadata-state-probe"))
+	probe, err := resolveProbe(filepath.Join(clean, ".metadata-state-probe"))
 	if err != nil {
 		return "", wrapFileSetAccessUnprovable(
 			fmt.Errorf("canonicalize file-set transaction state dir %q: %w", path, err),

@@ -222,11 +222,15 @@ func executeWithDependencies(
 		return disclose(current), err
 	}
 
-	// The captured revisions describe the pre-execution world. After the first
-	// daem effect they are stale by construction; later phases retain lease and
-	// project-root checks, while direct file mutations add effect-local CAS.
+	// The captured revisions describe the pre-execution world. StateDir creation
+	// is the first authorized effect; every peer authority is checked before and
+	// after it. Later phases retain lease and project-root checks, while direct
+	// file mutations add effect-local CAS.
 	revisionBoundaryValidated := false
-	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
+	validatePeerAuthority := func(
+		ctx context.Context,
+		authority mutation.PhysicalAuthoritySet,
+	) error {
 		if err := executionGuard.requireDeclarationsCurrent(
 			ctx,
 			"apply effect validation",
@@ -259,8 +263,26 @@ func executeWithDependencies(
 		if _, err := projectRootFingerprint(current); err != nil {
 			return staleApplyError(options.PlanWasDisclosed, err)
 		}
-		if err := current.barrier.ValidateStateDir(ctx); err != nil {
-			return fmt.Errorf("validate recovery barrier before apply effect: %w", err)
+		return nil
+	}
+	validateBeforeEffects := func(ctx context.Context, authority mutation.PhysicalAuthoritySet) error {
+		if revisionBoundaryValidated {
+			if err := validatePeerAuthority(ctx, authority); err != nil {
+				return err
+			}
+			return current.barrier.ValidateStateDir(ctx)
+		}
+		created, err := current.barrier.EnsureStateDirForEffect(
+			ctx,
+			func(ctx context.Context) error {
+				return validatePeerAuthority(ctx, authority)
+			},
+		)
+		if created {
+			markExecutionAttempted()
+		}
+		if err != nil {
+			return fmt.Errorf("establish recovery barrier before apply effect: %w", err)
 		}
 		revisionBoundaryValidated = true
 		return nil
@@ -285,9 +307,6 @@ func executeWithDependencies(
 		}
 		if !accepted {
 			return staleApplyError(options.PlanWasDisclosed, nil)
-		}
-		if err := current.barrier.AcceptStateDirCreation(ctx); err != nil {
-			return err
 		}
 		if _, err := projectRootFingerprint(current); err != nil {
 			return staleApplyError(options.PlanWasDisclosed, err)
@@ -338,7 +357,6 @@ func executeWithDependencies(
 		),
 		executionGuard:                executionGuard,
 		validateBeforeEffects:         validateBeforeEffects,
-		acceptStateDirCreation:        current.barrier.AcceptStateDirCreation,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,

@@ -38,7 +38,7 @@ type ExecutionResult struct {
 	disclosure         journal.RecoverablePlan
 	operationID        string
 	executionSucceeded bool
-	fileSetFence       transaction.FileSetFenceKind
+	fileSetFence       transaction.FileSetFenceObservation
 }
 
 type terminalExecutionFailure struct {
@@ -103,21 +103,27 @@ func (result ExecutionResult) withExecutionFailure() ExecutionResult {
 }
 
 func (result ExecutionResult) withFileSetFence(kind transaction.FileSetFenceKind) ExecutionResult {
-	result.fileSetFence = kind
+	return result.withFileSetFenceObservation(transaction.KnownFileSetFence(kind))
+}
+
+func (result ExecutionResult) withFileSetFenceObservation(
+	observation transaction.FileSetFenceObservation,
+) ExecutionResult {
+	result.fileSetFence = observation
 	return result
 }
 
-// ContinuingFileSetFence returns the separately observed file-set fence that
-// journal recovery did not clear.
-func (result ExecutionResult) ContinuingFileSetFence() (transaction.FileSetFenceKind, bool) {
-	switch result.fileSetFence {
-	case transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit:
-		return result.fileSetFence, true
-	default:
-		return transaction.FileSetFenceClear, false
-	}
+// FileSetFenceObservation returns the fresh terminal file-set axis independently
+// of journal authority retirement.
+func (result ExecutionResult) FileSetFenceObservation() transaction.FileSetFenceObservation {
+	return result.fileSetFence
+}
+
+// HasNonClearFileSetObservation reports a known non-clear or observed-unknown
+// terminal file-set fact.
+func (result ExecutionResult) HasNonClearFileSetObservation() bool {
+	return result.fileSetFence.Observed() &&
+		(!result.fileSetFence.Known() || result.fileSetFence.Kind() != transaction.FileSetFenceClear)
 }
 
 // Phase returns the public post-execution lifecycle projection.

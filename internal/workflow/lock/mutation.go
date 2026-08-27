@@ -119,12 +119,39 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 		errorContext.Err = err
 		return Result{}, errorContext
 	}
+	validateCacheAuthority := func(ctx context.Context) error {
+		matches, err := revisions.MatchesCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		matches, err = leases.DomainsMatchCurrent(ctx)
+		if err != nil {
+			return err
+		}
+		if !matches {
+			return mutation.StaleSnapshotError{}
+		}
+		return lockRequireStateDirClear(ctx, stateDirAuthority)
+	}
+	preparePersistentCache := func(ctx context.Context) error {
+		if err := validateCacheAuthority(ctx); err != nil {
+			return err
+		}
+		if _, err := stateDirAuthority.EnsureOwnedIncarnation(ctx); err != nil {
+			return lockStateDirError(err)
+		}
+		return validateCacheAuthority(ctx)
+	}
 
 	built, err := buildCommandResult(
 		ctx,
 		input.ManifestPath,
 		input.LockfilePath,
 		true,
+		preparePersistentCache,
 		true,
 		commandMaxParallelSourceOps(input.MaxParallelSourceOps),
 		input.SourceEvents,
@@ -132,10 +159,6 @@ func runLockMutation(ctx context.Context, input LockInput) (result Result, retur
 	)
 	if err != nil {
 		return Result{}, err
-	}
-	if err := stateDirAuthority.AcceptCurrentIncarnation(ctx); err != nil {
-		errorContext.Err = err
-		return Result{}, errorContext
 	}
 	matches, err := revisions.MatchesCurrent(ctx)
 	if err != nil {
@@ -171,7 +194,10 @@ func lockRequireStateDirClear(
 	ctx context.Context,
 	authority transaction.StateDirAuthority,
 ) error {
-	err := authority.RequireClear(ctx)
+	return lockStateDirError(authority.RequireClear(ctx))
+}
+
+func lockStateDirError(err error) error {
 	if errors.Is(err, transaction.ErrStateDirAppeared) {
 		return errors.Join(mutation.StaleSnapshotError{}, err)
 	}

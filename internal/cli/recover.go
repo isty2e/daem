@@ -133,12 +133,8 @@ func runRecover(args []string, stdout io.Writer, stderr io.Writer, options comma
 			)
 			return 1
 		}
-		if continuing, present := executionResult.ContinuingFileSetFence(); present {
-			fmt.Fprintf(
-				stdout,
-				"journal recovery completed; continuing file-set fence remains: %s\n",
-				continuing,
-			)
+		if executionResult.HasNonClearFileSetObservation() {
+			clipresent.PrintRecoverExecutionFence(stdout, executionResult)
 		} else {
 			fmt.Fprintln(stdout, "recovery completed")
 		}

@@ -31,33 +31,74 @@ func PrintRecoverPlanWithFenceOptions(
 		fmt.Fprintf(output, "operation: %s\n", plan.Authority().OperationID())
 		fmt.Fprintln(output, plan.Action())
 		fmt.Fprintln(output, "journal cleanup only; host, statefile, and ownership data are unchanged")
+		printContinuingFileSetFence(output, fileSetFence)
 		return
 	}
 	fmt.Fprintln(output, "recover: invalid")
 }
 
 func printContinuingFileSetFence(output io.Writer, kind transaction.FileSetFenceKind) {
-	switch kind {
-	case transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit:
-		fmt.Fprintf(
-			output,
-			"continuing file-set fence: %s; journal recovery does not clear this fence\n",
-			kind,
-		)
+	if kind == transaction.FileSetFenceClear {
+		return
 	}
+	fmt.Fprintf(
+		output,
+		"continuing file-set fence: %s; journal recovery does not clear this fence; %s\n",
+		kind,
+		fileSetFenceRemediation(kind, true),
+	)
 }
 
 func continuingFileSetFenceValue(kind transaction.FileSetFenceKind) string {
-	switch kind {
-	case transaction.FileSetFencePublishedTransaction,
-		transaction.FileSetFenceAbandonedResidue,
-		transaction.FileSetFenceCensusLimit:
-		return string(kind)
-	default:
+	if kind == transaction.FileSetFenceClear {
 		return ""
 	}
+	return string(kind)
+}
+
+func fileSetFenceObservationValue(observation transaction.FileSetFenceObservation) string {
+	if !observation.Observed() {
+		return ""
+	}
+	if !observation.Known() {
+		return "unknown"
+	}
+	return continuingFileSetFenceValue(observation.Kind())
+}
+
+func fileSetFenceRemediation(kind transaction.FileSetFenceKind, known bool) string {
+	if !known {
+		return "preserve recovery and file-set evidence, then inspect the StateDir boundary again"
+	}
+	switch kind {
+	case transaction.FileSetFenceAccessUnprovable:
+		return "restore StateDir search/read access and preserve recovery evidence before retrying"
+	case transaction.FileSetFenceInvalidEvidence:
+		return "preserve and inspect the invalid file-set evidence before continuing"
+	case transaction.FileSetFenceAbandonedResidue:
+		return "preserve the residue for inspection; do not delete reserved names by prefix"
+	case transaction.FileSetFenceCensusLimit:
+		return "inspect the bounded StateDir inventory before continuing"
+	case transaction.FileSetFencePublishedTransaction:
+		return "finish or inspect the published file-set transaction separately"
+	default:
+		return "preserve recovery and file-set evidence, then inspect again"
+	}
+}
+
+// PrintRecoverExecutionFence emits the fresh terminal file-set fact and
+// path-neutral remediation independently of journal completion.
+func PrintRecoverExecutionFence(output io.Writer, execution recoverworkflow.ExecutionResult) {
+	observation := execution.FileSetFenceObservation()
+	if !observation.Observed() || observation.Known() && observation.Kind() == transaction.FileSetFenceClear {
+		return
+	}
+	fmt.Fprintf(
+		output,
+		"journal recovery completed; continuing file-set fence remains: %s; %s\n",
+		fileSetFenceObservationValue(observation),
+		fileSetFenceRemediation(observation.Kind(), observation.Known()),
+	)
 }
 
 func printActiveRecoverPlan(
@@ -236,7 +277,17 @@ func RecoverResultError(
 		return nil
 	}
 	if execution != nil {
-		return execution.SemanticError(resultErr)
+		projected := execution.SemanticError(resultErr)
+		observation := execution.FileSetFenceObservation()
+		if !observation.Observed() || observation.Known() && observation.Kind() == transaction.FileSetFenceClear {
+			return projected
+		}
+		return fmt.Errorf(
+			"%w; continuing file-set fence: %s; %s",
+			projected,
+			fileSetFenceObservationValue(observation),
+			fileSetFenceRemediation(observation.Kind(), observation.Known()),
+		)
 	}
 	if cleanup, ok := journal.JournalCleanupPlan(disclosure); ok {
 		return journal.WrapCleanupFailure(cleanup.Action(), resultErr)
@@ -251,12 +302,9 @@ func recoveryJSONPayload(
 	execution *recoverworkflow.ExecutionResult,
 ) (recoveryPlanJSONOutput, error) {
 	phase := "planned"
+	fileSetFenceValue := continuingFileSetFenceValue(fileSetFence)
 	if execution != nil {
-		if currentFence, present := execution.ContinuingFileSetFence(); present {
-			fileSetFence = currentFence
-		} else {
-			fileSetFence = transaction.FileSetFenceClear
-		}
+		fileSetFenceValue = fileSetFenceObservationValue(execution.FileSetFenceObservation())
 		if execution.OperationID() == "" ||
 			execution.OperationID() != recoveryOperationID(disclosure) {
 			return recoveryPlanJSONOutput{}, fmt.Errorf(
@@ -274,7 +322,7 @@ func recoveryJSONPayload(
 				OperationID:            execution.OperationID(),
 				Actions:                []recoveryPlanJSONAction{},
 				CleanupObligations:     []recoveryCleanupObligationOutput{},
-				ContinuingFileSetFence: continuingFileSetFenceValue(fileSetFence),
+				ContinuingFileSetFence: fileSetFenceValue,
 			}, nil
 		}
 		if recoveryOperationID(current) != execution.OperationID() ||
@@ -302,20 +350,21 @@ func recoveryJSONPayload(
 			HasErrors:              plan.HasErrors(),
 			Actions:                recoveryPlanJSONActions(actions),
 			CleanupObligations:     cleanupObligations,
-			ContinuingFileSetFence: continuingFileSetFenceValue(fileSetFence),
+			ContinuingFileSetFence: fileSetFenceValue,
 		}, nil
 	}
 	if plan, ok := journal.JournalCleanupPlan(disclosure); ok {
 		return recoveryPlanJSONOutput{
-			SchemaVersion:      contractversion.RecoveryJSON,
-			Command:            "recover",
-			Mode:               mode,
-			Phase:              phase,
-			AuthorityKind:      disclosure.AuthorityKind(),
-			OperationID:        plan.Authority().OperationID(),
-			Classification:     string(plan.Classification()),
-			ActionCount:        1,
-			CleanupObligations: []recoveryCleanupObligationOutput{},
+			SchemaVersion:          contractversion.RecoveryJSON,
+			Command:                "recover",
+			Mode:                   mode,
+			Phase:                  phase,
+			AuthorityKind:          disclosure.AuthorityKind(),
+			OperationID:            plan.Authority().OperationID(),
+			Classification:         string(plan.Classification()),
+			ActionCount:            1,
+			CleanupObligations:     []recoveryCleanupObligationOutput{},
+			ContinuingFileSetFence: fileSetFenceValue,
 			Actions: []recoveryPlanJSONAction{{
 				Kind: string(plan.Action()),
 			}},

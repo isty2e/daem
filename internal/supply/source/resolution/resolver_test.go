@@ -38,6 +38,47 @@ func TestResolverDispatchesResolveBySourceKind(t *testing.T) {
 	}
 }
 
+func TestResolverPreparesPersistentCacheOnlyForRemoteSources(t *testing.T) {
+	baseResolver := newFakeResolver(t)
+	calls := 0
+	resolver := (Resolver{
+		local: fakeRootResolver{fakeResolver: baseResolver, name: "local"},
+		git:   fakeRootResolver{fakeResolver: baseResolver, name: "git"},
+		s3:    baseResolver,
+	}).WithCachePreparation(func(context.Context) error {
+		calls++
+		return nil
+	})
+
+	if _, err := resolver.Resolve(
+		t.Context(),
+		sourcetest.Local(t, "skills", source.LocalSourceModeVendor),
+		noOperationOptions,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 0 {
+		t.Fatalf("local source cache preparation calls = %d, want 0", calls)
+	}
+	if _, err := resolver.Resolve(
+		t.Context(),
+		mustGitSource(t, "https://example.test/repo.git", "skills", "main"),
+		noOperationOptions,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolver.Resolve(
+		t.Context(),
+		sourcetest.S3(t, "s3://bucket/key.tar.gz", "", "", source.S3ObjectFormatTarGzip),
+		noOperationOptions,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("remote source cache preparation calls = %d, want 1", calls)
+	}
+}
+
 func TestResolverRejectsUnsupportedSourceKind(t *testing.T) {
 	_, err := (Resolver{}).Resolve(context.Background(), source.Source{}, noOperationOptions)
 	if err == nil || !strings.Contains(err.Error(), "unsupported source kind") {

@@ -25,6 +25,7 @@ func captureRootPlatform(
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	_ bool,
+	_ bool,
 	_ *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, newFailure(

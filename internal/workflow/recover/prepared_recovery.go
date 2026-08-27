@@ -7,6 +7,7 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
 
@@ -26,14 +27,15 @@ const (
 )
 
 type recoveryPreparation struct {
-	plan              journal.RecoverablePlan
-	paths             daempaths.Paths
-	input             PlanInput
-	operationEvidence mutation.OperationFingerprint
-	authorityEvidence recoveryAuthorityEvidence
-	stateDirAuthority transaction.StateDirAuthority
-	activeStateDir    bool
-	fileSetFence      transaction.FileSetFenceKind
+	plan               journal.RecoverablePlan
+	paths              daempaths.Paths
+	input              PlanInput
+	operationEvidence  mutation.OperationFingerprint
+	authorityEvidence  recoveryAuthorityEvidence
+	stateDirAuthority  transaction.StateDirAuthority
+	activeStateDir     bool
+	fileSetFence       transaction.FileSetFenceKind
+	physicalPathBudget rootedpath.PhysicalTraversalBudget
 }
 
 // PreparedRecovery owns one exact recovery operation. Disclosure returns only

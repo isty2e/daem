@@ -106,6 +106,15 @@ func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileComm
 	return CommitFile(ctx, request)
 }
 
+// CreatedDirectoryIdentity reports no created directory because unsupported
+// platforms cannot establish ancestor-creation authority.
+func (cleanup *AncestorCleanup) CreatedDirectoryIdentity(string) (EntryIdentity, bool, error) {
+	if cleanup == nil || cleanup.closed {
+		return EntryIdentity{}, false, fmt.Errorf("open ancestor cleanup authority is required")
+	}
+	return EntryIdentity{}, false, nil
+}
+
 // RemoveEmpty is a no-op because unsupported platforms cannot create entries.
 func (cleanup *AncestorCleanup) RemoveEmpty(_ context.Context) error {
 	if cleanup == nil || cleanup.closed {

@@ -14,7 +14,7 @@ func observeStateDirPlatform(ctx context.Context, path string) (string, string, 
 	if err := ctx.Err(); err != nil {
 		return "", "", err
 	}
-	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return "", "", err
 	}

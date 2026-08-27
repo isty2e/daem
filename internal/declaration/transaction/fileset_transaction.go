@@ -383,6 +383,48 @@ const (
 // file-set boundary.
 type FileSetFenceKind string
 
+// FileSetFenceObservation preserves whether the file-set axis was observed,
+// whether that observation was classified, and its closed kind when known.
+type FileSetFenceObservation struct {
+	observed bool
+	known    bool
+	kind     FileSetFenceKind
+}
+
+// ObserveFileSetFence classifies one completed file-set observation. Nil is a
+// known clear observation; unrelated non-nil errors remain observed unknown.
+func ObserveFileSetFence(err error) FileSetFenceObservation {
+	if err == nil {
+		return FileSetFenceObservation{observed: true, known: true}
+	}
+	kind := FileSetFenceKindOf(err)
+	return FileSetFenceObservation{
+		observed: true,
+		known:    kind != FileSetFenceClear,
+		kind:     kind,
+	}
+}
+
+// KnownFileSetFence constructs one explicitly observed closed classification.
+func KnownFileSetFence(kind FileSetFenceKind) FileSetFenceObservation {
+	return FileSetFenceObservation{observed: true, known: true, kind: kind}
+}
+
+// UnobservedFileSetFence reports an intentionally omitted file-set axis.
+func UnobservedFileSetFence() FileSetFenceObservation { return FileSetFenceObservation{} }
+
+// Observed reports whether the file-set axis participated in this fact.
+func (observation FileSetFenceObservation) Observed() bool { return observation.observed }
+
+// Known reports whether an observed file-set result has a closed classification.
+func (observation FileSetFenceObservation) Known() bool {
+	return observation.observed && observation.known
+}
+
+// Kind returns the closed classification. Unknown and unobserved observations
+// return FileSetFenceClear and must be distinguished with Known and Observed.
+func (observation FileSetFenceObservation) Kind() FileSetFenceKind { return observation.kind }
+
 const (
 	FileSetFenceClear                FileSetFenceKind = ""
 	FileSetFencePublishedTransaction FileSetFenceKind = "published_transaction"

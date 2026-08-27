@@ -61,7 +61,7 @@ func UnmanageExtension(
 		}
 	}
 	buildLockfile := request.Mode == UnmanageModeDryRun
-	optimistic, err := buildUnmanageCandidate(ctx, request, paths, buildLockfile, barrier)
+	optimistic, err := buildUnmanageCandidate(ctx, request, paths, buildLockfile, barrier, nil)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
@@ -191,11 +191,17 @@ func commitUnmanageCandidate(
 		paths,
 		true,
 		optimistic.barrier,
+		func(ctx context.Context, currentLocalPaths []string) error {
+			if !equalPaths(optimistic.localPaths, currentLocalPaths) {
+				return mutation.StaleSnapshotError{}
+			}
+			return ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases)
+		},
 	)
 	if err != nil {
 		return UnmanageExtensionResult{}, err
 	}
-	if err := optimistic.barrier.AcceptStateDirCreation(ctx); err != nil {
+	if err := ensureStateDirForAuthoringEffect(ctx, optimistic.barrier, revisions, leases); err != nil {
 		return UnmanageExtensionResult{}, err
 	}
 	if !equalPaths(optimistic.localPaths, current.localPaths) ||

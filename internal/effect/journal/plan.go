@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
 	ownershipmutation "github.com/isty2e/daem/internal/effect/mutation/ownership"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/output"
 	"github.com/isty2e/daem/internal/output/ownership"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -27,13 +28,14 @@ var ErrNoRecoverableJournal = errors.New("no recoverable journal operation")
 // classification. Rooted capabilities and the ownership reader are borrowed
 // for the load.
 type PlanLoadOptions struct {
-	RootedCapability  RootedCapabilityResolver
-	Resolver          func(destination output.Destination) (string, error)
-	OwnershipRegistry ownershipmutation.RegistryReader
-	Codecs            aggregate.CodecCatalog
-	StateCodec        durable.SnapshotCodec
-	StateReader       durable.SnapshotReader
-	Filesystem        mutationfs.Reader
+	RootedCapability   RootedCapabilityResolver
+	Resolver           func(destination output.Destination) (string, error)
+	OwnershipRegistry  ownershipmutation.RegistryReader
+	Codecs             aggregate.CodecCatalog
+	StateCodec         durable.SnapshotCodec
+	StateReader        durable.SnapshotReader
+	Filesystem         mutationfs.Reader
+	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
 	// ValidateBeforeActiveObservation runs after one recovery-root inventory
 	// selects active-journal recovery and before host, state, or ownership
 	// observation. Cleanup-only selection never invokes it.
@@ -222,6 +224,11 @@ func LoadRecoverablePlanWithOptions(
 	if err := validatePlanLoadFilesystem(options); err != nil {
 		return nil, err
 	}
+	planningBudget, err := planLoadPhysicalPathBudget(options.PhysicalPathBudget)
+	if err != nil {
+		return nil, err
+	}
+	options.PhysicalPathBudget = planningBudget
 	inventory, err := loadRecoveryRootInventory(
 		ctx,
 		paths.RecoveryDir,
@@ -323,6 +330,11 @@ func loadActivePlan(
 	if err := validateActivePlanLoadOptions(options); err != nil {
 		return recovery.Plan{}, err
 	}
+	planningBudget, err := planLoadPhysicalPathBudget(options.PhysicalPathBudget)
+	if err != nil {
+		return recovery.Plan{}, err
+	}
+	options.PhysicalPathBudget = planningBudget
 	inventory, err := loadRecoveryRootInventory(
 		ctx,
 		paths.RecoveryDir,
@@ -397,7 +409,10 @@ func loadActivePlanFromInventory(
 	if err != nil {
 		return recovery.Plan{}, err
 	}
-	planningBudget, err := recovery.NewPhysicalWorkBudget(len(journal.RemovalIntents))
+	planningBudget, err := recovery.NewPhysicalWorkBudgetWithPathBudget(
+		len(journal.RemovalIntents),
+		options.PhysicalPathBudget,
+	)
 	if err != nil {
 		return recovery.Plan{}, err
 	}
@@ -556,9 +571,19 @@ func validatePlanLoadFilesystem(options PlanLoadOptions) error {
 
 func inventoryOptionsFromPlan(options PlanLoadOptions) inventoryOptions {
 	return inventoryOptions{
-		Filesystem: options.Filesystem,
-		StateCodec: options.StateCodec,
+		Filesystem:         options.Filesystem,
+		StateCodec:         options.StateCodec,
+		PhysicalPathBudget: options.PhysicalPathBudget,
 	}
+}
+
+func planLoadPhysicalPathBudget(
+	provided rootedpath.PhysicalTraversalBudget,
+) (rootedpath.PhysicalTraversalBudget, error) {
+	if provided != nil {
+		return provided, nil
+	}
+	return recovery.NewPhysicalPathBudget(), nil
 }
 
 func selectedRecoveryEntryIndexes(entries []recoveryEntry, selected []EntrySelection) ([]int, error) {

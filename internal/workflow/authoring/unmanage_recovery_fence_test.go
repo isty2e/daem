@@ -235,7 +235,7 @@ func TestCommitUnmanageCandidateRejectsJournalAppearingAfterOptimisticPlan(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	optimistic, err := buildUnmanageCandidate(t.Context(), request, paths, false, barrier)
+	optimistic, err := buildUnmanageCandidate(t.Context(), request, paths, false, barrier, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

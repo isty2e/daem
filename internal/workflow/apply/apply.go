@@ -56,7 +56,6 @@ type runOptions struct {
 	orderRiskBaseline              relationOrderRiskBaseline
 	executionGuard                 applyExecutionGuard
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
-	acceptStateDirCreation         func(context.Context) error
 	acceptVisibilityChanges        func(context.Context) error
 	validateCompensationAuthority  func(context.Context) error
 	acceptCompensationChanges      func(context.Context) error

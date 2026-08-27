@@ -156,13 +156,44 @@ func normalizeStateDirValidation(err error) error {
 	return err
 }
 
-// AcceptStateDirCreation binds the first StateDir incarnation created by the
-// owning workflow after a planning-time absence.
-func (authority EffectAuthority) AcceptStateDirCreation(ctx context.Context) error {
+func (authority EffectAuthority) ensureStateDir(ctx context.Context) (bool, error) {
 	if err := authority.requireInitialized(); err != nil {
-		return err
+		return false, err
 	}
-	return authority.stateDir.AcceptCurrentIncarnation(ctx)
+	created, err := authority.stateDir.EnsureOwnedIncarnation(ctx)
+	return created, normalizeStateDirValidation(err)
+}
+
+// EnsureStateDirForEffect validates peer workflow authority and the recovery
+// barrier before StateDir creation, then revalidates both after that first
+// authorized visibility effect.
+func (authority EffectAuthority) EnsureStateDirForEffect(
+	ctx context.Context,
+	validatePeer func(context.Context) error,
+) (bool, error) {
+	if ctx == nil {
+		return false, fmt.Errorf("recovery effect context is required")
+	}
+	if validatePeer == nil {
+		return false, fmt.Errorf("recovery effect peer validation is required")
+	}
+	if err := validatePeer(ctx); err != nil {
+		return false, err
+	}
+	if err := authority.Validate(ctx); err != nil {
+		return false, err
+	}
+	created, err := authority.ensureStateDir(ctx)
+	if err != nil {
+		return created, err
+	}
+	if err := validatePeer(ctx); err != nil {
+		return created, err
+	}
+	if err := authority.Validate(ctx); err != nil {
+		return created, err
+	}
+	return created, nil
 }
 
 // ValidateStateDir requires only the planning-time StateDir namespace and

@@ -25,12 +25,12 @@ const (
 	// observation. It is deliberately well above ordinary
 	// agent configuration layouts while preventing one path from monopolizing
 	// descriptor work.
-	MaximumPhysicalPathDepth = 256
+	MaximumPhysicalPathDepth = mutationfs.MaximumPhysicalPathDepth
 	// maximumPhysicalPathComponentVisits is the fixed operation-wide ceiling
 	// across planning, re-observation, and durable-absence confirmation. It is
 	// independent of intent cardinality so a large journal cannot multiply the
 	// amount of admitted path work.
-	maximumPhysicalPathComponentVisits = 524_288
+	maximumPhysicalPathComponentVisits = mutationfs.MaximumPhysicalPathComponentVisits
 	forwardRemovalCapabilityPasses     = 2
 	forwardRemovalNamespacePasses      = 5
 	forwardRemovalCandidatePasses      = 2
@@ -123,6 +123,7 @@ type PhysicalWorkBudget struct {
 	reservedScratchEntries           int
 	reservedScratchBytes             int64
 	scratchCleanupWork               ArtifactWork
+	sharedPathBudget                 PathWorkBudget
 	reservedRetirementEntries        int
 	reservedRetirementBytes          int64
 	scratchCleanupReserved           bool
@@ -452,9 +453,57 @@ func (budget *PhysicalWorkBudget) BeginReservedBackupExecution() (*PhysicalWorkB
 	}, nil
 }
 
+// PathWorkBudget charges already-normalized physical path-component work.
+type PathWorkBudget interface {
+	AdmitPathComponents(count int) error
+}
+
+// PhysicalPathBudget is the operation-wide path-component envelope shared by
+// pre-decode inventory, StateDir authority, and exact journal planning passes.
+type PhysicalPathBudget struct {
+	components int
+}
+
+// NewPhysicalPathBudget creates one empty operation-wide physical path budget.
+func NewPhysicalPathBudget() *PhysicalPathBudget { return &PhysicalPathBudget{} }
+
+// AdmitPathComponents charges one normalized physical path traversal.
+func (budget *PhysicalPathBudget) AdmitPathComponents(count int) error {
+	if budget == nil {
+		return fmt.Errorf("physical path budget is required")
+	}
+	if count < 0 {
+		return fmt.Errorf("physical path-component work must not be negative")
+	}
+	if count > MaximumPhysicalPathDepth {
+		return fmt.Errorf(
+			"physical path depth %d exceeds maximum %d",
+			count,
+			MaximumPhysicalPathDepth,
+		)
+	}
+	if count > maximumPhysicalPathComponentVisits-budget.components {
+		return fmt.Errorf(
+			"physical path-component work exceeds operation limit %d",
+			maximumPhysicalPathComponentVisits,
+		)
+	}
+	budget.components += count
+	return nil
+}
+
 // NewPhysicalWorkBudget admits the complete removal-intent cardinality before
 // current-path, ownership, backup, or cleanup observation and before effects.
 func NewPhysicalWorkBudget(intentCount int) (*PhysicalWorkBudget, error) {
+	return NewPhysicalWorkBudgetWithPathBudget(intentCount, nil)
+}
+
+// NewPhysicalWorkBudgetWithPathBudget creates the exact semantic planning
+// budget while charging all path work to a caller-owned shared envelope.
+func NewPhysicalWorkBudgetWithPathBudget(
+	intentCount int,
+	sharedPathBudget PathWorkBudget,
+) (*PhysicalWorkBudget, error) {
 	if intentCount < 0 || intentCount > MaximumRemovalIntents {
 		return nil, fmt.Errorf(
 			"removal intent count %d exceeds operation maximum %d",
@@ -467,6 +516,7 @@ func NewPhysicalWorkBudget(intentCount int) (*PhysicalWorkBudget, error) {
 		pathComponentLimit: maximumPhysicalPathComponentVisits,
 		entryLimit:         MaximumPhysicalEntries,
 		byteLimit:          MaximumPhysicalBytes,
+		sharedPathBudget:   sharedPathBudget,
 	}, nil
 }
 
@@ -514,6 +564,11 @@ func (budget *PhysicalWorkBudget) admitAggregatePathComponents(count int) error 
 			"removal path-component work exceeds operation limit %d",
 			budget.pathComponentLimit,
 		)
+	}
+	if budget.sharedPathBudget != nil {
+		if err := budget.sharedPathBudget.AdmitPathComponents(count); err != nil {
+			return err
+		}
 	}
 	budget.pathComponents += count
 	return nil

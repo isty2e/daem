@@ -23,7 +23,7 @@ const (
 	PathInventoryJSON      = 1
 	ReconciliationPlanJSON = 12
 	ApplyResultJSON        = 19
-	RecoveryJSON           = 8
+	RecoveryJSON           = 9
 	DoctorJSON             = 2
 	MCPProbeJSON           = 1
 	ExtensionRefreshJSON   = 4

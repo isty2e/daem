@@ -112,10 +112,14 @@ type ApplyResult struct {
 	} `json:"diagnostics"`
 	HasErrors bool `json:"has_errors"`
 	Errors    []struct {
-		Code    string `json:"code"`
-		Phase   string `json:"phase"`
-		Outcome string `json:"outcome"`
-		Message string `json:"message"`
+		Code            string `json:"code"`
+		Phase           string `json:"phase"`
+		Outcome         string `json:"outcome"`
+		Message         string `json:"message"`
+		RecoveryBarrier *struct {
+			Journal string `json:"journal,omitempty"`
+			FileSet string `json:"file_set,omitempty"`
+		} `json:"recovery_barrier,omitempty"`
 	} `json:"errors"`
 }
 

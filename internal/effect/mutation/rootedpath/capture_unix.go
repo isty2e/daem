@@ -69,6 +69,7 @@ func captureRootPlatform(
 			physicalRoot, platform, object, mount, missing, resolveErr := resolveDirectoryPathPlatform(
 				absoluteRoot,
 				false,
+				true,
 				traversal,
 			)
 			if resolveErr != nil {
@@ -142,6 +143,7 @@ type pendingNativePathComponent struct {
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	allowMissing bool,
+	readableFinal bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	root, names, err := splitAbsoluteRawPath(selectedPath)
@@ -272,8 +274,10 @@ func resolveDirectoryPathPlatform(
 		platform.directories = append(platform.directories, directory)
 	}
 
-	if err := reopenCapturedRootFinal(&platform); err != nil {
-		return fail(err)
+	if readableFinal {
+		if err := reopenCapturedRootFinal(&platform); err != nil {
+			return fail(err)
+		}
 	}
 	physicalRoot := resolvedDirectoryPath(platform)
 	object, mount, _, identityErr := resolvedDirectoryIdentity(platform, nil)

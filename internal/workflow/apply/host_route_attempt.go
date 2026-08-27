@@ -96,14 +96,6 @@ func runHostRoutesAndPersistAttemptRecords(
 				"host route effect validation is required",
 			)
 		}
-		if len(records) != 0 || len(globalPromotions) != 0 {
-			if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
-				return current, globalCarrierClaims, records, fmt.Errorf(
-					"validate host-route preflight state effect: %w",
-					err,
-				)
-			}
-		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
@@ -116,9 +108,12 @@ func runHostRoutesAndPersistAttemptRecords(
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
 		defer stateAuthority.Close()
-		if options.acceptStateDirCreation != nil {
-			if err := options.acceptStateDirCreation(ctx); err != nil {
-				return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
+		if len(records) != 0 || len(globalPromotions) != 0 {
+			if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
+				return current, globalCarrierClaims, records, fmt.Errorf(
+					"validate host-route preflight state effect: %w",
+					err,
+				)
 			}
 		}
 	}
@@ -440,14 +435,6 @@ func runHostRoutesAndPersistAttemptRecords(
 				hostRouteFailuresError(failures),
 				declarationErr,
 			)
-		}
-		if options.acceptStateDirCreation != nil {
-			if err := options.acceptStateDirCreation(ctx); err != nil {
-				return nextState, globalCarrierClaims, records, errors.Join(
-					hostRouteFailuresError(failures),
-					err,
-				)
-			}
 		}
 	}
 	return nextState, globalCarrierClaims, records, hostRouteFailuresError(failures)

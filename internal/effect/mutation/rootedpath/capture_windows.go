@@ -50,6 +50,7 @@ func captureRootPlatform(
 		physicalRoot, platform, object, mount, missing, resolveErr := resolveDirectoryPathPlatform(
 			absolute,
 			false,
+			true,
 			traversal,
 		)
 		if resolveErr != nil {
@@ -680,6 +681,7 @@ func splitWindowsAbsolutePath(value string) (string, []string, error) {
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	allowMissing bool,
+	_ bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	absolute, names, err := prepareWindowsAbsolutePath(selectedPath, traversal)

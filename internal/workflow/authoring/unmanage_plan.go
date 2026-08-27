@@ -37,6 +37,7 @@ func buildUnmanageCandidate(
 	paths daempaths.Paths,
 	buildLockfile bool,
 	barrier recoverygate.EffectAuthority,
+	preparePersistentCache func(context.Context, []string) error,
 ) (unmanageCandidate, error) {
 	if ctx == nil {
 		return unmanageCandidate{}, fmt.Errorf("unmanage context is required")
@@ -133,6 +134,14 @@ func buildUnmanageCandidate(
 	localPaths, err := ConsumedLocalPaths(lockInput)
 	if err != nil {
 		return unmanageCandidate{}, err
+	}
+	if buildLockfile && request.Mode == UnmanageModeWrite {
+		if preparePersistentCache == nil {
+			return unmanageCandidate{}, fmt.Errorf("unmanage persistent-cache preparation is required")
+		}
+		lockInput.PreparePersistentCache = func(ctx context.Context) error {
+			return preparePersistentCache(ctx, localPaths)
+		}
 	}
 	lockfile := LockfileChange{
 		path: lockInput.LockfilePath,
