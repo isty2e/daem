@@ -81,7 +81,7 @@ func ReadRootedSymlinkTarget(
 	if err := validateRootedPath(path); err != nil {
 		return "", EntryIdentity{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
-	anchor, err := openCommitParent(path, capability, false)
+	anchor, err := openReadParent(path, capability)
 	if anchor != nil {
 		defer anchor.close()
 	}
@@ -156,7 +156,7 @@ func readRegularFileSnapshotWithFaults(
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return nil, 0, EntryIdentity{}, newFailure(failureUncommitted, phaseValidate, path, err)
 	}
-	anchor, err := openCommitParent(path, capability, false)
+	anchor, err := openReadParent(path, capability)
 	if anchor != nil {
 		defer anchor.close()
 	}

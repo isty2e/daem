@@ -94,7 +94,43 @@ func openAnchoredParentWithPublicationHooks(
 	createAncestors bool,
 	hooks ancestorPublicationHooks,
 ) (*anchoredParent, error) {
-	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	return openAnchoredParentWithOptions(
+		path,
+		createAncestors,
+		hooks,
+		false,
+		!createAncestors,
+	)
+}
+
+func openObservationParent(path string) (*anchoredParent, error) {
+	return openAnchoredParentWithOptions(
+		path,
+		false,
+		ancestorPublicationHooks{},
+		true,
+		true,
+	)
+}
+
+func openReadParent(
+	path string,
+	capability rootedpath.CommitCapability,
+) (*anchoredParent, error) {
+	if capability == nil {
+		return openObservationParent(path)
+	}
+	return openCommitParent(path, capability, false)
+}
+
+func openAnchoredParentWithOptions(
+	path string,
+	createAncestors bool,
+	hooks ancestorPublicationHooks,
+	searchOnlyAll bool,
+	searchOnlyIntermediate bool,
+) (*anchoredParent, error) {
+	rootFD, err := unix.Open("/", observationDirectoryOpenFlags(false), 0)
 	if err != nil {
 		return nil, fmt.Errorf("open filesystem root: %w", err)
 	}
@@ -120,8 +156,10 @@ func openAnchoredParentWithPublicationHooks(
 	if trimmed == "" {
 		return anchor, nil
 	}
-	for component := range strings.SplitSeq(trimmed, "/") {
-		if err := anchor.openChildDirectory(component, createAncestors); err != nil {
+	components := strings.Split(trimmed, "/")
+	for index, component := range components {
+		searchOnly := searchOnlyAll || searchOnlyIntermediate && index < len(components)-1
+		if err := anchor.openChildDirectoryWithMode(component, createAncestors, searchOnly); err != nil {
 			return anchor, err
 		}
 	}
@@ -214,6 +252,14 @@ func openRootedAnchoredParentWithPublicationHooks(
 }
 
 func (anchor *anchoredParent) openChildDirectory(name string, create bool) error {
+	return anchor.openChildDirectoryWithMode(name, create, false)
+}
+
+func (anchor *anchoredParent) openChildDirectoryWithMode(
+	name string,
+	create bool,
+	searchOnly bool,
+) error {
 	parent := anchor.directories[len(anchor.directories)-1]
 	var before unix.Stat_t
 	err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW)
@@ -223,13 +269,14 @@ func (anchor *anchoredParent) openChildDirectory(name string, create bool) error
 	if err != nil {
 		return fmt.Errorf("inspect ancestor %q: %w", filepath.Join(parent.path, name), err)
 	}
-	return anchor.openObservedChildDirectory(parent, name, &before)
+	return anchor.openObservedChildDirectory(parent, name, &before, searchOnly)
 }
 
 func (anchor *anchoredParent) openObservedChildDirectory(
 	parent openedDirectory,
 	name string,
 	before *unix.Stat_t,
+	searchOnly bool,
 ) error {
 	path := filepath.Join(parent.path, name)
 	beforeKind := kindFromStat(before)
@@ -258,7 +305,7 @@ func (anchor *anchoredParent) openObservedChildDirectory(
 		return fmt.Errorf("ancestor %q is not a directory", path)
 	}
 
-	fd, err := unix.Openat(parent.fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Openat(parent.fd, name, observationDirectoryOpenFlags(searchOnly), 0)
 	if err != nil {
 		return fmt.Errorf("open ancestor %q: %w", path, err)
 	}

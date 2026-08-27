@@ -9,6 +9,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func capturedDirectoryOpenFlags(searchOnly bool) int {
+	flags := unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	if searchOnly {
+		flags = unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	}
+	return flags
+}
+
 func nativeObjectToken(fd int, device uint64, inode uint64) (identityToken, error) {
 	stat, err := statxDescriptor(fd, unix.STATX_BTIME|unix.STATX_MNT_ID)
 	if err != nil && !errors.Is(err, errMountIdentityUnsupported) {

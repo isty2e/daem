@@ -13,6 +13,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func observationDirectoryOpenFlags(bool) int {
+	return unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+}
+
 func statChangeTime(stat *unix.Stat_t) (int64, int64) {
 	return stat.Ctim.Sec, stat.Ctim.Nsec
 }

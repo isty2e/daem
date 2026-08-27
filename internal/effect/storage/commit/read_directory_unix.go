@@ -84,7 +84,7 @@ func snapshotDirectoryWithCapability(
 	if err := faults.check(ctx, phaseValidate); err != nil {
 		return mutationfs.DirectorySnapshot{}, failureBeforeVisibility(phaseValidate, path, err)
 	}
-	anchor, err := openCommitParent(path, capability, false)
+	anchor, err := openReadParent(path, capability)
 	if anchor != nil {
 		defer anchor.close()
 	}

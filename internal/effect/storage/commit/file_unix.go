@@ -91,7 +91,7 @@ func captureEntryIdentity(
 	if err := (faultPlan{}).check(ctx, phaseCaptureIdentity); err != nil {
 		return EntryIdentity{}, newFailure(failureUncommitted, phaseCaptureIdentity, path, err)
 	}
-	anchor, err := openCommitParent(path, capability, false)
+	anchor, err := openReadParent(path, capability)
 	if anchor != nil {
 		defer anchor.close()
 	}

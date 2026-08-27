@@ -265,13 +265,16 @@ func resolveDirectoryPathPlatform(
 		if err := traversal.validateResolvedDepth(resolvedDepth); err != nil {
 			return fail(err)
 		}
-		directory, openErr := openCapturedChild(parent, component.name, candidatePath)
+		directory, openErr := openCapturedChild(parent, component.name, candidatePath, true)
 		if openErr != nil {
 			return fail(openErr)
 		}
 		platform.directories = append(platform.directories, directory)
 	}
 
+	if err := reopenCapturedRootFinal(&platform); err != nil {
+		return fail(err)
+	}
 	physicalRoot := resolvedDirectoryPath(platform)
 	object, mount, _, identityErr := resolvedDirectoryIdentity(platform, nil)
 	if identityErr != nil {
@@ -373,7 +376,8 @@ func openPhysicalRootChain(
 		_ = closeCapturedRootPlatform(&platform)
 		return capturedRootPlatform{}, newFailure(FailureInvalidRoot, physicalRoot, "filesystem root cannot be root authority", nil)
 	}
-	for index, component := range strings.Split(trimmed, string(filepath.Separator)) {
+	components := strings.Split(trimmed, string(filepath.Separator))
+	for index, component := range components {
 		if err := traversal.visitComponent(); err != nil {
 			_ = closeCapturedRootPlatform(&platform)
 			return capturedRootPlatform{}, err
@@ -384,7 +388,7 @@ func openPhysicalRootChain(
 		}
 		parent := platform.directories[len(platform.directories)-1]
 		path := filepath.Join(parent.path, component)
-		directory, err := openCapturedChild(parent, component, path)
+		directory, err := openCapturedChild(parent, component, path, index < len(components)-1)
 		if err != nil {
 			_ = closeCapturedRootPlatform(&platform)
 			return capturedRootPlatform{}, err
@@ -394,7 +398,40 @@ func openPhysicalRootChain(
 	return platform, nil
 }
 
-func openCapturedChild(parent capturedDirectory, name string, path string) (capturedDirectory, error) {
+func reopenCapturedRootFinal(platform *capturedRootPlatform) error {
+	if platform == nil || len(platform.directories) < 2 {
+		return newFailure(FailureRootUnavailable, "", "captured root chain is unavailable", nil)
+	}
+	last := len(platform.directories) - 1
+	parent := platform.directories[last-1]
+	current := platform.directories[last]
+	fd, err := unix.Openat(parent.fd, current.name, capturedDirectoryOpenFlags(false), 0)
+	if err != nil {
+		return newFailure(FailureRootUnavailable, current.path, "reopen final physical root", err)
+	}
+	reopened, err := captureDirectory(fd, current.name, current.path)
+	if err != nil {
+		_ = unix.Close(fd)
+		return err
+	}
+	if reopened.device != current.device || reopened.inode != current.inode || reopened.mount != current.mount {
+		_ = unix.Close(fd)
+		return newFailure(FailureRootReplaced, current.path, "final physical root changed while reopening", nil)
+	}
+	if err := unix.Close(current.fd); err != nil {
+		_ = unix.Close(fd)
+		return newFailure(FailureRootUnavailable, current.path, "close search-only final root", err)
+	}
+	platform.directories[last] = reopened
+	return nil
+}
+
+func openCapturedChild(
+	parent capturedDirectory,
+	name string,
+	path string,
+	searchOnly bool,
+) (capturedDirectory, error) {
 	var before unix.Stat_t
 	if err := unix.Fstatat(parent.fd, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
 		return capturedDirectory{}, newFailure(FailureRootUnavailable, path, "inspect physical root component", err)
@@ -402,7 +439,7 @@ func openCapturedChild(parent capturedDirectory, name string, path string) (capt
 	if before.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return capturedDirectory{}, newFailure(FailureRootReplaced, path, "physical root component is not a directory", nil)
 	}
-	fd, err := unix.Openat(parent.fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	fd, err := unix.Openat(parent.fd, name, capturedDirectoryOpenFlags(searchOnly), 0)
 	if err != nil {
 		return capturedDirectory{}, newFailure(FailureRootUnavailable, path, "open physical root component", err)
 	}

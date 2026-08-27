@@ -40,7 +40,7 @@ func (anchor *anchoredParent) createAndPublishChildDirectory(
 		if inspectErr := unix.Fstatat(parent.fd, name, &concurrent, unix.AT_SYMLINK_NOFOLLOW); inspectErr != nil {
 			return fmt.Errorf("inspect concurrently created ancestor %q: %w", path, inspectErr)
 		}
-		return anchor.openObservedChildDirectory(parent, name, &concurrent)
+		return anchor.openObservedChildDirectory(parent, name, &concurrent, false)
 	}
 	if err != nil {
 		cleanupErr := cleanupStagedDirectory(parent, stageName, stagePath, identity)
