@@ -10,6 +10,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// darwinOpenSearch mirrors O_SEARCH from the macOS SDK; x/sys does not expose it.
+const darwinOpenSearch = 0x40000000 | unix.O_DIRECTORY
+
+func capturedDirectoryOpenFlags(searchOnly bool) int {
+	if searchOnly {
+		return darwinOpenSearch | unix.O_CLOEXEC | unix.O_NOFOLLOW
+	}
+	return unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW
+}
+
 func nativeObjectToken(fd int, device uint64, inode uint64) (identityToken, error) {
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil {

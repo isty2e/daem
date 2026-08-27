@@ -9,7 +9,6 @@ import (
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -39,7 +38,7 @@ func isGlobalCarrierPromotionCandidate(
 func commitInterruptedGlobalCarrierClaims(
 	ctx context.Context,
 	paths daempaths.Paths,
-	stateAuthority *rootedpath.EntryAuthority,
+	stateAuthority *statefileEffectAuthority,
 	current durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
 	actions []reconciliation.RelationAction,
@@ -77,7 +76,7 @@ func commitInterruptedGlobalCarrierClaims(
 func commitObservedGlobalCarrierClaim(
 	ctx context.Context,
 	paths daempaths.Paths,
-	stateAuthority *rootedpath.EntryAuthority,
+	stateAuthority *statefileEffectAuthority,
 	current durable.Snapshot,
 	registry durablecarrier.GlobalCarrierClaims,
 	action reconciliation.RelationAction,
@@ -112,20 +111,33 @@ func commitObservedGlobalCarrierClaim(
 	if err != nil {
 		return current, registry, err
 	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return current, registry, err
+	}
 	nextRegistry, err := store.Upsert(ctx, claim)
 	if err != nil {
 		return current, registry, err
 	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return current, nextRegistry, err
+	}
+	entry, err := stateAuthority.EntryForCommit()
+	if err != nil {
+		return current, nextRegistry, err
+	}
 	nextState, err := execute.CommitConvergedGlobalCarrierClaims(
 		ctx,
 		storagecommit.Adapter{},
-		stateAuthority,
+		entry,
 		current,
 		nextRegistry,
 		statefile.Codec{},
 	)
 	if err != nil {
 		return current, nextRegistry, err
+	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return nextState, nextRegistry, err
 	}
 	return nextState, nextRegistry, nil
 }

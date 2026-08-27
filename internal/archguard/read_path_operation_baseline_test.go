@@ -110,7 +110,7 @@ func TestReadPathApplyLoadsOnePersistencePairPerNamedPlanningEpoch(t *testing.T)
 	}
 	if got := strings.Count(
 		string(executeContent),
-		"planReadinessAtPaths(ctx, currentInput, execution.operationContext, planned.context.Paths)",
+		"planReadinessAtPathsWithBarrier(",
 	); got != 1 {
 		t.Fatalf("post-lease apply readiness rebuild sites = %d, want 1", got)
 	}

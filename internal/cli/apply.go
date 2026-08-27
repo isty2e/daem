@@ -372,11 +372,42 @@ func printApplyFailure(
 ) {
 	detail, reason := applyFailureDetail(stage, err, result)
 	fmt.Fprintf(output, "apply failed: %s\n", detail)
-	if reason == applyworkflow.FailureReasonRelationOrderRiskExpanded {
+	switch reason {
+	case applyworkflow.FailureReasonRelationOrderRiskExpanded:
 		fmt.Fprintln(
 			output,
 			"next: inspect a fresh dry-run with daem apply --dry-run, then rerun interactively to authorize the updated extension order",
 		)
+	case applyworkflow.FailureReasonInterruptedApply:
+		fmt.Fprintln(
+			output,
+			"next: run daem recover --dry-run first",
+		)
+	case applyworkflow.FailureReasonInterruptedApplyFileSetFence:
+		fmt.Fprintln(
+			output,
+			"next: run daem recover --dry-run first; the file-set fence remains after recover and is not cleared by it",
+		)
+	case applyworkflow.FailureReasonJournalCleanupIncomplete:
+		fmt.Fprintln(output, "next: run daem recover --dry-run to finish journal cleanup")
+	case applyworkflow.FailureReasonJournalCleanupFileSetFence:
+		fmt.Fprintln(
+			output,
+			"next: run daem recover --dry-run to finish journal cleanup; the file-set fence remains afterward",
+		)
+	case applyworkflow.FailureReasonInterruptedFileSetTransaction:
+		fmt.Fprintln(output, "next: retry the interrupted authoring or unmanage operation before apply")
+	case applyworkflow.FailureReasonFileSetEvidenceInvalid:
+		fmt.Fprintln(output, "next: preserve and repair the invalid file-set evidence before apply or recover")
+	case applyworkflow.FailureReasonAbandonedFileSetResidue:
+		fmt.Fprintln(
+			output,
+			"next: preserve the reported residue for analysis; do not retry apply or delete reserved names by prefix",
+		)
+	case applyworkflow.FailureReasonFileSetFenceCensusLimit:
+		fmt.Fprintln(output, "next: inspect or reduce StateDir entries so the bounded file-set census can complete")
+	case applyworkflow.FailureReasonFileSetAccessUnprovable:
+		fmt.Fprintln(output, "next: restore StateDir access and identity before apply or recover")
 	}
 	if !verbose || err == nil {
 		return

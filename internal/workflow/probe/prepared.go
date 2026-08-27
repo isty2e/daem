@@ -9,6 +9,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	runtimeprobemcp "github.com/isty2e/daem/internal/assurance/runtimeprobe/mcp"
+	"github.com/isty2e/daem/internal/effect/mutation"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -34,28 +36,40 @@ type PreparedCommand struct {
 }
 
 type preparedProbeLifecycle struct {
-	mu      sync.Mutex
-	state   preparedProbeState
-	request runtimeprobemcp.ProbeRequest
-	binding subprocess.WorkingDirectoryBinding
+	mu        sync.Mutex
+	state     preparedProbeState
+	request   runtimeprobemcp.ProbeRequest
+	binding   subprocess.WorkingDirectoryBinding
+	dataDir   string
+	barrier   recoverygate.EffectAuthority
+	revisions mutation.RevisionSet
 }
 
 type preparedProbeExecution struct {
-	request runtimeprobemcp.ProbeRequest
-	binding subprocess.WorkingDirectoryBinding
+	request   runtimeprobemcp.ProbeRequest
+	binding   subprocess.WorkingDirectoryBinding
+	dataDir   string
+	barrier   recoverygate.EffectAuthority
+	revisions mutation.RevisionSet
 }
 
 func newPreparedCommand(
 	disclosure CommandResult,
 	request runtimeprobemcp.ProbeRequest,
 	binding subprocess.WorkingDirectoryBinding,
+	dataDir string,
+	barrier recoverygate.EffectAuthority,
+	revisions mutation.RevisionSet,
 ) *PreparedCommand {
 	return &PreparedCommand{
 		disclosure: cloneProbeCommandResult(disclosure),
 		lifecycle: &preparedProbeLifecycle{
-			state:   preparedProbeReady,
-			request: cloneProbeRequest(request),
-			binding: binding,
+			state:     preparedProbeReady,
+			request:   cloneProbeRequest(request),
+			binding:   binding,
+			dataDir:   dataDir,
+			barrier:   barrier,
+			revisions: revisions,
 		},
 	}
 }
@@ -72,7 +86,7 @@ func (prepared *PreparedCommand) Disclosure() CommandResult {
 func (prepared *PreparedCommand) Execute(
 	ctx context.Context,
 	executor RuntimeProbeExecutor,
-) (CommandResult, error) {
+) (result CommandResult, returnErr error) {
 	if ctx == nil {
 		return CommandResult{}, fmt.Errorf("probe context is required")
 	}
@@ -83,15 +97,44 @@ func (prepared *PreparedCommand) Execute(
 	if err != nil {
 		return prepared.Disclosure(), err
 	}
-	defer execution.binding.Close()
+	result = prepared.Disclosure()
+	result.Mode = ModeExecute
+	defer func() {
+		returnErr = errors.Join(returnErr, execution.binding.Close())
+	}()
+	store, err := mutation.NewStore(execution.dataDir)
+	if err != nil {
+		return result, err
+	}
+	leases, err := store.Acquire(ctx, execution.barrier.Domains()...)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		returnErr = errors.Join(returnErr, leases.Release())
+	}()
+	if matches, err := leases.DomainsMatchCurrent(ctx); err != nil {
+		return result, err
+	} else if !matches {
+		return result, mutation.StaleSnapshotError{}
+	}
+	if err := execution.barrier.Validate(ctx); err != nil {
+		return result, err
+	}
+	if matches, err := execution.revisions.MatchesCurrent(ctx); err != nil {
+		return result, err
+	} else if !matches {
+		return result, mutation.StaleSnapshotError{}
+	}
+	if err := execution.barrier.Validate(ctx); err != nil {
+		return result, err
+	}
 
 	if executor == nil {
 		executor = runtimeprobemcp.NewExecutor(prepared.disclosure.Timeout)
 	}
 	binder := singleUsePreparedBinder(execution.binding)
 	facts, err := executor.Probe(ctx, cloneProbeRequest(execution.request), binder)
-	result := prepared.Disclosure()
-	result.Mode = ModeExecute
 	if err != nil {
 		return result, err
 	}
@@ -114,12 +157,18 @@ func (prepared *PreparedCommand) beginExecution() (preparedProbeExecution, error
 	switch lifecycle.state {
 	case preparedProbeReady:
 		execution := preparedProbeExecution{
-			request: cloneProbeRequest(lifecycle.request),
-			binding: lifecycle.binding,
+			request:   cloneProbeRequest(lifecycle.request),
+			binding:   lifecycle.binding,
+			dataDir:   lifecycle.dataDir,
+			barrier:   lifecycle.barrier,
+			revisions: lifecycle.revisions,
 		}
 		lifecycle.state = preparedProbeConsumed
 		lifecycle.request = runtimeprobemcp.ProbeRequest{}
 		lifecycle.binding = nil
+		lifecycle.dataDir = ""
+		lifecycle.barrier = recoverygate.EffectAuthority{}
+		lifecycle.revisions = mutation.RevisionSet{}
 		return execution, nil
 	case preparedProbeClosed:
 		return preparedProbeExecution{}, errPreparedProbeClosed
@@ -146,6 +195,9 @@ func (prepared *PreparedCommand) Close() error {
 	lifecycle.state = preparedProbeClosed
 	lifecycle.request = runtimeprobemcp.ProbeRequest{}
 	lifecycle.binding = nil
+	lifecycle.dataDir = ""
+	lifecycle.barrier = recoverygate.EffectAuthority{}
+	lifecycle.revisions = mutation.RevisionSet{}
 	lifecycle.mu.Unlock()
 	if binding == nil {
 		return nil

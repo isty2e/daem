@@ -62,8 +62,8 @@ func validatePhysicalRoot(physicalRoot string) error {
 	if strings.TrimSpace(physicalRoot) == "" {
 		return newFailure(FailureInvalidRoot, physicalRoot, "physical root is required", nil)
 	}
-	if strings.IndexFunc(physicalRoot, isForbiddenPathRune) >= 0 {
-		return newFailure(FailureInvalidRoot, physicalRoot, "physical root contains a control character", nil)
+	if strings.ContainsRune(physicalRoot, '\x00') {
+		return newFailure(FailureInvalidRoot, physicalRoot, "physical root contains NUL", nil)
 	}
 	if !filepath.IsAbs(physicalRoot) {
 		return newFailure(FailureInvalidRoot, physicalRoot, "physical root must be absolute", nil)
@@ -103,7 +103,8 @@ func (authority Authority) Bind(relative RelativeDestination) (Destination, erro
 
 // RelativeDestination is a canonical slash-separated path beneath a captured root.
 type RelativeDestination struct {
-	value string
+	value  string
+	native bool
 }
 
 // NewRelativeDestination normalizes a root-relative destination at ingress.
@@ -145,14 +146,47 @@ func NewRelativeDestination(value string) (RelativeDestination, error) {
 	return relative, nil
 }
 
+func newCanonicalNativeRelativeDestination(value string) (RelativeDestination, error) {
+	if value == "" || strings.ContainsRune(value, '\x00') || path.IsAbs(value) ||
+		hasPathVolumePrefix(value) || path.Clean(value) != value || value == "." ||
+		value == ".." || strings.HasPrefix(value, "../") {
+		return RelativeDestination{}, newFailure(
+			FailureInvalidDestination,
+			value,
+			"native destination is not canonical",
+			nil,
+		)
+	}
+	for _, component := range strings.Split(value, "/") {
+		if component == ".." {
+			return RelativeDestination{}, newFailure(
+				FailureInvalidDestination,
+				value,
+				"native destination contains a parent traversal",
+				nil,
+			)
+		}
+	}
+	if err := validatePlatformRelativeDestination(value); err != nil {
+		return RelativeDestination{}, err
+	}
+	return RelativeDestination{value: value, native: true}, nil
+}
+
 // Validate checks canonical relative-destination invariants.
 func (relative RelativeDestination) Validate() error {
 	if relative.value == "" || relative.value == "." {
 		return newFailure(FailureInvalidDestination, relative.value, "destination is not initialized", nil)
 	}
-	if strings.Contains(relative.value, "\\") || strings.IndexFunc(relative.value, isForbiddenPathRune) >= 0 ||
-		path.IsAbs(relative.value) || hasPathVolumePrefix(relative.value) ||
-		relative.value == "~" || strings.HasPrefix(relative.value, "~/") || path.Clean(relative.value) != relative.value ||
+	invalidCharacters := strings.Contains(relative.value, "\\") ||
+		strings.IndexFunc(relative.value, isForbiddenPathRune) >= 0
+	invalidSpecial := relative.value == "~" || strings.HasPrefix(relative.value, "~/")
+	if relative.native {
+		invalidCharacters = strings.ContainsRune(relative.value, '\x00')
+		invalidSpecial = false
+	}
+	if invalidCharacters || path.IsAbs(relative.value) || hasPathVolumePrefix(relative.value) ||
+		invalidSpecial || path.Clean(relative.value) != relative.value ||
 		relative.value == ".." || strings.HasPrefix(relative.value, "../") {
 		return newFailure(FailureInvalidDestination, relative.value, "destination is not canonical", nil)
 	}

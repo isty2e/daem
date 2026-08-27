@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/journal"
 )
 
@@ -37,6 +38,7 @@ type ExecutionResult struct {
 	disclosure         journal.RecoverablePlan
 	operationID        string
 	executionSucceeded bool
+	fileSetFence       transaction.FileSetFenceObservation
 }
 
 type terminalExecutionFailure struct {
@@ -98,6 +100,30 @@ func unknownExecutionResult(operationID string) ExecutionResult {
 func (result ExecutionResult) withExecutionFailure() ExecutionResult {
 	result.executionSucceeded = false
 	return result
+}
+
+func (result ExecutionResult) withFileSetFence(kind transaction.FileSetFenceKind) ExecutionResult {
+	return result.withFileSetFenceObservation(transaction.KnownFileSetFence(kind))
+}
+
+func (result ExecutionResult) withFileSetFenceObservation(
+	observation transaction.FileSetFenceObservation,
+) ExecutionResult {
+	result.fileSetFence = observation
+	return result
+}
+
+// FileSetFenceObservation returns the fresh terminal file-set axis independently
+// of journal authority retirement.
+func (result ExecutionResult) FileSetFenceObservation() transaction.FileSetFenceObservation {
+	return result.fileSetFence
+}
+
+// HasNonClearFileSetObservation reports a known non-clear or observed-unknown
+// terminal file-set fact.
+func (result ExecutionResult) HasNonClearFileSetObservation() bool {
+	return result.fileSetFence.Observed() &&
+		(!result.fileSetFence.Known() || result.fileSetFence.Kind() != transaction.FileSetFenceClear)
 }
 
 // Phase returns the public post-execution lifecycle projection.

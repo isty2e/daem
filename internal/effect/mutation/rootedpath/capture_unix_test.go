@@ -653,6 +653,34 @@ func TestCaptureDestinationBoundedAppliesDepthToResolvedAliasTarget(t *testing.T
 	}
 }
 
+func TestResolveDestinationPathBoundedKeepsDeepestParentSearchOnly(t *testing.T) {
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(base, ".daem")
+	recoveryDir := filepath.Join(stateDir, "recovery")
+	if err := os.MkdirAll(recoveryDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stateDir, 0o111); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stateDir, 0o700) })
+
+	resolved, err := ResolveDestinationPathBounded(
+		recoveryDir,
+		256,
+		&boundedCaptureTestBudget{limit: 10_000},
+	)
+	if err != nil {
+		t.Fatalf("ResolveDestinationPathBounded: %v", err)
+	}
+	if resolved != recoveryDir {
+		t.Fatalf("resolved path = %q, want %q", resolved, recoveryDir)
+	}
+}
+
 func TestCaptureDestinationBoundedRejectsAliasCycle(t *testing.T) {
 	base, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

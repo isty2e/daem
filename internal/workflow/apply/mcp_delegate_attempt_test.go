@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,70 @@ import (
 	"github.com/isty2e/daem/internal/subprocess"
 	targetpkg "github.com/isty2e/daem/internal/target"
 )
+
+func TestDelegatePersistsAttemptWithControlBearingStateDir(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("control-bearing StateDir semantics are supported on Darwin and Linux")
+	}
+	tempDir := t.TempDir()
+	paths := isolatedApplyTestPaths(t, tempDir)
+	paths.StateDir = filepath.Join(tempDir, "state\ncontrol")
+	paths.StatefilePath = filepath.Join(paths.StateDir, "state.json")
+	paths.RecoveryDir = filepath.Join(paths.StateDir, "recovery")
+	selection := applyMCPSelection(t)
+	serverID := "control-delegate"
+	command := "must-not-run-daem-test"
+	args := []string{"--serve", "control"}
+	resources := applyMCPEnvironment(
+		t,
+		serverID,
+		targetpkg.TargetClaudeCode,
+		command,
+		args,
+		map[string]string{"API_TOKEN": "DAEM_TEST_TOKEN"},
+	)
+	locked, _ := applyMCPLockfile(t, serverID, command, args)
+	assessment := buildAggregateApplyAssessment(t, paths, resources, locked, selection, false)
+	delegateActions, err := reconcilehostroute.BuildDelegateActions(reconcilehostroute.DelegateInput{
+		Locked:          locked,
+		SelectedTargets: applySelectedTargets(t, selection),
+		Context:         reconcile.ContextApply,
+		Readiness: []reconcilehostroute.DelegateReadinessFact{{
+			Subject: locked.Locked.Subjects()[0].SubjectID(),
+			Runner:  delegatepolicy.RunnerAvailable,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment = assessmentWithDelegates(t, assessment, reconcile.ContextApply, delegateActions)
+	result, err := runWithOptions(
+		t.Context(),
+		paths,
+		resources,
+		locked,
+		selection,
+		assessment,
+		applyDelegateRunOptions(t, paths, runOptions{
+			DelegateExecutor: delegate.NewExecutor(delegate.Options{
+				LookupEnv: func(string) (string, bool) { return "secret", true },
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 9}
+				},
+			}),
+		}),
+	)
+	if err == nil {
+		t.Fatal("control-bearing delegate error = nil, want recorded failed attempt")
+	}
+	if len(result.DelegateAttempts) != 1 {
+		t.Fatalf("delegate attempts = %#v, want one; error=%v", result.DelegateAttempts, err)
+	}
+	state := loadApplyStatefile(t, paths.StatefilePath)
+	if len(state.DelegateAttempts()) != 1 {
+		t.Fatalf("persisted delegate attempts = %#v, want one", state.DelegateAttempts())
+	}
+}
 
 func TestRunKeepsProjectionWhenDelegateAttemptFails(t *testing.T) {
 	t.Parallel()

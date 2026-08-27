@@ -10,6 +10,46 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
+// ErrInterruptedApply reports that RecoveryDir contains an active or prepared
+// apply journal. daem recover can produce a plan for that authority.
+var ErrInterruptedApply = errors.New("interrupted apply operation found")
+
+// ErrIncompleteJournalCleanup reports that RecoveryDir contains retained or
+// finalizing journal cleanup. daem recover can produce a plan for that authority.
+var ErrIncompleteJournalCleanup = errors.New("journal cleanup is incomplete")
+
+// InterruptionKind is the closed journal readiness axis used by workflow
+// recovery barriers.
+type InterruptionKind string
+
+const (
+	InterruptionClear       InterruptionKind = ""
+	InterruptionActiveApply InterruptionKind = "active_apply"
+	InterruptionCleanupOnly InterruptionKind = "cleanup_only"
+	InterruptionInvalid     InterruptionKind = "invalid"
+)
+
+// InterruptionKindOf returns the most specific journal authority preserved by
+// err. Conflicting active and cleanup sentinels are invalid rather than
+// arbitrarily assigned to either recovery path.
+func InterruptionKindOf(err error) InterruptionKind {
+	if err == nil {
+		return InterruptionClear
+	}
+	active := errors.Is(err, ErrInterruptedApply)
+	cleanup := errors.Is(err, ErrIncompleteJournalCleanup)
+	switch {
+	case active && cleanup:
+		return InterruptionInvalid
+	case active:
+		return InterruptionActiveApply
+	case cleanup:
+		return InterruptionCleanupOnly
+	default:
+		return InterruptionClear
+	}
+}
+
 // RequireNoInterruptedApply applies the canonical recovery-root readiness
 // policy through the production filesystem and state codecs.
 func RequireNoInterruptedApply(ctx context.Context, recoveryRoot string) error {
@@ -34,10 +74,10 @@ func ensureNoActive(
 	case retirement.StateClean, retirement.StateFinalized:
 		return nil
 	case retirement.StateActive, retirement.StatePrepared:
-		return fmt.Errorf("interrupted apply operation found; run: daem recover --dry-run")
+		return fmt.Errorf("%w; run: daem recover --dry-run", ErrInterruptedApply)
 	case retirement.StateRetained,
 		retirement.StateFinalizing:
-		return fmt.Errorf("journal cleanup is incomplete; run: daem recover --dry-run")
+		return fmt.Errorf("%w; run: daem recover --dry-run", ErrIncompleteJournalCleanup)
 	case retirement.StateBlocked:
 		return fmt.Errorf("recovery inventory is blocked: %s", inventory.decision.Detail())
 	default:

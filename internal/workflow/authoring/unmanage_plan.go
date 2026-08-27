@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 )
 
@@ -27,6 +28,7 @@ type unmanageCandidate struct {
 	nextRegistry    durablecarrier.GlobalCarrierClaims
 	registryChanged bool
 	selected        selection
+	barrier         recoverygate.EffectAuthority
 }
 
 func buildUnmanageCandidate(
@@ -34,6 +36,8 @@ func buildUnmanageCandidate(
 	request UnmanageExtensionRequest,
 	paths daempaths.Paths,
 	buildLockfile bool,
+	barrier recoverygate.EffectAuthority,
+	preparePersistentCache func(context.Context, []string) error,
 ) (unmanageCandidate, error) {
 	if ctx == nil {
 		return unmanageCandidate{}, fmt.Errorf("unmanage context is required")
@@ -131,6 +135,14 @@ func buildUnmanageCandidate(
 	if err != nil {
 		return unmanageCandidate{}, err
 	}
+	if buildLockfile && request.Mode == UnmanageModeWrite {
+		if preparePersistentCache == nil {
+			return unmanageCandidate{}, fmt.Errorf("unmanage persistent-cache preparation is required")
+		}
+		lockInput.PreparePersistentCache = func(ctx context.Context) error {
+			return preparePersistentCache(ctx, localPaths)
+		}
+	}
 	lockfile := LockfileChange{
 		path: lockInput.LockfilePath,
 	}
@@ -155,6 +167,7 @@ func buildUnmanageCandidate(
 		nextRegistry:    nextRegistry,
 		registryChanged: registryChanged,
 		selected:        selected,
+		barrier:         barrier,
 	}, nil
 }
 

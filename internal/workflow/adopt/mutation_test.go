@@ -9,14 +9,56 @@ import (
 	"testing"
 
 	adoptmodel "github.com/isty2e/daem/internal/adopt"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/filesnapshot"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/profile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/supply/artifact"
 	"github.com/isty2e/daem/internal/supply/artifact/access"
 	"github.com/isty2e/daem/internal/target"
 )
+
+func TestExecuteCommandPlanRefusesJournalCleanupCreatedAfterPlanning(t *testing.T) {
+	root := t.TempDir()
+	output := filepath.Join(root, "daem.toml")
+	sourcePath := filepath.Join(root, "daem.d", "instructions.md")
+	plan := testAdoptPlan(t, output, []adoptmodel.Source{{
+		SourcePath: sourcePath,
+		Content:    []byte("managed instructions\n"),
+	}}, nil)
+	barrier := mustImportBarrier(t, plan)
+	revisions, stableRevisions, err := captureImportRevisionEvidence(t.Context(), plan, barrier)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeAdoptCleanupJournal(t, output)
+
+	_, err = executeCommandPlan(
+		t.Context(),
+		CommandPlan{
+			plan:            plan,
+			revisions:       revisions,
+			stableRevisions: stableRevisions,
+			barrier:         barrier,
+		},
+		func(context.Context, adoptmodel.Request) (adoptmodel.Plan, error) {
+			return plan, nil
+		},
+		nil,
+	)
+	if !errors.Is(err, journal.ErrIncompleteJournalCleanup) {
+		t.Fatalf("executeCommandPlan error = %v, want cleanup-only journal refusal", err)
+	}
+	for _, path := range []string{output, sourcePath} {
+		if _, statErr := os.Lstat(path); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("path %q was published after journal drift: %v", path, statErr)
+		}
+	}
+}
 
 func TestWritePlanStaleValidationRemovesOnlyCreatedPathsAndDirectories(t *testing.T) {
 	root := t.TempDir()
@@ -600,7 +642,7 @@ func TestImportMutationEvidenceGuardsSkillEntryAndReferent(t *testing.T) {
 		},
 		SourcePath: filepath.Join(root, "sources", "skill"),
 	}})
-	_, requests, stable, err := importMutationEvidence(plan)
+	_, requests, stable, err := importMutationEvidence(plan, mustImportBarrier(t, plan))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,12 +735,12 @@ func TestImportMutationEvidenceGuardsMCPPhysicalConfigInsteadOfProjectionPath(t 
 		t.Fatal(err)
 	}
 
-	domains, requests, stableRequests, err := importMutationEvidence(plan)
+	domains, requests, stableRequests, err := importMutationEvidence(plan, mustImportBarrier(t, plan))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(domains) != 5 {
-		t.Fatalf("mutation domains = %d, want shared MCP source authority deduplicated to 5", len(domains))
+	if len(domains) != 9 {
+		t.Fatalf("mutation domains = %d, want 5 import domains plus 4 RecoveryDir/StateDir barrier domains", len(domains))
 	}
 	assertImportRevisionRequest(t, requests, alternatePath, mutation.PathEffectDirectoryEntry)
 	assertImportRevisionRequest(t, stableRequests, alternatePath, mutation.PathEffectDirectoryEntry)
@@ -768,7 +810,7 @@ func TestImportStableRevisionRejectsNonprimarySkillRouteDrift(t *testing.T) {
 		},
 		SourcePath: filepath.Join(root, "daem.d", "skills", "skill"),
 	}})
-	_, _, stableRequests, err := importMutationEvidence(plan)
+	_, _, stableRequests, err := importMutationEvidence(plan, mustImportBarrier(t, plan))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -786,6 +828,57 @@ func TestImportStableRevisionRejectsNonprimarySkillRouteDrift(t *testing.T) {
 	if matches {
 		t.Fatal("stable revisions accepted drift in nonprimary merged skill route")
 	}
+}
+
+func writeAdoptCleanupJournal(t testing.TB, manifestPath string) {
+	t.Helper()
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := retirement.NewRecord(
+		"import-cleanup",
+		"sha256:"+strings.Repeat("0", 64),
+		retirement.PhaseFinalizing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := record.Identity()
+	controlDir := filepath.Join(paths.RecoveryDir, identity.ControlName())
+	if err := os.MkdirAll(controlDir, retirement.DirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	content, err := retirement.Encode(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(controlDir, retirement.RecordFileName),
+		content,
+		retirement.RecordMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(
+		filepath.Join(paths.RecoveryDir, identity.ResidueName()),
+		retirement.DirectoryMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func mustImportBarrier(t testing.TB, plan adoptmodel.Plan) recoverygate.EffectAuthority {
+	t.Helper()
+	paths, err := daempaths.Resolve(plan.Output())
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return barrier
 }
 
 func testAdoptPlan(

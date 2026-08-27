@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/diagnose"
-	"github.com/isty2e/daem/internal/effect/journal"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/platformsupport"
+	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 )
 
@@ -63,10 +62,7 @@ func Run(ctx context.Context, input Input, assessment platformsupport.PlatformAs
 		selection, checks := remainingChecks(ctx, input, paths, platformCheck, result.Selection, remainingCheckIndependent)
 		return finishDiagnose(ctx, result, selection, checks)
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
-		return result, err
-	}
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
+	if err := refuseJournalAndFileSet(ctx, paths); err != nil {
 		return result, err
 	}
 
@@ -168,4 +164,8 @@ func finishDiagnose(ctx context.Context, result Result, selection targetselectio
 	result.Checks = checks
 	result.HasErrors = findings.HasCheckErrors(checks)
 	return result, nil
+}
+
+func refuseJournalAndFileSet(ctx context.Context, paths daempaths.Paths) error {
+	return recoverygate.RequireClear(ctx, paths)
 }

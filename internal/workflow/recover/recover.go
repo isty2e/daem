@@ -10,12 +10,15 @@ import (
 	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/journal"
+	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	ownershipstore "github.com/isty2e/daem/internal/output/ownership/store"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate/codec"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type PlanInput struct {
@@ -31,6 +34,9 @@ type ExecuteOptions struct {
 // Plan prepares one pointer-owned recovery capability. Its Disclosure method
 // returns a defensive presentation snapshot.
 func Plan(ctx context.Context, input PlanInput) (*PreparedRecovery, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("recovery context is required")
+	}
 	planned, err := planRecovery(ctx, input)
 	if err != nil {
 		return nil, err
@@ -42,42 +48,150 @@ func planRecovery(ctx context.Context, input PlanInput) (recoveryPreparation, er
 	return planRecoveryWithFilesystem(ctx, input, storagecommit.Adapter{})
 }
 
+func recoverySelectionInterruption(selection journal.RecoverablePlan) error {
+	switch selection.AuthorityKind() {
+	case journal.RecoveryAuthorityActiveJournal:
+		return journal.ErrInterruptedApply
+	case journal.RecoveryAuthorityJournalCleanup:
+		return journal.ErrIncompleteJournalCleanup
+	default:
+		return nil
+	}
+}
+
 func planRecoveryWithFilesystem(
 	ctx context.Context,
 	input PlanInput,
 	filesystem mutationfs.Reader,
 ) (recoveryPreparation, error) {
+	return planRecoveryWithFilesystemAndFence(
+		ctx,
+		input,
+		filesystem,
+		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+			return authority.RequireClear(ctx)
+		},
+	)
+}
+
+func planRecoveryWithFilesystemAndFence(
+	ctx context.Context,
+	input PlanInput,
+	filesystem mutationfs.Reader,
+	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+) (recoveryPreparation, error) {
+	planningBudget := journalrecovery.NewPhysicalPathBudget()
+	return planRecoveryWithFilesystemFenceAndBudget(
+		ctx,
+		input,
+		filesystem,
+		observeFileSet,
+		planningBudget,
+	)
+}
+
+func planRecoveryWithFilesystemFenceAndBudget(
+	ctx context.Context,
+	input PlanInput,
+	filesystem mutationfs.Reader,
+	observeFileSet func(context.Context, transaction.StateDirAuthority) error,
+	planningBudget rootedpath.PhysicalTraversalBudget,
+) (recoveryPreparation, error) {
+	if ctx == nil {
+		return recoveryPreparation{}, fmt.Errorf("recovery context is required")
+	}
 	if filesystem == nil {
 		return recoveryPreparation{}, fmt.Errorf("recovery planning filesystem is required")
+	}
+	if observeFileSet == nil {
+		return recoveryPreparation{}, fmt.Errorf("recovery file-set observation is required")
+	}
+	if planningBudget == nil {
+		return recoveryPreparation{}, fmt.Errorf("recovery planning physical work budget is required")
 	}
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
-	recoverable, err := loadRecoverySelection(ctx, paths, filesystem)
-	if err != nil {
-		if transactionErr := transaction.RequireClearFileSet(
-			ctx,
-			paths.StateDir,
-		); transactionErr != nil {
-			return recoveryPreparation{}, transactionErr
-		}
+	recoverable, journalErr := loadRecoverySelection(ctx, paths, filesystem, planningBudget)
+	if err := ctx.Err(); err != nil {
 		return recoveryPreparation{}, err
 	}
-	plan := recoverable
+	if journalErr == nil && recoverable.AuthorityKind() == journal.RecoveryAuthorityJournalCleanup {
+		return finishRecoveryPreparation(
+			paths,
+			input,
+			recoverable,
+			transaction.StateDirAuthority{},
+			false,
+			transaction.FileSetFenceClear,
+			planningBudget,
+		)
+	}
 
-	operationEvidence, err := recoveryOperationFingerprint(paths, plan)
+	stateDir, stateDirErr := transaction.CaptureStateDirAuthorityBounded(
+		ctx,
+		paths.StateDir,
+		journalrecovery.MaximumPhysicalPathDepth,
+		planningBudget,
+	)
+	if err := ctx.Err(); err != nil {
+		return recoveryPreparation{}, err
+	}
+	fenceErr := stateDirErr
+	if fenceErr == nil {
+		fenceErr = observeFileSet(ctx, stateDir)
+	}
+	if err := ctx.Err(); err != nil {
+		return recoveryPreparation{}, err
+	}
+	fenceKind := transaction.FileSetFenceKindOf(fenceErr)
+	blocksRecovery := fenceKind == transaction.FileSetFenceAccessUnprovable ||
+		fenceKind == transaction.FileSetFenceInvalidEvidence
+	if journalErr != nil {
+		if errors.Is(journalErr, journal.ErrNoRecoverableJournal) && !blocksRecovery {
+			return recoveryPreparation{}, journalErr
+		}
+		return recoveryPreparation{}, recoverygate.Combine(journalErr, fenceErr)
+	}
+	if recoverable.AuthorityKind() != journal.RecoveryAuthorityActiveJournal {
+		return recoveryPreparation{}, fmt.Errorf(
+			"recovery authority kind %q is unsupported",
+			recoverable.AuthorityKind(),
+		)
+	}
+	journalInterruption := recoverySelectionInterruption(recoverable)
+	if blocksRecovery {
+		return recoveryPreparation{}, recoverygate.Combine(journalInterruption, fenceErr)
+	}
+	return finishRecoveryPreparation(paths, input, recoverable, stateDir, true, fenceKind, planningBudget)
+}
+
+func finishRecoveryPreparation(
+	paths daempaths.Paths,
+	input PlanInput,
+	plan journal.RecoverablePlan,
+	stateDir transaction.StateDirAuthority,
+	activeStateDir bool,
+	fileSetFence transaction.FileSetFenceKind,
+	physicalPathBudget rootedpath.PhysicalTraversalBudget,
+) (recoveryPreparation, error) {
+	operationEvidence, err := recoveryOperationFingerprint(paths, plan, stateDir, activeStateDir)
 	if err != nil {
 		return recoveryPreparation{}, err
 	}
 	planned := recoveryPreparation{
-		plan:              plan,
-		paths:             paths,
-		input:             input,
-		operationEvidence: operationEvidence,
+		plan:               plan,
+		paths:              paths,
+		input:              input,
+		operationEvidence:  operationEvidence,
+		stateDirAuthority:  stateDir,
+		activeStateDir:     activeStateDir,
+		fileSetFence:       fileSetFence,
+		physicalPathBudget: physicalPathBudget,
 	}
 	if !plan.Blocked() && !plan.HasErrors() {
-		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan)
+		authorityEvidence, err := buildRecoveryAuthorityEvidence(paths, plan, stateDir, activeStateDir)
 		if err != nil {
 			return recoveryPreparation{}, fmt.Errorf("derive recovery mutation authority: %w", err)
 		}
@@ -90,6 +204,7 @@ func loadRecoverySelection(
 	ctx context.Context,
 	paths daempaths.Paths,
 	filesystem mutationfs.Reader,
+	physicalPathBudget rootedpath.PhysicalTraversalBudget,
 ) (journal.RecoverablePlan, error) {
 	stateReader := stateReaderForPath(paths.StatefilePath)
 	registry, err := ownershipstore.NewRecoveryReader(paths.OwnershipRegistryPath)
@@ -101,15 +216,13 @@ func loadRecoverySelection(
 		ctx,
 		journalPaths(paths),
 		journal.PlanLoadOptions{
-			Filesystem:        filesystem,
-			Resolver:          destinationResolver(paths).Resolve,
-			OwnershipRegistry: registry,
-			Codecs:            aggregatecodec.Catalog(),
-			StateCodec:        statefile.Codec{},
-			StateReader:       stateReader,
-			ValidateBeforeActiveObservation: func(ctx context.Context) error {
-				return transaction.RequireClearFileSet(ctx, paths.StateDir)
-			},
+			Filesystem:         filesystem,
+			PhysicalPathBudget: physicalPathBudget,
+			Resolver:           destinationResolver(paths).Resolve,
+			OwnershipRegistry:  registry,
+			Codecs:             aggregatecodec.Catalog(),
+			StateCodec:         statefile.Codec{},
+			StateReader:        stateReader,
 		},
 	)
 }
@@ -125,6 +238,7 @@ func Execute(
 		return ExecutionResult{}, err
 	}
 	result, err = retainedExecutionResult(execution.plan)
+	result = result.withFileSetFence(execution.fileSetFence)
 	if err != nil {
 		return ExecutionResult{}, err
 	}
@@ -140,15 +254,30 @@ func Execute(
 	if execution.plan.Blocked() || execution.plan.HasErrors() {
 		return result, fmt.Errorf("recovery is blocked")
 	}
+	if execution.activeStateDir {
+		if err := execution.stateDirAuthority.Validate(ctx); err != nil {
+			return result, err
+		}
+	}
 	filesystem := options.Filesystem
 	if filesystem == nil {
 		filesystem = storagecommit.Adapter{}
 	}
-	visibleOperation, err := recoveryOperationFingerprint(execution.paths, execution.plan)
+	visibleOperation, err := recoveryOperationFingerprint(
+		execution.paths,
+		execution.plan,
+		execution.stateDirAuthority,
+		execution.activeStateDir,
+	)
 	if err != nil || !execution.operationEvidence.Equal(visibleOperation) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
-	visibleAuthority, err := buildRecoveryAuthorityEvidence(execution.paths, execution.plan)
+	visibleAuthority, err := buildRecoveryAuthorityEvidence(
+		execution.paths,
+		execution.plan,
+		execution.stateDirAuthority,
+		execution.activeStateDir,
+	)
 	if err != nil || !execution.authorityEvidence.authorityFingerprint.Equal(visibleAuthority.authorityFingerprint) {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
@@ -175,7 +304,15 @@ func Execute(
 	} else if !matches {
 		return result, mutation.StaleSnapshotError{}
 	}
-	current, err := planRecovery(ctx, execution.input)
+	current, err := planRecoveryWithFilesystemFenceAndBudget(
+		ctx,
+		execution.input,
+		filesystem,
+		func(ctx context.Context, authority transaction.StateDirAuthority) error {
+			return authority.RequireClear(ctx)
+		},
+		execution.physicalPathBudget,
+	)
 	if err != nil {
 		return result, errors.Join(mutation.StaleSnapshotError{}, err)
 	}
@@ -200,6 +337,9 @@ func Execute(
 		}
 		if !matches {
 			return mutation.StaleSnapshotError{}
+		}
+		if execution.activeStateDir {
+			return execution.stateDirAuthority.Validate(ctx)
 		}
 		return nil
 	}
@@ -311,9 +451,19 @@ func classifyPostExecutionAuthority(
 	prior ExecutionResult,
 	executionErr error,
 ) (ExecutionResult, error) {
-	current, classificationErr := loadRecoverySelection(ctx, execution.paths, filesystem)
+	fileSetFence, fileSetErr := postExecutionFileSetFence(ctx, execution)
+	if fileSetErr != nil {
+		executionErr = errors.Join(executionErr, fileSetErr)
+	}
+	current, classificationErr := loadRecoverySelection(
+		ctx,
+		execution.paths,
+		filesystem,
+		execution.physicalPathBudget,
+	)
 	if classificationErr == nil {
 		result, err := retainedExecutionResult(current)
+		result = result.withFileSetFenceObservation(fileSetFence)
 		if err != nil {
 			return unknownExecutionResult(prior.OperationID()), errors.Join(executionErr, err)
 		}
@@ -331,12 +481,32 @@ func classifyPostExecutionAuthority(
 		return result.withExecutionFailure(), executionErr
 	}
 	if errors.Is(classificationErr, journal.ErrNoRecoverableJournal) {
-		return retiredExecutionResult(prior.OperationID(), executionErr == nil), executionErr
+		return retiredExecutionResult(prior.OperationID(), executionErr == nil).withFileSetFenceObservation(fileSetFence), executionErr
 	}
-	return unknownExecutionResult(prior.OperationID()), errors.Join(
+	return unknownExecutionResult(prior.OperationID()).withFileSetFenceObservation(fileSetFence), errors.Join(
 		executionErr,
 		fmt.Errorf("classify durable recovery authority after execution: %w", classificationErr),
 	)
+}
+
+func postExecutionFileSetFence(
+	ctx context.Context,
+	execution recoveryPreparation,
+) (transaction.FileSetFenceObservation, error) {
+	if !execution.activeStateDir {
+		return transaction.UnobservedFileSetFence(), nil
+	}
+	fenceErr := execution.stateDirAuthority.RequireClear(ctx)
+	observation := transaction.ObserveFileSetFence(fenceErr)
+	if observation.Known() {
+		switch observation.Kind() {
+		case transaction.FileSetFencePublishedTransaction,
+			transaction.FileSetFenceAbandonedResidue,
+			transaction.FileSetFenceCensusLimit:
+			return observation, nil
+		}
+	}
+	return observation, fenceErr
 }
 
 func stateReaderForPath(path string) durable.SnapshotReader {

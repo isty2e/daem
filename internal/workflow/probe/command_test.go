@@ -12,6 +12,8 @@ import (
 
 	"github.com/isty2e/daem/internal/assurance/runtimeprobe"
 	runtimeprobemcp "github.com/isty2e/daem/internal/assurance/runtimeprobe/mcp"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -47,6 +49,34 @@ func runProbeCommand(
 		return prepared.Disclosure(), nil
 	}
 	return prepared.Execute(ctx, executor)
+}
+
+func TestPreparedProbeRefusesJournalCleanupCreatedAfterPlanning(t *testing.T) {
+	project := newProbeWorkflowProject(t)
+	writeProbeWorkflowManifest(t, project.root, "node", []string{"server.js"}, nil)
+	writeProbeWorkflowLock(t, project)
+	prepared, err := Prepare(t.Context(), CommandInput{
+		ServerName:   "context7",
+		ManifestPath: project.manifestPath,
+		LockfilePath: project.lockfilePath,
+		TargetValue:  "claude-code",
+		ScopeValue:   "project",
+		Mode:         ModeExecute,
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProbeCleanupJournal(t, project.manifestPath)
+	executor := &fakeRuntimeProbeExecutor{facts: observedOKFacts()}
+
+	_, err = prepared.Execute(t.Context(), executor)
+	if !errors.Is(err, journal.ErrIncompleteJournalCleanup) {
+		t.Fatalf("Execute error = %v, want cleanup-only journal refusal", err)
+	}
+	if executor.called {
+		t.Fatal("probe executor was invoked after journal authority changed")
+	}
 }
 
 func TestRunDryRunDisclosesWithoutExecuting(t *testing.T) {
@@ -474,6 +504,44 @@ func TestRunRequiresExplicitProjectManifestForProjectProbe(t *testing.T) {
 	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "requires a project manifest") {
 		t.Fatalf("runProbeCommand error = %v, want default-manifest project probe rejection", err)
+	}
+}
+
+func writeProbeCleanupJournal(t testing.TB, manifestPath string) {
+	t.Helper()
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := retirement.NewRecord(
+		"probe-cleanup",
+		"sha256:"+strings.Repeat("0", 64),
+		retirement.PhaseFinalizing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := record.Identity()
+	controlDir := filepath.Join(paths.RecoveryDir, identity.ControlName())
+	if err := os.MkdirAll(controlDir, retirement.DirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	content, err := retirement.Encode(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(controlDir, retirement.RecordFileName),
+		content,
+		retirement.RecordMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(
+		filepath.Join(paths.RecoveryDir, identity.ResidueName()),
+		retirement.DirectoryMode,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

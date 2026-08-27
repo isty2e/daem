@@ -23,6 +23,7 @@ type Input struct {
 	Paths                  daempaths.Paths
 	Environment            desired.Environment
 	UsePersistentCache     bool
+	PreparePersistentCache func(context.Context) error
 	MaxParallelSourceOps   int
 	SourceEvents           acquisition.EventSink
 	Events                 lockbuild.EventSink
@@ -67,6 +68,9 @@ func Build(ctx context.Context, input Input) (Result, error) {
 	baseResolver, err := sourceresolution.NewResolver(resolverPaths)
 	if err != nil {
 		return Result{}, err
+	}
+	if input.UsePersistentCache {
+		baseResolver = baseResolver.WithCachePreparation(input.PreparePersistentCache)
 	}
 
 	lockfileSnapshot, err := lockbuild.BuildWithOptions(ctx, input.Environment, baseResolver, lockbuild.Options{

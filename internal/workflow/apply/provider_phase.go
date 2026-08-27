@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	durableattempt "github.com/isty2e/daem/internal/assurance/durable/attempt"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -20,6 +19,7 @@ type providerStableFingerprintFacts struct {
 	ManifestPath     string
 	LockfilePath     string
 	LockfileExplicit bool
+	StatePath        string
 	Targets          []string
 	ManageUnmanaged  bool
 	DelegateMode     reconcile.OperationContext
@@ -121,6 +121,7 @@ func providerStableFingerprint(
 		ManifestPath:     planned.result.ManifestPath,
 		LockfilePath:     planned.result.LockfilePath,
 		LockfileExplicit: planned.result.LockfileExplicit,
+		StatePath:        planned.assessment.StatePath,
 		Targets:          targetValues,
 		ManageUnmanaged:  planned.context.ManageUnmanagedMatches,
 		DelegateMode:     operationContext,
@@ -242,6 +243,7 @@ func delegateFingerprintRows(
 func runMCPProviderPrerequisitePhase(
 	ctx context.Context,
 	current *commandPlan,
+	providerActions []reconcile.RelationAction,
 	currentInput CommandInput,
 	execution preparedExecution,
 	visibleAuthority applyAuthorityEvidence,
@@ -257,15 +259,11 @@ func runMCPProviderPrerequisitePhase(
 		leases:               leases,
 		firstEffectRevisions: firstEffectRevisions,
 	}
-	actions, err := prepareMCPProviderPrerequisiteActions(
-		*current,
-		options.recoveryProvenancePreflight,
-	)
-	if err != nil {
-		return result, err
-	}
-	if len(actions) == 0 {
+	if len(providerActions) == 0 {
 		return result, requireCurrentMCPProviders(current.assessment.MCPProviders)
+	}
+	if options.validateRecoveryBarrier == nil {
+		return result, fmt.Errorf("post-provider recovery barrier validation is required")
 	}
 	stableBefore, err := providerStableFingerprint(*current, execution.operationContext)
 	if err != nil {
@@ -278,7 +276,7 @@ func runMCPProviderPrerequisitePhase(
 		result.uncompensatedEffectsAttempted = true
 		options.markAttempted()
 	}
-	for _, action := range actions {
+	for _, action := range providerActions {
 		nextState, nextClaims, attempts, routeErr := runHostRoutesAndPersistAttemptRecords(
 			ctx,
 			effectPaths,
@@ -315,11 +313,13 @@ func runMCPProviderPrerequisitePhase(
 	); err != nil {
 		return result, err
 	}
-	refreshed, err := planReadinessAtPaths(
+	refreshed, err := planReadinessAtPathsWithBarrierValidation(
 		ctx,
 		currentInput,
 		execution.operationContext,
 		current.context.Paths,
+		&current.barrier,
+		options.validateRecoveryBarrier,
 	)
 	if err != nil {
 		return result, providerPhaseStale(
@@ -364,7 +364,7 @@ func runMCPProviderPrerequisitePhase(
 			_ = reboundLeases.Release()
 		}
 	}()
-	if err := transaction.RequireClearFileSet(ctx, refreshed.context.Paths.StateDir); err != nil {
+	if err := options.validateRecoveryBarrier(ctx); err != nil {
 		return result, err
 	}
 	if _, err := projectRootFingerprint(refreshed); err != nil {
@@ -388,11 +388,13 @@ func runMCPProviderPrerequisitePhase(
 		return result, err
 	}
 
-	underLease, err := planReadinessAtPaths(
+	underLease, err := planReadinessAtPathsWithBarrierValidation(
 		ctx,
 		currentInput,
 		execution.operationContext,
 		refreshed.context.Paths,
+		&refreshed.barrier,
+		options.validateRecoveryBarrier,
 	)
 	if err != nil {
 		return result, providerPhaseStale(

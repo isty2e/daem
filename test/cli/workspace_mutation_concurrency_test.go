@@ -292,8 +292,14 @@ func TestConcurrentInitForceAndAuthoringSerializeManifestEntry(t *testing.T) {
 		"add", "instruction", "project", sourcePath,
 		"--manifest", manifestPath, "--target", "codex",
 	})
-	if initErr != nil || authorErr != nil {
-		t.Fatalf("serialized init/authoring errors = %v/%v; stderr=%q/%q", initErr, authorErr, initializer.stderr.String(), author.stderr.String())
+	if initErr != nil && authorErr != nil {
+		t.Fatalf("both serialized init/authoring operations failed = %v/%v; stderr=%q/%q", initErr, authorErr, initializer.stderr.String(), author.stderr.String())
+	}
+	if initErr != nil && !strings.Contains(initializer.stderr.String(), "stale_snapshot") {
+		t.Fatalf("init error = %v stderr=%q, want stale_snapshot", initErr, initializer.stderr.String())
+	}
+	if authorErr != nil && !strings.Contains(author.stderr.String(), "stale_snapshot") {
+		t.Fatalf("authoring error = %v stderr=%q, want stale_snapshot", authorErr, author.stderr.String())
 	}
 	content, err := os.ReadFile(manifestPath)
 	if err != nil {

@@ -15,7 +15,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const darwinPathconfCaseSensitive = 11
+const (
+	darwinPathconfCaseSensitive = 11
+	darwinPathOpenSearch        = 0x40000000 | unix.O_DIRECTORY
+)
 
 type darwinPathObservation struct {
 	descriptorPath func(string, bool) (string, error)
@@ -170,7 +173,7 @@ func darwinPathComponents(path string) (string, []string, error) {
 }
 
 func darwinDirectoryCaseSemantics(path string) (pathCaseSemantics, error) {
-	fd, err := unix.Open(path, unix.O_EVTONLY|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(path, darwinPathOpenSearch|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if err != nil {
 		return 0, err
 	}
@@ -195,6 +198,9 @@ func darwinDescriptorPath(path string, noFollow bool) (string, error) {
 		flags |= unix.O_SYMLINK
 	}
 	fd, err := unix.Open(path, flags, 0)
+	if err != nil && !noFollow {
+		fd, err = unix.Open(path, darwinPathOpenSearch|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	}
 	if err != nil {
 		return "", err
 	}

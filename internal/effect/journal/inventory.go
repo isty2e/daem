@@ -9,16 +9,64 @@ import (
 	"strings"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
+	journalrecovery "github.com/isty2e/daem/internal/effect/journal/recovery"
 	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	mutationfs "github.com/isty2e/daem/internal/effect/mutation/filesystem"
+	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
 // inventoryOptions supplies the only observation capabilities used to
 // classify a recovery root.
 type inventoryOptions struct {
-	Filesystem mutationfs.Reader
-	StateCodec durable.SnapshotCodec
+	Filesystem         mutationfs.Reader
+	StateCodec         durable.SnapshotCodec
+	PhysicalPathBudget rootedpath.PhysicalTraversalBudget
+}
+
+type budgetedInventoryFilesystem struct {
+	mutationfs.Reader
+	budget rootedpath.PhysicalTraversalBudget
+}
+
+func (filesystem budgetedInventoryFilesystem) CaptureEntryIdentity(
+	ctx context.Context,
+	path string,
+) (mutationfs.EntryIdentity, error) {
+	if err := filesystem.charge(path); err != nil {
+		return nil, err
+	}
+	return filesystem.Reader.CaptureEntryIdentity(ctx, path)
+}
+
+func (filesystem budgetedInventoryFilesystem) ReadRegularFileSnapshotUpTo(
+	ctx context.Context,
+	path string,
+	maximumBytes int64,
+) (mutationfs.RegularFileSnapshot, error) {
+	if err := filesystem.charge(path); err != nil {
+		return mutationfs.RegularFileSnapshot{}, err
+	}
+	return filesystem.Reader.ReadRegularFileSnapshotUpTo(ctx, path, maximumBytes)
+}
+
+func (filesystem budgetedInventoryFilesystem) SnapshotDirectory(
+	ctx context.Context,
+	path string,
+	maximumEntries int,
+) (mutationfs.DirectorySnapshot, error) {
+	if err := filesystem.charge(path); err != nil {
+		return mutationfs.DirectorySnapshot{}, err
+	}
+	return filesystem.Reader.SnapshotDirectory(ctx, path, maximumEntries)
+}
+
+func (filesystem budgetedInventoryFilesystem) charge(path string) error {
+	return rootedpath.ChargeAbsolutePath(
+		filepath.Clean(path),
+		journalrecovery.MaximumPhysicalPathDepth,
+		filesystem.budget,
+	)
 }
 
 type recoveryRootInventory struct {
@@ -85,14 +133,25 @@ func loadRecoveryRootInventory(
 	if options.Filesystem == nil {
 		return recoveryRootInventory{}, fmt.Errorf("recovery inventory filesystem is required")
 	}
+	if options.PhysicalPathBudget == nil {
+		options.PhysicalPathBudget = journalrecovery.NewPhysicalPathBudget()
+	}
 	if strings.TrimSpace(recoveryRoot) == "" {
 		return recoveryRootInventory{}, fmt.Errorf("recovery directory is required")
 	}
-	physicalRoot, err := mutation.CanonicalDirectoryEntryPath(recoveryRoot)
+	physicalRoot, err := mutation.ResolveDirectoryEntryPathBounded(
+		recoveryRoot,
+		journalrecovery.MaximumPhysicalPathDepth,
+		options.PhysicalPathBudget,
+	)
 	if err != nil {
 		return recoveryRootInventory{}, fmt.Errorf("canonicalize recovery directory: %w", err)
 	}
 
+	options.Filesystem = budgetedInventoryFilesystem{
+		Reader: options.Filesystem,
+		budget: options.PhysicalPathBudget,
+	}
 	root, err := options.Filesystem.SnapshotDirectory(
 		ctx,
 		physicalRoot,

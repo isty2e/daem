@@ -1,12 +1,15 @@
 package authoring
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/isty2e/daem/internal/declaration/transaction"
+	"github.com/isty2e/daem/internal/effect/journal"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/metadatatx"
@@ -124,6 +127,40 @@ func TestAuthoringWritesRecoverMatchingEvidenceBeforeReading(t *testing.T) {
 				t.Fatalf("metadata transaction evidence remains: %v", err)
 			}
 		})
+	}
+}
+
+func TestAuthoringMutationRefusesActiveJournalCreatedDuringRebuild(t *testing.T) {
+	root := t.TempDir()
+	configureUnmanageTestHomes(t, root)
+	paths := unmanageTestPaths(t, root)
+	original := []byte(unmanageManifest("context7@official", target.ScopeProject))
+	writeUnmanageFile(t, paths.ManifestPath, original)
+
+	buildCalls := 0
+	_, err := executeAuthoringOperation(
+		t.Context(),
+		ExecutionOptions{ManifestPath: paths.ManifestPath, Mode: AuthoringModeWrite},
+		func(document ManifestDocument) (Change, error) {
+			buildCalls++
+			if buildCalls == 2 {
+				captureUnmanageActiveJournal(t, paths)
+			}
+			return BuildRemoveExtensionChange(document, RemoveExtensionRequest{ID: "context7"})
+		},
+	)
+	if !errors.Is(err, journal.ErrInterruptedApply) {
+		t.Fatalf("executeAuthoringOperation error = %v, want interrupted apply", err)
+	}
+	content, readErr := os.ReadFile(paths.ManifestPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if !bytes.Equal(content, original) {
+		t.Fatalf("manifest changed after refused authoring mutation:\n%s", content)
+	}
+	if buildCalls != 2 {
+		t.Fatalf("build calls = %d, want initial and revalidation builds", buildCalls)
 	}
 }
 

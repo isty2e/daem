@@ -13,6 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/filesnapshot"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 type importObservedPath struct {
@@ -58,7 +59,7 @@ func executeCommandPlan(
 	if err != nil {
 		return CommandPlan{}, err
 	}
-	domains, revisionRequests, stableRevisionRequests, err := importMutationEvidence(optimistic.plan)
+	domains, revisionRequests, stableRevisionRequests, err := importMutationEvidence(optimistic.plan, optimistic.barrier)
 	if err != nil {
 		return CommandPlan{}, err
 	}
@@ -84,7 +85,7 @@ func executeCommandPlan(
 	} else if !matches {
 		return CommandPlan{}, mutation.StaleSnapshotError{}
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := optimistic.barrier.Validate(ctx); err != nil {
 		return CommandPlan{}, err
 	}
 	if err := validateMCPSourceAuthoritiesCurrent(ctx, optimistic.plan); err != nil {
@@ -106,6 +107,9 @@ func executeCommandPlan(
 	if err != nil {
 		return CommandPlan{}, err
 	}
+	if err := optimistic.barrier.Validate(ctx); err != nil {
+		return CommandPlan{}, err
+	}
 	currentFingerprint, err := importPlanFingerprint(currentPlan)
 	if err != nil {
 		return CommandPlan{}, err
@@ -121,7 +125,14 @@ func executeCommandPlan(
 	if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
 		return CommandPlan{}, err
 	}
-	currentDomains, currentRequests, currentStableRequests, err := importMutationEvidence(currentPlan)
+	currentBarrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		return CommandPlan{}, err
+	}
+	if !optimistic.barrier.Equal(currentBarrier) {
+		return CommandPlan{}, mutation.StaleSnapshotError{}
+	}
+	currentDomains, currentRequests, currentStableRequests, err := importMutationEvidence(currentPlan, currentBarrier)
 	if err != nil {
 		return CommandPlan{}, err
 	}
@@ -168,7 +179,7 @@ func executeCommandPlan(
 		if err := validateMCPSourceAuthoritiesCurrent(ctx, currentPlan); err != nil {
 			return err
 		}
-		return nil
+		return optimistic.barrier.Validate(ctx)
 	}
 	progressEvents.emit(ProgressEvent{
 		Kind:      ProgressEventPhaseCompleted,
@@ -180,6 +191,9 @@ func executeCommandPlan(
 		Kind:  ProgressEventPhaseStarted,
 		Phase: ProgressPhasePublication,
 	})
+	if err := optimistic.barrier.Validate(ctx); err != nil {
+		return CommandPlan{}, err
+	}
 	if err := writePlan(ctx, currentPlan, validateStable); err != nil {
 		return CommandPlan{}, err
 	}
@@ -192,14 +206,16 @@ func executeCommandPlan(
 		plan:            currentPlan,
 		revisions:       revisions,
 		stableRevisions: stableRevisions,
+		barrier:         optimistic.barrier,
 	}, nil
 }
 
 func captureImportRevisionEvidence(
 	ctx context.Context,
 	plan adoptmodel.Plan,
+	barrier recoverygate.EffectAuthority,
 ) (mutation.RevisionSet, mutation.RevisionSet, error) {
-	_, requests, stableRequests, err := importMutationEvidence(plan)
+	_, requests, stableRequests, err := importMutationEvidence(plan, barrier)
 	if err != nil {
 		return mutation.RevisionSet{}, mutation.RevisionSet{}, err
 	}
@@ -222,11 +238,14 @@ func importPlanFingerprint(plan adoptmodel.Plan) (mutation.OperationFingerprint,
 	return mutation.NewOperationFingerprint(canonical), nil
 }
 
-func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation.RevisionRequest, []mutation.RevisionRequest, error) {
+func importMutationEvidence(
+	plan adoptmodel.Plan,
+	barrier recoverygate.EffectAuthority,
+) ([]mutation.Domain, []mutation.RevisionRequest, []mutation.RevisionRequest, error) {
 	if err := plan.Validate(); err != nil {
 		return nil, nil, nil, err
 	}
-	domains := make([]mutation.Domain, 0)
+	domains := barrier.Domains()
 	observed := make(map[string]importObservedPath)
 	stableObserved := make(map[string]importObservedPath)
 	physicalDomains := make(map[string]struct{})
@@ -342,6 +361,16 @@ func importMutationEvidence(plan adoptmodel.Plan) ([]mutation.Domain, []mutation
 			request,
 			false,
 		)
+	}
+
+	for _, request := range barrier.RevisionRequests() {
+		key := importObservedPathKey(request.Path, request.Effect)
+		if err := addObserved(observed, key, request, false); err != nil {
+			return nil, nil, nil, err
+		}
+		if err := addObserved(stableObserved, key, request, false); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 
 	outputRequests, err := mutation.BoundedFileRevisionRequests(

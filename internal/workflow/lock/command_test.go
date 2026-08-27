@@ -13,8 +13,27 @@ import (
 	"github.com/isty2e/daem/internal/contractversion"
 	"github.com/isty2e/daem/internal/desired/entity"
 	"github.com/isty2e/daem/internal/effect/mutation"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 )
+
+func TestRunLockWithoutPersistentSourcesDoesNotCreateStateDir(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tempDir, "data"))
+	manifestPath := filepath.Join(tempDir, "daem.toml")
+	writeWorkflowTestFile(t, tempDir, "daem.toml", "version = 1\ntargets = [\"codex\"]\n")
+
+	if _, err := RunLock(context.Background(), LockInput{ManifestPath: manifestPath}); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := daempaths.Resolve(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(paths.StateDir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("StateDir observation = %v, want missing for lockfile-only generation", err)
+	}
+}
 
 func TestRunLockWriteCreatesLockfileAndResult(t *testing.T) {
 	tempDir := t.TempDir()

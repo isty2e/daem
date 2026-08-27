@@ -3,6 +3,7 @@ package resolution
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/supply/source"
@@ -14,9 +15,16 @@ import (
 
 // Resolver dispatches lockable sources to their concrete backend resolvers.
 type Resolver struct {
-	local sourceRootResolver
-	git   sourceRootResolver
-	s3    acquisition.Resolver
+	local            sourceRootResolver
+	git              sourceRootResolver
+	s3               acquisition.Resolver
+	cachePreparation *cachePreparation
+}
+
+type cachePreparation struct {
+	once    sync.Once
+	prepare func(context.Context) error
+	err     error
 }
 
 var _ acquisition.ResolutionSessionProvider = Resolver{}
@@ -50,6 +58,17 @@ func NewResolver(paths daempaths.Paths) (Resolver, error) {
 	}, nil
 }
 
+// WithCachePreparation returns a resolver that invokes prepare exactly once
+// before the first Git or S3 cache operation. Local sources do not invoke it.
+func (resolver Resolver) WithCachePreparation(prepare func(context.Context) error) Resolver {
+	if prepare == nil {
+		resolver.cachePreparation = nil
+		return resolver
+	}
+	resolver.cachePreparation = &cachePreparation{prepare: prepare}
+	return resolver
+}
+
 // NewResolutionSession returns a resolver with fresh operation-local backend
 // facts while retaining the shared filesystem cache and synchronization roots.
 func (resolver Resolver) NewResolutionSession() (acquisition.Resolver, error) {
@@ -73,8 +92,14 @@ func (resolver Resolver) Resolve(
 	case source.SourceKindLocal:
 		return resolver.local.Resolve(ctx, sourceSpec, options)
 	case source.SourceKindGit:
+		if err := resolver.prepareCache(ctx); err != nil {
+			return acquisition.Resolution{}, err
+		}
 		return resolver.git.Resolve(ctx, sourceSpec, options)
 	case source.SourceKindS3:
+		if err := resolver.prepareCache(ctx); err != nil {
+			return acquisition.Resolution{}, err
+		}
 		return resolver.s3.Resolve(ctx, sourceSpec, options)
 	default:
 		return acquisition.Resolution{}, fmt.Errorf("unsupported source kind %q", sourceSpec.Kind())
@@ -91,10 +116,23 @@ func (resolver Resolver) ListSourceRoot(
 	case source.SourceKindLocal:
 		return resolver.local.ListSourceRoot(ctx, sourceSpec, options)
 	case source.SourceKindGit:
+		if err := resolver.prepareCache(ctx); err != nil {
+			return source.RootListing{}, err
+		}
 		return resolver.git.ListSourceRoot(ctx, sourceSpec, options)
 	case source.SourceKindS3:
 		return source.RootListing{}, fmt.Errorf("S3 skill groups are unsupported; S3 prefix directory sources are unsupported")
 	default:
 		return source.RootListing{}, fmt.Errorf("unsupported source kind %q", sourceSpec.Kind())
 	}
+}
+
+func (resolver Resolver) prepareCache(ctx context.Context) error {
+	if resolver.cachePreparation == nil {
+		return nil
+	}
+	resolver.cachePreparation.once.Do(func() {
+		resolver.cachePreparation.err = resolver.cachePreparation.prepare(ctx)
+	})
+	return resolver.cachePreparation.err
 }

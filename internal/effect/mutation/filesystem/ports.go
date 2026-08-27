@@ -7,11 +7,18 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 )
 
-// RootedAbsencePathObservationCount is the complete-path observation count
-// required by ConfirmRootedEntryAbsent: three sync-and-reobserve attempts plus
-// one final observation. Recovery admission and storage execution share this
-// contract so the operation-wide path budget cannot undercount durability work.
-const RootedAbsencePathObservationCount = 4
+const (
+	// RootedAbsencePathObservationCount is the complete-path observation count
+	// required by ConfirmRootedEntryAbsent: three sync-and-reobserve attempts plus
+	// one final observation. Recovery admission and storage execution share this
+	// contract so the operation-wide path budget cannot undercount durability work.
+	RootedAbsencePathObservationCount = 4
+	// MaximumPhysicalPathDepth bounds one rooted or no-follow path traversal.
+	MaximumPhysicalPathDepth = 256
+	// MaximumPhysicalPathComponentVisits bounds aggregate physical namespace
+	// work across one planning or effect operation.
+	MaximumPhysicalPathComponentVisits = 524_288
+)
 
 // PathReader performs bounded, no-follow reads of operation-selected paths.
 type PathReader interface {

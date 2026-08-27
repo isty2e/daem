@@ -270,7 +270,7 @@ func boundRecoveryBackupForTest(
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := rootedpath.CaptureRootNoFollowBounded(
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		canonicalRoot,
 		recovery.MaximumPhysicalPathDepth,
 		budget,

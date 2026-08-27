@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -93,7 +97,9 @@ func commitWithOperations(ctx context.Context, input FileSetInput, ops operation
 }
 
 // RecoverFileSet restores or finalizes an interrupted transaction only when every
-// persisted target belongs to the caller-supplied allowed path set.
+// persisted target belongs to the caller-supplied allowed path set. Success
+// requires a clean fence: no published marker and no abandoned private
+// file-set residue.
 func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string) error {
 	canonical, err := canonicalStateDir(stateDir)
 	if err != nil {
@@ -102,41 +108,77 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 	return recoverWithOperations(ctx, canonical, allowedPaths, operations{writeFile: commitFile})
 }
 
-// RequireClearFileSet fails closed when transaction evidence exists. Mutating
-// callers hold AuthorityPath; read-only callers use this as a persisted-evidence gate.
+// RequireClearFileSet fails closed when published transaction evidence or
+// abandoned private file-set residue exists. The observation is bound to one
+// no-follow StateDir namespace and directory identity.
 func RequireClearFileSet(ctx context.Context, stateDir string) error {
+	authority, err := CaptureStateDirAuthority(ctx, stateDir)
+	if err != nil {
+		return err
+	}
+	return authority.RequireClear(ctx)
+}
+
+func requireClearFileSetAtCanonicalPath(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	canonical, err := canonicalStateDir(stateDir)
-	if err != nil {
+	evidencePath := transactionDir(stateDir)
+	if err := admitFileSetFenceObservation(
+		evidencePath,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
 		return err
 	}
-	evidencePath := transactionDir(canonical)
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return rejectAbandonedFileSetResidueWithBudget(
+			ctx,
+			stateDir,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
 	}
 	if err != nil {
-		return fmt.Errorf("inspect file-set transaction evidence: %w", err)
+		return wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set transaction evidence: %w", err))
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("file-set transaction evidence at %s is not a directory", evidencePath)
+		return wrapFileSetEvidenceInvalid(fmt.Errorf(
+			"file-set transaction evidence at %s is not a directory",
+			evidencePath,
+		))
 	}
-	activeMarkerPath := markerPath(canonical)
-	if _, err := loadMarker(ctx, activeMarkerPath); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf(
-				"file-set transaction evidence at %s is incomplete: marker is missing",
-				evidencePath,
-			)
-		}
+	activeMarkerPath := markerPath(stateDir)
+	if err := admitFileSetFenceObservation(
+		activeMarkerPath,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		maximumMarkerBytes,
+	); err != nil {
 		return err
 	}
-	return fmt.Errorf("interrupted file-set transaction requires recovery at %s", activeMarkerPath)
+	if _, err := loadMarkerAtCanonicalPath(ctx, activeMarkerPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return wrapFileSetEvidenceInvalid(fmt.Errorf(
+				"file-set transaction evidence at %s is incomplete: marker is missing",
+				evidencePath,
+			))
+		}
+		return wrapFileSetEvidenceInvalid(err)
+	}
+	return fmt.Errorf("%w at %s", ErrInterruptedFileSetTransaction, activeMarkerPath)
 }
 
 func recoverWithOperations(
@@ -157,7 +199,7 @@ func recoverWithOperations(
 	marker, err := loadMarker(ctx, markerPath(stateDir))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return rejectAbandonedFileSetResidue(ctx, stateDir)
 		}
 		return err
 	}
@@ -176,13 +218,19 @@ func recoverWithOperations(
 		return err
 	}
 	if classification.cleanAfter {
-		return removeTransactionDir(ctx, stateDir)
+		if err := removeTransactionDir(ctx, stateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	if classification.recoverable {
 		if err := restoreTransaction(context.WithoutCancel(ctx), marker, ops); err != nil {
 			return fmt.Errorf("restore interrupted file-set transaction: %w", err)
 		}
-		return removeTransactionDir(context.WithoutCancel(ctx), stateDir)
+		if err := removeTransactionDir(context.WithoutCancel(ctx), stateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	return fmt.Errorf("interrupted file-set transaction at %s cannot be recovered automatically", markerPath(stateDir))
 }
@@ -348,4 +396,497 @@ func removeTransactionDir(ctx context.Context, stateDir string) error {
 		return err
 	}
 	return storagecommit.CommitLogicalRemoval(ctx, request)
+}
+
+const (
+	fileSetTemporaryPrefix        = ".daem-tmp-"
+	fileSetTombstonePrefix        = ".daem-tombstone-"
+	fileSetCleanupPrefix          = ".daem-cleanup-"
+	fileSetLegacyStagePrefix      = ".metadata-stage-"
+	maximumStateDirFenceEntries   = 4096
+	maximumStateDirFenceNameBytes = 4096
+	stateDirFenceEnumerationBatch = 64
+)
+
+// FileSetFenceKind is the closed semantic classification of the declaration
+// file-set boundary.
+type FileSetFenceKind string
+
+// FileSetFenceObservation preserves whether the file-set axis was observed,
+// whether that observation was classified, and its closed kind when known.
+type FileSetFenceObservation struct {
+	observed bool
+	known    bool
+	kind     FileSetFenceKind
+}
+
+// ObserveFileSetFence classifies one completed file-set observation. Nil is a
+// known clear observation; unrelated non-nil errors remain observed unknown.
+func ObserveFileSetFence(err error) FileSetFenceObservation {
+	if err == nil {
+		return FileSetFenceObservation{observed: true, known: true}
+	}
+	kind := FileSetFenceKindOf(err)
+	return FileSetFenceObservation{
+		observed: true,
+		known:    kind != FileSetFenceClear,
+		kind:     kind,
+	}
+}
+
+// KnownFileSetFence constructs one explicitly observed closed classification.
+func KnownFileSetFence(kind FileSetFenceKind) FileSetFenceObservation {
+	return FileSetFenceObservation{observed: true, known: true, kind: kind}
+}
+
+// UnobservedFileSetFence reports an intentionally omitted file-set axis.
+func UnobservedFileSetFence() FileSetFenceObservation { return FileSetFenceObservation{} }
+
+// Observed reports whether the file-set axis participated in this fact.
+func (observation FileSetFenceObservation) Observed() bool { return observation.observed }
+
+// Known reports whether an observed file-set result has a closed classification.
+func (observation FileSetFenceObservation) Known() bool {
+	return observation.observed && observation.known
+}
+
+// Kind returns the closed classification. Unknown and unobserved observations
+// return FileSetFenceClear and must be distinguished with Known and Observed.
+func (observation FileSetFenceObservation) Kind() FileSetFenceKind { return observation.kind }
+
+const (
+	FileSetFenceClear                FileSetFenceKind = ""
+	FileSetFencePublishedTransaction FileSetFenceKind = "published_transaction"
+	FileSetFenceInvalidEvidence      FileSetFenceKind = "invalid_evidence"
+	FileSetFenceAbandonedResidue     FileSetFenceKind = "abandoned_residue"
+	FileSetFenceCensusLimit          FileSetFenceKind = "census_limit"
+	FileSetFenceAccessUnprovable     FileSetFenceKind = "access_unprovable"
+)
+
+// ErrInterruptedFileSetTransaction reports one valid published marker whose
+// transaction remains a continuing fence until its owning workflow recovers it.
+var ErrInterruptedFileSetTransaction = errors.New("interrupted file-set transaction requires recovery")
+
+// ErrFileSetEvidenceInvalid reports published evidence whose authority cannot
+// be reconstructed safely enough for journal recovery to proceed.
+var ErrFileSetEvidenceInvalid = errors.New("file-set transaction evidence is incomplete or invalid")
+
+// ErrAbandonedFileSetResidue reports markerless file-set-class residue under the
+// state directory. A name prefix is not deletion authority, so recovery cannot
+// clear the fence.
+var ErrAbandonedFileSetResidue = errors.New("abandoned file-set transaction residue remains")
+
+// ErrFileSetFenceUnprovable is the compatibility parent for the distinct census
+// and StateDir access/identity failures below.
+var ErrFileSetFenceUnprovable = errors.New(
+	"file-set fence cannot be proven clean; restore access to the state directory or preserve it for analysis; do not retry an interrupted write or delete reserved names by prefix",
+)
+
+// ErrFileSetFenceCensusLimit reports bounded census exhaustion after StateDir
+// access and directory identity were established.
+var ErrFileSetFenceCensusLimit = errors.New("file-set fence census limit exceeded")
+
+// ErrFileSetAccessUnprovable reports that StateDir path identity or enumerable
+// directory access could not be established.
+var ErrFileSetAccessUnprovable = errors.New("file-set state directory access or identity cannot be proven")
+
+type fileSetFenceError struct {
+	kind     FileSetFenceKind
+	sentinel error
+	cause    error
+}
+
+func (err fileSetFenceError) Error() string {
+	return fmt.Sprintf("%s: %v", err.sentinel, err.cause)
+}
+
+func (err fileSetFenceError) Unwrap() []error {
+	return []error{ErrFileSetFenceUnprovable, err.sentinel, err.cause}
+}
+
+func wrapFileSetFenceError(kind FileSetFenceKind, sentinel error, err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if FileSetFenceKindOf(err) == kind {
+		return err
+	}
+	return fileSetFenceError{kind: kind, sentinel: sentinel, cause: err}
+}
+
+func wrapFileSetAccessUnprovable(err error) error {
+	return wrapFileSetFenceError(FileSetFenceAccessUnprovable, ErrFileSetAccessUnprovable, err)
+}
+
+func wrapFileSetCensusLimit(err error) error {
+	return wrapFileSetFenceError(FileSetFenceCensusLimit, ErrFileSetFenceCensusLimit, err)
+}
+
+func wrapFileSetEvidenceInvalid(err error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if errors.Is(err, ErrFileSetEvidenceInvalid) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", ErrFileSetEvidenceInvalid, err)
+}
+
+// FileSetFenceKindOf returns the most specific closed file-set classification
+// preserved by err. Nil and unrelated errors both return FileSetFenceClear.
+func FileSetFenceKindOf(err error) FileSetFenceKind {
+	if err == nil {
+		return FileSetFenceClear
+	}
+	var classified fileSetFenceError
+	if errors.As(err, &classified) {
+		return classified.kind
+	}
+	switch {
+	case errors.Is(err, ErrInterruptedFileSetTransaction):
+		return FileSetFencePublishedTransaction
+	case errors.Is(err, ErrFileSetEvidenceInvalid):
+		return FileSetFenceInvalidEvidence
+	case errors.Is(err, ErrAbandonedFileSetResidue):
+		return FileSetFenceAbandonedResidue
+	case errors.Is(err, ErrFileSetFenceCensusLimit):
+		return FileSetFenceCensusLimit
+	case errors.Is(err, ErrFileSetAccessUnprovable),
+		errors.Is(err, ErrFileSetFenceUnprovable):
+		return FileSetFenceAccessUnprovable
+	default:
+		return FileSetFenceClear
+	}
+}
+
+type abandonedFileSetResidueError struct {
+	paths []string
+}
+
+func (err abandonedFileSetResidueError) Error() string {
+	if len(err.paths) == 1 {
+		return fmt.Sprintf(
+			"%s at %s; missing published marker is not a clean fence; current daem cannot remove reserved residue by name",
+			ErrAbandonedFileSetResidue,
+			err.paths[0],
+		)
+	}
+	return fmt.Sprintf(
+		"%s (%d entries, first %s); missing published marker is not a clean fence; current daem cannot remove reserved residue by name",
+		ErrAbandonedFileSetResidue,
+		len(err.paths),
+		err.paths[0],
+	)
+}
+
+func (err abandonedFileSetResidueError) Unwrap() error {
+	return ErrAbandonedFileSetResidue
+}
+
+func rejectAbandonedFileSetResidue(ctx context.Context, stateDir string) error {
+	return rejectAbandonedFileSetResidueWithBudget(
+		ctx,
+		stateDir,
+		defaultStateDirMaximumPhysicalDepth,
+		&stateDirOperationWorkBudget{},
+	)
+}
+
+func rejectAbandonedFileSetResidueWithBudget(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
+	residue, err := inspectAbandonedFileSetResidueLimitedWithBudget(
+		ctx,
+		stateDir,
+		maximumStateDirFenceEntries,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err != nil {
+		return err
+	}
+	if len(residue) == 0 {
+		return nil
+	}
+	return abandonedFileSetResidueError{paths: residue}
+}
+
+func inspectAbandonedFileSetResidue(ctx context.Context, stateDir string) ([]string, error) {
+	return inspectAbandonedFileSetResidueLimited(ctx, stateDir, maximumStateDirFenceEntries)
+}
+
+func inspectAbandonedFileSetResidueLimited(
+	ctx context.Context,
+	stateDir string,
+	limit int,
+) ([]string, error) {
+	return inspectAbandonedFileSetResidueLimitedWithBudget(
+		ctx,
+		stateDir,
+		limit,
+		defaultStateDirMaximumPhysicalDepth,
+		&stateDirOperationWorkBudget{},
+	)
+}
+
+func inspectAbandonedFileSetResidueLimitedWithBudget(
+	ctx context.Context,
+	stateDir string,
+	limit int,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		return nil, fmt.Errorf("file-set state dir entry limit must be positive")
+	}
+	if physicalWorkBudget == nil {
+		return nil, fmt.Errorf("file-set state dir physical work budget is required")
+	}
+	if err := admitFileSetFenceObservation(
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return finishFileSetResidueInspection(ctx, nil)
+	}
+	if err != nil {
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set state dir: %w", err))
+	}
+	if !info.IsDir() {
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("file-set state dir %s is not a directory", stateDir))
+	}
+	if err := admitFileSetFenceObservation(
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
+		return nil, err
+	}
+	directory, err := os.Open(stateDir)
+	if err != nil {
+		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("open file-set state dir: %w", err))
+	}
+	defer directory.Close()
+
+	residue := make([]string, 0)
+	seen := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		names, readErr := directory.Readdirnames(stateDirFenceEnumerationBatch)
+		for _, name := range names {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			if len(name) > maximumStateDirFenceNameBytes {
+				return nil, wrapFileSetCensusLimit(fmt.Errorf(
+					"file-set state dir entry name contains %d bytes, maximum %d",
+					len(name),
+					maximumStateDirFenceNameBytes,
+				))
+			}
+			if err := admitFileSetFenceWork(
+				physicalWorkBudget,
+				stateDirPhysicalWork{entries: 1, bytes: int64(len(name))},
+			); err != nil {
+				return nil, err
+			}
+			seen++
+			if seen > limit {
+				return nil, wrapFileSetCensusLimit(fmt.Errorf(
+					"file-set state dir %s exceeds %d entries; cannot prove the fence is clean",
+					stateDir,
+					limit,
+				))
+			}
+			if name == transactionDirName || !fileSetPrivateName(name) {
+				continue
+			}
+			path := filepath.Join(stateDir, name)
+			if err := admitFileSetFenceObservation(
+				path,
+				maximumPhysicalDepth,
+				physicalWorkBudget,
+				1,
+				0,
+			); err != nil {
+				return nil, err
+			}
+			entry, lstatErr := os.Lstat(path)
+			if errors.Is(lstatErr, os.ErrNotExist) {
+				continue
+			}
+			if lstatErr != nil {
+				return nil, wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set state dir entry %s: %w", path, lstatErr))
+			}
+			if fileSetFenceResidue(name, entry.Mode()) {
+				residue = append(residue, path)
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return finishFileSetResidueInspection(ctx, residue)
+			}
+			return nil, wrapFileSetAccessUnprovable(fmt.Errorf("enumerate file-set state dir: %w", readErr))
+		}
+		if len(names) == 0 {
+			return finishFileSetResidueInspection(ctx, residue)
+		}
+	}
+}
+
+func finishFileSetResidueInspection(ctx context.Context, residue []string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	slices.Sort(residue)
+	return residue, nil
+}
+
+func admitFileSetFenceObservation(
+	path string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+	entries int,
+	bytes int64,
+) error {
+	pathWork, err := stateDirAbsolutePathWork(path, maximumPhysicalDepth)
+	if err != nil {
+		return wrapFileSetAccessUnprovable(fmt.Errorf(
+			"measure file-set fence path work: %w",
+			err,
+		))
+	}
+	return admitFileSetFenceWork(physicalWorkBudget, stateDirPhysicalWork{
+		pathComponents: pathWork,
+		entries:        entries,
+		bytes:          bytes,
+	})
+}
+
+func admitFileSetFenceWork(
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+	work stateDirPhysicalWork,
+) error {
+	if physicalWorkBudget == nil {
+		return fmt.Errorf("file-set state dir physical work budget is required")
+	}
+	if err := physicalWorkBudget.AdmitPhysicalWork(
+		work.pathComponents,
+		work.entries,
+		work.bytes,
+	); err != nil {
+		return wrapFileSetAccessUnprovable(fmt.Errorf(
+			"admit file-set fence physical work: %w",
+			err,
+		))
+	}
+	return nil
+}
+
+func maximumFileSetFenceCensusWork(
+	stateDir string,
+	maximumPhysicalDepth int,
+) (stateDirPhysicalWork, error) {
+	evidencePathWork, err := stateDirAbsolutePathWork(
+		transactionDir(stateDir),
+		maximumPhysicalDepth,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	stateDirPathWork, err := stateDirAbsolutePathWork(stateDir, maximumPhysicalDepth)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	childPathWork, err := stateDirAbsolutePathWork(
+		filepath.Join(stateDir, fileSetTemporaryPrefix+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		maximumPhysicalDepth,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err := checkedStateDirWorkMultiply(
+		childPathWork,
+		maximumStateDirFenceEntries,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	stateDirOpenWork, err := checkedStateDirWorkMultiply(stateDirPathWork, 2)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err = checkedStateDirWorkAdd(residuePathWork, stateDirOpenWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err = checkedStateDirWorkAdd(residuePathWork, evidencePathWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residueEntries, err := checkedStateDirWorkAdd(
+		maximumStateDirFenceEntries+1,
+		maximumStateDirFenceEntries+3,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residueBytes := int64(maximumStateDirFenceEntries+1) * maximumStateDirFenceNameBytes
+
+	markerPathWork, err := stateDirAbsolutePathWork(markerPath(stateDir), maximumPhysicalDepth)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	markerPathWork, err = checkedStateDirWorkAdd(markerPathWork, evidencePathWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	marker := stateDirPhysicalWork{
+		pathComponents: markerPathWork,
+		entries:        2,
+		bytes:          maximumMarkerBytes,
+	}
+	residue := stateDirPhysicalWork{
+		pathComponents: residuePathWork,
+		entries:        residueEntries,
+		bytes:          residueBytes,
+	}
+	return stateDirPhysicalWork{
+		pathComponents: max(marker.pathComponents, residue.pathComponents),
+		entries:        max(marker.entries, residue.entries),
+		bytes:          max(marker.bytes, residue.bytes),
+	}, nil
+}
+
+func fileSetPrivateName(name string) bool {
+	return strings.HasPrefix(name, fileSetTemporaryPrefix) ||
+		strings.HasPrefix(name, fileSetTombstonePrefix) ||
+		strings.HasPrefix(name, fileSetCleanupPrefix) ||
+		strings.HasPrefix(name, fileSetLegacyStagePrefix)
+}
+
+func fileSetFenceResidue(name string, mode os.FileMode) bool {
+	return fileSetPrivateName(name) && !mode.IsRegular()
 }

@@ -187,6 +187,11 @@ var packagePlacementRows = []packagePlacementRow{
 		packages:  []string{"internal/declaration/transaction"},
 	},
 	{
+		id:        "workspace.recovery-barrier",
+		placement: plainPlacement(affinityNone, roleTransactionRecovery),
+		packages:  []string{"internal/recoverygate"},
+	},
+	{
 		id:        "realization.codec.aggregate",
 		placement: plainPlacement(affinityRealization, roleCodec),
 		packages:  []string{"internal/realization/aggregate/codec"},

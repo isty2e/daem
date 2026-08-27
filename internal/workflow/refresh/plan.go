@@ -19,6 +19,7 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	extensiontopology "github.com/isty2e/daem/internal/topology/extension"
 )
 
@@ -38,9 +39,20 @@ func PlanDryRun(
 		)
 	}
 	input.Timeout = timeout.Duration()
+	if ctx == nil {
+		return refusedResult(CommandResult{Mode: ModeDryRun}, ReasonCancelled, fmt.Errorf("refresh context is required"), "retry the command")
+	}
+	if err := ctx.Err(); err != nil {
+		return refusedResult(CommandResult{Mode: ModeDryRun}, ReasonCancelled, err, "retry the command")
+	}
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		return refusedResult(CommandResult{Mode: ModeDryRun}, ReasonManifestUnavailable, err, "check the selected manifest path")
+	}
+	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		planned, refusal := journalAndFileSetRefusal(baseResult(paths, ModeDryRun), err)
+		return planned.result, refusal
 	}
 	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
 	if err != nil {
@@ -64,13 +76,14 @@ func PlanDryRun(
 			)
 		}
 	}()
-	planned, err := planAtPaths(
+	planned, err := planAtPathsWithBarrier(
 		ctx,
 		input,
 		timeout,
 		withPlanDefaults(options),
 		paths,
 		ModeDryRun,
+		&barrier,
 	)
 	result = cloneCommandResult(planned.result)
 	if err != nil {
@@ -84,6 +97,9 @@ func PlanDryRun(
 		root,
 	)
 	if err != nil {
+		if result, mapped, ok := mapPreservedReplanCause(result, err); ok {
+			return result, mapped
+		}
 		return refusedResult(
 			result,
 			ReasonStalePlan,
@@ -113,10 +129,23 @@ func PlanWrite(
 		return unavailablePreparedCommand(result), refusal
 	}
 	input.Timeout = timeout.Duration()
+	if ctx == nil {
+		result, refusal := refusedResult(CommandResult{Mode: ModeExecute}, ReasonCancelled, fmt.Errorf("refresh context is required"), "retry the command")
+		return unavailablePreparedCommand(result), refusal
+	}
+	if err := ctx.Err(); err != nil {
+		result, refusal := refusedResult(CommandResult{Mode: ModeExecute}, ReasonCancelled, err, "retry the command")
+		return unavailablePreparedCommand(result), refusal
+	}
 	paths, err := daempaths.Resolve(input.ManifestPath)
 	if err != nil {
 		result, refusal := refusedResult(CommandResult{Mode: ModeExecute}, ReasonManifestUnavailable, err, "check the selected manifest path")
 		return unavailablePreparedCommand(result), refusal
+	}
+	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		planned, refusal := journalAndFileSetRefusal(baseResult(paths, ModeExecute), err)
+		return unavailablePreparedCommand(planned.result), refusal
 	}
 	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
 	if err != nil {
@@ -128,13 +157,14 @@ func PlanWrite(
 		)
 		return unavailablePreparedCommand(result), refusal
 	}
-	planned, planErr := planAtPaths(
+	planned, planErr := planAtPathsWithBarrier(
 		ctx,
 		input,
 		timeout,
 		withPlanDefaults(options),
 		paths,
 		ModeExecute,
+		&barrier,
 	)
 	if planErr != nil {
 		closeErr := root.Close()
@@ -149,6 +179,9 @@ func PlanWrite(
 	)
 	if err != nil {
 		closeErr := root.Close()
+		if result, mapped, ok := mapPreservedReplanCause(planned.result, err); ok {
+			return unavailablePreparedCommand(result), errors.Join(mapped, closeErr)
+		}
 		result, refusal := refusedResult(
 			planned.result,
 			ReasonStalePlan,
@@ -180,15 +213,19 @@ func stabilizePlan(
 	if err != nil {
 		return initial, err
 	}
-	current, err := planAtPaths(
+	current, err := planAtPathsWithBarrier(
 		ctx,
 		input,
 		initial.timeout,
 		options,
 		initial.paths,
 		initial.result.Mode,
+		&initial.barrier,
 	)
 	if err != nil {
+		if isPreservedReplanCause(err) {
+			return current, err
+		}
 		return current, errors.Join(mutation.StalePlanError{}, err)
 	}
 	currentAuthority, err := buildAuthorityEvidence(current, root)
@@ -219,6 +256,18 @@ func planAtPaths(
 	paths daempaths.Paths,
 	mode Mode,
 ) (plan, error) {
+	return planAtPathsWithBarrier(ctx, input, timeout, options, paths, mode, nil)
+}
+
+func planAtPathsWithBarrier(
+	ctx context.Context,
+	input CommandInput,
+	timeout HostCommandTimeout,
+	options PlanOptions,
+	paths daempaths.Paths,
+	mode Mode,
+	barrier *recoverygate.EffectAuthority,
+) (plan, error) {
 	result := baseResult(paths, mode)
 	if ctx == nil {
 		return refusedPlan(result, ReasonCancelled, fmt.Errorf("refresh context is required"), "retry the command")
@@ -226,16 +275,12 @@ func planAtPaths(
 	if err := ctx.Err(); err != nil {
 		return refusedPlan(result, ReasonCancelled, err, "retry the command")
 	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
-		return refusedPlan(
-			result,
-			ReasonMutationAuthority,
-			err,
-			"retry the interrupted authoring or unmanage operation before refreshing a carrier",
-		)
-	}
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
-		return refusedPlan(result, ReasonMutationAuthority, err, "run daem recover before refreshing a carrier")
+	if barrier != nil {
+		if err := barrier.Validate(ctx); err != nil {
+			return journalAndFileSetRefusal(result, err)
+		}
+	} else if err := recoverygate.RequireClear(ctx, paths); err != nil {
+		return journalAndFileSetRefusal(result, err)
 	}
 	environment, err := declarationmanifest.LoadSelected(ctx, paths)
 	if err != nil {
@@ -368,10 +413,107 @@ func planAtPaths(
 		currentState:      currentState,
 		timeout:           timeout,
 	}
+	if barrier != nil {
+		planned.barrier = *barrier
+	}
 	fingerprint, err := refreshFingerprint(planned)
 	if err != nil {
 		return refusedPlan(result, ReasonRefreshUnsupported, err, "report the invalid refresh plan")
 	}
 	planned.fingerprint = fingerprint
 	return planned, nil
+}
+
+func journalAndFileSetRefusal(result CommandResult, err error) (plan, error) {
+	if recoverygate.IsCancellation(err) {
+		return refusedPlan(result, ReasonCancelled, err, "retry the command")
+	}
+	state := recoverygate.StateOf(err)
+	switch state.FileSet() {
+	case transaction.FileSetFenceAccessUnprovable:
+		return refusedPlan(
+			result,
+			ReasonFileSetAccessUnprovable,
+			err,
+			"restore StateDir access and identity before retrying or running daem recover",
+		)
+	case transaction.FileSetFenceInvalidEvidence:
+		return refusedPlan(
+			result,
+			ReasonFileSetEvidenceInvalid,
+			err,
+			"preserve and repair the invalid file-set evidence before retrying or running daem recover",
+		)
+	}
+	if state.JournalKnown() && state.Journal() == journal.InterruptionActiveApply && state.HasContinuingFileSetFence() {
+		return refusedPlan(
+			result,
+			ReasonInterruptedApplyFileSetFence,
+			err,
+			"run daem recover --dry-run first; the file-set fence remains after recover and is not cleared by it",
+		)
+	}
+	if state.JournalKnown() && state.Journal() == journal.InterruptionCleanupOnly && state.HasContinuingFileSetFence() {
+		return refusedPlan(
+			result,
+			ReasonJournalCleanupFileSetFence,
+			err,
+			"run daem recover --dry-run to finish journal cleanup; the file-set fence remains afterward",
+		)
+	}
+	if state.JournalKnown() {
+		switch state.Journal() {
+		case journal.InterruptionActiveApply:
+			return refusedPlan(result, ReasonInterruptedApply, err, "run daem recover before refreshing a carrier")
+		case journal.InterruptionCleanupOnly:
+			return refusedPlan(result, ReasonJournalCleanupIncomplete, err, "run daem recover to finish journal cleanup")
+		}
+	}
+	if state.FileSetKnown() {
+		switch state.FileSet() {
+		case transaction.FileSetFencePublishedTransaction:
+			return refusedPlan(
+				result,
+				ReasonInterruptedFileSetTransaction,
+				err,
+				"retry the interrupted authoring or unmanage operation before refreshing a carrier",
+			)
+		case transaction.FileSetFenceAbandonedResidue:
+			return refusedPlan(
+				result,
+				ReasonAbandonedFileSetResidue,
+				err,
+				"preserve the reported residue for analysis; do not delete it from its name prefix; current daem cannot recover markerless file-set residue",
+			)
+		case transaction.FileSetFenceCensusLimit:
+			return refusedPlan(
+				result,
+				ReasonFileSetFenceCensusLimit,
+				err,
+				"reduce or inspect StateDir entries so the bounded file-set census can prove the fence clean",
+			)
+		}
+	}
+	return refusedPlan(
+		result,
+		ReasonMutationAuthority,
+		err,
+		"restore the reported workspace mutation authority before refreshing a carrier",
+	)
+}
+
+func isPreservedReplanCause(err error) bool {
+	if recoverygate.IsCancellation(err) {
+		return true
+	}
+	state := recoverygate.StateOf(err)
+	return state.Observed()
+}
+
+func mapPreservedReplanCause(result CommandResult, err error) (CommandResult, error, bool) {
+	if !isPreservedReplanCause(err) {
+		return CommandResult{}, nil, false
+	}
+	planned, mapped := journalAndFileSetRefusal(result, err)
+	return cloneCommandResult(planned.result), mapped, true
 }

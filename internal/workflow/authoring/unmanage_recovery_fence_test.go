@@ -20,6 +20,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	"github.com/isty2e/daem/internal/output"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/test/testkit/metadatatx"
 )
@@ -125,6 +126,43 @@ func TestUnmanageExtensionRecoveryFencePrecedesEveryMetadataRead(t *testing.T) {
 	}
 }
 
+func TestUnmanageDryRunReportsRecoverableJournalWithContinuingResidue(t *testing.T) {
+	root := t.TempDir()
+	configureUnmanageTestHomes(t, root)
+	paths := unmanageTestPaths(t, root)
+	writeUnmanageFile(
+		t,
+		paths.ManifestPath,
+		[]byte(unmanageManifest("context7@official", target.ScopeProject)),
+	)
+	captureUnmanageActiveJournal(t, paths)
+	residue := filepath.Join(paths.StateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := UnmanageExtension(t.Context(), UnmanageExtensionRequest{
+		ManifestPath: paths.ManifestPath,
+		ID:           "context7",
+		Mode:         UnmanageModeDryRun,
+	})
+	if err == nil {
+		t.Fatal("expected joint journal and residue refusal")
+	}
+	if !strings.Contains(err.Error(), "interrupted apply operation found") {
+		t.Fatalf("error = %v, want recoverable journal", err)
+	}
+	if !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		t.Fatalf("error = %v, want continuing residue", err)
+	}
+	if !strings.Contains(err.Error(), "does not clear the continuing file-set fence") {
+		t.Fatalf("error = %v, want continuing-fence diagnosis", err)
+	}
+	if _, statErr := os.Lstat(residue); statErr != nil {
+		t.Fatalf("residue disappeared: %v", statErr)
+	}
+}
+
 func TestUnmanageExtensionAllowsFinalizedGCResidue(t *testing.T) {
 	root := t.TempDir()
 	configureUnmanageTestHomes(t, root)
@@ -193,7 +231,11 @@ func TestCommitUnmanageCandidateRejectsJournalAppearingAfterOptimisticPlan(t *te
 		ID:           "context7",
 		Mode:         UnmanageModeWrite,
 	}
-	optimistic, err := buildUnmanageCandidate(t.Context(), request, paths, false)
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	optimistic, err := buildUnmanageCandidate(t.Context(), request, paths, false, barrier, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +291,11 @@ func TestUnmanageMetadataRecoveryRefusesJournalBeforeRepairingFileSet(t *testing
 	metadataBefore := captureUnmanageFileImages(t, targetPaths)
 	stateDirBefore := captureUnmanageTree(t, paths.StateDir)
 
-	err := recoverUnmanageFileSetBeforeRead(t.Context(), paths, targetPaths)
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = recoverUnmanageFileSetBeforeRead(t.Context(), paths, targetPaths, barrier)
 	if err == nil || !strings.Contains(err.Error(), "interrupted apply operation found") {
 		t.Fatalf("recoverUnmanageFileSetBeforeRead error = %v, want recovery fence", err)
 	}

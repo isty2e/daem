@@ -34,7 +34,7 @@ type rootFact struct {
 	AuthorityFingerprint string
 }
 
-func validateBeforeHostAttempt(
+func validateRefreshPeerAuthority(
 	ctx context.Context,
 	root *rootedpath.CapturedRoot,
 	current plan,
@@ -60,6 +60,23 @@ func validateBeforeHostAttempt(
 	return nil
 }
 
+func refreshAttemptPersistenceRevisionRequests(
+	current plan,
+) []mutation.RevisionRequest {
+	selected := map[string]struct{}{
+		current.paths.ManifestPath:  {},
+		current.paths.LockfilePath:  {},
+		current.paths.StatefilePath: {},
+	}
+	requests := make([]mutation.RevisionRequest, 0, len(selected)*2)
+	for _, request := range current.authority.revisions {
+		if _, ok := selected[request.Path]; ok {
+			requests = append(requests, request)
+		}
+	}
+	return requests
+}
+
 func buildAuthorityEvidence(
 	planned plan,
 	root *rootedpath.CapturedRoot,
@@ -81,6 +98,10 @@ func buildAuthorityEvidence(
 	rootIdentity := rootFact{
 		PhysicalRoot:         authority.PhysicalRoot(),
 		AuthorityFingerprint: fingerprint,
+	}
+	barrierFingerprint, err := planned.barrier.IdentityFingerprint()
+	if err != nil {
+		return authorityEvidence{}, err
 	}
 
 	facts := make([]authorityFact, 0)
@@ -181,12 +202,26 @@ func buildAuthorityEvidence(
 	); err != nil {
 		return authorityEvidence{}, err
 	}
-	if err := addLogicalPair(
-		planned.paths.RecoveryDir,
-		mutation.AccessExclusive,
-		mutation.AccessExclusive,
-	); err != nil {
-		return authorityEvidence{}, err
+	for _, path := range []struct {
+		value  string
+		access mutation.AccessMode
+	}{
+		{value: planned.paths.RecoveryDir, access: mutation.AccessExclusive},
+		{value: planned.paths.StateDir, access: mutation.AccessShared},
+	} {
+		for _, effect := range []mutation.PathEffect{
+			mutation.PathEffectDirectoryEntry,
+			mutation.PathEffectReferent,
+		} {
+			facts = append(facts, authorityFact{
+				Kind: "recovery_barrier", Path: path.value,
+				Access: path.access, Effect: effect,
+			})
+		}
+	}
+	domains = append(domains, planned.barrier.Domains()...)
+	for _, revision := range planned.barrier.RevisionRequests() {
+		revisions[revisionKey(revision.Path, revision.Effect)] = revision
 	}
 	for _, observedPath := range planned.authorityPaths {
 		for _, effect := range []mutation.PathEffect{
@@ -227,11 +262,13 @@ func buildAuthorityEvidence(
 		return authorityFactKey(facts[left]) < authorityFactKey(facts[right])
 	})
 	canonical, err := json.Marshal(struct {
-		Domains []authorityFact
-		Root    rootFact
+		Domains         []authorityFact
+		Root            rootFact
+		RecoveryBarrier string
 	}{
-		Domains: facts,
-		Root:    rootIdentity,
+		Domains:         facts,
+		Root:            rootIdentity,
+		RecoveryBarrier: barrierFingerprint,
 	})
 	if err != nil {
 		return authorityEvidence{}, fmt.Errorf("fingerprint refresh authority: %w", err)

@@ -5,6 +5,7 @@ package commit
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -32,6 +33,16 @@ func (identity platformIdentity) matches(other platformIdentity) bool {
 
 func (identity platformIdentity) sameObject(other platformIdentity) bool {
 	return identity.valid() && other.valid() && identity.device == other.device && identity.inode == other.inode
+}
+
+func (identity platformIdentity) objectToken() []byte {
+	if !identity.valid() {
+		return nil
+	}
+	token := make([]byte, 16)
+	binary.LittleEndian.PutUint64(token[:8], identity.device)
+	binary.LittleEndian.PutUint64(token[8:], identity.inode)
+	return token
 }
 
 func (anchor *anchoredParent) observe(name string, path string) (EntryIdentity, unix.Stat_t, error) {

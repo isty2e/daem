@@ -26,6 +26,8 @@ const (
 	rootSelectionInvalid rootSelectionMode = iota
 	rootSelectionResolveAlias
 	rootSelectionNoFollow
+	rootSelectionCanonicalResolveAlias
+	rootSelectionCanonicalNoFollow
 )
 
 // CaptureRoot resolves a selected root alias once and retains a native witness
@@ -40,18 +42,37 @@ func CaptureRootNoFollow(selectedRoot string) (*CapturedRoot, error) {
 	return captureRoot(selectedRoot, rootSelectionNoFollow)
 }
 
-// CaptureRootNoFollowBounded retains one physical root while charging every
-// opened component to the supplied operation budget.
-func CaptureRootNoFollowBounded(
+// CaptureCanonicalRootBounded resolves one already-canonical native directory
+// spelling while retaining bounded descriptor authority. On POSIX, non-NUL
+// control bytes remain valid path data.
+func CaptureCanonicalRootBounded(
 	selectedRoot string,
 	maximumPhysicalDepth int,
 	budget PhysicalTraversalBudget,
 ) (*CapturedRoot, error) {
-	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
-	if err != nil {
-		return nil, err
-	}
-	return captureRootWithTraversal(selectedRoot, rootSelectionNoFollow, traversal)
+	return captureRootBounded(
+		selectedRoot,
+		rootSelectionCanonicalResolveAlias,
+		maximumPhysicalDepth,
+		budget,
+	)
+}
+
+// CaptureCanonicalRootNoFollowBounded retains one already-canonical native
+// directory spelling without following aliases. On POSIX, non-NUL control
+// bytes remain valid path data; ordinary mutation-root capture keeps its
+// stricter diagnostic-safe lexical contract.
+func CaptureCanonicalRootNoFollowBounded(
+	selectedRoot string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, error) {
+	return captureRootBounded(
+		selectedRoot,
+		rootSelectionCanonicalNoFollow,
+		maximumPhysicalDepth,
+		budget,
+	)
 }
 
 // CaptureRootBounded resolves one selected root while charging every native

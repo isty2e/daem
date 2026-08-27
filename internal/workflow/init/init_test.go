@@ -5,13 +5,33 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
+	"github.com/isty2e/daem/internal/effect/journal"
+	"github.com/isty2e/daem/internal/effect/journal/retirement"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	daempaths "github.com/isty2e/daem/internal/paths"
 )
+
+func TestExecuteRefusesJournalCleanupBeforeManifestPublication(t *testing.T) {
+	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
+	paths, err := daempaths.ResolveCreation(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeInitCleanupJournal(t, paths)
+
+	_, err = Execute(t.Context(), Input{ManifestPath: manifestPath})
+	if !errors.Is(err, journal.ErrIncompleteJournalCleanup) {
+		t.Fatalf("Execute error = %v, want cleanup-only journal refusal", err)
+	}
+	if _, statErr := os.Lstat(manifestPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("manifest was published after journal refusal: %v", statErr)
+	}
+}
 
 func TestBuildPlanCreatesStarterManifest(t *testing.T) {
 	manifestPath := filepath.Join(t.TempDir(), "daem.toml")
@@ -94,6 +114,40 @@ func TestWritePlanWithoutForceDoesNotOverwriteFileCreatedAfterPlanning(t *testin
 	}
 	if string(content) != "existing\n" {
 		t.Fatalf("content = %q, want existing content", content)
+	}
+}
+
+func writeInitCleanupJournal(t testing.TB, paths daempaths.Paths) {
+	t.Helper()
+	record, err := retirement.NewRecord(
+		"init-cleanup",
+		"sha256:"+strings.Repeat("0", 64),
+		retirement.PhaseFinalizing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := record.Identity()
+	controlDir := filepath.Join(paths.RecoveryDir, identity.ControlName())
+	if err := os.MkdirAll(controlDir, retirement.DirectoryMode); err != nil {
+		t.Fatal(err)
+	}
+	content, err := retirement.Encode(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(controlDir, retirement.RecordFileName),
+		content,
+		retirement.RecordMode,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(
+		filepath.Join(paths.RecoveryDir, identity.ResidueName()),
+		retirement.DirectoryMode,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

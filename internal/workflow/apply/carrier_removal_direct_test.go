@@ -32,6 +32,80 @@ type openCodeDirectWorkflowFixture struct {
 	authorityPaths []observerelation.AuthorityPath
 }
 
+func TestPendingRemovalVerificationMayReclassifyRelationOrder(t *testing.T) {
+	fixture := newOpenCodeDirectWorkflowFixture(t, target.ScopeProject)
+	input := fixture.directInput(t)
+	input.Filesystem = &failNthReplaceStore{
+		Adapter: storagecommit.Adapter{},
+		failOn:  2,
+		err:     errors.New("injected second config replacement failure"),
+	}
+	first, err := runCarrierRemovals(t.Context(), input)
+	if err == nil {
+		t.Fatal("partial OpenCode removal returned nil error")
+	}
+	pending := first.State.PendingCarrierRemovals()
+	if len(pending) != 1 {
+		t.Fatalf("pending removals = %#v, want one", pending)
+	}
+	observation, present := fixture.action.Observation()
+	if !present {
+		t.Fatal("direct action has no correlation key")
+	}
+	action, err := carrierabsence.NewAction(carrierabsence.ActionInput{
+		Claim:       fixture.claim,
+		Desired:     carrierabsence.DesiredAbsent,
+		Observation: observerelation.Correlation{Key: observation.Key, Result: missingCorrelation(t, fixture.expected)},
+		Occupancy:   fixture.action.Occupancy(),
+		Route:       fixture.action.RouteAdmission(),
+		Pending:     &pending[0],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !action.VerifiesPendingRemoval() {
+		t.Fatalf("pending action = %#v, want verification", action)
+	}
+	mayReclassify := relationOrderMayReclassifyBeforeExecution(
+		nil,
+		nil,
+		[]carrierabsence.Action{action},
+	)
+	if !mayReclassify {
+		t.Fatal("pending-removal verification did not reserve relation-order reclassification")
+	}
+	classID, err := hostrelation.NewOrderClassID("extension:opencode:project:plugins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sequenceID, err := hostrelation.NewPhysicalSequenceID("opencode:project:server.json.plugins")
+	if err != nil {
+		t.Fatal(err)
+	}
+	alpha := applyOrderMember(t, "alpha", "@acme/alpha")
+	beta := applyOrderMember(t, "beta", "@acme/beta")
+	normalize := relationOrderCapacityDecision(
+		t,
+		target.TargetOpenCode,
+		classID,
+		sequenceID,
+		"opencode-plugin-package-v1",
+		hostrelation.ConfigOrderOnly,
+		[]hostrelation.RelationOrderMember{alpha, beta},
+		[]hostrelation.RelationOrderMember{beta, alpha},
+	)
+	count, err := relationOrderValidationCount(
+		[]reconcile.RelationOrderDecision{normalize},
+		mayReclassify,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("pending-removal OpenCode normalization capacity = %d, want 1", count)
+	}
+}
+
 func TestExecuteWithOptionsDirectOpenCodeRemovalConvergesEndToEnd(t *testing.T) {
 	const source = "@acme/opencode-formatter"
 

@@ -38,7 +38,10 @@ func captureRootPlatform(
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, err
 	}
-	if selectionMode != rootSelectionResolveAlias && selectionMode != rootSelectionNoFollow {
+	if selectionMode != rootSelectionResolveAlias &&
+		selectionMode != rootSelectionNoFollow &&
+		selectionMode != rootSelectionCanonicalResolveAlias &&
+		selectionMode != rootSelectionCanonicalNoFollow {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			absolute,
@@ -46,10 +49,12 @@ func captureRootPlatform(
 			nil,
 		)
 	}
-	if selectionMode == rootSelectionResolveAlias {
+	if selectionMode == rootSelectionResolveAlias ||
+		selectionMode == rootSelectionCanonicalResolveAlias {
 		physicalRoot, platform, object, mount, missing, resolveErr := resolveDirectoryPathPlatform(
 			absolute,
 			false,
+			true,
 			traversal,
 		)
 		if resolveErr != nil {
@@ -680,6 +685,7 @@ func splitWindowsAbsolutePath(value string) (string, []string, error) {
 func resolveDirectoryPathPlatform(
 	selectedPath string,
 	allowMissing bool,
+	_ bool,
 	traversal *physicalTraversal,
 ) (string, capturedRootPlatform, identityToken, mountIdentities, []string, error) {
 	absolute, names, err := prepareWindowsAbsolutePath(selectedPath, traversal)

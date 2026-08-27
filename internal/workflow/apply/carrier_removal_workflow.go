@@ -51,22 +51,25 @@ type carrierRemovalGlobalClaimRemover func(
 // Input supplies already-authorized operation facts and effect capabilities.
 // It does not perform planning or host-specific route selection.
 type carrierRemovalInput struct {
-	StatePath              string
-	SelectedRoot           string
-	Current                durable.Snapshot
-	GlobalClaims           durablecarrier.GlobalCarrierClaims
-	Actions                []carrierabsence.Action
-	RelationAuthorityPaths []observerelation.AuthorityPath
-	ProjectRoot            *rootedpath.CapturedRoot
-	Filesystem             mutationfs.RootedStore
-	Adapter                executehostroute.RemovalAdapter
-	Executor               subprocess.CommandExecutor
-	Observer               CarrierRemovalObserver
-	BaselineObserver       CarrierRemovalBaselineObserver
-	RemoveGlobalClaim      carrierRemovalGlobalClaimRemover
-	ValidateBeforeEffects  func(context.Context, mutation.PhysicalAuthoritySet) error
-	MarkExecutionAttempted func()
-	Clock                  func() time.Time
+	StatePath                 string
+	SelectedRoot              string
+	Current                   durable.Snapshot
+	GlobalClaims              durablecarrier.GlobalCarrierClaims
+	Actions                   []carrierabsence.Action
+	RelationAuthorityPaths    []observerelation.AuthorityPath
+	ProjectRoot               *rootedpath.CapturedRoot
+	Filesystem                mutationfs.RootedStore
+	Adapter                   executehostroute.RemovalAdapter
+	Executor                  subprocess.CommandExecutor
+	Observer                  CarrierRemovalObserver
+	BaselineObserver          CarrierRemovalBaselineObserver
+	RemoveGlobalClaim         carrierRemovalGlobalClaimRemover
+	ValidateBeforeEffects     func(context.Context, mutation.PhysicalAuthoritySet) error
+	ValidateStateDir          func(context.Context) error
+	ReserveStatefileAuthority reserveStatefileEffectAuthority
+	StatefileAuthority        *statefileEffectAuthority
+	MarkExecutionAttempted    func()
+	Clock                     func() time.Time
 }
 
 func (input carrierRemovalInput) markAttempted() {
@@ -100,6 +103,29 @@ func runCarrierRemovals(
 		if err := action.Validate(); err != nil {
 			return result, fmt.Errorf("carrier removal action[%d]: %w", index, err)
 		}
+	}
+	stateAuthority := input.StatefileAuthority
+	ownedStateAuthority := false
+	if stateAuthority == nil {
+		plan, err := carrierRemovalStatefileEffectPlan(input.Actions)
+		if err != nil {
+			return result, err
+		}
+		stateAuthority, err = newStatefileEffectAuthority(
+			input.StatePath,
+			plan,
+			input.ReserveStatefileAuthority,
+		)
+		if err != nil {
+			return result, err
+		}
+		ownedStateAuthority = stateAuthority != nil
+	}
+	input.StatefileAuthority = stateAuthority
+	if ownedStateAuthority {
+		defer stateAuthority.Close()
+	}
+	for index, action := range input.Actions {
 		if action.VerifiesPendingRemoval() {
 			if err := settlePendingRemoval(ctx, input, action, &result); err != nil {
 				return result, fmt.Errorf(
@@ -140,15 +166,13 @@ func runOne(
 	action carrierabsence.Action,
 	result *carrierRemovalResult,
 ) error {
-	stateAuthority, err := rootedpath.BindSelectedEntryAuthority(
-		input.ProjectRoot,
-		input.SelectedRoot,
-		input.StatePath,
-	)
-	if err != nil {
-		return err
+	stateAuthority := input.StatefileAuthority
+	ensureStateAuthority := func() error {
+		if stateAuthority == nil {
+			return fmt.Errorf("carrier removal statefile authority is required")
+		}
+		return stateAuthority.Ensure(ctx)
 	}
-	defer stateAuthority.Close()
 
 	command, err := executehostroute.BuildRemovalCommand(executehostroute.RemovalBuildInput{
 		Action:  action,
@@ -167,6 +191,9 @@ func runOne(
 		); validationErr != nil {
 			return errors.Join(err, validationErr)
 		}
+		if authorityErr := ensureStateAuthority(); authorityErr != nil {
+			return errors.Join(err, authorityErr)
+		}
 		if persistErr := persistAttempt(ctx, input, stateAuthority, result, record); persistErr != nil {
 			return errors.Join(err, persistErr)
 		}
@@ -184,6 +211,9 @@ func runOne(
 			mutation.PhysicalAuthoritySet{},
 		); validationErr != nil {
 			return errors.Join(err, validationErr)
+		}
+		if authorityErr := ensureStateAuthority(); authorityErr != nil {
+			return errors.Join(err, authorityErr)
 		}
 		attempt := input.Executor.ExecuteInWorkingDirectory(
 			ctx,
@@ -231,11 +261,18 @@ func runOne(
 	); err != nil {
 		return errors.Join(err, binding.Close())
 	}
+	if err := ensureStateAuthority(); err != nil {
+		return errors.Join(err, binding.Close())
+	}
+	entry, err := stateAuthority.EntryForCommit()
+	if err != nil {
+		return errors.Join(err, binding.Close())
+	}
 	input.markAttempted()
 	next, pending, err := execute.CommitPendingCarrierRemoval(
 		ctx,
 		filesystem(input),
-		stateAuthority,
+		entry,
 		result.State,
 		result.GlobalClaims,
 		action,
@@ -250,7 +287,39 @@ func runOne(
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, binding.Close())
 	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return errors.Join(
+			fmt.Errorf("validate StateDir before carrier removal command: %w", err),
+			binding.Close(),
+		)
+	}
 	attempt, releaseErr := executeAttempt(ctx, input.Executor, command, binding)
+	if authorityErr := stateAuthority.Validate(ctx); authorityErr != nil {
+		if errors.Is(authorityErr, context.Canceled) || errors.Is(authorityErr, context.DeadlineExceeded) {
+			return errors.Join(authorityErr, releaseErr)
+		}
+		classified, classifyErr := classify(
+			command,
+			attempt,
+			assurancehostroute.ObservationUnavailable(
+				assurancehostroute.ResultReasonObservationUnavailable,
+			),
+			pending.EffectPostconditions(),
+		)
+		if classifyErr != nil {
+			return errors.Join(authorityErr, classifyErr, releaseErr)
+		}
+		record, recordErr := durableAttempt(action, classified, true)
+		if recordErr != nil {
+			return errors.Join(authorityErr, recordErr, releaseErr)
+		}
+		result.Attempts = append(result.Attempts, record)
+		return errors.Join(
+			hostRouteFailuresError([]durableattempt.HostRouteAttempt{record}),
+			authorityErr,
+			releaseErr,
+		)
+	}
 	observation := assurancehostroute.ObservationUnavailable(
 		assurancehostroute.ResultReasonObservationUnavailable,
 	)
@@ -316,16 +385,6 @@ func settlePendingRemoval(
 	if !present {
 		return fmt.Errorf("pending-removal verification has no exact durable fact")
 	}
-	stateAuthority, err := rootedpath.BindSelectedEntryAuthority(
-		input.ProjectRoot,
-		input.SelectedRoot,
-		input.StatePath,
-	)
-	if err != nil {
-		return err
-	}
-	defer stateAuthority.Close()
-
 	if err := verifyCurrentRemovalPostconditions(
 		ctx,
 		input,
@@ -340,6 +399,13 @@ func settlePendingRemoval(
 		input,
 		mutation.PhysicalAuthoritySet{},
 	); err != nil {
+		return err
+	}
+	stateAuthority := input.StatefileAuthority
+	if stateAuthority == nil {
+		return fmt.Errorf("carrier removal statefile authority is required")
+	}
+	if err := stateAuthority.Ensure(ctx); err != nil {
 		return err
 	}
 	return retireClaim(ctx, input, action, pending, stateAuthority, result)
@@ -466,15 +532,22 @@ func preflightAttempt(
 func persistAttempt(
 	ctx context.Context,
 	input carrierRemovalInput,
-	authority *rootedpath.EntryAuthority,
+	authority *statefileEffectAuthority,
 	result *carrierRemovalResult,
 	record durableattempt.HostRouteAttempt,
 ) error {
+	if err := authority.Validate(ctx); err != nil {
+		return err
+	}
+	entry, err := authority.EntryForCommit()
+	if err != nil {
+		return err
+	}
 	input.markAttempted()
 	next, err := execute.CommitHostRouteAttempts(
 		ctx,
 		filesystem(input),
-		authority,
+		entry,
 		result.State,
 		[]durableattempt.HostRouteAttempt{record},
 		statefile.Codec{},
@@ -484,7 +557,7 @@ func persistAttempt(
 	}
 	result.State = next
 	result.Attempts = append(result.Attempts, record)
-	return nil
+	return authority.Validate(ctx)
 }
 
 func removalVerified(result assurancehostroute.Result) bool {

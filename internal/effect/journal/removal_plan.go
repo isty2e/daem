@@ -496,7 +496,7 @@ func ObserveRemovalNamespace(
 		if current.PhysicalRoot() == filepath.Clean(parent) {
 			return newRemovalNamespaceObservation(recovery.RemovalNamespaceMatched, "")
 		}
-		parentRoot, err := rootedpath.CaptureRootNoFollowBounded(
+		parentRoot, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 			parent,
 			recovery.MaximumPhysicalPathDepth,
 			budget,
@@ -568,7 +568,7 @@ func observePersistedRemovalRoot(
 	if filepath.Clean(bound.PhysicalRoot()) == filepath.Clean(persisted.PhysicalRoot()) {
 		return bound, nil
 	}
-	root, err := rootedpath.CaptureRootNoFollowBounded(
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		persisted.PhysicalRoot(),
 		recovery.MaximumPhysicalPathDepth,
 		budget,

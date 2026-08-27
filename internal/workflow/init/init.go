@@ -12,6 +12,7 @@ import (
 	"github.com/isty2e/daem/internal/effect/mutation"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
+	"github.com/isty2e/daem/internal/recoverygate"
 )
 
 const (
@@ -71,6 +72,10 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	barrier, err := recoverygate.NewEffectAuthority(ctx, paths)
+	if err != nil {
+		return Plan{}, err
+	}
 	entryDomain, err := mutation.NewLogicalPathDomain(mutation.LogicalPathRequest{
 		Path:   paths.ManifestPath,
 		Access: mutation.AccessExclusive,
@@ -103,12 +108,13 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	leases, err := store.Acquire(
-		ctx,
+	domains := []mutation.Domain{
 		entryDomain,
 		referentDomain,
 		metadataTransactionDomain,
-	)
+	}
+	domains = append(domains, barrier.Domains()...)
+	leases, err := store.Acquire(ctx, domains...)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -122,6 +128,9 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	} else if !matches {
 		return Plan{}, mutation.StaleSnapshotError{}
 	}
+	if err := barrier.Validate(ctx); err != nil {
+		return Plan{}, err
+	}
 
 	manifestRevisionRequests, err := mutation.BoundedFileRevisionRequests(
 		declarationartifact.MaximumBytes,
@@ -130,13 +139,15 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	revisions, err := mutation.CaptureRevisionSet(ctx, append(
+	revisionRequests := append(
 		manifestRevisionRequests,
 		mutation.NewBoundedContentRevisionRequest(
 			metadataTransactionPath,
 			mutation.PathEffectDirectoryEntry,
 		),
-	)...)
+	)
+	revisionRequests = append(revisionRequests, barrier.RevisionRequests()...)
+	revisions, err := mutation.CaptureRevisionSet(ctx, revisionRequests...)
 	if err != nil {
 		return Plan{}, err
 	}
@@ -155,6 +166,9 @@ func Execute(ctx context.Context, input Input) (result Plan, returnErr error) {
 		return Plan{}, err
 	} else if !matches {
 		return Plan{}, mutation.StaleSnapshotError{}
+	}
+	if err := barrier.Validate(ctx); err != nil {
+		return Plan{}, err
 	}
 	if err := writePlan(ctx, plan, input.Force); err != nil {
 		return Plan{}, err

@@ -30,7 +30,24 @@ func syncPayload(fd int) error {
 }
 
 func syncDirectory(fd int) error {
-	if err := unix.Fsync(fd); err != nil {
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err != nil {
+		return unsupportedOperationError("directory descriptor flags are unavailable", err)
+	}
+	syncFD := fd
+	if flags&unix.O_PATH != 0 {
+		syncFD, err = unix.Openat(
+			fd,
+			".",
+			unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW,
+			0,
+		)
+		if err != nil {
+			return unsupportedOperationError("search-only directory cannot be reopened for sync", err)
+		}
+		defer unix.Close(syncFD)
+	}
+	if err := unix.Fsync(syncFD); err != nil {
 		return unsupportedOperationError("directory fsync is unavailable", err)
 	}
 	return nil

@@ -10,11 +10,13 @@ import (
 	"testing"
 
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
+	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/realization/aggregate"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	workflowlock "github.com/isty2e/daem/internal/workflow/lock"
 )
@@ -114,6 +116,49 @@ func TestProviderEffectPreventsWholeApplyRolledBackOutcome(t *testing.T) {
 	}
 }
 
+func TestProviderReplanPreservesAbandonedFileSetResidue(t *testing.T) {
+	root, manifestPath := writePiProviderMCPFixture(t)
+	paths := applyTestPaths(t, root)
+	executor := subprocess.NewCommandExecutor(subprocess.CommandOptions{
+		Runner: func(_ context.Context, _ subprocess.CommandRequest) subprocess.CommandResult {
+			writePiProviderInstallation(t, root, "2.15.0")
+			plantAbandonedFileSetResidue(t, paths.StateDir)
+			return subprocess.CommandResult{Started: true, HasExitCode: true, ExitCode: 0}
+		},
+	})
+
+	planned, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatalf("PlanWrite returned error: %v", err)
+	}
+	result, err := ExecuteWithOptions(t.Context(), planned, ExecuteOptions{
+		HostRouteExecutor: executor,
+	})
+	if err == nil || !errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		t.Fatalf("error = %v, want ErrAbandonedFileSetResidue", err)
+	}
+	failure := ClassifyFailure(err, result)
+	if failure.Reason() != FailureReasonAbandonedFileSetResidue {
+		t.Fatalf("reason = %q, want %q", failure.Reason(), FailureReasonAbandonedFileSetResidue)
+	}
+	if strings.Contains(failure.Detail(), "authorized apply plan changed") ||
+		strings.Contains(failure.Detail(), "authoritative inputs changed") ||
+		strings.Contains(failure.Detail(), "rerun") {
+		t.Fatalf("detail = %q, want preserve-residue guidance not stale-plan retry", failure.Detail())
+	}
+}
+
+func plantAbandonedFileSetResidue(t *testing.T, stateDir string) {
+	t.Helper()
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	residue := filepath.Join(stateDir, ".daem-tmp-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	if err := os.Mkdir(residue, 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExecuteRejectsUnavailableProviderRecoveryProvenanceBeforeEffects(t *testing.T) {
 	_, manifestPath := writePiProviderMCPFixture(t)
 	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
@@ -171,6 +216,54 @@ func TestExecuteRejectsUnavailableProviderRecoveryProvenanceBeforeEffects(t *tes
 	for _, path := range []string{statePath, recoveryDir} {
 		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
 			t.Fatalf("post-failure path %q exists: %v", path, statErr)
+		}
+	}
+}
+
+func TestExecuteReservesCompleteStateDirEnvelopeBeforeProviderInvocation(t *testing.T) {
+	_, manifestPath := writePiProviderMCPFixture(t)
+	prepared, err := PlanWrite(t.Context(), CommandInput{ManifestPath: manifestPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := prepared.lifecycle.planned
+	providerCalls := 0
+	reservationCalls := 0
+	result, err := executeWithDependencies(t.Context(), prepared, ExecuteOptions{
+		HostRouteExecutor: subprocess.NewCommandExecutor(subprocess.CommandOptions{
+			Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+				providerCalls++
+				return subprocess.CommandResult{Started: true, HasExitCode: true}
+			},
+		}),
+	}, executeDependencies{
+		reserveForwardEffects: func(
+			_ recoverygate.EffectAuthority,
+			plan recoverygate.ForwardEffectPlan,
+		) (*recoverygate.ForwardEffectAuthority, error) {
+			reservationCalls++
+			if plan.EnsureCalls != 2 || plan.BarrierValidationCalls != 3 ||
+				plan.DescendantPath != planned.assessment.StatePath ||
+				plan.DescendantValidations == 0 || plan.DescendantFileCommits == 0 {
+				t.Fatalf("forward StateDir plan = %#v, want provider and final envelope", plan)
+			}
+			return nil, errors.New("injected complete operation capacity refusal")
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected complete operation capacity refusal") {
+		t.Fatalf("ExecuteWithOptions error = %v, want reservation refusal", err)
+	}
+	if reservationCalls != 1 || providerCalls != 0 || result.ExecutionAttempted {
+		t.Fatalf(
+			"reservation/provider/execution = %d/%d/%t, want 1/0/false",
+			reservationCalls,
+			providerCalls,
+			result.ExecutionAttempted,
+		)
+	}
+	for _, path := range []string{planned.assessment.StatePath, planned.context.Paths.RecoveryDir} {
+		if _, statErr := os.Lstat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("pre-effect reservation failure created %q: %v", path, statErr)
 		}
 	}
 }

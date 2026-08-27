@@ -23,6 +23,7 @@ func (platformIdentity) valid() bool { return false }
 func (platformIdentity) matches(platformIdentity) bool { return false }
 
 func (platformIdentity) sameObject(platformIdentity) bool { return false }
+func (platformIdentity) objectToken() []byte              { return nil }
 
 // CaptureEntryIdentity returns unsupported_guarantee on platforms without a
 // proven handle-relative adapter.
@@ -30,6 +31,19 @@ func CaptureEntryIdentity(_ context.Context, path string) (EntryIdentity, error)
 	if err := validateCommitPath(path); err != nil {
 		return EntryIdentity{}, err
 	}
+	return unsupportedEntryIdentity(path)
+}
+
+// ObserveEntryIdentity returns unsupported_guarantee without applying
+// storage-reserved basename policy.
+func ObserveEntryIdentity(_ context.Context, path string) (EntryIdentity, error) {
+	if err := validateRootedPath(path); err != nil {
+		return EntryIdentity{}, err
+	}
+	return unsupportedEntryIdentity(path)
+}
+
+func unsupportedEntryIdentity(path string) (EntryIdentity, error) {
 	return EntryIdentity{}, newFailure(
 		failureUnsupportedGuarantee,
 		phaseUnsupported,
@@ -90,6 +104,15 @@ func (cleanup *AncestorCleanup) CommitFile(ctx context.Context, request FileComm
 		return fmt.Errorf("open ancestor cleanup authority is required")
 	}
 	return CommitFile(ctx, request)
+}
+
+// CreatedDirectoryIdentity reports no created directory because unsupported
+// platforms cannot establish ancestor-creation authority.
+func (cleanup *AncestorCleanup) CreatedDirectoryIdentity(string) (EntryIdentity, bool, error) {
+	if cleanup == nil || cleanup.closed {
+		return EntryIdentity{}, false, fmt.Errorf("open ancestor cleanup authority is required")
+	}
+	return EntryIdentity{}, false, nil
 }
 
 // RemoveEmpty is a no-op because unsupported platforms cannot create entries.

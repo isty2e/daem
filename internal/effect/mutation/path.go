@@ -1,11 +1,11 @@
 package mutation
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/isty2e/daem/internal/assurance/pathauthority"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
@@ -92,6 +92,54 @@ func CanonicalDirectoryEntryPath(path string) (string, error) {
 		return "", err
 	}
 	return identity.accessPath, nil
+}
+
+// CanonicalDirectoryEntryPathBounded returns the physical no-follow access
+// path while charging every native component and alias expansion. Accepted
+// POSIX control-bearing paths use the same bounded traversal.
+func CanonicalDirectoryEntryPathBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, error) {
+	selection, err := selectDirectoryEntryPathBounded(path, maximumPhysicalDepth, budget)
+	if err != nil {
+		return "", err
+	}
+	identity, err := canonicalPathIdentityFromSelectionBounded(
+		path,
+		selection,
+		PathEffectDirectoryEntry,
+		maximumPhysicalDepth,
+		budget,
+	)
+	if err != nil {
+		return "", err
+	}
+	return identity.accessPath, nil
+}
+
+// ResolveDirectoryEntryPathBounded resolves a physical directory-entry path
+// with search-only ancestor authority. It retains no mutation capability; the
+// caller separately opens the final entry with the access its operation needs.
+func ResolveDirectoryEntryPathBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget rootedpath.PhysicalTraversalBudget,
+) (string, error) {
+	absolute := path
+	if strings.IndexFunc(path, legacyControlPathRune) >= 0 {
+		var err error
+		absolute, err = filepath.Abs(filepath.Clean(path))
+		if err != nil {
+			return "", err
+		}
+	}
+	return rootedpath.ResolveDestinationPathBounded(absolute, maximumPhysicalDepth, budget)
+}
+
+func legacyControlPathRune(value rune) bool {
+	return value != '\x00' && unicode.IsControl(value)
 }
 
 // CanonicalDirectoryEntryKey returns the platform-normalized comparison key
@@ -237,7 +285,7 @@ func selectDirectoryEntryPathBounded(
 	if err != nil {
 		return pathSelection{}, fmt.Errorf("resolve mutation path %q: %w", path, err)
 	}
-	root, destination, err := rootedpath.CaptureDestinationBounded(
+	physicalRoot, components, err := rootedpath.ResolveDestinationComponentsBounded(
 		absolutePath,
 		maximumPhysicalDepth,
 		budget,
@@ -245,19 +293,11 @@ func selectDirectoryEntryPathBounded(
 	if err != nil {
 		return pathSelection{}, fmt.Errorf("canonicalize mutation path %q: %w", path, err)
 	}
-	components := strings.Split(destination.Relative().Path(), "/")
-	selection := pathSelection{
-		anchorPath:         destination.Root().PhysicalRoot(),
+	return pathSelection{
+		anchorPath:         physicalRoot,
 		missingComponents:  components,
 		finalEntryMayExist: len(components) == 1,
-	}
-	if closeErr := root.Close(); closeErr != nil {
-		return pathSelection{}, errors.Join(
-			fmt.Errorf("close mutation path root %q", path),
-			closeErr,
-		)
-	}
-	return selection, nil
+	}, nil
 }
 
 func admitPlatformPathTraversal(

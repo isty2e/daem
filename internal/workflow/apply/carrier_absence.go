@@ -9,7 +9,6 @@ import (
 	"github.com/isty2e/daem/internal/assurance/stateauthority"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	"github.com/isty2e/daem/internal/effect/execute"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
@@ -229,16 +228,23 @@ func retireClaim(
 	input carrierRemovalInput,
 	action carrierabsence.Action,
 	pending durablecarrier.PendingCarrierRemoval,
-	authority *rootedpath.EntryAuthority,
+	authority *statefileEffectAuthority,
 	result *carrierRemovalResult,
 ) error {
 	switch action.Scope() {
 	case target.ScopeProject:
+		if err := authority.Validate(ctx); err != nil {
+			return err
+		}
+		entry, err := authority.EntryForCommit()
+		if err != nil {
+			return err
+		}
 		input.markAttempted()
 		next, err := execute.CommitRetiredProjectCarrierRemoval(
 			ctx,
 			filesystem(input),
-			authority,
+			entry,
 			result.State,
 			pending,
 			statefile.Codec{},
@@ -247,7 +253,7 @@ func retireClaim(
 			return err
 		}
 		result.State = next
-		return nil
+		return authority.Validate(ctx)
 	case target.ScopeGlobal:
 		if input.RemoveGlobalClaim == nil {
 			return fmt.Errorf("global carrier removal registry capability is required")
@@ -259,11 +265,18 @@ func retireClaim(
 		if !changed {
 			return fmt.Errorf("derive retired global carrier registry: exact claim is absent")
 		}
+		if err := authority.Validate(ctx); err != nil {
+			return err
+		}
+		entry, err := authority.EntryForCommit()
+		if err != nil {
+			return err
+		}
 		input.markAttempted()
 		next, err := execute.CommitClearedGlobalCarrierRemovalPending(
 			ctx,
 			filesystem(input),
-			authority,
+			entry,
 			result.State,
 			pending,
 			statefile.Codec{},
@@ -272,6 +285,9 @@ func retireClaim(
 			return err
 		}
 		result.State = next
+		if err := authority.Validate(ctx); err != nil {
+			return err
+		}
 		registry, err := input.RemoveGlobalClaim(ctx, action.Claim())
 		if err != nil {
 			return fmt.Errorf("retire global carrier claim: %w", err)
@@ -280,7 +296,7 @@ func retireClaim(
 			return fmt.Errorf("retire global carrier claim: registry returned an inexact successor")
 		}
 		result.GlobalClaims = registry
-		return nil
+		return authority.Validate(ctx)
 	default:
 		return fmt.Errorf("carrier removal scope %q is unsupported", action.Scope())
 	}
@@ -336,8 +352,11 @@ func runAfterCarrierClaimRetirements(
 			}
 			return store.Remove(ctx, claim)
 		},
-		ValidateBeforeEffects:  options.validateBeforeEffects,
-		MarkExecutionAttempted: options.markExecutionAttempted,
+		ValidateBeforeEffects:     options.validateBeforeEffects,
+		ValidateStateDir:          options.validateStateDir,
+		ReserveStatefileAuthority: options.reserveStatefileAuthority,
+		StatefileAuthority:        options.statefileAuthority,
+		MarkExecutionAttempted:    options.markExecutionAttempted,
 	})
 	if err != nil {
 		return runResult{

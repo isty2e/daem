@@ -56,6 +56,10 @@ type runOptions struct {
 	orderRiskBaseline              relationOrderRiskBaseline
 	executionGuard                 applyExecutionGuard
 	validateBeforeEffects          func(context.Context, mutation.PhysicalAuthoritySet) error
+	validateRecoveryBarrier        func(context.Context) error
+	validateStateDir               func(context.Context) error
+	reserveStatefileAuthority      reserveStatefileEffectAuthority
+	statefileAuthority             *statefileEffectAuthority
 	acceptVisibilityChanges        func(context.Context) error
 	validateCompensationAuthority  func(context.Context) error
 	acceptCompensationChanges      func(context.Context) error
@@ -116,6 +120,34 @@ func runWithOptions(
 	)
 	if err != nil {
 		return runResult{}, err
+	}
+	statefileAuthority := options.statefileAuthority
+	ownedStatefileAuthority := false
+	if statefileAuthority == nil {
+		statefilePlan, planErr := statefileEffectPlanFor(
+			assessment.CurrentState,
+			assessment.Reconciliation,
+		)
+		if planErr != nil {
+			return runResult{}, planErr
+		}
+		statefileAuthority, planErr = newStatefileEffectAuthority(
+			assessment.StatePath,
+			statefilePlan,
+			options.reserveStatefileAuthority,
+		)
+		if planErr != nil {
+			return runResult{}, planErr
+		}
+		ownedStatefileAuthority = statefileAuthority != nil
+	}
+	options.statefileAuthority = statefileAuthority
+	if ownedStatefileAuthority {
+		defer func() {
+			if closeErr := statefileAuthority.Close(); closeErr != nil {
+				resultErr = errors.Join(resultErr, closeErr)
+			}
+		}()
 	}
 	if len(managedPathEffects) == 0 && len(aggregateEffects) == 0 {
 		stateResult, err := execute.ApplyWithOptions(ctx, execute.ApplyInput{

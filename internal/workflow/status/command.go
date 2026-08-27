@@ -12,10 +12,8 @@ import (
 	relationobserve "github.com/isty2e/daem/internal/assurance/observe/relation"
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	declarationmanifest "github.com/isty2e/daem/internal/declaration/manifest"
-	"github.com/isty2e/daem/internal/declaration/transaction"
 	"github.com/isty2e/daem/internal/desired"
 	"github.com/isty2e/daem/internal/diagnose"
-	"github.com/isty2e/daem/internal/effect/journal"
 	carrierclaimstore "github.com/isty2e/daem/internal/effect/storage/carrierclaim"
 	"github.com/isty2e/daem/internal/findings"
 	daempaths "github.com/isty2e/daem/internal/paths"
@@ -26,6 +24,7 @@ import (
 	lockrefine "github.com/isty2e/daem/internal/realization/lock/refine"
 	"github.com/isty2e/daem/internal/realization/lockfile"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/workflow/readiness"
 )
@@ -127,10 +126,7 @@ func loadCommandInputs(ctx context.Context, input CommandInput) (commandInputs, 
 		StatefilePath:    paths.StatefilePath,
 	}
 
-	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
-		return commandInputs{}, result, err
-	}
-	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+	if err := refuseJournalAndFileSet(ctx, paths); err != nil {
 		return commandInputs{}, result, err
 	}
 
@@ -251,4 +247,8 @@ func loadStatusLockfile(ctx context.Context, path string) (lock.File, bool, erro
 	}
 
 	return lock.File{}, false, err
+}
+
+func refuseJournalAndFileSet(ctx context.Context, paths daempaths.Paths) error {
+	return recoverygate.RequireClear(ctx, paths)
 }
