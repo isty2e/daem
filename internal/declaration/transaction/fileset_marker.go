@@ -171,6 +171,10 @@ func loadMarker(ctx context.Context, path string) (transactionMarker, error) {
 	if err != nil {
 		return transactionMarker{}, fmt.Errorf("canonicalize file-set transaction marker path: %w", err)
 	}
+	return loadMarkerAtCanonicalPath(ctx, canonicalPath)
+}
+
+func loadMarkerAtCanonicalPath(ctx context.Context, canonicalPath string) (transactionMarker, error) {
 	snapshot, err := storagecommit.ReadRegularFileSnapshotUpTo(ctx, canonicalPath, maximumMarkerBytes)
 	if err != nil {
 		return transactionMarker{}, err

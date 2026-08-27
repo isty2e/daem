@@ -284,7 +284,7 @@ func recoveryBackupObservations(
 		return nil, err
 	}
 
-	root, err := rootedpath.CaptureRootNoFollowBounded(
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		operationDir,
 		recovery.MaximumPhysicalPathDepth,
 		budget,

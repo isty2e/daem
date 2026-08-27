@@ -86,7 +86,7 @@ func TestWindowsRecoveryBackupExactBudgetAdmitsSnapshotAndSettle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := rootedpath.CaptureRootNoFollowBounded(rootPath, recovery.MaximumPhysicalPathDepth, budget)
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(rootPath, recovery.MaximumPhysicalPathDepth, budget)
 	if err != nil {
 		t.Fatal(err)
 	}

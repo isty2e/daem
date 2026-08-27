@@ -89,9 +89,17 @@ func runDelegatesAndPersistAttemptRecords(
 	options runOptions,
 ) (runResult, error) {
 	delegateActions := reconciliation.Delegates()
-	var stateAuthority *rootedpath.EntryAuthority
+	stateAuthority := options.statefileAuthority
+	ownedStateAuthority := false
+	if len(delegateActions) != 0 && options.validateStateDir == nil {
+		return runResult{
+			ActionCount: actionCount,
+			StatePath:   statePath,
+			State:       current,
+		}, fmt.Errorf("delegate StateDir validation is required")
+	}
 	if delegateActionsRequireAttemptPersistence(delegateActions) {
-		if options.projectRoot == nil {
+		if options.projectRoot == nil || options.validateBeforeEffects == nil {
 			return runResult{
 					ActionCount: actionCount,
 					StatePath:   statePath,
@@ -103,20 +111,21 @@ func runDelegatesAndPersistAttemptRecords(
 					nil,
 				)
 		}
-		var bindErr error
-		stateAuthority, bindErr = rootedpath.BindSelectedEntryAuthority(
-			options.projectRoot,
-			paths.ManifestRoot,
-			statePath,
-		)
-		if bindErr != nil {
-			return runResult{
-				ActionCount: actionCount,
-				StatePath:   statePath,
-				State:       current,
-			}, bindErr
+		if stateAuthority == nil {
+			plan, err := delegateStatefileEffectPlan(delegateActions)
+			if err != nil {
+				return runResult{ActionCount: actionCount, StatePath: statePath, State: current}, err
+			}
+			stateAuthority, err = newStatefileEffectAuthority(
+				statePath,
+				plan,
+				options.reserveStatefileAuthority,
+			)
+			if err != nil {
+				return runResult{ActionCount: actionCount, StatePath: statePath, State: current}, err
+			}
+			ownedStateAuthority = true
 		}
-		defer stateAuthority.Close()
 	}
 	var delegateAttempts []delegate.AttemptRecord
 	var declarationErr error
@@ -131,6 +140,15 @@ func runDelegatesAndPersistAttemptRecords(
 				actualPlanFingerprint,
 				"delegate execution plan",
 			)
+		}
+	}
+	if declarationErr == nil && delegateActionsRequireAttemptPersistence(delegateActions) {
+		declarationErr = options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{})
+		if declarationErr == nil {
+			declarationErr = stateAuthority.Ensure(ctx)
+		}
+		if ownedStateAuthority {
+			defer func() { _ = stateAuthority.Close() }()
 		}
 	}
 	bindForAction := delegateWorkingDirectoryBinderForAction(
@@ -149,6 +167,14 @@ func runDelegatesAndPersistAttemptRecords(
 			declarationErr = err
 			break
 		}
+		if stateAuthority != nil {
+			declarationErr = stateAuthority.Validate(ctx)
+		} else {
+			declarationErr = options.validateStateDir(ctx)
+		}
+		if declarationErr != nil {
+			break
+		}
 		var bind subprocess.WorkingDirectoryBinder
 		if bindForAction != nil {
 			bind = bindForAction(action)
@@ -158,6 +184,14 @@ func runDelegatesAndPersistAttemptRecords(
 			options.markAttempted()
 		}
 		delegateAttempts = append(delegateAttempts, attempt)
+		if stateAuthority != nil {
+			declarationErr = stateAuthority.Validate(ctx)
+		} else {
+			declarationErr = options.validateStateDir(ctx)
+		}
+		if declarationErr != nil {
+			break
+		}
 		declarationErr = options.executionGuard.requireDeclarationsCurrent(
 			ctx,
 			"after "+phase,
@@ -213,15 +247,35 @@ func runDelegatesAndPersistAttemptRecords(
 			DelegateAttempts: delegateResults,
 		}, errors.Join(delegateErr, declarationErr)
 	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return runResult{
+			ActionCount:      actionCount,
+			StatePath:        statePath,
+			State:            current,
+			DelegateAttempts: delegateResults,
+		}, errors.Join(delegateErr, declarationErr, err)
+	}
+	entry, entryErr := stateAuthority.EntryForCommit()
+	if entryErr != nil {
+		return runResult{
+			ActionCount:      actionCount,
+			StatePath:        statePath,
+			State:            current,
+			DelegateAttempts: delegateResults,
+		}, errors.Join(delegateErr, declarationErr, entryErr)
+	}
 	options.markAttempted()
 	nextState, persistErr := execute.CommitDelegateAttempts(
 		ctx,
 		storagecommit.Adapter{},
-		stateAuthority,
+		entry,
 		current,
 		persistedAttempts,
 		statefile.Codec{},
 	)
+	if persistErr == nil {
+		persistErr = stateAuthority.Validate(ctx)
+	}
 	rootErr = validateDelegateProjectRoot(options, paths.ManifestRoot, delegateActions)
 	result := runResult{
 		ActionCount:      actionCount,

@@ -17,7 +17,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	lock "github.com/isty2e/daem/internal/realization/lock"
@@ -85,51 +84,72 @@ func runHostRoutesAndPersistAttemptRecords(
 	}
 
 	nextState := current
-	emptyAuthority, err := mutation.NewPhysicalAuthoritySet()
-	if err != nil {
-		return current, globalCarrierClaims, records, err
-	}
-	var stateAuthority *rootedpath.EntryAuthority
+	stateAuthority := options.statefileAuthority
+	ownedStateAuthority := false
 	if len(records) != 0 || len(prepared) != 0 || len(globalPromotions) != 0 {
-		if options.validateBeforeEffects == nil {
+		if options.validateBeforeEffects == nil || options.validateStateDir == nil {
 			return current, globalCarrierClaims, records, fmt.Errorf(
-				"host route effect validation is required",
+				"host route StateDir effect authority is required",
 			)
+		}
+		if stateAuthority == nil {
+			plan, planErr := hostRouteStatefileEffectPlan(current, relationActions)
+			if planErr != nil {
+				return current, globalCarrierClaims, records, planErr
+			}
+			stateAuthority, planErr = newStatefileEffectAuthority(
+				statePath,
+				plan,
+				options.reserveStatefileAuthority,
+			)
+			if planErr != nil {
+				return current, globalCarrierClaims, records, planErr
+			}
+			ownedStateAuthority = true
 		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
 		}
-		stateAuthority, err = rootedpath.BindSelectedEntryAuthority(
-			options.projectRoot,
-			paths.ManifestRoot,
-			statePath,
-		)
-		if err != nil {
-			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
-		}
-		defer stateAuthority.Close()
-		if len(records) != 0 || len(globalPromotions) != 0 {
-			if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
-				return current, globalCarrierClaims, records, fmt.Errorf(
-					"validate host-route preflight state effect: %w",
-					err,
-				)
-			}
+		if ownedStateAuthority {
+			defer func() {
+				returnErr = errors.Join(returnErr, stateAuthority.Close())
+			}()
 		}
 	}
+	ensureStateAuthority := func(ctx context.Context) error {
+		if err := options.validateBeforeEffects(ctx, mutation.PhysicalAuthoritySet{}); err != nil {
+			return err
+		}
+		return stateAuthority.Ensure(ctx)
+	}
+	if len(records) != 0 || len(globalPromotions) != 0 {
+		if err := ensureStateAuthority(ctx); err != nil {
+			return current, globalCarrierClaims, records, fmt.Errorf(
+				"validate host-route preflight state effect: %w",
+				err,
+			)
+		}
+	}
+	var err error
 	if len(records) != 0 {
-		var err error
+		entry, entryErr := stateAuthority.EntryForCommit()
+		if entryErr != nil {
+			return nextState, globalCarrierClaims, records, entryErr
+		}
 		options.markAttempted()
 		nextState, err = execute.CommitHostRouteAttempts(
 			ctx,
 			storagecommit.Adapter{},
-			stateAuthority,
+			entry,
 			nextState,
 			records,
 			statefile.Codec{},
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, fmt.Errorf("persist host route preflight record: %w", err)
+		}
+		if err := stateAuthority.Validate(ctx); err != nil {
+			return nextState, globalCarrierClaims, records, fmt.Errorf("validate StateDir after host route preflight persistence: %w", err)
 		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), err)
@@ -156,7 +176,7 @@ func runHostRoutesAndPersistAttemptRecords(
 
 	for index, item := range prepared {
 		phase := fmt.Sprintf("host route[%d]", index)
-		if err := options.validateBeforeEffects(ctx, emptyAuthority); err != nil {
+		if err := ensureStateAuthority(ctx); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(
 				hostRouteFailuresError(failures),
 				fmt.Errorf("validate host route[%d] before effect: %w", index, err),
@@ -193,12 +213,17 @@ func runHostRoutesAndPersistAttemptRecords(
 				bindErr,
 			)
 		}
+		entry, entryErr := stateAuthority.EntryForCommit()
+		if entryErr != nil {
+			_ = binding.Close()
+			return nextState, globalCarrierClaims, records, entryErr
+		}
 		var err error
 		options.markAttempted()
 		nextState, err = execute.CommitPendingCarrierInstalls(
 			ctx,
 			storagecommit.Adapter{},
-			stateAuthority,
+			entry,
 			nextState,
 			owner,
 			[]reconciliation.RelationAction{item.action},
@@ -208,6 +233,13 @@ func runHostRoutesAndPersistAttemptRecords(
 			_ = binding.Close()
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist pending carrier install: %w", err))
 		}
+		if err := stateAuthority.Validate(ctx); err != nil {
+			_ = binding.Close()
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				fmt.Errorf("validate StateDir before host route command: %w", err),
+			)
+		}
 		attemptedPhase = phase
 		attempt, bindingReleaseErr := executeHostRouteAttempt(
 			ctx,
@@ -215,6 +247,34 @@ func runHostRoutesAndPersistAttemptRecords(
 			item.command.AttemptRequest(),
 			binding,
 		)
+		if authorityErr := stateAuthority.Validate(ctx); authorityErr != nil {
+			if errors.Is(authorityErr, context.Canceled) || errors.Is(authorityErr, context.DeadlineExceeded) {
+				return nextState, globalCarrierClaims, records, errors.Join(authorityErr, bindingReleaseErr)
+			}
+			result, classifyErr := assurancehostroute.ClassifyResult(assurancehostroute.ResultInput{
+				Subject:      item.command.Subject(),
+				RouteRequest: item.command.RouteRequest(),
+				Attempt:      observedHostRouteAttempt(attempt),
+				Observation: assurancehostroute.ObservationUnavailable(
+					assurancehostroute.ResultReasonObservationUnavailable,
+				),
+				RequiredPostcondition: installRelationPostcondition(item.action),
+			})
+			if classifyErr != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(authorityErr, classifyErr, bindingReleaseErr)
+			}
+			record, recordErr := durableAttemptFromHostRouteResult(item.action, result, true)
+			if recordErr != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(authorityErr, recordErr, bindingReleaseErr)
+			}
+			records = append(records, record)
+			failures = append(failures, record)
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				fmt.Errorf("validate StateDir after host route[%d]: %w", index, authorityErr),
+				bindingReleaseErr,
+			)
+		}
 		observation := assurancehostroute.ObservationUnavailable(assurancehostroute.ResultReasonObservationUnavailable)
 		if options.HostRouteObserver != nil {
 			observation = options.HostRouteObserver(
@@ -275,10 +335,25 @@ func runHostRoutesAndPersistAttemptRecords(
 					bindingReleaseErr,
 				)
 			}
+			if err := stateAuthority.Validate(ctx); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					classificationFailure,
+					err,
+					bindingReleaseErr,
+				)
+			}
+			entry, entryErr := stateAuthority.EntryForCommit()
+			if entryErr != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					classificationFailure,
+					entryErr,
+					bindingReleaseErr,
+				)
+			}
 			nextState, err = execute.CommitRetiredPendingCarrierInstall(
 				ctx,
 				storagecommit.Adapter{},
-				stateAuthority,
+				entry,
 				nextState,
 				owner,
 				item.action,
@@ -301,10 +376,27 @@ func runHostRoutesAndPersistAttemptRecords(
 			}
 			records = append(records, record)
 			failures = append(failures, record)
+			if err := stateAuthority.Validate(ctx); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					hostRouteFailuresError(failures),
+					classificationFailure,
+					err,
+					bindingReleaseErr,
+				)
+			}
+			entry, entryErr = stateAuthority.EntryForCommit()
+			if entryErr != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					hostRouteFailuresError(failures),
+					classificationFailure,
+					entryErr,
+					bindingReleaseErr,
+				)
+			}
 			nextState, err = execute.CommitHostRouteAttempts(
 				ctx,
 				storagecommit.Adapter{},
-				stateAuthority,
+				entry,
 				nextState,
 				[]durableattempt.HostRouteAttempt{record},
 				statefile.Codec{},
@@ -314,6 +406,14 @@ func runHostRoutesAndPersistAttemptRecords(
 					hostRouteFailuresError(failures),
 					classificationFailure,
 					fmt.Errorf("persist host route attempt record: %w", err),
+					bindingReleaseErr,
+				)
+			}
+			if err := stateAuthority.Validate(ctx); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					hostRouteFailuresError(failures),
+					classificationFailure,
+					err,
 					bindingReleaseErr,
 				)
 			}
@@ -351,6 +451,13 @@ func runHostRoutesAndPersistAttemptRecords(
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), rootErr)
 		}
 		if correlation, observed := observation.Correlation(); observed && result.Class() == assurancehostroute.ResultAttemptedObservedPresent {
+			if err := stateAuthority.Validate(ctx); err != nil {
+				return nextState, globalCarrierClaims, records, errors.Join(
+					hostRouteFailuresError(failures),
+					err,
+					bindingReleaseErr,
+				)
+			}
 			if item.action.Scope() == target.ScopeGlobal {
 				nextState, globalCarrierClaims, err = commitObservedGlobalCarrierClaim(
 					ctx,
@@ -362,10 +469,18 @@ func runHostRoutesAndPersistAttemptRecords(
 					correlation,
 				)
 			} else {
+				entry, entryErr := stateAuthority.EntryForCommit()
+				if entryErr != nil {
+					return nextState, globalCarrierClaims, records, errors.Join(
+						hostRouteFailuresError(failures),
+						entryErr,
+						bindingReleaseErr,
+					)
+				}
 				nextState, err = execute.CommitObservedProjectCarrierClaim(
 					ctx,
 					storagecommit.Adapter{},
-					stateAuthority,
+					entry,
 					nextState,
 					item.action,
 					correlation,
@@ -380,10 +495,25 @@ func runHostRoutesAndPersistAttemptRecords(
 				)
 			}
 		}
+		if err := stateAuthority.Validate(ctx); err != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				err,
+				bindingReleaseErr,
+			)
+		}
+		entry, entryErr = stateAuthority.EntryForCommit()
+		if entryErr != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				entryErr,
+				bindingReleaseErr,
+			)
+		}
 		nextState, err = execute.CommitRetiredPendingCarrierInstall(
 			ctx,
 			storagecommit.Adapter{},
-			stateAuthority,
+			entry,
 			nextState,
 			owner,
 			item.action,
@@ -404,16 +534,38 @@ func runHostRoutesAndPersistAttemptRecords(
 		if hostRouteResultFailed(result) {
 			failures = append(failures, record)
 		}
+		if err := stateAuthority.Validate(ctx); err != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				err,
+				bindingReleaseErr,
+			)
+		}
+		entry, entryErr = stateAuthority.EntryForCommit()
+		if entryErr != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				entryErr,
+				bindingReleaseErr,
+			)
+		}
 		nextState, err = execute.CommitHostRouteAttempts(
 			ctx,
 			storagecommit.Adapter{},
-			stateAuthority,
+			entry,
 			nextState,
 			[]durableattempt.HostRouteAttempt{record},
 			statefile.Codec{},
 		)
 		if err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(hostRouteFailuresError(failures), fmt.Errorf("persist host route attempt record: %w", err), bindingReleaseErr)
+		}
+		if err := stateAuthority.Validate(ctx); err != nil {
+			return nextState, globalCarrierClaims, records, errors.Join(
+				hostRouteFailuresError(failures),
+				err,
+				bindingReleaseErr,
+			)
 		}
 		if err := validateHostRouteProjectRoot(options, paths.ManifestRoot); err != nil {
 			return nextState, globalCarrierClaims, records, errors.Join(

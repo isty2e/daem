@@ -30,8 +30,11 @@ func TestStateDirAuthorityDoesNotAcceptExternalFirstAppearance(t *testing.T) {
 }
 
 type stateDirRecordingBudget struct {
-	limit int
-	used  int
+	limit         int
+	used          int
+	physicalCalls int
+	entries       int
+	bytes         int64
 }
 
 func (budget *stateDirRecordingBudget) AdmitPathComponents(count int) error {
@@ -39,6 +42,20 @@ func (budget *stateDirRecordingBudget) AdmitPathComponents(count int) error {
 		return fmt.Errorf("injected StateDir path budget exhausted")
 	}
 	budget.used += count
+	return nil
+}
+
+func (budget *stateDirRecordingBudget) AdmitPhysicalWork(
+	pathComponents int,
+	entries int,
+	bytes int64,
+) error {
+	if err := budget.AdmitPathComponents(pathComponents); err != nil {
+		return err
+	}
+	budget.physicalCalls++
+	budget.entries += entries
+	budget.bytes += bytes
 	return nil
 }
 
@@ -57,6 +74,40 @@ func TestStateDirAuthorityCreatesAndBindsOwnedIncarnation(t *testing.T) {
 	}
 	if err := authority.Validate(t.Context()); err != nil {
 		t.Fatalf("Validate created StateDir: %v", err)
+	}
+}
+
+func TestStateDirRequireClearChargesCompleteResidueCensusWork(t *testing.T) {
+	stateDir := filepath.Join(t.TempDir(), ".daem")
+	if err := os.Mkdir(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	residueName := fileSetTemporaryPrefix + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	if err := os.Mkdir(filepath.Join(stateDir, residueName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	budget := &stateDirRecordingBudget{limit: 1 << 20}
+	authority, err := CaptureStateDirAuthorityBounded(t.Context(), stateDir, 256, budget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforePathWork := budget.used
+	err = authority.RequireClear(t.Context())
+	if !errors.Is(err, ErrAbandonedFileSetResidue) {
+		t.Fatalf("RequireClear error = %v, want abandoned residue", err)
+	}
+	if budget.physicalCalls == 0 || budget.used <= beforePathWork ||
+		budget.entries < 4 || budget.bytes < int64(len("state.json")+len(residueName)) {
+		t.Fatalf(
+			"census work calls=%d paths=%d entries=%d bytes=%d, want charged path, entries, names, and observations",
+			budget.physicalCalls,
+			budget.used-beforePathWork,
+			budget.entries,
+			budget.bytes,
+		)
 	}
 }
 

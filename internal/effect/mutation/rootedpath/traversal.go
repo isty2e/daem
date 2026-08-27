@@ -125,7 +125,33 @@ func captureDestinationBounded(
 	selectedPath string,
 	traversal *physicalTraversal,
 ) (*CapturedRoot, Destination, error) {
-	absolute, err := canonicalDestinationPath(selectedPath)
+	return captureDestinationBoundedWithCanonicalizer(
+		selectedPath,
+		traversal,
+		canonicalDestinationPath,
+		false,
+	)
+}
+
+func captureCanonicalDestinationBounded(
+	selectedPath string,
+	traversal *physicalTraversal,
+) (*CapturedRoot, Destination, error) {
+	return captureDestinationBoundedWithCanonicalizer(
+		selectedPath,
+		traversal,
+		canonicalPathOnlyDestinationPath,
+		true,
+	)
+}
+
+func captureDestinationBoundedWithCanonicalizer(
+	selectedPath string,
+	traversal *physicalTraversal,
+	canonicalize func(string) (string, error),
+	nativeRelative bool,
+) (*CapturedRoot, Destination, error) {
+	absolute, err := canonicalize(selectedPath)
 	if err != nil {
 		return nil, Destination{}, err
 	}
@@ -171,7 +197,13 @@ func captureDestinationBounded(
 	if err != nil {
 		return nil, Destination{}, err
 	}
-	relative, err := NewRelativeDestination(filepath.ToSlash(relativePath))
+	relativeValue := filepath.ToSlash(relativePath)
+	var relative RelativeDestination
+	if nativeRelative {
+		relative, err = newCanonicalNativeRelativeDestination(relativeValue)
+	} else {
+		relative, err = NewRelativeDestination(relativeValue)
+	}
 	if err != nil {
 		_ = root.Close()
 		return nil, Destination{}, err
@@ -182,6 +214,22 @@ func captureDestinationBounded(
 		return nil, Destination{}, err
 	}
 	return root, destination, nil
+}
+
+// CaptureCanonicalDestinationBounded binds one already-canonical native
+// destination while bounding physical traversal. On POSIX, non-NUL control
+// bytes remain path data; ordinary mutation destinations retain their stricter
+// lexical contract.
+func CaptureCanonicalDestinationBounded(
+	path string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*CapturedRoot, Destination, error) {
+	traversal, err := newPhysicalTraversal(maximumPhysicalDepth, budget)
+	if err != nil {
+		return nil, Destination{}, err
+	}
+	return captureCanonicalDestinationBounded(path, traversal)
 }
 
 // ResolveDestinationPathBounded resolves ancestor aliases and returns one

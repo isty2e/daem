@@ -16,11 +16,7 @@ import (
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
 
-const (
-	stateDirAuthorityFingerprintDomain      = "daem-state-dir-authority-v1"
-	defaultStateDirMaximumPhysicalDepth     = mutationfs.MaximumPhysicalPathDepth
-	defaultStateDirMaximumPathComponentWork = mutationfs.MaximumPhysicalPathComponentVisits
-)
+const stateDirAuthorityFingerprintDomain = "daem-state-dir-authority-v1"
 
 // ErrStateDirAppeared reports a planning-time absence that another operation
 // filled before this operation accepted its own creation transition.
@@ -30,6 +26,7 @@ type stateDirAuthorityState struct {
 	mu         sync.Mutex
 	creationMu sync.Mutex
 
+	selectedPath         string
 	path                 string
 	namespacePath        string
 	namespaceIdentity    storagecommit.EntryIdentity
@@ -44,10 +41,11 @@ type stateDirAuthorityState struct {
 	currentMount         string
 	currentIncarnation   string
 	maximumPhysicalDepth int
-	physicalWorkBudget   rootedpath.PhysicalTraversalBudget
+	physicalWorkBudget   stateDirPhysicalWorkBudget
 }
 
 type stateDirAuthoritySnapshot struct {
+	selectedPath         string
 	path                 string
 	namespacePath        string
 	namespaceIdentity    storagecommit.EntryIdentity
@@ -66,24 +64,6 @@ type StateDirAuthority struct {
 	state *stateDirAuthorityState
 }
 
-type stateDirPathBudget struct {
-	used int
-}
-
-func (budget *stateDirPathBudget) AdmitPathComponents(count int) error {
-	if count < 0 || count > defaultStateDirMaximumPhysicalDepth {
-		return fmt.Errorf("file-set state directory path depth is invalid")
-	}
-	if count > defaultStateDirMaximumPathComponentWork-budget.used {
-		return fmt.Errorf(
-			"file-set state directory path work exceeds operation limit %d",
-			defaultStateDirMaximumPathComponentWork,
-		)
-	}
-	budget.used += count
-	return nil
-}
-
 // CaptureStateDirAuthority captures a no-follow existing namespace ancestor
 // plus the present StateDir object identity. Native handles are not retained.
 func CaptureStateDirAuthority(ctx context.Context, stateDir string) (StateDirAuthority, error) {
@@ -91,7 +71,7 @@ func CaptureStateDirAuthority(ctx context.Context, stateDir string) (StateDirAut
 		ctx,
 		stateDir,
 		defaultStateDirMaximumPhysicalDepth,
-		&stateDirPathBudget{},
+		&stateDirOperationWorkBudget{},
 	)
 }
 
@@ -116,7 +96,15 @@ func CaptureStateDirAuthorityBounded(
 	if err := ctx.Err(); err != nil {
 		return StateDirAuthority{}, err
 	}
-	canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, physicalWorkBudget)
+	operationBudget := adaptStateDirPhysicalWorkBudget(physicalWorkBudget)
+	selectedPath, err := filepath.Abs(stateDir)
+	if err != nil {
+		return StateDirAuthority{}, wrapFileSetAccessUnprovable(
+			fmt.Errorf("resolve selected file-set state directory: %w", err),
+		)
+	}
+	selectedPath = filepath.Clean(selectedPath)
+	canonical, err := canonicalStateDirBounded(stateDir, maximumPhysicalDepth, operationBudget)
 	if err != nil {
 		return StateDirAuthority{}, err
 	}
@@ -124,7 +112,7 @@ func CaptureStateDirAuthorityBounded(
 		ctx,
 		canonical,
 		maximumPhysicalDepth,
-		physicalWorkBudget,
+		operationBudget,
 	)
 	if err != nil {
 		return StateDirAuthority{}, err
@@ -133,12 +121,13 @@ func CaptureStateDirAuthorityBounded(
 		ctx,
 		canonical,
 		maximumPhysicalDepth,
-		physicalWorkBudget,
+		operationBudget,
 	)
 	if err != nil {
 		return StateDirAuthority{}, err
 	}
 	return StateDirAuthority{state: &stateDirAuthorityState{
+		selectedPath:         selectedPath,
 		path:                 canonical,
 		namespacePath:        namespacePath,
 		namespaceIdentity:    namespaceIdentity,
@@ -153,7 +142,7 @@ func CaptureStateDirAuthorityBounded(
 		currentMount:         mount,
 		currentIncarnation:   incarnation,
 		maximumPhysicalDepth: maximumPhysicalDepth,
-		physicalWorkBudget:   physicalWorkBudget,
+		physicalWorkBudget:   operationBudget,
 	}}, nil
 }
 
@@ -161,7 +150,7 @@ func captureStateDirNamespace(
 	ctx context.Context,
 	stateDir string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) (string, storagecommit.EntryIdentity, string, string, error) {
 	candidate := filepath.Dir(stateDir)
 	for {
@@ -214,6 +203,7 @@ func (authority StateDirAuthority) snapshot() (stateDirAuthoritySnapshot, bool) 
 		return stateDirAuthoritySnapshot{}, false
 	}
 	return stateDirAuthoritySnapshot{
+		selectedPath:         authority.state.selectedPath,
 		path:                 authority.state.path,
 		namespacePath:        authority.state.namespacePath,
 		namespaceIdentity:    authority.state.namespaceIdentity,
@@ -303,6 +293,16 @@ func (authority StateDirAuthority) PresentAtCapture() bool {
 // Validate proves that the selected StateDir still names the planning-time
 // namespace and bound directory incarnation.
 func (authority StateDirAuthority) Validate(ctx context.Context) error {
+	if authority.state == nil {
+		return fmt.Errorf("file-set state directory authority is uninitialized")
+	}
+	return authority.validateWithBudget(ctx, authority.state.physicalWorkBudget)
+}
+
+func (authority StateDirAuthority) validateWithBudget(
+	ctx context.Context,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
 	snapshot, ok := authority.snapshot()
 	if !ok {
 		return fmt.Errorf("file-set state directory authority is uninitialized")
@@ -310,11 +310,14 @@ func (authority StateDirAuthority) Validate(ctx context.Context) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
+	if physicalWorkBudget == nil {
+		return fmt.Errorf("file-set state directory physical work budget is required")
+	}
 	if err := validateStateDirNamespace(
 		ctx,
 		snapshot,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	); err != nil {
 		return err
 	}
@@ -322,7 +325,7 @@ func (authority StateDirAuthority) Validate(ctx context.Context) error {
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	)
 	if err != nil {
 		return err
@@ -350,7 +353,7 @@ func validateStateDirNamespace(
 	ctx context.Context,
 	snapshot stateDirAuthoritySnapshot,
 	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) error {
 	if err := chargeStateDirPath(snapshot.namespacePath, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return err
@@ -390,6 +393,16 @@ type stateDirCreationWitness struct {
 // storage-produced creation evidence. It never adopts a directory that merely
 // appeared after planning.
 func (authority StateDirAuthority) EnsureOwnedIncarnation(ctx context.Context) (bool, error) {
+	if authority.state == nil {
+		return false, fmt.Errorf("file-set state directory authority is uninitialized")
+	}
+	return authority.ensureOwnedIncarnationWithBudget(ctx, authority.state.physicalWorkBudget)
+}
+
+func (authority StateDirAuthority) ensureOwnedIncarnationWithBudget(
+	ctx context.Context,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) (bool, error) {
 	snapshot, ok := authority.snapshot()
 	if !ok {
 		return false, fmt.Errorf("file-set state directory authority is uninitialized")
@@ -404,13 +417,13 @@ func (authority StateDirAuthority) EnsureOwnedIncarnation(ctx context.Context) (
 	currentPresent := authority.state.currentPresent
 	authority.state.mu.Unlock()
 	if currentPresent {
-		return false, authority.Validate(ctx)
+		return false, authority.validateWithBudget(ctx, physicalWorkBudget)
 	}
 	if err := validateStateDirNamespace(
 		ctx,
 		snapshot,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	); err != nil {
 		return false, err
 	}
@@ -418,13 +431,13 @@ func (authority StateDirAuthority) EnsureOwnedIncarnation(ctx context.Context) (
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	)
 	if err != nil {
 		return false, err
 	}
 	defer cleanup.Close()
-	if err := authority.acceptCreationWitness(ctx, snapshot, witness); err != nil {
+	if err := authority.acceptCreationWitness(ctx, snapshot, witness, physicalWorkBudget); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -434,7 +447,7 @@ func createStateDirIncarnation(
 	ctx context.Context,
 	path string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) (stateDirCreationWitness, *storagecommit.AncestorCleanup, error) {
 	probe := filepath.Join(path, ".state-dir-creation")
 	if err := chargeStateDirPath(probe, maximumPhysicalDepth, physicalWorkBudget); err != nil {
@@ -461,6 +474,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 	ctx context.Context,
 	snapshot stateDirAuthoritySnapshot,
 	witness stateDirCreationWitness,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) error {
 	if witness.path != snapshot.path || witness.identity.Kind() != mutationfs.EntryKindDirectory {
 		return fmt.Errorf("file-set state directory creation witness is invalid")
@@ -469,7 +483,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		ctx,
 		snapshot,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	); err != nil {
 		return err
 	}
@@ -477,7 +491,7 @@ func (authority StateDirAuthority) acceptCreationWitness(
 		ctx,
 		snapshot.path,
 		authority.state.maximumPhysicalDepth,
-		authority.state.physicalWorkBudget,
+		physicalWorkBudget,
 	)
 	if err != nil {
 		return err
@@ -510,7 +524,7 @@ func observeCurrentStateDir(
 	ctx context.Context,
 	path string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) (bool, storagecommit.EntryIdentity, string, string, error) {
 	if ctx == nil {
 		return false, storagecommit.EntryIdentity{}, "", "", fmt.Errorf("file-set transaction context is required")
@@ -553,7 +567,7 @@ func observeCurrentStateDir(
 func chargeStateDirPath(
 	path string,
 	maximumPhysicalDepth int,
-	physicalWorkBudget rootedpath.PhysicalTraversalBudget,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
 ) error {
 	if err := rootedpath.ChargeAbsolutePath(path, maximumPhysicalDepth, physicalWorkBudget); err != nil {
 		return wrapFileSetAccessUnprovable(fmt.Errorf(
@@ -564,19 +578,107 @@ func chargeStateDirPath(
 	return nil
 }
 
-// RequireClear validates the retained StateDir identity before and after the
-// complete file-set fence observation.
+// RequireClear retains the planned namespace and validates the current
+// StateDir observation before and after the complete file-set fence census.
 func (authority StateDirAuthority) RequireClear(ctx context.Context) error {
-	if err := authority.Validate(ctx); err != nil {
-		return err
+	if authority.state == nil {
+		return fmt.Errorf("file-set state directory authority is uninitialized")
 	}
+	return authority.requireClearWithBudget(ctx, authority.state.physicalWorkBudget)
+}
+
+func (authority StateDirAuthority) requireClearWithBudget(
+	ctx context.Context,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
 	snapshot, ok := authority.snapshot()
 	if !ok {
 		return fmt.Errorf("file-set state directory authority is uninitialized")
 	}
-	fenceErr := requireClearFileSetAtCanonicalPath(ctx, snapshot.path)
-	if err := authority.Validate(ctx); err != nil {
+	authority.state.mu.Lock()
+	currentPresent := authority.state.currentPresent
+	authority.state.mu.Unlock()
+	if !snapshot.plannedPresent && !currentPresent {
+		return authority.requireClearAfterAbsentCapture(ctx, snapshot, physicalWorkBudget)
+	}
+	if err := authority.validateWithBudget(ctx, physicalWorkBudget); err != nil {
+		return err
+	}
+	fenceErr := requireClearFileSetAtCanonicalPath(
+		ctx,
+		snapshot.path,
+		authority.state.maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err := authority.validateWithBudget(ctx, physicalWorkBudget); err != nil {
 		return err
 	}
 	return fenceErr
+}
+
+func (authority StateDirAuthority) requireClearAfterAbsentCapture(
+	ctx context.Context,
+	snapshot stateDirAuthoritySnapshot,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
+	beforePresent, beforeIdentity, beforeMount, beforeIncarnation, err := observeStateDirForFenceCensus(
+		ctx,
+		snapshot,
+		authority.state.maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err != nil {
+		return err
+	}
+	fenceErr := requireClearFileSetAtCanonicalPath(
+		ctx,
+		snapshot.path,
+		authority.state.maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	afterPresent, afterIdentity, afterMount, afterIncarnation, err := observeStateDirForFenceCensus(
+		ctx,
+		snapshot,
+		authority.state.maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
+	if err != nil {
+		return err
+	}
+	if beforePresent != afterPresent || beforePresent &&
+		(beforeMount != afterMount || beforeIncarnation != afterIncarnation ||
+			!beforeIdentity.SameObject(afterIdentity)) {
+		return wrapFileSetAccessUnprovable(fmt.Errorf(
+			"file-set state directory changed during fence observation",
+		))
+	}
+	if !beforePresent {
+		return fenceErr
+	}
+	if fenceErr != nil {
+		return fenceErr
+	}
+	return ErrStateDirAppeared
+}
+
+func observeStateDirForFenceCensus(
+	ctx context.Context,
+	snapshot stateDirAuthoritySnapshot,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) (bool, storagecommit.EntryIdentity, string, string, error) {
+	if err := validateStateDirNamespace(
+		ctx,
+		snapshot,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	); err != nil {
+		return false, storagecommit.EntryIdentity{}, "", "", err
+	}
+	return observeCurrentStateDir(
+		ctx,
+		snapshot.path,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
 }

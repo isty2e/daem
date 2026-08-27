@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	desiredmcp "github.com/isty2e/daem/internal/desired/mcp"
 	"github.com/isty2e/daem/internal/desired/skill"
 	desiredtest "github.com/isty2e/daem/internal/desired/testfixture"
+	"github.com/isty2e/daem/internal/effect/mutation"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	daempaths "github.com/isty2e/daem/internal/paths"
 	"github.com/isty2e/daem/internal/realization/aggregate"
@@ -18,6 +20,7 @@ import (
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	"github.com/isty2e/daem/internal/realization/lock/snapshottest"
 	"github.com/isty2e/daem/internal/reconcile"
+	"github.com/isty2e/daem/internal/recoverygate"
 	targetpkg "github.com/isty2e/daem/internal/target"
 	targetselection "github.com/isty2e/daem/internal/target/selection"
 	"github.com/isty2e/daem/internal/topology"
@@ -40,6 +43,69 @@ func compareApplyMCPPlacementCanonicalEntry(
 	return mcptest.CompareCanonicalEntry(operations, content, serverID, canonical)
 }
 
+type standaloneStatefileEffects struct {
+	barrier recoverygate.EffectAuthority
+	forward *recoverygate.ForwardEffectAuthority
+	started bool
+}
+
+func (effects *standaloneStatefileEffects) Reserve(
+	statePath string,
+	plan statefileEffectPlan,
+) (statefileEffectReservation, error) {
+	forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
+		EnsureCalls:             1,
+		StateDirValidationCalls: plan.validations,
+		DescendantPath:          statePath,
+		DescendantValidations:   plan.validations,
+		DescendantFileCommits:   plan.fileCommits,
+	})
+	if err != nil {
+		return nil, err
+	}
+	descendant, err := forward.TakeDescendant()
+	if err != nil {
+		return nil, err
+	}
+	effects.forward = forward
+	return transactionStatefileEffectReservation{reservation: descendant}, nil
+}
+
+func (effects *standaloneStatefileEffects) ValidateBefore(
+	ctx context.Context,
+	_ mutation.PhysicalAuthoritySet,
+) error {
+	if !effects.started {
+		effects.started = true
+		if effects.forward == nil {
+			forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
+				EnsureCalls:             1,
+				StateDirValidationCalls: 1_024,
+			})
+			if err != nil {
+				return err
+			}
+			effects.forward = forward
+		}
+		_, err := effects.forward.EnsureStateDirForEffect(ctx, func(context.Context) error { return nil })
+		return err
+	}
+	return effects.forward.ValidateStateDir(ctx)
+}
+
+func (effects *standaloneStatefileEffects) ValidateStateDir(ctx context.Context) error {
+	if effects.forward == nil {
+		forward, err := effects.barrier.ReserveForwardEffects(recoverygate.ForwardEffectPlan{
+			StateDirValidationCalls: 1_024,
+		})
+		if err != nil {
+			return err
+		}
+		effects.forward = forward
+	}
+	return effects.forward.ValidateStateDir(ctx)
+}
+
 func applyDelegateRunOptions(t *testing.T, paths daempaths.Paths, options runOptions) runOptions {
 	t.Helper()
 	root, err := rootedpath.CaptureRoot(paths.ManifestRoot)
@@ -52,6 +118,27 @@ func applyDelegateRunOptions(t *testing.T, paths daempaths.Paths, options runOpt
 		}
 	})
 	options.projectRoot = root
+	if options.validateBeforeEffects == nil ||
+		options.validateStateDir == nil ||
+		options.reserveStatefileAuthority == nil {
+		if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
+			t.Fatalf("create apply delegate StateDir: %v", err)
+		}
+		barrier, err := recoverygate.NewEffectAuthority(t.Context(), paths)
+		if err != nil {
+			t.Fatalf("capture apply delegate recovery barrier: %v", err)
+		}
+		effects := &standaloneStatefileEffects{barrier: barrier}
+		if options.validateBeforeEffects == nil {
+			options.validateBeforeEffects = effects.ValidateBefore
+		}
+		if options.validateStateDir == nil {
+			options.validateStateDir = effects.ValidateStateDir
+		}
+		if options.reserveStatefileAuthority == nil {
+			options.reserveStatefileAuthority = effects.Reserve
+		}
+	}
 	if !options.executionGuard.valid {
 		options.executionGuard = testApplyExecutionGuard(t, paths)
 	}

@@ -32,6 +32,10 @@ type ExecuteOptions struct {
 
 type executeDependencies struct {
 	recoveryProvenancePreflight recoveryProvenancePreflight
+	reserveForwardEffects       func(
+		recoverygate.EffectAuthority,
+		recoverygate.ForwardEffectPlan,
+	) (*recoverygate.ForwardEffectAuthority, error)
 }
 
 func ExecuteWithOptions(
@@ -221,6 +225,49 @@ func executeWithDependencies(
 	); err != nil {
 		return disclose(current), err
 	}
+	providerActions, err := prepareMCPProviderPrerequisiteActions(
+		current,
+		dependencies.recoveryProvenancePreflight,
+	)
+	if err != nil {
+		return disclose(current), err
+	}
+	stateDirPlan, err := stateDirEffectPlanFor(current, providerActions)
+	if err != nil {
+		return disclose(current), err
+	}
+	reserveForwardEffects := dependencies.reserveForwardEffects
+	if reserveForwardEffects == nil {
+		reserveForwardEffects = func(
+			authority recoverygate.EffectAuthority,
+			plan recoverygate.ForwardEffectPlan,
+		) (*recoverygate.ForwardEffectAuthority, error) {
+			return authority.ReserveForwardEffects(plan)
+		}
+	}
+	forwardAuthority, err := reserveForwardEffects(current.barrier, stateDirPlan.forward)
+	if err != nil {
+		return disclose(current), err
+	}
+	var statefileAuthority *statefileEffectAuthority
+	if !stateDirPlan.statefile.empty() {
+		descendant, takeErr := forwardAuthority.TakeDescendant()
+		if takeErr != nil {
+			return disclose(current), takeErr
+		}
+		statefileAuthority, err = newStatefileEffectAuthorityFromReservation(
+			stateDirPlan.statefile,
+			transactionStatefileEffectReservation{reservation: descendant},
+		)
+		if err != nil {
+			return disclose(current), err
+		}
+		defer func() {
+			if closeErr := statefileAuthority.Close(); closeErr != nil {
+				returnErr = errors.Join(returnErr, closeErr)
+			}
+		}()
+	}
 
 	// The captured revisions describe the pre-execution world. StateDir creation
 	// is the first authorized effect; every peer authority is checked before and
@@ -270,9 +317,9 @@ func executeWithDependencies(
 			if err := validatePeerAuthority(ctx, authority); err != nil {
 				return err
 			}
-			return current.barrier.ValidateStateDir(ctx)
+			return forwardAuthority.ValidateStateDir(ctx)
 		}
-		created, err := current.barrier.EnsureStateDirForEffect(
+		created, err := forwardAuthority.EnsureStateDirForEffect(
 			ctx,
 			func(ctx context.Context) error {
 				return validatePeerAuthority(ctx, authority)
@@ -355,8 +402,13 @@ func executeWithDependencies(
 		orderRiskBaseline: newRelationOrderRiskBaseline(
 			planned.assessment.Reconciliation.RelationOrders(),
 		),
-		executionGuard:                executionGuard,
-		validateBeforeEffects:         validateBeforeEffects,
+		executionGuard:          executionGuard,
+		validateBeforeEffects:   validateBeforeEffects,
+		validateRecoveryBarrier: forwardAuthority.Validate,
+		validateStateDir: func(ctx context.Context) error {
+			return forwardAuthority.ValidateStateDir(ctx)
+		},
+		statefileAuthority:            statefileAuthority,
 		acceptVisibilityChanges:       acceptVisibilityChanges,
 		validateCompensationAuthority: validateCompensationAuthority,
 		acceptCompensationChanges:     acceptCompensationChanges,
@@ -368,6 +420,7 @@ func executeWithDependencies(
 	providerPhase, err := runMCPProviderPrerequisitePhase(
 		ctx,
 		&current,
+		providerActions,
 		currentInput,
 		execution,
 		execution.authorityEvidence,

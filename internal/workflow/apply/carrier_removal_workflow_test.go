@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
@@ -13,6 +15,7 @@ import (
 	observepostcondition "github.com/isty2e/daem/internal/assurance/observe/postcondition"
 	observerelation "github.com/isty2e/daem/internal/assurance/observe/relation"
 	assurancepostcondition "github.com/isty2e/daem/internal/assurance/postcondition"
+	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -44,6 +47,27 @@ func TestRunRetiresProjectClaimOnlyAfterVerifiedAbsence(t *testing.T) {
 			attempt.PostconditionSummary(),
 		)
 	}
+	assertConvergedProjectRemoval(t, fixture.persistedState(t), fixture.claim)
+}
+
+func TestRunPersistsCarrierRemovalWithControlBearingStateDir(t *testing.T) {
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		t.Skip("control-bearing StateDir semantics are supported on Darwin and Linux")
+	}
+	root := t.TempDir()
+	fixture := newWorkflowFixtureAtPaths(
+		t,
+		root,
+		filepath.Join(root, "state\ncontrol", "state.json"),
+		target.ScopeProject,
+		effectpostcondition.Set{},
+		observepostcondition.EvidenceState(""),
+	)
+	result, err := runCarrierRemovals(t.Context(), fixture.input(t))
+	if err != nil {
+		t.Fatalf("control-bearing carrier removal: %v", err)
+	}
+	assertConvergedProjectRemoval(t, result.State, fixture.claim)
 	assertConvergedProjectRemoval(t, fixture.persistedState(t), fixture.claim)
 }
 
@@ -79,13 +103,29 @@ func TestRunClassifiesPostAttemptProjectRootReplacementFromDurableRecord(
 	if err == nil {
 		t.Fatal("Run returned nil error after project-root replacement")
 	}
-	assertCarrierRemovalHostRouteFailure(t, err)
+	var routeFailure hostRouteExecutionError
+	if !errors.As(err, &routeFailure) {
+		t.Fatalf("error = %v, want hostRouteExecutionError", err)
+	}
+	failure := ClassifyFailure(err, CommandResult{ExecutionAttempted: true})
+	if failure.Reason() != FailureReasonFileSetAccessUnprovable ||
+		failure.Phase() != FailurePhaseExecution ||
+		failure.Outcome() != FailureOutcomeIncomplete {
+		t.Fatalf(
+			"failure = (%q, %q, %q), want (%q, %q, %q)",
+			failure.Reason(),
+			failure.Phase(),
+			failure.Outcome(),
+			FailureReasonFileSetAccessUnprovable,
+			FailurePhaseExecution,
+			FailureOutcomeIncomplete,
+		)
+	}
 	assertRetainedRemoval(t, result.State, fixture.claim)
 	if len(result.Attempts) != 0 {
 		t.Fatalf("attempts = %d, want no falsely persisted attempt", len(result.Attempts))
 	}
-	var routeFailure hostRouteExecutionError
-	if !errors.As(err, &routeFailure) || len(routeFailure.records) != 1 {
+	if len(routeFailure.records) != 1 {
 		t.Fatalf("host route failure = %#v, want one final attempt record", routeFailure)
 	}
 	attempt := routeFailure.records[0]

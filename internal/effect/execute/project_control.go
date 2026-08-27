@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/isty2e/daem/internal/assurance/durable"
 	"github.com/isty2e/daem/internal/effect/journal"
@@ -156,6 +158,17 @@ func (authority *mutationAuthority) bindProjectControlEntry(
 	}
 	if authority.generalTraversalPhase == nil {
 		return nil, fmt.Errorf("project control traversal authority is unavailable")
+	}
+	if strings.IndexFunc(path, func(character rune) bool {
+		return character != '\x00' && unicode.IsControl(character)
+	}) >= 0 {
+		return rootedpath.BindCanonicalSelectedEntryAuthorityBounded(
+			authority.capturedRoot,
+			selectedRoot,
+			path,
+			recovery.MaximumPhysicalPathDepth,
+			authority.generalTraversalPhase,
+		)
 	}
 	return rootedpath.BindSelectedEntryAuthorityBounded(
 		authority.capturedRoot,

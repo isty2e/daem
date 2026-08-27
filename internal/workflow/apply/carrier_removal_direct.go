@@ -12,7 +12,6 @@ import (
 	"github.com/isty2e/daem/internal/effect/execute"
 	executeconfigrelation "github.com/isty2e/daem/internal/effect/execute/configrelation"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
 	"github.com/isty2e/daem/internal/target"
 )
@@ -91,22 +90,21 @@ func runDirectProjectionRemoval(
 	defer func() {
 		resultErr = errors.Join(resultErr, boundRemoval.Close())
 	}()
-	stateAuthority, err := rootedpath.BindSelectedEntryAuthority(
-		input.ProjectRoot,
-		input.SelectedRoot,
-		input.StatePath,
-	)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		resultErr = errors.Join(resultErr, stateAuthority.Close())
-	}()
 	if err := validateBeforeRemovalEffects(ctx, input, physicalAuthority); err != nil {
 		return err
 	}
-
+	stateAuthority := input.StatefileAuthority
+	if stateAuthority == nil {
+		return fmt.Errorf("carrier removal statefile authority is required")
+	}
+	if err := stateAuthority.Ensure(ctx); err != nil {
+		return err
+	}
 	baselines, err := durablecarrier.NewEffectBaselineSet(nil)
+	if err != nil {
+		return err
+	}
+	entry, err := stateAuthority.EntryForCommit()
 	if err != nil {
 		return err
 	}
@@ -114,7 +112,7 @@ func runDirectProjectionRemoval(
 	next, pending, err := execute.CommitPendingCarrierRemoval(
 		ctx,
 		filesystem(input),
-		stateAuthority,
+		entry,
 		result.State,
 		result.GlobalClaims,
 		action,
@@ -126,8 +124,14 @@ func runDirectProjectionRemoval(
 	}
 	result.State = next
 
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return fmt.Errorf("validate StateDir before direct carrier removal: %w", err)
+	}
 	if _, err := boundRemoval.Execute(ctx, filesystem(input)); err != nil {
 		return fmt.Errorf("execute direct config relation removal: %w", err)
+	}
+	if err := stateAuthority.Validate(ctx); err != nil {
+		return err
 	}
 	if err := validateRetainedRemovalBoundary(ctx, input); err != nil {
 		return err

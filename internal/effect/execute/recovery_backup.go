@@ -232,7 +232,7 @@ func (authority *mutationAuthority) prepareRecoveryBackups(
 		return nil
 	}
 
-	root, err := rootedpath.CaptureRootNoFollowBounded(
+	root, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 		operationDir,
 		recovery.MaximumPhysicalPathDepth,
 		authority.physicalWorkBudget,

@@ -42,6 +42,31 @@ func TestProvisionalGlobalOwnershipCreatePromotesAndFinalizes(t *testing.T) {
 	assertNoActiveRecoveryOperation(t, input.Paths.RecoveryDir)
 }
 
+func TestProvisionalGlobalOwnershipUsesExactForwardValidationBudget(t *testing.T) {
+	_, input := provisionalGlobalOwnershipCreateInput(t)
+	maximum, err := MaximumForwardEffectValidationCount(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remaining := maximum
+	exhausted := errors.New("injected forward validation budget exhausted")
+	_, err = ApplyWithOptions(t.Context(), input, ApplyOptions{
+		ValidateBeforeEffects: func(context.Context, mutation.PhysicalAuthoritySet) error {
+			if remaining == 0 {
+				return exhausted
+			}
+			remaining--
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyWithOptions returned error with exact budget %d: %v", maximum, err)
+	}
+	if remaining != 0 {
+		t.Fatalf("unused forward validation budget = %d, want zero", remaining)
+	}
+}
+
 func TestGlobalOwnershipRemovalFinalizesDeletedNonASCIIPath(t *testing.T) {
 	hostPath, input := globalNonASCIIManagedPathRemovalInput(t)
 

@@ -37,11 +37,25 @@ func captureRootPlatform(
 			nil,
 		)
 	}
-	if strings.IndexFunc(selectedRoot, isForbiddenPathRune) >= 0 {
+	canonicalSelection := selectionMode == rootSelectionCanonicalResolveAlias ||
+		selectionMode == rootSelectionCanonicalNoFollow
+	if canonicalSelection && traversal == nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			selectedRoot,
-			"selected root contains a control character",
+			"canonical root capture requires bounded traversal",
+			nil,
+		)
+	}
+	forbidden := strings.IndexFunc(selectedRoot, isForbiddenPathRune) >= 0
+	if canonicalSelection {
+		forbidden = strings.ContainsRune(selectedRoot, '\x00')
+	}
+	if forbidden {
+		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
+			FailureInvalidRoot,
+			selectedRoot,
+			"selected root contains an invalid character",
 			nil,
 		)
 	}
@@ -64,7 +78,7 @@ func captureRootPlatform(
 	}
 	physicalRoot := filepath.Clean(absoluteRoot)
 	switch selectionMode {
-	case rootSelectionResolveAlias:
+	case rootSelectionResolveAlias, rootSelectionCanonicalResolveAlias:
 		if traversal != nil {
 			physicalRoot, platform, object, mount, missing, resolveErr := resolveDirectoryPathPlatform(
 				absoluteRoot,
@@ -96,7 +110,7 @@ func captureRootPlatform(
 			)
 		}
 		physicalRoot = filepath.Clean(physicalRoot)
-	case rootSelectionNoFollow:
+	case rootSelectionNoFollow, rootSelectionCanonicalNoFollow:
 	default:
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
@@ -150,7 +164,7 @@ func resolveDirectoryPathPlatform(
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, err
 	}
-	rootFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	rootFD, err := openSearchOnlyDirectory(root)
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, nil, newFailure(
 			FailureRootUnavailable,
@@ -241,6 +255,14 @@ func resolveDirectoryPathPlatform(
 			target, readErr := readlinkAt(parent.fd, component.name)
 			if readErr != nil {
 				return fail(newFailure(FailureRootUnavailable, candidatePath, "read selected root alias", readErr))
+			}
+			if target == "" {
+				return fail(newFailure(
+					FailureRootUnavailable,
+					candidatePath,
+					"selected root alias target is unavailable",
+					unix.ENOENT,
+				))
 			}
 			absoluteTarget, targetNames := rawPathComponents(target)
 			if absoluteTarget {
@@ -364,7 +386,7 @@ func openPhysicalRootChain(
 	physicalRoot string,
 	traversal *physicalTraversal,
 ) (capturedRootPlatform, error) {
-	rootFD, err := unix.Open("/", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	rootFD, err := openSearchOnlyDirectory("/")
 	if err != nil {
 		return capturedRootPlatform{}, newFailure(FailureRootUnavailable, physicalRoot, "open filesystem root", err)
 	}
@@ -400,6 +422,10 @@ func openPhysicalRootChain(
 		platform.directories = append(platform.directories, directory)
 	}
 	return platform, nil
+}
+
+func openSearchOnlyDirectory(path string) (int, error) {
+	return unix.Open(path, capturedDirectoryOpenFlags(true), 0)
 }
 
 func reopenCapturedRootFinal(platform *capturedRootPlatform) error {

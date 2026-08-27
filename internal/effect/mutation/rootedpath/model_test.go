@@ -25,7 +25,7 @@ func TestAuthorityAdapterIngressRejectsInvalidOrContradictoryFacts(t *testing.T)
 		{name: "relative root", root: "project", object: validObject, mount: validMount},
 		{name: "unclean root", root: root + string(filepath.Separator) + ".." + string(filepath.Separator) + "project", object: validObject, mount: validMount},
 		{name: "filesystem root", root: string(filepath.Separator), object: validObject, mount: validMount},
-		{name: "control character", root: root + "\nother", object: validObject, mount: validMount},
+		{name: "NUL character", root: root + "\x00other", object: validObject, mount: validMount},
 		{name: "missing object identity", root: root, mount: validMount},
 		{name: "missing mount identity", root: root, object: validObject},
 	}

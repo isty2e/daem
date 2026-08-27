@@ -119,7 +119,12 @@ func RequireClearFileSet(ctx context.Context, stateDir string) error {
 	return authority.RequireClear(ctx)
 }
 
-func requireClearFileSetAtCanonicalPath(ctx context.Context, stateDir string) error {
+func requireClearFileSetAtCanonicalPath(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
 	}
@@ -127,9 +132,23 @@ func requireClearFileSetAtCanonicalPath(ctx context.Context, stateDir string) er
 		return err
 	}
 	evidencePath := transactionDir(stateDir)
+	if err := admitFileSetFenceObservation(
+		evidencePath,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
+		return err
+	}
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return rejectAbandonedFileSetResidue(ctx, stateDir)
+		return rejectAbandonedFileSetResidueWithBudget(
+			ctx,
+			stateDir,
+			maximumPhysicalDepth,
+			physicalWorkBudget,
+		)
 	}
 	if err != nil {
 		return wrapFileSetAccessUnprovable(fmt.Errorf("inspect file-set transaction evidence: %w", err))
@@ -141,7 +160,16 @@ func requireClearFileSetAtCanonicalPath(ctx context.Context, stateDir string) er
 		))
 	}
 	activeMarkerPath := markerPath(stateDir)
-	if _, err := loadMarker(ctx, activeMarkerPath); err != nil {
+	if err := admitFileSetFenceObservation(
+		activeMarkerPath,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		maximumMarkerBytes,
+	); err != nil {
+		return err
+	}
+	if _, err := loadMarkerAtCanonicalPath(ctx, activeMarkerPath); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return wrapFileSetEvidenceInvalid(fmt.Errorf(
 				"file-set transaction evidence at %s is incomplete: marker is missing",
@@ -376,6 +404,7 @@ const (
 	fileSetCleanupPrefix          = ".daem-cleanup-"
 	fileSetLegacyStagePrefix      = ".metadata-stage-"
 	maximumStateDirFenceEntries   = 4096
+	maximumStateDirFenceNameBytes = 4096
 	stateDirFenceEnumerationBatch = 64
 )
 
@@ -561,7 +590,27 @@ func (err abandonedFileSetResidueError) Unwrap() error {
 }
 
 func rejectAbandonedFileSetResidue(ctx context.Context, stateDir string) error {
-	residue, err := inspectAbandonedFileSetResidue(ctx, stateDir)
+	return rejectAbandonedFileSetResidueWithBudget(
+		ctx,
+		stateDir,
+		defaultStateDirMaximumPhysicalDepth,
+		&stateDirOperationWorkBudget{},
+	)
+}
+
+func rejectAbandonedFileSetResidueWithBudget(
+	ctx context.Context,
+	stateDir string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) error {
+	residue, err := inspectAbandonedFileSetResidueLimitedWithBudget(
+		ctx,
+		stateDir,
+		maximumStateDirFenceEntries,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+	)
 	if err != nil {
 		return err
 	}
@@ -580,11 +629,39 @@ func inspectAbandonedFileSetResidueLimited(
 	stateDir string,
 	limit int,
 ) ([]string, error) {
+	return inspectAbandonedFileSetResidueLimitedWithBudget(
+		ctx,
+		stateDir,
+		limit,
+		defaultStateDirMaximumPhysicalDepth,
+		&stateDirOperationWorkBudget{},
+	)
+}
+
+func inspectAbandonedFileSetResidueLimitedWithBudget(
+	ctx context.Context,
+	stateDir string,
+	limit int,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if limit < 1 {
 		return nil, fmt.Errorf("file-set state dir entry limit must be positive")
+	}
+	if physicalWorkBudget == nil {
+		return nil, fmt.Errorf("file-set state dir physical work budget is required")
+	}
+	if err := admitFileSetFenceObservation(
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
+		return nil, err
 	}
 	info, err := os.Lstat(stateDir)
 	if errors.Is(err, os.ErrNotExist) {
@@ -595,6 +672,15 @@ func inspectAbandonedFileSetResidueLimited(
 	}
 	if !info.IsDir() {
 		return nil, wrapFileSetAccessUnprovable(fmt.Errorf("file-set state dir %s is not a directory", stateDir))
+	}
+	if err := admitFileSetFenceObservation(
+		stateDir,
+		maximumPhysicalDepth,
+		physicalWorkBudget,
+		1,
+		0,
+	); err != nil {
+		return nil, err
 	}
 	directory, err := os.Open(stateDir)
 	if err != nil {
@@ -613,6 +699,19 @@ func inspectAbandonedFileSetResidueLimited(
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+			if len(name) > maximumStateDirFenceNameBytes {
+				return nil, wrapFileSetCensusLimit(fmt.Errorf(
+					"file-set state dir entry name contains %d bytes, maximum %d",
+					len(name),
+					maximumStateDirFenceNameBytes,
+				))
+			}
+			if err := admitFileSetFenceWork(
+				physicalWorkBudget,
+				stateDirPhysicalWork{entries: 1, bytes: int64(len(name))},
+			); err != nil {
+				return nil, err
+			}
 			seen++
 			if seen > limit {
 				return nil, wrapFileSetCensusLimit(fmt.Errorf(
@@ -625,6 +724,15 @@ func inspectAbandonedFileSetResidueLimited(
 				continue
 			}
 			path := filepath.Join(stateDir, name)
+			if err := admitFileSetFenceObservation(
+				path,
+				maximumPhysicalDepth,
+				physicalWorkBudget,
+				1,
+				0,
+			); err != nil {
+				return nil, err
+			}
 			entry, lstatErr := os.Lstat(path)
 			if errors.Is(lstatErr, os.ErrNotExist) {
 				continue
@@ -654,6 +762,122 @@ func finishFileSetResidueInspection(ctx context.Context, residue []string) ([]st
 	}
 	slices.Sort(residue)
 	return residue, nil
+}
+
+func admitFileSetFenceObservation(
+	path string,
+	maximumPhysicalDepth int,
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+	entries int,
+	bytes int64,
+) error {
+	pathWork, err := stateDirAbsolutePathWork(path, maximumPhysicalDepth)
+	if err != nil {
+		return wrapFileSetAccessUnprovable(fmt.Errorf(
+			"measure file-set fence path work: %w",
+			err,
+		))
+	}
+	return admitFileSetFenceWork(physicalWorkBudget, stateDirPhysicalWork{
+		pathComponents: pathWork,
+		entries:        entries,
+		bytes:          bytes,
+	})
+}
+
+func admitFileSetFenceWork(
+	physicalWorkBudget stateDirPhysicalWorkBudget,
+	work stateDirPhysicalWork,
+) error {
+	if physicalWorkBudget == nil {
+		return fmt.Errorf("file-set state dir physical work budget is required")
+	}
+	if err := physicalWorkBudget.AdmitPhysicalWork(
+		work.pathComponents,
+		work.entries,
+		work.bytes,
+	); err != nil {
+		return wrapFileSetAccessUnprovable(fmt.Errorf(
+			"admit file-set fence physical work: %w",
+			err,
+		))
+	}
+	return nil
+}
+
+func maximumFileSetFenceCensusWork(
+	stateDir string,
+	maximumPhysicalDepth int,
+) (stateDirPhysicalWork, error) {
+	evidencePathWork, err := stateDirAbsolutePathWork(
+		transactionDir(stateDir),
+		maximumPhysicalDepth,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	stateDirPathWork, err := stateDirAbsolutePathWork(stateDir, maximumPhysicalDepth)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	childPathWork, err := stateDirAbsolutePathWork(
+		filepath.Join(stateDir, fileSetTemporaryPrefix+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+		maximumPhysicalDepth,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err := checkedStateDirWorkMultiply(
+		childPathWork,
+		maximumStateDirFenceEntries,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	stateDirOpenWork, err := checkedStateDirWorkMultiply(stateDirPathWork, 2)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err = checkedStateDirWorkAdd(residuePathWork, stateDirOpenWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residuePathWork, err = checkedStateDirWorkAdd(residuePathWork, evidencePathWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residueEntries, err := checkedStateDirWorkAdd(
+		maximumStateDirFenceEntries+1,
+		maximumStateDirFenceEntries+3,
+	)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	residueBytes := int64(maximumStateDirFenceEntries+1) * maximumStateDirFenceNameBytes
+
+	markerPathWork, err := stateDirAbsolutePathWork(markerPath(stateDir), maximumPhysicalDepth)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	markerPathWork, err = checkedStateDirWorkAdd(markerPathWork, evidencePathWork)
+	if err != nil {
+		return stateDirPhysicalWork{}, err
+	}
+	marker := stateDirPhysicalWork{
+		pathComponents: markerPathWork,
+		entries:        2,
+		bytes:          maximumMarkerBytes,
+	}
+	residue := stateDirPhysicalWork{
+		pathComponents: residuePathWork,
+		entries:        residueEntries,
+		bytes:          residueBytes,
+	}
+	return stateDirPhysicalWork{
+		pathComponents: max(marker.pathComponents, residue.pathComponents),
+		entries:        max(marker.entries, residue.entries),
+		bytes:          max(marker.bytes, residue.bytes),
+	}, nil
 }
 
 func fileSetPrivateName(name string) bool {

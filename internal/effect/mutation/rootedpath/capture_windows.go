@@ -38,7 +38,10 @@ func captureRootPlatform(
 	if err != nil {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, err
 	}
-	if selectionMode != rootSelectionResolveAlias && selectionMode != rootSelectionNoFollow {
+	if selectionMode != rootSelectionResolveAlias &&
+		selectionMode != rootSelectionNoFollow &&
+		selectionMode != rootSelectionCanonicalResolveAlias &&
+		selectionMode != rootSelectionCanonicalNoFollow {
 		return "", capturedRootPlatform{}, identityToken{}, mountIdentities{}, newFailure(
 			FailureInvalidRoot,
 			absolute,
@@ -46,7 +49,8 @@ func captureRootPlatform(
 			nil,
 		)
 	}
-	if selectionMode == rootSelectionResolveAlias {
+	if selectionMode == rootSelectionResolveAlias ||
+		selectionMode == rootSelectionCanonicalResolveAlias {
 		physicalRoot, platform, object, mount, missing, resolveErr := resolveDirectoryPathPlatform(
 			absolute,
 			false,

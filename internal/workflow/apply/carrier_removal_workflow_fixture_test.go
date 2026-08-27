@@ -19,11 +19,13 @@ import (
 	desiredextension "github.com/isty2e/daem/internal/desired/extension"
 	executehostroute "github.com/isty2e/daem/internal/effect/execute/hostroute"
 	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
+	daempaths "github.com/isty2e/daem/internal/paths"
 	realizationdelegate "github.com/isty2e/daem/internal/realization/delegate"
 	"github.com/isty2e/daem/internal/realization/effectpostcondition"
 	lock "github.com/isty2e/daem/internal/realization/lock"
 	hostrelation "github.com/isty2e/daem/internal/realization/relation"
 	"github.com/isty2e/daem/internal/reconcile/carrierabsence"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 	"github.com/isty2e/daem/internal/target"
 	"github.com/isty2e/daem/internal/topology"
@@ -81,8 +83,42 @@ func newWorkflowFixtureWithPostconditions(
 	effectEvidence observepostcondition.EvidenceState,
 ) *workflowFixture {
 	t.Helper()
-	root := t.TempDir()
-	statePath := filepath.Join(root, ".daem", "state.json")
+	return newWorkflowFixtureAtRoot(
+		t,
+		t.TempDir(),
+		scope,
+		effectPostconditions,
+		effectEvidence,
+	)
+}
+
+func newWorkflowFixtureAtRoot(
+	t *testing.T,
+	root string,
+	scope target.Scope,
+	effectPostconditions effectpostcondition.Set,
+	effectEvidence observepostcondition.EvidenceState,
+) *workflowFixture {
+	t.Helper()
+	return newWorkflowFixtureAtPaths(
+		t,
+		root,
+		filepath.Join(root, ".daem", "state.json"),
+		scope,
+		effectPostconditions,
+		effectEvidence,
+	)
+}
+
+func newWorkflowFixtureAtPaths(
+	t *testing.T,
+	root string,
+	statePath string,
+	scope target.Scope,
+	effectPostconditions effectpostcondition.Set,
+	effectEvidence observepostcondition.EvidenceState,
+) *workflowFixture {
+	t.Helper()
 	manifestPath := filepath.Join(root, "daem.toml")
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o700); err != nil {
 		t.Fatal(err)
@@ -247,6 +283,15 @@ func newWorkflowFixtureWithPostconditions(
 func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 	t.Helper()
 	registry := fixture.globalClaims
+	stateDir := filepath.Dir(fixture.statePath)
+	barrier, err := recoverygate.NewEffectAuthority(t.Context(), daempaths.Paths{
+		StateDir:    stateDir,
+		RecoveryDir: filepath.Join(stateDir, "recovery"),
+	})
+	if err != nil {
+		t.Fatalf("capture carrier-removal recovery barrier: %v", err)
+	}
+	effects := &standaloneStatefileEffects{barrier: barrier}
 	return carrierRemovalInput{
 		StatePath:    fixture.statePath,
 		SelectedRoot: fixture.root,
@@ -315,7 +360,10 @@ func (fixture *workflowFixture) input(t *testing.T) carrierRemovalInput {
 			registry = next
 			return registry, nil
 		},
-		Clock: func() time.Time { return time.Unix(123, 0).UTC() },
+		ValidateBeforeEffects:     effects.ValidateBefore,
+		ValidateStateDir:          effects.ValidateStateDir,
+		ReserveStatefileAuthority: effects.Reserve,
+		Clock:                     func() time.Time { return time.Unix(123, 0).UTC() },
 	}
 }
 

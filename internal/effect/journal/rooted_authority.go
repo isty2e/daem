@@ -319,7 +319,7 @@ func (binding recoveryGlobalPathBinding) match(
 		present = true
 	}
 	if !present {
-		recaptured, err := rootedpath.CaptureRootBounded(
+		recaptured, err := rootedpath.CaptureCanonicalRootNoFollowBounded(
 			expectedRoot.PhysicalRoot(),
 			recovery.MaximumPhysicalPathDepth,
 			budget,

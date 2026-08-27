@@ -64,11 +64,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "semantic use cases already live outside CLI, so command packages would add import paths without isolating new invariants",
 	},
 	"internal/effect/execute": {
-		reviewedValue:       29,
+		reviewedValue:       30,
 		owner:               "authorized Effect sequence",
-		reason:              "at 29 production files, mutation, per-effect visibility authority, recovery semantic witnesses, verification, durable journal-backup authority, attempt-local rollback staging, active recovery, exact rooted-removal authority, producer-bound forward-removal capacity, recovery-root-only journal cleanup, and state commit have distinct authorities while sharing one ordered effect boundary",
-		naturalSplit:        "separate effect phases into child packages",
-		alternativeRejected: "phase packages would expose private mutation authority and removal reservations, duplicate the apply and recovery visibility gate, and weaken the single ordered effect boundary",
+		reason:              "at 30 production files, mutation, exact pre-effect visibility-validation planning, per-effect authority, recovery semantic witnesses, verification, durable journal-backup authority, attempt-local rollback staging, active recovery, exact rooted-removal authority, producer-bound forward-removal capacity, recovery-root-only journal cleanup, and state commit have distinct authorities while sharing one ordered effect boundary",
+		naturalSplit:        "separate effect phases or visibility-validation planning into child packages",
+		alternativeRejected: "children would expose private mutation schedules, ownership transition plans, removal reservations, or visibility gates and weaken the single ordered effect boundary",
 	},
 	"internal/effect/journal": {
 		reviewedValue:       30,
@@ -106,11 +106,11 @@ var packageDensityAdmissions = map[string]densityReviewAdmission{
 		alternativeRejected: "host packages would duplicate protocol and canonical-size rules and require a facade over the same canonical aggregate",
 	},
 	"internal/workflow/apply": {
-		reviewedValue:       25,
+		reviewedValue:       27,
 		owner:               "application use case",
-		reason:              "at 25 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, post-carrier relation-order convergence, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
-		naturalSplit:        "separate apply phases into child workflows",
-		alternativeRejected: "child workflows would export or duplicate the private PreparedWrite authority transfer, renewed confirmation callback, and effect validation boundary while obscuring the single-use commit sequence",
+		reason:              "at 27 production files, one PreparedWrite lifecycle binds authority evidence, operation fingerprinting, retained-root capability, complete cross-provider StateDir capacity planning, exact statefile persistence across external command phases, post-carrier relation-order convergence, apply-time MCP environment and provider preflight, single-use execution, and project/global commit sequencing",
+		naturalSplit:        "move StateDir planning or external-command statefile authority into a child workflow package",
+		alternativeRejected: "a child would expose or duplicate private recovery-barrier plans, retained StateDir capability, provider replan bounds, attempt sequencing, and project/global transition ordering while the parent still owned the complete execution lifecycle",
 	},
 	"internal/workflow/authoring": {
 		reviewedValue:       17,

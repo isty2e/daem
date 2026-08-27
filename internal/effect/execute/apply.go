@@ -122,47 +122,11 @@ func ApplyWithOptions(
 		return ApplyResult{}, fmt.Errorf("apply destination resolver is required")
 	}
 	resolver := input.Resolver
-	nextState, err := snapshotAfterManagedPathEffects(input.CurrentState, input.ManagedPathEffects)
+	transition, err := deriveApplyStateTransition(input)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	nextState, err = snapshotAfterAggregateEffects(nextState, input.AggregateEffects)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	nextState, globalCarrierStateChanged, err := nextState.WithConvergedGlobalCarrierClaims(
-		input.GlobalCarrierClaims,
-	)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	nextState, retiredProjectClaimCount, err := snapshotAfterRetiredProjectCarrierClaims(
-		nextState,
-		input.RetiredProjectCarrierClaims,
-	)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	promotedClaims, err := promotedProjectCarrierClaims(
-		nextState,
-		input.ConfirmedRelationActions,
-	)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	nextState, relationStateChanged, err := nextState.WithPromotedCarrierClaims(promotedClaims)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	projectClaimCountBeforeAdoption := len(nextState.ManagedCarrierClaims())
-	nextState, adoptionStateChanged, err := nextState.WithAdoptedCarrierClaims(
-		input.AdoptedProjectCarrierClaims,
-	)
-	if err != nil {
-		return ApplyResult{}, err
-	}
-	adoptedProjectClaimCount := len(nextState.ManagedCarrierClaims()) -
-		projectClaimCountBeforeAdoption
+	nextState := transition.nextState
 
 	createdAt := time.Now().UTC()
 	operationID := journal.OperationID(createdAt)
@@ -170,15 +134,10 @@ func ApplyWithOptions(
 		sink: options.Events,
 		totalActions: len(input.ManagedPathEffects) +
 			aggregateSubjectCount(input.AggregateEffects) +
-			retiredProjectClaimCount +
-			adoptedProjectClaimCount,
+			transition.retiredProjectClaimCount +
+			transition.adoptedProjectClaimCount,
 	}
-	if len(input.ManagedPathEffects) == 0 &&
-		len(input.AggregateEffects) == 0 &&
-		!globalCarrierStateChanged &&
-		retiredProjectClaimCount == 0 &&
-		!relationStateChanged &&
-		!adoptionStateChanged {
+	if !transition.changed {
 		return ApplyResult{StatePath: input.Paths.StatefilePath, State: input.CurrentState}, nil
 	}
 	if input.StateCodec == nil {
@@ -589,8 +548,8 @@ func ApplyWithOptions(
 	committedResult := ApplyResult{
 		ActionCount: len(input.ManagedPathEffects) +
 			aggregateSubjectCount(input.AggregateEffects) +
-			retiredProjectClaimCount +
-			adoptedProjectClaimCount,
+			transition.retiredProjectClaimCount +
+			transition.adoptedProjectClaimCount,
 		StatePath: input.Paths.StatefilePath,
 		State:     nextState,
 	}

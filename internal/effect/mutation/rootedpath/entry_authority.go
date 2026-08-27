@@ -26,7 +26,7 @@ func BindSelectedEntryAuthority(
 	selectedRoot string,
 	selectedPath string,
 ) (*EntryAuthority, error) {
-	return bindSelectedEntryAuthority(selected, selectedRoot, selectedPath, 0, nil)
+	return bindSelectedEntryAuthority(selected, selectedRoot, selectedPath, 0, nil, false)
 }
 
 // BindSelectedEntryAuthorityBounded binds one exact entry while charging
@@ -61,6 +61,43 @@ func BindSelectedEntryAuthorityBounded(
 		selectedPath,
 		maximumPhysicalDepth,
 		budget,
+		false,
+	)
+}
+
+// BindCanonicalSelectedEntryAuthorityBounded validates the selected root and
+// binds the entry through independent native canonical path authority. It is
+// for already-normalized control paths whose authority remains descriptor-bound.
+func BindCanonicalSelectedEntryAuthorityBounded(
+	selected *CapturedRoot,
+	selectedRoot string,
+	selectedPath string,
+	maximumPhysicalDepth int,
+	budget PhysicalTraversalBudget,
+) (*EntryAuthority, error) {
+	if maximumPhysicalDepth <= 0 {
+		return nil, newFailure(
+			FailureInvalidRoot,
+			selectedRoot,
+			"maximum physical depth must be positive",
+			nil,
+		)
+	}
+	if budget == nil {
+		return nil, newFailure(
+			FailureRootUnavailable,
+			selectedRoot,
+			"entry authority traversal budget is required",
+			nil,
+		)
+	}
+	return bindSelectedEntryAuthority(
+		selected,
+		selectedRoot,
+		selectedPath,
+		maximumPhysicalDepth,
+		budget,
+		true,
 	)
 }
 
@@ -128,6 +165,7 @@ func bindSelectedEntryAuthority(
 	selectedPath string,
 	maximumPhysicalDepth int,
 	budget PhysicalTraversalBudget,
+	canonicalExternal bool,
 ) (*EntryAuthority, error) {
 	if selected == nil {
 		return nil, newFailure(
@@ -162,7 +200,7 @@ func bindSelectedEntryAuthority(
 			nil,
 		)
 	}
-	if child {
+	if child && !canonicalExternal {
 		destination, err := selected.bindSelectedEntryAfterValidation(selectedRoot, selectedPath)
 		if err != nil {
 			return nil, err
@@ -178,6 +216,12 @@ func bindSelectedEntryAuthority(
 	var destination Destination
 	if budget == nil {
 		root, destination, err = CaptureDestination(selectedPath)
+	} else if canonicalExternal {
+		root, destination, err = CaptureCanonicalDestinationBounded(
+			selectedPath,
+			maximumPhysicalDepth,
+			budget,
+		)
 	} else {
 		root, destination, err = CaptureDestinationBounded(
 			selectedPath,

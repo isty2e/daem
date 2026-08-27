@@ -523,7 +523,25 @@ func planReadinessAtPathsWithBarrier(
 	paths daempaths.Paths,
 	barrier *recoverygate.EffectAuthority,
 ) (commandPlan, error) {
-	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths, barrier)
+	return planReadinessAtPathsWithBarrierValidation(
+		ctx,
+		input,
+		operationContext,
+		paths,
+		barrier,
+		nil,
+	)
+}
+
+func planReadinessAtPathsWithBarrierValidation(
+	ctx context.Context,
+	input CommandInput,
+	operationContext reconcile.OperationContext,
+	paths daempaths.Paths,
+	barrier *recoverygate.EffectAuthority,
+	validateBarrier func(context.Context) error,
+) (commandPlan, error) {
+	loaded, result, err := loadCommandInputsAtPaths(ctx, input, paths, barrier, validateBarrier)
 	planned := commandPlan{result: result, context: loaded}
 	if barrier != nil {
 		planned.barrier = *barrier
@@ -649,6 +667,7 @@ func loadCommandInputsAtPaths(
 	input CommandInput,
 	paths daempaths.Paths,
 	barrier *recoverygate.EffectAuthority,
+	validateBarrier func(context.Context) error,
 ) (commandContext, CommandResult, error) {
 	lockfilePath, err := selectedLockfilePath(paths, input.LockfilePath)
 	if err != nil {
@@ -662,7 +681,10 @@ func loadCommandInputsAtPaths(
 	}
 
 	if barrier != nil {
-		if err := barrier.Validate(ctx); err != nil {
+		if validateBarrier == nil {
+			validateBarrier = barrier.Validate
+		}
+		if err := validateBarrier(ctx); err != nil {
 			return commandContext{}, result, fmt.Errorf("validate recovery barrier before apply planning: %w", err)
 		}
 	} else if err := refuseJournalAndFileSet(ctx, paths); err != nil {

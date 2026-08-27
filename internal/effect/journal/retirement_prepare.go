@@ -176,7 +176,7 @@ func prepareRetirement(
 	if physicalWorkBudget == nil {
 		return nil, fmt.Errorf("journal retirement physical work budget is required")
 	}
-	root, err := rootedpath.CaptureRootBounded(
+	root, err := rootedpath.CaptureCanonicalRootBounded(
 		recoveryRoot,
 		maximumPhysicalDepth,
 		physicalWorkBudget,
