@@ -15,7 +15,8 @@ const (
 	maximumStagedBeforeImageBytes int64 = 4 * maximumTargetBytes
 )
 
-// FileTarget is one exact file transition in a recoverable transaction.
+// FileTarget is one exact file transition in a recoverable transaction. A
+// write target privately owns its immutable after-image snapshot.
 type FileTarget struct {
 	path        string
 	content     []byte
@@ -24,6 +25,7 @@ type FileTarget struct {
 }
 
 // NewFileWrite constructs a target whose after-state is the supplied content.
+// The target defensively copies the caller-owned bytes at this boundary.
 func NewFileWrite(path string, content []byte) (FileTarget, error) {
 	if err := validateTargetContentLength(int64(len(content))); err != nil {
 		return FileTarget{}, err
@@ -104,6 +106,8 @@ func admitStagedBeforeImageBytes(total int64, additional int) error {
 	return nil
 }
 
+// canonicalTargets validates and orders a private target slice while retaining
+// each write target's constructor-owned after-image snapshot.
 func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
 	if len(values) == 0 {
 		return nil, fmt.Errorf("file-set transaction requires at least one target")
@@ -112,33 +116,37 @@ func canonicalTargets(values []FileTarget) ([]FileTarget, error) {
 		return nil, err
 	}
 	targets := make([]FileTarget, len(values))
+	copy(targets, values)
 	commitPoints := 0
 	seenPaths := make(map[string]struct{}, len(values))
-	for index, value := range values {
-		var (
-			target FileTarget
-			err    error
-		)
-		if value.write {
-			target, err = NewFileWrite(value.path, value.content)
-		} else {
-			target, err = NewFileRetain(value.path)
+	for index := range targets {
+		target := &targets[index]
+		if target.write {
+			if err := validateTargetContentLength(int64(len(target.content))); err != nil {
+				return nil, fmt.Errorf("target[%d]: %w", index, err)
+			}
 		}
+		canonical, err := mutation.CanonicalDirectoryEntryPath(target.path)
 		if err != nil {
-			return nil, fmt.Errorf("target[%d]: %w", index, err)
+			if target.write {
+				return nil, fmt.Errorf("target[%d]: canonicalize transaction target: %w", index, err)
+			}
+			return nil, fmt.Errorf("target[%d]: canonicalize retained transaction target: %w", index, err)
+		}
+		target.path = canonical
+		if !target.write {
+			target.content = nil
 		}
 		if _, exists := seenPaths[target.path]; exists {
 			return nil, fmt.Errorf("file-set transaction target %q appears more than once", target.path)
 		}
 		seenPaths[target.path] = struct{}{}
-		if value.commitPoint {
-			if !value.write {
+		if target.commitPoint {
+			if !target.write {
 				return nil, fmt.Errorf("target[%d]: transaction commit point must write an after-image", index)
 			}
-			target.commitPoint = true
 			commitPoints++
 		}
-		targets[index] = target
 	}
 	if commitPoints > 1 {
 		return nil, fmt.Errorf("file-set transaction permits at most one commit point")
