@@ -34,7 +34,7 @@ type rootFact struct {
 	AuthorityFingerprint string
 }
 
-func validateBeforeHostAttempt(
+func validateRefreshPeerAuthority(
 	ctx context.Context,
 	root *rootedpath.CapturedRoot,
 	current plan,
@@ -57,7 +57,24 @@ func validateBeforeHostAttempt(
 	} else if !matches {
 		return mutation.StalePlanError{}
 	}
-	return current.barrier.Validate(ctx)
+	return nil
+}
+
+func refreshAttemptPersistenceRevisionRequests(
+	current plan,
+) []mutation.RevisionRequest {
+	selected := map[string]struct{}{
+		current.paths.ManifestPath:  {},
+		current.paths.LockfilePath:  {},
+		current.paths.StatefilePath: {},
+	}
+	requests := make([]mutation.RevisionRequest, 0, len(selected)*2)
+	for _, request := range current.authority.revisions {
+		if _, ok := selected[request.Path]; ok {
+			requests = append(requests, request)
+		}
+	}
+	return requests
 }
 
 func buildAuthorityEvidence(

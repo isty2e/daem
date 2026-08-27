@@ -11,9 +11,9 @@ import (
 	"github.com/isty2e/daem/internal/assurance/statefile"
 	executeeffect "github.com/isty2e/daem/internal/effect/execute"
 	"github.com/isty2e/daem/internal/effect/mutation"
-	"github.com/isty2e/daem/internal/effect/mutation/rootedpath"
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 	lock "github.com/isty2e/daem/internal/realization/lock"
+	"github.com/isty2e/daem/internal/recoverygate"
 	"github.com/isty2e/daem/internal/subprocess"
 )
 
@@ -156,25 +156,40 @@ func Execute(
 	} else if !matches {
 		return staleBeforeAttempt(result, mutation.StalePlanError{})
 	}
-
-	stateAuthority, err := rootedpath.BindSelectedEntryAuthority(
-		execution.root,
-		current.paths.ManifestRoot,
-		current.paths.StatefilePath,
+	persistenceRevisions, err := mutation.CaptureRevisionSet(
+		ctx,
+		refreshAttemptPersistenceRevisionRequests(current)...,
 	)
 	if err != nil {
 		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
 	}
-	defer func() {
-		if closeErr := stateAuthority.Close(); closeErr != nil {
-			result = resultWithCleanupFailure(result, attemptStarted)
-			returnErr = errors.Join(returnErr, fmt.Errorf(
-				"close refresh statefile authority: %w",
-				closeErr,
-			))
-		}
-	}()
-	if err := validateBeforeHostAttempt(ctx, execution.root, current, revisions, leases); err != nil {
+
+	forwardAuthority, err := current.barrier.ReserveForwardEffects(
+		recoverygate.ForwardEffectPlan{
+			EnsureCalls:            1,
+			BarrierValidationCalls: 4,
+			DescendantPath:         current.paths.StatefilePath,
+			DescendantValidations:  2,
+			DescendantFileCommits:  1,
+		},
+	)
+	if err != nil {
+		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
+	}
+	stateReservation, err := forwardAuthority.TakeDescendant()
+	if err != nil {
+		return refusedBeforeAttempt(result, ReasonMutationAuthority, err)
+	}
+	if err := validateRefreshPeerAuthority(
+		ctx,
+		execution.root,
+		current,
+		revisions,
+		leases,
+	); err != nil {
+		return staleBeforeAttempt(result, err)
+	}
+	if err := forwardAuthority.Validate(ctx); err != nil {
 		return staleBeforeAttempt(result, err)
 	}
 
@@ -199,6 +214,16 @@ func Execute(
 	result.Attempted = attemptStarted
 	result.ProcessOutcome = processOutcome(attempt)
 	result.AuthorityOutcome = authorityOutcome(attempt)
+
+	var persistenceErr error
+	if attemptStarted {
+		postAttemptCtx, cancel := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			attemptPersistenceTimeout,
+		)
+		persistenceErr = forwardAuthority.Validate(postAttemptCtx)
+		cancel()
+	}
 
 	observationFact := assurancehostroute.ObservationUnavailable(
 		assurancehostroute.ResultReasonObservationUnsupported,
@@ -294,7 +319,6 @@ func Execute(
 	}
 	result = applyClassification(result, classified, attempt)
 
-	var persistenceErr error
 	if attemptStarted {
 		record, recordErr := assurancehostroute.NewDurableAttempt(
 			assurancehostroute.DurableAttemptInput{
@@ -305,20 +329,57 @@ func Execute(
 			},
 		)
 		if recordErr != nil {
-			persistenceErr = recordErr
-		} else {
+			persistenceErr = errors.Join(persistenceErr, recordErr)
+		} else if persistenceErr == nil {
 			persistCtx, cancel := context.WithTimeout(
 				context.WithoutCancel(ctx),
 				attemptPersistenceTimeout,
 			)
-			_, persistenceErr = executeeffect.CommitHostRouteAttempts(
-				persistCtx,
-				storagecommit.Adapter{},
-				stateAuthority,
-				current.currentState,
-				[]durableattempt.HostRouteAttempt{record},
-				statefile.Codec{},
-			)
+			persistenceErr = func() (returnErr error) {
+				_, err := forwardAuthority.EnsureStateDirForEffect(
+					persistCtx,
+					func(ctx context.Context) error {
+						return validateRefreshPeerAuthority(
+							ctx,
+							execution.root,
+							current,
+							persistenceRevisions,
+							leases,
+						)
+					},
+				)
+				if err != nil {
+					return err
+				}
+				stateAuthority, err := stateReservation.Bind(persistCtx)
+				if err != nil {
+					return err
+				}
+				defer func() {
+					returnErr = errors.Join(returnErr, stateAuthority.Close())
+				}()
+				if err := forwardAuthority.Validate(persistCtx); err != nil {
+					return err
+				}
+				if err := stateAuthority.Validate(persistCtx); err != nil {
+					return err
+				}
+				_, err = executeeffect.CommitHostRouteAttempts(
+					persistCtx,
+					storagecommit.Adapter{},
+					stateAuthority.Entry(),
+					current.currentState,
+					[]durableattempt.HostRouteAttempt{record},
+					statefile.Codec{},
+				)
+				if err != nil {
+					return err
+				}
+				if err := stateAuthority.Validate(persistCtx); err != nil {
+					return err
+				}
+				return forwardAuthority.Validate(persistCtx)
+			}()
 			cancel()
 			if persistenceErr == nil {
 				result.AttemptHistory.Persisted = true

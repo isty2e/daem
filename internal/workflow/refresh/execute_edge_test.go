@@ -14,6 +14,88 @@ import (
 )
 
 func TestRefreshEdgeRound2AuthorizationAndAuthorityDrift(t *testing.T) {
+	t.Run("host-created StateDir is not adopted for attempt persistence", func(t *testing.T) {
+		manifestPath := writeNoObserverRefreshFixture(t)
+		paths, err := daempaths.Resolve(manifestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.RemoveAll(paths.StateDir); err != nil {
+			t.Fatal(err)
+		}
+		prepared, err := PlanWrite(context.Background(), CommandInput{
+			ManifestPath: manifestPath,
+			ExtensionID:  "formatter",
+		}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+		if err != nil {
+			t.Fatalf("PlanWrite returned error: %v", err)
+		}
+
+		result, err := Execute(context.Background(), prepared, ExecuteOptions{
+			CommandOptions: subprocess.CommandOptions{
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					if mkdirErr := os.MkdirAll(paths.StateDir, 0o700); mkdirErr != nil {
+						t.Fatalf("create host StateDir: %v", mkdirErr)
+					}
+					return successfulRefreshCommandResult()
+				},
+			},
+		})
+		if err == nil || !result.Attempted || result.AttemptHistory.Persisted ||
+			result.ResultClass != ResultPartial || result.ReasonCode != ReasonAttemptPersistence {
+			t.Fatalf("result=%#v err=%v, want unpersisted partial attempt", result, err)
+		}
+		if _, statErr := os.Stat(paths.StatefilePath); !os.IsNotExist(statErr) {
+			t.Fatalf("replacement StateDir statefile error = %v, want absent", statErr)
+		}
+	})
+
+	t.Run("replaced StateDir is not used for attempt persistence", func(t *testing.T) {
+		manifestPath := writeNoObserverRefreshFixture(t)
+		paths, err := daempaths.Resolve(manifestPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(paths.StateDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		moved := paths.StateDir + "-moved"
+		t.Cleanup(func() { _ = os.RemoveAll(moved) })
+		prepared, err := PlanWrite(context.Background(), CommandInput{
+			ManifestPath: manifestPath,
+			ExtensionID:  "formatter",
+		}, PlanOptions{CommandBuilder: syntheticRefreshCommandBuilder(t)})
+		if err != nil {
+			t.Fatalf("PlanWrite returned error: %v", err)
+		}
+
+		result, err := Execute(context.Background(), prepared, ExecuteOptions{
+			CommandOptions: subprocess.CommandOptions{
+				Runner: func(context.Context, subprocess.CommandRequest) subprocess.CommandResult {
+					if renameErr := os.Rename(paths.StateDir, moved); renameErr != nil {
+						t.Fatalf("move planned StateDir: %v", renameErr)
+					}
+					if mkdirErr := os.Mkdir(paths.StateDir, 0o700); mkdirErr != nil {
+						t.Fatalf("create replacement StateDir: %v", mkdirErr)
+					}
+					return successfulRefreshCommandResult()
+				},
+			},
+		})
+		if err == nil || !result.Attempted || result.AttemptHistory.Persisted ||
+			result.ResultClass != ResultPartial || result.ReasonCode != ReasonAttemptPersistence {
+			t.Fatalf("result=%#v err=%v, want unpersisted partial attempt", result, err)
+		}
+		for _, statePath := range []string{
+			paths.StatefilePath,
+			filepath.Join(moved, filepath.Base(paths.StatefilePath)),
+		} {
+			if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+				t.Fatalf("StateDir replacement statefile %q error = %v, want absent", statePath, statErr)
+			}
+		}
+	})
+
 	t.Run("timeout and workdir authority remain independent", func(t *testing.T) {
 		manifestPath := writeNoObserverRefreshFixture(t)
 		root := filepath.Dir(manifestPath)
