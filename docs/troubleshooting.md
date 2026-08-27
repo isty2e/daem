@@ -422,12 +422,14 @@ solely from its name.
 ## Manifest Metadata Update Was Interrupted
 
 An interrupted `add`, `remove`, or `unmanage` write may leave a recoverable
-metadata transaction marker. While that marker exists, commands that read or
-mutate the selected manifest, lockfile, project state, or shared carrier claims
-fail closed with an `interrupted file-set transaction` diagnostic.
+metadata transaction marker. While that published marker exists, commands that
+read or mutate the selected manifest, lockfile, project state, or shared
+carrier claims fail closed with an `interrupted file-set transaction`
+diagnostic.
 
-Retry the exact interrupted write against the same manifest and selectors. The
-write reacquires the complete authority set, restores or finalizes the recorded
+Retry the exact interrupted write against the same manifest and selectors only
+when that published marker is present. The write reacquires the complete
+authority set, restores or finalizes the recorded
 manifest/lock/state/registry file set, revalidates current input, and then
 continues from the recovered state. If every after-image was already committed,
 the retry may only remove completed evidence and then report that the selected
@@ -451,6 +453,17 @@ do not reinterpret them. Use the daem version that wrote the marker to retry
 the exact interrupted write before upgrading. Do not delete the
 `metadata-transaction` directory to bypass this refusal; it can contain the
 only before-images for an interrupted metadata update.
+
+Markerless private residue is a different fence. Unpublished `.daem-tmp-*`,
+legacy `.metadata-stage-*`, `.daem-tombstone-*`, or `.daem-cleanup-*`
+directories beside the state directory mean the published marker is gone and
+the interrupted write cannot restore the fence. Retrying the authoring or
+`unmanage` command, refreshing a carrier, or running `daem recover` will not
+remove that residue: a name prefix is not deletion authority. Preserve the
+reported directory for analysis. Do not delete, rename, or empty it merely
+because it matches a reserved prefix. If a published `metadata-transaction`
+marker is also present, retry the exact interrupted write first; leftover
+siblings still block later commands until they are independently resolved.
 
 ## Lockfile Is Missing Or Stale
 

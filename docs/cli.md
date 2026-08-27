@@ -973,9 +973,11 @@ the exact retained cleanup of an already retired apply journal. Bare recover
 uses the shared three-stream terminal contract and asks after disclosing the
 current recovery plan; non-interactive execution requires `--yes`. It does not
 read desired resources from the manifest or lockfile: the manifest selects the
-derived state/recovery paths. An interrupted manifest metadata file-set
-transaction remains a separate protocol recovered by retrying the exact
-authoring or `unmanage` write.
+derived state/recovery paths. An interrupted published metadata-transaction
+marker remains a separate protocol recovered by retrying the exact authoring
+or `unmanage` write. Markerless private residue under the state directory is
+not recoverable by retry; preserve it for analysis as described in
+[troubleshooting](troubleshooting.md#manifest-metadata-update-was-interrupted).
 
 | Classification | Meaning |
 | --- | --- |

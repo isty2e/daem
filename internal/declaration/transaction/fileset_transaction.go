@@ -4,7 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	storagecommit "github.com/isty2e/daem/internal/effect/storage/commit"
 )
@@ -93,7 +97,9 @@ func commitWithOperations(ctx context.Context, input FileSetInput, ops operation
 }
 
 // RecoverFileSet restores or finalizes an interrupted transaction only when every
-// persisted target belongs to the caller-supplied allowed path set.
+// persisted target belongs to the caller-supplied allowed path set. Success
+// requires a clean fence: no published marker and no abandoned private
+// file-set residue.
 func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string) error {
 	canonical, err := canonicalStateDir(stateDir)
 	if err != nil {
@@ -102,8 +108,9 @@ func RecoverFileSet(ctx context.Context, stateDir string, allowedPaths []string)
 	return recoverWithOperations(ctx, canonical, allowedPaths, operations{writeFile: commitFile})
 }
 
-// RequireClearFileSet fails closed when transaction evidence exists. Mutating
-// callers hold AuthorityPath; read-only callers use this as a persisted-evidence gate.
+// RequireClearFileSet fails closed when published transaction evidence or
+// abandoned private file-set residue exists. Mutating callers hold AuthorityPath;
+// read-only callers use this as a persisted-evidence gate.
 func RequireClearFileSet(ctx context.Context, stateDir string) error {
 	if ctx == nil {
 		return fmt.Errorf("file-set transaction context is required")
@@ -118,7 +125,7 @@ func RequireClearFileSet(ctx context.Context, stateDir string) error {
 	evidencePath := transactionDir(canonical)
 	info, err := os.Lstat(evidencePath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return rejectAbandonedFileSetResidue(ctx, canonical)
 	}
 	if err != nil {
 		return fmt.Errorf("inspect file-set transaction evidence: %w", err)
@@ -157,7 +164,7 @@ func recoverWithOperations(
 	marker, err := loadMarker(ctx, markerPath(stateDir))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil
+			return rejectAbandonedFileSetResidue(ctx, stateDir)
 		}
 		return err
 	}
@@ -176,13 +183,19 @@ func recoverWithOperations(
 		return err
 	}
 	if classification.cleanAfter {
-		return removeTransactionDir(ctx, stateDir)
+		if err := removeTransactionDir(ctx, stateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	if classification.recoverable {
 		if err := restoreTransaction(context.WithoutCancel(ctx), marker, ops); err != nil {
 			return fmt.Errorf("restore interrupted file-set transaction: %w", err)
 		}
-		return removeTransactionDir(context.WithoutCancel(ctx), stateDir)
+		if err := removeTransactionDir(context.WithoutCancel(ctx), stateDir); err != nil {
+			return err
+		}
+		return rejectAbandonedFileSetResidue(ctx, stateDir)
 	}
 	return fmt.Errorf("interrupted file-set transaction at %s cannot be recovered automatically", markerPath(stateDir))
 }
@@ -348,4 +361,149 @@ func removeTransactionDir(ctx context.Context, stateDir string) error {
 		return err
 	}
 	return storagecommit.CommitLogicalRemoval(ctx, request)
+}
+
+const (
+	fileSetTemporaryPrefix        = ".daem-tmp-"
+	fileSetTombstonePrefix        = ".daem-tombstone-"
+	fileSetCleanupPrefix          = ".daem-cleanup-"
+	fileSetLegacyStagePrefix      = ".metadata-stage-"
+	maximumStateDirFenceEntries   = 4096
+	stateDirFenceEnumerationBatch = 64
+)
+
+// ErrAbandonedFileSetResidue reports markerless file-set-class residue under the
+// state directory. A name prefix is not deletion authority, so recovery cannot
+// clear the fence.
+var ErrAbandonedFileSetResidue = errors.New("abandoned file-set transaction residue remains")
+
+type abandonedFileSetResidueError struct {
+	paths []string
+}
+
+func (err abandonedFileSetResidueError) Error() string {
+	if len(err.paths) == 1 {
+		return fmt.Sprintf(
+			"%s at %s; missing published marker is not a clean fence; current daem cannot remove reserved residue by name",
+			ErrAbandonedFileSetResidue,
+			err.paths[0],
+		)
+	}
+	return fmt.Sprintf(
+		"%s (%d entries, first %s); missing published marker is not a clean fence; current daem cannot remove reserved residue by name",
+		ErrAbandonedFileSetResidue,
+		len(err.paths),
+		err.paths[0],
+	)
+}
+
+func (err abandonedFileSetResidueError) Unwrap() error {
+	return ErrAbandonedFileSetResidue
+}
+
+func rejectAbandonedFileSetResidue(ctx context.Context, stateDir string) error {
+	residue, err := inspectAbandonedFileSetResidue(ctx, stateDir)
+	if err != nil {
+		return err
+	}
+	if len(residue) == 0 {
+		return nil
+	}
+	return abandonedFileSetResidueError{paths: residue}
+}
+
+func inspectAbandonedFileSetResidue(ctx context.Context, stateDir string) ([]string, error) {
+	return inspectAbandonedFileSetResidueLimited(ctx, stateDir, maximumStateDirFenceEntries)
+}
+
+func inspectAbandonedFileSetResidueLimited(
+	ctx context.Context,
+	stateDir string,
+	limit int,
+) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		return nil, fmt.Errorf("file-set state dir entry limit must be positive")
+	}
+	info, err := os.Lstat(stateDir)
+	if errors.Is(err, os.ErrNotExist) {
+		return finishFileSetResidueInspection(ctx, nil)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("inspect file-set state dir: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("file-set state dir %s is not a directory", stateDir)
+	}
+	directory, err := os.Open(stateDir)
+	if err != nil {
+		return nil, fmt.Errorf("open file-set state dir: %w", err)
+	}
+	defer directory.Close()
+
+	residue := make([]string, 0)
+	seen := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		names, readErr := directory.Readdirnames(stateDirFenceEnumerationBatch)
+		for _, name := range names {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			seen++
+			if seen > limit {
+				return nil, fmt.Errorf(
+					"file-set state dir %s exceeds %d entries; cannot prove the fence is clean",
+					stateDir,
+					limit,
+				)
+			}
+			if name == transactionDirName || !fileSetPrivateName(name) {
+				continue
+			}
+			path := filepath.Join(stateDir, name)
+			entry, lstatErr := os.Lstat(path)
+			if errors.Is(lstatErr, os.ErrNotExist) {
+				continue
+			}
+			if lstatErr != nil {
+				return nil, fmt.Errorf("inspect file-set state dir entry %s: %w", path, lstatErr)
+			}
+			if fileSetFenceResidue(name, entry.Mode()) {
+				residue = append(residue, path)
+			}
+		}
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				return finishFileSetResidueInspection(ctx, residue)
+			}
+			return nil, fmt.Errorf("enumerate file-set state dir: %w", readErr)
+		}
+		if len(names) == 0 {
+			return finishFileSetResidueInspection(ctx, residue)
+		}
+	}
+}
+
+func finishFileSetResidueInspection(ctx context.Context, residue []string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	slices.Sort(residue)
+	return residue, nil
+}
+
+func fileSetPrivateName(name string) bool {
+	return strings.HasPrefix(name, fileSetTemporaryPrefix) ||
+		strings.HasPrefix(name, fileSetTombstonePrefix) ||
+		strings.HasPrefix(name, fileSetCleanupPrefix) ||
+		strings.HasPrefix(name, fileSetLegacyStagePrefix)
+}
+
+func fileSetFenceResidue(name string, mode os.FileMode) bool {
+	return fileSetPrivateName(name) && !mode.IsRegular()
 }

@@ -75,6 +75,8 @@ func recoverUnmanageFileSetBeforeRead(
 ) (returnErr error) {
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err == nil {
 		return nil
+	} else if errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+		return err
 	}
 	markerPath, err := transaction.FileSetAuthorityPath(paths.StateDir)
 	if err != nil {

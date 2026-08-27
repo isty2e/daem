@@ -67,6 +67,9 @@ func prepareMarker(ctx context.Context, stateDir string, targets []FileTarget) (
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return transactionMarker{}, fmt.Errorf("inspect file-set transaction evidence: %w", err)
 	}
+	if err := rejectAbandonedFileSetResidue(ctx, stateDir); err != nil {
+		return transactionMarker{}, err
+	}
 	if err := storagecommit.PrepareCommitParent(ctx, transactionDir); err != nil {
 		return transactionMarker{}, fmt.Errorf("prepare file-set evidence parent: %w", err)
 	}

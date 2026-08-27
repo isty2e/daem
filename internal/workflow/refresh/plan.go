@@ -227,11 +227,15 @@ func planAtPaths(
 		return refusedPlan(result, ReasonCancelled, err, "retry the command")
 	}
 	if err := transaction.RequireClearFileSet(ctx, paths.StateDir); err != nil {
+		remediation := "retry the interrupted authoring or unmanage operation before refreshing a carrier"
+		if errors.Is(err, transaction.ErrAbandonedFileSetResidue) {
+			remediation = "preserve the reported residue for analysis; do not delete it from its name prefix; current daem cannot recover markerless file-set residue"
+		}
 		return refusedPlan(
 			result,
 			ReasonMutationAuthority,
 			err,
-			"retry the interrupted authoring or unmanage operation before refreshing a carrier",
+			remediation,
 		)
 	}
 	if err := journal.RequireNoInterruptedApply(ctx, paths.RecoveryDir); err != nil {
