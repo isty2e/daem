@@ -247,6 +247,7 @@ func TestCandidatesPreservesNonDefaultAdmittedSkillRoot(t *testing.T) {
 		targetpkg.ScopeProject,
 		NewDestinationClaims(),
 		NewSourceIdentityCache(skillTreeLimitsForTest(t)),
+		NewSearchRootCache(),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -640,6 +641,17 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 		observations++
 		return observeSkillDirectoryIdentity(ctx, readPath, traversalLimit, skillTreeLimitsForTest(t))
 	})
+	rootObservations := 0
+	searchRoots, err := newSearchRootCache(
+		func(ctx context.Context, readRoot string, visit func(string) error) error {
+			rootObservations++
+			return observeSearchRoot(ctx, readRoot, visit)
+		},
+		defaultSearchRootLimits(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	destinations := NewDestinationClaims()
 	var imported []adopt.Skill
 	for _, selectedTarget := range []targetpkg.Target{targetpkg.TargetCodex, targetpkg.TargetOpenCode} {
@@ -650,6 +662,7 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 			targetpkg.ScopeProject,
 			destinations,
 			sourceIdentities,
+			searchRoots,
 		)
 		if err != nil {
 			t.Fatal(err)
@@ -662,6 +675,9 @@ func TestCandidatesHashSharedResolvedSkillRouteOnceAcrossTargets(t *testing.T) {
 
 	if observations != 1 {
 		t.Fatalf("shared skill identity observations = %d, want 1", observations)
+	}
+	if rootObservations != 1 {
+		t.Fatalf("shared search-root observations = %d, want 1", rootObservations)
 	}
 	firstRoute, err := imported[0].PrimarySourceRoute()
 	if err != nil {

@@ -21,19 +21,20 @@ func importSkillsFromRoot(
 	liveRoot string,
 	importedDestinations DestinationClaims,
 	sourceIdentities *SourceIdentityCache,
+	searchRoots *SearchRootCache,
 ) ([]adopt.Skill, adopt.Scan, []adopt.Skipped, error) {
-	entries, err := os.ReadDir(liveRoot)
+	entries, err := searchRoots.entries(ctx, liveRoot)
 	if err != nil {
 		return nil, adopt.Scan{}, nil, fmt.Errorf("read skill root %q: %w", liveRoot, err)
 	}
 
 	skills := make([]adopt.Skill, 0, len(entries))
 	skipped := make([]adopt.Skipped, 0)
-	for _, entry := range entries {
+	for _, name := range entries {
 		if err := ctx.Err(); err != nil {
 			return nil, adopt.Scan{}, nil, err
 		}
-		livePath := filepath.Join(liveRoot, entry.Name())
+		livePath := filepath.Join(liveRoot, name)
 		skill, skip, err := importSkillFromEntry(
 			ctx,
 			sourceDirectory,
@@ -41,7 +42,7 @@ func importSkillsFromRoot(
 			scope,
 			installTo,
 			livePath,
-			entry.Name(),
+			name,
 			importedDestinations,
 			sourceIdentities,
 		)

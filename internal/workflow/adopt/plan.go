@@ -110,6 +110,7 @@ func buildPlan(
 	}
 	importedSkillDestinations := adoptskill.NewDestinationClaims()
 	skillSourceIdentities := adoptskill.NewSourceIdentityCache(mutationfs.DefaultTreeTraversalLimits())
+	skillSearchRoots := adoptskill.NewSearchRootCache()
 	completedTargetScopes := 0
 	for _, target := range requestTargets {
 		for _, scope := range requestScopes {
@@ -131,6 +132,7 @@ func buildPlan(
 				scope,
 				importedSkillDestinations,
 				skillSourceIdentities,
+				skillSearchRoots,
 				skippedCollector,
 			)
 			if err != nil {

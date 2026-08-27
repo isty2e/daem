@@ -4,14 +4,13 @@ package access
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 
 	"github.com/isty2e/daem/internal/supply/artifact"
 )
 
 func inspectNative(_ string) (artifact.ArtifactKind, error) {
-	return "", unsupportedPlatform()
+	return "", unavailableTraversal()
 }
 
 func readDirectoryNative(
@@ -20,7 +19,7 @@ func readDirectoryNative(
 	_ artifact.ArtifactKind,
 	_ string,
 ) ([]Entry, error) {
-	return nil, unsupportedPlatform()
+	return nil, unavailableTraversal()
 }
 
 func visitDirectoryNative(
@@ -30,7 +29,17 @@ func visitDirectoryNative(
 	_ string,
 	_ func(Entry) error,
 ) error {
-	return unsupportedPlatform()
+	return unavailableTraversal()
+}
+
+func visitDirectoryNamesNative(
+	_ context.Context,
+	_ string,
+	_ artifact.ArtifactKind,
+	_ string,
+	_ func(string) error,
+) error {
+	return unavailableTraversal()
 }
 
 func readFileNative(
@@ -40,7 +49,7 @@ func readFileNative(
 	_ string,
 	_ int64,
 ) ([]byte, fs.FileMode, error) {
-	return nil, 0, unsupportedPlatform()
+	return nil, 0, unavailableTraversal()
 }
 
 func walkNative(
@@ -50,9 +59,9 @@ func walkNative(
 	_ TreeSink,
 	_ *traversalBudget,
 ) (artifact.ContentHash, error) {
-	return "", unsupportedPlatform()
+	return "", unavailableTraversal()
 }
 
-func unsupportedPlatform() error {
-	return fmt.Errorf("artifact access no-follow traversal is unsupported on this platform")
+func unavailableTraversal() error {
+	return ErrNoFollowTraversalUnavailable
 }

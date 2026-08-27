@@ -21,6 +21,10 @@ var ErrRequiredRootRegularFile = errors.New("required root regular file is unava
 // ErrUnsupportedSymlink reports a no-follow traversal encountering a symbolic link.
 var ErrUnsupportedSymlink = errors.New("symbolic link is unsupported")
 
+// ErrNoFollowTraversalUnavailable reports that no descriptor-relative,
+// no-follow artifact traversal adapter is available for the operation.
+var ErrNoFollowTraversalUnavailable = errors.New("descriptor-relative no-follow artifact traversal is unavailable")
+
 type unsupportedSymlinkError struct {
 	path string
 }
@@ -199,6 +203,25 @@ func (view View) VisitDirectory(
 		return fmt.Errorf("artifact access directory visitor is required")
 	}
 	return visitDirectoryNative(ctx, view.root, view.kind, relativePath, visit)
+}
+
+// VisitDirectoryNames streams exact direct-entry names without retaining or
+// inspecting metadata the caller does not need. Visit order is filesystem-defined.
+func (view View) VisitDirectoryNames(
+	ctx context.Context,
+	relativePath string,
+	visit func(string) error,
+) error {
+	if err := view.validateOperation(ctx); err != nil {
+		return err
+	}
+	if err := validateRelativePath(relativePath); err != nil {
+		return err
+	}
+	if visit == nil {
+		return fmt.Errorf("artifact access directory-name visitor is required")
+	}
+	return visitDirectoryNamesNative(ctx, view.root, view.kind, relativePath, visit)
 }
 
 // ReadFile reads one regular file up to maxBytes without following links.

@@ -56,6 +56,48 @@ func visitDirectoryNative(
 	expectedKind artifact.ArtifactKind,
 	relativePath string,
 	visit func(Entry) error,
+) error {
+	return visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
+		return visitNativeDirectoryNames(entry.fd, func(name string) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			observed, stat, err := observeNativeEntry(entry.fd, name)
+			if err != nil {
+				return err
+			}
+			return visit(Entry{
+				name: name,
+				kind: publicEntryKind(observed.kind),
+				mode: fs.FileMode(stat.Mode & 0o777),
+			})
+		})
+	})
+}
+
+func visitDirectoryNamesNative(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+	visit func(string) error,
+) error {
+	return visitOpenedNativeDirectory(ctx, root, expectedKind, relativePath, func(entry nativeEntry) error {
+		return visitNativeDirectoryNames(entry.fd, func(name string) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			return visit(name)
+		})
+	})
+}
+
+func visitOpenedNativeDirectory(
+	ctx context.Context,
+	root string,
+	expectedKind artifact.ArtifactKind,
+	relativePath string,
+	visit func(nativeEntry) error,
 ) (resultErr error) {
 	handle, err := openNativeRoot(root, expectedKind)
 	if err != nil {
@@ -80,21 +122,10 @@ func visitDirectoryNative(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
-	if err := visitNativeDirectoryNames(entry.fd, func(name string) error {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		observed, stat, err := observeNativeEntry(entry.fd, name)
-		if err != nil {
-			return err
-		}
-		return visit(Entry{
-			name: name,
-			kind: publicEntryKind(observed.kind),
-			mode: fs.FileMode(stat.Mode & 0o777),
-		})
-	}); err != nil {
+	if err := visit(entry); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if target != nil {
