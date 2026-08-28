@@ -39,12 +39,23 @@ type MCPProjectionRejection struct {
 	reason      MCPProjectionReasonCode
 }
 
+// MCPProjectionSink synchronously admits one owned normalized host projection.
+// The callback may retain the value. Returning an error stops bulk extraction
+// before the next row is classified.
+type MCPProjectionSink[T any] func(T) error
+
 // MCPProjectionRejectionSink synchronously admits one classified host row.
 // Returning an error stops bulk extraction before the next row is classified.
 type MCPProjectionRejectionSink func(MCPProjectionRejection) error
 
-func requireMCPProjectionRejectionSink(sink MCPProjectionRejectionSink) error {
-	if sink == nil {
+func requireMCPProjectionSinks[T any](
+	project MCPProjectionSink[T],
+	reject MCPProjectionRejectionSink,
+) error {
+	if project == nil {
+		return fmt.Errorf("MCP projection sink is required")
+	}
+	if reject == nil {
 		return fmt.Errorf("MCP projection rejection sink is required")
 	}
 	return nil

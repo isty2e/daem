@@ -379,9 +379,12 @@ planning pass retains at most 4,096 skip rows and 256 KiB of aggregate dynamic
 skip diagnostics; one `detail` value is at most 4,096 bytes and a larger value
 is replaced by a whole-value digest and byte count. Every input-scaled producer
 admits a skip synchronously at this boundary before retaining another
-producer-local row. MCP codecs admit each sorted server rejection during
-classification, and Antigravity extension inventory admits each proven complete
-import/bundle pair before observing the next plugin. The Hook parser's
+producer-local row. MCP codecs synchronously admit each sorted server
+classification: rejected rows emit their typed skip immediately, while projected
+rows are converted and argument-validated before either emitting an invalid-argument
+skip or retaining a candidate. Any admission error stops before the next server.
+Antigravity extension inventory admits each proven complete import/bundle pair
+before observing the next plugin. The Hook parser's
 all-or-one document buffer is separately fixed at the same row and diagnostic
 limits. An ordinary producer failure or cancellation rolls back that producer's
 rows; only aggregate exhaustion retains the bounded prefix for diagnostics.

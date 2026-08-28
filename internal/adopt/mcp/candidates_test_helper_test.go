@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 
 	"github.com/isty2e/daem/internal/adopt"
 	"github.com/isty2e/daem/internal/target"
@@ -38,21 +39,52 @@ func collectCandidatesWithHooks(
 	return servers, authorities, collector.Skipped(), err
 }
 
-func collectAdmittedArguments(
+func collectProjectionAdmissions(
 	ctx context.Context,
 	servers []adopt.MCPServer,
 	before func(int),
 ) ([]adopt.MCPServer, []adopt.Skipped, error) {
 	collector := adopt.NewSkippedCollector()
-	var admitted []adopt.MCPServer
+	var admission *mcpProjectionAdmission
 	err := collector.Collect(func(skipped adopt.SkipEmitter) error {
-		var err error
-		route := skipped
-		if len(servers) != 0 {
-			route = skipped.WithRoute(servers[0].Target, servers[0].Scope)
+		if len(servers) == 0 {
+			return nil
 		}
-		admitted, err = admitMCPArgumentCandidates(ctx, servers, route, before)
-		return err
+		first := servers[0]
+		admission = &mcpProjectionAdmission{
+			ctx:    ctx,
+			target: first.Target,
+			scope:  first.Scope,
+			source: newImportSource(
+				first.SourceRoute.PrimaryPath,
+				first.SourceRoute.RequiredAbsentPaths...,
+			),
+			document: importDocument{
+				revision: first.SourceRoute.PrimaryRevision,
+			},
+			maximumBytes: first.SourceRoute.MaximumBytes,
+			skipped:      skipped.WithRoute(first.Target, first.Scope),
+			before:       before,
+		}
+		for _, server := range servers {
+			if err := admission.admit(
+				server.SourceRoute.ContentPath,
+				server.ResourceName,
+				server.Command,
+				server.Args,
+				func() map[string]string { return server.Env },
+			); err != nil {
+				var sinkError *mcpImportSinkError
+				if errors.As(err, &sinkError) {
+					return sinkError.cause
+				}
+				return err
+			}
+		}
+		return nil
 	})
-	return admitted, collector.Skipped(), err
+	if admission == nil {
+		return nil, collector.Skipped(), err
+	}
+	return admission.servers, collector.Skipped(), err
 }

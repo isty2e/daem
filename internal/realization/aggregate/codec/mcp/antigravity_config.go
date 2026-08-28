@@ -71,55 +71,57 @@ func ExtractAntigravityGlobalMCPServerProjection(existing []byte, serverID strin
 func ExtractAntigravityGlobalMCPServerProjections(
 	ctx context.Context,
 	existing []byte,
+	project MCPProjectionSink[AntigravityGlobalMCPServerProjection],
 	reject MCPProjectionRejectionSink,
-) ([]AntigravityGlobalMCPServerProjection, error) {
-	if err := requireMCPProjectionRejectionSink(reject); err != nil {
-		return nil, err
+) error {
+	if err := requireMCPProjectionSinks(project, reject); err != nil {
+		return err
 	}
 	config, err := decodeMCPConfigContext(ctx, existing, antigravityGlobalMCPConfigSpec())
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, contextErr
+			return contextErr
 		}
-		return nil, err
+		return err
 	}
-	projections := make([]AntigravityGlobalMCPServerProjection, 0)
 	serverIDs := sortedMCPServerIDs(config.servers)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
 	for _, serverID := range serverIDs {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
 		if err := validateServerID(serverID); err != nil {
 			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementAntigravityGlobal, serverID, err)); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
 		entry, entryErr := decodeAntigravityGlobalMCPServerEntry(config.servers[serverID], serverID)
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
 		if entryErr != nil {
 			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementAntigravityGlobal, serverID, entryErr)); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
-		projections = append(projections, AntigravityGlobalMCPServerProjection{
+		if err := project(AntigravityGlobalMCPServerProjection{
 			ServerID:         serverID,
 			Command:          entry.Command,
 			Args:             append([]string(nil), entry.Args...),
 			EnvironmentNames: []string{},
 			AdapterContract:  aggregate.AntigravityGlobalMCPAmbientEnvV1,
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return projections, nil
+	return nil
 }
 
 func extractAntigravityGlobalMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {

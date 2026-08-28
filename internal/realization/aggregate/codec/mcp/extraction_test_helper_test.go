@@ -2,43 +2,57 @@ package mcpcodec
 
 import "context"
 
-func collectMCPProjectionRejections[T any](
+func collectMCPProjectionClassifications[T any](
 	ctx context.Context,
 	content []byte,
-	extract func(context.Context, []byte, MCPProjectionRejectionSink) ([]T, error),
+	extract func(
+		context.Context,
+		[]byte,
+		MCPProjectionSink[T],
+		MCPProjectionRejectionSink,
+	) error,
 ) ([]T, []MCPProjectionRejection, error) {
+	projections := make([]T, 0)
 	rejections := make([]MCPProjectionRejection, 0)
-	projections, err := extract(ctx, content, func(rejection MCPProjectionRejection) error {
-		rejections = append(rejections, rejection)
-		return nil
-	})
+	err := extract(
+		ctx,
+		content,
+		func(projection T) error {
+			projections = append(projections, projection)
+			return nil
+		},
+		func(rejection MCPProjectionRejection) error {
+			rejections = append(rejections, rejection)
+			return nil
+		},
+	)
 	return projections, rejections, err
 }
 
 func collectClaudeProjectMCPServerProjections(ctx context.Context, content []byte) ([]ClaudeProjectMCPServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractClaudeProjectMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractClaudeProjectMCPServerProjections)
 }
 
 func collectClaudeGlobalMCPServerProjections(ctx context.Context, content []byte) ([]ClaudeGlobalMCPServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractClaudeGlobalMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractClaudeGlobalMCPServerProjections)
 }
 
 func collectOpenCodeProjectMCPServerProjections(ctx context.Context, content []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractOpenCodeProjectMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractOpenCodeProjectMCPServerProjections)
 }
 
 func collectOpenCodeGlobalMCPServerProjections(ctx context.Context, content []byte) ([]OpenCodeGlobalMCPServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractOpenCodeGlobalMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractOpenCodeGlobalMCPServerProjections)
 }
 
 func collectCodexProjectMCPServerProjections(ctx context.Context, content []byte) ([]MCPNoEnvServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractCodexProjectMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractCodexProjectMCPServerProjections)
 }
 
 func collectCodexGlobalMCPServerProjections(ctx context.Context, content []byte) ([]CodexGlobalMCPServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractCodexGlobalMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractCodexGlobalMCPServerProjections)
 }
 
 func collectAntigravityGlobalMCPServerProjections(ctx context.Context, content []byte) ([]AntigravityGlobalMCPServerProjection, []MCPProjectionRejection, error) {
-	return collectMCPProjectionRejections(ctx, content, ExtractAntigravityGlobalMCPServerProjections)
+	return collectMCPProjectionClassifications(ctx, content, ExtractAntigravityGlobalMCPServerProjections)
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/isty2e/daem/internal/target"
 )
 
-func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing.T) {
+func TestMCPProjectionAdmissionClassifiesEveryInvalidArgumentForm(t *testing.T) {
 	route, err := newImportSource("config.json").route(
 		"/mcp/invalid",
 		importDocument{revision: "test-revision"},
@@ -28,7 +28,7 @@ func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing
 		"bidirectional control": "safe\u202etext",
 	} {
 		t.Run(name, func(t *testing.T) {
-			servers, skipped, err := collectAdmittedArguments(t.Context(), []adopt.MCPServer{{
+			servers, skipped, err := collectProjectionAdmissions(t.Context(), []adopt.MCPServer{{
 				ResourceName: "invalid",
 				Target:       target.TargetClaudeCode,
 				Scope:        target.ScopeProject,
@@ -48,7 +48,7 @@ func TestAdmitMCPArgumentCandidatesClassifiesEveryInvalidArgumentForm(t *testing
 	}
 }
 
-func TestAdmitMCPArgumentCandidatesStopsAtOperationSkipLimit(t *testing.T) {
+func TestMCPProjectionAdmissionStopsAtOperationSkipLimit(t *testing.T) {
 	t.Parallel()
 
 	const maximumOperationSkips = 4096
@@ -73,7 +73,7 @@ func TestAdmitMCPArgumentCandidatesStopsAtOperationSkipLimit(t *testing.T) {
 		servers[index] = server
 	}
 	processed := 0
-	admitted, skipped, err := collectAdmittedArguments(t.Context(), servers, func(int) {
+	admitted, skipped, err := collectProjectionAdmissions(t.Context(), servers, func(int) {
 		processed++
 	})
 	if !errors.Is(err, adopt.ErrSkipObservationLimitExceeded) {
@@ -81,6 +81,37 @@ func TestAdmitMCPArgumentCandidatesStopsAtOperationSkipLimit(t *testing.T) {
 	}
 	if len(admitted) != 0 || len(skipped) != maximumOperationSkips || processed != maximumOperationSkips+1 {
 		t.Fatalf("admission = admitted=%d skipped=%d processed=%d, want 0/%d/%d", len(admitted), len(skipped), processed, maximumOperationSkips, maximumOperationSkips+1)
+	}
+}
+
+func TestCandidatesRetainSourceAuthorityWhenEveryArgumentIsInvalid(t *testing.T) {
+	root := t.TempDir()
+	withWorkingDirectory(t, root)
+	if err := os.WriteFile(filepath.Join(root, aggregate.ClaudeProjectMCPConfigPath), []byte(`{
+  "mcpServers": {
+    "b": {"type": "stdio", "command": "node", "args": ["bad\u0000b"]},
+    "a": {"type": "stdio", "command": "node", "args": ["bad\u0000a"]}
+  }
+}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	servers, authorities, skipped, err := collectCandidates(
+		t.Context(),
+		target.TargetClaudeCode,
+		target.ScopeProject,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 0 || len(authorities) != 1 || len(skipped) != 2 {
+		t.Fatalf("Candidates = servers=%#v authorities=%#v skipped=%#v, want no candidates, one source authority, and two skips", servers, authorities, skipped)
+	}
+	for index, serverID := range []string{"a", "b"} {
+		wantPath := aggregate.ClaudeProjectMCPConfigPath + "#/mcpServers/" + serverID
+		if skipped[index].LivePath != wantPath || skipped[index].Reason != skipInvalidArgument {
+			t.Fatalf("skipped[%d] = %#v, want invalid argument at %q", index, skipped[index], wantPath)
+		}
 	}
 }
 

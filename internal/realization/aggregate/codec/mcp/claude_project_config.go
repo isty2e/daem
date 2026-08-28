@@ -80,55 +80,57 @@ func ExtractClaudeProjectMCPServerProjection(existing []byte, serverID string) (
 func ExtractClaudeProjectMCPServerProjections(
 	ctx context.Context,
 	existing []byte,
+	project MCPProjectionSink[ClaudeProjectMCPServerProjection],
 	reject MCPProjectionRejectionSink,
-) ([]ClaudeProjectMCPServerProjection, error) {
-	if err := requireMCPProjectionRejectionSink(reject); err != nil {
-		return nil, err
+) error {
+	if err := requireMCPProjectionSinks(project, reject); err != nil {
+		return err
 	}
 	config, err := decodeMCPConfigContext(ctx, existing, claudeProjectMCPConfigSpec())
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, contextErr
+			return contextErr
 		}
-		return nil, err
+		return err
 	}
-	projections := make([]ClaudeProjectMCPServerProjection, 0)
 	serverIDs := sortedMCPServerIDs(config.servers)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
 	for _, serverID := range serverIDs {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
 		if err := validateServerID(serverID); err != nil {
 			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementClaudeProject, serverID, err)); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
 		entry, entryErr := decodeClaudeProjectMCPServerEntry(config.servers[serverID], serverID)
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return err
 		}
 		if entryErr != nil {
 			if err := reject(mcpProjectionRejection(aggregate.MCPPlacementClaudeProject, serverID, entryErr)); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
-		projections = append(projections, ClaudeProjectMCPServerProjection{
+		if err := project(ClaudeProjectMCPServerProjection{
 			ServerID:        serverID,
 			Command:         entry.Command,
 			Args:            append([]string(nil), entry.Args...),
 			Env:             cloneStringMap(entry.Env),
 			AdapterContract: aggregate.ClaudeProjectMCPStdioAdapterV1,
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return err
 	}
-	return projections, nil
+	return nil
 }
 
 func extractClaudeProjectMCPServerProjectionBytes(existing []byte, serverID string) ([]byte, bool, error) {

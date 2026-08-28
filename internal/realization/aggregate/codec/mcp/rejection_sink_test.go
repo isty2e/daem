@@ -13,94 +13,87 @@ func TestMCPProjectionRejectionSinkStopsEveryBulkExtractorAtFirstError(t *testin
 		{
 			name: "Claude project",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractClaudeProjectMCPServerProjections(t.Context(), []byte(`{
+				return ExtractClaudeProjectMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "c": {"type": "http", "command": "node"},
     "a": {"type": "http", "command": "node"},
     "b": {"type": "http", "command": "node"}
   }
-}`), reject)
-				return err
+}`), discardProjection[ClaudeProjectMCPServerProjection], reject)
 			},
 		},
 		{
 			name: "Claude global",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractClaudeGlobalMCPServerProjections(t.Context(), []byte(`{
+				return ExtractClaudeGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "c": {"type": "http", "command": "node"},
     "a": {"type": "http", "command": "node"},
     "b": {"type": "http", "command": "node"}
   }
-}`), reject)
-				return err
+}`), discardProjection[ClaudeGlobalMCPServerProjection], reject)
 			},
 		},
 		{
 			name: "OpenCode project",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractOpenCodeProjectMCPServerProjections(t.Context(), []byte(`{
+				return ExtractOpenCodeProjectMCPServerProjections(t.Context(), []byte(`{
   "mcp": {
     "c": {"type": "remote", "command": ["node"]},
     "a": {"type": "remote", "command": ["node"]},
     "b": {"type": "remote", "command": ["node"]}
   }
-}`), reject)
-				return err
+}`), discardProjection[MCPNoEnvServerProjection], reject)
 			},
 		},
 		{
 			name: "OpenCode global",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractOpenCodeGlobalMCPServerProjections(t.Context(), []byte(`{
+				return ExtractOpenCodeGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcp": {
     "c": {"type": "remote", "command": ["node"]},
     "a": {"type": "remote", "command": ["node"]},
     "b": {"type": "remote", "command": ["node"]}
   }
-}`), reject)
-				return err
+}`), discardProjection[OpenCodeGlobalMCPServerProjection], reject)
 			},
 		},
 		{
 			name: "Codex project",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractCodexProjectMCPServerProjections(t.Context(), []byte(`
+				return ExtractCodexProjectMCPServerProjections(t.Context(), []byte(`
 [mcp_servers.c]
 url = "https://example.invalid/c"
 [mcp_servers.a]
 url = "https://example.invalid/a"
 [mcp_servers.b]
 url = "https://example.invalid/b"
-`), reject)
-				return err
+`), discardProjection[MCPNoEnvServerProjection], reject)
 			},
 		},
 		{
 			name: "Codex global",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractCodexGlobalMCPServerProjections(t.Context(), []byte(`
+				return ExtractCodexGlobalMCPServerProjections(t.Context(), []byte(`
 [mcp_servers.c]
 url = "https://example.invalid/c"
 [mcp_servers.a]
 url = "https://example.invalid/a"
 [mcp_servers.b]
 url = "https://example.invalid/b"
-`), reject)
-				return err
+`), discardProjection[CodexGlobalMCPServerProjection], reject)
 			},
 		},
 		{
 			name: "Antigravity global",
 			extract: func(reject MCPProjectionRejectionSink) error {
-				_, err := ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
+				return ExtractAntigravityGlobalMCPServerProjections(t.Context(), []byte(`{
   "mcpServers": {
     "c": {"serverUrl": "https://example.invalid/c"},
     "a": {"serverUrl": "https://example.invalid/a"},
     "b": {"serverUrl": "https://example.invalid/b"}
   }
-}`), reject)
-				return err
+}`), discardProjection[AntigravityGlobalMCPServerProjection], reject)
 			},
 		},
 	}
@@ -126,12 +119,4 @@ url = "https://example.invalid/b"
 	}
 }
 
-func TestMCPProjectionRejectionSinkIsRequired(t *testing.T) {
-	if _, err := ExtractClaudeProjectMCPServerProjections(
-		t.Context(),
-		[]byte(`{"mcpServers":{}}`),
-		nil,
-	); err == nil {
-		t.Fatal("bulk extraction accepted a nil rejection sink")
-	}
-}
+func discardProjection[T any](T) error { return nil }
