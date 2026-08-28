@@ -77,6 +77,27 @@ func TestBoundedNativePathComponentsAcceptsLimitAndRejectsOverflow(t *testing.T)
 	}
 }
 
+func TestDirectoryListingIdentityIncludesRelativeAuthority(t *testing.T) {
+	native := nativeIdentity{
+		device:           1,
+		inode:            2,
+		changeTimeSecond: 3,
+		changeTimeNano:   4,
+		mode:             unix.S_IFDIR | 0o700,
+		size:             5,
+	}
+	firstBuilder := newNativePathWitnessBuilder()
+	firstBuilder.append(nativePathComponentIdentity{device: 1, inode: 10, kind: unix.S_IFDIR})
+	secondBuilder := newNativePathWitnessBuilder()
+	secondBuilder.append(nativePathComponentIdentity{device: 1, inode: 11, kind: unix.S_IFDIR})
+	first := directoryListingIdentity{native: native, relative: firstBuilder.finish()}
+	second := directoryListingIdentity{native: native, relative: secondBuilder.finish()}
+
+	if first.equal(second) {
+		t.Fatal("listing identities with different relative authority compared equal")
+	}
+}
+
 func TestNativeIdentitySameBindingIgnoresMutableDirectoryMetadata(t *testing.T) {
 	base := nativeIdentity{
 		device:           1,
@@ -136,6 +157,50 @@ func TestVerifyNativeDirectoryNamesDetectsExactNameChange(t *testing.T) {
 	err = verifyNativeDirectoryNames(context.Background(), directoryFD, names)
 	if err == nil || !strings.Contains(err.Error(), "directory entries changed") {
 		t.Fatalf("verify names error = %v, want exact-name change", err)
+	}
+}
+
+func TestOpenNativeRelativeRejectsReplacementAfterExactNameObservation(t *testing.T) {
+	root := t.TempDir()
+	selected := filepath.Join(root, "selected")
+	writeAccessTestFile(t, filepath.Join(selected, "original"), []byte("original\n"))
+	rootFD, err := unix.Open(root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Close(rootFD); err != nil {
+			t.Errorf("close root: %v", err)
+		}
+	}()
+
+	replaced := false
+	containsExactName := func(ctx context.Context, parentFD int, name string) (bool, error) {
+		exact, err := nativeDirectoryContainsExactName(ctx, parentFD, name)
+		if err != nil || !exact || replaced {
+			return exact, err
+		}
+		replaced = true
+		moved := filepath.Join(root, "moved")
+		if err := os.Rename(selected, moved); err != nil {
+			return false, err
+		}
+		writeAccessTestFile(t, filepath.Join(selected, "replacement"), []byte("replacement\n"))
+		return true, nil
+	}
+
+	entry, err := openNativeRelativeWithExactNameCheck(
+		t.Context(),
+		rootFD,
+		"selected",
+		nativePathWitness{},
+		containsExactName,
+	)
+	if entry != nil {
+		_ = entry.close()
+	}
+	if err == nil || !strings.Contains(err.Error(), "changed while open") {
+		t.Fatalf("relative open after exact-name replacement error = %v, want opened-entry rejection", err)
 	}
 }
 

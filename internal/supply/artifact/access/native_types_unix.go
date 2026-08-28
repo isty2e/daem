@@ -99,15 +99,22 @@ func (builder *nativePathWitnessBuilder) finish() nativePathWitness {
 }
 
 type directoryListingIdentity struct {
-	native nativeIdentity
+	native   nativeIdentity
+	relative nativePathWitness
 }
 
-func newDirectoryListingWitness(identity nativeIdentity) DirectoryListingWitness {
-	return DirectoryListingWitness{identity: directoryListingIdentity{native: identity}}
+func newDirectoryListingWitness(
+	identity nativeIdentity,
+	relative nativePathWitness,
+) DirectoryListingWitness {
+	return DirectoryListingWitness{identity: directoryListingIdentity{
+		native:   identity,
+		relative: relative,
+	}}
 }
 
 func (identity directoryListingIdentity) equal(other directoryListingIdentity) bool {
-	return identity.native.equal(other.native)
+	return identity.native.equal(other.native) && identity.relative == other.relative
 }
 
 func (identity nativeIdentity) equal(other nativeIdentity) bool {

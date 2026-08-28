@@ -150,10 +150,12 @@ func visitOpenedNativeDirectory(
 	if err := ctx.Err(); err != nil {
 		return DirectoryListingWitness{}, err
 	}
+	relativeAuthority := nativePathWitness{}
 	if target != nil {
 		if err := target.verify(ctx); err != nil {
 			return DirectoryListingWitness{}, err
 		}
+		relativeAuthority = target.authority
 	}
 	if err := handle.verify(ctx); err != nil {
 		return DirectoryListingWitness{}, err
@@ -161,7 +163,7 @@ func visitOpenedNativeDirectory(
 	if err := ctx.Err(); err != nil {
 		return DirectoryListingWitness{}, err
 	}
-	return newDirectoryListingWitness(entry.identity), nil
+	return newDirectoryListingWitness(entry.identity, relativeAuthority), nil
 }
 
 func readFileNative(

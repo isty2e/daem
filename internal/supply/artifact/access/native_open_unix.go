@@ -204,6 +204,22 @@ func openNativeRelative(
 	relativePath string,
 	expectedAuthority nativePathWitness,
 ) (*relativeNativeEntry, error) {
+	return openNativeRelativeWithExactNameCheck(
+		ctx,
+		rootFD,
+		relativePath,
+		expectedAuthority,
+		nativeDirectoryContainsExactName,
+	)
+}
+
+func openNativeRelativeWithExactNameCheck(
+	ctx context.Context,
+	rootFD int,
+	relativePath string,
+	expectedAuthority nativePathWitness,
+	containsExactName func(context.Context, int, string) (bool, error),
+) (*relativeNativeEntry, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("artifact access context is required")
 	}
@@ -221,20 +237,22 @@ func openNativeRelative(
 		if err := ctx.Err(); err != nil {
 			return nil, closeRelativeParent(err, parentFD, parentOwned)
 		}
-		exact, err := nativeDirectoryContainsExactName(ctx, parentFD, component)
-		if err != nil {
-			return nil, closeRelativeParent(err, parentFD, parentOwned)
-		}
-		if !exact {
-			return nil, closeRelativeParent(
-				fmt.Errorf("artifact access path component %q does not exist with exact casing", component),
-				parentFD,
-				parentOwned,
-			)
-		}
 		entry, err := openNativeChild(parentFD, component)
 		if err != nil {
 			return nil, closeRelativeParent(err, parentFD, parentOwned)
+		}
+		if err := verifyNativeEntryWithExactNameCheck(
+			ctx,
+			parentFD,
+			component,
+			entry,
+			containsExactName,
+		); err != nil {
+			return nil, errors.Join(
+				err,
+				unix.Close(entry.fd),
+				closeRelativeParent(nil, parentFD, parentOwned),
+			)
 		}
 		identity, err := nativePathComponentIdentityForFD(entry.fd, entry)
 		if err != nil {
@@ -420,17 +438,33 @@ func verifyNativeEntry(
 	name string,
 	entry nativeEntry,
 ) error {
-	if err := verifyNativeEntryBinding(parentFD, name, entry); err != nil {
-		return err
-	}
-	exact, err := nativeDirectoryContainsExactName(ctx, parentFD, name)
+	return verifyNativeEntryWithExactNameCheck(
+		ctx,
+		parentFD,
+		name,
+		entry,
+		nativeDirectoryContainsExactName,
+	)
+}
+
+func verifyNativeEntryWithExactNameCheck(
+	ctx context.Context,
+	parentFD int,
+	name string,
+	entry nativeEntry,
+	containsExactName func(context.Context, int, string) (bool, error),
+) error {
+	exact, err := containsExactName(ctx, parentFD, name)
 	if err != nil {
 		return err
 	}
 	if !exact {
 		return fmt.Errorf("artifact access entry %q changed exact casing while open", name)
 	}
-	return nil
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return verifyNativeEntryBinding(parentFD, name, entry)
 }
 
 func verifyNativeEntryBinding(parentFD int, name string, entry nativeEntry) error {

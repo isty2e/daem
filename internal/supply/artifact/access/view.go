@@ -26,8 +26,8 @@ var ErrUnsupportedSymlink = errors.New("symbolic link is unsupported")
 var ErrNoFollowTraversalUnavailable = errors.New("descriptor-relative no-follow artifact traversal is unavailable")
 
 // DirectoryListingWitness is an opaque, operation-local observation of one
-// directory inventory's identity. It is valid only for revalidation through
-// the View that produced it.
+// directory inventory's identity and the relative namespace chain that selected
+// it. It is valid only for revalidation through the View that produced it.
 type DirectoryListingWitness struct {
 	identity directoryListingIdentity
 }

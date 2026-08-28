@@ -92,6 +92,28 @@ func TestViewRejectsRootSymlinkToPreviouslyOpenedInode(t *testing.T) {
 	}
 }
 
+func TestReadFilePreservesRelativeNotExistAndExactCaseBehavior(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "Exact"), []byte("content\n"))
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := view.ReadFile(t.Context(), "missing", 64); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("missing relative ReadFile error = %v, want fs.ErrNotExist", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "exact")); errors.Is(err, fs.ErrNotExist) {
+		t.Skip("filesystem is case-sensitive")
+	} else if err != nil {
+		t.Fatalf("probe case behavior: %v", err)
+	}
+	if _, err := view.ReadFile(t.Context(), "exact", 64); err == nil ||
+		!strings.Contains(err.Error(), "exact casing") {
+		t.Fatalf("case-variant ReadFile error = %v, want exact-case rejection", err)
+	}
+}
+
 func TestViewRejectsChildSymlinkToPreviouslyOpenedInode(t *testing.T) {
 	parent := t.TempDir()
 	root := filepath.Join(parent, "artifact")
@@ -352,6 +374,23 @@ func TestDirectoryListingWitnessDetectsInventoryChange(t *testing.T) {
 	writeAccessTestFile(t, filepath.Join(root, "added"), nil)
 	if err := view.VerifyDirectoryListing(t.Context(), ".", witness); err == nil {
 		t.Fatal("directory listing witness accepted an added entry")
+	}
+}
+
+func TestNestedDirectoryListingWitnessRetainsRelativeAuthority(t *testing.T) {
+	root := resolvedAccessTestRoot(t)
+	writeAccessTestFile(t, filepath.Join(root, "one", "two", "entry"), nil)
+	view, err := OpenNoFollowView(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	witness, err := view.VisitDirectoryNames(t.Context(), "one/two", func(string) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !witness.identity.relative.valid() {
+		t.Fatal("nested directory listing witness omitted relative-path authority")
 	}
 }
 

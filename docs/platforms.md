@@ -46,10 +46,13 @@ operation-local mount evidence. `OpenView` first resolves its permitted parent
 aliases; `OpenNoFollowView` rejects every alias component. Each read, listing,
 hash, measurement, and verified copy validates that chain before observation
 and again before success. Nested relative selections receive the same
-operation-local ancestor validation. The witness is immutable and
-process-local: it grants no mutation or durable recovery authority, and an
-unavailable mount-identity capability fails the affected artifact operation
-rather than falling back to pathname trust.
+operation-local ancestor validation, and nested directory-listing witnesses
+retain that relative chain for later inventory revalidation. The witness is
+immutable and process-local: it grants no mutation or durable recovery
+authority. Linux requires both `STATX_MNT_ID` and `STATX_BTIME` for each
+component; an unavailable mount or incarnation identity fails the affected
+artifact operation rather than falling back to reusable inode or pathname
+facts.
 
 The admitted Darwin target has a macOS 26 runtime floor. Earlier macOS releases
 are outside the support contract because their directory rename semantics can

@@ -30,24 +30,31 @@ func nativePathComponentIdentityForFD(
 	if err != nil {
 		return nativePathComponentIdentity{}, err
 	}
+	return nativePathComponentIdentityFromStatx(entry, stat)
+}
+
+func nativePathComponentIdentityFromStatx(
+	entry nativeEntry,
+	stat unix.Statx_t,
+) (nativePathComponentIdentity, error) {
 	if stat.Mask&unix.STATX_MNT_ID == 0 {
 		return nativePathComponentIdentity{}, errors.Join(
 			ErrNoFollowTraversalUnavailable,
 			fmt.Errorf("Linux artifact mount identity is unavailable"),
 		)
 	}
-	var birthTimeSecond int64
-	var birthTimeNano int64
-	if stat.Mask&unix.STATX_BTIME != 0 {
-		birthTimeSecond = stat.Btime.Sec
-		birthTimeNano = int64(stat.Btime.Nsec)
+	if stat.Mask&unix.STATX_BTIME == 0 {
+		return nativePathComponentIdentity{}, errors.Join(
+			ErrNoFollowTraversalUnavailable,
+			fmt.Errorf("Linux artifact birth-time identity is unavailable"),
+		)
 	}
 	return nativePathComponentIdentity{
 		device:          entry.identity.device,
 		inode:           entry.identity.inode,
 		kind:            entry.identity.mode & unix.S_IFMT,
-		birthTimeSecond: birthTimeSecond,
-		birthTimeNano:   birthTimeNano,
+		birthTimeSecond: stat.Btime.Sec,
+		birthTimeNano:   int64(stat.Btime.Nsec),
 		mount:           nativeMountIdentity{first: stat.Mnt_id},
 	}, nil
 }
